@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="AEGIS — Autonomous Edge-Guard Infrastructure System" />
+    <link rel="icon" type="image/png" href="/assets/logo/aegis-mark-dark-ink.png" />
+    <!-- The gate's backdrop is the first thing rendered; fetch it alongside
+         the JS rather than after it. Light is the default theme, so only
+         BG_AEGIS01 is worth the early bytes — dark loads on toggle. -->
+    <link rel="preload" as="image" href="/assets/BG_AEGIS01.webp" fetchpriority="high" />
+    <title>AEGIS</title>
+    <meta name="theme-color" content="#f8f9fa" />
+    <style>
+      /* Paint the canvas before any JS runs — no flash on load. */
+      html { background: #f8f9fa; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

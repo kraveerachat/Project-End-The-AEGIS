@@ -1,0 +1,507 @@
+import { useEffect, useRef, useState } from 'react'
+import {
+  LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, X as XIcon,
+  FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
+  Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check,
+} from 'lucide-react'
+import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash } from '../components/ui.jsx'
+import { useNow, useReducedMotion } from '../lib/hooks.js'
+import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
+import { FILES } from '../lib/data.js'
+
+const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
+const iconFor = (f) => EXT_ICONS[f.ext] ?? FileIcon
+
+/* Encryption badge — solid blue = server can index it; hatched = ciphertext */
+function EncBadge({ vault, t }) {
+  return (
+    <span
+      title={vault ? t('encVault') : t('encServer')}
+      className={`inline-flex items-center justify-center size-6 rounded-[7px] shrink-0 ${vault ? 'hatch hatch-ink3 border border-line bg-sunken' : ''}`}
+      style={vault ? {} : { background: 'var(--accent)' }}
+    >
+      <Shield size={12} strokeWidth={1.8} style={{ color: vault ? 'var(--ink-3)' : '#fff' }} />
+    </span>
+  )
+}
+
+/* ── per-file overflow menu ──────────────────────────────────────── */
+function FileMenu({ t, onAction, onClose }) {
+  const items = [
+    { id: 'download', icon: Download, label: t('download') },
+    { id: 'rename', icon: PenLine, label: t('rename') },
+    { id: 'move', icon: FolderInput, label: t('move') },
+    { id: 'link', icon: Link2, label: t('createLink') },
+    { id: 'verify', icon: ShieldCheck, label: t('verifySha') },
+    { id: 'meta', icon: Info, label: t('viewMetadata') },
+    { id: 'delete', icon: Trash2, label: t('delete'), danger: true },
+  ]
+  useEffect(() => {
+    const close = () => onClose()
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [onClose])
+  return (
+    <div
+      className="absolute right-2 top-10 bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-44 fade-in"
+      style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {items.map(({ id, icon: Icon, label, danger }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => { onAction(id); onClose() }}
+          className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer"
+          style={{ color: danger ? 'var(--danger)' : 'var(--ink-2)' }}
+        >
+          <Icon size={14} strokeWidth={1.5} />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ── FLIP ghost — the tile morphs into the drawer header ─────────── */
+function FlipGhost({ ghost, onDone }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!ghost) return
+    const el = ref.current
+    const { from, to } = ghost
+    el.style.transition = 'none'
+    el.style.transform = `translate(${from.left}px, ${from.top}px)`
+    el.style.width = `${from.width}px`
+    el.style.height = `${from.height}px`
+    el.style.opacity = '1'
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform var(--dur-slow) var(--ease), width var(--dur-slow) var(--ease), height var(--dur-slow) var(--ease), opacity var(--dur-slow) var(--ease)'
+        el.style.transform = `translate(${to.left}px, ${to.top}px)`
+        el.style.width = `${to.width}px`
+        el.style.height = `${to.height}px`
+        el.style.opacity = '0.35'
+      }),
+    )
+    const id = setTimeout(onDone, 420)
+    return () => clearTimeout(id)
+  }, [ghost, onDone])
+  if (!ghost) return null
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="fixed top-0 left-0 bg-card border border-accent rounded-[var(--r-tile)] pointer-events-none"
+      style={{ zIndex: 'var(--z-drawer)', boxShadow: 'var(--elev-2)' }}
+    />
+  )
+}
+
+/* ── Metadata drawer ─────────────────────────────────────────────── */
+function MetaDrawer({ t, lang, file, onClose }) {
+  const [verifyState, setVerifyState] = useState('idle') // idle | running | ok | fail
+  const [copied, setCopied] = useState(false)
+  const [jolt, setJolt] = useState(false)
+  const Icon = iconFor(file)
+  const willFail = !file.verified
+
+  useEffect(() => {
+    setVerifyState('idle')
+    setCopied(false)
+  }, [file.id])
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const verify = () => {
+    if (verifyState === 'running') return
+    setVerifyState('running')
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(file.sha256)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch { /* clipboard unavailable — non-fatal */ }
+  }
+
+  const hashBg = verifyState === 'ok' ? 'var(--ok-soft)' : verifyState === 'fail' ? 'var(--danger-soft)' : 'var(--card-sunken)'
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 fade-in"
+        style={{ background: 'color-mix(in srgb, var(--ink) 18%, transparent)', zIndex: 'var(--z-scrim)' }}
+        onClick={onClose}
+        aria-hidden
+      />
+      <aside
+        role="dialog"
+        aria-label={t('fileDetails')}
+        className={`fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
+        style={{ zIndex: 'var(--z-drawer)', boxShadow: 'var(--elev-2)', animation: 'drawer-in var(--dur-slow) var(--ease) both' }}
+      >
+        <style>{`@keyframes drawer-in { from { transform: translateX(40px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }`}</style>
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-[16px] font-semibold text-ink">{t('fileDetails')}</h2>
+            <IconBtn label={t('close')} onClick={onClose}>
+              <XIcon size={16} strokeWidth={1.5} />
+            </IconBtn>
+          </div>
+
+          {/* preview */}
+          <div className={`mt-4 h-40 rounded-[var(--r-tile)] border border-line flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
+            <Icon size={44} strokeWidth={1.2} className="text-ink-3" />
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <EncBadge vault={file.vault} t={t} />
+            <p className="text-[14px] font-semibold text-ink break-all leading-snug">{file.name}</p>
+          </div>
+          {file.vault && (
+            <p className="font-mono text-[11px] text-ink-3 mt-1">{t('vaultCipherCaption')}</p>
+          )}
+
+          {/* definition list */}
+          <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2.5 text-[13px]">
+            {[
+              [t('size'), fmtBytes(file.size)],
+              [t('type'), file.type],
+              [t('uploader'), file.uploader],
+              [t('uploadedAt'), fmtDateTime(file.modified, lang)],
+            ].map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-ink-3 font-medium whitespace-nowrap">{k}</dt>
+                <dd className="text-ink text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{v}</dd>
+              </div>
+            ))}
+            <div className="contents">
+              <dt className="text-ink-3 font-medium">{t('storagePath')}</dt>
+              <dd className="text-ink-2 font-mono text-[11.5px] text-right break-all">{file.path}</dd>
+            </div>
+            <div className="contents">
+              <dt className="text-ink-3 font-medium">{t('integrity')}</dt>
+              <dd className="text-right">
+                <Chip tone={verifyState === 'fail' ? 'danger' : file.verified || verifyState === 'ok' ? 'ok' : 'warn'}>
+                  {verifyState === 'fail' ? t('integrityFail') : file.verified || verifyState === 'ok' ? t('integrityOk') : t('integrityPending')}
+                </Chip>
+              </dd>
+            </div>
+          </dl>
+
+          {/* SHA-256 — the hero element */}
+          <p className="mt-6 text-[12px] font-semibold text-ink-3 uppercase tracking-[0.06em]">SHA-256</p>
+          <div className="mt-2 rounded-[var(--r-tile)] border border-line p-3.5 transition-colors duration-[var(--dur-base)] relative" style={{ background: hashBg }}>
+            <ScrambleHash
+              hash={file.sha256}
+              playing={verifyState === 'running'}
+              duration={900}
+              onDone={() => {
+                if (willFail) {
+                  setVerifyState('fail')
+                  setJolt(true)
+                  setTimeout(() => setJolt(false), 300)
+                } else {
+                  setVerifyState('ok')
+                }
+              }}
+              groupClass="text-ink-2"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              aria-label={t('copyHash')}
+              title={copied ? t('copied') : t('copyHash')}
+              className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
+            >
+              {copied ? <Check size={13} strokeWidth={2} style={{ color: 'var(--ok)' }} /> : <Copy size={13} strokeWidth={1.5} />}
+            </button>
+          </div>
+          {verifyState === 'ok' && (
+            <p role="status" className="mt-2 text-[12px] font-semibold" style={{ color: 'var(--ok)' }}>{t('integrityVerified')}</p>
+          )}
+          {verifyState === 'fail' && (
+            <p role="alert" className="mt-2 text-[12px] font-semibold" style={{ color: 'var(--danger)' }}>{t('integrityMismatch')}</p>
+          )}
+
+          <Btn variant="dark" className="w-full mt-4" onClick={verify} disabled={verifyState === 'running'}>
+            <ShieldCheck size={15} strokeWidth={1.5} />
+            {verifyState === 'running' ? t('verifying') : t('verifyChecksum')}
+          </Btn>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+/* ── Grid tile ───────────────────────────────────────────────────── */
+function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [hover, setHover] = useState(false)
+  const Icon = iconFor(file)
+  const showControls = hover || selected || anySelected || menuOpen
+  return (
+    <div
+      ref={tileRef}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={() => onOpen(file)}
+      className="relative bg-card border rounded-[var(--r-tile)] p-3 cursor-pointer transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
+      style={{
+        borderColor: selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
+        background: selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
+        transform: hover ? 'translateY(-2px)' : 'none',
+        boxShadow: hover ? 'var(--elev-1)' : 'none',
+        transitionTimingFunction: 'var(--ease)',
+      }}
+    >
+      {/* selection checkbox */}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={`${t('selected')}: ${file.name}`}
+        onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
+        className="absolute top-2 left-2 size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
+        style={{
+          opacity: showControls ? 1 : 0,
+          background: selected ? 'var(--accent)' : 'var(--card)',
+          borderColor: selected ? 'var(--accent)' : 'var(--line)',
+        }}
+      >
+        {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
+      </button>
+
+      {/* overflow */}
+      <button
+        type="button"
+        aria-label="More"
+        onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+        className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
+        style={{ opacity: showControls ? 1 : 0 }}
+      >
+        <MoreHorizontal size={14} strokeWidth={1.5} />
+      </button>
+      {menuOpen && <FileMenu t={t} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />}
+
+      {/* thumbnail */}
+      <div className={`h-24 rounded-[9px] flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
+        <Icon size={30} strokeWidth={1.2} className="text-ink-3" />
+      </div>
+
+      <div className="mt-2.5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-medium text-ink truncate" title={file.name}>{file.name}</p>
+          <p className="text-[11.5px] text-ink-3 mt-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {fmtBytes(file.size)} · {fmtRelative(t, file.modified, now)}
+          </p>
+        </div>
+        <EncBadge vault={file.vault} t={t} />
+      </div>
+    </div>
+  )
+}
+
+/* ── Files screen ────────────────────────────────────────────────── */
+export function Files({ t, lang }) {
+  const reduced = useReducedMotion()
+  const now = useNow(30_000)
+  const [files, setFiles] = useState(FILES)
+  const [view, setView] = useState('grid')
+  const [sort, setSort] = useState('modified')
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [detail, setDetail] = useState(null)
+  const [ghost, setGhost] = useState(null)
+  const tileRefs = useRef({})
+
+  const sorted = [...files].sort((a, b) =>
+    sort === 'name' ? a.name.localeCompare(b.name) : sort === 'size' ? b.size - a.size : b.modified - a.modified,
+  )
+
+  const toggleSelect = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const openDetail = (file) => {
+    const el = tileRefs.current[file.id]
+    if (el && !reduced && view === 'grid') {
+      const r = el.getBoundingClientRect()
+      setGhost({
+        from: { left: r.left, top: r.top, width: r.width, height: r.height },
+        to: { left: Math.max(0, window.innerWidth - 400 + 24), top: 24, width: 352, height: 160 },
+      })
+    }
+    setDetail(file)
+  }
+
+  const onMenuAction = (action, file) => {
+    if (action === 'delete') {
+      setFiles((prev) => prev.filter((f) => f.id !== file.id))
+      setSelectedIds((prev) => { const n = new Set(prev); n.delete(file.id); return n })
+      if (detail?.id === file.id) setDetail(null)
+    } else if (action === 'meta' || action === 'verify') {
+      openDetail(file)
+    }
+    // download / rename / move / link — จำลองเท่านั้น (ต้นแบบ); ระบบจริงเรียก API
+  }
+
+  const deleteSelected = () => {
+    setFiles((prev) => prev.filter((f) => !selectedIds.has(f.id)))
+    setSelectedIds(new Set())
+  }
+
+  return (
+    <div>
+      {/* toolbar */}
+      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+        <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
+          {[{ v: 'grid', icon: LayoutGrid, label: t('gridView') }, { v: 'list', icon: List, label: t('listView') }].map(({ v, icon: I, label }) => (
+            <button
+              key={v}
+              type="button"
+              aria-label={label}
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={`size-8 flex items-center justify-center rounded-full transition-colors duration-[var(--dur-fast)] cursor-pointer ${view === v ? 'bg-ink text-card' : 'text-ink-3 hover:text-ink'}`}
+            >
+              <I size={15} strokeWidth={1.5} />
+            </button>
+          ))}
+        </div>
+        <div className="w-40">
+          <PillSelect aria-label={t('sortBy')} value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="modified">{t('sortModified')}</option>
+            <option value="name">{t('sortName')}</option>
+            <option value="size">{t('sortSize')}</option>
+          </PillSelect>
+        </div>
+        <div className="flex-1" />
+        <Btn variant="outline">
+          <FolderPlus size={15} strokeWidth={1.5} />
+          {t('newFolder')}
+        </Btn>
+        <Btn variant="primary">
+          <Upload size={15} strokeWidth={1.5} />
+          {t('upload')}
+        </Btn>
+      </div>
+
+      {view === 'grid' ? (
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
+          {sorted.map((file, i) => (
+            <div key={file.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}>
+              <FileTile
+                t={t}
+                file={file}
+                now={now}
+                selected={selectedIds.has(file.id)}
+                anySelected={selectedIds.size > 0}
+                onSelect={toggleSelect}
+                onOpen={openDetail}
+                onMenuAction={onMenuAction}
+                tileRef={(el) => { tileRefs.current[file.id] = el }}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-line">
+                  <Th className="pl-5">{t('colName')}</Th>
+                  <Th>{t('colSize')}</Th>
+                  <Th>{t('colType')}</Th>
+                  <Th>{t('colModified')}</Th>
+                  <Th>{t('colEncryption')}</Th>
+                  <Th> </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((file, i) => {
+                  const Icon = iconFor(file)
+                  return (
+                    <tr
+                      key={file.id}
+                      onClick={() => openDetail(file)}
+                      className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer rise-in"
+                      style={{ height: 'var(--row-h)', animationDelay: `${Math.min(i * 25, 300)}ms` }}
+                    >
+                      <td className="px-4 pl-5">
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <Icon size={16} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+                          <span className="text-[13.5px] font-medium text-ink truncate max-w-[360px]">{file.name}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
+                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
+                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
+                      <td className="px-4"><EncBadge vault={file.vault} t={t} /></td>
+                      <td className="px-4 text-right">
+                        <IconBtn label={t('viewMetadata')} onClick={(e) => { e.stopPropagation(); openDetail(file) }}>
+                          <MoreHorizontal size={15} strokeWidth={1.5} />
+                        </IconBtn>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* floating multi-select action bar — black pill, slides up */}
+      {selectedIds.size > 0 && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-ink text-card rounded-full pl-4 pr-1.5 h-12"
+          style={{ zIndex: 'var(--z-toast)', boxShadow: 'var(--elev-2)', animation: 'bar-up var(--dur-base) var(--ease) both' }}
+        >
+          <style>{`@keyframes bar-up { from { transform: translate(-50%, 16px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }`}</style>
+          <span className="text-[13px] font-semibold mr-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {selectedIds.size} {t('selected')}
+          </span>
+          {[
+            { id: 'download', icon: Download, label: t('download') },
+            { id: 'move', icon: FolderInput, label: t('move') },
+          ].map(({ id, icon: I, label }) => (
+            <button key={id} type="button" className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer">
+              <I size={14} strokeWidth={1.5} />
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={deleteSelected}
+            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
+            style={{ color: '#fca5a5' }}
+          >
+            <Trash2 size={14} strokeWidth={1.5} />
+            {t('delete')}
+          </button>
+          <button
+            type="button"
+            aria-label={t('close')}
+            onClick={() => setSelectedIds(new Set())}
+            className="size-9 flex items-center justify-center rounded-full hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
+          >
+            <XIcon size={15} strokeWidth={1.5} />
+          </button>
+        </div>
+      )}
+
+      <FlipGhost ghost={ghost} onDone={() => setGhost(null)} />
+      {detail && <MetaDrawer t={t} lang={lang} file={detail} onClose={() => setDetail(null)} />}
+    </div>
+  )
+}

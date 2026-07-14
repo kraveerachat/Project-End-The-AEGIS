@@ -1,0 +1,356 @@
+import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
+import { useReducedMotion } from '../lib/hooks.js'
+
+/* ── Card — solid white paper on the gray canvas ─────────────────── */
+export function Card({ children, className = '', style, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      className={`bg-card border border-line rounded-[var(--r-card)] ${className}`}
+      style={{ boxShadow: 'var(--elev-1)', ...style }}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function CardTitle({ children, sub, right }) {
+  return (
+    <div className="flex items-start justify-between gap-3 mb-4">
+      <div>
+        <h2 className="text-[16px] font-semibold text-ink leading-snug">{children}</h2>
+        {sub && <p className="text-[12px] font-medium text-ink-3 mt-0.5">{sub}</p>}
+      </div>
+      {right}
+    </div>
+  )
+}
+
+/* ── Chip — soft background + strong text, never saturated fill ──── */
+const CHIP_TONES = {
+  ok: 'bg-ok-soft text-ok',
+  warn: 'bg-warn-soft text-warn',
+  danger: 'bg-danger-soft text-danger',
+  accent: 'bg-accent-soft text-accent-ink',
+  violet: 'bg-violet-soft text-violet',
+  neutral: 'bg-sunken text-ink-2',
+}
+export function Chip({ tone = 'neutral', children, className = '', mono = false }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] whitespace-nowrap ${CHIP_TONES[tone]} ${mono ? 'font-mono' : ''} ${className}`}
+    >
+      {children}
+    </span>
+  )
+}
+
+/* ── Status dot — gentle 2s pulse, no glow ───────────────────────── */
+const DOT_TONES = { ok: 'var(--ok)', warn: 'var(--warn)', danger: 'var(--danger)', neutral: 'var(--ink-3)', accent: 'var(--accent)' }
+export function Dot({ tone = 'ok', pulse = false, size = 8 }) {
+  return (
+    <span
+      aria-hidden
+      className={`inline-block rounded-full shrink-0 ${pulse ? 'dot-pulse' : ''}`}
+      style={{ width: size, height: size, background: DOT_TONES[tone] }}
+    />
+  )
+}
+
+/* ── Buttons — every button is a pill ────────────────────────────── */
+export function Btn({ variant = 'outline', size = 'md', className = '', children, ...rest }) {
+  const sizes = { sm: 'h-8 px-3 text-[13px]', md: 'h-10 px-4 text-[14px]', lg: 'h-12 px-5 text-[14px]' }
+  const variants = {
+    primary: 'bg-accent text-white font-semibold hover:bg-[var(--accent-ink)] active:scale-[0.98]',
+    dark: 'bg-ink text-card font-semibold hover:opacity-90 active:scale-[0.98]',
+    outline: 'bg-card text-ink font-medium border border-line hover:bg-sunken active:scale-[0.98]',
+    ghost: 'text-ink-2 font-medium hover:bg-sunken active:scale-[0.98]',
+    danger: 'bg-danger text-white font-semibold hover:opacity-90 active:scale-[0.98]',
+    dangerSoft: 'bg-danger-soft text-danger font-semibold hover:opacity-85 active:scale-[0.98]',
+  }
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center justify-center gap-2 rounded-full transition-[background-color,transform,opacity] duration-[var(--dur-fast)] cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed disabled:active:scale-100 ${sizes[size]} ${variants[variant]} ${className}`}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function IconBtn({ label, className = '', children, ...rest }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className={`inline-flex items-center justify-center size-9 rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer ${className}`}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
+}
+
+/* ── Toggle switch ───────────────────────────────────────────────── */
+export function Toggle({ on, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className="relative w-10 h-6 rounded-full transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
+      style={{ background: on ? 'var(--accent)' : 'var(--line)' }}
+    >
+      <span
+        className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform duration-[var(--dur-fast)]"
+        style={{ transform: on ? 'translateX(16px)' : 'translateX(0)', boxShadow: 'var(--elev-1)' }}
+      />
+    </button>
+  )
+}
+
+/* ── Segmented control (theme / language / density / view switch) ── */
+export function Segmented({ options, value, onChange, ariaLabel }) {
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
+      {options.map((opt) => {
+        const active = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(opt.value)}
+            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer whitespace-nowrap ${
+              active ? 'bg-ink text-card' : 'text-ink-2 hover:text-ink'
+            }`}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── Labeled pill input ──────────────────────────────────────────── */
+export function Field({ id, label, right, children }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <label htmlFor={id} className="text-[13px] font-medium text-ink-2">
+          {label}
+        </label>
+        {right}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+export function PillInput({ className = '', ...rest }) {
+  return (
+    <input
+      className={`w-full h-12 px-4 rounded-full bg-sunken border border-line text-[14px] text-ink outline-none transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] ${className}`}
+      {...rest}
+    />
+  )
+}
+
+export function PillSelect({ className = '', children, ...rest }) {
+  return (
+    <select
+      className={`w-full h-10 px-4 pr-8 rounded-full bg-sunken border border-line text-[13.5px] font-medium text-ink outline-none appearance-none cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] bg-no-repeat bg-[right_14px_center] ${className}`}
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239599a1' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
+      }}
+      {...rest}
+    >
+      {children}
+    </select>
+  )
+}
+
+/* ── Modal — solid scrim, NO backdrop blur ───────────────────────── */
+export function Modal({ open, onClose, children, width = 480, labelledBy }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    ref.current?.querySelector('input, button')?.focus()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 flex items-center justify-center p-6" style={{ zIndex: 'var(--z-modal)' }}>
+      <div
+        className="absolute inset-0 fade-in"
+        style={{ background: 'color-mix(in srgb, var(--ink) 32%, transparent)' }}
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className="relative bg-card border border-line rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
+        style={{ maxWidth: width, boxShadow: 'var(--elev-2)' }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+export function ModalClose({ onClose, label = 'Close' }) {
+  return (
+    <IconBtn label={label} onClick={onClose} className="absolute top-4 right-4">
+      <X size={16} strokeWidth={1.5} />
+    </IconBtn>
+  )
+}
+
+/* ── Sparkline — hand-rolled, 2px line, no chart chrome ──────────── */
+export function Sparkline({ data, color = 'var(--accent)', width = 120, height = 32, strokeWidth = 2, fill = false, className = '' }) {
+  if (!data?.length) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const span = max - min || 1
+  const pad = strokeWidth
+  const pts = data.map((v, i) => [
+    pad + (i / (data.length - 1)) * (width - pad * 2),
+    height - pad - ((v - min) / span) * (height - pad * 2),
+  ])
+  const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
+  const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${height} L${pts[0][0].toFixed(1)},${height} Z`
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className={className} preserveAspectRatio="none" aria-hidden>
+      {fill && <path d={area} fill={color} opacity="0.1" />}
+      <path d={line} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
+/* ── SVG hatch patterns for Recharts fills (fill="url(#…)") ──────── */
+export function HatchDefs() {
+  return (
+    <svg width="0" height="0" className="absolute" aria-hidden>
+      <defs>
+        <pattern id="hatch-ink" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="5" stroke="var(--ink)" strokeWidth="1.4" opacity="0.55" />
+        </pattern>
+        <pattern id="hatch-accent" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="5" stroke="var(--accent)" strokeWidth="1.4" opacity="0.6" />
+        </pattern>
+        <pattern id="hatch-line" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="5" stroke="var(--ink-3)" strokeWidth="1.2" opacity="0.5" />
+        </pattern>
+      </defs>
+    </svg>
+  )
+}
+
+/* ── Check that draws itself ─────────────────────────────────────── */
+export function DrawnCheck({ size = 16, color = 'var(--ok)', animate = true }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
+      <path
+        d="M3 8.5l3.2 3.2L13 4.5"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={animate ? 'draw-check' : ''}
+      />
+    </svg>
+  )
+}
+
+/* ── ScrambleHash — split-flap cycling hex that locks left→right ───
+   Used for SHA-256 verify + the upload HASHING stage.               */
+const HEX = '0123456789abcdef'
+export function ScrambleHash({ hash, playing, duration = 900, onDone, groupClass = '' }) {
+  const reduced = useReducedMotion()
+  const [display, setDisplay] = useState(hash)
+  const doneRef = useRef(onDone)
+  doneRef.current = onDone
+
+  useEffect(() => {
+    if (!playing) {
+      setDisplay(hash)
+      return
+    }
+    if (reduced) {
+      setDisplay(hash)
+      doneRef.current?.()
+      return
+    }
+    const t0 = performance.now()
+    let raf
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / duration)
+      const locked = Math.floor(p * hash.length)
+      let out = hash.slice(0, locked)
+      for (let i = locked; i < hash.length; i += 1) out += HEX[(Math.random() * 16) | 0]
+      setDisplay(out)
+      if (p < 1) raf = requestAnimationFrame(tick)
+      else doneRef.current?.()
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [playing, hash, duration, reduced])
+
+  const groups = display.match(/.{1,8}/g) ?? [display]
+  return (
+    <span className={`font-mono text-[12px] leading-relaxed break-all ${groupClass}`}>
+      {groups.map((g, i) => (
+        <span key={i} className="inline-block mr-2 last:mr-0">
+          {g}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/* ── Uppercase table header cell ─────────────────────────────────── */
+export function Th({ children, className = '' }) {
+  return (
+    <th className={`text-left text-[12px] font-semibold text-ink-3 uppercase tracking-[0.06em] px-4 py-2.5 whitespace-nowrap ${className}`}>
+      {children}
+    </th>
+  )
+}
+
+/* ── Thin progress bar ───────────────────────────────────────────── */
+export function Progress({ value, color = 'var(--accent)', height = 4, track = 'var(--line)', className = '' }) {
+  return (
+    <div className={`w-full rounded-full overflow-hidden ${className}`} style={{ height, background: track }}>
+      <div
+        className="h-full rounded-full transition-[width] duration-[var(--dur-base)]"
+        style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: color, transitionTimingFunction: 'var(--ease)' }}
+      />
+    </div>
+  )
+}
+
+/* ── Empty state — hatched, because nothing is here ──────────────── */
+export function EmptyState({ label }) {
+  return (
+    <div className="hatch hatch-ink3 border border-line rounded-[var(--r-tile)] py-10 text-center">
+      <p className="text-[13px] font-medium text-ink-3 bg-card inline-block px-3 py-1 rounded-full">{label}</p>
+    </div>
+  )
+}

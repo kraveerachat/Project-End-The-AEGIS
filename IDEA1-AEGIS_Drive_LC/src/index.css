@@ -1,0 +1,363 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/ibm-plex-sans-thai/400.css";
+@import "@fontsource/ibm-plex-sans-thai/500.css";
+@import "@fontsource/ibm-plex-sans-thai/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+/* ─────────────────────────────────────────────────────────────────
+   AEGIS Drive_LC — "Precision Light" tokens (Build Brief v3)
+   Light gray canvas, pure white cards, near-black ink, ONE blue.
+   The hatch pattern is the product's semantic signature:
+   SOLID = the system can see this. HATCHED = the system cannot.
+   ───────────────────────────────────────────────────────────────── */
+@theme {
+  --color-canvas: var(--canvas);
+  --color-card: var(--card);
+  --color-sunken: var(--card-sunken);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+
+  --font-sans: "Inter Variable", "IBM Plex Sans Thai", "Leelawadee UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  /* the one easing curve */
+  --ease-precise: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  --canvas: #f1f2f4;
+  --card: #ffffff;
+  --card-sunken: #f7f8f9;
+  --ink: #0a0a0b;
+  --ink-2: #52565e;
+  --ink-3: #9599a1;
+  --line: #e5e7ea;
+
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --accent-ink: #1d4ed8;
+  --ok: #16a34a;
+  --ok-soft: #dcfce7;
+  --warn: #d97706;
+  --warn-soft: #fef3c7;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --violet: #8b5cf6;
+  --violet-soft: #ede9fe;
+
+  /* Card lift — paper resting on paper, almost imperceptible */
+  --elev-1: 0 1px 2px rgba(16, 18, 22, 0.04), 0 4px 12px rgba(16, 18, 22, 0.04);
+  --elev-2: 0 2px 4px rgba(16, 18, 22, 0.05), 0 12px 28px rgba(16, 18, 22, 0.07);
+
+  --r-card: 20px;
+  --r-tile: 12px;
+  --r-pill: 999px;
+  --r-ledger: 8px; /* audit ledger only — deliberately harder material */
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 400ms;
+
+  /* semantic z-scale */
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-scrim: 30;
+  --z-drawer: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+
+  /* display density (Settings → Appearance) */
+  --row-h: 44px;
+
+  color-scheme: light;
+}
+
+/* Dark mode — the same design, inverted values. That is all. No glow. */
+:root[data-theme="dark"] {
+  --canvas: #0f1115;
+  --card: #181b20;
+  --card-sunken: #1e2228;
+  --ink: #f2f3f5;
+  --ink-2: #a8adb7;
+  --ink-3: #6b7078;
+  --line: #282c33;
+
+  --accent: #3b82f6;
+  --accent-soft: #1e3a8a;
+  --accent-ink: #60a5fa;
+  --ok: #4ade80;
+  --ok-soft: #14532d;
+  --warn: #fbbf24;
+  --warn-soft: #451a03;
+  --danger: #f87171;
+  --danger-soft: #450a0a;
+  --violet: #a78bfa;
+  --violet-soft: #2e1065;
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --elev-2: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
+
+:root[data-density="compact"] {
+  --row-h: 36px;
+}
+
+/* ── Base ─────────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* ทุกตัวเลขในแอปเป็น tabular-nums — ตัวเลขอัปเดตสด ต้องไม่ขยับซ้ายขวา */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thai: tone marks and upper vowels need vertical clearance */
+:lang(th) {
+  line-height: 1.7;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+/* Focus — visible, crisp, accent. No glow. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+/* ── The hatch — the AEGIS signature texture ──────────────────────
+   ONE meaning everywhere: "not real / not solid / not readable".
+   Projected data, ciphertext, empty slots, failed disks, skeletons. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch-color, var(--line)) 0px,
+    var(--hatch-color, var(--line)) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.hatch-ink3 {
+  --hatch-color: color-mix(in srgb, var(--ink-3) 55%, transparent);
+}
+.hatch-accent {
+  --hatch-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.hatch-danger {
+  --hatch-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* Skeletons are hatched — they are, after all, "not real data" */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background-color: var(--card-sunken);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--line) 0px,
+    var(--line) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--card) 60%, transparent), transparent);
+  animation: shimmer 1.6s var(--ease) infinite;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ── Shared micro-animations ──────────────────────────────────── */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in var(--dur-base) var(--ease) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade-in var(--dur-base) var(--ease) both;
+}
+
+@keyframes shake-x {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(6px);
+  }
+}
+.shake-x {
+  animation: shake-x 250ms var(--ease);
+}
+
+/* status dots breathe — subtle scale only, no glow, no throb */
+@keyframes dot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.72);
+    opacity: 0.75;
+  }
+}
+.dot-pulse {
+  animation: dot-pulse 2s var(--ease) infinite;
+}
+
+/* alerts card border pulse when non-zero — slow, matte */
+@keyframes border-pulse {
+  0%,
+  100% {
+    border-color: var(--danger);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  }
+}
+.border-pulse {
+  animation: border-pulse 2.4s var(--ease) infinite;
+}
+
+/* SVG check that draws itself */
+.draw-check {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: draw-check 320ms var(--ease) forwards;
+}
+@keyframes draw-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* hatch wipe-away, left → right (login layers, vault unlock) */
+.wipe-reveal {
+  animation: wipe-reveal 480ms var(--ease) forwards;
+}
+@keyframes wipe-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* thin scrollbars that match the material */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* number inputs etc. never show spinners */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+/* charts: recharts text inherits tokens */
+.recharts-text {
+  fill: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+.recharts-cartesian-grid line {
+  stroke: var(--line);
+}
+
+/* ── Reduced motion: everything collapses; every state also reads
+     statically via color/icon/label ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+  .dot-pulse,
+  .border-pulse,
+  .skeleton::after {
+    animation: none !important;
+  }
+}
