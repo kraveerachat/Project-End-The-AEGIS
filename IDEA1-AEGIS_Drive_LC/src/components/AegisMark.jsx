@@ -47,34 +47,36 @@ function useIsDarkMode() {
  * The AEGIS mark — a hexagonal shield in dash-dither strokes.
  * Prefers the pre-generated PNG in /public/assets/logo/; until those files
  * are dropped in, a built-in SVG placeholder with the same dash-dither
- * language renders instead (onError swap). Square, never stretched, never
- * on a colored background, never with a shadow.
+ * language renders instead.
  */
-export function AegisMark({ size = 28, dark, className = '' }) {
+export function AegisMark({ size = 32, dark, className = '' }) {
   const [fallback, setFallback] = useState(false)
   const isDarkTheme = useIsDarkMode()
   const isDark = dark !== undefined ? dark : isDarkTheme
-  const src = isDark ? '/assets/logo/aegis-mark-light-ink.png' : '/assets/logo/aegis-mark-dark-ink.png'
+  const src = import.meta.env.BASE_URL + (isDark ? 'assets/logo/aegis-mark-light-ink.png' : 'assets/logo/aegis-mark-dark-ink.png')
 
   if (!fallback) {
     return (
       <img
         src={src}
-        alt=""
+        alt="AEGIS Emblem"
         aria-hidden
         width={size}
         height={size}
         className={`select-none ${className}`}
-        style={{ width: size, height: size, objectFit: 'contain' }}
+        style={{
+          width: size,
+          height: size,
+          objectFit: 'contain',
+          filter: isDark ? 'drop-shadow(0 0 8px rgba(0, 229, 255, 0.35))' : 'none',
+        }}
         onError={() => setFallback(true)}
         draggable={false}
       />
     )
   }
 
-  // Placeholder: hexagonal shield rendered as dashed strokes — same
-  // dash-dither grammar as the real mark, drawn in the current ink.
-  const stroke = isDark ? '#ffffff' : 'var(--ink)'
+  const stroke = isDark ? '#ffffff' : '#0f172a'
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" className={`select-none ${className}`} aria-hidden>
       <g fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round">
@@ -86,16 +88,23 @@ export function AegisMark({ size = 28, dark, className = '' }) {
   )
 }
 
-/** Mark + wordmark lockup for the sidebar / login. */
-export function AegisLockup({ markSize = 28, dark, sub }) {
+/** Mark + wordmark lockup matching CCTV-Operator layout style. */
+export function AegisLockup({ markSize = 36, dark, title = 'AEGIS Drive_LC', sub = 'SECURE NAS · NEXT-GEN HUD' }) {
   return (
-    <div className="flex items-center gap-2.5 min-w-0">
-      <AegisMark size={markSize} dark={dark} />
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="shrink-0 flex items-center justify-center" style={{ width: markSize, height: markSize }}>
+        <AegisMark size={markSize} dark={dark} />
+      </div>
       <div className="min-w-0">
-        <div className="font-bold text-[16px] tracking-[-0.02em] text-ink leading-none">AEGIS</div>
-        {sub && <div className="text-[10px] font-medium text-ink-3 tracking-[0.08em] mt-1 truncate">{sub}</div>}
+        <div lang="en" className="font-bold text-[16px] tracking-[0.02em] text-ink leading-tight truncate">
+          {title}
+        </div>
+        {sub && (
+          <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-[0.14em] mt-0.5 truncate">
+            {sub}
+          </div>
+        )}
       </div>
     </div>
   )
 }
-

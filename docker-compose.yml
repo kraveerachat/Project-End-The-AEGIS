@@ -1,0 +1,122 @@
+# AEGIS System — localhost testing stack (HTTP-only, port 80)
+#
+# `docker-compose up --build` brings up:
+#   - postgres → PostgreSQL 15, the Metadata Layer for IDEA1 + IDEA2 — stood
+#                up now, ahead of the physical NAS/edge hardware, so both
+#                apps have a real database instead of their in-memory dev
+#                fallback. See postgres/init/ and each app's server/db/.
+#   - gateway  → nginx on localhost:80, serves the HUB landing page and reverse
+#                proxies /drive and /monitor to the app containers below
+#   - drive    → IDEA1 AEGIS Drive (Express, serves its own build + /api)
+#   - monitor  → IDEA2 AEGIS Monitor (Express, serves its own build + /api)
+#
+# Flow to test: open http://localhost/ → click a card → gateway proxies to
+# /drive or /monitor → each app's own (decoupled) login screen.
+#
+# ⚠️ This is a dev/test stack only — HTTP, no TLS, no macvlan/VLAN 10.
+# Production deployment uses HUB-AEGIS_Entry/docker-compose.yml + nginx.conf
+# (HTTPS/443, real VLAN 10 IPs) instead of this file.
+#
+# ⚠️ Identity Decoupling: drive and monitor get SEPARATE databases
+# (aegis_drive / aegis_monitor) inside the same Postgres instance, never a
+# shared one — see postgres/init/00-databases.sql. Unset DATABASE_URL (or
+# stop the postgres service) and both apps fall back to their in-memory dev
+# store automatically — see server/db/connection.js in each app.
+#
+# SESSION_SECRET / POSTGRES_PASSWORD default to fixed insecure values below so
+# `docker-compose up` works out of the box; override them by exporting the
+# vars or setting them in a root .env before running anywhere this stack
+# persists real data.
+# COOKIE_SECURE=false is required here (and only here) because this gateway
+# terminates plain HTTP — the session cookie's Secure flag would otherwise
+# never let the browser send it back, breaking login entirely.
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aegis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}
+      # bootstrap DB only — neither app connects to this one, see
+      # postgres/init/00-databases.sql for the two real per-app databases
+      POSTGRES_DB: aegis_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
+      - ./postgres/init/01-run-app-init.sh:/docker-entrypoint-initdb.d/01-run-app-init.sh:ro
+      # each app's OWN schema/seed, bind-mounted read-only — single source of
+      # truth stays in server/db/, nothing is duplicated into postgres/init/
+      - ./IDEA1-AEGIS_Drive_LC/server/db/schema.sql:/sql-src/idea1-schema.sql:ro
+      - ./IDEA1-AEGIS_Drive_LC/server/db/seed.sql:/sql-src/idea1-seed.sql:ro
+      - ./IDEA2-AEGIS_Monitor/server/db/schema.sql:/sql-src/idea2-schema.sql:ro
+      - ./IDEA2-AEGIS_Monitor/server/db/seed.sql:/sql-src/idea2-seed.sql:ro
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegis} -d aegis_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - drive
+      - monitor
+    restart: unless-stopped
+
+  drive:
+    build:
+      context: ./IDEA1-AEGIS_Drive_LC
+    environment:
+      NODE_ENV: production
+      PORT: 8001
+      SESSION_SECRET: ${SESSION_SECRET:-localhost-test-stack-insecure-secret-change-me}
+      COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}@postgres:5432/aegis_drive
+      # Day-0 admin bootstrap (server/db/bootstrapAdmin.js) — no-ops once an Admin row
+      # exists, and no-ops entirely if left unset (both blank by default here so the
+      # localhost stack keeps using the seeded demo admin from server/db/seed.sql).
+      # Generate the hash with IDEA1-AEGIS_Drive_LC/scripts/hash_password.py — never
+      # put a raw password in ADMIN_BOOTSTRAP_PASSWORD_HASH.
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8001/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  monitor:
+    build:
+      context: ./IDEA2-AEGIS_Monitor
+    environment:
+      NODE_ENV: production
+      PORT: 8002
+      SESSION_SECRET: ${SESSION_SECRET:-localhost-test-stack-insecure-secret-change-me}
+      COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}@postgres:5432/aegis_monitor
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8002"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8002/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

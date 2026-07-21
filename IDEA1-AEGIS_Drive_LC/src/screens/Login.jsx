@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Eye, EyeOff, Check, X as XIcon } from 'lucide-react'
-import { authenticate } from '../lib/auth.js'
+import { login } from '../lib/auth.js'
 import { useReducedMotion } from '../lib/hooks.js'
 import { Btn, Field, PillInput, Toggle, Segmented } from '../components/ui.jsx'
 import { AegisMark } from '../components/AegisMark.jsx'
@@ -25,10 +25,9 @@ function LayerRow({ t, layer, status }) {
   const isPending = status === 'pending'
   return (
     <div
-      className="relative overflow-hidden flex items-center gap-3 h-11 px-4 rounded-full border transition-colors duration-[var(--dur-base)]"
+      className="relative overflow-hidden flex items-center gap-3 h-11 px-4 rounded-xl transition-all duration-[var(--dur-base)]"
       style={{
         background: isOk ? 'var(--ok-soft)' : isFail ? 'var(--danger-soft)' : 'var(--card-sunken)',
-        borderColor: isOk || isFail ? 'transparent' : 'var(--line)',
       }}
     >
       {/* hatch overlay — wipes away left→right when the layer resolves */}
@@ -48,9 +47,9 @@ function LayerRow({ t, layer, status }) {
         )}
         {isFail && <XIcon size={15} strokeWidth={2.5} style={{ color: 'var(--danger)' }} />}
         {status === 'active' && <span className="size-2.5 rounded-full border-2" style={{ borderColor: 'var(--accent)' }} />}
-        {isPending && <span className="size-2.5 rounded-[3px] border" style={{ borderColor: 'var(--ink-3)' }} />}
+        {isPending && <span className="size-2 rounded-full bg-slate-300 dark:bg-slate-700" />}
       </span>
-      <span className="relative text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap" style={{ color: isPending ? 'var(--ink-3)' : 'var(--ink)' }}>
+      <span className="relative text-[11px] font-bold tracking-[0.06em] whitespace-nowrap" style={{ color: isPending ? 'var(--ink-3)' : 'var(--ink)' }}>
         {t(layer.nameKey)}
       </span>
       <span className="relative text-[12px] text-ink-3 truncate ml-auto">{t(layer.descKey)}</span>
@@ -66,6 +65,7 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
   const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
+  const [lockSec, setLockSec] = useState(0) // เซิร์ฟเวอร์ล็อกบัญชี/IP อยู่ — แสดงเวลาที่เหลือ
   const [shake, setShake] = useState(false)
   const [leaving, setLeaving] = useState(false)
   // L0 passed on arrival (VPN+VLAN), L1 is where credentials land, L2–L3 hatched
@@ -83,7 +83,9 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
     setStatuses(['ok', 'active', 'pending', 'pending'])
 
     const step = reduced ? 0 : 250
-    const authPromise = authenticate({ username, password, remember })
+    // ส่งแค่ { username, password, remember } ไป /api/login — ไม่มี role เด็ดขาด
+    // (role มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น — OWASP A01)
+    const authPromise = login({ username, password, remember })
     await sleep(step) // L0 re-confirms while credentials travel
     const res = await authPromise
 
@@ -91,9 +93,11 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
       // การล้มเหลว "หยุดนิ่ง" ที่ Layer 1 — ชั้นที่เหลือคงเป็น hatch (ยังไม่เกิดขึ้นจริง)
       // ข้อความผิดพลาดเหมือนกันทุกกรณี — ห้ามบอกว่า field ไหนผิด ห้ามบอกว่า
       // "ไม่พบผู้ใช้" เพื่อกัน username enumeration
+      // (การล็อกจริงบังคับ "ฝั่งเซิร์ฟเวอร์" — ตรงนี้แค่รายงานเวลาที่เหลือให้ผู้ใช้)
       setLayer(1, 'fail')
       setShake(true)
       setError(true)
+      setLockSec(res.status === 429 ? Math.ceil((res.lockedMs ?? 0) / 1000) : 0)
       setTimeout(() => setShake(false), 300)
       setBusy(false)
       busyRef.current = false
@@ -101,6 +105,7 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
     }
 
     // Success: the cascade resolves top-to-bottom, hatch wiping away.
+    setLockSec(0)
     setLayer(1, 'ok')
     await sleep(step)
     setLayer(2, 'ok')
@@ -109,7 +114,8 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
     await sleep(reduced ? 0 : 350)
     setLeaving(true)
     await sleep(reduced ? 0 : 380)
-    onAuthed(res.user)
+    // ส่งทั้ง user และเมนูที่เซิร์ฟเวอร์ filter ตาม role แล้วขึ้นไปให้ App
+    onAuthed({ user: res.user, menu: res.menu })
   }
 
   const onKeyDown = (e) => {
@@ -148,12 +154,15 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
         }}
       >
         {/* The mark stands alone on the gray. Its own texture is the interest. */}
-        <AegisMark size={126} />
-        <h1 className="mt-7 text-[46px] font-bold tracking-[-0.02em] text-ink leading-none">AEGIS</h1>
-        <p className="mt-4 text-[18px] font-medium tracking-[0.14em] text-ink-3">{t('productTag')}</p>
+        <AegisMark size={160} />
+        {/* lang="en" — DESIGN.md · Cascade traps. Measured before the fix:
+            authored leading-none (26px), rendered 1.70 → 44px. 18px of
+            phantom half-leading under a wordmark that has no tone marks. */}
+        <h1 lang="en" className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-none">AEGIS</h1>
+        <p className="mt-2 text-[10.5px] font-medium tracking-[0.14em] text-ink-3">{t('productTag')}</p>
 
         <div
-          className={`w-full max-w-[440px] mt-8 bg-card border border-line rounded-[24px] p-10 max-sm:p-6 ${shake ? 'shake-x' : ''}`}
+          className={`w-full max-w-[440px] mt-8 bg-card rounded-[24px] p-10 max-sm:p-6 ${shake ? 'shake-x' : ''}`}
           style={{ boxShadow: 'var(--elev-2)' }}
         >
           <h2 className="text-[20px] font-semibold text-ink">{t('loginTitle')}</h2>
@@ -212,7 +221,7 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
 
             {error && (
               <p role="alert" aria-live="assertive" className="text-[13px] font-medium text-center" style={{ color: 'var(--danger)' }}>
-                {t('loginFailed')}
+                {lockSec > 0 ? t('lockout', { s: lockSec }) : t('loginFailed')}
               </p>
             )}
           </div>
@@ -225,9 +234,6 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
           </div>
         </div>
 
-        <p className="mt-6 text-[12px] text-ink-3">
-          demo · <span className="font-mono">user / aegis-user</span> · <span className="font-mono">admin / aegis-admin</span>
-        </p>
       </div>
     </div>
   )

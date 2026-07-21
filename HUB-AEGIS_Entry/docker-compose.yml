@@ -1,0 +1,18 @@
+# AEGIS Entry — routing-only static entry (ไม่มี DB, ไม่มี session — by design)
+# ใช้: docker compose up -d --build
+# หมายเหตุ: compose ฉบับ "ทั้งระบบ" (macvlan VLAN 10 + postgres ของ Drive/Monitor)
+# จะอยู่ที่รากของ workspace ใน Phase 4
+services:
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5

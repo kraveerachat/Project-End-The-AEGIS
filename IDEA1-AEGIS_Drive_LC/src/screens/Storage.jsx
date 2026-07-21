@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react'
 import { HardDrive, Thermometer, Activity, Clock } from 'lucide-react'
-import { Card, CardTitle, Chip, Th, Segmented } from '../components/ui.jsx'
-import { useNow, useReducedMotion } from '../lib/hooks.js'
+import { Card, CardTitle, Chip, Th, Segmented, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtCountdown, fmtRelative } from '../lib/format.js'
-import { BREAKDOWN, DISKS, BACKUP_JOBS } from '../lib/data.js'
+
+/* ⚠️ Phase 2: ตัวเลขทั้งจอมาจาก GET /api/storage — production อ่าน smartctl/mdadm จริง
+   ตัวบังคับสถานะ RAID (Segmented) เป็นเครื่องมือเดโม่สำหรับ "แสดง" ลำดับ degraded →
+   rebuild ให้ผู้ตรวจดู — ไม่ใช่ข้อมูลปลอมของระบบ */
+
+const SEG_COLORS = { docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)', vaultSeg: 'var(--ink)', free: 'hatch' }
 
 /* ── Capacity — big stacked bar; Free is hatched: nothing is there ── */
-function CapacityCard({ t }) {
-  const total = BREAKDOWN.reduce((s, b) => s + b.gb, 0)
+function CapacityCard({ t, capacity }) {
+  const capacityBreakdown = capacity.map((c) => ({ ...c, color: SEG_COLORS[c.key] ?? 'var(--ink-3)' }))
+  const total = capacityBreakdown.reduce((s, b) => s + b.gb, 0) || 1
   return (
     <Card className="p-5">
       <CardTitle>{t('capacity')}</CardTitle>
       <div className="flex items-center gap-0.5 h-10" aria-hidden>
-        {BREAKDOWN.map((seg, i) => (
+        {capacityBreakdown.map((seg, i) => (
           <div
             key={seg.key}
-            className={`h-9 ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === BREAKDOWN.length - 1 ? 'rounded-r-full' : ''}`}
+            className={`h-9 ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === capacityBreakdown.length - 1 ? 'rounded-r-full' : ''}`}
             style={{ width: `${(seg.gb / total) * 100}%`, backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color }}
           />
         ))}
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
-        {BREAKDOWN.map((seg) => (
+        {capacityBreakdown.map((seg) => (
           <span key={seg.key} className="flex items-center gap-2 text-[13px]">
             <span
               className={`size-3 rounded-[4px] ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''}`}
@@ -29,7 +35,7 @@ function CapacityCard({ t }) {
               aria-hidden
             />
             <span className="font-medium text-ink-2">{t(seg.key)}</span>
-            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{seg.gb} GB</span>
+            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{seg.gb} GB ({((seg.gb / total) * 100).toFixed(0)}%)</span>
           </span>
         ))}
       </div>
@@ -98,10 +104,19 @@ function DiskPanel({ t, disk, failed, rebuildPct }) {
 }
 
 /* ── RAID 1 mirror ──────────────────────────────────────────────── */
-function RaidCard({ t }) {
+function RaidCard({ t, disks }) {
   const reduced = useReducedMotion()
+  const [raidDegraded, setRaidDegraded] = useState(false)
   const [state, setState] = useState('healthy') // healthy | degraded | rebuilding
   const [rebuildPct, setRebuildPct] = useState(null)
+
+  useEffect(() => {
+    if (raidDegraded) {
+      setState('degraded')
+    } else if (state === 'degraded') {
+      setState('healthy')
+    }
+  }, [raidDegraded])
 
   useEffect(() => {
     if (state !== 'rebuilding') {
@@ -115,7 +130,10 @@ function RaidCard({ t }) {
       const p = Math.min(1, (performance.now() - t0) / total)
       setRebuildPct(Math.round(p * 100))
       if (p < 1) raf = requestAnimationFrame(tick)
-      else setState('healthy') // rebuild completes → mirror restored
+      else {
+        setState('healthy') // rebuild completes → mirror restored
+        setRaidDegraded(false)
+      }
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
@@ -131,7 +149,16 @@ function RaidCard({ t }) {
     <Card className="p-5">
       <CardTitle right={chip}>{t('raidTitle')}</CardTitle>
 
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={raidDegraded}
+            onChange={(e) => setRaidDegraded(e.target.checked)}
+            className="size-4 rounded accent-accent border-line focus:ring-accent"
+          />
+          <span className="text-[13px] text-ink-2 font-semibold">Simulate Degraded RAID State</span>
+        </label>
         <Segmented
           ariaLabel={t('demoForce')}
           options={[
@@ -140,13 +167,16 @@ function RaidCard({ t }) {
             { value: 'rebuilding', label: t('rebuilding') },
           ]}
           value={state}
-          onChange={setState}
+          onChange={(v) => {
+            setState(v)
+            setRaidDegraded(v === 'degraded')
+          }}
         />
       </div>
 
       <div className="flex items-stretch gap-0 max-md:flex-col">
         <div className="flex-1" style={state === 'degraded' ? { outline: '1.5px solid var(--warn)', outlineOffset: 2, borderRadius: 'var(--r-tile)' } : {}}>
-          <DiskPanel t={t} disk={DISKS[0]} failed={false} rebuildPct={null} />
+          <DiskPanel t={t} disk={disks[0]} failed={false} rebuildPct={null} />
           {state === 'degraded' && (
             <p className="mt-2 text-center"><Chip tone="warn">{t('unprotected')}</Chip></p>
           )}
@@ -176,7 +206,7 @@ function RaidCard({ t }) {
         </div>
 
         <div className="flex-1">
-          <DiskPanel t={t} disk={DISKS[1]} failed={state !== 'healthy'} rebuildPct={state === 'rebuilding' ? rebuildPct : null} />
+          <DiskPanel t={t} disk={disks[1]} failed={state !== 'healthy'} rebuildPct={state === 'rebuilding' ? rebuildPct : null} />
         </div>
       </div>
     </Card>
@@ -184,7 +214,7 @@ function RaidCard({ t }) {
 }
 
 /* ── Backup schedule ────────────────────────────────────────────── */
-function BackupCard({ t }) {
+function BackupCard({ t, backups }) {
   const now = useNow(1000)
   const freqLabel = { hourly: t('everyHour'), daily: t('daily'), weekly: t('days7') }
   return (
@@ -205,13 +235,13 @@ function BackupCard({ t }) {
             </tr>
           </thead>
           <tbody>
-            {BACKUP_JOBS.map((job) => (
+            {backups.map((job) => (
               <tr key={job.id} className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)]" style={{ height: 'var(--row-h)' }}>
                 <td className="px-4 pl-5 text-[13.5px] font-medium text-ink whitespace-nowrap">{job.job}</td>
                 <td className="px-4 font-mono text-[12px] text-ink-2 whitespace-nowrap">{job.target}</td>
-                <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{freqLabel[job.freq]}</td>
+                <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{freqLabel[job.freq] || job.freq}</td>
                 <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, job.lastRun, now)}</td>
-                <td className="px-4"><Chip tone="ok">{t('resOk')}</Chip></td>
+                <td className="px-4"><Chip tone={job.status === 'ok' ? 'ok' : 'danger'}>{t('resOk')}</Chip></td>
                 <td className="px-4 font-mono text-[12.5px] text-ink whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {fmtCountdown(job.nextRun - now, t('expired'))}
                 </td>
@@ -225,11 +255,26 @@ function BackupCard({ t }) {
 }
 
 export function Storage({ t }) {
+  const api = useApi('/api/storage', { refreshMs: 60_000 })
+
+  if (api.loading) return <SkeletonLoader type="table" />
+  if (api.error) return <Card><ErrorState t={t} kind={api.error} onRetry={api.retry} /></Card>
+
+  const { capacity = [], disks = [], backups = [] } = api.data ?? {}
+
+  if (capacity.length === 0 && disks.length === 0 && backups.length === 0) {
+    return (
+      <Card>
+        <EmptyState icon={HardDrive} title={t('emptyNoStorage')} hint={t('emptyNoStorageHint')} />
+      </Card>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <CapacityCard t={t} />
-      <RaidCard t={t} />
-      <BackupCard t={t} />
+      {capacity.length > 0 && <CapacityCard t={t} capacity={capacity} />}
+      {disks.length >= 2 && <RaidCard t={t} disks={disks} />}
+      {backups.length > 0 && <BackupCard t={t} backups={backups} />}
     </div>
   )
 }

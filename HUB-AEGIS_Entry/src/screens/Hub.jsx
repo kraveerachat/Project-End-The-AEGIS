@@ -1,94 +1,92 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Cctv, Database, LayoutDashboard, LogOut } from 'lucide-react'
-import { getModulesForRole } from '../lib/modules.js'
+import { Database, LayoutDashboard } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
 import { AegisMark } from '../components/AegisMark.jsx'
-import { Btn, Chip, Segmented, ThemeToggle } from '../components/ui.jsx'
+import { LuminousModuleCard } from '../components/LuminousModuleCard.jsx'
+import { Segmented, ThemeToggle } from '../components/ui.jsx'
 import { LANGS } from '../lib/strings.js'
 import { EASE } from '../lib/motion.js'
 
-const ICONS = { drive: Database, cctv: Cctv, monitoring: LayoutDashboard }
+/* ⚠️ HUB เป็น traffic router ล้วน ๆ — รายการโมดูลเป็น "ดัชนีสาธารณะ" คงที่
+   ไม่มี role, ไม่มีการกรองสิทธิ์ที่นี่: การตัดสินว่าใครเข้าอะไรได้เกิดหลัง
+   ล็อกอิน "ในแอปปลายทาง" เท่านั้น (Drive และ Monitor ต่างมี identity ของตัวเอง)
+   การรู้ว่าโมดูลชื่ออะไรไม่ใช่ความลับ — ความลับคือข้อมูลข้างใน ซึ่งอยู่หลัง
+   login + RBAC ของแอปนั้น ๆ ทั้งหมด */
+const MODULES = [
+  { id: 'drive', titleKey: 'modDrive', descKey: 'modDriveDesc', icon: Database },
+  { id: 'monitoring', titleKey: 'modMonitor', descKey: 'modMonitorDesc', icon: LayoutDashboard },
+]
 
-/* The grid's entrance. Cards arrive one by one on load — a launcher
-   earns a reveal; the Hub's task surface below it does not. */
-const gridParent = {
+// ปลายทางเริ่มต้น (dev) — production ทับค่าด้วย /config.json ที่แก้ได้บนเครื่อง
+// deploy โดยไม่ต้อง rebuild (ไม่มี IP ฝังตายใน bundle)
+const DEFAULT_TARGETS = {
+  drive: 'http://localhost:5174/',
+  monitoring: 'http://localhost:5176/',
+}
+
+/* The index's entrance. Rows arrive one by one — a launcher earns a
+   reveal; the module it launches into does not. */
+const indexParent = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.06, delayChildren: 0.08 } },
+  show: { transition: { staggerChildren: 0.07, delayChildren: 0.06 } },
 }
-const gridChild = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: EASE } },
-}
-
-function ModuleCard({ t, module, dimmed, onOpen }) {
-  const Icon = ICONS[module.id]
-  return (
-    // Two elements, two jobs: the wrapper is the stagger child (parent
-    // variants drive it), the button owns hover/press/dim. Merging them
-    // would make the entrance and the press fight over `transform`.
-    <motion.div variants={gridChild} className="w-[340px] max-w-full">
-      <motion.button
-        type="button"
-        onClick={() => onOpen(module)}
-        animate={{ opacity: dimmed ? 0.35 : 1 }}
-        whileHover={{ y: -4 }}
-        whileFocus={{ y: -4 }}
-        whileTap={{ scale: 0.98 }}
-        transition={{ duration: 0.24, ease: EASE }}
-        className="module-card group w-full h-full min-h-[280px] flex flex-col items-start text-left bg-card rounded-(--r-card) p-7 cursor-pointer"
-      >
-        {/* icon chip warms to the accent tint as the card lifts */}
-        <span className="flex items-center justify-center size-[72px] rounded-(--r-tile) bg-sunken transition-colors duration-(--dur-base) group-hover:bg-accent-soft">
-          <Icon size={40} strokeWidth={1.5} style={{ color: 'var(--accent)' }} aria-hidden />
-        </span>
-        <span className="block text-[18px] font-bold tracking-[-0.01em] text-ink mt-5">{t(module.titleKey)}</span>
-        <span className="block text-[13.5px] text-ink-2 mt-1.5 leading-relaxed">{t(module.descKey)}</span>
-        <span className="flex items-center gap-1.5 mt-auto pt-5 text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--accent)' }}>
-          {t('open')}
-          <ArrowRight size={14} strokeWidth={2} className="transition-transform duration-(--dur-base) group-hover:translate-x-1" aria-hidden />
-        </span>
-      </motion.button>
-    </motion.div>
-  )
+const indexChild = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.42, ease: EASE } },
 }
 
 /**
- * Screen 3 — the menu. A launcher, not an application. Module cards are
- * placeholders: clicking shows "Entering [module]…" briefly, then returns.
- *
- * การ์ดถูก filter ตาม role "ก่อน" .map() — โมดูลที่ไม่มีสิทธิ์ไม่มีอยู่ใน
- * DOM เลย (ดูคอมเมนต์ยาวใน lib/modules.js) และ role chip ด้านขวาบนเป็นแค่
- * "จอแสดงผล" ของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — ไม่ใช่ปุ่ม กดไม่ได้ เปลี่ยนอะไรไม่ได้
+ * Screen 2 — the menu. A launcher, not an application: user selects a
+ * module and is handed to that module's own login (per-app identity).
  */
-export function Hub({ t, lang, setLang, session, theme, setTheme, onLogout }) {
+export function Hub({ t, lang, setLang, theme, setTheme }) {
   const reduced = useReducedMotion()
   const [entering, setEntering] = useState(null) // null | module
+  const [targets, setTargets] = useState(DEFAULT_TARGETS)
   const timerRef = useRef(0)
 
-  const modules = getModulesForRole(session.role)
+  // runtime config — เสิร์ฟจาก origin ตัวเอง (CSP connect-src 'self')
+  useEffect(() => {
+    let alive = true
+    fetch('/config.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (alive && cfg?.modules) setTargets((prev) => ({ ...prev, ...cfg.modules }))
+      })
+      .catch(() => { /* ไม่มี config — ใช้ค่า dev เริ่มต้น */ })
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
   function openModule(module) {
     if (entering) return
     setEntering(module)
-    // placeholder — the real sub-application gets wired in much later
-    timerRef.current = setTimeout(() => setEntering(null), reduced ? 600 : 1200)
+    const target = targets[module.id]
+    timerRef.current = setTimeout(() => {
+      // ส่งต่อไปยังแอปปลายทาง — ที่นั่นคือที่ที่การล็อกอินเกิดขึ้นจริง
+      window.location.href = target
+    }, reduced ? 400 : 800)
   }
 
   return (
-    <div className="min-h-full flex flex-col bg-canvas">
-      {/* header — no sidebar, no breadcrumbs, no search */}
-      <header className="flex items-center justify-between px-6 py-4 max-sm:px-4" style={{ zIndex: 'var(--z-chrome)' }}>
+    // The Hub joins the gate on the photograph. PRODUCT.md: the hub is a
+    // threshold they pass through, not a place they linger.
+    <div className="relative flex-1 flex flex-col gate-bg">
+      {/* the veil that makes text on the photograph legible — see .hub-halo */}
+      <div aria-hidden className="hub-halo absolute inset-0 pointer-events-none" />
+
+      {/* header — no session chrome: HUB has no user, no role, no logout. */}
+      <header
+        className="relative flex items-center justify-between px-6 py-4 max-sm:px-4 border-b"
+        style={{ zIndex: 'var(--z-chrome)', borderColor: 'var(--hairline)' }}
+      >
         <div className="flex items-center gap-2.5 shrink-0">
           <AegisMark size={28} />
-          <span className="font-bold text-[16px] tracking-[-0.02em] text-ink max-sm:hidden">AEGIS</span>
+          <span className="font-bold text-[16px] tracking-[-0.02em] bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent max-sm:hidden">AEGIS</span>
         </div>
         <div className="flex items-center gap-3 max-sm:gap-1.5">
-          <Chip tone={session.role === 'admin' ? 'accent' : 'neutral'}>
-            {session.role === 'admin' ? t('roleAdmin') : t('roleUser')}
-          </Chip>
           <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
           <Segmented
             ariaLabel={t('language')}
@@ -96,49 +94,62 @@ export function Hub({ t, lang, setLang, session, theme, setTheme, onLogout }) {
             value={lang}
             onChange={setLang}
           />
-          <Btn variant="ghost" size="sm" onClick={onLogout} aria-label={t('logout')}>
-            <LogOut size={15} strokeWidth={1.5} aria-hidden />
-            <span className="max-sm:hidden">{t('logout')}</span>
-          </Btn>
         </div>
       </header>
 
-      {/* greeting + cards — the only content on the page */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        <div className="text-center rise-in">
-          <h1 className="text-[30px] font-semibold tracking-[-0.02em] text-ink">
-            {t('welcomeUser', { name: session.displayName })}
-          </h1>
-          <p className="text-[14px] text-ink-3 mt-1.5">{t('selectModule')}</p>
-        </div>
-
-        {/* one card must look deliberate, not broken — the wrap centers it */}
+      {/* greeting + index — the only content on the page. */}
+      <main className="relative flex-1 flex flex-col justify-center items-center px-6 max-sm:px-5 py-16">
         <motion.div
-          variants={gridParent}
+          variants={indexParent}
           initial="hidden"
           animate="show"
-          className="flex flex-wrap items-stretch justify-center gap-6 mt-12 w-full max-w-[1120px]"
+          className="w-full max-w-[1080px]"
         >
-          {modules.map((m) => (
-            <ModuleCard key={m.id} t={t} module={m} dimmed={!!entering && entering.id !== m.id} onOpen={openModule} />
-          ))}
+          <motion.div variants={indexChild}>
+            <h1
+              className="font-bold tracking-[-0.02em] text-ink leading-[1.2] text-balance"
+              style={{ fontSize: 'clamp(30px, 4.6vw, 58px)' }}
+            >
+              {t('hubTitle')}
+            </h1>
+            <p className="mt-3 text-[13px] font-medium tracking-[0.1em] text-ink-2">{t('selectModule')}</p>
+          </motion.div>
+
+          {/* gap-12: each card's bracket frame paints 1rem OUTSIDE its box. */}
+          <div
+            className="mt-12 sm:mt-14 grid gap-12 justify-center"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 20rem))' }}
+          >
+            {MODULES.map((m) => (
+              <LuminousModuleCard
+                key={m.id}
+                variants={indexChild}
+                title={t(m.titleKey)}
+                description={t(m.descKey)}
+                icon={m.icon}
+                live={entering?.id === m.id}
+                dimmed={!!entering && entering.id !== m.id}
+                onClick={() => openModule(m)}
+              />
+            ))}
+          </div>
         </motion.div>
       </main>
 
-      {/* Entering [module]… — brief placeholder overlay, then return */}
+      {/* Entering [module]… — brief overlay while handing off */}
       {entering && (
         <div
           role="status"
           aria-live="polite"
           className="fixed inset-0 flex items-center justify-center fade-in"
-          style={{ zIndex: 'var(--z-overlay)', background: 'color-mix(in srgb, var(--canvas) 55%, transparent)' }}
+          style={{ zIndex: 'var(--z-overlay)', background: 'color-mix(in srgb, var(--canvas) 82%, transparent)' }}
         >
           <div
             className="bg-card rounded-(--r-card) px-10 py-8 flex flex-col items-center gap-4 rise-in"
             style={{ boxShadow: 'var(--elev-2)' }}
           >
             {(() => {
-              const Icon = ICONS[entering.id]
+              const Icon = entering.icon
               return (
                 <span className="flex items-center justify-center size-12 rounded-(--r-tile) bg-accent-soft">
                   <Icon size={26} strokeWidth={1.5} style={{ color: 'var(--accent)' }} aria-hidden />

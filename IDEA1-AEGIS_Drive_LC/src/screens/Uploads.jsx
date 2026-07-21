@@ -1,80 +1,44 @@
-import { useEffect, useRef, useState } from 'react'
-import { UploadCloud, FileText, File as FileIcon, Shield, Sparkles } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, ScrambleHash } from '../components/ui.jsx'
-import { useNow, useReducedMotion } from '../lib/hooks.js'
+import { useRef, useState } from 'react'
+import { UploadCloud, FileText, File as FileIcon } from 'lucide-react'
+import { Card, CardTitle, Chip, ScrambleHash, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { useApi, useNow } from '../lib/hooks.js'
+import { apiFetch } from '../lib/api.js'
 import { fmtBytes, fmtRelative } from '../lib/format.js'
-import { FILES } from '../lib/data.js'
 
-const STAGES = ['staged', 'encrypting', 'transferring', 'hashing', 'indexed']
-const STAGE_KEY = { staged: 'stStaged', encrypting: 'stEncrypting', transferring: 'stTransferring', hashing: 'stHashing', indexed: 'stIndexed' }
+/* ⚠️ Phase 2: ไม่มีการจำลองอีกต่อไป —
+   - แฮชคำนวณจริงจากไบต์ของไฟล์ที่ผู้ใช้เลือก ด้วย window.crypto.subtle.digest('SHA-256')
+     (checksum นี้คือค่าที่ Integrity Verify ใช้เทียบภายหลัง)
+   - "transferring" = POST /api/files/upload จริง (Phase นี้ส่ง metadata;
+     ตัว binary ผ่าน multipart → Storage Layer ใน Phase 3)
+   - ประวัติการอัปโหลดมาจาก GET /api/files — ไม่มีลิสต์แต่งขึ้น */
 
-const HEXC = '0123456789abcdef'
-const randHash = () => Array.from({ length: 64 }, () => HEXC[(Math.random() * 16) | 0]).join('')
+const STAGE_KEY = { staged: 'stStaged', hashing: 'stHashing', transferring: 'stTransferring', indexed: 'stIndexed', failed: 'stFailed' }
 
-const SIM_FILES = [
-  { name: 'meeting-notes_2026-07-14.docx', size: 234_881 },
-  { name: 'invoice_TH-2026-0847.pdf', size: 1_204_224 },
-  { name: 'site-survey_photos.zip', size: 68_812_800 },
-  { name: 'inventory-export_jul.xlsx', size: 3_412_990 },
-  { name: 'training-video_onboarding.mp4', size: 214_748_364 },
-]
+/** SHA-256 ของไฟล์จริงในเบราว์เซอร์ — คืนค่า hex 64 ตัว */
+async function sha256OfFile(file) {
+  const buf = await file.arrayBuffer()
+  const digest = await window.crypto.subtle.digest('SHA-256', buf)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 
-/* One upload row — drives itself through the five visible stages. */
-function UploadRow({ t, item, onIndexed }) {
-  const reduced = useReducedMotion()
-  const [stage, setStage] = useState('staged')
-  const [progress, setProgress] = useState(0)
-  const [rate, setRate] = useState(0)
-  const doneRef = useRef(false)
-
-  useEffect(() => {
-    let cancelled = false
-    const timers = []
-    const later = (fn, ms) => timers.push(setTimeout(fn, reduced ? 1 : ms))
-
-    const encMs = 900
-    const xferMs = Math.min(4200, 1400 + item.size / 300_000)
-
-    later(() => !cancelled && setStage('encrypting'), 350)
-    later(() => {
-      if (cancelled) return
-      setStage('transferring')
-      const mbps = 40 + Math.random() * 55
-      setRate(mbps)
-      const t0 = performance.now()
-      const tick = () => {
-        if (cancelled) return
-        const p = Math.min(1, (performance.now() - t0) / (reduced ? 1 : xferMs))
-        setProgress(Math.round(p * 100))
-        if (p < 1) requestAnimationFrame(tick)
-        else setStage('hashing')
-      }
-      requestAnimationFrame(tick)
-    }, 350 + encMs)
-
-    return () => {
-      cancelled = true
-      timers.forEach(clearTimeout)
-    }
-  }, [item, reduced])
-
-  const isEnc = stage === 'encrypting'
-  const isCipher = STAGES.indexOf(stage) >= 1 && stage !== 'indexed'
-  const chipTone = stage === 'indexed' ? 'ok' : stage === 'staged' ? 'neutral' : 'accent'
+/* One upload row — สถานะเดินตาม "งานจริง" ไม่ใช่ timer */
+function UploadRow({ t, item }) {
+  const isCipher = item.stage === 'hashing' || item.stage === 'transferring'
+  const chipTone = item.stage === 'indexed' ? 'ok' : item.stage === 'failed' ? 'danger' : item.stage === 'staged' ? 'neutral' : 'accent'
 
   return (
     <div
       className="relative overflow-hidden rounded-[var(--r-tile)] border border-line transition-colors duration-[var(--dur-base)]"
-      style={{ background: stage === 'indexed' ? 'var(--ok-soft)' : 'var(--card)' }}
+      style={{ background: item.stage === 'indexed' ? 'var(--ok-soft)' : item.stage === 'failed' ? 'var(--danger-soft)' : 'var(--card)' }}
     >
       {/* the file becoming ciphertext before your eyes */}
       <div
         aria-hidden
         className="absolute inset-0 hatch hatch-ink3 pointer-events-none transition-[clip-path,opacity]"
         style={{
-          clipPath: isEnc || isCipher ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
-          opacity: isEnc ? 0.9 : isCipher ? 0.28 : 0,
-          transitionDuration: isEnc ? '900ms' : 'var(--dur-base)',
+          clipPath: isCipher ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
+          opacity: item.stage === 'hashing' ? 0.9 : isCipher ? 0.28 : 0,
+          transitionDuration: '600ms',
           transitionTimingFunction: 'var(--ease)',
         }}
       />
@@ -86,42 +50,29 @@ function UploadRow({ t, item, onIndexed }) {
           <p className="text-[13.5px] font-medium text-ink truncate">{item.name}</p>
           <p className="text-[11.5px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {fmtBytes(item.size)}
-            {stage === 'transferring' && ` · ${progress}% · ${rate.toFixed(0)} MB/s`}
           </p>
         </div>
-        {stage === 'indexed' && (
+        {item.stage === 'indexed' && (
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
             <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="draw-check" />
           </svg>
         )}
-        <Chip tone={chipTone}>{t(STAGE_KEY[stage])}</Chip>
+        <Chip tone={chipTone}>{t(STAGE_KEY[item.stage])}</Chip>
       </div>
 
-      {(stage === 'hashing' || stage === 'indexed') && (
+      {(item.stage === 'transferring' || item.stage === 'indexed') && item.sha256 && (
         <div className="relative px-4 pb-3 -mt-1">
-          <ScrambleHash
-            hash={item.sha256}
-            playing={stage === 'hashing'}
-            duration={900}
-            onDone={() => {
-              setStage('indexed')
-              if (!doneRef.current) {
-                doneRef.current = true
-                onIndexed(item)
-              }
-            }}
-            groupClass="text-ink-3 !text-[10.5px]"
-          />
+          <ScrambleHash hash={item.sha256} playing={false} duration={1} groupClass="text-ink-3 !text-[10.5px]" />
         </div>
       )}
 
       {/* thin live progress under the row */}
       <div className="relative h-0.5 bg-transparent">
         <div
-          className="h-full transition-[width] duration-150"
+          className="h-full transition-[width] duration-300"
           style={{
-            width: stage === 'transferring' ? `${progress}%` : stage === 'staged' || stage === 'encrypting' ? '0%' : '100%',
-            background: stage === 'indexed' ? 'var(--ok)' : 'var(--accent)',
+            width: item.stage === 'staged' ? '5%' : item.stage === 'hashing' ? '40%' : item.stage === 'transferring' ? '75%' : '100%',
+            background: item.stage === 'indexed' ? 'var(--ok)' : item.stage === 'failed' ? 'var(--danger)' : 'var(--accent)',
           }}
         />
       </div>
@@ -129,33 +80,50 @@ function UploadRow({ t, item, onIndexed }) {
   )
 }
 
-export function Uploads({ t, onStorageAdded }) {
+export function Uploads({ t }) {
   const now = useNow(30_000)
+  const filesApi = useApi('/api/files', { refreshMs: 30_000 })
+  const recent = (filesApi.data?.files ?? []).filter((f) => f.type !== 'Folder').slice(0, 6)
+
   const [dragOver, setDragOver] = useState(false)
   const [queue, setQueue] = useState([])
   const inputRef = useRef(null)
   const idRef = useRef(0)
 
-  const enqueue = (files) => {
-    const items = files.map((f) => ({
-      id: `up-${idRef.current++}`,
-      name: f.name,
-      size: f.size || 1_048_576,
-      sha256: randHash(),
-    }))
-    setQueue((prev) => [...items, ...prev])
+  const setStage = (id, patch) =>
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)))
+
+  /** ประมวลผลไฟล์จริง: hash (WebCrypto) → POST metadata → indexed/failed */
+  const processFile = async (file, id) => {
+    try {
+      setStage(id, { stage: 'hashing' })
+      const sha256 = await sha256OfFile(file)
+      setStage(id, { stage: 'transferring', sha256 })
+      const res = await apiFetch('/api/files/upload', {
+        method: 'POST',
+        body: { name: file.name, size: file.size, sha256 },
+      })
+      setStage(id, { stage: res.ok ? 'indexed' : 'failed' })
+      if (res.ok) filesApi.retry()
+    } catch {
+      setStage(id, { stage: 'failed' })
+    }
   }
 
-  const simulate = () => {
-    const pick = [...SIM_FILES].sort(() => Math.random() - 0.5).slice(0, 3)
-    enqueue(pick)
+  const enqueue = (fileList) => {
+    const real = [...fileList].filter((f) => f.size <= 1_073_741_824) // >1GB: Phase 3 (multipart/stream)
+    for (const f of real) {
+      const id = `up-${idRef.current++}`
+      setQueue((prev) => [{ id, name: f.name, size: f.size, sha256: null, stage: 'staged' }, ...prev])
+      processFile(f, id)
+    }
   }
 
   const onDrop = (e) => {
     e.preventDefault()
     setDragOver(false)
-    const dropped = Array.from(e.dataTransfer?.files ?? [])
-    enqueue(dropped.length ? dropped.map((f) => ({ name: f.name, size: f.size })) : SIM_FILES.slice(0, 2))
+    const dropped = e.dataTransfer?.files
+    if (dropped?.length) enqueue(dropped)
   }
 
   return (
@@ -190,24 +158,17 @@ export function Uploads({ t, onStorageAdded }) {
             aria-hidden
             tabIndex={-1}
             onChange={(e) => {
-              const files = Array.from(e.target.files ?? []).map((f) => ({ name: f.name, size: f.size }))
-              if (files.length) enqueue(files)
+              if (e.target.files?.length) enqueue(e.target.files)
               e.target.value = ''
             }}
           />
-        </div>
-        <div className="flex justify-end mt-3">
-          <Btn variant="ghost" size="sm" onClick={simulate}>
-            <Sparkles size={13} strokeWidth={1.5} />
-            {t('simulateUpload')}
-          </Btn>
         </div>
       </div>
 
       {queue.length > 0 && (
         <div className="col-span-12 flex flex-col gap-2.5">
           {queue.map((item) => (
-            <UploadRow key={item.id} t={t} item={item} onIndexed={(it) => onStorageAdded(it.size / 1_073_741_824)} />
+            <UploadRow key={item.id} t={t} item={item} />
           ))}
         </div>
       )}
@@ -215,24 +176,30 @@ export function Uploads({ t, onStorageAdded }) {
       <div className="col-span-12">
         <Card className="p-5">
           <CardTitle>{t('recentUploads')}</CardTitle>
-          <div className="flex flex-col">
-            {FILES.slice(0, 6).map((f) => (
-              <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-line last:border-b-0">
-                <FileText size={15} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-                <span className="text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-md:hidden" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.size)}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-md:hidden">{f.uploader}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtRelative(t, f.modified, now)}</span>
-                <span
-                  className={`inline-flex items-center justify-center size-6 rounded-[7px] shrink-0 ${f.vault ? 'hatch hatch-ink3 border border-line bg-sunken' : ''}`}
-                  style={f.vault ? {} : { background: 'var(--accent)' }}
-                  title={f.vault ? t('encVault') : t('encServer')}
-                >
-                  <Shield size={12} strokeWidth={1.8} style={{ color: f.vault ? 'var(--ink-3)' : '#fff' }} />
-                </span>
-              </div>
-            ))}
-          </div>
+          {filesApi.loading ? (
+            <div className="flex flex-col gap-2 animate-pulse" aria-busy="true">
+              {[0, 1, 2].map((i) => <div key={i} className="h-9 skeleton rounded-[9px]" />)}
+            </div>
+          ) : filesApi.error ? (
+            <ErrorState t={t} kind={filesApi.error} onRetry={filesApi.retry} />
+          ) : recent.length === 0 ? (
+            <EmptyState icon={UploadCloud} title={t('emptyNoUploads')} hint={t('emptyNoUploadsHint')} />
+          ) : (
+            <div className="flex flex-col">
+              {recent.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-line last:border-b-0">
+                  <FileText size={15} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+                  <span className="text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
+                  <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-md:hidden" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.size)}</span>
+                  <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-md:hidden">{f.uploader}</span>
+                  <span className="text-[12.5px] text-ink-3 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtRelative(t, f.modified, now)}</span>
+                  <span className="ml-2 shrink-0">
+                    <Chip tone="ok">{t('encServer')}</Chip>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </div>

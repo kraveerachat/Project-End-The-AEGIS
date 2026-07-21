@@ -1,0 +1,233 @@
+import { useRef } from 'react'
+import { motion } from 'framer-motion'
+import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
+import {
+  HERO_SCENES, TILE_BOXES, camShort, eventText,
+  fmtDate, fmtTime, hasUnk, ini,
+} from '../data.js'
+import { BBox, EmptyState, FeedChrome, Ping, StaleBadge, TBox } from '../components/ui.jsx'
+
+const SECONDARY_PRIORITY = ['CAM-01', 'CAM-05', 'CAM-04', 'CAM-06', 'CAM-02']
+
+// ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
+// SOC-Responder ได้ทุกกล้อง; CCTV-Operator ได้เฉพาะกล้องที่มอบหมาย
+// วิวนี้ไม่กรองสิทธิ์เอง (และต้องไม่ทำ) — แค่ render ขอบเขตที่ได้รับ
+export default function Live({ now, link, detections, sysEvents, cameras = [], heroCam, setHeroCam }) {
+  const heroRef = useRef(null)
+  const visibleIds = new Set(cameras.map((c) => c.id))
+  const cam = cameras.find((c) => c.id === heroCam) ?? cameras[0] ?? null
+  const lost = link.status === 'lost'
+  const stale = link.status !== 'online'
+
+  if (!cam) {
+    // ยังไม่ได้กล้องจากเซิร์ฟเวอร์ (กำลังโหลด) หรือบัญชีนี้ไม่มีกล้องที่มอบหมาย
+    return (
+      <>
+        <div className="pagehead">
+          <div>
+            <h1 className="h1">Live canvas</h1>
+            <p className="sub">Scoped to the cameras this account is assigned server-side.</p>
+          </div>
+        </div>
+        <EmptyState
+          title="No cameras available to this account"
+          hint="Camera assignment is managed in AEGIS Monitor by a SOC-Responder. Contact your administrator."
+        />
+      </>
+    )
+  }
+
+  const scene = HERO_SCENES[cam.id] ?? { boxes: [], subjects: 0 }
+
+  const secondary = SECONDARY_PRIORITY
+    .filter((id) => id !== cam.id && visibleIds.has(id))
+    .map((id) => cameras.find((c) => c.id === id))
+    .filter((c) => c && c.online)
+    .slice(0, 3)
+
+  // เหตุการณ์ถูกจำกัดตามขอบเขตกล้องที่มองเห็น — operator ไม่เห็น event ของกล้องอื่น
+  const scoped = detections.filter((d) => visibleIds.has(d.cam))
+
+  // Latest clean authorization feeds the access-control panel.
+  const grant = scoped.find((d) => !hasUnk(d))
+  const grantPerson = grant?.people[0]
+
+  const rows = [
+    ...scoped.map((d) => ({
+      id: d.id, at: d.at, cam: camShort(d.cam),
+      dot: hasUnk(d) ? 'warn' : 'ok', text: eventText(d),
+    })),
+    ...sysEvents.map((e) => ({
+      id: e.id, at: e.at, cam: '—',
+      dot: e.tone === 'warn' ? 'warn' : 'sys', text: e.text,
+    })),
+  ].sort((a, b) => b.at - a.at).slice(0, 12)
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen()
+    else heroRef.current?.requestFullscreen?.()
+  }
+
+  return (
+    <>
+      <motion.div
+        className="pagehead"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      >
+        <div>
+          <h1 className="h1">Live canvas</h1>
+          <p className="sub">
+            {scene.aiFocus
+              ? 'Priority focus · AI auto-elevated CAM-02 on unknown detection.'
+              : `Manual focus · ${cam.name}. AI focus resumes on the next elevation.`}
+          </p>
+        </div>
+      </motion.div>
+      <div className="canvas">
+        <motion.div
+          className="canvasL"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+        >
+          <div className="hero" ref={heroRef} role="img" aria-label={`Live feed — ${cam.id} ${cam.name}`}>
+            <div className="hatch" /><FeedChrome /><div className="scanline" /><div className="vign" />
+            <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+            <div className="herotop">
+              {lost ? (
+                <span className="htag lost">LINK LOST</span>
+              ) : scene.aiFocus ? (
+                <span className="htag focus"><span className="rec" />AI FOCUS · UNKNOWN</span>
+              ) : (
+                <span className="htag manual">MANUAL FOCUS</span>
+              )}
+              <span className="hchip mono">{cam.id} · {cam.name}</span>
+              <div className="heroright">
+                {link.status === 'degraded' && <StaleBadge label="Link degraded" />}
+                {!lost && <span className="hchip mono rec-meta">REC • 1080p • 24fps</span>}
+                <motion.button
+                  type="button"
+                  className="herobtn"
+                  onClick={toggleFullscreen}
+                  aria-label="Toggle fullscreen feed"
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                >
+                  <Maximize2 aria-hidden="true" />
+                </motion.button>
+              </div>
+            </div>
+            {!lost && scene.boxes.map((b) => <BBox key={b.label} {...b} kind={b.kind} />)}
+            {!lost && (
+              <span className="heroai mono">
+                AI INFERENCE · FACE_RECOGNITION V1.3 · {scene.subjects} SUBJECT{scene.subjects === 1 ? '' : 'S'}
+              </span>
+            )}
+            <span className="herots mono">
+              {lost ? `LAST FRAME ${fmtTime(link.lastFrameAt ?? now)}` : `${fmtDate(now)} ${fmtTime(now)}`}
+            </span>
+            {lost && (
+              <div className="lostwrap" role="alert">
+                <WifiOff aria-hidden="true" />
+                <span className="lost-t">CONNECTION LOST</span>
+                <span className="lost-s mono">Last frame {fmtTime(link.lastFrameAt ?? now)}</span>
+                <span className="lost-r">Reconnecting</span>
+              </div>
+            )}
+          </div>
+          <div className="secondrow">
+            {secondary.map((c, idx) => (
+              <motion.button
+                key={c.id}
+                type="button"
+                className="sfeed"
+                onClick={() => setHeroCam(c.id)}
+                aria-label={`Focus ${c.id} — ${c.name}`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.1 * (idx + 1), ease: 'easeOut' }}
+                whileHover={{ y: -6, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.25), 0 0 18px rgba(0, 229, 255, 0.2)' }}
+                whileTap={{ scale: 0.985 }}
+              >
+                <FeedChrome />
+                <span className="sfid mono">{c.id}</span>
+                {lost
+                  ? <span className="sflive warn">STALE</span>
+                  : <span className="sflive"><span className="rec" />LIVE</span>}
+                <span className="sfloc">{c.name}</span>
+                {!lost && (TILE_BOXES[c.id] ?? []).map((b, i) => <TBox key={i} {...b} />)}
+              </motion.button>
+            ))}
+          </div>
+        </motion.div>
+        <motion.div
+          className="canvasR"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.15, ease: 'easeOut' }}
+        >
+          <section className={stale ? 'panel glass acpanel isstale' : 'panel glass acpanel'}>
+            <div className="acglow" />
+            <div className="ptitle" style={{ justifyContent: 'space-between' }}>
+              <span className="fx ac gap9">
+                <ShieldCheck aria-hidden="true" />
+                Access control · result
+              </span>
+              {stale ? <StaleBadge red={lost} label="Stale" /> : <span className="acdot" />}
+            </div>
+            {grantPerson ? (
+              <div key={grant.id}>
+                <div className="acbig"><span className="accheck" aria-hidden="true">✓</span> Access authorized</div>
+                <div className="acid">
+                  <div className="acav" aria-hidden="true">{ini(grantPerson.name)}</div>
+                  <div>
+                    <div className="acname">{grantPerson.name}</div>
+                    <div className="acrole">Authorized · Staff</div>
+                  </div>
+                </div>
+                <div className="acstats">
+                  <div className="acstat">
+                    <div className="acslab">Camera</div>
+                    <div className="acsval mono">{grant.cam}</div>
+                  </div>
+                  <div className="acstat">
+                    <div className="acslab">Match score</div>
+                    <div className="acsval mono teal">{grantPerson.conf}%</div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="sub" style={{ margin: 0 }}>No authorization events yet this session.</p>
+            )}
+          </section>
+          <section className="panel glass streampanel">
+            <div className="ptitle" style={{ justifyContent: 'space-between' }}>
+              <span className="fx ac gap9">
+                <ListTree aria-hidden="true" />
+                Event stream
+              </span>
+              {lost && <StaleBadge red label="Frozen" />}
+            </div>
+            <div className="streamlist">
+              {rows.map((r, i) => (
+                <motion.div
+                  key={r.id}
+                  className={i === 0 ? 'srow newflag' : 'srow'}
+                  whileHover={{ x: 4, backgroundColor: 'rgba(255, 255, 255, 0.07)' }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <span className="sts mono">{fmtTime(r.at)}</span>
+                  <span className={`sdot ${r.dot}`} aria-hidden="true" />
+                  <span className="scam mono">{r.cam}</span>
+                  <span className="stext">{r.text}</span>
+                </motion.div>
+              ))}
+            </div>
+          </section>
+        </motion.div>
+      </div>
+    </>
+  )
+}

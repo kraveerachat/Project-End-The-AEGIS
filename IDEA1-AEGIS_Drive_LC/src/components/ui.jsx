@@ -7,7 +7,7 @@ export function Card({ children, className = '', style, onClick }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-card border border-line rounded-[var(--r-card)] ${className}`}
+      className={`bg-card rounded-[var(--r-card)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg dark:hover:shadow-black/30 ${className}`}
       style={{ boxShadow: 'var(--elev-1)', ...style }}
     >
       {children}
@@ -205,7 +205,7 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="relative bg-card border border-line rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
+        className="relative bg-card rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
         style={{ maxWidth: width, boxShadow: 'var(--elev-2)' }}
       >
         {children}
@@ -347,10 +347,170 @@ export function Progress({ value, color = 'var(--accent)', height = 4, track = '
 }
 
 /* ── Empty state — hatched, because nothing is here ──────────────── */
-export function EmptyState({ label }) {
+/* ── Skeleton loader — shaped like the real content for transitions ── */
+export function SkeletonLoader({ type = 'generic' }) {
+  if (type === 'dashboard') {
+    return (
+      <div className="grid grid-cols-12 gap-6 animate-pulse">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="col-span-3 max-lg:col-span-6 max-md:col-span-12 bg-card rounded-[var(--r-card)] p-6 h-36 flex flex-col justify-between" style={{ boxShadow: 'var(--elev-1)' }}>
+            <div className="flex justify-between">
+              <div className="size-10 rounded-xl skeleton" />
+              <div className="w-14 h-5 rounded-full skeleton" />
+            </div>
+            <div className="w-24 h-4 skeleton mt-4" />
+            <div className="w-32 h-8 skeleton mt-1" />
+          </div>
+        ))}
+        <div className="col-span-8 max-lg:col-span-12 bg-card rounded-[var(--r-card)] p-6 h-80 flex flex-col justify-between" style={{ boxShadow: 'var(--elev-1)' }}>
+          <div className="w-48 h-6 skeleton" />
+          <div className="flex flex-col gap-4 mt-6">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-14 rounded-xl skeleton" />
+            ))}
+          </div>
+        </div>
+        <div className="col-span-4 max-lg:col-span-12 bg-card rounded-[var(--r-card)] p-6 h-80 flex flex-col gap-4" style={{ boxShadow: 'var(--elev-1)' }}>
+          <div className="w-32 h-6 skeleton" />
+          <div className="flex flex-col gap-3.5 flex-1 mt-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-10 rounded-xl skeleton" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'table') {
+    return (
+      <div className="bg-card rounded-[var(--r-card)] p-6 animate-pulse" style={{ boxShadow: 'var(--elev-1)' }}>
+        <div className="flex justify-between items-center mb-6">
+          <div className="w-36 h-6 skeleton" />
+          <div className="w-20 h-8 rounded-full skeleton" />
+        </div>
+        <div className="flex flex-col gap-3.5">
+          <div className="flex gap-4 border-b border-line pb-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex-1 h-5 skeleton" />
+            ))}
+          </div>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex gap-4 py-2 border-b border-line last:border-b-0">
+              {[0, 1, 2, 3].map((j) => (
+                <div key={j} className="flex-1 h-6 rounded-md skeleton" />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'files') {
+    return (
+      <div className="flex flex-col gap-6 animate-pulse">
+        <div className="flex justify-between items-center">
+          <div className="w-48 h-8 rounded-full skeleton" />
+          <div className="flex gap-2">
+            <div className="w-24 h-10 rounded-full skeleton" />
+            <div className="w-24 h-10 rounded-full skeleton" />
+          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-4 max-lg:grid-cols-3 max-md:grid-cols-2 max-sm:grid-cols-1">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div key={i} className="bg-card rounded-[var(--r-card)] p-5 h-44 flex flex-col justify-between" style={{ boxShadow: 'var(--elev-1)' }}>
+              <div className="flex justify-between">
+                <div className="size-10 rounded-xl skeleton" />
+                <div className="size-6 rounded-full skeleton" />
+              </div>
+              <div className="flex flex-col gap-2 mt-4">
+                <div className="w-3/4 h-5 skeleton" />
+                <div className="w-1/2 h-4 skeleton" />
+              </div>
+              <div className="w-full h-1.5 rounded-full mt-2 skeleton" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="hatch hatch-ink3 border border-line rounded-[var(--r-tile)] py-10 text-center">
-      <p className="text-[13px] font-medium text-ink-3 bg-card inline-block px-3 py-1 rounded-full">{label}</p>
+    <div className="bg-card rounded-[var(--r-card)] p-6 h-96 flex flex-col gap-4 animate-pulse" style={{ boxShadow: 'var(--elev-1)' }}>
+      <div className="w-1/3 h-6 skeleton" />
+      <div className="w-full h-4 skeleton mt-4" />
+      <div className="w-5/6 h-4 skeleton" />
+      <div className="w-4/5 h-4 skeleton" />
+      <div className="flex-1 rounded-2xl skeleton mt-6" />
+    </div>
+  )
+}
+
+/* ── Error state — จอที่เชื่อม backend ไม่ได้ต้อง "บอก + ให้ทางไปต่อ" เสมอ ─────
+   ห้ามปล่อยจอขาว/ค้าง: มีข้อความอ่านรู้เรื่อง + ปุ่ม Retry ที่ทำงานจริง (useApi.retry) */
+export function ErrorState({ t, onRetry, kind = 'server' }) {
+  return (
+    <div role="alert" className="flex flex-col items-center justify-center text-center gap-3 py-14 px-6">
+      <span className="flex items-center justify-center size-12 rounded-full bg-danger-soft">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 9v4M12 17h.01" />
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        </svg>
+      </span>
+      <p className="text-[15px] font-semibold text-ink">{t('errLoadTitle')}</p>
+      <p className="text-[13px] text-ink-2 max-w-[44ch] leading-relaxed">
+        {kind === 'timeout' ? t('errLoadTimeout') : t('errLoadHint')}
+      </p>
+      <Btn variant="outline" size="sm" onClick={onRetry} className="mt-1">
+        {t('retry')}
+      </Btn>
+    </div>
+  )
+}
+
+/* ── Empty state — hatch = "the system cannot see anything here" (DESIGN.md) ──
+   ไม่ใช่แถวปลอม ไม่ใช่จอว่างเปล่า: บอกว่าที่นี่ยังไม่มีอะไร และ (ถ้ามี) จะเริ่มยังไง */
+export function EmptyState({ icon: Icon, title, hint, action }) {
+  return (
+    <div role="status" className="flex flex-col items-center justify-center text-center gap-3 py-14 px-6">
+      <span className="flex items-center justify-center size-12 rounded-[var(--r-tile)] hatch hatch-ink3 bg-sunken border border-line">
+        {Icon && <Icon size={20} strokeWidth={1.5} className="text-ink-3" aria-hidden />}
+      </span>
+      <p className="text-[15px] font-semibold text-ink">{title}</p>
+      {hint && <p className="text-[13px] text-ink-2 max-w-[44ch] leading-relaxed">{hint}</p>}
+      {action}
+    </div>
+  )
+}
+
+export function Reveal({ children, delay = 0 }) {
+  const [visible, setVisible] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true)
+          observer.unobserve(entry.target)
+        }
+      },
+      { threshold: 0.05 }
+    )
+    if (ref.current) observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      className={`transition-all duration-[500ms] ease-out ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+      }`}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
+      {children}
     </div>
   )
 }

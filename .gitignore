@@ -1,0 +1,31 @@
+# ── AEGIS monorepo · root .gitignore (applies to every module) ──────────
+
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+
+# secrets — ⚠️ never commit real env files
+.env
+.env.*
+!.env.example
+
+# ML model binaries — live next to their engine, never in git (IDEA 2, etc.)
+*.pt
+*.h5
+*.onnx
+*.pth
+*.weights
+
+# local / editor / OS
+*.local
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+__pycache__/
+*.pyc
+.pytest_cache/
+

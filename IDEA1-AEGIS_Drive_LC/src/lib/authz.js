@@ -1,54 +1,16 @@
-// Role → navigation resolution. Exactly two roles exist in this application:
-// 'admin' and 'datalake-user'. (CCTV-Operator / SOC-Responder belong to AEGIS
-// Monitor — a different app with its own decoupled identity store. They must
-// never appear here.)
+// src/lib/authz.js — AEGIS Drive (IDEA1)
+// ⚠️ เมนู/สิทธิ์ทั้งหมดถูกตัดสิน "ฝั่งเซิร์ฟเวอร์" แล้ว (server/rbac/permissions.js)
+// client ได้รับเมนูที่ filter ตาม role มากับ /api/login และ /api/me — แล้วแค่ render
+// สิ่งที่ได้รับ รายการที่ไม่มีสิทธิ์ "ไม่เคยถูกส่งมาถึง client เลย" จึงไม่มีอยู่ใน DOM
+// (ไม่ใช่ render แล้วซ่อนด้วย CSS — Information Disclosure)
 //
-// ⚠️ UX AFFORDANCE ONLY — ไม่ใช่ security control
-// ฟังก์ชันนี้ซ่อนเมนูที่ user ไม่มีสิทธิ์ใช้ เพื่อ UX เท่านั้น
-// ในระบบจริง backend ต้อง re-authorize ทุก request เสมอ
-// client-side check ถูก bypass ได้ทันทีถ้า attacker ไม่รัน JS ของเรา
-//
-// สำคัญ: รายการที่ไม่มีสิทธิ์ต้อง "ไม่ถูก render ลง DOM เลย" — ไม่ใช่ซ่อนด้วย
-// CSS ไม่ใช่ disabled — เพื่อกัน Information Disclosure: แค่เผยว่ามีเมนู
-// "Audit Log" อยู่ ก็เท่ากับบอกผู้โจมตีว่ามีเป้าหมายอะไรให้ล่า
-// ให้ filter array นี้ "ก่อน" ถึง .map() ที่ render เสมอ
+// ไฟล์นี้เหลือแค่ helper แสดงผลเล็ก ๆ ที่ไม่ใช่ security control:
+// backend ตรวจ role ซ้ำทุก request เสมอ — ค่าที่นี่ใช้จัด layout เท่านั้น
 
-export const ROLE_ADMIN = 'admin'
-export const ROLE_USER = 'datalake-user'
+export const ROLE_ADMIN = 'Admin'
+export const ROLE_USER = 'DataLake-User'
 
-/**
- * @typedef {{ id: string, icon: string, labelKey: string, group: string, roles: string[] }} NavItem
- */
-
-/** @type {NavItem[]} */
-const NAV_ITEMS = [
-  { id: 'dashboard', icon: 'gauge', labelKey: 'navDashboard', group: 'navGroupWorkspace', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'files', icon: 'folder', labelKey: 'navFiles', group: 'navGroupWorkspace', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'vault', icon: 'vault', labelKey: 'navVault', group: 'navGroupWorkspace', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'uploads', icon: 'upload', labelKey: 'navUploads', group: 'navGroupWorkspace', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'shares', icon: 'link', labelKey: 'navShares', group: 'navGroupProtection', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'snapshots', icon: 'history', labelKey: 'navSnapshots', group: 'navGroupProtection', roles: [ROLE_USER, ROLE_ADMIN] },
-  { id: 'storage', icon: 'harddrive', labelKey: 'navStorage', group: 'navGroupProtection', roles: [ROLE_USER, ROLE_ADMIN] },
-  // Admin-only back-office. ผู้ใช้ role อื่นต้องไม่พบ "ร่องรอย" ของสองรายการนี้
-  // ใน DOM เลยแม้แต่ตัวอักษรเดียว (ดู getNavForRole ด้านล่าง)
-  { id: 'audit', icon: 'scroll', labelKey: 'navAudit', group: 'navGroupAdmin', roles: [ROLE_ADMIN] },
-  { id: 'access', icon: 'usercog', labelKey: 'navAccess', group: 'navGroupAdmin', roles: [ROLE_ADMIN] },
-]
-
-/**
- * Single source of truth for what a role can see.
- * default-deny: role ที่ไม่รู้จัก / null / undefined → คืนเมนูว่าง ไม่ใช่ชุดของ user
- * เพราะ "เผื่อใจให้ผ่าน" คือจุดเริ่มของ Broken Access Control
- *
- * @param {string | null | undefined} role
- * @returns {NavItem[]}
- */
-export function getNavForRole(role) {
-  if (role !== ROLE_USER && role !== ROLE_ADMIN) return [] // default-deny
-  return NAV_ITEMS.filter((item) => item.roles.includes(role))
-}
-
-/** Settings groups follow the same rule — filtered BEFORE render, never hidden with CSS. */
+/** ใช้เลือก "แสดง" กลุ่มตั้งค่า Admin — ตัว endpoint จริงมี requireRole ครอบเสมอ */
 export function canAdministrate(role) {
   return role === ROLE_ADMIN
 }

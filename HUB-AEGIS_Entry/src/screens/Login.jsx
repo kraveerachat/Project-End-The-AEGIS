@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, X as XIcon } from 'lucide-react'
-import { authenticate } from '../lib/auth.js'
+import { login } from '../lib/auth.js'
 import { useMediaQuery, useReducedMotion } from '../lib/hooks.js'
-import { Btn, Field, PillInput, Toggle } from '../components/ui.jsx'
+import { Field, PillInput, SparkleButton, Toggle } from '../components/ui.jsx'
 import { EASE, SPRING } from '../lib/motion.js'
 
 /* Defense-in-depth rows. Layer 0 (network) is already satisfied — the
@@ -159,7 +159,8 @@ export function Login({ t, onAuthed }) {
     setStatuses(['ok', 'active', 'pending', 'pending'])
 
     const step = reduced ? 0 : 250
-    const authPromise = authenticate({ username, password, remember })
+    // ส่งแค่ { username, password, remember } ไป /api/login — ไม่มี role เด็ดขาด
+    const authPromise = login({ username, password, remember })
     await sleep(step) // L0 re-confirms while credentials travel
     const res = await authPromise
 
@@ -193,8 +194,9 @@ export function Login({ t, onAuthed }) {
     setLayer(3, 'ok')
     await sleep(reduced ? 0 : 350)
     // The vault's exit animation (App's AnimatePresence) is the leaving
-    // state — hand the server-decided user up and let the gate close.
-    onAuthed(res.user)
+    // state — hand the server-decided user AND the role-filtered menu up,
+    // then let the gate close. Both come from the server; client only reads them.
+    onAuthed({ user: res.user, menu: res.menu })
   }
 
   const onKeyDown = (e) => {
@@ -277,15 +279,15 @@ export function Login({ t, onAuthed }) {
           {/* ไม่มีตัวเลือก role ที่นี่โดยเจตนา — role มาจากคำตอบของเซิร์ฟเวอร์
               เท่านั้น การให้ client เลือกสิทธิ์เอง = Broken Access Control (OWASP A01) */}
           <motion.div variants={staggerChild}>
-            <Btn
-              variant="primary"
+            <SparkleButton
+              sparkles="hover"
               size="lg"
               className="w-full"
               onClick={submit}
               disabled={busy || !username || !password || locked}
             >
               {busy ? t('signingIn') : t('signIn')}
-            </Btn>
+            </SparkleButton>
           </motion.div>
 
           {(error || locked) && (

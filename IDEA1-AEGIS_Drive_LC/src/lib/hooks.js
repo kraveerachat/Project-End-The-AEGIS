@@ -1,4 +1,54 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiFetch } from './api.js'
+
+/**
+ * useApi — หนึ่ง hook ขับเคลื่อน "สี่สถานะ" ของทุกจอ:
+ *   loading → skeleton · error → ข้อความ + ปุ่ม Retry · data ว่าง → empty state · data → success
+ *
+ * - ยกเลิก request อัตโนมัติเมื่อ component unmount (AbortController)
+ * - refreshMs > 0: poll เงียบ ๆ — ถ้ารีเฟรชล้มเหลว "คงข้อมูลเดิมไว้" ไม่เด้ง error ทับจอ
+ *   (จอที่มีข้อมูลอยู่แล้วห้ามกระพริบเป็น error เพราะ network สะดุดหนึ่งจังหวะ)
+ * - retry(): ลองใหม่ด้วยมือ — ปุ่ม Retry ของ ErrorState เรียกอันนี้
+ *
+ * @param {string|null} path  null = ยังไม่พร้อมยิง (จอจะอยู่สถานะ loading)
+ * @param {{ refreshMs?: number }} opts
+ */
+export function useApi(path, { refreshMs = 0 } = {}) {
+  const [state, setState] = useState({ loading: true, data: null, error: null })
+  const [nonce, setNonce] = useState(0)
+  const hasDataRef = useRef(false)
+
+  useEffect(() => {
+    if (!path) return
+    const ctrl = new AbortController()
+    let timer = 0
+
+    const load = async (isRefresh) => {
+      if (!isRefresh) {
+        hasDataRef.current = false
+        setState({ loading: true, data: null, error: null })
+      }
+      const res = await apiFetch(path, { signal: ctrl.signal })
+      if (ctrl.signal.aborted) return
+      if (res.ok) {
+        hasDataRef.current = true
+        setState({ loading: false, data: res.data, error: null })
+      } else if (!isRefresh || !hasDataRef.current) {
+        setState({ loading: false, data: null, error: res.errorKind ?? 'server' })
+      }
+      if (refreshMs > 0) timer = setTimeout(() => load(true), refreshMs)
+    }
+
+    load(false)
+    return () => {
+      ctrl.abort()
+      clearTimeout(timer)
+    }
+  }, [path, nonce, refreshMs])
+
+  const retry = useCallback(() => setNonce((n) => n + 1), [])
+  return { ...state, retry }
+}
 
 /** True when the OS asks for reduced motion. Every animation must honor it. */
 export function useReducedMotion() {

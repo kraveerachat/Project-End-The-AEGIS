@@ -1,0 +1,7 @@
+{
+  "comment": "AEGIS Entry runtime config — production ใช้ path สัมพัทธ์ (/drive, /monitor) เพราะ NGINX (nginx.conf) เป็นคน proxy_pass ไปหา 192.168.10.11:8001 / 192.168.10.12:8002 ให้แล้ว ตัว HUB เองไม่รู้จัก IP ปลายทาง — แก้ไฟล์นี้บนเครื่อง deploy ได้เลย ไม่ต้อง rebuild",
+  "modules": {
+    "drive": "/drive",
+    "monitoring": "/monitor"
+  }
+}

@@ -4,6 +4,7 @@ import { Welcome } from './screens/Welcome.jsx'
 import { Login } from './screens/Login.jsx'
 import { Hub } from './screens/Hub.jsx'
 import { Segmented, ThemeToggle } from './components/ui.jsx'
+import { logout as apiLogout } from './lib/auth.js'
 import { LANGS, makeT } from './lib/strings.js'
 import { EASE, SPRING } from './lib/motion.js'
 
@@ -19,24 +20,13 @@ import { EASE, SPRING } from './lib/motion.js'
  *
  * The gate is full-bleed (`.gate-bg`): BG_AEGIS01/02 swap on theme and
  * their fibre streaks converge on an empty centre — the vault sits in
- * that void and expands into the incoming light. The Hub does NOT get
- * the photograph: the door is atmospheric, the workspace is plain.
+ * that void and expands into the incoming light.
  */
 export default function App() {
-  // ── Session — หน่วยความจำเท่านั้น ────────────────────────────────
-  // จงใจ "ไม่มี" localStorage/sessionStorage ทั้งแอป: ปิดแท็บ = เซสชันหาย
-  // ไม่มีอะไรตกค้างในเครื่อง ระบบจริง session อยู่ใน HttpOnly + Secure +
-  // SameSite=Strict cookie ที่ JavaScript อ่านไม่ได้ — ต่อให้เกิด XSS
-  // ก็ขโมย session ไปไม่ได้ (นี่คือเหตุผลที่ห้ามเก็บ token ใน storage)
-  const [session, setSession] = useState(null) // null | { username, role, displayName }
+  const [session, setSession] = useState(null) // null | { username, role, displayName, menu }
   const [screen, setScreen] = useState('welcome') // 'welcome' | 'login' | 'hub'
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  // Theme — React state เท่านั้น ห้าม localStorage/sessionStorage เด็ดขาด
-  // (ข้อบังคับของโปรเจกต์: สองอย่างนี้ต้องไม่ปรากฏที่ไหนเลยใน codebase —
-  // ในสภาพแวดล้อมนี้มันจะ throw และการเก็บ state ฝั่ง client คือนิสัยที่
-  // นำไปสู่การเก็บของอันตรายกว่า เช่น token) ระบบจริงเก็บ preference นี้
-  // ฝั่งเซิร์ฟเวอร์ผูกกับบัญชีผู้ใช้
-  const [theme, setTheme] = useState('light')
+  const [theme, setTheme] = useState('dark')
 
   const t = makeT(lang)
 
@@ -46,6 +36,12 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
+
+    const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
+    link.type = 'image/png'
+    link.rel = 'shortcut icon'
+    link.href = theme === 'light' ? '/assets/logo/aegis-mark-light-ink.png' : '/assets/logo/aegis-mark-dark-ink.png'
+    if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
   }, [theme])
 
   const isWelcome = screen === 'welcome'
@@ -56,7 +52,7 @@ export default function App() {
         {screen === 'hub' && session ? (
           <motion.div
             key="hub"
-            className="min-h-full"
+            className="min-h-full flex flex-col"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.24, ease: EASE }}
@@ -69,7 +65,7 @@ export default function App() {
               theme={theme}
               setTheme={setTheme}
               onLogout={() => {
-                // ออกจากระบบ = เซสชันหายทันที กลับไปที่ "ประตู"
+                apiLogout()
                 setSession(null)
                 setScreen('welcome')
               }}
@@ -78,7 +74,7 @@ export default function App() {
         ) : (
           <motion.div
             key="gate"
-            className="min-h-full flex flex-col items-center gate-bg px-4 pt-24 pb-10 relative"
+            className="min-h-full flex flex-col items-center gate-bg px-4 pt-16 pb-10 relative"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1, transition: { duration: 0.3, ease: EASE } }}
             exit={{ opacity: 0, scale: 1.02, transition: { duration: 0.38, ease: EASE } }}
@@ -93,15 +89,23 @@ export default function App() {
               />
             </div>
 
-            <div className="my-auto w-full flex flex-col items-center min-w-0">
-              {/* the vault — one borderless card, two states. maxWidth flips
-                  per state and the layout spring makes the expansion the
-                  signature gesture of the whole app. */}
+            {/* The halo — Welcome only. */}
+            <motion.div
+              aria-hidden
+              className="gate-halo absolute inset-0 pointer-events-none"
+              initial={false}
+              animate={{ opacity: isWelcome ? 1 : 0 }}
+              transition={{ duration: 0.5, ease: EASE }}
+            />
+
+            <div className="relative my-auto w-full flex flex-col items-center min-w-0">
               <motion.div
                 layout
                 transition={SPRING}
-                className="w-full overflow-hidden bg-card rounded-(--r-card)"
-                style={{ boxShadow: 'var(--elev-2)', maxWidth: isWelcome ? 480 : 944 }}
+                className={`w-full rounded-(--r-card) vault-surface ${
+                  isWelcome ? '' : 'is-solid overflow-hidden'
+                }`}
+                style={{ maxWidth: isWelcome ? 760 : 944 }}
               >
                 <div className={`flex flex-col ${isWelcome ? '' : 'md:flex-row md:items-stretch'}`}>
                   <Welcome t={t} isWelcome={isWelcome} onEnter={() => setScreen('login')} />
@@ -110,9 +114,8 @@ export default function App() {
                       <Login
                         key="login"
                         t={t}
-                        onAuthed={(user) => {
-                          // role มาใน response ของเซิร์ฟเวอร์เท่านั้น — client แค่อ่านและ render
-                          setSession(user)
+                        onAuthed={({ user, menu }) => {
+                          setSession({ ...user, menu })
                           setScreen('hub')
                         }}
                       />
@@ -121,7 +124,6 @@ export default function App() {
                 </div>
               </motion.div>
 
-              {/* demo aid for the presentation — clearly marked, not part of the product */}
               <AnimatePresence initial={false}>
                 {!isWelcome && (
                   <motion.p

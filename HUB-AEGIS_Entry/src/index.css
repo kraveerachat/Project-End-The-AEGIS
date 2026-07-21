@@ -52,6 +52,56 @@
      white on the brighter dark-mode accent (#3b82f6) fails AA at 3.68:1 */
   --accent-solid: #2563eb;
   --accent-solid-hover: #1d4ed8;
+  /* The bloom rising off the bottom of a sparkle button. Blue-400, one stop
+     up the same ramp as --accent-solid (blue-600) / --accent-solid-hover
+     (blue-700) — the lift is a value change, not a hue shift, so the button
+     stays the one blue. Deliberately NOT re-declared in dark: it only ever
+     composites over --accent-solid, which is itself theme-invariant, so the
+     button's interior — bloom, sheen, points, white label — is one fixed
+     material in both themes. Its alpha is capped by the label: see .sparkle-btn. */
+  --accent-bloom: #a78bfa;
+  --elev-accent: 0 2px 6px rgba(37, 99, 235, 0.15), 0 8px 22px -6px rgba(124, 58, 237, 0.3);
+
+  /* ── The luminous module card ────────────────────────────────────
+     Two materials, one mechanism. The card is a machined device with a
+     slot in its face; the theme decides what the housing is made of and
+     the slot always lights AEGIS blue.
+
+     LIGHT is white hardware with a blue indicator, not "light escaping
+     darkness" — that premise needs a dark substrate and nothing is
+     brighter than white, so a white-hot bloom on a silver card is a
+     physical impossibility, not a tuning problem. What IS true, and is
+     what white hardware actually does: a recessed groove reads as a grey
+     shadow when dead, lights saturated blue when live, and bleeds a blue
+     halo onto the silver around it. The `--lum-fold-*` shadows are what
+     make that read — the light needs a shaded pocket to be bright
+     *against*, and on white that pocket is the only contrast available.
+
+     DARK is the obsidian original: light genuinely escaping a slit.
+     Same tokens, same geometry, different substrate. */
+  --lum-hi: #ffffff; /* radial top — the housing catching light */
+  --lum-lo: #eef2f7; /* radial base */
+  --lum-ink: #0a0a0b; /* title — 19.8:1 on the base */
+  --lum-ink-2: #52565e; /* description */
+  --lum-slit-off: #aab4c2; /* the groove, dead — a shadow, not a hole */
+  --lum-edge: rgba(15, 23, 42, 0.13); /* machined rim */
+  --lum-glow: #2563eb; /* THE light. --accent-solid; blue in BOTH themes. */
+  --lum-fold-rgb: 15 23 42; /* what the folds are made of — ink, not black */
+  --lum-fold-a: 0.3; /* soft: a white housing casts soft shadows, not mud */
+  /* The light cone, kept FAINT here. On obsidian the cone is the effect; on
+     white it is the one thing that cannot work — blue over near-white only
+     subtracts luminance, so past ~0.25 it stops reading as a shaft of light
+     and starts reading as blue fog sprayed on the lid. On this substrate the
+     saturated slot IS the light and the cone is only its bleed.
+
+     0.2 is also the AA ceiling: the cone darkens the description behind it to
+     4.8:1 and past ~0.25 that fails. It used to be a transient — now hover
+     lights the card fully, so this is the state the card sits in whenever a
+     pointer is on it. The number did not move; what it costs did. */
+  --lum-lumen-lit: 0.2;
+  /* backlit, not bleached: brightness() on a light card blows the icon out */
+  --lum-icon-live: drop-shadow(0 -0.9rem 3px rgb(var(--lum-fold-rgb) / 0.22)) saturate(1.5);
+  --lum-drop: 0 6px 18px -4px rgba(15, 23, 42, 0.18);
   --ok: #16a34a;
   --ok-soft: #dcfce7;
   --warn: #d97706;
@@ -62,8 +112,7 @@
   /* Elevation — borderless cards float on ultra-soft, diffuse shadows */
   --elev-1: 0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 30px rgba(15, 23, 42, 0.05);
   --elev-2: 0 2px 6px rgba(15, 23, 42, 0.04), 0 16px 44px rgba(15, 23, 42, 0.09);
-  /* the one colored shadow in the system — primary buttons only */
-  --elev-accent: 0 2px 6px rgba(37, 99, 235, 0.18), 0 8px 22px -6px rgba(37, 99, 235, 0.35);
+
 
   --r-card: 24px;
   --r-tile: 16px;
@@ -87,6 +136,31 @@
      fibre streaks survive. */
   --gate-scrim: rgba(15, 23, 42, 0.07);
   --gate-image: url("/assets/BG_AEGIS01.webp");
+
+  /* The halo — Welcome only. With no card under the hero, this is what
+     calms the fibre streaks behind the wordmark and pushes the centre
+     toward the ink's opposite end. Two stops, not one: a single stop to
+     `transparent` falls off linearly and bands across a 700px ellipse. */
+  --gate-halo-1: rgba(255, 255, 255, 0.8);
+  --gate-halo-2: rgba(255, 255, 255, 0.36);
+
+  /* the shadow the vault surface animates FROM — same layer count as
+     --elev-2 so the box-shadow transition can actually interpolate */
+  --elev-0: 0 0 0 rgba(15, 23, 42, 0), 0 0 0 rgba(15, 23, 42, 0);
+
+  /* Rules drawn ON the photograph. --line is a token for rules on a known
+     surface; over the gate it measures ~1.2:1 and vanishes. This is an
+     alpha of the ink so it holds against whatever the image does. */
+  --hairline: rgba(15, 23, 42, 0.14);
+
+  /* The Hub's veil. The door's hero sits in the photograph's centre void so
+     `.gate-halo` only has to calm its edges; the Hub's index is 880px of
+     small text lying straight across the streaks. Measured without it: the
+     row description hits 3.04:1 light / 1.39:1 dark (a bright fibre tip
+     behind the text). Wider and flatter than the door's halo because the
+     content it protects is wider and flatter. */
+  --hub-halo-1: rgba(255, 255, 255, 0.84);
+  --hub-halo-2: rgba(255, 255, 255, 0.5);
 
   color-scheme: light;
 }
@@ -112,10 +186,41 @@
 
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 30px rgba(0, 0, 0, 0.35);
   --elev-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 16px 44px rgba(0, 0, 0, 0.5);
-  --elev-accent: 0 2px 6px rgba(59, 130, 246, 0.25), 0 8px 22px -6px rgba(59, 130, 246, 0.4);
+  --elev-accent: 0 2px 6px rgba(59, 130, 246, 0.2), 0 8px 22px -6px rgba(167, 139, 250, 0.35);
+
+  /* The luminous card, dark: the obsidian original. Same tokens, same
+     geometry — only the substrate changes. Here the slot really is a hole
+     into the machine, so the folds can be pure black and the light reads
+     without needing a pocket dug for it (--lum-fold-a drops back to 0.5). */
+  --lum-hi: #3a3a3a;
+  --lum-lo: #1a1a1a;
+  --lum-ink: #ffffff; /* 17.4:1 on the base */
+  --lum-ink-2: rgba(255, 255, 255, 0.72); /* 9.5:1 */
+  --lum-slit-off: #121212;
+  --lum-edge: rgba(255, 255, 255, 0.2);
+  --lum-glow: #3b82f6; /* the brighter blue: it has black to burn against */
+  --lum-fold-rgb: 0 0 0;
+  --lum-fold-a: 0.5;
+  /* Obsidian can take the full cone: blue over #1a1a1a genuinely ADDS light,
+     so here the shaft is the effect rather than a bleed. */
+  --lum-lumen-lit: 0.5;
+  --lum-icon-live: drop-shadow(0 -1.2rem 2px rgb(0 0 0 / 0.2)) brightness(1.5);
+  --lum-drop: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
 
   --gate-scrim: rgba(0, 0, 0, 0.34);
   --gate-image: url("/assets/BG_AEGIS02.webp");
+
+  /* dark inverts the halo: deepen the centre so the light ink pops and
+     the violet fibre tips stop competing with the wordmark */
+  --gate-halo-1: rgba(6, 6, 9, 0.88);
+  --gate-halo-2: rgba(6, 6, 9, 0.44);
+
+  --elev-0: 0 0 0 rgba(0, 0, 0, 0), 0 0 0 rgba(0, 0, 0, 0);
+
+  --hairline: rgba(255, 255, 255, 0.14);
+
+  --hub-halo-1: rgba(6, 6, 9, 0.9);
+  --hub-halo-2: rgba(6, 6, 9, 0.64);
 
   color-scheme: dark;
 }
@@ -178,6 +283,47 @@ h3 {
   background-color: var(--canvas); /* holds the frame before the webp decodes */
 }
 
+/* The halo sits between the photograph and the hero. It is a Welcome-only
+   layer and must NOT be baked into .gate-bg: --gate-scrim exists to push
+   the void away from --card (1.02:1 without it), and a halo that brightens
+   the centre in light mode would hand that contrast problem straight back
+   the moment the vault materializes. So it fades out as the card fades in. */
+.gate-halo {
+  background: radial-gradient(
+    ellipse 48rem 38rem at 50% 46%,
+    var(--gate-halo-1) 0%,
+    var(--gate-halo-2) 45%,
+    transparent 72%
+  );
+}
+
+/* ── The vault surface ────────────────────────────────────────────
+   The door is boxless: at Welcome the hero sits directly on the
+   photograph and this element is pure structure — no fill, no shadow.
+   It materializes into the card that houses the lock. CSS owns the
+   material (fill + shadow) so framer-motion keeps sole ownership of
+   transform for the `layout` spring; see DESIGN.md · Motion. */
+.vault-surface {
+  background-color: transparent;
+  box-shadow: var(--elev-0);
+  transition:
+    background-color var(--dur-slow) var(--ease),
+    box-shadow var(--dur-slow) var(--ease);
+}
+.vault-surface.is-solid {
+  background-color: var(--card);
+  box-shadow: 0 10px 40px -15px rgba(124, 58, 237, 0.12), var(--elev-2);
+  border: 1px solid rgba(192, 132, 252, 0.3);
+  transition:
+    background-color var(--dur-slow) var(--ease),
+    box-shadow var(--dur-slow) var(--ease),
+    border-color var(--dur-slow) var(--ease);
+}
+:root[data-theme="dark"] .vault-surface.is-solid {
+  box-shadow: 0 0 40px -15px rgba(124, 58, 237, 0.3), var(--elev-2);
+  border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
 /* ── The hatch — the AEGIS signature texture ──────────────────────
    ONE meaning: "not real / not solid / not passed". Used here only
    on pending Defense-in-Depth layers. Do not invent new uses.      */
@@ -206,19 +352,594 @@ h3 {
   --hatch-color: color-mix(in srgb, var(--ink-3) 42%, transparent);
 }
 
-/* ── Module card ──────────────────────────────────────────────────
-   Strict split of ownership: CSS owns the shadow, framer-motion owns
-   the transform. They must never both write `transform` — a CSS
-   animation's `both` fill silently outranks framer's inline style and
-   the tap would do nothing. Hover is DESIGN.md's lift (no scale-up);
-   the press is framer's whileTap. */
-.module-card {
-  box-shadow: var(--elev-1);
-  transition: box-shadow var(--dur-base) var(--ease);
+/* Unlike .gate-halo this one never fades out — the Hub has no card state to
+   hand a contrast problem back to, and its text never leaves the photograph.
+   Later stops than the door's (58%/88%) so the veil still holds at the last
+   row rather than falling off before the index ends. */
+.hub-halo {
+  background: radial-gradient(
+    ellipse 52rem 34rem at 50% 50%,
+    var(--hub-halo-1) 0%,
+    var(--hub-halo-2) 58%,
+    transparent 88%
+  );
 }
-.module-card:hover,
-.module-card:focus-visible {
-  box-shadow: var(--elev-2);
+
+/* ── The module index ─────────────────────────────────────────────
+   The Hub is boxless too. Three identical icon+title+text cards were
+   the one thing in this app that read as generic SaaS, and a card is
+   also the thing standing between the user and the photograph — so
+   the modules are an editorial index: hairline rules, no surfaces.
+   It degrades honestly to one row (a `user` sees only Drive), which
+   a three-up card grid never did.
+
+   CSS owns fill/border/opacity here; framer-motion owns transform.
+   Never both on one element — see DESIGN.md · Motion. */
+.module-index {
+  border-top: 1px solid var(--hairline);
+}
+.module-row {
+  border-bottom: 1px solid var(--hairline);
+  transition: border-bottom-color var(--dur-base) var(--ease);
+}
+.module-row:hover,
+.module-row:focus-visible {
+  border-bottom-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+/* the wash — targeting feedback, wiped in from the leading edge. Kept to
+   an alpha of --accent so it tints the photograph rather than hiding it. */
+.module-row-wash {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 11%, transparent) 0%,
+    transparent 62%
+  );
+  transition: opacity var(--dur-base) var(--ease);
+}
+.module-row:hover .module-row-wash,
+.module-row:focus-visible .module-row-wash {
+  opacity: 1;
+}
+
+/* ── The sparkle button ───────────────────────────────────────────
+   The primary action, given a face: a blue bloom rising off the bottom
+   edge and ten points drifting up through it.
+
+   It is a PILL, and it has no folded corner. The source this came from
+   carried the fold on a 0.75rem radius; a corner is the one thing this
+   system cannot lend it — DESIGN.md · Shape: every button, chip, toggle
+   and input is 999px, and on the login form this button sits directly
+   under two h-12 pills. A 12px CTA there reads as imported, not designed.
+   The bloom and the points carry the delight instead; the fold was the
+   only part that structurally could not come with them.
+
+   CONTRAST IS THE BINDING CONSTRAINT, not taste. White on --accent-solid
+   is 5.17:1 — AA with 0.67 of headroom and no more. Every layer added here
+   LIFTS luminance behind a white label, so each one is capped by what it
+   does at the label's edge, not by how it looks at the button's edge:
+
+     bloom  0.75 alpha, radius 42% of height → it is spent below the text.
+            At the glyph's descender it composites to 4.56:1. At 0.8 alpha
+            and the source's 65.28% radius it reaches the label properly
+            and lands at 3.76:1 — the original is a dribbble button, and it
+            fails AA at the very bottom of its own label.
+     sheen  0.10 → 0 by 62%. The source's 0.19 measures 4.17:1 at the top
+            of the label; it never overlaps the bloom at 0.10 and 62%.
+     hover  base darkens to --accent-solid-hover (#1d4ed8), so the bloom is
+            allowed to grow (0.9 alpha, scaleY 1.25) and still hold 4.74:1.
+
+   Both themes at once, for free: --accent-solid and --accent-bloom are
+   theme-invariant, so these are the numbers in light AND dark.
+
+   CSS owns every transform on this element (hover lift, press) — framer
+   must never animate the button itself, only a wrapper. DESIGN.md · Motion. */
+.sparkle-btn {
+  --sparkle-rise: 55px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  /* the one colored shadow in the system, plus a hairline top-rim */
+  box-shadow: var(--elev-accent), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition:
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+/* the sheen — one soft top-light, so the pill reads as a struck surface
+   rather than a flat fill. Gone by 62%, where the bloom starts to matter. */
+.sparkle-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(178deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 62%);
+}
+
+/* the bloom — transform/opacity only, never the `background` shorthand:
+   gradients do not interpolate, so animating the fill itself would snap. */
+.sparkle-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  transform-origin: 50% 100%;
+  background: radial-gradient(70% 34% at 50% 100%, var(--accent-bloom) 0%, transparent 100%);
+  transition:
+    opacity var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease);
+}
+
+.sparkle-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  transform: translateY(-1px);
+}
+.sparkle-btn:hover:not(:disabled)::after {
+  opacity: 0.9;
+  transform: scaleY(1.18);
+}
+/* the press — 0.98, the one scale in the system (DESIGN.md · Motion) */
+.sparkle-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.sparkle-btn:disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+:root[data-theme="dark"] .sparkle-btn:disabled {
+  background: #334155;
+}
+
+.sparkle-btn__label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* white, hardcoded and correct: this label only ever sits on
+     --accent-solid, which does not change between themes. */
+  color: #fff;
+}
+
+/* ── the points ───────────────────────────────────────────────────
+   Ten of them, drifting up and burning out. The uneven left/opacity/
+   duration/delay values are the whole effect — a regular grid of dots
+   on a regular cadence reads as a loading bar, not as sparks.
+
+   `animation-name: none` is the DEFAULT here, and the two modifiers below
+   are what turn it on. That is the DESIGN.md carve-out expressed in CSS:
+   `--idle` (Welcome) is the door, which has no task and may loop forever;
+   `--hover` (the login form) has a task, and its points only exist while
+   the user is actually pointing at the button. */
+.sparkle-points {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sparkle-point {
+  position: absolute;
+  bottom: -10px;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background-color: #fff;
+  pointer-events: none;
+  animation-name: none;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes sparkle-rise {
+  0% {
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(calc(var(--sparkle-rise) * -1));
+    opacity: 0;
+  }
+}
+
+.sparkle-btn--idle .sparkle-point,
+.sparkle-btn--hover:hover .sparkle-point,
+.sparkle-btn--hover:focus-visible .sparkle-point {
+  animation-name: sparkle-rise;
+}
+
+.sparkle-point:nth-child(1)  { left: 10%; opacity: 1;   animation-duration: 2.35s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(2)  { left: 30%; opacity: 0.7; animation-duration: 2.5s;  animation-delay: 0.5s; }
+.sparkle-point:nth-child(3)  { left: 25%; opacity: 0.8; animation-duration: 2.2s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(4)  { left: 44%; opacity: 0.6; animation-duration: 2.05s; }
+.sparkle-point:nth-child(5)  { left: 50%; opacity: 1;   animation-duration: 1.9s; }
+.sparkle-point:nth-child(6)  { left: 75%; opacity: 0.5; animation-duration: 1.5s;  animation-delay: 1.5s; }
+.sparkle-point:nth-child(7)  { left: 88%; opacity: 0.9; animation-duration: 2.2s;  animation-delay: 0.2s; }
+.sparkle-point:nth-child(8)  { left: 58%; opacity: 0.8; animation-duration: 2.25s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(9)  { left: 98%; opacity: 0.6; animation-duration: 2.6s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(10) { left: 65%; opacity: 1;   animation-duration: 2.5s;  animation-delay: 0.2s; }
+
+/* Last, and deliberately so: this must outrank both modifiers above (equal
+   specificity, later wins). While the server is deciding, the login button
+   is disabled — and the Defense-in-Depth cascade is the loading state. A
+   button sparkling through the cascade would be a second, fake progress
+   signal competing with the real one. */
+.sparkle-btn:disabled .sparkle-point {
+  animation-name: none;
+}
+
+/* ── The luminous module card ─────────────────────────────────────
+   Drive's launcher, rendered as a sealed obsidian device with a slot of
+   light across its face. Every role has Drive, so this card is never the
+   thing that "degrades" — it is the one module that is always there, and
+   it is designed to stand alone. Admin's CCTV + Monitoring stay as the
+   hairline rows below it (see .module-index): a hero plus an index is a
+   hierarchy, three identical icon+title+text cards is the generic-SaaS
+   grid DESIGN.md removed from this screen. There is exactly ONE of these
+   on the page, which is also what keeps ~5 blurred 3D layers affordable.
+
+   The whole element is ONE <button>: one tab stop, one accessible name,
+   one hit target. The switch inside is aria-hidden hardware — it reports
+   state, it never claims to be a second control, and it is momentary (a
+   power button), never a toggle. Nothing here is reversible: you press it
+   and you leave.
+
+   Geometry note: the source was tuned for an 18rem × 24rem box, so the
+   height is fixed and every horizontal landmark is a PERCENTAGE. The two
+   fold shadows were `11.5rem`, which is 64% of 18rem — the same 64% the
+   slit is wide. As rem they detached from the slit the moment the card
+   changed width (at 420px they landed *inside* the slot they are meant to
+   edge); as % they track it at any width. */
+.lum-card {
+  position: relative;
+  width: 100%;
+  max-width: 20rem;
+  height: 24rem;
+  /* 1.5rem now the switch is gone: the text block runs the full width of the
+     face, so the margin around it is the only thing setting it off. Padding is
+     safe to move — every light layer is inset:0 on .lum-light and measures from
+     the border box, not the content box. */
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-card);
+  color: var(--lum-ink);
+  background: radial-gradient(circle at 50% 0%, var(--lum-hi) 0%, var(--lum-lo) 64%);
+  border: 1px solid rgba(167, 139, 250, 0.15);
+  box-shadow:
+    0 0 0 1px var(--lum-edge),
+    0 10px 30px -10px rgba(124, 58, 237, 0.08),
+    var(--lum-drop);
+  /* never `all`: that would animate width/height/padding on every state */
+  transition:
+    box-shadow var(--dur-slow) var(--ease),
+    translate var(--dur-slow) var(--ease),
+    scale var(--dur-fast) var(--ease),
+    border-color var(--dur-slow) var(--ease);
+}
+:root[data-theme="dark"] .lum-card {
+  border: 1px solid rgba(124, 58, 237, 0.15);
+  box-shadow:
+    0 0 0 1px var(--lum-edge),
+    0 0 40px -15px rgba(124, 58, 237, 0.25),
+    var(--lum-drop);
+}
+
+/* the bracket frame — four corner rules floating off the card, drawn with
+   one clip-path. It tightens and lengthens on hover: the housing noticing
+   you.
+
+   `--hairline`, and this is the one part of the card that MUST invert with
+   the theme. Everything inside the housing is theme-invariant because it is
+   the device; these brackets are drawn OUTSIDE it, directly on the
+   photograph — and the source's white-at-13% is invisible over the light
+   backdrop. --hairline is the token for precisely this ("rules drawn on the
+   photograph", ink at 0.14 / white at 0.14). Device inside, page outside. */
+.lum-card::before {
+  content: "";
+  --offset: 1rem;
+  --ax: 4rem;
+  position: absolute;
+  inset: calc(-1 * var(--offset));
+  pointer-events: none;
+  border-radius: calc(var(--r-card) + var(--offset));
+  box-shadow: inset 0 0 0 0.06rem var(--hairline);
+  clip-path: polygon(
+    var(--ax) 0, 0 0, 0 var(--ax), var(--ax) var(--ax),
+    var(--ax) calc(100% - var(--ax)), 0 calc(100% - var(--ax)), 0 100%, var(--ax) 100%,
+    var(--ax) calc(100% - var(--ax)), calc(100% - var(--ax)) calc(100% - var(--ax)),
+    calc(100% - var(--ax)) 100%, 100% 100%, 100% calc(100% - var(--ax)),
+    calc(100% - var(--ax)) calc(100% - var(--ax)), calc(100% - var(--ax)) var(--ax),
+    100% var(--ax), 100% 0, calc(100% - var(--ax)) 0, calc(100% - var(--ax)) var(--ax),
+    var(--ax) var(--ax)
+  );
+  transition:
+    inset var(--dur-slow) var(--ease),
+    border-radius var(--dur-slow) var(--ease),
+    clip-path var(--dur-slow) var(--ease),
+    box-shadow var(--dur-slow) var(--ease);
+}
+
+/* `translate`/`scale`, not `transform`: framer-motion owns `transform` on
+   this element's wrapper for the stagger, and the individual properties
+   compose with it instead of overwriting it. DESIGN.md · Motion. */
+.lum-card:hover,
+.lum-card:focus-visible {
+  translate: 0 -0.2rem;
+}
+.lum-card:hover::before,
+.lum-card:focus-visible::before {
+  --offset: 0.5rem;
+  --ax: 8rem;
+  box-shadow: inset 0 0 0 0.08rem rgba(124, 58, 237, 0.6);
+}
+:root[data-theme="dark"] .lum-card:hover::before,
+:root[data-theme="dark"] .lum-card:focus-visible::before {
+  box-shadow: inset 0 0 0 0.08rem rgba(167, 139, 250, 0.6);
+}
+@media (max-width: 640px) {
+  .lum-card::before {
+    --offset: 0.5rem;
+  }
+  .lum-card:hover::before,
+  .lum-card:focus-visible::before {
+    --offset: 0.25rem;
+  }
+}
+.lum-card:active {
+  scale: 0.98; /* the house press */
+}
+
+.lum-light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  perspective: 400px;
+  transform-style: preserve-3d;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* the slot itself — laid almost flat so you see into it, not at it */
+.lum-slit {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 64%;
+  height: 1.2rem;
+  transform: rotateX(-76deg);
+  background: var(--lum-slit-off);
+  box-shadow: 0 0 4px 0 rgb(var(--lum-fold-rgb) / 0.3);
+  transition:
+    background-color var(--dur-slow) var(--ease),
+    box-shadow var(--dur-slow) var(--ease);
+}
+
+.lum-lumen {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+  perspective: 400px;
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+/* THE light — AEGIS blue in both themes, never white. The gradient runs
+   transparent → --lum-glow, so the shaft is densest where it leaves the
+   slot and thins as it travels, which is the right way round for a beam. */
+.lum-lumen i {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: block;
+  background: linear-gradient(
+    to top,
+    rgba(124, 58, 237, 0.8) 0%,
+    rgba(37, 99, 235, 0.4) 60%,
+    transparent 100%
+  );
+}
+:root[data-theme="dark"] .lum-lumen i {
+  background: linear-gradient(
+    to top,
+    rgba(167, 139, 250, 0.8) 0%,
+    rgba(59, 130, 246, 0.4) 60%,
+    transparent 100%
+  );
+}
+.lum-lumen .min {
+  width: 70%; height: 3rem; bottom: 2.5rem; top: 0;
+  transform: rotateX(-42deg); opacity: 0.4;
+}
+.lum-lumen .mid {
+  width: 74%; height: 13rem; bottom: 10rem; top: 0;
+  transform: rotateX(-42deg); filter: blur(1rem); opacity: 0.8;
+  border-radius: 100% 100% 0 0;
+}
+.lum-lumen .hi {
+  width: 50%; height: 13rem; bottom: 12rem; top: 0;
+  transform: rotateX(22deg); filter: blur(1rem); opacity: 0.6;
+  border-radius: 100% 100% 0 0;
+}
+
+/* the folds the light throws — this is what sells the slot as a real
+   opening rather than a painted line */
+.lum-darken {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+  perspective: 400px;
+  opacity: var(--lum-fold-a);
+  transition: opacity var(--dur-slow) var(--ease);
+}
+.lum-darken i {
+  position: absolute;
+  margin: auto;
+  display: block;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+.lum-darken .sl {
+  width: 64%; height: 10rem; left: 0; right: 0; top: 9.6rem; bottom: 0;
+  background: linear-gradient(rgb(var(--lum-fold-rgb)), transparent); filter: blur(0.2rem);
+  opacity: 0.1; border-radius: 0 0 100% 100%; transform: rotateX(-22deg);
+}
+.lum-darken .ll {
+  width: 62%; height: 10rem; left: 0; right: 0; top: 11rem; bottom: 0;
+  background: linear-gradient(rgb(var(--lum-fold-rgb) / 0.67), transparent); filter: blur(0.8rem);
+  opacity: 0.4; border-radius: 0 0 100% 100%; transform: rotateX(22deg);
+}
+/* 64%, not 11.5rem — see the geometry note above */
+.lum-darken .slt {
+  width: 0.5rem; height: 4rem; left: 0; right: 64%; top: 3.9rem; bottom: 0;
+  background: linear-gradient(rgb(var(--lum-fold-rgb) / 0.33), transparent); opacity: 0.6;
+  border-radius: 0 0 100% 100%; transform: skewY(42deg);
+}
+.lum-darken .srt {
+  width: 0.5rem; height: 4rem; right: 0; left: 64%; top: 3.9rem; bottom: 0;
+  background: linear-gradient(rgb(var(--lum-fold-rgb) / 0.33), transparent); opacity: 0.6;
+  border-radius: 0 0 100% 100%; transform: skewY(-42deg);
+}
+
+/* Centred in the upper half — the half the slit's centreline closes at 12rem.
+   A 3.5rem icon at top:4.25rem leaves 4.25rem of face above it and 4.25rem
+   between its foot and the light, so it hangs level in its own compartment
+   rather than being "near the top". `display: flex` kills the inline baseline
+   gap under the svg, which at hero size is enough to break that symmetry. */
+.lum-icon {
+  position: absolute;
+  top: 4.25rem;
+  left: 0;
+  right: 0;
+  margin: auto;
+  display: flex;
+  width: fit-content;
+  filter: drop-shadow(0 -1.2rem 1px transparent);
+  transition: filter var(--dur-slow) var(--ease);
+}
+
+.lum-title {
+  display: block;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+/* 400, not the source's 100: IBM Plex Sans Thai only ships 400/500/600/700
+   here (see the @imports), so 100 would synthesise a fake light on Thai.
+
+   No padding-right and no rule under it any more. Both existed to dodge the
+   switch — the padding was the source's `max-width: 64%` rewritten to track a
+   fixed 4.8rem control, and the border-bottom was there to give the switch a
+   baseline to sit on. With the switch gone they are a gutter and a rule around
+   nothing, which is exactly the clutter that was showing in light mode.
+
+   1.7, not 1.625: `:lang(th)` sets a 1.7 floor for tone-mark clearance and
+   this copy is Thai by default (PRODUCT.md — Thai-first). Same intent as
+   leading-relaxed, at the value Thai actually needs. It wins on source order
+   over the :lang rule, so it has to carry the floor itself. */
+.lum-desc {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--lum-ink-2);
+  text-wrap: pretty;
+}
+
+/* ── Lit: the housing powers on ──────────────────────────────────
+   One state, three ways in. Hover IS the event now, not a warm-up: the slot
+   goes fully saturated, the cone comes up to its ceiling, the folds deepen and
+   the icon backlights. There is no dimmer step between "noticed" and "on"
+   because there is no longer a switch to be the second half of the gesture —
+   the face is the control, so the face lights.
+
+   `:focus-visible` is in the same rule rather than a paler copy: with the card
+   as one <button>, keyboard and pointer are the same affordance and must render
+   identically. `.is-live` joins them so React can HOLD the light through the
+   "Entering…" beat, when the pointer has usually already left. */
+.lum-card:hover .lum-slit,
+.lum-card:focus-visible .lum-slit,
+.lum-card.is-live .lum-slit {
+  background: linear-gradient(to right, #2563eb, #7c3aed);
+  box-shadow: 
+    0 0 8px 1px rgba(37, 99, 235, 0.8),
+    0 0 8px 3px rgba(124, 58, 237, 0.8);
+}
+:root[data-theme="dark"] .lum-card:hover .lum-slit,
+:root[data-theme="dark"] .lum-card:focus-visible .lum-slit,
+:root[data-theme="dark"] .lum-card.is-live .lum-slit {
+  background: linear-gradient(to right, #3b82f6, #a78bfa);
+  box-shadow: 
+    0 0 8px 1px rgba(59, 130, 246, 0.8),
+    0 0 8px 3px rgba(167, 139, 250, 0.8);
+}
+.lum-card:hover .lum-lumen,
+.lum-card:focus-visible .lum-lumen,
+.lum-card.is-live .lum-lumen {
+  opacity: var(--lum-lumen-lit);
+}
+.lum-card:hover .lum-darken,
+.lum-card:focus-visible .lum-darken,
+.lum-card.is-live .lum-darken {
+  opacity: calc(var(--lum-fold-a) * 1.6);
+}
+.lum-card:hover .lum-darken .sl,
+.lum-card:focus-visible .lum-darken .sl,
+.lum-card.is-live .lum-darken .sl { opacity: 0.2; }
+.lum-card:hover .lum-darken .ll,
+.lum-card:hover .lum-darken .slt,
+.lum-card:hover .lum-darken .srt,
+.lum-card:focus-visible .lum-darken .ll,
+.lum-card:focus-visible .lum-darken .slt,
+.lum-card:focus-visible .lum-darken .srt,
+.lum-card.is-live .lum-darken .ll,
+.lum-card.is-live .lum-darken .slt,
+.lum-card.is-live .lum-darken .srt { opacity: 1; }
+.lum-card:hover .lum-icon,
+.lum-card:focus-visible .lum-icon,
+.lum-card.is-live .lum-icon {
+  filter: var(--lum-icon-live);
+}
+
+/* ── Live: thrown, entering ──────────────────────────────────────
+   What is left that is live-only, now that hover owns the light: the housing
+   itself takes the glow. Hover lights the SLOT; committing lights the DEVICE.
+   That is the only escalation left and it has to be one the card cannot fake
+   by being pointed at. */
+/* 0.36, not 0.5 — capped by the label, the same way the sparkle button's bloom
+   is (DESIGN.md · the colored-button rule). The description used to clear this
+   inset because `padding-bottom: 0.75rem` held it 12px up; that padding was the
+   switch's baseline and left with it, dropping the text into the densest band
+   of the shadow. Measured worst pixel behind the description, light/live:
+   0.5 → 4.34:1, which FAILS AA. 0.36 → 4.89:1. Below ~0.26 the number plateaus
+   at hover's 5.15, i.e. the shadow has stopped reaching the text at all and
+   there is no layer left to have. Re-measure if the bottom padding moves. */
+.lum-card.is-live {
+  box-shadow:
+    inset 0 -4rem 3rem -3rem rgb(var(--lum-fold-rgb) / 0.36),
+    0 0 0 1px rgba(167, 139, 250, 0.5),
+    var(--lum-drop),
+    0 0 24px -4px rgba(124, 58, 237, 0.6);
 }
 
 /* ── Shared micro-animations ──────────────────────────────────── */
@@ -329,8 +1050,13 @@ h3 {
     transition-duration: 1ms !important;
     transition-delay: 0ms !important;
   }
+  /* Not merely collapsed to 1ms — never started. An infinite compositor
+     loop is a battery cost whether or not you can see it, and the door
+     leaves ten of these running forever (DESIGN.md · Motion). The button
+     still reads fully: fill, bloom, sheen and label are all static. */
   .slide-x,
-  .pulse-node {
+  .pulse-node,
+  .sparkle-point {
     animation: none !important;
   }
 }

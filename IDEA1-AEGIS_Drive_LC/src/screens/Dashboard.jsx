@@ -3,29 +3,32 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import {
-  Database, Files as FilesIcon, Users, ShieldCheck, ArrowUpRight, ArrowDownRight,
-  FlaskConical, Upload, Download, Link2, LogIn, Camera, ShieldAlert, KeyRound,
+  Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
+  FlaskConical, LogIn, FileText, Clock,
 } from 'lucide-react'
-import { Card, CardTitle, Chip, Dot, Sparkline, IconBtn, Segmented } from '../components/ui.jsx'
-import { useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
-import { fmtRelative } from '../lib/format.js'
-import { ACTIVITY, TRANSFER_7D, BREAKDOWN, SPARK } from '../lib/data.js'
+import { Card, CardTitle, Chip, Dot, IconBtn, Segmented, Reveal, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
+import { fmtRelative, fmtCountdown, fmtStamp } from '../lib/format.js'
 
-/* ── Stat card — hero number counts, sparkline bleeds to the corners ── */
-function StatCard({ icon: Icon, label, value, suffix, decimals = 0, delta, deltaUp, spark, alarm = false, allClearLabel, delay = 0 }) {
+/* ⚠️ Phase 2: ไม่มี fixture ฝั่ง client แม้แต่แถวเดียว — ทุกตัวเลขบนจอนี้มาจาก
+   /api/dashboard · /api/storage · /healthz และจอจัดการครบสี่สถานะ:
+   loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง */
+
+/* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
+function StatCard({ icon: Icon, label, value, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, delay = 0, footer, gradientValue = false }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
     <Card
-      className={`relative overflow-hidden p-5 pb-10 rise-in ${alarm ? 'border-pulse' : ''}`}
+      className={`relative overflow-hidden p-6 pb-6 rise-in ${alarm ? 'border-pulse' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
       }}
     >
       <div className="flex items-start justify-between">
-        <div className="size-8 rounded-[9px] bg-sunken flex items-center justify-center">
-          <Icon size={16} strokeWidth={1.5} className="text-ink-2" />
+        <div className="size-10 rounded-xl bg-accent-soft flex items-center justify-center text-accent-ink">
+          <Icon size={18} strokeWidth={1.5} />
         </div>
         {delta != null ? (
           <Chip tone={deltaUp ? 'ok' : 'danger'}>
@@ -36,32 +39,42 @@ function StatCard({ icon: Icon, label, value, suffix, decimals = 0, delta, delta
           <Chip tone={alarm ? 'danger' : 'ok'}>{alarm ? `▲ ${value}` : allClearLabel}</Chip>
         )}
       </div>
-      <p className="text-[13px] font-medium text-ink-3 mt-3">{label}</p>
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-4">{label}</p>
+      {/* lang="en" — DESIGN.md · Cascade traps. This is a tabular-nums stat */}
       <p
-        className="text-[34px] font-semibold tracking-[-0.01em] leading-tight mt-0.5"
-        style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel ? 'var(--ok)' : 'var(--ink)' }}
+        lang="en"
+        className={`text-3xl font-mono font-semibold tracking-tight leading-none mt-1.5 ${gradientValue ? 'bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400' : 'text-slate-900 dark:text-white'}`}
+        style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel ? 'var(--ok)' : undefined }}
       >
         {display}
-        {suffix && <span className="text-[17px] font-medium text-ink-3 ml-1.5">{suffix}</span>}
+        {suffix && <span className="text-lg font-semibold text-slate-400 dark:text-slate-500 ml-1.5">{suffix}</span>}
       </p>
-      <div className="absolute bottom-0 left-0 right-0 h-7 opacity-90">
-        <Sparkline data={spark} color={alarm ? 'var(--danger)' : 'var(--accent)'} width={200} height={28} fill className="w-full h-full" />
-      </div>
+      {footer && (
+        <div className="mt-4 pt-3 border-t border-line">
+          {footer}
+        </div>
+      )}
     </Card>
   )
 }
 
-/* ── Data Lake Health — three tiers resting on one another ─────────── */
+/* ── Data Lake Health — สถานะจริงจาก /healthz + demo override สำหรับผู้นำเสนอ ── */
 const TIERS = [
-  { id: 'app', nameKey: 'tierApp', tech: 'NGINX', spark: SPARK.nginx, baseLat: 12 },
-  { id: 'meta', nameKey: 'tierMeta', tech: 'PostgreSQL', spark: SPARK.postgres, baseLat: 4 },
-  { id: 'fs', nameKey: 'tierStorage', tech: 'Linux FS / HDD', spark: SPARK.fs, baseLat: 2 },
+  { id: 'app', nameKey: 'tierApp', tech: 'NGINX / Express', baseLat: 12 },
+  { id: 'meta', nameKey: 'tierMeta', tech: 'PostgreSQL', baseLat: 4 },
+  { id: 'fs', nameKey: 'tierStorage', tech: 'Linux FS / HDD', baseLat: 2 },
 ]
 
-function LakeHealth({ t, tierStates, setTierStates }) {
+function LakeHealth({ t, health }) {
   const [demoOpen, setDemoOpen] = useState(false)
-  // A tier "rests on" every tier below it: if anything beneath is unwell,
-  // the tiers above desaturate and settle down 2px — dependency made visible.
+  // override เป็นเครื่องมือเดโม่ "เท่านั้น" (แสดงสถานะ degraded/down ให้ผู้ตรวจดูได้)
+  // ค่าเริ่มต้นจริงมาจาก /healthz — ไม่ใช่ตัวเลขแต่งขึ้น
+  const [override, setOverride] = useState({})
+  const tierStates = {
+    app: override.app ?? (health ? 'healthy' : 'down'),
+    meta: override.meta ?? (health ? (health.db === 'postgres' || health.db === 'memory' ? 'healthy' : 'down') : 'down'),
+    fs: override.fs ?? (health?.ok ? 'healthy' : 'down'),
+  }
   const brokenBelow = (idx) => TIERS.some((tier, i) => i > idx && tierStates[tier.id] !== 'healthy')
 
   return (
@@ -90,7 +103,7 @@ function LakeHealth({ t, tierStates, setTierStates }) {
                   { value: 'down', label: t('tierDown') },
                 ]}
                 value={tierStates[tier.id]}
-                onChange={(v) => setTierStates((s) => ({ ...s, [tier.id]: v }))}
+                onChange={(v) => setOverride((s) => ({ ...s, [tier.id]: v }))}
               />
             </div>
           ))}
@@ -132,9 +145,6 @@ function LakeHealth({ t, tierStates, setTierStates }) {
                 <span className="text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
                 <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-sm:hidden">{tier.tech}</span>
                 <div className="flex-1 min-w-4" />
-                <div className="w-24 h-6 max-sm:hidden" style={{ opacity: state === 'down' ? 0.25 : 1 }}>
-                  <Sparkline data={tier.spark} color={state === 'healthy' ? 'var(--ok)' : tone === 'warn' ? 'var(--warn)' : 'var(--danger)'} width={96} height={24} className="w-full h-full" />
-                </div>
                 <span className="text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : 'var(--danger)' }}>
                   {lat != null ? `${lat} ms` : '—'}
                 </span>
@@ -148,57 +158,79 @@ function LakeHealth({ t, tierStates, setTierStates }) {
   )
 }
 
-/* ── Activity feed ─────────────────────────────────────────────────── */
-const ACT_ICONS = { uploaded: Upload, downloaded: Download, 'created share link': Link2, 'share link open': ShieldAlert, 'login attempt': LogIn, 'verified checksum': ShieldCheck, 'snapshot created': Camera, 'vault unlock': KeyRound }
-
-function ActivityFeed({ t }) {
-  const now = useNow(30_000)
+/* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
+function LoginHistoryCard({ t, events }) {
   return (
     <Card className="p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
-      <CardTitle>{t('activity')}</CardTitle>
-      <div className="flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
-        {ACTIVITY.map((a) => {
-          const bad = a.result === 'blocked' || a.result === 'denied'
-          const Icon = ACT_ICONS[a.action] ?? FilesIcon
-          return (
-            <div
-              key={a.id}
-              className="flex items-start gap-3 rounded-[10px] px-3 py-2.5"
-              style={bad ? { background: 'var(--danger-soft)', borderLeft: '2px solid var(--danger)' } : {}}
-            >
-              <div className="size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
-                <Icon size={13} strokeWidth={1.5} style={{ color: bad ? 'var(--danger)' : 'var(--ink-2)' }} />
+      <CardTitle sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
+      {events.length === 0 ? (
+        <EmptyState icon={LogIn} title={t('emptyNoActivity')} />
+      ) : (
+        <div className="flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
+          {events.map((e, i) => {
+            const at = new Date(e.at).getTime()
+            const bad = e.result !== 'OK'
+            return (
+              <div key={i} className="flex items-start gap-3 rounded-[10px] px-3 py-2.5">
+                <div className="size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
+                  <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] text-ink-2 leading-snug flex items-center gap-2">
+                    <span className="font-mono text-[12px]">{fmtStamp(at)}</span>
+                    <Chip tone={bad ? 'danger' : 'ok'}>{bad ? t('resDenied') : t('resOk')}</Chip>
+                  </p>
+                  <p className="font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] text-ink-2 leading-snug">
-                  <span className="font-semibold text-ink">{a.actor}</span> {a.action}{' '}
-                  <span className="text-ink font-medium break-all">{a.target}</span>
-                </p>
-                <p className="text-[11.5px] text-ink-3 mt-0.5">{fmtRelative(t, a.time, now)}</p>
-              </div>
-              <Chip tone={bad ? 'danger' : 'ok'} className="mt-0.5">
-                {a.result === 'ok' ? t('resOk') : a.result === 'blocked' ? t('resBlocked') : t('resDenied')}
-              </Chip>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </Card>
   )
 }
 
-/* ── Storage breakdown — rounded stacked bar, hatch = free ─────────── */
-function StorageBreakdown({ t }) {
+/* ── Active share links (สเปกของจอ Dashboard) ────────────────────────── */
+function ActiveLinksCard({ t, shares, now }) {
+  return (
+    <Card className="p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
+      <CardTitle>{t('activeLinks')}</CardTitle>
+      {shares.length === 0 ? (
+        <EmptyState icon={Link2} title={t('emptyNoShares')} />
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {shares.map((s) => (
+            <div key={s.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+              <Link2 size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+              <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
+              <span className="text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
+                <Clock size={11} strokeWidth={1.8} />
+                {fmtCountdown(s.expiresAt - now, t('expired'))}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ── Storage breakdown — hatch = free (ค่าจาก /api/storage) ──────────── */
+const SEG_COLORS = { docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)', vaultSeg: 'var(--ink)', free: 'hatch' }
+
+function StorageBreakdown({ t, capacity }) {
   const [hovered, setHovered] = useState(null)
-  const total = BREAKDOWN.reduce((s, b) => s + b.gb, 0)
+  const segs = capacity.map((c) => ({ ...c, color: SEG_COLORS[c.key] ?? 'var(--ink-3)' }))
+  const total = segs.reduce((s, b) => s + b.gb, 0) || 1
   return (
     <Card className="p-5 rise-in" style={{ animationDelay: '240ms' }}>
       <CardTitle>{t('storageBreakdown')}</CardTitle>
       <div className="flex items-end gap-0.5 h-8 mt-1" aria-hidden>
-        {BREAKDOWN.map((seg, i) => (
+        {segs.map((seg, i) => (
           <div
             key={seg.key}
-            className={`h-7 transition-transform duration-[var(--dur-fast)] ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === BREAKDOWN.length - 1 ? 'rounded-r-full' : ''}`}
+            className={`h-7 transition-transform duration-[var(--dur-fast)] ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
             style={{
               width: `${(seg.gb / total) * 100}%`,
               backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color,
@@ -209,7 +241,7 @@ function StorageBreakdown({ t }) {
         ))}
       </div>
       <div className="mt-4 flex flex-col">
-        {BREAKDOWN.map((seg) => (
+        {segs.map((seg) => (
           <div
             key={seg.key}
             onMouseEnter={() => setHovered(seg.key)}
@@ -253,7 +285,7 @@ function ChartTooltip({ active, payload, label, t }) {
   )
 }
 
-function TransferChart({ t }) {
+function TransferChart({ t, data }) {
   const reduced = useReducedMotion()
   return (
     <Card className="p-5 rise-in" style={{ animationDelay: '280ms' }}>
@@ -270,18 +302,18 @@ function TransferChart({ t }) {
       </CardTitle>
       <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={TRANSFER_7D} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <BarChart data={data} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
             <XAxis dataKey="day" axisLine={false} tickLine={false} dy={6} />
             <YAxis axisLine={false} tickLine={false} width={38} />
             <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
             <Bar dataKey="up" radius={[8, 8, 0, 0]} maxBarSize={18} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
-              {TRANSFER_7D.map((d) => (
+              {data.map((d) => (
                 <Cell key={d.day} fill={d.projected ? 'url(#hatch-ink)' : 'var(--ink)'} />
               ))}
             </Bar>
             <Bar dataKey="down" radius={[8, 8, 0, 0]} maxBarSize={18} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
-              {TRANSFER_7D.map((d) => (
+              {data.map((d) => (
                 <Cell key={d.day} fill={d.projected ? 'url(#hatch-accent)' : 'var(--accent)'} />
               ))}
             </Bar>
@@ -292,39 +324,108 @@ function TransferChart({ t }) {
   )
 }
 
-/* ── The dashboard grid ────────────────────────────────────────────── */
-export function Dashboard({ t, metrics }) {
-  const [tierStates, setTierStates] = useState({ app: 'healthy', meta: 'healthy', fs: 'healthy' })
-  const alerts = useMemo(() => Object.values(tierStates).filter((s) => s !== 'healthy').length, [tierStates])
+/* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
+export function Dashboard({ t }) {
+  const now = useNow(1000)
+  const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
+  const storage = useApi('/api/storage', { refreshMs: 60_000 })
+  const health = useApi('/healthz', { refreshMs: 15_000 })
+
+  if (dash.loading) return <SkeletonLoader type="dashboard" />
+  if (dash.error) return <ErrorState t={t} kind={dash.error} onRetry={dash.retry} />
+
+  const d = dash.data
+  const m = d.metrics
+  const usedPct = Math.min(100, Math.round((m.storageGB / m.storageTotalGB) * 100))
+  const capacity = storage.data?.capacity ?? []
 
   return (
-    <div className="grid grid-cols-12 gap-6 max-xl:gap-5">
-      <div className="col-span-3 max-lg:col-span-6 max-md:col-span-12">
-        <StatCard icon={Database} label={t('statStorage')} value={metrics.storageGB} suffix={`GB ${t('of')} 1 TB`} decimals={0} delta="4.1%" deltaUp spark={SPARK.storage} />
-      </div>
-      <div className="col-span-3 max-lg:col-span-6 max-md:col-span-12">
-        <StatCard icon={FilesIcon} label={t('statFiles')} value={metrics.files} delta="12.4%" deltaUp spark={SPARK.files} delay={40} />
-      </div>
-      <div className="col-span-3 max-lg:col-span-6 max-md:col-span-12">
-        <StatCard icon={Users} label={t('statSessions')} value={3} delta="1" deltaUp={false} spark={SPARK.sessions} delay={80} />
-      </div>
-      <div className="col-span-3 max-lg:col-span-6 max-md:col-span-12">
-        <StatCard icon={ShieldCheck} label={t('statAlerts')} value={alerts} spark={SPARK.alerts} alarm={alerts > 0} allClearLabel={t('allClear')} delay={120} />
-      </div>
+    <div className="flex flex-col gap-6">
+      {/* Top 4 KPI Cards — ตัวเลขจริงจากเซิร์ฟเวอร์ทั้งหมด */}
+      <Reveal delay={0}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 max-xl:gap-5">
+          <StatCard
+            icon={Database}
+            label={t('statStorage')}
+            value={m.storageGB}
+            suffix={`GB of ${m.storageTotalGB} GB`}
+            decimals={0}
+            gradientValue
+            footer={
+              <div className="flex flex-col gap-1.5">
+                <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full" style={{ width: `${usedPct}%` }} />
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
+                  <span>{usedPct}% USED</span>
+                  <span>{Math.max(0, Math.round(m.storageTotalGB - m.storageGB))} GB FREE</span>
+                </div>
+              </div>
+            }
+          />
+          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} allClearLabel={t('resOk')} delay={40} />
+          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} allClearLabel={t('resOk')} delay={80} />
+          <StatCard
+            icon={ShieldCheck}
+            label={t('statSecurity')}
+            value={d.securityAlerts}
+            alarm={d.securityAlerts > 0}
+            allClearLabel={t('allClear')}
+            delay={120}
+          />
+        </div>
+      </Reveal>
 
-      <div className="col-span-8 max-lg:col-span-12">
-        <LakeHealth t={t} tierStates={tierStates} setTierStates={setTierStates} />
-      </div>
-      <div className="col-span-4 max-lg:col-span-12">
-        <ActivityFeed t={t} />
-      </div>
+      {/* Mid row: LakeHealth (จาก /healthz) + login history / active links */}
+      <Reveal delay={100}>
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 lg:w-2/3">
+            <LakeHealth t={t} health={health.data} />
+          </div>
+          <div className="w-full lg:w-1/3 flex flex-col gap-6">
+            <LoginHistoryCard t={t} events={d.loginHistory ?? []} />
+            <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} />
+          </div>
+        </div>
+      </Reveal>
 
-      <div className="col-span-6 max-lg:col-span-12">
-        <StorageBreakdown t={t} />
-      </div>
-      <div className="col-span-6 max-lg:col-span-12">
-        <TransferChart t={t} />
-      </div>
+      {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
+      <Reveal delay={200}>
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 lg:w-1/2">
+            {storage.loading ? (
+              <Card className="p-5 h-64 animate-pulse"><div className="w-1/3 h-5 skeleton" /><div className="w-full h-8 skeleton mt-6 rounded-full" /></Card>
+            ) : storage.error ? (
+              <Card><ErrorState t={t} kind={storage.error} onRetry={storage.retry} /></Card>
+            ) : (
+              <StorageBreakdown t={t} capacity={capacity} />
+            )}
+          </div>
+          <div className="flex-1 lg:w-1/2">
+            <TransferChart t={t} data={d.transfer7d ?? []} />
+          </div>
+        </div>
+      </Reveal>
+
+      {/* recent files — จาก /api/dashboard */}
+      <Reveal delay={260}>
+        <Card className="p-5">
+          <CardTitle>{t('recentFiles')}</CardTitle>
+          {(d.recentFiles ?? []).length === 0 ? (
+            <EmptyState icon={FileText} title={t('emptyNoFiles')} hint={t('emptyNoFilesHint')} />
+          ) : (
+            <div className="flex flex-col">
+              {d.recentFiles.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+                  <FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+                  <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
+                  <span className="text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </Reveal>
     </div>
   )
 }

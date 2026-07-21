@@ -1,0 +1,23 @@
+# AEGIS Monitor · Detection Engine — runtime dependencies
+#
+# Core computer vision + array handling
+opencv-python>=4.8,<5.0
+numpy>=1.24
+
+# Local Event API (FastAPI + uvicorn). The [standard] extra pulls in the
+# `websockets` implementation required for the /ws/events endpoint.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Telegram alert delivery (HTTP multipart upload of the snapshot)
+requests>=2.31
+
+# Optional convenience: auto-load a local .env file if present.
+python-dotenv>=1.0
+
+# ---------------------------------------------------------------------------
+# NOT listed here (intentionally):
+#   * The face-recognition model + its deps (torch / onnxruntime / insightface
+#     / face_recognition …). Those belong to the AI teammate and are pinned by
+#     whichever model is chosen. Model weight files (.pt/.h5) live in this
+#     folder and are git-ignored — never commit them.

@@ -1,0 +1,13 @@
+# Detection Engine — local artifacts (root .gitignore already covers .env,
+# *.pt/*.h5/*.onnx model binaries, and *.log)
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime output written by the engine
+segments/
+snapshots/

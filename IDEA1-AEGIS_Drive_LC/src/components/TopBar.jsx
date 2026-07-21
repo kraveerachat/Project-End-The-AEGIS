@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Bell, ChevronDown, Menu, FileText, LogOut, FlaskConical } from 'lucide-react'
-import { Chip, Dot } from './ui.jsx'
-import { ROLE_ADMIN, ROLE_USER } from '../lib/authz.js'
-import { FILES, ACTIVITY } from '../lib/data.js'
+import { Bell, Menu, LogOut } from 'lucide-react'
+import { Dot } from './ui.jsx'
+import { useApi } from '../lib/hooks.js'
 
 function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
   const ref = useRef(null)
@@ -23,7 +22,7 @@ function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
   return (
     <div
       ref={ref}
-      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-[var(--r-tile)] py-2 fade-in ${align === 'right' ? 'right-0' : 'left-0'}`}
+      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-xl py-2 fade-in ${align === 'right' ? 'right-0' : 'left-0'}`}
       style={{ width, boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
     >
       {children}
@@ -31,190 +30,120 @@ function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
   )
 }
 
-export function TopBar({ t, screenLabel, scrolled, previewRole, setPreviewRole, user, theme, setTheme, onSignOut, openMobileNav, goToFiles }) {
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [query, setQuery] = useState('')
+export function TopBar({ t, scrolled, user, onSignOut, openMobileNav }) {
   const [bellOpen, setBellOpen] = useState(false)
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
-  const searchRef = useRef(null)
 
-  // ⌘K / Ctrl+K — focus global search
+  // Live Tactical Clock (matching CCTV-Operator topbar clock)
+  const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        searchRef.current?.focus()
-        setSearchOpen(true)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
   }, [])
+  const clockText = now.toLocaleTimeString('en-GB', { hour12: false })
+  const dateText = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-  const matches = FILES.filter((f) => f.name.toLowerCase().includes(query.toLowerCase())).slice(0, 5)
-  const alerts = ACTIVITY.filter((a) => a.result !== 'ok')
+  // สถานะจริงจาก /healthz — ไม่มี "online" ที่เขียนตายตัวอีกต่อไป
+  const health = useApi('/healthz', { refreshMs: 15_000 })
+  const up = Boolean(health.data?.ok)
+  const dbMode = health.data?.db
 
   return (
     <header
-      className="h-16 shrink-0 bg-card flex items-center gap-3 px-5 max-md:px-3 border-b transition-shadow duration-[var(--dur-base)]"
-      style={{ borderColor: 'var(--line)', boxShadow: scrolled ? 'var(--elev-1)' : 'none', zIndex: 'var(--z-sticky)', position: 'relative' }}
+      className="h-[68px] shrink-0 bg-card border-b border-line backdrop-blur-md flex items-center justify-between gap-6 px-6 max-md:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
+      style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
-      <button
-        type="button"
-        aria-label={t('expandSidebar')}
-        onClick={openMobileNav}
-        className="md:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken cursor-pointer"
-      >
-        <Menu size={17} strokeWidth={1.5} />
-      </button>
+      {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
+      <div className="flex items-center min-w-[40px]">
+        <button
+          type="button"
+          aria-label={t('expandSidebar')}
+          onClick={openMobileNav}
+          className="md:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+        >
+          <Menu size={18} strokeWidth={1.5} />
+        </button>
+      </div>
 
-      {/* breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13.5px] whitespace-nowrap max-sm:hidden">
-        <span className="text-ink-3">AEGIS</span>
-        <span className="text-ink-3">/</span>
-        <span className="font-semibold text-ink">{screenLabel}</span>
-      </nav>
-
-      {/* global search */}
-      <div className="flex-1 flex justify-center px-2 min-w-0">
-        <div className="relative w-full max-w-[440px]">
-          <Search size={15} strokeWidth={1.5} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setSearchOpen(true) }}
-            onFocus={() => setSearchOpen(true)}
-            placeholder={t('searchPlaceholder')}
-            aria-label={t('searchPlaceholder')}
-            className="w-full h-10 pl-10 pr-14 rounded-full bg-sunken border border-transparent text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)]"
-          />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10.5px] font-semibold text-ink-3 bg-card border border-line rounded-[6px] px-1.5 py-0.5 pointer-events-none max-sm:hidden">
-            ⌘K
-          </kbd>
-          <Dropdown open={searchOpen} onClose={() => setSearchOpen(false)} align="left" width="100%">
-            <p className="px-4 pb-1.5 text-[11px] font-semibold text-ink-3 uppercase tracking-[0.08em]">{t('searchRecent')}</p>
-            {matches.length === 0 && <p className="px-4 py-2 text-[13px] text-ink-3">{t('empty')}</p>}
-            {matches.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => { setSearchOpen(false); setQuery(''); goToFiles() }}
-                className="w-full flex items-center gap-2.5 px-4 h-9 text-[13px] font-medium text-ink-2 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer"
-              >
-                <FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-                <span className="truncate">{f.name}</span>
-              </button>
-            ))}
-          </Dropdown>
+      {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
+      <div className="flex items-center justify-center gap-3 max-md:hidden" role="status" aria-live="polite">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+          <Dot tone={up ? 'ok' : 'danger'} pulse={up} size={6} />
+          <span>{up ? 'Edge node: online' : 'Edge node: unreachable'}</span>
+        </div>
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+          <Dot tone={up ? 'accent' : 'danger'} pulse={up} size={6} />
+          <span>{up ? `Metadata: ${dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory'}` : 'Metadata: —'}</span>
         </div>
       </div>
 
-      {/* edge node status */}
-      <Chip tone="ok" className="max-lg:hidden">
-        <Dot tone="ok" pulse size={6} />
-        {t('edgeNodeOnline')}
-      </Chip>
+      {/* RIGHT ZONE: Tactical Clock, Bell & Profile */}
+      <div className="flex items-center gap-4">
+        {/* Tactical Clock (Monospace Stacked) */}
+        <div className="flex flex-col items-end leading-tight max-sm:hidden select-none">
+          <span className="font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
+          <span className="font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
+        </div>
 
-      {/* notifications */}
-      <div className="relative">
-        <button
-          type="button"
-          aria-label={t('notifications')}
-          onClick={() => setBellOpen((v) => !v)}
-          className="relative size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
-        >
-          <Bell size={16} strokeWidth={1.5} />
-          {alerts.length > 0 && (
-            <span
-              className="absolute top-1 right-1 min-w-[15px] h-[15px] px-0.5 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
-              style={{ background: 'var(--danger)' }}
-            >
-              {alerts.length}
-            </span>
-          )}
-        </button>
-        <Dropdown open={bellOpen} onClose={() => setBellOpen(false)} width={320}>
-          <p className="px-4 pb-1.5 text-[11px] font-semibold text-ink-3 uppercase tracking-[0.08em]">{t('notifications')}</p>
-          {alerts.map((a) => (
-            <div key={a.id} className="px-4 py-2 border-b border-line last:border-b-0" style={{ background: 'var(--danger-soft)', borderLeft: '2px solid var(--danger)' }}>
-              <p className="text-[12.5px] text-ink leading-snug">
-                <span className="font-semibold">{a.actor}</span> · {a.action}
-              </p>
-              <p className="font-mono text-[11px] text-ink-3 mt-0.5 truncate">{a.target}</p>
-            </div>
-          ))}
-        </Dropdown>
-      </div>
+        <div className="w-px h-6 bg-line max-sm:hidden" aria-hidden />
 
-      {/* theme toggle */}
-      <button
-        type="button"
-        aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-        className="size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
-      >
-        {theme === 'dark' ? (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-        )}
-      </button>
-
-      {/* Preview-as-role — a developer instrument, visibly not part of auth */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setPreviewOpen((v) => !v)}
-          title={t('previewAsTooltip')}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-bold tracking-[0.04em] cursor-pointer transition-colors duration-[var(--dur-fast)] max-sm:hidden"
-          style={{ border: '1.5px solid var(--warn)', color: 'var(--warn)', background: previewOpen ? 'var(--warn-soft)' : 'transparent' }}
-        >
-          <FlaskConical size={12} strokeWidth={2} />
-          {t('previewAs')}: {previewRole === ROLE_ADMIN ? t('roleAdmin') : t('roleUser')}
-          <ChevronDown size={12} strokeWidth={2} className="transition-transform duration-[var(--dur-fast)]" style={{ transform: previewOpen ? 'rotate(180deg)' : 'none' }} />
-        </button>
-        <Dropdown open={previewOpen} onClose={() => setPreviewOpen(false)} width={260}>
-          <p className="px-4 pb-2 text-[11px] leading-relaxed text-ink-3">{t('previewAsTooltip')}</p>
-          {[ROLE_USER, ROLE_ADMIN].map((r) => (
+        {/* Utilities: Notifications Bell */}
+        <div className="flex items-center">
+          <div className="relative">
             <button
-              key={r}
               type="button"
-              onClick={() => { setPreviewRole(r); setPreviewOpen(false) }}
-              className="w-full flex items-center justify-between px-4 h-9 text-[13px] font-medium text-ink hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer"
+              aria-label={t('notifications')}
+              onClick={() => setBellOpen((v) => !v)}
+              className="relative size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
             >
-              {r === ROLE_ADMIN ? t('roleAdmin') : t('roleUser')}
-              {previewRole === r && <span className="size-2 rounded-full" style={{ background: 'var(--warn)' }} />}
+              <Bell size={17} strokeWidth={1.5} />
             </button>
-          ))}
-        </Dropdown>
-      </div>
-
-      {/* avatar */}
-      <div className="relative">
-        <button
-          type="button"
-          aria-label={user.displayName}
-          onClick={() => setAvatarOpen((v) => !v)}
-          className="size-9 rounded-full bg-ink text-card text-[11px] font-bold flex items-center justify-center cursor-pointer"
-        >
-          {user.displayName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
-        </button>
-        <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} width={220}>
-          <div className="px-4 pb-2 border-b border-line mb-1.5">
-            <p className="text-[13.5px] font-semibold text-ink">{user.displayName}</p>
-            <p className="font-mono text-[11px] text-ink-3">{user.username}</p>
+            <Dropdown open={bellOpen} onClose={() => setBellOpen(false)} width={320}>
+              <p className="px-4 pb-1.5 text-[11px] font-semibold text-ink-3 uppercase tracking-[0.08em]">{t('notifications')}</p>
+              {/* ไม่มีระบบแจ้งเตือนแบบ push ใน scope นี้ — บอกตรง ๆ ดีกว่าโชว์แถวปลอม
+                  (เหตุการณ์ความปลอดภัยดูได้ที่ Audit Log ซึ่งเป็นข้อมูลจริง) */}
+              <p className="px-4 py-3 text-xs text-ink-3">{t('emptyNoActivity')}</p>
+            </Dropdown>
           </div>
+        </div>
+
+        <div className="w-px h-6 bg-line max-sm:hidden" aria-hidden />
+
+        {/* Profile Avatar & Usermeta Badge */}
+        <div className="relative">
           <button
             type="button"
-            onClick={onSignOut}
-            className="w-full flex items-center gap-2.5 px-4 h-9 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer"
-            style={{ color: 'var(--danger)' }}
+            aria-label={user.displayName}
+            onClick={() => setAvatarOpen((v) => !v)}
+            className="flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
           >
-            <LogOut size={14} strokeWidth={1.5} />
-            {t('signOut')}
+            <div className="p-[2px] rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-600 shadow-sm shrink-0">
+              <div className="size-9 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+                {user.displayName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+            </div>
+            <div className="flex flex-col text-left max-md:hidden min-w-0 pr-1">
+              <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
+              {/* role เป็นจอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — ไม่ใช่ปุ่ม เปลี่ยนไม่ได้ */}
+              <span className="text-xs font-mono text-ink-3 leading-tight truncate">AEGIS Drive · {user.role}</span>
+            </div>
           </button>
-        </Dropdown>
+
+          <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} width={220}>
+            <div className="px-4 pb-2 border-b border-line mb-1.5">
+              <p className="text-[13.5px] font-bold text-ink">{user.displayName}</p>
+              <p className="font-mono text-xs text-ink-3">{user.username} · {user.role}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="w-full flex items-center gap-2.5 px-4 h-9 text-[13px] font-medium text-danger hover:bg-sunken transition-colors cursor-pointer"
+            >
+              <LogOut size={14} strokeWidth={1.5} />
+              {t('signOut')}
+            </button>
+          </Dropdown>
+        </div>
       </div>
     </header>
   )

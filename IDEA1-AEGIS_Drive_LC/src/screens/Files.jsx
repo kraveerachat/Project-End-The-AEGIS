@@ -4,10 +4,10 @@ import {
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
   Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check,
 } from 'lucide-react'
-import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash } from '../components/ui.jsx'
-import { useNow, useReducedMotion } from '../lib/hooks.js'
+import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
+import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
+import { apiFetch } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
-import { FILES } from '../lib/data.js'
 
 const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
 const iconFor = (f) => EXT_ICONS[f.ext] ?? FileIcon
@@ -146,7 +146,6 @@ function MetaDrawer({ t, lang, file, onClose }) {
         className={`fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
         style={{ zIndex: 'var(--z-drawer)', boxShadow: 'var(--elev-2)', animation: 'drawer-in var(--dur-slow) var(--ease) both' }}
       >
-        <style>{`@keyframes drawer-in { from { transform: translateX(40px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }`}</style>
         <div className="p-6">
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-[16px] font-semibold text-ink">{t('fileDetails')}</h2>
@@ -308,16 +307,62 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 }
 
 /* ── Files screen ────────────────────────────────────────────────── */
-export function Files({ t, lang }) {
+// ⚠️ Phase 2: ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
+// ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
+export function Files({ t, lang, go }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
-  const [files, setFiles] = useState(FILES)
-  const [view, setView] = useState('grid')
+
+  const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
+  const view = viewMode
+  const setView = setViewMode
+
+  const [currentPath, setCurrentPath] = useState(['Files explorer', 'Company'])
+
+  const filesApi = useApi('/api/files')
+  const files = filesApi.data?.files ?? []
+
   const [sort, setSort] = useState('modified')
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [detail, setDetail] = useState(null)
   const [ghost, setGhost] = useState(null)
+  const [folderModal, setFolderModal] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [askDelete, setAskDelete] = useState(null) // null | { ids: string[], label: string }
+  const [mutating, setMutating] = useState(false)
+  const [mutateError, setMutateError] = useState(false)
   const tileRefs = useRef({})
+
+  // สร้างลิงก์แชร์ = งานของจอ Shares (ฟอร์มเต็ม: expiry/auth/network scope)
+  const handleSecureShare = () => go?.('shares')
+  const handleUpload = () => go?.('uploads')
+
+  const createFolder = async () => {
+    const name = folderName.trim()
+    if (!name || mutating) return
+    setMutating(true)
+    setMutateError(false)
+    const res = await apiFetch('/api/files/folder', { method: 'POST', body: { name } })
+    setMutating(false)
+    if (!res.ok) { setMutateError(true); return }
+    setFolderModal(false)
+    setFolderName('')
+    filesApi.retry()
+  }
+
+  const confirmDelete = async () => {
+    if (!askDelete || mutating) return
+    setMutating(true)
+    setMutateError(false)
+    for (const id of askDelete.ids) {
+      await apiFetch(`/api/files/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    }
+    setMutating(false)
+    setAskDelete(null)
+    setSelectedIds(new Set())
+    if (detail && askDelete.ids.includes(detail.id)) setDetail(null)
+    filesApi.retry()
+  }
 
   const sorted = [...files].sort((a, b) =>
     sort === 'name' ? a.name.localeCompare(b.name) : sort === 'size' ? b.size - a.size : b.modified - a.modified,
@@ -345,28 +390,44 @@ export function Files({ t, lang }) {
 
   const onMenuAction = (action, file) => {
     if (action === 'delete') {
-      setFiles((prev) => prev.filter((f) => f.id !== file.id))
-      setSelectedIds((prev) => { const n = new Set(prev); n.delete(file.id); return n })
-      if (detail?.id === file.id) setDetail(null)
+      // ลบต้องยืนยันผ่าน Modal เสมอ — ไม่มี confirm() ของเบราว์เซอร์
+      setAskDelete({ ids: [file.id], label: file.name })
     } else if (action === 'meta' || action === 'verify') {
       openDetail(file)
+    } else if (action === 'link') {
+      handleSecureShare(file)
     }
-    // download / rename / move / link — จำลองเท่านั้น (ต้นแบบ); ระบบจริงเรียก API
   }
 
   const deleteSelected = () => {
-    setFiles((prev) => prev.filter((f) => !selectedIds.has(f.id)))
-    setSelectedIds(new Set())
+    if (selectedIds.size === 0) return
+    setAskDelete({ ids: [...selectedIds], label: `${selectedIds.size} ${t('selected')}` })
   }
 
   return (
     <div>
+      {/* breadcrumbs */}
+      <div className="flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none">
+        {currentPath.map((p, idx) => (
+          <span key={idx} className="flex items-center gap-1.5">
+            {idx > 0 && <span>/</span>}
+            <span className={idx === currentPath.length - 1 ? 'text-ink' : 'hover:text-ink cursor-pointer'} onClick={() => {
+              if (idx < currentPath.length - 1) {
+                setCurrentPath(currentPath.slice(0, idx + 1));
+              }
+            }}>
+              {p}
+            </span>
+          </span>
+        ))}
+      </div>
+
       {/* toolbar */}
       <div className="flex items-center gap-2.5 mb-5 flex-wrap">
         <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
           {[{ v: 'grid', icon: LayoutGrid, label: t('gridView') }, { v: 'list', icon: List, label: t('listView') }].map(({ v, icon: I, label }) => (
             <button
-              key={v}
+               key={v}
               type="button"
               aria-label={label}
               aria-pressed={view === v}
@@ -385,17 +446,36 @@ export function Files({ t, lang }) {
           </PillSelect>
         </div>
         <div className="flex-1" />
-        <Btn variant="outline">
+        <Btn variant="outline" onClick={() => { setFolderModal(true); setMutateError(false) }}>
           <FolderPlus size={15} strokeWidth={1.5} />
           {t('newFolder')}
         </Btn>
-        <Btn variant="primary">
+        <Btn variant="primary" onClick={handleUpload}>
           <Upload size={15} strokeWidth={1.5} />
           {t('upload')}
         </Btn>
       </div>
 
-      {view === 'grid' ? (
+      {/* สี่สถานะของรายการไฟล์ */}
+      {filesApi.loading ? (
+        <SkeletonLoader type="files" />
+      ) : filesApi.error ? (
+        <Card><ErrorState t={t} kind={filesApi.error} onRetry={filesApi.retry} /></Card>
+      ) : sorted.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={FolderPlus}
+            title={t('emptyNoFiles')}
+            hint={t('emptyNoFilesHint')}
+            action={
+              <Btn variant="primary" size="sm" onClick={handleUpload}>
+                <Upload size={14} strokeWidth={1.5} />
+                {t('upload')}
+              </Btn>
+            }
+          />
+        </Card>
+      ) : view === 'grid' ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
           {sorted.map((file, i) => (
             <div key={file.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}>
@@ -467,7 +547,6 @@ export function Files({ t, lang }) {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-ink text-card rounded-full pl-4 pr-1.5 h-12"
           style={{ zIndex: 'var(--z-toast)', boxShadow: 'var(--elev-2)', animation: 'bar-up var(--dur-base) var(--ease) both' }}
         >
-          <style>{`@keyframes bar-up { from { transform: translate(-50%, 16px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }`}</style>
           <span className="text-[13px] font-semibold mr-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {selectedIds.size} {t('selected')}
           </span>
@@ -502,6 +581,55 @@ export function Files({ t, lang }) {
 
       <FlipGhost ghost={ghost} onDone={() => setGhost(null)} />
       {detail && <MetaDrawer t={t} lang={lang} file={detail} onClose={() => setDetail(null)} />}
+
+      {/* new folder — Modal จริง ไม่ใช่ prompt() ของเบราว์เซอร์ */}
+      <Modal open={folderModal} onClose={() => setFolderModal(false)} width={420} labelledBy="nf-title">
+        <ModalClose onClose={() => setFolderModal(false)} label={t('cancel')} />
+        <h2 id="nf-title" className="text-[18px] font-semibold text-ink">{t('newFolder')}</h2>
+        <div className="mt-5">
+          <Field id="nf-name" label={t('colName')}>
+            <PillInput
+              id="nf-name"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && createFolder()}
+              autoFocus
+              disabled={mutating}
+            />
+          </Field>
+        </div>
+        {mutateError && (
+          <p role="alert" className="text-[12.5px] font-medium mt-3" style={{ color: 'var(--danger)' }}>
+            {t('actionFailed')}
+          </p>
+        )}
+        <div className="flex gap-2.5 mt-6">
+          <Btn variant="outline" className="flex-1" onClick={() => setFolderModal(false)}>{t('cancel')}</Btn>
+          <Btn variant="primary" className="flex-1" onClick={createFolder} disabled={mutating || !folderName.trim()}>
+            {t('newFolder')}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* delete confirm — ระบุเป้าหมายชัดเจนก่อนลบเสมอ */}
+      <Modal open={!!askDelete} onClose={() => setAskDelete(null)} width={440} labelledBy="del-title">
+        <ModalClose onClose={() => setAskDelete(null)} label={t('cancel')} />
+        <h2 id="del-title" className="text-[18px] font-semibold text-ink">{t('confirmDeleteTitle')}</h2>
+        <p className="text-[13.5px] text-ink-2 mt-3 leading-relaxed">
+          {askDelete && t('confirmDeleteBody', { name: askDelete.label })}
+        </p>
+        {mutateError && (
+          <p role="alert" className="text-[12.5px] font-medium mt-3" style={{ color: 'var(--danger)' }}>
+            {t('actionFailed')}
+          </p>
+        )}
+        <div className="flex gap-2.5 mt-6">
+          <Btn variant="outline" className="flex-1" onClick={() => setAskDelete(null)}>{t('cancel')}</Btn>
+          <Btn variant="danger" className="flex-1" onClick={confirmDelete} disabled={mutating}>
+            {t('delete')}
+          </Btn>
+        </div>
+      </Modal>
     </div>
   )
 }

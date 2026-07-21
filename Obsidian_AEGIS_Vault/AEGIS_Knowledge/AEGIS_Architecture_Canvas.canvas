@@ -1,0 +1,16 @@
+{
+	"nodes":[
+		{"id":"hub-node","x":0,"y":-200,"width":320,"height":180,"type":"text","text":"# 🚪 HUB-AEGIS Entry\n**Port**: `:8000` (Express Static)\n- Routing-only Gateway\n- Runtime config (`public/config.json`)\n- No Shared Auth / No Shared Session"},
+		{"id":"drive-node","x":-360,"y":100,"width":340,"height":220,"type":"text","text":"# 💾 IDEA1: AEGIS Drive\n**UI**: `:5174` | **API**: `:8001`\n- Secure NAS & Edge Data Lake\n- Roles: `Admin`, `DataLake-User`\n- Bcrypt timing protection\n- Hashed Audit Logging"},
+		{"id":"monitor-node","x":360,"y":100,"width":340,"height":220,"type":"text","text":"# 📹 IDEA2: AEGIS Monitor\n**UI**: `:5176` | **API**: `:8002`\n- SOC-Responder (Aggregate View)\n- CCTV-Operator (Scoped View)\n- Integrated Face Recognition Engine"},
+		{"id":"lockdown-node","x":360,"y":400,"width":340,"height":180,"type":"text","text":"# 🔒 IDEA3: AEGIS Lockdown\n- ESP32 Physical Relay Control\n- MQTT + HMAC-SHA256 Auth\n- Anti-replay Nonce & Dead Man's Switch"},
+		{"id":"security-node","x":0,"y":250,"width":300,"height":200,"type":"text","text":"# 🛡️ Security Architecture\n- Server-Side Role Enforcement\n- HttpOnly + SameSite=Strict Cookies\n- CSRF Synchronizer Tokens\n- No client-side privilege assertion"}
+	],
+	"edges":[
+		{"id":"edge-hub-drive","fromNode":"hub-node","fromSide":"bottom","toNode":"drive-node","toSide":"top","label":"1. Hand-off Link"},
+		{"id":"edge-hub-monitor","fromNode":"hub-node","fromSide":"bottom","toNode":"monitor-node","toSide":"top","label":"2. Hand-off Link"},
+		{"id":"edge-monitor-lockdown","fromNode":"monitor-node","fromSide":"bottom","toNode":"lockdown-node","toSide":"top","label":"HMAC Signal over MQTT"},
+		{"id":"edge-security-drive","fromNode":"security-node","fromSide":"left","toNode":"drive-node","toSide":"right","label":"Enforces Auth"},
+		{"id":"edge-security-monitor","fromNode":"security-node","fromSide":"right","toNode":"monitor-node","toSide":"left","label":"Enforces Auth"}
+	]
+}

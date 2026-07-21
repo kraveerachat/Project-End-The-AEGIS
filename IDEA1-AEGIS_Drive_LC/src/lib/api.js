@@ -1,0 +1,87 @@
+// src/lib/api.js — AEGIS Drive (IDEA1) · ตัวกลาง fetch หนึ่งเดียวของแอป
+// ทุก request วิ่งผ่านที่นี่ — ไม่มี URL ตายตัว (same-origin เสมอ: dev ผ่าน vite proxy,
+// production ผ่าน Express ที่เสิร์ฟ dist + /api จาก origin เดียวกัน)
+//
+// หน้าที่:
+//   - credentials: 'include' ทุกครั้ง (session cookie เป็น HttpOnly — JS ไม่แตะ)
+//   - แนบ CSRF token (synchronizer) กับทุก request ที่เปลี่ยนสถานะ
+//   - timeout 10 วินาที ผ่าน AbortController (+ ยกเลิกเมื่อ component unmount)
+//   - normalize ผลลัพธ์เป็นรูปเดียว: { ok, status, data, errorKind }
+//   - 401 interceptor: เซสชันหมดอายุ → แจ้ง App ให้เคลียร์ state กลับหน้า login
+//     (ไม่มี redirect ตายตัว — App เป็นคนตัดสินว่า "กลับประตู" หน้าตาเป็นอย่างไร)
+
+const TIMEOUT_MS = 10_000
+
+// เติม import.meta.env.BASE_URL (Vite `base`, ดู vite.config.js) นำหน้า path
+// รูท-สัมบูรณ์ทุกครั้ง — ทำให้ apiFetch('/api/x') วิ่งไปที่ '/drive/api/x' เมื่อ build
+// ด้วย base '/drive/' (mount ใต้ HUB) หรือ '/api/x' เดิมเมื่อ base เป็นค่าเริ่มต้น '/'
+// (dev แบบ standalone) — ไม่ต้องแก้ path ตายตัวที่จุดเรียกทุกจุดทั่วแอป
+function withBase(path) {
+  if (!path.startsWith('/')) return path
+  return import.meta.env.BASE_URL + path.slice(1)
+}
+
+// CSRF token — หน่วยความจำของโมดูลเท่านั้น (zero browser storage)
+let csrfToken = null
+export const setCsrfToken = (t) => { csrfToken = t }
+export const clearCsrfToken = () => { csrfToken = null }
+
+// 401 handler — App ลงทะเบียนไว้ตอน mount; เรียกเมื่อเซสชันหมดอายุกลางคัน
+let onUnauthorized = null
+export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
+
+/**
+ * @param {string} path เช่น '/api/files'
+ * @param {{ method?: string, body?: object, signal?: AbortSignal,
+ *           suppressAuthHandler?: boolean }} opts
+ * @returns {Promise<{ ok: boolean, status: number, data: any,
+ *                     errorKind: null|'timeout'|'network'|'unauthorized'|'forbidden'|'server' }>}
+ */
+export async function apiFetch(path, { method = 'GET', body, signal, suppressAuthHandler = false } = {}) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort('timeout'), TIMEOUT_MS)
+  // ผูก signal ของผู้เรียก (unmount) เข้ากับของเรา (timeout) — ยกเลิกอันใดอันหนึ่งก็หยุด
+  if (signal) {
+    if (signal.aborted) ctrl.abort(signal.reason)
+    else signal.addEventListener('abort', () => ctrl.abort(signal.reason), { once: true })
+  }
+
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
+
+  let res
+  try {
+    res = await fetch(withBase(path), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'include',
+      signal: ctrl.signal,
+    })
+  } catch {
+    clearTimeout(timer)
+    // แยก timeout ออกจาก network เพื่อให้ข้อความ error ฝั่ง UI ตรงสาเหตุ
+    const kind = ctrl.signal.reason === 'timeout' ? 'timeout' : 'network'
+    return { ok: false, status: 0, data: null, errorKind: kind }
+  }
+  clearTimeout(timer)
+
+  let data = null
+  try {
+    data = await res.json()
+  } catch {
+    /* บาง response ไม่มี body */
+  }
+
+  if (res.ok) return { ok: true, status: res.status, data, errorKind: null }
+
+  if (res.status === 401) {
+    // เซสชันหมด/ถูกทำลายฝั่งเซิร์ฟเวอร์ — เคลียร์ state กลับประตู
+    // (ยกเว้น endpoint ตรวจสถานะอย่าง /api/me ที่ 401 คือคำตอบปกติก่อน login)
+    if (!suppressAuthHandler) onUnauthorized?.()
+    return { ok: false, status: 401, data, errorKind: 'unauthorized' }
+  }
+  if (res.status === 403) return { ok: false, status: 403, data, errorKind: 'forbidden' }
+  return { ok: false, status: res.status, data, errorKind: 'server' }
+}

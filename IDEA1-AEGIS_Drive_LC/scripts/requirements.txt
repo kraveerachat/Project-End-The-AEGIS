@@ -1,0 +1,2 @@
+# AEGIS Drive (IDEA1) — local tooling deps (not shipped in any container image)
+bcrypt>=4.1,<5.0

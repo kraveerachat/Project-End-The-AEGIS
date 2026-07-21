@@ -21,6 +21,45 @@ export function Btn({ variant = 'outline', size = 'md', className = '', children
   )
 }
 
+/* ── Sparkle button — the primary action, given a face ─────────────
+   Same pill, same --accent-solid, same --elev-accent as `Btn variant=
+   "primary"` above; it adds a bloom and ten drifting points. Use it for
+   THE action on a screen (the door's ENTER, the lock's submit) — a second
+   one on the same surface would make neither of them the point.
+
+   `sparkles` is the DESIGN.md carve-out, not a style knob:
+     'idle'  — points loop forever. Welcome only. That screen has no task
+               and the user's whole job is to look at the machine, which is
+               the same reason the mark is allowed to levitate there.
+     'hover' — points only while pointed at or focused, and never while
+               disabled. Everywhere there IS a task. On the login form the
+               cascade owns the loading state; see .sparkle-btn in index.css.
+
+   The markup is fixed at ten points because the nth-child choreography in
+   index.css is; they are decorative, hence aria-hidden. */
+const SPARKLE_SIZES = {
+  lg: 'h-12 px-6 text-[14px]',
+  xl: 'h-14 px-8 text-[15px]',
+}
+const POINTS = Array.from({ length: 10 })
+
+export function SparkleButton({ sparkles = 'hover', size = 'lg', className = '', children, ...rest }) {
+  return (
+    <button
+      type="button"
+      className={`sparkle-btn sparkle-btn--${sparkles} inline-flex items-center justify-center font-semibold cursor-pointer ${SPARKLE_SIZES[size]} ${className}`}
+      {...rest}
+    >
+      <span className="sparkle-points" aria-hidden>
+        {POINTS.map((_, i) => (
+          <i key={i} className="sparkle-point" />
+        ))}
+      </span>
+      <span className="sparkle-btn__label">{children}</span>
+    </button>
+  )
+}
+
 /* ── Toggle switch ───────────────────────────────────────────────── */
 export function Toggle({ on, onChange, label }) {
   return (
@@ -31,7 +70,7 @@ export function Toggle({ on, onChange, label }) {
       aria-label={label}
       onClick={() => onChange(!on)}
       className="relative w-10 h-6 rounded-full transition-colors duration-(--dur-fast) cursor-pointer shrink-0"
-      style={{ background: on ? 'var(--accent)' : 'var(--line)' }}
+      style={{ background: on ? 'linear-gradient(135deg, #2563eb, #7c3aed)' : 'var(--line)' }}
     >
       <span
         className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform duration-(--dur-fast)"
@@ -74,7 +113,7 @@ export function Segmented({ options, value, onChange, ariaLabel }) {
             aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-(--dur-fast) cursor-pointer whitespace-nowrap ${
-              active ? 'bg-ink text-card' : 'text-ink-2 hover:text-ink'
+              active ? 'bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white' : 'text-ink-2 hover:text-ink'
             }`}
           >
             {opt.label}
@@ -100,7 +139,7 @@ export function Field({ id, label, children }) {
 export function PillInput({ className = '', ...rest }) {
   return (
     <input
-      className={`w-full h-12 px-4 rounded-full bg-sunken border border-line text-[14px] text-ink outline-none transition-[border-color,box-shadow] duration-(--dur-fast) focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] ${className}`}
+      className={`w-full h-12 px-4 rounded-full bg-sunken border border-line text-[14px] text-ink outline-none transition-[border-color,box-shadow] duration-(--dur-fast) focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(124,58,237,0.3)] ${className}`}
       {...rest}
     />
   )

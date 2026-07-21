@@ -44,8 +44,10 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       title={collapsed ? label : undefined}
-      className={`flex items-center gap-3 h-10 rounded-full text-[14px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer w-full rise-in ${
-        active ? 'bg-ink text-card' : 'text-ink-2 hover:bg-sunken'
+      className={`flex items-center gap-3 h-10 rounded-xl text-[14px] font-medium transition-all duration-[var(--dur-fast)] cursor-pointer w-full rise-in ${
+        active
+          ? 'bg-accent-soft text-accent-ink shadow-[0_4px_12px_rgba(37,99,235,0.04)]'
+          : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:rounded-xl hover:text-ink'
       } ${collapsed ? 'justify-center px-0' : 'px-3.5'}`}
       style={{ animationDelay: `${delay}ms` }}
     >
@@ -56,13 +58,15 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
 }
 
 export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, mobileOpen, closeMobile }) {
-  const storage = useCountUp(metrics.storageGB, 700)
+  // metrics มาจาก /api/dashboard — ระหว่างโหลดเป็น null → มิเตอร์แสดง skeleton
+  const storage = useCountUp(metrics?.storageGB ?? 0, 700)
+  const totalGB = metrics?.storageTotalGB ?? 1024
   const groups = ['navGroupWorkspace', 'navGroupProtection', 'navGroupAdmin']
 
   const body = (
     <div className="flex flex-col h-full bg-card border-r border-line">
       <div className={`flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
-        {collapsed ? <AegisMark size={28} /> : <AegisLockup markSize={28} sub="DRIVE_LC" />}
+        {collapsed ? <AegisMark size={32} /> : <AegisLockup markSize={36} title="AEGIS Drive_LC" sub="ENTERPRISE STORAGE · SECURE HUD" />}
         {!collapsed && (
           <button
             type="button"
@@ -126,19 +130,25 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         </div>
       </nav>
 
-      {/* storage meter */}
+      {/* storage meter — จากเซิร์ฟเวอร์เท่านั้น; ระหว่างโหลด = skeleton ไม่ใช่เลขปลอม */}
       {!collapsed && (
         <div className="m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
-          <div className="flex items-baseline justify-between">
-            <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
-            <p className="text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              <span className="font-semibold text-ink">{Math.round(storage)} GB</span> / 1 TB
-            </p>
-          </div>
-          <Progress value={(storage / 1024) * 100} height={4} className="mt-2.5" />
-          <button type="button" className="mt-3 text-[10.5px] font-bold tracking-[0.08em] text-accent-ink hover:underline cursor-pointer">
-            {t('upgradeStorage')}
-          </button>
+          {metrics ? (
+            <>
+              <div className="flex items-baseline justify-between">
+                <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
+                <p className="text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  <span className="font-semibold text-ink">{Math.round(storage)} GB</span> / {Math.round(totalGB)} GB
+                </p>
+              </div>
+              <Progress value={(storage / totalGB) * 100} height={4} className="mt-2.5" />
+            </>
+          ) : (
+            <div className="flex flex-col gap-2.5" aria-busy="true">
+              <div className="w-2/3 h-3.5 skeleton" />
+              <div className="w-full h-1 rounded-full skeleton" />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -148,7 +158,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
     <>
       {/* desktop */}
       <aside
-        className="max-md:hidden shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
+        className="hidden md:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
         style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
       >
         {body}
@@ -158,7 +168,6 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         <div className="md:hidden fixed inset-0" style={{ zIndex: 'var(--z-drawer)' }}>
           <div className="absolute inset-0 fade-in" style={{ background: 'color-mix(in srgb, var(--ink) 30%, transparent)' }} onClick={closeMobile} aria-hidden />
           <div className="absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
-            <style>{`@keyframes sidebar-in { from { transform: translateX(-24px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }`}</style>
             {body}
           </div>
         </div>

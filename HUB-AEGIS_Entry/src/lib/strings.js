@@ -1,6 +1,6 @@
 // i18n — flat { en, th } objects, default Thai (PRODUCT.md: Thai-first).
 // No user-facing text is hardcoded in JSX; everything routes through t().
-export const LANGS = ['th', 'en']
+export const LANGS = ['th', 'en', 'zh']
 
 const STRINGS = {
   en: {
@@ -13,45 +13,38 @@ const STRINGS = {
     enter: 'Enter',
 
     // Login
-    loginTitle: 'Sign in',
-    loginSubtitle: 'Single entry to the AEGIS platform',
+    loginTitle: 'Sign In',
+    loginSubtitle: 'Secure NAS · On-Premise Deployment',
     username: 'Username',
-    usernamePlaceholder: 'your username',
+    usernamePlaceholder: 'first.last',
     password: 'Password',
     passwordPlaceholder: '••••••••',
     showPassword: 'Show password',
     hidePassword: 'Hide password',
     rememberSession: 'Remember this session',
-    signIn: 'Sign in',
-    signingIn: 'Verifying…',
-    // ข้อความล้มเหลวรูปแบบเดียวเสมอ — ห้ามแยกว่า user ผิดหรือรหัสผิด (กัน enumeration)
-    loginFailed: 'Invalid username or password.',
-    lockout: 'Too many attempts · try again in {s}s',
-
+    signIn: 'Sign In',
+    signingIn: 'Signing in…',
+    loginFailed: 'Incorrect username or password.',
+    lockout: 'Too many attempts. Try again in {s}s.',
     layerNetwork: 'LAYER 0 · NETWORK',
     layerNetworkDesc: 'VPN + VLAN',
     layerApp: 'LAYER 1 · APPLICATION',
     layerAppDesc: 'Credentials',
     layerStorage: 'LAYER 2 · STORAGE',
-    layerStorageDesc: 'Encryption at rest',
+    layerStorageDesc: 'Encrypted at rest',
     layerMeta: 'LAYER 3 · METADATA',
     layerMetaDesc: 'PostgreSQL',
 
     // Hub
-    welcomeUser: 'Welcome, {name}',
-    selectModule: 'Select a module to continue',
-    roleAdmin: 'ADMINISTRATOR',
-    roleUser: 'STANDARD USER',
-    logout: 'Log out',
+    hubTitle: 'AEGIS Edge-Guard Infrastructure',
+    selectModule: 'Select a module to continue — each module has its own sign-in',
     open: 'OPEN',
     entering: 'Entering {module}…',
 
     modDrive: 'AEGIS Drive',
-    modDriveDesc: 'Secure Edge data lake. Store, retrieve, and share files.',
-    modCctv: 'CCTV Operator View',
-    modCctvDesc: 'Live and archived footage from your assigned camera.',
-    modMonitor: 'AEGIS Monitoring',
-    modMonitorDesc: 'Surveillance control plane. All nodes, detection, alerts.',
+    modDriveDesc: 'Secure data storage and file management',
+    modMonitor: 'AEGIS Monitor',
+    modMonitorDesc: 'Camera surveillance and alert control center',
   },
 
   th: {
@@ -62,20 +55,20 @@ const STRINGS = {
 
     enter: 'เข้าสู่ระบบ',
 
+    // Login
     loginTitle: 'เข้าสู่ระบบ',
-    loginSubtitle: 'ทางเข้าเดียวสู่แพลตฟอร์ม AEGIS',
+    loginSubtitle: 'NAS ปลอดภัย · ติดตั้งภายในองค์กร',
     username: 'ชื่อผู้ใช้',
-    usernamePlaceholder: 'ชื่อผู้ใช้ของคุณ',
+    usernamePlaceholder: 'ชื่อ.นามสกุล',
     password: 'รหัสผ่าน',
     passwordPlaceholder: '••••••••',
     showPassword: 'แสดงรหัสผ่าน',
     hidePassword: 'ซ่อนรหัสผ่าน',
     rememberSession: 'จดจำเซสชันนี้',
     signIn: 'เข้าสู่ระบบ',
-    signingIn: 'กำลังตรวจสอบ…',
+    signingIn: 'กำลังเข้าสู่ระบบ…',
     loginFailed: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-    lockout: 'พยายามหลายครั้งเกินไป · ลองใหม่ใน {s} วินาที',
-
+    lockout: 'ลองมากเกินไป กรุณาลองใหม่ใน {s} วินาที',
     layerNetwork: 'LAYER 0 · NETWORK',
     layerNetworkDesc: 'VPN + VLAN',
     layerApp: 'LAYER 1 · APPLICATION',
@@ -85,20 +78,59 @@ const STRINGS = {
     layerMeta: 'LAYER 3 · METADATA',
     layerMetaDesc: 'PostgreSQL',
 
-    welcomeUser: 'ยินดีต้อนรับ {name}',
-    selectModule: 'เลือกโมดูลเพื่อดำเนินการต่อ',
-    roleAdmin: 'ผู้ดูแลระบบ',
-    roleUser: 'ผู้ใช้ทั่วไป',
-    logout: 'ออกจากระบบ',
+    hubTitle: 'AEGIS Edge-Guard Infrastructure',
+    selectModule: 'เลือกโมดูลเพื่อดำเนินการต่อ — แต่ละโมดูลมีทางเข้าสู่ระบบของตัวเอง',
     open: 'เปิด',
     entering: 'กำลังเข้าสู่ {module}…',
 
-    modDrive: 'AEGIS Drive · คลังข้อมูล',
-    modDriveDesc: 'คลังข้อมูลปลอดภัยบนเครือข่ายภายใน จัดเก็บ เรียกใช้ และแชร์ไฟล์',
-    modCctv: 'ดูภาพกล้องวงจรปิด',
-    modCctvDesc: 'ภาพสดและภาพย้อนหลังจากกล้องที่ได้รับมอบหมาย',
-    modMonitor: 'AEGIS Monitoring · ควบคุมและจัดการกล้อง',
-    modMonitorDesc: 'ศูนย์ควบคุมระบบเฝ้าระวัง โหนดทั้งหมด การตรวจจับ และการแจ้งเตือน',
+    modDrive: 'AEGIS Drive',
+    modDriveDesc: 'ระบบจัดเก็บข้อมูลและจัดการไฟล์',
+    modMonitor: 'AEGIS Monitor',
+    modMonitorDesc: 'ศูนย์ควบคุมเฝ้าระวังกล้องและแจ้งเตือน',
+  },
+
+  zh: {
+    productTag: 'AUTONOMOUS EDGE-GUARD INFRASTRUCTURE SYSTEM',
+    language: '语言',
+    themeToDark: '切换到暗色模式',
+    themeToLight: '切换到亮色模式',
+
+    // Welcome
+    enter: '进入系统',
+
+    // Login
+    loginTitle: '登录',
+    loginSubtitle: '安全 NAS · 本地部署',
+    username: '用户名',
+    usernamePlaceholder: '名.姓',
+    password: '密码',
+    passwordPlaceholder: '••••••••',
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
+    rememberSession: '记住此会话',
+    signIn: '登录',
+    signingIn: '正在登录…',
+    loginFailed: '用户名或密码不正确。',
+    lockout: '尝试次数过多，请在 {s} 秒后重试。',
+    layerNetwork: 'LAYER 0 · NETWORK',
+    layerNetworkDesc: 'VPN + VLAN',
+    layerApp: 'LAYER 1 · APPLICATION',
+    layerAppDesc: '身份凭证',
+    layerStorage: 'LAYER 2 · STORAGE',
+    layerStorageDesc: '静态加密',
+    layerMeta: 'LAYER 3 · METADATA',
+    layerMetaDesc: 'PostgreSQL',
+
+    // Hub
+    hubTitle: 'AEGIS Edge-Guard Infrastructure',
+    selectModule: '请选择模块继续——每个模块均有独立登录',
+    open: '开启',
+    entering: '正在进入 {module}…',
+
+    modDrive: 'AEGIS Drive',
+    modDriveDesc: '安全数据存储与文件管理',
+    modMonitor: 'AEGIS Monitor',
+    modMonitorDesc: '摄像头监控与警报控制中心',
   },
 }
 
