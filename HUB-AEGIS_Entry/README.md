@@ -18,9 +18,22 @@ Welcome screen → module index → hand-off to the selected app's **own** sign-
 > - **No SSO.** No app trusts a cookie issued by any other app. A session minted
 >   here would recreate the coupling the architecture deliberately removed.
 >
-> In production the HUB is static files behind NGINX (port 443 → 8001 / 8002 routing —
-> Phase 4). The bundled `server/index.js` is a dev/demo static server with `/healthz`
-> and strict security headers only.
+> The HUB is static files behind NGINX (port 443 → 8001 / 8002 routing). There is no
+> Node process and no `server/` folder here at all — `nginx.conf` carries the security
+> headers and `/healthz`.
+
+> ## Update (2026-07-24) — login form removed
+>
+> The HUB briefly shipped a login form whose client code **fell back to a hardcoded
+> credential list** (`DEMO_ACCOUNTS` in `src/lib/auth.js`) whenever `POST /api/login`
+> got no backend answer — which was always, because nothing served that route. It
+> handed out an "Admin" session with zero server-side enforcement.
+>
+> The fix was to delete the capability, not guard it. Removed entirely:
+> `src/screens/Login.jsx`, `src/lib/auth.js`, `src/lib/modules.js` (client-side role
+> gating), the whole `server/` folder, and every Login string in `src/lib/strings.js`.
+> HUB is now Welcome → app picker → hand-off. There is no auth surface left to bypass.
+> Regression proof: `docs/auth-test.md` §12.
 
 ## Run
 
@@ -28,8 +41,11 @@ Welcome screen → module index → hand-off to the selected app's **own** sign-
 npm install
 npm run dev          # http://localhost:5173 (frontend only — no API exists)
 npm run build        # production build → dist/
-npm start            # routing-only static server on :8000 (+ /healthz)
 ```
+
+Locally the whole stack runs from the repo root instead
+(`docker compose up -d --build` → HUB on <http://localhost/>), where the gateway
+image builds this bundle and serves it as static files.
 
 ## Runtime config — no rebuild to repoint modules
 
@@ -39,7 +55,7 @@ hardcoded IPs.
 
 ## Security posture of a "dumb" entry
 
-Even a static page carries its policy (Thai comments in `server/index.js`):
+Even a static page carries its policy (Thai comments in `nginx.conf`):
 strict CSP (no `unsafe-inline`/`unsafe-eval`), `X-Frame-Options: DENY`,
 `nosniff`, `Referrer-Policy: no-referrer`, HSTS, and a `Permissions-Policy`
 that declares camera/mic/geolocation off. The module index is a public menu —

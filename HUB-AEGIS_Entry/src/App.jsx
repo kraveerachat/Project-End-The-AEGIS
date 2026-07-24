@@ -1,30 +1,35 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
 import { Welcome } from './screens/Welcome.jsx'
-import { Login } from './screens/Login.jsx'
 import { Hub } from './screens/Hub.jsx'
 import { Segmented, ThemeToggle } from './components/ui.jsx'
-import { logout as apiLogout } from './lib/auth.js'
 import { LANGS, makeT } from './lib/strings.js'
 import { EASE, SPRING } from './lib/motion.js'
 
 /**
- * AEGIS Entry Point Hub — a door, a lock, and a menu. Three screens,
- * one state machine, no routing library.
+ * AEGIS Entry Point Hub — a door and a menu. Two screens, one state
+ * machine, no routing library.
  *
- * Welcome and Login share ONE vault card: compact and centered at the
- * door, it springs open into a split card (brand left, lock right;
- * stacked below `md`) when the user enters. framer-motion `layout`
- * owns the expansion; `MotionConfig reducedMotion="user"` collapses
- * every transform for prefers-reduced-motion.
+ * ⚠️ HUB ไม่มีการล็อกอินเป็นของตัวเอง — ไม่มีฟอร์ม ไม่มี session ไม่มี
+ * cookie ไม่มี DB และไม่มี backend (ดู gateway/Dockerfile: runtime stage
+ * เอาไปแค่ dist/) มันคือ "ป้ายบอกทาง" ล้วน ๆ ตามหลัก Identity Decoupling:
+ * การพิสูจน์ตัวตนเกิดขึ้นในแอปปลายทางเท่านั้น — Drive และ Monitor ต่างมี
+ * login + bcrypt + session cookie + ฐานข้อมูลของตัวเอง แยกขาดจากกัน
+ *
+ * เดิมที่นี่เคยมีฟอร์มล็อกอินที่ "fallback มาเช็ครหัสผ่านฝั่ง client" เมื่อ
+ * ยิง /api/login แล้วไม่มี backend ตอบ — นั่นคือการแจก session ระดับ Admin
+ * โดยไม่มีการบังคับฝั่งเซิร์ฟเวอร์เลย ทั้งฟอร์มและ fallback ถูกลบทิ้งแล้ว
+ * ไม่ใช่แค่ปิดไว้ (ดู log.md)
+ *
+ * Welcome นั่งอยู่ใน vault card ใบเดียวกลางประตู แล้วส่งต่อไป Hub ซึ่งเป็น
+ * หน้าเลือกแอป การ์ดที่นั่นพาออกจาก SPA นี้ไปยังแอปจริงหลัง gateway
  *
  * The gate is full-bleed (`.gate-bg`): BG_AEGIS01/02 swap on theme and
  * their fibre streaks converge on an empty centre — the vault sits in
- * that void and expands into the incoming light.
+ * that void.
  */
 export default function App() {
-  const [session, setSession] = useState(null) // null | { username, role, displayName, menu }
-  const [screen, setScreen] = useState('welcome') // 'welcome' | 'login' | 'hub'
+  const [screen, setScreen] = useState('welcome') // 'welcome' | 'hub'
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
   const [theme, setTheme] = useState('dark')
 
@@ -44,12 +49,10 @@ export default function App() {
     if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
   }, [theme])
 
-  const isWelcome = screen === 'welcome'
-
   return (
     <MotionConfig reducedMotion="user">
       <AnimatePresence mode="wait">
-        {screen === 'hub' && session ? (
+        {screen === 'hub' ? (
           <motion.div
             key="hub"
             className="min-h-full flex flex-col"
@@ -57,19 +60,7 @@ export default function App() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.24, ease: EASE }}
           >
-            <Hub
-              t={t}
-              lang={lang}
-              setLang={setLang}
-              session={session}
-              theme={theme}
-              setTheme={setTheme}
-              onLogout={() => {
-                apiLogout()
-                setSession(null)
-                setScreen('welcome')
-              }}
-            />
+            <Hub t={t} lang={lang} setLang={setLang} theme={theme} setTheme={setTheme} />
           </motion.div>
         ) : (
           <motion.div
@@ -89,55 +80,20 @@ export default function App() {
               />
             </div>
 
-            {/* The halo — Welcome only. */}
-            <motion.div
-              aria-hidden
-              className="gate-halo absolute inset-0 pointer-events-none"
-              initial={false}
-              animate={{ opacity: isWelcome ? 1 : 0 }}
-              transition={{ duration: 0.5, ease: EASE }}
-            />
+            {/* The halo — the door's only state, so it is simply on. */}
+            <div aria-hidden className="gate-halo absolute inset-0 pointer-events-none" />
 
             <div className="relative my-auto w-full flex flex-col items-center min-w-0">
               <motion.div
                 layout
                 transition={SPRING}
-                className={`w-full rounded-(--r-card) vault-surface ${
-                  isWelcome ? '' : 'is-solid overflow-hidden'
-                }`}
-                style={{ maxWidth: isWelcome ? 760 : 944 }}
+                className="w-full rounded-(--r-card) vault-surface"
+                style={{ maxWidth: 760 }}
               >
-                <div className={`flex flex-col ${isWelcome ? '' : 'md:flex-row md:items-stretch'}`}>
-                  <Welcome t={t} isWelcome={isWelcome} onEnter={() => setScreen('login')} />
-                  <AnimatePresence initial={false}>
-                    {!isWelcome && (
-                      <Login
-                        key="login"
-                        t={t}
-                        onAuthed={({ user, menu }) => {
-                          setSession({ ...user, menu })
-                          setScreen('hub')
-                        }}
-                      />
-                    )}
-                  </AnimatePresence>
+                <div className="flex flex-col">
+                  <Welcome t={t} isWelcome onEnter={() => setScreen('hub')} />
                 </div>
               </motion.div>
-
-              <AnimatePresence initial={false}>
-                {!isWelcome && (
-                  <motion.p
-                    layout
-                    key="demo"
-                    className="mt-6 text-[12px] text-ink-3"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1, transition: { delay: 0.4, duration: 0.3, ease: EASE } }}
-                    exit={{ opacity: 0, transition: { duration: 0.15, ease: EASE } }}
-                  >
-                    demo · <span className="font-mono">user / aegis-user</span> · <span className="font-mono">admin / aegis-admin</span>
-                  </motion.p>
-                )}
-              </AnimatePresence>
             </div>
           </motion.div>
         )}

@@ -1,5 +1,10 @@
-// i18n — flat { en, th } objects, default Thai (PRODUCT.md: Thai-first).
+// i18n — flat { en, th, zh } objects, default Thai (PRODUCT.md: Thai-first).
 // No user-facing text is hardcoded in JSX; everything routes through t().
+//
+// ⚠️ ไม่มีสตริงหมวด Login ที่นี่โดยเจตนา — HUB ไม่มีฟอร์มล็อกอินแล้ว
+// (ทั้ง username/password/rememberSession และแถว LAYER 0–3 ที่เคยบอกเป็นนัยว่า
+// "Layer 1 · Application = Credentials" เกิดขึ้นที่ HUB ถูกลบไปพร้อม Login.jsx)
+// ข้อความล็อกอินจริงอยู่ในแอปปลายทางแต่ละตัว ซึ่งมี i18n ของตัวเองแยกกัน
 export const LANGS = ['th', 'en', 'zh']
 
 const STRINGS = {
@@ -11,29 +16,6 @@ const STRINGS = {
 
     // Welcome
     enter: 'Enter',
-
-    // Login
-    loginTitle: 'Sign In',
-    loginSubtitle: 'Secure NAS · On-Premise Deployment',
-    username: 'Username',
-    usernamePlaceholder: 'first.last',
-    password: 'Password',
-    passwordPlaceholder: '••••••••',
-    showPassword: 'Show password',
-    hidePassword: 'Hide password',
-    rememberSession: 'Remember this session',
-    signIn: 'Sign In',
-    signingIn: 'Signing in…',
-    loginFailed: 'Incorrect username or password.',
-    lockout: 'Too many attempts. Try again in {s}s.',
-    layerNetwork: 'LAYER 0 · NETWORK',
-    layerNetworkDesc: 'VPN + VLAN',
-    layerApp: 'LAYER 1 · APPLICATION',
-    layerAppDesc: 'Credentials',
-    layerStorage: 'LAYER 2 · STORAGE',
-    layerStorageDesc: 'Encrypted at rest',
-    layerMeta: 'LAYER 3 · METADATA',
-    layerMetaDesc: 'PostgreSQL',
 
     // Hub
     hubTitle: 'AEGIS Edge-Guard Infrastructure',
@@ -55,29 +37,7 @@ const STRINGS = {
 
     enter: 'เข้าสู่ระบบ',
 
-    // Login
-    loginTitle: 'เข้าสู่ระบบ',
-    loginSubtitle: 'NAS ปลอดภัย · ติดตั้งภายในองค์กร',
-    username: 'ชื่อผู้ใช้',
-    usernamePlaceholder: 'ชื่อ.นามสกุล',
-    password: 'รหัสผ่าน',
-    passwordPlaceholder: '••••••••',
-    showPassword: 'แสดงรหัสผ่าน',
-    hidePassword: 'ซ่อนรหัสผ่าน',
-    rememberSession: 'จดจำเซสชันนี้',
-    signIn: 'เข้าสู่ระบบ',
-    signingIn: 'กำลังเข้าสู่ระบบ…',
-    loginFailed: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-    lockout: 'ลองมากเกินไป กรุณาลองใหม่ใน {s} วินาที',
-    layerNetwork: 'LAYER 0 · NETWORK',
-    layerNetworkDesc: 'VPN + VLAN',
-    layerApp: 'LAYER 1 · APPLICATION',
-    layerAppDesc: 'ข้อมูลประจำตัว',
-    layerStorage: 'LAYER 2 · STORAGE',
-    layerStorageDesc: 'เข้ารหัสขณะจัดเก็บ',
-    layerMeta: 'LAYER 3 · METADATA',
-    layerMetaDesc: 'PostgreSQL',
-
+    // Hub
     hubTitle: 'AEGIS Edge-Guard Infrastructure',
     selectModule: 'เลือกโมดูลเพื่อดำเนินการต่อ — แต่ละโมดูลมีทางเข้าสู่ระบบของตัวเอง',
     open: 'เปิด',
@@ -97,29 +57,6 @@ const STRINGS = {
 
     // Welcome
     enter: '进入系统',
-
-    // Login
-    loginTitle: '登录',
-    loginSubtitle: '安全 NAS · 本地部署',
-    username: '用户名',
-    usernamePlaceholder: '名.姓',
-    password: '密码',
-    passwordPlaceholder: '••••••••',
-    showPassword: '显示密码',
-    hidePassword: '隐藏密码',
-    rememberSession: '记住此会话',
-    signIn: '登录',
-    signingIn: '正在登录…',
-    loginFailed: '用户名或密码不正确。',
-    lockout: '尝试次数过多，请在 {s} 秒后重试。',
-    layerNetwork: 'LAYER 0 · NETWORK',
-    layerNetworkDesc: 'VPN + VLAN',
-    layerApp: 'LAYER 1 · APPLICATION',
-    layerAppDesc: '身份凭证',
-    layerStorage: 'LAYER 2 · STORAGE',
-    layerStorageDesc: '静态加密',
-    layerMeta: 'LAYER 3 · METADATA',
-    layerMetaDesc: 'PostgreSQL',
 
     // Hub
     hubTitle: 'AEGIS Edge-Guard Infrastructure',
