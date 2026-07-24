@@ -10,9 +10,13 @@ Why this exists (see server/cli/README.md for the full write-up):
   no new web route, no new session/CSRF surface to defend.
 
 What it does:
-  add-operator     Create a CCTV-Operator account (bcrypt-hashed password,
-                    entered interactively — never as a CLI argument) and
-                    assign it one or more cameras in `camera_assignment`.
+  add-operator     Create a CCTV-Operator or SOC-Responder account (--role,
+                    default CCTV-Operator) with a bcrypt-hashed password and
+                    assign it zero or more cameras in `camera_assignment`.
+                    Password is entered interactively via getpass by default
+                    — never as a CLI argument (shell history / `ps` would
+                    leak it) — or piped via --password-stdin for scripted
+                    local test-fixture setup (see that flag's help text).
   list-cameras      Read-only: camera ids + who they're currently assigned to.
   list-operators    Read-only: existing CCTV-Operator / SOC-Responder accounts.
 
@@ -25,6 +29,11 @@ Connection:
     export DATABASE_URL=postgresql://aegis:<password>@localhost:5432/aegis_monitor
     python server/cli/manage_users.py add-operator \\
         --username m.reyes --display-name "M. Reyes" --camera CAM-05
+
+    # scripted local test fixture, known password, immediately usable:
+    echo 'CamOne#2026' | python server/cli/manage_users.py add-operator \\
+        --username op_cam1 --display-name "Op Cam1" --role CCTV-Operator \\
+        --camera CAM-01 --password-stdin --skip-force-reset --yes
 """
 from __future__ import annotations
 
@@ -66,7 +75,7 @@ def connect():
 def read_new_password() -> str:
     """getpass only — never accepted as a CLI arg (shell history / process list)."""
     while True:
-        pw1 = getpass.getpass(f"Temporary password for the new operator (min {MIN_PASSWORD_LENGTH} chars): ")
+        pw1 = getpass.getpass(f"Temporary password for the new account (min {MIN_PASSWORD_LENGTH} chars): ")
         if len(pw1) < MIN_PASSWORD_LENGTH:
             print(f"  too short — need at least {MIN_PASSWORD_LENGTH} characters", file=sys.stderr)
             continue
@@ -79,6 +88,27 @@ def read_new_password() -> str:
             print("  did not match — try again", file=sys.stderr)
             continue
         return pw1
+
+
+def read_password_from_stdin() -> str:
+    """--password-stdin path: one line off stdin, no confirmation prompt.
+
+    This exists for scripted local test-fixture provisioning (a known password
+    piped in from a setup script) — it is NOT a substitute for getpass in any
+    interactive/production use. A piped value never gets the "type it twice"
+    typo check a human gets, and depending on the caller it may end up in that
+    caller's own shell history — that risk is the caller's to own, not this
+    script's, which is why this path requires the explicit --password-stdin flag.
+    """
+    line = sys.stdin.readline()
+    if not line:
+        die("--password-stdin was set but stdin was empty")
+    pw = line.rstrip("\n")
+    if len(pw) < MIN_PASSWORD_LENGTH:
+        die(f"piped password is shorter than {MIN_PASSWORD_LENGTH} characters")
+    if len(pw.encode("utf-8")) > 72:
+        die("piped password exceeds bcrypt's 72-byte limit")
+    return pw
 
 
 def actor_label() -> str:
@@ -166,9 +196,10 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
     if not display_name or len(display_name) > 80:
         die("display name is required and must be at most 80 characters")
 
-    password = read_new_password()
+    password = read_password_from_stdin() if args.password_stdin else read_new_password()
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_COST)).decode("ascii")
     del password
+    must_reset = not args.skip_force_reset
 
     conn = connect()
     try:
@@ -212,10 +243,10 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
             cur.execute(
                 """
                 INSERT INTO users (username, password_hash, role, display_name, active, must_reset_password)
-                VALUES (%s, %s, %s, %s, TRUE, TRUE)
+                VALUES (%s, %s, %s, %s, TRUE, %s)
                 RETURNING id
                 """,
-                (username, password_hash, "CCTV-Operator", display_name),
+                (username, password_hash, args.role, display_name, must_reset),
             )
             user_id = cur.fetchone()["id"]
 
@@ -236,16 +267,18 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
     finally:
         conn.close()
 
-    print(f"✓ created CCTV-Operator '{username}' (id={user_id}), must reset password on first login")
+    reset_note = "must reset password on first login" if must_reset else "password is usable as-is (--skip-force-reset)"
+    print(f"✓ created {args.role} '{username}' (id={user_id}), {reset_note}")
     if cameras:
         print(f"✓ assigned cameras: {', '.join(cameras)}")
-    else:
+    elif args.role == "CCTV-Operator":
         print("  no cameras assigned yet — this operator has no Scoped View until you assign one")
     print(f"  provisioned by {actor_label()}")
-    print(
-        "\nHand the temporary password to the operator out-of-band (in person, secure chat) — "
-        "it was never written to disk, logged, or stored anywhere but their own memory just now."
-    )
+    if not args.password_stdin:
+        print(
+            "\nHand the password to the user out-of-band (in person, secure chat) — it was never "
+            "written to disk, logged, or stored anywhere but their own memory just now."
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -256,14 +289,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_add = sub.add_parser("add-operator", help="create a CCTV-Operator and assign cameras")
+    p_add = sub.add_parser("add-operator", help="create a CCTV-Operator/SOC-Responder and assign cameras")
     p_add.add_argument("--username", required=True, help="lowercase, e.g. m.reyes")
     p_add.add_argument("--display-name", required=True, help="e.g. 'M. Reyes'")
+    p_add.add_argument(
+        "--role", choices=["CCTV-Operator", "SOC-Responder"], default="CCTV-Operator",
+        help="account role (default: CCTV-Operator)",
+    )
     p_add.add_argument(
         "--camera", action="append", metavar="CAM-ID",
         help="camera id to assign (repeatable, e.g. --camera CAM-05 --camera CAM-06)",
     )
     p_add.add_argument("--yes", "-y", action="store_true", help="skip the reassignment confirmation prompt")
+    p_add.add_argument(
+        "--password-stdin", action="store_true",
+        help="read the password from stdin instead of an interactive getpass prompt — "
+             "for scripted local test-fixture setup only, see module docstring",
+    )
+    p_add.add_argument(
+        "--skip-force-reset", action="store_true",
+        help="do NOT set must_reset_password — the account can log in with this exact password "
+             "immediately. For local test fixtures with a known password; never for real provisioning",
+    )
     p_add.set_defaults(func=cmd_add_operator)
 
     p_lc = sub.add_parser("list-cameras", help="list cameras and their current assignment")

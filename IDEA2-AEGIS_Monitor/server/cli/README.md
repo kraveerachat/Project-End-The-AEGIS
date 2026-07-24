@@ -1,7 +1,8 @@
-# manage_users.py — AEGIS Monitor (IDEA2) operator provisioning
+# manage_users.py — AEGIS Monitor (IDEA2) account provisioning
 
-SSH-only CLI for creating `CCTV-Operator` accounts and assigning cameras.
-This is the **only** supported way to provision real IDEA2 accounts.
+SSH-only CLI for creating `CCTV-Operator` and `SOC-Responder` accounts and
+assigning cameras. This is the **only** supported way to provision real
+IDEA2 accounts.
 
 ## Why a CLI instead of a web UI
 
@@ -40,35 +41,55 @@ copy it from there rather than retyping the password.
 # see what cameras exist and who has them today
 python3 manage_users.py list-cameras
 
-# create an operator and hand them CAM-05 + CAM-06
+# create a CCTV-Operator and hand them CAM-05 + CAM-06 (interactive password)
 python3 manage_users.py add-operator \
   --username m.reyes --display-name "M. Reyes" \
   --camera CAM-05 --camera CAM-06
+
+# create a SOC-Responder (no cameras — they see everything)
+python3 manage_users.py add-operator \
+  --username soc.lead --display-name "SOC Lead" --role SOC-Responder
 
 # review accounts
 python3 manage_users.py list-operators
 ```
 
-`add-operator` prompts for the password twice via `getpass` (never echoed,
-never a CLI argument, never in shell history) and hashes it with bcrypt
-(cost 12) before it ever reaches the database — the plaintext exists only in
-the admin's terminal for the few seconds it takes to type it. The account is
-created with `must_reset_password = TRUE`, so the temporary password only
-has to work for one login; the operator sets their own password immediately
-after via `POST /api/password/reset`.
+`add-operator` prompts for the password twice via `getpass` by default (never
+echoed, never a CLI argument, never in shell history) and hashes it with
+bcrypt (cost 12) before it ever reaches the database — the plaintext exists
+only in the admin's terminal for the few seconds it takes to type it. The
+account is created with `must_reset_password = TRUE` by default, so the
+temporary password only has to work for one login; the user sets their own
+password immediately after via `POST /api/password/reset`.
 
 Reassigning a camera that's already assigned to someone else prompts for
 confirmation unless you pass `--yes`. User creation + all camera assignments
 happen in a single transaction — a bad camera id or a duplicate username
 rolls the whole operation back, never a half-created account.
 
-## What this does *not* do
+## Scripted local test-fixture provisioning
 
-There's no `--password` flag and never will be — accepting a password as a
-CLI argument puts it in shell history and `ps`/`/proc/*/cmdline` for any
-other process on the box to read. If you need unattended/scripted
-provisioning, that's a different threat model (secrets manager, not a
-terminal prompt) and out of scope for this tool.
+`--password-stdin` (read one line from stdin instead of an interactive
+`getpass` prompt) and `--skip-force-reset` (don't set `must_reset_password`,
+so the exact password you set works immediately) exist together for one
+purpose: seeding a local test environment with known, deterministic
+credentials so you can log in and exercise the UI/RBAC without also having
+to drive the force-reset flow first.
+
+```bash
+echo 'CamOne#2026' | python3 manage_users.py add-operator \
+  --username op_cam1 --display-name "Op Cam1" --role CCTV-Operator \
+  --camera CAM-01 --password-stdin --skip-force-reset --yes
+```
+
+Both flags are opt-in and off by default — real provisioning (no flags) still
+gets getpass + a mandatory reset. There's no `--password` flag and never
+will be: accepting a password as a CLI argument puts it in shell history and
+`ps`/`/proc/*/cmdline` for any other process on the box to read, which is
+true whether the account is a test fixture or a real one. `--password-stdin`
+narrows that exposure to "whatever piped it in," which is an acceptable
+trade for a throwaway local test password but not for anything real —
+don't reach for it outside test-fixture scripting.
 
 IDEA2 has no `audit_log` table yet (unlike IDEA1 — see `../db/schema.sql`
 vs. IDEA1's), so this script doesn't write one either; it prints a

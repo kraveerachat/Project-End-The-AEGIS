@@ -161,20 +161,24 @@ export function listClips(visibleIds) {
 // ── operators + camera_assignment (SOC จัดการผ่านวิว Operators) ─────────
 const operators = [
   { id: 'op-reyes', name: 'M. Reyes', role: 'CCTV-Operator', active: true },
+  { id: 'op-nakamura', name: 'T. Nakamura', role: 'CCTV-Operator', active: true },
   { id: 'op-lee', name: 'K. Lee', role: 'CCTV-Operator', active: true },
   { id: 'op-lim', name: 'S. Lim', role: 'CCTV-Operator', active: false },
   { id: 'op-okafor', name: 'A. Okafor', role: 'SOC-Responder', active: true },
 ]
 
 // camera_id → operatorId | 'SOC' | null — mirror ของตาราง camera_assignment
-// ⚠️ บัญชีล็อกอิน 'operator' (user id 2 ใน connection.js) คือ op-reyes → CAM-05
+// ⚠️ บัญชีล็อกอิน 'operator'  (user id 2 ใน connection.js) คือ op-reyes    → CAM-05
+// ⚠️ บัญชีล็อกอิน 'operator2' (user id 3 ใน connection.js) คือ op-nakamura → CAM-06
+//    สองแถวนี้ mirror seed.sql ตรง ๆ เพื่อให้ dev fallback พิสูจน์ Scoped View ได้
+//    เหมือนโหมด Postgres เป๊ะ ๆ (operator A ต้องไม่เห็นกล้องของ operator B)
 const assignments = new Map([
   ['CAM-01', 'op-lee'],
   ['CAM-02', 'SOC'],
   ['CAM-03', 'op-lim'],
   ['CAM-04', null],
   ['CAM-05', 'op-reyes'],
-  ['CAM-06', 'op-lee'],
+  ['CAM-06', 'op-nakamura'],
 ])
 
 // ── Postgres-backed operators + camera_assignment ───────────────────────
@@ -299,7 +303,10 @@ export function resolveRoute(camId, assignmentsMap, operatorsById) {
 /** ใช้โดย connection.js (dev fallback): user id → เซ็ตกล้องที่มองเห็น */
 export function camerasForUserId(userId) {
   // mapping ระหว่างบัญชีล็อกอิน dev ↔ operator record (production: JOIN ตาราง users)
-  const opId = userId === 2 ? 'op-reyes' : null
+  // ยังอ่านจาก `assignments` (ไม่ hardcode รายชื่อกล้อง) — แก้ assignment ในวิว Operators
+  // แล้วมีผลกับ Scoped View ทันที เหมือน DB จริง
+  const DEV_USER_TO_OPERATOR = { 2: 'op-reyes', 3: 'op-nakamura' }
+  const opId = DEV_USER_TO_OPERATOR[userId] ?? null
   const out = new Set()
   for (const [cam, v] of assignments) {
     if (v === opId && opId) out.add(cam)
