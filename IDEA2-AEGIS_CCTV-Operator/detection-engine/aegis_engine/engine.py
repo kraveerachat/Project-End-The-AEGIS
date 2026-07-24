@@ -26,6 +26,7 @@ from __future__ import annotations
 import queue
 import signal
 import threading
+import uuid
 from typing import Optional
 
 from .alert_manager import AlertManager
@@ -35,7 +36,8 @@ from .face_detector import FaceDetectorProcessor, FaceRecognizer
 from .local_api import LocalEventAPI
 from .logging_setup import configure as configure_logging, get_logger
 from .metrics import MetricsRegistry
-from .models import DetectionResult, Frame
+from .models import DetectionResult, DetectionStatus, Frame
+from .monitor_client import MonitorClient
 from .nas_sync import NASSyncWorker
 from .segment_recorder import SegmentRecorder
 from .video_catcher import OverflowPolicy, Sink, VideoCatcher
@@ -56,6 +58,11 @@ class DetectionEngine:
         self._metrics = MetricsRegistry()
         self._hub = EventHub()
 
+        # One shared client to Monitor's backend — persists detections/clips/alerts
+        # to the shared DB over HTTP (never a direct Postgres connection). All calls
+        # fail soft: if Monitor is unreachable, the pipeline keeps running.
+        self._monitor = MonitorClient()
+
         # Queues bridging the threads.
         self._record_queue: "queue.Queue[Frame]" = queue.Queue(
             maxsize=self._cfg.record_queue_size
@@ -70,11 +77,13 @@ class DetectionEngine:
         # Alert manager publishes onto the same live stream.
         self._alerts = AlertManager(
             self._cfg, self._metrics, stop_event=self._stop,
-            publish=self._api.publish_event,
+            publish=self._api.publish_event, monitor=self._monitor,
         )
 
         # NAS off-load worker; the recorder hands finalized segments to it.
-        self._nas = NASSyncWorker(self._cfg, self._metrics, stop_event=self._stop)
+        self._nas = NASSyncWorker(
+            self._cfg, self._metrics, stop_event=self._stop, monitor=self._monitor,
+        )
 
         # Continuous segment recorder.
         self._recorder = SegmentRecorder(
@@ -110,9 +119,23 @@ class DetectionEngine:
         self._api.publish_event(result.to_dict())
         # 2) Consider it for alerting (AlertManager applies the cooldown).
         self._alerts.submit(result, frame)
-        # NOTE: persisting to the shared DB (the web-app's authoritative source)
-        # is intentionally left as a seam — add a DBWriter worker here and feed
-        # it `result` the same way, keeping the engine→DB→web-app boundary.
+        # 3) Persist the recognition event to the shared DB via Monitor's backend.
+        #    One frame with several people → one event carrying several entities
+        #    (Monitor writes one `detections` row per person, sharing a frame_id).
+        #    Only frames that actually contain a face are persisted — an empty
+        #    frame (NO_FACE only) has nothing to record. Fails soft (see client).
+        entities = [
+            {"status": e.status.value, "name": e.name, "confidence": e.confidence}
+            for e in result.entities
+            if e.status is not DetectionStatus.NO_FACE
+        ]
+        if entities:
+            self._monitor.post_detection(
+                camera_id=result.camera_id,
+                entities=entities,
+                frame_id=uuid.uuid4().hex,
+                at=result.timestamp,
+            )
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:

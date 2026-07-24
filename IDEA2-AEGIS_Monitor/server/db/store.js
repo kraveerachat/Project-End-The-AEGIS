@@ -12,77 +12,15 @@
 //    — ห้ามเชื่อ filter จาก client
 
 import bcrypt from 'bcryptjs'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { usingPostgres, query, withTransaction } from './connection.js'
 
-const BOOT = Date.now()
-const MIN = 60_000
-
-let seq = 0
-const nextId = (p) => `${p}-${++seq}`
-
-// ── people helpers (PDPA scope: ชื่อ+ความมั่นใจเท่านั้น — ไม่มีตำแหน่ง/รหัสพนักงาน) ──
-const A = (name, conf) => ({ k: 'auth', name, conf })
-const U = (conf) => ({ k: 'unk', name: null, conf })
-
-const AUTH_POOL = [
-  ['Somchai T.', 98], ['J. Park', 97], ['A. Okafor', 95], ['L. Tan', 94],
-  ['M. Reyes', 96], ['J. Smith', 98], ['K. Wong', 93], ['P. Anong', 95],
-]
-const EMIT_CAMS = ['CAM-01', 'CAM-05', 'CAM-06', 'CAM-04', 'CAM-02']
-const rand = (n) => Math.floor(Math.random() * n)
-
-// ── detections — หนึ่ง frame มี people[] (หลายคน = tailgating มองเห็นได้) ──
-const detections = []
-function pushDetection(offMs, cam, people) {
-  detections.unshift({
-    id: nextId('det'), at: Date.now() - offMs, cam, people,
-    syncedToNas: true,
-  })
-  if (detections.length > 60) detections.pop()
-}
-// seed ชุดแรก — ซีน tailgating ที่ CAM-02 คือเฟรมล่าสุด
-pushDetection(780_000, 'CAM-05', [A('A. Okafor', 99)])
-pushDetection(570_000, 'CAM-01', [U(64)])
-pushDetection(360_000, 'CAM-01', [A('L. Tan', 96), A('J. Park', 93)])
-pushDetection(270_000, 'CAM-04', [U(71)])
-pushDetection(98_000, 'CAM-05', [A('A. Okafor', 95)])
-pushDetection(23_000, 'CAM-01', [A('Somchai T.', 98)])
-pushDetection(8_000, 'CAM-02', [A('J. Smith', 98), U(82)])
-
-const hasUnk = (d) => d.people.some((p) => p.k === 'unk')
-
-// ── alerts ───────────────────────────────────────────────────────────
-const alerts = [
-  { id: nextId('al'), at: BOOT - 8_000, sev: 'red', type: 'Critical · intrusion', title: 'Repeated unknown-access attempts', cam: 'CAM-02', telegramSent: true, acked: false, ackedBy: null },
-  { id: nextId('al'), at: BOOT - 270_000, sev: 'amber', type: 'Warning · unknown person', title: 'Unknown person detected', cam: 'CAM-04', telegramSent: true, acked: false, ackedBy: null },
-  { id: nextId('al'), at: BOOT - 570_000, sev: 'amber', type: 'Warning · unknown person', title: 'Unknown person detected', cam: 'CAM-01', telegramSent: true, acked: false, ackedBy: null },
-]
-
-// ── generator — ตัวแทน Detection Engine (dev เท่านั้น; production = engine เขียน DB) ──
-setInterval(() => {
-  if (outageUntil > Date.now()) return // link ล่ม = ไม่มีเฟรมใหม่เข้ามา
-  const cam = EMIT_CAMS[rand(EMIT_CAMS.length)]
-  const pick = () => { const [n, c] = AUTH_POOL[rand(AUTH_POOL.length)]; return A(n, c - rand(6)) }
-  const r = Math.random()
-  let people
-  if (r < 0.14) people = [U(55 + rand(35))]
-  else if (r < 0.22) {
-    const a = pick(); let b = pick()
-    while (b.name === a.name) b = pick()
-    people = [a, b]
-  } else people = [pick()]
-  pushDetection(0, cam, people)
-  const d = detections[0]
-  if (hasUnk(d) && !alerts.some((x) => !x.acked && x.cam === d.cam)) {
-    alerts.unshift({
-      id: nextId('al'), at: d.at, sev: 'amber',
-      type: 'Warning · unknown person', title: 'Unknown person detected',
-      cam: d.cam, telegramSent: true, acked: false, ackedBy: null,
-    })
-    if (alerts.length > 15) alerts.pop()
-  }
-}, 25_000).unref?.()
+// ⚠️ Phase 3: ตัวจำลอง detection/alert/clip แบบ in-memory (generator + seed arrays)
+//    ถูก "ถอดออกทั้งหมด" แล้ว — ข้อมูลจริงมาจาก Detection Engine (Laptop, VLAN 20)
+//    ที่ยิงเข้ามาทาง POST /internal/{detections,clips,alerts} แล้วเขียนลง Postgres
+//    (ดู insertDetection/insertClip/insertAlert + routes/internal.js) ส่วน endpoint
+//    ฝั่งเว็บ "อ่านอย่างเดียว" จากตารางจริง (listDetections/listAlerts/listClips ด้านล่าง)
+//    — ไม่มีแถวสังเคราะห์ปนกับข้อมูลจริงอีกต่อไป
 
 // ── Edge link — heartbeat state ที่เว็บแอปอ่าน (จริง: มาจาก engine heartbeat) ──
 let outageUntil = 0
@@ -110,52 +48,224 @@ export function toggleOutage() {
   return { status: 'degraded' }
 }
 
-// ── queries (ทุกตัวรับ visibleIds — เซ็ตกล้องที่ "ผู้เรียกคนนี้" เห็นได้) ──────
-export function listDetections(visibleIds, limit = 40) {
-  return detections.filter((d) => visibleIds.has(d.cam)).slice(0, limit)
+// ════ Detection Engine ingest — เขียนตารางจริง (ผ่าน POST /internal/*) ═══════
+// ⚠️ Detection Engine ไม่ถือ credential ต่อ Postgres โดยตรง — โค้ดฝั่งนี้ (Node
+//    backend ของ Monitor) เท่านั้นที่แตะฐาน aegis_monitor ตามหลัก trust boundary
+//    เดียวกับทั้งโปรเจกต์ (ดู middleware/requireDetectionEngineKey.js)
+const CAM_RE = /^CAM-\d+$/
+
+async function cameraExists(id) {
+  const { rows } = await query(`SELECT 1 FROM cameras WHERE id = $1`, [id])
+  return rows.length > 0
 }
 
-export function listAlerts(visibleIds, limit = 15) {
-  return alerts.filter((a) => visibleIds.has(a.cam)).slice(0, limit)
-}
+/** เขียน detection หนึ่งเฟรม — หนึ่งแถวต่อ "คนหนึ่งคนในเฟรม" (แชร์ frame_id เดียวกัน)
+ *  เฟรมที่มีหลายคน → หลายแถว = มองเห็น tailgating ได้ (ตรงกับ schema.sql)
+ *  รับ entities จาก engine (status/name/confidence) — เก็บเฉพาะ Authorized/Unknown
+ *  (NoFace ไม่ลงตาราง; result CHECK อนุญาตแค่สองค่านี้) */
+export async function insertDetection(input) {
+  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
 
-export function ackAlert(id, username) {
-  const a = alerts.find((x) => x.id === id)
-  if (!a) return null
-  a.acked = true
-  a.ackedBy = username
-  a.ackedAt = Date.now()
-  return a
-}
-
-// ── clips — interval-based ~10 นาที (ไม่ใช่ detection-triggered) ─────────
-const TEN_MIN = 10 * 60 * 1000
-const SEG = (k, w) => ({ k, w })
-const CLIP_SPECS = [
-  { cam: 'CAM-02', slot: 1, kind: 'unknown', segs: [SEG('ok', 44), SEG('warn', 14), SEG('ok', 42)] },
-  { cam: 'CAM-01', slot: 2, kind: 'auth', segs: [SEG('ok', 100)] },
-  { cam: 'CAM-04', slot: 2, kind: 'unknown', segs: [SEG('ok', 20), SEG('warn', 22), SEG('ok', 58)] },
-  { cam: 'CAM-05', slot: 3, kind: 'auth', segs: [SEG('ok', 100)] },
-  { cam: 'CAM-06', slot: 3, kind: 'auth', segs: [SEG('ok', 100)] },
-  { cam: 'CAM-02', slot: 4, kind: 'unknown', segs: [SEG('ok', 66), SEG('warn', 10), SEG('ok', 24)] },
-]
-
-export function listClips(visibleIds) {
-  const now = Date.now()
-  const boundary = Math.floor(now / TEN_MIN) * TEN_MIN
-  const elapsed = Math.max(1, Math.round((now - boundary) / 1000))
-  const pct = Math.min(97, Math.max(3, (elapsed / 600) * 100))
-  const live = {
-    id: 'clip-live', cam: 'CAM-02', kind: 'unknown', live: true,
-    start: boundary, durationSec: elapsed, storedOnNas: false,
-    segs: pct > 8 ? [SEG('ok', pct - 5), SEG('warn', 3), SEG('rec', 2)] : [SEG('rec', pct)],
+  const frameId = String(input?.frameId || randomUUID()).slice(0, 128)
+  let atIso = null
+  if (input?.at != null) {
+    const d = new Date(input.at)
+    if (Number.isNaN(d.getTime())) return { error: 'invalid at timestamp', status: 400 }
+    atIso = d.toISOString()
   }
-  const done = CLIP_SPECS.map((s, i) => ({
-    id: 'clip-' + i, cam: s.cam, kind: s.kind, live: false,
-    start: boundary - s.slot * TEN_MIN, durationSec: 600, storedOnNas: true,
-    segs: s.segs,
+
+  const entities = Array.isArray(input?.entities) ? input.entities : []
+  const valid = entities
+    .map((e) => ({
+      result: e?.status === 'Unknown' ? 'Unknown' : e?.status === 'Authorized' ? 'Authorized' : null,
+      name: e?.name != null ? String(e.name).slice(0, 120) : null,
+      confidence: Number.isFinite(Number(e?.confidence)) ? Number(e.confidence) : null,
+    }))
+    .filter((e) => e.result !== null)
+  if (valid.length === 0) return { error: 'no recognizable faces in payload', status: 400 }
+
+  const faces = valid.length
+  await withTransaction(async (client) => {
+    for (const e of valid) {
+      await client.query(
+        `INSERT INTO detections (frame_id, at, camera_id, faces_in_frame, result, matched_name, confidence)
+         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7)`,
+        // matched_name เป็น NULL เสมอเมื่อ Unknown (ไม่มีตัวตนให้จับคู่)
+        [frameId, atIso, cameraId, faces, e.result, e.result === 'Unknown' ? null : e.name, e.confidence],
+      )
+    }
+  })
+  return { frameId, rows: faces }
+}
+
+/** เขียน clip หนึ่งช่วง — เรียกโดย nas_sync "หลัง" ยืนยัน sha256 บน NAS สำเร็จเท่านั้น
+ *  ⚠️ stored_on_nas ต้องเป็น TRUE ก็ต่อเมื่อ verify ผ่านแล้ว — ห้ามตั้งแบบ optimistic
+ *  (ผู้เรียกเดียวคือ nas_sync._finish_ok ซึ่งอยู่หลังด่าน verify) */
+export async function insertClip(input) {
+  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+
+  const filePath = String(input?.filePath ?? '').trim()
+  if (!filePath) return { error: 'file_path required', status: 400 }
+  const started = input?.startedAt ? new Date(input.startedAt) : null
+  if (!started || Number.isNaN(started.getTime())) return { error: 'invalid started_at', status: 400 }
+  const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 600
+  const storedOnNas = Boolean(input?.storedOnNas)
+
+  const { rows } = await query(
+    `INSERT INTO clips (camera_id, started_at, duration_sec, file_path, stored_on_nas)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [cameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
+  )
+  return { id: String(rows[0].id) }
+}
+
+/** เขียน alert หนึ่งรายการ — เรียกโดย alert_manager "หลัง" พยายามส่ง Telegram
+ *  (สำเร็จหรือไม่ก็ persist เสมอ — บันทึกไม่หายแม้ Telegram ล่ม) */
+export async function insertAlert(input) {
+  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+
+  // severity ต้องเป็น 'amber' | 'red' เท่านั้น (schema CHECK) — engine map 'warning'→'amber' มาก่อนแล้ว
+  const severity = input?.severity === 'red' ? 'red' : input?.severity === 'amber' ? 'amber' : null
+  if (!severity) return { error: "severity must be 'amber' or 'red'", status: 400 }
+  const type = String(input?.alertType ?? input?.type ?? 'unknown_face').slice(0, 64)
+  const title = String(input?.title ?? 'Unknown person detected').slice(0, 200)
+  const snapshotPath = input?.snapshotPath ? String(input.snapshotPath).slice(0, 1024) : null
+  const telegramSent = Boolean(input?.telegramSent)
+
+  const { rows } = await query(
+    `INSERT INTO alerts (severity, type, title, camera_id, snapshot_path, telegram_sent, acked)
+     VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING id`,
+    [severity, type, title, cameraId, snapshotPath, telegramSent],
+  )
+  return { id: String(rows[0].id) }
+}
+
+// ── queries (ทุกตัวรับ visibleIds — เซ็ตกล้องที่ "ผู้เรียกคนนี้" เห็นได้; กรองที่ SQL) ──
+// ⚠️ อ่านจากตารางจริงใน Postgres เท่านั้น — dev fallback (ไม่มี DB) คืนลิสต์ว่าง
+//    เพราะแหล่งข้อมูลเดียวคือ Detection Engine ที่เขียนผ่าน /internal/*
+
+/** detections — จัดกลุ่มแถว (หนึ่งคน/แถว) กลับเป็นเฟรมที่มี people[] ตาม frame_id */
+export async function listDetections(visibleIds, limit = 40) {
+  if (!usingPostgres) return []
+  const ids = [...visibleIds]
+  if (ids.length === 0) return []
+  const { rows } = await query(
+    `SELECT frame_id, camera_id,
+            EXTRACT(EPOCH FROM at) * 1000 AS at_ms,
+            result, matched_name, confidence, synced_to_nas
+       FROM detections
+      WHERE camera_id = ANY($1)
+      ORDER BY at DESC, id DESC
+      LIMIT $2`,
+    [ids, limit * 8], // over-fetch: หลายแถว = หนึ่งเฟรม แล้วค่อยตัดเป็น limit เฟรม
+  )
+  const byFrame = new Map()
+  for (const r of rows) {
+    let f = byFrame.get(r.frame_id)
+    if (!f) {
+      if (byFrame.size >= limit) continue
+      f = { id: r.frame_id, at: Math.round(Number(r.at_ms)), cam: r.camera_id, people: [], syncedToNas: r.synced_to_nas }
+      byFrame.set(r.frame_id, f)
+    }
+    f.people.push({
+      k: r.result === 'Unknown' ? 'unk' : 'auth',
+      name: r.matched_name,
+      conf: r.confidence == null ? null : Math.round(Number(r.confidence)),
+    })
+    f.syncedToNas = f.syncedToNas && r.synced_to_nas
+  }
+  return [...byFrame.values()]
+}
+
+/** alerts — คืน display_name ของผู้ ack (JOIN users) ให้ ackedBy เป็นชื่อ ไม่ใช่ id */
+export async function listAlerts(visibleIds, limit = 15) {
+  if (!usingPostgres) return []
+  const ids = [...visibleIds]
+  if (ids.length === 0) return []
+  const { rows } = await query(
+    `SELECT a.id, EXTRACT(EPOCH FROM a.at) * 1000 AS at_ms,
+            a.severity, a.type, a.title, a.camera_id,
+            a.snapshot_path, a.telegram_sent, a.acked, u.display_name AS acked_by
+       FROM alerts a
+       LEFT JOIN users u ON u.id = a.acked_by
+      WHERE a.camera_id = ANY($1)
+      ORDER BY a.at DESC
+      LIMIT $2`,
+    [ids, limit],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    at: Math.round(Number(r.at_ms)),
+    sev: r.severity,
+    type: r.type,
+    title: r.title,
+    cam: r.camera_id,
+    snapshotPath: r.snapshot_path,
+    telegramSent: r.telegram_sent,
+    acked: r.acked,
+    ackedBy: r.acked_by ?? null,
   }))
-  return [live, ...done].filter((c) => visibleIds.has(c.cam))
+}
+
+/** ack — การเขียนเดียวที่ console มี; เก็บ acked_by เป็น user id (FK) */
+export async function ackAlert(id, user) {
+  if (!usingPostgres) return null
+  if (!/^\d+$/.test(String(id))) return null
+  const { rows } = await query(
+    `UPDATE alerts SET acked = TRUE, acked_by = $1, acked_at = now()
+      WHERE id = $2 AND acked = FALSE
+      RETURNING id`,
+    [user.id, id],
+  )
+  if (rows.length > 0) return { id: String(rows[0].id) }
+  // ไม่มีแถวที่อัปเดต — อาจ ack ไปแล้ว (idempotent) หรือ id ไม่มีจริง
+  const { rows: exist } = await query(`SELECT 1 FROM alerts WHERE id = $1`, [id])
+  return exist.length ? { id: String(id) } : null
+}
+
+// ── clips — option A: ไม่มี segs (engine ไม่ผลิต segment-level heat) และไม่มี live clip
+//    คลิปโผล่เฉพาะที่ finalize + verified บน NAS แล้ว (nas_sync เขียนหลัง verify)
+//    kind ('auth'|'unknown') ได้จากการเช็คว่ามี detection ผล 'Unknown' ในช่วงเวลาคลิปไหม
+export async function listClips(visibleIds) {
+  if (!usingPostgres) return []
+  const ids = [...visibleIds]
+  if (ids.length === 0) return []
+  const { rows } = await query(
+    `SELECT c.id, c.camera_id,
+            EXTRACT(EPOCH FROM c.started_at) * 1000 AS start_ms,
+            c.duration_sec, c.stored_on_nas,
+            EXISTS (
+              SELECT 1 FROM detections d
+               WHERE d.camera_id = c.camera_id
+                 AND d.result = 'Unknown'
+                 AND d.at >= c.started_at
+                 AND d.at < c.started_at + make_interval(secs => c.duration_sec)
+            ) AS has_unknown
+       FROM clips c
+      WHERE c.camera_id = ANY($1)
+      ORDER BY c.started_at DESC
+      LIMIT 60`,
+    [ids],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    cam: r.camera_id,
+    kind: r.has_unknown ? 'unknown' : 'auth',
+    live: false,
+    start: Math.round(Number(r.start_ms)),
+    durationSec: r.duration_sec,
+    storedOnNas: r.stored_on_nas,
+    segs: [], // option A: ไม่มี segment-level heat จาก engine
+  }))
 }
 
 // ── operators + camera_assignment (SOC จัดการผ่านวิว Operators) ─────────

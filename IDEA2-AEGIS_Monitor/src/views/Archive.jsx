@@ -7,10 +7,13 @@ import { useApi } from '../lib/hooks.js'
 const SEG_TOTAL_SEC = 600
 
 // Convert a clip's segment bar into reviewable time markers.
+// ⚠️ Phase 3: real clips carry no segment-level heat (`segs` is empty) — the
+// Detection Engine doesn't emit it. Guard so an empty/absent segs renders a
+// plain bar with no flagged windows instead of crashing.
 function segMarkers(clip) {
   const out = []
   let cum = 0
-  for (const s of clip.segs) {
+  for (const s of clip.segs ?? []) {
     if (s.k === 'warn') {
       const a = clip.start + (cum / 100) * SEG_TOTAL_SEC * 1000
       const b = clip.start + ((cum + s.w) / 100) * SEG_TOTAL_SEC * 1000
@@ -125,7 +128,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                     : <span className="clipdur mono">{cl.durLabel}</span>}
                   <span className="play" aria-hidden="true"><Play /></span>
                   <span className="segbar" aria-hidden="true">
-                    {cl.segs.map((sg, j) => <span key={j} className={`seg ${sg.k}`} style={{ width: sg.w + '%' }} />)}
+                    {(cl.segs ?? []).map((sg, j) => <span key={j} className={`seg ${sg.k}`} style={{ width: sg.w + '%' }} />)}
                   </span>
                 </button>
                 <div className="clipbody">

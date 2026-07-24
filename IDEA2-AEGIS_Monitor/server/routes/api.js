@@ -159,7 +159,7 @@ apiRouter.post('/link/outage', requireAuth, (req, res) => {
 apiRouter.get('/detections', requireAuth, async (req, res, next) => {
   try {
     const visible = await visibleIdsOf(req.user)
-    res.json({ detections: store.listDetections(visible) })
+    res.json({ detections: await store.listDetections(visible) })
   } catch (err) { next(err) }
 })
 
@@ -172,7 +172,7 @@ apiRouter.get('/alerts', requireRole(ROLES.SOC), async (req, res, next) => {
     const visible = new Set(cams.map((c) => c.id))
     const nameOf = (id) => cams.find((c) => c.id === id)?.name ?? id
     const operatorsById = new Map(operators.map((o) => [String(o.id), o]))
-    const rows = store.listAlerts(visible).map((a) => ({
+    const rows = (await store.listAlerts(visible)).map((a) => ({
       ...a, camName: nameOf(a.cam), route: store.resolveRoute(a.cam, assignments, operatorsById),
     }))
     res.json({ alerts: rows })
@@ -180,10 +180,12 @@ apiRouter.get('/alerts', requireRole(ROLES.SOC), async (req, res, next) => {
 })
 
 // Acknowledge — การเขียนเดียวที่ console นี้มี (review-only console)
-apiRouter.post('/alerts/:id/ack', requireRole(ROLES.SOC), (req, res) => {
-  const a = store.ackAlert(req.params.id, req.user.username)
-  if (!a) return res.status(404).json({ error: 'Not found' })
-  res.json({ ok: true })
+apiRouter.post('/alerts/:id/ack', requireRole(ROLES.SOC), async (req, res, next) => {
+  try {
+    const a = await store.ackAlert(req.params.id, req.user)
+    if (!a) return res.status(404).json({ error: 'Not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
 })
 
 apiRouter.get('/clips', requireAuth, async (req, res, next) => {
@@ -191,7 +193,7 @@ apiRouter.get('/clips', requireAuth, async (req, res, next) => {
     const cams = await getVisibleCameras(req.user)
     const visible = new Set(cams.map((c) => c.id))
     const nameOf = (id) => cams.find((c) => c.id === id)?.name ?? id
-    res.json({ clips: store.listClips(visible).map((c) => ({ ...c, camName: nameOf(c.cam) })) })
+    res.json({ clips: (await store.listClips(visible)).map((c) => ({ ...c, camName: nameOf(c.cam) })) })
   } catch (err) { next(err) }
 })
 

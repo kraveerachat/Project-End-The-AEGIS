@@ -61,6 +61,7 @@ class AlertManager(threading.Thread):
         stop_event: Optional[threading.Event] = None,
         max_queue: int = 64,
         publish: Optional[Callable[[dict], None]] = None,
+        monitor: Optional[object] = None,
     ) -> None:
         super().__init__(name="AlertManager", daemon=True)
         self._cfg = config
@@ -70,6 +71,9 @@ class AlertManager(threading.Thread):
         self._last_alert_at: dict = {}  # cooldown key -> monotonic timestamp
         # Optional sink so alerts also appear on the live API stream / web app.
         self._publish = publish
+        # Optional MonitorClient — persist an `alerts` row after each send
+        # attempt, success OR failure (see _handle). Fails soft.
+        self._monitor = monitor
         self._dry_run = not (config.telegram_bot_token and config.telegram_chat_id)
         if self._dry_run:
             log.warning(
@@ -187,17 +191,36 @@ class AlertManager(threading.Thread):
             f"Conf: {job.payload['confidence']}%\n"
             f"Time: {job.payload['timestamp']}"
         )
+        telegram_sent = False
         if self._dry_run:
             log.warning("[DRY-RUN] alert (snapshot %s): %s",
                         job.snapshot_path, caption.replace("\n", " | "))
             self._metrics.on_alert_sent()
-            return
-
-        if self._send_telegram(job.jpeg, caption):
+        elif self._send_telegram(job.jpeg, caption):
+            telegram_sent = True
             self._metrics.on_alert_sent()
             log.info("alert sent for %s", job.payload["camera_id"])
         else:
             log.error("alert delivery failed for %s", job.payload["camera_id"])
+
+        # Persist the alert regardless of the Telegram outcome — the record must
+        # survive even if Telegram is unreachable (don't lose the event).
+        self._persist_alert(job.payload, telegram_sent)
+
+    def _persist_alert(self, payload: dict, telegram_sent: bool) -> None:
+        if self._monitor is None:
+            return
+        # Map the engine's severity onto Monitor's schema CHECK ('amber' | 'red').
+        sev = str(payload.get("severity", "warning")).lower()
+        severity = "red" if sev in ("red", "critical") else "amber"
+        self._monitor.post_alert(
+            camera_id=payload.get("camera_id"),
+            severity=severity,
+            alert_type=payload.get("reason", "unknown_face"),
+            title="Unknown person detected",
+            snapshot_path=payload.get("snapshot"),
+            telegram_sent=telegram_sent,
+        )
 
     def _send_telegram(self, jpeg: bytes, caption: str) -> bool:
         """POST a photo to Telegram with a small retry loop. Never raises."""

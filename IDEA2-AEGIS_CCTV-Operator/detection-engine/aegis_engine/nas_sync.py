@@ -50,6 +50,7 @@ class NASSyncWorker(threading.Thread):
         config: EngineConfig,
         metrics: MetricsRegistry,
         stop_event: Optional[threading.Event] = None,
+        monitor: Optional[object] = None,
     ) -> None:
         super().__init__(name="NASSyncWorker", daemon=True)
         self._cfg = config
@@ -58,6 +59,9 @@ class NASSyncWorker(threading.Thread):
         self._queue: "queue.Queue[SegmentInfo]" = queue.Queue()
         self._pending = 0
         self._pending_lock = threading.Lock()
+        # Optional MonitorClient — persist a `clips` row ONLY after a verified
+        # transfer (see _finish_ok), never optimistically. Fails soft.
+        self._monitor = monitor
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -136,7 +140,7 @@ class NASSyncWorker(threading.Thread):
 
             if self._verify(path, remote_path, local_hash):
                 log.info("verified %s on NAS", basename)
-                self._finish_ok(path, basename)
+                self._finish_ok(path, basename, info, remote_path)
                 return
             log.warning("verification mismatch for %s; will retry", basename)
             self._backoff(attempt)
@@ -147,8 +151,25 @@ class NASSyncWorker(threading.Thread):
         )
         self._metrics.on_nas_result(ok=False, when_wall=utc_now_iso())
 
-    def _finish_ok(self, path: str, basename: str) -> None:
+    def _finish_ok(
+        self, path: str, basename: str,
+        info: "SegmentInfo", remote_path: str,
+    ) -> None:
         self._metrics.on_nas_result(ok=True, when_wall=utc_now_iso())
+
+        # Persist the clip row NOW — this line is reached only *after* the
+        # sha256/size verification above passed, so stored_on_nas=True is never
+        # optimistic. file_path is the verified location on the NAS. Fail-soft:
+        # a DB write failure must not stop us from freeing local disk below.
+        if self._monitor is not None:
+            self._monitor.post_clip(
+                camera_id=info.camera_id,
+                started_at=info.started_wall,
+                duration_sec=info.duration_s,
+                file_path=remote_path,
+                stored_on_nas=True,
+            )
+
         if not self._cfg.nas_delete_after_sync:
             return
         try:

@@ -15,6 +15,8 @@ import { securityHeaders } from './middleware/securityHeaders.js'
 import { csrfProtection } from './middleware/csrf.js'
 import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
+import { internalRouter } from './routes/internal.js'
+import { requireDetectionEngineKey } from './middleware/requireDetectionEngineKey.js'
 import { usingPostgres, checkDb } from './db/connection.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -39,6 +41,12 @@ app.get('/healthz', async (req, res) => {
 
 app.use('/api', csrfProtection, apiRouter)
 app.use('/api', apiNotFound)
+
+// ── Detection Engine ingest (service-to-service) ─────────────────────────────
+// mount แยกจาก /api โดยเจตนา: ไม่มี CSRF/เซสชัน (engine ไม่ใช่เบราว์เซอร์) แต่ต้อง
+// ผ่านด่าน API key ก่อนถึง handler เสมอ — ดู middleware/requireDetectionEngineKey.js
+// ⚠️ ชั้น gateway (nginx) บล็อก /monitor/internal/ จากภายนอกอีกชั้น (defense-in-depth)
+app.use('/internal', requireDetectionEngineKey, internalRouter)
 
 app.use(express.static(DIST))
 

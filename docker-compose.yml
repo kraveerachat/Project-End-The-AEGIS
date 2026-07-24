@@ -145,6 +145,10 @@ services:
       # ⚠️ ต่อด้วย monitor_app ไม่ใช่ superuser — สมมาตรกับ drive: REVOKE CONNECT
       # จาก aegis_drive ไว้แล้ว อ่านตาราง users/files ของ IDEA1 ไม่ได้เลย
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
+      # ⚠️ service-to-service key สำหรับ Detection Engine (Laptop, VLAN 20) ยิงเข้า
+      # POST /internal/{detections,clips,alerts} — ไม่ผูกกับ role ผู้ใช้ ไม่มี fallback:
+      # ไม่ตั้งค่า = endpoint /internal ปิดตาย (503). ตั้งค่าจริงใน root .env เสมอ
+      DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

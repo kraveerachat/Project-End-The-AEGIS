@@ -568,3 +568,149 @@ docker exec -e PGPASSWORD="$MONITOR_DB_PASSWORD" aegis_system-postgres-1 \
 > **หมายเหตุความสะอาดของ fixture**: บัญชี `m.reyes.web` / `m.reyes.cli` ข้างบนเป็นของทดสอบ
 > ล้างทิ้งได้ด้วย `DELETE FROM users WHERE username IN ('m.reyes.web','m.reyes.cli');`
 > (ON DELETE CASCADE เก็บกวาดแถว `camera_assignment` ให้เอง)
+
+---
+
+## 14 · Detection Engine → ตารางจริง (detections / clips / alerts) — ต่อท่อ Engine เข้า DB
+
+หัวข้อ 3–6 พิสูจน์ Scoped View บนข้อมูล **จำลอง** (in-memory generator ใน `store.js`)
+ตอนนี้ **ถอด generator ทิ้งทั้งหมด** แล้ว — ข้อมูล detections/alerts/clips มาจาก
+**Detection Engine จริง** (`IDEA2-AEGIS_CCTV-Operator/detection-engine/`, Laptop VLAN 20)
+ที่ยิงผ่าน **internal API** ของ Monitor แล้ว backend เขียน Postgres ให้
+
+> **Trust boundary**: Detection Engine **ไม่ถือ credential ต่อ Postgres** — คุยผ่าน
+> `POST /internal/{detections,clips,alerts}` เท่านั้น ยืนยันตัวด้วย service key
+> `X-Detection-Engine-Key` (คนละกลไกกับ session/CSRF ของผู้ใช้) มีแต่ backend ของ
+> Monitor ที่แตะฐาน `aegis_monitor` — หลักเดียวกับทุกโมดูล (ดู
+> `server/middleware/requireDetectionEngineKey.js`, `server/routes/internal.js`,
+> และ seams ฝั่ง engine: `engine.py` `_on_detection`, `nas_sync.py` `_finish_ok`,
+> `alert_manager.py` `_handle`)
+
+**14.1 · ด่าน API key — ไม่มี key / key ผิด → `401` (ยิงตรงที่ `monitor:8002` ในเครือข่าย)**
+```bash
+# no key
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://monitor:8002/internal/detections \
+  -H 'Content-Type: application/json' -d '{"cameraId":"CAM-01","entities":[{"status":"Unknown","confidence":80}]}'
+# wrong key
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://monitor:8002/internal/detections \
+  -H "X-Detection-Engine-Key: totally-wrong-key" -H 'Content-Type: application/json' -d '{...}'
+# correct key แต่ body ผิด → ผ่านด่าน key แล้วเข้า handler (400 validation)
+curl -s -X POST http://monitor:8002/internal/detections \
+  -H "X-Detection-Engine-Key: $KEY" -H 'Content-Type: application/json' -d '{"cameraId":"NOPE"}'
+```
+```
+no key      -> 401
+wrong key   -> 401
+correct key, bad body -> {"error":"invalid camera_id"}
+```
+> ด่านเทียบ key แบบ timing-safe และ **fail-secure**: ถ้าไม่ตั้ง `DETECTION_ENGINE_API_KEY`
+> ฝั่ง server → `/internal` ถูกปิดตายทั้งหมด (503) ไม่ใช่เปิดผ่าน
+
+**14.2 · Gateway บล็อก `/monitor/internal/*` จากภายนอก → `404` (defense-in-depth)**
+```bash
+curl -s -o /dev/null -w "POST /monitor/internal/detections (via gateway) -> %{http_code}\n" \
+  -X POST http://localhost/monitor/internal/detections -H "X-Detection-Engine-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"cameraId":"CAM-01","entities":[{"status":"Unknown","confidence":80}]}'
+curl -s -o /dev/null -w "GET  /monitor/api/link            (via gateway) -> %{http_code}\n" \
+  http://localhost/monitor/api/link
+```
+```
+POST /monitor/internal/detections (via gateway) -> 404
+GET  /monitor/api/link            (via gateway) -> 401   ← เว็บ path ปกติยังทะลุถึงแอป (401=auth ไม่ใช่ 404)
+```
+> เส้นทางที่ถูกต้องของ engine คือ **เข้าตรงที่ `monitor:8002` ในเครือข่าย (VLAN 20/LAN)**
+> ไม่ผ่าน gateway สาธารณะ — nginx จึง `return 404` ทุก `/monitor/internal/*` จากภายนอก
+> (`gateway/nginx.conf`, longest-prefix ชนะ `location /monitor/`)
+
+**14.3 · detection cycle จริง — หนึ่งเฟรมหลายคน = หลายแถวแชร์ `frame_id` (เห็น tailgating)**
+
+รัน DetectionEngine จริงครบทั้ง pipeline (capture→detect→`_on_detection`→HTTP→DB;
+recorder→NAS; alert_manager) ป้อนวิดีโอทดสอบ + recognizer แบบ deterministic ที่ inject
+ตรง AI seam (`FaceRecognizer` — ไม่ต้องมีโมเดล/กล้องจริง)
+```bash
+docker exec ... psql -U monitor_app -d aegis_monitor -c \
+  "SELECT left(frame_id,10) AS frame, faces_in_frame AS faces, result, matched_name, confidence
+     FROM detections ORDER BY id DESC LIMIT 5;"
+```
+```
+   frame    | faces |   result   | matched_name | confidence
+------------+-------+------------+--------------+------------
+ 3dea511e57 |     2 | Unknown    |              |      90.00   ← สองแถว frame_id เดียวกัน
+ 3dea511e57 |     2 | Authorized | A. Auth      |      95.00   ← = tailgating (คนแปลกหน้า + คนได้รับอนุญาต)
+ 3ea2b30198 |     1 | Authorized | T. Test      |      96.00
+ 1d91446f38 |     1 | Unknown    |              |      88.00
+```
+> `matched_name` เป็น NULL เสมอเมื่อ `Unknown` และมีชื่อเมื่อ `Authorized` — ตรง
+> `result CHECK IN ('Authorized','Unknown')` ของ schema; NO_FACE ไม่ถูกเขียน (ไม่มีใครในเฟรม)
+
+**14.4 · clip จริง — `stored_on_nas`/`file_path` ถูกตั้งค่า "หลัง" verify sha256 บน NAS เท่านั้น**
+
+ตั้ง sshd NAS ชั่วคราวเป็นปลายทาง rsync (`AEGIS_NAS_VERIFY=checksum`,
+`AEGIS_SEGMENT_SECONDS=20` — **override ตอนทดสอบเท่านั้น**, ค่า default ใน `config.py`
+ยังเป็น 600) engine log: `verified CAM-01_...mp4 on NAS` → แล้วจึงเขียนแถว clip
+```bash
+docker exec ... psql -U monitor_app -d aegis_monitor -x -c \
+  "SELECT id, camera_id, duration_sec, file_path, stored_on_nas FROM clips ORDER BY id LIMIT 1;"
+```
+```
+id            | 3
+camera_id     | CAM-01
+duration_sec  | 20
+file_path     | /nas/segments/CAM-01_20260724_181922.mp4
+stored_on_nas | t
+```
+> `stored_on_nas=t` และ `file_path` ชี้ตำแหน่งบน NAS **ถูกเขียนที่จุด `nas_sync._finish_ok`
+> ซึ่งอยู่หลังด่าน `_verify()` เท่านั้น** — ไม่มีทางถูกตั้งแบบ optimistic (ถ้า verify ไม่ผ่าน
+> engine เก็บไฟล์ไว้บน local disk แล้วไม่เขียนแถว) ไบต์จริงอยู่บน NAS พิสูจน์ด้วย
+> `sha256sum /nas/segments/*.mp4` บนคอนเทนเนอร์ NAS
+
+**14.5 · alert ถูกบันทึกเสมอ ไม่ว่า Telegram สำเร็จหรือล่ม (`telegram_sent=f` = dry-run)**
+```bash
+docker exec ... psql -U monitor_app -d aegis_monitor -c \
+  "SELECT id, severity, type, title, camera_id, telegram_sent, acked FROM alerts ORDER BY id DESC LIMIT 2;"
+```
+```
+ id | severity |     type     |          title          | camera_id | telegram_sent | acked
+----+----------+--------------+-------------------------+-----------+---------------+-------
+ 12 | amber    | unknown_face | Unknown person detected | CAM-01    | f             | f
+ 11 | amber    | unknown_face | Unknown person detected | CAM-01    | f             | f
+```
+> `telegram_sent=f` เพราะรันโหมด dry-run (ไม่ตั้ง Telegram token) — แต่แถว alert **ยังถูก
+> บันทึก** ครบ พิสูจน์ว่า `alert_manager._handle` persist หลังพยายามส่งเสมอ ไม่ว่าผลเป็นอย่างไร
+> (severity engine `warning` ถูก map เป็น `amber` ให้ตรง schema CHECK IN ('amber','red'))
+
+**14.6 · Scoped View บนข้อมูลจริง — soc เห็นทุกกล้อง, operator เห็นเฉพาะกล้องตน**
+
+(ป้อน detection/clip ของ `CAM-05`=operator, `CAM-06`=operator2 เพิ่มผ่าน `/internal` เดิม)
+```
+soc       /detections cams -> "CAM-01" "CAM-05" "CAM-06"     (เห็นทุกกล้อง)
+operator  /detections cams -> "CAM-05"                        (เฉพาะกล้องตน)
+operator2 /detections cams -> "CAM-06"
+soc       /clips      cams -> "CAM-01" "CAM-05" "CAM-06"
+operator  /clips      cams -> "CAM-05"
+operator2 /clips      cams -> "CAM-06"
+operator  /alerts         -> 403                              (Alerts = SOC-only)
+```
+บนเบราว์เซอร์ (Playwright): `soc` เห็น Detection stream ครบ CAM-01/05/06 (รวมการ์ด
+tailgating "2/2" + ชื่อ Authorized + Unknown %) และ Archive ครบทุกกล้อง; `operator`
+(CCTV-Operator) เมนู server-decided มีแค่ Live/Archive/Diagnostics/Settings (**ไม่มี
+Detection/Alerts** — SOC-only) และ Archive เห็นแค่ `CAM-05` — เหมือนหัวข้อ 3–5 เป๊ะ
+**ไม่ว่าข้อมูลจะเป็นของจริงจาก engine หรือไม่**
+
+**14.7 · ยืนยัน generator จำลองหายจริง — restart แล้วแถวไม่งอกเอง**
+
+เดิม generator ใน `store.js` เพิ่ม detection/alert ทุก 25 วินาที ตอนนี้ถอดทิ้งแล้ว:
+```bash
+docker compose restart monitor          # โปรเซสใหม่ — ถ้ายังมี generator จะเริ่มงอกแถวใหม่
+# t=0s  : detections=68 alerts=5
+# (รอ 30s)
+# t=30s : detections=68 alerts=5         ← ตัวเลขนิ่งสนิท = ไม่มีการสร้างข้อมูลสังเคราะห์อีก
+```
+> เว็บอ่าน detections/alerts/clips จาก Postgres เท่านั้น (ผ่าน `listDetections`/`listAlerts`/
+> `listClips` ที่เขียนใหม่ให้ query DB) — dev fallback (ไม่มี DB) คืนลิสต์ว่าง เพราะแหล่งข้อมูล
+> เดียวคือ Detection Engine ที่เขียนผ่าน `/internal`
+
+> **หมายเหตุ fixture**: แถว detections/clips/alerts ข้างบนเป็นของทดสอบ ล้างได้ด้วย
+> `DELETE FROM detections; DELETE FROM clips; DELETE FROM alerts;` (role `monitor_app`
+> มีสิทธิ์ DML แต่ **ไม่มี TRUNCATE** — เจ้าของตารางคือ superuser ตอน migrate เท่านั้น,
+> ดูหัวข้อ 11 — ดังนั้นใช้ `DELETE`)
