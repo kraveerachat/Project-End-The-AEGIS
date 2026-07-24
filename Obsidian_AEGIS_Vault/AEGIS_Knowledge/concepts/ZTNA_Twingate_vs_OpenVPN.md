@@ -58,4 +58,4 @@ graph TD
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]
 * [[entities/MikroTik_hEX_lite]]
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]

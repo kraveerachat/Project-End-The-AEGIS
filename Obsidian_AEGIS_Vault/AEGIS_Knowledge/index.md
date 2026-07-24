@@ -19,7 +19,7 @@ updated: 2026-07-20
 ---
 
 ## 📦 Core Modules (`modules/`)
-* [[01 - 🚪 HUB-AEGIS Entry]] — Gateway จุดเข้าถึงระบบแรกแบบ Routing-Only (Port `:8000`)
+* [[01 - 🚪 HUB-AEGIS Entry]] — App picker แบบ static ไม่มี login/backend ของตัวเอง (เสิร์ฟที่ `/` โดย gateway)
 * [[02 - 💾 IDEA1 AEGIS Drive LC]] — ระบบจัดเก็บไฟล์ระดับองค์กร Secure NAS & Edge Data Lake (Port `:8001` / `:5174`)
 * [[03 - 📹 IDEA2 AEGIS Monitor]] — ศูนย์ควบคุมกล้องวงจรปิด Dual-View SOC & Scoped CCTV Operator (Port `:8002` / `:5176`)
 * [[04 - 🔒 IDEA3 AEGIS Lockdown]] — ระบบตัดวงจรเครือข่ายระดับกายภาพผ่าน ESP32 + Relay (MQTT HMAC)
@@ -52,6 +52,21 @@ updated: 2026-07-20
 ## 📂 Raw Sources (`raw/`)
 * [[raw/AEGIS_System_Design_extracted]] — เนื้อหาฉบับเต็มจากเล่มรายงานหลัก `AEGIS_System_Design.docx`
 * [[raw/AEGIS_Project_Knowledge_v7]] — แหล่งข้อมูลความรู้โครงการจาก `AEGIS_Project_Knowledge.md` (v7)
+
+---
+
+## 📑 Ethics & Compliance (`ethics/`)
+* [[ethics/Participant_Information_Sheet_IDEA2]] — เอกสารข้อมูลคำอธิบายสำหรับผู้เข้าร่วมวิจัย (PIS) สำหรับ IDEA 2 Facial Recognition · ยื่น HREC-SUT
+* [[ethics/Informed_Consent_Form_IDEA2]] — หนังสือแสดงเจตนายินยอม (Consent Form) สำหรับ IDEA 2 · เน้น 100% Local Edge, เก็บเฉพาะ Name+RBAC, Retention Policy ตาม PDPA
+
+---
+
+## 🧪 Verification Docs (อยู่ที่ราก repo ไม่ใช่ใน vault)
+
+> ⚠️ ไฟล์กลุ่มนี้อยู่ **นอก** vault จึงลิงก์ด้วย `[[wikilink]]` ไม่ได้ (Obsidian
+> resolve ได้เฉพาะไฟล์ในโฟลเดอร์ vault) — อ้างอิงเป็น path ล้วนเสมอ
+
+* `docs/auth-test.md` — คำสั่ง `curl` คัดลอกไปรันได้ทันที พิสูจน์ auth / RBAC / Scoped View ตาม `camera_assignment` / Storage Layer round-trip / Identity Decoupling ระดับ SQL
 
 ---
 

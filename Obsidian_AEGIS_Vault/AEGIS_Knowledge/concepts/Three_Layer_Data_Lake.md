@@ -53,6 +53,6 @@ graph TD
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]
 * [[entities/Beelink_Mini_S_NAS]]
 * [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]

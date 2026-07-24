@@ -41,6 +41,6 @@ graph TD
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]
 * [[concepts/OWASP_Security_Defense]]
 * [[concepts/Identity_Decoupling]]

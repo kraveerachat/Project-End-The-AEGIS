@@ -3,7 +3,7 @@ title: IDEA2 AEGIS Monitor
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-21
+updated: 2026-07-22
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -53,6 +53,14 @@ flowchart TD
 2. **Server-Side Camera JOIN Enforcement**:
    * ตาราง `camera_assignment` จัดเก็บและเป็นเจ้าของโดยฐานข้อมูล `aegis_monitor`
    * ทุก Request คำสั่งขอกล้องของผู้ใช้บทบาท `CCTV-Operator` จะถูกจับ JOIN กับตาราง `camera_assignment` ฝั่งเซิร์ฟเวอร์ หากส่ง Request ระบุ ID กล้องที่ตนไม่มีสิทธิ์ จะได้รับ `403 Forbidden` ทันที
+   * **บัญชีเดโม่มี operator สองคน (2026-07-22)**: `operator` → CAM-05 และ
+     `operator2` → CAM-06 (`server/db/seed.sql`) — operator คนเดียวพิสูจน์ได้แค่
+     "เห็นน้อยกว่า SOC" แต่สิ่งที่ต้องพิสูจน์จริงคือ **operator A มองไม่เห็นกล้องของ
+     operator B**: `operator` ยิงขอ CAM-06 → `403` และ `operator2` ยิงขอ CAM-05 → `403`
+     (ผลตรวจจริงอยู่ใน `docs/auth-test.md` ข้อ 3–5)
+   * `soc` (SOC-Responder) **ไม่มีแถวใน `camera_assignment` เลย** = เห็นทุกกล้อง —
+     การไม่มีแถวคือ "สิทธิ์เต็ม" โดยเจตนา ไม่ใช่ช่องโหว่: `getVisibleCameras()`
+     แยกเส้นทาง SOC ออกก่อนถึง JOIN (`server/db/connection.js`)
 3. **Scoped View & Hidden Menus**:
    * บทบาท `CCTV-Operator` จะสโคปภาพเห็นเฉพาะกล้องที่ได้รับมอบหมาย เมนู Alerts และ Detection Log ระดับระบบจะถูกซ่อนไว้โดยอัตโนมัติ
 4. **Camera Self-Diagnostics**:
@@ -88,6 +96,12 @@ permanently unusable.
   `provisioned by <user>@<host> at <UTC time>` line for the admin's own SSH
   session scrollback to carry instead — see `server/cli/README.md` for the
   full reasoning and why there's intentionally no `--password` flag.
+* `add-operator` now takes `--role` (`CCTV-Operator` default, or
+  `SOC-Responder`) instead of hardcoding one role, plus two opt-in flags for
+  scripted local test-fixture provisioning: `--password-stdin` (pipe the
+  password instead of an interactive `getpass` prompt) and
+  `--skip-force-reset` (account is usable with that exact password
+  immediately). Both default off — real provisioning is unaffected.
 
 ---
 

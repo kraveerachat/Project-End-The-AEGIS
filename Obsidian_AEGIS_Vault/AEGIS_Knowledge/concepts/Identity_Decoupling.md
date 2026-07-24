@@ -3,7 +3,7 @@ title: Identity Decoupling
 tags: [aegis, concept, security, identity, rbac]
 type: concept
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-07-24
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -28,13 +28,35 @@ graph LR
         CamAssign["camera_assignment Table"]
     end
 
+    HubNote["🚪 HUB — ไม่มี identity เลย<br/>(static app picker, no DB, no session)"]
+
+    HubNote -.->|hand-off เท่านั้น| DriveDB
+    HubNote -.->|hand-off เท่านั้น| MonitorDB
     DriveDB -.->|NO SHARED USERS| MonitorDB
 ```
 
 | แอปพลิเคชัน | สิทธิ์การใช้งาน (Roles) | ขอบเขตข้อมูล (Data Boundary) |
 | :--- | :--- | :--- |
-| **[[modules/02_IDEA1_AEGIS_Drive_LC|AEGIS Drive (IDEA 1)]]** | `Admin`, `DataLake-User` | จัดการไฟล์และสิทธิ์การเข้าถึงคลังข้อมูล Data Lake 3 Layers |
-| **[[modules/03_IDEA2_AEGIS_Monitor|AEGIS Monitor (IDEA 2)]]** | `SOC-Responder`, `CCTV-Operator` | ดูภาพรวมระบบกล้อง และดูเฉพาะกล้องที่ผูกใน `camera_assignment` |
+| **[[02 - 💾 IDEA1 AEGIS Drive LC|AEGIS Drive (IDEA 1)]]** | `Admin`, `DataLake-User` | จัดการไฟล์และสิทธิ์การเข้าถึงคลังข้อมูล Data Lake 3 Layers |
+| **[[03 - 📹 IDEA2 AEGIS Monitor|AEGIS Monitor (IDEA 2)]]** | `SOC-Responder`, `CCTV-Operator` | ดูภาพรวมระบบกล้อง และดูเฉพาะกล้องที่ผูกใน `camera_assignment` |
+| **[[01 - 🚪 HUB-AEGIS Entry\|HUB Entry]]** | **ไม่มี role ใด ๆ** | ไม่มีฐานข้อมูล ไม่มีบัญชี ไม่มี session — เป็นแค่ป้ายบอกทาง |
+
+---
+
+## 🚪 ทำไม HUB จึงต้อง "ไม่มี" identity (2026-07-24)
+
+ถ้า HUB ออก session ของตัวเองแล้วให้แอปปลายทางเชื่อถือ นั่นคือการสร้าง **SSO /
+Centralized RBAC** กลับเข้ามา — สิ่งที่สถาปัตยกรรมนี้ตั้งใจกำจัดทิ้งตั้งแต่ v4
+เพราะบัญชีเดียวถูกยึด = เข้าถึงได้ทุกแอปทันที (Blast Radius กลับมาใหญ่เท่าเดิม)
+
+ช่วงหนึ่ง HUB เคยมีฟอร์มล็อกอินที่แย่กว่านั้นอีก: มัน **ตรวจรหัสผ่านฝั่ง client**
+จากอาเรย์ `DEMO_ACCOUNTS` ที่ฝังใน bundle เมื่อไม่มี backend ตอบ (ซึ่งเป็นจริงเสมอ
+เพราะไม่เคยมี service `hub` ใน compose) — แจก session ระดับ Admin โดยไม่มีการบังคับ
+ฝั่งเซิร์ฟเวอร์เลย ทั้งฟอร์มและโค้ดนั้นถูกลบทิ้งถาวรเมื่อ 2026-07-24
+
+ตอนนี้ HUB ส่งผู้ใช้ต่อด้วย `window.location.href` เปล่า ๆ **ไม่มี token ไม่มี cookie
+ไม่มี query param ติดไปด้วย** แอปปลายทางจึงไม่มีอะไรให้ "เชื่อ" นอกจาก session ของ
+ตัวเองที่ผู้ใช้ต้องล็อกอินใหม่ — สาม cookie, สาม secret, สองฐานข้อมูล แยกขาดจริง
 
 ---
 
@@ -44,6 +66,6 @@ graph LR
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
-* [[modules/03_IDEA2_AEGIS_Monitor]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]
+* [[03 - 📹 IDEA2 AEGIS Monitor]]
 * [[concepts/OWASP_Security_Defense]]

@@ -38,6 +38,6 @@ flowchart TD
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/04_IDEA3_AEGIS_Lockdown]]
+* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
 * [[entities/ESP32_Relay_Module]]
 * [[concepts/Contain_Before_Notify]]

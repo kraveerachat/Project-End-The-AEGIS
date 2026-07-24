@@ -40,8 +40,8 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 เพื่อประสิทธิภาพและความเป็นอิสระ แต่ละ Service ใน Beelink จะรับ IP จริงใน VLAN 10 ผ่าน Docker Macvlan:
 * `192.168.10.10`: Beelink Host OS (Ubuntu Server)
-* `192.168.10.11`: [[modules/02_IDEA1_AEGIS_Drive_LC|AEGIS Drive Web App]]
-* `192.168.10.12`: [[modules/03_IDEA2_AEGIS_Monitor|AEGIS Monitor Web App]]
+* `192.168.10.11`: [[02 - 💾 IDEA1 AEGIS Drive LC|AEGIS Drive Web App]]
+* `192.168.10.12`: [[03 - 📹 IDEA2 AEGIS Monitor|AEGIS Monitor Web App]]
 * `192.168.10.13`: Local MQTT Broker
 
 ---

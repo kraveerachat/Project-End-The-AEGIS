@@ -25,6 +25,6 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/04_IDEA3_AEGIS_Lockdown]]
+* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Contain_Before_Notify]]

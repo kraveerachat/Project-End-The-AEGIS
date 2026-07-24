@@ -30,3 +30,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Obsidian per-machine UI state — pane layout / graph view, not knowledge.
+# Churns every session and causes pointless merge conflicts; the notes stay tracked.
+Obsidian_AEGIS_Vault/**/.obsidian/workspace.json
+Obsidian_AEGIS_Vault/**/.obsidian/graph.json
+

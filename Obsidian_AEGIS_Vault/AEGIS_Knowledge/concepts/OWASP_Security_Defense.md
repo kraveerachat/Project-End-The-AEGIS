@@ -52,5 +52,5 @@ graph TD
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
 * [[05 - 🛡️ Security Architecture]]
 * [[concepts/Identity_Decoupling]]
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
-* [[modules/03_IDEA2_AEGIS_Monitor]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]
+* [[03 - 📹 IDEA2 AEGIS Monitor]]

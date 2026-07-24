@@ -29,6 +29,6 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 ## 🔗 ความสัมพันธ์กับโน้ตอื่น
-* [[modules/02_IDEA1_AEGIS_Drive_LC]]
+* [[02 - 💾 IDEA1 AEGIS Drive LC]]
 * [[concepts/Three_Layer_Data_Lake]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]
