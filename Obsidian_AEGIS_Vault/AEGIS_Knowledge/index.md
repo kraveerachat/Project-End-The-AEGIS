@@ -18,7 +18,7 @@ updated: 2026-07-20
 
 ---
 
-## 📦 Core Modules (`modules/`)
+## 📦 Core Modules (numbered top-level notes)
 * [[01 - 🚪 HUB-AEGIS Entry]] — App picker แบบ static ไม่มี login/backend ของตัวเอง (เสิร์ฟที่ `/` โดย gateway)
 * [[02 - 💾 IDEA1 AEGIS Drive LC]] — ระบบจัดเก็บไฟล์ระดับองค์กร Secure NAS & Edge Data Lake (Port `:8001` / `:5174`)
 * [[03 - 📹 IDEA2 AEGIS Monitor]] — ศูนย์ควบคุมกล้องวงจรปิด Dual-View SOC & Scoped CCTV Operator (Port `:8002` / `:5176`)
