@@ -3,7 +3,7 @@ title: AEGIS System Overview
 tags: [aegis, architecture, overview, monorepo, verified-code]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-07-23
+updated: 2026-07-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -104,6 +104,15 @@ flowchart TD
 > temp-password issuance, and a Force Password Reset gate enforced on every
 > endpoint. No new service/port; see [[02 - 💾 IDEA1 AEGIS Drive LC]],
 > [[03 - 📹 IDEA2 AEGIS Monitor]], and [[05 - 🛡️ Security Architecture]].
+>
+> **2026-07-24**: IDEA2 gains an in-web **Add Operator** path (SOC-Responder
+> only) — `POST /monitor/api/operators`, guarded by `requireRole` and backed
+> by the same `store.provisionOperator()` constants (`USERNAME_RE`,
+> `BCRYPT_COST=12`, `must_reset` default TRUE) as the SSH CLI, so web- and
+> CLI-made operators land the same shape in `users`/`camera_assignment`. Temp
+> password is returned once (never logged) and the new account is Scoped-View
+> bound to its camera. No new service/port — same `:8002` API. Verified E2E in
+> `docs/auth-test.md` §13; details in [[03 - 📹 IDEA2 AEGIS Monitor]].
 
 ---
 

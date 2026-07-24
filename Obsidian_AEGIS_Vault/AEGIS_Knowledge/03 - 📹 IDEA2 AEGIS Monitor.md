@@ -3,7 +3,7 @@ title: IDEA2 AEGIS Monitor
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-22
+updated: 2026-07-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -70,13 +70,11 @@ flowchart TD
 
 ## 🆕 SSH-only Operator Provisioning CLI (2026-07-21)
 
-`server/cli/manage_users.py` — the **only** supported way to provision real
-`CCTV-Operator` accounts. Deliberately not a web endpoint: every write route
-a web app exposes is attack surface the edge box doesn't need, and the
-in-app "Operators" screen's own `pgAddOperator()` (`server/db/store.js`)
-already documents the gap this closes in its own comment — it issues a
-random temp password *that is never shown to anyone*, making that account
-permanently unusable.
+`server/cli/manage_users.py` — the **SSH** path for provisioning real
+`CCTV-Operator` accounts (there is now also an in-web SOC-only path, below —
+the two share one rule set, see the next section). Password entry is
+interactive `getpass` and hashing (bcrypt cost 12) happens locally before it
+ever reaches Postgres.
 
 * `python server/cli/manage_users.py add-operator --username … --display-name … --camera CAM-05`
   — password entered twice via `getpass` (never a CLI arg, never in shell
@@ -105,12 +103,57 @@ permanently unusable.
 
 ---
 
+## 🆕 In-Web "Add Operator" — SOC-only endpoint (2026-07-24)
+
+SOC-Responder can now provision a `CCTV-Operator` **from the web UI** (the
+*Nodes & routing* view) without SSH — `POST /monitor/api/operators`. The CLI
+above stays as-is; the two are separate routes that are held to **identical
+results**, not a shared function (Node vs Python can't share an object).
+
+* **One source of truth for the Node path**: `store.provisionOperator()`
+  (`server/db/store.js`) backs the endpoint. Username validation
+  (`USERNAME_RE`), `BCRYPT_COST = 12`, and `must_reset_password` default TRUE
+  are exported constants deliberately kept equal to `manage_users.py`, so a
+  web-created account and a CLI-created account land the **same shape** in the
+  same `users` / `camera_assignment` tables under the same CHECK/PK.
+* **Server-side enforced, not UI-hidden**: `requireRole('SOC-Responder')`
+  guards the route — a `CCTV-Operator` hitting it directly with `curl` gets
+  `403` regardless of what the UI shows. Camera-availability for the form's
+  dropdown is decided server-side too (`GET /operators/available-cameras`):
+  a camera already owned is filtered out, and a forged request for a taken
+  camera is rejected `409` **inside the same transaction** as the INSERT, so
+  no orphan account is ever left behind.
+* **One-time temp password**: generated server-side (~24-char base64url),
+  returned **once** in the response body, shown in a copy-once modal
+  (`TempPasswordModal` in `src/views/Nodes.jsx`) with a "won't be shown
+  again" warning. It is **never logged** anywhere — only the bcrypt hash
+  reaches the DB. The new account carries `must_reset_password = TRUE`, so it
+  is gated out of every endpoint except `/me`, `/logout`, `/password/reset`
+  until it sets its own password, then it is Scoped-View bound to exactly its
+  assigned camera — identical to a CLI-made account.
+* ⚠️ **Note on bcrypt version prefix (verification finding, 2026-07-24)**: the
+  web path hashes with Node `bcryptjs` → `$2a$12$`, the CLI with Python
+  `bcrypt` → `$2b$12$`. Both are cost-12, 60-char, cross-verifiable bcrypt —
+  the security property (cost) is identical; only the algorithm-variant letter
+  differs. The equality that holds across both paths is
+  role/active/must_reset/cost-12/hash-len-60, **not** the `$2a`/`$2b` letter.
+  (`docs/auth-test.md` §13.5's sample showing both as `$2b$12$` is idealized.)
+* **Proven end-to-end** against real Postgres in `docs/auth-test.md` §13
+  (§13.1 `201` + one-time password not in logs, §13.2 `409` + rollback,
+  §13.3 non-SOC `403`, §13.4 new operator scoped to its camera, §13.5 web-vs-CLI
+  row parity) — the exact same Scoped-View guarantees as §3–5.
+
+---
+
 ## 📂 รายการไฟล์ซอร์สโค้ดสำคัญ (Codebase Paths)
 * `IDEA2-AEGIS_Monitor/server/index.js` - Express API Server (`:8002`)
 * `IDEA2-AEGIS_Monitor/src/App.jsx` - Main Unified Routing and View Resolver
 * `IDEA2-AEGIS_CCTV-Operator/detection-engine/` - Python Face Recognition & Camera Capture Engine
 * `shared/db-schema/` - Central Schema Specification สำหรับตาราง `camera_assignment`
-* `IDEA2-AEGIS_Monitor/server/cli/manage_users.py` - CLI provisioning (SSH-only) สร้าง `CCTV-Operator` + มอบหมายกล้อง
+* `IDEA2-AEGIS_Monitor/server/cli/manage_users.py` - CLI provisioning (SSH path) สร้าง `CCTV-Operator` + มอบหมายกล้อง
+* `IDEA2-AEGIS_Monitor/server/db/store.js` - `provisionOperator()` + exported `USERNAME_RE`/`BCRYPT_COST` (แหล่งความจริงของเส้นทางเว็บ)
+* `IDEA2-AEGIS_Monitor/server/routes/api.js` - `POST /operators` (SOC-only) + `GET /operators/available-cameras`
+* `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx` - ฟอร์ม "Add operator" + `TempPasswordModal` (แสดงรหัสครั้งเดียว + ปุ่ม copy)
 
 ---
 

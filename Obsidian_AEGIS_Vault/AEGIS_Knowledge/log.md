@@ -228,3 +228,20 @@ updated: 2026-07-24
   - `docs/auth-test.md` §1–12 รันจริงผ่านทั้งหมด (§8 rate limit: attempt 6 → 429 Retry-After 120; §9 roundtrip IDENTICAL + UUID บนดิสก์; §11 cross-DB connect → permission denied)
 - **Key Changes**: ปิดช่องโหว่ด้วยการ**ลบพื้นผิวการโจมตี** ไม่ใช่เพิ่ม guard — HUB กลับไปเป็น routing-only ตามสถาปัตยกรรมเดิม Drive/Monitor ไม่ถูกแตะเลย (ยืนยันด้วย §1–11)
 - **Constraints ที่รักษาไว้**: ไม่แตะ IDEA2/Add Operator, ไม่แตะ `camera_assignment`/RBAC, ไม่สร้าง HUB DB/backend/session, ดีไซน์เดิมทุกประการ
+
+---
+
+## [2026-07-24] vibe-coding | Verify in-web Add Operator E2E (real Postgres) + document the feature
+- **User Prompt Goal**: รันสแตกจริง (ไม่ใช่ dev-fallback), พิสูจน์ `docs/auth-test.md` §13 ด้วย output จริงทุกบรรทัด, เปิดเบราว์เซอร์จริง (Playwright) เพิ่ม operator ผ่านหน้า Nodes & routing แล้วยืนยัน temp-password modal + isolation ของ operator ใหม่ แล้วอัปเดต vault
+- **Verification (จริง ไม่ใช่ "should work")**:
+  - `docker compose build --no-cache && up -d` → 4 container healthy; monitor ต่อ `aegis_monitor` ผ่าน `monitor_app` (ยืนยันจาก `docker compose config`) = โหมด Postgres จริง ไม่ใช่ in-memory DEV_USERS
+  - `docs/auth-test.md` §13 รันจริงผ่านทั้งหมด: §13.1 `201` + temp password 24-char + `grep -c` ใน log = **0**; §13.2 กล้องซ้ำ → `409` + rollback (`x.taken` count = 0); §13.3 operator (ไม่ใช่ SOC) → `403 Forbidden`; §13.4 operator ใหม่ก่อนรีเซ็ต `/cameras` → `403`, หลังรีเซ็ตเห็นแค่ CAM-04; §13.5 สร้างอีกบัญชีผ่าน CLI จริง (Python container บน network เดียวกัน ต่อ `postgres:5432`) แล้วเทียบสองแถวใน DB
+  - **Browser (Playwright chromium จริง)**: login `soc` → Nodes & routing → Add operator → dropdown โชว์เฉพาะกล้องว่าง (CAM-03 ตัวเดียว เพราะที่เหลือถูกจับจอง) → submit → `TempPasswordModal` เรนเดอร์ครบ: รหัส 24-char, ปุ่ม Copy (กดแล้วเป็น "Copied" + เขียน clipboard ตรงกับที่โชว์จริง), คำเตือน "won't be shown again" (screenshot เก็บไว้)
+  - **Isolation ของ operator ใหม่ (`g.torres.gui` → CAM-03, §5 pattern)**: ก่อนรีเซ็ต `/cameras` → 403; หลังรีเซ็ตเห็นแค่ CAM-03; ขอ CAM-05/CAM-01 ของคนอื่น → 403; `/alerts` (SOC-only) → 403; และไขว้กลับ `operator` (CAM-05) ขอ CAM-03 → 403
+  - บัญชีทดสอบทั้ง 4 (`m.reyes.web`, `m.reyes.cli`, `m.reyes.web2`, `g.torres.gui`) ถูกลบทิ้ง คืน DB เป็น seeded baseline (3 บัญชี, CASCADE เก็บ `camera_assignment` ให้)
+- **Finding (bcrypt version prefix)**: เส้นทางเว็บ (`bcryptjs`) ออก `$2a$12$` ส่วน CLI (Python `bcrypt`) ออก `$2b$12$` — cost 12 และ 60-char เท่ากัน cross-verify ได้ ต่างแค่ตัวอักษร variant; sample ใน `docs/auth-test.md` §13.5 ที่โชว์ทั้งคู่เป็น `$2b$12$` เป็นค่าที่ idealized (จดไว้ในโน้ต IDEA2 แล้ว)
+- **operator2 fixture clarification**: `DEV_USERS` ใน `server/db/connection.js` (รวมแถว `operator2`) ถูก gate ด้วย `DATABASE_URL ? [] : [...]` → เมื่อรันโหมด Postgres อาเรย์นี้ **ว่างเปล่า** ไม่เคย mirror/เขียนลง DB จริง ไม่มี collision กับแถว seed จริงใน `seed.sql` (คนละโหมด, in-memory ล้วน, และ seed ใช้ `ON CONFLICT DO NOTHING`)
+- **Modified Code Paths**: ไม่มี (verification-only งานพิสูจน์ + เอกสาร ไม่แตะโค้ดฟีเจอร์)
+- **Obsidian Updates**: [[03 - 📹 IDEA2 AEGIS Monitor]] (เพิ่มหัวข้อ In-Web Add Operator + แก้กรอบ CLI จาก "only" + finding bcrypt + code paths), [[00 - 🗺️ AEGIS System Overview]] (หมายเหตุ 2026-07-24)
+- **Housekeeping**: commit `README.md` แยกเป็น `docs(readme):` (HUB static-only), และ vault นี้เป็น `docs(vault):` แยกจากโค้ดตามคอนเวนชัน
+- **Status**: ✅ Part 1 ผ่านจริงทุกข้อกับ Postgres จริง; DB คืน baseline; ไม่แตะ RBAC/`camera_assignment`/โค้ดฟีเจอร์
