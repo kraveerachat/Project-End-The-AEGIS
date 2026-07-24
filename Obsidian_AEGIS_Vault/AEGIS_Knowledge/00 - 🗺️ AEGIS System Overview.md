@@ -3,7 +3,7 @@ title: AEGIS System Overview
 tags: [aegis, architecture, overview, monorepo, verified-code]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-07-24
+updated: 2026-07-25
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -104,6 +104,15 @@ flowchart TD
 > temp-password issuance, and a Force Password Reset gate enforced on every
 > endpoint. No new service/port; see [[02 - 💾 IDEA1 AEGIS Drive LC]],
 > [[03 - 📹 IDEA2 AEGIS Monitor]], and [[05 - 🛡️ Security Architecture]].
+>
+> **2026-07-25**: IDEA2 **Detection Engine ↔ DB wiring** is real — the Python
+> engine (Laptop, VLAN 20) persists `detections`/`clips`/`alerts` by POSTing to
+> Monitor's new `/internal/*` endpoints (service key `X-Detection-Engine-Key`,
+> **no direct Postgres credential** — only Monitor's backend writes its own DB).
+> The in-memory demo generators are removed; the web reads real rows. `clips`
+> land only after `nas_sync` sha256-verifies the NAS transfer; alerts persist
+> regardless of Telegram outcome. Gateway blocks `/monitor/internal/*` (404) as
+> defense-in-depth. Verified E2E in `docs/auth-test.md` §14; see [[03 - 📹 IDEA2 AEGIS Monitor]].
 >
 > **2026-07-24**: IDEA2 gains an in-web **Add Operator** path (SOC-Responder
 > only) — `POST /monitor/api/operators`, guarded by `requireRole` and backed

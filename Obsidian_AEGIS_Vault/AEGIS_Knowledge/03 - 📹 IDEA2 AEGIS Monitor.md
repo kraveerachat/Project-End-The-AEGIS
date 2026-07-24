@@ -3,13 +3,13 @@ title: IDEA2 AEGIS Monitor
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-24
+updated: 2026-07-25
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 📹 IDEA2: AEGIS Monitor (Dual-View SOC & CCTV Operator)
 
-> **สถานะโค้ดปัจจุบัน (Code Status)**: ✅ Built & Implemented (Backend Express `:8002` + Single Unified React App `:5176` + Database `aegis_monitor` + Python Detection Engine)  
+> **สถานะโค้ดปัจจุบัน (Code Status)**: ✅ Built & Implemented (Backend Express `:8002` + Single Unified React App `:5176` + Database `aegis_monitor` + Python Detection Engine **ต่อท่อเข้า DB จริงผ่าน internal API แล้ว** — ถอด in-memory demo generator ทิ้งทั้งหมด)  
 > **ไฟล์โค้ดหลัก**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 ---
@@ -18,12 +18,13 @@ sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledg
 
 ```mermaid
 flowchart TD
-    subgraph EdgeEngine [Detection Engine (Laptop Edge Node)]
+    subgraph EdgeEngine [Detection Engine (Laptop Edge Node, VLAN 20)]
         CamFeed["CCTV Camera Feeds"] --> FaceRec["Python Face Recognition Engine"]
-        FaceRec -->|10-min Clips + Snapshots| MonitorDB[("Database: aegis_monitor<br/>(owns camera_assignment)")]
+        FaceRec -->|"~10-min segments<br/>(rsync + sha256 verify)"| NAS[("Local NAS<br/>raw video bytes")]
     end
 
     subgraph BackendServer [AEGIS Monitor Server :8002]
+        Internal["/internal ingest endpoints<br/>X-Detection-Engine-Key (no DB creds)"]
         SessionAuth["Server Session & Role Resolver"]
         CameraResolver["Camera Access Control<br/>(Server JOIN camera_assignment)"]
     end
@@ -33,6 +34,8 @@ flowchart TD
         OpView["🎥 CCTV-Operator View<br/>(Scoped View, Assigned Cameras Only + Self-Diagnostics)"]
     end
 
+    FaceRec -->|"POST /internal/{detections,clips,alerts}<br/>HTTP + API key — engine ไม่ถือ DB credential"| Internal
+    Internal -->|"backend เขียนแถวจริง"| MonitorDB[("Database: aegis_monitor<br/>(owns camera_assignment)")]
     MonitorDB <--> BackendServer
     BackendServer -->|Role: SOC-Responder| SOCView
     BackendServer -->|Role: CCTV-Operator| CameraResolver
@@ -145,6 +148,37 @@ results**, not a shared function (Node vs Python can't share an object).
 
 ---
 
+## 🆕 Detection Engine ↔ DB wiring (Phase 3, 2026-07-25)
+
+Detection Engine (Python, Laptop VLAN 20) ต่อเข้ากับ `aegis_monitor` **จริง** แล้ว —
+เลิกใช้ตัวจำลอง in-memory (`store.js` generator ถูกถอดทิ้งทั้งหมด) ข้อมูล
+`detections`/`clips`/`alerts` มาจาก engine จริงที่ยิงผ่าน **internal API** ของ backend
+
+* **Trust boundary คงเดิม**: Detection Engine **ไม่ถือ credential ต่อ Postgres** — ยิง
+  `POST /internal/{detections,clips,alerts}` ผ่าน HTTP ยืนยันด้วย service key
+  `X-Detection-Engine-Key` (คนละกลไกกับ session/CSRF ของผู้ใช้; ไม่ผูก role) มีแต่
+  backend ของ Monitor ที่แตะฐานของตัวเอง ถ้า Laptop ถูกยึด ก็แตะ DB ตรง ๆ ไม่ได้
+  (`server/middleware/requireDetectionEngineKey.js` — timing-safe, fail-secure: ไม่ตั้ง
+  `DETECTION_ENGINE_API_KEY` = `/internal` ปิดตาย 503)
+* **สาม seams ฝั่ง engine** (fail-soft ทุกจุด — Monitor ล่มชั่วคราวไม่ทำ pipeline พัง,
+  หลักเดียวกับ "NAS ล่ม → Local Cache"): `engine.py._on_detection` (ทุกเฟรมที่มีหน้า →
+  หนึ่ง event หลาย entity, backend เขียนหนึ่งแถวต่อคน แชร์ `frame_id`);
+  `nas_sync.py._finish_ok` (**หลัง** verify sha256 บน NAS สำเร็จเท่านั้น → `stored_on_nas=TRUE`
+  ไม่มีทาง optimistic); `alert_manager.py._handle` (persist **หลัง** พยายามส่ง Telegram
+  เสมอ ไม่ว่าจะสำเร็จหรือล่ม)
+* **Gateway hardening**: `location /monitor/internal/ { return 404; }` ใน
+  `gateway/nginx.conf` — `/internal` เข้าถึงได้จาก **ในเครือข่าย** ตรงที่ `monitor:8002`
+  เท่านั้น (VLAN 20/LAN) ไม่ใช่ผ่าน gateway สาธารณะ (defense-in-depth ทับ API key อีกชั้น)
+* **เว็บอ่านจากตารางจริง**: `listDetections`/`listAlerts`/`listClips` เขียนใหม่ให้ query
+  Postgres แล้วแปลงกลับเป็นรูปทรงที่ frontend ใช้ (detections group ตาม `frame_id` →
+  `people[]`; clips **option A** — ไม่มี segs, ไม่มี live clip, `kind` ('auth'/'unknown')
+  ได้จากการเช็ค Unknown detection ในช่วงเวลาคลิป) กรองด้วย `camera_assignment` ฝั่ง server
+  เหมือนเดิม → soc เห็นทุกกล้อง, operator เห็นเฉพาะกล้องตน (พิสูจน์จริง `docs/auth-test.md` §14)
+* **Schema note**: ยึดคอลัมน์ตาม `schema.sql` เป๊ะ (`detections.at`, `frame_id`,
+  `result CHECK IN ('Authorized','Unknown')`; `alerts.severity CHECK IN ('amber','red')`
+  — engine map `'warning'→'amber'`; `alerts.type/telegram_sent/acked`; `clips.file_path`)
+  ไม่มี migration ใหม่
+
 ## 📂 รายการไฟล์ซอร์สโค้ดสำคัญ (Codebase Paths)
 * `IDEA2-AEGIS_Monitor/server/index.js` - Express API Server (`:8002`)
 * `IDEA2-AEGIS_Monitor/src/App.jsx` - Main Unified Routing and View Resolver
@@ -154,6 +188,11 @@ results**, not a shared function (Node vs Python can't share an object).
 * `IDEA2-AEGIS_Monitor/server/db/store.js` - `provisionOperator()` + exported `USERNAME_RE`/`BCRYPT_COST` (แหล่งความจริงของเส้นทางเว็บ)
 * `IDEA2-AEGIS_Monitor/server/routes/api.js` - `POST /operators` (SOC-only) + `GET /operators/available-cameras`
 * `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx` - ฟอร์ม "Add operator" + `TempPasswordModal` (แสดงรหัสครั้งเดียว + ปุ่ม copy)
+* `IDEA2-AEGIS_Monitor/server/routes/internal.js` - `POST /internal/{detections,clips,alerts}` (Detection Engine ingest)
+* `IDEA2-AEGIS_Monitor/server/middleware/requireDetectionEngineKey.js` - ด่าน API key (timing-safe, fail-secure, Thai-commented)
+* `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/monitor_client.py` - HTTP client (fail-soft) ยิงเข้า `/internal`
+* `.../detection-engine/aegis_engine/{engine,nas_sync,alert_manager}.py` - สาม seams ที่เรียก monitor_client
+* `gateway/nginx.conf` - `location /monitor/internal/ { return 404; }` (บล็อกจากภายนอก)
 
 ---
 

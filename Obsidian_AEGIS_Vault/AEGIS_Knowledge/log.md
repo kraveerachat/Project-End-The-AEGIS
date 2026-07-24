@@ -245,3 +245,25 @@ updated: 2026-07-24
 - **Obsidian Updates**: [[03 - 📹 IDEA2 AEGIS Monitor]] (เพิ่มหัวข้อ In-Web Add Operator + แก้กรอบ CLI จาก "only" + finding bcrypt + code paths), [[00 - 🗺️ AEGIS System Overview]] (หมายเหตุ 2026-07-24)
 - **Housekeeping**: commit `README.md` แยกเป็น `docs(readme):` (HUB static-only), และ vault นี้เป็น `docs(vault):` แยกจากโค้ดตามคอนเวนชัน
 - **Status**: ✅ Part 1 ผ่านจริงทุกข้อกับ Postgres จริง; DB คืน baseline; ไม่แตะ RBAC/`camera_assignment`/โค้ดฟีเจอร์
+
+---
+
+## [2026-07-25] vibe-coding | ต่อท่อ Detection Engine เข้า aegis_monitor DB จริง (ถอด demo generator)
+- **User Prompt Goal**: เชื่อม Detection Engine (Python) กับ Monitor DB จริง — engine ยิงผ่าน internal API (ไม่ถือ DB credential), backend เขียน Postgres, ถอด in-memory demo generator, พิสูจน์ end-to-end จริง
+- **Architecture**: Detection Engine → `POST /internal/{detections,clips,alerts}` (service key `X-Detection-Engine-Key`) → backend เขียน DB — trust boundary เดิม: มีแต่ backend ของแอปที่แตะฐานตัวเอง
+- **Modified Code Paths**:
+  - **Monitor backend**: `server/routes/internal.js` [NEW] (3 endpoints), `server/middleware/requireDetectionEngineKey.js` [NEW] (timing-safe, fail-secure, Thai comments), `server/db/store.js` (ถอด generator + seed arrays ทิ้ง; เพิ่ม `insertDetection/insertClip/insertAlert`; เขียน `listDetections/listAlerts/listClips/ackAlert` ใหม่ให้ query Postgres + แปลงรูปทรงกลับให้ frontend), `server/routes/api.js` (await async reads + ส่ง req.user เข้า ackAlert), `server/index.js` (mount `/internal` แยกจาก `/api` ไม่มี CSRF)
+  - **Detection Engine**: `aegis_engine/monitor_client.py` [NEW] (HTTP client fail-soft), wired 3 seams — `engine.py._on_detection`, `nas_sync.py._finish_ok` (หลัง verify เท่านั้น), `alert_manager.py._handle` (persist ไม่ว่า Telegram ผลใด)
+  - **Gateway**: `gateway/nginx.conf` — `location /monitor/internal/ { return 404; }` (defense-in-depth)
+  - **Frontend**: `src/views/Archive.jsx` — guard `segs ?? []` (option A: ไม่มี segs/live clip)
+  - **Config**: `docker-compose.yml` + `.env.example` — `DETECTION_ENGINE_API_KEY` (fail-secure default ว่าง)
+  - **Docs**: `docs/auth-test.md` §14 (7 ข้อพิสูจน์)
+- **Rulings ที่ทำตาม**: (1) ยึด schema.sql เป๊ะ ไม่มี migration (`at`/`frame_id`, severity amber/red, `file_path`); (2) clips option A (derive kind, ไม่มี segs/live clip); (3) gateway 404; (4) sshd NAS ชั่วคราว + `AEGIS_SEGMENT_SECONDS=20` (test override เท่านั้น, default config.py ยัง 600) แล้วรื้อทิ้งหลังทดสอบ
+- **Verification (จริง ไม่ smoke-test)**:
+  - API key: no key/wrong key → 401; key ถูก body ผิด → เข้า handler (400); gateway `/monitor/internal/*` → 404 (เว็บ path ปกติ 401 = ถึงแอป)
+  - รัน DetectionEngine จริงครบ pipeline (deterministic recognizer inject ตรง AI seam + วิดีโอทดสอบ) ในคอนเทนเนอร์บน network เดียวกับ stack ยิง `monitor:8002`: detections รวม tailgating (2 คน/frame แชร์ frame_id, matched_name NULL เมื่อ Unknown); clips 2 แถว `stored_on_nas=t` + `file_path` ชี้ NAS **หลัง** rsync+sha256 verify จริง (ไบต์ 10MB อยู่บน NAS จริง); alerts `telegram_sent=f` (dry-run) แต่ persist ครบ
+  - Browser (Playwright): soc เห็น Detection CAM-01/05/06 (การ์ด tailgating 2/2 + ชื่อ Authorized + Unknown%) + Archive ทุกกล้อง; operator เมนูมีแค่ Live/Archive/Diagnostics/Settings (ไม่มี Detection/Alerts) + Archive เห็นแค่ CAM-05
+  - restart monitor แล้ว detections/alerts นิ่ง (68/5 คงที่ 30s) = generator หายจริง
+  - รื้อ throwaway NAS+engine (containers+images) ทิ้งแล้ว; main stack healthy; `.env` (key จริง) ยัง gitignored
+- **Obsidian Updates**: [[03 - 📹 IDEA2 AEGIS Monitor]] (แก้ mermaid: engine→/internal→backend→DB แทน engine→DB ตรง ๆ; เพิ่มหัวข้อ Phase 3 + code paths), [[00 - 🗺️ AEGIS System Overview]] (หมายเหตุ 2026-07-25)
+- **Status**: ✅ ครบทุก Phase; ไม่แตะ IDEA1/HUB/Add-Operator/RBAC/camera_assignment; engine ไม่มี DB credential
