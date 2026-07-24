@@ -26,12 +26,36 @@ export async function query(text, params) {
   return pool.query(text, params)
 }
 
+/**
+ * รัน fn ภายใน transaction เดียว (BEGIN/COMMIT, ROLLBACK เมื่อ throw) บน client
+ * ตัวเดียวที่ checkout จาก pool — ใช้เมื่อหลายคำสั่งต้อง atomic (เช่น สร้าง user +
+ * ผูก camera_assignment พร้อมกัน: ถ้าขั้นใดพัง ต้องไม่เหลือ user กำพร้าไว้)
+ * ⚠️ pg เท่านั้น — ผู้เรียกต้อง guard ด้วย usingPostgres ก่อน
+ */
+export async function withTransaction(fn) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (err) {
+    try { await client.query('ROLLBACK') } catch { /* client เสียแล้ว — ปล่อยให้ release ไป */ }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 // ── dev fallback (ไม่มี DATABASE_URL) — security model เหมือนโหมดจริงทุกอย่าง ──
 const DEV_USERS = DATABASE_URL
   ? []
   : [
-      { id: 1, username: 'soc',      displayName: 'A. Okafor', role: ROLES.SOC,      password: 'aegis-soc' },
-      { id: 2, username: 'operator', displayName: 'M. Reyes',  role: ROLES.OPERATOR, password: 'aegis-operator' },
+      { id: 1, username: 'soc',       displayName: 'A. Okafor',   role: ROLES.SOC,      password: 'aegis-soc' },
+      { id: 2, username: 'operator',  displayName: 'M. Reyes',    role: ROLES.OPERATOR, password: 'aegis-operator' },
+      // operator คนที่สอง — มีไว้พิสูจน์ว่า operator A มองไม่เห็นกล้องของ operator B
+      // (ตรงกับ seed.sql: operator→CAM-05, operator2→CAM-06)
+      { id: 3, username: 'operator2', displayName: 'T. Nakamura', role: ROLES.OPERATOR, password: 'aegis-operator2' },
     ].map((u) => ({
       id: u.id,
       username: u.username,

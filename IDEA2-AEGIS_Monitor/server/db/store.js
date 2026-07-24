@@ -13,7 +13,7 @@
 
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import { usingPostgres, query } from './connection.js'
+import { usingPostgres, query, withTransaction } from './connection.js'
 
 const BOOT = Date.now()
 const MIN = 60_000
@@ -287,6 +287,125 @@ export async function assignCameras(opId, camIds) {
     else if (assignments.get(camId) === opId) assignments.set(camId, null)
   }
   return true
+}
+
+// ── Operator provisioning — SINGLE canonical implementation (web path) ──────
+// ⚠️ นี่คือ "แหล่งความจริงเดียว" ของการสร้าง operator ฝั่งเว็บ ทั้ง POST /api/operators
+//    เรียกฟังก์ชันนี้ตัวเดียว ไม่มีตรรกะ provisioning ซ้ำที่อื่นในโค้ด Node
+//
+//    CLI (server/cli/manage_users.py, Python) เป็นเส้นทาง SSH แยกต่างหากโดยเจตนา
+//    — คนละภาษา แชร์ object ฟังก์ชันเดียวกันไม่ได้ จึงบังคับให้ "ผลลัพธ์เท่ากัน"
+//    (row shape + constraint เดียวกัน) ด้วยค่าคงที่ชุดเดียวกันด้านล่าง แล้วพิสูจน์
+//    ความเท่ากันด้วย docs/auth-test.md §13.5 (เทียบแถวจากทั้งสองเส้นทางตรง ๆ)
+//    — ค่าคงที่พวกนี้ต้องตรงกับ manage_users.py: USERNAME_RE / BCRYPT_COST / min-len
+export const USERNAME_RE = /^[a-z][a-z0-9._-]{2,39}$/ // = CLI USERNAME_RE เป๊ะ
+export const BCRYPT_COST = 12                          // = CLI BCRYPT_COST เป๊ะ
+const TEMP_PASSWORD_BYTES = 18 // base64url ~24 อักขระ: > ขั้นต่ำ 12, < 72 ไบต์ (เพดาน bcrypt)
+
+/** รหัสผ่านชั่วคราวสุ่มฝั่งเซิร์ฟเวอร์ — URL-safe, ไม่มีอักขระ shell-meta */
+function generateTempPassword() {
+  return randomBytes(TEMP_PASSWORD_BYTES).toString('base64url')
+}
+
+/** ตรวจ input ให้ตรงกฎเดียวกับ CLI — คืน { error, detail } หรือค่าที่ normalize แล้ว */
+function validateOperatorInput({ username, displayName, role, cameraIds }) {
+  const uname = String(username ?? '').trim().toLowerCase()
+  if (!USERNAME_RE.test(uname)) {
+    return { error: 'invalid', detail: 'username must be lowercase, start with a letter, and use only a-z 0-9 . _ - (3-40 chars)' }
+  }
+  const dname = (String(displayName ?? '').trim()) || uname // ฟอร์มเว็บเก็บแค่ username → ใช้เป็น display_name
+  if (dname.length > 80) return { error: 'invalid', detail: 'display name must be at most 80 characters' }
+  const r = role ?? 'CCTV-Operator'
+  if (!['CCTV-Operator', 'SOC-Responder'].includes(r)) return { error: 'invalid', detail: 'invalid role' }
+  const cams = Array.isArray(cameraIds) ? [...new Set(cameraIds.map((c) => String(c)))] : []
+  return { uname, dname, role: r, cams }
+}
+
+// Postgres path — atomic: ตรวจ username ซ้ำ + กล้องมีจริง + กล้องว่าง แล้วค่อย
+// insert user + camera_assignment ใน transaction เดียว (พังกลางทาง = ไม่เหลือ user กำพร้า)
+async function pgProvisionOperator(input) {
+  const v = validateOperatorInput(input)
+  if (v.error) return v
+  const { uname, dname, role, cams } = v
+  const tempPassword = generateTempPassword()
+  const passwordHash = bcrypt.hashSync(tempPassword, BCRYPT_COST)
+
+  return withTransaction(async (client) => {
+    const dup = await client.query('SELECT 1 FROM users WHERE lower(username) = $1', [uname])
+    if (dup.rows.length) return { error: 'username_taken' }
+
+    if (cams.length) {
+      const found = await client.query('SELECT id FROM cameras WHERE id = ANY($1)', [cams])
+      const foundIds = new Set(found.rows.map((r) => r.id))
+      const missing = cams.filter((c) => !foundIds.has(c))
+      if (missing.length) return { error: 'unknown_camera', cameraId: missing[0] }
+
+      // "taken" = แถวที่ถูกผูกกับ user แล้ว (user_id NOT NULL) — เหมือนกฎ CLI เป๊ะ
+      // (WHERE user_id IS NOT NULL) กล้องที่เป็น SOC-Team route (user_id NULL) หรือ
+      // ยังไม่มีแถวเลย ถือว่า "ว่าง" มอบหมายทับได้
+      const taken = await client.query(
+        'SELECT camera_id FROM camera_assignment WHERE camera_id = ANY($1) AND user_id IS NOT NULL',
+        [cams],
+      )
+      if (taken.rows.length) return { error: 'camera_taken', cameraId: taken.rows[0].camera_id }
+    }
+
+    const ins = await client.query(
+      `INSERT INTO users (username, password_hash, role, display_name, active, must_reset_password)
+       VALUES ($1, $2, $3, $4, TRUE, TRUE)
+       RETURNING id, display_name AS name, role, active`,
+      [uname, passwordHash, role, dname],
+    )
+    const user = ins.rows[0]
+
+    for (const camId of cams) {
+      await client.query(
+        `INSERT INTO camera_assignment (camera_id, user_id, assigned_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (camera_id) DO UPDATE SET user_id = EXCLUDED.user_id, assigned_at = now()`,
+        [camId, user.id],
+      )
+    }
+
+    return {
+      operator: { id: String(user.id), name: user.name, role: user.role, active: user.active },
+      tempPassword,
+      mustResetPassword: true,
+    }
+  })
+}
+
+// dev fallback (ไม่มี DATABASE_URL) — mirror ตรรกะเดียวกันบน store ในหน่วยความจำ
+// (บัญชีที่สร้างในโหมดนี้ยังล็อกอินไม่ได้ เพราะ DEV_USERS ใน connection.js นิ่ง —
+//  เป็นข้อจำกัดของ dev mode เท่านั้น การทดสอบ login จริงรันบน Postgres, ดู §13.4)
+function memProvisionOperator(input) {
+  const v = validateOperatorInput(input)
+  if (v.error) return v
+  const { uname, dname, role, cams } = v
+
+  const id = 'op-' + uname.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+  if (operators.some((o) => o.id === id)) return { error: 'username_taken' }
+  for (const cam of cams) {
+    if (!assignments.has(cam)) return { error: 'unknown_camera', cameraId: cam }
+    const cur = assignments.get(cam)
+    if (cur && cur !== 'SOC') return { error: 'camera_taken', cameraId: cam }
+  }
+
+  const tempPassword = generateTempPassword()
+  operators.push({ id, name: dname, role, active: true })
+  for (const cam of cams) assignments.set(cam, id)
+  return { operator: { id, name: dname, role, active: true }, tempPassword, mustResetPassword: true }
+}
+
+/**
+ * สร้าง operator หนึ่งบัญชี + ผูกกล้อง (0..N) แบบ atomic แล้วคืนรหัสผ่านชั่วคราว
+ * "ครั้งเดียว" ให้ผู้เรียก — ไม่ log, ไม่เก็บ plaintext ที่ใด (ผู้เรียกต้องส่งต่อ out-of-band)
+ * คืน { operator, tempPassword, mustResetPassword } เมื่อสำเร็จ, หรือ
+ *     { error: 'invalid'|'username_taken'|'unknown_camera'|'camera_taken', ... } เมื่อไม่สำเร็จ
+ */
+export async function provisionOperator(input) {
+  if (usingPostgres) return pgProvisionOperator(input)
+  return memProvisionOperator(input)
 }
 
 /** เส้นทาง alert ของกล้อง — default-deny: ไม่มีคนรับ/ถูกระงับ → SOC-Team.

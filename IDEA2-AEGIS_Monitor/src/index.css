@@ -1195,3 +1195,43 @@ table.dt { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 6
   font-size: 12px;
   font-weight: 600;
 }
+
+/* ---------- add-operator (Nodes) — button, modal, temp-password ---------- */
+.pagehead-actions { display: flex; align-items: center; gap: 10px; }
+.aop-primary { border-color: var(--bord2); box-shadow: 0 0 14px rgba(0, 229, 255, .14); }
+.aop-primary:disabled { box-shadow: none; border-color: var(--bord); }
+
+.aop-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-nav);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(3, 7, 12, .66);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  animation: fadein var(--dur-2) var(--ease);
+}
+.aop-modal { width: min(440px, 100%); padding: 20px; }
+.aop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.aop-body { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.aop-field { display: flex; flex-direction: column; gap: 6px; }
+.aop-in { width: 100%; min-width: 0; }
+select.aop-in { appearance: none; cursor: pointer; }
+select.aop-in:disabled { opacity: .55; cursor: default; }
+.aop-hint { font-size: 10.5px; color: var(--slate); letter-spacing: .04em; }
+.aop-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+.aop-pwrow { display: flex; align-items: stretch; gap: 8px; }
+.aop-pw {
+  flex: 1; min-width: 0; display: flex; align-items: center;
+  padding: 10px 12px; border-radius: 9px;
+  background: rgba(0, 229, 255, .06); border: 1px solid var(--bord2);
+  color: var(--white); font-size: 13px; letter-spacing: .02em;
+  word-break: break-all; user-select: all;
+}
+.aop-copy { flex: none; white-space: nowrap; }
+.aop-warn {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin: 0; padding: 10px 12px; border-radius: 9px;
+  background: rgba(255, 157, 0, .08); border: 1px solid rgba(255, 157, 0, .3);
+  color: var(--amber); font-size: 11.5px; line-height: 1.5;
+}
+.aop-warn svg { flex: none; margin-top: 1px; }
+.aop-warn span { color: var(--ice); }

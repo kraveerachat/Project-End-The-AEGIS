@@ -219,11 +219,43 @@ apiRouter.get('/operators', requireRole(ROLES.SOC), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// กล้องที่ "ว่าง" (ยังไม่ผูกกับ operator คนใด) — ป้อน dropdown ของฟอร์ม Add Operator
+// ⚠️ ฝั่งเซิร์ฟเวอร์เป็นผู้ตัดสินว่าอะไรว่าง ไม่ใช่ client คำนวณจากข้อมูลเก่าที่ค้างอยู่
+//    "ว่าง" = ไม่มีแถว หรือแถวเป็น SOC-Team route (user_id NULL) — กฎเดียวกับ provisionOperator
+apiRouter.get('/operators/available-cameras', requireRole(ROLES.SOC), async (req, res, next) => {
+  try {
+    const [cams, assignments] = await Promise.all([getVisibleCameras(req.user), store.listAssignments()])
+    const available = cams
+      .filter((c) => { const a = assignments[c.id]; return a == null || a === 'SOC' })
+      .map((c) => ({ id: c.id, name: c.name }))
+    res.json({ cameras: available })
+  } catch (err) { next(err) }
+})
+
+// สร้าง operator จากในเว็บ (SOC-Responder เท่านั้น — requireRole บังคับฝั่งเซิร์ฟเวอร์)
+// ใช้ store.provisionOperator ตัวเดียวกับที่เป็นแหล่งความจริงของ provisioning ทั้งหมด
+// ⚠️ รหัสผ่านชั่วคราวถูกสร้างฝั่งเซิร์ฟเวอร์และส่งกลับ "ครั้งเดียว" ในบอดี้ — ไม่เคย log
 apiRouter.post('/operators', requireRole(ROLES.SOC), async (req, res, next) => {
   try {
-    const row = await store.addOperator(req.body ?? {})
-    if (!row) return res.status(400).json({ error: 'Invalid input' })
-    res.status(201).json({ operator: row })
+    const { username, displayName, role, cameraId, cameraIds } = req.body ?? {}
+    const cams = Array.isArray(cameraIds) ? cameraIds : (cameraId ? [cameraId] : [])
+    const result = await store.provisionOperator({ username, displayName, role, cameraIds: cams })
+
+    switch (result.error) {
+      case 'invalid':        return res.status(400).json({ error: result.detail || 'Invalid input' })
+      case 'unknown_camera': return res.status(400).json({ error: `Unknown camera: ${result.cameraId}` })
+      case 'username_taken': return res.status(409).json({ error: 'Username already exists' })
+      case 'camera_taken':   return res.status(409).json({ error: `Camera ${result.cameraId} is already assigned to an operator` })
+      case undefined:        break // สำเร็จ
+      default:               return res.status(400).json({ error: 'Invalid input' })
+    }
+
+    // ส่งรหัสชั่วคราวกลับครั้งเดียว — จงใจไม่ใส่ลง log/console ทุกกรณี
+    res.status(201).json({
+      operator: result.operator,
+      tempPassword: result.tempPassword,
+      mustResetPassword: result.mustResetPassword,
+    })
   } catch (err) { next(err) }
 })
 

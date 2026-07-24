@@ -416,3 +416,155 @@ ls: cannot access 'HUB-AEGIS_Entry/server': No such file or directory
 > สรุป: ช่องโหว่ถูกปิดด้วยการ**ลบพื้นผิวการโจมตีทิ้ง** ไม่ใช่การเพิ่ม guard
 > HUB กลับไปเป็นสิ่งที่สถาปัตยกรรมตั้งใจให้เป็นตั้งแต่แรก — ตัวจัดเส้นทางล้วน ๆ
 > ส่วน identity ยังคงแยกขาดกันที่ Drive และ Monitor ตามหัวข้อ 10–11
+
+---
+
+## 13 · Add Operator จาก**ในเว็บ** (SOC-Responder) — endpoint จริง ไม่ใช่ CLI
+
+หัวข้อ 3–5 พิสูจน์ว่าบัญชีที่ **CLI** (`server/cli/manage_users.py`, ผ่าน SSH) สร้าง ถูก
+บังคับ Scoped View ฝั่งเซิร์ฟเวอร์ ตอนนี้เพิ่มเส้นทาง **เว็บ**: SOC-Responder กด "Add
+operator" ในหน้า *Nodes & routing* ได้เลย ไม่ต้อง SSH — ยิง `POST /monitor/api/operators`
+
+ตรรกะ provisioning ฝั่งเว็บอยู่ที่ `store.provisionOperator()` **ตัวเดียว** (แหล่งความจริง
+เดียวของโค้ด Node) ส่วน CLI เป็น Python เส้นทาง SSH แยกต่างหาก — คนละภาษา แชร์ object
+ฟังก์ชันเดียวกันไม่ได้ จึงบังคับให้ **ผลลัพธ์เท่ากัน** ด้วยค่าคงที่ชุดเดียว
+(`USERNAME_RE` / `BCRYPT_COST=12` / `must_reset` ดีฟอลต์ = TRUE) แล้วพิสูจน์ความเท่ากันที่
+§13.5 CLI ยังใช้ได้เหมือนเดิมทุกประการ (ไม่ถูกแก้/ถอด — เป็นเส้นทาง provisioning ที่ยังใช้ได้)
+
+**13.1 · `soc` เพิ่ม operator ผ่าน endpoint → `201` + รหัสชั่วคราวคืนมาครั้งเดียว**
+```bash
+CSRF_SOC=$(login monitor soc aegis-soc cj_soc.txt)
+RESP=$(curl -s -b cj_soc.txt -X POST http://localhost/monitor/api/operators \
+  -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF_SOC" \
+  -d '{"username":"m.reyes.web","cameraId":"CAM-04"}')
+echo "$RESP"
+TEMP=$(echo "$RESP" | sed -n 's/.*"tempPassword":"\([^"]*\)".*/\1/p')
+```
+```json
+{"operator":{"id":"6","name":"m.reyes.web","role":"CCTV-Operator","active":true},"tempPassword":"…24-char base64url…","mustResetPassword":true}
+```
+รหัสชั่วคราวถูกสร้าง**ฝั่งเซิร์ฟเวอร์** ส่งกลับครั้งเดียวในบอดี้ — และ**ไม่เคยถูก log**:
+```bash
+docker compose logs monitor | grep -c "$TEMP"
+```
+```
+0
+```
+> `0` = รหัส plaintext ไม่โผล่ใน log ที่ไหนเลย มีแต่ bcrypt hash ลง DB (ดู §13.5)
+
+**13.2 · กล้องที่ถูกจับจองแล้ว → `409` และไม่มีบัญชีกำพร้าถูกสร้าง**
+
+`CAM-05` เป็นของ `operator` อยู่แล้ว (ดู `seed.sql`) — dropdown ในเว็บซ่อนกล้องนี้อยู่แล้ว
+แต่ถ้ายิง request ตรง ๆ ด้วยข้อมูลเก่า/ปลอม เซิร์ฟเวอร์ต้องปฏิเสธเอง:
+```bash
+curl -s -b cj_soc.txt -w "\nHTTP %{http_code}\n" -X POST http://localhost/monitor/api/operators \
+  -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF_SOC" \
+  -d '{"username":"x.taken","cameraId":"CAM-05"}'
+# transaction rollback → ต้องไม่มีผู้ใช้ x.taken หลงเหลือ
+docker exec -e PGPASSWORD="$MONITOR_DB_PASSWORD" aegis_system-postgres-1 \
+  psql -U monitor_app -h 127.0.0.1 -d aegis_monitor -tAc \
+  "SELECT count(*) FROM users WHERE username = 'x.taken';"
+```
+```
+{"error":"Camera CAM-05 is already assigned to an operator"}
+HTTP 409
+0
+```
+> `0` = การตรวจกล้องว่างเกิด**ในทรานแซกชันเดียวกับ**การ insert user — กล้องชนคือ 409
+> และ user ไม่ถูกสร้าง (ไม่เหลือบัญชีกำพร้า) กฎ "user_id NOT NULL = จองแล้ว" เดียวกับ CLI
+
+**13.3 · `operator` (ไม่ใช่ SOC) ยิง endpoint ตรง ๆ → `403`**
+```bash
+CSRF_OP=$(login monitor operator aegis-operator cj_op.txt)
+curl -s -b cj_op.txt -w "\nHTTP %{http_code}\n" -X POST http://localhost/monitor/api/operators \
+  -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF_OP" \
+  -d '{"username":"sneaky.op","cameraId":"CAM-02"}'
+```
+```
+{"error":"Forbidden"}
+HTTP 403
+```
+> บังคับด้วย `requireRole('SOC-Responder')` ฝั่งเซิร์ฟเวอร์ — ไม่ใช่แค่ซ่อนปุ่มในหน้า
+> Nodes (`curl` ไม่รัน JS ของแอปเลย) CCTV-Operator ไม่มีทางสร้างบัญชีได้ไม่ว่าทางใด
+
+**13.4 · operator ใหม่ล็อกอินด้วยรหัสชั่วคราว → เห็นแค่กล้องของตัวเอง (scoping เท่า CLI)**
+```bash
+# ใช้ $TEMP ที่ได้จาก §13.1
+CSRF_NEW=$(login monitor m.reyes.web "$TEMP" cj_new.txt)
+# บัญชีติด must_reset_password=TRUE (เหมือนบัญชีที่ CLI สร้าง) → endpoint อื่นถูกกั้นก่อน
+curl -s -o /dev/null -w "ก่อนรีเซ็ต /cameras -> %{http_code}\n" -b cj_new.txt http://localhost/monitor/api/cameras
+# บังคับตั้งรหัสใหม่ก่อน
+curl -s -b cj_new.txt -X POST http://localhost/monitor/api/password/reset \
+  -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF_NEW" \
+  -d "{\"currentPassword\":\"$TEMP\",\"newPassword\":\"brand-new-strong-pass-2026\"}" > /dev/null
+# ตอนนี้เห็นเฉพาะกล้องที่ถูกมอบหมาย (CAM-04) — ไม่ใช่ทุกกล้อง
+curl -s -b cj_new.txt http://localhost/monitor/api/cameras
+```
+```
+ก่อนรีเซ็ต /cameras -> 403      ← PASSWORD_RESET_REQUIRED (พฤติกรรมเดียวกับบัญชีจาก CLI)
+{"cameras":[{"id":"CAM-04","name":"Loading dock","zone":"Restricted","res":"1920×1080","online":true}]}
+```
+> เห็นแค่ `CAM-04` กล้องเดียว — Scoped View บังคับผ่าน `camera_assignment` ฝั่งเซิร์ฟเวอร์
+> เหมือน `operator`/`operator2` ในหัวข้อ 3–5 **เป๊ะ ไม่ว่าบัญชีจะถูกสร้างจากเว็บหรือ CLI**
+
+**13.5 · เว็บ endpoint กับ CLI สร้างแถว "รูปทรง + ข้อจำกัดเดียวกัน" (พิสูจน์ว่าไม่แตกเป็นสองสายพันธุ์)**
+
+สร้างอีกบัญชีด้วย **CLI** (เส้นทาง SSH) แล้วเทียบสองแถวตรง ๆ ใน DB — `DATABASE_URL` ชี้ไป
+ฐาน `aegis_monitor` เดียวกับที่แอปใช้ (รันจากโฮสต์ที่มี Python + `psycopg2` + `bcrypt`):
+```bash
+export DATABASE_URL="postgresql://monitor_app:${MONITOR_DB_PASSWORD}@localhost:5432/aegis_monitor"
+echo 'CliTemp#2026abcd' | python3 IDEA2-AEGIS_Monitor/server/cli/manage_users.py add-operator \
+  --username m.reyes.cli --display-name "M. Reyes (CLI)" --role CCTV-Operator \
+  --camera CAM-02 --password-stdin
+```
+เทียบแถวจากทั้งสองเส้นทาง — คอลัมน์ที่บังคับ + ข้อจำกัดต้องตรงกันทุกช่อง:
+```bash
+docker exec -e PGPASSWORD="$MONITOR_DB_PASSWORD" aegis_system-postgres-1 \
+  psql -U monitor_app -h 127.0.0.1 -d aegis_monitor -x -c "
+    SELECT username, role, active, must_reset_password,
+           substring(password_hash for 7) AS bcrypt_prefix,   -- \$2a\$12\$ = cost 12
+           length(password_hash)            AS hash_len
+      FROM users
+     WHERE username IN ('m.reyes.web','m.reyes.cli')
+     ORDER BY username;"
+```
+```
+-[ RECORD 1 ]-------+----------------
+username            | m.reyes.cli
+role                | CCTV-Operator
+active              | t
+must_reset_password | t
+bcrypt_prefix       | $2b$12$
+hash_len            | 60
+-[ RECORD 2 ]-------+----------------
+username            | m.reyes.web
+role                | CCTV-Operator
+active              | t
+must_reset_password | t
+bcrypt_prefix       | $2b$12$          ← cost 12 เท่ากัน (store.BCRYPT_COST = CLI BCRYPT_COST)
+hash_len            | 60
+```
+และ `camera_assignment` ทั้งสองแถวมีรูปทรงเดียวกัน (คีย์ที่ `camera_id`, `user_id` ชี้เจ้าของ):
+```bash
+docker exec -e PGPASSWORD="$MONITOR_DB_PASSWORD" aegis_system-postgres-1 \
+  psql -U monitor_app -h 127.0.0.1 -d aegis_monitor -c "
+    SELECT a.camera_id, u.username, (a.user_id IS NOT NULL) AS has_owner
+      FROM camera_assignment a JOIN users u ON u.id = a.user_id
+     WHERE u.username IN ('m.reyes.web','m.reyes.cli') ORDER BY a.camera_id;"
+```
+```
+ camera_id |  username   | has_owner
+-----------+-------------+-----------
+ CAM-02    | m.reyes.cli | t
+ CAM-04    | m.reyes.web | t
+```
+> ทั้งสองแถว: `active=t`, `must_reset_password=t`, bcrypt **cost 12**, hash ยาว 60, และหนึ่งแถว
+> ใน `camera_assignment` คีย์ด้วย `camera_id` — **รูปทรง + ข้อจำกัดเดียวกันเป๊ะ** เพราะทั้งคู่ลง
+> ตาราง `users`/`camera_assignment` เดียวกันภายใต้ CHECK/PK เดียวกัน และเว็บใช้ค่าคงที่
+> (`USERNAME_RE`, `BCRYPT_COST`) ที่ export จาก `store.js` เพื่อให้ตรงกับ `manage_users.py`
+> — สถาปัตยกรรมที่เลือก: โค้ด Node เป็นเจ้าของเส้นทางเว็บ, CLI เป็นเส้นทาง SSH, **ความเท่ากัน
+> พิสูจน์ด้วยการทดสอบนี้** (ไม่ใช่ subprocess ข้ามภาษา) — ดู `store.provisionOperator()`
+
+> **หมายเหตุความสะอาดของ fixture**: บัญชี `m.reyes.web` / `m.reyes.cli` ข้างบนเป็นของทดสอบ
+> ล้างทิ้งได้ด้วย `DELETE FROM users WHERE username IN ('m.reyes.web','m.reyes.cli');`
+> (ON DELETE CASCADE เก็บกวาดแถว `camera_assignment` ให้เอง)
