@@ -11,6 +11,7 @@ build/
 .env
 .env.*
 !.env.example
+!.env.test.example
 
 # ML model binaries — live next to their engine, never in git (IDEA 2, etc.)
 *.pt
