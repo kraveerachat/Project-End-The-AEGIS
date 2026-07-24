@@ -15,6 +15,7 @@ import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
 import { usingPostgres, checkDb } from './db/connection.js'
 import { bootstrapAdminIfNeeded } from './db/bootstrapAdmin.js'
+import { initStorage, STORAGE_ROOT } from './storage/fileStore.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -58,14 +59,19 @@ app.use(errorHandler) // ตัวสุดท้ายเสมอ — กั�
 
 // Day-0 bootstrap ก่อนเปิดพอร์ตรับ request — ถ้า ADMIN_BOOTSTRAP_* ตั้งค่าผิดรูปแบบ
 // (เช่นใส่รหัสดิบแทน bcrypt hash) ต้อง crash ตั้งแต่ตรงนี้ ไม่ใช่เงียบแล้วรันต่อแบบไม่ปลอดภัย
-bootstrapAdminIfNeeded()
+//
+// Storage Layer ต้องพร้อม "ก่อน" เปิดพอร์ตเช่นกัน — volume ที่ mount มาแล้วเขียนไม่ได้
+// (เจ้าของเป็น root ขณะที่เรารันด้วย user 'node') ต้องดังตั้งแต่บูต ไม่ใช่ปล่อยให้ผู้ใช้
+// อัปโหลดแล้วเจอ 500 ตอน runtime โดยไม่มีใครรู้ว่า Data Lake ไม่มีชั้นเก็บไฟล์อยู่จริง
+Promise.all([bootstrapAdminIfNeeded(), initStorage()])
   .then(() => {
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'
       console.log(`[aegis-drive] server on :${PORT} (auth store: ${mode})`)
+      console.log(`[aegis-drive] storage layer ready at ${STORAGE_ROOT}`)
     })
   })
   .catch((err) => {
-    console.error('[aegis-drive] Day-0 admin bootstrap failed — refusing to start:', err.message)
+    console.error('[aegis-drive] startup failed (admin bootstrap or storage layer) — refusing to start:', err.message)
     process.exit(1)
   })

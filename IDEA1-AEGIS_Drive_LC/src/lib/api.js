@@ -21,6 +21,12 @@ function withBase(path) {
   return import.meta.env.BASE_URL + path.slice(1)
 }
 
+// URL เต็ม (รวม base) สำหรับกรณีที่ต้องให้ "เบราว์เซอร์" เป็นคนไปเอาเอง ไม่ใช่ fetch —
+// เช่นดาวน์โหลดไฟล์ ที่ต้องให้ browser จัดการ stream + Content-Disposition เอง
+// session cookie เป็น HttpOnly + SameSite=Strict และเป็น same-origin จึงถูกแนบไปให้เอง
+// โดยที่ JS ไม่ต้อง (และไม่สามารถ) แตะ cookie เลย
+export const apiUrl = withBase
+
 // CSRF token — หน่วยความจำของโมดูลเท่านั้น (zero browser storage)
 let csrfToken = null
 export const setCsrfToken = (t) => { csrfToken = t }
@@ -37,17 +43,22 @@ export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
  * @returns {Promise<{ ok: boolean, status: number, data: any,
  *                     errorKind: null|'timeout'|'network'|'unauthorized'|'forbidden'|'server' }>}
  */
-export async function apiFetch(path, { method = 'GET', body, signal, suppressAuthHandler = false } = {}) {
+export async function apiFetch(path, { method = 'GET', body, signal, suppressAuthHandler = false, timeoutMs = TIMEOUT_MS } = {}) {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort('timeout'), TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort('timeout'), timeoutMs)
   // ผูก signal ของผู้เรียก (unmount) เข้ากับของเรา (timeout) — ยกเลิกอันใดอันหนึ่งก็หยุด
   if (signal) {
     if (signal.aborted) ctrl.abort(signal.reason)
     else signal.addEventListener('abort', () => ctrl.abort(signal.reason), { once: true })
   }
 
+  // FormData = อัปโหลดไฟล์จริง (multipart) — ห้ามตั้ง Content-Type เอง เพราะ boundary
+  // ถูกสร้างโดยเบราว์เซอร์ ถ้าเซ็ตทับ multer จะ parse ไม่ออก ส่วน CSRF token ยังแนบ
+  // ทาง header เหมือนเดิม (session cookie ยัง HttpOnly — ไม่มีอะไรย้ายไป browser storage)
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+
   const headers = {}
-  if (body) headers['Content-Type'] = 'application/json'
+  if (body && !isFormData) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
 
   let res
@@ -55,7 +66,7 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     res = await fetch(withBase(path), {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
       credentials: 'include',
       signal: ctrl.signal,
     })

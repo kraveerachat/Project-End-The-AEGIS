@@ -15,6 +15,11 @@ import {
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
+// Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
+import {
+  uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
+  keyExists, openReadStream, removeKey, discardUploaded,
+} from '../storage/fileStore.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -175,16 +180,88 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
   }
 })
 
-apiRouter.post('/files/upload', requireAuth, async (req, res, next) => {
-  try {
-    // Phase นี้รับเฉพาะ metadata (ชื่อ/ขนาด/sha256) — ตัว binary ผ่าน multipart ใน Phase 3
-    const { name, size, sha256 } = req.body ?? {}
-    if (!name || typeof name !== 'string' || name.length > 200) {
-      return res.status(400).json({ error: 'Invalid input' })
+// ── Upload — Storage Layer (bytes) + Metadata Layer (แถวใน files) ────────────
+// ⚠️ ลำดับสำคัญ: เขียน bytes ลงดิสก์ให้เสร็จก่อน แล้วค่อย INSERT metadata — ถ้าสลับกัน
+//    แล้วดิสก์ล้มเหลว จะเหลือแถวที่ชี้ไปยังไฟล์ที่ไม่มีอยู่จริง (metadata โกหก)
+//    ถ้า INSERT ล้มเหลวทีหลัง เราลบ bytes ทิ้ง (discardUploaded) — ไม่เหลือไฟล์กำพร้า
+// ⚠️ size และ sha256 มาจาก "ไฟล์บนดิสก์จริง" ที่เซิร์ฟเวอร์อ่านเอง ไม่ใช่ค่าที่ client แจ้ง
+//    client แจ้ง sha256 มาได้ แต่ใช้แค่ "เทียบ" เพื่อจับ corruption ระหว่างทางเท่านั้น
+apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
+  uploadMiddleware(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      // ไฟล์เกินเพดาน/multipart พัง — ตอบ 400 แบบ generic ไม่รั่วรายละเอียดภายใน
+      const tooLarge = uploadErr.code === 'LIMIT_FILE_SIZE'
+      return res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File too large' : 'Invalid input' })
     }
-    const row = await store.recordUpload({ name, size, sha256, user: req.user })
-    auditAct(req, 'FILE_UPLOAD', name)
-    res.status(201).json({ file: row })
+    if (!req.file) return res.status(400).json({ error: 'Invalid input' })
+
+    try {
+      // ชื่อที่ผู้ใช้ตั้ง เก็บลง Metadata Layer เท่านั้น — ไม่เคยถูกใช้เป็น path บนดิสก์
+      const name = String(req.file.originalname ?? '').slice(0, 200)
+      if (!name) {
+        await discardUploaded(req.file)
+        return res.status(400).json({ error: 'Invalid input' })
+      }
+
+      const storageKey = keyForUploaded(req.file)
+      const abs = resolveKey(storageKey)
+      const [size, sha256] = await Promise.all([sizeOfFile(abs), sha256OfFile(abs)])
+
+      // client แจ้ง hash มาแล้วไม่ตรงกับ bytes ที่ถึงเซิร์ฟเวอร์ = ไฟล์เพี้ยนระหว่างทาง
+      // ทิ้งทั้ง bytes และไม่เขียน metadata — ดีกว่าเก็บของที่รู้ว่าไม่ครบ
+      const claimed = typeof req.body?.sha256 === 'string' ? req.body.sha256.toLowerCase() : null
+      if (claimed && claimed !== sha256) {
+        await discardUploaded(req.file)
+        auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
+        return res.status(422).json({ error: 'Checksum mismatch' })
+      }
+
+      let row
+      try {
+        row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user })
+      } catch (dbErr) {
+        await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
+        throw dbErr
+      }
+
+      auditAct(req, 'FILE_UPLOAD', name)
+      res.status(201).json({ file: row })
+    } catch (err) {
+      next(err)
+    }
+  })
+})
+
+// ── Download — stream bytes จริงจาก Storage Layer ────────────────────────────
+// ⚠️ client ส่งมาแค่ id ของแถวใน Metadata Layer — path บนดิสก์มาจากคอลัมน์ใน DB
+//    เท่านั้น ไม่เคยมาจาก input ของ client (ไม่มีทางขอไฟล์นอก STORAGE_ROOT)
+//    resolveKey() ยังกันซ้ำอีกชั้นเผื่อค่าใน DB ถูกแก้ให้ชี้ออกนอกกรอบ
+apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Not found' })
+    if (file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
+
+    const abs = resolveKey(file.path)
+    if (!abs || !(await keyExists(file.path))) {
+      // แถว metadata มีอยู่แต่ไม่มี bytes (แถวเดโม่เก่า/ไฟล์ถูกลบนอกระบบ) — ไม่ปลอมข้อมูลคืน
+      auditAct(req, 'FILE_DOWNLOAD', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+
+    auditAct(req, 'FILE_DOWNLOAD', file.name)
+
+    // application/octet-stream + attachment เสมอ — ไม่ปล่อยให้เบราว์เซอร์ render
+    // ไฟล์ที่ผู้ใช้อัปโหลด (ไฟล์ HTML/SVG ที่ถูก render ใน origin เดียวกัน = XSS)
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Content-Length', String(file.size))
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+
+    const stream = openReadStream(file.path)
+    if (!stream) return res.status(404).json({ error: 'Not found' })
+    stream.on('error', () => res.destroy()) // ดิสก์พังกลางคัน — ตัดการเชื่อมต่อ ไม่ส่งไฟล์ครึ่ง ๆ ที่ดูเหมือนครบ
+    stream.pipe(res)
   } catch (err) {
     next(err)
   }
@@ -195,6 +272,9 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
     const file = await store.findFile(req.params.id)
     if (!file) return res.status(404).json({ error: 'Not found' })
     await store.deleteFile(req.params.id)
+    // ลบ metadata แล้วต้องลบ bytes ตามด้วยเสมอ — ไม่งั้นไฟล์ที่ผู้ใช้ "ลบแล้ว" ยังนอน
+    // อยู่บนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก (ทั้ง privacy และพื้นที่)
+    if (file.type !== 'Folder') await removeKey(file.path)
     auditAct(req, 'FILE_DELETE', file.name)
     res.json({ ok: true })
   } catch (err) {

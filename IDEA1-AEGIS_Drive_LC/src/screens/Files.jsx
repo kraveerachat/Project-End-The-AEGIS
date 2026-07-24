@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
-import { apiFetch } from '../lib/api.js'
+import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 
 const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
@@ -388,10 +388,24 @@ export function Files({ t, lang, go }) {
     setDetail(file)
   }
 
+  /** ดาวน์โหลดไฟล์จริงจาก Storage Layer — ปล่อยให้เบราว์เซอร์ stream เอง
+   *  (ไฟล์ 500MB ผ่าน fetch = โหลดเข้า memory ของแท็บทั้งก้อนก่อนถึงจะเซฟได้) */
+  const downloadFile = (file) => {
+    if (file.type === 'Folder') return
+    const a = document.createElement('a')
+    a.href = apiUrl(`/api/files/${encodeURIComponent(file.id)}/download`)
+    a.download = file.name // เซิร์ฟเวอร์ส่ง Content-Disposition มาด้วยอยู่แล้ว — อันนี้เป็น fallback
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
   const onMenuAction = (action, file) => {
     if (action === 'delete') {
       // ลบต้องยืนยันผ่าน Modal เสมอ — ไม่มี confirm() ของเบราว์เซอร์
       setAskDelete({ ids: [file.id], label: file.name })
+    } else if (action === 'download') {
+      downloadFile(file)
     } else if (action === 'meta' || action === 'verify') {
       openDetail(file)
     } else if (action === 'link') {

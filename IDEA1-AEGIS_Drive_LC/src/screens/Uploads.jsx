@@ -93,15 +93,21 @@ export function Uploads({ t }) {
   const setStage = (id, patch) =>
     setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)))
 
-  /** ประมวลผลไฟล์จริง: hash (WebCrypto) → POST metadata → indexed/failed */
+  /** ประมวลผลไฟล์จริง: hash (WebCrypto) → POST ตัวไฟล์จริง (multipart) → indexed/failed
+   *  sha256 ที่ส่งไปเป็นแค่ "ค่าที่ client อ้าง" — เซิร์ฟเวอร์คำนวณเองจาก bytes ที่ได้รับ
+   *  แล้วเทียบ ถ้าไม่ตรง = ไฟล์เพี้ยนระหว่างทาง เซิร์ฟเวอร์ปฏิเสธ (422) ไม่เก็บของที่ไม่ครบ */
   const processFile = async (file, id) => {
     try {
       setStage(id, { stage: 'hashing' })
       const sha256 = await sha256OfFile(file)
       setStage(id, { stage: 'transferring', sha256 })
+      const form = new FormData()
+      form.append('sha256', sha256)
+      form.append('file', file, file.name) // ต้องต่อท้ายสุด — multer อ่าน field ตามลำดับ stream
       const res = await apiFetch('/api/files/upload', {
         method: 'POST',
-        body: { name: file.name, size: file.size, sha256 },
+        body: form,
+        timeoutMs: 10 * 60_000, // ไฟล์ใหญ่ใช้เวลานานกว่า request ปกติมาก
       })
       setStage(id, { stage: res.ok ? 'indexed' : 'failed' })
       if (res.ok) filesApi.retry()

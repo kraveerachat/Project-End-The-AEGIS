@@ -86,12 +86,15 @@ async function pgCreateFolder(name, user) {
   return mapFileRow({ ...rows[0], uploader_name: user.displayName })
 }
 
-async function pgRecordUpload({ name, size, sha256, user }) {
+// ⚠️ storageKey คือตำแหน่ง "ไฟล์จริง" ใน Storage Layer (relative ต่อ STORAGE_ROOT)
+//    ที่ fileStore.js เพิ่งเขียน bytes ลงไปแล้ว — ไม่ใช่ path สมมุติที่ประกอบจากชื่อไฟล์
+//    size/sha256 ก็มาจากไฟล์บนดิสก์จริง (server คำนวณเอง) ไม่ใช่ค่าที่ client แจ้งมา
+async function pgRecordUpload({ name, storageKey, size, sha256, user }) {
   const safeName = String(name).slice(0, 200)
   const { rows } = await query(
     `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by)
      VALUES ($1, $2, $3, $4, false, true, $5) RETURNING *`,
-    [safeName, `/datalake/uploads/${safeName}`, Number(size) || 0, sha256 ?? null, user.id],
+    [safeName, storageKey, Number(size) || 0, sha256 ?? null, user.id],
   )
   return mapFileRow({ ...rows[0], uploader_name: user.displayName })
 }
@@ -148,14 +151,15 @@ export async function createFolder(name, user) {
   return row
 }
 
-/** บันทึก metadata ของไฟล์ที่อัปโหลดเสร็จ (ตัวไฟล์จริงอยู่ Storage Layer) */
-export async function recordUpload({ name, size, sha256, user }) {
-  if (usingPostgres) return pgRecordUpload({ name, size, sha256, user })
+/** บันทึก metadata ของไฟล์ที่อัปโหลดเสร็จ — bytes ถูกเขียนลง Storage Layer ไปแล้ว
+ *  ก่อนถึงฟังก์ชันนี้ (ดู POST /api/files/upload) และ storageKey คือตำแหน่งของมันจริง ๆ */
+export async function recordUpload({ name, storageKey, size, sha256, user }) {
+  if (usingPostgres) return pgRecordUpload({ name, storageKey, size, sha256, user })
   const row = {
     id: nextId('f'), name: String(name).slice(0, 200), type: 'File',
     ext: String(name).split('.').pop() ?? '', size: Number(size) || 0,
     modified: Date.now(), uploader: user.displayName, vault: false, verified: true,
-    sha256: sha256 ?? null, path: `/datalake/uploads/${name}`,
+    sha256: sha256 ?? null, path: storageKey,
   }
   files.unshift(row)
   return row
