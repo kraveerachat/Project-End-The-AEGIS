@@ -27,6 +27,16 @@
 # `docker-compose up` works out of the box; override them by exporting the
 # vars or setting them in a root .env before running anywhere this stack
 # persists real data.
+#
+# ⚠️ Identity Decoupling ระดับเซสชัน: drive และ monitor ใช้ SESSION_SECRET
+# "คนละดอก" (DRIVE_SESSION_SECRET / MONITOR_SESSION_SECRET) — secret ที่หลุดจาก
+# แอปหนึ่งต้องปลอม cookie ของอีกแอปไม่ได้ ถ้าใช้ดอกเดียวกัน คนที่ได้ secret ของ
+# Drive จะ sign เซสชัน Monitor ได้ทันที = ทำลาย boundary ที่แยก users สองฐานไว้
+#
+# ⚠️ Storage Layer: named volume `drive_storage` คือชั้นเก็บไฟล์ดิบ (HDFS concept)
+# ของ IDEA1 — mount ที่ /datalake ในคอนเทนเนอร์ drive เท่านั้น monitor ไม่แตะ
+# ไฟล์ตัวจริงอยู่ที่นั่น ส่วน metadata (ชื่อ/ขนาด/เจ้าของ/hash) อยู่ Postgres
+# รหัสผ่านทุกชนิดอยู่ Metadata Layer เท่านั้น ห้ามลง Storage Layer เด็ดขาด
 # COOKIE_SECURE=false is required here (and only here) because this gateway
 # terminates plain HTTP — the session cookie's Secure flag would otherwise
 # never let the browser send it back, breaking login entirely.
@@ -39,10 +49,17 @@ services:
       # bootstrap DB only — neither app connects to this one, see
       # postgres/init/00-databases.sql for the two real per-app databases
       POSTGRES_DB: aegis_db
+      # ⚠️ รหัสของ role แยกต่อแอป (drive_app / monitor_app) — ใช้โดย
+      # postgres/init/02-app-roles.sh ตอน init เท่านั้น ตัว POSTGRES_USER ด้านบน
+      # (superuser) ไม่ถูกใช้โดยแอปที่รันอยู่เลย มีไว้ init/migrate/ตรวจสอบเท่านั้น
+      DRIVE_DB_PASSWORD: ${DRIVE_DB_PASSWORD:-drive-app-dev-password-change-me}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
       - ./postgres/init/01-run-app-init.sh:/docker-entrypoint-initdb.d/01-run-app-init.sh:ro
+      # รันเป็นตัวสุดท้าย — GRANT ... ON ALL TABLES ต้องมีตารางจาก 01- ก่อน
+      - ./postgres/init/02-app-roles.sh:/docker-entrypoint-initdb.d/02-app-roles.sh:ro
       # each app's OWN schema/seed, bind-mounted read-only — single source of
       # truth stays in server/db/, nothing is duplicated into postgres/init/
       - ./IDEA1-AEGIS_Drive_LC/server/db/schema.sql:/sql-src/idea1-schema.sql:ro
@@ -67,6 +84,15 @@ services:
     depends_on:
       - drive
       - monitor
+    # ⚠️ ยิงหา /healthz ของ nginx เอง ไม่ใช่ /drive หรือ /monitor โดยเจตนา — gateway
+    # เป็น routing-only สุขภาพของมันคือ "ยังรับและ route request ได้ไหม" ถ้าผูก
+    # healthcheck ไว้กับ backend ตัวใดตัวหนึ่ง backend ล่มทีเดียว docker จะรีสตาร์ท
+    # router ที่ยังทำงานได้ดีทิ้งไปด้วย ทำให้ปัญหาลุกลามแทนที่จะจำกัดวง
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   drive:
@@ -75,9 +101,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8001
-      SESSION_SECRET: ${SESSION_SECRET:-localhost-test-stack-insecure-secret-change-me}
+      SESSION_SECRET: ${DRIVE_SESSION_SECRET:-localhost-test-stack-insecure-drive-secret-change-me}
       COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
-      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}@postgres:5432/aegis_drive
+      # ⚠️ ต่อด้วย drive_app ไม่ใช่ superuser — role นี้ REVOKE CONNECT จาก
+      # aegis_monitor ไว้แล้ว โปรเซสนี้จึงเปิด connection ไปฐานของ IDEA2 ไม่ได้เลย
+      # ต่อให้โค้ดถูกแก้/ถูกยึด (ดู postgres/init/02-app-roles.sh)
+      DATABASE_URL: postgresql://drive_app:${DRIVE_DB_PASSWORD:-drive-app-dev-password-change-me}@postgres:5432/aegis_drive
+      # Storage Layer ของ Data Lake — ต้องตรงกับจุด mount ของ volume drive_storage ด้านล่าง
+      STORAGE_ROOT: ${DRIVE_STORAGE_ROOT:-/datalake}
       # Day-0 admin bootstrap (server/db/bootstrapAdmin.js) — no-ops once an Admin row
       # exists, and no-ops entirely if left unset (both blank by default here so the
       # localhost stack keeps using the seeded demo admin from server/db/seed.sql).
@@ -85,6 +116,12 @@ services:
       # put a raw password in ADMIN_BOOTSTRAP_PASSWORD_HASH.
       ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
       ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+    volumes:
+      # ── Storage Layer (HDFS concept) — ไฟล์ดิบของ Data Lake ──────────────
+      # บนเครื่องจริง (Beelink/NAS) volume นี้จะถูก bind ไปที่ HDD; บน stack ทดสอบ
+      # ใช้ named volume ให้ข้อมูลอยู่รอด `docker compose down` (หายเมื่อ -v เท่านั้น)
+      # ⚠️ mount ให้ drive เท่านั้น — monitor/gateway ไม่มีสิทธิ์แตะไฟล์ของ IDEA1
+      - drive_storage:/datalake
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,9 +140,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8002
-      SESSION_SECRET: ${SESSION_SECRET:-localhost-test-stack-insecure-secret-change-me}
+      SESSION_SECRET: ${MONITOR_SESSION_SECRET:-localhost-test-stack-insecure-monitor-secret-change-me}
       COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
-      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}@postgres:5432/aegis_monitor
+      # ⚠️ ต่อด้วย monitor_app ไม่ใช่ superuser — สมมาตรกับ drive: REVOKE CONNECT
+      # จาก aegis_drive ไว้แล้ว อ่านตาราง users/files ของ IDEA1 ไม่ได้เลย
+      DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,4 +158,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
+  drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
