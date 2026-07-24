@@ -7,10 +7,12 @@ edge modules. Thai-first UI, Aurora Glass design language (see `DESIGN.md`, `PRO
 
 ```
 AEGIS_System/
-├── HUB-AEGIS_Entry/          # ✅ Routing-only entry (no auth/session — by design)
-│   ├── src/                  #    Welcome → module index → hand-off to each app's login
-│   ├── server/index.js       #    static server + /healthz + strict security headers
+├── HUB-AEGIS_Entry/          # ✅ Routing-only entry (no auth/session/backend — by design)
+│   ├── src/                  #    Welcome → app picker → hand-off to each app's own login
+│   ├── nginx.conf            #    static serving + /healthz + strict security headers
 │   └── public/config.json    #    runtime module targets (no IPs baked into the bundle)
+│                             #    ⚠️ no server/ — HUB is static files only (see §12 of
+│                             #    docs/auth-test.md for why the login form was removed)
 │
 ├── IDEA1-AEGIS_Drive_LC/     # ✅ AEGIS Drive · Secure NAS / Edge Data Lake
 │   ├── src/                  #    Frontend (Vite + React) — renders what the server decides
@@ -63,8 +65,8 @@ never decides anything about identity or role, and **no app trusts another app's
 ## Run the apps
 
 ```bash
-# HUB (routing-only entry)
-cd HUB-AEGIS_Entry        && npm install && npm run build && npm start      # :8000
+# HUB (routing-only entry — static, no server, no login of its own)
+cd HUB-AEGIS_Entry        && npm install && npm run dev                     # UI  :5173
 
 # AEGIS Drive (IDEA1) — its own login: admin/aegis-drive-admin · user/aegis-drive-user
 cd IDEA1-AEGIS_Drive_LC   && npm install && npm run dev:server              # API :8001
