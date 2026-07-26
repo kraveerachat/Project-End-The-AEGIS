@@ -1,12 +1,18 @@
 // server/db/store.js — AEGIS Drive (IDEA1) · แหล่งข้อมูลของ Application Layer
 //
-// ⚠️ Mock data ถูก "ถอนออกจาก client bundle ทั้งหมด" (Phase 2) — จอทุกจอเรียก API จริง
-//    ข้อมูลเดโม่ย้ายมาอยู่ "ฝั่งเซิร์ฟเวอร์" ที่นี่แทน:
-//    - โหมด PostgreSQL: files/shares/audit/users อ่าน-เขียนตารางจริง (Phase 3 ต่อท่อครบ)
-//    - โหมด dev fallback (ไม่มี DATABASE_URL): ชุดข้อมูลด้านล่างทำหน้าที่เป็น "DB จำลอง
-//      ในหน่วยความจำ" — โครงสร้าง/รูปร่างเหมือนแถวจากตารางจริงทุกประการ
-//    - ข้อมูลระดับระบบ (RAID/disk/backup) มาจาก OS จริงใน production (smartctl/mdadm)
-//      — จุดต่อถูก mark ไว้; ระหว่างนี้เสิร์ฟค่าอ้างอิงจากที่นี่
+// ⚠️ Mock data ถูก "ถอนออกจาก client bundle ทั้งหมด" — จอทุกจอเรียก API จริง
+//    สถานะของแต่ละหมวดในไฟล์นี้ (อัปเดตให้ตรงกับโค้ด ไม่ใช่ตรงกับแผน):
+//    - files / shares / vault : อ่าน-เขียนตารางจริงเมื่อ usingPostgres, มี dev fallback
+//      ในหน่วยความจำที่รูปร่างเหมือนแถวจริงทุกประการ (ไม่มี DATABASE_URL)
+//    - users                  : ไม่อยู่ในไฟล์นี้แล้ว — ดู listUsers ใน connection.js
+//    - audit                  : อยู่ใน connection.js (recordAudit / readAudit)
+//
+// ⚠️ หมวดที่ "ยังไม่จริง" ถูกระบุตรง ๆ ที่หัวหมวดของมันเอง — snapshots, storage/backup,
+//    encryption keys, network zones, sessions และ transfer7d ของ dashboard
+//    เดิมหัวไฟล์นี้เขียนว่า users "ต่อท่อครบ" ทั้งที่ listUsers() คืนอาเรย์ hard-code
+//    โดยไม่เช็ค usingPostgres เลย — คอมเมนต์ที่โฆษณาเกินของจริงอันตรายกว่าไม่มีคอมเมนต์
+//    เพราะคนอ่านครั้งต่อไปจะข้ามการตรวจจุดนั้นไปเลย ถ้าแก้ไฟล์นี้แล้วสถานะเปลี่ยน
+//    ให้แก้รายการด้านบนพร้อมกันในคอมมิตเดียว
 //
 // ⚠️ ทุกฟังก์ชันในไฟล์นี้ถูกเรียก "หลัง" requireAuth/requireRole เสมอ — ห้าม route ใด
 //    เรียกตรงโดยไม่ผ่าน middleware ตรวจสิทธิ์ (ดู routes/api.js)
@@ -388,28 +394,14 @@ export async function dashboard() {
   }
 }
 
-// ── Users & sessions (Admin governance) ──────────────────────────────
-// production: อ่านจากตาราง users + session store จริง (Phase 3)
-const demoUsers = [
-  { id: 'u1', name: 'Veerachat J.', username: 'admin', role: 'Admin', status: 'active', lastLogin: BOOT - 10 * MIN, sessions: 1 },
-  { id: 'u2', name: 'Kanya Srisuwan', username: 'user', role: 'DataLake-User', status: 'active', lastLogin: BOOT - 25 * MIN, sessions: 1 },
-  { id: 'u3', name: 'Somchai P.', username: 'somchai.p', role: 'DataLake-User', status: 'active', lastLogin: BOOT - 2 * HOUR, sessions: 0 },
-  { id: 'u4', name: 'Nattaporn W.', username: 'nattaporn.w', role: 'DataLake-User', status: 'suspended', lastLogin: BOOT - 3 * DAY, sessions: 0 },
-]
-
-export function listUsers() {
-  return demoUsers
-}
-
-export function createUser({ name, username, role }) {
-  if (!name || !username || !['Admin', 'DataLake-User'].includes(role)) return null
-  const row = {
-    id: nextId('u'), name: String(name).slice(0, 80), username: String(username).slice(0, 40).toLowerCase(),
-    role, status: 'active', lastLogin: null, sessions: 0,
-  }
-  demoUsers.push(row)
-  return row
-}
+// ── Users (Admin governance) ─────────────────────────────────────────
+// ⚠️ ไม่มีชุดข้อมูลผู้ใช้ในไฟล์นี้อีกแล้ว — บัญชีเป็น "สถานะการเข้าถึงระบบ" ไม่ใช่
+//    เนื้อหาที่พอจะเดโม่ด้วยของปลอมได้ แหล่งเดียวคือตาราง users (ดู listUsers ใน
+//    connection.js ซึ่งมี dev fallback อ่านจาก DEV_SEED ชุดเดียวกับที่ login ใช้จริง)
+//    เดิมที่นี่มีอาเรย์ demoUsers สี่แถวที่ GET /api/users คืนออกไปตรง ๆ โดยไม่เช็ค
+//    usingPostgres — จอ Access จึงเคยแสดง 'Somchai P.'/'Nattaporn W.' ที่ไม่มีบัญชีจริง
+//    และซ่อนบัญชีจริงที่ Admin provision เอาไว้เอง (มีแค่ตอนที่ POST ซิงก์เข้าอาเรย์
+//    ให้ ซึ่งหายทุกครั้งที่รีสตาร์ท ขณะที่บัญชีจริงยังล็อกอินได้อยู่)
 
 export function listSessions(username) {
   // เซสชันของ "ผู้ใช้ปัจจุบัน" เท่านั้น — ไม่มีทางเห็นของคนอื่นจาก endpoint นี้

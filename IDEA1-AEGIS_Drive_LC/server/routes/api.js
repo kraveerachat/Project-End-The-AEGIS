@@ -11,7 +11,7 @@ import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
   recordAudit, readAudit, sha256Hex,
-  getUserById, createUserWithTempPassword, updatePasswordHash,
+  getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
@@ -391,13 +391,14 @@ apiRouter.delete('/zones/:id', requireRole(ROLES.ADMIN), (req, res) => {
 })
 
 // ── Access control (Admin governance เท่านั้น) ────────────────────────
-// ⚠️ GET /users ยังอ่านจาก store.js (ชุดข้อมูลเดโม่สำหรับจอ Access — มีคอลัมน์ UI-only
-//    อย่าง status/lastLogin/sessions ที่ไม่มีในตาราง users จริง) ส่วน POST ด้านล่าง
-//    เขียนบัญชี "จริง" ลง Postgres (login ได้จริง ผ่าน bcrypt + force-reset) แล้วซิงก์
-//    รายการเข้า store.js คู่กันเพื่อให้จอ Access เห็นทันที — รวมสองแหล่งเป็นหนึ่งเดียว
-//    (ผูก GET เข้ากับตาราง users จริง) เป็นงาน Phase ถัดไป
-apiRouter.get('/users', requireRole(ROLES.ADMIN), (req, res) => {
-  res.json({ users: store.listUsers() })
+// ⚠️ GET และ POST อ่าน-เขียน "ตาราง users ตารางเดียวกัน" แล้ว — จอ Access จึงแสดง
+//    สถานะการเข้าถึงที่ตรงกับความจริงเสมอ ไม่ใช่ชุดข้อมูลคู่ขนานที่ค่อย ๆ เพี้ยนออกจากกัน
+apiRouter.get('/users', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    res.json({ users: await listUsers() })
+  } catch (err) {
+    next(err)
+  }
 })
 
 apiRouter.post('/users', requireRole(ROLES.ADMIN), async (req, res, next) => {
@@ -412,9 +413,8 @@ apiRouter.post('/users', requireRole(ROLES.ADMIN), async (req, res, next) => {
     const created = await createUserWithTempPassword({ username, displayName: name, role })
     if (!created) return res.status(400).json({ error: 'Invalid input or username already exists' })
 
-    // ซิงก์เข้าชุดข้อมูลเดโม่ของจอ Access ให้เห็นแถวใหม่ทันทีโดยไม่ต้องแก้ GET (ดูหมายเหตุด้านบน)
-    store.createUser({ name: created.displayName, username: created.username, role: created.role })
-
+    // ไม่มีการซิงก์เข้าชุดข้อมูลที่สองอีกแล้ว — GET /users อ่านตารางเดียวกับที่บรรทัดบน
+    // เพิ่งเขียนลงไป แถวใหม่จึงปรากฏเพราะ "มันมีอยู่จริง" ไม่ใช่เพราะเราไปเติมให้ UI ดู
     auditAct(req, 'USER_CREATE', created.username)
     // tempPassword ถูกส่งกลับ "ครั้งเดียว" ในผลลัพธ์นี้เท่านั้น — ไม่ถูกเก็บที่ไหนอีกเลย
     // (ไม่ลง audit, ไม่ลง log ฝั่งเซิร์ฟเวอร์) — Admin ต้องคัดลอกแล้วส่งต่อให้ user นอกช่องทางนี้

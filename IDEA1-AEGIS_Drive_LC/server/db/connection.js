@@ -149,6 +149,60 @@ export async function createUserWithTempPassword({ username, displayName, role }
 }
 
 /**
+ * รายชื่อบัญชีทั้งหมด — ใช้โดยจอ Access (GET /api/users, requireRole('Admin') ครอบไว้)
+ *
+ * ⚠️ ก่อนหน้านี้ฟังก์ชันนี้ไม่มีอยู่ และ GET /api/users อ่านอาเรย์เดโม่ที่ hard-code
+ *    ไว้ใน store.js แทน โดยไม่มีการเช็ค usingPostgres เลย ผลคือจอที่ Admin ใช้ตอบ
+ *    คำถาม "ใครเข้าถึงระบบนี้ได้" แสดงบัญชีสี่คนที่ไม่มีอยู่จริง และ **ไม่แสดง**
+ *    บัญชีจริงที่ล็อกอินได้จริง — ความเสี่ยงคือ Admin เห็นภาพการเข้าถึงที่เป็นเท็จ
+ *    แล้วตัดสินใจบนภาพนั้น (ไม่ใช่แค่ตัวเลขผิดสวย ๆ)
+ *
+ * ⚠️ คืน "เฉพาะสิ่งที่มีอยู่จริงในตาราง" เท่านั้น — ตาราง users ของ Drive ไม่มีคอลัมน์
+ *    active/suspended และไม่มี session store ที่นับเซสชันต่อบัญชีได้ (express-session
+ *    ใช้ MemoryStore) จึงไม่มีฟิลด์ status/sessions ในผลลัพธ์นี้ การเดาค่าให้ครบ
+ *    ตามที่ UI เดิมวาดไว้ = สร้าง mock ขึ้นใหม่ในที่ที่เพิ่งถอดมันออก
+ *
+ * lastLogin มาจาก audit_log จริง (LOGIN/OK ล่าสุดของ actor_id นั้น) — เป็นข้อมูลที่
+ * ระบบบันทึกเองอยู่แล้ว ไม่ใช่คอลัมน์ที่ต้องเพิ่มและไม่ใช่ค่าที่แต่งขึ้น
+ */
+export async function listUsers() {
+  if (pool) {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.username, u.display_name, u.role, u.must_reset_password, u.created_at,
+              (SELECT max(a.at) FROM audit_log a
+                WHERE a.actor_id = u.id AND a.action = 'LOGIN' AND a.result = 'OK') AS last_login
+         FROM users u
+        ORDER BY u.id`,
+    )
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: r.display_name,
+      username: r.username,
+      role: r.role,
+      mustResetPassword: r.must_reset_password,
+      createdAt: new Date(r.created_at).getTime(),
+      lastLogin: r.last_login ? new Date(r.last_login).getTime() : null,
+    }))
+  }
+
+  // dev fallback — รูปร่างเหมือนกันเป๊ะ อ่านจาก DEV_SEED + memAudit (ไม่ใช่ชุดข้อมูลคนละชุด)
+  return DEV_SEED.map((u) => {
+    const hit = memAudit.find(
+      (e) => e.action === 'LOGIN' && e.result === 'OK' && String(e.actorId) === String(u.id),
+    )
+    return {
+      id: String(u.id),
+      name: u.displayName,
+      username: u.username,
+      role: u.role,
+      mustResetPassword: Boolean(u.mustResetPassword),
+      createdAt: null, // dev fallback ไม่มี created_at — null คือ "ไม่รู้" ไม่ใช่ 0
+      lastLogin: hit ? new Date(hit.at).getTime() : null,
+    }
+  })
+}
+
+/**
  * เปลี่ยนรหัสผ่าน (ใช้โดย /password/reset) — bcrypt hash รหัสใหม่แล้วล้าง must_reset_password
  * ⚠️ ผู้เรียกต้องเป็นเจ้าของบัญชีเท่านั้น (userId มาจาก session, ไม่ใช่จาก body) และต้อง
  *    ยืนยัน currentPassword กับ hash เดิมมาก่อนแล้ว (ดู routes/api.js) — ฟังก์ชันนี้ไม่ตรวจซ้ำ

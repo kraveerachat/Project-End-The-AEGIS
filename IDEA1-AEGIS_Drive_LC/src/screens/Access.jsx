@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { UserPlus, Info, MoreHorizontal, Users, Search } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Th, IconBtn, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { UserPlus, Info, Users, Search } from 'lucide-react'
+import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
@@ -135,8 +135,6 @@ export function Access({ t }) {
                     <Th>{t('colRole')}</Th>
                     <Th>{t('colStatus')}</Th>
                     <Th>{t('colLastLogin')}</Th>
-                    <Th>{t('colSessions')}</Th>
-                    <Th> </Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,12 +156,20 @@ export function Access({ t }) {
                         <Chip tone={u.role === 'Admin' ? 'violet' : 'accent'}>{u.role === 'Admin' ? t('roleAdmin') : t('roleUser')}</Chip>
                       </td>
                       <td className="px-4">
-                        <Chip tone={u.status === 'active' ? 'ok' : 'neutral'}>{u.status === 'active' ? t('active') : t('suspended')}</Chip>
+                        {/* สถานะเดียวที่ตาราง users มีจริง: บัญชีที่ยังติดรหัสผ่านชั่วคราว
+                            ถูกด่าน must_reset_password ปิดกั้นทุก endpoint อยู่ (ของจริง
+                            ที่บังคับใน requireRole.js) — ไม่ใช่ป้าย active/suspended ที่
+                            เคยแสดงจากอาเรย์เดโม่ทั้งที่ไม่มีคอลัมน์นั้นในฐานข้อมูลเลย */}
+                        {u.mustResetPassword ? (
+                          <span title={t('pendingResetHint')}>
+                            <Chip tone="warn">{t('pendingReset')}</Chip>
+                          </span>
+                        ) : (
+                          <Chip tone="ok">{t('active')}</Chip>
+                        )}
                       </td>
-                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{u.lastLogin ? fmtRelative(t, u.lastLogin, now) : '—'}</td>
-                      <td className="px-4 text-[13px] text-ink-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{u.sessions}</td>
-                      <td className="px-4 text-right">
-                        <IconBtn label="More"><MoreHorizontal size={15} strokeWidth={1.5} /></IconBtn>
+                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">
+                        {u.lastLogin ? fmtRelative(t, u.lastLogin, now) : t('neverLoggedIn')}
                       </td>
                     </tr>
                   ))}

@@ -19,6 +19,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import pg from 'pg'
+import { performLogin } from './helpers/testClient.mjs'
 
 const DB_URL = process.env.TEST_DATABASE_URL
 const skip = DB_URL ? false : 'ต้องตั้ง TEST_DATABASE_URL เพื่อรันกับ Postgres จริง'
@@ -97,10 +98,9 @@ class Client {
     try { data = await res.json() } catch { /* 204 */ }
     return { status: res.status, data }
   }
+  // ผ่านด่าน force-reset ของบัญชี seed ให้เอง — ดู tests/helpers/testClient.mjs
   async login(u, p) {
-    const r = await this.req('/api/login', { method: 'POST', body: { username: u, password: p } })
-    assert.equal(r.status, 200)
-    this.csrf = r.data.csrfToken
+    await performLogin(this, u, p)
   }
 }
 
@@ -363,9 +363,13 @@ test('FK cascade: ลบผู้ใช้ → vault ของเขาหาย
   assert.equal((await sql.query('SELECT 1 FROM vault_blobs WHERE user_id=$1', [uid])).rowCount, 0)
 
   // คืนสภาพให้เคสอื่น (ไฟล์นี้รันเรียงตามลำดับ)
+  // ⚠️ must_reset_password = TRUE ต้องตรงกับ seed.sql เป๊ะ ๆ — hash ก้อนนี้อยู่ใน git
+  //    การคืนสภาพด้วยค่า default (FALSE) จะทิ้งบัญชีที่ใช้รหัสสาธารณะได้โดยไม่มีด่าน
+  //    ไว้ในฐานข้อมูลหลังเทสต์จบ = ชุดทดสอบเป็นคนเปิดช่องโหว่ที่ตัวมันเองควรกันไว้
+  //    (tests/accessUsers.test.js จับกรณีนี้ได้จริงตอนรันชุดเต็มรอบที่สอง)
   await sql.query(
-    `INSERT INTO users (id, username, password_hash, role, display_name) VALUES
-     ($1,'user','$2a$10$KvFvKFdx6OnPCjxIlwYXiOw0i0mmdmwcO1rNgHvqwtxuOgZfsVj1i','DataLake-User','Kanya Srisuwan')`,
+    `INSERT INTO users (id, username, password_hash, role, display_name, must_reset_password) VALUES
+     ($1,'user','$2a$10$KvFvKFdx6OnPCjxIlwYXiOw0i0mmdmwcO1rNgHvqwtxuOgZfsVj1i','DataLake-User','Kanya Srisuwan',TRUE)`,
     [uid],
   )
 })

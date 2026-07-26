@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { performLogin } from './helpers/testClient.mjs'
 
 // STORAGE_ROOT ต้องถูกตั้ง "ก่อน" import โมดูลที่อ่านค่านี้ตอน module-load
 const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-files-test-'))
@@ -77,12 +78,9 @@ class Client {
     return { status: res.status, data }
   }
 
+  // ผ่านด่าน force-reset ของบัญชี seed ให้เอง — ดู tests/helpers/testClient.mjs
   async login({ username, password }) {
-    const res = await this.req('/api/login', { method: 'POST', body: { username, password } })
-    assert.equal(res.status, 200, `login ล้มเหลวสำหรับ ${username}`)
-    this.csrf = res.data.csrfToken
-    assert.ok(this.csrf, 'server ต้องคืน CSRF token หลัง login')
-    return res.data
+    return performLogin(this, username, password)
   }
 }
 
