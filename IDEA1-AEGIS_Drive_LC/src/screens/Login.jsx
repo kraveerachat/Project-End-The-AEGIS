@@ -1,14 +1,12 @@
 import { useRef, useState } from 'react'
-import { Eye, EyeOff, Check, X as XIcon } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Eye, EyeOff, X as XIcon } from 'lucide-react'
 import { login } from '../lib/auth.js'
 import { useReducedMotion } from '../lib/hooks.js'
-import { Btn, Field, PillInput, Toggle, Segmented } from '../components/ui.jsx'
+import { Toggle, Segmented, SparkleButton, ThemeToggle } from '../components/ui.jsx'
 import { AegisMark } from '../components/AegisMark.jsx'
 import { LANGS } from '../lib/strings.js'
 
-/* Defense-in-depth rows. Layer 0 (network) is already satisfied — the
-   client reached this page through VPN+VLAN. Layers 2–3 are hatched:
-   "not yet real". The submit cascade IS the loading state — no spinner. */
 const LAYERS = [
   { id: 0, nameKey: 'layerNetwork', descKey: 'layerNetworkDesc' },
   { id: 1, nameKey: 'layerApp', descKey: 'layerAppDesc' },
@@ -16,44 +14,94 @@ const LAYERS = [
   { id: 3, nameKey: 'layerMeta', descKey: 'layerMetaDesc' },
 ]
 
+const layersContainerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.15,
+    },
+  },
+}
+
+const layerItemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * แปลงผลที่ล้มเหลวของ login() → คีย์ข้อความที่ "ตรงกับสาเหตุจริง"
+ *
+ * ⚠️ กฎเดียวที่ห้ามผิด: `loginFailed` ("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง") ใช้ได้
+ *    เฉพาะเมื่อเซิร์ฟเวอร์ "ตรวจรหัสผ่านจริงแล้วปฏิเสธ" เท่านั้น = 401 (และ 429
+ *    ที่เป็นผลสะสมจากการตรวจที่ล้มเหลวมาก่อน) ทุกกรณีที่เหลือคือคำขอที่ไม่เคย
+ *    ไปถึงขั้นตอนตรวจรหัสผ่าน — บอกผู้ใช้ว่า "รหัสผิด" คือการโกหกและพาไปแก้ผิดจุด
+ *    (ผู้ใช้จะนั่งพิมพ์รหัสใหม่ ทั้งที่สิ่งที่ต้องทำคือโหลดหน้าใหม่)
+ */
+function loginErrorKey({ status, errorKind }) {
+  if (status === 429) return 'lockout'          // ถูกจำกัดอัตรา — ข้อความมีตัวนับแยกอยู่แล้ว
+  if (errorKind === 'csrf') return 'loginBlockedCsrf'
+  if (errorKind === 'timeout') return 'loginTimeout'
+  if (errorKind === 'network') return 'loginNetwork'
+  if (status === 401) return 'loginFailed'      // ← ทางเดียวที่พูดเรื่องรหัสผ่านได้
+  return 'loginServerError'                     // 403 อื่น ๆ / 5xx / อะไรที่ไม่รู้จัก
+}
+
 function LayerRow({ t, layer, status }) {
-  // status: 'ok' | 'active' | 'pending' | 'fail'
   const isOk = status === 'ok'
   const isFail = status === 'fail'
-  const isPending = status === 'pending'
-  return (
-    <div
-      className="relative overflow-hidden flex items-center gap-3 h-11 px-4 rounded-xl transition-all duration-[var(--dur-base)]"
-      style={{
-        background: isOk ? 'var(--ok-soft)' : isFail ? 'var(--danger-soft)' : 'var(--card-sunken)',
-      }}
-    >
-      {/* hatch overlay — wipes away left→right when the layer resolves */}
-      <div
-        aria-hidden
-        className="absolute inset-0 hatch hatch-ink3 pointer-events-none transition-[clip-path] duration-500"
-        style={{
-          clipPath: isPending ? 'inset(0 0 0 0)' : 'inset(0 0 0 100%)',
-          transitionTimingFunction: 'var(--ease)',
-        }}
-      />
-      <span className="relative size-5 flex items-center justify-center shrink-0">
-        {isOk && (
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-            <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="draw-check" />
+
+  if (layer.id === 0) {
+    return (
+      <motion.div variants={layerItemVariants} className="flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-emerald-500/40 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs font-semibold">
+        <div className="flex items-center gap-2.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+            <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
+          <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+        </div>
+        <span className="text-[11px] font-mono opacity-90">{t(layer.descKey)}</span>
+      </motion.div>
+    )
+  }
+
+  if (layer.id === 1) {
+    return (
+      <motion.div variants={layerItemVariants} className="flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-blue-600/80 dark:border-blue-400/70 text-blue-800 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/20 text-xs font-semibold">
+        <div className="flex items-center gap-2.5">
+          {isOk ? (
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+              <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : isFail ? (
+            <XIcon size={14} strokeWidth={2.5} className="text-rose-500" />
+          ) : (
+            <span className="size-2 rounded-full border-2 border-cyan-500 dark:border-blue-400 animate-pulse" />
+          )}
+          <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+        </div>
+        <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">{t(layer.descKey)}</span>
+      </motion.div>
+    )
+  }
+
+  return (
+    <motion.div variants={layerItemVariants} className="relative overflow-hidden flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-cyan-500/30 dark:border-slate-600/40 text-slate-500 dark:text-slate-400 text-xs font-medium bg-slate-50/80 dark:bg-slate-950/40 bg-[repeating-linear-gradient(45deg,transparent,transparent_8px,rgba(0,0,0,0.03)_8px,rgba(0,0,0,0.03)_16px)] dark:bg-[repeating-linear-gradient(45deg,transparent,transparent_8px,rgba(255,255,255,0.03)_8px,rgba(255,255,255,0.03)_16px)]">
+      <div className="flex items-center gap-2.5 relative z-10">
+        {isOk ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+            <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500 font-mono text-[10px]">◇</span>
         )}
-        {isFail && <XIcon size={15} strokeWidth={2.5} style={{ color: 'var(--danger)' }} />}
-        {status === 'active' && <span className="size-2.5 rounded-full border-2" style={{ borderColor: 'var(--accent)' }} />}
-        {isPending && <span className="size-2 rounded-full bg-slate-300 dark:bg-slate-700" />}
-      </span>
-      <span className="relative text-[11px] font-bold tracking-[0.06em] whitespace-nowrap" style={{ color: isPending ? 'var(--ink-3)' : 'var(--ink)' }}>
-        {t(layer.nameKey)}
-      </span>
-      <span className="relative text-[12px] text-ink-3 truncate ml-auto">{t(layer.descKey)}</span>
-    </div>
+        <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+      </div>
+      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 relative z-10">{t(layer.descKey)}</span>
+    </motion.div>
   )
 }
 
@@ -64,11 +112,13 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
   const [showPw, setShowPw] = useState(false)
   const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(false)
-  const [lockSec, setLockSec] = useState(0) // เซิร์ฟเวอร์ล็อกบัญชี/IP อยู่ — แสดงเวลาที่เหลือ
+  // ⚠️ เก็บเป็น "คีย์ข้อความ" ไม่ใช่ boolean โดยเจตนา — boolean คือต้นเหตุของบั๊กเดิม:
+  //    เมื่อมีแค่ error=true จอนี้ไม่เหลือทางเลือกอื่นนอกจากเดาว่า "รหัสผ่านผิด"
+  //    ทั้งที่ความล้มเหลวส่วนใหญ่ไม่เคยไปถึงขั้นตอนตรวจรหัสผ่านด้วยซ้ำ
+  const [errorKey, setErrorKey] = useState(null)
+  const [lockSec, setLockSec] = useState(0)
   const [shake, setShake] = useState(false)
   const [leaving, setLeaving] = useState(false)
-  // L0 passed on arrival (VPN+VLAN), L1 is where credentials land, L2–L3 hatched
   const [statuses, setStatuses] = useState(['ok', 'active', 'pending', 'pending'])
   const busyRef = useRef(false)
 
@@ -79,32 +129,26 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
     if (busyRef.current || !username || !password) return
     busyRef.current = true
     setBusy(true)
-    setError(false)
+    setErrorKey(null)
     setStatuses(['ok', 'active', 'pending', 'pending'])
 
     const step = reduced ? 0 : 250
-    // ส่งแค่ { username, password, remember } ไป /api/login — ไม่มี role เด็ดขาด
-    // (role มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น — OWASP A01)
     const authPromise = login({ username, password, remember })
-    await sleep(step) // L0 re-confirms while credentials travel
+    await sleep(step)
     const res = await authPromise
 
     if (!res.ok) {
-      // การล้มเหลว "หยุดนิ่ง" ที่ Layer 1 — ชั้นที่เหลือคงเป็น hatch (ยังไม่เกิดขึ้นจริง)
-      // ข้อความผิดพลาดเหมือนกันทุกกรณี — ห้ามบอกว่า field ไหนผิด ห้ามบอกว่า
-      // "ไม่พบผู้ใช้" เพื่อกัน username enumeration
-      // (การล็อกจริงบังคับ "ฝั่งเซิร์ฟเวอร์" — ตรงนี้แค่รายงานเวลาที่เหลือให้ผู้ใช้)
+      const locked = res.status === 429
       setLayer(1, 'fail')
       setShake(true)
-      setError(true)
-      setLockSec(res.status === 429 ? Math.ceil((res.lockedMs ?? 0) / 1000) : 0)
+      setErrorKey(loginErrorKey(res))
+      setLockSec(locked ? Math.ceil((res.lockedMs ?? 0) / 1000) : 0)
       setTimeout(() => setShake(false), 300)
       setBusy(false)
       busyRef.current = false
       return
     }
 
-    // Success: the cascade resolves top-to-bottom, hatch wiping away.
     setLockSec(0)
     setLayer(1, 'ok')
     await sleep(step)
@@ -114,7 +158,6 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
     await sleep(reduced ? 0 : 350)
     setLeaving(true)
     await sleep(reduced ? 0 : 380)
-    // ส่งทั้ง user และเมนูที่เซิร์ฟเวอร์ filter ตาม role แล้วขึ้นไปให้ App
     onAuthed({ user: res.user, menu: res.menu })
   }
 
@@ -123,20 +166,47 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
   }
 
   return (
-    <div className="min-h-full flex flex-col items-center justify-center py-10 px-4 bg-canvas relative">
-      <div className="absolute top-5 right-5 flex items-center gap-2">
-        <button
-          type="button"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-          className="size-9 flex items-center justify-center rounded-full text-ink-3 hover:text-ink hover:bg-card border border-line bg-card/40 backdrop-blur transition-all duration-[var(--dur-fast)] cursor-pointer"
-        >
-          {theme === 'dark' ? (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-          ) : (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-          )}
-        </button>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 md:p-6 bg-slate-100 dark:bg-[#08080A] text-slate-900 dark:text-slate-100 font-sans select-none relative overflow-hidden transition-colors duration-300">
+      {/* Base dot grid pattern overlay */}
+      <div className="absolute inset-0 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-70 dark:opacity-30 pointer-events-none" />
+
+      {/* Background image circuit/streak texture overlay */}
+      <div className="absolute inset-0 gate-bg opacity-30 dark:opacity-60 pointer-events-none" />
+
+      {/* Ambient glowing radial beam behind card */}
+      <motion.div
+        animate={{
+          scale: [1, 1.08, 1],
+          opacity: [0.4, 0.7, 0.4],
+        }}
+        transition={{
+          duration: 5,
+          repeat: Infinity,
+          ease: 'easeInOut',
+        }}
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-gradient-to-r from-cyan-400/20 via-blue-500/20 to-transparent dark:from-blue-500/14 dark:via-sky-500/12 dark:to-transparent blur-3xl pointer-events-none opacity-50 dark:opacity-100"
+      />
+
+      {/* Horizontal glowing energy line running across screen width */}
+      <motion.div
+        animate={{
+          x: [-20, 20, -20],
+          opacity: [0.4, 0.8, 0.4],
+        }}
+        transition={{
+          duration: 6,
+          repeat: Infinity,
+          ease: 'easeInOut',
+        }}
+        className="absolute top-1/2 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500/50 dark:via-blue-400/40 to-transparent blur-[1px] pointer-events-none"
+      />
+
+      {/* Subtle halo backdrop */}
+      <div className="absolute inset-0 gate-halo pointer-events-none opacity-20 dark:opacity-90" />
+
+      {/* Top right language selector and theme toggle */}
+      <div className="absolute top-5 right-5 z-30 flex items-center gap-2">
+        <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
         <Segmented
           ariaLabel={t('language')}
           options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))}
@@ -145,95 +215,164 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
         />
       </div>
 
-      <div
-        className="w-full flex flex-col items-center transition-[transform,opacity] duration-[var(--dur-slow)]"
-        style={{
-          transform: leaving ? 'scale(1.03)' : 'scale(1)',
-          opacity: leaving ? 0 : 1,
-          transitionTimingFunction: 'var(--ease)',
-        }}
-      >
-        {/* The mark stands alone on the gray. Its own texture is the interest. */}
-        <AegisMark size={160} />
-        {/* lang="en" — DESIGN.md · Cascade traps. Measured before the fix:
-            authored leading-none (26px), rendered 1.70 → 44px. 18px of
-            phantom half-leading under a wordmark that has no tone marks. */}
-        <h1 lang="en" className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-none">AEGIS</h1>
-        <p className="mt-2 text-[10.5px] font-medium tracking-[0.14em] text-ink-3">{t('productTag')}</p>
+      {/* Main Vault Card Container Wrapper with Volumetric Aura */}
+      <div className="relative my-auto w-full max-w-[440px] md:max-w-[920px] flex justify-center z-10">
+        {/* Volumetric Aura Background Glow Layer */}
+        <motion.div
+          animate={{
+            opacity: [0.6, 0.9, 0.6],
+            scale: [0.99, 1.025, 0.99],
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: 'easeInOut',
+          }}
+          className="absolute -inset-2 -z-10 rounded-[32px] bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 dark:from-blue-600/30 dark:via-blue-500/24 dark:to-sky-500/16 opacity-70 blur-2xl shadow-[0_0_70px_15px_rgba(6,182,212,0.35)] dark:shadow-[0_0_34px_2px_rgba(37,99,235,0.2)] pointer-events-none transition-all duration-500"
+        />
 
-        <div
-          className={`w-full max-w-[440px] mt-8 bg-card rounded-[24px] p-10 max-sm:p-6 ${shake ? 'shake-x' : ''}`}
-          style={{ boxShadow: 'var(--elev-2)' }}
+        {/* Main Floating Split Vault Card */}
+        <motion.div
+          initial={{ scale: 0.96, opacity: 0, y: 15 }}
+          animate={{
+            scale: leaving ? 1.03 : 1,
+            opacity: leaving ? 0 : 1,
+            y: 0,
+          }}
+          transition={{
+            type: 'spring',
+            stiffness: 260,
+            damping: 20,
+          }}
+          whileHover={{ y: -4 }}
+          whileTap={{ scale: 0.995 }}
+          className={`w-full rounded-3xl bg-white/95 dark:bg-[#0C0D12]/90 border border-cyan-400/80 hover:border-blue-400 dark:border-blue-400/45 dark:hover:border-sky-300 shadow-[0_10px_35px_-5px_rgba(14,165,233,0.25)] dark:shadow-[0_0_26px_-8px_rgba(59,130,246,0.28)] backdrop-blur-2xl overflow-hidden flex flex-col md:flex-row md:items-stretch relative transition-all duration-300 ${
+            shake ? 'shake-x' : ''
+          }`}
         >
-          <h2 className="text-[20px] font-semibold text-ink">{t('loginTitle')}</h2>
-          <p className="text-[13px] text-ink-3 mt-0.5 mb-6">{t('loginSubtitle')}</p>
-
-          <div className="flex flex-col gap-4">
-            <Field id="login-username" label={t('username')}>
-              <PillInput
-                id="login-username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder={t('usernamePlaceholder')}
-                autoComplete="username"
-                autoFocus
-                disabled={busy}
-              />
-            </Field>
-
-            <Field id="login-password" label={t('password')}>
-              <div className="relative">
-                <PillInput
-                  id="login-password"
-                  type={showPw ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  placeholder={t('passwordPlaceholder')}
-                  autoComplete="current-password"
-                  disabled={busy}
-                  className="pr-12"
+          {/* Left Panel: Brand Lockup with Breathing Backlight */}
+          <div className="w-full md:w-[42%] p-8 md:p-12 flex flex-col items-center justify-center text-center bg-slate-50/90 dark:bg-[#07080B] border-b md:border-b-0 md:border-r border-cyan-500/20 dark:border-blue-500/20 relative">
+            <div className="my-auto flex flex-col items-center">
+              <div className="relative flex items-center justify-center">
+                <motion.div
+                  animate={{
+                    scale: [1, 1.15, 1],
+                    opacity: [0.3, 0.6, 0.3],
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                  className="absolute inset-0 rounded-full bg-gradient-to-r from-cyan-400/20 via-blue-500/20 to-blue-600/20 dark:from-sky-400/12 dark:via-blue-500/12 dark:to-blue-600/10 blur-2xl pointer-events-none"
                 />
-                <button
-                  type="button"
-                  aria-label={showPw ? t('hidePassword') : t('showPassword')}
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center rounded-full text-ink-3 hover:text-ink hover:bg-card transition-colors duration-[var(--dur-fast)] cursor-pointer"
-                >
-                  {showPw ? <EyeOff size={17} strokeWidth={1.5} /> : <Eye size={17} strokeWidth={1.5} />}
-                </button>
+                <AegisMark size={180} />
               </div>
-            </Field>
+              <h1 lang="en" className="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">
+                AEGIS
+              </h1>
+              <p lang="en" className="mt-3 text-[11px] md:text-xs font-semibold tracking-widest uppercase text-balance leading-relaxed bg-clip-text text-transparent bg-gradient-to-r from-cyan-600 via-blue-600 to-blue-700 dark:from-sky-300 dark:via-blue-300 dark:to-blue-400">
+                {t('productTag')}
+              </p>
+            </div>
+          </div>
 
-            <div className="flex items-center justify-between py-1">
-              <span className="text-[13px] text-ink-2" id="remember-label">
-                {t('rememberSession')}
-              </span>
-              <Toggle on={remember} onChange={setRemember} label={t('rememberSession')} />
+          {/* Right Panel: Sign-In Form */}
+          <div className="w-full md:flex-1 p-6 md:p-10 flex flex-col justify-between bg-white/40 dark:bg-slate-900/40">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{t('loginTitle')}</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6">{t('loginSubtitle')}</p>
+
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label htmlFor="login-username" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('username')}
+                  </label>
+                  <input
+                    id="login-username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    placeholder={t('usernamePlaceholder')}
+                    autoComplete="username"
+                    autoFocus
+                    disabled={busy}
+                    className="w-full h-11 px-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 hover:border-cyan-400/80 dark:border-slate-800 dark:hover:border-blue-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-950 focus:outline-none focus:border-cyan-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-cyan-500/40 dark:focus:ring-blue-500/45 focus:shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:focus:shadow-[0_0_16px_rgba(59,130,246,0.3)] transition-all duration-300 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('password')}
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="login-password"
+                      type={showPw ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={onKeyDown}
+                      placeholder={t('passwordPlaceholder')}
+                      autoComplete="current-password"
+                      disabled={busy}
+                      className="w-full h-11 px-4 pr-12 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 hover:border-cyan-400/80 dark:border-slate-800 dark:hover:border-blue-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-950 focus:outline-none focus:border-cyan-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-cyan-500/40 dark:focus:ring-blue-500/45 focus:shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:focus:shadow-[0_0_16px_rgba(59,130,246,0.3)] transition-all duration-300 text-sm"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPw ? t('hidePassword') : t('showPassword')}
+                      onClick={() => setShowPw((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 size-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer"
+                    >
+                      {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                    {t('rememberSession')}
+                  </span>
+                  <Toggle on={remember} onChange={setRemember} label={t('rememberSession')} />
+                </div>
+
+                <SparkleButton
+                  sparkles="hover"
+                  size="lg"
+                  className="w-full mt-2 hover:shadow-[0_0_25px_rgba(37,99,235,0.45)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-300"
+                  onClick={submit}
+                  disabled={busy || !username || !password}
+                >
+                  {busy ? t('signingIn') : t('signIn')}
+                </SparkleButton>
+
+                {errorKey && (
+                  <p role="alert" aria-live="assertive" className="text-xs font-semibold text-center mt-2 text-rose-600 dark:text-rose-400">
+                    {errorKey === 'lockout' ? t('lockout', { s: lockSec }) : t(errorKey)}
+                  </p>
+                )}
+              </div>
             </div>
 
-            {/* ไม่มีตัวเลือก role ที่นี่โดยเจตนา — role มาจากคำตอบของเซิร์ฟเวอร์
-                เท่านั้น การให้ client เลือกสิทธิ์เอง = Broken Access Control (OWASP A01) */}
-            <Btn variant="primary" size="lg" className="w-full" onClick={submit} disabled={busy || !username || !password}>
-              {busy ? t('signingIn') : t('signIn')}
-            </Btn>
-
-            {error && (
-              <p role="alert" aria-live="assertive" className="text-[13px] font-medium text-center" style={{ color: 'var(--danger)' }}>
-                {lockSec > 0 ? t('lockout', { s: lockSec }) : t('loginFailed')}
-              </p>
-            )}
+            {/* Defense-in-Depth Security Status Layers with Staggered Entrance */}
+            <motion.div
+              variants={layersContainerVariants}
+              initial="hidden"
+              animate="show"
+              className="flex flex-col gap-2 mt-6 border-t border-slate-200/80 dark:border-slate-800/80 pt-5"
+            >
+              {LAYERS.map((layer, i) => (
+                <LayerRow key={layer.id} t={t} layer={layer} status={statuses[i]} />
+              ))}
+            </motion.div>
           </div>
+        </motion.div>
+      </div>
 
-          {/* Defense-in-depth — the cascade is the whole loading state */}
-          <div className="flex flex-col gap-2 mt-7">
-            {LAYERS.map((layer, i) => (
-              <LayerRow key={layer.id} t={t} layer={layer} status={statuses[i]} />
-            ))}
-          </div>
-        </div>
-
+      {/* Monospace Footer Demo Hint */}
+      <div className="relative z-10 mt-6 text-center">
+        <p className="text-xs text-slate-400 dark:text-slate-500 font-mono tracking-wider">
+          demo · Drive · user / aegis-drive-user · admin / aegis-drive-admin
+        </p>
       </div>
     </div>
   )

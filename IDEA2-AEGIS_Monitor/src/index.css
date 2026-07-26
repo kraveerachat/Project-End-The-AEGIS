@@ -1,3 +1,6 @@
+@import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
+
 /* ============================================================
    AEGIS Monitor — HUD design system
    Source of truth: "AEGIS HUD.dc.html" (Claude Design project).
@@ -1235,3 +1238,206 @@ select.aop-in:disabled { opacity: .55; cursor: default; }
 }
 .aop-warn svg { flex: none; margin-top: 1px; }
 .aop-warn span { color: var(--ice); }
+
+/* ── Split Vault Card & Cyber-Physical Blue-Purple Gate CSS ── */
+:root {
+  --gate-scrim: rgba(15, 23, 42, 0.07);
+  --gate-image: url("/assets/BG_AEGIS01.png");
+  --gate-halo-1: rgba(255, 255, 255, 0.8);
+  --gate-halo-2: rgba(255, 255, 255, 0.36);
+  --accent-bloom: rgba(167, 139, 250, 0.5);
+  --elev-accent: 0 4px 16px -2px rgba(37, 99, 235, 0.35), 0 2px 6px -1px rgba(124, 58, 237, 0.25);
+  --r-card: 24px;
+  --r-pill: 999px;
+  --card: rgba(13, 16, 28, 0.9);
+  --card-sunken: rgba(18, 22, 38, 0.45);
+  --ink: #f8fafc;
+  --ink-2: #94a3b8;
+  --ink-3: #475569;
+  --line: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] {
+  --gate-scrim: rgba(0, 0, 0, 0.34);
+  --gate-image: url("/assets/BG_AEGIS02.png");
+  --gate-halo-1: rgba(6, 6, 9, 0.88);
+  --gate-halo-2: rgba(6, 6, 9, 0.44);
+  --accent-bloom: rgba(167, 139, 250, 0.4);
+  --elev-accent: 0 4px 20px -2px rgba(124, 58, 237, 0.45), 0 2px 8px -1px rgba(37, 99, 235, 0.35);
+}
+
+.gate-bg {
+  background-image: linear-gradient(var(--gate-scrim), var(--gate-scrim)), var(--gate-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: var(--canvas, #06070d);
+}
+
+.gate-halo {
+  background: radial-gradient(
+    ellipse 48rem 38rem at 50% 46%,
+    var(--gate-halo-1) 0%,
+    var(--gate-halo-2) 45%,
+    transparent 72%
+  );
+}
+
+.vault-surface {
+  background-color: transparent;
+  box-shadow: var(--elev-0, none);
+  transition:
+    background-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.vault-surface.is-solid {
+  background-color: var(--card, rgba(13, 16, 28, 0.9));
+  box-shadow: 0 10px 40px -15px rgba(124, 58, 237, 0.12), var(--elev-2, 0 20px 40px -4px rgba(0, 0, 0, 0.5));
+  border: 1px solid rgba(192, 132, 252, 0.3);
+  transition:
+    background-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    border-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+:root[data-theme="dark"] .vault-surface.is-solid {
+  box-shadow: 0 0 40px -15px rgba(124, 58, 237, 0.3), var(--elev-2, 0 20px 40px -4px rgba(0, 0, 0, 0.5));
+  border: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0px,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.hatch-ink3 {
+  --hatch-color: color-mix(in srgb, var(--ink-3, #475569) 55%, transparent);
+}
+.hatch-fine {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0px,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0.5px,
+    transparent 0.5px,
+    transparent 4px
+  );
+  --hatch-color: color-mix(in srgb, var(--ink-3, #475569) 42%, transparent);
+}
+
+.sparkle-btn {
+  --sparkle-rise: 55px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--r-pill, 999px);
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  box-shadow: var(--elev-accent), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition:
+    background var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    transform var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.sparkle-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(178deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 62%);
+}
+.sparkle-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  transform-origin: 50% 100%;
+  background: radial-gradient(70% 34% at 50% 100%, var(--accent-bloom) 0%, transparent 100%);
+  transition:
+    opacity var(--dur-base, 240ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    transform var(--dur-base, 240ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.sparkle-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  transform: translateY(-1px);
+}
+.sparkle-btn:hover:not(:disabled)::after {
+  opacity: 0.9;
+  transform: scaleY(1.18);
+}
+.sparkle-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.sparkle-btn:disabled {
+  background: #334155;
+  box-shadow: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sparkle-btn__label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+}
+.sparkle-points {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sparkle-point {
+  position: absolute;
+  bottom: -10px;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background-color: #fff;
+  pointer-events: none;
+  animation-name: none;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes sparkle-rise {
+  0% { transform: translateY(0); }
+  85% { opacity: 0; }
+  100% { transform: translateY(calc(var(--sparkle-rise) * -1)); opacity: 0; }
+}
+.sparkle-btn--idle .sparkle-point,
+.sparkle-btn--hover:hover .sparkle-point,
+.sparkle-btn--hover:focus-visible .sparkle-point {
+  animation-name: sparkle-rise;
+}
+.sparkle-point:nth-child(1)  { left: 10%; opacity: 1;   animation-duration: 2.35s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(2)  { left: 30%; opacity: 0.7; animation-duration: 2.5s;  animation-delay: 0.5s; }
+.sparkle-point:nth-child(3)  { left: 25%; opacity: 0.8; animation-duration: 2.2s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(4)  { left: 44%; opacity: 0.6; animation-duration: 2.05s; }
+.sparkle-point:nth-child(5)  { left: 50%; opacity: 1;   animation-duration: 1.9s; }
+.sparkle-point:nth-child(6)  { left: 75%; opacity: 0.5; animation-duration: 1.5s;  animation-delay: 1.5s; }
+.sparkle-point:nth-child(7)  { left: 88%; opacity: 0.9; animation-duration: 2.2s;  animation-delay: 0.2s; }
+.sparkle-point:nth-child(8)  { left: 58%; opacity: 0.8; animation-duration: 2.25s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(9)  { left: 98%; opacity: 0.6; animation-duration: 2.6s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(10) { left: 65%; opacity: 1;   animation-duration: 2.5s;  animation-delay: 0.2s; }
+.sparkle-btn:disabled .sparkle-point {
+  animation-name: none;
+}
+
+@keyframes shake-x {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+.shake-x {
+  animation: shake-x 250ms var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}

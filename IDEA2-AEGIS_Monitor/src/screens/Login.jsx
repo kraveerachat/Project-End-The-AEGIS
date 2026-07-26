@@ -1,24 +1,201 @@
-// src/screens/Login.jsx — AEGIS Monitor (IDEA2) · ประตูของ Monitor เอง
-// ⚠️ Identity Decoupling: หน้านี้คุยกับ /api/login ของ Monitor เท่านั้น
-//    ไม่มี SSO — ไม่มีการรับช่วงเซสชันจาก HUB หรือ Drive ไม่ว่ากรณีใด
-// ⚠️ ไม่มีตัวเลือก role ที่นี่โดยเจตนา — role มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น
-//    การให้ client เลือกสิทธิ์เอง = Broken Access Control (OWASP A01)
 import { useRef, useState } from 'react'
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Eye, EyeOff, X as XIcon } from 'lucide-react'
 import { login } from '../lib/auth.js'
+import { useReducedMotion } from '../lib/hooks.js'
+import { Toggle, Segmented, SparkleButton, ThemeToggle } from '../components/ui.jsx'
+import { AegisMark } from '../components/AegisMark.jsx'
 
-export default function Login({ theme, onAuthed }) {
+export const LANGS = ['th', 'en', 'zh']
+
+const STRINGS = {
+  th: {
+    productTag: 'AUTONOMOUS EDGE-GUARD INFRASTRUCTURE SYSTEM',
+    loginTitle: 'เข้าสู่ระบบ',
+    loginSubtitle: 'OPERATOR SIGN-IN · ระบบเฝ้าระวังกล้อง',
+    username: 'ชื่อผู้ใช้',
+    password: 'รหัสผ่าน',
+    usernamePlaceholder: 'ชื่อผู้ใช้ของคุณ',
+    passwordPlaceholder: '••••••••',
+    showPassword: 'แสดงรหัสผ่าน',
+    hidePassword: 'ซ่อนรหัสผ่าน',
+    rememberSession: 'จดจำเซสชันนี้',
+    signIn: 'เข้าสู่ระบบ',
+    signingIn: 'กำลังตรวจสอบ…',
+    loginFailed: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+    lockout: 'พยายามเกินกำหนด — ล็อกอยู่ {s} วินาที',
+    layerNetwork: 'LAYER 0 · NETWORK',
+    layerNetworkDesc: 'VPN + VLAN',
+    layerApp: 'LAYER 1 · APPLICATION',
+    layerAppDesc: 'ข้อมูลประจำตัว',
+    layerStorage: 'LAYER 2 · STORAGE',
+    layerStorageDesc: 'เข้ารหัสขณะจัดเก็บ',
+    layerMeta: 'LAYER 3 · METADATA',
+    layerMetaDesc: 'PostgreSQL',
+    language: 'ภาษา',
+  },
+  en: {
+    productTag: 'AUTONOMOUS EDGE-GUARD INFRASTRUCTURE SYSTEM',
+    loginTitle: 'Sign in',
+    loginSubtitle: 'OPERATOR SIGN-IN · AI CCTV HUD',
+    username: 'Username',
+    password: 'Password',
+    usernamePlaceholder: 'your.name',
+    passwordPlaceholder: '••••••••',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
+    rememberSession: 'Remember this session',
+    signIn: 'Sign in',
+    signingIn: 'Verifying…',
+    loginFailed: 'Invalid username or password.',
+    lockout: 'Too many attempts — locked for {s}s',
+    layerNetwork: 'LAYER 0 · NETWORK',
+    layerNetworkDesc: 'VPN + VLAN',
+    layerApp: 'LAYER 1 · APPLICATION',
+    layerAppDesc: 'Credentials',
+    layerStorage: 'LAYER 2 · STORAGE',
+    layerStorageDesc: 'Encryption at rest',
+    layerMeta: 'LAYER 3 · METADATA',
+    layerMetaDesc: 'PostgreSQL',
+    language: 'Language',
+  },
+  zh: {
+    productTag: 'AUTONOMOUS EDGE-GUARD INFRASTRUCTURE SYSTEM',
+    loginTitle: '登录',
+    loginSubtitle: '操作员登录 · 智能监控系统',
+    username: '用户名',
+    password: '密码',
+    usernamePlaceholder: '您的用户名',
+    passwordPlaceholder: '••••••••',
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
+    rememberSession: '记住此会话',
+    signIn: '登录',
+    signingIn: 'กำลังตรวจสอบ…',
+    loginFailed: '用户名或密码无效',
+    lockout: '尝试次数过多 — 已锁定 {s} 秒',
+    layerNetwork: 'LAYER 0 · NETWORK',
+    layerNetworkDesc: 'VPN + VLAN',
+    layerApp: 'LAYER 1 · APPLICATION',
+    layerAppDesc: '凭证',
+    layerStorage: 'LAYER 2 · STORAGE',
+    layerStorageDesc: '静态加密',
+    layerMeta: 'LAYER 3 · METADATA',
+    layerMetaDesc: 'PostgreSQL',
+    language: '语言',
+  },
+}
+
+const LAYERS = [
+  { id: 0, nameKey: 'layerNetwork', descKey: 'layerNetworkDesc' },
+  { id: 1, nameKey: 'layerApp', descKey: 'layerAppDesc' },
+  { id: 2, nameKey: 'layerStorage', descKey: 'layerStorageDesc' },
+  { id: 3, nameKey: 'layerMeta', descKey: 'layerMetaDesc' },
+]
+
+const layersContainerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.15,
+    },
+  },
+}
+
+const layerItemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function LayerRow({ t, layer, status }) {
+  const isOk = status === 'ok'
+  const isFail = status === 'fail'
+
+  if (layer.id === 0) {
+    return (
+      <motion.div variants={layerItemVariants} className="flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-emerald-500/40 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs font-semibold">
+        <div className="flex items-center gap-2.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+            <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+        </div>
+        <span className="text-[11px] font-mono opacity-90">{t(layer.descKey)}</span>
+      </motion.div>
+    )
+  }
+
+  if (layer.id === 1) {
+    return (
+      <motion.div variants={layerItemVariants} className="flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-cyan-500/50 dark:border-purple-500/50 text-blue-800 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/20 text-xs font-semibold">
+        <div className="flex items-center gap-2.5">
+          {isOk ? (
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+              <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : isFail ? (
+            <XIcon size={14} strokeWidth={2.5} className="text-rose-500" />
+          ) : (
+            <span className="size-2 rounded-full border-2 border-cyan-500 dark:border-purple-400 animate-pulse" />
+          )}
+          <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+        </div>
+        <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">{t(layer.descKey)}</span>
+      </motion.div>
+    )
+  }
+
+  return (
+    <motion.div variants={layerItemVariants} className="relative overflow-hidden flex items-center justify-between gap-3 h-10 px-4 rounded-xl border border-cyan-500/30 dark:border-purple-500/30 text-slate-500 dark:text-slate-400 text-xs font-medium bg-slate-50/80 dark:bg-slate-950/40 bg-[repeating-linear-gradient(45deg,transparent,transparent_8px,rgba(0,0,0,0.03)_8px,rgba(0,0,0,0.03)_16px)] dark:bg-[repeating-linear-gradient(45deg,transparent,transparent_8px,rgba(255,255,255,0.03)_8px,rgba(255,255,255,0.03)_16px)]">
+      <div className="flex items-center gap-2.5 relative z-10">
+        {isOk ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden className="text-emerald-600 dark:text-emerald-400">
+            <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500 font-mono text-[10px]">◇</span>
+        )}
+        <span className="font-bold tracking-wide">{t(layer.nameKey)}</span>
+      </div>
+      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 relative z-10">{t(layer.descKey)}</span>
+    </motion.div>
+  )
+}
+
+export default function Login({ theme, setTheme, lang: initialLang = 'th', setLang: externalSetLang, onAuthed }) {
+  const reduced = useReducedMotion()
+  const [internalLang, setInternalLang] = useState(initialLang)
+  const lang = externalSetLang ? initialLang : internalLang
+  const setLang = externalSetLang || setInternalLang
+
+  const t = (key, params) => {
+    let str = (STRINGS[lang] ?? STRINGS.th)[key] ?? key
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        str = str.replace(`{${k}}`, String(v))
+      })
+    }
+    return str
+  }
+
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
   const [lockSec, setLockSec] = useState(0)
+  const [shake, setShake] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [statuses, setStatuses] = useState(['ok', 'active', 'pending', 'pending'])
   const busyRef = useRef(false)
 
-  const logoSrc = theme === 'light'
-    ? '/assets/logo/aegis-mark-dark-ink.png'
-    : '/assets/logo/aegis-mark-light-ink.png'
+  const setLayer = (i, s) =>
+    setStatuses((prev) => prev.map((v, idx) => (idx === i ? s : v)))
 
   async function submit(e) {
     e?.preventDefault?.()
@@ -26,88 +203,249 @@ export default function Login({ theme, onAuthed }) {
     busyRef.current = true
     setBusy(true)
     setError(false)
+    setStatuses(['ok', 'active', 'pending', 'pending'])
 
-    // ส่งแค่ { username, password } — ไม่มี role, ไม่มี redirect target จาก client
-    const res = await login({ username, password })
+    const step = reduced ? 0 : 250
+    const authPromise = login({ username, password, remember })
+    await sleep(step)
+    const res = await authPromise
 
     if (!res.ok) {
-      // ข้อความล้มเหลวรูปแบบเดียวทุกกรณี — กัน username enumeration
-      // (การล็อกบังคับฝั่งเซิร์ฟเวอร์ — ตรงนี้แค่รายงานเวลาที่เหลือ)
+      setLayer(1, 'fail')
+      setShake(true)
       setError(true)
       setLockSec(res.status === 429 ? Math.ceil((res.lockedMs ?? 0) / 1000) : 0)
+      setTimeout(() => setShake(false), 300)
       setBusy(false)
       busyRef.current = false
       return
     }
 
     setLockSec(0)
-    // user + เมนูวิว (filter ตาม role ฝั่งเซิร์ฟเวอร์แล้ว) ขึ้นไปให้ App
+    setLayer(1, 'ok')
+    await sleep(step)
+    setLayer(2, 'ok')
+    await sleep(step)
+    setLayer(3, 'ok')
+    await sleep(reduced ? 0 : 350)
+    setLeaving(true)
+    await sleep(reduced ? 0 : 380)
     onAuthed({ user: res.user, menu: res.menu })
   }
 
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') submit(e)
+  }
+
   return (
-    <div className="loginwrap">
-      <form className="panel glass logincard" onSubmit={submit}>
-        <div className="loginbrand">
-          <img src={logoSrc} alt="" aria-hidden="true" className="loginmark" />
-          <div>
-            <div className="wordmark">AEGIS Monitor</div>
-            <div className="subtitle">AI CCTV · NEXT-GEN HUD</div>
-          </div>
-        </div>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 md:p-6 bg-slate-100 dark:bg-[#08080A] text-slate-900 dark:text-slate-100 font-sans select-none relative overflow-hidden transition-colors duration-300">
+      {/* Base dot grid pattern overlay */}
+      <div className="absolute inset-0 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-70 dark:opacity-30 pointer-events-none" />
 
-        <div className="edtitle" style={{ marginTop: 18 }}>Operator sign-in</div>
-        <p className="sub loginsub">
-          Access is decided server-side per RBAC role — Aggregate or Scoped view.
-        </p>
+      {/* Background image circuit/streak texture overlay */}
+      <div className="absolute inset-0 gate-bg opacity-30 dark:opacity-60 pointer-events-none" />
 
-        <label className="flbl loginlbl" htmlFor="mon-user">Username</label>
-        <input
-          id="mon-user"
-          className="edin loginin"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
-          autoFocus
-          disabled={busy}
+      {/* Ambient glowing radial beam behind card */}
+      <motion.div
+        animate={{
+          scale: [1, 1.08, 1],
+          opacity: [0.4, 0.7, 0.4],
+        }}
+        transition={{
+          duration: 5,
+          repeat: Infinity,
+          ease: 'easeInOut',
+        }}
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-gradient-to-r from-cyan-400/20 via-blue-500/20 to-transparent dark:from-purple-600/30 dark:via-fuchsia-600/30 dark:to-transparent blur-3xl pointer-events-none opacity-50 dark:opacity-100"
+      />
+
+      {/* Horizontal glowing energy line running across screen width */}
+      <motion.div
+        animate={{
+          x: [-20, 20, -20],
+          opacity: [0.4, 0.8, 0.4],
+        }}
+        transition={{
+          duration: 6,
+          repeat: Infinity,
+          ease: 'easeInOut',
+        }}
+        className="absolute top-1/2 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500/50 dark:via-fuchsia-500/70 to-transparent blur-[1px] pointer-events-none"
+      />
+
+      {/* Subtle halo backdrop */}
+      <div className="absolute inset-0 gate-halo pointer-events-none opacity-20 dark:opacity-90" />
+
+      {/* Top right language selector and theme toggle */}
+      <div className="absolute top-5 right-5 z-30 flex items-center gap-2">
+        <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
+        <Segmented
+          ariaLabel={t('language')}
+          options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))}
+          value={lang}
+          onChange={setLang}
+        />
+      </div>
+
+      {/* Main Vault Card Container Wrapper with Volumetric Aura */}
+      <div className="relative my-auto w-full max-w-[440px] md:max-w-[920px] flex justify-center z-10">
+        {/* Volumetric Aura Background Glow Layer */}
+        <motion.div
+          animate={{
+            opacity: [0.6, 0.9, 0.6],
+            scale: [0.99, 1.025, 0.99],
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: 'easeInOut',
+          }}
+          className="absolute -inset-2 -z-10 rounded-[32px] bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 dark:from-purple-600 dark:via-fuchsia-500 dark:to-indigo-600 opacity-70 blur-2xl shadow-[0_0_70px_15px_rgba(6,182,212,0.35)] dark:shadow-[0_0_80px_20px_rgba(168,85,247,0.4)] pointer-events-none transition-all duration-500"
         />
 
-        <label className="flbl loginlbl" htmlFor="mon-pass">Password</label>
-        <div className="loginpwrow">
-          <input
-            id="mon-pass"
-            className="edin loginin"
-            type={showPw ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            disabled={busy}
-          />
-          <button
-            type="button"
-            className="iconbtn"
-            aria-label={showPw ? 'Hide password' : 'Show password'}
-            onClick={() => setShowPw((v) => !v)}
-          >
-            {showPw ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-          </button>
-        </div>
+        {/* Main Floating Split Vault Card */}
+        <motion.div
+          initial={{ scale: 0.96, opacity: 0, y: 15 }}
+          animate={{
+            scale: leaving ? 1.03 : 1,
+            opacity: leaving ? 0 : 1,
+            y: 0,
+          }}
+          transition={{
+            type: 'spring',
+            stiffness: 260,
+            damping: 20,
+          }}
+          whileHover={{ y: -4 }}
+          whileTap={{ scale: 0.995 }}
+          className={`w-full rounded-3xl bg-white/95 dark:bg-[#0C0D12]/90 border border-cyan-400/80 hover:border-blue-400 dark:border-purple-400/60 dark:hover:border-fuchsia-400 shadow-[0_10px_35px_-5px_rgba(14,165,233,0.25)] dark:shadow-[0_0_40px_-5px_rgba(168,85,247,0.3)] backdrop-blur-2xl overflow-hidden flex flex-col md:flex-row md:items-stretch relative transition-all duration-300 ${
+            shake ? 'shake-x' : ''
+          }`}
+        >
+          {/* Left Panel: Brand Lockup with Breathing Backlight */}
+          <div className="w-full md:w-[42%] p-8 md:p-12 flex flex-col items-center justify-center text-center bg-slate-50/90 dark:bg-[#07080B] border-b md:border-b-0 md:border-r border-cyan-500/20 dark:border-purple-500/20 relative">
+            <div className="my-auto flex flex-col items-center">
+              <div className="relative flex items-center justify-center">
+                <motion.div
+                  animate={{
+                    scale: [1, 1.15, 1],
+                    opacity: [0.3, 0.6, 0.3],
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                  className="absolute inset-0 rounded-full bg-gradient-to-r from-cyan-400/20 via-blue-500/20 to-purple-500/20 blur-2xl pointer-events-none"
+                />
+                <AegisMark size={180} />
+              </div>
+              <h1 lang="en" className="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">
+                AEGIS
+              </h1>
+              <p lang="en" className="mt-3 text-[11px] md:text-xs font-semibold tracking-widest uppercase text-balance leading-relaxed bg-clip-text text-transparent bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 dark:from-blue-400 dark:via-indigo-300 dark:to-purple-400">
+                {t('productTag')}
+              </p>
+            </div>
+          </div>
 
-        {error && (
-          <p role="alert" aria-live="assertive" className="ederr loginerr">
-            {lockSec > 0 ? `Too many attempts — locked for ${lockSec}s` : 'Invalid credentials'}
-          </p>
-        )}
+          {/* Right Panel: Sign-In Form */}
+          <form onSubmit={submit} className="w-full md:flex-1 p-6 md:p-10 flex flex-col justify-between bg-white/40 dark:bg-slate-900/40">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{t('loginTitle')}</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6">{t('loginSubtitle')}</p>
 
-        <button type="submit" className="ackbtn loginbtn" disabled={busy || !username || !password}>
-          <ShieldCheck aria-hidden="true" />
-          {busy ? 'Verifying…' : 'Sign in'}
-        </button>
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label htmlFor="mon-username" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('username')}
+                  </label>
+                  <input
+                    id="mon-username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    placeholder={t('usernamePlaceholder')}
+                    autoComplete="username"
+                    autoFocus
+                    disabled={busy}
+                    className="w-full h-11 px-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 hover:border-cyan-400/80 dark:border-slate-800 dark:hover:border-purple-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-950 focus:outline-none focus:border-cyan-500 dark:focus:border-fuchsia-400 focus:ring-2 focus:ring-cyan-500/40 dark:focus:ring-purple-500/50 focus:shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:focus:shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-all duration-300 text-sm"
+                  />
+                </div>
 
-        <p className="loginfoot mono">
-          Standalone edge deployment · identity managed within AEGIS Monitor
+                <div>
+                  <label htmlFor="mon-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('password')}
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="mon-password"
+                      type={showPw ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={onKeyDown}
+                      placeholder={t('passwordPlaceholder')}
+                      autoComplete="current-password"
+                      disabled={busy}
+                      className="w-full h-11 px-4 pr-12 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 hover:border-cyan-400/80 dark:border-slate-800 dark:hover:border-purple-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-950 focus:outline-none focus:border-cyan-500 dark:focus:border-fuchsia-400 focus:ring-2 focus:ring-cyan-500/40 dark:focus:ring-purple-500/50 focus:shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:focus:shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-all duration-300 text-sm"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPw ? t('hidePassword') : t('showPassword')}
+                      onClick={() => setShowPw((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 size-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer"
+                    >
+                      {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                    {t('rememberSession')}
+                  </span>
+                  <Toggle on={remember} onChange={setRemember} label={t('rememberSession')} />
+                </div>
+
+                <SparkleButton
+                  type="submit"
+                  sparkles="hover"
+                  size="lg"
+                  className="w-full mt-2 hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-300"
+                  disabled={busy || !username || !password}
+                >
+                  {busy ? t('signingIn') : t('signIn')}
+                </SparkleButton>
+
+                {error && (
+                  <p role="alert" aria-live="assertive" className="text-xs font-semibold text-center mt-2 text-rose-600 dark:text-rose-400">
+                    {lockSec > 0 ? t('lockout', { s: lockSec }) : t('loginFailed')}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Defense-in-Depth Security Status Layers with Staggered Entrance */}
+            <motion.div
+              variants={layersContainerVariants}
+              initial="hidden"
+              animate="show"
+              className="flex flex-col gap-2 mt-6 border-t border-slate-200/80 dark:border-slate-800/80 pt-5"
+            >
+              {LAYERS.map((layer, i) => (
+                <LayerRow key={layer.id} t={t} layer={layer} status={statuses[i]} />
+              ))}
+            </motion.div>
+          </form>
+        </motion.div>
+      </div>
+
+      {/* Monospace Footer Demo Hint */}
+      <div className="relative z-10 mt-6 text-center">
+        <p className="text-xs text-slate-400 dark:text-slate-500 font-mono tracking-wider">
+          demo · user / aegis-user · admin / aegis-admin
         </p>
-      </form>
+      </div>
     </div>
   )
 }

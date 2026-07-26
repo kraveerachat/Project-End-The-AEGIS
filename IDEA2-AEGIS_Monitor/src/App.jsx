@@ -28,8 +28,34 @@ export default function App() {
   const [cameras, setCameras] = useState(null)
 
   const [view, setView] = useState('live')
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('aegis_theme') || 'dark'
+  })
   const [lang, setLang] = useState('th')
+
+  useEffect(() => {
+    const dark = theme === 'dark'
+    document.documentElement.classList.toggle('dark', dark)
+    document.documentElement.classList.toggle('light', !dark)
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('aegis_theme', theme)
+
+    const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
+    link.type = 'image/png'
+    link.rel = 'shortcut icon'
+    link.href = import.meta.env.BASE_URL + (dark ? 'assets/logo/aegis-mark-dark-ink.png' : 'assets/logo/aegis-mark-light-ink.png')
+    if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
+  }, [theme])
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'aegis_theme' && e.newValue) {
+        setTheme(e.newValue)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
   const [heroCam, setHeroCam] = useState(null)
   const [arcCam, setArcCam] = useState('all')
   const [arcResult, setArcResult] = useState('all')
@@ -93,18 +119,6 @@ export default function App() {
   }, [session, view, menu.length])
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.classList.toggle('light', theme === 'light')
-    document.documentElement.setAttribute('data-theme', theme)
-
-    const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
-    link.type = 'image/png'
-    link.rel = 'shortcut icon'
-    link.href = import.meta.env.BASE_URL + (theme === 'light' ? 'assets/logo/aegis-mark-light-ink.png' : 'assets/logo/aegis-mark-dark-ink.png')
-    if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
-  }, [theme])
-
-  useEffect(() => {
     if (!session) return
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -138,15 +152,15 @@ export default function App() {
 
   if (!session) {
     return (
-      <>
-        <div className="orb a" /><div className="orb b" /><div className="orb c" />
-        <Login
-          theme={theme}
-          onAuthed={({ user, menu: m }) => {
-            setSession({ ...user, menu: m })
-          }}
-        />
-      </>
+      <Login
+        theme={theme}
+        setTheme={setTheme}
+        lang={lang}
+        setLang={setLang}
+        onAuthed={({ user, menu: m }) => {
+          setSession({ ...user, menu: m })
+        }}
+      />
     )
   }
 

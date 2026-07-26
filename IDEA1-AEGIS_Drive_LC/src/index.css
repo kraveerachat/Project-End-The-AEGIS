@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
 @import "@fontsource-variable/inter";
 @import "@fontsource/ibm-plex-sans-thai/400.css";
 @import "@fontsource/ibm-plex-sans-thai/500.css";
@@ -190,7 +191,7 @@ body {
   width: 60%;
   height: 60%;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.06) 0%, rgba(37, 99, 235, 0.03) 50%, transparent 100%);
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.055) 0%, rgba(56, 189, 248, 0.025) 50%, transparent 100%);
   filter: blur(80px);
   z-index: 0;
 }
@@ -298,6 +299,23 @@ h3 {
 }
 .fade-in {
   animation: fade-in var(--dur-base) var(--ease) both;
+}
+
+/* Utility dropdown (global search): quick lift + fade on open.
+   ไม่มี exit animation โดยเจตนา — การ animate ตอนปิดคือที่มาของ dropdown ค้าง
+   (unmount กลางทางทิ้ง state ไว้) ปิดต้องเป็นการ unmount ทันที */
+@keyframes search-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.search-pop {
+  animation: search-pop var(--dur-fast, 120ms) var(--ease) both;
 }
 
 @keyframes shake-x {
@@ -434,4 +452,204 @@ input::-webkit-inner-spin-button {
   .skeleton::after {
     animation: none !important;
   }
+}
+
+/* ── Split Vault Card & Cyber-Physical Blue-Purple Gate CSS ── */
+:root {
+  --gate-scrim: rgba(15, 23, 42, 0.07);
+  --gate-image: url("/assets/BG_AEGIS01.png");
+  --gate-halo-1: rgba(255, 255, 255, 0.8);
+  --gate-halo-2: rgba(255, 255, 255, 0.36);
+  --accent-bloom: rgba(125, 211, 252, 0.5);
+  --elev-accent: 0 4px 16px -2px rgba(37, 99, 235, 0.35), 0 2px 6px -1px rgba(2, 132, 199, 0.25);
+}
+
+:root[data-theme="dark"] {
+  --gate-scrim: rgba(0, 0, 0, 0.34);
+  --gate-image: url("/assets/BG_AEGIS02.png");
+  --gate-halo-1: rgba(6, 6, 9, 0.88);
+  --gate-halo-2: rgba(6, 6, 9, 0.44);
+  --accent-bloom: rgba(125, 211, 252, 0.4);
+  --elev-accent: 0 4px 20px -2px rgba(37, 99, 235, 0.45), 0 2px 8px -1px rgba(2, 132, 199, 0.35);
+}
+
+.gate-bg {
+  background-image: linear-gradient(var(--gate-scrim), var(--gate-scrim)), var(--gate-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: var(--canvas, #06070d);
+}
+
+.gate-halo {
+  background: radial-gradient(
+    ellipse 48rem 38rem at 50% 46%,
+    var(--gate-halo-1) 0%,
+    var(--gate-halo-2) 45%,
+    transparent 72%
+  );
+}
+
+.vault-surface {
+  background-color: transparent;
+  box-shadow: var(--elev-0, none);
+  transition:
+    background-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.vault-surface.is-solid {
+  background-color: var(--card, rgba(13, 16, 28, 0.9));
+  box-shadow: 0 10px 40px -15px rgba(124, 58, 237, 0.12), var(--elev-2, 0 20px 40px -4px rgba(0, 0, 0, 0.5));
+  border: 1px solid rgba(192, 132, 252, 0.3);
+  transition:
+    background-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    border-color var(--dur-slow, 400ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+:root[data-theme="dark"] .vault-surface.is-solid {
+  box-shadow: 0 0 40px -15px rgba(124, 58, 237, 0.3), var(--elev-2, 0 20px 40px -4px rgba(0, 0, 0, 0.5));
+  border: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0px,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.hatch-ink3 {
+  --hatch-color: color-mix(in srgb, var(--ink-3, #475569) 55%, transparent);
+}
+.hatch-fine {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0px,
+    var(--hatch-color, var(--line, rgba(255,255,255,0.06))) 0.5px,
+    transparent 0.5px,
+    transparent 4px
+  );
+  --hatch-color: color-mix(in srgb, var(--ink-3, #475569) 42%, transparent);
+}
+
+.sparkle-btn {
+  --sparkle-rise: 55px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--r-pill, 999px);
+  /* blue-700 → sky-800: หนึ่ง hue family เดียวกับ glow ทั้งหน้า (ไม่มีม่วง)
+     ทั้งสองปลายให้ contrast กับ label สีขาว 6.6:1 และ 7.6:1 — label เป็น 14px
+     semibold จึงนับเป็น normal text ต้องผ่าน 4.5:1 ไม่ใช่ 3:1 */
+  background: linear-gradient(135deg, #1d4ed8 0%, #075985 100%);
+  box-shadow: var(--elev-accent), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition:
+    background var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    transform var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity var(--dur-fast, 120ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.sparkle-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(178deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 62%);
+}
+.sparkle-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  transform-origin: 50% 100%;
+  background: radial-gradient(70% 34% at 50% 100%, var(--accent-bloom) 0%, transparent 100%);
+  transition:
+    opacity var(--dur-base, 240ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    transform var(--dur-base, 240ms) var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.sparkle-btn:hover:not(:disabled) {
+  /* hover = สว่างขึ้นหนึ่งขั้นในตระกูลเดิม (blue-600 → sky-700) ยังผ่าน 5.1:1 / 5.9:1
+     ตัวเดิม #3b82f6 (blue-500) ให้แค่ 3.67:1 = ตกเกณฑ์ตั้งแต่ก่อนแก้สีแล้ว */
+  background: linear-gradient(135deg, #2563eb 0%, #0369a1 100%);
+  transform: translateY(-1px);
+}
+.sparkle-btn:hover:not(:disabled)::after {
+  opacity: 0.9;
+  transform: scaleY(1.18);
+}
+.sparkle-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.sparkle-btn:disabled {
+  background: #334155;
+  box-shadow: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sparkle-btn__label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+}
+.sparkle-points {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sparkle-point {
+  position: absolute;
+  bottom: -10px;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background-color: #fff;
+  pointer-events: none;
+  animation-name: none;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes sparkle-rise {
+  0% { transform: translateY(0); }
+  85% { opacity: 0; }
+  100% { transform: translateY(calc(var(--sparkle-rise) * -1)); opacity: 0; }
+}
+.sparkle-btn--idle .sparkle-point,
+.sparkle-btn--hover:hover .sparkle-point,
+.sparkle-btn--hover:focus-visible .sparkle-point {
+  animation-name: sparkle-rise;
+}
+.sparkle-point:nth-child(1)  { left: 10%; opacity: 1;   animation-duration: 2.35s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(2)  { left: 30%; opacity: 0.7; animation-duration: 2.5s;  animation-delay: 0.5s; }
+.sparkle-point:nth-child(3)  { left: 25%; opacity: 0.8; animation-duration: 2.2s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(4)  { left: 44%; opacity: 0.6; animation-duration: 2.05s; }
+.sparkle-point:nth-child(5)  { left: 50%; opacity: 1;   animation-duration: 1.9s; }
+.sparkle-point:nth-child(6)  { left: 75%; opacity: 0.5; animation-duration: 1.5s;  animation-delay: 1.5s; }
+.sparkle-point:nth-child(7)  { left: 88%; opacity: 0.9; animation-duration: 2.2s;  animation-delay: 0.2s; }
+.sparkle-point:nth-child(8)  { left: 58%; opacity: 0.8; animation-duration: 2.25s; animation-delay: 0.2s; }
+.sparkle-point:nth-child(9)  { left: 98%; opacity: 0.6; animation-duration: 2.6s;  animation-delay: 0.1s; }
+.sparkle-point:nth-child(10) { left: 65%; opacity: 1;   animation-duration: 2.5s;  animation-delay: 0.2s; }
+.sparkle-btn:disabled .sparkle-point {
+  animation-name: none;
+}
+
+@keyframes shake-x {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+.shake-x {
+  animation: shake-x 250ms var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
 }

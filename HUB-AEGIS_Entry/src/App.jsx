@@ -31,7 +31,9 @@ import { EASE, SPRING } from './lib/motion.js'
 export default function App() {
   const [screen, setScreen] = useState('welcome') // 'welcome' | 'hub'
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('aegis_theme') || 'dark'
+  })
 
   const t = makeT(lang)
 
@@ -40,7 +42,11 @@ export default function App() {
   }, [lang])
 
   useEffect(() => {
+    const dark = theme === 'dark'
     document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle('dark', dark)
+    document.documentElement.classList.toggle('light', !dark)
+    localStorage.setItem('aegis_theme', theme)
 
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
     link.type = 'image/png'
@@ -48,6 +54,16 @@ export default function App() {
     link.href = theme === 'light' ? '/assets/logo/aegis-mark-light-ink.png' : '/assets/logo/aegis-mark-dark-ink.png'
     if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
   }, [theme])
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'aegis_theme' && e.newValue) {
+        setTheme(e.newValue)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   return (
     <MotionConfig reducedMotion="user">
