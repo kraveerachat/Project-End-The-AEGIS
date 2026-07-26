@@ -7,16 +7,28 @@ import { apiFetch } from '../lib/api.js'
 import { fmtRelative, fmtDateTime } from '../lib/format.js'
 import { LANGS } from '../lib/strings.js'
 
-const WORD_LIST = [
-  "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse", "access", "accident",
-  "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
-  "adapt", "add", "addict", "address", "adjust", "admit", "adult", "advance", "advice", "aerobic", "affair", "afford"
-]
-
-const generate12Words = () => {
-  const shuffled = [...WORD_LIST].sort(() => 0.5 - Math.random())
-  return shuffled.slice(0, 12)
-}
+// ⚠️ ถอด "คีย์กู้คืน 12 คำ" ออกทั้งฟีเจอร์ (2026-07-26) — ห้ามเอากลับมาในรูปนี้
+//
+// ของเดิมเป็น security theater ที่ "โกหกผู้ใช้ตรง ๆ": สุ่ม 12 คำจากลิสต์ 36 คำด้วย
+// Math.random() (ไม่ใช่ CSPRNG) ผ่าน .sort(() => 0.5 - Math.random()) ซึ่ง shuffle
+// ไม่สม่ำเสมอ แล้ว **ไม่เคยส่งไปไหนและไม่เคยเชื่อมกับ vaultCrypto.js เลย** —
+// ไฟล์นี้ไม่ได้ import มันด้วยซ้ำ ไม่มี endpoint ฝั่งเซิร์ฟเวอร์รองรับ
+// แต่ UI เขียนว่า "Anyone with these words can decrypt your Vault" และ
+// "only this recovery phrase can restore access" ทั้งสองประโยคเป็นเท็จ
+//
+// อันตรายจริงคือ **ผู้ใช้เชื่อว่ามีทางกู้แล้วเลิกกังวลเรื่องจำ passphrase** →
+// ลืม passphrase = ข้อมูลหายถาวรจริง ๆ โดยที่ระบบเคยสัญญาว่าจะกู้ได้
+//
+// สถาปัตยกรรมที่ตกลงกันไว้คือ **ไม่มีการกู้คืน passphrase และจะไม่มี** เพราะ
+// เซิร์ฟเวอร์ไม่มีชิ้นส่วนใดที่ใช้ derive KEK ได้เลย (KEK = Argon2id(passphrase, salt)
+// ในเบราว์เซอร์เท่านั้น) — จอ Vault พูดตรงตามนี้อยู่แล้วผ่าน `vaultWarning` และ
+// `vaultSetupAck` การ์ดใบนี้เป็นที่เดียวในแอปที่ขัดกับความจริงนั้น จึงถูกถอดออก
+// ดู [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] ที่ระบุว่า BIP-39 "ยังไม่ได้ build"
+//
+// ถ้าวันหนึ่งจะทำ mnemonic ของจริง: จุดต่อคือ vaultCrypto.js (derive KEK จาก
+// mnemonic entropy แทน passphrase ที่ผู้ใช้พิมพ์) ต้องใช้ wordlist BIP-39 ครบ 2048 คำ
+// + crypto.getRandomValues() + checksum และมันก็ยัง "ไม่ใช่การกู้คืนที่เซิร์ฟเวอร์ช่วยได้"
+// อยู่ดี — เป็นแค่การย้ายภาระจากการจำไปเป็นการเก็บกระดาษ
 
 function Row({ label, children, note }) {
   return (
@@ -67,12 +79,6 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
     const { ok } = await apiFetch(`/api/zones/${id}`, { method: 'DELETE' })
     if (ok) zonesApi.retry()
   }
-
-  // Vault Recovery Key Mnemonic states
-  const [recoveryStatus, setRecoveryStatus] = useState('none') // 'none' | 'generating' | 'active'
-  const [words, setWords] = useState([])
-  const [revealed, setRevealed] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
 
   // Administration ปรากฏ "เฉพาะ" เมื่อ role เป็น admin — filter ก่อน .map()
   // role อื่นต้องไม่พบร่องรอยของกลุ่มนี้ใน DOM เลย (Information Disclosure)
@@ -326,148 +332,6 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                       </tbody>
                     </table>
                   </div>
-                </div>
-              )}
-            </Card>
-
-            {/* SECTION 2 — Vault Recovery Key (Mnemonic) */}
-            <Card className="p-5">
-              <CardTitle sub={lang === 'th' ? 'การจัดการคีย์กู้คืนข้อมูลแบบ Zero-Knowledge' : 'Manage Private Vault Zero-Knowledge recovery phrase'}>
-                {lang === 'th' ? 'คีย์กู้คืนห้องนิรภัย (Mnemonic)' : 'Vault Recovery Key (Mnemonic)'}
-              </CardTitle>
-
-              {recoveryStatus === 'none' && (
-                <div className="flex flex-col gap-3">
-                  <p className="text-[13px] text-ink-2 leading-relaxed max-w-[56ch]">
-                    {lang === 'th'
-                      ? 'ห้องนิรภัยส่วนตัว (Private Vault) ของคุณถูกเข้ารหัสแบบ End-to-End หากคุณลืมรหัสผ่านของห้องนิรภัย จะมีเพียงคีย์กู้คืนข้อมูลนี้เท่านั้นที่สามารถใช้เพื่อกู้คืนสิทธิ์การเข้าถึงได้ ทาง AEGIS ไม่สามารถกู้คืนคีย์นี้ให้แก่คุณได้'
-                      : 'Your Private Vault is end-to-end encrypted. If you forget your Vault password, only this recovery phrase can restore access. AEGIS can never recover it for you.'}
-                  </p>
-                  <Btn
-                    variant="primary"
-                    className="w-fit"
-                    onClick={() => {
-                      setWords(generate12Words());
-                      setRecoveryStatus('generating');
-                      setRevealed(false);
-                      setConfirmed(false);
-                    }}
-                  >
-                    {lang === 'th' ? 'สร้างคีย์กู้คืนข้อมูล 12 คำ' : 'Generate 12-word recovery phrase'}
-                  </Btn>
-                </div>
-              )}
-
-              {recoveryStatus === 'generating' && (
-                <div className="flex flex-col gap-4 fade-in">
-                  <p className="text-[13px] text-ink-2 leading-relaxed">
-                    {lang === 'th'
-                      ? 'โปรดเก็บบันทึกคำทั้ง 12 คำนี้ในสถานที่ปลอดภัยและห้ามเปิดเผยแก่ผู้ใด'
-                      : 'Please store these 12 words in a safe place and do not share them with anyone.'}
-                  </p>
-                  
-                  <div className="grid grid-cols-4 gap-2.5 my-2 max-sm:grid-cols-2">
-                    {words.map((w, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-sunken rounded-lg font-mono text-[12.5px] border border-line">
-                        <span className="text-ink-3 text-[11px] select-none">{idx + 1}.</span>
-                        <span className={`text-ink font-semibold select-none transition-[filter] duration-200 ${revealed ? 'blur-none' : 'blur-[5px]'}`}>
-                          {w}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between py-1 border-b border-line">
-                    <span className="text-[13px] text-ink-2">
-                      {lang === 'th' ? 'แสดงคีย์กู้คืนข้อมูล' : 'Reveal recovery phrase'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setRevealed(!revealed)}
-                      className="text-accent-ink hover:underline text-[13.5px] font-semibold cursor-pointer"
-                    >
-                      {revealed ? (lang === 'th' ? 'ซ่อน' : 'Hide') : (lang === 'th' ? 'แสดง' : 'Reveal')}
-                    </button>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/30 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-[12.5px] leading-relaxed flex flex-col gap-1">
-                    <span className="font-bold">⚠️ {lang === 'th' ? 'คำเตือนสำคัญ' : 'Zero-Knowledge Warning'}</span>
-                    <span>
-                      {lang === 'th'
-                        ? 'คีย์กู้คืนข้อมูล 12 คำนี้จะแสดงเพียงครั้งเดียวเท่านั้นและจะไม่มีการส่งไปยังเซิร์ฟเวอร์ โปรดจดบันทึกและเก็บไว้ในสถานที่ที่ปลอดภัยแบบออฟไลน์ ผู้ใดก็ตามที่มีคีย์นี้จะสามารถถอดรหัสและเข้าถึงข้อมูลในห้องนิรภัยของคุณได้'
-                        : 'These 12 words are shown only once and are never sent to the server. Write them down and store them offline. Anyone with these words can decrypt your Vault.'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col gap-3 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(words.join(" "));
-                      }}
-                      className="text-left text-[13px] text-accent-ink hover:underline font-bold cursor-pointer w-fit"
-                    >
-                      📋 {lang === 'th' ? 'คัดลอกคำทั้งหมดไปยังคลิปบอร์ด' : 'Copy all words to clipboard'}
-                    </button>
-                    
-                    <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={confirmed}
-                        onChange={(e) => setConfirmed(e.target.checked)}
-                        className="mt-1 size-4 rounded accent-accent border-line focus:ring-accent"
-                      />
-                      <span className="text-[13px] text-ink-2 leading-relaxed">
-                        {lang === 'th'
-                          ? 'ฉันได้จดบันทึกและเก็บคีย์กู้คืนข้อมูลไว้อย่างปลอดภัยเรียบร้อยแล้ว'
-                          : 'I have safely stored my recovery phrase'}
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="flex gap-2 mt-4">
-                    <Btn
-                      variant="primary"
-                      disabled={!confirmed}
-                      onClick={() => setRecoveryStatus('active')}
-                    >
-                      {lang === 'th' ? 'เสร็จสิ้น' : 'Done'}
-                    </Btn>
-                    <Btn
-                      variant="outline"
-                      onClick={() => setRecoveryStatus('none')}
-                    >
-                      {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
-                    </Btn>
-                  </div>
-                </div>
-              )}
-
-              {recoveryStatus === 'active' && (
-                <div className="flex flex-col gap-4 fade-in">
-                  <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 rounded-xl text-[13px] font-semibold">
-                    <span className="size-2 rounded-full bg-emerald-500" />
-                    {lang === 'th' ? 'คีย์กู้คืนข้อมูลพร้อมใช้งาน · บันทึกแบบออฟไลน์โดยผู้ใช้เรียบร้อยแล้ว' : 'Recovery phrase active · stored offline by user'}
-                  </div>
-                  
-                  <p className="text-[13px] text-ink-3 leading-relaxed">
-                    {lang === 'th'
-                      ? 'เนื่องจากความปลอดภัยระดับสูงสุดของระบบ คีย์กู้คืนข้อมูลนี้จะไม่สามารถแสดงซ้ำได้อีก หากคุณต้องการสร้างคีย์ใหม่ คีย์ชุดเก่าจะถูกยกเลิกทันที'
-                      : 'For maximum security, this recovery phrase cannot be displayed again. If you generate a new phrase, the old phrase will be invalidated.'}
-                  </p>
-                  
-                  <Btn
-                    variant="outline"
-                    className="w-fit"
-                    onClick={() => {
-                      setWords(generate12Words());
-                      setRecoveryStatus('generating');
-                      setRevealed(false);
-                      setConfirmed(false);
-                    }}
-                  >
-                    {lang === 'th' ? 'สร้างคีย์กู้คืนใหม่' : 'Regenerate'}
-                  </Btn>
                 </div>
               )}
             </Card>
