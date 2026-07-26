@@ -1,19 +1,27 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
-// base '/monitor/' — HUB's NGINX reverse-proxies /monitor/* to this app UNCHANGED
-// (no path stripping — see HUB-AEGIS_Entry/nginx.conf). Every asset URL and
-// apiFetch() call is built from import.meta.env.BASE_URL (src/lib/api.js) so
-// the same bundle works standalone at '/' (dev) and mounted at '/monitor/' (prod).
+// base '/monitor/' — nginx STRIPS the /monitor prefix before proxying to this app.
+// Every asset URL and apiFetch() call is built from import.meta.env.BASE_URL
+// (src/lib/api.js) so the same bundle works standalone at '/' (dev) and mounted
+// at '/monitor/' (prod) — the prefix lives in the bundle, never in Express.
+//
+// ⚠️ แก้คอมเมนต์ 2026-07-26: เดิมบรรทัดนี้เขียนว่า nginx forward "UNCHANGED (no path
+//    stripping)" — **ข้อความนั้นคือตัวบั๊กเอง** `server/index.js` ใช้
+//    `express.static(DIST)` + `app.use('/api', …)` ที่ ROOT ไม่เคย mount ที่ /monitor
+//    ดังนั้น "ไม่ตัด prefix" = asset ทุกตัวตกไป SPA fallback ได้ index.html กลับมา
+//    เป็น JS module → จอขาว และ POST /monitor/api/login → 404 (วัดจริงแล้วทั้งคู่)
+//    ตอนนี้ทั้ง `gateway/nginx.conf` และ `HUB-AEGIS_Entry/nginx.conf` ตัด prefix ด้วย
+//    `rewrite ^/monitor/?(.*)$ /$1 break;` แล้วทั้งคู่
 //
 // dev: vite เสิร์ฟ frontend ที่ :5176/monitor/ ส่วน Express API ของ Monitor อยู่ที่ :8002
 // (mounted ที่ root, ไม่รู้จัก /monitor) — proxy จึงต้อง rewrite ตัด /monitor ออกก่อนส่งต่อ
+// เหมือนที่ nginx ทำใน production ทุกประการ
 // → session cookie (HttpOnly, SameSite=Strict) ไป-กลับได้ตามปกติ same-origin
-// (production ไม่ใช้ proxy — Express เสิร์ฟทั้ง dist และ /api จาก origin เดียว
-//  ผ่าน nginx ที่ forward /monitor/* เข้ามาแบบไม่ตัด prefix)
 export default defineConfig({
   base: '/monitor/',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     port: 5176,
     proxy: {
