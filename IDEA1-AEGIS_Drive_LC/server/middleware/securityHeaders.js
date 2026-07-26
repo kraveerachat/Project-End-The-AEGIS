@@ -6,12 +6,19 @@
 // - Vite build แยก JS/CSS เป็นไฟล์ภายนอกทั้งหมด → script-src/style-src 'self' เพียงพอ
 // - React ตั้ง style ผ่าน CSSOM (el.style.x) ซึ่ง CSP ไม่บล็อก — แต่แท็ก <style> ที่เขียน
 //   ตรง ๆ ใน JSX จะถูกบล็อก จึงต้องย้าย keyframes ทั้งหมดไปไว้ใน index.css (ทำแล้ว)
+//
+// ⚠️ 'wasm-unsafe-eval' ถูกเพิ่มเพื่อ Argon2id (hash-wasm) ของ Private Vault เท่านั้น
+//    ชื่อมันน่ากลัวกว่าที่มันทำจริงมาก — เป็น keyword ที่ "แคบกว่า" 'unsafe-eval' อย่างมี
+//    นัยสำคัญ: อนุญาตแค่การคอมไพล์/สร้าง WebAssembly module เท่านั้น
+//    ไม่เปิด eval(), ไม่เปิด new Function(), ไม่เปิด setTimeout('string')
+//    ทางเลือกที่ไม่ต้องใช้ keyword นี้เลยมีอย่างเดียวคือกลับไปใช้ PBKDF2 (WebCrypto
+//    built-in) ซึ่งแลกด้วยการเสีย memory-hardness ที่เป็นเหตุผลหลักของการเลือก Argon2id
 export function securityHeaders(req, res, next) {
   res.setHeader(
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'",
       "style-src 'self'",
       "img-src 'self' data:",   // data: สำหรับ favicon/asset ขนาดเล็กที่ bundler ฝังมา
       "font-src 'self'",

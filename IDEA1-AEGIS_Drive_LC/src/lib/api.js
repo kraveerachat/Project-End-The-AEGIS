@@ -37,6 +37,46 @@ let onUnauthorized = null
 export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 
 /**
+ * ดึง response แบบ "ไบต์ดิบ" (ไม่ parse JSON) — ใช้กับ ciphertext ของ Private Vault
+ * ที่ต้องเอา bytes ไปถอดรหัสในเบราว์เซอร์ต่อ ไม่ใช่ให้ browser โหลดเป็นไฟล์ตรง ๆ
+ * (ถ้าปล่อยให้ browser ดาวน์โหลดเอง ผู้ใช้จะได้ .aegisenc ที่เปิดไม่ได้)
+ *
+ * ⚠️ timeout ยาวกว่าปกติเพราะไฟล์อาจใหญ่ — แต่ยังมีเพดาน ไม่ปล่อยค้างถาวร
+ * @returns {Promise<{ ok: boolean, status: number, bytes: Uint8Array|null,
+ *                     errorKind: null|'timeout'|'network'|'unauthorized'|'forbidden'|'server' }>}
+ */
+export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort('timeout'), timeoutMs)
+  if (signal) {
+    if (signal.aborted) ctrl.abort(signal.reason)
+    else signal.addEventListener('abort', () => ctrl.abort(signal.reason), { once: true })
+  }
+
+  let res
+  try {
+    res = await fetch(withBase(path), { credentials: 'include', signal: ctrl.signal })
+  } catch {
+    clearTimeout(timer)
+    const kind = ctrl.signal.reason === 'timeout' ? 'timeout' : 'network'
+    return { ok: false, status: 0, bytes: null, errorKind: kind }
+  }
+  clearTimeout(timer)
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      onUnauthorized?.()
+      return { ok: false, status: 401, bytes: null, errorKind: 'unauthorized' }
+    }
+    if (res.status === 403) return { ok: false, status: 403, bytes: null, errorKind: 'forbidden' }
+    return { ok: false, status: res.status, bytes: null, errorKind: 'server' }
+  }
+
+  const buf = await res.arrayBuffer()
+  return { ok: true, status: res.status, bytes: new Uint8Array(buf), errorKind: null }
+}
+
+/**
  * @param {string} path เช่น '/api/files'
  * @param {{ method?: string, body?: object, signal?: AbortSignal,
  *           suppressAuthHandler?: boolean }} opts

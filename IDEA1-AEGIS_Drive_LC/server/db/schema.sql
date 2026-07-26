@@ -75,21 +75,39 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log (at DESC);
 
 -- ── Zero-Knowledge Vault — server เก็บ "ciphertext เท่านั้น" ─────────────────
--- เข้ารหัสฝั่ง client เท่านั้น (WebCrypto: PBKDF2-600k → AES-256-GCM)
+-- เข้ารหัสฝั่ง client เท่านั้น (WebCrypto + Argon2id → AES-256-GCM, envelope 2 ชั้น)
 -- salt/iv ไม่ใช่ความลับ; ไม่มีคอลัมน์ใดเก็บกุญแจ/plaintext — โดยโครงสร้าง ไม่ใช่โดยสัญญา
+--
+-- ⚠️ ตารางเหล่านี้ถูกออกแบบให้ "ไม่มีที่ว่างให้เก็บ plaintext ได้แม้จะอยากเก็บ":
+--    ไม่มีคอลัมน์ name, ไม่มีคอลัมน์ mime, ไม่มีคอลัมน์ passphrase/kek/dek
+--    ชื่อไฟล์จริงอยู่ใน meta_b64 ซึ่งถูกเข้ารหัสด้วย DEK ที่เซิร์ฟเวอร์แกะไม่ได้
 CREATE TABLE IF NOT EXISTS vault_meta (
-  user_id       BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  salt_b64      TEXT NOT NULL,          -- per-user PBKDF2 salt
-  iterations    INTEGER NOT NULL DEFAULT 600000,
-  verifier_iv   TEXT NOT NULL,          -- blob เล็กที่ client ใช้พิสูจน์ passphrase
-  verifier_data TEXT NOT NULL
+  user_id         BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  salt_b64        TEXT NOT NULL,        -- per-vault Argon2id salt (เปิดเผยได้)
+  kdf             TEXT NOT NULL DEFAULT 'argon2id',
+  memory_kib      INTEGER NOT NULL DEFAULT 65536,  -- พารามิเตอร์ถูกบันทึกไว้เพื่อให้
+  iterations      INTEGER NOT NULL DEFAULT 3,      -- ปรับขึ้นในอนาคตได้โดย vault เก่า
+  parallelism     INTEGER NOT NULL DEFAULT 1,      -- ยังเปิดได้ด้วยค่าเดิมของตัวเอง
+  verifier_iv     TEXT NOT NULL,        -- blob เล็กที่ client ใช้พิสูจน์ passphrase
+  verifier_data   TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS vault_blobs (
-  id         BIGSERIAL PRIMARY KEY,
-  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  iv_b64     TEXT NOT NULL,             -- IV สุ่มใหม่ต่อ blob (GCM: ห้ามซ้ำ)
-  data_b64   TEXT NOT NULL,             -- ciphertext — server อ่านไม่ออกโดยคณิตศาสตร์
-  size_bytes BIGINT NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Storage Layer: ciphertext อยู่เป็นไฟล์ .aegisenc บนดิสก์ ไม่ใช่ใน Postgres
+  -- (base64 ใน TEXT กิน RAM/พื้นที่ +33% และดึงทั้งไฟล์เข้า RAM ทุกครั้งที่ query)
+  storage_key     TEXT NOT NULL UNIQUE, -- เช่น 'vault/2f1c….aegisenc'
+  iv_b64          TEXT NOT NULL,        -- IV ของเนื้อไฟล์ (GCM: ห้ามซ้ำต่อกุญแจ)
+  -- envelope: DEK ต่อไฟล์ถูกห่อด้วย KEK ที่ derive จาก passphrase ฝั่ง client
+  wrapped_dek_b64 TEXT NOT NULL,        -- DEK ที่ถูกห่อ — ไร้ KEK ก็แกะไม่ได้
+  wrap_iv_b64     TEXT NOT NULL,
+  -- metadata ของไฟล์ (ชื่อ/ชนิด/ขนาดจริง) เข้ารหัสด้วย DEK — server ไม่รู้แม้แต่ชื่อไฟล์
+  meta_iv_b64     TEXT NOT NULL,
+  meta_b64        TEXT NOT NULL,
+  size_bytes      BIGINT NOT NULL DEFAULT 0, -- ขนาด "ciphertext" บนดิสก์ (server วัดเอง)
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS vault_blobs_user_idx ON vault_blobs (user_id, created_at DESC);
