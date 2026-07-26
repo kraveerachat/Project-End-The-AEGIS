@@ -691,3 +691,29 @@ updated: 2026-07-24
   - ⚠️ **`IDEA2/vite.config.js` ตั้ง `changeOrigin: true`** ซึ่ง IDEA1 แก้เป็น `false` ไปแล้วเพราะทำให้ล็อกอินใน dev ตอบ 403 (Host ถูกเขียนทับเป็น `127.0.0.1:8002` แต่ Origin ยังเป็น `localhost:5176` → ชน CSRF ชั้น Origin) — บั๊กตระกูลเดียวกัน ยังไม่แก้ในรอบนี้
   - ⚠️ **`/monitor/*` มี security header ซ้ำ 2 ชุด** (`csp_header_count=2`) — ต่างจาก `/drive` ตรงที่ CSP ของ Express กับ nginx เป็นสตริงเดียวกันเป๊ะ จึงยังไม่ก่อความเสียหายเชิงฟังก์ชัน
   - ⚠️ ฟอนต์ `data:` ถูก CSP บล็อก (ของเดิม) · ธีมเริ่มต้นยังเป็น dark ขัดกับ "Precision Light"
+
+## [2026-07-26] vibe-coding | IDEA1 — ปิดช่องโหว่ ownership ของ DELETE /api/files/:id + ถอด "คีย์กู้คืน 12 คำ" ปลอม (สองคอมมิตแยกกัน)
+- **User Prompt Goal**: แก้สองเรื่องด่วนจากผลออดิต ก่อนงานอื่น **เป็นสองคอมมิตแยก** — (1) `DELETE /api/files/:id` ไม่มีด่าน ownership: ใครที่ล็อกอินก็ลบไฟล์คนอื่นได้ → เพิ่มการตรวจเจ้าของ คืน `403` เมื่อไม่ตรง + **เขียนเทสต์ที่พิสูจน์ว่า user A ลบไฟล์ของ user B ไม่ได้** (จอ Files ไม่มีเทสต์เลย) (2) ถอดฟีเจอร์ "คีย์กู้คืน 12 คำ" ใน `Settings.jsx` ออกทั้งหมด (generation/display/confirmation/ข้อความเท็จ) **ห้ามพยายามทำให้เป็นของจริงในรอบนี้** ถ้ามีดีไซน์ที่ตกลงไว้แล้วให้ถามก่อน
+- **Modified Code Paths**:
+  - `c:\Users\User\AEGIS_System\IDEA1-AEGIS_Drive_LC\server\routes\api.js` (ด่าน ownership + audit `DENIED`)
+  - `c:\Users\User\AEGIS_System\IDEA1-AEGIS_Drive_LC\server\db\store.js` (`mapFileRow` เปิดเผย `ownerId` จาก `files.uploaded_by` + แถว dev fallback มี `ownerId` ครบ)
+  - `c:\Users\User\AEGIS_System\IDEA1-AEGIS_Drive_LC\tests\filesOwnership.test.js` (**[NEW]** 4 เคส)
+  - `c:\Users\User\AEGIS_System\IDEA1-AEGIS_Drive_LC\src\screens\Settings.jsx` (ถอดการ์ด mnemonic ทั้งใบ: -158/+22 บรรทัด)
+- **Obsidian Updates**: `[[02 - 💾 IDEA1 AEGIS Drive LC]]`, `[[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]`, `[[log]]`
+- **คอมมิตที่ 1 — ownership (`00459d4`)**:
+  - **บั๊ก**: `requireAuth` บอกได้แค่ "เป็นใครคนหนึ่งที่ล็อกอินแล้ว" ไม่ได้ตรวจว่าไฟล์เป็นของใคร → **ผู้ใช้ที่ล็อกอินคนไหนก็ลบไฟล์ของคนอื่นได้ ทั้งแถว metadata และ bytes บนดิสก์** (ไม่มี trash ไม่มีทางกู้) และจอ Files คือฟีเจอร์ที่ "จริง" ที่สุดในแอป จึงเป็นที่ที่แย่ที่สุดที่จะปล่อยช่องนี้ไว้
+  - เทียบด้วย `ownerId` (id บัญชี) เท่านั้น **ห้ามเทียบ `uploader` (display name)** เพราะชื่อซ้ำได้และเปลี่ยนได้
+  - **ไม่มีข้อยกเว้นให้ Admin โดยเจตนา** — `rbac/permissions.js` ระบุว่าสอง role จัดการไฟล์ได้ "เท่ากัน" Admin ได้เพิ่มแค่จอ governance เทสต์ยืนยันทั้งสองทิศทาง เพื่อบังคับว่าถ้าวันหนึ่งจะมี admin override ต้องเพิ่มอย่างตั้งใจ ไม่ใช่ทำให้ด่านนี้อ่อนลงเงียบ ๆ
+  - ปฏิเสธแล้วลง audit `FILE_DELETE / DENIED` — ความพยายามลบข้ามเจ้าของต้องมองเห็นได้ในจอ Audit
+  - ⚠️ **ช่องว่างที่รู้อยู่ ไม่ได้แก้ในคอมมิตนี้**: `ownerId` เป็น `null` ได้ (`ON DELETE SET NULL`) ไฟล์ที่เจ้าของถูกลบบัญชีแล้วจึงลบไม่ได้เลย — เป็นฝั่ง fail-secure แต่ยังไม่มีเส้นทางเก็บกวาดไฟล์กำพร้า
+  - **✅ วิธีตรวจ (พิสูจน์ ไม่ใช่ตรวจสายตา)**: `tests/filesOwnership.test.js` ยิงผ่าน Express app ตัวจริง (ไม่ mock) — user B ได้ `403` **และยืนยันว่าแถว metadata + bytes บนดิสก์ยังอยู่จริงหลังถูกปฏิเสธ** (403 ที่ลบของจริงไปแล้วก็ไร้ความหมาย) · เจ้าของยังลบได้ · ไฟล์ไม่มีอยู่ยังเป็น `404` ไม่ใช่ `403` · audit มีแถว DENIED
+  - **พิสูจน์ว่าเทสต์จับบั๊กได้จริง**: ปิดด่านชั่วคราว (`if (false)`) → **ล้ม 3 ใน 4 เคส** ด้วยข้อความ `ต้องได้ 403 ไม่ใช่ 200 — ได้ body: {"ok":true}` แล้ว restore กลับแบบ byte-for-byte (sha256 ตรงกัน)
+  - **ผ่านทั้งสองโหมด DB**: in-memory **33 ผ่าน / 0 ล้ม** (เดิม 29) · **Postgres 15 จริง 4/4** ตรวจ `audit_log` และตาราง `files` ตรงในฐานข้อมูล (เห็น `admin|FILE_DELETE|DENIED`, `user|FILE_DELETE|OK` ครบตามลำดับ, `files` เหลือ 0 แถวหลังเก็บกวาด)
+- **คอมมิตที่ 2 — ถอด mnemonic ปลอม (`5991bb3`)**:
+  - UI เขียนว่า **"Anyone with these words can decrypt your Vault"** และ **"only this recovery phrase can restore access"** — **เท็จทั้งสองประโยค**
+  - ของจริง: สุ่มจากลิสต์ **36 คำ** ด้วย `Math.random()` (ไม่ใช่ CSPRNG) ผ่าน `.sort(() => 0.5 - Math.random())` ที่ shuffle ไม่สม่ำเสมอ · `Settings.jsx` **ไม่ได้ import `vaultCrypto.js` เลย** · ไม่มี API call · ไม่มี endpoint ฝั่งเซิร์ฟเวอร์ · KEK จริงคือ `Argon2id(passphrase, salt)` ในเบราว์เซอร์เท่านั้น **ไม่ผูกกับ 12 คำนั้นแม้แต่บิตเดียว**
+  - **อันตรายคือคำสัญญา ไม่ใช่ dead code**: ผู้ใช้ที่เชื่อว่ามีทางกู้จะเลิกกังวลเรื่องเก็บ passphrase → ลืมแล้วข้อมูลหายถาวรจริง ขัดกับสถาปัตยกรรมที่ตกลงไว้ว่า "ไม่มีการกู้คืนและจะไม่มี" ซึ่งจอ Vault พูดถูกอยู่แล้ว (`vaultWarning`, `vaultSetupAck`) — **การ์ดใบนี้เป็นที่เดียวในแอปที่ขัดกับความจริงนั้น จึงถอด ไม่ใช่แก้ถ้อยคำ**
+  - **ไม่ต้องถามก่อนสร้างของจริง** เพราะ `[[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]` บันทึกไว้แล้วว่า BIP-39 "ยังไม่เคยถูก build" เป็นงานอนาคต และระบุเองว่า mnemonic "ไม่ใช่การกู้คืนที่เซิร์ฟเวอร์ช่วยได้" อยู่ดี ⇒ ไม่มีการตัดสินใจใดถูกเลื่อน
+  - **✅ วิธีตรวจ**: `vite build` ผ่าน (JSX สมดุล) · ชุดทดสอบยัง **33 ผ่าน / 0 ล้ม** · ไม่มี import กำพร้า · **สแกน bundle ที่ build ออกมาแล้วไม่พบสตริงเหล่านี้เลย** (`"recovery phrase"`, `"Anyone with these words"`, `"Mnemonic"`, wordlist = **0 hit**) — ไม่ใช่แค่ลบจาก source
+- **⚠️ หมายเหตุสภาพ repo (สำคัญต่อการอ่าน history)**: `api.js` และ `store.js` ที่ HEAD **ยังเป็นเวอร์ชัน vault ปลอมเดิม** (มี `store.vaultMeta()` + `saltB64` hardcoded) งาน vault จริงทั้งชุดยังไม่ถูกคอมมิต — คอมมิตที่ 1 จึงพา refactor นั้นติดไปด้วยโดยเลี่ยงไม่ได้ (context ของ hunk ที่แก้ไม่มีอยู่ใน HEAD จึง stage แยกไม่ได้) ส่วนคอมมิตที่ 2 สะอาด แตะ `Settings.jsx` ไฟล์เดียว
+- **⚠️ ยังค้าง (จากผลออดิตรอบก่อน ไม่ได้แตะรอบนี้)**: `confirmDelete()` ใน `Files.jsx` **ไม่ตรวจผลลัพธ์ของ `apiFetch` เลย** → ตอนนี้ผู้ใช้ที่โดน 403 จะเห็น "เงียบ ๆ ไม่มีอะไรเกิดขึ้น" ควรแสดง error · Secure share links ยังไม่มี endpoint ไปแลกลิงก์ · Snapshots/Storage/Settings(sessions,keys,zones) ยัง mock · `store.js:5` ยังอ้างว่า users อ่าน-เขียนตารางจริงทั้งที่ `listUsers()` คืน `demoUsers`
