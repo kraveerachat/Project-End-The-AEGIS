@@ -38,12 +38,20 @@ function typeExtFromName(name) {
   return { ext, type: ext ? (EXT_TYPE[ext] ?? 'File') : 'Folder' }
 }
 
-/** แถวจากตาราง files (+ JOIN users) → รูปทรงที่ Files.jsx คาดหวัง */
+/** แถวจากตาราง files (+ JOIN users) → รูปทรงที่ Files.jsx คาดหวัง
+ *
+ * ⚠️ `ownerId` เป็น "ตัวตนเชิงสิทธิ์" ของไฟล์ ไม่ใช่แค่ป้ายชื่อ — ใช้โดยด่าน
+ *    ownership ของ DELETE /api/files/:id (ดู routes/api.js) ห้ามเอา `uploader`
+ *    (display name) ไปเทียบสิทธิ์แทน: ชื่อซ้ำกันได้ และเปลี่ยนได้ทีหลัง
+ *    เป็น string เสมอเพื่อให้เทียบกับ req.user.id ได้แบบเดียวกันทั้งสองโหมด DB
+ *    NULL ได้จริง (`uploaded_by … ON DELETE SET NULL` — เจ้าของถูกลบบัญชีไปแล้ว)
+ */
 function mapFileRow(r) {
   const { ext, type } = typeExtFromName(r.name)
   return {
     id: String(r.id), name: r.name, type, ext, size: Number(r.size_bytes),
     modified: new Date(r.modified_at).getTime(), uploader: r.uploader_name ?? 'system',
+    ownerId: r.uploaded_by == null ? null : String(r.uploaded_by),
     vault: r.vault, verified: r.verified, sha256: r.sha256, path: r.path,
   }
 }
@@ -121,6 +129,15 @@ const files = [
     sha256: '4e0d92a67c3b85f1e4d28a05c9b7f36e1d58a24c7b90f6e3d15c8a2b4f7e091d', path: '/datalake/system/logs/backup-verify_2026-07-11.log' },
 ]
 
+// ⚠️ dev fallback เท่านั้น — ผูกแถวเดโม่เข้ากับ id ของ DEV_USERS ใน connection.js
+//    ('Veerachat J.' = 1 admin, 'Kanya Srisuwan' = 2 user) เพื่อให้ด่าน ownership
+//    ของ DELETE /api/files/:id ทำงาน "เหมือนกันทั้งสองโหมด DB" ไม่ใช่ผ่านเฉพาะ Postgres
+//    ชื่ออื่น ('Somchai P.', 'Nattaporn W.', 'system') ไม่มีบัญชีจริงในโหมดนี้ → null
+//    = ไม่มีเจ้าของที่ยืนยันได้ จึงลบไม่ได้ ซึ่งตรงกับกรณี `ON DELETE SET NULL` ของ
+//    Postgres เป๊ะ ๆ (เจ้าของถูกลบบัญชี) — เป็นช่องว่างที่รู้อยู่ ไม่ใช่ความบังเอิญ
+const DEV_OWNER_BY_NAME = { 'Veerachat J.': '1', 'Kanya Srisuwan': '2' }
+for (const f of files) f.ownerId = DEV_OWNER_BY_NAME[f.uploader] ?? null
+
 export async function listFiles() {
   if (usingPostgres) return pgListFiles()
   return files.filter((f) => !f.vault)
@@ -144,8 +161,8 @@ export async function createFolder(name, user) {
   const safe = String(name).slice(0, 120)
   const row = {
     id: nextId('f'), name: safe, type: 'Folder', ext: '', size: 0,
-    modified: Date.now(), uploader: user.displayName, vault: false, verified: true,
-    sha256: null, path: `/datalake/${safe}`,
+    modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
+    vault: false, verified: true, sha256: null, path: `/datalake/${safe}`,
   }
   files.unshift(row)
   return row
@@ -158,8 +175,8 @@ export async function recordUpload({ name, storageKey, size, sha256, user }) {
   const row = {
     id: nextId('f'), name: String(name).slice(0, 200), type: 'File',
     ext: String(name).split('.').pop() ?? '', size: Number(size) || 0,
-    modified: Date.now(), uploader: user.displayName, vault: false, verified: true,
-    sha256: sha256 ?? null, path: storageKey,
+    modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
+    vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
   }
   files.unshift(row)
   return row
@@ -402,41 +419,210 @@ export function listSessions(username) {
 }
 
 // ── Zero-Knowledge Vault — server เก็บ "ciphertext เท่านั้น" ──────────────
-// เข้ารหัสฝั่ง client เท่านั้น — server เก็บได้แค่ ciphertext ที่อ่านไม่ออก แม้แต่ Admin ก็เปิดไม่ได้
-// seed ด้านล่างถูกสร้าง "ออฟไลน์" ด้วย passphrase เดโม่ (aegis-vault-demo) ผ่าน
-// PBKDF2-600k + AES-256-GCM — เซิร์ฟเวอร์ไม่เคยเห็น passphrase/plaintext
-// (สคริปต์สร้าง seed ไม่อยู่ใน repo ของเซิร์ฟเวอร์โดยเจตนา)
-const vault = {
-  saltB64: 'e3IhOTXjiVnXA3P//I88kQ==',
-  iterations: 600_000,
-  // verifier: blob เล็ก ๆ ที่ client ใช้พิสูจน์ว่า passphrase ถูก (GCM auth ล้มเหลว = ผิด)
-  verifier: {
-    ivB64: 'n9Fmc5irBNEx6RpL',
-    dataB64: 'pIm+SSrUFslXsPZjkhoIoHgTxTyPnUgjWzekgz8tsH2dP9SSElRL2u6jwgbkCM8=',
+//
+// เข้ารหัสฝั่ง client เท่านั้น (Argon2id → KEK, envelope AES-256-GCM ต่อไฟล์)
+// server เก็บได้แค่ ciphertext ที่อ่านไม่ออก — แม้แต่ Admin ก็เปิดไม่ได้
+//
+// ⚠️ ฟังก์ชันทุกตัวในหมวดนี้ผูกกับ userId จาก session เสมอ — vault เป็นของ "รายคน"
+//    ไม่มี endpoint ใดยอมให้ระบุ userId มาจาก client (ดู routes/api.js)
+// ⚠️ ห้ามฟังก์ชันใดในหมวดนี้รับ passphrase/กุญแจเป็นพารามิเตอร์ หรือคืน plaintext
+//    ใด ๆ — ถ้าวันหนึ่งมีคนเพิ่มเข้ามา นั่นคือ bug ระดับสถาปัตยกรรม ไม่ใช่ feature
+
+const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/
+const isB64 = (s, maxLen = 4096) =>
+  typeof s === 'string' && s.length > 0 && s.length <= maxLen && B64_RE.test(s)
+
+/** ตรวจ envelope ที่ client ส่งมา — รูปแบบเท่านั้น เซิร์ฟเวอร์ไม่ (และไม่อาจ) ตรวจเนื้อใน */
+export function validVaultEnvelope(e) {
+  return (
+    isB64(e?.ivB64, 32) && isB64(e?.wrapIvB64, 32) && isB64(e?.metaIvB64, 32) &&
+    isB64(e?.wrappedDekB64, 128) && isB64(e?.metaB64, 8192)
+  )
+}
+
+// ── dev fallback (ไม่มี DATABASE_URL): เก็บในหน่วยความจำ รูปร่างเหมือนแถวจริงทุกประการ
+const memVaultMeta = new Map()  // userId → { saltB64, params, verifier, createdAt }
+const memVaultBlobs = []        // [{ id, userId, storageKey, ...envelope, size, createdAt }]
+
+const mapVaultMetaRow = (r) => ({
+  saltB64: r.salt_b64,
+  params: {
+    kdf: r.kdf,
+    memorySizeKiB: r.memory_kib,
+    iterations: r.iterations,
+    parallelism: r.parallelism,
   },
-  blobs: [
-    { id: 'vb1', ivB64: 'emPBdBz++ixZtOQN', dataB64: '8+T9tKcVmxrYU49LLeZUODBGwcsacpWQNvHYyMUW+DTHiS2z1F5ZKLTkB6UBHd5XuTsvnwnMT8atny+QNYFjvhLCkj+iVa2/2w==', size: 812454, createdAt: BOOT - 8 * HOUR },
-    { id: 'vb2', ivB64: 'uZNbUEDoQcQHLPn3', dataB64: 'Naysutw0pKyCp3lkuv9Y0nv5LQGcIaa1AwNXTg+jWZ7pVhak/SfWAxQ2Bks6ZDrVX7Uos8VYD+z8OLzpbvMJDKAAa5OkDQ==', size: 1204337, createdAt: BOOT - 2 * DAY },
-    { id: 'vb3', ivB64: 'gmgJfyG9Ey4Rtd5/', dataB64: 'fFgxqFz7wqf9+OTfp2Z/xoRGRQVRWmn5CnYihCFT0heBZxDVvAjhMOpT5ERf3lDCbOYk0AaaA5pmETYF7V5F4HfqYdqVly9197lhrB0=', size: 6231882, createdAt: BOOT - 4 * DAY },
-  ],
+  verifier: { ivB64: r.verifier_iv, dataB64: r.verifier_data },
+  createdAt: new Date(r.created_at).getTime(),
+})
+
+const mapVaultBlobRow = (r) => ({
+  id: String(r.id),
+  storageKey: r.storage_key,
+  ivB64: r.iv_b64,
+  wrappedDekB64: r.wrapped_dek_b64,
+  wrapIvB64: r.wrap_iv_b64,
+  metaIvB64: r.meta_iv_b64,
+  metaB64: r.meta_b64,
+  size: Number(r.size_bytes),
+  createdAt: new Date(r.created_at).getTime(),
+})
+
+/**
+ * สถานะ vault ของผู้ใช้คนนี้ — null = ยังไม่เคยตั้งค่า (client ต้องเข้า setup flow)
+ * ⚠️ ทุกชิ้นที่คืนไปเปิดเผยได้: salt/params/iv ไม่ใช่ความลับ และ verifier ที่ไร้ KEK
+ *    คือ noise ผู้โจมตีที่ได้ก้อนนี้ไปยังต้องจ่ายค่า Argon2id เต็มราคาต่อการเดาหนึ่งครั้ง
+ */
+export async function getVaultMeta(userId) {
+  if (usingPostgres) {
+    const { rows } = await query(`SELECT * FROM vault_meta WHERE user_id = $1`, [userId])
+    return rows.length ? mapVaultMetaRow(rows[0]) : null
+  }
+  return memVaultMeta.get(userId) ?? null
 }
 
-export function vaultMeta() {
-  // ส่งทุกอย่างที่ client ต้องใช้ปลดล็อก — ไม่มีชิ้นไหนเป็นความลับ (salt/iv เปิดเผยได้,
-  // ciphertext ไร้กุญแจคือ noise) และไม่มีทางที่ server จะช่วยถอดได้
-  return vault
-}
+/**
+ * ตั้งค่า vault ครั้งแรก — เก็บ salt + พารามิเตอร์ KDF + verifier ciphertext
+ * ⚠️ ตั้งซ้ำไม่ได้ (คืน null): การเขียนทับ salt/verifier = ทำให้ ciphertext เดิม
+ *    ทั้งคลังกำพร้าถาวร เพราะ KEK เดิม derive กลับมาไม่ได้อีก
+ */
+export async function createVaultMeta(userId, { saltB64, params, verifier }) {
+  if (!isB64(saltB64, 64) || !isB64(verifier?.ivB64, 32) || !isB64(verifier?.dataB64, 512)) return null
 
-const B64_RE = /^[A-Za-z0-9+/]+=*$/
+  // พารามิเตอร์ KDF ต้องถึงพื้นขั้นต่ำ (OWASP: Argon2id m≥19MiB, t≥2) — client ที่ถูกแก้
+  // ให้ส่ง m=1,t=1 มาจะทำให้ vault ของตัวเอง brute-force ง่ายขึ้นมาก
+  //
+  // ⚠️ "ปฏิเสธ" ไม่ใช่ "clamp": verifier ถูกสร้างฝั่ง client ด้วยพารามิเตอร์ที่ส่งมา
+  //    ถ้าเซิร์ฟเวอร์แอบยกค่าขึ้นแล้วเก็บค่าใหม่ ตอนปลดล็อก client จะ derive ด้วย
+  //    พารามิเตอร์ที่ไม่ตรงกับตอนสร้าง → ได้ KEK คนละดอก → เปิด vault ของตัวเอง
+  //    ไม่ได้ตลอดกาล ตั้งแต่วินาทีแรกที่สร้าง การเงียบ ๆ แก้ค่าที่กุญแจผูกอยู่ด้วย
+  //    คือการทำลายข้อมูลแบบไม่มีใครรู้ตัว
+  const memoryKiB = Number(params?.memorySizeKiB)
+  const iterations = Number(params?.iterations)
+  const parallelism = Number(params?.parallelism)
+  const inRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi
+  if (params?.kdf !== undefined && params.kdf !== 'argon2id') return null
+  if (!inRange(memoryKiB, 19_456, 1_048_576)) return null
+  if (!inRange(iterations, 2, 16)) return null
+  if (!inRange(parallelism, 1, 4)) return null
 
-export function addVaultBlob({ ivB64, dataB64, size }) {
-  // validate รูปแบบ + เพดานขนาด (เดโม่ 2MB ciphertext) — server ไม่แตะเนื้อหา
-  if (typeof ivB64 !== 'string' || typeof dataB64 !== 'string') return null
-  if (!B64_RE.test(ivB64) || !B64_RE.test(dataB64)) return null
-  if (dataB64.length > 3_000_000) return null
-  const row = { id: nextId('vb'), ivB64, dataB64, size: Number(size) || 0, createdAt: Date.now() }
-  vault.blobs.push(row)
+  if (usingPostgres) {
+    try {
+      const { rows } = await query(
+        `INSERT INTO vault_meta (user_id, salt_b64, kdf, memory_kib, iterations, parallelism, verifier_iv, verifier_data)
+         VALUES ($1, $2, 'argon2id', $3, $4, $5, $6, $7) RETURNING *`,
+        [userId, saltB64, memoryKiB, iterations, parallelism, verifier.ivB64, verifier.dataB64],
+      )
+      return mapVaultMetaRow(rows[0])
+    } catch (err) {
+      if (err.code === '23505') return null // ตั้งค่าไปแล้ว — ไม่ใช่ 500
+      throw err
+    }
+  }
+
+  if (memVaultMeta.has(userId)) return null
+  const row = {
+    saltB64,
+    params: { kdf: 'argon2id', memorySizeKiB: memoryKiB, iterations, parallelism },
+    verifier: { ivB64: verifier.ivB64, dataB64: verifier.dataB64 },
+    createdAt: Date.now(),
+  }
+  memVaultMeta.set(userId, row)
   return row
+}
+
+/**
+ * รายการ blob ของผู้ใช้ — คืน metadata ciphertext ครบเพื่อให้ client แกะชื่อไฟล์เองได้
+ * แต่ "ไม่" คืนเนื้อไฟล์ (อยู่บนดิสก์ ต้องขอทีละชิ้นผ่าน endpoint ดาวน์โหลด)
+ */
+export async function listVaultBlobs(userId) {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT * FROM vault_blobs WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId],
+    )
+    return rows.map(mapVaultBlobRow)
+  }
+  return memVaultBlobs
+    .filter((b) => b.userId === userId)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((b) => ({ ...b }))
+}
+
+/** blob ชิ้นเดียว — คืน null ถ้าไม่ใช่ของ userId นี้ (ไม่แยก 403/404 ให้เดาว่ามีอยู่จริงไหม) */
+export async function findVaultBlob(userId, id) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return null
+    const { rows } = await query(
+      `SELECT * FROM vault_blobs WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    )
+    return rows.length ? mapVaultBlobRow(rows[0]) : null
+  }
+  const row = memVaultBlobs.find((b) => b.id === String(id) && b.userId === userId)
+  return row ? { ...row } : null
+}
+
+/**
+ * บันทึก metadata ของ blob ที่ ciphertext ถูกเขียนลง Storage Layer เรียบร้อยแล้ว
+ * ⚠️ size มาจาก "ไฟล์บนดิสก์จริง" ที่เซิร์ฟเวอร์วัดเอง ไม่ใช่ค่าที่ client แจ้ง
+ * ⚠️ ขนาด plaintext จริงอยู่ใน meta_b64 (เข้ารหัส) — เซิร์ฟเวอร์รู้แค่ขนาด ciphertext
+ */
+export async function addVaultBlob(userId, { storageKey, size, envelope }) {
+  if (!validVaultEnvelope(envelope)) return null
+  const { ivB64, wrappedDekB64, wrapIvB64, metaIvB64, metaB64 } = envelope
+
+  if (usingPostgres) {
+    const { rows } = await query(
+      `INSERT INTO vault_blobs (user_id, storage_key, iv_b64, wrapped_dek_b64, wrap_iv_b64, meta_iv_b64, meta_b64, size_bytes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [userId, storageKey, ivB64, wrappedDekB64, wrapIvB64, metaIvB64, metaB64, Number(size) || 0],
+    )
+    return mapVaultBlobRow(rows[0])
+  }
+
+  const row = {
+    id: nextId('vb'), userId, storageKey,
+    ivB64, wrappedDekB64, wrapIvB64, metaIvB64, metaB64,
+    size: Number(size) || 0, createdAt: Date.now(),
+  }
+  memVaultBlobs.push(row)
+  return { ...row }
+}
+
+/** ลบแถว metadata — ผู้เรียกต้องลบ ciphertext บนดิสก์เองด้วย (ดู routes/api.js) */
+export async function deleteVaultBlob(userId, id) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return false
+    const { rowCount } = await query(
+      `DELETE FROM vault_blobs WHERE id = $1 AND user_id = $2`, [id, userId],
+    )
+    return rowCount > 0
+  }
+  const i = memVaultBlobs.findIndex((b) => b.id === String(id) && b.userId === userId)
+  if (i === -1) return false
+  memVaultBlobs.splice(i, 1)
+  return true
+}
+
+/**
+ * ล้าง state ของ vault ทั้งหมด — ใช้โดยชุดทดสอบเท่านั้น
+ * รองรับทั้งสองโหมดเพื่อให้เทสต์ชุดเดียวกันรันได้ทั้งกับ in-memory fallback และ
+ * Postgres จริง (ชุดทดสอบต้องพิสูจน์โค้ด production path ไม่ใช่แค่ path เดโม่)
+ */
+export async function __resetVaultForTests() {
+  if (usingPostgres) {
+    // ⚠️ DELETE ไม่ใช่ TRUNCATE โดยเจตนา: role `drive_app` ถูกให้สิทธิ์แค่
+    //    SELECT/INSERT/UPDATE/DELETE (ดู postgres/init/02-app-roles.sh) — TRUNCATE
+    //    ต้องเป็นเจ้าของตารางหรือมีสิทธิ์ TRUNCATE ซึ่งแอปไม่มีและไม่ควรมี
+    //    การใช้ DELETE ทำให้ชุดทดสอบทำงานภายใต้สิทธิ์ "เท่ากับแอปจริง" เป๊ะ
+    //    ถ้าวันหนึ่งบรรทัดนี้ต้องการสิทธิ์มากกว่านั้น แปลว่าเทสต์กำลังโกง
+    await query('DELETE FROM vault_blobs')
+    await query('DELETE FROM vault_meta')
+    return
+  }
+  memVaultMeta.clear()
+  memVaultBlobs.length = 0
 }
 
 // ── Uploads — สถานะเข้ารหัส-at-rest ระหว่างนำเข้า NAS ─────────────────

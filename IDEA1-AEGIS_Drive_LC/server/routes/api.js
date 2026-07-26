@@ -20,6 +20,11 @@ import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
   keyExists, openReadStream, removeKey, discardUploaded,
 } from '../storage/fileStore.js'
+// Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
+import {
+  vaultUploadMiddleware, keyForUploadedVaultBlob,
+  openVaultCiphertext, vaultCiphertextSize, removeVaultCiphertext,
+} from '../storage/vaultStore.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -267,10 +272,33 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
   }
 })
 
+// ⚠️ ด่าน ownership — requireAuth บอกได้แค่ "เป็นใครคนหนึ่งที่ล็อกอินแล้ว" ไม่ได้บอกว่า
+//    ไฟล์นี้เป็นของเขา เดิมขาดด่านนี้ไป ผลคือ **ผู้ใช้ที่ล็อกอินคนไหนก็ลบไฟล์ของคนอื่นได้
+//    ทั้งแถว metadata และ bytes บนดิสก์** (ลบแล้วกู้ไม่ได้ ไม่มี trash)
+//
+//    เทียบด้วย ownerId (id ของบัญชี) เท่านั้น ห้ามเทียบด้วย uploader/display name
+//    เพราะชื่อซ้ำกันได้และเปลี่ยนได้ — ดู mapFileRow ใน db/store.js
+//
+// ⚠️ **ไม่มีข้อยกเว้นให้ Admin โดยเจตนา** — rbac/permissions.js ระบุว่าสอง role นี้
+//    "จัดการไฟล์ได้เท่ากัน" Admin ได้เพิ่มแค่จอ governance (Audit/Access) ไม่ใช่สิทธิ์
+//    เหนือไฟล์ของผู้อื่น ถ้าวันหนึ่งต้องมี admin override ให้เพิ่มเป็น requireRole
+//    พร้อม audit แยก action ไม่ใช่ปล่อยให้ด่านนี้อ่อนลงเงียบ ๆ
+//
+// ⚠️ ownerId เป็น null ได้ (`uploaded_by … ON DELETE SET NULL`) = เจ้าของถูกลบบัญชีแล้ว
+//    กรณีนั้น "ไม่มีใครลบได้" ซึ่งเป็นฝั่งที่ปลอดภัยของ fail-secure — แต่ก็หมายความว่า
+//    ยังไม่มีเส้นทางเก็บกวาดไฟล์กำพร้า (งานแยก ไม่ทำในคอมมิตนี้)
 apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
   try {
     const file = await store.findFile(req.params.id)
     if (!file) return res.status(404).json({ error: 'Not found' })
+
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      // ลง audit เป็น DENIED เสมอ — ความพยายามลบไฟล์ของคนอื่นต้องมองเห็นได้ในจอ Audit
+      // (แบบแผนเดียวกับ FILE_DOWNLOAD ที่ metadata มีแต่ bytes หาย ด้านบน)
+      auditAct(req, 'FILE_DELETE', file.name, 'DENIED')
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
     await store.deleteFile(req.params.id)
     // ลบ metadata แล้วต้องลบ bytes ตามด้วยเสมอ — ไม่งั้นไฟล์ที่ผู้ใช้ "ลบแล้ว" ยังนอน
     // อยู่บนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก (ทั้ง privacy และพื้นที่)
@@ -436,16 +464,210 @@ apiRouter.get('/sessions', requireAuth, (req, res) => {
 })
 
 // ── Zero-Knowledge Vault ─────────────────────────────────────────────
+//
 // เข้ารหัสฝั่ง client เท่านั้น — server เก็บได้แค่ ciphertext ที่อ่านไม่ออก แม้แต่ Admin ก็เปิดไม่ได้
-// endpoint นี้จึง "ไม่มีทาง" รับ/คืน plaintext หรือกุญแจ — มีแค่ salt/iv/ciphertext
-apiRouter.get('/vault', requireAuth, (req, res) => {
-  res.json(store.vaultMeta())
+// ทุก endpoint ในหมวดนี้ "ไม่มีทาง" รับ/คืน plaintext หรือกุญแจ — มีแค่ salt/iv/ciphertext
+//
+// ⚠️ กติกาที่ห้ามละเมิดในหมวดนี้ (ถ้าเห็นโค้ดขัดข้อใดข้อหนึ่ง = bug ระดับสถาปัตยกรรม):
+//    1. ไม่มี route ใดรับ passphrase, KEK, DEK ที่ยังไม่ถูกห่อ หรือ plaintext ของไฟล์
+//    2. ไม่มี route ใดสร้าง thumbnail/preview/ค้นหาเนื้อหา — ต้องใช้ plaintext ทั้งนั้น
+//    3. userId มาจาก req.user (session) เสมอ — client ระบุ userId มาไม่ได้เลย
+//    4. audit บันทึกได้แค่ actor/เวลา/ชนิดการกระทำ + hash ของ blob id ที่เซิร์ฟเวอร์
+//       ตั้งเอง — ห้ามบันทึกชื่อไฟล์ (เซิร์ฟเวอร์ไม่รู้อยู่แล้ว) และห้ามบันทึกกุญแจ
+//    5. ไม่มี console.log ของ req.body ในหมวดนี้ — body มี wrapped DEK อยู่
+
+/** สถานะ vault + รายการ blob (metadata ciphertext) ของผู้ใช้ที่ล็อกอินอยู่ */
+apiRouter.get('/vault', requireAuth, async (req, res, next) => {
+  try {
+    const meta = await store.getVaultMeta(req.user.id)
+    if (!meta) {
+      // ยังไม่เคยตั้งค่า — client เข้าสู่ setup flow (ไม่ใช่ error)
+      return res.json({ configured: false, blobs: [] })
+    }
+    const blobs = await store.listVaultBlobs(req.user.id)
+    res.json({
+      configured: true,
+      saltB64: meta.saltB64,
+      params: meta.params,
+      verifier: meta.verifier,
+      // ส่ง envelope ครบเพื่อให้ client แกะ "ชื่อไฟล์" เองได้หลังปลดล็อก
+      // storageKey ไม่ถูกส่งออกไป — เป็นรายละเอียดภายในของ Storage Layer
+      blobs: blobs.map((b) => ({
+        id: b.id, size: b.size, createdAt: b.createdAt,
+        ivB64: b.ivB64, wrappedDekB64: b.wrappedDekB64, wrapIvB64: b.wrapIvB64,
+        metaIvB64: b.metaIvB64, metaB64: b.metaB64,
+      })),
+    })
+  } catch (err) {
+    next(err)
+  }
 })
 
-apiRouter.post('/vault/blobs', requireAuth, (req, res) => {
-  const row = store.addVaultBlob(req.body ?? {})
-  if (!row) return res.status(400).json({ error: 'Invalid input' })
-  // audit ไม่มีชื่อไฟล์ให้บันทึกอยู่แล้ว (server มองไม่เห็น) — บันทึกแค่ "มีการเพิ่ม blob"
-  auditAct(req, 'VAULT_BLOB_ADD', row.id)
-  res.status(201).json({ blob: { id: row.id, size: row.size, createdAt: row.createdAt } })
+/**
+ * ตั้งค่า vault ครั้งแรก — client สร้าง salt + verifier เองทั้งหมดแล้วส่งผลลัพธ์มาเก็บ
+ * ⚠️ ไม่มี endpoint สำหรับ "รีเซ็ต passphrase" และจะไม่มี: เซิร์ฟเวอร์ไม่มีชิ้นส่วนใด
+ *    ที่ใช้กู้ KEK ได้เลย ลืม passphrase = ข้อมูลหายถาวร (ตรงกับคำสัญญาใน UI)
+ */
+apiRouter.post('/vault/setup', requireAuth, async (req, res, next) => {
+  try {
+    const { saltB64, params, verifier } = req.body ?? {}
+    const row = await store.createVaultMeta(req.user.id, { saltB64, params, verifier })
+    if (!row) {
+      // ตั้งค่าไปแล้ว หรือ input ผิดรูป — แยกสองกรณีเพื่อให้ client ทำต่อถูก
+      const existing = await store.getVaultMeta(req.user.id)
+      if (existing) {
+        await auditAct(req, 'VAULT_SETUP', String(req.user.id), 'DENIED')
+        return res.status(409).json({ error: 'Vault already configured' })
+      }
+      return res.status(400).json({ error: 'Invalid input' })
+    }
+    await auditAct(req, 'VAULT_SETUP', String(req.user.id))
+    res.status(201).json({ configured: true, saltB64: row.saltB64, params: row.params, verifier: row.verifier })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * บันทึกผลการพยายามปลดล็อกลง audit
+ * ⚠️ การพิสูจน์ passphrase เกิดฝั่ง client ล้วน (นั่นคือจุดประสงค์ของ zero-knowledge)
+ *    เซิร์ฟเวอร์จึง "ไม่มีทาง" ยืนยันผลนี้ได้เอง — entry นี้จึงเป็นหลักฐานเชิงพฤติกรรม
+ *    (ใครแตะ vault เมื่อไร) ไม่ใช่หลักฐานเชิงลับ และตั้งใจให้เป็นเช่นนั้น
+ *    รับแค่ boolean — ไม่รับ passphrase, ไม่รับ hash ของ passphrase, ไม่รับกุญแจ
+ */
+// ⚠️ await ก่อนตอบ 204: endpoint นี้ "มีอยู่เพื่อเขียน audit อย่างเดียว" การตอบสำเร็จ
+//    ก่อนที่แถวจะลงจริงคือการโกหก client และในโหมด Postgres มันคือ race จริง ๆ
+//    (โหมด in-memory เขียนแบบ synchronous จึงไม่เคยเห็นปัญหานี้ — ดู log 2026-07-26)
+apiRouter.post('/vault/unlock-attempt', requireAuth, async (req, res, next) => {
+  try {
+    const ok = req.body?.ok === true
+    await auditAct(req, 'VAULT_UNLOCK', String(req.user.id), ok ? 'OK' : 'DENIED')
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * อัปโหลด ciphertext ของไฟล์ (multipart) — field 'file' คือ .aegisenc ที่เข้ารหัสแล้ว
+ * envelope (iv / wrapped DEK / wrap iv / metadata ciphertext) มาทาง form fields
+ *
+ * ⚠️ ลำดับเดียวกับ /files/upload: เขียน bytes ก่อน → INSERT metadata → ถ้า INSERT
+ *    ล้มเหลวให้ลบ bytes ทิ้ง (ไม่เหลือ ciphertext กำพร้าที่ไม่มีทางถอดได้อีกเลย)
+ * ⚠️ size ที่บันทึกคือขนาด ciphertext บนดิสก์ที่เซิร์ฟเวอร์วัดเอง — ขนาด plaintext จริง
+ *    ถูกเข้ารหัสอยู่ใน metaB64 เซิร์ฟเวอร์จึงรู้แค่ "ประมาณเท่าไร" ไม่ใช่ค่าจริง
+ */
+apiRouter.post('/vault/blobs', requireAuth, (req, res, next) => {
+  vaultUploadMiddleware(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      const tooLarge = uploadErr.code === 'LIMIT_FILE_SIZE'
+      return res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File too large' : 'Invalid input' })
+    }
+    if (!req.file) return res.status(400).json({ error: 'Invalid input' })
+
+    // multer เขียน ciphertext ลง vault/ ให้แล้ว — key นี้คือสิ่งที่จะบันทึกลง DB
+    const storageKey = keyForUploadedVaultBlob(req.file)
+
+    try {
+      const envelope = {
+        ivB64: req.body?.ivB64,
+        wrappedDekB64: req.body?.wrappedDekB64,
+        wrapIvB64: req.body?.wrapIvB64,
+        metaIvB64: req.body?.metaIvB64,
+        metaB64: req.body?.metaB64,
+      }
+      if (!store.validVaultEnvelope(envelope)) {
+        await removeVaultCiphertext(storageKey)
+        return res.status(400).json({ error: 'Invalid input' })
+      }
+
+      // ต้องตั้งค่า vault ก่อนถึงจะมี KEK ให้ห่อ DEK ได้ — ไม่มี meta = request ไม่สมเหตุผล
+      const meta = await store.getVaultMeta(req.user.id)
+      if (!meta) {
+        await removeVaultCiphertext(storageKey)
+        return res.status(409).json({ error: 'Vault not configured' })
+      }
+
+      const size = await vaultCiphertextSize(storageKey)
+      if (size === null) {
+        await removeVaultCiphertext(storageKey)
+        return res.status(500).json({ error: 'Internal error' })
+      }
+
+      let row
+      try {
+        row = await store.addVaultBlob(req.user.id, { storageKey, size, envelope })
+      } catch (dbErr) {
+        await removeVaultCiphertext(storageKey)
+        throw dbErr
+      }
+      if (!row) {
+        await removeVaultCiphertext(storageKey)
+        return res.status(400).json({ error: 'Invalid input' })
+      }
+
+      // audit: ไม่มีชื่อไฟล์ให้บันทึก (เซิร์ฟเวอร์มองไม่เห็น) — บันทึกแค่ "มีการเพิ่ม blob"
+      await auditAct(req, 'VAULT_BLOB_ADD', row.id)
+      res.status(201).json({
+        blob: {
+          id: row.id, size: row.size, createdAt: row.createdAt,
+          ivB64: row.ivB64, wrappedDekB64: row.wrappedDekB64, wrapIvB64: row.wrapIvB64,
+          metaIvB64: row.metaIvB64, metaB64: row.metaB64,
+        },
+      })
+    } catch (err) {
+      await removeVaultCiphertext(storageKey).catch(() => {})
+      next(err)
+    }
+  })
+})
+
+/**
+ * ดาวน์โหลด ciphertext ของ blob — stream ตรงจากดิสก์ ไม่โหลดเข้า RAM
+ * ⚠️ เซิร์ฟเวอร์ส่ง "ciphertext ดิบ" เท่านั้น — การถอดรหัส/ตั้งชื่อไฟล์/แสดงตัวอย่าง
+ *    เกิดฝั่งเบราว์เซอร์ทั้งหมด Content-Type จึงเป็น octet-stream เสมอ (เซิร์ฟเวอร์
+ *    ไม่รู้ชนิดไฟล์จริง) และชื่อไฟล์ที่แนบไปเป็น id ทึบ ไม่ใช่ชื่อที่ผู้ใช้ตั้ง
+ * ⚠️ path บนดิสก์มาจากคอลัมน์ storage_key ใน DB เท่านั้น ไม่เคยมาจาก input ของ client
+ */
+apiRouter.get('/vault/blobs/:id', requireAuth, async (req, res, next) => {
+  try {
+    const blob = await store.findVaultBlob(req.user.id, req.params.id)
+    // ไม่ใช่เจ้าของ หรือไม่มีจริง → 404 เหมือนกัน (ไม่ให้เดาว่า id ไหนมีอยู่)
+    if (!blob) return res.status(404).json({ error: 'Not found' })
+
+    const stream = openVaultCiphertext(blob.storageKey)
+    if (!stream) {
+      await auditAct(req, 'VAULT_BLOB_READ', blob.id, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(404).json({ error: 'Not found' })
+      else res.destroy()
+    })
+
+    await auditAct(req, 'VAULT_BLOB_READ', blob.id)
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Content-Length', String(blob.size))
+    res.setHeader('Content-Disposition', `attachment; filename="${blob.id}.aegisenc"`)
+    // ciphertext ที่ถอดไม่ได้ก็ยังไม่ควรถูก cache โดย proxy ระหว่างทาง
+    res.setHeader('Cache-Control', 'no-store')
+    stream.pipe(res)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** ลบ blob — metadata ก่อน แล้วค่อยลบ bytes (ลำดับกลับกับตอนเขียน) */
+apiRouter.delete('/vault/blobs/:id', requireAuth, async (req, res, next) => {
+  try {
+    const blob = await store.findVaultBlob(req.user.id, req.params.id)
+    if (!blob) return res.status(404).json({ error: 'Not found' })
+    await store.deleteVaultBlob(req.user.id, blob.id)
+    await removeVaultCiphertext(blob.storageKey)
+    await auditAct(req, 'VAULT_BLOB_DELETE', blob.id)
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
 })
