@@ -51,9 +51,16 @@ flowchart TD
 
 ## 🔐 ฟีเจอร์หลักและการควบคุมสิทธิ์ฝั่ง Server (Implemented Features)
 
-1. **Single App, Server-Resolved Dual Views**:
+1. **Unified Split Vault Card Login Page, Dual Theme & Motion Physics (2026-07-25)**:
+   * อัปเกรดหน้า Login จากเดิมที่เป็นการ์ดใบเล็กเรียบๆ ให้เป็น **50/50 Split Panel Card** บนพื้นหลัง Cyber-Physical Dark/Light Grid (`.gate-bg`, `.gate-halo`)
+   * **Volumetric Aura Glow Layer**: เพิ่มเลเยอร์แสงเรืองซ้อนด้านหลังการ์ดหลัก (`absolute -inset-2 blur-2xl opacity-70`) เล่นแอนิเมชันหายใจช้าๆ — แสง Electric Cyan & Sky-Blue (`shadow-[0_0_70px_15px_rgba(6,182,212,0.35)]`) ในโหมดสว่าง และแสง Neon Purple & Fuchsia Plasma (`dark:shadow-[0_0_80px_20px_rgba(168,85,247,0.4)]`) ในโหมดมืด
+   * **Left Panel & Logo Emblem (180px)**: ขยายตราสัญลักษณ์ AEGIS Mark ขนาดใหญ่ `180px` พร้อมออร่าแสงหายใจ (Breathing Backlight Aura 4s) ชื่อแบรนด์ `AEGIS` และ Tagline สี Gradient
+   * **Framer Motion Unfold Entrance & Tactile Physics**: การ์ดกางตัวด้วย Spring Physics (`stiffness: 260, damping: 20`), แถบความปลอดภัย 4 เลเยอร์สไลด์ขึ้นแบบ Staggered (`staggerChildren: 0.08s`), Card Hover 3D Tilt และ Active Micro-compression (`whileTap={{ scale: 0.995 }}`)
+   * **Tailwind CSS v4 `@variant dark` Fix**: กำหนดสเปค `@variant dark (&:where(.dark, .dark *));` ใน `index.css` ป้องกันปัญหา Tailwind v4 บังคับอ่าน OS Theme พากดสลับโหมดสว่าง-มืดผ่าน React State
+   * **Complete i18n & Theme Chrome**: รองรับ 3 ภาษา (`TH`, `EN`, `ZH`) พร้อมสวิตช์ `ThemeToggle`
+2. **Single App, Server-Resolved Dual Views**:
    * รวมการทำงานของศูนย์ควบคุม SOC และ CCTV Operator ไว้ในแอปพลิเคชันเดียว โดยเซิร์ฟเวอร์ฝั่ง Backend `:8002` จะเป็นผู้ระบุบทบาทและกรอง Payload ส่งให้หน้าจอแบบอัตโนมัติ
-2. **Server-Side Camera JOIN Enforcement**:
+3. **Server-Side Camera JOIN Enforcement**:
    * ตาราง `camera_assignment` จัดเก็บและเป็นเจ้าของโดยฐานข้อมูล `aegis_monitor`
    * ทุก Request คำสั่งขอกล้องของผู้ใช้บทบาท `CCTV-Operator` จะถูกจับ JOIN กับตาราง `camera_assignment` ฝั่งเซิร์ฟเวอร์ หากส่ง Request ระบุ ID กล้องที่ตนไม่มีสิทธิ์ จะได้รับ `403 Forbidden` ทันที
    * **บัญชีเดโม่มี operator สองคน (2026-07-22)**: `operator` → CAM-05 และ
@@ -64,9 +71,9 @@ flowchart TD
    * `soc` (SOC-Responder) **ไม่มีแถวใน `camera_assignment` เลย** = เห็นทุกกล้อง —
      การไม่มีแถวคือ "สิทธิ์เต็ม" โดยเจตนา ไม่ใช่ช่องโหว่: `getVisibleCameras()`
      แยกเส้นทาง SOC ออกก่อนถึง JOIN (`server/db/connection.js`)
-3. **Scoped View & Hidden Menus**:
+4. **Scoped View & Hidden Menus**:
    * บทบาท `CCTV-Operator` จะสโคปภาพเห็นเฉพาะกล้องที่ได้รับมอบหมาย เมนู Alerts และ Detection Log ระดับระบบจะถูกซ่อนไว้โดยอัตโนมัติ
-4. **Camera Self-Diagnostics**:
+5. **Camera Self-Diagnostics**:
    * หน้าจอ Operator แสดงกราฟการตรวจวินิจฉัยสุขภาพกล้อง (Heartbeat, Latency, FPS, Uptime, จำนวนครั้งที่สัญญาณขาด) เพื่อการดูแลรักษาเชิงรุก
 
 ---
@@ -166,9 +173,27 @@ Detection Engine (Python, Laptop VLAN 20) ต่อเข้ากับ `aegis_
   `nas_sync.py._finish_ok` (**หลัง** verify sha256 บน NAS สำเร็จเท่านั้น → `stored_on_nas=TRUE`
   ไม่มีทาง optimistic); `alert_manager.py._handle` (persist **หลัง** พยายามส่ง Telegram
   เสมอ ไม่ว่าจะสำเร็จหรือล่ม)
-* **Gateway hardening**: `location /monitor/internal/ { return 404; }` ใน
-  `gateway/nginx.conf` — `/internal` เข้าถึงได้จาก **ในเครือข่าย** ตรงที่ `monitor:8002`
-  เท่านั้น (VLAN 20/LAN) ไม่ใช่ผ่าน gateway สาธารณะ (defense-in-depth ทับ API key อีกชั้น)
+* **Edge hardening — บล็อกแล้วทั้งสอง config (defense-in-depth ทับ API key อีกชั้น)**:
+  `/internal` ต้องเข้าถึงจาก **ในเครือข่าย** ตรงที่ `monitor:8002` / `192.168.10.12:8002`
+  เท่านั้น (VLAN 20/LAN) ไม่ใช่ผ่านประตูสาธารณะ
+  * `gateway/nginx.conf` (สแตก localhost): `location /monitor/internal/ { return 404; }`
+  * `HUB-AEGIS_Entry/nginx.conf` (production, **เพิ่มแล้ว 2026-07-26**):
+    `location ~* ^/monitor/internal(/|$) { return 404; }`
+  > ✅ **แก้แล้วในคอมมิตเดียวกับ routing fix ของ `/monitor` (2026-07-26)** — เดิม
+  > production ไม่มี guard นี้เลย และ `/monitor/internal/*` ถูกบังไว้ด้วย **"บั๊ก" ไม่ใช่นโยบาย**
+  > (prefix ไม่ถูกตัด → Express ตอบ `Cannot POST /monitor/internal/detections` 404
+  > และ `GET /monitor/internal/anything` ตอบ `200` index.html) การเติม rewrite เพียงลำพัง
+  > จะเปลี่ยนมันเป็น ingest ที่ยิงได้จริงจากพอร์ต 443 ทันที จึงต้องมาพร้อมกัน
+  >
+  > 🔴 **ทำไม production ใช้ regex `~*` ไม่ใช่ literal prefix แบบ gateway**: nginx prefix
+  > location เป็น **case-sensitive** แต่ **Express match แบบ case-INSENSITIVE ตามค่าเริ่มต้น**
+  > — วัดจริงกับ `monitor:8002`: `POST /Internal/detections` · `/INTERNAL/detections` ·
+  > `/internal/Detections` → **`201 Created` ทั้งหมด** ⇒ guard แบบตัวอักษรตรง ๆ ถูกข้ามได้
+  > ด้วย `/monitor/Internal/detections` **⚠️ `gateway/nginx.conf` ยังมีช่องนี้อยู่ (ยังไม่แก้)**
+  >
+  > ผลวัดหลังแก้: 14 คำขอผ่าน edge (มี/ไม่มี key · case variants · `//` · `%2F` · `./` ·
+  > query string) ได้ `404` ของ nginx เอง และ **เขียนลง DB ศูนย์แถว** ขณะที่ payload
+  > เดียวกันยิงตรงไป `monitor:8002` ได้ `201` — ดู [[01 - 🚪 HUB-AEGIS Entry]]
 * **เว็บอ่านจากตารางจริง**: `listDetections`/`listAlerts`/`listClips` เขียนใหม่ให้ query
   Postgres แล้วแปลงกลับเป็นรูปทรงที่ frontend ใช้ (detections group ตาม `frame_id` →
   `people[]`; clips **option A** — ไม่มี segs, ไม่มี live clip, `kind` ('auth'/'unknown')
@@ -192,7 +217,10 @@ Detection Engine (Python, Laptop VLAN 20) ต่อเข้ากับ `aegis_
 * `IDEA2-AEGIS_Monitor/server/middleware/requireDetectionEngineKey.js` - ด่าน API key (timing-safe, fail-secure, Thai-commented)
 * `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/monitor_client.py` - HTTP client (fail-soft) ยิงเข้า `/internal`
 * `.../detection-engine/aegis_engine/{engine,nas_sync,alert_manager}.py` - สาม seams ที่เรียก monitor_client
-* `gateway/nginx.conf` - `location /monitor/internal/ { return 404; }` (บล็อกจากภายนอก)
+* `gateway/nginx.conf` - `location /monitor/internal/ { return 404; }` (บล็อกจากภายนอก · dev stack)
+* `HUB-AEGIS_Entry/nginx.conf` - `location ~* ^/monitor/internal(/|$) { return 404; }`
+  (production · case-insensitive) + `rewrite ^/monitor/?(.*)$ /$1 break;` ตัด prefix ให้ Express
+  ที่ mount ทุกอย่างที่ root + `proxy_set_header Host $http_host` (คงพอร์ตไว้เพื่อ CSRF Origin check)
 
 ---
 
