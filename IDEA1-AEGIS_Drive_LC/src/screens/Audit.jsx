@@ -13,6 +13,10 @@ import { fmtStamp } from '../lib/format.js'
 
 const RES_LABEL = { OK: 'resOk', DENIED: 'resDenied', BLOCKED: 'resBlocked' }
 
+/* ช่วงเวลาแบบ preset — สำหรับ ledger ที่เรียงตามเวลาอยู่แล้ว การเลือก "ย้อนหลังเท่าไร"
+   ตรงกับคำถามที่ผู้ตรวจถามจริงมากกว่าการจิ้มปฏิทินสองครั้ง */
+const RANGE_MS = { '24h': 86_400_000, '7d': 604_800_000, '30d': 2_592_000_000 }
+
 /** normalize แถวจากทั้งโหมด PG (snake_case) และ dev fallback (camelCase) */
 const norm = (e) => ({
   at: new Date(e.at).getTime(),
@@ -29,6 +33,8 @@ export function Audit({ t }) {
   const [result, setResult] = useState('all')
   const [actor, setActor] = useState('all')
   const [action, setAction] = useState('all')
+  const [range, setRange] = useState('all')
+  const nowTs = Date.now()
 
   const events = useMemo(() => (api.data?.events ?? []).map(norm), [api.data])
   const actors = useMemo(() => [...new Set(events.map((e) => e.actor))], [events])
@@ -37,7 +43,8 @@ export function Audit({ t }) {
   const visible = (e) =>
     (result === 'all' || (result === 'denied' ? e.result !== 'OK' : e.result === result)) &&
     (actor === 'all' || e.actor === actor) &&
-    (action === 'all' || e.action === action)
+    (action === 'all' || e.action === action) &&
+    (range === 'all' || e.at >= nowTs - RANGE_MS[range])
 
   const exportCsv = () => {
     const head = 'timestamp,actor,role,action,target_sha256,result,source_ip'
@@ -62,6 +69,14 @@ export function Audit({ t }) {
     <div>
       {/* filters — one row above the ledger */}
       <div className="flex items-center gap-2.5 mb-4 flex-wrap">
+        <div className="w-44">
+          <PillSelect aria-label={t('filterRange')} value={range} onChange={(e) => setRange(e.target.value)}>
+            <option value="all">{t('filterRange')} · {t('filterAll')}</option>
+            <option value="24h">{t('hours24')}</option>
+            <option value="7d">{t('days7')}</option>
+            <option value="30d">{t('days30')}</option>
+          </PillSelect>
+        </div>
         <div className="w-40">
           <PillSelect aria-label={t('colResult')} value={result} onChange={(e) => setResult(e.target.value)}>
             <option value="all">{t('filterAll')}</option>
@@ -113,6 +128,13 @@ export function Audit({ t }) {
 
               {/* chain motif — append-only, visibly linked */}
               <div className="absolute left-4 top-9 bottom-0 w-px bg-line" aria-hidden />
+
+              {/* แถวทั้งหมดยุบเหลือ 0 เมื่อไม่มีอะไรตรงตัวกรอง — ต้องบอก ไม่ใช่ปล่อยว่างเปล่า */}
+              {visibleCount === 0 && (
+                <p role="status" className="px-4 pl-10 h-10 flex items-center text-[12.5px] text-ink-3">
+                  {t('emptyNoAuditFiltered')}
+                </p>
+              )}
 
               {events.map((e, i) => {
                 const bad = e.result !== 'OK'

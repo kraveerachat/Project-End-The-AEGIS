@@ -133,6 +133,14 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     if (!suppressAuthHandler) onUnauthorized?.()
     return { ok: false, status: 401, data, errorKind: 'unauthorized' }
   }
-  if (res.status === 403) return { ok: false, status: 403, data, errorKind: 'forbidden' }
+  if (res.status === 403) {
+    // ⚠️ 403 จาก CSRF ต้องแยกออกจาก 403 "ไม่มีสิทธิ์" ให้ได้ตั้งแต่ชั้นนี้ —
+    // มันคือคำขอที่ถูกบล็อก "ก่อน" จะมีการตรวจตัวตนหรือสิทธิ์ใด ๆ ทั้งสิ้น
+    // จอที่เรียกจึงต้องไม่มีทางเอาไปแสดงว่าเป็นความล้มเหลวของรหัสผ่าน/สิทธิ์
+    if (typeof data?.code === 'string' && data.code.startsWith('CSRF_')) {
+      return { ok: false, status: 403, data, errorKind: 'csrf' }
+    }
+    return { ok: false, status: 403, data, errorKind: 'forbidden' }
+  }
   return { ok: false, status: res.status, data, errorKind: 'server' }
 }

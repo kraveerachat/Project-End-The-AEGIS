@@ -129,6 +129,25 @@ export function Shares({ t }) {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(false)
 
+  // ── ตัวกรองของตารางนี้เอง (scope / status / expiry) ────────────────────────
+  // จอนี้ไม่มีช่องค้นหาระดับระบบโดยเจตนา: คำถามที่คนถามกับตารางลิงก์คือ
+  // "อันไหนยังเปิดอยู่ / อันไหนเปิดกว้างเกินไป / อันไหนกำลังจะหมดอายุ" — ไม่ใช่ค้นชื่อไฟล์
+  const [fScope, setFScope] = useState('all')
+  const [fStatus, setFStatus] = useState('all')
+  const [fExpiry, setFExpiry] = useState('all')
+  const EXPIRY_MS = { '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000 }
+
+  const visibleShares = shares.filter((s) => {
+    const msLeft = s.expiresAt - now
+    if (fScope !== 'all' && s.scope !== fScope) return false
+    if (fStatus === 'active' && msLeft <= 0) return false
+    if (fStatus === 'expired' && msLeft > 0) return false
+    // "หมดอายุภายใน X" = ลิงก์ที่ยังไม่ตายแต่เหลือเวลาน้อยกว่า X
+    if (fExpiry !== 'all' && !(msLeft > 0 && msLeft <= EXPIRY_MS[fExpiry])) return false
+    return true
+  })
+  const filtered = fScope !== 'all' || fStatus !== 'all' || fExpiry !== 'all'
+
   const selectedFileId = fileId || files[0]?.id || ''
 
   const createLink = async () => {
@@ -228,14 +247,48 @@ export function Shares({ t }) {
           <div className="px-5 pt-5 pb-3 flex items-center gap-2">
             <Link2 size={16} strokeWidth={1.5} className="text-ink-3" />
             <h2 className="text-[16px] font-semibold text-ink">{t('activeLinks')}</h2>
-            <Chip tone="neutral" className="ml-auto">{shares.length}</Chip>
+            <Chip tone="neutral" className="ml-auto">
+              {filtered ? `${visibleShares.length} / ${shares.length}` : shares.length}
+            </Chip>
           </div>
+
+          {/* ตัวกรองของตารางนี้ — แทนที่ช่องค้นหาระดับระบบบนจอนี้ */}
+          {shares.length > 0 && (
+            <div className="px-5 pb-3 flex items-center gap-2.5 flex-wrap">
+              <div className="w-[168px]">
+                <PillSelect aria-label={t('filterScope')} value={fScope} onChange={(e) => setFScope(e.target.value)}>
+                  <option value="all">{t('filterScope')} · {t('filterAll')}</option>
+                  <option value="vlan">{t('scopeVlan')}</option>
+                  <option value="subnet">{t('scopeSubnet')}</option>
+                  <option value="any">{t('scopeAny')}</option>
+                </PillSelect>
+              </div>
+              <div className="w-[148px]">
+                <PillSelect aria-label={t('filterStatus')} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+                  <option value="all">{t('filterStatus')} · {t('filterAll')}</option>
+                  <option value="active">{t('filterActive')}</option>
+                  <option value="expired">{t('expired')}</option>
+                </PillSelect>
+              </div>
+              <div className="w-[168px]">
+                <PillSelect aria-label={t('filterExpiresWithin')} value={fExpiry} onChange={(e) => setFExpiry(e.target.value)}>
+                  <option value="all">{t('filterExpiresWithin')} · {t('filterAll')}</option>
+                  <option value="1h">{t('hour1')}</option>
+                  <option value="24h">{t('hours24')}</option>
+                  <option value="7d">{t('days7')}</option>
+                </PillSelect>
+              </div>
+            </div>
+          )}
           {sharesApi.loading ? (
             <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
           ) : sharesApi.error ? (
             <ErrorState t={t} kind={sharesApi.error} onRetry={sharesApi.retry} />
           ) : shares.length === 0 ? (
             <EmptyState icon={Link2} title={t('emptyNoShares')} hint={t('emptyNoSharesHint')} />
+          ) : visibleShares.length === 0 ? (
+            // "ยังไม่มีลิงก์เลย" กับ "ตัวกรองไม่ตรง" คนละเรื่อง — อย่ารวมข้อความ
+            <EmptyState icon={Link2} title={t('emptyNoSharesFiltered')} />
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[720px]">
@@ -250,7 +303,7 @@ export function Shares({ t }) {
                   <span>{t('colHits')}</span>
                   <span />
                 </div>
-                {shares.map((link) => (
+                {visibleShares.map((link) => (
                   <LinkRow key={link.id} t={t} link={link} now={now} revoking={revokingIds.has(link.id)} onAskRevoke={setAskRevoke} />
                 ))}
               </div>

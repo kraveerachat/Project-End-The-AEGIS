@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, FileText } from 'lucide-react'
 import { fetchMe, logout as apiLogout } from './lib/auth.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
 import { makeT } from './lib/strings.js'
@@ -7,6 +6,7 @@ import { useApi, useReducedMotion } from './lib/hooks.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { TopBar } from './components/TopBar.jsx'
+import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { Login } from './screens/Login.jsx'
 import { Dashboard } from './screens/Dashboard.jsx'
 import { Files } from './screens/Files.jsx'
@@ -24,6 +24,17 @@ const TITLE_KEYS = {
   shares: 'sharesTitle', snapshots: 'snapshotsTitle', storage: 'storageTitle',
   audit: 'auditTitle', access: 'accessTitle', settings: 'settingsTitle',
 }
+
+/* ── ช่องค้นหาระดับระบบ: มีอยู่ "ทุกจอ" ────────────────────────────────────
+   เป็นเครื่องมือประจำที่ (affordance เดียวกันทุกหน้า) — จอที่มีตัวกรองของตัวเอง
+   เช่น Files/Shares/Audit ก็ยังมีตัวกรองนั้นอยู่ คนละงานกัน: ตัวกรองในหน้า
+   กรอง "รายการที่เห็นตรงหน้า" ส่วนช่องนี้กระโดดข้ามจอทั้งระบบ
+
+   VAULT คือข้อยกเว้นเดียว — ปิดการใช้งาน (เทา ๆ ไม่ใช่ซ่อน) พร้อมทูลทิปบอกเหตุผล
+   เพราะเนื้อหาถูกเข้ารหัสแบบ zero-knowledge: เซิร์ฟเวอร์เก็บแต่ ciphertext และ
+   ชื่อไฟล์ที่ถอดรหัสแล้วอยู่ใน state ของจอ Vault เท่านั้น ไม่เคยขึ้นมาถึง App
+   จึงไม่มีทาง index ได้ — การ disable คือการบอกความจริงข้อนี้ ไม่ใช่การกันเชิงสิทธิ์ */
+const SEARCH_DISABLED_SCREENS = new Set(['vault'])
 
 export default function App() {
   // ── Session — หน่วยความจำเท่านั้น ────────────────────────────────
@@ -52,7 +63,9 @@ export default function App() {
   }, [])
 
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState('light')
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('aegis_theme') || 'dark'
+  })
   const [density, setDensity] = useState('comfortable')
   const [screen, setScreen] = useState('dashboard')
   const [collapsed, setCollapsed] = useState(false)
@@ -62,14 +75,6 @@ export default function App() {
   // ตัวเลขรวมของแอป (มิเตอร์ใน Sidebar) — จากเซิร์ฟเวอร์เท่านั้น, poll เงียบ ๆ ทุก 30s
   const dashApi = useApi(session ? '/api/dashboard' : null, { refreshMs: 30_000 })
   const metrics = dashApi.data?.metrics ?? null
-
-  // ดัชนีไฟล์สำหรับช่องค้นหา — ชุดเดียวกับจอ Files (ไม่มี fixture ฝั่ง client แล้ว)
-  const filesApi = useApi(session ? '/api/files' : null, { refreshMs: 60_000 })
-
-  // Search state
-  const [query, setQuery] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
-  const searchRef = useRef(null)
 
   // ⚠️ ไม่มี preview-as-role / role switcher ใด ๆ — role มาจากเซิร์ฟเวอร์เท่านั้น
   // การเดโม่สองบทบาทใช้ "สองบัญชีจริง" ล็อกอินสลับกัน (ดู server/db/seed.sql)
@@ -84,18 +89,13 @@ export default function App() {
   // — client แค่ render สิ่งที่ได้รับ รายการที่ไม่มีสิทธิ์ไม่เคยมาถึง DOM เลย
   const nav = session?.menu ?? []
 
-  // ⌘K / Ctrl+K listener
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        searchRef.current?.focus()
-        setSearchOpen(true)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  // ── ดัชนีสำหรับ GlobalSearch — fetch ที่นี่ตัวเดียว (คงที่ข้ามการเปลี่ยนจอ)
+  // ส่วน "เปิด/ปิด dropdown" เป็นของ GlobalSearch เองล้วน ๆ ไม่ยกขึ้นมาที่นี่
+  const filesApi = useApi(session ? '/api/files' : null, { refreshMs: 60_000 })
+  // กลุ่ม PEOPLE โผล่เฉพาะคนที่เซิร์ฟเวอร์ให้เห็นจอ Access อยู่แล้ว —
+  // ใช้เมนูที่ถูก filter มาจากเซิร์ฟเวอร์เป็นตัวตัดสิน ไม่เดา role ฝั่ง client
+  const canSeePeople = nav.some((n) => n.id === 'access')
+  const usersApi = useApi(session && canSeePeople ? '/api/users' : null, { refreshMs: 60_000 })
 
   // theme: light | dark | system → data-theme on <html>
   useEffect(() => {
@@ -104,6 +104,8 @@ export default function App() {
       const dark = theme === 'dark' || (theme === 'system' && mq.matches)
       document.documentElement.dataset.theme = dark ? 'dark' : 'light'
       document.documentElement.classList.toggle('dark', dark)
+      document.documentElement.classList.toggle('light', !dark)
+      localStorage.setItem('aegis_theme', theme)
 
       const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
       link.type = 'image/png'
@@ -115,6 +117,16 @@ export default function App() {
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [theme])
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'aegis_theme' && e.newValue) {
+        setTheme(e.newValue)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.density = density
@@ -161,10 +173,6 @@ export default function App() {
     if (['shares', 'snapshots', 'storage', 'audit', 'access'].includes(scr)) return 'table'
     return 'generic'
   }
-
-  const matches = (filesApi.data?.files ?? [])
-    .filter((f) => f.name.toLowerCase().includes(query.toLowerCase()))
-    .slice(0, 5)
 
   const screenEl = {
     dashboard: <Dashboard t={t} lang={lang} />,
@@ -256,39 +264,19 @@ export default function App() {
                   {t(TITLE_KEYS[screen])}
                 </h1>
 
-                {/* Relocated Global Search Bar */}
-                <div className="relative w-full max-w-[380px]">
-                  <Search size={15} strokeWidth={1.5} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-                  <input
-                    ref={searchRef}
-                    value={query}
-                    onChange={(e) => { setQuery(e.target.value); setSearchOpen(true) }}
-                    onFocus={() => setSearchOpen(true)}
-                    placeholder={t('searchPlaceholder')}
-                    aria-label={t('searchPlaceholder')}
-                    className="w-full h-10 pl-10 pr-12 rounded-full bg-sunken border border-line text-sm text-ink placeholder:text-ink-3 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-soft shadow-xs"
-                  />
-                  <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10.5px] font-mono font-medium text-ink-3 bg-card border border-line rounded px-1.5 py-0.5 pointer-events-none max-sm:hidden">
-                    ⌘K
-                  </kbd>
-                  {searchOpen && (
-                    <div className="absolute top-[calc(100%+6px)] right-0 w-full bg-card border border-line rounded-xl py-2 shadow-xl z-50">
-                      <p className="px-4 pb-1.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">{t('searchRecent')}</p>
-                      {matches.length === 0 && <p className="px-4 py-2 text-xs text-ink-3">{t('empty')}</p>}
-                      {matches.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => { setSearchOpen(false); setQuery(''); setScreen('files') }}
-                          className="w-full flex items-center gap-2.5 px-4 h-9 text-xs font-medium text-ink-2 hover:bg-sunken transition-colors cursor-pointer text-left"
-                        >
-                          <FileText size={14} className="text-ink-3 shrink-0" />
-                          <span className="truncate">{f.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* ช่องค้นหาระดับระบบ — "หนึ่งอินสแตนซ์ต่อจอ" มีอยู่ทุกจอ
+                    จอ Vault ได้ตัวเดียวกันแต่ disabled (ดู SEARCH_DISABLED_SCREENS)
+                    ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
+                       ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
+                <GlobalSearch
+                  t={t}
+                  screen={screen}
+                  go={setScreen}
+                  nav={nav}
+                  files={filesApi.data?.files ?? []}
+                  people={usersApi.data?.users ?? []}
+                  disabled={SEARCH_DISABLED_SCREENS.has(screen)}
+                />
               </div>
             </div>
             {loadingScreen ? (

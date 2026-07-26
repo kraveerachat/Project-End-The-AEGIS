@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { UserPlus, Info, MoreHorizontal, Users } from 'lucide-react'
+import { UserPlus, Info, MoreHorizontal, Users, Search } from 'lucide-react'
 import { Card, CardTitle, Chip, Btn, Th, IconBtn, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
@@ -49,7 +49,15 @@ function PermCell({ granted, label }) {
 export function Access({ t }) {
   const now = useNow(30_000)
   const usersApi = useApi('/api/users')
-  const users = usersApi.data?.users ?? []
+  const allUsers = usersApi.data?.users ?? []
+
+  // ตัวกรองของ "ตารางนี้" โดยเฉพาะ — ไม่ใช่ช่องค้นหาระดับระบบ
+  // จอนี้ตอบคำถามเดียว: "บัญชีชื่อนี้มีสิทธิ์อะไร" ค้นชื่อในที่ตรงนี้ตรงประเด็นกว่า
+  const [filter, setFilter] = useState('')
+  const fq = filter.trim().toLowerCase()
+  const users = fq
+    ? allUsers.filter((u) => `${u.name} ${u.username}`.toLowerCase().includes(fq))
+    : allUsers
 
   const [addOpen, setAddOpen] = useState(false)
   const [name, setName] = useState('')
@@ -91,9 +99,21 @@ export function Access({ t }) {
       {/* user table — สี่สถานะครบ */}
       <div className="col-span-12">
         <Card className="overflow-hidden">
-          <div className="px-5 pt-5 pb-3 flex items-center">
+          <div className="px-5 pt-5 pb-3 flex items-center gap-3 flex-wrap">
             <h2 className="text-[16px] font-semibold text-ink">{t('accessTitle')}</h2>
             <div className="flex-1" />
+            <div className="relative w-[240px] max-sm:w-full">
+              <Search size={14} strokeWidth={1.5} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder={t('accessFilter')}
+                aria-label={t('accessFilter')}
+                disabled={usersApi.loading || !!usersApi.error}
+                className="w-full h-8 pl-9 pr-3 rounded-full bg-sunken border border-line text-[13px] text-ink placeholder:text-ink-3 outline-none transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] disabled:opacity-45"
+              />
+            </div>
             <Btn variant="primary" size="sm" onClick={() => { setAddOpen(true); setSaveError(false) }}>
               <UserPlus size={14} strokeWidth={1.5} />
               {t('addUser')}
@@ -104,7 +124,8 @@ export function Access({ t }) {
           ) : usersApi.error ? (
             <ErrorState t={t} kind={usersApi.error} onRetry={usersApi.retry} />
           ) : users.length === 0 ? (
-            <EmptyState icon={Users} title={t('emptyNoUsers')} />
+            // ว่างเพราะ "ไม่มีบัญชี" กับว่างเพราะ "ตัวกรองไม่ตรง" คนละเรื่อง — อย่ารวมข้อความ
+            <EmptyState icon={Users} title={fq ? t('accessFilterNone', { q: filter.trim() }) : t('emptyNoUsers')} />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">

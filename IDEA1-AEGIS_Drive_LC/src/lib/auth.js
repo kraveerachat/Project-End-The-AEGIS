@@ -12,12 +12,17 @@ import { apiFetch, setCsrfToken, clearCsrfToken } from './api.js'
  * ⚠️ ไม่มี role ใน body เด็ดขาด (role มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น)
  */
 export async function login({ username, password, remember }) {
-  const { ok, status, data } = await apiFetch('/api/login', {
+  const { ok, status, data, errorKind } = await apiFetch('/api/login', {
     method: 'POST',
     body: { username, password, remember: Boolean(remember) },
     suppressAuthHandler: true, // 401 ที่นี่คือ "รหัสผิด" ไม่ใช่ "เซสชันหมด"
   })
-  if (!ok || !data?.user) return { ok: false, status, lockedMs: data?.lockedMs ?? 0 }
+  // ⚠️ ต้องส่ง errorKind ต่อขึ้นไปเสมอ — เดิมทิ้งไว้ตรงนี้ จอ Login จึงเหลือแค่
+  //    "ล้มเหลว/ไม่ล้มเหลว" แล้วเดาว่าทุกความล้มเหลวคือรหัสผ่านผิด ซึ่งไม่จริง:
+  //    403 (ถูกบล็อกด้วย CSRF) / timeout / network / 5xx ไม่เคยแตะรหัสผ่านเลยสักครั้ง
+  if (!ok || !data?.user) {
+    return { ok: false, status, errorKind, lockedMs: data?.lockedMs ?? 0 }
+  }
   setCsrfToken(data.csrfToken ?? null)
   return { ok: true, user: data.user, menu: data.menu ?? [] }
 }
