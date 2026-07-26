@@ -164,3 +164,4 @@ services:
 volumes:
   postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
   drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
+  

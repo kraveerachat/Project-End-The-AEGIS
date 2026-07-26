@@ -714,3 +714,115 @@ docker compose restart monitor          # โปรเซสใหม่ — ถ
 > `DELETE FROM detections; DELETE FROM clips; DELETE FROM alerts;` (role `monitor_app`
 > มีสิทธิ์ DML แต่ **ไม่มี TRUNCATE** — เจ้าของตารางคือ superuser ตอน migrate เท่านั้น,
 > ดูหัวข้อ 11 — ดังนั้นใช้ `DELETE`)
+
+---
+
+## 15 · Private Vault (IDEA1) — Zero-Knowledge กับ Postgres จริง ไม่ใช่ mock
+
+> ยืนยันเมื่อ **2026-07-26** · 38/38 เทสต์ผ่านกับ Postgres จริง (29/29 + skip 9 ในโหมด in-memory)
+> ระเบียบเดียวกับหัวข้อ 11/14: **ตรวจของจริงด้วย `psql`/`pg_dump` ไม่ใช่เชื่อ assertion ในโค้ด**
+
+### 15.1 ยกฐานทดสอบแยก (ไม่แตะ volume ของ dev)
+
+⚠️ ใช้ **project name แยก** เสมอ — `docker compose -p aegisvaulttest` สร้าง volume คนละลูก
+กับ `aegis_system` ที่ใช้พัฒนาอยู่ ข้อมูล dev จึงไม่ถูกแตะเลย
+
+```bash
+# override เพิ่มแค่การ publish พอร์ต — init pipeline (00/01/02 + schema.sql) เป็นของจริงทั้งหมด
+printf 'services:\n  postgres:\n    ports:\n      - "55432:5432"\n' > /tmp/pg-test.override.yml
+docker compose -p aegisvaulttest -f docker-compose.yml -f /tmp/pg-test.override.yml up -d postgres
+
+PW=$(docker exec aegisvaulttest-postgres-1 printenv DRIVE_DB_PASSWORD)
+export TEST_DATABASE_URL="postgresql://drive_app:${PW}@127.0.0.1:55432/aegis_drive"
+```
+
+`schema.sql` ถูกใช้โดย `01-run-app-init.sh` บน volume เปล่า → ได้ตาราง vault โครงใหม่ทันที:
+
+```bash
+docker exec aegisvaulttest-postgres-1 psql -U aegis -d aegis_drive -c "\d vault_blobs"
+# id, user_id, storage_key, iv_b64, wrapped_dek_b64, wrap_iv_b64, meta_iv_b64, meta_b64, size_bytes, created_at
+# ✅ ไม่มีคอลัมน์ name / mime / type / key ใด ๆ — โดยโครงสร้าง ไม่ใช่โดยสัญญา
+```
+
+### 15.2 Migration `001_vault_envelope.sql` — ทั้งทางที่ควรผ่านและทางที่ควรหยุด
+
+ทดสอบกับฐานที่ลง **schema เวอร์ชันก่อน migrate** (`git show HEAD:…/schema.sql`) สองใบ:
+
+| กรณี | ผลที่ต้องได้ | ผลจริง |
+| :--- | :--- | :--- |
+| `vault_blobs` มีแถว | `RAISE EXCEPTION`, rollback, ข้อมูลอยู่ครบ | ✅ exit 3, `data_b64` ยังอยู่, โครงยังเป็นของเดิม |
+| `vault_meta` มีแถว (blobs ว่าง) | `RAISE EXCEPTION`, rollback | ✅ exit non-zero, แถวยังอยู่ |
+| ทั้งสองตารางว่าง | migrate สำเร็จ COMMIT | ✅ DROP×2 + CREATE×2 + INDEX + GRANT×2 → COMMIT |
+
+```bash
+docker exec aegisvaulttest-postgres-1 psql -U aegis -d mig_guard -v ON_ERROR_STOP=1 -f /tmp/001_migration.sql
+# ERROR: vault_blobs มี 1 แถว — หยุดการ migrate เพื่อไม่ให้ ciphertext หาย …
+```
+
+**ผลลัพธ์หลัง migrate เท่ากับ `schema.sql` ทุกคอลัมน์** (diff 19 คอลัมน์ = ไม่มีความต่าง)
+และ `drive_app` ได้ `SELECT,INSERT,UPDATE,DELETE` บนทั้งสองตาราง
+
+### 15.3 รันชุดทดสอบกับฐานจริง
+
+```bash
+cd IDEA1-AEGIS_Drive_LC && npm test        # TEST_DATABASE_URL ตั้งไว้แล้ว → โหมด postgres
+# [vault tests] database mode: postgres
+# ℹ tests 38 · pass 38 · fail 0
+```
+
+ไม่ตั้ง `TEST_DATABASE_URL` → 29 ผ่าน + **skip 9** (ชุดที่ต้องใช้ Postgres) — นักพัฒนาที่ไม่มี
+Docker ยังรันได้ตามปกติ
+
+⚠️ `--test-concurrency=1` จำเป็น (ตั้งใน `package.json` แล้ว): `vaultApi.test.js` กับ
+`vaultPostgres.test.js` ใช้ฐานเดียวกันและต่างก็ล้างตารางใน `beforeEach` — รันขนานกันจะ
+ล้มแบบสุ่มโดยที่โค้ดโปรดักชันไม่ผิดอะไร
+
+⚠️ helper ล้างตารางใช้ `DELETE` ไม่ใช่ `TRUNCATE` — `drive_app` ไม่มีสิทธิ์ TRUNCATE
+(เหมือน `monitor_app` ในหัวข้อ 14) ถ้าเทสต์ต้องการสิทธิ์เกินกว่าแอปจริง แปลว่าเทสต์กำลังโกง
+
+### 15.4 grep ของจริง — ไม่ใช่ assertion ในโค้ด
+
+อัปโหลดไฟล์ที่มีความลับเข้า vault จริงก่อน (`tests/helpers/seedRealVault.mjs`) แล้วค่อยค้น
+— **ถ้าฐานว่าง การ grep ไม่พบอะไรไม่ได้พิสูจน์อะไรเลย**
+
+```bash
+SEED_STORAGE_ROOT=/tmp/seedstore node tests/helpers/seedRealVault.mjs
+docker exec aegisvaulttest-postgres-1 pg_dump -U aegis -d aegis_drive > /tmp/aegis_drive.dump.sql
+grep -iF -e 'merger-terms_SIGNED_2026.pdf' -e 'CONFIDENTIAL MERGER' -e 'Meridian' \
+        -e 'orchid-tungsten-ledger-41-vault' /tmp/aegis_drive.dump.sql
+```
+
+| สิ่งที่ตรวจ | วิธี | ผล |
+| :--- | :--- | :--- |
+| ทุกตาราง/ทุกแถวในฐาน | `pg_dump` ทั้งฐาน (52 KB) แล้ว grep 8 คำ | ✅ 0 hit |
+| ทุกคอลัมน์ข้อความทุกตาราง | SQL ไล่ `information_schema` + สแกน 112 ค่า | ✅ 0 hit |
+| **Postgres log พร้อม bind parameter เต็ม** | `log_statement=all` + `log_parameter_max_length=-1` | ✅ 0 hit |
+| ไฟล์ `.aegisenc` บนดิสก์ | `grep -a` + hexdump | ✅ 0 hit, 123 B = plaintext 107 + GCM tag 16 |
+| application log (stdout/stderr) | `NODE_DEBUG=http,net` แล้ว grep | ✅ 0 hit |
+
+**หลักฐานที่แข็งที่สุด** — เปิด log ทุก bind parameter แบบไม่ตัด แล้วดูว่า Postgres เห็นอะไรจริง ๆ:
+
+```
+DETAIL:  parameters: $1 = '2', $2 = 'vault/a476f6db-….aegisenc',
+  $3 = 'eOXwHs6p1+y8cTOY', $4 = 'J1lGRLN+FpikyrSlBhXFi8oiW0qaH9BnQo1/4Q0jpdmZ…',
+  $5 = 'w7wh19m0h1G84tOx', $6 = 'avYA6+lU8+YJKzHa',
+  $7 = '01WCrvMvcZA5ZrtWszzI7vQZvDhCDS0Vi3T/pKSa8+RdaDGp1ElHcBtMr2Duc…', $8 = '123'
+```
+
+ชื่อไฟล์ `merger-terms_SIGNED_2026.pdf` อยู่ใน `$7` (`meta_b64`) ในรูป **ciphertext** —
+Postgres จด parameter ครบทุกตัวแต่ยังไม่มีคำไหนอ่านออก และ `$2` เป็น UUID ทึบ ไม่มีเศษชื่อจริง
+
+> **control check**: grep ชุดเดียวกันกับไฟล์ plaintext ต้อง **เจอ** คำเหล่านั้น — ยืนยันว่า
+> การค้นทำงานจริง ไม่ได้ผ่านเพราะ pattern พิมพ์ผิด
+
+### 15.5 กุญแจที่อยู่ในฐานข้อมูล "ใช้เปิดไฟล์ไม่ได้"
+
+สมมติผู้บุกรุกยึดเซิร์ฟเวอร์ได้ทั้งเครื่อง (ทั้งแถวใน Postgres + ไฟล์ `.aegisenc`) แล้วลองใช้
+`wrapped_dek_b64` เป็นกุญแจตรง ๆ ทุกวิธีที่สมเหตุสมผล → **ล้มเหลวทุกทาง** เพราะ KEK ไม่เคย
+เดินทางมาถึงเครื่องนี้ (`vaultPostgres.test.js` เคส *กุญแจในฐานข้อมูล "ใช้เปิดไฟล์ไม่ได้"*)
+
+### 15.6 เก็บกวาด
+
+```bash
+docker compose -p aegisvaulttest down -v   # ลบเฉพาะ volume ของ project ทดสอบ
+```

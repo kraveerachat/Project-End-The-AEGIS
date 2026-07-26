@@ -3,7 +3,7 @@ title: AEGIS LLM Wiki Catalog Index
 tags: [aegis, wiki, index, catalog]
 type: catalog
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-07-25
 ---
 
 # 📚 AEGIS System LLM Wiki Catalog
@@ -36,7 +36,7 @@ updated: 2026-07-20
 * [[concepts/Three_Layer_Data_Lake]] — การจำลองคลังข้อมูล 3 ชั้น (Storage, Metadata, Application) บน NAS
 * [[concepts/OWASP_Security_Defense]] — มาตรการป้องกัน OWASP Top 10, Bcrypt Timing Equalization, และ Anti-CSRF
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] — สถาปัตยกรรมรีโมทระยะไกล 2 เส้นทาง (OpenVPN ด่าน 0-A vs Twingate ZTNA ด่าน 0-B)
-* [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] — การเข้ารหัสฝั่งผู้ใช้ AES-256 Client-Side และชุดคำกู้คืน 12 คำ (BIP-39)
+* [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] — Zero-Knowledge Private Vault: **Argon2id → KEK + envelope AES-256-GCM ต่อไฟล์** (build แล้ว 2026-07-26) · BIP-39 12 คำ = 🔴 ยังไม่ได้ build · **ไม่มีการกู้ passphrase โดยเจตนา**
 
 ---
 
