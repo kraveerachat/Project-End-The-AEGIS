@@ -7,12 +7,25 @@
 //    - users                  : ไม่อยู่ในไฟล์นี้แล้ว — ดู listUsers ใน connection.js
 //    - audit                  : อยู่ใน connection.js (recordAudit / readAudit)
 //
-// ⚠️ หมวดที่ "ยังไม่จริง" ถูกระบุตรง ๆ ที่หัวหมวดของมันเอง — snapshots, storage/backup,
-//    encryption keys, network zones, sessions และ transfer7d ของ dashboard
-//    เดิมหัวไฟล์นี้เขียนว่า users "ต่อท่อครบ" ทั้งที่ listUsers() คืนอาเรย์ hard-code
+//    - file_versions          : ตารางจริง + ไบต์จริงใต้ versions/ (กู้คืนได้จริง)
+//    - network_zones          : ตารางจริง แต่เป็น "บันทึกเจตนา" ไม่ใช่กลไกบังคับ
+//    - storage capacity       : statfs ของ mount จริง (ดู filesystemCapacity)
+//    - dashboard activity     : นับจาก audit_log จริง
+//
+// ⚠️ สิ่งที่ deployment นี้ "วัดไม่ได้" ถูกประกาศผ่าน storageStatus().unavailable
+//    (สุขภาพดิสก์/SMART, RAID, งานสำรองข้อมูล) — ตรวจแล้วว่าต้องมีสิทธิ์ระดับโฮสต์
+//    ที่ไม่ได้ให้ไว้ ไม่ใช่งานที่เขียนโค้ดเพิ่มแล้วได้ ดูเหตุผลเต็มที่หัวหมวด Storage
+//
+// ⚠️ หมวดที่ถูก "ถอนออกทั้งฟีเจอร์" เพราะมันโฆษณาสิ่งที่ไม่มีอยู่: snapshots + rollback
+//    (ดูหัวหมวด File versions) และ encryption keys + rotate (ดูหัวหมวด Network zones)
+//    ส่วน sessions ย้ายไปอ่าน session store จริงที่ auth/session.js
+//
+// ⚠️ เดิมหัวไฟล์นี้เขียนว่า users "ต่อท่อครบ" ทั้งที่ listUsers() คืนอาเรย์ hard-code
 //    โดยไม่เช็ค usingPostgres เลย — คอมเมนต์ที่โฆษณาเกินของจริงอันตรายกว่าไม่มีคอมเมนต์
-//    เพราะคนอ่านครั้งต่อไปจะข้ามการตรวจจุดนั้นไปเลย ถ้าแก้ไฟล์นี้แล้วสถานะเปลี่ยน
-//    ให้แก้รายการด้านบนพร้อมกันในคอมมิตเดียว
+//    เพราะคนอ่านครั้งต่อไปจะข้ามการตรวจจุดนั้นไปเลย
+//    ⚠️ กติกาของไฟล์นี้: แก้โค้ดแล้วสถานะของหมวดใดเปลี่ยน ต้องแก้รายการด้านบนใน
+//    คอมมิตเดียวกัน — รอบนี้พลาดข้อนี้เอง (รายการยังระบุ transfer7d/sessions/snapshots
+//    ว่า "ยังไม่จริง" อยู่หลายคอมมิตหลังจากทั้งสามอย่างถูกเปลี่ยนไปแล้ว)
 //
 // ⚠️ ทุกฟังก์ชันในไฟล์นี้ถูกเรียก "หลัง" requireAuth/requireRole เสมอ — ห้าม route ใด
 //    เรียกตรงโดยไม่ผ่าน middleware ตรวจสิทธิ์ (ดู routes/api.js)
@@ -733,9 +746,6 @@ export async function removeNetworkZone(id) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────
-// files/shares come from the real Metadata Layer now (Postgres when
-// configured); transfer7d stays illustrative — real throughput is an OS/NIC
-// metric this app doesn't have a source for yet (pre-hardware).
 // ── กิจกรรมย้อนหลัง 7 วัน — นับจาก audit_log จริง ────────────────────────────
 //
 // ⚠️ เดิมชื่อ transfer7d และเป็นอาเรย์เจ็ดแถวที่ตั้งค่าไว้เอง (Tue up:42 down:118 …)
