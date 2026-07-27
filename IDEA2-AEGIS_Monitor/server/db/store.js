@@ -268,7 +268,10 @@ export async function listClips(visibleIds) {
   }))
 }
 
-// ── operators + camera_assignment (SOC จัดการผ่านวิว Operators) ─────────
+// ── operators + camera_assignment (SOC เท่านั้น) ─────────────────────────
+// ⚠️ ผู้เรียกฝั่งเว็บวันนี้คือวิว Nodes (GET /api/nodes, /api/operators, POST /api/operators)
+//    ไม่ใช่ "วิว Operators" — วิวนั้นยังไม่ถูกสร้าง (ดู TODO ใน server/rbac/permissions.js)
+//    assignCameras() ด้านล่างจึงยังไม่มีผู้เรียกจาก UI เลย (PUT /api/assignments รออยู่)
 const operators = [
   { id: 'op-reyes', name: 'M. Reyes', role: 'CCTV-Operator', active: true },
   { id: 'op-nakamura', name: 'T. Nakamura', role: 'CCTV-Operator', active: true },

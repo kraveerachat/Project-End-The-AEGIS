@@ -30,6 +30,14 @@ const VIEW_REGISTRY = [
   { id: 'alerts',      labelKey: 'navAlerts',      group: 'navAnalytics',   roles: [ROLES.SOC] },
   { id: 'nodes',       labelKey: 'navNodes',       group: 'navInfra',       roles: [ROLES.SOC] },
   // Operators = UI จัดการตาราง camera_assignment ของ IDEA2 เอง — SOC-Responder เท่านั้น
+  // ⚠️ TODO (ยังไม่ถูกสร้าง): วิวนี้ถูกส่งใน payload แล้วแต่ "ยังไม่มี component" —
+  //    src/nav.js ไม่มี id นี้ใน DISPLAY จึงถูก buildSections ทิ้งเงียบ ๆ ผู้ใช้ไม่เห็นเมนู
+  //    ที่กดไม่ได้ แต่ entry นี้ถูก "คงไว้โดยเจตนา" เพราะเป็นงานที่ยังค้าง ไม่ใช่เศษโค้ด:
+  //      - README.md (View #6) ระบุสเปกไว้: ตาราง operator + inline add + assignment editor
+  //      - src/index.css มีบล็อก /* operators */ (.csvbtn/.tablewrap/table.dt) รออยู่ครบ
+  //      - PUT /api/assignments (routes/api.js) มีแล้วฝั่งเซิร์ฟเวอร์ แต่ยังไม่มีผู้เรียก
+  //    ครึ่งที่สร้างไปแล้วคือ "เพิ่ม operator" ซึ่งไปอยู่ในวิว Nodes เป็น modal
+  //    (src/views/Nodes.jsx — AddOperatorModal) ส่วนที่เหลือคือ assignment editor
   { id: 'operators',   labelKey: 'navOperators',   group: 'navInfra',       roles: [ROLES.SOC] },
   // diagnostics = จอสุขภาพกล้องของ Scoped View (สเปกของ CCTV-Operator)
   { id: 'diagnostics', labelKey: 'navDiagnostics', group: 'navInfra',       roles: [ROLES.OPERATOR] },

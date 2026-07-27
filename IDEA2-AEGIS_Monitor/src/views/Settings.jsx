@@ -93,7 +93,11 @@ const TRANSLATIONS = {
 }
 
 // ⚠️ ข้อมูลบัญชี (user/cameras) มาจากเซสชันฝั่งเซิร์ฟเวอร์ — อ่านอย่างเดียว
-// การเปลี่ยน identity / camera assignment ทำโดย SOC-Responder ในวิว Operators เท่านั้น
+// การเปลี่ยน identity / camera assignment เป็นสิทธิ์ของ SOC-Responder เท่านั้น
+// ⚠️ วันนี้ทำได้แค่ "เพิ่ม operator + ผูกกล้องตอนสร้าง" ในวิว Nodes (AddOperatorModal)
+//    ส่วน "แก้ assignment ของ operator ที่มีอยู่แล้ว" ยังไม่มี UI — endpoint มีแล้ว
+//    (PUT /api/assignments) แต่ยังไม่มีผู้เรียก รอวิว Operators ที่ยังไม่ถูกสร้าง
+//    (ดู TODO ใน server/rbac/permissions.js)
 export default function Settings({ lang, setLang, theme, setTheme, user, cameras = [], onSignOut }) {
   const [inAppSound, setInAppSound] = useState(true)
   const [desktopAlerts, setDesktopAlerts] = useState(true)
