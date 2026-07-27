@@ -1,339 +1,325 @@
 ---
 title: IDEA1 AEGIS Drive LC
-tags: [aegis, drive, datalake, nas, security, vault-crypto]
+tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-25
+updated: 2026-07-27
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 💾 IDEA1: AEGIS Drive LC (Secure NAS & Data Lake)
 
-> **สถานะโค้ดปัจจุบัน (Code Status)**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Cyber-Physical Dual Theme Light/Dark Mode + Volumetric Aura Glow + Framer Motion Physics + Tailwind v4 `@variant dark`)  
-> **ไฟล์โค้ดหลัก**: `IDEA1-AEGIS_Drive_LC/server/`, `IDEA1-AEGIS_Drive_LC/src/lib/api.js`, `IDEA1-AEGIS_Drive_LC/src/lib/vaultCrypto.js`, `IDEA1-AEGIS_Drive_LC/src/screens/`
+> **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
+> **Test Status**: 11 suites / **97 tests — 97 pass against real PostgreSQL**; 79 pass + 18 Postgres-only skipped in in-memory mode.
+> **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ---
 
-## 🆕 Storage Layer — ชั้นเก็บไฟล์จริงเปิดใช้งานแล้ว (2026-07-22)
+## 🧭 What is real, and what this deployment cannot do
 
-ก่อนหน้านี้ Data Lake มีแค่ **Metadata Layer** จริง ๆ — endpoint อัปโหลดรับเฉพาะ
-`{name, size, sha256}` แล้วเขียนแถวใน `files` ที่ชี้ไปยัง path สมมุติ
-(`/datalake/uploads/<ชื่อไฟล์>`) โดยไม่มี byte ไหนถูกเขียนลงดิสก์เลย ตอนนี้ชั้น
-Storage ของจริงถูกสร้างแล้ว:
+This module went through a pass (2026-07-27) whose whole purpose was removing data that *looked* measured but was written into the source. The table below is the honest state. **When code changes, this table changes in the same commit.**
 
-* **`server/storage/fileStore.js` (ใหม่)** — Storage Layer (แนวคิด HDFS) เป็น
-  filesystem ธรรมดาบน Docker named volume `drive_storage` ที่ mount ไว้ที่
-  `/datalake` ในคอนเทนเนอร์ drive **เฉพาะ IDEA1 เท่านั้น** (monitor/gateway ไม่ mount)
-  — ไม่ใช้ Hadoop/Hive เพราะ Beelink 8GB รับไม่ไหวและไม่จำเป็น สิ่งที่ต้องการคือ
-  "ไฟล์ดิบอยู่คนละชั้นกับ metadata" เท่านั้น
-* **`POST /api/files/upload`** เปลี่ยนเป็น `multipart/form-data` ผ่าน **multer 2.x**
-  (`diskStorage` แบบ stream — ไฟล์ 1GB ไม่กิน RAM 1GB บนเครื่อง 8GB) เพดาน 1 GiB/ไฟล์
-* **`GET /api/files/:id/download` (ใหม่)** — stream byte จริงจากดิสก์ พร้อม
-  `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff` เสมอ
-  (ไฟล์ HTML/SVG ที่ผู้ใช้อัปโหลดต้องไม่ถูก render ใน origin เดียวกัน = กัน XSS)
-* **`DELETE /api/files/:id`** ลบ byte บนดิสก์ตามหลังลบแถว metadata — ไฟล์ที่ผู้ใช้
-  "ลบแล้ว" ต้องไม่นอนค้างบนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก
-  * **🛡️ ด่าน ownership (แก้ช่องโหว่ 2026-07-26)** — เดิมมีแค่ `requireAuth` ซึ่งบอกได้แค่
-    "เป็นใครคนหนึ่งที่ล็อกอินแล้ว" **ไม่ได้ตรวจว่าไฟล์เป็นของใคร → ผู้ใช้ที่ล็อกอินคนไหน
-    ก็ลบไฟล์ของคนอื่นได้ ทั้งแถว metadata และ bytes บนดิสก์** (ลบแล้วกู้ไม่ได้ ไม่มี trash)
-    ตอนนี้เทียบ `ownerId` (id ของบัญชี จาก `files.uploaded_by`) ไม่ตรง → **`403` + audit
-    `FILE_DELETE / DENIED`** · ห้ามเทียบด้วย `uploader` (display name) เพราะชื่อซ้ำ/เปลี่ยนได้
-  * ⚠️ **ไม่มีข้อยกเว้นให้ Admin โดยเจตนา** — `rbac/permissions.js` ระบุว่าสอง role
-    "จัดการไฟล์ได้เท่ากัน" Admin ได้เพิ่มแค่จอ governance ไม่ใช่สิทธิ์เหนือไฟล์ผู้อื่น
-    (เทสต์ยืนยันทั้งสองทิศทาง — Admin ลบของ user ไม่ได้ และ user ลบของ Admin ไม่ได้)
-  * ⚠️ **ช่องว่างที่รู้อยู่**: `ownerId` เป็น `null` ได้ (`uploaded_by … ON DELETE SET NULL`)
-    ไฟล์ที่เจ้าของถูกลบบัญชีไปแล้วจึง **ลบไม่ได้เลยทั้งสองโหมด** — เป็นฝั่ง fail-secure
-    แต่ยังไม่มีเส้นทางเก็บกวาดไฟล์กำพร้า (งานแยก)
+| Area | State | Source of truth |
+| :--- | :--- | :--- |
+| Files (list/upload/download/delete) | ✅ Real | `files` table + bytes on `/datalake` |
+| Private Vault (zero-knowledge) | ✅ Real | `vault_meta` / `vault_blobs` + `.aegisenc` on disk |
+| Audit log | ✅ Real | `audit_log` table |
+| Users / Access screen | ✅ Real | `users` table (see below) |
+| Profile name + avatar | ✅ Real | `users.profile_name` / `avatar_key` / `avatar_mime` |
+| Active sessions + remote revoke | ✅ Real | express-session store (**MemoryStore — lost on restart**) |
+| Secure share links (redeem/password/hits/scope) | ✅ Real | `shares` table + `GET/POST /s/:token` |
+| File history (earlier versions + restore) | ✅ Real | `file_versions` table + bytes under `versions/` |
+| Storage capacity | ✅ Real | `fs.statfs` on the Data Lake mount |
+| Dashboard activity (7 days) | ✅ Real | counted from `audit_log` |
+| Network zones | 🟠 Real record, **not** an enforcement mechanism | `network_zones` table |
+| Encryption at rest for Data Lake uploads | 🔴 **Not implemented** — files are plaintext on disk | — |
+| Disk health / SMART, RAID | 🔴 **Not measurable here** (needs host access) | declared via `storageStatus().unavailable` |
+| Off-site backup jobs | 🔴 **None configured anywhere** | declared via `storageStatus().unavailable` |
 
-**ข้อตัดสินใจด้านความปลอดภัยของชั้นนี้:**
+### Features removed for claiming things that did not exist
+* **Snapshots + rollback** — eight hardcoded rows; rollback set a `destroyed` flag and restored **zero bytes** while the UI reported "restored" plus GB lost. Replaced by real [[#🕓 File history (replaces Snapshots)]].
+* **Encryption keys + "rotate now"** — reported an `AES-256-GCM` master key with an ID and rotation date. No such key exists: Data Lake files are plaintext, Vault keys are derived in the browser. `/api/keys*` now **404s**, pinned by a test.
+* **Fabricated disks & backup jobs** — two `WD Red Pro 4TB` with serials/temperatures/`SMART PASSED` and three running backup jobs. None was read from anything.
+* **`ScopeDiagram`** — animated VLAN/Guest/Internet bands with requests dissolving against a "FIREWALL" boundary, describing enforcement the app did not perform.
+* **`otc` (one-time code) share option** — accepted by the server, but no code was ever generated or checked, so a link the user believed was code-protected opened for anyone holding it.
 
-1. **ชื่อไฟล์บนดิสก์เป็น UUID ทึบ** (`<uuid>.bin`) ไม่มีเศษของชื่อที่ผู้ใช้ตั้งปนเลย
-   แม้แต่นามสกุล → (ก) คนที่เข้าถึงได้แค่ดิสก์อ่านไม่ออกว่าไฟล์ไหนคืออะไร
-   (ข) ชื่อจากผู้ใช้ไม่มีวันกลายเป็น path บนดิสก์ = **ตัด path traversal ตั้งแต่ต้นทาง**
-   ไม่ต้องพึ่ง sanitize ที่อาจพลาด — ชื่อจริงอยู่คอลัมน์ `name` ใน Metadata Layer
-2. **`size` และ `sha256` เซิร์ฟเวอร์คำนวณเองจาก byte บนดิสก์เสมอ** ไม่เชื่อค่าที่ client
-   แจ้ง — ถ้า client แนบ sha256 มาด้วยจะถูกใช้แค่ "เทียบ" ถ้าไม่ตรง = ไฟล์เพี้ยน
-   ระหว่างทาง → ตอบ **422** ทิ้งทั้ง byte และไม่เขียน metadata
-3. **ลำดับ write ต้องเป็น byte → metadata** ถ้าสลับกันแล้วดิสก์ล้มเหลวจะเหลือแถวที่ชี้ไป
-   ยังไฟล์ที่ไม่มีอยู่จริง (metadata โกหก) และถ้า INSERT ล้มเหลวทีหลัง byte ถูกลบทิ้ง
-   (`discardUploaded`) — ไม่เหลือไฟล์กำพร้า
-4. **`resolveKey()` บังคับว่า path ที่ resolve แล้วต้องอยู่ใต้ `STORAGE_ROOT` เสมอ**
-   ต่อให้ค่าใน DB ถูกแก้ให้เป็น `../../etc/passwd` ก็ออกนอกกรอบไม่ได้
-5. **ห้ามมีรหัสผ่าน/ความลับใด ๆ ตกลงมาชั้นนี้** — bcrypt hash ทุกตัวอยู่ Metadata Layer
-   เท่านั้น ชั้นนี้ถูกออกแบบให้ "ขโมยดิสก์ไปทั้งลูกก็ยังไม่ได้รหัสผ่านใคร"
-6. **`initStorage()` ถูกเรียกก่อนเปิดพอร์ต** และเขียนไฟล์ทดสอบจริงหนึ่งครั้งเพื่อพิสูจน์
-   สิทธิ์ — named volume ที่ mount มาใหม่มักเป็นของ `root` ขณะที่คอนเทนเนอร์รันด้วย user
-   `node` ปัญหานี้ต้องดังตั้งแต่บูต ไม่ใช่ตอนผู้ใช้กดอัปโหลดแล้วเจอ 500 เงียบ ๆ
-   (`Dockerfile` จึง `mkdir -p /datalake && chown node:node` **ก่อน** `USER node`)
-
-ผลตรวจรอบ upload → download เทียบ byte ต่อ byte อยู่ใน `docs/auth-test.md` ข้อ 9
+> ⚠️ These are the same class of defect as the removed 12-word vault recovery phrase (see [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]): the danger is not a wrong number on screen, it is an operator who stops checking the disks because it said `PASSED`, or who never sets up backups because it said `Nightly incremental · ok`.
 
 ---
 
-## 🆕 Admin Provisioning & Force Password Reset (2026-07-21)
+## 🖥️ Infrastructure capability — measured, not assumed (2026-07-27)
 
-Closed-registration bootstrap and account provisioning are now real (write to
-`aegis_drive` Postgres, not the earlier demo-only stub):
+Probed from a container mounting the real `drive_storage` volume under the same privileges as the `drive` service:
 
-* **Day-0 admin bootstrap** (`server/db/bootstrapAdmin.js`) — on first boot with
-  zero `Admin` rows, reads `ADMIN_BOOTSTRAP_USERNAME` +
-  `ADMIN_BOOTSTRAP_PASSWORD_HASH` from the environment and inserts the initial
-  Admin. Only accepts an **already-hashed bcrypt value** — never a raw
-  password — generated locally via `scripts/hash_password.py` (getpass,
-  never echoed/logged/in shell history). Refuses to boot if the value doesn't
-  look like a bcrypt hash. No-ops once any Admin exists (idempotent, safe on
-  every container restart).
-* **`POST /api/users`** (Admin only) provisions a `DataLake-User` with a
-  server-generated, high-entropy temporary password (`generateTempPassword()`
-  in `server/db/connection.js`) — the client can never supply the initial
-  password. The plaintext temp password is returned **once** in the API
-  response (never logged, never audited) for the Admin to relay out-of-band;
-  `src/screens/Access.jsx` now shows a one-time reveal panel (copy button)
-  instead of silently discarding it. This endpoint deliberately cannot create
-  another Admin, to limit blast radius if an Admin session is hijacked.
-  > ⚠️ คำบรรยายเดิมของบรรทัดนี้อ้างอิง "recovery-phrase reveal pattern ใน `Settings.jsx`"
-  > — การ์ดนั้น **ถูกลบทั้งใบแล้ว 2026-07-26** เพราะเป็นคำสัญญาเท็จ (ดู
-  > [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]) · one-time reveal ของจอ Access
-  > **ยังอยู่และยังถูกต้อง** เพราะ temp password มีอยู่จริงฝั่งเซิร์ฟเวอร์ — ต่างกันตรงนี้เอง:
-  > reveal ที่ถูกต้องคือการโชว์ความลับที่ระบบสร้างจริง ไม่ใช่โชว์คำที่ไม่ผูกกับอะไรเลย
-* **Force Password Reset** — new accounts (and the Day-0 admin) are created
-  with `must_reset_password = TRUE`. `server/middleware/requireRole.js` blocks
-  every endpoint except `/me`, `/logout`, and the new `POST /api/password/reset`
-  until the user changes it (current-password re-verification + 12-char
-  minimum). The flag lives in the session (`server/auth/session.js`) and is
-  cleared in the same request that updates the DB hash, so no re-login is
-  needed after resetting.
-* **Local test fixture seeding** (`server/db/seedTestFixtures.js`, separate from
-  the production flow above) — upserts a fixed 3-account matrix
-  (`admin_drive`/`staff_01`/`staff_02`) from bcrypt hashes in `.env.test`, with
-  `must_reset_password = FALSE` so testers can log in immediately with known
-  passwords. Not called at boot; refuses to run under `NODE_ENV=production`.
+```
+/datalake            ext4 on /dev/sde       1.05 TB total, 976 GB available
+lvcreate / lvs / vgs absent
+zfs / btrfs          absent
+/dev/mapper          not present
+raw block devices    none exposed
+smartctl / mdadm     absent
+/proc/mdstat         unavailable
+CapEff               0x00000000a80425fb   (Docker default)
+```
+
+* **Point-in-time snapshots are impossible here.** `/datalake` is plain **ext4** — not LVM (no `/dev/mapper` at all), not ZFS, not Btrfs. Nothing to snapshot, and no tooling to do it with.
+* **SMART / RAID telemetry is unreachable.** Binaries absent, no raw device exposed, `/proc/mdstat` missing. In that capability mask **`CAP_SYS_RAWIO` (bit 17) and `CAP_SYS_ADMIN` (bit 21) are both clear** — even with the binaries installed they could not talk to a device. Real telemetry is a **host-level infrastructure change**, not a coding task.
+* **`fs.statfs` needs no privilege and works** — the one genuinely available storage number, and what the capacity UI now uses.
 
 ---
 
+## 🔐 Storage Layer — how bytes are actually laid out
+
+`server/storage/fileStore.js` operates on the Docker named volume `drive_storage` mounted at `/datalake`, **mounted to the `drive` container only** (`monitor` and `gateway` cannot reach it at the filesystem level).
+
+```
+/datalake/uploads/<uuid>.bin      current file bytes
+/datalake/versions/<uuid>.bin     superseded bytes (file history)
+/datalake/vault/<uuid>.aegisenc   client-encrypted ciphertext (zero-knowledge)
+/datalake/avatars/<uuid>.png|jpg  profile pictures (EXIF stripped)
+```
+
+> ⚠️ **Correction (2026-07-27)**: this note previously stated that files are stored under content-based sharded SHA-256 paths such as `/datalake/files/ab/cd/abcd1234…`. **That was never true of the code.** `fileStore.js` writes a bare `randomUUID()` plus `.bin` under `uploads/`. The security property claimed was real, but the mechanism described was not — the opaque name is a random UUID, not a content hash, and there is no sharded directory tree.
+
+Why an opaque random name: (1) someone with only disk access cannot tell which file is which, and (2) a user-supplied name can never become a path, which removes path traversal at the source rather than relying on sanitising. Real names live in `files.name`. `resolveKey()` is a second gate that refuses any key resolving outside `STORAGE_ROOT`.
+
+Both `size_bytes` and `sha256` are computed **server-side from the bytes on disk**. A client-supplied hash is only ever used to *compare* — a mismatch discards the upload rather than storing something known to be incomplete.
+
 ---
 
-## 🏗️ สถาปัตยกรรมระบบที่พัฒนาขึ้นจริง (Verified Architecture)
+## 👤 Identity — three names, three jobs
+
+| Field | Who sets it | Can collide? | Used for |
+| :--- | :--- | :--- | :--- |
+| `username` | Admin at provisioning, immutable | No (unique) | Login, `audit_log.actor_label` |
+| `display_name` | Admin at provisioning | Yes | Access screen — confirming who an account belongs to |
+| `profile_name` | **The user, freely** | **Yes, on purpose** | Display everywhere (uploader label, share creator, TopBar) |
+
+`profile_name` wins for display via `COALESCE(NULLIF(btrim(profile_name),''), display_name)` at read time, so a rename is retroactive and nothing is copied into rows.
+
+> ⚠️ Because a profile name **can be set to a colleague's name**, every screen showing it also shows the `username`, and the Access screen additionally shows the administrator-assigned name whenever the two differ. A test asserts a profile name can never be used to log in. Authorisation is always `users.id`; never a display name.
+
+### Profile picture — the four guarantees (`server/storage/avatarStore.js`)
+1. **Type from magic bytes only** — PNG (`89 50 4E 47…`) and JPEG (`FF D8 FF`). Extension and browser-supplied `Content-Type` are ignored. SVG is refused because it is a document that can run `<script>`, and served from our own origin that is XSS with read access to the CSRF token. *A test uploads an SVG payload named `.png` with `Content-Type: image/png` and requires 415 with nothing written to disk.*
+2. **2 MiB limit** — enforced in `sanitizeAvatar()` as well as in multer, so it holds even if the middleware is bypassed.
+3. **Randomised filename** — bare `randomUUID()` + a server-chosen extension.
+4. **Metadata stripped *before* the write** — PNG keeps only an allowlist of decode-critical chunks (dropping `eXIf` / `tEXt` / `zTXt` / `iTXt`); JPEG drops every `APPn` and `COM` segment. *Tests plant real GPS coordinates and a camera serial in valid files, confirm they are present, then grep the bytes on disk.*
+
+> ⚠️ **Accepted trade-off**: dropping `APP1` also removes EXIF `Orientation`, so a phone photo that rotates via metadata will display sideways. Fixing that means rotating pixels, which means a codec — not worth a native dependency on an 8 GB target. Privacy beats rotation here.
+
+---
+
+## 🔗 Secure share links — the full redemption path
+
+`server/routes/share.js`, mounted in `app.js` **before** `express.static` and the `'*'` SPA fallback (otherwise the fallback swallows `/s/…` and returns `index.html`).
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer [React + Vite UI :5174]
-        LoginScreen["Login Form<br/>(bcrypt Timing Neutralized)"]
-        Explorer["Files Explorer & Vault<br/>(Client AES-256 via vaultCrypto.js)"]
-        AuditView["Audit Log View<br/>(Hashed Privacy Preserving)"]
-    end
-
-    subgraph ServerLayer [Express Backend :8001]
-        AuthEngine["Server Auth Engine<br/>(HttpOnly Cookie + CSRF Tokens)"]
-        RBACMiddleware["RBAC Middleware<br/>requireRole('Admin' / 'DataLake-User')"]
-        AuditLogger["Audit Logger Engine<br/>(Hashed Event Tracing)"]
-    end
-
-    subgraph StorageLayer ["Storage Layer — HDFS concept"]
-        FileStore["server/storage/fileStore.js<br/>(multer stream, UUID filenames)"]
-        Volume[("Docker volume: drive_storage<br/>mounted /datalake<br/>raw bytes only — NO secrets")]
-    end
-
-    subgraph DBLayer ["Metadata Layer — HIVE concept"]
-        DriveDB[("Database: aegis_drive<br/>(Own Identity Domain)<br/>users + password_hash + file metadata")]
-    end
-
-    LoginScreen --> AuthEngine
-    AuthEngine --> RBACMiddleware
-    RBACMiddleware -->|Admin / User| Explorer
-    RBACMiddleware -->|Admin Only| AuditView
-    RBACMiddleware --> DriveDB
-    RBACMiddleware --> AuditLogger
-    Explorer -->|"upload / download"| FileStore
-    FileStore --> Volume
-    FileStore -->|"path + real size + sha256"| DriveDB
+    R([👤 Recipient — no session, no CSRF token]) -->|"GET /s/:token"| G1
+    G1{"token exists?<br/>sha256 lookup"} -->|no| X["404 · one generic page"]
+    G1 -->|yes| G2{"revoked or expired?"}
+    G2 -->|yes| X
+    G2 -->|no| G3{"source IP within<br/>vlan_scope CIDRs?"}
+    G3 -->|no| X403["403 · restricted page"]
+    G3 -->|yes| G4{"auth_type = password?"}
+    G4 -->|no| SERVE
+    G4 -->|yes| FORM["200 · password form<br/><i>no JS, CSP nonce for one style block</i>"]
+    FORM -->|"POST /s/:token"| RL{"rate limited?<br/>scope 'share'"}
+    RL -->|locked| X429["429"]
+    RL -->|ok| PW{"bcrypt.compare"}
+    PW -->|wrong| FORM
+    PW -->|correct| SERVE
+    SERVE["stream bytes · attachment + nosniff<br/>hits = hits + 1 · audit SHARE_REDEEM OK"]
 ```
 
-> ⚠️ ลูกศร `FileStore → DriveDB` คือหัวใจของการแยกสามชั้น: **byte อยู่ที่ volume,
-> ส่วนชื่อ/ขนาด/เจ้าของ/hash อยู่ที่ Postgres** และ **รหัสผ่านอยู่ที่ Postgres เท่านั้น
-> ไม่มีวันตกลงไปที่ volume** — ดู [[concepts/Three_Layer_Data_Lake]]
+* **`token_hash CHAR(64)`, not the raw token.** A token is a bearer credential — whoever holds it downloads the file without logging in — so a leaked backup or an over-broad `SELECT` would otherwise hand over working links to every active share. **Consequence accepted:** the server cannot show a link twice, so the URL appears once at creation (like a new account's temporary password) and a lost link means revoke and reissue.
+* **`password_hash` is now genuinely used** — bcrypt cost 12, compared on redemption. *A test reads the column directly and asserts it holds a bcrypt hash with no trace of the plaintext.*
+* **`hits` increments only on a completed redemption** — not on viewing the form, not on a wrong password. *Tested both ways.*
+* **Every failure returns the same page.** Distinguishing "no such token" from "expired" would let anyone confirm which tokens once existed. `audit_log` keeps the reasons apart, because what the operator must see and what the recipient should learn are different questions.
+
+### Network scope — what is enforced, and what is not
+`vlan_scope` CIDRs are **snapshotted from `network_zones` at creation time** (reading them live would silently widen every previously issued link whenever an admin added a zone). On redemption `ipAllowed(req.ip, cidrs)` refuses anything outside the set.
+
+> ⚠️ **This is an application-level source-address check** — real, tested, and it fails closed (an unparseable CIDR or a non-mapped IPv6 address does not pass). It is **not** the same as VLAN isolation at the firewall or switch, which stops the request from arriving at all. `req.ip` is trustworthy only as far as the reverse proxy sets `X-Forwarded-For`. The UI states this limit in plain language instead of drawing a firewall. See [[concepts/VLAN_Segmentation_and_Port_Mapping]].
+>
+> Selecting "approved networks" while **no** zone is defined is **refused**, rather than producing a link labelled restricted whose empty list restricts nothing.
 
 ---
 
-## 🔒 ฟีเจอร์ความปลอดภัยและการออกแบบหลักที่เปิดใช้งานในโค้ด (Implemented Features)
+## 🕓 File history (replaces Snapshots)
 
-1. **Unified Split Vault Card Login Page (2026-07-25)**:
-   * หน้าเข้าสู่ระบบถูกปรับปรุงใหม่เป็นโครงสร้าง **50/50 Split Panel Card** (`vault-surface is-solid`) บนพื้นหลัง Cyber-Physical Grid (`.gate-bg`, `.gate-halo`)
-   * **Left Panel**: แสดงโลโก้โลหะแบบลอยตัว (`<AegisMark size={160} />`), ชื่อแบรนด์ `AEGIS`, และข้อความ Tagline Gradient **สีฟ้าล้วน** (`AUTONOMOUS EDGE-GUARD INFRASTRUCTURE SYSTEM`)
-   * **Right Panel**: ฟอร์มป้อนข้อมูล `PillInput` (พร้อมปุ่มสลับการมองเห็นรหัสผ่าน), สวิตช์ `Toggle` จดจำเซสชัน (`rememberSession`), ปุ่มหลัก `SparkleButton` ( hover/particle physics), แถบ **Defense-in-Depth 4-Layer Security Readout** (`LAYER 0 · NETWORK` vpn/vlan, `LAYER 1 · APPLICATION` credentials, `LAYER 2 · STORAGE` encrypted at rest, `LAYER 3 · METADATA` postgresql) พร้อมลวดลายทแยง `.hatch-fine` สำหรับสถานะ pending
-   * **Top-Right Controls**: แถบเลือกภาษา (`TH`, `EN`, `ZH`) ผ่าน `Segmented` control และ `ThemeToggle`
-   * **Ambient Glow — Single-Hue Policy (แก้ 2026-07-25)**: เดิม Dark Mode ใช้ **ม่วง/บานเย็น** (`purple-600`, `fuchsia-500/600`, `rgba(168,85,247,…)`) ซึ่งเป็นคนละ hue family กับ Light Mode (ฟ้า/ไซแอน `#2563EB`) และเรืองแรงจนกินพื้นที่จอ — ขัดหลัก **"Precision Light — near-invisible shadows"** ปัจจุบัน **ทุก glow บนหน้า Login อยู่ในตระกูลสีน้ำเงินทั้งสองโหมด** และ Dark Mode ถูกลดความแรงลงให้เท่าระดับความสุภาพของ Light Mode:
-     - Volumetric Aura รอบการ์ด: `dark:from-blue-600/30 via-blue-500/24 to-sky-500/16` + `dark:shadow-[0_0_34px_2px_rgba(37,99,235,0.2)]` (เดิม gradient ทึบเต็มค่า + `0 0 80px 20px rgba(168,85,247,0.4)`)
-     - Radial beam หลังการ์ด: `dark:from-blue-500/14 via-sky-500/12` (เดิม `purple-600/30 via-fuchsia-600/30`)
-     - เส้นพลังงานแนวนอน: `dark:via-blue-400/40` (เดิม `fuchsia-500/70`)
-     - ขอบการ์ด / โฟกัสอินพุต: `dark:border-blue-400/45`, `dark:focus:ring-blue-500/45`, `dark:focus:shadow-[0_0_16px_rgba(59,130,246,0.3)]`
-     - `body::after` ใน `index.css` (ambient wash ทั้งแอปในโหมดมืด): `rgba(37,99,235,0.055) → rgba(56,189,248,0.025)` (เดิมออกม่วง `rgba(124,58,237,0.06)`)
-   * **CTA `.sparkle-btn` — น้ำเงินล้วน (แก้ 2026-07-25)**: เดิม `linear-gradient(135deg, #2563eb, #7c3aed)` (น้ำเงิน→ม่วง) พร้อม `--elev-accent`/`--accent-bloom` โทนม่วง ทำให้ปุ่มเป็นวัตถุสีม่วงชิ้นเดียวที่เหลือและเด่นที่สุดบนจอ ตอนนี้เป็น **blue-700 → sky-800** (`#1d4ed8 → #075985`), hover เป็น blue-600 → sky-700 (`#2563eb → #0369a1`), `--accent-bloom` เป็น sky-300, `--elev-accent` เปลี่ยนขา rgba(124,58,237,…) เป็น rgba(2,132,199,…)
-     - **เหตุผลที่เลือกโทนเข้ม**: label ปุ่มคือ `text-[14px] font-semibold` = **normal text** ตามเกณฑ์ WCAG (ไม่ใช่ large text ที่ต้องถึง 18.66px bold) จึงต้องผ่าน **4.5:1** ไม่ใช่ 3:1 — ปลายสว่างอย่าง sky-500 (2.77:1) / sky-600 (4.09:1) ตกเกณฑ์ทั้งคู่ ค่าที่ใช้จริงวัดได้ **6.3:1 และ 7.5:1**
-     - หมายเหตุ: hover เดิม `#3b82f6` (blue-500) ให้แค่ **3.67:1** = ตกเกณฑ์มาตั้งแต่ก่อนเปลี่ยนสีแล้ว แก้ไปพร้อมกัน
-   * **Toggle "จดจำเซสชัน"** (`components/ui.jsx`) สถานะ ON เดิมก็เป็น `#2563eb → #7c3aed` → เปลี่ยนเป็น `#2563eb → #0284c7`
-   * **Contrast ที่วัดจริงหลังแก้ (Playwright + pixel sampling, 1440×900)**: กล่อง active `LAYER 1 · APPLICATION` — label 10.10:1 (dark) / 8.31:1 (light), mono text 6.96:1 / 7.15:1, **ขอบกล่องเทียบพื้นการ์ด 4.04:1 (dark) / 3.70:1 (light)** ผ่านเกณฑ์ non-text ≥3:1 ทั้งสองโหมด (dark ใช้ `dark:border-blue-400/70`, light เปลี่ยนจาก `border-cyan-500/50` = 1.57:1 เป็น `border-blue-600/80`)
-     - **ทำไม light ต้องเลิกใช้ cyan-500**: `#06B6D4` ต่อให้ทึบ 100% ก็ให้ contrast กับพื้นการ์ดขาวได้แค่ **2.45:1** — เพดานของสีนี้อยู่ต่ำกว่า 3:1 การเพิ่ม alpha อย่างเดียวจึงแก้ไม่ได้ ต้องเปลี่ยนเป็น blue-600
-   * **สแกนยืนยันว่าไม่เหลือม่วง**: สแกนทุกพิกเซลของภาพหน้าจอ (1,296,000 px) หา hue 272–335° ที่ saturation delta ≥26 — โหมดมืด **0 พิกเซล**, โหมดสว่าง **1 พิกเซล** (`rgb(60,23,42)` = จุดคล้ำในภาพพื้นหลัง ไม่ใช่องค์ประกอบ UI)
-2. **Own Identity Domain**:
-   * ครอบครองฐานข้อมูล `aegis_drive` เป็นอิสระ แยกบัญชีผู้ใช้ `Admin` และ `DataLake-User` ออกจากโมดูลอื่นเด็ดขาด
-3. **Client-Side Vault Encryption — Envelope 2 ชั้น (`src/lib/vaultCrypto.js`)** ✅ ต่อท่อจริงครบวงจร (2026-07-26):
-   * **KDF**: **Argon2id** (`hash-wasm`) m=64MiB, t=3, p=1 → **KEK 256-bit** — memory-hard จึงต้านทาน GPU/ASIC cracking rig ได้ต่างจาก PBKDF2 ที่แพงแต่เวลาอย่างเดียว (พารามิเตอร์ถูกบันทึกคู่ salt ในตาราง เพื่อให้ปรับขึ้นภายหลังได้โดย vault เก่ายังเปิดได้)
-   * **Envelope**: สุ่ม **DEK 256-bit ใหม่ทุกไฟล์** (`crypto.getRandomValues`) → เข้ารหัสเนื้อไฟล์ด้วย **AES-256-GCM** (IV สุ่มใหม่ทุกครั้ง) → **ห่อ DEK ด้วย KEK** อีกชั้นก่อนออกจากเบราว์เซอร์
-     - เปลี่ยน passphrase = re-wrap DEK เล็ก ๆ ไม่ต้องเข้ารหัสไฟล์ใหม่ทั้งคลัง
-     - แชร์ไฟล์รายชิ้นในอนาคตทำได้โดย re-wrap DEK ด้วยกุญแจผู้รับ ไม่ต้องยกกุญแจหลักให้
-   * **ชื่อไฟล์ก็ถูกเข้ารหัส** ด้วย DEK (`meta_b64`) — เซิร์ฟเวอร์ไม่รู้แม้แต่ชื่อไฟล์ เห็นได้แค่ `id` + ขนาด ciphertext ตรงตามที่ UI สัญญาไว้
-   * **Verifier**: ก้อนเล็กที่เข้ารหัสด้วย KEK — ตรวจ passphrase โดย "ลองถอด" ฝั่ง client ล้วน **ไม่มี oracle ฝั่ง server** ให้ยิงเดา และไม่ต้องเก็บ hash ของ passphrase ที่ไหนเลย
-   * **กุญแจอยู่ใน memory เท่านั้น**: `CryptoKey` แบบ non-extractable ใน React state — **ไม่แตะ localStorage/sessionStorage/IndexedDB** กดล็อก / **หมดเวลา idle 10 นาที** / ปิดแท็บ = หาย
-   * **ไม่มีการกู้ passphrase** และจะไม่มี — เซิร์ฟเวอร์ไม่มีชิ้นส่วนใดที่ใช้กู้ KEK ได้เลย (ดู [[Mnemonic_Recovery_and_Zero_Knowledge]])
-   * NAS ทำหน้าที่เป็นโกดังเก็บ Ciphertext เท่านั้น แม้แต่ Admin ก็อ่านไฟล์ใน Vault ไม่ได้หากไม่มีกุญแจผู้ใช้ (Zero-Knowledge) — พิสูจน์ด้วยเทสต์ที่สแกนหา plaintext ใน DB row / ไฟล์บนดิสก์ / server log / audit log
+Screen `src/screens/FileHistory.jsx`, nav id `versions` (was `snapshots`).
 
-   **Storage & Schema**: ciphertext ถูกเก็บเป็นไฟล์ **`.aegisenc`** ใน `vault/` บน Storage Layer (แยกโฟลเดอร์จาก `uploads/`) ส่วน metadata อยู่ใน Postgres ต่อผู้ใช้:
-   * `vault_meta` — `salt_b64`, `kdf`, `memory_kib`, `iterations`, `parallelism`, `verifier_iv/data`
-   * `vault_blobs` — `storage_key`, `iv_b64`, `wrapped_dek_b64`, `wrap_iv_b64`, `meta_iv_b64`, `meta_b64`, `size_bytes`
-   * ⚠️ ตารางถูกออกแบบให้ **ไม่มีที่ว่างให้เก็บ plaintext ได้แม้จะอยากเก็บ** — ไม่มีคอลัมน์ `name`/`mime`/กุญแจใด ๆ
+Uploading a file under **a name you already own** keeps the bytes it replaces:
 
-   **API** (ทุกเส้นอยู่หลัง `requireAuth` + CSRF, `userId` มาจาก session เสมอ):
-   | Endpoint | หน้าที่ |
-   | :--- | :--- |
-   | `GET /api/vault` | สถานะ + salt/params/verifier + envelope ของ blob (ไม่รวมเนื้อไฟล์) |
-   | `POST /api/vault/setup` | ตั้งค่าครั้งแรก — ตั้งซ้ำไม่ได้ (409) |
-   | `POST /api/vault/unlock-attempt` | ลง audit เท่านั้น รับแค่ boolean |
-   | `POST /api/vault/blobs` | อัปโหลด ciphertext (multipart) + envelope |
-   | `GET /api/vault/blobs/:id` | stream ciphertext ดิบ (ถอดฝั่ง browser) |
-   | `DELETE /api/vault/blobs/:id` | ลบ metadata แล้วลบ bytes |
+```
+upload over own name  →  current bytes renamed into versions/<uuid>.bin
+                      →  row in file_versions (size, sha256, superseded_by)
+                      →  files row points at the new bytes
+restore a version     →  current bytes become a version first (non-destructive)
+                      →  the chosen version's bytes become current
+```
 
-   > ⚠️ **CSP**: ต้องเพิ่ม `'wasm-unsafe-eval'` ใน `script-src` เพื่อให้ Argon2id (WASM) ทำงาน — keyword นี้**แคบกว่า** `'unsafe-eval'` มาก: อนุญาตแค่การคอมไพล์ WebAssembly ไม่เปิด `eval()`/`new Function()`
-   > ⚠️ **Migration**: DB ที่ deploy ไปแล้วต้องรัน `server/db/migrations/001_vault_envelope.sql` ด้วยมือ (schema.sql รันเฉพาะตอน init volume เปล่าครั้งแรก)
+* **Restore returns real bytes** — the tests download the content and compare it, not a status field.
+* **Nothing is destroyed**, which is why the confirm step does not demand you type an id. Forcing typed confirmation for a reversible action only trains people to click through it.
+* **Rename, not copy** — same volume, so it is a metadata operation; copying gigabytes on an edge HDD would cost time and double the space. *A test asserts the file count under `versions/` does not grow across a restore.*
+* **Same-name upload only versions your *own* file.** Matching on name alone would let anyone overwrite someone else's file by naming theirs to match — write access to another user's data with no ownership check.
+* **Owner-only for read, download and restore, with no Admin exception** (matching `DELETE /api/files/:id`). Past versions *are* the file's contents: reading them is reading their file; restoring them is writing to it.
+* **Deleting a file removes every version's bytes.** `ON DELETE CASCADE` takes the rows, but the bytes would otherwise sit unreferenced and unreachable — content the user believes is gone.
 
-   **✅ ยืนยันกับ Postgres จริงแล้ว (2026-07-26)** — ไม่ใช่ mock, ดู `docs/auth-test.md` หัวข้อ 15:
-   * **42 เทสต์ · 33 ผ่าน + skip 9 เมื่อไม่มี DB** (เดิม 38/29 — เพิ่ม `tests/filesOwnership.test.js` 4 เคส 2026-07-26) — ตั้ง `TEST_DATABASE_URL` เพื่อสลับโหมด, เทสต์ชุดเดียวกันเป๊ะต้องผ่านทั้งสองโหมด
-   * migration guard ทำงานครบสามทาง: มีแถวใน `vault_blobs` หรือ `vault_meta` → `RAISE EXCEPTION` + rollback (ข้อมูลอยู่ครบ) · ว่างทั้งคู่ → COMMIT และได้โครง **เท่ากับ `schema.sql` ทุกคอลัมน์**
-   * grep ของจริงหลังอัปโหลดไฟล์ที่มีความลับเข้าระบบ: `pg_dump` ทั้งฐาน · ทุกคอลัมน์ข้อความทุกตาราง · **Postgres log ที่เปิด `log_statement=all` + `log_parameter_max_length=-1`** · ไฟล์ `.aegisenc` · application log → **0 hit ทุกช่องทาง**
-   * ⚠️ **บั๊กที่เจอเพราะรันกับ DB จริง**: `auditAct()` เป็น fire-and-forget — โหมด in-memory เขียน synchronous จึงไม่เคยเห็นปัญหา แต่กับ Postgres มันแข่งกับ HTTP response ทำให้ audit entry หายได้ แก้แล้วด้วยการ `await` ในเส้นทาง vault ทั้ง 7 จุด (เส้นทางที่ไม่ใช่ vault ยังเป็น fire-and-forget — ดู [[log]])
-4. **Bcrypt Timing Equalization & Lockout**:
-   * ระบบตรวจสอบรหัสผ่านใช้เวลาเปรียบเทียบเท่ากันเสมอกันแม้ไม่พบ Username (ป้องกัน Timing Attack)
-   * ระบบบล็อกบัญชีอัตโนมัติเมื่อป้อนรหัสผิดเกิน 5 ครั้ง พร้อม Exponential Backoff
-5. **VLAN-Aware Secure Share**:
-   * กำหนดลิงก์แชร์ไฟล์ที่จำกัดการเข้าถึงเฉพาะวง VLAN/Subnet ที่อนุญาต ควบคุมผ่าน UFW Firewall ในระดับ Network Layer
-6. **Privacy-Preserving Audit Log (`src/screens/Audit.jsx`)**:
-   * ชื่อไฟล์ถูกเข้ารหัสเป็นค่าแฮช/UUID ก่อนบันทึกลง Metadata Layer ทำให้ Admin มองเห็นเฉพาะกิจกรรม แต่ไม่เห็นชื่อไฟล์จริงตามหลัก PDPA
-7. **Global Search — เจ้าของ state คือตัวมันเอง · มี "ทุกจอ" · Vault ถูกปิดโดยการออกแบบ (2026-07-26)** (`src/components/GlobalSearch.jsx`):
-
-   **บั๊กที่แก้**: dropdown ผลการค้นหาเปิดแล้ว **ไม่ยอมปิด** ค้างทับเนื้อหาข้ามทุกจอ — สาเหตุคือ `searchOpen` ถูกยกไปไว้ที่ `App.jsx` (state ระดับแอป) แต่ไม่มีใครสั่งปิดมันเลย: ไม่มี click-outside, ไม่มี Escape, ไม่มีการรีเซ็ตตอนเปลี่ยนจอ ตัว panel เองไม่ได้ผิด — **ที่ผิดคือ "ใครเป็นเจ้าของสถานะเปิด/ปิด"**
-
-   * **ย้าย state กลับเข้า component**: `open` / `query` / `active` อยู่ใน `<GlobalSearch />` ล้วน ๆ ไม่ยกขึ้น App หรือ context — ส่วน **ข้อมูล** (`files`, `people`, `nav`) ยังถูก fetch ที่ App ตัวเดียวเพื่อไม่ให้ยิงซ้ำทุกครั้งที่เปลี่ยนจอ
-   * **ปิดตัวเองสี่ทาง**: `mousedown` นอก `containerRef` · `Escape` · `useEffect` ที่ผูกกับ `screen` (เปลี่ยนจอ = ปิด) · เลือกผลลัพธ์ (ปิด + ล้างคำค้น) — ทุก listener ถอดตัวเองใน cleanup และผูกเฉพาะตอน `open === true`
-   * **ไม่มี exit animation โดยเจตนา** (`.search-pop` มีแต่ขาเข้า 120ms): การ animate ตอนปิดคือที่มาคลาสสิกของ dropdown ค้าง เพราะ unmount กลางทางทิ้ง state ไว้
-   * **ผลลัพธ์แบ่งกลุ่ม + คีย์บอร์ด**: `FILES` / `PEOPLE` / `ACTIONS` (ACTIONS = กระโดดไปจอ, สร้างจาก `nav` ที่เซิร์ฟเวอร์ filter มาแล้ว), `↑↓` เลื่อน `Enter` เปิด, ตัวหนาเฉพาะช่วงที่ตรงคำค้น, ตอนยังไม่พิมพ์แสดง `RECENT` + `SUGGESTED`
-   * **⚠️ RBAC ของกลุ่ม PEOPLE**: `App.jsx` ยิง `/api/users` **เฉพาะเมื่อเมนูจากเซิร์ฟเวอร์มีรายการ `access`** — ใช้เมนูที่ถูก filter ฝั่งเซิร์ฟเวอร์เป็นตัวตัดสิน **ไม่ hardcode ชื่อ role ฝั่ง client** (endpoint เองก็ยังมี `requireRole(ADMIN)` เป็นด่านจริงอยู่ดี — UI แค่ไม่ยิงคำขอที่รู้ว่าจะโดนปฏิเสธ)
-   * **⚠️ `SCREEN_SEARCH` ถูกยกเลิกแล้ว → `SEARCH_DISABLED_SCREENS` (2026-07-26 รอบที่ 3 — กลับนโยบาย)**:
-     รอบก่อนตัดสินใจว่าช่องค้นหา "ต่อจอ" (มีแค่ 3 จอ) **ผู้ใช้สั่งกลับนโยบายเป็น "ทุกจอ"** — ช่องค้นหาเป็น affordance ประจำที่ อยู่ตำแหน่งเดิมทุกหน้า ส่วนตัวกรองในหน้าเป็นคนละงาน (กรองรายการตรงหน้า vs. กระโดดข้ามจอทั้งระบบ) ตัวกรองที่เติมไว้รอบก่อนยัง**อยู่ครบไม่ถูกถอด**
-     | จอ | ช่องค้นหา | เหตุผล |
-     | :--- | :--- | :--- |
-     | Dashboard / Files / Uploads / Shares / Snapshots / Storage / Audit / Access / Settings (9 จอ) | ✅ ใช้งานได้เต็มรูปแบบ | `<GlobalSearch />` ถูก render **จุดเดียวแบบไม่มีเงื่อนไข** ใน page header ของ `App.jsx` |
-     | **Private Vault** | 🔒 `disabled` (เทา ไม่ใช่ซ่อน) | `<GlobalSearch disabled />` — **input ตัวเดียวกันที่ถูก `disabled`** ไม่ใช่ `<div>` ปลอม: `opacity .55` + เส้นประ + `cursor-not-allowed` + ไอคอนกุญแจ + ทูลทิป `searchUnavailableVault` และ**ซ่อนป้าย `⌘K`** (คีย์ลัดที่กดแล้วไม่เกิดอะไรคือคำสัญญาที่ผิด) ดู [[Mnemonic_Recovery_and_Zero_Knowledge]] |
-   * **🔐 ทำไม Vault ค้นไม่ได้ "จริง" ไม่ใช่แค่ attribute ฝั่ง client** (ตรวจแล้วสามชั้น):
-     1. **ไม่มี endpoint ที่รับคำค้นเลยทั้งระบบ** — `grep search server/routes/api.js` = 0 บรรทัด การค้นหาเป็นการ filter ฝั่ง client บนข้อมูลที่ผู้ใช้มีสิทธิ์อยู่แล้ว (`/api/files` + `/api/users`) ยิง `?q=` ใส่ก็ถูกเมิน คืนรายการเต็มเหมือนเดิม
-     2. **ดัชนีคนละตารางกับ vault** — `store.listFiles()` = `files.filter(f => !f.vault)` (`db/store.js:124`) ส่วนเนื้อหา vault อยู่ตาราง `vault_blobs` ซึ่ง**ไม่มีคอลัมน์ `name` / `mime` / `type` ตั้งแต่ระดับ schema** มีแต่ `meta_b64` ที่เข้ารหัสด้วย DEK
-     3. **ชื่อไฟล์ที่ถอดรหัสแล้วไม่เคยขึ้นมาถึง `App.jsx`** — อยู่ใน state ของ `Vault.jsx` หลังปลดล็อกในเบราว์เซอร์เท่านั้น จึงไม่มีทางเข้าไปอยู่ในดัชนีของ `GlobalSearch` ได้
-     * **ชั้นกันซ้อนใน component**: `sections` memo คืน `[]` ทันทีเมื่อ `disabled` และ panel ผูกกับ `panelOpen = open && !disabled` → **ถอด `disabled` ทิ้งใน devtools แล้วพิมพ์ ก็ไม่มี dropdown และไม่มีผลลัพธ์** (ยืนยันด้วยเบราว์เซอร์จริงแล้ว)
-   * **แก้ปัญหา dropdown ทับปุ่มบนแถบเครื่องมือ (เช่น "โฟลเดอร์ใหม่" / "อัปโหลด" ในจอ Files)**:
-     - ยึดใต้ช่องค้นหาเท่านั้น (`top-[calc(100%+6px)] right-0 w-full`) — **กว้างเท่า input ไม่เกินขอบ** และ `maxHeight: min(60vh, 420px)`
-     - `--z-dropdown` (10) สูงกว่าเนื้อหาหน้า ต่ำกว่า `--z-modal` (50) เสมอ
-     - **ฉากรับคลิกโปร่งใส (`fixed inset-0`) ที่ `z = --z-dropdown - 1`**: คลิก "เพื่อปิด" จะไม่ทะลุไปสั่งงานปุ่มที่ถูกบังอยู่ข้างล่าง — เดิมคลิกปิด dropdown ตรงปุ่ม "อัปโหลด" แล้ว**อัปโหลดทำงานจริงโดยไม่ได้ตั้งใจ** (แลกกับต้องคลิกสองครั้งเวลาจะกดของอื่นทั้งที่ dropdown เปิดอยู่ — เป็นแบบแผนเดียวกับ command palette ทั่วไป)
-   * **empty state ของผลการค้นหาใช้ `<EmptyState />` ตัวเดียวกับจอ Files** (ไอคอน `SearchX` + หัวข้อ + คำอธิบายสั้น) แทนข้อความเปล่าสองบรรทัดเดิม — คีย์ใหม่ `searchNoResultsHint` ครบ 3 ภาษา
-   * **ตัวกรองเฉพาะจอที่มาแทนช่องค้นหากลาง** (เติมครบ 2026-07-26):
-     - **Access Control** — ช่องกรองชื่อ/username ใน header ของตารางผู้ใช้ แยก empty state สองแบบ: "ไม่มีบัญชีเลย" กับ "ตัวกรองไม่ตรง" (`accessFilterNone`)
-     - **Secure Shares** — ตัวกรอง **scope / status / expiry** เหนือตารางลิงก์ (ซ่อนเองเมื่อยังไม่มีลิงก์), ป้ายนับเปลี่ยนเป็น `n / total` ตอนกรองอยู่, และ `emptyNoSharesFiltered` แยกจาก "ยังไม่มีลิงก์เลย" — คำถามที่คนถามตารางนี้คือ "อันไหนยังเปิดอยู่ / อันไหนเปิดกว้างเกินไป / อันไหนใกล้หมดอายุ" ไม่ใช่ค้นชื่อไฟล์
-     - **Audit Log** — เพิ่ม **ตัวกรองช่วงเวลา** (24h / 7d / 30d) ให้ครบชุด date-range + actor + action + result; ใช้ preset แทนปฏิทินสองช่องเพราะ ledger เรียงตามเวลาอยู่แล้ว คำถามจริงคือ "ย้อนหลังเท่าไร" · เพิ่มข้อความเมื่อทุกแถวถูกกรองออก (เดิมแถวยุบเหลือศูนย์แล้วเงียบ)
-
-   **✅ ยืนยันด้วยเบราว์เซอร์จริง รอบที่ 3 (2026-07-26) — 131/131 เช็คผ่าน 0 ล้ม**
-   ขับ Chrome ผ่าน **CDP ตรง ๆ (ไม่ต้องติดตั้ง playwright — ใช้ `WebSocket` ที่มากับ Node 24)**, headless 1440×900, ล็อกอิน `admin` เพื่อให้เห็นครบทั้ง 10 จอ · สคริปต์อยู่ใน scratchpad (`cdp.mjs` + `test-search.mjs`)
-   * **10/10 จอมีช่องค้นหาจริง** และ **9/10 ใช้งานได้ · Vault disabled** พร้อมทูลทิปตรงตัวอักษร
-   * ต่อจอที่ใช้งานได้ (9 จอ) ตรวจครบ: เปิดเมื่อพิมพ์ · ยึดใต้ input · กว้างไม่เกิน input · `z=10 < 50` · **คลิกนอกกรอบปิดโดยไม่สั่งงานปุ่มที่ถูกบัง** · `Escape` ปิด · `↑↓` เลื่อนจริง (`gs-opt-0 → gs-opt-1`) · `Enter` กระโดดจอ + ปิด + ล้างคำค้น · empty state เป็นไอคอน+หัวข้อ+คำอธิบาย · **เปลี่ยนจอขณะเปิดอยู่แล้วไม่ค้างข้ามจอ**
-   * **Vault**: `disabled=true` · `opacity 0.55` · ทูลทิปตรงเป๊ะ · **ถอด `disabled` ใน devtools → `panel=false, options=0`**
-   * ~~⚠️ ต้องทดสอบแบบ single-origin เพราะ vite proxy ทำให้ login ตอบ 403~~ → **แก้ที่ต้นเหตุแล้ว (2026-07-26)** ตั้ง `changeOrigin: false` ใน `vite.config.js` ตอนนี้ล็อกอินผ่าน dev proxy ได้ตามปกติ ไม่ต้องเลี่ยงไป single-origin อีกแล้ว — ดูหัวข้อ 8 ด้านล่าง
-   * dropdown ปิดถูกต้องทั้งสี่ทางบนเบราว์เซอร์จริง (คลิกนอกกรอบ / Escape / เปลี่ยนจอ / `↓`+`Enter` แล้ว query ถูกล้างเป็นค่าว่าง)
-   * กลุ่มผลลัพธ์ทำงานกับข้อมูลจริง: `RECENT` แสดงไฟล์ที่เพิ่งอัปโหลด · ค้น `aegis` → กลุ่ม `ไฟล์` · ค้น `admin` → กลุ่ม `ผู้คน`
-   * ⚠️ **บทเรียนสำหรับการตรวจครั้งหน้า**: แอปเป็น **SPA** — คลิกเปลี่ยนจอไม่โหลด `index.html` ใหม่ ดังนั้นแท็บที่เปิดค้างไว้ก่อน rebuild จะรัน bundle เก่าทั้งเซสชันแม้ `Cache-Control: max-age=0` **ยืนยันการแก้ UI ต้อง hard-reload หรือเปิดแท็บใหม่เสมอ** ไม่งั้นจะสรุปผิดว่าโค้ดไม่ถูก deploy
-
-8. **ข้อความ error ต้องตรงกับ "สิ่งที่ล้มเหลวจริง" — เลิกเหมารวมว่าทุกอย่างคือรหัสผ่านผิด (2026-07-26)**
-
-   **บั๊ก**: ล็อกอินผ่าน vite dev proxy แล้วขึ้นว่า **"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"** ทั้งที่รหัสถูกต้อง — และเซิร์ฟเวอร์ **ไม่เคยตรวจรหัสผ่านเลยสักครั้ง**
-
-   * **ต้นเหตุที่ 1 — proxy**: `changeOrigin: true` ทำให้ vite เขียนทับ header `Host` เป็นของ target (`127.0.0.1:8001`) ขณะที่เบราว์เซอร์ยังส่ง `Origin: http://localhost:5174` → ชั้นที่ 2 ของ CSRF (`Origin` ต้องตรงกับ `Host`) มองเป็นคำขอข้ามต้นทาง → `403`
-     **แก้: `changeOrigin: false`** — และนี่คือค่าที่ "ตรงกับ production" อยู่แล้ว เพราะ nginx **ทั้งสองชุด** ใช้ `proxy_set_header Host $host` (คงค่า Host เดิม) dev จึงเจอเงื่อนไข CSRF ชุดเดียวกับของจริง · target เป็น Express ธรรมดา ไม่มี vhost routing จึงไม่มีอะไรพึ่ง `changeOrigin`
-   * **ต้นเหตุที่ 2 (ร้ายแรงกว่า) — UI เหมารวม error**: `Login.jsx` เก็บสถานะเป็น `error: boolean` แล้ว `auth.js` ก็ **ทิ้ง `errorKind` ทิ้งไป** จอจึงไม่เหลือทางเลือกอื่นนอกจากเดาว่า "รหัสผ่านผิด" — ทั้งที่ 403/timeout/network/5xx ไม่เคยไปถึงขั้นตอนตรวจรหัสผ่าน **นี่คือบั๊กที่อันตรายกว่าตัว proxy** เพราะมันพาผู้ใช้ไปแก้ผิดจุด (นั่งพิมพ์รหัสใหม่ ทั้งที่สิ่งที่ต้องทำคือโหลดหน้าใหม่)
-
-   **โครงสร้างที่แก้แล้ว (แยกเส้นทาง error ตั้งแต่เซิร์ฟเวอร์ยันหน้าจอ)**:
-   | ชั้น | เดิม | ใหม่ |
-   | :--- | :--- | :--- |
-   | `middleware/csrf.js` | `403 {error:'Forbidden'}` ทั้งสองกรณี | เพิ่ม `code`: **`CSRF_ORIGIN_MISMATCH`** / **`CSRF_TOKEN_INVALID`** (แบบแผนเดียวกับ `PASSWORD_RESET_REQUIRED` ที่มีอยู่แล้วใน `requireRole.js`) |
-   | `lib/api.js` | 403 → `'forbidden'` เสมอ | 403 ที่มี `code` ขึ้นต้น `CSRF_` → **`errorKind: 'csrf'`** |
-   | `lib/auth.js` | ทิ้ง `errorKind` | ส่งต่อขึ้นไปให้จอเสมอ |
-   | `screens/Login.jsx` | `error: boolean` → `loginFailed` | `errorKey` + ฟังก์ชัน `loginErrorKey()` แม็ปตามสาเหตุจริง |
-
-   **กฎเดียวที่ห้ามผิด**: `loginFailed` ("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง") ใช้ได้เฉพาะเมื่อเซิร์ฟเวอร์ **ตรวจรหัสผ่านจริงแล้วปฏิเสธ** = `401` (และ `429` ที่เป็นผลสะสมของการตรวจที่ล้มเหลวมาก่อน) ที่เหลือได้ข้อความของตัวเอง: `loginBlockedCsrf` / `loginTimeout` / `loginNetwork` / `loginServerError` (ครบ 3 ภาษา)
-
-   * **⚠️ การบอก `code` ของ CSRF ออกไปไม่ใช่การรั่วข้อมูล**: การบล็อกด้วย CSRF ไม่แตะ DB ไม่ตรวจรหัสผ่าน ไม่บอกว่าบัญชีมีอยู่จริงไหม — ผู้โจมตีที่ยิงคำขอข้ามต้นทางก็รู้อยู่แล้วว่าโดนปฏิเสธ สิ่งที่ต้อง generic เสมอคือ **ผลการตรวจรหัสผ่าน** (กัน username enumeration) ซึ่งยังคง `INVALID_CREDENTIALS` เหมือนเดิมทุกกรณี
-
-   **ผลการ audit หาแบบแผนเดียวกันทั้งแอป** (ตามที่ผู้ใช้สั่งให้ไล่หา ไม่ใช่แก้จุดเดียว):
-   * 🔴 **เจอจริง 1 จุด — `Vault.jsx` `tryUnlock()`**: `catch` เดิมเหมาทุก error เป็น `vaultWrongKey` แต่ `unlockVault()` ล้มเหลวได้จาก **Argon2id/hash-wasm ทำงานไม่ได้** (CSP ไม่มี `wasm-unsafe-eval` / หน่วยความจำไม่พอที่ m=64MiB) ซึ่ง **ไม่ใช่กุญแจผิด** → แยกด้วย `err.message === 'wrong-key'` แล้วเพิ่มข้อความ `vaultUnlockUnavailable` · และ **ลง audit `unlock-attempt: false` เฉพาะความพยายามที่ถูกตรวจจริง** เพราะปนความล้มเหลวของสภาพแวดล้อมเข้าไปจะทำให้สัญญาณ forensics ("มีคนเดากุญแจ") เจือจางจนใช้ไม่ได้
-   * ✅ **`deriveKek()` normalize passphrase ว่าง → `'wrong-key'` = ถูกต้องแล้ว ห้ามแก้** — เป็นการ "เหมารวมโดยเจตนา" ด้วยเหตุผลด้านความปลอดภัย (ไม่ให้แยกแยะได้ว่าไปไม่ถึงขั้นตอนตรวจ) และมันเป็นเรื่องของกุญแจจริง ๆ **คนละกรณีกับบั๊กนี้** ซึ่งคือการเอาความล้มเหลว *ที่ไม่เกี่ยวกับความลับของผู้ใช้* ไปรายงานว่าเป็นความล้มเหลวของความลับ
-   * ✅ **`Files.jsx` / `Access.jsx` ไม่ติดแบบแผนนี้** — ใช้ `actionFailed` ("เซิร์ฟเวอร์ไม่รับคำขอ") ซึ่ง generic แต่ **ไม่ได้โกหกว่าเป็นเรื่องสิทธิ์หรือรหัสผ่าน**
-   * ✅ `useApi()` (GET ล้วน) ไม่ได้รับผล — CSRF ไม่แตะ `SAFE_METHODS`
-
-9. **`server/app.js` mount ที่ ROOT เสมอ — prefix `/drive` เป็นหน้าที่ของ nginx (ยืนยัน 2026-07-26)**
-
-   `express.static(DIST)` และ `app.use('/api', …)` อยู่ที่ **root** ไม่มี `BASE_PATH` และ
-   **ตั้งใจให้เป็นแบบนั้น** — การรู้จัก prefix เป็นหน้าที่ของสองฝั่งนอกแอป:
-   * **frontend**: `vite base: '/drive/'` + `import.meta.env.BASE_URL` (ดู `lib/api.js` `withBase()`)
-     ทำให้ asset URL และ `apiFetch()` ถูก build มาเป็น `/drive/...` อยู่แล้ว
-   * **nginx**: ตัด prefix ออกก่อน proxy — `rewrite ^/drive/?(.*)$ /$1 break;`
-
-   ⚠️ **ห้ามเพิ่ม `BASE_PATH` ใน `server/app.js`** เพื่อ "แก้" ปัญหา asset 404 หลัง proxy —
-   ทางแก้ที่ถูกต้องอยู่ที่ nginx และพิสูจน์แล้วทั้งสองชุด (`gateway/nginx.conf` มาแต่แรก ·
-   `HUB-AEGIS_Entry/nginx.conf` แก้เมื่อ 2026-07-26) การย้ายไป mount ใต้ base path จะต้อง
-   แตะโครงที่ IDEA2 ใช้ร่วมกันโดยไม่ได้ประโยชน์เพิ่ม — รายละเอียดผลวัดก่อน/หลัง ดู
-   [[01 - 🚪 HUB-AEGIS Entry]]
-
-   **หมายเหตุเรื่อง CSP**: `securityHeaders.js` ยังส่ง CSP ของตัวเองตามปกติ (แอปพกนโยบาย
-   ไปกับตัวเองได้ทุกที่) แต่บนเส้นทาง `/drive/*` ของ production **nginx จะซ่อนของ Express
-   แล้วประกาศเองชั้นเดียว** เพื่อไม่ให้ CSP ซ้อนกันจน `'wasm-unsafe-eval'` หายไป
-   (เบราว์เซอร์บังคับใช้ส่วนที่เข้มที่สุดของทุก CSP header รวมกัน) — **ยืนยันแล้วว่า Argon2id
-   ของ Private Vault ปลดล็อกสำเร็จ end-to-end ผ่าน config ตัวจริง**
+> ⚠️ **Scope, stated on the screen itself**: this is per-file history, **not** a point-in-time image of the Data Lake. Deleted files keep no history, and versions live on the same disk as the data, so they do not survive a drive failure. That is what off-site backup is for, and none is configured.
 
 ---
 
-## 📂 รายการไฟล์ซอร์สโค้ดสำคัญ (Codebase Paths)
-* `IDEA1-AEGIS_Drive_LC/server/index.js` - Express API Server (`:8001`)
-* `IDEA1-AEGIS_Drive_LC/src/screens/Login.jsx` - **Split Vault Card Login Screen** (50/50 split, i18n, 4-layer security readout)
-* `IDEA1-AEGIS_Drive_LC/src/components/ui.jsx` - Component primitives (`SparkleButton`, `ThemeToggle`, `Segmented`, `PillInput`, `Field`, `Toggle`)
-* `IDEA1-AEGIS_Drive_LC/src/components/GlobalSearch.jsx` - ช่องค้นหาระดับระบบที่ถือ state เปิด/ปิดของตัวเอง + โหมด `disabled` สำหรับ Vault (`SearchUnavailable` ถูกลบแล้ว — ใช้ input ตัวเดียวกัน)
-* `IDEA1-AEGIS_Drive_LC/src/App.jsx` - App shell + `SEARCH_DISABLED_SCREENS` (มีช่องค้นหาทุกจอ · Vault เท่านั้นที่ถูก disable)
-* `IDEA1-AEGIS_Drive_LC/src/index.css` - Theme tokens, `.gate-bg`, `.vault-surface.is-solid`, `.sparkle-btn`, `.hatch-fine`, และ `.shake-x`
-* `IDEA1-AEGIS_Drive_LC/src/lib/api.js` - HTTP Request Abstraction พร้อมระบบส่ง HttpOnly Cookie & CSRF Token
-* `IDEA1-AEGIS_Drive_LC/src/lib/vaultCrypto.js` - ขุมพลังการเข้ารหัส Client-Side: **Argon2id → KEK, envelope AES-256-GCM ต่อไฟล์ (DEK + wrapped DEK)**
-* `IDEA1-AEGIS_Drive_LC/src/screens/Vault.jsx` - หน้าจอ Private Vault — setup / unlock / upload / download / lock + **idle auto-lock 10 นาที**
-* `IDEA1-AEGIS_Drive_LC/server/storage/vaultStore.js` - **[NEW]** Storage Layer ของ Vault — เขียน/อ่าน/ลบไฟล์ `.aegisenc` (ห้ามมีฟังก์ชัน decrypt/thumbnail ในไฟล์นี้เด็ดขาด)
-* `IDEA1-AEGIS_Drive_LC/server/app.js` - **[NEW]** ประกอบ Express app แยกจากการเปิดพอร์ต เพื่อให้เทสต์ import แอปตัวเดียวกับที่รันจริงได้
-* `IDEA1-AEGIS_Drive_LC/server/db/migrations/001_vault_envelope.sql` - **[NEW]** migration ย้ายตาราง vault มาโครง envelope (มี guard: ถ้าตารางเดิมมีแถวจะ RAISE EXCEPTION ไม่ลบเงียบ ๆ)
-* `IDEA1-AEGIS_Drive_LC/tests/vaultCrypto.test.js` - **[NEW]** เทสต์ชั้นเข้ารหัส (12 เคส) — รหัสผิด/รอบ unlock-lock/round trip/GCM integrity
-* `IDEA1-AEGIS_Drive_LC/tests/vaultApi.test.js` - **[NEW]** เทสต์ครบวงจรผ่าน HTTP จริง (17 เคส) — รวมการสแกนหา plaintext ใน DB/ดิสก์/log/audit
-* `IDEA1-AEGIS_Drive_LC/tests/filesOwnership.test.js` - **[NEW 2026-07-26]** ด่าน ownership ของ `DELETE /api/files/:id` (4 เคส) — พิสูจน์ว่าผู้ใช้อื่นได้ `403` **และไฟล์ยังอยู่จริงทั้ง metadata และ bytes บนดิสก์** · Admin ก็ลบของผู้อื่นไม่ได้ · not-found ยังเป็น `404` · audit บันทึก `DENIED` · **จอ Files เคยไม่มีเทสต์เลยทั้งที่เป็นฟีเจอร์ที่ 'จริง' ที่สุดในแอป**
-* `IDEA1-AEGIS_Drive_LC/src/screens/Audit.jsx` - หน้าตรวจสอบ Audit Log ความปลอดภัย
-* `IDEA1-AEGIS_Drive_LC/src/screens/Shares.jsx` - ระบบแชร์ไฟล์ล็อกวงเครือข่าย VLAN
-* `IDEA1-AEGIS_Drive_LC/server/db/bootstrapAdmin.js` - Day-0 admin bootstrap จาก bcrypt hash ใน env var
-* `IDEA1-AEGIS_Drive_LC/scripts/hash_password.py` - เครื่องมือฝั่งผู้ดูแลระบบสร้าง bcrypt hash (getpass, ไม่มี plaintext ค้าง)
-* `IDEA1-AEGIS_Drive_LC/src/screens/Access.jsx` - จอ Admin governance พร้อม one-time reveal ของรหัสผ่านชั่วคราว
-* `IDEA1-AEGIS_Drive_LC/server/storage/fileStore.js` - **Storage Layer** — multer stream, UUID filenames, ด่านกัน path traversal, sha256 จาก byte จริง
+## 🗄️ Schema (`server/db/schema.sql`)
+
+```mermaid
+erDiagram
+    users ||--o{ files : "uploaded_by (SET NULL)"
+    users ||--o{ shares : "created_by (SET NULL)"
+    users ||--o| vault_meta : "user_id (CASCADE)"
+    users ||--o{ vault_blobs : "user_id (CASCADE)"
+    users ||--o{ audit_log : "actor_id (SET NULL)"
+    files ||--o{ shares : "file_id (CASCADE)"
+    files ||--o{ file_versions : "file_id (CASCADE)"
+
+    users {
+        BIGSERIAL id PK
+        TEXT username "UNIQUE, immutable identifier"
+        TEXT password_hash "bcrypt only"
+        TEXT role "Admin | DataLake-User"
+        TEXT display_name "admin-assigned"
+        TEXT profile_name "user-editable, nullable"
+        TEXT avatar_key "avatars/uuid.ext"
+        TEXT avatar_mime "CHECK png|jpeg only"
+        BOOLEAN must_reset_password "force-reset gate"
+    }
+    shares {
+        BIGSERIAL id PK
+        CHAR token_hash "sha256 of the link token, UNIQUE"
+        TEXT password_hash "bcrypt of the link password"
+        TEXT scope "any | zones (legacy vlan/subnet tolerated)"
+        TEXT_ARRAY vlan_scope "CIDRs enforced on redemption"
+        INTEGER hits "increments on real redemption"
+        TIMESTAMPTZ expires_at
+        BOOLEAN revoked
+    }
+    file_versions {
+        BIGSERIAL id PK
+        TEXT storage_key "versions/uuid.bin, UNIQUE"
+        BIGINT size_bytes
+        CHAR sha256
+        BIGINT superseded_by "who replaced it"
+    }
+    network_zones {
+        BIGSERIAL id PK
+        TEXT name "free text typed by an admin"
+        TEXT cidr "UNIQUE, range-validated"
+    }
+```
+
+`vault_meta` / `vault_blobs` are unchanged — by construction they have **nowhere to put plaintext**: no `name`, no `mime`, no key column. See [[concepts/Three_Layer_Data_Lake]].
 
 ---
 
-## 🔗 เอกสารที่เกี่ยวข้อง
+## 🚪 Force Password Reset — now covers the seeded demo accounts
+
+1. **Day-0 Admin bootstrap** — `server/db/bootstrapAdmin.js` requires a pre-computed bcrypt hash in `ADMIN_BOOTSTRAP_PASSWORD_HASH` and **refuses to boot** if it looks like a raw password. Hash it with `scripts/hash_password.py` (`getpass`, no echo, no shell history).
+2. **Admin provisioning** — `POST /api/users` generates the temporary password server-side and returns it **once**; it is never logged or stored anywhere else.
+3. **Seeded demo accounts** — `seed.sql` now inserts `admin` and `user` with `must_reset_password = TRUE`, matching IDEA2's operator onboarding. Both bcrypt hashes are in public git, so the matching passwords are permanent public knowledge; the gate makes them **usable exactly once, to set a new password**.
+4. **Remediation for existing databases** — `ON CONFLICT DO NOTHING` would leave an already-initialised database untouched, so `seed.sql` follows with an `UPDATE` scoped to rows whose hash is still one of the two committed ones. Idempotent (verified `UPDATE 2` then `UPDATE 0`), and it never re-gates an account that already rotated.
+5. **The gate itself** — `requireRole.js` blocks every path except `/me`, `/logout`, `/password/reset` with `403 PASSWORD_RESET_REQUIRED`, a code the client uses to route to the reset screen rather than showing a generic Forbidden.
+
+> ⚠️ **Operational consequence**: the credentials documented in `seed.sql` are **single-use per database**. Running the test suite against a database also rotates them (see `tests/helpers/testClient.mjs`). `docker compose down -v` restores a clean state. Worth knowing before a demo.
+
+---
+
+## 📊 Dashboard & Storage — real aggregates only
+
+* **Activity (7 days)** — counted from `audit_log` (successful events only), with `generate_series` filling empty days as zero; a chart that omits empty days silently distorts its own axis.
+  > ⚠️ **The unit is event counts, not GB, and that is a real limit.** `audit_log` deliberately stores no per-event byte size, so events are countable but volume is not. Estimating it from current file sizes would be wrong the moment a file is replaced or deleted. A volume chart requires adding a size column to the audit log first — a **privacy decision**, not merely a technical one.
+* **Capacity** — `fs.statfs` on the Data Lake mount. The former `342 GB` baseline and `1024 GB` total are gone; the `342` was the more insidious of the two because a fabricated figure with a real term added moves slightly and therefore *looks* measured. `null` means unreadable, never zero.
+  > ⚠️ `statfs` reports the whole filesystem, not a per-directory quota. Space the app did not write is shown as a separate "other on this volume" band rather than folded into a category.
+* **Usage by kind** — `SUM(size_bytes)` over `files`, `vault_blobs` and `file_versions`. Dashboard and Storage read the same source, and a test asserts the two screens report the same total.
+
+---
+
+## 🧾 Audit log — and why writes are awaited
+
+Privacy-preserving by design: target names are stored as `sha256`, so an auditor can tell that several events concern **the same** file without learning its name. *A test plants a filename, confirms the raw string appears nowhere, and confirms the events still correlate by hash.* No link token, link password or account password ever reaches the log — anyone who can read the audit could otherwise download other people's files.
+
+> ⚠️ **`recordAudit` is now awaited before responding** on every path. It used to be fire-and-forget, so under PostgreSQL a **denied** request answered `403` before its `DENIED` row committed: if the process died in that window, the rejected attempt vanished from the forensic record — the row you least want to lose. Secondary effect: the Audit screen and the activity chart both read one event stale. In a system that claims an audit trail, "the action succeeded" must include "it was recorded". The in-memory path writes synchronously, which is why this only surfaced against a real database.
+
+---
+
+## 📡 API surface (IDEA1)
+
+| Method & Path | Guard | Notes |
+| :--- | :--- | :--- |
+| `POST /api/login` · `/logout` · `GET /api/me` | — / session | rate limited, scope `login` |
+| `POST /api/password/reset` | `requireAuth` | exempt from the force-reset gate |
+| `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` | same-name upload ⇒ new version |
+| `GET /api/files/:id/download` | `requireAuth` | octet-stream + attachment + nosniff |
+| `DELETE /api/files/:id` | `requireAuth` + **owner only** | no Admin exception; also deletes version bytes |
+| `GET /api/file-versions` | `requireAuth` | own files + version counts |
+| `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
+| `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
+| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` | create returns the token **once** |
+| **`GET/POST /s/:token`** | **public** | redemption; own gates (see above) |
+| `GET /api/storage` · `/api/dashboard` | `requireAuth` | real aggregates + `unavailable{}` |
+| `PATCH /api/profile` · `POST/DELETE /api/profile/avatar` | `requireAuth` | session-scoped; never accepts a `userId` |
+| `GET /api/users/:id/avatar` | `requireAuth` | sniffed mime + nosniff |
+| `GET /api/sessions` · `DELETE /api/sessions/:ref` | `requireAuth` | own sessions only; `ref` is a hash, never the sid |
+| `GET /api/users` · `POST /api/users` | `requireRole(Admin)` | same table for read and write |
+| `GET /api/audit` | `requireRole(Admin)` | sha256 targets only |
+| `GET/POST/DELETE /api/zones[/:id]` | `requireRole(Admin)` | record of intent, not enforcement |
+| ~~`/api/keys`, `/api/keys/rotate`~~ | — | **removed — 404, pinned by test** |
+| ~~`/api/snapshots`, `/api/snapshots/:id/rollback`~~ | — | **removed — 404, pinned by test** |
+
+---
+
+## 🧪 Test coverage (`npm test`)
+
+| Suite | Covers |
+| :--- | :--- |
+| `accessUsers` | force-reset gate end to end; users list carries no fabricated fields |
+| `accessReconciliation` | API response vs the `users` table row by row, via an **independent** pg connection |
+| `profileIdentity` | profile name vs username; avatar sniffing / limit / EXIF stripping; real sessions + revoke |
+| `shareRedemption` | redemption, link password, rate limit, hits, CIDR enforcement, expiry, revoke |
+| `fileVersions` | version capture, real restore, owner-only, delete cleanup, honest storage payload |
+| `dashboardAggregates` | activity counts move with real use; capacity is real; no `projected` flag |
+| `auditViewer` | Admin-only; sha256 targets; DENIED recorded; no secrets in the log |
+| `filesOwnership` | cross-user delete refused, bytes survive |
+| `vaultApi` · `vaultPostgres` · `vaultCrypto` | zero-knowledge properties, incl. raw-SQL inspection |
+
+Both DB modes are required to pass: unset `TEST_DATABASE_URL` for the in-memory fallback, set it for real PostgreSQL (procedure in `docs/auth-test.md` §15.1).
+
+> **Not covered**: `Login.jsx` has no dedicated suite (every suite exercises the login path, including the reset gate), and `Uploads.jsx` is a thin client over `POST /api/files/upload` — its one piece of real client logic, refusing files over 1 GiB, is UI-only and untested.
+
+---
+
+## 📂 Codebase file paths
+* `server/app.js` — Express assembly; `shareRouter` mounted before static/SPA fallback
+* `server/routes/api.js` — `/api/*`; every audit write awaited
+* `server/routes/share.js` — public `/s/:token` redemption, CIDR check, CSP-nonced pages
+* `server/db/connection.js` — pool, users table access, `listUsers`, audit read/write
+* `server/db/store.js` — files / shares / versions / zones / storage / dashboard
+* `server/db/schema.sql` · `seed.sql` — schema + force-reset seeding & remediation
+* `server/storage/fileStore.js` — uploads, versions, `statfs` capacity
+* `server/storage/avatarStore.js` — sniffing, size limit, EXIF stripping
+* `server/auth/rateLimit.js` — counters namespaced by scope (`login` / `share`)
+* `src/screens/FileHistory.jsx` — replaces the removed `Snapshots.jsx`
+* `src/lib/vaultCrypto.js` · `src/screens/Vault.jsx` — zero-knowledge vault
+
+---
+
+## 🔗 Related Notes
 * [[00 - 🗺️ AEGIS System Overview]]
 * [[01 - 🚪 HUB-AEGIS Entry]]
-* [[concepts/Three_Layer_Data_Lake]]
+* [[03 - 📹 IDEA2 AEGIS Monitor]]
+* [[05 - 🛡️ Security Architecture]]
 * [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]
+* [[concepts/Three_Layer_Data_Lake]]
+* [[concepts/OWASP_Security_Defense]]
+* [[concepts/VLAN_Segmentation_and_Port_Mapping]]
 * [[concepts/Identity_Decoupling]]
