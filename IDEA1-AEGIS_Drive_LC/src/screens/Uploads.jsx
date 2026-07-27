@@ -5,14 +5,23 @@ import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtBytes, fmtRelative } from '../lib/format.js'
 
-/* ⚠️ Phase 2: ไม่มีการจำลองอีกต่อไป —
+/* ไม่มีการจำลองในจอนี้เลย —
    - แฮชคำนวณจริงจากไบต์ของไฟล์ที่ผู้ใช้เลือก ด้วย window.crypto.subtle.digest('SHA-256')
-     (checksum นี้คือค่าที่ Integrity Verify ใช้เทียบภายหลัง)
-   - "transferring" = POST /api/files/upload จริง (Phase นี้ส่ง metadata;
-     ตัว binary ผ่าน multipart → Storage Layer ใน Phase 3)
-   - ประวัติการอัปโหลดมาจาก GET /api/files — ไม่มีลิสต์แต่งขึ้น */
+     (checksum นี้ถูกส่งไปให้เซิร์ฟเวอร์ "เทียบ" กับไบต์ที่ได้รับจริง — ดู POST
+     /api/files/upload: ไม่ตรงกัน = ปฏิเสธทั้งคำขอ ไม่เก็บของที่รู้ว่าไม่ครบ)
+   - "transferring" = POST /api/files/upload จริง และ **ตัว binary เดินทางไปกับคำขอนี้ด้วย**
+     (multipart → เขียนลงดิสก์ผ่าน multer diskStorage)
+     ⚠️ คอมเมนต์เดิมเขียนว่า "Phase นี้ส่ง metadata; ตัว binary ผ่าน multipart →
+     Storage Layer ใน Phase 3" ซึ่งไม่จริงแล้ว — ไบต์ถูกเขียนลง Storage Layer จริงมาตั้งแต่
+     งาน upload/download รอบก่อน (ชุดทดสอบดาวน์โหลดกลับมาเทียบทีละไบต์อยู่)
+   - ประวัติการอัปโหลดมาจาก GET /api/files — ไม่มีลิสต์แต่งขึ้น
+   - อัปโหลดชื่อเดิมทับของตัวเอง = สร้างเวอร์ชันใหม่ ไบต์ชุดเก่าถูกเก็บไว้ (ดูจอ File history) */
 
 const STAGE_KEY = { staged: 'stStaged', hashing: 'stHashing', transferring: 'stTransferring', indexed: 'stIndexed', failed: 'stFailed' }
+
+// ต้องตรงกับ MAX_UPLOAD_BYTES ใน server/storage/fileStore.js — เช็คฝั่ง client เป็นแค่
+// ความสะดวก (บอกผู้ใช้ทันทีโดยไม่ต้องอัปโหลดขึ้นไปให้ถูกปฏิเสธ) การบังคับจริงอยู่ที่เซิร์ฟเวอร์
+const MAX_UPLOAD_BYTES = 1_073_741_824 // 1 GiB
 
 /** SHA-256 ของไฟล์จริงในเบราว์เซอร์ — คืนค่า hex 64 ตัว */
 async function sha256OfFile(file) {
@@ -51,6 +60,12 @@ function UploadRow({ t, item }) {
           <p className="text-[11.5px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {fmtBytes(item.size)}
           </p>
+          {/* บอกเหตุผลที่ล้มเหลว ไม่ใช่แค่ชิป "Failed" — ผู้ใช้ต้องรู้ว่าต้องทำอะไรต่อ */}
+          {item.reason === 'tooLarge' && (
+            <p role="alert" className="text-[11.5px] font-medium mt-0.5" style={{ color: 'var(--danger)' }}>
+              {t('uploadTooLarge')}
+            </p>
+          )}
         </div>
         {item.stage === 'indexed' && (
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
@@ -116,10 +131,22 @@ export function Uploads({ t }) {
     }
   }
 
+  // ⚠️ เดิมบรรทัดนี้ .filter() ไฟล์ที่ใหญ่กว่า 1 GiB "ออกจากคิวไปเงียบ ๆ" พร้อมคอมเมนต์
+  //    ว่าเป็นงานของ Phase 3 — ผู้ใช้ลากไฟล์ 2 GB มาวางแล้ว **ไม่มีอะไรเกิดขึ้นเลย**
+  //    ไม่มีแถว ไม่มีข้อความ ไม่มีสัญญาณว่าระบบเห็นไฟล์นั้นไหม ซึ่งแยกไม่ออกจาก
+  //    "แอปพัง" การทิ้งงานของผู้ใช้โดยไม่บอกแย่กว่าการปฏิเสธอย่างชัดเจน
+  //    เพดาน 1 GiB คือของจริงที่เซิร์ฟเวอร์บังคับ (MAX_UPLOAD_BYTES ใน fileStore.js)
+  //    ไม่ใช่ข้อจำกัดชั่วคราวที่รอ phase ถัดไป — จอจึงต้องบอกตามนั้น
   const enqueue = (fileList) => {
-    const real = [...fileList].filter((f) => f.size <= 1_073_741_824) // >1GB: Phase 3 (multipart/stream)
-    for (const f of real) {
+    for (const f of [...fileList]) {
       const id = `up-${idRef.current++}`
+      if (f.size > MAX_UPLOAD_BYTES) {
+        setQueue((prev) => [
+          { id, name: f.name, size: f.size, sha256: null, stage: 'failed', reason: 'tooLarge' },
+          ...prev,
+        ])
+        continue
+      }
       setQueue((prev) => [{ id, name: f.name, size: f.size, sha256: null, stage: 'staged' }, ...prev])
       processFile(f, id)
     }

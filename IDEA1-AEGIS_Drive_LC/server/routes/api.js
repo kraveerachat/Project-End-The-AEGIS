@@ -159,10 +159,23 @@ apiRouter.get('/audit', requireRole(ROLES.ADMIN), async (req, res, next) => {
   }
 })
 
-// ════ Data endpoints (Phase 2) ═══════════════════════════════════════
+// ════ Data endpoints ═════════════════════════════════════════════════
 // ทุกตัวผ่าน requireAuth/requireRole เสมอ — การกรองเมนูฝั่ง UI ไม่ใช่ control
 // การกระทำที่เปลี่ยนสถานะทุกครั้งลง audit โดยเก็บชื่อไฟล์เป็น hash (privacy-preserving)
+//
+// ⚠️ ป้าย "Phase N" ถูกถอดออกจากคอมเมนต์ทั่วโปรเจกต์: มันบอกว่างานถูกทำ "เมื่อไร"
+//    ซึ่งไม่ช่วยคนอ่านโค้ด และเมื่อ phase ผ่านไปแล้วมันกลายเป็นข้อมูลที่ผิด (คอมเมนต์
+//    หลายจุดยังเขียนว่าอะไร "จะทำใน Phase 3" ทั้งที่ทำเสร็จไปแล้ว) สิ่งที่ต้องเขียนคือ
+//    "ตอนนี้โค้ดทำอะไรจริง และอะไรที่ยังไม่ทำ" — git log เก็บลำดับเวลาไว้ให้แล้ว
 
+// ⚠️ ทุกจุดที่เรียก auditAct ต้อง await ก่อนตอบ response — ไม่ใช่เรื่องความเรียบร้อย
+//    แต่เป็นความหมายของระบบที่มี audit: "การกระทำสำเร็จ" ต้องรวม "ถูกบันทึกแล้ว" ด้วย
+//    เดิมเรียกแบบ fire-and-forget ผลคือในโหมด Postgres คำขอที่ถูก **ปฏิเสธ** ตอบ 403
+//    กลับไปก่อนที่แถว DENIED จะลงจริง ถ้าโปรเซสตายในช่วงนั้น ความพยายามที่ถูกปฏิเสธ
+//    จะหายไปจากบันทึก — ซึ่งเป็นแถวที่เราอยากเสียน้อยที่สุด นอกจากนั้นจอ Audit และ
+//    กราฟกิจกรรมของ Dashboard ยังอ่านช้ากว่าความจริงหนึ่งเหตุการณ์เสมอ
+//    (โหมด in-memory เขียน synchronous จึงไม่เคยเห็นปัญหานี้ — เจอจากเทสต์จอ Audit
+//     ที่รันกับ Postgres จริง แบบแผนเดียวกับที่ /vault/unlock-attempt เคยเจอ)
 const auditAct = (req, action, target, result = 'OK') =>
   recordAudit({
     actorId: req.user.id, actorLabel: req.user.username, role: req.user.role,
@@ -207,7 +220,7 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
     // validate input เสมอ — ชื่อว่าง/ยาวผิดปกติ = ปฏิเสธ ไม่เดาใจ
     if (!name || name.length > 120) return res.status(400).json({ error: 'Invalid input' })
     const row = await store.createFolder(name, req.user)
-    auditAct(req, 'FOLDER_CREATE', name)
+    await auditAct(req, 'FOLDER_CREATE', name)
     res.status(201).json({ file: row })
   } catch (err) {
     next(err)
@@ -246,7 +259,7 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
       const claimed = typeof req.body?.sha256 === 'string' ? req.body.sha256.toLowerCase() : null
       if (claimed && claimed !== sha256) {
         await discardUploaded(req.file)
-        auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
+        await auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
         return res.status(422).json({ error: 'Checksum mismatch' })
       }
 
@@ -278,7 +291,7 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
         throw dbErr
       }
 
-      auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', name)
+      await auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', name)
       res.status(201).json({ file: row, newVersion: Boolean(existing) })
     } catch (err) {
       next(err)
@@ -299,11 +312,11 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
     const abs = resolveKey(file.path)
     if (!abs || !(await keyExists(file.path))) {
       // แถว metadata มีอยู่แต่ไม่มี bytes (แถวเดโม่เก่า/ไฟล์ถูกลบนอกระบบ) — ไม่ปลอมข้อมูลคืน
-      auditAct(req, 'FILE_DOWNLOAD', file.name, 'DENIED')
+      await auditAct(req, 'FILE_DOWNLOAD', file.name, 'DENIED')
       return res.status(404).json({ error: 'Not found' })
     }
 
-    auditAct(req, 'FILE_DOWNLOAD', file.name)
+    await auditAct(req, 'FILE_DOWNLOAD', file.name)
 
     // application/octet-stream + attachment เสมอ — ไม่ปล่อยให้เบราว์เซอร์ render
     // ไฟล์ที่ผู้ใช้อัปโหลด (ไฟล์ HTML/SVG ที่ถูก render ใน origin เดียวกัน = XSS)
@@ -344,7 +357,7 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
     if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
       // ลง audit เป็น DENIED เสมอ — ความพยายามลบไฟล์ของคนอื่นต้องมองเห็นได้ในจอ Audit
       // (แบบแผนเดียวกับ FILE_DOWNLOAD ที่ metadata มีแต่ bytes หาย ด้านบน)
-      auditAct(req, 'FILE_DELETE', file.name, 'DENIED')
+      await auditAct(req, 'FILE_DELETE', file.name, 'DENIED')
       return res.status(403).json({ error: 'Forbidden' })
     }
 
@@ -360,7 +373,7 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
     // อยู่บนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก (ทั้ง privacy และพื้นที่)
     if (file.type !== 'Folder') await removeKey(file.path)
     for (const v of versions) await removeKey(v.storageKey).catch(() => {})
-    auditAct(req, 'FILE_DELETE', file.name)
+    await auditAct(req, 'FILE_DELETE', file.name)
     res.json({ ok: true })
   } catch (err) {
     next(err)
@@ -389,7 +402,7 @@ apiRouter.post('/shares', requireAuth, async (req, res, next) => {
     const { fileId, expiry, authType, scope, password } = req.body ?? {}
     const created = await store.createShare({ fileId, expiry, authType, scope, password }, req.user)
     if (!created) return res.status(400).json({ error: 'Invalid input' })
-    auditAct(req, 'SHARE_CREATE', created.share.fileName)
+    await auditAct(req, 'SHARE_CREATE', created.share.fileName)
     // ⚠️ ห้าม log/audit ตัว token — มันคือ credential ที่เปิดไฟล์ได้ทันที
     //    (targetHash ด้านบนเป็น hash ของ "ชื่อไฟล์" ตามแบบแผน privacy-preserving เดิม)
     res.status(201).json({ share: created.share, path: `/s/${created.token}` })
@@ -402,7 +415,7 @@ apiRouter.delete('/shares/:id', requireAuth, async (req, res, next) => {
   try {
     const ok = await store.revokeShare(req.params.id)
     if (!ok) return res.status(404).json({ error: 'Not found' })
-    auditAct(req, 'SHARE_REVOKE', req.params.id)
+    await auditAct(req, 'SHARE_REVOKE', req.params.id)
     res.json({ ok: true })
   } catch (err) {
     next(err)
@@ -475,7 +488,7 @@ apiRouter.get('/files/:id/versions/:versionId/download', requireAuth, async (req
     const stream = openReadStream(version.storageKey)
     if (!stream) return res.status(404).json({ error: 'Not found' })
 
-    auditAct(req, 'FILE_VERSION_DOWNLOAD', file.name)
+    await auditAct(req, 'FILE_VERSION_DOWNLOAD', file.name)
     res.setHeader('Content-Type', 'application/octet-stream')
     res.setHeader('Content-Length', String(version.size))
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -499,7 +512,7 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
   try {
     const file = await store.findFile(req.params.id)
     if (!file || file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
-      auditAct(req, 'FILE_VERSION_RESTORE', req.params.id, 'DENIED')
+      await auditAct(req, 'FILE_VERSION_RESTORE', req.params.id, 'DENIED')
       return res.status(404).json({ error: 'Not found' })
     }
     const version = await store.findFileVersion(file.id, req.params.versionId)
@@ -538,7 +551,7 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
     // เวอร์ชันเป้าหมายไม่มีไบต์ของตัวเองอีกแล้ว (ถูกย้ายมาเป็นไฟล์ปัจจุบัน) — ลบแถวทิ้ง
     await store.deleteFileVersion(file.id, version.id)
 
-    auditAct(req, 'FILE_VERSION_RESTORE', file.name)
+    await auditAct(req, 'FILE_VERSION_RESTORE', file.name)
     res.json({ file: row, restoredFromVersionId: version.id })
   } catch (err) {
     next(err)
@@ -573,7 +586,7 @@ apiRouter.post('/zones', requireRole(ROLES.ADMIN), async (req, res, next) => {
     const { name, cidr } = req.body ?? {}
     const row = await store.addNetworkZone({ name, cidr })
     if (!row) return res.status(400).json({ error: 'Invalid input' })
-    auditAct(req, 'ZONE_CREATE', row.cidr)
+    await auditAct(req, 'ZONE_CREATE', row.cidr)
     res.status(201).json({ zone: row })
   } catch (err) {
     next(err)
@@ -584,7 +597,7 @@ apiRouter.delete('/zones/:id', requireRole(ROLES.ADMIN), async (req, res, next) 
   try {
     const ok = await store.removeNetworkZone(req.params.id)
     if (!ok) return res.status(404).json({ error: 'Not found' })
-    auditAct(req, 'ZONE_DELETE', req.params.id)
+    await auditAct(req, 'ZONE_DELETE', req.params.id)
     res.json({ ok: true })
   } catch (err) {
     next(err)
@@ -616,7 +629,7 @@ apiRouter.post('/users', requireRole(ROLES.ADMIN), async (req, res, next) => {
 
     // ไม่มีการซิงก์เข้าชุดข้อมูลที่สองอีกแล้ว — GET /users อ่านตารางเดียวกับที่บรรทัดบน
     // เพิ่งเขียนลงไป แถวใหม่จึงปรากฏเพราะ "มันมีอยู่จริง" ไม่ใช่เพราะเราไปเติมให้ UI ดู
-    auditAct(req, 'USER_CREATE', created.username)
+    await auditAct(req, 'USER_CREATE', created.username)
     // tempPassword ถูกส่งกลับ "ครั้งเดียว" ในผลลัพธ์นี้เท่านั้น — ไม่ถูกเก็บที่ไหนอีกเลย
     // (ไม่ลง audit, ไม่ลง log ฝั่งเซิร์ฟเวอร์) — Admin ต้องคัดลอกแล้วส่งต่อให้ user นอกช่องทางนี้
     res.status(201).json({
@@ -652,7 +665,7 @@ apiRouter.post('/password/reset', requireAuth, async (req, res, next) => {
     markPasswordReset(req) // เคลียร์ flag ใน session ปัจจุบันให้ตรงกับ DB ทันที ไม่ต้อง re-login
     await req.session.save()
 
-    auditAct(req, 'PASSWORD_RESET', user.username)
+    await auditAct(req, 'PASSWORD_RESET', user.username)
     res.json({ ok: true })
   } catch (err) {
     next(err)
@@ -682,7 +695,7 @@ apiRouter.patch('/profile', requireAuth, async (req, res, next) => {
 
     // audit: บันทึกว่า "ใครเปลี่ยนชื่อตัวเอง" โดยเก็บชื่อใหม่เป็น hash — ชื่อที่ผู้ใช้
     // พิมพ์เองไม่ควรลง log ดิบ ๆ (privacy-preserving แบบเดียวกับชื่อไฟล์)
-    auditAct(req, 'PROFILE_UPDATE', effective)
+    await auditAct(req, 'PROFILE_UPDATE', effective)
     // ⚠️ accountName ต้องส่งชัด ๆ: publicUser fallback เป็น u.displayName ซึ่งเราเพิ่งเขียนทับ
     //    ด้วยชื่อโปรไฟล์ไปแล้ว — ถ้าไม่ระบุ จอ Settings จะแสดง "ชื่อที่ Admin ตั้ง" เท่ากับ
     //    ชื่อที่ผู้ใช้เพิ่งพิมพ์เอง = หายไปทั้งความสามารถในการเทียบว่าใครเป็นใคร
@@ -715,7 +728,7 @@ apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
       const clean = sanitizeAvatar(req.file.buffer)
       if (!clean) {
         // ไม่ใช่ PNG/JPEG ที่ถอดภาพได้จริง — ปฏิเสธโดยไม่บอกว่าเดาชนิดอะไรได้บ้าง
-        auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id), 'DENIED')
+        await auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id), 'DENIED')
         return res.status(415).json({ error: 'Unsupported image' })
       }
 
@@ -730,7 +743,7 @@ apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
       // รูปเดิมไม่มีใครอ้างถึงอีกแล้ว — ลบทิ้งเสมอ ไม่ปล่อยให้ค้างบนดิสก์ต่อไปเงียบ ๆ
       if (oldKey && oldKey !== key) await removeAvatar(oldKey).catch(() => {})
 
-      auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id))
+      await auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id))
       res.status(201).json({ hasAvatar: true, mime: clean.mime, bytes: clean.bytes.length })
     } catch (err) {
       next(err)
@@ -744,7 +757,7 @@ apiRouter.delete('/profile/avatar', requireAuth, async (req, res, next) => {
     if (!current) return res.status(404).json({ error: 'Not found' })
     await updateAvatar(req.user.id, { key: null, mime: null })
     await removeAvatar(current.key).catch(() => {})
-    auditAct(req, 'PROFILE_AVATAR_CLEAR', String(req.user.id))
+    await auditAct(req, 'PROFILE_AVATAR_CLEAR', String(req.user.id))
     res.status(204).end()
   } catch (err) {
     next(err)
@@ -797,7 +810,7 @@ apiRouter.delete('/sessions/:ref', requireAuth, async (req, res, next) => {
     }
     const ok = await revokeSessionByRef(req, req.params.ref)
     if (!ok) return res.status(404).json({ error: 'Not found' })
-    auditAct(req, 'SESSION_REVOKE', req.params.ref)
+    await auditAct(req, 'SESSION_REVOKE', req.params.ref)
     res.status(204).end()
   } catch (err) {
     next(err)

@@ -307,7 +307,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 }
 
 /* ── Files screen ────────────────────────────────────────────────── */
-// ⚠️ Phase 2: ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
+// ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
 export function Files({ t, lang, go }) {
   const reduced = useReducedMotion()

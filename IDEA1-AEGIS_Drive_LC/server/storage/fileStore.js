@@ -1,7 +1,8 @@
 // server/storage/fileStore.js — AEGIS Drive (IDEA1) · Storage Layer ของ Edge Data Lake
 //
 // นี่คือชั้น "HDFS concept" ของสถาปัตยกรรมสามชั้น — filesystem ธรรมดาบน Docker
-// named volume (production: bind ไปที่ HDD ของ NAS) ไม่ใช้ Hadoop/Hive เพราะ
+// named volume (แผนคือ bind ไปที่ HDD ของ NAS เมื่อมีฮาร์ดแวร์ — ยังไม่ใช่ตอนนี้)
+// ไม่ใช้ Hadoop/Hive เพราะ
 // Beelink 8GB รับไม่ไหว และไม่จำเป็น: สิ่งที่ต้องการคือ "ไฟล์ดิบอยู่คนละที่กับ metadata"
 //
 //   Storage Layer (ที่นี่)      = bytes ของไฟล์ล้วน ๆ

@@ -5,7 +5,7 @@ import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
 
-/* ⚠️ Phase 2: บัญชีผู้ใช้มาจาก GET /api/users (Admin เท่านั้น — requireRole ฝั่งเซิร์ฟเวอร์)
+/* บัญชีผู้ใช้มาจาก GET /api/users ซึ่งอ่านตาราง users จริง (Admin เท่านั้น — requireRole ฝั่งเซิร์ฟเวอร์)
    เพิ่มบัญชีผ่าน Modal จริง → POST /api/users (ไม่มี prompt()/confirm() ของเบราว์เซอร์)
 
    ตารางสิทธิ์ด้านล่างเป็น "คำอธิบายความสามารถของ role" (นโยบายที่ตายตัวของระบบ:
@@ -15,6 +15,8 @@ const CAPABILITIES = [
   { key: 'permUploadDl', admin: true, user: true },
   { key: 'permShare', admin: true, user: true },
   { key: 'permVault', admin: true, user: true },
+  // ⚠️ ทั้งสอง role กู้คืนได้ "เฉพาะไฟล์ของตัวเอง" — ไม่มีใครกู้ไฟล์ของคนอื่นได้
+  //    รวมถึง Admin (ดูด่านใน /files/:id/versions/:versionId/restore)
   { key: 'permSnapRestore', admin: true, user: true },
   { key: 'permAudit', admin: true, user: false },
   { key: 'permManageUsers', admin: true, user: false },
