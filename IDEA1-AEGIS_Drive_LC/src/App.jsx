@@ -13,7 +13,7 @@ import { Files } from './screens/Files.jsx'
 import { Vault } from './screens/Vault.jsx'
 import { Uploads } from './screens/Uploads.jsx'
 import { Shares } from './screens/Shares.jsx'
-import { Snapshots } from './screens/Snapshots.jsx'
+import { FileHistory } from './screens/FileHistory.jsx'
 import { Storage } from './screens/Storage.jsx'
 import { Audit } from './screens/Audit.jsx'
 import { Access } from './screens/Access.jsx'
@@ -21,7 +21,7 @@ import { Settings } from './screens/Settings.jsx'
 
 const TITLE_KEYS = {
   dashboard: 'dashTitle', files: 'filesTitle', vault: 'vaultTitle', uploads: 'uploadsTitle',
-  shares: 'sharesTitle', snapshots: 'snapshotsTitle', storage: 'storageTitle',
+  shares: 'sharesTitle', versions: 'versionsTitle', storage: 'storageTitle',
   audit: 'auditTitle', access: 'accessTitle', settings: 'settingsTitle',
 }
 
@@ -170,7 +170,7 @@ export default function App() {
   const getSkeletonType = (scr) => {
     if (scr === 'dashboard') return 'dashboard'
     if (scr === 'files') return 'files'
-    if (['shares', 'snapshots', 'storage', 'audit', 'access'].includes(scr)) return 'table'
+    if (['shares', 'versions', 'storage', 'audit', 'access'].includes(scr)) return 'table'
     return 'generic'
   }
 
@@ -180,7 +180,7 @@ export default function App() {
     vault: <Vault t={t} />,
     uploads: <Uploads t={t} lang={lang} />,
     shares: <Shares t={t} />,
-    snapshots: <Snapshots t={t} lang={lang} />,
+    versions: <FileHistory t={t} lang={lang} />,
     storage: <Storage t={t} />,
     audit: <Audit t={t} />,
     access: <Access t={t} />,

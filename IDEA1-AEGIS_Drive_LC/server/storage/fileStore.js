@@ -28,6 +28,10 @@ export const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT || '/datalake'
 // โฟลเดอร์ย่อยเดียวที่ endpoint อัปโหลดเขียนได้ — ทุก key ใน DB ขึ้นต้นด้วยตัวนี้เสมอ
 const UPLOAD_DIR = 'uploads'
 
+// ไบต์ของ "เวอร์ชันก่อนหน้า" ของไฟล์ — แยกโฟลเดอร์เพื่อให้เห็นชัดจากบนดิสก์ว่าอะไรคือ
+// ไฟล์ปัจจุบันและอะไรคือประวัติ (และเพื่อให้ resolveKey ตรวจขอบเขตได้ตรงจุด)
+const VERSIONS_DIR = 'versions'
+
 const MAX_UPLOAD_BYTES = 1_073_741_824 // 1 GiB — ตรงกับเพดานฝั่ง UI (Uploads.jsx)
 
 /**
@@ -37,6 +41,7 @@ const MAX_UPLOAD_BYTES = 1_073_741_824 // 1 GiB — ตรงกับเพด�
  */
 export async function initStorage() {
   await fsp.mkdir(path.join(STORAGE_ROOT, UPLOAD_DIR), { recursive: true })
+  await fsp.mkdir(path.join(STORAGE_ROOT, VERSIONS_DIR), { recursive: true })
   // เขียนจริงหนึ่งครั้งเพื่อพิสูจน์สิทธิ์ (named volume ที่ mount มาใหม่มักเป็นของ root
   // ขณะที่คอนเทนเนอร์รันด้วย user 'node' — ปัญหานี้ต้องโผล่ตอนบูต ไม่ใช่ตอน runtime)
   const probe = path.join(STORAGE_ROOT, UPLOAD_DIR, `.write-probe-${randomUUID()}`)
@@ -155,4 +160,73 @@ export async function discardUploaded(multerFile) {
   }
 }
 
-export const storageConfig = Object.freeze({ STORAGE_ROOT, UPLOAD_DIR, MAX_UPLOAD_BYTES })
+// ── ประวัติเวอร์ชันของไฟล์ ────────────────────────────────────────────────────
+// ⚠️ ทั้งสองฟังก์ชันด้านล่างใช้ rename ไม่ใช่ copy: ไฟล์อยู่บน volume เดียวกันอยู่แล้ว
+//    การ rename เป็น metadata operation (เร็วและไม่กินพื้นที่เพิ่ม) ขณะที่ copy ไฟล์
+//    ขนาดกิกะไบต์บน HDD ของ edge box คือการเสียทั้งเวลาและพื้นที่สองเท่าโดยไม่ได้อะไร
+//    ผลข้างเคียงที่ต้องรู้: หลังย้ายแล้ว key เดิม "ไม่มีไฟล์อยู่" ทันที ผู้เรียกต้องอัปเดต
+//    แถวใน DB ให้ตรงเสมอ ไม่งั้นจะเหลือแถวที่ชี้ไปยังไฟล์ที่ไม่มีอยู่ (metadata โกหก)
+
+/**
+ * ย้ายไบต์ของไฟล์ปัจจุบันไปเป็น "เวอร์ชันเก่า" → คืน key ใหม่ใต้ versions/
+ * @returns {Promise<string|null>} null = ไม่มีไฟล์ให้ย้าย (แถวเก่า/โฟลเดอร์)
+ */
+export async function moveToVersions(currentKey) {
+  const from = resolveKey(currentKey)
+  if (!from) return null
+  const key = `${VERSIONS_DIR}/${randomUUID()}.bin`
+  const to = resolveKey(key)
+  if (!to) return null
+  try {
+    await fsp.rename(from, to)
+    return key
+  } catch (err) {
+    if (err.code === 'ENOENT') return null // ไม่มีไบต์อยู่แล้ว — ไม่ใช่ error ที่ต้องหยุดงาน
+    throw err
+  }
+}
+
+/**
+ * ย้ายไบต์ของเวอร์ชันกลับมาเป็นไฟล์ปัจจุบัน → คืน key ใหม่ใต้ uploads/
+ * ⚠️ ผู้เรียกต้อง "เก็บไฟล์ปัจจุบันเป็นเวอร์ชันก่อน" แล้วจึงเรียกอันนี้ ไม่งั้นไบต์ปัจจุบันหาย
+ */
+export async function restoreFromVersions(versionKey) {
+  const from = resolveKey(versionKey)
+  if (!from) return null
+  const key = `${UPLOAD_DIR}/${randomUUID()}.bin`
+  const to = resolveKey(key)
+  if (!to) return null
+  try {
+    await fsp.rename(from, to)
+    return key
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+}
+
+/** พื้นที่จริงของ mount ที่ Data Lake อยู่ — จาก statfs ของ OS ไม่ใช่ค่าที่ตั้งไว้ในโค้ด
+ *
+ * ⚠️ นี่คือ "ของจริง" ที่ทำได้โดยไม่ต้องมีสิทธิ์พิเศษใด ๆ (ต่างจาก smartctl/mdadm ที่ต้อง
+ *    เข้าถึง raw device) — ตัวเลขความจุที่จอ Storage/Dashboard แสดงจึงมาจากที่นี่
+ *    แทนค่าคงที่ 1024 GB / 342 GB ที่เคย hard-code ไว้
+ * ⚠️ bsize/bavail เป็นของ "ทั้ง filesystem ที่ mount อยู่" ไม่ใช่โควตาของโฟลเดอร์นี้
+ *    ถ้าวันหนึ่งมี quota ต่อ path ตัวเลขนี้จะกว้างกว่าความจริง — บอกไว้ในจอด้วย
+ * @returns {Promise<{ totalBytes: number, freeBytes: number, usedBytes: number } | null>}
+ */
+export async function filesystemCapacity() {
+  if (typeof fsp.statfs !== 'function') return null // Node เก่ากว่า 18.15 — ไม่เดาค่าให้
+  try {
+    const st = await fsp.statfs(STORAGE_ROOT)
+    const total = Number(st.blocks) * Number(st.bsize)
+    // bavail = บล็อกที่ "ผู้ใช้ทั่วไป" เขียนได้จริง (ไม่รวมส่วนสำรองของ root)
+    // ใช้ค่านี้เพราะโปรเซสนี้รันด้วย user 'node' ไม่ใช่ root — bfree จะมองโลกในแง่ดีเกินจริง
+    const free = Number(st.bavail) * Number(st.bsize)
+    if (!Number.isFinite(total) || !Number.isFinite(free) || total <= 0) return null
+    return { totalBytes: total, freeBytes: free, usedBytes: Math.max(0, total - free) }
+  } catch {
+    return null // อ่านไม่ได้ = ไม่รู้ ไม่ใช่ศูนย์ และไม่ใช่ค่าที่แต่งขึ้น
+  }
+}
+
+export const storageConfig = Object.freeze({ STORAGE_ROOT, UPLOAD_DIR, VERSIONS_DIR, MAX_UPLOAD_BYTES })

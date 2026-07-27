@@ -1,254 +1,115 @@
-import { useEffect, useState } from 'react'
-import { HardDrive, Thermometer, Activity, Clock } from 'lucide-react'
-import { Card, CardTitle, Chip, Th, Segmented, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
-import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
-import { fmtCountdown, fmtRelative } from '../lib/format.js'
+import { HardDrive, Database, Archive } from 'lucide-react'
+import {
+  Card, CardTitle, ErrorState, SkeletonLoader, NotYetImplemented,
+} from '../components/ui.jsx'
+import { useApi } from '../lib/hooks.js'
+import { fmtBytes } from '../lib/format.js'
 
-/* ⚠️ Phase 2: ตัวเลขทั้งจอมาจาก GET /api/storage — production อ่าน smartctl/mdadm จริง
-   ตัวบังคับสถานะ RAID (Segmented) เป็นเครื่องมือเดโม่สำหรับ "แสดง" ลำดับ degraded →
-   rebuild ให้ผู้ตรวจดู — ไม่ใช่ข้อมูลปลอมของระบบ */
+/* ── จอนี้เคยเป็นแหล่งข้อมูลปลอมที่อันตรายที่สุดในแอป ────────────────────────────────
+   ของเดิมแสดง: ดิสก์สองลูก 'WD Red Pro 4TB' พร้อม serial (WD-WX32DA8L7K4N /
+   WD-WX32DA8L2C9F), อุณหภูมิ 38°C และ 41°C, 'SMART: PASSED', ชั่วโมงทำงาน 14,208
+   และ backup job สามงาน (Nightly incremental / Vault ciphertext replica / PostgreSQL
+   WAL archive) ที่มี lastRun และ nextRun เดินอยู่ — **ทั้งหมด hard-code ไว้ใน store.js
+   ไม่มีค่าใดถูกอ่านมาจากที่ไหนเลย** ฮาร์ดแวร์ชุดนั้นไม่มีอยู่ใน deployment นี้ และไม่มี
+   backup job ใดถูกตั้งค่าไว้ที่ไหน
 
-const SEG_COLORS = { docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)', vaultSeg: 'var(--ink)', free: 'hatch' }
+   ทำไมมันร้ายกว่าตัวเลขผิดธรรมดา: ผู้ดูแลที่เห็น "SMART: PASSED" จะเลิกตรวจสุขภาพดิสก์
+   และผู้ที่เห็น "Nightly incremental · ok · 9 ชั่วโมงที่แล้ว" จะเชื่อว่ามีสำเนาข้อมูลอยู่จริง
+   สองความเชื่อนั้นคือสิ่งที่ทำให้คนไม่ทำสำรองข้อมูลจนถึงวันที่ดิสก์เสีย
 
-/* ── Capacity — big stacked bar; Free is hatched: nothing is there ── */
-function CapacityCard({ t, capacity }) {
-  const capacityBreakdown = capacity.map((c) => ({ ...c, color: SEG_COLORS[c.key] ?? 'var(--ink-3)' }))
-  const total = capacityBreakdown.reduce((s, b) => s + b.gb, 0) || 1
+   ทำไมอ่านค่าจริงไม่ได้ (ตรวจแล้ว ไม่ใช่สันนิษฐาน): smartctl/mdadm ไม่ได้ติดตั้งใน image
+   (node:20-alpine) และต้องเข้าถึง raw device ซึ่งต้อง CAP_SYS_RAWIO หรือ privileged —
+   compose ไม่ได้ให้ และคอนเทนเนอร์รันด้วย user 'node' ไม่ใช่ root; ส่วน mdadm ต้องอ่าน
+   /proc/mdstat ของโฮสต์ และ deployment นี้ไม่มี RAID array อยู่เลย
+   การได้ค่าจริงต้องเพิ่มสิทธิ์ระดับโฮสต์ = เปลี่ยน infrastructure ไม่ใช่เขียนโค้ดเพิ่ม
+
+   สิ่งที่เหลืออยู่บนจอนี้จึงเป็นของจริงล้วน: ความจุจาก statfs ของ mount ที่ Data Lake อยู่
+   และการแบ่งตามหมวดจากผลรวมในฐานข้อมูล ส่วนที่วัดไม่ได้ถูกประกาศว่าวัดไม่ได้ */
+
+const SEG = [
+  { key: 'docs', color: 'var(--accent)' },
+  { key: 'archives', color: 'var(--ink-3)' },
+  { key: 'media', color: 'var(--violet)' },
+  { key: 'vaultSeg', color: 'var(--ink)' },
+  { key: 'versions', color: 'var(--warn)' },
+  { key: 'other', color: 'var(--accent-ink)' },
+]
+
+/* ── Capacity — ตัวเลขจาก statfs; ส่วนว่างเป็นลายขวาง = ไม่มีอะไรอยู่ตรงนั้น ── */
+function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
+  // ⚠️ อ่านความจุไม่ได้ ≠ ความจุเป็นศูนย์ — บอกตรง ๆ ว่าไม่รู้ ดีกว่าวาดแท่งจากค่าที่เดา
+  if (!capacityBytes) {
+    return (
+      <Card className="p-5">
+        <CardTitle>{t('capacity')}</CardTitle>
+        <NotYetImplemented label={t('notAvailable')}>{t('capacityUnreadable')}</NotYetImplemented>
+      </Card>
+    )
+  }
+
+  const total = capacityBytes.totalBytes
+  const segs = SEG
+    .map((s) => ({ ...s, bytes: usage?.[s.key] ?? 0 }))
+    .filter((s) => s.bytes > 0)
+  const unaccounted = unaccountedBytes ?? 0
+  const free = capacityBytes.freeBytes
+  const pct = (b) => (total > 0 ? (b / total) * 100 : 0)
+
   return (
     <Card className="p-5">
-      <CardTitle>{t('capacity')}</CardTitle>
+      <CardTitle sub={t('capacitySub')}>{t('capacity')}</CardTitle>
+
       <div className="flex items-center gap-0.5 h-10" aria-hidden>
-        {capacityBreakdown.map((seg, i) => (
+        {segs.map((seg, i) => (
           <div
             key={seg.key}
-            className={`h-9 ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === capacityBreakdown.length - 1 ? 'rounded-r-full' : ''}`}
-            style={{ width: `${(seg.gb / total) * 100}%`, backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color }}
+            className={`h-9 ${i === 0 ? 'rounded-l-full' : ''}`}
+            style={{ width: `${pct(seg.bytes)}%`, backgroundColor: seg.color, minWidth: seg.bytes > 0 ? 2 : 0 }}
           />
         ))}
-      </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
-        {capacityBreakdown.map((seg) => (
-          <span key={seg.key} className="flex items-center gap-2 text-[13px]">
-            <span
-              className={`size-3 rounded-[4px] ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''}`}
-              style={{ backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color }}
-              aria-hidden
-            />
-            <span className="font-medium text-ink-2">{t(seg.key)}</span>
-            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{seg.gb} GB ({((seg.gb / total) * 100).toFixed(0)}%)</span>
-          </span>
-        ))}
-      </div>
-    </Card>
-  )
-}
-
-/* ── One disk panel ─────────────────────────────────────────────── */
-function DiskPanel({ t, disk, failed, rebuildPct }) {
-  const isRebuilding = rebuildPct != null && rebuildPct < 100
-  const dead = failed && !isRebuilding
-  return (
-    <div className="relative flex-1 min-w-[220px] rounded-[var(--r-tile)] border p-4 overflow-hidden transition-colors duration-[var(--dur-base)]"
-      style={{ borderColor: 'var(--line)', background: 'var(--card)' }}>
-      {/* rebuild fill — rises bottom → top in solid blue */}
-      {isRebuilding && (
-        <div aria-hidden className="absolute inset-x-0 bottom-0 transition-[height] duration-300"
-          style={{ height: `${rebuildPct}%`, background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }} />
-      )}
-      {/* failure veil — the data is no longer present */}
-      <div
-        aria-hidden
-        className="absolute inset-0 hatch hatch-ink3 bg-sunken/80 pointer-events-none transition-[clip-path] duration-500"
-        style={{
-          clipPath: dead ? 'inset(0 0 0 0)' : isRebuilding ? `inset(0 0 ${rebuildPct}% 0)` : 'inset(0 0 100% 0)',
-          transitionTimingFunction: 'var(--ease)',
-        }}
-      />
-      <div className="relative" style={{ filter: dead ? 'saturate(0)' : 'none', opacity: dead ? 0.6 : 1 }}>
-        <div className="flex items-center gap-2.5">
-          <div className="size-8 rounded-[9px] bg-sunken flex items-center justify-center">
-            <HardDrive size={15} strokeWidth={1.5} className="text-ink-2" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13.5px] font-semibold text-ink truncate">{disk.model}</p>
-            <p className="font-mono text-[10.5px] text-ink-3 truncate">{disk.serial}</p>
-          </div>
-          {dead && <Chip tone="danger" className="ml-auto">{t('diskFailed')}</Chip>}
-          {isRebuilding && <Chip tone="accent" className="ml-auto" mono>{rebuildPct}%</Chip>}
-        </div>
-        {/* capacity bar — hollow when the disk is gone */}
-        <div className="mt-3.5 h-2 rounded-full overflow-hidden" style={{ background: 'var(--line)', outline: dead ? '1px dashed var(--ink-3)' : 'none' }}>
-          <div className="h-full rounded-full transition-[width] duration-[var(--dur-slow)]"
-            style={{ width: dead ? '0%' : `${(disk.usedTB / disk.capacityTB) * 100}%`, background: 'var(--accent)' }} />
-        </div>
-        <p className="text-[11.5px] text-ink-3 mt-1.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {dead ? '—' : `${disk.usedTB} TB`} / {disk.capacityTB} TB
-        </p>
-        <div className="grid grid-cols-3 gap-2 mt-3 text-[11.5px]">
-          <span className="flex items-center gap-1.5 text-ink-2" title={t('temperature')}>
-            <Thermometer size={12} strokeWidth={1.5} className="text-ink-3" />
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{dead ? '—' : `${disk.temp}°C`}</span>
-          </span>
-          <span className="flex items-center gap-1.5 text-ink-2" title={t('smart')}>
-            <Activity size={12} strokeWidth={1.5} className="text-ink-3" />
-            {dead ? '—' : disk.smart}
-          </span>
-          <span className="flex items-center gap-1.5 text-ink-2" title={t('powerOn')}>
-            <Clock size={12} strokeWidth={1.5} className="text-ink-3" />
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{disk.hours.toLocaleString('en-US')} {t('hours')}</span>
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── RAID 1 mirror ──────────────────────────────────────────────── */
-function RaidCard({ t, disks }) {
-  const reduced = useReducedMotion()
-  const [raidDegraded, setRaidDegraded] = useState(false)
-  const [state, setState] = useState('healthy') // healthy | degraded | rebuilding
-  const [rebuildPct, setRebuildPct] = useState(null)
-
-  useEffect(() => {
-    if (raidDegraded) {
-      setState('degraded')
-    } else if (state === 'degraded') {
-      setState('healthy')
-    }
-  }, [raidDegraded])
-
-  useEffect(() => {
-    if (state !== 'rebuilding') {
-      setRebuildPct(null)
-      return
-    }
-    let raf
-    const total = reduced ? 1 : 9000
-    const t0 = performance.now()
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - t0) / total)
-      setRebuildPct(Math.round(p * 100))
-      if (p < 1) raf = requestAnimationFrame(tick)
-      else {
-        setState('healthy') // rebuild completes → mirror restored
-        setRaidDegraded(false)
-      }
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [state, reduced])
-
-  const chip = state === 'healthy'
-    ? <Chip tone="ok"><span className="size-1.5 rounded-full bg-current" /> {t('synced')}</Chip>
-    : state === 'degraded'
-      ? <Chip tone="danger">{t('degraded')}</Chip>
-      : <Chip tone="accent">{t('rebuilding')} · {rebuildPct ?? 0}%</Chip>
-
-  return (
-    <Card className="p-5">
-      <CardTitle right={chip}>{t('raidTitle')}</CardTitle>
-
-      <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={raidDegraded}
-            onChange={(e) => setRaidDegraded(e.target.checked)}
-            className="size-4 rounded accent-accent border-line focus:ring-accent"
-          />
-          <span className="text-[13px] text-ink-2 font-semibold">Simulate Degraded RAID State</span>
-        </label>
-        <Segmented
-          ariaLabel={t('demoForce')}
-          options={[
-            { value: 'healthy', label: t('synced') },
-            { value: 'degraded', label: t('degraded') },
-            { value: 'rebuilding', label: t('rebuilding') },
-          ]}
-          value={state}
-          onChange={(v) => {
-            setState(v)
-            setRaidDegraded(v === 'degraded')
-          }}
+        {unaccounted > 0 && (
+          <div className="h-9" style={{ width: `${pct(unaccounted)}%`, backgroundColor: 'var(--line)' }} />
+        )}
+        <div
+          className="h-9 hatch hatch-ink3 border border-line rounded-r-full"
+          style={{ width: `${pct(free)}%`, backgroundColor: 'var(--card-sunken)' }}
         />
       </div>
 
-      <div className="flex items-stretch gap-0 max-md:flex-col">
-        <div className="flex-1" style={state === 'degraded' ? { outline: '1.5px solid var(--warn)', outlineOffset: 2, borderRadius: 'var(--r-tile)' } : {}}>
-          <DiskPanel t={t} disk={disks[0]} failed={false} rebuildPct={null} />
-          {state === 'degraded' && (
-            <p className="mt-2 text-center"><Chip tone="warn">{t('unprotected')}</Chip></p>
-          )}
-        </div>
-
-        {/* the mirror link between the disks */}
-        <div className="flex items-center justify-center px-2 max-md:py-2 max-md:rotate-90 shrink-0 w-16 max-md:w-auto max-md:h-10" aria-hidden>
-          <svg width="48" height="24" viewBox="0 0 48 24">
-            {state === 'healthy' && (
-              <g className={reduced ? '' : 'dot-pulse'} style={{ transformOrigin: 'center' }}>
-                <path d="M6 9h30l-4 -4M42 15h-30l4 4" fill="none" stroke="var(--ok)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </g>
-            )}
-            {state === 'degraded' && (
-              <g>
-                <line x1="4" y1="12" x2="18" y2="12" stroke="var(--danger)" strokeWidth="1.8" strokeDasharray="3 4" strokeLinecap="round" />
-                <line x1="30" y1="12" x2="44" y2="12" stroke="var(--danger)" strokeWidth="1.8" strokeDasharray="3 4" strokeLinecap="round" />
-                <path d="M22 7l4 10M26 7l-4 10" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
-              </g>
-            )}
-            {state === 'rebuilding' && (
-              <line x1="4" y1="12" x2="44" y2="12" stroke="var(--accent)" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round">
-                {!reduced && <animate attributeName="stroke-dashoffset" from="20" to="0" dur="0.8s" repeatCount="indefinite" />}
-              </line>
-            )}
-          </svg>
-        </div>
-
-        <div className="flex-1">
-          <DiskPanel t={t} disk={disks[1]} failed={state !== 'healthy'} rebuildPct={state === 'rebuilding' ? rebuildPct : null} />
-        </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
+        {segs.map((seg) => (
+          <span key={seg.key} className="flex items-center gap-2 text-[13px]">
+            <span className="size-3 rounded-[4px]" style={{ backgroundColor: seg.color }} aria-hidden />
+            <span className="font-medium text-ink-2">{t(seg.key)}</span>
+            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {fmtBytes(seg.bytes)}
+            </span>
+          </span>
+        ))}
+        {unaccounted > 0 && (
+          // ⚠️ ไบต์ที่ statfs นับว่าใช้ไปแต่แอปไม่รู้จัก — แสดงแยกแทนที่จะยัดรวมกับหมวดใด
+          //    (ไฟล์ของระบบ, ข้อมูลของ container อื่นบน volume เดียวกัน, ไฟล์กำพร้า)
+          <span className="flex items-center gap-2 text-[13px]" title={t('unaccountedHint')}>
+            <span className="size-3 rounded-[4px]" style={{ backgroundColor: 'var(--line)' }} aria-hidden />
+            <span className="font-medium text-ink-2">{t('unaccounted')}</span>
+            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(unaccounted)}</span>
+          </span>
+        )}
+        <span className="flex items-center gap-2 text-[13px]">
+          <span className="size-3 rounded-[4px] hatch hatch-ink3 border border-line" style={{ backgroundColor: 'var(--card-sunken)' }} aria-hidden />
+          <span className="font-medium text-ink-2">{t('free')}</span>
+          <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(free)}</span>
+        </span>
       </div>
-    </Card>
-  )
-}
 
-/* ── Backup schedule ────────────────────────────────────────────── */
-function BackupCard({ t, backups }) {
-  const now = useNow(1000)
-  const freqLabel = { hourly: t('everyHour'), daily: t('daily'), weekly: t('days7') }
-  return (
-    <Card className="overflow-hidden">
-      <div className="px-5 pt-5 pb-3">
-        <h2 className="text-[16px] font-semibold text-ink">{t('backupSchedule')}</h2>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-line bg-sunken">
-              <Th className="pl-5">{t('colJob')}</Th>
-              <Th>{t('colTarget')}</Th>
-              <Th>{t('colFrequency')}</Th>
-              <Th>{t('colLastRun')}</Th>
-              <Th>{t('colStatus')}</Th>
-              <Th>{t('colNextRun')}</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {backups.map((job) => (
-              <tr key={job.id} className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)]" style={{ height: 'var(--row-h)' }}>
-                <td className="px-4 pl-5 text-[13.5px] font-medium text-ink whitespace-nowrap">{job.job}</td>
-                <td className="px-4 font-mono text-[12px] text-ink-2 whitespace-nowrap">{job.target}</td>
-                <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{freqLabel[job.freq] || job.freq}</td>
-                <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, job.lastRun, now)}</td>
-                <td className="px-4"><Chip tone={job.status === 'ok' ? 'ok' : 'danger'}>{t('resOk')}</Chip></td>
-                <td className="px-4 font-mono text-[12.5px] text-ink whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtCountdown(job.nextRun - now, t('expired'))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="mt-4 pt-3 border-t border-line flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-ink-2">
+        <span>{t('capacityTotal')}: <span className="font-mono text-ink">{fmtBytes(total)}</span></span>
+        <span>{t('capacityUsed')}: <span className="font-mono text-ink">{fmtBytes(capacityBytes.usedBytes)}</span></span>
+        <span>
+          {t('capacityUsedPct')}: <span className="font-mono text-ink">
+            {total > 0 ? Math.round((capacityBytes.usedBytes / total) * 100) : 0}%
+          </span>
+        </span>
       </div>
     </Card>
   )
@@ -260,21 +121,51 @@ export function Storage({ t }) {
   if (api.loading) return <SkeletonLoader type="table" />
   if (api.error) return <Card><ErrorState t={t} kind={api.error} onRetry={api.retry} /></Card>
 
-  const { capacity = [], disks = [], backups = [] } = api.data ?? {}
-
-  if (capacity.length === 0 && disks.length === 0 && backups.length === 0) {
-    return (
-      <Card>
-        <EmptyState icon={HardDrive} title={t('emptyNoStorage')} hint={t('emptyNoStorageHint')} />
-      </Card>
-    )
-  }
+  const d = api.data ?? {}
 
   return (
     <div className="flex flex-col gap-5">
-      {capacity.length > 0 && <CapacityCard t={t} capacity={capacity} />}
-      {disks.length >= 2 && <RaidCard t={t} disks={disks} />}
-      {backups.length > 0 && <BackupCard t={t} backups={backups} />}
+      <CapacityCard
+        t={t}
+        capacityBytes={d.capacityBytes}
+        usage={d.usage}
+        unaccountedBytes={d.unaccountedBytes}
+      />
+
+      {/* ── สิ่งที่ deployment นี้ยังวัดไม่ได้ — ประกาศไว้ชัด ๆ พร้อมเหตุผล ────────
+          เว้นไว้เฉย ๆ จะอ่านเหมือน "ยังไม่ได้ทำ" หรือ "ลืม" การเขียนเหตุผลไว้ทำให้คนอ่าน
+          ครั้งต่อไปรู้ว่ามันถูกพิจารณาแล้ว และรู้ว่าต้องเปลี่ยนอะไรถ้าจะให้มันเป็นจริง */}
+      <Card className="p-5">
+        <CardTitle>{t('diskHealth')}</CardTitle>
+        <div className="flex items-start gap-3">
+          <HardDrive size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <NotYetImplemented label={t('notAvailable')}>{t('diskHealthWhy')}</NotYetImplemented>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1">
+        <Card className="p-5">
+          <CardTitle>{t('raidStatus')}</CardTitle>
+          <div className="flex items-start gap-3">
+            <Database size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <NotYetImplemented label={t('notConfigured')}>{t('raidWhy')}</NotYetImplemented>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <CardTitle>{t('backupJobs')}</CardTitle>
+          <div className="flex items-start gap-3">
+            <Archive size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <NotYetImplemented label={t('notConfigured')}>{t('backupJobsWhy')}</NotYetImplemented>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }

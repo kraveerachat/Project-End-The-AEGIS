@@ -19,6 +19,8 @@
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
 import { sha256Hex, usingPostgres, query } from './connection.js'
+// ความจุจริงของ mount ที่ Data Lake อยู่ — statfs ของ OS ไม่ใช่ค่าคงที่ในโค้ด
+import { filesystemCapacity } from '../storage/fileStore.js'
 
 const BOOT = Date.now()
 const MIN = 60_000
@@ -157,10 +159,15 @@ export async function findFile(id) {
 }
 
 export async function deleteFile(id) {
-  if (usingPostgres) return pgDeleteFile(id)
+  if (usingPostgres) return pgDeleteFile(id) // file_versions หายตามผ่าน ON DELETE CASCADE
   const i = files.findIndex((f) => f.id === id)
   if (i === -1) return false
   files.splice(i, 1)
+  // dev fallback ต้องเลียนแบบ CASCADE ด้วยมือ — ไม่งั้นสองโหมดจะมีพฤติกรรมต่างกัน
+  // และชุดทดสอบชุดเดียวกันจะพิสูจน์ได้แค่โหมดหนึ่ง
+  for (let k = memFileVersions.length - 1; k >= 0; k--) {
+    if (String(memFileVersions[k].fileId) === String(id)) memFileVersions.splice(k, 1)
+  }
   return true
 }
 
@@ -174,6 +181,71 @@ export async function createFolder(name, user) {
   }
   files.unshift(row)
   return row
+}
+
+/**
+ * ไฟล์ "ของผู้ใช้คนนี้" ที่ชื่อตรงกันและยังอยู่ — ใช้ตัดสินว่าการอัปโหลดครั้งนี้คือ
+ * การอัปโหลดเวอร์ชันใหม่ของไฟล์เดิม หรือเป็นไฟล์ใหม่คนละไฟล์
+ *
+ * ⚠️ ผูกกับเจ้าของเสมอ (uploaded_by = ผู้อัปโหลด) — ถ้าเทียบด้วยชื่อไฟล์อย่างเดียว
+ *    ผู้ใช้คนหนึ่งจะ "อัปโหลดทับ" ไฟล์ของคนอื่นได้แค่ตั้งชื่อให้ตรงกัน ซึ่งเท่ากับได้สิทธิ์
+ *    เขียนไฟล์ของผู้อื่นโดยไม่ผ่านด่าน ownership ที่ DELETE มีอยู่ (ดู routes/api.js)
+ */
+export async function findOwnFileByName(name, userId) {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
+         FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
+        WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false
+        ORDER BY f.modified_at DESC LIMIT 1`,
+      [String(name), userId],
+    )
+    return rows.length ? mapFileRow(rows[0]) : null
+  }
+  return files.find(
+    (f) => f.name === String(name) && !f.vault && String(f.ownerId) === String(userId),
+  ) ?? null
+}
+
+/**
+ * แทนไบต์ของไฟล์เดิมด้วยไบต์ใหม่ แล้วบันทึกไบต์ชุดเก่าเป็น "เวอร์ชัน"
+ * ⚠️ ผู้เรียกต้องย้ายไบต์เก่าไปไว้ใต้ versions/ ให้เรียบร้อยก่อน (moveToVersions)
+ *    แล้วส่ง key ที่ได้มาเป็น previousKey — ฟังก์ชันนี้ดูแลแค่ชั้น metadata
+ */
+export async function replaceFileContents({ file, storageKey, size, sha256, previous, user }) {
+  if (usingPostgres) {
+    if (previous?.key) {
+      await query(
+        `INSERT INTO file_versions (file_id, storage_key, size_bytes, sha256, superseded_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [file.id, previous.key, previous.size ?? 0, previous.sha256 ?? null, user.id],
+      )
+    }
+    const { rows } = await query(
+      `UPDATE files SET path = $1, size_bytes = $2, sha256 = $3, modified_at = now(), uploaded_by = $4
+        WHERE id = $5 RETURNING *`,
+      [storageKey, Number(size) || 0, sha256 ?? null, user.id, file.id],
+    )
+    if (!rows.length) return null
+    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  }
+
+  const row = files.find((f) => f.id === file.id)
+  if (!row) return null
+  if (previous?.key) {
+    memFileVersions.push({
+      id: nextId('fv'), fileId: row.id, storageKey: previous.key,
+      size: previous.size ?? 0, sha256: previous.sha256 ?? null,
+      supersededBy: String(user.id), createdAt: Date.now(),
+    })
+  }
+  row.path = storageKey
+  row.size = Number(size) || 0
+  row.sha256 = sha256 ?? null
+  row.modified = Date.now()
+  row.uploader = user.displayName
+  row.ownerId = String(user.id)
+  return { ...row }
 }
 
 /** บันทึก metadata ของไฟล์ที่อัปโหลดเสร็จ — bytes ถูกเขียนลง Storage Layer ไปแล้ว
@@ -378,55 +450,197 @@ export async function __resetSharesForTests() {
   shares.length = 0
 }
 
-// ── Snapshots ────────────────────────────────────────────────────────
-const snapshots = [
-  { id: 'snap-0093', time: BOOT - 6 * HOUR, deltaGB: 2.4, verified: true, destroyed: false },
-  { id: 'snap-0092', time: BOOT - 12 * HOUR, deltaGB: 0.8, verified: true, destroyed: false },
-  { id: 'snap-0091', time: BOOT - 18 * HOUR, deltaGB: 1.1, verified: true, destroyed: false },
-  { id: 'snap-0090', time: BOOT - 24 * HOUR, deltaGB: 3.8, verified: true, destroyed: false },
-  { id: 'snap-0089', time: BOOT - 2 * DAY, deltaGB: 0.9, verified: true, destroyed: false },
-  { id: 'snap-0088', time: BOOT - 3 * DAY, deltaGB: 5.2, verified: true, destroyed: false },
-  { id: 'snap-0087', time: BOOT - 4 * DAY, deltaGB: 1.7, verified: false, destroyed: false },
-  { id: 'snap-0086', time: BOOT - 5 * DAY, deltaGB: 2.9, verified: true, destroyed: false },
-]
+// ── File versions — ประวัติของไฟล์จริง (แทนที่ "Snapshots" ที่เป็นของปลอมทั้งหมด) ──
+//
+// ⚠️ ของเดิมคืออาเรย์แปดแถว (snap-0086…snap-0093) ที่มี deltaGB/verified ตั้งไว้เอง และ
+//    rollbackTo() แค่ตั้งธง destroyed = true ให้แถวที่ใหม่กว่าเป้าหมาย **ไม่มีไบต์ของใคร
+//    ถูกกู้คืนเลยแม้แต่ไบต์เดียว** จอบอกว่า "restored" พร้อมตัวเลข GB ที่เสียไป ซึ่งเป็น
+//    การหลอกในเรื่องที่อันตรายที่สุดเรื่องหนึ่ง: ผู้ใช้เชื่อว่ากู้ข้อมูลได้แล้ว
+//
+// ⚠️ ทำไมเป็น "เวอร์ชันต่อไฟล์" ไม่ใช่ snapshot ของทั้งชั้นเก็บไฟล์: deployment นี้เก็บไฟล์
+//    บน Docker named volume ธรรมดา ไม่ใช่ LVM/ZFS/Btrfs และคอนเทนเนอร์รันด้วย user
+//    'node' โดยไม่มี CAP_SYS_ADMIN — point-in-time image ทำไม่ได้จริงด้วยของที่มีอยู่
+//    (ดูหมายเหตุเต็มที่ตาราง file_versions ใน schema.sql) สิ่งที่ทำได้และกู้ข้อมูลได้จริง
+//    คือเก็บไบต์ชุดก่อนของไฟล์แต่ละไฟล์ไว้ — จอจึงถูกเปลี่ยนชื่อให้ตรงกับสิ่งที่มันทำ
 
-export function listSnapshots() {
-  return snapshots
+const memFileVersions = [] // dev fallback
+
+const mapVersionRow = (r) => ({
+  id: String(r.id),
+  fileId: String(r.file_id),
+  storageKey: r.storage_key,
+  size: Number(r.size_bytes),
+  sha256: r.sha256,
+  supersededBy: r.superseded_by == null ? null : String(r.superseded_by),
+  supersededByName: r.superseded_by_name ?? null,
+  createdAt: new Date(r.created_at).getTime(),
+})
+
+/**
+ * ประวัติเวอร์ชันของไฟล์หนึ่ง (ใหม่ → เก่า)
+ * ⚠️ ไม่คืน storageKey ออกไปทาง API — เป็นรายละเอียดภายในของ Storage Layer
+ *    (ผู้เรียกใน routes/api.js เป็นคนกรองก่อนส่งออก)
+ */
+export async function listFileVersions(fileId) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(fileId))) return []
+    const { rows } = await query(
+      `SELECT v.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS superseded_by_name
+         FROM file_versions v LEFT JOIN users u ON u.id = v.superseded_by
+        WHERE v.file_id = $1
+        ORDER BY v.created_at DESC, v.id DESC`,
+      [fileId],
+    )
+    return rows.map(mapVersionRow)
+  }
+  return memFileVersions
+    .filter((v) => String(v.fileId) === String(fileId))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((v) => ({ ...v }))
 }
 
-/** rollback: snapshot ใหม่กว่าเป้าหมายถูกทำลาย — คืน { lostGB } หรือ null */
-export function rollbackTo(id) {
-  const target = snapshots.find((s) => s.id === id && !s.destroyed)
-  if (!target) return null
-  let lostGB = 0
-  for (const s of snapshots) {
-    if (s.time > target.time && !s.destroyed) {
-      s.destroyed = true
-      lostGB += s.deltaGB
+/** เวอร์ชันชิ้นเดียว (พร้อม storageKey สำหรับใช้งานภายใน) — null ถ้าไม่ใช่ของไฟล์นี้ */
+export async function findFileVersion(fileId, versionId) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(fileId)) || !/^\d+$/.test(String(versionId))) return null
+    const { rows } = await query(
+      `SELECT * FROM file_versions WHERE id = $1 AND file_id = $2`,
+      [versionId, fileId],
+    )
+    return rows.length ? mapVersionRow(rows[0]) : null
+  }
+  const v = memFileVersions.find(
+    (x) => String(x.id) === String(versionId) && String(x.fileId) === String(fileId),
+  )
+  return v ? { ...v } : null
+}
+
+/** ลบแถวเวอร์ชัน — ใช้ตอนกู้คืน (ไบต์ของมันถูกย้ายไปเป็นไฟล์ปัจจุบันแล้ว) */
+export async function deleteFileVersion(fileId, versionId) {
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `DELETE FROM file_versions WHERE id = $1 AND file_id = $2`, [versionId, fileId],
+    )
+    return rowCount > 0
+  }
+  const i = memFileVersions.findIndex(
+    (x) => String(x.id) === String(versionId) && String(x.fileId) === String(fileId),
+  )
+  if (i === -1) return false
+  memFileVersions.splice(i, 1)
+  return true
+}
+
+/** จำนวนไฟล์ที่มีประวัติ + จำนวนเวอร์ชันรวม — ใช้โดยจอ File history เพื่อบอกสถานะรวม */
+export async function fileVersionStats() {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT count(*)::int AS versions,
+              count(DISTINCT file_id)::int AS files,
+              COALESCE(sum(size_bytes), 0)::bigint AS bytes
+         FROM file_versions`,
+    )
+    const r = rows[0]
+    return { versions: r.versions, files: r.files, bytes: Number(r.bytes) }
+  }
+  const ids = new Set(memFileVersions.map((v) => String(v.fileId)))
+  return {
+    versions: memFileVersions.length,
+    files: ids.size,
+    bytes: memFileVersions.reduce((n, v) => n + (v.size || 0), 0),
+  }
+}
+
+/** ล้างประวัติเวอร์ชัน — ใช้โดยชุดทดสอบเท่านั้น */
+export async function __resetFileVersionsForTests() {
+  if (usingPostgres) {
+    await query('DELETE FROM file_versions')
+    return
+  }
+  memFileVersions.length = 0
+}
+
+// ── Storage & Backup ─────────────────────────────────────────────────
+//
+// ⚠️ ของเดิมในหมวดนี้เป็นการแต่งข้อมูลระดับที่อันตราย: ดิสก์สองลูก 'WD Red Pro 4TB'
+//    พร้อม serial (WD-WX32DA8L7K4N), อุณหภูมิ 38/41°C, 'smart: PASSED', ชั่วโมงทำงาน
+//    14,208 และ backup job สามงานที่มี lastRun/nextRun เดินอยู่ **ไม่มีอะไรในนั้นถูกอ่าน
+//    มาจากที่ไหนเลย** ฮาร์ดแวร์ชุดนั้นไม่มีอยู่ใน deployment นี้ และไม่มี backup job ใด
+//    ถูกตั้งค่าไว้ที่ไหน ผู้ดูแลที่เห็น "SMART: PASSED" จะเลิกตรวจดิสก์ และเห็น
+//    "Nightly incremental · ok" จะเชื่อว่ามีสำเนาข้อมูลอยู่ — ทั้งสองข้อผิด
+//
+// ⚠️ ทำไมอ่านค่าจริงจาก smartctl/mdadm ไม่ได้ (ตรวจแล้ว ไม่ใช่สันนิษฐาน):
+//    - ทั้งสองโปรแกรมไม่ได้ติดตั้งใน image (node:20-alpine + npm ci เท่านั้น)
+//    - smartctl ต้องเข้าถึง raw device (--device=/dev/sda) ซึ่งต้อง CAP_SYS_RAWIO
+//      หรือ privileged; compose ไม่ได้ให้ทั้งคู่ และคอนเทนเนอร์รันด้วย user 'node'
+//    - mdadm ต้องอ่าน /proc/mdstat ของโฮสต์ และ deployment นี้ไม่มี RAID array
+//    การจะได้ค่าจริงต้องเพิ่มสิทธิ์ระดับโฮสต์ = เปลี่ยน infrastructure ไม่ใช่เขียนโค้ดเพิ่ม
+//
+// สิ่งที่เป็นของจริงและทำได้โดยไม่ต้องมีสิทธิ์พิเศษ: ความจุของ mount (statfs) และ
+// การแบ่งตามหมวดจากผลรวมใน Postgres — สองอย่างนี้จึงเป็นเนื้อหาทั้งหมดของหมวดนี้
+
+/** ผลรวมขนาดตามหมวด (จากตารางจริง) — key ตรงกับที่จอ Dashboard/Storage ใช้แปลภาษา */
+async function usageByCategory() {
+  if (usingPostgres) {
+    // จัดหมวดจากนามสกุลของชื่อไฟล์ด้วย SQL — ใช้ตารางเดียวกับที่จอ Files แสดง
+    const { rows } = await query(
+      `SELECT
+         COALESCE(sum(size_bytes) FILTER (WHERE lower(name) ~ '\\.(pdf|docx?|txt|pptx?|xlsx?|csv)$'), 0)::bigint AS docs,
+         COALESCE(sum(size_bytes) FILTER (WHERE lower(name) ~ '\\.(zip|gz|rar|7z|tar)$'), 0)::bigint AS archives,
+         COALESCE(sum(size_bytes) FILTER (WHERE lower(name) ~ '\\.(mp4|mov|mkv|png|jpe?g|webp)$'), 0)::bigint AS media,
+         COALESCE(sum(size_bytes) FILTER (WHERE lower(name) !~ '\\.(pdf|docx?|txt|pptx?|xlsx?|csv|zip|gz|rar|7z|tar|mp4|mov|mkv|png|jpe?g|webp)$'), 0)::bigint AS other
+       FROM files WHERE vault = false`,
+    )
+    const { rows: vaultRows } = await query(
+      `SELECT COALESCE(sum(size_bytes), 0)::bigint AS bytes FROM vault_blobs`,
+    )
+    const { rows: versionRows } = await query(
+      `SELECT COALESCE(sum(size_bytes), 0)::bigint AS bytes FROM file_versions`,
+    )
+    const r = rows[0]
+    return {
+      docs: Number(r.docs), archives: Number(r.archives), media: Number(r.media),
+      other: Number(r.other), vaultSeg: Number(vaultRows[0].bytes), versions: Number(versionRows[0].bytes),
     }
   }
-  return { lostGB: Math.round(lostGB * 10) / 10, restoredId: id }
+
+  const CAT = {
+    docs: /\.(pdf|docx?|txt|pptx?|xlsx?|csv)$/i,
+    archives: /\.(zip|gz|rar|7z|tar)$/i,
+    media: /\.(mp4|mov|mkv|png|jpe?g|webp)$/i,
+  }
+  const totals = { docs: 0, archives: 0, media: 0, other: 0, vaultSeg: 0, versions: 0 }
+  for (const f of files) {
+    if (f.vault) continue
+    const key = Object.keys(CAT).find((k) => CAT[k].test(f.name)) ?? 'other'
+    totals[key] += f.size || 0
+  }
+  totals.versions = memFileVersions.reduce((n, v) => n + (v.size || 0), 0)
+  return totals
 }
 
-// ── Storage & Backup (production: อ่านจาก smartctl / mdadm / cron จริง) ──
-export function storageStatus() {
+/**
+ * สถานะชั้นเก็บข้อมูล — คืนเฉพาะสิ่งที่วัดได้จริง และประกาศสิ่งที่วัดไม่ได้อย่างชัดเจน
+ * ⚠️ `unavailable` ไม่ใช่ของประดับ: จอใช้มันแสดงสถานะ "ยังไม่มีข้อมูล" แทนการเว้นว่าง
+ *    หรือ (แย่กว่านั้น) เติมค่าที่ดูสมเหตุสมผลเข้าไปเอง
+ */
+export async function storageStatus() {
+  const [fsCapacity, usage] = await Promise.all([filesystemCapacity(), usageByCategory()])
+  const accounted = Object.values(usage).reduce((a, b) => a + b, 0)
+
   return {
-    capacity: [
-      { key: 'docs', gb: 128 },
-      { key: 'archives', gb: 74 },
-      { key: 'media', gb: 96 },
-      { key: 'vaultSeg', gb: 44 },
-      { key: 'free', gb: 682 },
-    ],
-    disks: [
-      { id: 'sda', model: 'WD Red Pro 4TB', serial: 'WD-WX32DA8L7K4N', capacityTB: 4, usedTB: 1.62, temp: 38, smart: 'PASSED', hours: 14_208 },
-      { id: 'sdb', model: 'WD Red Pro 4TB', serial: 'WD-WX32DA8L2C9F', capacityTB: 4, usedTB: 1.62, temp: 41, smart: 'PASSED', hours: 14_205 },
-    ],
-    backups: [
-      { id: 'b1', job: 'Nightly incremental', target: 'edge-site-B /backup', freq: 'daily', lastRun: BOOT - 9 * HOUR, status: 'ok', nextRun: BOOT + 15 * HOUR },
-      { id: 'b2', job: 'Vault ciphertext replica', target: 'offsite-tape LTO-9', freq: 'weekly', lastRun: BOOT - 3 * DAY, status: 'ok', nextRun: BOOT + 4 * DAY },
-      { id: 'b3', job: 'PostgreSQL WAL archive', target: 'edge-site-B /pgwal', freq: 'hourly', lastRun: BOOT - 32 * MIN, status: 'ok', nextRun: BOOT + 28 * MIN },
-    ],
+    // null = อ่านค่าไม่ได้ (ไม่ใช่ 0 และไม่ใช่ค่าที่เดาให้)
+    capacityBytes: fsCapacity,
+    usage,
+    // ไบต์ที่ statfs นับว่าใช้ไปแต่แอปไม่รู้จัก (ไฟล์ของระบบ, ข้อมูลของ container อื่น
+    // บน volume เดียวกัน, ไฟล์กำพร้า) — แสดงแยกแทนที่จะยัดรวมกับหมวดใดหมวดหนึ่ง
+    unaccountedBytes: fsCapacity ? Math.max(0, fsCapacity.usedBytes - accounted) : null,
+    unavailable: {
+      // ทุกคีย์ในนี้คือ "ต้องมีสิทธิ์/ฮาร์ดแวร์ที่ deployment นี้ไม่ได้ให้" — ดูเหตุผลด้านบน
+      diskHealth: 'needs-host-access',   // smartctl: raw device + CAP_SYS_RAWIO
+      raid: 'not-configured',            // ไม่มี array ใน deployment นี้
+      backups: 'not-configured',         // ไม่มี job หรือปลายทางใดถูกตั้งค่าไว้
+    },
   }
 }
 

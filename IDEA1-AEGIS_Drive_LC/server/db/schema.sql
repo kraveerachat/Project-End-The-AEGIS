@@ -96,6 +96,36 @@ CREATE TABLE IF NOT EXISTS network_zones (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ── File versions — ประวัติของไฟล์ระดับแอปพลิเคชัน ───────────────────────────────
+--
+-- ⚠️ นี่ "ไม่ใช่" snapshot ของ filesystem และห้ามเรียกว่า snapshot ในจอใดก็ตาม
+--    Data Lake ของ deployment นี้อยู่บน Docker named volume ธรรมดา (ดู docker-compose.yml)
+--    ไม่ใช่ LVM/ZFS/Btrfs จึงไม่มีกลไก point-in-time image ของทั้งชั้นเก็บไฟล์ให้ใช้ และ
+--    คอนเทนเนอร์รันด้วย user 'node' ไม่มี CAP_SYS_ADMIN/ไม่เห็น /dev/mapper จะทำก็ทำไม่ได้
+--    สิ่งที่ทำได้จริงด้วยของที่มีอยู่คือ "เก็บไบต์ชุดก่อนของไฟล์แต่ละไฟล์ไว้" ซึ่งกู้ข้อมูล
+--    กลับมาได้จริง (ต่างจากจอ Snapshots เดิมที่มีแปดแถวปลอมและปุ่ม rollback ที่แค่ตั้ง
+--    ธง destroyed ในหน่วยความจำ ไม่ได้คืนไบต์ของใครเลย)
+--
+-- ⚠️ ขอบเขตที่ต่างจาก snapshot จริง และต้องบอกผู้ใช้ตรง ๆ:
+--    - เป็นประวัติ "ต่อไฟล์" ไม่ใช่ภาพของทั้งคลังที่จุดเวลาหนึ่ง
+--    - ไฟล์ที่ถูกลบไปแล้วไม่มีประวัติให้กู้ (แถวหาย → CASCADE ลบ version ตามไปด้วย)
+--    - ไม่ช่วยอะไรถ้าดิสก์เสียทั้งลูก (version อยู่บน volume เดียวกับตัวไฟล์)
+--      นั่นคืองานของการสำรองข้อมูลนอกเครื่อง ซึ่ง deployment นี้ยังไม่มี
+CREATE TABLE IF NOT EXISTS file_versions (
+  id            BIGSERIAL PRIMARY KEY,
+  file_id       BIGINT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  -- ไบต์ของเวอร์ชันเก่าอยู่บนดิสก์ใต้ 'versions/' — ย้ายมาด้วย rename บน volume เดียวกัน
+  -- (ไม่ copy: ไฟล์ใหญ่บน HDD ของ edge box การ copy คือการเสียเวลาและพื้นที่สองเท่าฟรี ๆ)
+  storage_key   TEXT NOT NULL UNIQUE,
+  size_bytes    BIGINT NOT NULL DEFAULT 0,   -- ขนาดจริงบนดิสก์ (เซิร์ฟเวอร์วัดเอง)
+  sha256        CHAR(64),
+  -- ใครเป็นคนทำให้เวอร์ชันนี้กลายเป็นของเก่า (อัปโหลดทับ หรือกู้เวอร์ชันอื่น)
+  superseded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS file_versions_file_idx ON file_versions (file_id, created_at DESC);
+
 -- ── Share tokens — ตัวลิงก์ที่เอาไปไถ่ไฟล์ได้จริง ────────────────────────────────
 -- ⚠️ เก็บ "sha256 ของ token" ไม่ใช่ token ดิบ เหตุผลเดียวกับที่รหัสผ่านเป็น bcrypt:
 --    token คือ bearer credential — ใครถือก็ดาวน์โหลดไฟล์ได้โดยไม่ต้องล็อกอิน

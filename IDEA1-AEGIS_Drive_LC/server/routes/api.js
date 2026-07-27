@@ -23,6 +23,7 @@ import * as store from '../db/store.js'
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
   keyExists, openReadStream, removeKey, discardUploaded,
+  moveToVersions, restoreFromVersions,
 } from '../storage/fileStore.js'
 // Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
 import {
@@ -249,16 +250,36 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
         return res.status(422).json({ error: 'Checksum mismatch' })
       }
 
+      // ── อัปโหลดชื่อเดิมทับของตัวเอง = เวอร์ชันใหม่ ไม่ใช่ไฟล์ที่สองที่ชื่อซ้ำกัน ──
+      // ⚠️ ผูกกับเจ้าของเสมอ (findOwnFileByName) — ถ้าเทียบด้วยชื่อไฟล์อย่างเดียว ผู้ใช้
+      //    คนหนึ่งจะเขียนทับไฟล์ของคนอื่นได้แค่ตั้งชื่อให้ตรง ซึ่งเป็นการข้ามด่าน ownership
+      //    ที่ DELETE มีอยู่ ไฟล์ชื่อเดียวกันของคนละเจ้าของยังเป็นสองไฟล์แยกกันเหมือนเดิม
+      const existing = await store.findOwnFileByName(name, req.user.id)
+
       let row
       try {
-        row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user })
+        if (existing) {
+          // ไบต์ชุดเดิมย้ายไปเก็บเป็นเวอร์ชันก่อน แล้วแถวจึงชี้มาที่ไบต์ใหม่
+          const archivedKey = await moveToVersions(existing.path)
+          row = await store.replaceFileContents({
+            file: existing,
+            storageKey, size, sha256,
+            previous: archivedKey
+              ? { key: archivedKey, size: existing.size, sha256: existing.sha256 }
+              : null,
+            user: req.user,
+          })
+          if (!row) throw new Error('file row vanished mid-upload')
+        } else {
+          row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user })
+        }
       } catch (dbErr) {
         await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
         throw dbErr
       }
 
-      auditAct(req, 'FILE_UPLOAD', name)
-      res.status(201).json({ file: row })
+      auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', name)
+      res.status(201).json({ file: row, newVersion: Boolean(existing) })
     } catch (err) {
       next(err)
     }
@@ -327,10 +348,18 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
+    // ⚠️ ไบต์ของ "ทุกเวอร์ชัน" ต้องถูกลบด้วย ไม่ใช่แค่ไบต์ของไฟล์ปัจจุบัน — แถวใน
+    //    file_versions หายเองผ่าน ON DELETE CASCADE แต่ไฟล์บนดิสก์ไม่มีใครลบให้
+    //    ถ้าข้ามขั้นนี้ เนื้อหาเก่าของไฟล์ที่ผู้ใช้ "ลบแล้ว" จะยังนอนอยู่บน volume ต่อไป
+    //    โดยไม่มีแถวไหนอ้างถึงอีก = ลบไม่ได้ ตรวจไม่เจอ และเป็นข้อมูลที่ผู้ใช้คิดว่าหายไปแล้ว
+    //    ต้องอ่านรายการ "ก่อน" ลบแถว ไม่งั้น CASCADE ทำให้ไม่เหลืออะไรให้อ่าน
+    const versions = file.type === 'Folder' ? [] : await store.listFileVersions(file.id)
+
     await store.deleteFile(req.params.id)
     // ลบ metadata แล้วต้องลบ bytes ตามด้วยเสมอ — ไม่งั้นไฟล์ที่ผู้ใช้ "ลบแล้ว" ยังนอน
     // อยู่บนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก (ทั้ง privacy และพื้นที่)
     if (file.type !== 'Folder') await removeKey(file.path)
+    for (const v of versions) await removeKey(v.storageKey).catch(() => {})
     auditAct(req, 'FILE_DELETE', file.name)
     res.json({ ok: true })
   } catch (err) {
@@ -380,22 +409,151 @@ apiRouter.delete('/shares/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-// ── Snapshots & recovery ─────────────────────────────────────────────
-apiRouter.get('/snapshots', requireAuth, (req, res) => {
-  res.json({ snapshots: store.listSnapshots() })
+// ── File versions — ประวัติของไฟล์ที่กู้ได้จริง ────────────────────────
+//
+// ⚠️ ไม่มี /snapshots และ /snapshots/:id/rollback อีกแล้ว ทั้งคู่เป็นของปลอม: แถวถูก
+//    hard-code ไว้แปดแถว และ rollback แค่ตั้งธงในหน่วยความจำโดยไม่คืนไบต์ของใครเลย
+//    ทั้งที่จอรายงานว่า "restored" — เหตุผลเต็มอยู่ที่หัวหมวด File versions ใน db/store.js
+// ⚠️ เส้นทางนี้จำกัด "เฉพาะเจ้าของไฟล์" ทุกเส้น (ไม่มีข้อยกเว้นให้ Admin เหมือนกับด่าน
+//    DELETE /api/files/:id) — ประวัติเวอร์ชันคือเนื้อหาของไฟล์ในอดีต การให้คนอื่นอ่านได้
+//    เท่ากับให้อ่านไฟล์ของเขา และการให้กู้คืนได้เท่ากับให้เขียนทับไฟล์ของเขา
+
+/** ไฟล์ที่ผู้ใช้คนนี้เป็นเจ้าของ + มีประวัติเวอร์ชัน — ใช้เป็นรายการฝั่งซ้ายของจอ */
+apiRouter.get('/file-versions', requireAuth, async (req, res, next) => {
+  try {
+    const own = (await store.listFiles()).filter(
+      (f) => f.ownerId != null && String(f.ownerId) === String(req.user.id) && f.type !== 'Folder',
+    )
+    const withCounts = await Promise.all(own.map(async (f) => {
+      const versions = await store.listFileVersions(f.id)
+      return {
+        id: f.id, name: f.name, size: f.size, modified: f.modified,
+        versionCount: versions.length,
+        latestVersionAt: versions[0]?.createdAt ?? null,
+      }
+    }))
+    res.json({ files: withCounts, stats: await store.fileVersionStats() })
+  } catch (err) {
+    next(err)
+  }
 })
 
-apiRouter.post('/snapshots/:id/rollback', requireAuth, (req, res) => {
-  // ยืนยันสองชั้นฝั่ง client (พิมพ์ id) — แต่ server ตรวจของจริงเองเสมอ
-  const result = store.rollbackTo(req.params.id)
-  if (!result) return res.status(404).json({ error: 'Not found' })
-  auditAct(req, 'SNAPSHOT_ROLLBACK', req.params.id)
-  res.json(result)
+/** ประวัติของไฟล์หนึ่ง — เจ้าของเท่านั้น */
+apiRouter.get('/files/:id/versions', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Not found' })
+    // ไม่ใช่เจ้าของ → 404 เหมือนไม่มีไฟล์ (ไม่ยืนยันว่าไฟล์ id นี้มีอยู่จริงของใคร)
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    const versions = await store.listFileVersions(file.id)
+    res.json({
+      file: { id: file.id, name: file.name, size: file.size, modified: file.modified, sha256: file.sha256 },
+      // storageKey ไม่ถูกส่งออกไป — เป็นรายละเอียดภายในของ Storage Layer
+      versions: versions.map((v) => ({
+        id: v.id, size: v.size, sha256: v.sha256,
+        createdAt: v.createdAt, supersededByName: v.supersededByName,
+      })),
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** ดาวน์โหลดไบต์ของเวอร์ชันเก่า — เจ้าของเท่านั้น (ตรวจก่อนกู้คืนได้ว่าใช่ตัวที่ต้องการ) */
+apiRouter.get('/files/:id/versions/:versionId/download', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file || file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    const version = await store.findFileVersion(file.id, req.params.versionId)
+    if (!version || !(await keyExists(version.storageKey))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    const stream = openReadStream(version.storageKey)
+    if (!stream) return res.status(404).json({ error: 'Not found' })
+
+    auditAct(req, 'FILE_VERSION_DOWNLOAD', file.name)
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Content-Length', String(version.size))
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    stream.on('error', () => res.destroy())
+    stream.pipe(res)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * กู้คืนเวอร์ชัน — ของจริง: ไบต์ของเวอร์ชันนั้นกลายเป็นไฟล์ปัจจุบัน
+ *
+ * ⚠️ ไม่ทำลายอะไรเลย: ไบต์ "ปัจจุบัน" ถูกเก็บเป็นเวอร์ชันใหม่ก่อนเสมอ ผู้ใช้ที่กู้ผิดตัว
+ *    จึงกู้กลับได้อีก (ต่างจาก rollback ของเดิมที่โฆษณาว่าจะ "ทำลาย snapshot ที่ใหม่กว่า")
+ * ⚠️ ลำดับสำคัญ: ย้ายไบต์ปัจจุบัน → เขียน metadata → ย้ายไบต์ของเวอร์ชันมาเป็นปัจจุบัน
+ *    ถ้าขั้นใดล้ม เราพยายามย้ายไบต์ปัจจุบันกลับที่เดิม (ดีกว่าเหลือแถวที่ชี้ไปยังไฟล์ที่ไม่มี)
+ */
+apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file || file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      auditAct(req, 'FILE_VERSION_RESTORE', req.params.id, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    const version = await store.findFileVersion(file.id, req.params.versionId)
+    if (!version || !(await keyExists(version.storageKey))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+
+    // 1) ไบต์ปัจจุบันกลายเป็นเวอร์ชันใหม่ (ยังไม่แตะแถว)
+    const archivedKey = await moveToVersions(file.path)
+
+    // 2) ไบต์ของเวอร์ชันเป้าหมายกลายเป็นไฟล์ปัจจุบัน
+    let restoredKey = null
+    try {
+      restoredKey = await restoreFromVersions(version.storageKey)
+      if (!restoredKey) throw new Error('version bytes vanished mid-restore')
+    } catch (err) {
+      // พยายามคืนสภาพ: ย้ายไบต์ปัจจุบันกลับมาเป็นไฟล์ปัจจุบันอีกครั้ง
+      if (archivedKey) {
+        const back = await restoreFromVersions(archivedKey).catch(() => null)
+        if (back) await store.replaceFileContents({
+          file, storageKey: back, size: file.size, sha256: file.sha256, previous: null, user: req.user,
+        })
+      }
+      throw err
+    }
+
+    // 3) แถวชี้ไปที่ไบต์ที่กู้มา และไบต์เดิมถูกบันทึกเป็นเวอร์ชัน
+    const row = await store.replaceFileContents({
+      file,
+      storageKey: restoredKey,
+      size: version.size,
+      sha256: version.sha256,
+      previous: archivedKey ? { key: archivedKey, size: file.size, sha256: file.sha256 } : null,
+      user: req.user,
+    })
+    // เวอร์ชันเป้าหมายไม่มีไบต์ของตัวเองอีกแล้ว (ถูกย้ายมาเป็นไฟล์ปัจจุบัน) — ลบแถวทิ้ง
+    await store.deleteFileVersion(file.id, version.id)
+
+    auditAct(req, 'FILE_VERSION_RESTORE', file.name)
+    res.json({ file: row, restoredFromVersionId: version.id })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Storage & backup ─────────────────────────────────────────────────
-apiRouter.get('/storage', requireAuth, (req, res) => {
-  res.json(store.storageStatus())
+// ⚠️ คืนเฉพาะสิ่งที่วัดได้จริง (ความจุจาก statfs + ผลรวมจากตาราง) และประกาศสิ่งที่
+//    วัดไม่ได้ผ่าน `unavailable` — ดูเหตุผลของแต่ละข้อที่หัวหมวด Storage ใน db/store.js
+apiRouter.get('/storage', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await store.storageStatus())
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Network zones (Admin governance เท่านั้น) ──────────────────────────
