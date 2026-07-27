@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { UserPlus, Info, Users, Search } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader, Avatar } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
@@ -19,8 +19,6 @@ const CAPABILITIES = [
   { key: 'permAudit', admin: true, user: false },
   { key: 'permManageUsers', admin: true, user: false },
 ]
-
-const initials = (name) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()
 
 /* One matrix cell — read-only: solid = granted, hatch = not present (แกรมมาร์เดิม) */
 function PermCell({ granted, label }) {
@@ -55,8 +53,10 @@ export function Access({ t }) {
   // จอนี้ตอบคำถามเดียว: "บัญชีชื่อนี้มีสิทธิ์อะไร" ค้นชื่อในที่ตรงนี้ตรงประเด็นกว่า
   const [filter, setFilter] = useState('')
   const fq = filter.trim().toLowerCase()
+  // ค้นทั้งชื่อที่ผู้ใช้ตั้งเอง ชื่อที่ Admin ตั้ง และ username — Admin ที่จำได้แค่ชื่อ
+  // ที่ตัวเองตั้งให้ตอน provision ต้องหาบัญชีนั้นเจอ แม้เจ้าตัวจะเปลี่ยนชื่อแสดงไปแล้ว
   const users = fq
-    ? allUsers.filter((u) => `${u.name} ${u.username}`.toLowerCase().includes(fq))
+    ? allUsers.filter((u) => `${u.name} ${u.accountName ?? ''} ${u.username}`.toLowerCase().includes(fq))
     : allUsers
 
   const [addOpen, setAddOpen] = useState(false)
@@ -142,12 +142,21 @@ export function Access({ t }) {
                     <tr key={u.id} className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] rise-in" style={{ height: 'var(--row-h)', animationDelay: `${i * 25}ms` }}>
                       <td className="px-4 pl-5">
                         <span className="flex items-center gap-2.5">
-                          <span className="size-7 rounded-full bg-ink text-card text-[10.5px] font-bold flex items-center justify-center shrink-0">
-                            {initials(u.name)}
-                          </span>
+                          <Avatar userId={u.id} name={u.name} size={28} />
                           <span className="min-w-0">
                             <span className="block text-[13.5px] font-medium text-ink truncate">{u.name}</span>
                             <span className="block font-mono text-[11px] text-ink-3 truncate">{u.username}</span>
+                            {/* ⚠️ ชื่อที่แสดง (u.name) คือชื่อที่ "เจ้าตัวตั้งเอง" ถ้าเขาตั้งไว้ —
+                                ซ้ำกับชื่อคนอื่นได้ จอนี้เป็นจอที่ Admin ใช้ตอบว่า "ใครเข้าถึง
+                                ระบบนี้ได้" จึงต้องเห็นชื่อที่ Admin ตั้งเองด้วยเมื่อสองค่าไม่ตรงกัน
+                                ไม่งั้นผู้ใช้เปลี่ยนชื่อตัวเองเป็นชื่อเพื่อนร่วมงานแล้วแถวนี้
+                                อ่านเหมือนเป็นคนนั้นจริง ๆ (username ยังกำกับอยู่ แต่คนอ่าน
+                                ตารางเร็ว ๆ มองชื่อก่อน) */}
+                            {u.accountName && u.accountName !== u.name && (
+                              <span className="block text-[11px] text-ink-3 truncate" title={t('accessAssignedName')}>
+                                {t('accessAssignedName')}: {u.accountName}
+                              </span>
+                            )}
                           </span>
                         </span>
                       </td>
