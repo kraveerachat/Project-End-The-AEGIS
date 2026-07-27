@@ -33,6 +33,7 @@ from .alert_manager import AlertManager
 from .config import EngineConfig
 from .event_hub import EventHub
 from .face_detector import FaceDetectorProcessor, FaceRecognizer
+from .heartbeat_worker import HeartbeatWorker
 from .local_api import LocalEventAPI
 from .logging_setup import configure as configure_logging, get_logger
 from .metrics import MetricsRegistry
@@ -108,8 +109,16 @@ class DetectionEngine:
             stop_event=self._stop,
         )
 
+        # Liveness publisher — the only source behind Monitor's /api/link.
+        # Started last, stopped first, so the final heartbeat reflects a
+        # running pipeline rather than one mid-teardown.
+        self._heartbeat = HeartbeatWorker(
+            self._cfg, self._metrics, self._monitor, stop_event=self._stop,
+        )
+
         self._threads = [
             self._catcher, self._detector, self._recorder, self._alerts, self._nas,
+            self._heartbeat,
         ]
 
     # -- detection fan-out callback ---------------------------------------
@@ -152,7 +161,8 @@ class DetectionEngine:
         log.info("shutdown requested — stopping workers")
         self._stop.set()
         # Join in a sensible order: stop producing, flush recorder, then the rest.
-        for t in (self._catcher, self._recorder, self._detector, self._alerts, self._nas):
+        for t in (self._heartbeat, self._catcher, self._recorder, self._detector,
+                  self._alerts, self._nas):
             t.join(timeout=15.0)
             if t.is_alive():
                 log.warning("worker %s did not stop within timeout", t.name)

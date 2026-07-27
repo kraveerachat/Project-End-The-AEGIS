@@ -125,6 +125,12 @@ class EngineConfig:
     api_metrics_interval_s: float = 1.0  # push cadence for metrics on the WS
     api_recent_events: int = 100
 
+    # --- Heartbeat to Monitor (HeartbeatWorker) --------------------------
+    # How often to POST /internal/heartbeat. Monitor ages the last row into
+    # online -> degraded (>15s) -> lost (>45s), so this must stay well under
+    # 15s. 0 or negative disables the worker entirely.
+    heartbeat_interval_s: float = 5.0
+
     # --- Logging ----------------------------------------------------------
     log_level: str = "INFO"
     log_json: bool = False
@@ -190,6 +196,9 @@ class EngineConfig:
                 "AEGIS_API_METRICS_INTERVAL_S", cls.api_metrics_interval_s
             ),
             api_recent_events=_env_int("AEGIS_API_RECENT_EVENTS", cls.api_recent_events),
+            heartbeat_interval_s=_env_float(
+                "AEGIS_HEARTBEAT_INTERVAL_S", cls.heartbeat_interval_s
+            ),
             log_level=_env_str("AEGIS_LOG_LEVEL", cls.log_level).upper(),
             log_json=_env_bool("AEGIS_LOG_JSON", cls.log_json),
         )

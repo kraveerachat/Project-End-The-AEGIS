@@ -96,6 +96,36 @@ class MonitorClient:
             "storedOnNas": bool(stored_on_nas),
         })
 
+    def post_heartbeat(self, camera_id: str, node_id: str, snapshot: Dict[str, Any]) -> None:
+        """Liveness + live metrics for one camera.
+
+        This is the ONLY source behind Monitor's ``/api/link``. Before this
+        existed the web app's "Edge node: online" pill was a hard-coded
+        constant that stayed green while this process was dead. Now silence
+        here is what turns the pill amber and then red, purely from the age of
+        the last row written — nothing in the web app fabricates it.
+
+        Fails soft like every other call: a heartbeat we could not deliver is
+        a heartbeat Monitor correctly treats as missing.
+        """
+        nas = snapshot.get("nas") or {}
+        recorder = snapshot.get("recorder") or {}
+        self._post("/internal/heartbeat", {
+            "cameraId": camera_id,
+            "nodeId": node_id,
+            "cameraConnected": bool(snapshot.get("camera_connected")),
+            "cameraReconnects": snapshot.get("camera_reconnects"),
+            "captureFps": snapshot.get("capture_fps"),
+            "detectFps": snapshot.get("detect_fps"),
+            "latencyMs": snapshot.get("latency_ms"),
+            "latencyMsAvg": snapshot.get("latency_ms_avg"),
+            "uptimeS": snapshot.get("uptime_s"),
+            "framesCaptured": snapshot.get("frames_captured"),
+            "segmentsWritten": recorder.get("segments_written"),
+            "nasLastStatus": nas.get("last_status"),
+            "nasPending": nas.get("pending"),
+        })
+
     def post_alert(
         self, camera_id: str, severity: str, alert_type: str, title: str,
         snapshot_path: Optional[str], telegram_sent: bool,

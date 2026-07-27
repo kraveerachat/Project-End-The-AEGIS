@@ -11,3 +11,6 @@ venv/
 # Runtime output written by the engine
 segments/
 snapshots/
+
+# Synthetic verification feed generated for the first end-to-end run
+testfeed.mp4
