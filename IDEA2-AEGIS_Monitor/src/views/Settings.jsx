@@ -29,7 +29,6 @@ const TRANSLATIONS = {
     nodeStatus: 'สถานะการเชื่อมต่อ Edge Node',
     aiEngine: 'AI Inference Engine',
     online: 'ปกติ (Online)',
-    running: 'กำลังทำงาน (Running v1.3)',
     saveSuccess: 'บันทึกการตั้งค่าเรียบร้อยแล้ว',
   },
   en: {
@@ -58,7 +57,6 @@ const TRANSLATIONS = {
     nodeStatus: 'Edge Node Connection',
     aiEngine: 'AI Inference Engine',
     online: 'Online',
-    running: 'Running v1.3',
     saveSuccess: 'Settings saved successfully',
   },
   zh: {
@@ -87,18 +85,19 @@ const TRANSLATIONS = {
     nodeStatus: '边缘节点连接状态',
     aiEngine: 'AI 推理引擎',
     online: '在线',
-    running: '运行中 v1.3',
     saveSuccess: '设置已成功保存',
   },
 }
 
 // ⚠️ ข้อมูลบัญชี (user/cameras) มาจากเซสชันฝั่งเซิร์ฟเวอร์ — อ่านอย่างเดียว
-// การเปลี่ยน identity / camera assignment เป็นสิทธิ์ของ SOC-Responder เท่านั้น
-// ⚠️ วันนี้ทำได้แค่ "เพิ่ม operator + ผูกกล้องตอนสร้าง" ในวิว Nodes (AddOperatorModal)
-//    ส่วน "แก้ assignment ของ operator ที่มีอยู่แล้ว" ยังไม่มี UI — endpoint มีแล้ว
-//    (PUT /api/assignments) แต่ยังไม่มีผู้เรียก รอวิว Operators ที่ยังไม่ถูกสร้าง
-//    (ดู TODO ใน server/rbac/permissions.js)
-export default function Settings({ lang, setLang, theme, setTheme, user, cameras = [], onSignOut }) {
+// การเปลี่ยน identity / camera assignment ทำในวิว Operators (SOC-Responder เท่านั้น)
+// เวอร์ชันแอปจาก build (vite `define`) — ไม่ใช่สตริงที่พิมพ์ค้างไว้ในจอ
+const APP_VERSION = __APP_VERSION__
+
+export default function Settings({ lang, setLang, theme, setTheme, user, cameras = [], link, onSignOut }) {
+  const beats = link?.cameras ?? []
+  const liveEngines = beats.filter((b) => b.status !== 'lost').length
+  const totalEngines = beats.length
   const [inAppSound, setInAppSound] = useState(true)
   const [desktopAlerts, setDesktopAlerts] = useState(true)
   const [snooze, setSnooze] = useState('off')
@@ -427,24 +426,38 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <h2 className="set-card-title">System Status</h2>
           </div>
 
+          {/* ⚠️ เดิมสองแถวล่างนี้ hardcode "Online" (เขียว) และ "Running v1.3" (ฟ้า)
+              ไว้ตายตัว — เขียวตลอดแม้ Detection Engine ไม่เคยรัน และ v1.3 คือเลข
+              เวอร์ชันโมเดลที่ไม่มีอยู่จริง ตอนนี้อ่านจาก /api/link (camera_heartbeat) */}
           <div className="info-kv-grid">
             <div className="info-kv-item">
               <span className="kv-label">System Version</span>
-              <span className="kv-val mono">AEGIS Monitor v3.0</span>
+              <span className="kv-val mono">AEGIS Monitor v{APP_VERSION}</span>
             </div>
             <div className="info-kv-item">
               <span className="kv-label">{t('nodeStatus')}</span>
-              <span className="kv-val status-tag online mono">
-                <span className="dot-pulse green" />
-                {t('online')}
-              </span>
+              {link?.status === 'online' ? (
+                <span className="kv-val status-tag online mono">
+                  <span className="dot-pulse green" />{t('online')}
+                </span>
+              ) : (
+                <span className="kv-val status-tag mono">
+                  {link?.status === 'degraded' ? 'degraded' : 'unreachable'}
+                </span>
+              )}
             </div>
             <div className="info-kv-item">
               <span className="kv-label">{t('aiEngine')}</span>
-              <span className="kv-val status-tag cyan mono">
-                <span className="dot-pulse cyan" />
-                {t('running')}
-              </span>
+              {liveEngines > 0 ? (
+                <span className="kv-val status-tag cyan mono">
+                  <span className="dot-pulse cyan" />
+                  running · {liveEngines}/{totalEngines}
+                </span>
+              ) : (
+                <span className="kv-val mono" style={{ opacity: 0.55 }}>
+                  no engine reporting
+                </span>
+              )}
             </div>
           </div>
         </motion.div>

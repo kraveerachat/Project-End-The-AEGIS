@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -19,8 +20,13 @@ import tailwindcss from '@tailwindcss/vite'
 // (mounted ที่ root, ไม่รู้จัก /monitor) — proxy จึงต้อง rewrite ตัด /monitor ออกก่อนส่งต่อ
 // เหมือนที่ nginx ทำใน production ทุกประการ
 // → session cookie (HttpOnly, SameSite=Strict) ไป-กลับได้ตามปกติ same-origin
+// เวอร์ชันมาจาก package.json ตัวเดียว — จอ Settings เคย hardcode "v3.0" ไว้ ซึ่ง
+// จะเพี้ยนเงียบ ๆ ทุกครั้งที่ bump version
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+
 export default defineConfig({
   base: '/monitor/',
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [react(), tailwindcss()],
   server: {
     port: 5176,

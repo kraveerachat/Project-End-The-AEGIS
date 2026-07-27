@@ -11,26 +11,55 @@ const initialsOf = (name) =>
     .join('')
     .toUpperCase() || '—'
 
-const LINK_PILLS = {
-  online: {
-    node: { text: 'Edge node: online', tone: 'ok', cls: 'pill' },
-    ai: { text: 'AI engine: running', tone: 'ok', cls: 'pill optional' },
-    lan: { text: 'LAN · 4 ms', tone: 'ok', cls: 'pill mono optional' },
-  },
-  degraded: {
-    node: { text: 'Edge node: degraded', tone: 'amb', cls: 'pill warn' },
-    ai: { text: 'AI engine: running', tone: 'ok', cls: 'pill optional' },
-    lan: { text: 'LAN · 210 ms', tone: 'amb', cls: 'pill mono warn optional' },
-  },
-  lost: {
-    node: { text: 'Edge node: unreachable', tone: 'down', cls: 'pill down' },
-    ai: { text: 'AI engine: unknown', tone: 'down', cls: 'pill down optional' },
-    lan: { text: 'LAN · —', tone: 'down', cls: 'pill mono down optional' },
-  },
+// ⚠️ เดิมไฟล์นี้มีตาราง LINK_PILLS ที่ hardcode ทุกอย่าง รวมถึง "LAN · 4 ms" และ
+//    "LAN · 210 ms" ซึ่งเป็นตัวเลขที่แต่งขึ้นล้วน ๆ (ไม่มีการวัด latency ที่ไหนเลย)
+//    และ "AI engine: running" ที่เขียวตลอดแม้ engine จะไม่เคยรัน
+//    ตอนนี้ทุก pill มาจาก /api/link ซึ่งอ่านตาราง camera_heartbeat จริง:
+//      - node   = สถานะจากอายุ heartbeat ล่าสุด (online/degraded/lost)
+//      - ai     = engine ที่ยังส่ง heartbeat อยู่ = กำลังรัน; เงียบ = unknown
+//      - detect = detect_fps จริงจาก MetricsRegistry (ไม่ใช่ latency ปลอม)
+//    ค่าที่ยังวัดไม่ได้ → แสดง "unavailable" ไม่ใช่ตัวเลขที่ดูสมจริง
+const NODE_TEXT = {
+  online: 'Edge node: online',
+  degraded: 'Edge node: degraded',
+  lost: 'Edge node: unreachable',
 }
+const NODE_CLS = { online: 'pill', degraded: 'pill warn', lost: 'pill down' }
+const NODE_TONE = { online: 'ok', degraded: 'amb', lost: 'down' }
 
-export default function TopBar({ theme = 'dark', clockText, dateText, linkStatus, unacked, showBell = true, onBell, user, onSignOut }) {
-  const pills = LINK_PILLS[linkStatus]
+export default function TopBar({
+  theme = 'dark', clockText, dateText, linkStatus, link, unacked,
+  showBell = true, onBell, user, onSignOut,
+}) {
+  const status = linkStatus ?? 'lost'
+  const beats = link?.cameras ?? []
+  const live = beats.filter((b) => b.status !== 'lost')
+
+  // latency ของ inference จริง (ms) — เฉลี่ยข้ามกล้องที่ยังมีชีวิต
+  const lat = live.map((b) => b.latencyMs).filter((v) => v != null)
+  const latText = lat.length
+    ? `Inference · ${(lat.reduce((a, b) => a + b, 0) / lat.length).toFixed(0)} ms`
+    : 'Inference · unavailable'
+
+  // engine ถือว่า "running" ก็ต่อเมื่อมี heartbeat สดอย่างน้อยหนึ่งตัว
+  const aiRunning = live.length > 0
+  const aiText = status === 'lost' && !aiRunning
+    ? 'AI engine: unknown'
+    : `AI engine: running (${live.length}/${beats.length || live.length})`
+
+  const pills = {
+    node: { text: NODE_TEXT[status], tone: NODE_TONE[status], cls: NODE_CLS[status] },
+    ai: {
+      text: aiText,
+      tone: aiRunning ? 'ok' : 'down',
+      cls: aiRunning ? 'pill optional' : 'pill down optional',
+    },
+    lan: {
+      text: latText,
+      tone: lat.length ? 'ok' : 'down',
+      cls: lat.length ? 'pill mono optional' : 'pill mono down optional',
+    },
+  }
   const logoSrc = theme === 'light'
     ? '/assets/logo/aegis-mark-dark-ink.png'
     : '/assets/logo/aegis-mark-light-ink.png'
