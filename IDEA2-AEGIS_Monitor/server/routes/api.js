@@ -15,6 +15,17 @@ import { getVisibleCameras, canSeeCamera, getUserById, updatePasswordHash } from
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
 
+// heartbeat เก่ากว่านี้ = ถือว่า engine ไม่อยู่แล้ว ไม่ต้องพยายามต่อสตรีม
+// (ตรงกับเกณฑ์ 'lost' ของ store.linkStatus — จอกับสตรีมจึงไม่ขัดกันเอง)
+const STREAM_STALE_MS = 45_000
+
+// ไม่มีไบต์จาก engine นานเกินนี้ = ถือว่าสตรีมตาย ปิดทิ้งเพื่อให้เบราว์เซอร์รู้ตัว
+// ต้องมากกว่าคาบเฟรมปกติพอสมควร (12fps → ~83ms) แต่สั้นพอที่ผู้ใช้ไม่รู้สึกว่าค้าง
+const STREAM_IDLE_MS = 6_000
+
+// ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
+const STREAM_REVALIDATE_MS = 10_000
+
 const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
 
 export const apiRouter = Router()
@@ -116,6 +127,131 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
     const cams = await getVisibleCameras(req.user)
     res.json({ cameras: cams })
   } catch (err) {
+    next(err)
+  }
+})
+
+// ── Live MJPEG proxy ─────────────────────────────────────────────────────
+// GET /api/cameras/:id/stream — เบราว์เซอร์ต่อมาที่ origin ของ Monitor เท่านั้น
+// ไม่เคยต่อตรงไปหา Detection Engine (engine อยู่ VLAN 20 และถือ API key ที่ client
+// ต้องไม่มีวันเห็น) ลำดับด่านเหมือน endpoint ข้อมูลอื่นทุกประการ:
+//   1. requireAuth              — ต้องมีเซสชัน
+//   2. canSeeCamera             — "ตรรกะเดียวกับ /api/cameras" (getVisibleCameras)
+//                                 operator ขอกล้องที่ไม่ได้รับมอบหมาย → 403
+//   3. ค่อยไปดึงต้นทางจาก camera_heartbeat.stream_url แล้ว pipe ต่อ
+// ⚠️ ห้ามสลับลำดับ: การตรวจสิทธิ์ต้องจบ "ก่อน" เปิด socket ไปหา engine เสมอ
+apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
+  const cameraId = req.params.id
+  try {
+    // ด่านเดียวกับ /api/cameras — ไม่มีทางลัด ไม่เชื่อ id จาก client
+    if (!(await canSeeCamera(req.user, cameraId))) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const src = await store.streamSourceFor(cameraId)
+    if (!src) {
+      // ไม่เคยมี engine รายงานกล้องนี้ / engine ไม่ได้เปิดสตรีม → บอกตรง ๆ
+      return res.status(503).json({ error: 'No live stream for this camera' })
+    }
+    if (src.ageMs > STREAM_STALE_MS) {
+      // heartbeat เก่าเกิน = engine น่าจะตายไปแล้ว ไม่ต้องเสียเวลา dial ให้ client รอ
+      return res.status(503).json({ error: 'Detection Engine is not reporting' })
+    }
+
+    // ยกเลิก upstream ทันทีเมื่อ client ตัดการเชื่อมต่อ (ปิดแท็บ/เปลี่ยนกล้อง/logout)
+    // — ถ้าไม่ทำ socket ไปหา engine จะค้างไว้ตลอดกาลและ engine จะนับ viewer ค้าง
+    const ctrl = new AbortController()
+    let closed = false
+    const abort = () => { if (!closed) { closed = true; ctrl.abort() } }
+    res.on('close', abort)
+
+    let upstream
+    try {
+      upstream = await fetch(src.url, {
+        signal: ctrl.signal,
+        headers: { 'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '' },
+      })
+    } catch (err) {
+      abort()
+      if (res.headersSent) return
+      return res.status(504).json({ error: 'Detection Engine unreachable' })
+    }
+
+    if (!upstream.ok || !upstream.body) {
+      abort()
+      return res.status(502).json({ error: `Upstream stream error (${upstream.status})` })
+    }
+
+    // ส่งต่อ content-type พร้อม boundary เดิม — <img> ฝั่งเบราว์เซอร์อ่านตรงนี้
+    res.status(200)
+    res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'multipart/x-mixed-replace')
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('X-Accel-Buffering', 'no') // ห้าม proxy ชั้นใดบัฟเฟอร์สตรีมสด
+    if (typeof res.flushHeaders === 'function') res.flushHeaders()
+
+    // ⚠️ ต้องมี idle watchdog: ถ้า engine ตายแบบ "เงียบ ๆ" (โปรเซสหาย, สาย LAN หลุด,
+    //    NAT ค้าง connection ไว้) socket อาจไม่ได้ FIN/RST กลับมาเลย — การ await
+    //    ตัวถัดไปจะค้างตลอดกาล ผลคือ <img> ฝั่งเบราว์เซอร์ไม่ได้ทั้ง frame ใหม่และ
+    //    ไม่ได้ event 'error' → ภาพค้างนิ่งโดยไม่มีใครบอกผู้ใช้ว่ามันตายแล้ว
+    //    (วัดจริงแล้ว: ฆ่า engine กลางสตรีม แล้ว client ค้างเกิน 30 วิโดยไม่มีสัญญาณ)
+    //    จึงตัดเองเมื่อไม่มีไบต์เข้ามาเกิน STREAM_IDLE_MS แล้วปิด response ให้
+    //    เบราว์เซอร์ยิง 'error' → LiveFeed เข้าโหมด reconnecting ตามที่ออกแบบไว้
+    // ⚠️ เซสชันถูกตรวจ "ตอนเปิด" เท่านั้น แต่สตรีมหนึ่งเส้นอยู่ได้เป็นชั่วโมง —
+    //    ถ้าไม่ตรวจซ้ำ ผู้ใช้ที่กด logout (หรือถูก SOC ถอนสิทธิ์กล้อง) จะยังได้ภาพสด
+    //    ต่อไปจนกว่าจะปิดแท็บเอง ซึ่งขัดกับหลัก server-side enforcement ของโปรเจกต์
+    //    จึง reload เซสชันจาก store เป็นระยะ และตรวจ camera_assignment ซ้ำด้วย
+    //    (SOC ย้ายกล้องออกจาก operator ระหว่างที่เขาดูอยู่ = ต้องถูกตัดภายในรอบถัดไป)
+    const revalidate = setInterval(() => {
+      req.session?.reload((err) => {
+        if (closed) return
+        if (err || !req.session?.user) {
+          console.warn(`[aegis-monitor] stream ${cameraId}: session ended — closing`)
+          abort()
+          return
+        }
+        canSeeCamera(req.session.user, cameraId).then((ok) => {
+          if (!ok && !closed) {
+            console.warn(`[aegis-monitor] stream ${cameraId}: access revoked — closing`)
+            abort()
+          }
+        }).catch(() => { /* ตรวจไม่ได้ก็ปล่อยรอบหน้า */ })
+      })
+    }, STREAM_REVALIDATE_MS)
+
+    const reader = upstream.body.getReader()
+    let idleTimer = null
+    const armIdle = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
+        abort()
+        try { reader.cancel() } catch { /* already gone */ }
+      }, STREAM_IDLE_MS)
+    }
+
+    try {
+      armIdle()
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done || closed) break
+        armIdle() // ได้ข้อมูลแล้ว — เริ่มจับเวลาใหม่
+        // เขียนไม่ทัน (client ช้า) → รอ backpressure แทนที่จะกองใน memory
+        if (!res.write(Buffer.from(value))) {
+          await new Promise((resolve) => res.once('drain', resolve))
+        }
+      }
+    } catch {
+      // upstream ตายกลางคัน / ถูก watchdog ยกเลิก / client ตัดไปแล้ว
+      // ทั้งหมดจบทางเดียวกัน: ปิด response เพื่อให้ฝั่งเบราว์เซอร์รู้ตัว
+    } finally {
+      clearTimeout(idleTimer)
+      clearInterval(revalidate)
+      abort()
+      if (!res.writableEnded) res.end()
+    }
+  } catch (err) {
+    if (res.headersSent) { try { res.end() } catch { /* already gone */ } return }
     next(err)
   }
 })

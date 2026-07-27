@@ -69,7 +69,7 @@ export async function listHeartbeats(visibleIds) {
             h.node_id, h.camera_connected, h.camera_reconnects,
             h.capture_fps, h.detect_fps, h.latency_ms, h.latency_ms_avg,
             h.uptime_s, h.frames_captured, h.segments_written,
-            h.nas_last_status, h.nas_pending
+            h.nas_last_status, h.nas_pending, h.stream_url
        FROM camera_heartbeat h
        JOIN cameras c ON c.id = h.camera_id
       WHERE h.camera_id = ANY($1)`,
@@ -99,8 +99,30 @@ export async function listHeartbeats(visibleIds) {
       segmentsWritten: r.segments_written,
       nasLastStatus: r.nas_last_status,
       nasPending: r.nas_pending,
+      // ⚠️ ไม่ส่ง stream_url ออกไปฝั่ง client — เป็นที่อยู่ภายในของ engine บน VLAN 20
+      //    client รู้แค่ว่า "กล้องนี้สตรีมได้ไหม" แล้วขอผ่าน proxy ของ Monitor เท่านั้น
+      hasStream: Boolean(r.stream_url) && (r.camera_connected === true),
     }
   })
+}
+
+/** URL ต้นทาง MJPEG ของกล้องหนึ่งตัว — ใช้โดย proxy เท่านั้น ไม่เคยออกสู่ client */
+export async function streamSourceFor(cameraId) {
+  if (!usingPostgres) return null
+  const { rows } = await query(
+    `SELECT stream_url, camera_connected,
+            EXTRACT(EPOCH FROM (now() - last_seen_at)) * 1000 AS age_ms
+       FROM camera_heartbeat WHERE camera_id = $1`,
+    [cameraId],
+  )
+  if (rows.length === 0) return null
+  const r = rows[0]
+  if (!r.stream_url) return null
+  return {
+    url: r.stream_url,
+    ageMs: Math.round(Number(r.age_ms)),
+    cameraConnected: r.camera_connected,
+  }
 }
 
 /**
@@ -128,6 +150,20 @@ export async function linkStatus(visibleIds) {
   }
 }
 
+/**
+ * ตรวจ streamUrl ที่ engine ส่งมาก่อนเก็บ — ค่านี้จะกลายเป็น "ปลายทางที่เซิร์ฟเวอร์
+ * ของเราเองจะยิง HTTP ไปหา" (SSRF surface) จึงรับเฉพาะ http/https ที่ parse ได้
+ * และตัดความยาว คืน null เมื่อไม่ผ่าน = กล้องนั้นถือว่าไม่มีสตรีม (fail closed)
+ */
+function safeStreamUrl(raw) {
+  if (raw == null) return null
+  const s = String(raw).slice(0, 512)
+  let u
+  try { u = new URL(s) } catch { return null }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+  return u.toString()
+}
+
 /** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
 export async function recordHeartbeat(input) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
@@ -142,8 +178,8 @@ export async function recordHeartbeat(input) {
     `INSERT INTO camera_heartbeat (
         camera_id, last_seen_at, node_id, camera_connected, camera_reconnects,
         capture_fps, detect_fps, latency_ms, latency_ms_avg, uptime_s,
-        frames_captured, segments_written, nas_last_status, nas_pending)
-     VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        frames_captured, segments_written, nas_last_status, nas_pending, stream_url)
+     VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (camera_id) DO UPDATE SET
         last_seen_at = now(),
         node_id = EXCLUDED.node_id,
@@ -157,7 +193,8 @@ export async function recordHeartbeat(input) {
         frames_captured = EXCLUDED.frames_captured,
         segments_written = EXCLUDED.segments_written,
         nas_last_status = EXCLUDED.nas_last_status,
-        nas_pending = EXCLUDED.nas_pending
+        nas_pending = EXCLUDED.nas_pending,
+        stream_url = EXCLUDED.stream_url
      RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
     [
       cameraId,
@@ -173,6 +210,9 @@ export async function recordHeartbeat(input) {
       intOrZero(input?.segmentsWritten),
       input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
       intOrZero(input?.nasPending),
+      // ยอมรับเฉพาะ http/https ที่ parse ได้ — กัน SSRF ผ่านค่าที่ engine ส่งมา
+      // (engine ผ่าน API key แล้วก็จริง แต่ค่านี้กลายเป็นปลายทางที่ proxy จะยิงต่อ)
+      safeStreamUrl(input?.streamUrl),
     ],
   )
   return { cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }

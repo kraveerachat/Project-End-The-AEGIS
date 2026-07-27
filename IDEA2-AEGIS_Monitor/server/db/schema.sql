@@ -104,6 +104,13 @@ CREATE TABLE IF NOT EXISTS camera_heartbeat (
   nas_pending     INTEGER
 );
 
+-- ⚠️ URL ที่ backend ของ Monitor ใช้ "ดึง" MJPEG ของกล้องตัวนี้ (Phase B)
+--    เบราว์เซอร์ไม่เคยเห็นค่านี้ และไม่เคยต่อตรงไปหา engine — มันขอผ่าน
+--    GET /api/cameras/:id/stream ของ Monitor เท่านั้น แล้ว Monitor เป็นคน proxy ให้
+--    เก็บมากับ heartbeat ทุกครั้ง: node ที่ย้ายเครื่อง/เปลี่ยนพอร์ตจะแก้ตัวเองรอบถัดไป
+--    และ node ที่ตายก็พา URL ของมันออกจากระบบไปด้วย (ไม่มี config ค้างให้ proxy ตามผี)
+ALTER TABLE camera_heartbeat ADD COLUMN IF NOT EXISTS stream_url TEXT;
+
 -- ── clips — บันทึกต่อเนื่องตัดเป็นช่วง ~10 นาที (interval-based, ไม่ใช่ detection-triggered) ──
 CREATE TABLE IF NOT EXISTS clips (
   id            BIGSERIAL PRIMARY KEY,
