@@ -27,7 +27,22 @@ export default defineConfig({
     proxy: {
       '/monitor/api': {
         target: process.env.AEGIS_MONITOR_API_ORIGIN || 'http://127.0.0.1:8002',
-        changeOrigin: true,
+        // ⚠️ ห้ามตั้ง changeOrigin: true — เคยตั้งไว้แล้ว "ล็อกอินใน dev ไม่ผ่าน" (403)
+        //    changeOrigin เขียนทับ header Host เป็น host ของ target (127.0.0.1:8002)
+        //    ขณะที่เบราว์เซอร์ยังส่ง Origin: http://localhost:5176 มาตามเดิม →
+        //    ชั้นที่ 2 ของ CSRF (server/middleware/csrf.js: Origin ต้องตรงกับ Host)
+        //    เห็นเป็นคำขอข้ามต้นทางแล้วปฏิเสธด้วย 403 ทั้งที่รหัสผ่านถูกต้อง
+        //    ⚠️ /login ไม่ได้รับการยกเว้นจากด่านนี้: PRE_SESSION_PATHS ใน csrf.js
+        //    ยกเว้นให้แค่ "ด่าน synchronizer token" ซึ่งอยู่ *หลัง* ด่าน Origin↔Host
+        //    → ทุก mutation ใน dev พังหมด ไม่ใช่แค่ login (logout / ack / add-operator
+        //    / password reset) และ UI แสดง 403 นี้ว่า "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
+        //
+        //    false = ส่ง Host เดิมของเบราว์เซอร์ต่อไปให้ backend — ซึ่ง "ตรงกับ
+        //    production" ด้วย: HUB nginx ใช้ `proxy_set_header Host $http_host`
+        //    (ส่งค่า Host ดิบของเบราว์เซอร์ต่อไป **พร้อมพอร์ต**) dev จึงเจอเงื่อนไข
+        //    CSRF ชุดเดียวกับของจริง — เหมือน IDEA1-AEGIS_Drive_LC/vite.config.js เป๊ะ
+        //    target เป็น Express ธรรมดา ไม่ได้ทำ vhost routing จึงไม่มีอะไรพึ่ง Host
+        changeOrigin: false,
         rewrite: (path) => path.replace(/^\/monitor/, ''),
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
