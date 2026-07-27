@@ -22,30 +22,160 @@ import { usingPostgres, query, withTransaction } from './connection.js'
 //    ฝั่งเว็บ "อ่านอย่างเดียว" จากตารางจริง (listDetections/listAlerts/listClips ด้านล่าง)
 //    — ไม่มีแถวสังเคราะห์ปนกับข้อมูลจริงอีกต่อไป
 
-// ── Edge link — heartbeat state ที่เว็บแอปอ่าน (จริง: มาจาก engine heartbeat) ──
-let outageUntil = 0
-let outageStarted = 0
+// ── Edge link — สถานะจริง คำนวณจาก "อายุของ heartbeat ล่าสุด" ─────────────────
+// ⚠️ เดิมฟังก์ชันนี้คือตัวแปรจำนวนเต็มสองตัวในหน่วยความจำ + ปุ่มสาธิต: มันคืน
+//    'online' ตลอดกาลไม่ว่า Detection Engine จะตายอยู่หรือไม่ (ไม่มีแหล่งข้อมูลเลย)
+//    ตอนนี้ engine POST /internal/heartbeat เข้ามาเป็นระยะ แล้วเราตัดสินจากตาราง
+//    camera_heartbeat จริง ๆ — engine เงียบเกิน LOST_AFTER_MS = lost ของจริง
+const ONLINE_WITHIN_MS = 15_000   // heartbeat ใหม่กว่านี้ = online (interval ปกติ 5s)
+const DEGRADED_WITHIN_MS = 45_000 // เกิน 15s แต่ยังไม่เกิน 45s = degraded (ขาดไป ~3-9 ครั้ง)
 
-export function linkStatus() {
-  const now = Date.now()
-  if (outageUntil > now) {
-    // ช่วงแรกของ outage = degraded แล้วค่อย lost — cascade เดียวกับ heartbeat จริง
-    const status = now - outageStarted < 6_000 ? 'degraded' : 'lost'
-    return { status, lastFrameAt: outageStarted }
-  }
-  return { status: 'online', lastFrameAt: now }
+/** แปลงอายุ heartbeat (ms) → สถานะ; null/ไม่เคยมี = lost */
+function statusFromAge(ageMs) {
+  if (ageMs == null) return 'lost'
+  if (ageMs <= ONLINE_WITHIN_MS) return 'online'
+  if (ageMs <= DEGRADED_WITHIN_MS) return 'degraded'
+  return 'lost'
 }
 
-/** demo control: จำลอง link ล่ม 60 วิ (แทนการดึงสาย LAN ให้ผู้ตรวจดู cascade) */
+// ── simulated outage — ยังมีอยู่ แต่ "ประกาศตัวว่าเป็นการซ้อม" ────────────────
+// SOC-Responder เท่านั้น (requireRole ใน routes/api.js) ใช้แทนการเดินไปดึงสาย LAN
+// ⚠️ ต่างจากของเดิมตรงที่ payload ติดธง simulated: true กลับไปด้วยเสมอ — จอที่แสดง
+//    "lost" ระหว่างซ้อมจึงแยกออกได้จาก outage จริง ไม่ใช่การกุสถานะแล้วเงียบ
+let simulatedOutageUntil = 0
+
 export function toggleOutage() {
   const now = Date.now()
-  if (outageUntil > now) {
-    outageUntil = 0
-    return { status: 'online' }
+  if (simulatedOutageUntil > now) {
+    simulatedOutageUntil = 0
+    return { simulated: false }
   }
-  outageStarted = now
-  outageUntil = now + 60_000
-  return { status: 'degraded' }
+  simulatedOutageUntil = now + 60_000
+  return { simulated: true, untilMs: simulatedOutageUntil }
+}
+
+export function simulatedOutageActive() {
+  return simulatedOutageUntil > Date.now()
+}
+
+/** heartbeat ต่อกล้อง (เฉพาะกล้องที่ผู้เรียกเห็นได้) — ใช้โดย /api/link และ Diagnostics */
+export async function listHeartbeats(visibleIds) {
+  if (!usingPostgres) return []
+  const ids = [...visibleIds]
+  if (ids.length === 0) return []
+  const { rows } = await query(
+    `SELECT h.camera_id, c.name AS camera_name,
+            EXTRACT(EPOCH FROM h.last_seen_at) * 1000 AS last_seen_ms,
+            h.node_id, h.camera_connected, h.camera_reconnects,
+            h.capture_fps, h.detect_fps, h.latency_ms, h.latency_ms_avg,
+            h.uptime_s, h.frames_captured, h.segments_written,
+            h.nas_last_status, h.nas_pending
+       FROM camera_heartbeat h
+       JOIN cameras c ON c.id = h.camera_id
+      WHERE h.camera_id = ANY($1)`,
+    [ids],
+  )
+  const now = Date.now()
+  const num = (v) => (v == null ? null : Number(v))
+  return rows.map((r) => {
+    const lastSeenAt = Math.round(Number(r.last_seen_ms))
+    const ageMs = now - lastSeenAt
+    return {
+      cam: r.camera_id,
+      camName: r.camera_name,
+      // กล้องที่ engine รายงานว่าเปิดไม่ได้ = offline ถึงแม้ heartbeat จะสด
+      status: r.camera_connected ? statusFromAge(ageMs) : 'lost',
+      lastSeenAt,
+      ageMs,
+      nodeId: r.node_id,
+      cameraConnected: r.camera_connected,
+      cameraReconnects: r.camera_reconnects,
+      captureFps: num(r.capture_fps),
+      detectFps: num(r.detect_fps),
+      latencyMs: num(r.latency_ms),
+      latencyMsAvg: num(r.latency_ms_avg),
+      uptimeS: num(r.uptime_s),
+      framesCaptured: num(r.frames_captured),
+      segmentsWritten: r.segments_written,
+      nasLastStatus: r.nas_last_status,
+      nasPending: r.nas_pending,
+    }
+  })
+}
+
+/**
+ * สถานะ Edge link รวมของ "ขอบเขตกล้องที่ผู้เรียกเห็น"
+ * - ไม่มี heartbeat เลย (engine ไม่เคยยิงมา / ยังไม่ได้รัน) → lost + lastFrameAt = null
+ * - มี → ใช้ heartbeat ที่ "สดที่สุด" เป็นตัวแทนว่าชั้น sensor ยังมีชีวิตไหม
+ * คืน cameras[] ไปด้วยเพื่อให้ Diagnostics แสดงรายกล้องได้โดยไม่ต้องยิงซ้ำ
+ */
+export async function linkStatus(visibleIds) {
+  const cameras = await listHeartbeats(visibleIds ?? [])
+  const freshest = cameras.reduce(
+    (best, c) => (best == null || c.lastSeenAt > best.lastSeenAt ? c : best),
+    null,
+  )
+  const real = freshest ? statusFromAge(Date.now() - freshest.lastSeenAt) : 'lost'
+  const simulated = simulatedOutageActive()
+  return {
+    status: simulated ? 'lost' : real,
+    // lastFrameAt = heartbeat ล่าสุดจริง ๆ (null = ไม่เคยมี engine ยิงเข้ามาเลย)
+    lastFrameAt: freshest ? freshest.lastSeenAt : null,
+    simulated,
+    // สถานะจริงใต้การซ้อม — จอไม่ต้องเดาว่าของจริงเป็นอย่างไรระหว่างซ้อม
+    realStatus: real,
+    cameras,
+  }
+}
+
+/** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
+export async function recordHeartbeat(input) {
+  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+
+  const numOrNull = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
+  const intOrZero = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0)
+
+  const { rows } = await query(
+    `INSERT INTO camera_heartbeat (
+        camera_id, last_seen_at, node_id, camera_connected, camera_reconnects,
+        capture_fps, detect_fps, latency_ms, latency_ms_avg, uptime_s,
+        frames_captured, segments_written, nas_last_status, nas_pending)
+     VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (camera_id) DO UPDATE SET
+        last_seen_at = now(),
+        node_id = EXCLUDED.node_id,
+        camera_connected = EXCLUDED.camera_connected,
+        camera_reconnects = EXCLUDED.camera_reconnects,
+        capture_fps = EXCLUDED.capture_fps,
+        detect_fps = EXCLUDED.detect_fps,
+        latency_ms = EXCLUDED.latency_ms,
+        latency_ms_avg = EXCLUDED.latency_ms_avg,
+        uptime_s = EXCLUDED.uptime_s,
+        frames_captured = EXCLUDED.frames_captured,
+        segments_written = EXCLUDED.segments_written,
+        nas_last_status = EXCLUDED.nas_last_status,
+        nas_pending = EXCLUDED.nas_pending
+     RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
+    [
+      cameraId,
+      input?.nodeId != null ? String(input.nodeId).slice(0, 120) : null,
+      Boolean(input?.cameraConnected),
+      intOrZero(input?.cameraReconnects),
+      numOrNull(input?.captureFps),
+      numOrNull(input?.detectFps),
+      numOrNull(input?.latencyMs),
+      numOrNull(input?.latencyMsAvg),
+      numOrNull(input?.uptimeS),
+      numOrNull(input?.framesCaptured),
+      intOrZero(input?.segmentsWritten),
+      input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
+      intOrZero(input?.nasPending),
+    ],
+  )
+  return { cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }
 }
 
 // ════ Detection Engine ingest — เขียนตารางจริง (ผ่าน POST /internal/*) ═══════
@@ -268,10 +398,10 @@ export async function listClips(visibleIds) {
   }))
 }
 
-// ── operators + camera_assignment (SOC เท่านั้น) ─────────────────────────
-// ⚠️ ผู้เรียกฝั่งเว็บวันนี้คือวิว Nodes (GET /api/nodes, /api/operators, POST /api/operators)
-//    ไม่ใช่ "วิว Operators" — วิวนั้นยังไม่ถูกสร้าง (ดู TODO ใน server/rbac/permissions.js)
-//    assignCameras() ด้านล่างจึงยังไม่มีผู้เรียกจาก UI เลย (PUT /api/assignments รออยู่)
+// ── operators + camera_assignment (SOC จัดการผ่านวิว Operators) ─────────
+// ผู้เรียกฝั่งเว็บ: วิว Operators (src/views/Operators.jsx) — ตาราง operator +
+// ตัวแก้ assignment ซึ่งเป็นผู้เรียกเดียวของ PUT /api/assignments → assignCameras()
+// และวิว Nodes ที่แสดง route ต่อกล้อง (GET /api/nodes)
 const operators = [
   { id: 'op-reyes', name: 'M. Reyes', role: 'CCTV-Operator', active: true },
   { id: 'op-nakamura', name: 'T. Nakamura', role: 'CCTV-Operator', active: true },

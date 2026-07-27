@@ -42,6 +42,18 @@ internalRouter.post('/alerts', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /internal/heartbeat — สัญญาณชีพของ Detection Engine ต่อกล้องหนึ่งตัว
+// ⚠️ นี่คือ "แหล่งข้อมูลจริง" เพียงแหล่งเดียวของสถานะ Edge link ที่ /api/link แสดง
+//    engine ยิงมาทุก ~5 วิ (AEGIS_HEARTBEAT_INTERVAL_S) พร้อม metrics ที่วัดได้จริง
+//    หยุดยิง = /api/link กลายเป็น degraded แล้ว lost เองตามอายุ ไม่ต้องมีใครสั่ง
+internalRouter.post('/heartbeat', async (req, res, next) => {
+  try {
+    const r = await store.recordHeartbeat(req.body ?? {})
+    if (r.error) return res.status(r.status || 400).json({ error: r.error })
+    res.status(200).json({ ok: true, cameraId: r.cameraId, lastSeenAt: r.lastSeenAt })
+  } catch (err) { next(err) }
+})
+
 // ทุก path/method อื่นใต้ /internal ที่ไม่แมตช์ → 404 JSON (ไม่ปล่อยตกไป SPA fallback)
 internalRouter.use((req, res) => {
   res.status(404).json({ error: 'Not found' })

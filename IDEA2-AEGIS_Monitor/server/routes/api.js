@@ -146,9 +146,13 @@ async function visibleIdsOf(user) {
   return new Set(cams.map((c) => c.id))
 }
 
-// Edge link status — ค่าจริงจาก heartbeat (dev: ตัวแทน engine ใน store)
-apiRouter.get('/link', requireAuth, (req, res) => {
-  res.json(store.linkStatus())
+// Edge link status — คำนวณจาก camera_heartbeat จริง (อายุของ heartbeat ล่าสุด)
+// ขอบเขต: เฉพาะกล้องที่ผู้เรียกเห็นได้ — operator เห็นสุขภาพของ "กล้องตัวเอง"
+// ไม่ใช่ของทั้ง fleet (กรองผ่าน camera_assignment เหมือนทุก endpoint ข้อมูล)
+apiRouter.get('/link', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await store.linkStatus(await visibleIdsOf(req.user)))
+  } catch (err) { next(err) }
 })
 
 // demo control: จำลอง link ล่ม (แทนการดึงสาย LAN ให้ผู้ตรวจดู degraded→lost)
@@ -213,7 +217,7 @@ apiRouter.get('/nodes', requireRole(ROLES.SOC), async (req, res, next) => {
       cameras: cams.map((c) => ({ ...c, route: store.resolveRoute(c.id, assignments, operatorsById) })),
       assignments,
       operators,
-      link: store.linkStatus(),
+      link: await store.linkStatus(new Set(cams.map((c) => c.id))),
     })
   } catch (err) { next(err) }
 })

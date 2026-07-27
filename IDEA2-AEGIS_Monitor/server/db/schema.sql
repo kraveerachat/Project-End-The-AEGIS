@@ -77,6 +77,33 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS alerts_at_idx ON alerts (at DESC);
 
+-- ── camera_heartbeat — สภาพจริงของ Detection Engine ต่อกล้องหนึ่งตัว ────────────
+-- ⚠️ ตารางนี้คือ "แหล่งความจริงเดียว" ของสถานะ Edge link ที่เว็บแอปแสดง
+--    ก่อนหน้านี้ /api/link เดาเอาจากตัวแปรในหน่วยความจำสองตัว + ปุ่มสาธิต — ไม่มี
+--    ข้อมูลจริงอยู่เบื้องหลังเลย ตอนนี้ Detection Engine (Laptop, VLAN 20) POST
+--    /internal/heartbeat เข้ามาเป็นระยะ แล้ว /api/link คำนวณสถานะจาก "อายุของ
+--    heartbeat ล่าสุด" (recency) เท่านั้น — engine เงียบ = lost จริง ๆ ไม่ใช่แค่แสดงผล
+--
+--    หนึ่งแถวต่อหนึ่งกล้อง (UPSERT) — เก็บเฉพาะค่าล่าสุด ไม่ใช่ time-series
+--    ประวัติย้อนหลัง (uptime %, disconnects 24h) ยังไม่มี — UI ต้องแสดง "unavailable"
+--    ไม่ใช่ตัวเลขที่ดูสมจริงแต่แต่งขึ้น (ดู src/views/Diagnostics.jsx)
+CREATE TABLE IF NOT EXISTS camera_heartbeat (
+  camera_id       TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,
+  last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(), -- เวลาที่ Monitor "รับ" heartbeat
+  node_id         TEXT,                               -- edge node ที่ส่งมา
+  camera_connected BOOLEAN NOT NULL DEFAULT FALSE,    -- engine เปิดกล้องได้จริงไหม
+  camera_reconnects INTEGER NOT NULL DEFAULT 0,
+  capture_fps     NUMERIC(6,2),
+  detect_fps      NUMERIC(6,2),
+  latency_ms      NUMERIC(8,2),
+  latency_ms_avg  NUMERIC(8,2),
+  uptime_s        NUMERIC(12,1),
+  frames_captured BIGINT,
+  segments_written INTEGER,
+  nas_last_status TEXT,                               -- idle | ok | failed
+  nas_pending     INTEGER
+);
+
 -- ── clips — บันทึกต่อเนื่องตัดเป็นช่วง ~10 นาที (interval-based, ไม่ใช่ detection-triggered) ──
 CREATE TABLE IF NOT EXISTS clips (
   id            BIGSERIAL PRIMARY KEY,
