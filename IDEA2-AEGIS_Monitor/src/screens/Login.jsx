@@ -439,13 +439,6 @@ export default function Login({ theme, setTheme, lang: initialLang = 'th', setLa
           </form>
         </motion.div>
       </div>
-
-      {/* Monospace Footer Demo Hint */}
-      <div className="relative z-10 mt-6 text-center">
-        <p className="text-xs text-slate-400 dark:text-slate-500 font-mono tracking-wider">
-          demo · user / aegis-user · admin / aegis-admin
-        </p>
-      </div>
     </div>
   )
 }
