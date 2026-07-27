@@ -8,6 +8,7 @@ import Archive from './views/Archive.jsx'
 import Detection from './views/Detection.jsx'
 import Alerts from './views/Alerts.jsx'
 import Nodes from './views/Nodes.jsx'
+import Operators from './views/Operators.jsx'
 import Diagnostics from './views/Diagnostics.jsx'
 import Settings from './views/Settings.jsx'
 import { useMonitorEngine } from './engine.js'
@@ -181,6 +182,7 @@ export default function App() {
           clockText={fmtTime(now)}
           dateText={fmtDate(now)}
           linkStatus={link.status}
+          link={link}
           unacked={unacked}
           showBell={has('alerts')}
           onBell={() => setView('alerts')}
@@ -220,6 +222,7 @@ export default function App() {
                 <Alerts alerts={alerts} ackAlert={ackAlert} api={alertsApi} />
               )}
               {view === 'nodes' && has('nodes') && <Nodes />}
+              {view === 'operators' && has('operators') && <Operators />}
               {view === 'diagnostics' && has('diagnostics') && (
                 <Diagnostics now={now} link={link} cameras={visibleCams} />
               )}
@@ -227,7 +230,7 @@ export default function App() {
                 <Settings
                   lang={lang} setLang={setLang}
                   theme={theme} setTheme={setTheme}
-                  user={session} cameras={visibleCams}
+                  user={session} cameras={visibleCams} link={link}
                   onSignOut={signOut}
                 />
               )}

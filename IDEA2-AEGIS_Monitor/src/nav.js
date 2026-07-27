@@ -5,7 +5,7 @@
 // client จึง render ได้เฉพาะสิ่งที่ได้รับ — วิวที่ไม่มีสิทธิ์ไม่มีวันอยู่ใน DOM
 // (CCTV-Operator เปิด page source แล้วต้องไม่พบสตริง "Detection stream" / "Alerts")
 import {
-  Activity, Archive, Cctv, LayoutGrid, ListVideo, Settings, ShieldAlert,
+  Activity, Archive, Cctv, LayoutGrid, ListVideo, Settings, ShieldAlert, Users,
 } from 'lucide-react'
 
 const DISPLAY = {
@@ -14,6 +14,9 @@ const DISPLAY = {
   detection:   { label: 'Detection stream',  icon: ListVideo },
   alerts:      { label: 'Alerts',            icon: ShieldAlert, badge: true },
   nodes:       { label: 'Nodes & routing',   icon: LayoutGrid },
+  // ⚠️ เพิ่ม 2026-07-27: เดิม id นี้ไม่มีใน DISPLAY ทั้งที่เซิร์ฟเวอร์ส่งมาในเมนูของ SOC
+  //    ทุกครั้ง → buildSections ทิ้งเงียบ ๆ เมนูจึงหายไปทั้งที่ backend เปิดสิทธิ์ให้แล้ว
+  operators:   { label: 'Operators',         icon: Users },
   diagnostics: { label: 'Camera diagnostics', icon: Activity },
   settings:    { label: 'Settings',          icon: Settings },
 }
