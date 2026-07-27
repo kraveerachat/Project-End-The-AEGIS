@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
-  HERO_SCENES, TILE_BOXES, camShort, eventText,
+  bboxesFor, camShort, eventText,
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
 import { BBox, EmptyState, FeedChrome, Ping, StaleBadge, TBox } from '../components/ui.jsx'
@@ -37,8 +37,6 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
     )
   }
 
-  const scene = HERO_SCENES[cam.id] ?? { boxes: [], subjects: 0 }
-
   const secondary = SECONDARY_PRIORITY
     .filter((id) => id !== cam.id && visibleIds.has(id))
     .map((id) => cameras.find((c) => c.id === id))
@@ -47,6 +45,18 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
 
   // เหตุการณ์ถูกจำกัดตามขอบเขตกล้องที่มองเห็น — operator ไม่เห็น event ของกล้องอื่น
   const scoped = detections.filter((d) => visibleIds.has(d.cam))
+
+  // overlay = detection "ล่าสุดจริง" ของกล้องที่กำลังโฟกัส (ไม่มี = ไม่วาดอะไรเลย)
+  // เดิมบรรทัดนี้คือ HERO_SCENES[cam.id] ซึ่งเป็นฉากที่แต่งไว้ตายตัวต่อ camera id
+  const heroFrame = scoped.find((d) => d.cam === cam.id) ?? null
+  const heroBoxes = bboxesFor(heroFrame)
+  const subjects = heroFrame?.people?.length ?? 0
+  const hasUnknownNow = Boolean(heroFrame && hasUnk(heroFrame))
+
+  // fps จริงจาก heartbeat ของกล้องนี้ (link.cameras[] ← ตาราง camera_heartbeat)
+  // ไม่มี heartbeat = ไม่มีตัวเลข = ไม่แสดง (ห้ามเดา)
+  const camBeat = (link.cameras ?? []).find((h) => h.cam === cam.id)
+  const fpsText = camBeat?.captureFps != null ? `${camBeat.captureFps.toFixed(1)}fps` : null
 
   // Latest clean authorization feeds the access-control panel.
   const grant = scoped.find((d) => !hasUnk(d))
@@ -78,10 +88,11 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
       >
         <div>
           <h1 className="h1">Live canvas</h1>
+          {/* ⚠️ เดิมบรรทัดนี้ประกาศว่า "AI auto-elevated CAM-02 on unknown detection"
+              ทุกครั้งที่โฟกัส CAM-02 โดยอิง scene.aiFocus ที่ตั้งค่าไว้ตายตัวใน data.js
+              — ไม่มีกลไก auto-elevate อยู่จริงในระบบเลย ตอนนี้บอกแค่ที่เป็นจริง */}
           <p className="sub">
-            {scene.aiFocus
-              ? 'Priority focus · AI auto-elevated CAM-02 on unknown detection.'
-              : `Manual focus · ${cam.name}. AI focus resumes on the next elevation.`}
+            Manual focus · {cam.name}. Scoped to the cameras this account is assigned server-side.
           </p>
         </div>
       </motion.div>
@@ -98,15 +109,22 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
             <div className="herotop">
               {lost ? (
                 <span className="htag lost">LINK LOST</span>
-              ) : scene.aiFocus ? (
-                <span className="htag focus"><span className="rec" />AI FOCUS · UNKNOWN</span>
+              ) : hasUnknownNow ? (
+                <span className="htag focus"><span className="rec" />UNKNOWN IN FRAME</span>
               ) : (
                 <span className="htag manual">MANUAL FOCUS</span>
               )}
               <span className="hchip mono">{cam.id} · {cam.name}</span>
               <div className="heroright">
                 {link.status === 'degraded' && <StaleBadge label="Link degraded" />}
-                {!lost && <span className="hchip mono rec-meta">REC • 1080p • 24fps</span>}
+                {/* ⚠️ เดิมตรงนี้ hardcode "REC • 1080p • 24fps" — ความละเอียดมาจากตาราง
+                    cameras จริง ส่วน fps จริงมาจาก heartbeat (capture_fps) ถ้ายังไม่มี
+                    heartbeat ก็ไม่แสดงตัวเลข fps ปลอม */}
+                {!lost && (
+                  <span className="hchip mono rec-meta">
+                    {cam.res}{fpsText ? ` • ${fpsText}` : ''}
+                  </span>
+                )}
                 <motion.button
                   type="button"
                   className="herobtn"
@@ -119,10 +137,13 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
                 </motion.button>
               </div>
             </div>
-            {!lost && scene.boxes.map((b) => <BBox key={b.label} {...b} kind={b.kind} />)}
-            {!lost && (
+            {!lost && heroBoxes.map((b, i) => <BBox key={`${b.label}-${i}`} {...b} kind={b.kind} />)}
+            {/* ⚠️ เดิมประกาศชื่อรุ่นโมเดล "FACE_RECOGNITION V1.3" ที่ไม่มีอยู่จริง
+                (engine ยังรัน PlaceholderRecognizer) และนับ subject จากฉากที่แต่งไว้
+                ตอนนี้นับจากคนในเฟรม detection จริง และไม่เอ่ยชื่อโมเดลใด ๆ */}
+            {!lost && subjects > 0 && (
               <span className="heroai mono">
-                AI INFERENCE · FACE_RECOGNITION V1.3 · {scene.subjects} SUBJECT{scene.subjects === 1 ? '' : 'S'}
+                LAST DETECTION · {subjects} SUBJECT{subjects === 1 ? '' : 'S'} IN FRAME
               </span>
             )}
             <span className="herots mono">
@@ -157,7 +178,11 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
                   ? <span className="sflive warn">STALE</span>
                   : <span className="sflive"><span className="rec" />LIVE</span>}
                 <span className="sfloc">{c.name}</span>
-                {!lost && (TILE_BOXES[c.id] ?? []).map((b, i) => <TBox key={i} {...b} />)}
+                {/* กล่องบน tile มาจาก detection ล่าสุดจริงของกล้องตัวนั้น (เดิมเป็น
+                    TILE_BOXES ที่ตั้งไว้ตายตัว) — ไม่มี detection = ไม่มีกล่อง */}
+                {!lost && bboxesFor(scoped.find((d) => d.cam === c.id)).map((b, i) => (
+                  <TBox key={i} kind={b.kind} top={b.top} left={b.left} width={b.width} height={b.height} />
+                ))}
               </motion.button>
             ))}
           </div>

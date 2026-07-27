@@ -1,8 +1,13 @@
 // src/data.js — AEGIS Monitor (IDEA2) · display helpers เท่านั้น
 //
-// ⚠️ Phase 2: ข้อมูลจำลองทั้งหมด (กล้อง/operator/detection/alert/clip seeds และ
-// ตัว generator) ถูก "ถอนออกจาก client" แล้ว — ทุกแถวบนจอมาจาก /api/* ของ
-// เซิร์ฟเวอร์ Monitor (ซึ่ง production อ่านจากตารางที่ Detection Engine เขียน)
+// ⚠️ แก้คอมเมนต์ 2026-07-27: หัวไฟล์เดิมประกาศว่า "ข้อมูลจำลองทั้งหมดถูกถอนออกจาก
+//    client แล้ว — ทุกแถวบนจอมาจาก /api/*" ซึ่ง **ไม่จริง** ตอนที่เขียน: ใต้บรรทัดนั้น
+//    ลงมามี HERO_SCENES/TILE_BOXES ที่ฝัง "ชื่อคน + เปอร์เซ็นต์ความมั่นใจ" ที่กุขึ้นเอง
+//    (J. SMITH 98%, SOMCHAI T. 98%, A. OKAFOR 95%, UNKNOWN 82%) แล้ววาดทับจอ hero
+//    ทุกครั้งที่เลือกกล้องนั้น — ไม่เกี่ยวกับ detection จริงเลยสักนิด
+//    ทั้งสองค่าถูกลบทิ้งแล้ว (ดู bboxesFor ด้านล่าง) และหัวไฟล์นี้ถูกแก้ให้ตรงความจริง
+//
+// ตอนนี้ทุกแถว/ทุกกล่องบนจอมาจาก /api/* ของเซิร์ฟเวอร์ Monitor จริง ๆ
 // ไฟล์นี้เหลือเฉพาะ formatter + ตัวช่วยแสดงผลที่ไม่ใช่ข้อมูล
 
 export const camShort = (id) => 'C' + String(id).slice(4)
@@ -21,40 +26,39 @@ export function eventText(d) {
   return `Authorized — ${names}`
 }
 
-// ── Hero-feed overlay geometry ───────────────────────────────────────
-// พิกัด bounding-box บนจอ hero/tile เป็น "ฉากประกอบของ feed จำลอง" (แผง hatch
-// แทนสตรีมที่เดโม่ยังไม่มีจริง — DESIGN.md: hatch = สิ่งที่ระบบมองไม่เห็น)
-// เมื่อ WebRTC/RTSP จริงมาถึง overlay นี้ถูกแทนด้วย bbox telemetry จาก engine
-export const HERO_SCENES = {
-  'CAM-02': {
-    aiFocus: true,
-    boxes: [
-      { kind: 'auth', label: 'AUTH // J. SMITH // 98%', top: '30%', left: '14%', width: '22%', height: '56%' },
-      { kind: 'unk', label: 'UNKNOWN PERSON // 82%', top: '24%', left: '58%', width: '24%', height: '62%' },
-    ],
-    subjects: 2,
-  },
-  'CAM-01': {
-    boxes: [{ kind: 'auth', label: 'AUTH // SOMCHAI T. // 98%', top: '32%', left: '30%', width: '24%', height: '52%' }],
-    subjects: 1,
-  },
-  'CAM-05': {
-    boxes: [{ kind: 'auth', label: 'AUTH // A. OKAFOR // 95%', top: '28%', left: '38%', width: '22%', height: '56%' }],
-    subjects: 1,
-  },
-  'CAM-04': { boxes: [], subjects: 0 },
-  'CAM-06': { boxes: [], subjects: 0 },
-}
+// ── Hero-feed overlay ────────────────────────────────────────────────
+// ⚠️ HERO_SCENES / TILE_BOXES ถูก "ลบทิ้ง" แล้ว — มันคือชื่อคนและคะแนนความมั่นใจ
+//    ที่กุขึ้นมาทั้งหมด ผูกกับ camera id ตายตัว ไม่ได้มาจาก detection ใด ๆ
+//    ผู้ตรวจที่มองจอ hero จะอ่านว่า "ระบบจำหน้า J. SMITH ได้ 98%" ทั้งที่ระบบ
+//    ไม่เคยเห็นใครเลย — นั่นคือการกุหลักฐานด้านความปลอดภัย ไม่ใช่ placeholder
+//
+// แทนที่ด้วยกล่องที่ "มาจากของจริงเท่านั้น": bboxesFor() อ่านจาก detection
+// ล่าสุดจริงของกล้องนั้น (GET /api/detections ← ตาราง detections ← engine)
+// ⚠️ ตำแหน่ง/ขนาดกล่องยังไม่ใช่ของจริง — schema `detections` ยังไม่มีคอลัมน์ bbox
+//    (engine คำนวณ bbox ได้แล้วแต่ยังไม่ได้ส่ง) จึงจัดวางเป็นแถวเท่า ๆ กันเพื่อ
+//    "นับจำนวนคนในเฟรม" ให้ตรงความจริง ไม่ได้อ้างว่าคนอยู่ตรงนั้นจริง
+//    ป้ายกำกับแสดงได้แค่ผลที่ engine ให้มาจริง: UNKNOWN (+ % ถ้ามี) หรือชื่อที่จับคู่ได้
+//    ตอนนี้ PlaceholderRecognizer คืน Unknown เสมอ → ป้ายจึงเป็น UNKNOWN เสมอ ถูกต้องแล้ว
+const BOX_SLOTS = [
+  { top: '26%', left: '12%', width: '20%', height: '58%' },
+  { top: '26%', left: '40%', width: '20%', height: '58%' },
+  { top: '26%', left: '68%', width: '20%', height: '58%' },
+]
 
-export const TILE_BOXES = {
-  'CAM-01': [{ kind: 'auth', top: '32%', left: '30%', width: '24%', height: '52%' }],
-  'CAM-02': [
-    { kind: 'auth', top: '30%', left: '14%', width: '22%', height: '56%' },
-    { kind: 'unk', top: '24%', left: '58%', width: '24%', height: '62%' },
-  ],
-  'CAM-05': [{ kind: 'auth', top: '28%', left: '38%', width: '22%', height: '56%' }],
-  'CAM-04': [],
-  'CAM-06': [],
+/**
+ * กล่องสำหรับ overlay จาก detection frame จริงหนึ่งเฟรม (หรือ null = ไม่มีอะไรให้วาด)
+ * คืน [] เมื่อไม่มี detection — จอจะว่าง ซึ่งคือความจริง ไม่ใช่ฉากที่แต่งไว้
+ */
+export function bboxesFor(frame) {
+  if (!frame?.people?.length) return []
+  return frame.people.slice(0, BOX_SLOTS.length).map((p, i) => ({
+    kind: p.k === 'unk' ? 'unk' : 'auth',
+    // ป้าย = ผลจริงเท่านั้น; ไม่มี conf ก็ไม่แสดงตัวเลข (ไม่เติมให้ดูสมบูรณ์)
+    label: p.k === 'unk'
+      ? (p.conf == null ? 'UNKNOWN' : `UNKNOWN // ${p.conf}%`)
+      : `${String(p.name ?? 'AUTHORIZED').toUpperCase()}${p.conf == null ? '' : ` // ${p.conf}%`}`,
+    ...BOX_SLOTS[i],
+  }))
 }
 
 /* ---------- formatting ---------- */
