@@ -152,7 +152,12 @@ apiRouter.get('/link', requireAuth, (req, res) => {
 })
 
 // demo control: จำลอง link ล่ม (แทนการดึงสาย LAN ให้ผู้ตรวจดู degraded→lost)
-apiRouter.post('/link/outage', requireAuth, (req, res) => {
+// ⚠️ SOC-Responder เท่านั้น — สถานะนี้เป็น "ของทั้งระบบ" ไม่ใช่ของผู้เรียกคนเดียว
+//    (store.linkStatus() เป็น state ระดับโปรเซส) เดิมเป็นแค่ requireAuth แปลว่า
+//    CCTV-Operator คนใดก็ได้พลิกทั้ง console ของทุกคนไปเป็น LINK LOST 60 วินาทีได้
+//    ด้วยคำขอเดียว — ปุ่ม L ในวิวของตัวเองก็ยิง endpoint นี้ การสาธิต cascade เป็น
+//    อำนาจของผู้คุมระบบ ไม่ใช่ของผู้ใช้ที่ถูกจำกัดขอบเขต (default-deny เหมือนทุก endpoint)
+apiRouter.post('/link/outage', requireRole(ROLES.SOC), (req, res) => {
   res.json(store.toggleOutage())
 })
 

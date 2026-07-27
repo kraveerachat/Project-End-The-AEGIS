@@ -77,6 +77,11 @@ export default function App() {
   // Alerts เป็นวิวของ SOC-Responder เท่านั้น — operator ไม่มีแม้แต่ badge/กระดิ่ง
   const unacked = has('alerts') ? alerts.filter((a) => !a.acked).length : 0
 
+  // ปุ่ม L (demo link outage) เป็นของ SOC-Responder เท่านั้น — POST /api/link/outage
+  // บังคับ requireRole(SOC) ฝั่งเซิร์ฟเวอร์อยู่แล้ว (นั่นคือ "การควบคุม") ค่านี้เป็นแค่
+  // การแสดงผล: ไม่โฆษณาคีย์ลัดที่ role นี้กดแล้วได้ 403 เงียบ ๆ — เหมือนกระดิ่ง Alerts
+  const canLinkTest = session?.role === 'SOC-Responder'
+
   // เซสชันหมดอายุกลางคัน (401 จาก endpoint ใด) → กลับประตูทันที ไม่ค้างจอ
   useEffect(() => {
     registerUnauthorizedHandler(() => {
@@ -126,11 +131,11 @@ export default function App() {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       const n = Number(e.key)
       if (n >= 1 && n <= viewOrder.length) setView(viewOrder[n - 1])
-      else if (e.key === 'l' || e.key === 'L') toggleOutage()
+      else if (canLinkTest && (e.key === 'l' || e.key === 'L')) toggleOutage()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toggleOutage, session, viewOrder])
+  }, [toggleOutage, session, viewOrder, canLinkTest])
 
   useEffect(() => {
     document.title = (unacked ? `(${unacked}) ` : '') + 'AEGIS Monitor — AI CCTV HUD'
@@ -184,7 +189,7 @@ export default function App() {
         />
         <MobileNav sections={sections} view={view} setView={setView} unacked={unacked} />
         <div className="body">
-          <Sidebar sections={sections} view={view} setView={setView} unacked={unacked} viewCount={viewOrder.length} />
+          <Sidebar sections={sections} view={view} setView={setView} unacked={unacked} viewCount={viewOrder.length} canLinkTest={canLinkTest} />
           <main id="main" className="main glass">
             <div className="viewfade" key={view}>
               {/* render เฉพาะวิวที่อยู่ในเมนูของเซิร์ฟเวอร์ — นอกเมนู = ไม่มีใน DOM */}

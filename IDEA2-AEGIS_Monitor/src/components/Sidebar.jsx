@@ -3,7 +3,9 @@ import { motion } from 'framer-motion'
 // ⚠️ Sidebar ไม่รู้จัก "รายการเมนูทั้งหมด" อีกต่อไป — รับ sections ที่สร้างจาก
 // เมนูของเซิร์ฟเวอร์ (ผ่าน buildSections) แล้ว render เท่าที่ได้รับเท่านั้น
 // วิวที่ role ไม่มีสิทธิ์ไม่เคยมาถึง component นี้ จึงไม่มีวันอยู่ใน DOM
-export default function Sidebar({ sections, view, setView, unacked, viewCount = 0 }) {
+// canLinkTest = role นี้ยิง POST /api/link/outage ได้ไหม (SOC-Responder เท่านั้น)
+// — ใช้ตัดสินแค่ว่าจะ "โฆษณา" คีย์ลัด L หรือไม่ ตัวควบคุมจริงคือ requireRole ฝั่งเซิร์ฟเวอร์
+export default function Sidebar({ sections, view, setView, unacked, viewCount = 0, canLinkTest = false }) {
   return (
     <nav className="side glass" aria-label="Console sections">
       {sections.map((sec) => (
@@ -36,7 +38,8 @@ export default function Sidebar({ sections, view, setView, unacked, viewCount = 
       <div className="sidefoot">
         AEGIS Monitor · standalone edge deployment. Operators and camera assignments are managed within this app.
         <div className="kbdrow" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>{viewCount || 1}</kbd> views · <kbd>L</kbd> link test
+          <kbd>1</kbd>–<kbd>{viewCount || 1}</kbd> views
+          {canLinkTest && <> · <kbd>L</kbd> link test</>}
         </div>
       </div>
     </nav>
