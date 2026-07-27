@@ -5,7 +5,7 @@
 // ⚠️ ชื่อ cookie เป็นของ Drive โดยเฉพาะ — IDEA2 มี cookie ของตัวเอง ("aegis.monitor.sid")
 //    สองแอปไม่มีวันอ่าน session ข้ามกัน (Identity Decoupling)
 import session from 'express-session'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 export const SESSION_COOKIE = 'aegis.drive.sid'
 
@@ -57,9 +57,24 @@ export function establishSession(req, user, remember) {
       req.session.user = {
         id: user.id,
         username: user.username,
+        // displayName ในเซสชันคือ "ชื่อที่ใช้แสดงผล" (profile_name ถ้าตั้งไว้) — ผู้ใช้
+        // เปลี่ยนได้กลางเซสชัน จึงต้องอัปเดตที่นี่ด้วยทุกครั้ง (ดู setSessionDisplayName)
         displayName: user.displayName,
+        // ชื่อที่ Admin ตั้งไว้ — เก็บแยกเพื่อให้จอ Settings แสดงได้ว่า "ชื่อบัญชี" คืออะไร
+        // แม้ผู้ใช้จะตั้งชื่อโปรไฟล์ของตัวเองทับไปแล้ว
+        accountName: user.accountName ?? user.displayName,
         role: user.role,
         mustResetPassword: Boolean(user.mustResetPassword),
+      }
+      // ── ข้อมูลของ "เซสชันนี้" สำหรับจอ Settings → Active sessions ──────────────
+      // ⚠️ ค่าจริงทั้งหมด: ip จาก connection, device จาก User-Agent ที่เบราว์เซอร์ส่งมา
+      //    ไม่มีการเดา/แต่งค่า และ userAgent ถูกตัดความยาวก่อนเก็บ (header นี้ผู้ใช้
+      //    ควบคุมได้ — ปล่อยยาวไม่จำกัดคือปล่อยให้เขียนขยะเข้า session store ของเรา)
+      req.session.meta = {
+        ip: req.ip ?? null,
+        userAgent: String(req.get('user-agent') ?? '').slice(0, 200) || null,
+        loginAt: Date.now(),
+        lastSeenAt: Date.now(),
       }
       req.session.createdAt = Date.now() // ฐานของ absolute timeout
       // CSRF token เก็บใน session (ฝั่งเซิร์ฟเวอร์) และส่งให้ client ทาง JSON เท่านั้น
@@ -97,6 +112,101 @@ export function currentCsrfToken(req) {
  */
 export function markPasswordReset(req) {
   if (req.session?.user) req.session.user.mustResetPassword = false
+}
+
+/** อัปเดตชื่อแสดงผลในเซสชันปัจจุบันหลังผู้ใช้แก้ชื่อโปรไฟล์ (DB ถูกอัปเดตแล้วโดยผู้เรียก) */
+export function setSessionDisplayName(req, displayName) {
+  if (req.session?.user) req.session.user.displayName = displayName
+}
+
+/** ประทับเวลาที่เซสชันนี้ถูกใช้ครั้งล่าสุด — จอ Active sessions อ่านค่านี้ */
+export function touchSession(req) {
+  if (req.session?.meta) req.session.meta.lastSeenAt = Date.now()
+}
+
+/**
+ * เซสชันที่ยัง active ของ "ผู้ใช้คนนี้เท่านั้น" อ่านจาก session store จริง
+ *
+ * ⚠️ กรองด้วย user.id ที่มาจากเซสชันของผู้เรียกเสมอ — store.all() คืนเซสชันของ
+ *    "ทุกคน" การลืมกรองคือการเปิดให้ผู้ใช้คนหนึ่งเห็น IP/อุปกรณ์ของทุกคนในระบบ
+ * ⚠️ ไม่คืน session id ดิบ: id คือ credential — ใครถือก็ปลอมเป็นเจ้าของเซสชันได้
+ *    จึงคืน sha256 ตัดสั้นเป็น "ตัวอ้างอิง" ให้ endpoint เพิกถอนใช้เทียบแทน
+ * ⚠️ MemoryStore (ค่าเริ่มต้นของ express-session) = รายการนี้หายทั้งหมดเมื่อ restart
+ *    และเป็นของ process เดียว ถ้าวันหนึ่งสเกลเป็นหลาย instance ต้องเปลี่ยนไปใช้ store
+ *    ร่วม (connect-pg-simple) ไม่งั้นจอนี้จะแสดง "เฉพาะเซสชันที่บังเอิญตกมาที่ instance นี้"
+ *    ซึ่งแย่กว่าไม่แสดงเลย เพราะดูเหมือนครบ
+ * @returns {Promise<Array<{ ref: string, ip: string|null, userAgent: string|null,
+ *                           loginAt: number|null, lastSeenAt: number|null, current: boolean }>>}
+ */
+export function listSessionsForUser(req) {
+  const store = req.sessionStore
+  const userId = req.session?.user?.id
+  if (!store?.all || userId == null) return Promise.resolve([])
+
+  return new Promise((resolve) => {
+    store.all((err, sessions) => {
+      if (err || !sessions) return resolve([])
+      // store.all() คืน object (map sid → session) หรือ array ขึ้นกับ store — รองรับทั้งคู่
+      const entries = Array.isArray(sessions)
+        ? sessions.map((s) => [s.id ?? null, s])
+        : Object.entries(sessions)
+
+      const rows = []
+      for (const [sid, s] of entries) {
+        const data = typeof s === 'string' ? safeParse(s) : s
+        if (!data?.user || String(data.user.id) !== String(userId)) continue
+        rows.push({
+          ref: sid ? sessionRef(sid) : null,
+          ip: data.meta?.ip ?? null,
+          userAgent: data.meta?.userAgent ?? null,
+          loginAt: data.meta?.loginAt ?? null,
+          lastSeenAt: data.meta?.lastSeenAt ?? null,
+          current: sid != null && sid === req.sessionID,
+        })
+      }
+      rows.sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))
+      resolve(rows)
+    })
+  })
+}
+
+function safeParse(s) {
+  try { return JSON.parse(s) } catch { return null }
+}
+
+/** ตัวอ้างอิงเซสชันที่ปลอดภัยจะส่งออกไป — ไม่สามารถย้อนกลับเป็น session id ได้ */
+export const sessionRef = (sid) =>
+  createHash('sha256').update(String(sid)).digest('hex').slice(0, 16)
+
+/**
+ * เพิกถอนเซสชันของ "ผู้ใช้คนนี้" ตัวหนึ่งด้วย ref
+ * ⚠️ ต้องยืนยันว่าเซสชันเป้าหมายเป็นของผู้เรียกจริงก่อนทำลายทุกครั้ง — ถ้าเทียบแค่ ref
+ *    โดยไม่ดู user.id ผู้ใช้คนหนึ่งจะเตะคนอื่นออกจากระบบได้ (DoS ต่อบัญชีอื่น)
+ * @returns {Promise<boolean>} false = ไม่พบ หรือไม่ใช่ของผู้เรียก (ไม่แยกสองกรณี)
+ */
+export function revokeSessionByRef(req, ref) {
+  const store = req.sessionStore
+  const userId = req.session?.user?.id
+  if (!store?.all || !store?.destroy || userId == null || typeof ref !== 'string') {
+    return Promise.resolve(false)
+  }
+
+  return new Promise((resolve) => {
+    store.all((err, sessions) => {
+      if (err || !sessions) return resolve(false)
+      const entries = Array.isArray(sessions)
+        ? sessions.map((s) => [s.id ?? null, s])
+        : Object.entries(sessions)
+
+      for (const [sid, s] of entries) {
+        if (!sid || sessionRef(sid) !== ref) continue
+        const data = typeof s === 'string' ? safeParse(s) : s
+        if (!data?.user || String(data.user.id) !== String(userId)) return resolve(false)
+        return store.destroy(sid, (destroyErr) => resolve(!destroyErr))
+      }
+      resolve(false)
+    })
+  })
 }
 
 /** ทำลายเซสชันฝั่งเซิร์ฟเวอร์ + ล้าง cookie ฝั่ง client */

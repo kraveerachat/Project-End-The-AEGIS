@@ -1,10 +1,13 @@
-import { useState } from 'react'
-import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Segmented, Field, PillInput, PillSelect, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { useRef, useState } from 'react'
+import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, Trash2, ImagePlus } from 'lucide-react'
+import {
+  Card, CardTitle, Chip, Btn, Segmented, Field, PillInput,
+  ErrorState, EmptyState, SkeletonLoader, NotYetImplemented, Avatar,
+} from '../components/ui.jsx'
 import { canAdministrate } from '../lib/authz.js'
 import { useApi, useNow } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
-import { fmtRelative, fmtDateTime } from '../lib/format.js'
+import { fmtRelative } from '../lib/format.js'
 import { LANGS } from '../lib/strings.js'
 
 // ⚠️ ถอด "คีย์กู้คืน 12 คำ" ออกทั้งฟีเจอร์ (2026-07-26) — ห้ามเอากลับมาในรูปนี้
@@ -30,6 +33,257 @@ import { LANGS } from '../lib/strings.js'
 // + crypto.getRandomValues() + checksum และมันก็ยัง "ไม่ใช่การกู้คืนที่เซิร์ฟเวอร์ช่วยได้"
 // อยู่ดี — เป็นแค่การย้ายภาระจากการจำไปเป็นการเก็บกระดาษ
 
+/* ── Profile — ชื่อที่ผู้ใช้ตั้งเอง + รูปโปรไฟล์ (ของจริงทั้งคู่) ──────────────────
+   ⚠️ สามชื่อในจอนี้คนละหน้าที่กัน และตั้งใจให้เห็นครบ:
+      username     = ตัวระบุที่แก้ไม่ได้ (audit log อ้างอิงค่านี้)
+      accountName  = ชื่อที่ Admin ตั้งตอน provision (จอ Access ใช้ยืนยันตัวบุคคล)
+      displayName  = ชื่อที่ "เจ้าตัว" ตั้งเอง ทับ accountName ในการแสดงผลทั่วแอป
+   การซ่อน username ไว้จะทำให้ผู้ใช้เปลี่ยนชื่อตัวเองเป็นชื่อคนอื่นแล้วแยกไม่ออก */
+function ProfileCard({ t, user, role, onSaved }) {
+  const [name, setName] = useState(user.displayName ?? '')
+  const [saving, setSaving] = useState(false)
+  const [state, setState] = useState(null) // null | 'saved' | 'error'
+  const [avatarBust, setAvatarBust] = useState(0)
+  const [avatarErr, setAvatarErr] = useState(null) // null | 'size' | 'type' | 'failed'
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef(null)
+
+  const dirty = name.trim() !== (user.displayName ?? '').trim()
+
+  const save = async (e) => {
+    e.preventDefault()
+    if (saving) return
+    setSaving(true)
+    setState(null)
+    const res = await apiFetch('/api/profile', { method: 'PATCH', body: { displayName: name } })
+    setSaving(false)
+    if (!res.ok) { setState('error'); return }
+    setState('saved')
+    onSaved?.(res.data.user)
+  }
+
+  const pickAvatar = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // เลือกไฟล์เดิมซ้ำได้ (input file ไม่ยิง change ถ้าค่าไม่เปลี่ยน)
+    if (!file || busy) return
+    setAvatarErr(null)
+    // เช็คขนาดฝั่ง client เพื่อบอกผู้ใช้ทันทีโดยไม่ต้องอัปโหลดขึ้นไปให้ถูกปฏิเสธ —
+    // ⚠️ นี่คือความสะดวก ไม่ใช่การควบคุม: เพดานจริงบังคับที่เซิร์ฟเวอร์ (multer + sanitize)
+    if (file.size > 2 * 1024 * 1024) { setAvatarErr('size'); return }
+
+    setBusy(true)
+    const form = new FormData()
+    form.append('avatar', file)
+    const res = await apiFetch('/api/profile/avatar', { method: 'POST', body: form, timeoutMs: 30_000 })
+    setBusy(false)
+    if (!res.ok) {
+      setAvatarErr(res.status === 413 ? 'size' : res.status === 415 ? 'type' : 'failed')
+      return
+    }
+    setAvatarBust((n) => n + 1) // บังคับ <img> โหลดใหม่ (URL เดิม เนื้อหาใหม่)
+  }
+
+  const removeAvatar = async () => {
+    if (busy) return
+    setBusy(true)
+    setAvatarErr(null)
+    const res = await apiFetch('/api/profile/avatar', { method: 'DELETE' })
+    setBusy(false)
+    if (res.ok || res.status === 404) setAvatarBust((n) => n + 1)
+    else setAvatarErr('failed')
+  }
+
+  return (
+    <Card className="p-5">
+      <CardTitle>{t('profile')}</CardTitle>
+
+      <div className="flex items-start gap-4 flex-wrap">
+        <Avatar key={avatarBust} userId={user.id} name={user.displayName} size={56} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-ink">{user.displayName}</p>
+          <p className="font-mono text-[12px] text-ink-3">
+            {user.username} · {canAdministrate(role) ? t('roleAdmin') : t('roleUser')}
+          </p>
+          {user.accountName && user.accountName !== user.displayName && (
+            <p className="text-[12px] text-ink-3 mt-1">{t('profileAccountName')}: {user.accountName}</p>
+          )}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <Btn variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+              <ImagePlus size={14} strokeWidth={1.5} />
+              {t('avatarUpload')}
+            </Btn>
+            <Btn variant="dangerSoft" size="sm" onClick={removeAvatar} disabled={busy}>
+              {t('avatarRemove')}
+            </Btn>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={pickAvatar}
+              className="hidden"
+              aria-label={t('avatarUpload')}
+            />
+          </div>
+          <p className="text-[11.5px] text-ink-3 mt-2 max-w-[52ch] leading-relaxed">{t('avatarHint')}</p>
+          {avatarErr && (
+            <p role="alert" className="text-[12.5px] font-medium mt-1.5" style={{ color: 'var(--danger)' }}>
+              {avatarErr === 'size' ? t('avatarTooLarge') : avatarErr === 'type' ? t('avatarUnsupported') : t('actionFailed')}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <form onSubmit={save} className="mt-5 pt-4 border-t border-line">
+        <Field id="profile-name" label={t('profileName')}>
+          <PillInput
+            id="profile-name"
+            value={name}
+            maxLength={80}
+            placeholder={user.accountName ?? ''}
+            onChange={(e) => { setName(e.target.value); setState(null) }}
+          />
+        </Field>
+        <p className="text-[11.5px] text-ink-3 mt-1.5 max-w-[56ch] leading-relaxed">{t('profileNameHint')}</p>
+        <div className="flex items-center gap-3 mt-3">
+          <Btn variant="primary" size="sm" type="submit" disabled={saving || !dirty}>
+            {saving ? t('saving') : t('saveProfile')}
+          </Btn>
+          {state === 'saved' && <span className="text-[12.5px] font-medium" style={{ color: 'var(--ok)' }}>{t('saved')}</span>}
+          {state === 'error' && <span role="alert" className="text-[12.5px] font-medium" style={{ color: 'var(--danger)' }}>{t('actionFailed')}</span>}
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+/* ── Change password — เดิมเป็นฟอร์มที่ปุ่มไม่ผูกกับอะไรเลย (กดแล้วไม่เกิดอะไร) ──
+   ตอนนี้ยิง POST /api/password/reset ซึ่งเป็น endpoint เดียวกับที่ด่าน force-reset ใช้ */
+function ChangePasswordCard({ t }) {
+  const [cur, setCur] = useState('')
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null) // null | 'ok' | 'weak' | 'wrong' | 'error'
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy || !cur || !next) return
+    setBusy(true)
+    setResult(null)
+    const res = await apiFetch('/api/password/reset', {
+      method: 'POST',
+      body: { currentPassword: cur, newPassword: next },
+    })
+    setBusy(false)
+    if (res.ok) { setResult('ok'); setCur(''); setNext(''); return }
+    // แยกสามกรณีให้ผู้ใช้แก้ถูกจุด: รหัสเดิมผิด / รหัสใหม่ไม่ผ่านนโยบาย / ระบบพัง
+    setResult(res.status === 401 ? 'wrong' : res.status === 400 ? 'weak' : 'error')
+  }
+
+  const MSG = { ok: ['ok', 'pwUpdated'], weak: ['danger', 'pwWeak'], wrong: ['danger', 'pwWrongCurrent'], error: ['danger', 'actionFailed'] }
+  const msg = result ? MSG[result] : null
+
+  return (
+    <Card className="p-5">
+      <CardTitle>{t('changePassword')}</CardTitle>
+      <form onSubmit={submit}>
+        <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
+          <Field id="pw-cur" label={t('currentPassword')}>
+            <PillInput id="pw-cur" type="password" autoComplete="current-password" value={cur} onChange={(e) => { setCur(e.target.value); setResult(null) }} />
+          </Field>
+          <Field id="pw-new" label={t('newPassword')}>
+            <PillInput id="pw-new" type="password" autoComplete="new-password" value={next} onChange={(e) => { setNext(e.target.value); setResult(null) }} />
+          </Field>
+        </div>
+        <p className="text-[11.5px] text-ink-3 mt-2">{t('pwPolicyHint')}</p>
+        <div className="flex items-center gap-3 mt-4">
+          <Btn variant="primary" type="submit" disabled={busy || !cur || !next}>
+            {busy ? t('saving') : t('updatePassword')}
+          </Btn>
+          {msg && (
+            <span
+              role={msg[0] === 'danger' ? 'alert' : 'status'}
+              className="text-[12.5px] font-medium"
+              style={{ color: msg[0] === 'ok' ? 'var(--ok)' : 'var(--danger)' }}
+            >
+              {t(msg[1])}
+            </span>
+          )}
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+/* ── Active sessions — อ่านจาก session store จริง และเพิกถอนได้จริง ───────────────
+   ⚠️ เดิมจอนี้แสดงแถวคงที่หนึ่งแถว ('This browser' / ip '—') ที่เซิร์ฟเวอร์แต่งขึ้นทุกครั้ง
+   ตอนนี้เป็น ip/User-Agent/เวลาจริงของทุกเซสชันที่ยังมีชีวิตของบัญชีนี้
+   ⚠️ volatile = session store เป็น MemoryStore: รายการหายทั้งหมดเมื่อเซิร์ฟเวอร์รีสตาร์ท
+   (ทุกคนถูก log out พร้อมกัน) — บอกผู้ใช้ตรง ๆ ดีกว่าให้เข้าใจว่าเป็นทะเบียนถาวร */
+function SessionsCard({ t, api, now }) {
+  const sessions = api.data?.sessions ?? []
+  const [revoking, setRevoking] = useState(null)
+
+  const revoke = async (ref) => {
+    setRevoking(ref)
+    await apiFetch(`/api/sessions/${encodeURIComponent(ref)}`, { method: 'DELETE' })
+    setRevoking(null)
+    api.retry()
+  }
+
+  return (
+    <Card className="p-5">
+      <CardTitle sub={api.data?.volatile ? t('sessionsVolatileNote') : undefined}>{t('activeSessions')}</CardTitle>
+      {api.loading ? (
+        <SkeletonLoader type="table" />
+      ) : api.error ? (
+        <ErrorState t={t} kind={api.error} onRetry={api.retry} />
+      ) : sessions.length === 0 ? (
+        <EmptyState icon={Monitor} title={t('emptyNoSessions')} hint={t('emptyNoSessionsHint')} />
+      ) : (
+        <div className="flex flex-col">
+          {sessions.map((s) => (
+            <div key={s.ref ?? s.lastSeenAt} className="flex items-center gap-3 py-3 border-b border-line last:border-b-0 flex-wrap">
+              <Monitor size={16} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-medium text-ink flex items-center gap-2 flex-wrap">
+                  {/* User-Agent ดิบไม่ใช่ชื่ออุปกรณ์ — แสดงแบบย่อและกำกับว่ามาจาก UA */}
+                  <span className="truncate max-w-[42ch]" title={s.userAgent ?? undefined}>
+                    {s.userAgent ? shortDevice(s.userAgent) : t('deviceUnknown')}
+                  </span>
+                  {s.current && <Chip tone="accent">{t('thisDevice')}</Chip>}
+                </p>
+                <p className="font-mono text-[11.5px] text-ink-3 mt-0.5">
+                  {s.ip ?? '—'} · {t('lastActive')} {s.lastSeenAt ? fmtRelative(t, s.lastSeenAt, now) : '—'}
+                </p>
+              </div>
+              {!s.current && s.ref && (
+                <Btn variant="dangerSoft" size="sm" onClick={() => revoke(s.ref)} disabled={revoking === s.ref}>
+                  <LogOut size={13} strokeWidth={1.5} />
+                  {t('revokeSession')}
+                </Btn>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/** ชื่อเบราว์เซอร์/ระบบปฏิบัติการแบบคร่าว ๆ จาก User-Agent
+ *  ⚠️ UA เป็นค่าที่ client ตั้งเองได้ — ค่านี้เป็น "สิ่งที่เบราว์เซอร์อ้าง" ไม่ใช่ข้อเท็จจริง
+ *     ที่ตรวจสอบได้ จึงใช้ช่วยผู้ใช้จำอุปกรณ์ของตัวเองเท่านั้น ห้ามใช้เชิงความปลอดภัย */
+function shortDevice(ua) {
+  const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android'
+    : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS'
+    : /Linux/.test(ua) ? 'Linux' : null
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) && !/Chrome/.test(ua) ? 'Safari'
+    : /Firefox\//.test(ua) ? 'Firefox' : null
+  if (browser && os) return `${browser} · ${os}`
+  return browser ?? os ?? ua.slice(0, 40)
+}
+
 function Row({ label, children, note }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3.5 border-b border-line last:border-b-0 flex-wrap">
@@ -42,28 +296,23 @@ function Row({ label, children, note }) {
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user }) {
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved }) {
   const now = useNow(30_000)
   const [tab, setTab] = useState('appearance')
-  // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จากเซิร์ฟเวอร์เท่านั้น
+  // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จาก session store จริงฝั่งเซิร์ฟเวอร์
   const sessionsApi = useApi('/api/sessions')
-  const sessions = sessionsApi.data?.sessions ?? []
 
-  // Admin governance — Encryption keys & Network zones (ทั้งคู่ Admin เท่านั้น ดู server/rbac)
-  const keysApi = useApi('/api/keys')
+  // Admin governance — Network zones (Admin เท่านั้น ดู server/rbac)
+  // ⚠️ การ์ด "Encryption keys / rotate" ถูกถอดออกทั้งใบ พร้อม /api/keys ทั้งสอง endpoint:
+  //    มันรายงานกุญแจ master AES-256-GCM ที่ไม่มีอยู่จริงในระบบนี้ และปุ่ม rotate ก็แค่
+  //    เขียนเวลาใหม่ทับตัวแปรในหน่วยความจำ (ไฟล์ Data Lake เก็บเป็น plaintext บนดิสก์;
+  //    ไฟล์ Vault เข้ารหัสด้วยกุญแจที่ derive ในเบราว์เซอร์ซึ่งเซิร์ฟเวอร์ไม่มีชิ้นส่วนเลย)
+  //    เหตุผลเต็มอยู่ที่หัวหมวด Network zones ใน server/db/store.js
   const zonesApi = useApi('/api/zones')
   const zones = zonesApi.data?.zones ?? []
-  const [rotating, setRotating] = useState(false)
   const [zoneName, setZoneName] = useState('')
   const [zoneCidr, setZoneCidr] = useState('')
   const [zoneErr, setZoneErr] = useState(false)
-
-  const rotateKeys = async () => {
-    setRotating(true)
-    const { ok } = await apiFetch('/api/keys/rotate', { method: 'POST' })
-    setRotating(false)
-    if (ok) keysApi.retry()
-  }
 
   const addZone = async (e) => {
     e.preventDefault()
@@ -151,61 +400,9 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
 
         {activeTab === 'account' && (
           <div className="flex flex-col gap-5 fade-in">
-            <Card className="p-5">
-              <CardTitle>{t('profile')}</CardTitle>
-              <div className="flex items-center gap-3.5">
-                <span className="size-12 rounded-full bg-ink text-card text-[15px] font-bold flex items-center justify-center">
-                  {user.displayName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
-                </span>
-                <div>
-                  <p className="text-[15px] font-semibold text-ink">{user.displayName}</p>
-                  <p className="font-mono text-[12px] text-ink-3">{user.username} · {canAdministrate(role) ? t('roleAdmin') : t('roleUser')}</p>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <CardTitle>{t('changePassword')}</CardTitle>
-              <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
-                <Field id="pw-cur" label={t('currentPassword')}>
-                  <PillInput id="pw-cur" type="password" autoComplete="current-password" />
-                </Field>
-                <Field id="pw-new" label={t('newPassword')}>
-                  <PillInput id="pw-new" type="password" autoComplete="new-password" />
-                </Field>
-              </div>
-              <Btn variant="primary" className="mt-4">{t('updatePassword')}</Btn>
-            </Card>
-
-            <Card className="p-5">
-              <CardTitle>{t('activeSessions')}</CardTitle>
-              {sessionsApi.loading ? (
-                <SkeletonLoader type="table" />
-              ) : sessionsApi.error ? (
-                <ErrorState t={t} kind={sessionsApi.error} onRetry={sessionsApi.retry} />
-              ) : sessions.length === 0 ? (
-                <EmptyState icon={Monitor} title={t('emptyNoSessions')} hint={t('emptyNoSessionsHint')} />
-              ) : (
-                <div className="flex flex-col">
-                  {sessions.map((s) => (
-                    <div key={s.id} className="flex items-center gap-3 py-3 border-b border-line last:border-b-0 flex-wrap">
-                      <Monitor size={16} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13.5px] font-medium text-ink flex items-center gap-2">
-                          {s.device}
-                          {s.current && <Chip tone="accent">{t('thisDevice')}</Chip>}
-                        </p>
-                        <p className="font-mono text-[11.5px] text-ink-3 mt-0.5">
-                          {s.ip} · {t('lastActive')} {fmtRelative(t, s.lastActive, now)}
-                        </p>
-                      </div>
-                      {/* การเพิกถอนเซสชันอื่นระยะไกล = endpoint ใน Phase 3
-                          (DELETE /api/sessions/:id — ดู docs/api-contracts.md) */}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
+            <ProfileCard t={t} user={user} role={role} onSaved={onProfileSaved} />
+            <ChangePasswordCard t={t} />
+            <SessionsCard t={t} api={sessionsApi} now={now} />
           </div>
         )}
 
@@ -220,30 +417,25 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
             </Card>
             <Card className="p-5">
               <CardTitle>{t('shareDefaults')}</CardTitle>
-              <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
-                <Field id="def-expiry" label={t('defaultExpiry')}>
-                  <PillSelect id="def-expiry" defaultValue="24h">
-                    <option value="1h">{t('hour1')}</option>
-                    <option value="24h">{t('hours24')}</option>
-                    <option value="7d">{t('days7')}</option>
-                  </PillSelect>
-                </Field>
-                <Field id="def-scope" label={t('defaultScope')}>
-                  <PillSelect id="def-scope" defaultValue="vlan">
-                    <option value="vlan">{t('scopeVlan')}</option>
-                    <option value="subnet">{t('scopeSubnet')}</option>
-                    <option value="any">{t('scopeAny')}</option>
-                  </PillSelect>
-                </Field>
-              </div>
+              {/* เดิมเป็น <select> สองอันที่ไม่ผูกกับ state ใดและไม่เคยถูกส่งไปที่ไหน —
+                  ผู้ใช้เลือกค่า กดออกจากหน้า แล้วค่าก็หายไปเงียบ ๆ ไม่มีผลต่อฟอร์มสร้าง
+                  ลิงก์แชร์เลย ตอนนี้บอกตรง ๆ ว่ายังไม่มี ดีกว่าปุ่มที่แกล้งทำงาน */}
+              <NotYetImplemented label={t('notImplemented')}>{t('shareDefaultsTodo')}</NotYetImplemented>
             </Card>
 
-            {/* SECTION 1 — Remote Access & Devices */}
+            {/* SECTION 1 — Remote Access & Devices
+                ⚠️ ทุกค่าในหมวดนี้ hard-code ไว้ในไฟล์นี้ และแอปไม่ได้ตรวจสอบอะไรเลย:
+                ไม่มีการ query สถานะ VPN/Twingate connector, ไม่มี health check, ไม่มีการ
+                อ่าน config ของ firewall เดิมหัวข้อเขียนว่า "status" และติดชิป "Active"
+                สีเขียวไว้ทั้งสองใบ — ผู้ดูแลที่เปิดจอนี้จะสรุปว่าช่องทางทั้งสองทำงานอยู่จริง
+                ณ วินาทีนั้น ซึ่งจอนี้ไม่มีทางรู้ ตอนนี้ระบุชัดว่าเป็น "เอกสารการออกแบบ"
+                (ค่าที่ตั้งใจให้เป็น) ไม่ใช่สถานะที่วัดได้ — เนื้อหายังมีประโยชน์ในฐานะ
+                คำอธิบายสถาปัตยกรรม แต่ต้องไม่ถูกอ่านว่าเป็น telemetry */}
             <Card className="p-5">
-              <CardTitle sub={lang === 'th' ? 'สถานะการเชื่อมต่อระยะไกลแบบไฮบริด (Hybrid Gate-0)' : 'Hybrid Gate-0 remote access status & channels'}>
-                {lang === 'th' ? 'การเข้าถึงระยะไกลและอุปกรณ์' : 'Remote Access & Devices'}
+              <CardTitle sub={t('remoteAccessDocNote')}>
+                {lang === 'th' ? 'การเข้าถึงระยะไกลและอุปกรณ์ (เอกสารการออกแบบ)' : 'Remote Access & Devices (design reference)'}
               </CardTitle>
-              
+
               <div className={`grid gap-4 mt-2 ${canAdministrate(role) ? 'grid-cols-2 max-md:grid-cols-1' : 'grid-cols-1'}`}>
                 {canAdministrate(role) && (
                   <Card className="p-5 flex flex-col gap-4 bg-card-sunken border border-line">
@@ -252,7 +444,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                         <h3 className="font-semibold text-ink text-[14.5px]">VPN + VLAN (Gate 0-A)</h3>
                         <p className="text-[12px] text-ink-3 mt-0.5">{lang === 'th' ? 'การเข้าถึงเครือข่ายเต็มรูปแบบ · แอดมิน / พีซีที่ลงทะเบียน' : 'Full network access · Admin / registered PCs'}</p>
                       </div>
-                      <Chip tone="ok">{lang === 'th' ? 'เปิดใช้งาน' : 'Active'}</Chip>
+                      <Chip tone="neutral">{t('designIntent')}</Chip>
                     </div>
                     <div className="flex flex-col gap-2 mt-2">
                       <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
@@ -282,7 +474,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                       <h3 className="font-semibold text-ink text-[14.5px]">Zero Trust Access · Twingate (Gate 0-B)</h3>
                       <p className="text-[12px] text-ink-3 mt-0.5">{lang === 'th' ? 'สิทธิ์ขั้นต่ำ · มือถือ / นอกสถานที่' : 'Least-privilege · Mobile / off-site'}</p>
                     </div>
-                    <Chip tone="ok">{lang === 'th' ? 'เปิดใช้งาน' : 'Active'}</Chip>
+                    <Chip tone="neutral">{t('designIntent')}</Chip>
                   </div>
                   <div className="flex flex-col gap-2 mt-2">
                     <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
@@ -341,16 +533,11 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         {activeTab === 'storagedata' && (
           <Card className="p-5 fade-in">
             <CardTitle>{t('setStorageData')}</CardTitle>
-            <Row label={t('snapSchedule')}>
-              <div className="w-44">
-                <PillSelect defaultValue="6h" aria-label={t('snapSchedule')}>
-                  <option value="1h">{t('everyHour')}</option>
-                  <option value="6h">{t('every6h')}</option>
-                  <option value="24h">{t('daily')}</option>
-                </PillSelect>
-              </div>
-            </Row>
-            <Row label={t('retention')} note={t('retentionNote')} />
+            {/* ตารางเวลา snapshot + นโยบาย retention เป็น <select> ที่ไม่ผูกกับอะไรเลย
+                เช่นเดียวกับ shareDefaults และลึกกว่านั้น: ยังไม่มีกลไก snapshot จริง
+                อยู่เบื้องหลังให้ตั้งเวลา (ดูจอ Snapshots) — การแสดงตัวเลือก "ทุก 6 ชม."
+                ทำให้เข้าใจว่ามีงานที่รันอยู่เป็นรอบ ทั้งที่ไม่มี */}
+            <NotYetImplemented label={t('notImplemented')}>{t('snapScheduleTodo')}</NotYetImplemented>
           </Card>
         )}
 
@@ -358,29 +545,17 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         {activeTab === 'admin' && canAdministrate(role) && (
           <div className="flex flex-col gap-5 fade-in">
             <Card className="p-5">
-              <CardTitle>{t('encKeys')}</CardTitle>
-              {keysApi.loading ? (
-                <SkeletonLoader />
-              ) : keysApi.error ? (
-                <ErrorState t={t} kind={keysApi.error} onRetry={keysApi.retry} />
-              ) : (
-                <>
-                  <p className="text-[13px] text-ink-2">
-                    {t('encKeysNote')} <span className="font-mono text-ink">{fmtDateTime(keysApi.data?.rotatedAt, lang)}</span>
-                  </p>
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-3 text-[12.5px] text-ink-2">
-                    <span>{t('keyAlgorithm')}: <span className="font-mono text-ink">{keysApi.data?.algorithm}</span></span>
-                    <span>{t('keyId')}: <span className="font-mono text-ink">{keysApi.data?.keyId}</span></span>
-                  </div>
-                  <Btn variant="outline" size="sm" className="mt-4" onClick={rotateKeys} disabled={rotating}>
-                    <RefreshCw size={14} strokeWidth={1.5} className={rotating ? 'animate-spin' : ''} />
-                    {rotating ? t('rotating') : t('rotateNow')}
-                  </Btn>
-                </>
-              )}
+              <CardTitle>{t('encAtRest')}</CardTitle>
+              {/* พูดถึงสิ่งที่มีอยู่จริงเท่านั้น: Vault เข้ารหัสฝั่งเบราว์เซอร์ (ของจริง
+                  ตรวจสอบได้ ดูจอ Vault) ส่วนไฟล์ Data Lake ยังเป็น plaintext บนดิสก์
+                  ไม่มีกุญแจ master ให้ rotate เพราะไม่มีกุญแจ master */}
+              <p className="text-[13px] text-ink-2 leading-relaxed max-w-[60ch]">{t('encAtRestVault')}</p>
+              <div className="mt-3">
+                <NotYetImplemented label={t('notImplemented')}>{t('encAtRestTodo')}</NotYetImplemented>
+              </div>
             </Card>
             <Card className="p-5">
-              <CardTitle>{t('networkZones')}</CardTitle>
+              <CardTitle sub={t('zonesNote')}>{t('networkZones')}</CardTitle>
               {zonesApi.loading ? (
                 <SkeletonLoader />
               ) : zonesApi.error ? (
@@ -391,7 +566,9 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               <div className="flex flex-col gap-2">
                 {zones.map((z) => (
                   <div key={z.id ?? z.cidr} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                    <Chip tone={z.tone}>{t(z.name)}</Chip>
+                    {/* ชื่อ zone เป็นข้อความที่ผู้ดูแลพิมพ์เอง — ไม่ใช่ key ของตารางแปลภาษา
+                        (เดิมเรียก t(z.name) ซึ่งทำให้ชื่อที่เพิ่มใหม่ทุกชื่อแสดงเป็น key ดิบ) */}
+                    <Chip tone="neutral">{z.name}</Chip>
                     <span className="font-mono text-[12px] text-ink-2 flex-1">{z.cidr}</span>
                     {z.id && (
                       <button
@@ -434,10 +611,10 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
             </Card>
             <Card className="p-5">
               <CardTitle>{t('backupTargets')}</CardTitle>
-              <div className="flex flex-col gap-1.5 font-mono text-[12.5px] text-ink-2">
-                <span>edge-site-B · /backup · rsync+ssh</span>
-                <span>offsite-tape · LTO-9 · weekly rotation</span>
-              </div>
+              {/* เดิมเป็นสองบรรทัดที่ hard-code ไว้ ('edge-site-B /backup rsync+ssh',
+                  'offsite-tape LTO-9') ซึ่งอ่านเหมือนรายการปลายทางสำรองข้อมูลที่ตั้งค่าไว้จริง
+                  — ไม่มี job สำรองข้อมูลใดถูกตั้งค่าหรือรันอยู่ในระบบนี้เลย */}
+              <NotYetImplemented label={t('notImplemented')}>{t('backupTargetsTodo')}</NotYetImplemented>
             </Card>
           </div>
         )}

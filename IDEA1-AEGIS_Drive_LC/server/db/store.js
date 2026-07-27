@@ -65,7 +65,7 @@ function mapFileRow(r) {
 // ── Postgres-backed Files (Metadata Layer) ──────────────────────────────
 async function pgListFiles() {
   const { rows } = await query(
-    `SELECT f.*, u.display_name AS uploader_name
+    `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
       WHERE f.vault = false
       ORDER BY f.modified_at DESC`,
@@ -76,7 +76,7 @@ async function pgListFiles() {
 async function pgFindFile(id) {
   if (!/^\d+$/.test(String(id))) return null // id ไม่ใช่ BIGSERIAL ที่ถูกต้อง — ไม่มีทางเจอ ไม่ใช่ error
   const { rows } = await query(
-    `SELECT f.*, u.display_name AS uploader_name
+    `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
       WHERE f.id = $1`,
     [id],
@@ -209,7 +209,7 @@ function mapShareRow(r) {
 
 async function pgListShares() {
   const { rows } = await query(
-    `SELECT s.*, f.name AS file_name, u.display_name AS created_by_name
+    `SELECT s.*, f.name AS file_name, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS created_by_name
        FROM shares s
        JOIN files f ON f.id = s.file_id
        LEFT JOIN users u ON u.id = s.created_by
@@ -319,50 +319,91 @@ export function storageStatus() {
   }
 }
 
-// ── Encryption keys & network zones (Admin governance) ────────────────
-// production: อ่านจาก KMS/HSM จริงและตาราง firewall_zone (Phase 3)
-const encryptionKeys = {
-  algorithm: 'AES-256-GCM',
-  keyId: 'aegis-drive-master-2026-06',
-  rotatedAt: BOOT - 31 * DAY,
-  rotationDays: 90,
+// ── Network zones (Admin governance) ──────────────────────────────────
+//
+// ⚠️ ถอด "Encryption keys / rotate master key" ออกทั้งฟีเจอร์ — ห้ามเอากลับมาในรูปนี้
+//
+// ของเดิมคือ object ในหน่วยความจำที่บอกว่า algorithm 'AES-256-GCM', keyId
+// 'aegis-drive-master-2026-06' และ rotatedAt เมื่อ 31 วันก่อน แล้ว rotateKeys()
+// แค่เขียนเวลาใหม่ทับตัวแปรนั้น **ไม่มีกุญแจ master อยู่จริงที่ไหนในระบบนี้เลย**:
+//   - ไฟล์ใน Data Lake ถูกเก็บเป็น plaintext บนดิสก์ (ดู storage/fileStore.js)
+//     ยังไม่มี encryption-at-rest ในชั้นแอปพลิเคชัน
+//   - ไฟล์ใน Vault ถูกเข้ารหัสฝั่งเบราว์เซอร์ด้วย KEK ที่ derive จาก passphrase ของ
+//     ผู้ใช้ (Argon2id) — เซิร์ฟเวอร์ไม่มีชิ้นส่วนของกุญแจนั้นเลยโดยการออกแบบ
+//     จึงไม่มีอะไรให้ "rotate" และถ้ามีจริงก็แปลว่า zero-knowledge พังไปแล้ว
+// ผลคือปุ่มที่บอก Admin ว่า "ข้อมูลของคุณถูกเข้ารหัสใหม่ด้วยกุญแจใหม่แล้ว" ทั้งที่
+// ไม่มีอะไรเกิดขึ้น — เป็นความเท็จประเภทเดียวกับ "คีย์กู้คืน 12 คำ" ที่ถูกถอดออกไป
+// ก่อนหน้านี้ (ดูหมายเหตุหัวไฟล์ src/screens/Settings.jsx) และอันตรายแบบเดียวกัน:
+// ผู้ดูแลระบบเชื่อว่าได้ทำ key rotation ตามรอบแล้วจึงเลิกกังวลกับมัน
+//
+// ถ้าวันหนึ่งจะทำ encryption-at-rest ของจริง: จุดต่อคือ storage/fileStore.js
+// (เข้ารหัสตอนเขียน/ถอดตอนอ่าน) + ที่เก็บกุญแจที่ไม่ใช่ในโค้ดและไม่ใช่ env var ธรรมดา
+// + เส้นทาง re-encrypt ไฟล์เดิมทั้งคลังตอน rotate — เป็นงานคนละขนาดกับปุ่มหนึ่งปุ่ม
+
+const mapZoneRow = (r) => ({ id: String(r.id), name: r.name, cidr: r.cidr })
+
+// ⚠️ zone เป็น "บันทึกเจตนา" ของผู้ดูแลระบบ ไม่ใช่กลไกบังคับ — การบังคับจริงอยู่ที่
+//    UFW/VLAN บนโฮสต์ ตารางนี้ไม่มีผลต่อการเข้าถึงใด ๆ ในแอป จอที่แสดงมันต้องพูด
+//    ตรงตามนี้ (ดู zonesNote ใน Settings.jsx) การเก็บลง Postgres ทำให้มัน "จริง"
+//    ในความหมายเดียวที่มันเป็นได้: บันทึกที่อยู่รอด restart และตรวจย้อนได้
+async function pgListZones() {
+  const { rows } = await query(`SELECT id, name, cidr FROM network_zones ORDER BY id`)
+  return rows.map(mapZoneRow)
 }
 
-export function keysStatus() {
-  return encryptionKeys
-}
+const memZones = []
 
-export function rotateKeys() {
-  encryptionKeys.rotatedAt = Date.now()
-  encryptionKeys.keyId = `aegis-drive-master-${new Date(encryptionKeys.rotatedAt).toISOString().slice(0, 7)}`
-  return encryptionKeys
-}
-
-const networkZones = [
-  { id: 'z1', name: 'zoneCompany', cidr: '192.168.20.0/23', tone: 'accent' },
-  { id: 'z2', name: 'zoneGuest', cidr: '192.168.30.0/24', tone: 'neutral' },
-  { id: 'z3', name: 'Management', cidr: '10.10.0.0/28', tone: 'violet' },
-]
-
-export function listNetworkZones() {
-  return networkZones
+export async function listNetworkZones() {
+  if (usingPostgres) return pgListZones()
+  return memZones.map((z) => ({ ...z }))
 }
 
 const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/
 
-export function addNetworkZone({ name, cidr }) {
-  const safeName = String(name ?? '').trim().slice(0, 60)
-  if (!safeName || !CIDR_RE.test(String(cidr ?? ''))) return null
-  if (networkZones.some((z) => z.cidr === cidr)) return null
-  const row = { id: nextId('z'), name: safeName, cidr, tone: 'neutral' }
-  networkZones.push(row)
-  return row
+/** CIDR ต้องถูกทั้งรูปแบบและ "ช่วงค่า" — 999.1.1.1/99 ผ่าน regex ได้แต่ไม่มีความหมาย */
+function validCidr(cidr) {
+  const s = String(cidr ?? '').trim()
+  if (!CIDR_RE.test(s)) return null
+  const [addr, bitsRaw] = s.split('/')
+  const bits = Number(bitsRaw)
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return null
+  const octets = addr.split('.').map(Number)
+  if (octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return null
+  return s
 }
 
-export function removeNetworkZone(id) {
-  const i = networkZones.findIndex((z) => z.id === id)
+export async function addNetworkZone({ name, cidr }) {
+  const safeName = String(name ?? '').trim().slice(0, 60)
+  const safeCidr = validCidr(cidr)
+  if (!safeName || !safeCidr) return null
+
+  if (usingPostgres) {
+    try {
+      const { rows } = await query(
+        `INSERT INTO network_zones (name, cidr) VALUES ($1, $2) RETURNING id, name, cidr`,
+        [safeName, safeCidr],
+      )
+      return mapZoneRow(rows[0])
+    } catch (err) {
+      if (err.code === '23505') return null // CIDR ซ้ำ (unique) — ไม่ใช่ 500
+      throw err
+    }
+  }
+  if (memZones.some((z) => z.cidr === safeCidr)) return null
+  const row = { id: nextId('z'), name: safeName, cidr: safeCidr }
+  memZones.push(row)
+  return { ...row }
+}
+
+export async function removeNetworkZone(id) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return false
+    const { rowCount } = await query(`DELETE FROM network_zones WHERE id = $1`, [id])
+    return rowCount > 0
+  }
+  const i = memZones.findIndex((z) => z.id === String(id))
   if (i === -1) return false
-  networkZones.splice(i, 1)
+  memZones.splice(i, 1)
   return true
 }
 
@@ -403,12 +444,11 @@ export async function dashboard() {
 //    และซ่อนบัญชีจริงที่ Admin provision เอาไว้เอง (มีแค่ตอนที่ POST ซิงก์เข้าอาเรย์
 //    ให้ ซึ่งหายทุกครั้งที่รีสตาร์ท ขณะที่บัญชีจริงยังล็อกอินได้อยู่)
 
-export function listSessions(username) {
-  // เซสชันของ "ผู้ใช้ปัจจุบัน" เท่านั้น — ไม่มีทางเห็นของคนอื่นจาก endpoint นี้
-  return [
-    { id: 'se1', device: 'This browser', ip: '—', lastActive: Date.now(), current: true, username },
-  ]
-}
+// ⚠️ listSessions() เดิมอยู่ที่นี่และคืนแถวที่แต่งขึ้นหนึ่งแถวเสมอ
+//    ({ device: 'This browser', ip: '—', lastActive: now, current: true}) — ดูเหมือน
+//    ฟีเจอร์ security ที่บอกได้ว่ามีอุปกรณ์ใดล็อกอินอยู่ แต่ไม่ได้อ่านอะไรเลย
+//    ตอนนี้ย้ายไปอ่าน session store จริงที่ auth/session.js (listSessionsForUser)
+//    ซึ่งคืน ip/user-agent/เวลาจริง และมีเส้นทางเพิกถอนเซสชันอื่นที่ทำงานจริง
 
 // ── Zero-Knowledge Vault — server เก็บ "ciphertext เท่านั้น" ──────────────
 //

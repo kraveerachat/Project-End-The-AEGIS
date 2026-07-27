@@ -1,7 +1,7 @@
 // server/middleware/requireRole.js — AEGIS Drive (IDEA1)
 // Authorization ต่อ endpoint — การกรองเมนูฝั่ง UI เป็นแค่ความสะดวก ไม่ใช่ control
 // ทุก endpoint ต้องตรวจ role ของผู้เรียกเอง "ทุกครั้ง" — ห้ามเชื่อ filter จาก client
-import { currentUser } from '../auth/session.js'
+import { currentUser, touchSession } from '../auth/session.js'
 import { isValidRole } from '../rbac/permissions.js'
 
 // ── Force Password Reset gate ───────────────────────────────────────────
@@ -22,6 +22,9 @@ export function requireAuth(req, res, next) {
   if (blockedByPasswordReset(req, user)) {
     return res.status(403).json({ error: 'PASSWORD_RESET_REQUIRED' })
   }
+  // ประทับเวลาการใช้งานล่าสุดของเซสชันนี้ — จอ Active sessions แสดงค่าจริงจากที่นี่
+  // (rolling: true ทำให้ express-session save/touch ให้เองอยู่แล้วทุก request)
+  touchSession(req)
   req.user = user
   next()
 }
@@ -45,6 +48,7 @@ export function requireRole(...roles) {
       // ไม่บอกว่า endpoint นี้ "มีอยู่สำหรับ role อื่น" — คืนข้อความเดียวกันเสมอ
       return res.status(403).json({ error: 'Forbidden' })
     }
+    touchSession(req)
     req.user = user
     next()
   }

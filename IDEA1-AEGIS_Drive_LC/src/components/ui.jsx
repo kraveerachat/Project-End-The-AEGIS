@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
+import { apiUrl } from '../lib/api.js'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
 export function Card({ children, className = '', style, onClick }) {
@@ -523,6 +524,73 @@ export function EmptyState({ icon: Icon, title, hint, action }) {
       {hint && <p className="text-[13px] text-ink-2 max-w-[44ch] leading-relaxed">{hint}</p>}
       {action}
     </div>
+  )
+}
+
+/* ── Not-yet-implemented marker ────────────────────────────────────────────────
+   ⚠️ กติกาของโปรเจกต์นี้: จอห้ามแสดงข้อมูลที่แต่งขึ้นเพื่อให้ดูสมบูรณ์ อะไรที่ยังไม่มี
+   ของจริงต้องบอกตรง ๆ ว่ายังไม่มี — เพราะตัวเลข/สถานะปลอมที่ดูน่าเชื่อจะถูกเอาไป
+   ตัดสินใจจริง (ผู้ดูแลเห็น "SMART: PASSED" แล้วเลิกตรวจดิสก์ / เห็น "rotated 31 วันก่อน"
+   แล้วเชื่อว่าทำ key rotation ตามรอบแล้ว) การเว้นว่างไว้ปลอดภัยกว่าการเดาให้ดูดี
+   ใช้ hatch เป็นภาษาเดียวกับ EmptyState: ลายขวาง = "ระบบมองไม่เห็นอะไรที่นี่" */
+export function NotYetImplemented({ label, children }) {
+  return (
+    <div
+      role="note"
+      className="rounded-[var(--r-tile)] border border-dashed border-line bg-sunken px-4 py-3.5 flex gap-3"
+    >
+      <span aria-hidden className="mt-0.5 size-5 shrink-0 rounded-[6px] hatch hatch-ink3 border border-line" />
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{label}</p>
+        {children && <p className="text-[12.5px] text-ink-2 leading-relaxed mt-1 max-w-[56ch]">{children}</p>}
+      </div>
+    </div>
+  )
+}
+
+/* ── Avatar — รูปโปรไฟล์จริงจากเซิร์ฟเวอร์ ถ้ายังไม่มีก็ใช้อักษรย่อ ────────────────
+   ⚠️ ไม่ถามเซิร์ฟเวอร์ก่อนว่า "มีรูปไหม" โดยเจตนา: ปล่อยให้ <img> ไปเอาแล้วถ้า 404
+   ก็ตกลงมาที่อักษรย่อเอง — ประหยัดหนึ่ง round trip ต่อการ render ทุกครั้ง และ
+   self-correcting (รูปถูกลบทีหลังก็ตกกลับมาเองโดยไม่ต้องมีใคร invalidate cache)
+   ⚠️ userId ใช้ประกอบ URL อย่างเดียว ไม่ใช่ credential — endpoint ยังต้องล็อกอินอยู่ดี */
+export function Avatar({ userId, name, size = 40, className = '' }) {
+  const [failed, setFailed] = useState(false)
+  const initials = String(name ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?'
+
+  const box = {
+    width: size,
+    height: size,
+    fontSize: Math.max(10, Math.round(size * 0.34)),
+  }
+
+  if (failed || userId == null) {
+    return (
+      <span
+        aria-hidden
+        style={box}
+        className={`rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 ${className}`}
+      >
+        {initials}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
+      alt=""
+      width={size}
+      height={size}
+      style={box}
+      onError={() => setFailed(true)}
+      className={`rounded-full object-cover shrink-0 bg-sunken ${className}`}
+    />
   )
 }
 

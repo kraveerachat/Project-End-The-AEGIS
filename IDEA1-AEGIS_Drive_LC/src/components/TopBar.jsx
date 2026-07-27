@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bell, Menu, LogOut } from 'lucide-react'
-import { Dot } from './ui.jsx'
+import { Dot, Avatar } from './ui.jsx'
 import { useApi } from '../lib/hooks.js'
 
 function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
@@ -117,10 +117,10 @@ export function TopBar({ t, scrolled, user, onSignOut, openMobileNav }) {
             onClick={() => setAvatarOpen((v) => !v)}
             className="flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
           >
+            {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
+                (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
             <div className="p-[2px] rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-600 shadow-sm shrink-0">
-              <div className="size-9 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
-                {user.displayName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
-              </div>
+              <Avatar userId={user.id} name={user.displayName} size={36} className="bg-blue-600 text-white" />
             </div>
             <div className="flex flex-col text-left max-md:hidden min-w-0 pr-1">
               <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>

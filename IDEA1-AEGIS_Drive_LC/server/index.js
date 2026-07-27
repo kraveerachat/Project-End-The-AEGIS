@@ -13,6 +13,7 @@ import { usingPostgres } from './db/connection.js'
 import { bootstrapAdminIfNeeded } from './db/bootstrapAdmin.js'
 import { initStorage, STORAGE_ROOT } from './storage/fileStore.js'
 import { initVaultStorage } from './storage/vaultStore.js'
+import { initAvatarStorage } from './storage/avatarStore.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
@@ -25,7 +26,9 @@ const app = createApp()
 // (เจ้าของเป็น root ขณะที่เรารันด้วย user 'node') ต้องดังตั้งแต่บูต ไม่ใช่ปล่อยให้ผู้ใช้
 // อัปโหลดแล้วเจอ 500 ตอน runtime โดยไม่มีใครรู้ว่า Data Lake ไม่มีชั้นเก็บไฟล์อยู่จริง
 // vault/ ถูกเตรียมแยกจาก uploads/ — ถ้าเขียนไม่ได้ ผู้ใช้จะอัปโหลดเข้า vault ไม่ได้เลย
-Promise.all([bootstrapAdminIfNeeded(), initStorage(), initVaultStorage()])
+// avatars/ ก็เช่นกัน — แยกโฟลเดอร์เพราะเป็นที่เดียวที่ไบต์ของผู้ใช้ถูกส่งกลับให้
+// เบราว์เซอร์ render เอง (ไม่ใช่ attachment) ดูกฎของมันใน storage/avatarStore.js
+Promise.all([bootstrapAdminIfNeeded(), initStorage(), initVaultStorage(), initAvatarStorage()])
   .then(() => {
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'

@@ -1,7 +1,7 @@
 // server/auth/login.js — AEGIS Drive (IDEA1)
 // ตรวจสอบรหัสผ่านด้วย bcrypt — ห้ามรับค่า role จาก client — server ต้องค้นจาก DB เองเท่านั้น (OWASP A01)
 import bcrypt from 'bcryptjs'
-import { getUserByUsername } from '../db/connection.js'
+import { getUserByUsername, effectiveDisplayName } from '../db/connection.js'
 
 // hash หลอกไว้เทียบเวลา (timing) กรณีไม่พบ user — กัน username enumeration ผ่าน
 // side-channel เวลา: กรณี "พบ" และ "ไม่พบ" user ต้องเสียเวลา bcrypt.compare พอ ๆ กัน
@@ -31,7 +31,10 @@ export async function verifyCredentials(username, password) {
   return {
     id: user.id,
     username: user.username,
-    displayName: user.displayName,
+    // ชื่อที่ผู้ใช้ตั้งเองมาก่อน ถ้ายังไม่ตั้งก็ใช้ชื่อที่ Admin ตั้ง — ห้ามใช้ชี้ตัวตน
+    // เชิงสิทธิ์ (ดู effectiveDisplayName ใน db/connection.js)
+    displayName: effectiveDisplayName(user),
+    accountName: user.displayName,
     role: user.role,
     mustResetPassword: Boolean(user.mustResetPassword),
   }

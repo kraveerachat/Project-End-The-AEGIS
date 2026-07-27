@@ -23,6 +23,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(usern
 --    ADD COLUMN IF NOT EXISTS ปลอดภัยทั้งกับ DB ใหม่และ DB เดิมที่รันสคริปต์นี้ซ้ำ
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_reset_password BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- ── โปรไฟล์ที่ "ผู้ใช้แก้เองได้" (แยกจากตัวตนเชิงสิทธิ์โดยเจตนา) ─────────────────
+-- ⚠️ ทำไมเป็นคอลัมน์บน users ไม่ใช่ตารางแยก: ทุกเส้นทางที่ต้องใช้ชื่อแสดงผลอ่านแถว
+--    users อยู่แล้ว (login, JOIN หา uploader ของไฟล์, JOIN หาคนสร้างลิงก์แชร์) การแยก
+--    ตารางจะเปลี่ยน query เหล่านั้นให้เป็น LEFT JOIN เพิ่มอีกชั้นทุกจุด โดยไม่ได้อะไรกลับมา
+--    — 1:1 กับ users และเกิด/ตายไปพร้อมกันเสมอ
+--
+-- ⚠️ สามอย่างนี้ "ไม่ใช่" ตัวตนเชิงสิทธิ์ และห้ามใช้ตัดสินสิทธิ์เด็ดขาด:
+--    username = ตัวระบุที่ผู้ใช้แก้ไม่ได้ (แหล่งความจริงของ audit: actor_label)
+--    display_name = ชื่อที่ Admin ตั้งให้ตอน provision (จอ Access ใช้ยืนยันว่าใครเป็นใคร)
+--    profile_name = ชื่อที่ "เจ้าตัวแก้เองได้" — เปลี่ยนได้ตลอด ซ้ำกับคนอื่นได้ NULL = ยังไม่ตั้ง
+--    เพราะ profile_name ซ้ำกันได้ ทุกจอที่แสดงมันต้องแสดง username คู่ไปด้วยเสมอ
+--    ไม่งั้นผู้ใช้เปลี่ยนชื่อตัวเองเป็นชื่อคนอื่นแล้วอ่านไม่ออกว่าใครเป็นใคร
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_name TEXT;
+-- avatar_key = ตำแหน่งไฟล์ใน Storage Layer ('avatars/<uuid>.<ext>') ไม่ใช่ชื่อที่ผู้ใช้ตั้ง
+-- ⚠️ avatar_mime ถูกกำหนดจาก "ไบต์จริงที่เซิร์ฟเวอร์ sniff เอง" เท่านั้น (PNG/JPEG)
+--    ไม่ใช่ค่าที่เบราว์เซอร์แจ้งมาใน Content-Type และไม่ใช่นามสกุลไฟล์ — ทั้งสองอย่างนั้น
+--    ผู้ใช้ควบคุมได้ การเชื่อมันแล้วเสิร์ฟกลับเป็น Content-Type คือช่อง XSS (เช่นอัปโหลด
+--    SVG ที่มี <script> แล้วให้เบราว์เซอร์ render ใน origin เดียวกับแอป)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT
+  CONSTRAINT users_avatar_mime_allowed CHECK (avatar_mime IS NULL OR avatar_mime IN ('image/png', 'image/jpeg'));
+
 -- ── ไฟล์ใน Data Lake (Metadata Layer — ไฟล์จริงอยู่บนดิสก์/Storage Layer) ──────
 CREATE TABLE IF NOT EXISTS files (
   id           BIGSERIAL PRIMARY KEY,
@@ -55,6 +77,18 @@ CREATE TABLE IF NOT EXISTS shares (
   revoked       BOOLEAN NOT NULL DEFAULT FALSE,
   hits          INTEGER NOT NULL DEFAULT 0,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── Network zones — "บันทึกเจตนา" ของผู้ดูแลระบบ ไม่ใช่กลไกบังคับ ─────────────
+-- ⚠️ ตารางนี้ไม่มีผลต่อการเข้าถึงใด ๆ ในแอป: การบังคับขอบเขตเครือข่ายเกิดที่ UFW/VLAN
+--    บนโฮสต์ (network layer) จอที่แสดงข้อมูลนี้ต้องบอกตรง ๆ ว่าเป็นบันทึก ไม่ใช่สวิตช์
+--    เดิมข้อมูลชุดนี้เป็นอาเรย์ในหน่วยความจำที่หายทุก restart — การเก็บลงตารางทำให้มัน
+--    "จริง" ในความหมายเดียวที่มันเป็นได้: อยู่รอด restart และตรวจย้อนหลังได้
+CREATE TABLE IF NOT EXISTS network_zones (
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  cidr        TEXT NOT NULL UNIQUE,   -- ซ้ำไม่ได้: สอง zone ที่คุมช่วงเดียวกันคือความสับสน
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ── Privacy-Preserving Audit Log ─────────────────────────────────────────────

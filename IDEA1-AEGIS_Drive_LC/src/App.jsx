@@ -190,6 +190,9 @@ export default function App() {
         theme={theme} setTheme={setTheme}
         density={density} setDensity={setDensity}
         role={effectiveRole} user={session}
+        // ผู้ใช้แก้ชื่อโปรไฟล์ของตัวเอง → อัปเดต session state ทันทีเพื่อให้ TopBar/
+        // จอทุกจอเห็นชื่อใหม่โดยไม่ต้องรีเฟรช (เซิร์ฟเวอร์อัปเดต session ของมันเองแล้ว)
+        onProfileSaved={(u) => setSession((s) => (s ? { ...s, ...u } : s))}
       />
     ),
   }[screen]

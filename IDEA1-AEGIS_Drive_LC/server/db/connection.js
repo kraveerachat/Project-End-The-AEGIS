@@ -39,7 +39,10 @@ const DEV_SEED = DATABASE_URL
     ].map((u) => ({
       id: u.id,
       username: u.username,
-      displayName: u.displayName,
+      displayName: u.displayName, // = display_name (ชื่อที่ Admin ตั้ง)
+      profileName: null,          // = profile_name (ผู้ใช้ยังไม่ตั้งชื่อของตัวเอง)
+      avatarKey: null,
+      avatarMime: null,
       role: u.role,
       passwordHash: bcrypt.hashSync(u.password, 10), // ไม่มี plaintext ค้างในหน่วยความจำ
       mustResetPassword: false, // บัญชีเดโม่ล็อกอินได้ทันที ไม่ผ่าน force-reset
@@ -60,48 +63,122 @@ export async function getUserByUsername(username) {
   if (pool) {
     // parameterized query เท่านั้น — กัน SQL injection (ห้าม string-concat)
     const { rows } = await pool.query(
-      `SELECT id, username, display_name, role, password_hash, must_reset_password
+      `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
+              role, password_hash, must_reset_password
          FROM users
         WHERE lower(username) = $1
         LIMIT 1`,
       [uname],
     )
     if (rows.length === 0) return null
-    const r = rows[0]
-    return {
-      id: r.id,
-      username: r.username,
-      displayName: r.display_name,
-      role: r.role,
-      passwordHash: r.password_hash,
-      mustResetPassword: r.must_reset_password,
-    }
+    return mapUserRow(rows[0])
   }
 
   return DEV_SEED.find((u) => u.username === uname) ?? null
 }
+
+/** แถว users → รูปทรงที่ทุกชั้นข้างบนใช้ร่วมกัน (login / session / โปรไฟล์) */
+function mapUserRow(r) {
+  return {
+    id: r.id,
+    username: r.username,
+    displayName: r.display_name,
+    profileName: r.profile_name ?? null,
+    avatarKey: r.avatar_key ?? null,
+    avatarMime: r.avatar_mime ?? null,
+    role: r.role,
+    passwordHash: r.password_hash,
+    mustResetPassword: r.must_reset_password,
+  }
+}
+
+/**
+ * ชื่อที่ "แสดงให้คนอ่าน" — profile_name ถ้าเจ้าตัวตั้งไว้ ไม่งั้นชื่อที่ Admin ตั้ง
+ * ⚠️ ห้ามใช้ค่านี้ตัดสินสิทธิ์หรือเป็นตัวระบุตัวตนใด ๆ: ผู้ใช้แก้เองได้และซ้ำกับคนอื่นได้
+ *    ตัวระบุคือ users.id (สิทธิ์) และ username (audit) — ดูหมายเหตุใน schema.sql
+ */
+export const effectiveDisplayName = (u) =>
+  (typeof u?.profileName === 'string' && u.profileName.trim()) ? u.profileName : u?.displayName
 
 /** ค้น user ด้วย id — ใช้โดย endpoint /password/reset (ต้องอ่าน password_hash จริงจาก DB
  *  เพราะ session ไม่เก็บ hash เอาไว้ตั้งแต่ต้น — client จึงไม่มีทางแตะ hash ได้เลย) */
 export async function getUserById(id) {
   if (pool) {
     const { rows } = await pool.query(
-      `SELECT id, username, display_name, role, password_hash, must_reset_password
+      `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
+              role, password_hash, must_reset_password
          FROM users WHERE id = $1 LIMIT 1`,
       [id],
     )
     if (rows.length === 0) return null
-    const r = rows[0]
-    return {
-      id: r.id,
-      username: r.username,
-      displayName: r.display_name,
-      role: r.role,
-      passwordHash: r.password_hash,
-      mustResetPassword: r.must_reset_password,
-    }
+    return mapUserRow(rows[0])
   }
-  return DEV_SEED.find((u) => u.id === id) ?? null
+  return DEV_SEED.find((u) => String(u.id) === String(id)) ?? null
+}
+
+// ── โปรไฟล์ที่ผู้ใช้แก้เองได้ ──────────────────────────────────────────────────
+// ⚠️ ทุกฟังก์ชันในหมวดนี้รับ userId จาก session เท่านั้น (ดู routes/api.js) — ไม่มี
+//    endpoint ใดยอมให้ระบุ userId มาจาก client ได้ ไม่งั้นผู้ใช้คนหนึ่งเปลี่ยนชื่อ/รูป
+//    ของคนอื่นได้ทันที ซึ่งเป็นการปลอมตัวที่มองไม่ออกจากในจอ
+
+const MAX_PROFILE_NAME = 80
+
+/**
+ * ตั้ง/ล้างชื่อโปรไฟล์ — ส่งค่าว่างมา = ล้าง (กลับไปใช้ชื่อที่ Admin ตั้ง)
+ * @returns {Promise<string|null|false>} ชื่อใหม่ (หรือ null ถ้าล้าง), false = input ไม่ผ่าน
+ */
+export async function updateProfileName(userId, name) {
+  const raw = String(name ?? '').trim()
+  if (raw.length > MAX_PROFILE_NAME) return false
+  // ห้ามอักขระควบคุม/ขึ้นบรรทัดใหม่ — ชื่อคนไม่มีสิ่งเหล่านี้ และมันทำให้ log/UI เพี้ยนได้
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return false
+  const next = raw.length ? raw : null
+
+  if (pool) {
+    const { rowCount } = await pool.query(`UPDATE users SET profile_name = $1 WHERE id = $2`, [next, userId])
+    return rowCount > 0 ? next : false
+  }
+  const u = DEV_SEED.find((x) => String(x.id) === String(userId))
+  if (!u) return false
+  u.profileName = next
+  return next
+}
+
+/**
+ * ผูกรูปโปรไฟล์ใหม่เข้าบัญชี → คืน key เดิมที่ถูกแทนที่ (ผู้เรียกต้องลบไฟล์นั้นทิ้ง)
+ * ⚠️ mime ต้องเป็นค่าที่ sniff จากไบต์จริงแล้วเท่านั้น (avatarStore.sanitizeAvatar)
+ *    คอลัมน์มี CHECK constraint กันไว้อีกชั้นที่ระดับฐานข้อมูล
+ */
+export async function updateAvatar(userId, { key, mime }) {
+  if (pool) {
+    // CTE อ่านค่าเดิมด้วย snapshot ของ statement นี้ (ก่อนถูก UPDATE) — จึงได้ key เก่า
+    // ในคำสั่งเดียวแบบ atomic ไม่ต้อง SELECT แล้ว UPDATE ซึ่งมีช่องให้ค่าเปลี่ยนคาบเกี่ยว
+    const { rows } = await pool.query(
+      `WITH prev AS (SELECT avatar_key FROM users WHERE id = $3)
+       UPDATE users SET avatar_key = $1, avatar_mime = $2 WHERE id = $3
+       RETURNING (SELECT avatar_key FROM prev) AS old_key`,
+      [key, mime, userId],
+    )
+    return rows.length ? (rows[0].old_key ?? null) : null
+  }
+  const u = DEV_SEED.find((x) => String(x.id) === String(userId))
+  if (!u) return null
+  const old = u.avatarKey
+  u.avatarKey = key
+  u.avatarMime = mime
+  return old ?? null
+}
+
+/** รูปโปรไฟล์ของบัญชีนี้ — { key, mime } หรือ null ถ้ายังไม่มี */
+export async function getAvatar(userId) {
+  if (pool) {
+    if (!/^\d+$/.test(String(userId))) return null
+    const { rows } = await pool.query(`SELECT avatar_key, avatar_mime FROM users WHERE id = $1`, [userId])
+    const r = rows[0]
+    return r?.avatar_key ? { key: r.avatar_key, mime: r.avatar_mime } : null
+  }
+  const u = DEV_SEED.find((x) => String(x.id) === String(userId))
+  return u?.avatarKey ? { key: u.avatarKey, mime: u.avatarMime } : null
 }
 
 /** สุ่มรหัสผ่านชั่วคราว — เอนโทรปีสูง (~96 บิต) ไม่ต้องจำง่าย เพราะบังคับเปลี่ยนทันทีที่ล็อกอินครั้งแรก
@@ -168,7 +245,8 @@ export async function createUserWithTempPassword({ username, displayName, role }
 export async function listUsers() {
   if (pool) {
     const { rows } = await pool.query(
-      `SELECT u.id, u.username, u.display_name, u.role, u.must_reset_password, u.created_at,
+      `SELECT u.id, u.username, u.display_name, u.profile_name, u.avatar_key,
+              u.role, u.must_reset_password, u.created_at,
               (SELECT max(a.at) FROM audit_log a
                 WHERE a.actor_id = u.id AND a.action = 'LOGIN' AND a.result = 'OK') AS last_login
          FROM users u
@@ -176,9 +254,14 @@ export async function listUsers() {
     )
     return rows.map((r) => ({
       id: String(r.id),
-      name: r.display_name,
+      // name = ชื่อที่ผู้ใช้ตั้งเอง ถ้ามี — accountName = ชื่อที่ Admin ตั้งตอน provision
+      // จอ Access แสดง "ทั้งสอง" เมื่อไม่ตรงกัน: ชื่อโปรไฟล์ซ้ำกันได้และเจ้าตัวแก้ได้
+      // ตลอด การแสดงเฉพาะชื่อโปรไฟล์จะทำให้ผู้ใช้เปลี่ยนชื่อเป็นชื่อคนอื่นแล้วอ่านไม่ออก
+      name: r.profile_name?.trim() ? r.profile_name : r.display_name,
+      accountName: r.display_name,
       username: r.username,
       role: r.role,
+      hasAvatar: Boolean(r.avatar_key),
       mustResetPassword: r.must_reset_password,
       createdAt: new Date(r.created_at).getTime(),
       lastLogin: r.last_login ? new Date(r.last_login).getTime() : null,
@@ -192,9 +275,11 @@ export async function listUsers() {
     )
     return {
       id: String(u.id),
-      name: u.displayName,
+      name: effectiveDisplayName(u),
+      accountName: u.displayName,
       username: u.username,
       role: u.role,
+      hasAvatar: Boolean(u.avatarKey),
       mustResetPassword: Boolean(u.mustResetPassword),
       createdAt: null, // dev fallback ไม่มี created_at — null คือ "ไม่รู้" ไม่ใช่ 0
       lastLogin: hit ? new Date(hit.at).getTime() : null,

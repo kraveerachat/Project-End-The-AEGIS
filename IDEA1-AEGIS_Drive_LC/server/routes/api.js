@@ -5,13 +5,17 @@
 import bcrypt from 'bcryptjs'
 import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
-import { establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset } from '../auth/session.js'
+import {
+  establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
+  setSessionDisplayName, listSessionsForUser, revokeSessionByRef, sessionRef,
+} from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
   recordAudit, readAudit, sha256Hex,
   getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
+  updateProfileName, updateAvatar, getAvatar, effectiveDisplayName,
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
@@ -25,6 +29,11 @@ import {
   vaultUploadMiddleware, keyForUploadedVaultBlob,
   openVaultCiphertext, vaultCiphertextSize, removeVaultCiphertext,
 } from '../storage/vaultStore.js'
+// Storage Layer ของรูปโปรไฟล์ — โฟลเดอร์แยก + ตรวจชนิดจากไบต์จริง + ถอด EXIF ก่อนเขียน
+import {
+  avatarUploadMiddleware, sanitizeAvatar, writeAvatar,
+  openAvatar, avatarSize, removeAvatar,
+} from '../storage/avatarStore.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -32,7 +41,18 @@ const INVALID_CREDENTIALS = 'Invalid credentials'
 
 // สิ่งที่ client เห็นได้ — role เปิดเผยเพื่อ "แสดงผล" แต่ client ตั้งค่ามันไม่ได้
 // mustResetPassword เป็น boolean ล้วน (ไม่รั่ว hash/รหัสผ่าน) — ใช้แค่พา client ไปหน้ารีเซ็ต
-const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
+// id ถูกเปิดเผยเพื่อประกอบ URL ของรูปโปรไฟล์ (GET /api/users/:id/avatar) เท่านั้น —
+// มันไม่ใช่ความลับ (audit เห็นอยู่แล้ว) และ "ไม่ใช่" credential: ทุก endpoint ยังตัดสิน
+// สิทธิ์จาก req.user.id ที่มาจาก session เสมอ ไม่เคยจาก id ที่ client ส่งกลับมา
+// accountName = ชื่อที่ Admin ตั้ง (display_name) แสดงคู่กับชื่อโปรไฟล์เมื่อไม่ตรงกัน
+const publicUser = (u) => ({
+  id: String(u.id),
+  username: u.username,
+  displayName: u.displayName,
+  accountName: u.accountName ?? u.displayName,
+  role: u.role,
+  mustResetPassword: Boolean(u.mustResetPassword),
+})
 
 export const apiRouter = Router()
 
@@ -64,12 +84,13 @@ apiRouter.post('/login', async (req, res) => {
     const { accountLockMs, ipLockMs } = recordFailure(req, username)
     // ความพยายามที่ล้มเหลว + เหตุการณ์ lockout ต้องลง audit เสมอ (forensics)
     // ⚠️ username ที่พิมพ์ผิด ๆ อาจเป็นรหัสผ่านหลุดมา — จึงเก็บเป็น hash ไม่เก็บดิบ
-    recordAudit({
+    // ⚠️ await: ดูเหตุผลที่เส้นทาง login สำเร็จด้านล่าง — ความพยายามที่ล้มเหลวยิ่งต้องไม่หาย
+    await recordAudit({
       actorLabel: 'unknown', action: 'LOGIN', targetHash: sha256Hex(String(username)),
       result: 'DENIED', sourceIp: req.ip,
     })
     if (accountLockMs || ipLockMs) {
-      recordAudit({
+      await recordAudit({
         actorLabel: 'system', action: 'LOGIN_LOCKOUT', targetHash: sha256Hex(String(username)),
         result: 'BLOCKED', sourceIp: req.ip,
       })
@@ -85,7 +106,12 @@ apiRouter.post('/login', async (req, res) => {
     return res.status(500).json({ error: 'Internal error' })
   }
 
-  recordAudit({
+  // ⚠️ await ก่อนตอบ 200: เหตุการณ์การยืนยันตัวตนคือหลักฐานที่ทั้ง forensics และจอ
+  //    Access (lastLogin) พึ่งพา การตอบสำเร็จก่อนแถวลงจริงทำให้ (1) login ที่โปรเซสตาย
+  //    ตามหลังหายจากบันทึกทั้งที่เกิดขึ้นจริง (2) จอ Access แสดงเวลาล็อกอินล่าสุดที่ช้า
+  //    ไปหนึ่งครั้งเสมอในโหมด Postgres — โหมด in-memory เขียนแบบ synchronous จึงไม่เคย
+  //    เห็นปัญหานี้ (แบบแผนและเหตุผลเดียวกับ /vault/unlock-attempt ด้านล่างไฟล์นี้)
+  await recordAudit({
     actorId: user.id, actorLabel: user.username, role: user.role,
     action: 'LOGIN', result: 'OK', sourceIp: req.ip,
   })
@@ -101,7 +127,9 @@ apiRouter.post('/login', async (req, res) => {
 apiRouter.post('/logout', async (req, res) => {
   const user = currentUser(req)
   if (user) {
-    recordAudit({
+    // await เช่นเดียวกับ LOGIN — เหตุการณ์เข้า/ออกระบบเป็นคู่กัน ถ้าฝั่งออกหายไป
+    // บันทึกจะอ่านเหมือนเซสชันที่ยังเปิดค้างอยู่ตลอด
+    await recordAudit({
       actorId: user.id, actorLabel: user.username, role: user.role,
       action: 'LOGOUT', result: 'OK', sourceIp: req.ip,
     })
@@ -360,34 +388,39 @@ apiRouter.get('/storage', requireAuth, (req, res) => {
   res.json(store.storageStatus())
 })
 
-// ── Encryption keys & network zones (Admin governance เท่านั้น) ────────
-apiRouter.get('/keys', requireRole(ROLES.ADMIN), (req, res) => {
-  res.json(store.keysStatus())
+// ── Network zones (Admin governance เท่านั้น) ──────────────────────────
+// ⚠️ ไม่มี /keys และ /keys/rotate อีกแล้ว — ทั้งคู่รายงานสถานะกุญแจ master ที่ไม่มีอยู่
+//    จริงในระบบนี้ (ดูเหตุผลเต็มที่หัวหมวด Network zones ใน db/store.js)
+// ⚠️ zone คือบันทึกเจตนา ไม่ใช่กลไกบังคับ — endpoint เหล่านี้ไม่เปลี่ยนการเข้าถึงใด ๆ
+apiRouter.get('/zones', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    res.json({ zones: await store.listNetworkZones() })
+  } catch (err) {
+    next(err)
+  }
 })
 
-apiRouter.post('/keys/rotate', requireRole(ROLES.ADMIN), (req, res) => {
-  const row = store.rotateKeys()
-  auditAct(req, 'KEY_ROTATE', row.keyId)
-  res.json(row)
+apiRouter.post('/zones', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const { name, cidr } = req.body ?? {}
+    const row = await store.addNetworkZone({ name, cidr })
+    if (!row) return res.status(400).json({ error: 'Invalid input' })
+    auditAct(req, 'ZONE_CREATE', row.cidr)
+    res.status(201).json({ zone: row })
+  } catch (err) {
+    next(err)
+  }
 })
 
-apiRouter.get('/zones', requireRole(ROLES.ADMIN), (req, res) => {
-  res.json({ zones: store.listNetworkZones() })
-})
-
-apiRouter.post('/zones', requireRole(ROLES.ADMIN), (req, res) => {
-  const { name, cidr } = req.body ?? {}
-  const row = store.addNetworkZone({ name, cidr })
-  if (!row) return res.status(400).json({ error: 'Invalid input' })
-  auditAct(req, 'ZONE_CREATE', row.cidr)
-  res.status(201).json({ zone: row })
-})
-
-apiRouter.delete('/zones/:id', requireRole(ROLES.ADMIN), (req, res) => {
-  const ok = store.removeNetworkZone(req.params.id)
-  if (!ok) return res.status(404).json({ error: 'Not found' })
-  auditAct(req, 'ZONE_DELETE', req.params.id)
-  res.json({ ok: true })
+apiRouter.delete('/zones/:id', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const ok = await store.removeNetworkZone(req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Not found' })
+    auditAct(req, 'ZONE_DELETE', req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Access control (Admin governance เท่านั้น) ────────────────────────
@@ -458,9 +491,149 @@ apiRouter.post('/password/reset', requireAuth, async (req, res, next) => {
   }
 })
 
+// ── โปรไฟล์ของตัวเอง (จอ Settings → Account) ──────────────────────────
+//
+// ⚠️ ทุก endpoint ในหมวดนี้ทำงานกับ req.user.id จาก session เท่านั้น — ไม่มีตัวไหนรับ
+//    userId จาก client ได้เลย ถ้าวันหนึ่งมีใครเพิ่ม :id เข้ามาในเส้นทางเหล่านี้
+//    นั่นคือช่องให้ผู้ใช้คนหนึ่งเปลี่ยนชื่อ/รูปของคนอื่น = ปลอมตัวโดยที่จอมองไม่ออก
+
+/** ชื่อโปรไฟล์ที่ผู้ใช้ตั้งเอง — แยกจาก username (ตัวระบุ) และจาก display_name (ชื่อที่ Admin ตั้ง) */
+apiRouter.patch('/profile', requireAuth, async (req, res, next) => {
+  try {
+    const result = await updateProfileName(req.user.id, req.body?.displayName)
+    if (result === false) return res.status(400).json({ error: 'Invalid input' })
+
+    // session ถือชื่อไว้เพื่อไม่ต้องยิง DB ทุก request — ต้องอัปเดตคู่กันทันที ไม่งั้น
+    // ผู้ใช้เปลี่ยนชื่อแล้วยังเห็นชื่อเดิมไปจนกว่าจะ login ใหม่ (และไฟล์ที่อัปโหลด
+    // ระหว่างนั้นจะถูกป้ายด้วยชื่อเก่า)
+    const fresh = await getUserById(req.user.id)
+    if (!fresh) return res.status(401).json({ error: 'Not authenticated' })
+    const effective = effectiveDisplayName(fresh)
+    setSessionDisplayName(req, effective)
+    await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+
+    // audit: บันทึกว่า "ใครเปลี่ยนชื่อตัวเอง" โดยเก็บชื่อใหม่เป็น hash — ชื่อที่ผู้ใช้
+    // พิมพ์เองไม่ควรลง log ดิบ ๆ (privacy-preserving แบบเดียวกับชื่อไฟล์)
+    auditAct(req, 'PROFILE_UPDATE', effective)
+    // ⚠️ accountName ต้องส่งชัด ๆ: publicUser fallback เป็น u.displayName ซึ่งเราเพิ่งเขียนทับ
+    //    ด้วยชื่อโปรไฟล์ไปแล้ว — ถ้าไม่ระบุ จอ Settings จะแสดง "ชื่อที่ Admin ตั้ง" เท่ากับ
+    //    ชื่อที่ผู้ใช้เพิ่งพิมพ์เอง = หายไปทั้งความสามารถในการเทียบว่าใครเป็นใคร
+    res.json({
+      user: publicUser({ ...fresh, displayName: effective, accountName: fresh.displayName }),
+      hasAvatar: Boolean(fresh.avatarKey),
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * รูปโปรไฟล์ — multipart field 'avatar'
+ * ⚠️ ชนิดไฟล์ถูกตัดสินจากไบต์จริง และ metadata (EXIF/GPS/คอมเมนต์) ถูกถอดออก
+ *    "ก่อน" เขียนลงดิสก์ — ดูเหตุผลและรายละเอียดใน storage/avatarStore.js
+ * ⚠️ ลำดับ: sanitize → เขียนไฟล์ใหม่ → อัปเดต DB → ลบไฟล์เก่า
+ *    ถ้าอัปเดต DB ล้มเหลว เราลบไฟล์ใหม่ทิ้งและคงของเดิมไว้ครบ (ไม่เหลือไฟล์กำพร้า
+ *    และไม่ทำให้ผู้ใช้เสียรูปเดิมไปเพราะการอัปโหลดที่ล้มเหลว)
+ */
+apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
+  avatarUploadMiddleware(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      const tooLarge = uploadErr.code === 'LIMIT_FILE_SIZE'
+      return res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File too large' : 'Invalid input' })
+    }
+    if (!req.file?.buffer) return res.status(400).json({ error: 'Invalid input' })
+
+    try {
+      const clean = sanitizeAvatar(req.file.buffer)
+      if (!clean) {
+        // ไม่ใช่ PNG/JPEG ที่ถอดภาพได้จริง — ปฏิเสธโดยไม่บอกว่าเดาชนิดอะไรได้บ้าง
+        auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id), 'DENIED')
+        return res.status(415).json({ error: 'Unsupported image' })
+      }
+
+      const key = await writeAvatar(clean)
+      let oldKey
+      try {
+        oldKey = await updateAvatar(req.user.id, { key, mime: clean.mime })
+      } catch (dbErr) {
+        await removeAvatar(key).catch(() => {})
+        throw dbErr
+      }
+      // รูปเดิมไม่มีใครอ้างถึงอีกแล้ว — ลบทิ้งเสมอ ไม่ปล่อยให้ค้างบนดิสก์ต่อไปเงียบ ๆ
+      if (oldKey && oldKey !== key) await removeAvatar(oldKey).catch(() => {})
+
+      auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id))
+      res.status(201).json({ hasAvatar: true, mime: clean.mime, bytes: clean.bytes.length })
+    } catch (err) {
+      next(err)
+    }
+  })
+})
+
+apiRouter.delete('/profile/avatar', requireAuth, async (req, res, next) => {
+  try {
+    const current = await getAvatar(req.user.id)
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    await updateAvatar(req.user.id, { key: null, mime: null })
+    await removeAvatar(current.key).catch(() => {})
+    auditAct(req, 'PROFILE_AVATAR_CLEAR', String(req.user.id))
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * เสิร์ฟรูปโปรไฟล์ของบัญชีใดก็ได้ให้ผู้ใช้ที่ล็อกอินแล้ว (จอ Access/Files แสดงรูปคนอื่น)
+ * ⚠️ Content-Type มาจากคอลัมน์ avatar_mime ที่เซิร์ฟเวอร์ sniff จากไบต์เองตอนอัปโหลด
+ *    และคอลัมน์นั้นมี CHECK ให้เป็น image/png|image/jpeg เท่านั้น — จึง render inline ได้
+ *    ปลอดภัย ยังใส่ nosniff กำกับไว้อีกชั้นเพื่อไม่ให้เบราว์เซอร์เดาชนิดเอง
+ */
+apiRouter.get('/users/:id/avatar', requireAuth, async (req, res, next) => {
+  try {
+    const avatar = await getAvatar(req.params.id)
+    if (!avatar) return res.status(404).json({ error: 'Not found' })
+    const size = await avatarSize(avatar.key)
+    const stream = openAvatar(avatar.key)
+    if (!stream || size === null) return res.status(404).json({ error: 'Not found' })
+
+    res.setHeader('Content-Type', avatar.mime)
+    res.setHeader('Content-Length', String(size))
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Cache-Control', 'private, max-age=60')
+    stream.on('error', () => { if (!res.headersSent) res.status(404).end(); else res.destroy() })
+    stream.pipe(res)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ── เซสชันของตัวเอง (จอ Settings) ─────────────────────────────────────
-apiRouter.get('/sessions', requireAuth, (req, res) => {
-  res.json({ sessions: store.listSessions(req.user.username) })
+// ⚠️ อ่านจาก session store จริง กรองด้วย id ของผู้เรียก — ไม่ใช่แถวที่แต่งขึ้นหนึ่งแถว
+//    อย่างเดิม (ของเดิมคืน { device: 'This browser', ip: '—' } คงที่เสมอ ซึ่งดูเหมือน
+//    ฟีเจอร์ security ที่ตรวจอุปกรณ์ได้ แต่ไม่ได้ตรวจอะไรเลย)
+apiRouter.get('/sessions', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ sessions: await listSessionsForUser(req), volatile: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** เพิกถอนเซสชันอื่นของตัวเอง — ของจริง: ทำลายแถวใน session store ทันที */
+apiRouter.delete('/sessions/:ref', requireAuth, async (req, res, next) => {
+  try {
+    // เพิกถอนเซสชันที่กำลังใช้อยู่ผ่านเส้นนี้ไม่ได้ — ใช้ /logout (ซึ่งล้าง cookie ให้ด้วย)
+    if (sessionRef(req.sessionID) === req.params.ref) {
+      return res.status(400).json({ error: 'Use logout for the current session' })
+    }
+    const ok = await revokeSessionByRef(req, req.params.ref)
+    if (!ok) return res.status(404).json({ error: 'Not found' })
+    auditAct(req, 'SESSION_REVOKE', req.params.ref)
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Zero-Knowledge Vault ─────────────────────────────────────────────
