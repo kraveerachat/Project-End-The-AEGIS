@@ -18,7 +18,7 @@
 //    เรียกตรงโดยไม่ผ่าน middleware ตรวจสิทธิ์ (ดู routes/api.js)
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import { sha256Hex, usingPostgres, query } from './connection.js'
+import { sha256Hex, usingPostgres, query, readAudit } from './connection.js'
 // ความจุจริงของ mount ที่ Data Lake อยู่ — statfs ของ OS ไม่ใช่ค่าคงที่ในโค้ด
 import { filesystemCapacity } from '../storage/fileStore.js'
 
@@ -736,26 +736,86 @@ export async function removeNetworkZone(id) {
 // files/shares come from the real Metadata Layer now (Postgres when
 // configured); transfer7d stays illustrative — real throughput is an OS/NIC
 // metric this app doesn't have a source for yet (pre-hardware).
+// ── กิจกรรมย้อนหลัง 7 วัน — นับจาก audit_log จริง ────────────────────────────
+//
+// ⚠️ เดิมชื่อ transfer7d และเป็นอาเรย์เจ็ดแถวที่ตั้งค่าไว้เอง (Tue up:42 down:118 …)
+//    พร้อมธง `projected: true` สองแถวท้ายที่จอวาดเป็นลายขวางว่า "คาดการณ์" — ไม่มี
+//    การคาดการณ์ใดเกิดขึ้น และไม่มีตัวเลขใดถูกวัด กราฟที่เด่นที่สุดบนจอแรกที่ผู้ใช้เห็น
+//    จึงเป็นภาพวาดล้วน ๆ ที่นิ่งเท่ากันทุกวันไม่ว่าระบบจะถูกใช้งานจริงแค่ไหน
+//
+// ⚠️ หน่วยเปลี่ยนจาก "GB ที่ถ่ายโอน" เป็น "จำนวนครั้ง" โดยเจตนา — และนี่คือข้อจำกัดจริง
+//    ที่ต้องพูดตรง: audit_log ไม่เก็บขนาดไบต์ของแต่ละเหตุการณ์ (ตั้งใจให้เก็บน้อยที่สุด
+//    เพื่อความเป็นส่วนตัว) เราจึงนับ "เหตุการณ์" ได้จริง แต่คำนวณปริมาณข้อมูลไม่ได้
+//    การเดาปริมาณจากขนาดไฟล์ปัจจุบันจะผิดทันทีที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ
+//    ถ้าวันหนึ่งต้องการกราฟปริมาณจริง ต้องเพิ่มคอลัมน์ขนาดใน audit_log ก่อน
+//    (เป็นการตัดสินใจเรื่อง privacy ไม่ใช่แค่เรื่องเทคนิค)
+const UPLOAD_ACTIONS = ['FILE_UPLOAD', 'FILE_VERSION_ADD']
+const DOWNLOAD_ACTIONS = ['FILE_DOWNLOAD', 'FILE_VERSION_DOWNLOAD', 'SHARE_REDEEM']
+
+const isoDay = (d) => new Date(d).toISOString().slice(0, 10)
+
+async function activity7d() {
+  if (usingPostgres) {
+    // generate_series เติมวันที่ไม่มีเหตุการณ์ให้เป็น 0 — ไม่ใช่ข้ามวันนั้นไป
+    // (กราฟที่ข้ามวันว่างทำให้ช่วงเวลาบิดเบี้ยวและอ่านผิด)
+    const { rows } = await query(
+      `SELECT to_char(d.day, 'YYYY-MM-DD') AS date,
+              count(a.id) FILTER (WHERE a.action = ANY($1)) AS uploads,
+              count(a.id) FILTER (WHERE a.action = ANY($2)) AS downloads
+         FROM generate_series(
+                (now() AT TIME ZONE 'UTC')::date - INTERVAL '6 days',
+                (now() AT TIME ZONE 'UTC')::date,
+                INTERVAL '1 day'
+              ) AS d(day)
+         LEFT JOIN audit_log a
+                ON a.at >= d.day AND a.at < d.day + INTERVAL '1 day' AND a.result = 'OK'
+        GROUP BY d.day
+        ORDER BY d.day`,
+      [UPLOAD_ACTIONS, DOWNLOAD_ACTIONS],
+    )
+    return rows.map((r) => ({ date: r.date, uploads: Number(r.uploads), downloads: Number(r.downloads) }))
+  }
+
+  // dev fallback — นับจาก audit ในหน่วยความจำ (ชุดเดียวกับที่จอ Audit แสดง)
+  const events = await readAudit(500)
+  const days = []
+  const today = new Date()
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today)
+    d.setUTCDate(d.getUTCDate() - i)
+    days.push({ date: isoDay(d), uploads: 0, downloads: 0 })
+  }
+  const byDate = new Map(days.map((d) => [d.date, d]))
+  for (const e of events) {
+    if ((e.result ?? '') !== 'OK') continue
+    const bucket = byDate.get(isoDay(e.at))
+    if (!bucket) continue
+    const action = e.action ?? ''
+    if (UPLOAD_ACTIONS.includes(action)) bucket.uploads += 1
+    else if (DOWNLOAD_ACTIONS.includes(action)) bucket.downloads += 1
+  }
+  return days
+}
+
 export async function dashboard() {
-  const fileList = await listFiles()
-  const shareList = await listShares()
-  const totalBytes = fileList.reduce((s, f) => s + f.size, 0)
+  const [fileList, shareList, capacity, versionStats, activity] = await Promise.all([
+    listFiles(), listShares(), filesystemCapacity(), fileVersionStats(), activity7d(),
+  ])
+  // ขนาดที่ "แอปนี้เป็นเจ้าของ" — แยกจากพื้นที่ที่ใช้ไปทั้ง volume ซึ่งรวมของอื่นด้วย
+  const dataLakeBytes = fileList.reduce((s, f) => s + f.size, 0)
+
   return {
     metrics: {
-      storageGB: Math.round((342 + totalBytes / 1e12) * 10) / 10,
-      storageTotalGB: 1024,
+      // ⚠️ ค่าคงที่ 342 GB (baseline ที่แต่งขึ้น) และ 1024 GB (ความจุที่ hard-code)
+      //    ถูกถอดออกแล้ว ทั้งคู่มาจาก statfs จริงตอนนี้ — null = อ่านไม่ได้ ไม่ใช่ศูนย์
+      storageBytes: capacity?.usedBytes ?? null,
+      storageTotalBytes: capacity?.totalBytes ?? null,
+      dataLakeBytes,
+      versionBytes: versionStats.bytes,
       files: fileList.length,
       activeShares: shareList.length,
     },
-    transfer7d: [
-      { day: 'Tue', up: 42, down: 118, projected: false },
-      { day: 'Wed', up: 61, down: 95, projected: false },
-      { day: 'Thu', up: 38, down: 134, projected: false },
-      { day: 'Fri', up: 74, down: 156, projected: false },
-      { day: 'Sat', up: 12, down: 31, projected: false },
-      { day: 'Sun', up: 45, down: 88, projected: true },
-      { day: 'Mon', up: 68, down: 142, projected: true },
-    ],
+    activity7d: activity,
     recentFiles: fileList.slice(0, 5).map((f) => ({ id: f.id, name: f.name, modified: f.modified })),
   }
 }

@@ -8,11 +8,19 @@ import {
 } from 'lucide-react'
 import { Card, CardTitle, Chip, Dot, IconBtn, Segmented, Reveal, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
-import { fmtRelative, fmtCountdown, fmtStamp } from '../lib/format.js'
+import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 
-/* ⚠️ Phase 2: ไม่มี fixture ฝั่ง client แม้แต่แถวเดียว — ทุกตัวเลขบนจอนี้มาจาก
-   /api/dashboard · /api/storage · /healthz และจอจัดการครบสี่สถานะ:
-   loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง */
+/* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
+   (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
+
+   ⚠️ กราฟกิจกรรมเคยเป็น transfer7d: เจ็ดแถวที่ตั้งค่าไว้เองใน store.js (Tue up:42
+   down:118 …) พร้อมธง projected สองแถวท้ายที่วาดเป็นลายขวางว่า "คาดการณ์" — ไม่มีการ
+   คาดการณ์ใดเกิดขึ้นและไม่มีตัวเลขใดถูกวัด กราฟที่เด่นที่สุดบนจอแรกจึงนิ่งเท่ากันทุกวัน
+   ไม่ว่าระบบจะถูกใช้งานจริงแค่ไหน ตอนนี้นับเหตุการณ์จาก audit_log จริง
+
+   ⚠️ หน่วยเป็น "จำนวนครั้ง" ไม่ใช่ GB โดยเจตนา: audit_log ไม่เก็บขนาดไบต์ต่อเหตุการณ์
+   (ตั้งใจเก็บน้อยที่สุดเพื่อความเป็นส่วนตัว) การเดาปริมาณจากขนาดไฟล์ปัจจุบันจะผิดทันที
+   ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
 function StatCard({ icon: Icon, label, value, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, delay = 0, footer, gradientValue = false }) {
@@ -216,116 +224,138 @@ function ActiveLinksCard({ t, shares, now }) {
   )
 }
 
-/* ── Storage breakdown — hatch = free (ค่าจาก /api/storage) ──────────── */
-const SEG_COLORS = { docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)', vaultSeg: 'var(--ink)', free: 'hatch' }
+/* ── Storage breakdown — ไบต์จริงจาก /api/storage (hatch = ว่าง) ──────── */
+const SEG_COLORS = {
+  docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)',
+  vaultSeg: 'var(--ink)', versions: 'var(--warn)', other: 'var(--accent-ink)',
+}
 
-function StorageBreakdown({ t, capacity }) {
+function StorageBreakdown({ t, usage, capacityBytes }) {
   const [hovered, setHovered] = useState(null)
-  const segs = capacity.map((c) => ({ ...c, color: SEG_COLORS[c.key] ?? 'var(--ink-3)' }))
-  const total = segs.reduce((s, b) => s + b.gb, 0) || 1
+  const segs = Object.keys(SEG_COLORS)
+    .map((key) => ({ key, bytes: usage?.[key] ?? 0, color: SEG_COLORS[key] }))
+    .filter((s) => s.bytes > 0)
+  const accounted = segs.reduce((n, s) => n + s.bytes, 0)
+  // ฐานของสัดส่วน = พื้นที่ที่ "แอปนี้" ใช้ ไม่ใช่ความจุทั้ง volume — ไม่งั้นทุกแท่งจะ
+  // เล็กจนมองไม่เห็นบนดิสก์ใหญ่ และตัวเลข % จะตอบคำถามที่ไม่มีใครถาม
+  const total = accounted || 1
+
   return (
     <Card className="p-5 rise-in" style={{ animationDelay: '240ms' }}>
-      <CardTitle>{t('storageBreakdown')}</CardTitle>
-      <div className="flex items-end gap-0.5 h-8 mt-1" aria-hidden>
-        {segs.map((seg, i) => (
-          <div
-            key={seg.key}
-            className={`h-7 transition-transform duration-[var(--dur-fast)] ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
-            style={{
-              width: `${(seg.gb / total) * 100}%`,
-              backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color,
-              transform: hovered === seg.key ? 'translateY(-3px)' : 'none',
-              transitionTimingFunction: 'var(--ease)',
-            }}
-          />
-        ))}
-      </div>
-      <div className="mt-4 flex flex-col">
-        {segs.map((seg) => (
-          <div
-            key={seg.key}
-            onMouseEnter={() => setHovered(seg.key)}
-            onMouseLeave={() => setHovered(null)}
-            className="flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-default"
-          >
-            <span
-              className={`size-3 rounded-[4px] shrink-0 ${seg.color === 'hatch' ? 'hatch hatch-ink3 border border-line' : ''}`}
-              style={{ backgroundColor: seg.color === 'hatch' ? 'var(--card-sunken)' : seg.color }}
-              aria-hidden
-            />
-            <span className="text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
-            <span className="ml-auto text-[13px] text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{seg.gb} GB</span>
-            <span className="w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {((seg.gb / total) * 100).toFixed(1)}%
-            </span>
+      <CardTitle sub={t('storageBreakdownSub')}>{t('storageBreakdown')}</CardTitle>
+      {segs.length === 0 ? (
+        <EmptyState icon={FilesIcon} title={t('emptyNoFiles')} hint={t('emptyNoFilesHint')} />
+      ) : (
+        <>
+          <div className="flex items-end gap-0.5 h-8 mt-1" aria-hidden>
+            {segs.map((seg, i) => (
+              <div
+                key={seg.key}
+                className={`h-7 transition-transform duration-[var(--dur-fast)] ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
+                style={{
+                  width: `${(seg.bytes / total) * 100}%`,
+                  backgroundColor: seg.color,
+                  transform: hovered === seg.key ? 'translateY(-3px)' : 'none',
+                  transitionTimingFunction: 'var(--ease)',
+                }}
+              />
+            ))}
           </div>
-        ))}
-      </div>
+          <div className="mt-4 flex flex-col">
+            {segs.map((seg) => (
+              <div
+                key={seg.key}
+                onMouseEnter={() => setHovered(seg.key)}
+                onMouseLeave={() => setHovered(null)}
+                className="flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-default"
+              >
+                <span className="size-3 rounded-[4px] shrink-0" style={{ backgroundColor: seg.color }} aria-hidden />
+                <span className="text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
+                <span className="ml-auto text-[13px] text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(seg.bytes)}</span>
+                <span className="w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {((seg.bytes / total) * 100).toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {capacityBytes && (
+            <p className="text-[11.5px] text-ink-3 mt-3 leading-relaxed">
+              {t('storageBreakdownFree')} <span className="font-mono">{fmtBytes(capacityBytes.freeBytes)}</span>
+            </p>
+          )}
+        </>
+      )}
     </Card>
   )
 }
 
-/* ── Upload / Download — the black/blue signature chart ────────────── */
+/* ── Activity — จำนวนครั้งของการอัปโหลด/ดาวน์โหลดต่อวัน จาก audit_log จริง ──── */
 function ChartTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null
-  const projected = payload[0]?.payload?.projected
   return (
     <div className="bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
-      <p className="text-[12px] font-semibold text-ink mb-1">
-        {label}
-        {projected && <span className="ml-2 text-[10.5px] font-medium text-ink-3 uppercase tracking-[0.06em]">{t('projected')}</span>}
-      </p>
+      <p className="text-[12px] font-semibold text-ink mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'up' ? 'var(--ink)' : 'var(--accent)' }} />
-          {p.dataKey === 'up' ? t('uploads') : t('downloads')} · {p.value} GB
+          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? 'var(--ink)' : 'var(--accent)' }} />
+          {p.dataKey === 'uploads' ? t('uploads') : t('downloads')} · {p.value}
         </p>
       ))}
     </div>
   )
 }
 
-function TransferChart({ t, data }) {
+function ActivityChart({ t, lang, data }) {
   const reduced = useReducedMotion()
+  // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
+  // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
+  const rows = data.map((d) => ({
+    ...d,
+    label: new Date(`${d.date}T00:00:00Z`).toLocaleDateString(
+      lang === 'th' ? 'th-TH' : lang === 'zh' ? 'zh-CN' : 'en-US',
+      { weekday: 'short', timeZone: 'UTC' },
+    ),
+  }))
+  const empty = rows.every((r) => r.uploads === 0 && r.downloads === 0)
+
   return (
     <Card className="p-5 rise-in" style={{ animationDelay: '280ms' }}>
       <CardTitle
+        sub={t('activitySub')}
         right={
           <div className="flex items-center gap-3 text-[12px] font-medium text-ink-3">
             <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--ink)' }} />{t('uploads')}</span>
             <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--accent)' }} />{t('downloads')}</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px] hatch hatch-ink3 border border-line" />{t('projected')}</span>
           </div>
         }
       >
-        {t('transferActivity')}
+        {t('activityTitle')}
       </CardTitle>
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
-            <XAxis dataKey="day" axisLine={false} tickLine={false} dy={6} />
-            <YAxis axisLine={false} tickLine={false} width={38} />
-            <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-            <Bar dataKey="up" radius={[8, 8, 0, 0]} maxBarSize={18} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
-              {data.map((d) => (
-                <Cell key={d.day} fill={d.projected ? 'url(#hatch-ink)' : 'var(--ink)'} />
-              ))}
-            </Bar>
-            <Bar dataKey="down" radius={[8, 8, 0, 0]} maxBarSize={18} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
-              {data.map((d) => (
-                <Cell key={d.day} fill={d.projected ? 'url(#hatch-accent)' : 'var(--accent)'} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
+          ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
+      {empty ? (
+        <EmptyState icon={FilesIcon} title={t('activityEmpty')} hint={t('activityEmptyHint')} />
+      ) : (
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} dy={6} />
+              {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
+              <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} />
+              <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
+              <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--ink)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+              <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--accent)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </Card>
   )
 }
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
-export function Dashboard({ t }) {
+export function Dashboard({ t, lang }) {
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
@@ -336,8 +366,11 @@ export function Dashboard({ t }) {
 
   const d = dash.data
   const m = d.metrics
-  const usedPct = Math.min(100, Math.round((m.storageGB / m.storageTotalGB) * 100))
-  const capacity = storage.data?.capacity ?? []
+  // ⚠️ null = statfs อ่านค่าไม่ได้ ไม่ใช่ "ศูนย์" — การ์ดต้องบอกว่าไม่รู้ ไม่ใช่วาด 0%
+  const hasCapacity = m.storageTotalBytes != null && m.storageBytes != null
+  const usedPct = hasCapacity && m.storageTotalBytes > 0
+    ? Math.min(100, Math.round((m.storageBytes / m.storageTotalBytes) * 100))
+    : null
 
   return (
     <div className="flex flex-col gap-6">
@@ -347,21 +380,24 @@ export function Dashboard({ t }) {
           <StatCard
             icon={Database}
             label={t('statStorage')}
-            value={m.storageGB}
-            suffix={`GB of ${m.storageTotalGB} GB`}
-            decimals={0}
+            value={hasCapacity ? m.storageBytes / 1e9 : 0}
+            suffix={hasCapacity ? `GB ${t('ofTotal')} ${fmtBytes(m.storageTotalBytes)}` : t('notAvailable')}
+            decimals={1}
             gradientValue
-            footer={
+            footer={hasCapacity ? (
               <div className="flex flex-col gap-1.5">
                 <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full" style={{ width: `${usedPct}%` }} />
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
-                  <span>{usedPct}% USED</span>
-                  <span>{Math.max(0, Math.round(m.storageTotalGB - m.storageGB))} GB FREE</span>
+                  <span>{usedPct}% {t('capacityUsed')}</span>
+                  <span>{fmtBytes(Math.max(0, m.storageTotalBytes - m.storageBytes))} {t('free')}</span>
                 </div>
               </div>
-            }
+            ) : (
+              // อ่านความจุไม่ได้ — บอกตรง ๆ แทนที่จะวาดแถบจากค่าที่เดา
+              <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('capacityUnreadable')}</p>
+            )}
           />
           <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} allClearLabel={t('resOk')} delay={40} />
           <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} allClearLabel={t('resOk')} delay={80} />
@@ -398,11 +434,11 @@ export function Dashboard({ t }) {
             ) : storage.error ? (
               <Card><ErrorState t={t} kind={storage.error} onRetry={storage.retry} /></Card>
             ) : (
-              <StorageBreakdown t={t} capacity={capacity} />
+              <StorageBreakdown t={t} usage={storage.data?.usage} capacityBytes={storage.data?.capacityBytes} />
             )}
           </div>
           <div className="flex-1 lg:w-1/2">
-            <TransferChart t={t} data={d.transfer7d ?? []} />
+            <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
           </div>
         </div>
       </Reveal>
