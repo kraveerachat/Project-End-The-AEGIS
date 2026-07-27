@@ -41,6 +41,7 @@ from .models import DetectionResult, DetectionStatus, Frame
 from .monitor_client import MonitorClient
 from .nas_sync import NASSyncWorker
 from .segment_recorder import SegmentRecorder
+from .stream_hub import StreamHub
 from .video_catcher import OverflowPolicy, Sink, VideoCatcher
 
 log = get_logger("Engine")
@@ -72,8 +73,21 @@ class DetectionEngine:
             maxsize=self._cfg.detect_queue_size
         )
 
+        # ── Live MJPEG ────────────────────────────────────────────────────
+        # A THIRD sink on the existing VideoCatcher fan-out. Deliberately not the
+        # detector's queue: items there are consumed once, so sharing it would
+        # split frames between inference and viewers instead of feeding both.
+        # This adds a consumer to the existing broadcast — no second capture.
+        self._stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
+        self._stream = (
+            StreamHub(self._cfg, self._stream_queue, stop_event=self._stop)
+            if self._cfg.stream_enabled else None
+        )
+
         # Live API (owns the event hub so REST + WS + heartbeat share one bus).
-        self._api = LocalEventAPI(self._cfg, self._metrics, event_hub=self._hub)
+        self._api = LocalEventAPI(
+            self._cfg, self._metrics, event_hub=self._hub, stream_hub=self._stream,
+        )
 
         # Alert manager publishes onto the same live stream.
         self._alerts = AlertManager(
@@ -99,14 +113,17 @@ class DetectionEngine:
             stop_event=self._stop,
         )
 
-        # Capture thread fans frames out to both queues.
+        # Capture thread fans frames out to every consumer queue.
+        sinks = [
+            Sink("record", self._record_queue, OverflowPolicy.DROP_OLDEST),
+            Sink("detect", self._detect_queue, OverflowPolicy.LATEST_ONLY),
+        ]
+        if self._stream is not None:
+            # LATEST_ONLY: a viewer that falls behind skips to the newest frame
+            # rather than draining a backlog. Live video has no value stale.
+            sinks.append(Sink("stream", self._stream_queue, OverflowPolicy.LATEST_ONLY))
         self._catcher = VideoCatcher(
-            self._cfg, self._metrics,
-            sinks=[
-                Sink("record", self._record_queue, OverflowPolicy.DROP_OLDEST),
-                Sink("detect", self._detect_queue, OverflowPolicy.LATEST_ONLY),
-            ],
-            stop_event=self._stop,
+            self._cfg, self._metrics, sinks=sinks, stop_event=self._stop,
         )
 
         # Liveness publisher — the only source behind Monitor's /api/link.
@@ -120,6 +137,8 @@ class DetectionEngine:
             self._catcher, self._detector, self._recorder, self._alerts, self._nas,
             self._heartbeat,
         ]
+        if self._stream is not None:
+            self._threads.append(self._stream)
 
     # -- detection fan-out callback ---------------------------------------
     def _on_detection(self, result: DetectionResult, frame: Frame) -> None:
@@ -161,8 +180,11 @@ class DetectionEngine:
         log.info("shutdown requested — stopping workers")
         self._stop.set()
         # Join in a sensible order: stop producing, flush recorder, then the rest.
-        for t in (self._heartbeat, self._catcher, self._recorder, self._detector,
-                  self._alerts, self._nas):
+        stoppable = [self._heartbeat, self._catcher, self._recorder, self._detector,
+                     self._alerts, self._nas]
+        if self._stream is not None:
+            stoppable.append(self._stream)
+        for t in stoppable:
             t.join(timeout=15.0)
             if t.is_alive():
                 log.warning("worker %s did not stop within timeout", t.name)

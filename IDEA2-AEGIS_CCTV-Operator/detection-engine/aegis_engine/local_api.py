@@ -39,15 +39,35 @@ from .metrics import MetricsRegistry
 # name isn't here, FastAPI misreads the ws param as a query param and rejects
 # every handshake with HTTP 403.
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import StreamingResponse
 except Exception as exc:  # pragma: no cover
     raise RuntimeError(
         "FastAPI/uvicorn are required for LocalEventAPI "
         "(pip install -r requirements.txt)"
     ) from exc
 
+from .stream_hub import StreamHub
+
 log = get_logger("LocalEventAPI")
+
+# Same shared secret as the engine->Monitor direction. One key for the whole
+# engine<->Monitor boundary; the browser never sees it (Monitor proxies).
+_KEY_HEADER = "x-detection-engine-key"
+_MJPEG_BOUNDARY = "aegisframe"
+
+
+def _part(jpeg: bytes) -> bytes:
+    """One multipart/x-mixed-replace part. Content-Length matters: without it
+    some clients wait for the next boundary before painting, adding a frame of
+    latency to every single frame."""
+    return (
+        b"--" + _MJPEG_BOUNDARY.encode() + b"\r\n"
+        b"Content-Type: image/jpeg\r\n"
+        b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n"
+        + jpeg + b"\r\n"
+    )
 
 
 class LocalEventAPI:
@@ -56,10 +76,12 @@ class LocalEventAPI:
         config: EngineConfig,
         metrics: MetricsRegistry,
         event_hub: Optional[EventHub] = None,
+        stream_hub: Optional["StreamHub"] = None,
     ) -> None:
         self._cfg = config
         self._metrics = metrics
         self._hub = event_hub or EventHub()
+        self._stream = stream_hub
         self._recent: "Deque[dict]" = deque(maxlen=config.api_recent_events)
         self._recent_lock = threading.Lock()
         self._server = None  # uvicorn.Server
@@ -154,6 +176,83 @@ class LocalEventAPI:
         async def detections_recent(limit: int = 50):
             events = recent_events()
             return {"count": len(events), "events": events[-max(1, min(limit, len(events) or 1)):]}
+
+        # ── Live MJPEG ────────────────────────────────────────────────────
+        # multipart/x-mixed-replace is what an <img> tag speaks natively, so the
+        # browser needs no player code — but the browser never reaches here: it
+        # asks Monitor, Monitor authenticates the user and checks
+        # camera_assignment, and only then does Monitor pull this stream.
+        #
+        # ⚠️ Auth is mandatory and fail-secure, exactly like Monitor's
+        #    requireDetectionEngineKey: no key configured server-side -> the
+        #    endpoint is closed (503), never "open for convenience".
+        stream_hub = self._stream
+
+        def _authorized(req: "Request") -> Optional[Response]:
+            import os
+            expected = os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
+            if not expected:
+                return Response(status_code=503, content='{"error":"stream disabled"}',
+                                media_type="application/json")
+            provided = req.headers.get(_KEY_HEADER, "")
+            import hmac
+            if not provided or not hmac.compare_digest(provided, expected):
+                return Response(status_code=401, content='{"error":"unauthorized"}',
+                                media_type="application/json")
+            return None
+
+        @app.get("/stream.mjpg")
+        async def stream_mjpg(request: "Request"):
+            denied = _authorized(request)
+            if denied is not None:
+                return denied
+            if stream_hub is None:
+                return Response(status_code=503, content='{"error":"stream not enabled"}',
+                                media_type="application/json")
+
+            async def frames():
+                loop = asyncio.get_running_loop()
+                last = -1
+                idle = 0
+                stream_hub.add_viewer()
+                try:
+                    # Prime immediately with whatever is current so the <img>
+                    # paints on connect instead of staying blank for one period.
+                    cur = stream_hub.latest()
+                    if cur is not None:
+                        last = cur[0]
+                        yield _part(cur[1])
+                    while True:
+                        if await request.is_disconnected():
+                            break
+                        # Block off-loop so the event loop stays responsive.
+                        got = await loop.run_in_executor(
+                            None, stream_hub.wait_for, last, 1.0
+                        )
+                        if got is None:
+                            # Capture stalled or engine stopping. Bounded wait so
+                            # a dead stream is closed rather than hanging open.
+                            idle += 1
+                            if idle >= cfg.stream_idle_timeout_s:
+                                log.info("closing idle stream (no frames for %ds)", idle)
+                                break
+                            continue
+                        idle = 0
+                        last, jpeg = got
+                        yield _part(jpeg)
+                finally:
+                    stream_hub.remove_viewer()
+
+            return StreamingResponse(
+                frames(),
+                media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY}",
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Connection": "close",
+                    "X-Accel-Buffering": "no",  # never let a proxy buffer a live stream
+                },
+            )
 
         @app.websocket("/ws/events")
         async def ws_events(ws: WebSocket):

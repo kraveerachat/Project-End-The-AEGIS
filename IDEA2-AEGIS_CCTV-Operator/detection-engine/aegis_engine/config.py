@@ -125,6 +125,22 @@ class EngineConfig:
     api_metrics_interval_s: float = 1.0  # push cadence for metrics on the WS
     api_recent_events: int = 100
 
+    # --- Live MJPEG stream (StreamHub + LocalEventAPI /stream.mjpg) ------
+    # The stream is served by the engine and consumed ONLY by Monitor's backend,
+    # which proxies it to the browser. It is authenticated with the same shared
+    # service key as /internal/* on Monitor's side (X-Detection-Engine-Key), so
+    # there is one secret for the whole engine<->Monitor boundary, not two.
+    stream_enabled: bool = True
+    stream_jpeg_quality: int = 70   # 1-100; 70 is a sane quality/bandwidth point
+    stream_max_fps: float = 12.0    # cap independent of capture fps
+    # Advertised to Monitor in each heartbeat so the proxy knows where to pull
+    # from. Blank -> derived from api_host/api_port (localhost is rewritten to
+    # 127.0.0.1 since 0.0.0.0 is not dialable).
+    stream_public_url: Optional[str] = None
+    # Close a stream that has produced no frames for this long (capture died,
+    # camera unplugged). Without it a viewer holds an open socket forever.
+    stream_idle_timeout_s: int = 15
+
     # --- Heartbeat to Monitor (HeartbeatWorker) --------------------------
     # How often to POST /internal/heartbeat. Monitor ages the last row into
     # online -> degraded (>15s) -> lost (>45s), so this must stay well under
@@ -196,6 +212,13 @@ class EngineConfig:
                 "AEGIS_API_METRICS_INTERVAL_S", cls.api_metrics_interval_s
             ),
             api_recent_events=_env_int("AEGIS_API_RECENT_EVENTS", cls.api_recent_events),
+            stream_enabled=_env_bool("AEGIS_STREAM_ENABLED", cls.stream_enabled),
+            stream_jpeg_quality=_env_int("AEGIS_STREAM_JPEG_QUALITY", cls.stream_jpeg_quality),
+            stream_max_fps=_env_float("AEGIS_STREAM_MAX_FPS", cls.stream_max_fps),
+            stream_public_url=_env_opt("AEGIS_STREAM_PUBLIC_URL"),
+            stream_idle_timeout_s=_env_int(
+                "AEGIS_STREAM_IDLE_TIMEOUT_S", cls.stream_idle_timeout_s
+            ),
             heartbeat_interval_s=_env_float(
                 "AEGIS_HEARTBEAT_INTERVAL_S", cls.heartbeat_interval_s
             ),
@@ -217,7 +240,25 @@ class EngineConfig:
             raise ValueError(
                 "NAS sync is enabled but AEGIS_NAS_HOST / AEGIS_NAS_USER are unset"
             )
+        if not (1 <= self.stream_jpeg_quality <= 100):
+            raise ValueError("AEGIS_STREAM_JPEG_QUALITY must be between 1 and 100")
         return self
+
+    def resolved_stream_url(self) -> Optional[str]:
+        """Absolute URL Monitor's proxy should pull MJPEG from, or None if disabled.
+
+        ``api_host`` is a *bind* address; 0.0.0.0 (and ::) mean "all interfaces"
+        and cannot be dialled, so they are rewritten to a loopback address. Set
+        AEGIS_STREAM_PUBLIC_URL explicitly when Monitor lives on another host.
+        """
+        if not self.stream_enabled:
+            return None
+        if self.stream_public_url:
+            return self.stream_public_url.rstrip("/")
+        host = self.api_host
+        if host in ("0.0.0.0", "::", ""):
+            host = "127.0.0.1"
+        return f"http://{host}:{self.api_port}/stream.mjpg"
 
     def redacted(self) -> dict:
         """Config as a dict with secrets masked — safe to log at startup."""

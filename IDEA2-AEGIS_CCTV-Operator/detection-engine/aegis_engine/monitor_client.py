@@ -96,7 +96,10 @@ class MonitorClient:
             "storedOnNas": bool(stored_on_nas),
         })
 
-    def post_heartbeat(self, camera_id: str, node_id: str, snapshot: Dict[str, Any]) -> None:
+    def post_heartbeat(
+        self, camera_id: str, node_id: str, snapshot: Dict[str, Any],
+        stream_url: Optional[str] = None,
+    ) -> None:
         """Liveness + live metrics for one camera.
 
         This is the ONLY source behind Monitor's ``/api/link``. Before this
@@ -124,6 +127,7 @@ class MonitorClient:
             "segmentsWritten": recorder.get("segments_written"),
             "nasLastStatus": nas.get("last_status"),
             "nasPending": nas.get("pending"),
+            "streamUrl": stream_url,
         })
 
     def post_alert(

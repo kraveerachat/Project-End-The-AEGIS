@@ -82,6 +82,11 @@ class HeartbeatWorker(threading.Thread):
                 camera_id=self._cfg.camera_id,
                 node_id=self._cfg.node_id,
                 snapshot=snapshot,
+                # Where Monitor's proxy should pull MJPEG for this camera. Sent
+                # every beat rather than configured on Monitor, so a node that
+                # moves or changes port self-heals on the next heartbeat, and a
+                # node that dies takes its stream URL out of service with it.
+                stream_url=self._cfg.resolved_stream_url(),
             )
             self._sent += 1
         except Exception:  # pragma: no cover - client already fails soft
