@@ -446,6 +446,31 @@ kbd {
 }
 .hero:fullscreen { border-radius: 0; border: none; }
 .hatch { position: absolute; inset: 0; background: repeating-linear-gradient(45deg, #0a1522 0 2px, #070f19 2px 11px); }
+
+/* ---------- live MJPEG feed (Phase B) ----------
+   ⚠️ .feedimg กินพื้นที่ "เท่ากับ .hero เป๊ะ ๆ" (inset: 0) โดยเจตนา — overlay
+   bounding-box ใช้พิกัด % เทียบกับ .hero เหมือนเดิมทุกประการ ภาพจริงจึงเข้ามาแทน
+   ลาย hatch ในกล่องใบเดิม ไม่มีการขยับ/ย่อกรอบ พิกัดกล่องจึงไม่เลื่อนเลย
+   object-fit: cover = เต็มกรอบ 16/9 (ครอปขอบถ้าสัดส่วนไม่ตรง) — ยอมรับได้ตอนนี้
+   เพราะกล่องยังเป็น "ช่องเรียงเท่ากัน" ไม่ใช่พิกัดจริงจาก engine (schema detections
+   ยังไม่มีคอลัมน์ bbox) ⚠️ เมื่อใดที่ engine ส่ง bbox จริง ต้องเปลี่ยนเป็น contain
+   หรือคำนวณ letterbox ด้วย ไม่งั้นพิกัดที่ normalize มาจะเพี้ยนตามส่วนที่ถูกครอป */
+.feedimg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block; z-index: 1;
+  background: transparent; user-select: none; -webkit-user-drag: none;
+}
+.feedstate {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: var(--z-feed); display: inline-flex; align-items: center; gap: 9px;
+  padding: 8px 14px; border-radius: 999px; font-size: 12px; white-space: nowrap;
+  background: rgba(3, 7, 14, .82); border: 1px solid var(--bord2); color: var(--ice);
+  backdrop-filter: blur(8px);
+}
+.feedretry { padding: 5px 10px; font-size: 11px; }
+.spin { animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .vign { position: absolute; inset: 0; background: radial-gradient(120% 100% at 50% 45%, transparent 40%, rgba(3, 7, 14, .7)); }
 .grid2 {
   position: absolute; inset: 0;

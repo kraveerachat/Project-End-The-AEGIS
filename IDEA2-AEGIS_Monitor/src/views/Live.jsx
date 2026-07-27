@@ -6,6 +6,7 @@ import {
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
 import { BBox, EmptyState, FeedChrome, Ping, StaleBadge, TBox } from '../components/ui.jsx'
+import LiveFeed from '../components/LiveFeed.jsx'
 
 const SECONDARY_PRIORITY = ['CAM-01', 'CAM-05', 'CAM-04', 'CAM-06', 'CAM-02']
 
@@ -103,8 +104,17 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
         >
-          <div className="hero" ref={heroRef} role="img" aria-label={`Live feed — ${cam.id} ${cam.name}`}>
-            <div className="hatch" /><FeedChrome /><div className="scanline" /><div className="vign" />
+          <div className="hero" ref={heroRef}>
+            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วาง <img> ที่
+                inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
+                อ้างอิงกรอบใบเดิมไม่เปลี่ยน (ดูคอมเมนต์ .feedimg ใน index.css) */}
+            <LiveFeed
+              cameraId={cam.id}
+              cameraName={cam.name}
+              hasStream={Boolean(camBeat?.hasStream)}
+              lost={lost}
+            />
+            <FeedChrome /><div className="scanline" /><div className="vign" />
             <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
             <div className="herotop">
               {lost ? (
@@ -172,6 +182,13 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
                 whileHover={{ y: -6, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.25), 0 0 18px rgba(0, 229, 255, 0.2)' }}
                 whileTap={{ scale: 0.985 }}
               >
+                <LiveFeed
+                  cameraId={c.id}
+                  cameraName={c.name}
+                  hasStream={Boolean((link.cameras ?? []).find((h) => h.cam === c.id)?.hasStream)}
+                  lost={lost}
+                  compact
+                />
                 <FeedChrome />
                 <span className="sfid mono">{c.id}</span>
                 {lost
