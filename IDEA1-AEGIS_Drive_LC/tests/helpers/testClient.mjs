@@ -41,7 +41,12 @@ export class Client {
 
     let payload
     if (body instanceof FormData) payload = body
-    else if (body !== undefined) {
+    else if (typeof body === 'string') {
+      // ส่งดิบ ๆ — ผู้เรียกตั้ง Content-Type เอง (ใช้กับฟอร์ม urlencoded ของหน้าไถ่ลิงก์
+      // ซึ่งเป็น request แบบที่เบราว์เซอร์ยิงจริงเมื่อกด submit ไม่ใช่ JSON จาก fetch ของแอป)
+      payload = body
+      if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    } else if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
       payload = JSON.stringify(body)
     }
@@ -56,12 +61,24 @@ export class Client {
   }
 
   /** เหมือน req แต่คืน bytes ดิบ — ใช้กับ endpoint ดาวน์โหลดไฟล์ */
-  async raw(pathname, { method = 'GET', headers: extraHeaders } = {}) {
+  async raw(pathname, { method = 'GET', headers: extraHeaders, body } = {}) {
     const headers = { ...extraHeaders }
     if (this.cookie) headers.cookie = this.cookie
     if (this.csrf && method !== 'GET') headers['X-CSRF-Token'] = this.csrf
-    const res = await fetch(this.baseUrl + pathname, { method, headers, redirect: 'manual' })
+    const res = await fetch(this.baseUrl + pathname, { method, headers, body, redirect: 'manual' })
     return { status: res.status, headers: res.headers, buffer: Buffer.from(await res.arrayBuffer()) }
+  }
+
+  /**
+   * ส่งฟอร์ม urlencoded แล้วคืน bytes ดิบ — เลียนแบบเบราว์เซอร์กด submit บนหน้า /s/:token
+   * (ที่นั่นไม่มี session และไม่มี CSRF token ให้แนบ — ดูเหตุผลใน server/routes/share.js)
+   */
+  rawPost(pathname, formBody) {
+    return this.raw(pathname, {
+      method: 'POST',
+      body: formBody,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
   }
 }
 

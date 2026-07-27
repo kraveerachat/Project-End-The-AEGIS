@@ -66,12 +66,17 @@ CREATE TABLE IF NOT EXISTS shares (
   file_id       BIGINT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
   created_by    BIGINT REFERENCES users(id) ON DELETE SET NULL,
   auth_type     TEXT NOT NULL CHECK (auth_type IN ('password', 'otc', 'none')),
-  password_hash TEXT,                          -- bcrypt ของรหัสลิงก์ (ถ้า auth_type='password')
-  -- scope คือ label เชิงสัญลักษณ์ที่ UI แสดง ('vlan' | 'subnet' | 'any') — vlan_scope คือ
-  -- CIDR ที่ label นั้น "แปลว่า" จริง ณ เวลาที่สร้างลิงก์ (ดู SCOPE_CIDRS ใน server/db/store.js)
+  -- bcrypt ของรหัสลิงก์ เมื่อ auth_type='password' — ถูกตรวจจริงตอนไถ่ลิงก์
+  -- (ดู POST /s/:token ใน server/routes/share.js) ห้ามเก็บรหัสดิบเด็ดขาด
+  password_hash TEXT,
+  -- scope คือ label ที่ UI แสดง — vlan_scope คือ CIDR ที่ label นั้น "แปลว่า" จริง
+  -- ณ เวลาที่สร้างลิงก์ (snapshot จากตาราง network_zones ที่ Admin ดูแล)
   scope         TEXT NOT NULL DEFAULT 'any' CHECK (scope IN ('vlan', 'subnet', 'any')),
-  -- ขอบเขตเครือข่ายเป็น array ของ CIDR เช่น {'192.168.10.0/24','192.168.30.0/24'}
-  -- การบังคับจริงเกิดที่ UFW บนโฮสต์ (network layer) — คอลัมน์นี้คือ "เจตนา" ที่ UI แสดง
+  -- ขอบเขตเครือข่ายเป็น array ของ CIDR เช่น {'192.168.10.0/24','10.10.0.0/28'}
+  -- ⚠️ ว่าง = ไม่จำกัด; ไม่ว่าง = "บังคับจริงในโค้ด" ตอนไถ่ลิงก์ (เทียบ IP ต้นทางกับ
+  --    ทุก CIDR ในนี้ อยู่นอกทั้งหมด → 403 ไม่ได้ไฟล์) ดูข้อจำกัดของการเทียบ IP
+  --    ที่ชั้นแอปใน server/routes/share.js — มันคือ defense in depth ไม่ใช่ตัวแทนของ
+  --    การแยก VLAN จริงที่ต้องทำที่ firewall/switch
   vlan_scope    TEXT[] NOT NULL DEFAULT '{}',
   expires_at    TIMESTAMPTZ NOT NULL,
   revoked       BOOLEAN NOT NULL DEFAULT FALSE,
@@ -90,6 +95,26 @@ CREATE TABLE IF NOT EXISTS network_zones (
   cidr        TEXT NOT NULL UNIQUE,   -- ซ้ำไม่ได้: สอง zone ที่คุมช่วงเดียวกันคือความสับสน
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Share tokens — ตัวลิงก์ที่เอาไปไถ่ไฟล์ได้จริง ────────────────────────────────
+-- ⚠️ เก็บ "sha256 ของ token" ไม่ใช่ token ดิบ เหตุผลเดียวกับที่รหัสผ่านเป็น bcrypt:
+--    token คือ bearer credential — ใครถือก็ดาวน์โหลดไฟล์ได้โดยไม่ต้องล็อกอิน
+--    ถ้าเก็บดิบไว้ ใครที่อ่านตารางนี้ได้ (backup ที่หลุด, dump, สิทธิ์ SELECT ที่กว้างเกิน)
+--    จะได้ลิงก์ที่ใช้งานได้ทันทีของทุกไฟล์ที่ยังแชร์อยู่ การเก็บ hash ทำให้แถวที่ถูกขโมย
+--    ไปใช้ไม่ได้ — สอดคล้องกับหลักของโปรเจกต์นี้ที่ว่า "ขโมยดิสก์ไปทั้งลูกก็ยังไม่ได้อะไร"
+-- ⚠️ ผลที่ตามมาและต้องยอมรับ: เซิร์ฟเวอร์ "แสดงลิงก์เดิมซ้ำไม่ได้" เพราะไม่มีค่าดิบ
+--    เก็บไว้ — ค่าดิบถูกคืนครั้งเดียวตอนสร้าง (แบบเดียวกับรหัสผ่านชั่วคราวของบัญชีใหม่)
+--    ทำลิงก์หาย = เพิกถอนแล้วสร้างใหม่
+-- UNIQUE index ยอมให้มี NULL ได้หลายแถวใน PostgreSQL — แถวเก่าก่อน migration
+-- จึงยังอยู่ได้ (และไถ่ไม่ได้ ซึ่งถูกต้อง: มันไม่เคยมีลิงก์ให้ใครตั้งแต่แรก)
+ALTER TABLE shares ADD COLUMN IF NOT EXISTS token_hash CHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_idx ON shares (token_hash);
+
+-- 'zones' = จำกัดตาม network_zones ที่ Admin ดูแล (snapshot ลง vlan_scope ตอนสร้าง)
+-- ค่าเดิม 'vlan'/'subnet' ยังถูกยอมรับเพื่อไม่ทำให้แถวที่มีอยู่ผิด constraint
+ALTER TABLE shares DROP CONSTRAINT IF EXISTS shares_scope_check;
+ALTER TABLE shares ADD CONSTRAINT shares_scope_check
+  CHECK (scope IN ('any', 'zones', 'vlan', 'subnet'));
 
 -- ── Privacy-Preserving Audit Log ─────────────────────────────────────────────
 -- ⚠️ ชื่อไฟล์ถูกเก็บเป็น SHA-256 (target_hash) — ผู้ตรวจ log เห็นว่า "มีเหตุการณ์กับไฟล์ไหน

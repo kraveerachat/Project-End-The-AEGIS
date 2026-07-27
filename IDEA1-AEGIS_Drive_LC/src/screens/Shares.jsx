@@ -1,79 +1,62 @@
 import { useState } from 'react'
-import { Link2, Plus } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, Field, Segmented, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
-import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
-import { apiFetch } from '../lib/api.js'
+import { Link2, Plus, ShieldCheck, Globe, Copy } from 'lucide-react'
+import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { useApi, useNow } from '../lib/hooks.js'
+import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtCountdown } from '../lib/format.js'
 
-/* ⚠️ Phase 2: ลิงก์แชร์มาจาก GET /api/shares — สร้าง/เพิกถอนเป็น request จริง
-   การบังคับขอบเขตเครือข่ายเกิดที่ UFW (network layer) — คอลัมน์ scope คือเจตนาที่ UI แสดง */
+/* ลิงก์แชร์ทำงานจริงตั้งแต่ต้นจนจบ: สร้าง → ได้ URL → ผู้รับเปิดแล้วได้ไฟล์
+   (GET /s/:token — ดู server/routes/share.js) รหัสลิงก์ถูกตรวจด้วย bcrypt จริง
+   ตัวนับเพิ่มตอนไถ่สำเร็จจริง และขอบเขตเครือข่ายถูกบังคับในโค้ดจริงตอนไถ่
 
-const SCOPE_CHIP = { vlan: { key: 'chipVlanOnly', tone: 'accent' }, subnet: { key: 'chipSubnet', tone: 'accent' }, any: { key: 'chipAnyNetwork', tone: 'warn' } }
+   ⚠️ ถอด ScopeDiagram (ภาพ VLAN/Guest/Internet + firewall ที่มี packet วิ่งแล้วสลายตัว)
+   ออกทั้งชิ้น เดิมมันสื่อว่า "firewall บล็อกคำขอจากโซนที่ไม่อนุญาตให้แล้ว" ซึ่งแอปนี้
+   ไม่ได้ทำและไม่มีทางรู้ — ไม่มีโค้ดใดคุย UFW/switch และตอนนั้นยังไม่มีการตรวจ IP
+   แม้แต่บรรทัดเดียว ภาพที่อธิบายกลไกที่ไม่มีอยู่คือคำสัญญาเชิงความปลอดภัยที่ผิด
+   แบบเดียวกับ "คีย์กู้คืน 12 คำ" ที่ถูกถอดไปก่อนหน้านี้
+
+   ตอนนี้มีการบังคับจริง แต่เป็น "การเทียบ IP ต้นทางที่ชั้นแอป" — แผงด้านล่างจึงพูด
+   เท่าที่ทำได้จริง และระบุข้อจำกัดไว้ตรง ๆ ไม่วาดเป็น firewall */
+
+const SCOPE_CHIP = {
+  zones: { key: 'chipZoneRestricted', tone: 'accent' },
+  vlan: { key: 'chipVlanOnly', tone: 'accent' },   // ค่าเดิมของแถวก่อน migration
+  subnet: { key: 'chipSubnet', tone: 'accent' },
+  any: { key: 'chipAnyNetwork', tone: 'warn' },
+}
 const AUTH_LABEL = { password: 'authPassword', otc: 'authOtc', none: 'authNone' }
 
-/* ── The network-scope diagram — teaches the entire feature ──────── */
-function ScopeDiagram({ t, scope }) {
-  const reduced = useReducedMotion()
-  const zones = [
-    { id: 'company', label: t('zoneCompany'), y: 36, allowed: true },
-    { id: 'guest', label: t('zoneGuest'), y: 100, allowed: scope === 'any' },
-    { id: 'internet', label: t('zoneInternet'), y: 164, allowed: scope === 'any' },
-  ]
-  const nasX = 398
-  const nasY = 100
-  const path = (y) => `M148,${y} C230,${y} 270,${nasY} ${nasX - 10},${nasY}`
-
+/* ── Scope panel — พูดเท่าที่บังคับได้จริง ────────────────────────────
+   ⚠️ ตั้งใจให้ "น่าเบื่อ" กว่าไดอะแกรมเดิม: ข้อความที่ตรงกับกลไกจริงมีค่ามากกว่าภาพ
+   เคลื่อนไหวที่อธิบายกลไกที่ไม่มีอยู่ ผู้ใช้ตัดสินใจแชร์ไฟล์จากสิ่งที่อ่านบนจอนี้ */
+function ScopePanel({ t, scope, zonesUnavailable }) {
+  const restricted = scope === 'zones'
   return (
-    <svg viewBox="0 0 480 200" className="w-full" role="img" aria-label={t('networkScope')}>
-      <defs>
-        <pattern id="zone-hatch" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
-          <line x1="0" y1="0" x2="0" y2="5" stroke="var(--ink-3)" strokeWidth="1" opacity="0.4" />
-        </pattern>
-      </defs>
-
-      {/* firewall boundary */}
-      <line x1="300" y1="12" x2="300" y2="188" stroke="var(--line)" strokeWidth="1" strokeDasharray="3 4" />
-      <text x="300" y="10" textAnchor="middle" fontSize="8.5" fontWeight="600" letterSpacing="0.06em" fill="var(--ink-3)">FIREWALL</text>
-
-      {zones.map((z) => (
-        <g key={z.id}>
-          <path d={path(z.y)} fill="none" stroke="var(--accent)" strokeWidth="2" style={{ opacity: z.allowed ? 1 : 0, transition: 'opacity var(--dur-base) var(--ease)' }} />
-          <path d={path(z.y)} fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeDasharray="4 5" style={{ opacity: z.allowed ? 0 : 0.75, transition: 'opacity var(--dur-base) var(--ease)' }} />
-
-          {/* blocked: a request travels, hits the boundary, dissolves */}
-          {!z.allowed && !reduced && (
-            <circle r="3.5" fill="var(--ink-3)">
-              <animateMotion dur="3.2s" repeatCount="indefinite" path={path(z.y)} keyPoints="0;0.55;0.55" keyTimes="0;0.55;1" calcMode="linear" />
-              <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.1;0.45;0.55;1" dur="3.2s" repeatCount="indefinite" />
-              <animate attributeName="r" values="3.5;3.5;5;0.5;0.5" keyTimes="0;0.45;0.5;0.55;1" dur="3.2s" repeatCount="indefinite" />
-            </circle>
-          )}
-          {z.allowed && !reduced && (
-            <circle r="3" fill="var(--accent)">
-              <animateMotion dur="3.2s" repeatCount="indefinite" path={path(z.y)} />
-              <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3.2s" repeatCount="indefinite" />
-            </circle>
-          )}
-
-          <rect
-            x="10" y={z.y - 17} width="138" height="34" rx="17"
-            fill={z.allowed ? 'var(--card)' : 'url(#zone-hatch)'}
-            stroke={z.allowed ? 'var(--accent)' : 'var(--line)'}
-            strokeWidth="1.5"
-            style={{ transition: 'stroke var(--dur-base) var(--ease)' }}
-          />
-          <text x="79" y={z.y + 4} textAnchor="middle" fontSize="11.5" fontWeight="600" fill={z.allowed ? 'var(--ink)' : 'var(--ink-3)'} style={{ transition: 'fill var(--dur-base) var(--ease)' }}>
-            {z.label}
-          </text>
-          {z.id === 'company' && scope === 'subnet' && (
-            <text x="79" y={z.y + 30} textAnchor="middle" fontSize="9" fontFamily="JetBrains Mono, monospace" fill="var(--accent-ink)">192.168.30.0/24</text>
-          )}
-        </g>
-      ))}
-
-      <circle cx={nasX + 22} cy={nasY} r="26" fill="var(--ink)" />
-      <text x={nasX + 22} y={nasY + 4} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--card)">NAS</text>
-    </svg>
+    <div className="rounded-[var(--r-tile)] border border-line bg-sunken p-3.5 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        {restricted ? (
+          <ShieldCheck size={15} strokeWidth={1.6} className="text-accent-ink shrink-0" />
+        ) : (
+          <Globe size={15} strokeWidth={1.6} className="shrink-0" style={{ color: 'var(--warn)' }} />
+        )}
+        <p className="text-[13px] font-semibold text-ink">
+          {restricted ? t('scopeZonesTitle') : t('scopeAnyTitle')}
+        </p>
+      </div>
+      <p className="text-[12.5px] text-ink-2 leading-relaxed">
+        {restricted ? t('scopeZonesBody') : t('scopeAnyBody')}
+      </p>
+      {restricted && (
+        // ⚠️ ระบุข้อจำกัดของการบังคับที่ชั้นแอปไว้ตรงนี้ ไม่ซ่อนใน tooltip:
+        //    เทียบ IP ต้นทางได้จริง แต่ไม่ใช่การแยกเครือข่ายที่ระดับ firewall/switch
+        <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('scopeEnforcementNote')}</p>
+      )}
+      {restricted && zonesUnavailable && (
+        <p role="alert" className="text-[12px] font-medium" style={{ color: 'var(--danger)' }}>
+          {t('scopeNoZones')}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -125,9 +108,14 @@ export function Shares({ t }) {
   const [fileId, setFileId] = useState('')
   const [expiry, setExpiry] = useState('24h')
   const [auth, setAuth] = useState('password')
-  const [scope, setScope] = useState('vlan')
+  const [linkPassword, setLinkPassword] = useState('')
+  const [scope, setScope] = useState('zones')
   const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState(false)
+  const [createError, setCreateError] = useState(null) // null | 'input' | 'zones' | 'server'
+  // ⚠️ URL ของลิงก์ถูกแสดง "ครั้งเดียว" ตรงนี้ — เซิร์ฟเวอร์เก็บแต่ sha256 ของ token
+  //    จึงไม่มีทางแสดงซ้ำได้ (แบบแผนเดียวกับรหัสผ่านชั่วคราวของบัญชีใหม่ในจอ Access)
+  const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs } | null
+  const [copied, setCopied] = useState(false)
 
   // ── ตัวกรองของตารางนี้เอง (scope / status / expiry) ────────────────────────
   // จอนี้ไม่มีช่องค้นหาระดับระบบโดยเจตนา: คำถามที่คนถามกับตารางลิงก์คือ
@@ -150,16 +138,35 @@ export function Shares({ t }) {
 
   const selectedFileId = fileId || files[0]?.id || ''
 
+  const passwordTooShort = auth === 'password' && linkPassword.length > 0 && linkPassword.length < 8
+  const canCreate = Boolean(selectedFileId) && !creating &&
+    (auth !== 'password' || linkPassword.length >= 8)
+
   const createLink = async () => {
-    if (!selectedFileId || creating) return
+    if (!canCreate) return
     setCreating(true)
-    setCreateError(false)
+    setCreateError(null)
+    setCopied(false)
     const res = await apiFetch('/api/shares', {
       method: 'POST',
-      body: { fileId: selectedFileId, expiry, authType: auth, scope },
+      body: { fileId: selectedFileId, expiry, authType: auth, scope, password: auth === 'password' ? linkPassword : undefined },
     })
     setCreating(false)
-    if (!res.ok) { setCreateError(true); return }
+    if (!res.ok) {
+      // 400 ตอนเลือก 'zones' แต่ Admin ยังไม่ได้กำหนด zone ใดไว้เลย เป็นกรณีที่พบบ่อยสุด
+      // และแก้ได้ด้วยตัวเอง — จึงแยกข้อความออกจาก "คำขอถูกปฏิเสธ" ทั่วไป
+      setCreateError(res.status === 400 && scope === 'zones' ? 'zones' : res.status === 400 ? 'input' : 'server')
+      return
+    }
+    // ประกอบ URL เต็มฝั่ง client: origin ของเบราว์เซอร์ + BASE_URL ของ bundle
+    // (Express ไม่รู้ prefix '/drive' ของตัวเองเพราะ nginx ตัดออกก่อนถึงมัน)
+    setCreated({
+      url: `${window.location.origin}${apiUrl(res.data.path)}`,
+      fileName: res.data.share.fileName,
+      hasPassword: res.data.share.hasPassword,
+      scopeCidrs: res.data.share.scopeCidrs ?? [],
+    })
+    setLinkPassword('')
     sharesApi.retry()
   }
 
@@ -180,7 +187,7 @@ export function Shares({ t }) {
       {/* creation panel */}
       <div className="col-span-5 max-lg:col-span-12">
         <Card className="p-5">
-          <CardTitle sub={t('scopeDiagramNote')}>{t('newShare')}</CardTitle>
+          <CardTitle sub={t('newShareSub')}>{t('newShare')}</CardTitle>
           <div className="flex flex-col gap-4">
             <Field id="share-file" label={t('shareFile')}>
               <PillSelect id="share-file" value={selectedFileId} onChange={(e) => setFileId(e.target.value)} disabled={filesApi.loading || files.length === 0}>
@@ -200,43 +207,93 @@ export function Shares({ t }) {
                 </PillSelect>
               </Field>
               <Field id="share-auth" label={t('authMethod')}>
+                {/* ⚠️ ถอดตัวเลือก 'otc' (one-time code) ออก — ระบบนี้ไม่มีช่องทางส่ง
+                    รหัสออกไปให้ผู้รับเลย (ไม่มีอีเมล/SMS) เดิมเลือกได้และเซิร์ฟเวอร์รับค่าไว้
+                    แต่ไม่มีรหัสถูกสร้างหรือถูกตรวจที่ไหน = ลิงก์ที่ผู้ใช้เชื่อว่าต้องมีรหัส
+                    จึงเปิดได้ กลายเป็นลิงก์ที่ใครถือก็เปิดได้ทันที */}
                 <PillSelect id="share-auth" value={auth} onChange={(e) => setAuth(e.target.value)}>
                   <option value="password">{t('authPassword')}</option>
-                  <option value="otc">{t('authOtc')}</option>
                   <option value="none">{t('authNone')}</option>
                 </PillSelect>
               </Field>
             </div>
+
+            {auth === 'password' && (
+              <Field id="share-pw" label={t('linkPassword')}>
+                <PillInput
+                  id="share-pw"
+                  type="password"
+                  autoComplete="off"
+                  value={linkPassword}
+                  onChange={(e) => { setLinkPassword(e.target.value); setCreateError(null) }}
+                  placeholder={t('linkPasswordPlaceholder')}
+                />
+                <p className="text-[11.5px] text-ink-3 mt-1.5 leading-relaxed">{t('linkPasswordHint')}</p>
+                {passwordTooShort && (
+                  <p role="alert" className="text-[12px] font-medium mt-1" style={{ color: 'var(--danger)' }}>
+                    {t('linkPasswordTooShort')}
+                  </p>
+                )}
+              </Field>
+            )}
+
             <div>
               <p className="text-[12px] font-semibold text-ink-3 uppercase tracking-[0.06em] mb-2">{t('networkScope')}</p>
               <Segmented
                 ariaLabel={t('networkScope')}
                 options={[
-                  { value: 'vlan', label: t('scopeVlan') },
-                  { value: 'subnet', label: t('scopeSubnet') },
+                  { value: 'zones', label: t('scopeZones') },
                   { value: 'any', label: t('scopeAny') },
                 ]}
                 value={scope}
-                onChange={setScope}
+                onChange={(v) => { setScope(v); setCreateError(null) }}
               />
             </div>
-            <div className="rounded-[var(--r-tile)] border border-line bg-sunken p-3">
-              <ScopeDiagram t={t} scope={scope} />
-            </div>
-            {scope === 'any' && (
-              <p className="text-[12px] font-medium rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }} role="status">
-                {t('chipAnyNetwork')} — {t('scopeDiagramNote')}
-              </p>
-            )}
+            <ScopePanel t={t} scope={scope} zonesUnavailable={createError === 'zones'} />
+
             {createError && (
               <p role="alert" className="text-[12.5px] font-medium" style={{ color: 'var(--danger)' }}>
-                {t('actionFailed')}
+                {createError === 'zones' ? t('scopeNoZones') : t('actionFailed')}
               </p>
             )}
-            <Btn variant="primary" onClick={createLink} disabled={creating || !selectedFileId}>
+            <Btn variant="primary" onClick={createLink} disabled={!canCreate}>
               <Plus size={15} strokeWidth={1.8} />
               {t('createShare')}
             </Btn>
+
+            {/* ── ลิงก์ที่เพิ่งสร้าง — แสดงครั้งเดียว ────────────────────────────
+                ⚠️ เซิร์ฟเวอร์เก็บแค่ sha256 ของ token จึงไม่มีทางแสดง URL นี้ซ้ำได้
+                ต้องบอกผู้ใช้ตรง ๆ ตรงนี้ ไม่ใช่ให้เขาไปค้นหาในตารางแล้วไม่พบ */}
+            {created && (
+              <div className="rounded-[var(--r-tile)] border border-line bg-sunken p-4 flex flex-col gap-2.5 fade-in">
+                <p className="text-[13px] font-semibold text-ink">{t('shareLinkReady')}</p>
+                <p className="font-mono text-[11.5px] text-ink break-all select-all bg-card border border-line rounded-[10px] px-3 py-2.5">
+                  {created.url}
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Btn
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { navigator.clipboard?.writeText(created.url); setCopied(true) }}
+                  >
+                    <Copy size={13} strokeWidth={1.6} />
+                    {copied ? t('copied') : t('copyLink')}
+                  </Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => setCreated(null)}>{t('done')}</Btn>
+                </div>
+                <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                  {t('shareLinkOnceWarn')}
+                </p>
+                {created.hasPassword && (
+                  <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('shareLinkPasswordNote')}</p>
+                )}
+                {created.scopeCidrs.length > 0 && (
+                  <p className="text-[11.5px] text-ink-3 leading-relaxed">
+                    {t('shareLinkScopeNote')} <span className="font-mono text-ink-2">{created.scopeCidrs.join(', ')}</span>
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -258,8 +315,7 @@ export function Shares({ t }) {
               <div className="w-[168px]">
                 <PillSelect aria-label={t('filterScope')} value={fScope} onChange={(e) => setFScope(e.target.value)}>
                   <option value="all">{t('filterScope')} · {t('filterAll')}</option>
-                  <option value="vlan">{t('scopeVlan')}</option>
-                  <option value="subnet">{t('scopeSubnet')}</option>
+                  <option value="zones">{t('scopeZones')}</option>
                   <option value="any">{t('scopeAny')}</option>
                 </PillSelect>
               </div>

@@ -16,6 +16,8 @@
 //
 // ⚠️ ทุกฟังก์ชันในไฟล์นี้ถูกเรียก "หลัง" requireAuth/requireRole เสมอ — ห้าม route ใด
 //    เรียกตรงโดยไม่ผ่าน middleware ตรวจสิทธิ์ (ดู routes/api.js)
+import bcrypt from 'bcryptjs'
+import { randomBytes } from 'node:crypto'
 import { sha256Hex, usingPostgres, query } from './connection.js'
 
 const BOOT = Date.now()
@@ -188,22 +190,44 @@ export async function recordUpload({ name, storageKey, size, sha256, user }) {
   return row
 }
 
-// ── Shares — VLAN-aware secure links ─────────────────────────────────
-const shares = [
-  { id: 's1', fileId: 'f08', fileName: 'supplier-audit_checklist_th.xlsx', createdBy: 'Somchai P.', authType: 'password', scope: 'vlan', scopeCidrs: ['192.168.10.0/24'], hits: 4, revoked: false, expiresAt: BOOT + 5 * HOUR + 12 * MIN },
-  { id: 's2', fileId: 'f09', fileName: 'product-photos_launch-set.tar.gz', createdBy: 'Nattaporn W.', authType: 'otc', scope: 'any', scopeCidrs: [], hits: 17, revoked: false, expiresAt: BOOT + 22 * HOUR },
-  { id: 's3', fileId: 'f02', fileName: 'network-topology_edge-site-A.pdf', createdBy: 'Veerachat J.', authType: 'password', scope: 'subnet', scopeCidrs: ['192.168.30.0/24'], hits: 2, revoked: false, expiresAt: BOOT + 41 * MIN },
-]
+// ── Shares — ลิงก์ที่ไถ่ไฟล์ได้จริง ────────────────────────────────────
+//
+// ⚠️ ก่อนหน้านี้หมวดนี้เป็น "ด้านหน้าอาคาร": POST สร้างแถวจริงลงตาราง แต่ไม่มีคอลัมน์
+//    token ไม่มี endpoint ไถ่ลิงก์ ไม่มี URL ให้ผู้ใช้คัดลอกที่ไหนในจอเลย, password_hash
+//    ไม่ถูกอ่านโดยโค้ดใดทั้งสิ้น, hits ไม่เคยเพิ่ม และ vlan_scope ถูกเก็บโดยไม่มีใครตรวจ
+//    ทั้งหมดนี้ประกอบกันเป็นจอที่ดูเหมือนระบบแชร์ไฟล์ที่ล็อกขอบเขตได้ แต่แชร์อะไรไม่ได้เลย
+//
+// ⚠️ token: เก็บ sha256 ไม่ใช่ค่าดิบ (ดูเหตุผลเต็มใน schema.sql) ค่าดิบถูกคืน
+//    "ครั้งเดียว" ตอนสร้าง — เซิร์ฟเวอร์แสดงลิงก์เดิมซ้ำไม่ได้เพราะไม่มีค่าดิบเก็บไว้
+const shares = [] // dev fallback (ไม่มี DATABASE_URL) — เริ่มว่าง ไม่มีแถวเดโม่ที่ไถ่ไม่ได้
 
 const EXPIRY_MS = { '1h': HOUR, '24h': DAY, '7d': 7 * DAY, '30d': 30 * DAY }
-const SCOPE_CIDRS = { vlan: ['192.168.10.0/24'], subnet: ['192.168.30.0/24'], any: [] }
+
+// ⚠️ 'otc' (one-time code) ถูกถอดออกจากตัวเลือก — มันหมายถึงรหัสที่ส่งให้ผู้รับผ่าน
+//    ช่องทางอื่น (อีเมล/SMS) ซึ่งระบบนี้ไม่มีช่องทางส่งอะไรออกไปเลย เดิม UI ให้เลือกได้
+//    และเซิร์ฟเวอร์ก็รับค่าไว้ แต่ไม่เคยมีรหัสถูกสร้างหรือถูกตรวจที่ไหน = ลิงก์ที่ผู้ใช้
+//    เชื่อว่าต้องมีรหัสจึงเปิดได้ กลายเป็นลิงก์ที่ใครถือก็เปิดได้ทันที
+//    ค่า 'otc' ยังผ่าน CHECK ของตารางเพื่อไม่ทำให้แถวเก่าผิด constraint แต่สร้างใหม่ไม่ได้
+const AUTH_TYPES = new Set(['password', 'none'])
+const SCOPES = new Set(['any', 'zones'])
+const MIN_LINK_PASSWORD = 8
+
+/** token ดิบ 256 บิต — URL-safe, เดาไม่ได้ (ไม่ใช่ id ที่ไล่เลขได้) */
+const newShareToken = () => randomBytes(32).toString('base64url')
+
+/** สิ่งที่เก็บลงตาราง — ห้ามเก็บ token ดิบ */
+export const hashShareToken = (token) => sha256Hex(String(token))
 
 function mapShareRow(r) {
   return {
     id: String(r.id), fileId: String(r.file_id), fileName: r.file_name,
     createdBy: r.created_by_name ?? 'system', authType: r.auth_type, scope: r.scope,
-    scopeCidrs: r.vlan_scope, hits: r.hits, revoked: r.revoked,
+    scopeCidrs: r.vlan_scope ?? [], hits: r.hits, revoked: r.revoked,
     expiresAt: new Date(r.expires_at).getTime(),
+    // ⚠️ ไม่คืน token_hash และ password_hash ออกไปไหนเลย — แม้แต่ให้ Admin
+    //    hasPassword เป็น boolean พอสำหรับให้ UI บอกผู้ใช้ว่าลิงก์นี้ต้องใช้รหัส
+    hasPassword: Boolean(r.password_hash),
+    redeemable: Boolean(r.token_hash), // false = แถวเก่าก่อน migration (ไม่มีลิงก์ให้ไถ่)
   }
 }
 
@@ -219,52 +243,139 @@ async function pgListShares() {
   return rows.map(mapShareRow)
 }
 
-async function pgCreateShare({ fileId, expiry, authType, scope }, user) {
-  if (!/^\d+$/.test(String(fileId))) return null
-  const { rows: fileRows } = await query(`SELECT id, name, vault FROM files WHERE id = $1`, [fileId])
-  const file = fileRows[0]
-  if (!file || file.vault) return null
-  if (!EXPIRY_MS[expiry] || !['password', 'otc', 'none'].includes(authType) || !SCOPE_CIDRS[scope]) return null
-  const expiresAt = new Date(Date.now() + EXPIRY_MS[expiry])
-  const { rows } = await query(
-    `INSERT INTO shares (file_id, created_by, auth_type, scope, vlan_scope, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [fileId, user.id, authType, scope, SCOPE_CIDRS[scope], expiresAt],
-  )
-  return mapShareRow({ ...rows[0], file_name: file.name, created_by_name: user.displayName })
-}
-
-async function pgRevokeShare(id) {
-  if (!/^\d+$/.test(String(id))) return false
-  const { rowCount } = await query(`UPDATE shares SET revoked = true WHERE id = $1`, [id])
-  return rowCount > 0
-}
-
 export async function listShares() {
   if (usingPostgres) return pgListShares()
-  return shares.filter((s) => !s.revoked)
+  return shares.filter((s) => !s.revoked).map((s) => ({ ...s, tokenHash: undefined, passwordHash: undefined }))
 }
 
-export async function createShare({ fileId, expiry, authType, scope }, user) {
-  if (usingPostgres) return pgCreateShare({ fileId, expiry, authType, scope }, user)
+/**
+ * สร้างลิงก์แชร์ + token ดิบที่คืนให้ "ครั้งเดียว"
+ * @returns {Promise<{ share: object, token: string } | null>} null = input ไม่ผ่าน
+ *
+ * ⚠️ scope 'zones' snapshot CIDR จาก network_zones ณ เวลานี้ลง vlan_scope — ไม่อ่าน
+ *    ตาราง zones ตอนไถ่ลิงก์ เพราะขอบเขตของลิงก์ต้องเป็นสิ่งที่ผู้สร้าง "เห็นและตกลง"
+ *    ตอนสร้าง ถ้าอ่านสดตอนไถ่ การที่ Admin เพิ่ม zone ใหม่วันหลังจะขยายขอบเขตของ
+ *    ลิงก์เก่าทุกลิงก์ย้อนหลังโดยไม่มีใครรู้ตัว
+ * ⚠️ ถ้าเลือก 'zones' แต่ยังไม่มี zone ใดถูกกำหนดไว้ = ปฏิเสธ ไม่ใช่สร้างลิงก์ที่
+ *    "จำกัดขอบเขต" ด้วยรายการว่าง (ซึ่งจะกลายเป็นไม่จำกัดจริง ๆ แต่ป้ายบอกว่าจำกัด)
+ */
+export async function createShare({ fileId, expiry, authType, scope, password }, user) {
+  if (!EXPIRY_MS[expiry] || !AUTH_TYPES.has(authType) || !SCOPES.has(scope)) return null
+
+  const pw = String(password ?? '')
+  if (authType === 'password' && pw.length < MIN_LINK_PASSWORD) return null
+
+  let cidrs = []
+  if (scope === 'zones') {
+    cidrs = (await listNetworkZones()).map((z) => z.cidr)
+    if (cidrs.length === 0) return null
+  }
+
+  const token = newShareToken()
+  const tokenHash = hashShareToken(token)
+  // cost 12 เท่ากับบัญชีที่สร้างใหม่ — รหัสลิงก์ก็คือรหัสผ่านที่กันคนเข้าถึงไฟล์เหมือนกัน
+  const passwordHash = authType === 'password' ? bcrypt.hashSync(pw, 12) : null
+
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(fileId))) return null
+    const { rows: fileRows } = await query(`SELECT id, name, vault FROM files WHERE id = $1`, [fileId])
+    const file = fileRows[0]
+    if (!file || file.vault) return null // แชร์ไฟล์ vault ไม่ได้ — server อ่าน ciphertext ไม่ออก
+    const { rows } = await query(
+      `INSERT INTO shares (file_id, created_by, auth_type, password_hash, scope, vlan_scope, expires_at, token_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [fileId, user.id, authType, passwordHash, scope, cidrs, new Date(Date.now() + EXPIRY_MS[expiry]), tokenHash],
+    )
+    const share = mapShareRow({ ...rows[0], file_name: file.name, created_by_name: user.displayName })
+    return { share, token }
+  }
+
   const file = files.find((f) => f.id === fileId)
-  if (!file || file.vault) return null // แชร์ไฟล์ vault ไม่ได้ — server อ่าน ciphertext ไม่ออก
-  if (!EXPIRY_MS[expiry] || !['password', 'otc', 'none'].includes(authType) || !SCOPE_CIDRS[scope]) return null
+  if (!file || file.vault) return null
   const row = {
     id: nextId('s'), fileId, fileName: file.name, createdBy: user.displayName,
-    authType, scope, scopeCidrs: SCOPE_CIDRS[scope], hits: 0, revoked: false,
+    authType, scope, scopeCidrs: cidrs, hits: 0, revoked: false,
     expiresAt: Date.now() + EXPIRY_MS[expiry],
+    hasPassword: Boolean(passwordHash), redeemable: true,
+    tokenHash, passwordHash,
   }
   shares.unshift(row)
-  return row
+  return { share: { ...row, tokenHash: undefined, passwordHash: undefined }, token }
+}
+
+/**
+ * หาลิงก์จาก token ดิบ — คืน "ทุกอย่างที่เส้นทางไถ่ลิงก์ต้องใช้" รวม hash ของรหัส
+ * ⚠️ ผลลัพธ์ของฟังก์ชันนี้ห้ามหลุดออกไปที่ response ใด ๆ (มี passwordHash อยู่ข้างใน)
+ * ⚠️ ไม่กรอง revoked/expired ที่นี่โดยเจตนา — ผู้เรียกต้องตัดสินเอง เพื่อให้ audit
+ *    แยกได้ว่า "ไม่มีลิงก์นี้" กับ "มีแต่ถูกเพิกถอน/หมดอายุ" (คนละเหตุการณ์เชิง forensics)
+ *    แต่ response ที่ส่งกลับผู้ใช้ต้องเหมือนกันทุกกรณี — ไม่ให้ probe ว่า token ไหนเคยมี
+ */
+export async function findShareByToken(token) {
+  if (typeof token !== 'string' || token.length < 16 || token.length > 128) return null
+  const tokenHash = hashShareToken(token)
+
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT s.*, f.name AS file_name, f.path AS file_path, f.size_bytes AS file_size, f.vault AS file_vault
+         FROM shares s JOIN files f ON f.id = s.file_id
+        WHERE s.token_hash = $1`,
+      [tokenHash],
+    )
+    if (!rows.length) return null
+    const r = rows[0]
+    return {
+      id: String(r.id), fileId: String(r.file_id), fileName: r.file_name,
+      filePath: r.file_path, fileSize: Number(r.file_size), fileVault: r.file_vault,
+      authType: r.auth_type, passwordHash: r.password_hash,
+      scopeCidrs: r.vlan_scope ?? [], revoked: r.revoked,
+      expiresAt: new Date(r.expires_at).getTime(),
+    }
+  }
+
+  const s = shares.find((x) => x.tokenHash === tokenHash)
+  if (!s) return null
+  const file = files.find((f) => f.id === s.fileId)
+  return {
+    id: s.id, fileId: s.fileId, fileName: s.fileName,
+    filePath: file?.path ?? null, fileSize: file?.size ?? 0, fileVault: Boolean(file?.vault),
+    authType: s.authType, passwordHash: s.passwordHash ?? null,
+    scopeCidrs: s.scopeCidrs ?? [], revoked: s.revoked, expiresAt: s.expiresAt,
+  }
+}
+
+/** เพิ่มตัวนับการเข้าถึง — เรียก "หลัง" ผ่านด่านทั้งหมดแล้วเท่านั้น (นับการไถ่สำเร็จ ไม่ใช่การลอง) */
+export async function countShareHit(id) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return false
+    // UPDATE แบบ read-modify-write ในคำสั่งเดียว — ผู้รับหลายคนกดพร้อมกันแล้วตัวนับไม่หาย
+    const { rowCount } = await query(`UPDATE shares SET hits = hits + 1 WHERE id = $1`, [id])
+    return rowCount > 0
+  }
+  const s = shares.find((x) => x.id === String(id))
+  if (!s) return false
+  s.hits += 1
+  return true
 }
 
 export async function revokeShare(id) {
-  if (usingPostgres) return pgRevokeShare(id)
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return false
+    const { rowCount } = await query(`UPDATE shares SET revoked = true WHERE id = $1`, [id])
+    return rowCount > 0
+  }
   const s = shares.find((x) => x.id === id)
   if (!s) return false
   s.revoked = true
   return true
+}
+
+/** ล้าง shares ในโหมด dev fallback — ใช้โดยชุดทดสอบเท่านั้น */
+export async function __resetSharesForTests() {
+  if (usingPostgres) {
+    await query('DELETE FROM shares')
+    return
+  }
+  shares.length = 0
 }
 
 // ── Snapshots ────────────────────────────────────────────────────────

@@ -184,7 +184,13 @@ test('ไม่มี plaintext หรือกุญแจหลงอยู่
     ciphertext: bytesToB64(env.ciphertext),
   })
 
-  for (const secret of [PASS, secretName, secretBody, 'resignation', 'Veerachat', 'pdf']) {
+  // ⚠️ ทุกคำที่ค้นต้องมีอักขระที่ "ไม่อยู่ใน base64 alphabet" อย่างน้อยหนึ่งตัว หรือยาวพอ
+  //    ที่จะไม่โผล่มาโดยบังเอิญ — เดิมรายการนี้มี 'pdf' ซึ่งสั้นเพียงสามตัวและทุกตัวอยู่ใน
+  //    ชุดอักขระ base64 โอกาสที่มันจะปรากฏในสตริง base64 ของ ciphertext แบบสุ่มอยู่ที่
+  //    ประมาณ 1 ใน 400 รอบ ทำให้ชุดทดสอบล้มเป็นครั้งคราวโดยที่ไม่มีอะไรรั่วจริงเลย
+  //    (เจอครั้งหนึ่งระหว่างงาน Phase 4 — เป็นบั๊กของเทสต์ ไม่ใช่ของโค้ด)
+  //    '.pdf' ปลอดภัยเพราะ '.' ไม่มีในชุดอักขระ base64 จึงไม่มีทาง false positive
+  for (const secret of [PASS, secretName, secretBody, 'resignation', 'Veerachat', '.pdf']) {
     assert.equal(onTheWire.includes(secret), false, `พบ "${secret}" ใน payload ที่ส่งขึ้น server`)
   }
 

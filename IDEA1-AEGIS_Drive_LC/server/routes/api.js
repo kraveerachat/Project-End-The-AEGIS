@@ -347,13 +347,23 @@ apiRouter.get('/shares', requireAuth, async (req, res, next) => {
   }
 })
 
+/**
+ * สร้างลิงก์แชร์ — คืน token ดิบ "ครั้งเดียว" ในผลลัพธ์นี้เท่านั้น
+ * ⚠️ ตารางเก็บแค่ sha256 ของ token (ดู schema.sql) เซิร์ฟเวอร์จึงแสดงลิงก์เดิมซ้ำไม่ได้
+ *    แบบแผนเดียวกับ tempPassword ของ POST /users — ผู้ใช้ต้องคัดลอกตอนนี้
+ * ⚠️ path ที่คืนไปเป็น path ฝั่งเซิร์ฟเวอร์ ('/s/<token>') — client ประกอบ URL เต็มเอง
+ *    ด้วย origin + BASE_URL ของตัวเอง (แอปถูก mount ที่ /drive/ ผ่าน nginx ที่ตัด prefix
+ *    ออกก่อนถึง Express — Express จึงไม่รู้ prefix ของตัวเองและไม่ควรเดา)
+ */
 apiRouter.post('/shares', requireAuth, async (req, res, next) => {
   try {
-    const { fileId, expiry, authType, scope } = req.body ?? {}
-    const row = await store.createShare({ fileId, expiry, authType, scope }, req.user)
-    if (!row) return res.status(400).json({ error: 'Invalid input' })
-    auditAct(req, 'SHARE_CREATE', row.fileName)
-    res.status(201).json({ share: row })
+    const { fileId, expiry, authType, scope, password } = req.body ?? {}
+    const created = await store.createShare({ fileId, expiry, authType, scope, password }, req.user)
+    if (!created) return res.status(400).json({ error: 'Invalid input' })
+    auditAct(req, 'SHARE_CREATE', created.share.fileName)
+    // ⚠️ ห้าม log/audit ตัว token — มันคือ credential ที่เปิดไฟล์ได้ทันที
+    //    (targetHash ด้านบนเป็น hash ของ "ชื่อไฟล์" ตามแบบแผน privacy-preserving เดิม)
+    res.status(201).json({ share: created.share, path: `/s/${created.token}` })
   } catch (err) {
     next(err)
   }

@@ -16,7 +16,17 @@ const byAccount = new Map()
 const byIp = new Map()
 
 const norm = (username) => String(username ?? '').trim().toLowerCase()
-const ipOf = (req) => req.ip || req.socket?.remoteAddress || 'unknown'
+const rawIp = (req) => req.ip || req.socket?.remoteAddress || 'unknown'
+
+// ⚠️ scope แยกตัวนับของ "คนละเรื่อง" ออกจากกัน — ไม่ใช่ความสวยงาม แต่กัน DoS ที่เรา
+//    ยิงตัวเอง: เดิมด่านนี้มีตัวนับ IP ชุดเดียว ถ้าเส้นทางอื่นเอาไปใช้ด้วย (เช่นการเดา
+//    รหัสของลิงก์แชร์) การเดาผิดครบโควตาจะล็อก "หน้าล็อกอิน" ของ IP นั้นไปด้วย
+//    ในออฟฟิศที่ทุกเครื่องออกเน็ตผ่าน NAT เดียวกัน = คนหนึ่งกรอกรหัสลิงก์ผิดห้าครั้ง
+//    แล้วทั้งบริษัทล็อกอินไม่ได้ (พบจากเทสต์ brute-force ของลิงก์แชร์ ไม่ใช่จากทฤษฎี)
+//    ทั้งสองแกนถูก namespace ด้วย scope: การกันเดารหัสของลิงก์ยังทำงานเต็มที่
+//    แต่ไปโดนแค่ตัวมันเอง
+const ipOf = (req, scope) => `${scope}|${rawIp(req)}`
+const accountOf = (username, scope) => `${scope}|${norm(username)}`
 
 function check(map, key) {
   const rec = map.get(key)
@@ -50,9 +60,9 @@ function bump(map, key) {
  * เรียก "ก่อน" ตรวจรหัส — ล็อกอยู่ให้ตอบ 429 ทันทีโดยไม่แตะ DB
  * (เช็คทั้งแกนบัญชีและแกน IP — ติดแกนใดแกนหนึ่งก็ล็อก)
  */
-export function checkLock(req, username) {
-  const a = check(byAccount, norm(username))
-  const b = check(byIp, ipOf(req))
+export function checkLock(req, username, scope = 'login') {
+  const a = check(byAccount, accountOf(username, scope))
+  const b = check(byIp, ipOf(req, scope))
   const retryAfterMs = Math.max(a, b)
   return { locked: retryAfterMs > 0, retryAfterMs }
 }
@@ -62,16 +72,16 @@ export function checkLock(req, username) {
  * คืนรายละเอียด lockout (ถ้าเพิ่งเกิด) เพื่อให้ route เอาไปเขียน audit log
  * @returns {{ accountLockMs: number|null, ipLockMs: number|null }}
  */
-export function recordFailure(req, username) {
+export function recordFailure(req, username, scope = 'login') {
   return {
-    accountLockMs: bump(byAccount, norm(username)),
-    ipLockMs: bump(byIp, ipOf(req)),
+    accountLockMs: bump(byAccount, accountOf(username, scope)),
+    ipLockMs: bump(byIp, ipOf(req, scope)),
   }
 }
 
-/** เรียกเมื่อล็อกอินสำเร็จ — ล้างตัวนับของบัญชีนั้น (แกน IP ปล่อยให้หมดอายุตาม window) */
-export function recordSuccess(req, username) {
-  byAccount.delete(norm(username))
+/** เรียกเมื่อสำเร็จ — ล้างตัวนับของบัญชีนั้น (แกน IP ปล่อยให้หมดอายุตาม window) */
+export function recordSuccess(req, username, scope = 'login') {
+  byAccount.delete(accountOf(username, scope))
 }
 
 export const rateLimitConfig = Object.freeze({ MAX_ATTEMPTS, WINDOW_MS, BASE_LOCK_MS, MAX_LOCK_MS })

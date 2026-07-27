@@ -11,6 +11,7 @@ import { securityHeaders } from './middleware/securityHeaders.js'
 import { csrfProtection } from './middleware/csrf.js'
 import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
+import { shareRouter } from './routes/share.js'
 import { checkDb } from './db/connection.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -39,6 +40,13 @@ export function createApp() {
   // CSRF ครอบทุก /api ที่เปลี่ยนสถานะ — ต้องมาก่อน router
   app.use('/api', csrfProtection, apiRouter)
   app.use('/api', apiNotFound)
+
+  // ── /s/:token — ไถ่ลิงก์แชร์ (ไม่ต้องล็อกอิน) ──────────────────────────────
+  // ⚠️ อยู่นอก /api โดยเจตนา: ผู้รับเปิดจาก URL ในอีเมล/แชท ไม่ได้เรียกผ่าน fetch ของแอป
+  //    จึงไม่มี CSRF token และไม่มีเซสชัน — ด่านทั้งหมดอยู่ในตัว router เอง (ดู routes/share.js)
+  // ⚠️ ต้องมาก่อน express.static และก่อน SPA fallback ไม่งั้น '*' จะกิน /s/... ไปตอบ index.html
+  //    (nginx ตัด prefix /drive ออกแล้ว — URL สาธารณะจึงเป็น <origin>/drive/s/<token>)
+  app.use(shareRouter)
 
   // เสิร์ฟไฟล์ build ของ frontend
   app.use(express.static(DIST))
