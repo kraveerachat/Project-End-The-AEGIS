@@ -103,3 +103,31 @@ After implementation:
    `docker compose up -d --build` and `http://localhost/monitor/` when requested.
 3. Keep local agent settings and secrets out of commits. Use `AGENTS.md` as the
    authoritative repository policy when this README and an agent's defaults differ.
+
+### Automatic Impeccable command selection
+
+You do not need to type an Impeccable command for every design request. Agents must infer
+the best command from the prompt, inspect the target surface, and use the project-local
+skill before editing. The official command reference is
+[impeccable.style/docs](https://impeccable.style/docs/).
+
+| Request intent | Select automatically |
+| --- | --- |
+| New screen or major UI feature | `shape` → `craft` |
+| Spacing, alignment, hierarchy, or responsive composition | `layout` / `adapt` |
+| Typography, wrapping, or unreadable labels | `typeset` / `clarify` |
+| Palette, contrast, or semantic states | `colorize` / `audit` |
+| Accessibility, edge cases, empty/error states, or production readiness | `audit` → `harden` |
+| Visual review or anti-pattern check | `critique` |
+| Final refinement before handoff | `polish` |
+| Browser-based visual iteration | `live` |
+| Motion requested explicitly | `animate`, only when it communicates state and respects reduced motion |
+
+For larger changes, use the sequence `shape → craft → critique/audit → polish`. Do not
+apply commands mechanically: preserve real API data, routes, RBAC, state machines, Thai-first
+copy, WCAG AA contrast, reduced motion, and the existing AEGIS product/design register.
+
+Every agent must read the relevant existing Obsidian note before changing code and update
+that note in place afterward. Functional, architectural, security, or deployment changes
+must also update `00 - 🗺️ AEGIS System Overview.md` and append `log.md`; do not create
+duplicate notes unless a genuinely new concept is introduced.

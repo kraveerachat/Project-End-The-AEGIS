@@ -12,9 +12,15 @@
 ## Shared UI/design workflow
 
 - For frontend design work, read `.agents/skills/impeccable/SKILL.md` before editing and
-  select the command that fits the prompt (`layout`, `craft`, `polish`, `audit`,
-  `delight`, etc.). Use the existing `PRODUCT.md`/`DESIGN.md` register and verify the
-  result against the running surface when possible.
+  infer the command that fits the prompt; the user does not need to name it. Use
+  `shape`/`craft` for new surfaces, `layout`/`adapt` for composition, `typeset`/`clarify`
+  for text, `colorize`/`audit` for palette and contrast, `critique` for review,
+  `harden` for production edge cases, `polish` for final refinement, and `live` for
+  browser iteration. Use `animate` only for purposeful state motion with reduced-motion
+  fallbacks. The official reference is https://impeccable.style/docs/.
+- Follow the Impeccable sequence `shape → craft → critique/audit → polish` for larger
+  changes; never apply a command mechanically. Use the existing `PRODUCT.md`/`DESIGN.md`
+  register and verify the result against the running surface when possible.
 - Read `AEGIS_Knowledge/index.md` and the relevant module note before changing code so
   another agent's architectural and UI decisions are not lost.
 - Preserve real API/state/RBAC behavior when a prompt is design-only. Do not add mock

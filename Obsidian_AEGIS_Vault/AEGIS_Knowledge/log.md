@@ -1038,3 +1038,10 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Modified source code paths**: `README.md`, `AGENTS.md`, `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx`, `IDEA2-AEGIS_Monitor/src/index.css`, `IDEA2-AEGIS_Monitor/server/index.js`.
 - **Updated Obsidian notes**: `[[00 - 🗺️ AEGIS System Overview]]`, `[[03 - 📹 IDEA2 AEGIS Monitor]]`, `[[concepts/Impeccable_UI_Design_Workflow]]`, and `[[log]]`.
 - **Verification**: Monitor tests pass (6/6), production build succeeds, Docker services are healthy, `http://localhost/monitor/` returns HTTP 200, and the served bundle contains the routing card markup without the removed `nodefeed` markup.
+
+## [2026-07-28] vibe-coding | Formalize automatic Impeccable workflow for repository agents
+
+- **Prompt goal**: Make Impeccable command selection automatic for future UI prompts and give other agents a shared, persistent workflow for reading and updating the Obsidian Knowledge Base.
+- **Modified source code paths**: `README.md`, `AGENTS.md`.
+- **Updated Obsidian notes**: `[[00 - 🗺️ AEGIS System Overview]]`, `[[concepts/Impeccable_UI_Design_Workflow]]`, and `[[log]]`; `index.md` already catalogued the existing workflow note, so no duplicate entry was created.
+- **Reference**: https://impeccable.style/docs/; local implementation guide `.agents/skills/impeccable/SKILL.md`.

@@ -151,6 +151,8 @@ flowchart LR
 
 ---
 
+> **2026-07-28**: The repository now documents automatic Impeccable command selection in `README.md`, `AGENTS.md`, and `concepts/Impeccable_UI_Design_Workflow.md`. Future agents infer `shape`, `layout`, `typeset`, `colorize`, `audit`, `harden`, `polish`, or `live` from the prompt, read the shared Obsidian context, and update existing notes in place after implementation. The official reference remains https://impeccable.style/docs/.
+
 ## 🚧 Outstanding Items (Open / In-Progress)
 
 Items designed but pending final implementation:

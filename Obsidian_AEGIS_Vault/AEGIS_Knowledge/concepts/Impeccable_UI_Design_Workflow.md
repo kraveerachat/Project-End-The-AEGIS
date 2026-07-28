@@ -35,6 +35,20 @@ AEGIS UI work in this task is handled through the local Impeccable skill and its
 - Never apply a command mechanically: inspect the target page, its CSS/tokens, and the current design context first.
 - Prefer the sequence `shape → build → critique/audit → polish` for larger changes and `audit → harden` for technical quality issues.
 
+## Agent operating rule
+
+The user may send a design brief from Gemini, Claude, or another assistant without naming
+an Impeccable command. The coding agent must infer the primary command from the brief,
+select a secondary verification command when useful, and explain the choice briefly in its
+working update. A command is a means to inspect and improve the real surface, not a reason
+to rewrite functional behavior. The agent must read `PRODUCT.md`, `DESIGN.md`, this note,
+and the relevant module note before editing, then update existing Obsidian notes in place
+afterward.
+
+The official command source is https://impeccable.style/docs/; the repository implementation
+is `.agents/skills/impeccable/SKILL.md`. Other agents should use the same routing rules so
+UI decisions remain consistent across sessions and contributors.
+
 ## Applied pass: repository-wide UI directive (2026-07-28)
 
 For the comprehensive frontend directive, the selected commands were `craft` for the production CSS implementation, `layout` for responsive composition and hierarchy, `delight` for restrained interaction feedback, and `animate` for state-oriented motion/accessibility rules. The implementation was scoped to `src/index.css` in HUB, Drive, and Monitor so functional logic, API contracts, and state machines stayed unchanged. Verification used the Impeccable detector, production builds, and module tests.
