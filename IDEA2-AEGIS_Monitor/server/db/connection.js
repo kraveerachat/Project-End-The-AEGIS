@@ -1,9 +1,3 @@
-// server/db/connection.js — AEGIS Monitor (IDEA2)
-// จุดเชื่อมต่อฐานข้อมูล aegis_monitor — "แหล่งความจริง" ของ user + role + camera_assignment
-// ⚠️ Identity Decoupling: ฐานข้อมูลนี้เป็นของ IDEA2 เท่านั้น — IDEA1 มี DB ของตัวเอง
-//    (aegis_drive) ห้ามใช้ connection string เดียวกัน ห้ามอ่านตารางข้ามโมดูล
-// ⚠️ ไม่มี SSO: เซิร์ฟเวอร์นี้ไม่เคยเรียกไปถามเซสชันจาก HUB หรือแอปอื่นใด
-//    (โค้ดเดิมที่ fetch http://localhost:3001/api/me ถูก "ทำลายทิ้ง" ตามคำสั่งสถาปัตยกรรม)
 import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import { ROLES } from '../rbac/permissions.js'

@@ -9,6 +9,20 @@
 **Target Obsidian Vault Directory**:  
 `C:\Users\User\AEGIS_System\Obsidian_AEGIS_Vault\AEGIS_Knowledge`
 
+## Shared UI/design workflow
+
+- For frontend design work, read `.agents/skills/impeccable/SKILL.md` before editing and
+  select the command that fits the prompt (`layout`, `craft`, `polish`, `audit`,
+  `delight`, etc.). Use the existing `PRODUCT.md`/`DESIGN.md` register and verify the
+  result against the running surface when possible.
+- Read `AEGIS_Knowledge/index.md` and the relevant module note before changing code so
+  another agent's architectural and UI decisions are not lost.
+- Preserve real API/state/RBAC behavior when a prompt is design-only. Do not add mock
+  data, fake telemetry, or unnecessary motion to make a screenshot look complete.
+- After UI or deployment work, run the affected tests/build and record meaningful
+  deployment or architecture changes in the existing Obsidian notes. Keep local agent
+  settings, credentials, and secrets out of commits.
+
 ### Procedure upon completing a user prompt:
 1. **In-Place Update (แก้ไขในไฟล์เดิม)**:
    - Identify existing notes in `AEGIS_Knowledge` that relate to the code changed.

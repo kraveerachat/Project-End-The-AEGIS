@@ -16,6 +16,7 @@ import { EmptyState } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.jsx'
+import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
 export default function Operators() {
   // /api/operators คืน { operators, assignments } — assignments เป็น map camId → userId|'SOC'|null
@@ -27,6 +28,7 @@ export default function Operators() {
   const operators = api.data?.operators ?? []
   const assignments = api.data?.assignments ?? {}
   const cameras = camsApi.data?.cameras ?? []
+  const state = getViewState(api, (data) => (data?.operators ?? []).length === 0)
 
   // operator id → รายการกล้องที่ถือครองอยู่ (คำนวณจาก assignments ที่เซิร์ฟเวอร์ส่งมา)
   const camsOf = useMemo(() => {
@@ -56,39 +58,31 @@ export default function Operators() {
         </p>
       </div>
       <div className="pagehead-actions">
-        {!api.loading && !api.error && (
+        {state === VIEW_STATE.SUCCESS_EMPTY || state === VIEW_STATE.SUCCESS_DATA ? (
           <button type="button" className="ackbtn" onClick={() => setModal('form')}>
             <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />Add operator
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   )
 
-  if (api.error) {
+  if (state === VIEW_STATE.ERROR) {
     return (
-      <>
-        {head}
-        <EmptyState
-          icon={ServerOff}
-          title="Could not load operators"
-          hint="The Monitor backend did not respond. Check the server, then retry."
-          action={
-            <button type="button" className="ackbtn" onClick={api.retry}>
-              <RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry
-            </button>
-          }
-        />
-      </>
+      <EmptyState icon={ServerOff} title="Could not load operators"
+        hint="The Monitor backend did not respond. Check the server, then retry."
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
     )
+  }
+
+  if (state === VIEW_STATE.LOADING) {
+    return <EmptyState icon={Users} title="Loading operators" hint="Retrieving operator accounts and assignments." />
   }
 
   return (
     <>
       {head}
-      {api.loading ? (
-        <div className="tablewrap panel glass" aria-busy="true" style={{ opacity: 0.45, height: 180 }} />
-      ) : operators.length === 0 ? (
+      {state === VIEW_STATE.SUCCESS_EMPTY ? (
         <EmptyState
           icon={Users}
           title="No operator accounts yet"

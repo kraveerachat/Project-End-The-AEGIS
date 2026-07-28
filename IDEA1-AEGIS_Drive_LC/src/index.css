@@ -653,3 +653,56 @@ input::-webkit-inner-spin-button {
 .shake-x {
   animation: shake-x 250ms var(--ease, cubic-bezier(0.32, 0.72, 0, 1));
 }
+
+
+/* ─────────────────────────────────────────────────────────────────
+   Unified tactical surface pass
+   Keep Drive's Precision Light tokens and extend the same interaction,
+   glass, focus, responsive, and motion vocabulary to every screen.
+   ───────────────────────────────────────────────────────────────── */
+:root {
+  --ui-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ui-focus: var(--accent);
+  --ui-glass-light: rgba(255, 255, 255, .95);
+  --ui-glass-dark: rgba(12, 13, 18, .90);
+}
+
+:root[data-theme="dark"] {
+  --ui-focus: #a78bfa;
+}
+
+.bg-card {
+  background-color: var(--ui-glass-light) !important;
+  border-color: color-mix(in srgb, var(--line) 88%, transparent);
+  transition: border-color var(--dur-fast) var(--ui-ease), box-shadow var(--dur-fast) var(--ui-ease), transform var(--dur-fast) var(--ui-ease);
+}
+:root[data-theme="dark"] .bg-card {
+  background-color: var(--ui-glass-dark) !important;
+  border-color: rgba(255, 255, 255, .10);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, .7);
+}
+
+button:not(:disabled),
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+button:not(:disabled):active,
+[role="button"]:active {
+  transform: scale(.995);
+}
+
+input,
+select,
+textarea {
+  transition: background-color var(--dur-fast) var(--ui-ease), border-color var(--dur-fast) var(--ui-ease), box-shadow var(--dur-fast) var(--ui-ease);
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--ui-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-focus) 24%, transparent), 0 0 15px color-mix(in srgb, var(--ui-focus) 16%, transparent);
+}
+
+@media (max-width: 900px) {
+  .main > div[class*="max-w-"] { max-width: none; }
+}

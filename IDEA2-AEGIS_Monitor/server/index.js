@@ -48,10 +48,24 @@ app.use('/api', apiNotFound)
 // ⚠️ ชั้น gateway (nginx) บล็อก /monitor/internal/ จากภายนอกอีกชั้น (defense-in-depth)
 app.use('/internal', requireDetectionEngineKey, internalRouter)
 
-app.use(express.static(DIST))
+// The shell must always be revalidated after a Docker deploy so a browser
+// cannot keep rendering an older React bundle. Vite assets are content-hashed
+// and can remain immutable once the current index.html points at them.
+app.use(express.static(DIST, {
+  setHeaders: (res, filePath) => {
+    if (path.basename(filePath) === 'index.html') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+    } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    }
+  },
+}))
 
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next()
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
   res.sendFile(path.join(DIST, 'index.html'), (err) => {
     if (err) next()
   })

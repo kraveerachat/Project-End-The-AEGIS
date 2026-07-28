@@ -1,6 +1,6 @@
 // src/components/LiveFeed.jsx — AEGIS Monitor (IDEA2) · Phase B
 //
-// MJPEG ผ่าน <img> คือวิธี "พื้นเมือง" ของเบราว์เซอร์: multipart/x-mixed-replace
+// MJPEG ผ่าน image element คือวิธี "พื้นเมือง" ของเบราว์เซอร์: multipart/x-mixed-replace
 // ถูกถอดรหัสโดยตัวเบราว์เซอร์เอง ไม่ต้องมี player, ไม่ต้องมี JS ถอดเฟรม
 //
 // ⚠️ src ชี้ไปที่ origin ของ Monitor เสมอ (/monitor/api/cameras/:id/stream)
@@ -8,7 +8,7 @@
 //    ที่อยู่ของ engine หรือ API key ของมัน
 //
 // ── ทำไมต้องจัดการ error เองทั้งหมด ─────────────────────────────────────────
-// <img> บอกเราได้แค่ 'load' กับ 'error' — อ่าน HTTP status ไม่ได้เลย ดังนั้น
+// image element บอกเราได้แค่ 'load' กับ 'error' — อ่าน HTTP status ไม่ได้เลย ดังนั้น
 // "สตรีมพัง" กับ "ไม่มีสิทธิ์" กับ "engine ตาย" หน้าตาเหมือนกันหมดในสายตา DOM
 // เราจึงแยกสามกรณีด้วยข้อมูลที่ "รู้ล่วงหน้าจาก /api/link" แทนที่จะเดาจาก event:
 //   - hasStream === false  → ไม่ต้องต่อเลย แสดง "ไม่มีสตรีม" ตรง ๆ (ไม่ค้าง ไม่ว่างเปล่า)
@@ -20,7 +20,7 @@ import { RefreshCw, VideoOff, WifiOff } from 'lucide-react'
 
 const RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000] // backoff, หยุดที่ 30 วิ
 
-export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compact = false }) {
+export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compact = false, hideStatus = false }) {
   // nonce เปลี่ยน = บังคับเบราว์เซอร์เปิดคำขอใหม่ (ไม่งั้นมันจะใช้ src เดิมที่ตายแล้ว)
   const [nonce, setNonce] = useState(0)
   const [state, setState] = useState('connecting') // connecting | live | error
@@ -58,7 +58,7 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
   }, [hasStream])
 
   const onError = () => {
-    // engine ตายกลางสตรีม / proxy คืน 5xx / เซสชันหมด — <img> แยกไม่ออก
+    // engine ตายกลางสตรีม / proxy คืน 5xx / เซสชันหมด — image element แยกไม่ออก
     // จึงถอยแบบ backoff แล้วลองใหม่ ไม่ปล่อยให้เป็นกรอบดำเงียบ ๆ
     setState('error')
     const wait = RETRY_MS[Math.min(attempts.current, RETRY_MS.length - 1)]
@@ -81,14 +81,14 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
   // ── สถานะที่ไม่ใช่ "กำลังฉาย" — ทุกกรณีมีข้อความของตัวเอง ไม่มีกล่องว่าง ──
   if (!hasStream || state === 'nostream') {
     // ในไทล์เล็ก ๆ ไม่ยัดข้อความเต็มรูปแบบ — ป้าย NO FEED ที่ .sfeed มีอยู่แล้วพอ
-    if (compact) return <div className="hatch" />
+    if (compact || hideStatus) return <div className="hatch" />
     return (
       <>
         <div className="hatch" />
-        <div className="lostwrap">
-          <VideoOff aria-hidden="true" />
-          <span className="lost-t">NO LIVE STREAM</span>
-          <span className="lost-s mono">
+        <div className="lostwrap flex flex-col items-center justify-center gap-3">
+          <VideoOff aria-hidden="true" className="text-slate-300" />
+          <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">NO LIVE STREAM</span>
+          <span className="lost-s mono text-slate-300">
             No Detection Engine is streaming {cameraId}
           </span>
         </div>
@@ -109,7 +109,7 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
         onLoad={onLoad}
         draggable={false}
       />
-      {!compact && state !== 'live' && (
+      {!compact && !hideStatus && state !== 'live' && (
         <div className="feedstate" role="status" aria-live="polite">
           {state === 'error' ? (
             <>
@@ -128,7 +128,7 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
         </div>
       )}
       {/* link lost แต่สตรีมยังมา = ภาพที่เห็นอาจเก่ากว่าความจริง — เตือนไว้ */}
-      {!compact && lost && state === 'live' && (
+      {!compact && !hideStatus && lost && state === 'live' && (
         <div className="feedstate" role="status">
           <WifiOff aria-hidden="true" size={14} />
           <span>Edge link lost — displayed frames may be stale</span>

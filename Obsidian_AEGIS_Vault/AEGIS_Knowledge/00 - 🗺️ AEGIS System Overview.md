@@ -3,11 +3,30 @@ title: AEGIS System Overview
 tags: [aegis, architecture, overview, monorepo, verified-code]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-07-28
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 🗺️ AEGIS System Architecture Overview
+
+## 🎨 UI Design Workflow
+
+All future UI/design prompts are routed through the Impeccable workflow documented in [[concepts/Impeccable_UI_Design_Workflow]]. The agent selects a command from the prompt's intent, using AEGIS's existing product register, tokens, Thai-first accessibility rules, and anti-references as constraints. The normal review path is:
+
+```mermaid
+flowchart LR
+    Prompt[English design prompt] --> Inspect[Inspect target UI + PRODUCT.md + DESIGN.md]
+    Inspect --> Route{Intent}
+    Route -->|Plan/build| Shape[shape / craft]
+    Route -->|Review| Critique[critique / audit]
+    Route -->|Refine| Refine[layout / typeset / colorize / adapt]
+    Route -->|Harden| Harden[harden / clarify / optimize]
+    Shape --> Verify[Browser and code verification]
+    Critique --> Verify
+    Refine --> Verify
+    Harden --> Verify
+    Verify --> Polish[polish when the surface is ready]
+```
 
 > **Autonomous Edge-Guard Infrastructure System** — A comprehensive cyber-physical security system designed and developed with a Monorepo architecture supporting Thai-First UI under a Cyber-Physical Precision design (Dual-Theme Light & Dark Mode, Volumetric Aura Glow, Framer Motion Unfold Physics, and Tailwind CSS v4 `@variant dark`).
 
@@ -36,7 +55,7 @@ flowchart TD
 
     subgraph MetaLayer ["Metadata Layer — PostgreSQL Container (Volume Persisted)"]
         DB_DRIVE[("Database: aegis_drive<br/>role: drive_app — CONNECT here only<br/>(users, files, file_versions, shares,<br/>network_zones, vault_*, audit_log)")]
-        DB_MONITOR[("Database: aegis_monitor<br/>role: monitor_app — CONNECT here only<br/>(users, cameras, camera_assignment)")]
+        DB_MONITOR[("Database: aegis_monitor<br/>role: monitor_app — CONNECT here only<br/>(users, cameras, camera_assignment,<br/>detections, alerts, clips, camera_heartbeat)<br/><b>no audit_log — see IDEA2 open items</b>")]
     end
 
     subgraph StoreLayer ["Storage Layer — Docker named volume (plain ext4)"]
@@ -45,8 +64,8 @@ flowchart TD
 
     Recipient([📧 Share-link recipient<br/>no session, no CSRF token])
 
-    subgraph EdgeNode ["Detection Engine — Laptop (VLAN 20)"]
-        DE["🎥 Python pipeline<br/>segment_recorder · nas_sync · alert_manager<br/><b>no Postgres credential</b>"]
+    subgraph EdgeNode ["Detection Engine — Laptop (VLAN 20) · not in docker-compose"]
+        DE["🎥 Python pipeline<br/>video_catcher · segment_recorder · nas_sync<br/>alert_manager · heartbeat_worker · stream_hub<br/><b>no Postgres credential</b>"]
     end
 
     User -->|Local Dev| Frontends
@@ -66,7 +85,8 @@ flowchart TD
 
     Recipient -->|"GET/POST /drive/s/:token<br/>token verified by sha256 · bcrypt link password<br/>source IP checked against vlan_scope CIDRs"| DRIVE_API
 
-    DE -->|"POST /internal/{detections,clips,alerts}<br/>X-Detection-Engine-Key · gateway 404s this path externally"| MONITOR_API
+    DE -->|"POST /internal/{detections,clips,alerts,heartbeat}<br/>X-Detection-Engine-Key · gateway 404s this path externally"| MONITOR_API
+    MONITOR_API -->|"GET /stream.mjpg (X-Detection-Engine-Key)<br/>proxied — the browser never reaches the engine"| DE
 ```
 
 > ⚠️ **Per-App Session Secret (2026-07-22)**: `drive` and `monitor` use distinct `SESSION_SECRET` keys (`DRIVE_SESSION_SECRET` / `MONITOR_SESSION_SECRET` in root `.env`). A secret leaked from one app cannot forge cookies for another.
@@ -79,6 +99,18 @@ flowchart TD
 
 ---
 
+## 📐 Monitor UI Shell (2026-07-28)
+
+The Monitor frontend keeps product branding in the global topbar start zone and uses a 280px desktop navigation sidebar. The sidebar headings and menu labels are single-line; explicit dark/light text roles keep page subtitles, sidebar footer copy, and Live event-stream logs readable. This presentation-only shell correction leaves the React data flow, RBAC, heartbeat telemetry, and proxied MJPEG path unchanged.
+
+The IDEA2 boundary is intentional: `IDEA2-AEGIS_Monitor/` owns login, identity, server-resolved role menus, scoped UI/API, and `camera_assignment`; `IDEA2-AEGIS_CCTV-Operator/detection-engine/` remains the Laptop-side capture/detection/heartbeat process. The old folder's UI was merged and is no longer a second web application, but the detection engine still participates in the real pipeline.
+
+```mermaid
+flowchart LR
+    Brand[Topbar start: AEGIS Monitor lockup] --> Status[Centered link / AI / inference status]
+    Status --> Utility[Right clock, alerts, user, sign-out]
+    Sidebar[280px sidebar: no-wrap navigation + footer] --> Workspace[Live canvas and scoped views]
+```
 ## 📌 Codebase Implementation Catalog
 
 | Module | Code Status | Port & Directory | Details Note |
@@ -103,6 +135,18 @@ flowchart TD
 >
 > **2026-07-24**: IDEA2 in-web **Add Operator** endpoint (`POST /monitor/api/operators`, SOC-Responder only) created.
 >
+> **2026-07-27**: IDEA2 **audit + two build-out phases** — a mock-vs-real audit of AEGIS Monitor, then the work to close it. **Phase A**: the Detection Engine was run for the first time (real webcam → real 20s segments → `scp` + sha256 verify → real `clips`/`detections` rows); real **heartbeat delivery** added (`camera_heartbeat`, `POST /internal/heartbeat`), replacing an `/api/link` that was two in-memory integers returning `online` forever; TopBar, the Diagnostics screen and Settings rewired to that real state, with `unavailable` where no measurement exists; the **fabricated identity overlay deleted** (`J. SMITH // 98%` and friends); the dead `operators` menu entry resolved by **building View #6**. **Phase B**: real **live MJPEG video**, proxied through Monitor with full `camera_assignment` scoping — the browser never reaches the engine. ⚠️ The recognition **model still does not exist** (`PlaceholderRecognizer` labels everything `Unknown`), and there is still **no clip playback**. Full detail in [[03 - 📹 IDEA2 AEGIS Monitor]]; the principle extracted from both passes is [[concepts/Honest_Telemetry_and_Unavailable_States]].
+>
+> **2026-07-28**: IDEA2 Monitor data views now use a four-state request model (`LOADING`, `ERROR`, `SUCCESS_EMPTY`, `SUCCESS_DATA`). A failed request renders only its error/retry container; an empty successful response keeps the existing dashboard structure while exposing honest zero-state content. A small Node test protects the state classifier.
+>
+> **2026-07-28**: IDEA2 Monitor's authenticated shell was visually unified across Live, Archive, Detection, Alerts, Nodes, Operators, Diagnostics, and Settings. `src/index.css` now supplies IDEA1-aligned slate/obsidian tokens, a subtle 24px cyber grid, low-noise blue/violet ambience, compact glass status capsules, elevated panels, and reduced-motion-safe interactions; `TopBar.jsx` is utility-only while `Sidebar.jsx` owns the Monitor brand lockup, and `App.jsx` toggles the root theme class. Settings additionally uses a 12-column bento hierarchy with responsive collapse. The Drive dashboard is the hierarchy reference only—no Drive data or simulated Monitor values were copied into the console.
+> **2026-07-28**: **Repository-wide Impeccable tactical surface pass** — `HUB-AEGIS_Entry/src/index.css`, `IDEA1-AEGIS_Drive_LC/src/index.css`, and `IDEA2-AEGIS_Monitor/src/index.css` now share a presentation contract for dual-theme surfaces, focus-visible feedback, restrained active states, responsive bounds, and reduced-motion behavior. The pass changed CSS only; routing, API payloads, auth/session logic, request state machines, and real telemetry remain unchanged. HUB gate imagery and Monitor's approved cyber-glass exception were preserved.
+> **2026-07-28**: IDEA2 Monitor received a targeted palette/readability correction in `src/index.css`: Dark Mode is now anchored to `#07080B` with `#0C0D12/.90` panels and explicit white/Slate typography; Light Mode is Slate-100 with a faint 16px dot grid, white panels, and dark Slate content. TopBar alignment uses a three-column baseline grid, while Nodes/Settings share p-5 card rhythm and explicit key/value contrast. No functional logic or new animation was introduced.
+> **2026-07-28**: The latest Monitor UI build was deployed through the root Docker test stack. `postgres`, `monitor`, `drive`, and `gateway` are healthy; `http://localhost/monitor/` returned HTTP 200. This confirms local deployment only and does not alter the production HTTPS deployment path.
+> **2026-07-28**: IDEA2 Live canvas now supports camera click-to-swap: the selected secondary feed becomes the main player and the previous main camera returns to the grid. The camera feed HUD was also corrected so the always-dark player keeps readable error copy in Light Mode and secondary labels use explicit dark/light glass tokens. Functional state/API boundaries remain unchanged.
+> **2026-07-28**: **IDEA2 CCTV presentation redesign** — `IDEA2-AEGIS_Monitor/src/index.css` now skins the real Monitor shell and Live canvas with the confirmed IDEA1 visual language: near-black 24px grid, compact topbar/sidebar, blue-violet active navigation, restrained panels, and a balanced responsive feed/telemetry layout. No mock rows or simulated telemetry were added; existing camera streams, detection overlays, access-control results, event rows, RBAC, and request state remain the source of truth. `tests/designContract.test.mjs` protects the layout and reduced-motion contract; `npm test` passes 6/6 and `npm run build` succeeds.
+> **2026-07-28**: IDEA2 Nodes & routing was simplified to an information-only routing card grid; redundant camera feed/hatch surfaces and `LIVE CAM-XX` overlays were removed while real camera metadata, assignment, RBAC, and link status remain intact. Monitor's HTML shell now uses no-store revalidation so the root Docker deployment cannot keep serving an older bundle after rebuild; fingerprinted assets remain immutable.
+>
 > **2026-07-27**: IDEA1 **mock-data removal pass (7 phases)** — every remaining fabricated surface in AEGIS Drive replaced with real data or an explicit "not available" state. Seeded demo credentials now force a password reset; the Access screen reads the real `users` table; user-editable profile name + EXIF-stripped avatars; share links are genuinely redeemable (`/s/:token`) with bcrypt link passwords, working hit counters and enforced CIDR scope; real per-file version history replaces the fake Snapshots screen; Dashboard and Storage report real aggregates. **Removed as false claims**: snapshot rollback, encryption-key rotation, fabricated disk/SMART/backup telemetry, the `ScopeDiagram`, and the `otc` share option. Full detail in [[02 - 💾 IDEA1 AEGIS Drive LC]].
 
 ---
@@ -124,8 +168,20 @@ Items designed but pending final implementation:
 | ~~**Secure Shares — network scope enforcement (IDEA1)**~~ | ✅ **App-level closed 2026-07-27** | Source-address check against CIDRs snapshotted from `network_zones`, enforced on redemption and fail-closed. ⚠️ Firewall/switch-level VLAN isolation remains a **host** concern — the app no longer claims to provide it. |
 | ~~**Vault persistence (IDEA1)**~~ | ✅ **Closed 2026-07-26** | Fully wired: Argon2id → KEK + envelope AES-256-GCM per file, `.aegisenc` storage, `vault_meta`/`vault_blobs` in DB. |
 | **Report ↔ KB: shared vs separate storage** | 🟠 Reconciliation Needed | KB confirms Storage Layer belongs strictly to IDEA1; main report text requires minor updates to reflect separate storage mounting. |
+| **Real face-recognition model (IDEA2)** | 🔴 Open | The single largest gap. `face_detector.py` ships `PlaceholderRecognizer` (Haar boxes only), so `detections.result` is **always** `Unknown` and `matched_name` **always** `NULL`. The `FaceRecognizer` injection seam is clean and was deliberately left untouched — a model is to be supplied separately. Until then no identity-based screen can show a real name. |
+| **Clip playback (IDEA2)** | 🔴 Open | `clips.file_path` points at the NAS, but the `monitor` service declares **no volume mounts at all** and there is no `/api/clips/:id/stream`. Archive's play button only toggles a text panel. Needs NAS access plus a Range-capable endpoint. |
+| **`gateway/nginx.conf` `/monitor/internal/` case gap** | 🔴 Open | Re-verified 2026-07-27 — still open. The literal `location /monitor/internal/` is case-sensitive while Express matches case-insensitively, so `/monitor/Internal/…` bypasses the edge guard. The production HUB config already uses `~*` and its own comment records that the gateway shares the hole. The API key still guards the endpoint; it is the *edge* layer that is bypassable. |
+| **Heartbeat history / uptime % (IDEA2)** | 🔴 Open | `camera_heartbeat` UPSERTs one row per camera, so uptime %, 24h disconnects and a real latency sparkline cannot be computed. Shown as `unavailable` rather than guessed; needs a time-series table. |
+| **No audit log in IDEA2** | 🔴 Open | IDEA2 has **no `audit_log` table at all**. Operator creation, camera reassignment, alert acknowledgement, password resets and every login leave no record. If built, use awaited writes from the start — IDEA1's fire-and-forget bug is documented and should not be repeated. |
+| **Broad automated coverage in IDEA2** | 🟠 In progress | `npm test` now protects the four-state UI classifier. RBAC/scoping and API integration coverage still rely on the ad-hoc 27-check curl suite and need formal automated tests. |
+| **Multi-camera engine deployment (IDEA2)** | 🔴 Open | One engine process serves one camera (`config.py` carries a single `camera_id`); six seeded cameras means six configured instances. No supervisor, no compose service, no orchestration. |
+| **Safari live video (IDEA2)** | 🟠 Known limitation | `multipart/x-mixed-replace` in `<img>` is supported by Chrome/Edge/Firefox; **Safari does not support it** and will sit in the reconnect state. A different transport (HLS/WebRTC) would be needed for Safari. |
+| **Real bbox geometry (IDEA2)** | 🟠 Design constraint | `detections` has no bbox column, so overlay boxes are evenly-spaced slots and `.feedimg` uses `object-fit: cover`. **When real bbox telemetry arrives this must become `contain` or letterbox-aware**, or normalised coordinates will be wrong by exactly the cropped margin. Recorded in the CSS beside the rule. |
+| **Notification preferences (IDEA2 Settings)** | 🔴 Open | Sound / desktop push / snooze are `useState` only — never persisted — yet every toggle fires a "saved successfully" toast. |
 
 > ⚠️ **Demo credential caveat (2026-07-27)**: because the force-reset gate is now real, the credentials in `IDEA1-AEGIS_Drive_LC/server/db/seed.sql` are **single-use per database** — they log in once to set a new password. Running the IDEA1 test suite against a database also rotates them. `docker compose down -v` restores a clean state. Check this before a live demo.
+>
+> ⚠️ **The same now applies to IDEA2 (2026-07-27)**: `soc`, `operator` and `operator2` in `IDEA2-AEGIS_Monitor/server/db/seed.sql` also carry `must_reset_password = TRUE`, with an idempotent `UPDATE` that closes databases initialised before the change. On the current dev stack those three passwords were **already rotated during verification** and are no longer the seeded values — `docker compose down -v` restores them. Check this before a live demo.
 
 ---
 

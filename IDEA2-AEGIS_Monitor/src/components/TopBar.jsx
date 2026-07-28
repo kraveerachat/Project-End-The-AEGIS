@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Bell, LogOut } from 'lucide-react'
 import { Ping } from './ui.jsx'
+import { AegisLockup } from './AegisMark.jsx'
 
 const initialsOf = (name) =>
   String(name ?? '')
@@ -60,26 +61,13 @@ export default function TopBar({
       cls: lat.length ? 'pill mono optional' : 'pill mono down optional',
     },
   }
-  const logoSrc = theme === 'light'
-    ? '/assets/logo/aegis-mark-dark-ink.png'
-    : '/assets/logo/aegis-mark-light-ink.png'
-
   return (
     <header className="topbar">
-      {/* LEFT ZONE: Exact CCTV Metallic Emblem Logo */}
-      <motion.div
-        className="brandrow"
-        whileHover={{ scale: 1.02 }}
-        transition={{ duration: 0.2 }}
-      >
-        <div className="shield-img-wrap" aria-hidden="true">
-          <img src={logoSrc} alt="AEGIS Logo" className="shield-img" />
-        </div>
-        <div>
-          <div className="wordmark">AEGIS Monitor</div>
-          <div className="subtitle">AI CCTV · NEXT-GEN HUD</div>
-        </div>
-      </motion.div>
+      {/* Keep the full product lockup in the top chrome so the mark and subtitle
+          never compete with the narrow sidebar column. */}
+      <div className="topbar-brand">
+        <AegisLockup markSize={36} title="AEGIS Monitor" sub="AI CCTV · NEXT-GEN HUD" />
+      </div>
 
       {/* CENTER ZONE: Centered Status Pills */}
       <div className="statrow" role="status" aria-live="polite">

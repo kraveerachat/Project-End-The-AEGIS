@@ -35,3 +35,4 @@ __pycache__/
 Obsidian_AEGIS_Vault/**/.obsidian/workspace.json
 Obsidian_AEGIS_Vault/**/.obsidian/graph.json
 
+.aegis-dev-nas-key

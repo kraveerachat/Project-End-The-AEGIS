@@ -1,82 +1,81 @@
 ---
-เอกสาร: ข้อมูลคำอธิบายสำหรับผู้เข้าร่วมในโครงการวิจัย (Participant Information Sheet)
-โครงการ: ระบบ AEGIS — IDEA 2 (AEGIS AI Monitoring / Facial Recognition)
-สถานะ: ร่าง (Draft) สำหรับยื่นคณะกรรมการจริยธรรมการวิจัยในมนุษย์ มทส. (HREC-SUT)
-เวอร์ชัน: v1.0 — วันที่ [____/____/2569]
+Document: Participant Information Sheet
+Project: AEGIS System — IDEA 2 (AEGIS AI Monitoring / Facial Recognition)
+Status: Draft for submission to Suranaree University of Technology Human Research Ethics Committee (HREC-SUT)
+Version: v1.0 — Date [____/____/2026]
 ---
 
-# เอกสารข้อมูลคำอธิบายสำหรับผู้เข้าร่วมในโครงการวิจัย
-## (Participant Information Sheet)
+# Participant Information Sheet
 
-> **หมายเหตุการใช้งาน:** เอกสารฉบับนี้ร่างตามโครงสร้างมาตรฐานของคณะกรรมการจริยธรรมการวิจัยในมนุษย์ มหาวิทยาลัยเทคโนโลยีสุรนารี (HREC-SUT) โปรดนำไปกรอกลงในแบบฟอร์ม AF ที่เป็นทางการของสำนักงานฯ และเติมข้อความในช่อง `[ ]` ให้ครบก่อนยื่นจริง
-
----
-
-**ชื่อโครงการวิจัย (ภาษาไทย):** ระบบรักษาความปลอดภัยไซเบอร์-กายภาพบนพื้นฐานศูนย์ข้อมูลเอดจ์และอุปกรณ์ไอโอที (AEGIS) — ส่วนระบบเฝ้าระวังด้วยปัญญาประดิษฐ์และการจดจำใบหน้า (IDEA 2)
-
-**ชื่อโครงการวิจัย (ภาษาอังกฤษ):** Edge-Centric Cyber-Physical Security System with Integrated IoT and Local Data Center (AEGIS) — AI Monitoring & Facial Recognition Module
-
-**รายวิชา:** 1101911 โครงงานเทคโนโลยีดิจิทัล-1 · สาขาวิชาเทคโนโลยีดิจิทัล กลุ่มหลักสูตรศาสตร์และศิลป์ดิจิทัล มหาวิทยาลัยเทคโนโลยีสุรนารี
-
-**ผู้วิจัย (นักศึกษา):**
-- นายกิตติภัทร์ จันทศิลา (B6701635)
-- นายนฤเบศ แสงประทุม (B6702861)
-- นายวีรฉัตร จินะปริวัตอาภรณ์ (B6703370)
-
-**อาจารย์ที่ปรึกษาโครงงาน:** ผู้ช่วยศาสตราจารย์ ดร.ทรงยุทธ เพิ่มผล
-
-**สถานที่ทำวิจัย:** [ระบุพื้นที่ทดสอบ เช่น ห้องปฏิบัติการ/ห้องเซิร์ฟเวอร์จำลอง อาคาร ______ มทส.]
-
-**ผู้ให้ทุน:** ไม่มี (เป็นโครงงานการศึกษา)
+> **Usage Note:** This document is drafted according to the standard structure of the Human Research Ethics Committee of Suranaree University of Technology (HREC-SUT). Please fill out the official AF form of the office and complete all `[ ]` fields before formal submission.
 
 ---
 
-### 1. คำเชิญชวนและคำนำ
-เรียนท่านผู้เข้าร่วมโครงการวิจัยทุกท่าน คณะผู้วิจัยขอเรียนเชิญท่านเข้าร่วมในโครงการวิจัยนี้ด้วยความสมัครใจ ก่อนที่ท่านจะตัดสินใจ โปรดอ่านเอกสารฉบับนี้โดยละเอียดเพื่อทำความเข้าใจถึงเหตุผล วิธีการ ประโยชน์ และความเสี่ยงที่อาจเกิดขึ้น ท่านสามารถสอบถามข้อสงสัยจากคณะผู้วิจัยได้ตลอดเวลา และควรใช้เวลาในการตัดสินใจตามที่ท่านเห็นสมควร การเข้าร่วมหรือไม่เข้าร่วมจะไม่มีผลกระทบใด ๆ ต่อสถานะ การปฏิบัติงาน หรือสิทธิประโยชน์ที่ท่านพึงได้รับในองค์กร
+**Research Project Title (Thai Translation):** Edge-Centric Cyber-Physical Security System with Integrated IoT and Local Data Center (AEGIS) — AI Monitoring & Facial Recognition Module (IDEA 2)
 
-### 2. เหตุใดจึงจัดทำโครงการวิจัยนี้ (วัตถุประสงค์)
-โครงการนี้มีวัตถุประสงค์เพื่อพัฒนาและทดสอบต้นแบบระบบเฝ้าระวังความปลอดภัยทางกายภาพหน้าห้องเซิร์ฟเวอร์ ด้วยเทคโนโลยีการจดจำใบหน้า (Facial Recognition) ที่ประมวลผลภายในเครื่อง ณ จุดปลายทาง (Local Edge Processing) เพื่อจำแนกว่าบุคคลที่ปรากฏหน้ากล้องเป็น "บุคลากรภายในที่ได้รับสิทธิ์" หรือ "บุคคลภายนอก" และแจ้งเตือนผู้รับผิดชอบแบบทันเวลา โดยระบบนี้เป็นเพียงส่วนสนับสนุน (Supporting Component) ของโครงงาน มิใช่การพัฒนาอัลกอริทึมจดจำใบหน้าใหม่
+**Research Project Title (English):** Edge-Centric Cyber-Physical Security System with Integrated IoT and Local Data Center (AEGIS) — AI Monitoring & Facial Recognition Module
 
-### 3. เหตุใดท่านจึงได้รับเชิญให้เข้าร่วม
-ท่านได้รับเชิญในฐานะบุคลากร/สมาชิกในทีมที่ได้รับสิทธิ์ให้เข้าถึงพื้นที่ที่ระบบเฝ้าระวัง ระบบจำเป็นต้องเรียนรู้ใบหน้าของ "บุคคลภายในที่ได้รับอนุญาต" ล่วงหน้า เพื่อให้สามารถจำแนกบุคคลภายนอกได้อย่างถูกต้อง ท่านมีอิสระเต็มที่ในการปฏิเสธการเข้าร่วมโดยไม่ต้องให้เหตุผล
+**Course:** 1101911 Digital Technology Project 1 · Digital Technology Program, Institute of Social Technology, Suranaree University of Technology
 
-### 4. จำนวนผู้เข้าร่วมและระยะเวลา
-โครงการนี้มีผู้เข้าร่วมโดยประมาณ [___] คน ระยะเวลาการเก็บและใช้ข้อมูลใบหน้าเพื่อการทดสอบอยู่ระหว่างวันที่ [____] ถึง [____] หรือจนสิ้นสุดภาคการศึกษา
+**Researchers (Students):**
+- Mr. Kittiphat Chanthasila (B6701635)
+- Mr. Naruebet Saengprathum (B6702861)
+- Mr. Weerachat Jinaparivataporn (B6703370)
 
-### 5. หากท่านตกลงเข้าร่วม จะเกิดอะไรขึ้น (ขั้นตอนการวิจัย)
-1. คณะผู้วิจัยจะบันทึกภาพใบหน้าของท่านจำนวนหนึ่ง (ด้วยเว็บแคม) เพื่อใช้สร้างชุดข้อมูลอ้างอิงสำหรับฝึกสอนโมเดล (Face Enrollment)
-2. ระบบจะแปลงภาพใบหน้าเป็นค่าเชิงคณิตศาสตร์ (Face Embedding/Encoding) และจัดเก็บไว้ **ภายในเครื่องเซิร์ฟเวอร์ในวงเครือข่ายปิด (Local LAN)** เท่านั้น
-3. ระหว่างการทดสอบ เมื่อท่านเดินผ่านกล้อง ระบบจะเทียบใบหน้ากับฐานข้อมูลและบันทึกผลลงในบันทึกการตรวจจับ (Detection Log)
-4. ระบบจะจัดเก็บ **เฉพาะ "ชื่อ" และ "บทบาทการเข้าถึง (RBAC Role)"** ของท่านเท่านั้น
+**Project Advisor:** Asst. Prof. Dr. Songyut Pimpan
 
-### 6. มาตรการคุ้มครองข้อมูลส่วนบุคคลและความเป็นส่วนตัว (Privacy & PDPA)
-คณะผู้วิจัยให้ความสำคัญสูงสุดกับการคุ้มครองข้อมูลส่วนบุคคลของท่านตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 (PDPA) โดยมีมาตรการดังนี้:
+**Research Location:** [Specify test area, e.g., Laboratory/Simulated Server Room, Building ____ SUT]
 
-- **ประมวลผลภายในเครื่องแบบ 100% (100% Local Edge Processing):** การจับภาพ การจดจำใบหน้า และการจัดเก็บทั้งหมดเกิดขึ้นภายในอุปกรณ์และวงเครือข่ายภายใน (LAN) ของระบบ AEGIS เท่านั้น **ไม่มีการส่งภาพใบหน้าหรือข้อมูลใด ๆ ขึ้นบริการคลาวด์สาธารณะหรือออกสู่อินเทอร์เน็ตภายนอกโดยเด็ดขาด**
-- **จัดเก็บข้อมูลเท่าที่จำเป็นขั้นต่ำ (Data Minimization):** ระบบจัดเก็บ **เฉพาะชื่อและบทบาทการเข้าถึง (RBAC Role)** เท่านั้น **ไม่มีการจัดเก็บเลขบัตรประจำตัวประชาชน เลขประจำตัวพนักงาน ตำแหน่งงาน แผนก เบอร์โทรศัพท์ หรือข้อมูลระบุตัวบุคคลอื่นใด**
-- **นโยบายการเก็บรักษาและการทำลายข้อมูล (Data Retention Policy):** ภาพ Snapshot บันทึกการตรวจจับ (Log) และค่าใบหน้าจะถูกจัดเก็บไว้เพียงระยะเวลาที่จำเป็นต่อการทดสอบ (ระยะเวลาเก็บสูงสุด [___] วัน) และจะถูก **ลบทำลายอย่างถาวร** เมื่อสิ้นสุดโครงการหรือเมื่อท่านขอถอนความยินยอม
-- **การควบคุมการเข้าถึง:** ข้อมูลเข้าถึงได้เฉพาะคณะผู้วิจัยและผู้ดูแลระบบ (Admin) ที่ได้รับสิทธิ์ ภายใต้หลักการให้สิทธิ์ต่ำสุดเท่าที่จำเป็น (Principle of Least Privilege) และมีการบันทึกร่องรอยการเข้าถึง (Audit Log)
-- ผลการวิจัยที่นำเสนอหรือเผยแพร่จะอยู่ในรูปข้อมูลภาพรวม (Aggregate) ที่ไม่สามารถระบุตัวตนของท่านได้
-
-### 7. ความเสี่ยง/ความไม่สบายที่อาจเกิดขึ้น
-ความเสี่ยงของการเข้าร่วมอยู่ในระดับต่ำ (Minimal Risk) โดยความเสี่ยงหลักคือความกังวลเรื่องการถูกบันทึกภาพใบหน้า ซึ่งคณะผู้วิจัยได้ลดทอนด้วยมาตรการในข้อ 6 (ประมวลผลภายในเครื่อง ไม่ขึ้นคลาวด์ เก็บข้อมูลขั้นต่ำ และมีกำหนดทำลายข้อมูล) การเข้าร่วมไม่มีความเสี่ยงทางร่างกาย
-
-### 8. ประโยชน์ที่คาดว่าจะได้รับ
-ท่านจะไม่ได้รับประโยชน์ตอบแทนโดยตรงเป็นการส่วนตัว แต่ข้อมูลของท่านจะช่วยให้เกิดต้นแบบระบบรักษาความปลอดภัยที่คำนึงถึงความเป็นส่วนตัว (Privacy-Preserving Security) อันเป็นประโยชน์ต่อวงการศึกษาและการพัฒนาระบบความปลอดภัยสำหรับองค์กรขนาดเล็ก
-
-### 9. ค่าตอบแทน
-[ ] ไม่มีค่าตอบแทนในการเข้าร่วม / [ ] มีค่าตอบแทน คือ [___]
-
-### 10. การเข้าร่วมโดยสมัครใจและการถอนตัว
-การเข้าร่วมเป็นไปโดยสมัครใจอย่างสมบูรณ์ ท่านสามารถ **ปฏิเสธการเข้าร่วม หรือถอนตัวออกจากโครงการได้ทุกเมื่อ โดยไม่ต้องให้เหตุผล และไม่มีผลกระทบใด ๆ** ต่อท่าน เมื่อท่านถอนตัว คณะผู้วิจัยจะลบทำลายภาพใบหน้าและข้อมูลที่เกี่ยวข้องกับท่านทั้งหมดออกจากระบบอย่างถาวร
-
-### 11. สิทธิของผู้เข้าร่วมตาม PDPA
-ท่านมีสิทธิขอเข้าถึง ขอสำเนา ขอแก้ไข ขอลบ ขอระงับการใช้ และขอถอนความยินยอมเกี่ยวกับข้อมูลส่วนบุคคลของท่านได้ตลอดเวลา โดยติดต่อคณะผู้วิจัยตามข้อมูลด้านล่าง
-
-### 12. ข้อมูลติดต่อ
-- **คณะผู้วิจัย:** [ชื่อผู้ประสานงานหลัก] โทร. [___] อีเมล [___]
-- **อาจารย์ที่ปรึกษา:** ผศ. ดร.ทรงยุทธ เพิ่มผล อีเมล [___]
-- **กรณีมีข้อสงสัยด้านสิทธิของผู้เข้าร่วมวิจัย** โปรดติดต่อ **คณะกรรมการจริยธรรมการวิจัยในมนุษย์ มหาวิทยาลัยเทคโนโลยีสุรนารี (HREC-SUT)** โทร. [___] อีเมล [___]
+**Sponsor:** None (Academic Educational Project)
 
 ---
-*เอกสารฉบับนี้จัดทำขึ้น [___] ชุด เก็บไว้ที่ผู้เข้าร่วม 1 ชุด และคณะผู้วิจัย 1 ชุด*
+
+### 1. Invitation and Introduction
+Dear prospective research participants, the research team invites you to voluntarily participate in this research study. Before deciding, please read this document carefully to understand the background, procedures, benefits, and potential risks. You are welcome to ask the research team questions at any time. Whether you choose to participate or not will have no impact on your status, work, or entitled benefits in the organization.
+
+### 2. Purpose of Research Project
+The objective of this project is to develop and test a prototype physical security surveillance system for server room entry using facial recognition technology processed locally at the edge (Local Edge Processing). The system distinguishes whether a person appearing in front of the camera is an "authorized internal personnel" or an "external intruder" and alerts responsible personnel in real-time. This system is a supporting component of the overall project, not a new facial recognition algorithm development.
+
+### 3. Reason for Invitation
+You are invited as a team member/personnel authorized to access the monitored area. The system needs to learn the faces of "authorized internal personnel" in advance to accurately identify external individuals. You have full freedom to decline participation without providing a reason.
+
+### 4. Participant Count and Duration
+Approximately [___] participants are involved in this project. The collection and usage period for face data testing is between [____] and [____] or until the end of the academic semester.
+
+### 5. Research Procedures
+1. The research team will record a set of facial images of yourself (using a webcam) to construct reference datasets for model enrollment (Face Enrollment).
+2. The system converts facial images into mathematical encodings (Face Embedding/Encoding) and stores them **only inside the local server on a closed network (Local LAN)**.
+3. During testing, when you walk past the camera, the system compares your face against the database and records the result in the Detection Log.
+4. The system stores **only your "name" and "access role (RBAC Role)"**.
+
+### 6. Privacy & Personal Data Protection (PDPA)
+The research team places the highest priority on protecting your personal data under the Personal Data Protection Act B.E. 2562 (PDPA):
+
+- **100% Local Edge Processing:** Capture, recognition, and storage occur entirely within the local hardware and local area network (LAN) of the AEGIS system. **No facial images or data are ever transmitted to public cloud services or the external internet.**
+- **Data Minimization:** The system stores **only name and access role (RBAC Role)**. **No national ID numbers, employee IDs, job positions, departments, phone numbers, or other personal identifiers are stored.**
+- **Data Retention Policy:** Snapshots, detection logs, and face encodings are retained only as long as necessary for testing (maximum retention period [___] days) and will be **permanently destroyed** upon project completion or upon withdrawal of consent.
+- **Access Control:** Data is accessible only to authorized research team members and Administrators under the Principle of Least Privilege, with audit logging enabled.
+- Results presented or published will be in aggregate form without identifying individual participants.
+
+### 7. Potential Risks and Discomforts
+Participation carries minimal risk. The primary concern may be facial image recording, which the team mitigates through the measures in Section 6. There are no physical risks involved.
+
+### 8. Expected Benefits
+You will not receive direct financial compensation, but your participation helps create a privacy-preserving security prototype beneficial for academic research and SME security designs.
+
+### 9. Remuneration
+[ ] No financial compensation / [ ] Compensation provided: [___]
+
+### 10. Voluntary Participation and Withdrawal
+Participation is entirely voluntary. You may **decline or withdraw from the project at any time without providing a reason and without penalty**. Upon withdrawal, the team will permanently delete all facial images and associated data from the system.
+
+### 11. Participant Rights under PDPA
+You hold the right to request access, copies, corrections, deletion, suspension, or withdrawal of consent regarding your personal data at any time by contacting the research team below.
+
+### 12. Contact Information
+- **Lead Researchers:** [Primary Coordinator Name] Tel. [___] Email [___]
+- **Project Advisor:** Asst. Prof. Dr. Songyut Pimpan Email [___]
+- **Human Research Ethics Committee:** Suranaree University of Technology (HREC-SUT) Tel. [___] Email [___]
+
+---
+*This document is prepared in [___] copies: 1 copy for the participant and 1 copy for the research team.*

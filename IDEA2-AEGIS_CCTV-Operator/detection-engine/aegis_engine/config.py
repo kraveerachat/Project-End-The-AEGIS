@@ -73,6 +73,7 @@ class EngineConfig:
     node_id: str = "edge-node-01"
     camera_id: str = "CAM-05"
     camera_label: str = "Reception"
+    camera_device_name: Optional[str] = None
 
     # --- Capture (VideoCatcher) ------------------------------------------
     # camera_source is passed straight to cv2.VideoCapture: an int index
@@ -158,6 +159,7 @@ class EngineConfig:
             node_id=_env_str("AEGIS_NODE_ID", cls.node_id),
             camera_id=_env_str("AEGIS_CAMERA_ID", cls.camera_id),
             camera_label=_env_str("AEGIS_CAMERA_LABEL", cls.camera_label),
+            camera_device_name=_env_opt("AEGIS_CAMERA_DEVICE_NAME"),
             camera_source=_env_str("AEGIS_CAMERA_SOURCE", cls.camera_source),
             frame_width=_env_int("AEGIS_FRAME_WIDTH", cls.frame_width),
             frame_height=_env_int("AEGIS_FRAME_HEIGHT", cls.frame_height),

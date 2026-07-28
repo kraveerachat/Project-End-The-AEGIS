@@ -98,7 +98,7 @@ class MonitorClient:
 
     def post_heartbeat(
         self, camera_id: str, node_id: str, snapshot: Dict[str, Any],
-        stream_url: Optional[str] = None,
+        stream_url: Optional[str] = None, camera_device_name: Optional[str] = None,
     ) -> None:
         """Liveness + live metrics for one camera.
 
@@ -128,6 +128,7 @@ class MonitorClient:
             "nasLastStatus": nas.get("last_status"),
             "nasPending": nas.get("pending"),
             "streamUrl": stream_url,
+            "cameraDeviceName": camera_device_name,
         })
 
     def post_alert(

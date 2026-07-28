@@ -80,3 +80,26 @@ cd IDEA2-AEGIS_Monitor    && npm install && npm run dev:server              # AP
 > Each backend runs an in-memory fallback when `DATABASE_URL` is unset, enforcing the same
 > server-side security model; production uses PostgreSQL (`server/db/schema.sql` +
 > `seed.sql` per app — two separate databases, never shared).
+
+## AI agent and UI design workflow
+
+This repository is designed to be worked on by multiple coding agents. Before changing
+UI, read [`AGENTS.md`](AGENTS.md), the relevant `PRODUCT.md`/`DESIGN.md`, and the shared
+knowledge index at [`Obsidian_AEGIS_Vault/AEGIS_Knowledge/index.md`](Obsidian_AEGIS_Vault/AEGIS_Knowledge/index.md).
+
+For frontend design prompts, use the project-local Impeccable skill at
+`.agents/skills/impeccable/SKILL.md` (reference: [impeccable.style/docs](https://impeccable.style/docs/))
+and choose the command that matches the request
+(`layout`, `craft`, `polish`, `audit`, `delight`, etc.). Do not apply commands mechanically:
+preserve real API data, RBAC, routes, state machines, accessibility, reduced motion, and
+the AEGIS product register.
+
+After implementation:
+
+1. Update the relevant existing Obsidian note in place for functional, architectural,
+   security, or deployment changes; keep `00 - 🗺️ AEGIS System Overview.md`, `index.md`,
+   and `log.md` consistent. Avoid duplicate notes.
+2. Run the affected tests and production build. For Monitor UI/deployment work, verify
+   `docker compose up -d --build` and `http://localhost/monitor/` when requested.
+3. Keep local agent settings and secrets out of commits. Use `AGENTS.md` as the
+   authoritative repository policy when this README and an agent's defaults differ.

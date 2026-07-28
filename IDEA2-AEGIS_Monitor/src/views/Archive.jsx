@@ -3,6 +3,7 @@ import { Play, RefreshCw, SearchX, ServerOff } from 'lucide-react'
 import { fmtHM, fmtTime } from '../data.js'
 import { EmptyState, FeedChrome } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
+import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
 const SEG_TOTAL_SEC = 600
 
@@ -36,6 +37,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
   const visibleIds = useMemo(() => new Set(cameras.map((c) => c.id)), [cameras])
 
   const allClips = clipsApi.data?.clips ?? []
+  const state = getViewState(clipsApi, (data) => (data?.clips ?? []).length === 0)
 
   const clips = useMemo(() => {
     let list = allClips.filter((c) => visibleIds.has(c.cam))
@@ -48,27 +50,16 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
 
   const reset = () => { setArcCam('all'); setArcResult('all') }
 
-  if (clipsApi.error) {
+  if (state === VIEW_STATE.ERROR) {
     return (
-      <>
-        <div className="pagehead">
-          <div>
-            <h1 className="h1">Archival footage</h1>
-            <p className="sub">Continuous recording segmented into ~10-minute clips, archived to the NAS over LAN.</p>
-          </div>
-        </div>
-        <EmptyState
-          icon={ServerOff}
-          title="Could not load archival footage"
-          hint="The Monitor backend did not respond. Check the server, then retry."
-          action={
-            <button type="button" className="ackbtn" onClick={clipsApi.retry}>
-              <RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry
-            </button>
-          }
-        />
-      </>
+      <EmptyState icon={ServerOff} title="Could not load archival footage"
+        hint="The Monitor backend did not respond. Check the server, then retry."
+        action={<button type="button" className="ackbtn" onClick={clipsApi.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
     )
+  }
+
+  if (state === VIEW_STATE.LOADING) {
+    return <EmptyState icon={ServerOff} title="Loading archival footage" hint="Retrieving the current retention window." />
   }
 
   return (
@@ -92,15 +83,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
           <option value="unknown">Unknown present</option>
         </select>
       </div>
-      {clipsApi.loading ? (
-        <div className="clipgrid" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <article key={i} className="clip rise" style={{ opacity: 0.45 }}>
-              <div className="clipthumb"><FeedChrome /></div>
-            </article>
-          ))}
-        </div>
-      ) : clips.length === 0 ? (
+      {state === VIEW_STATE.SUCCESS_EMPTY || clips.length === 0 ? (
         <EmptyState
           icon={SearchX}
           title="No clips match these filters"

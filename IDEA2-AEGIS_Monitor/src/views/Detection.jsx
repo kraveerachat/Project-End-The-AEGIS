@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { RefreshCw, SearchX, ServerOff } from 'lucide-react'
 import { fmtTime, hasUnk, ini, isTail } from '../data.js'
 import { EmptyState } from '../components/ui.jsx'
+import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
 const NAS_PENDING_MS = 90_000
 
@@ -11,6 +12,7 @@ const NAS_PENDING_MS = 90_000
    เดียว) — ผู้ตรวจสอบเห็นแต่ละบุคคลชัดเจนเป็นรายการเดี่ยว พร้อม badge บอกว่ามาจาก
    frame ที่มีคนหลายคน (tailgating) หรือไม่ */
 export default function Detection({ now, link, detections, api, cameras = [], detCam, setDetCam, detResult, setDetResult }) {
+  const state = getViewState(api, (data) => (data?.detections ?? []).length === 0)
   const frames = useMemo(() => {
     let list = detections
     if (detCam !== 'all') list = list.filter((f) => f.cam === detCam)
@@ -22,27 +24,16 @@ export default function Detection({ now, link, detections, api, cameras = [], de
 
   const reset = () => { setDetCam('all'); setDetResult('all') }
 
-  if (api?.error) {
+  if (state === VIEW_STATE.ERROR) {
     return (
-      <>
-        <div className="pagehead">
-          <div>
-            <h1 className="h1">AI detection stream</h1>
-            <p className="sub">Per-frame recognition record · multi-subject frames reveal tailgating. Identity is name only.</p>
-          </div>
-        </div>
-        <EmptyState
-          icon={ServerOff}
-          title="Could not load the detection stream"
-          hint="The Monitor backend did not respond. Check the server, then retry."
-          action={
-            <button type="button" className="ackbtn" onClick={api.retry}>
-              <RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry
-            </button>
-          }
-        />
-      </>
+      <EmptyState icon={ServerOff} title="Could not load the detection stream"
+        hint="The Monitor backend did not respond. Check the server, then retry."
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
     )
+  }
+
+  if (state === VIEW_STATE.LOADING) {
+    return <EmptyState icon={ServerOff} title="Loading detection stream" hint="Retrieving the current recognition record." />
   }
 
   return (
@@ -66,7 +57,7 @@ export default function Detection({ now, link, detections, api, cameras = [], de
           <option value="unknown">Unknown present</option>
         </select>
       </div>
-      {frames.length === 0 ? (
+      {state === VIEW_STATE.SUCCESS_EMPTY || frames.length === 0 ? (
         <EmptyState
           icon={SearchX}
           title="No frames match these filters"

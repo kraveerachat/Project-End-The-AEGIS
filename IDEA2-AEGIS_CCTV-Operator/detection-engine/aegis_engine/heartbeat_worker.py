@@ -87,6 +87,7 @@ class HeartbeatWorker(threading.Thread):
                 # moves or changes port self-heals on the next heartbeat, and a
                 # node that dies takes its stream URL out of service with it.
                 stream_url=self._cfg.resolved_stream_url(),
+                camera_device_name=self._cfg.camera_device_name,
             )
             self._sent += 1
         except Exception:  # pragma: no cover - client already fails soft

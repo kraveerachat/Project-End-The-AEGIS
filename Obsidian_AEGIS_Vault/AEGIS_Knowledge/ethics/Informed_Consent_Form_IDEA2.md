@@ -1,47 +1,46 @@
 ---
-เอกสาร: หนังสือแสดงเจตนายินยอมเข้าร่วมโครงการวิจัย (Informed Consent Form)
-โครงการ: ระบบ AEGIS — IDEA 2 (AEGIS AI Monitoring / Facial Recognition)
-สถานะ: ร่าง (Draft) สำหรับยื่นคณะกรรมการจริยธรรมการวิจัยในมนุษย์ มทส. (HREC-SUT)
-เวอร์ชัน: v1.0 — วันที่ [____/____/2569]
+Document: Informed Consent Form
+Project: AEGIS System — IDEA 2 (AEGIS AI Monitoring / Facial Recognition)
+Status: Draft for submission to Suranaree University of Technology Human Research Ethics Committee (HREC-SUT)
+Version: v1.0 — Date [____/____/2026]
 ---
 
-# หนังสือแสดงเจตนายินยอมเข้าร่วมโครงการวิจัย
-## (Informed Consent Form)
+# Informed Consent Form
 
-> **หมายเหตุการใช้งาน:** ใช้คู่กับ [[Participant_Information_Sheet_IDEA2]] โปรดกรอกในแบบฟอร์ม AF ทางการของ HREC-SUT ก่อนยื่นจริง
+> **Usage Note:** To be used in conjunction with [[Participant_Information_Sheet_IDEA2]]. Please complete the official AF form of HREC-SUT prior to formal submission.
 
-**ชื่อโครงการวิจัย:** ระบบรักษาความปลอดภัยไซเบอร์-กายภาพบนพื้นฐานศูนย์ข้อมูลเอดจ์และอุปกรณ์ไอโอที (AEGIS) — ส่วนระบบเฝ้าระวังด้วยปัญญาประดิษฐ์และการจดจำใบหน้า (IDEA 2)
+**Research Project Title:** Edge-Centric Cyber-Physical Security System with Integrated IoT and Local Data Center (AEGIS) — AI Monitoring & Facial Recognition Module (IDEA 2)
 
-**ทำที่:** [________________]  **วันที่:** [____] เดือน [____________] พ.ศ. [______]
-
----
-
-ข้าพเจ้า (นาย/นาง/นางสาว) __________________________________________ อายุ ______ ปี
-
-ขอแสดงเจตนายินยอมเข้าร่วมโครงการวิจัยข้างต้นด้วยความสมัครใจ โดยขอยืนยันข้อความดังต่อไปนี้ (โปรดทำเครื่องหมาย ✓):
-
-- ☐ ข้าพเจ้าได้อ่านและเข้าใจ **เอกสารข้อมูลคำอธิบายสำหรับผู้เข้าร่วมในโครงการวิจัย** (ฉบับวันที่ [____] เวอร์ชัน [____]) โดยตลอดแล้ว และได้รับสำเนาเก็บไว้เป็นหลักฐาน
-- ☐ ข้าพเจ้าได้มีโอกาสซักถามข้อสงสัย และได้รับคำตอบเป็นที่พอใจแล้ว
-- ☐ ข้าพเจ้าเข้าใจว่าการเข้าร่วมเป็นไปโดยสมัครใจ และสามารถ **ถอนตัวได้ทุกเมื่อ โดยไม่ต้องให้เหตุผล และไม่มีผลกระทบใด ๆ** ต่อสถานะหรือสิทธิประโยชน์ของข้าพเจ้า
-- ☐ ข้าพเจ้ายินยอมให้คณะผู้วิจัยบันทึกภาพใบหน้าของข้าพเจ้า และแปลงเป็นค่าอ้างอิงใบหน้า (Face Encoding) เพื่อใช้ในการฝึกสอนและทดสอบระบบจดจำใบหน้าของโครงการนี้เท่านั้น
-- ☐ ข้าพเจ้าเข้าใจและรับทราบว่าระบบ **ประมวลผลภายในเครื่องแบบ 100% (Local Edge Processing)** และจะ **ไม่มีการส่งข้อมูลใบหน้าของข้าพเจ้าขึ้นบริการคลาวด์สาธารณะหรือออกสู่อินเทอร์เน็ตภายนอก** โดยเด็ดขาด
-- ☐ ข้าพเจ้าเข้าใจและรับทราบว่าระบบจะจัดเก็บ **เฉพาะชื่อและบทบาทการเข้าถึง (RBAC Role)** เท่านั้น และ **จะไม่จัดเก็บเลขบัตรประจำตัวประชาชน เลขประจำตัวพนักงาน หรือข้อมูลระบุตัวบุคคลอื่นใด**
-- ☐ ข้าพเจ้าเข้าใจและรับทราบ **นโยบายการเก็บรักษาและการทำลายข้อมูล (Data Retention Policy)** ว่าข้อมูลของข้าพเจ้าจะถูกจัดเก็บเท่าที่จำเป็น และถูก **ลบทำลายอย่างถาวร** เมื่อสิ้นสุดโครงการหรือเมื่อข้าพเจ้าขอถอนความยินยอม ตามหลักการของ พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 (PDPA)
-- ☐ ข้าพเจ้ายินยอม / ☐ ไม่ยินยอม ให้นำภาพหรือข้อมูลที่ไม่สามารถระบุตัวตนได้ไปใช้ประกอบการนำเสนอผลงานทางการศึกษา
+**Executed at:** [________________] **Date:** [____] Month [____________] Year [______]
 
 ---
 
-**ลงชื่อผู้เข้าร่วมโครงการวิจัย**
+I, (Mr./Mrs./Ms.) __________________________________________ Age ______ Years
 
-ลงชื่อ ____________________________ (____________________________) วันที่ ____/____/______
+Hereby express my voluntary consent to participate in the above research project, confirming the following statements (please check ✓):
 
-**ลงชื่อผู้วิจัยผู้ขอความยินยอม** (ผู้ให้ข้อมูลและรับความยินยอม)
-
-ลงชื่อ ____________________________ (____________________________) วันที่ ____/____/______
-
-**ลงชื่อพยาน** (หากมี / กรณีผู้เข้าร่วมอ่านเอกสารเองไม่ได้ ต้องมีพยาน)
-
-ลงชื่อ ____________________________ (____________________________) วันที่ ____/____/______
+- ☐ I have read and fully understood the **Participant Information Sheet** (Dated [____] Version [____]) and have received a copy as evidence.
+- ☐ I have had the opportunity to ask questions and have received satisfactory answers.
+- ☐ I understand that my participation is entirely voluntary, and I may **withdraw at any time without giving a reason, and without any negative impact** on my status or entitled benefits.
+- ☐ I consent to the research team recording facial images of myself and converting them into Face Encodings solely for training and testing the facial recognition module of this project.
+- ☐ I understand and acknowledge that the system operates via **100% Local Edge Processing** and will **never transmit my facial data to public cloud services or the external internet** under any circumstances.
+- ☐ I understand and acknowledge that the system stores **only my name and access role (RBAC Role)**, and **will not store national ID numbers, employee ID numbers, or any other personally identifiable information**.
+- ☐ I understand and acknowledge the **Data Retention Policy**, knowing that my data will be retained only as necessary and will be **permanently deleted/destroyed** upon project completion or upon withdrawal of consent, in accordance with the Personal Data Protection Act B.E. 2562 (PDPA).
+- ☐ I consent / ☐ I do not consent to the use of non-identifiable images or data for educational presentations and academic publication.
 
 ---
-*กรณีผู้เข้าร่วมอายุต่ำกว่า 20 ปี หรือเป็นผู้ที่กฎหมายกำหนดให้ต้องมีผู้แทนโดยชอบธรรม ต้องมีการลงนามของผู้ปกครอง/ผู้แทนโดยชอบธรรมเพิ่มเติมตามข้อกำหนดของ HREC-SUT*
+
+**Signature of Participant**
+
+Signature ____________________________ (____________________________) Date ____/____/______
+
+**Signature of Researcher Obtaining Consent**
+
+Signature ____________________________ (____________________________) Date ____/____/______
+
+**Signature of Witness** (If applicable / Required if participant cannot read the document independently)
+
+Signature ____________________________ (____________________________) Date ____/____/______
+
+---
+*If the participant is under 20 years of age or legally requires a legal guardian, additional signature of the parent/legal guardian is required per HREC-SUT guidelines.*

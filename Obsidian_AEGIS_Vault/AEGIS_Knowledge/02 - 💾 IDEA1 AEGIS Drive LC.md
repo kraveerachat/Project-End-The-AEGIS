@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-07-28
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -12,6 +12,10 @@ sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledg
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: 11 suites / **97 tests — 97 pass against real PostgreSQL**; 79 pass + 18 Postgres-only skipped in in-memory mode.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
+
+### Repository-wide tactical surface pass (2026-07-28)
+
+`IDEA1-AEGIS_Drive_LC/src/index.css` now carries the shared visual interaction contract used across the AEGIS frontends: light/dark surface tokens, glass card elevation, focus-visible rings, restrained active press feedback, and responsive content bounds. Existing Drive data, routes, auth/session behavior, and form logic were preserved; the change is presentation-only. The Drive dashboard remains the hierarchy reference for the sibling applications.
 
 ---
 

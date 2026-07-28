@@ -198,7 +198,7 @@ export default function App() {
               {view === 'live' && has('live') && (
                 <Live
                   now={now} link={link} detections={detections} sysEvents={sysEvents}
-                  cameras={visibleCams}
+                  cameras={cameras}
                   heroCam={heroCam} setHeroCam={setHeroCam}
                 />
               )}

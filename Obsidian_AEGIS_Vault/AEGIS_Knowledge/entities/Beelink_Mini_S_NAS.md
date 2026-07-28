@@ -1,6 +1,6 @@
 ---
 title: Beelink Mini S NAS
-tags: [aegis, entity, hardware, nas, serve]
+tags: [aegis, entity, hardware, nas, server]
 type: entity
 created: 2026-07-20
 updated: 2026-07-20
@@ -9,11 +9,11 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 # 💻 Beelink Mini S (System Core NAS Server)
 
-> **บทบาท**: หัวใจและสมองสั่งการหลักของระบบ AEGIS ทำหน้าที่เป็นคลังข้อมูล 3 เลเยอร์ (Edge Data Lake) และรันคาร์ดินัลเซิร์ฟเวอร์ย่อยผ่าน Docker Containers
+> **Role**: The heart and central command brain of the AEGIS system. Acts as a 3-Layer Edge Data Lake and runs sub-servers via Docker Containers.
 
 ---
 
-## 📋 ข้อมูลสเปกอุปกรณ์ (Hardware Specifications)
+## 📋 Hardware Specifications
 
 * **CPU**: Intel Celeron N5095 (x86-64 Architecture)
 * **RAM**: 8GB DDR4
@@ -23,12 +23,12 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 ---
 
-## 🛠️ เหตุผลทางสถาปัตยกรรมที่เลือก x86-64
-ทีมงานเลือกใช้ Beelink Mini S (x86-64) แทน ARM (เช่น Raspberry Pi 5) เนื่องจากสามารถรัน Docker Containers หลายตัวพร้อมกันได้อย่างมีเสถียรภาพสูง ปราศจากปัญหาความร้อนสะสม และรองรับภาระงานหนักแบบ 24/7 ได้ดียิ่งกว่า
+## 🛠️ Architectural Rationale for Selecting x86-64
+The team selected the Beelink Mini S (x86-64) over ARM boards (such as Raspberry Pi 5) due to its superior stability when running multiple Docker containers simultaneously, lack of thermal throttling issues, and better support for 24/7 heavy workloads.
 
 ---
 
-## 🔗 ความสัมพันธ์กับโน้ตอื่น
+## 🔗 Related Notes
 * [[02 - 💾 IDEA1 AEGIS Drive LC]]
 * [[concepts/Three_Layer_Data_Lake]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]

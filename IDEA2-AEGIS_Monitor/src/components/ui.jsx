@@ -28,8 +28,8 @@ export function FeedChrome() {
 
 export function EmptyState({ icon: Icon = SearchX, title, hint, action }) {
   return (
-    <div className="empty" role="status">
-      <Icon aria-hidden="true" />
+    <div className="empty empty--hud" role="status">
+      <span className="empty-icon" aria-hidden="true"><Icon /></span>
       <div className="empty-t">{title}</div>
       {hint && <p className="empty-s">{hint}</p>}
       {action}
@@ -91,20 +91,16 @@ export function Toggle({ on, onChange, label }) {
       aria-checked={on}
       aria-label={label}
       onClick={() => onChange(!on)}
-      className="relative w-10 h-6 rounded-full transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
-      style={{ background: on ? 'linear-gradient(135deg, #2563eb, #7c3aed)' : 'var(--line)' }}
+      className={on ? 'ui-toggle is-on' : 'ui-toggle'}
     >
-      <span
-        className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform duration-[var(--dur-fast)]"
-        style={{ transform: on ? 'translateX(16px)' : 'translateX(0)', boxShadow: 'var(--elev-1)' }}
-      />
+      <span className="ui-toggle-thumb" />
     </button>
   )
 }
 
 export function Segmented({ options, value, onChange, ariaLabel }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} className="segmented-control">
       {options.map((opt) => {
         const active = value === opt.value
         return (
@@ -114,9 +110,7 @@ export function Segmented({ options, value, onChange, ariaLabel }) {
             role="radio"
             aria-checked={active}
             onClick={() => onChange(opt.value)}
-            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer whitespace-nowrap ${
-              active ? 'bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white' : 'text-ink-2 hover:text-ink'
-            }`}
+            className={active ? 'segmented-option is-active' : 'segmented-option'}
           >
             {opt.label}
           </button>

@@ -9,25 +9,25 @@ sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledg
 
 # 🌊 Three-Layer Edge Data Lake Architecture
 
-> **แนวคิดหลัก (จากรายงานหลัก Section 3.1)**: การประยุกต์ใช้ความรู้จากชุดวิชา Big Data Technology มาจำลองคลังข้อมูลบน Edge NAS แยกออกเป็น 3 ชั้นอิสระ เพื่อการคุมสิทธิ์แบบเป็นลำดับขั้น (Layered Access Control)
+> **Core Concept (Section 3.1)**: Applying Big Data Technology principles to simulate a 3-layer data repository on an Edge NAS for layered access control.
 
 ---
 
-## 🏛️ โครงสร้าง 3 ชั้นของ Data Lake
+## 🏛️ Data Lake 3-Layer Structure
 
 ```mermaid
 graph TD
-    subgraph AppLayer [Application Layer (แนวคิด Google Drive)]
+    subgraph AppLayer [Application Layer (Google Drive Concept)]
         DriveGUI["AEGIS Drive Web GUI (:8001 / :5174)"]
         MonitorGUI["AEGIS Monitor Web GUI (:8002 / :5176)"]
     end
 
-    subgraph MetaLayer [Metadata Layer (แนวคิด HIVE)]
-        PostgresDB[("PostgreSQL Database<br/>(พอร์ต 10002 / DBA Confirm)")]
+    subgraph MetaLayer [Metadata Layer (HIVE Concept)]
+        PostgresDB[("PostgreSQL Database<br/>(Port 10002 / DBA Confirm)")]
     end
 
-    subgraph StorageLayer [Storage Layer (แนวคิด HDFS)]
-        LinuxFS["Linux File System + 1TB HDD<br/>(พอร์ต 9870 / Basic Auth)"]
+    subgraph StorageLayer [Storage Layer (HDFS Concept)]
+        LinuxFS["Linux File System + 1TB HDD<br/>(Port 9870 / Basic Auth)"]
     end
 
     AppLayer -->|Query Metadata| MetaLayer
@@ -44,15 +44,15 @@ graph TD
 
 ---
 
-## 📋 รายละเอียดแต่ละชั้น
+## 📋 Layer Details
 
-1. **Storage Layer (แนวคิด HDFS)**: จัดเก็บไฟล์ดิบ (รูปภาพ, เอกสาร, คลิป Replay 10 นาทีจากกล้อง) ลงบน HDD 1TB ควบคุมด้วย NGINX Basic Auth (พอร์ต 9870)
-2. **Metadata Layer (แนวคิด HIVE)**: จัดเก็บข้อมูลเชิงโครงสร้างใน PostgreSQL (เวลาอัปโหลด, ขนาดไฟล์, พิกัดกล้อง, Audit Log) ค้นหาได้รวดเร็วโดยไม่ต้องกวนฮาร์ดดิสก์
-3. **Application Layer (แนวคิด Google Drive)**: หน้าเว็บ GUI ที่ผู้ใช้เข้าถึงผ่านเบราว์เซอร์ ทั้งแอป AEGIS Drive และ AEGIS Monitor อ่าน/เขียนผ่านชั้นนี้โดยไม่มีที่เก็บข้อมูลเป็นของตัวเอง
+1. **Storage Layer (HDFS Concept)**: Stores raw files (images, documents, 10-minute CCTV replay clips) directly on a 1TB HDD via Linux File System, protected by NGINX Basic Auth (Port 9870).
+2. **Metadata Layer (HIVE Concept)**: Stores structured metadata in PostgreSQL (upload timestamps, file sizes, camera coordinates, audit logs) for fast querying without disturbing disk I/O.
+3. **Application Layer (Google Drive Concept)**: Browser Web GUI accessed by users. Both AEGIS Drive and AEGIS Monitor interface through this layer without maintaining independent storage hardware.
 
 ---
 
-## 🔗 ความสัมพันธ์กับโน้ตอื่น
+## 🔗 Related Notes
 * [[02 - 💾 IDEA1 AEGIS Drive LC]]
 * [[entities/Beelink_Mini_S_NAS]]
 * [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]

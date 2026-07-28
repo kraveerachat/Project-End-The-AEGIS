@@ -142,6 +142,8 @@ services:
       PORT: 8002
       SESSION_SECRET: ${MONITOR_SESSION_SECRET:-localhost-test-stack-insecure-monitor-secret-change-me}
       COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
+      # Localhost demo only. Production keeps the default true and requires reset.
+      ENFORCE_PASSWORD_RESET: "false"
       # ⚠️ ต่อด้วย monitor_app ไม่ใช่ superuser — สมมาตรกับ drive: REVOKE CONNECT
       # จาก aegis_drive ไว้แล้ว อ่านตาราง users/files ของ IDEA1 ไม่ได้เลย
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor

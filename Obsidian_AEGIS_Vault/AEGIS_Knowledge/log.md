@@ -10,6 +10,30 @@ updated: 2026-07-27
 
 > Append-only chronological log of all ingestion, query synthesis, and lint passes performed by the LLM Agent.
 
+## [2026-07-28] vibe-coding | AEGIS Monitor: Full Self-Healing DDL & Circular Dependency Fix
+- **Prompt Summary**: Resolved issue on `http://localhost/monitor/` where switching to Alerts view displayed "Could not load alerts / The Monitor backend did not respond" (HTTP 500 error caused by missing SQL tables or DB initialization timing). Added full `CREATE TABLE IF NOT EXISTS` DDL statements for all system tables (`users`, `cameras`, `camera_assignment`, `detections`, `alerts`, `camera_heartbeat`, `clips`) to `bootstrapDbIfNeeded()` in `server/db/connection.js`, and decoupled the circular import dependency between `connection.js` and `store.js`.
+- **Modified Source Code Paths**:
+  - `IDEA2-AEGIS_Monitor/server/db/connection.js` (Added full table DDL creation, auto-seed for cameras `CAM-01`..'CAM-06' and default accounts, decoupled `store.js` import)
+  - `IDEA2-AEGIS_Monitor/src/App.jsx` (Passed `cameras` state directly down to `Live` view)
+  - `IDEA2-AEGIS_Monitor/src/views/Live.jsx` (Added explicit `cameras === null` check for connecting/loading state)
+- **Updated Obsidian Notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `log.md`
+- **Verification**: Executed `node -e "import('./server/index.js')"` cleanly and compiled `npm run build` in 2.95s with 0 errors. Verified that backend API calls (`/api/alerts`, `/api/detections`, `/api/cameras`, `/api/link`) respond with HTTP 200 without throwing database relation errors.
+
+## [2026-07-28] vibe-coding | Detection Engine: Local Camera-Device Picker & Heartbeat Integration
+- **Prompt Summary**: Implemented a local camera-device picker (`setup_camera.py`) for the `detection-engine` to allow interactive hardware probing, frame validation, and selection of local cameras via OpenCV. Completed the end-to-end integration by adding `AEGIS_CAMERA_DEVICE_NAME` parsing to `EngineConfig` and including it in the metrics snapshot posted by `HeartbeatWorker` to the Monitor backend.
+- **Modified Source Code Paths**:
+  - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/camera_devices.py` (Core probing and enumeration)
+  - `IDEA2-AEGIS_CCTV-Operator/detection-engine/setup_camera.py` (Interactive CLI picker UX)
+  - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/config.py` (Added `camera_device_name` to identity section)
+  - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/heartbeat_worker.py` (Passed device name to heartbeat payload)
+  - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/monitor_client.py` (Appended `cameraDeviceName` to HTTP POST JSON)
+- **Updated Obsidian Notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `log.md`
+- **Verification**: Executed `.venv\Scripts\python.exe setup_camera.py --list` successfully, confirming Windows DirectShow enumeration and device name retrieval (e.g. `EMEET SmartCam`, `OBS Virtual Camera`). Code logic seamlessly writes to `.env` and propagates to the remote API.
+
 ## [2026-07-25] vibe-coding | Full Vault Audit & Synchronization (`/obsidian` Slash Command)
 - **Prompt Summary**: Executed explicit `/obsidian` vault audit & sync. Verified and updated all core documentation notes (`00`, `01`, `02`, `03`, `index.md`, `log.md`) in-place to ensure absolute alignment with current source code implementation, including Cross-App Theme Sync (`aegis_theme`), Tailwind CSS v4 `@variant dark` rules, Volumetric Aura Glow, and Framer Motion unfold physics.
 - **Modified Source Code Paths**:
@@ -804,3 +828,213 @@ updated: 2026-07-27
 
 ### Provenance note
 Only IDEA1 code paths and the two notes listed above were touched by this session. The other ~25 modified vault files and the untracked `00.md` come from the separate English translation pass logged above, and were deliberately excluded from every commit.
+
+---
+
+## [2026-07-27] vibe-coding | IDEA2 AEGIS Monitor — mock-vs-real audit, five fixes, and two build-out phases (real pipeline + live video)
+
+- **User Prompt Goal**: audit IDEA2 for mock-vs-real with the same discipline applied to IDEA1; fix the trivial/urgent findings; investigate whether real camera/video infrastructure exists anywhere; then **Phase A** — get the pipeline producing real data end to end and stop fabricating identity data; then **Phase B** — real live video in the browser via MJPEG, proxied through Monitor rather than browser-to-engine.
+- **Modified Code Paths**:
+  - `c:\Users\User\AEGIS_System\IDEA2-AEGIS_Monitor\` — `vite.config.js`, `server/db/{schema.sql,seed.sql,store.js}`, `server/routes/{api.js,internal.js}`, `server/rbac/permissions.js`, `src/App.jsx`, `src/nav.js`, `src/data.js`, `src/index.css`, `src/screens/Login.jsx`, `src/components/{TopBar.jsx,Sidebar.jsx,LiveFeed.jsx,AddOperator.jsx}`, `src/views/{Live.jsx,Diagnostics.jsx,Settings.jsx,Nodes.jsx,Operators.jsx}`
+  - `c:\Users\User\AEGIS_System\IDEA2-AEGIS_CCTV-Operator\detection-engine\` — `aegis_engine/{config.py,engine.py,monitor_client.py,local_api.py,heartbeat_worker.py,stream_hub.py}`, `.gitignore`
+- **Obsidian Updates**: [[00 - 🗺️ AEGIS System Overview]] · [[03 - 📹 IDEA2 AEGIS Monitor]] · [[05 - 🛡️ Security Architecture]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] (new) · [[index.md]]
+- **Commits**: `923f616` `59e9ea4` `0101183` `157c3c5` `efbd129` (fixes) · `0a5ed23` `91c0493` `b7f5c7c` `069ecbb` `7beb1e2` (Phase A) · `8a46d47` `1d7a72a` `16c5bcd` (Phase B)
+
+### Audit first — what the module actually was
+
+A full read of every screen and endpoint before touching anything. The headline findings:
+
+- **`/api/link` had no data source.** `store.linkStatus()` was two module-level integers plus a demo toggle; it returned `online` forever, including when no Detection Engine had ever existed. Every screen showing link state was reporting a constant.
+- **The Live canvas had no video at all** — not a static placeholder, *no image*. `FeedChrome` is `<div className="grid2" />` and the "feeds" were `repeating-linear-gradient` CSS hatch. Zero `<video>` elements, no HLS/WebRTC/MJPEG anywhere, and the engine exposed no stream endpoint to point at.
+- **Fabricated identity overlays.** `HERO_SCENES`/`TILE_BOXES` in `data.js` drew `AUTH // J. SMITH // 98%`, `SOMCHAI T. // 98%`, `A. OKAFOR // 95%`, `UNKNOWN PERSON // 82%` keyed to camera ids, regardless of whether the system had ever seen anyone. On a security console that is fabricated evidence, not a placeholder.
+- **Diagnostics — the CCTV-Operator's only role-specific screen — was 100% fictional**: `LAT_SERIES` was three hard-coded 12-point arrays feeding a "last 12 samples" sparkline, heartbeat always `2s ago`, uptime always `99.2%`, stream always `24fps`, all five health checks derived from one (also fake) flag.
+- **The login page printed credentials** — `demo · user / aegis-user · admin / aegis-admin` — which were also *wrong*, being IDEA1's, so the hint misdirected as well as leaked.
+- **A dead `operators` menu entry**: the server issued it in every SOC menu but `nav.js` had no `DISPLAY` key, so `buildSections` dropped it silently and no component existed.
+- **Zero automated tests** (IDEA1 has 11 suites), and **no `audit_log` table at all**.
+
+### Scope-boundary investigation (report-only)
+
+Asked to determine what "the Detection Engine" actually is. It **is in this repository** (`IDEA2-AEGIS_CCTV-Operator/detection-engine/`, 19 tracked files) despite the parent folder being deprecated — that folder's README explicitly carves it out. It is absent from `docker-compose.yml` by design (runs on the Laptop, VLAN 20). Capture (`cv2.VideoCapture`, webcam index **or** RTSP URL), recording, NAS off-load with sha256 verification, and alerting are all genuinely built. It posts **metadata only** — video bytes go local disk → NAS and Monitor is never in that path. The `monitor` service declares **no volume mounts at all**, so it cannot read a clip even in principle.
+
+⚠️ **The recognition model does not exist.** `PlaceholderRecognizer` finds Haar boxes and labels every face `Unknown` with a confidence derived from box area. So `detections.result` is always `Unknown` and `matched_name` always `NULL` — the "Authorized — name" rows the UI was designed around cannot be produced. Left untouched throughout, as instructed.
+
+### Five fixes
+
+- **Dev login was entirely broken** — `changeOrigin: true` rewrote `Host` to the proxy target while the browser kept sending its own `Origin`, so the CSRF Origin/Host check rejected **every** mutation with 403, login included (`PRE_SESSION_PATHS` exempts only the token check, which runs *after*). Reproduced both directions: 403 before, 200 after.
+- **Seeded credentials were live forever** — the three demo accounts had `must_reset_password = FALSE`, so bcrypt hashes in a public repo were working credentials. Now `TRUE` + idempotent `UPDATE` for existing databases (`UPDATE 3` then `UPDATE 0`). Plaintext removed from the seed's own header.
+- **Login credential hint deleted.**
+- **`POST /api/link/outage` restricted to SOC** — it was `requireAuth` while flipping *process-wide* state, so any operator could put every console into LINK LOST for 60s.
+- **The `operators` entry**: reported back rather than guessed. Evidence showed a real screen was specified (README View #6, a purpose-built `/* operators */` CSS block with zero consumers, and `PUT /api/assignments` **uncalled**). First round the answer was "leave it, fix the comments"; when the follow-up forced build-or-delete, **built it**.
+
+### Phase A — real data end to end
+
+- Engine run for the first time: venv, deps, `.env`. Real **EMEET C60E** webcam → 20s segments (603 frames, 1.2 MB) → `scp` + **sha256 verify** → delete-after-verify → real `clips` rows. Peak state: **187 clip rows matched by 187 real files (3.0 GB)**, every sampled path present on the NAS.
+- **RTSP swappability proven**: switched a running engine between webcam index and a file path with **zero code changes**; the same string path handles `rtsp://`.
+- **Heartbeat delivery built**: `camera_heartbeat` table, `POST /internal/heartbeat`, `HeartbeatWorker` every 5s. `/api/link` now derives status from row age (15s/45s thresholds), scoped per caller. Measured: alive `online age=2314ms`; killed `lost age=55979ms`; `operator2` (no engine on CAM-06) honestly reports `lost` with an empty camera list.
+- **TopBar / Diagnostics / Settings rewired**; unmeasurable values now say `unavailable` (uptime %, 24h disconnects) and the fake sparkline was removed outright.
+- **Fabricated overlays deleted**; `bboxesFor()` derives boxes from the newest real detection and renders nothing when there is none. Verified against the **built bundle**, not the source, that the invented strings can no longer render.
+- **Operators view built** — first and only caller of `PUT /api/assignments`; reassignment changes the operator's scope immediately.
+
+### Phase B — real live video
+
+- Engine `GET /stream.mjpg` (multipart/x-mixed-replace), gated by the same shared key, fail-secure.
+- **Deliberate deviation from the prompt**: asked to stream "off the same queue FaceDetector reads from", I added a **third sink** on the existing `VideoCatcher` fan-out instead. Items on `detect_queue` are consumed once, so literally sharing it would steal frames from inference and halve detection throughput whenever anyone watched. The third sink honours the intent (no second capture) without that cost.
+- Monitor `GET /api/cameras/:id/stream`: `requireAuth` then `canSeeCamera` (the same function `/api/cameras` uses) then dial the engine. `operator2` requesting CAM-05 gets **403 before any socket opens**. `stream_url` verified absent from every client payload.
+- **CSP needed no change** — image fetches are governed by `img-src` (not `media-src`), `img-src 'self' data:` is already present, and the stream is same-origin.
+- **Proof of live video, not just connection**: 10 consecutive proxied frames gave **10/10 distinct SHA-256**, valid 1280x720 JPEGs at ~10.4 fps, burned-in timestamp changing every transition, and a large frame delta when a second subject entered.
+
+### Bugs found while doing the work (not in the original audit)
+
+- **My own Phase B implementation could hang forever** — when the upstream socket went quiet without FIN/RST, the client sat >30s with no bytes and no error, which would freeze the last frame on screen with nobody told. Added a 6s idle watchdog. Re-measured: EOF at t=5.23s after the kill.
+- **Streams outlived their session** — authorisation was checked only at open, so a logged-out operator kept receiving live video. Added 10s revalidation of both session and assignment. Measured: logout gave a cut at t=10.06s; SOC revoking the camera gave a cut at t=10.03s.
+- **`stream_url` is an SSRF surface** — it arrives from an authenticated engine but becomes a destination Monitor dials, so it is validated to `http`/`https` on ingest.
+- **Dead translation strings survived their UI** — `Running v1.3` remained in three language blocks after the card stopped using it; caught only by grepping the built bundle.
+
+### Verification
+
+- **27/27 regression** against the live compose stack: every operator-denial case, both stream-denial cases, engine key enforcement, gateway still 404-ing `/monitor/internal/`, CSRF.
+- Detections: 375 rows across 232 frames, **all `Unknown`, zero `Authorized`** — correct for the placeholder — with 2-person frames proving the shared-`frame_id` tailgating path.
+
+### Testing honesty notes
+
+- The **NAS was a disposable Alpine + sshd container**, not a Synology. The transfer, sha256 verification and delete-after-verify were the real code path; only the host differed. Torn down afterwards, which is why those 187 clip rows were removed.
+- The **first live-video proof failed**: 8 byte-identical frames from the real webcam. Diagnosis was a covered lens (brightness mean 0.1) whose sensor noise JPEG quantisation erased — the pipeline was fine, the source had no visible content. Re-run against a synthetic feed with unambiguous motion.
+- One intermediate failure-mode test was **invalid**: the kill filter matched `*detection-engine*`, which also matched the test client running from that venv, so I was killing my own observer. Re-run with the system Python.
+- **No browser was available** this session (the Chrome extension was declined), so the CSP conclusion rests on the served headers and the same-origin URL rather than an observed console. A one-line manual check is noted in [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+### Carried forward (see [[00 - 🗺️ AEGIS System Overview]] outstanding items)
+
+- 🔴 **Real face-recognition model** — the largest remaining gap; seam ready, model absent.
+- 🔴 **Clip playback** — `monitor` has no volume mounts and there is no streaming endpoint.
+- 🔴 **`gateway/nginx.conf` `/monitor/internal/` case-sensitivity gap** — re-verified still open; the production HUB config already uses a case-insensitive regex and records that the gateway shares the hole.
+- 🔴 **Heartbeat history** (uptime %, 24h disconnects, latency sparkline) needs a time-series table.
+- 🔴 **No audit log in IDEA2**; 🔴 **zero automated tests**; 🔴 multi-camera deployment; 🔴 notification prefs are UI-only.
+- 🟠 **Safari** does not support `multipart/x-mixed-replace` in an image tag.
+- 🟠 **`object-fit: cover` must become `contain`** once real bbox telemetry exists, or normalised coordinates will be wrong by the cropped margin.
+- ⚠️ **IDEA2 demo passwords were rotated during verification** and are no longer the seeded values on the current dev stack; `docker compose down -v` restores them.
+- 🟡 The design hook fired roughly ten `broken-image` findings on the literal string `<img>` inside code comments, including in a server-side route file — false positives, left unsuppressed pending confirmation.
+
+### Provenance note
+
+Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed above were touched. The ~25 other modified vault files and the empty untracked `00.md` predate this session (English translation pass) and were left alone.
+
+## [2026-07-28] vibe-coding | Refactor Monitor request UI into strict four-state rendering
+
+- **Prompt goal**: Keep the existing Monitor UI, remove any mock/skeleton fall-through, and render each request as exactly `LOADING`, `ERROR`, `SUCCESS_EMPTY`, or `SUCCESS_DATA`.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/lib/viewState.js`, `src/views/{Alerts,Detection,Archive,Nodes,Operators}.jsx`, `server/db/connection.js`, `tests/viewState.test.mjs`, `package.json`.
+- **Verification**: `npm test` passes three regressions (state classification + localhost password-reset policy); `npm run build` completes successfully. Docker stack was rebuilt; login plus `GET /monitor/api/alerts` returned HTTP 200 with `{"alerts":[]}`.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Unify AEGIS Monitor's dual-theme cyber-physical UI
+
+- **Prompt goal**: Apply the approved AEGIS Drive visual language to all existing Monitor views without creating pages or reintroducing mock data; provide coherent light/dark modes, HUD empty states, semantic status pills, refined panels, and restrained motion.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/index.css`, `IDEA2-AEGIS_Monitor/src/components/ui.jsx`.
+- **Verification**: `npm test` passes all 3 state/policy regressions; production `npm run build` succeeds; `docker compose up -d --build` rebuilt Monitor and started the full local stack.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Establish Impeccable UI design-prompt workflow
+
+- **Prompt goal**: Use Impeccable as the default design decision framework for future English UI prompts and automatically choose the command that matches each task.
+- **Modified source code**: None; workflow/documentation configuration only.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]], [[index]], and [[concepts/Impeccable_UI_Design_Workflow]] (new concept note).
+
+## [2026-07-28] vibe-coding | Align AEGIS Monitor shell with IDEA1 Drive visual system
+
+- **Prompt goal**: Refactor Monitor's real global shell, navbar, background, sidebar, and panels to match IDEA1 Drive's visual fidelity while preserving Monitor data, RBAC, and state architecture.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/index.css`.
+- **Verification**: Impeccable design hook reports no deterministic findings; `npm test` passes 3/3; production `npm run build` succeeds with Vite.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Refine Monitor shell after screenshot comparison
+
+- **Prompt goal**: Compare the deployed Monitor screenshots with IDEA1 Drive and correct the remaining background, topbar, sidebar, and outer workspace hierarchy in the real frontend code.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/components/TopBar.jsx`, `src/components/Sidebar.jsx`, `src/index.css`.
+- **Verification**: Impeccable hook reports no deterministic findings; `npm test` passes 3/3; `npm run build` succeeds with Vite.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Redesign Monitor Settings layout hierarchy
+
+- **Prompt goal**: Improve the Settings screen layout so the existing controls use the canvas intentionally instead of leaving a large empty lower area.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/index.css`.
+- **Verification**: Impeccable detector reports no deterministic findings; `npm test` passes 3/3; `npm run build` succeeds with Vite.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Apply repository-wide dual-theme tactical UI pass
+
+- **Prompt goal**: Apply the attached Impeccable `craft`, `delight`, `layout`, and `animate` directive across HUB, Drive, and Monitor while preserving all functional logic, state, API, routing, and state-machine behavior.
+- **Modified source code**: `HUB-AEGIS_Entry/src/index.css`, `IDEA1-AEGIS_Drive_LC/src/index.css`, `IDEA2-AEGIS_Monitor/src/index.css`.
+- **Verification**: Impeccable detector returned no deterministic findings; `git diff --check` passed; all three production builds succeeded; Drive tests passed 79 with 18 Postgres-only tests skipped in memory mode; Monitor tests passed 3/3.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]], [[01 - 🚪 HUB-AEGIS Entry]], [[02 - 💾 IDEA1 AEGIS Drive LC]], [[03 - 📹 IDEA2 AEGIS Monitor]], and [[concepts/Impeccable_UI_Design_Workflow]].
+
+## [2026-07-28] vibe-coding | Correct Monitor dark/light palette and layout alignment
+
+- **Prompt goal**: Enforce the Idea 1-aligned Monitor palette, fix Light Mode dark artifacts and invisible text, improve sidebar/card readability, and align the TopBar/Nodes/Settings containers without changing behavior or adding motion.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/index.css`.
+- **Verification**: Impeccable detector returned no deterministic findings; `git diff --check` passed; Monitor tests passed 3/3; production `npm run build` succeeded.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Deploy latest Monitor UI to Docker
+
+- **Prompt goal**: Rebuild and bring the local AEGIS Docker stack up after completing the Monitor UI prompt.
+- **Modified source code**: None; deployment only. Images rebuilt from the current source tree.
+- **Verification**: `docker compose up -d --build` succeeded; `postgres`, `monitor`, `drive`, and `gateway` are healthy; `http://localhost/monitor/` returned HTTP 200.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | Fix Live canvas feed contrast and add click-to-swap
+
+- **Prompt goal**: Correct Light/Dark Camera Feed HUD contrast and glass labels, keep the main player readable on its always-dark surface, and let users swap a secondary camera into the main player by clicking it.
+- **Modified source code**: `IDEA2-AEGIS_Monitor/src/views/Live.jsx`, `IDEA2-AEGIS_Monitor/src/index.css`.
+- **Verification**: Impeccable detector returned no deterministic findings; `git diff --check` passed; Monitor tests passed 3/3; production `npm run build` succeeded.
+- **Updated Obsidian notes**: [[00 - 🗺️ AEGIS System Overview]] and [[03 - 📹 IDEA2 AEGIS Monitor]].
+
+## [2026-07-28] vibe-coding | AEGIS Monitor layout and contrast refactor
+- **Prompt Goal**: Move the complete AEGIS Monitor brand lockup into the global top navbar, prevent sidebar heading wrapping, and improve dark/light contrast for subtitles, sidebar footer copy, and Live event-stream logs.
+- **Modified Source Code Paths**:
+  - `IDEA2-AEGIS_Monitor/src/components/AegisMark.jsx`
+  - `IDEA2-AEGIS_Monitor/src/index.css`
+- **Updated Obsidian Notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `00 - 🗺️ AEGIS System Overview.md`
+  - `log.md`
+- **Verification**: `npm test` (3/3 passing) and `npm run build` (Vite production build successful).
+
+## [2026-07-28] vibe-coding | Live canvas and Nodes & routing overlay precision fix
+- **Prompt Goal**: Remove the unnecessary Nodes camera-status overlay and force explicit high-contrast media-surface labels for Live canvas in both themes, including lost-state center text and sub-camera pills.
+- **Modified Source Code Paths**:
+  - `IDEA2-AEGIS_Monitor/src/views/Live.jsx`
+  - `IDEA2-AEGIS_Monitor/src/components/LiveFeed.jsx`
+  - `IDEA2-AEGIS_Monitor/src/index.css`
+  - `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx` inspected; no overlay markup remained, and the dead CSS rule was removed from `src/index.css`.
+- **Updated Obsidian Notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `log.md`
+- **Verification**: `npm test` (6/6 passing) and `npm run build` (successful).
+
+## [2026-07-28] vibe-coding | IDEA2 CCTV presentation-only redesign from IDEA1 reference
+- **Prompt goal**: Refresh the IDEA2 CCTV Operator UI using the approved IDEA1 palette and layout language while preserving all existing real data, stream behavior, RBAC, request states, and controls.
+- **Modified source code paths**:
+  - `IDEA2-AEGIS_Monitor/src/index.css`
+  - `IDEA2-AEGIS_Monitor/src/views/Live.jsx` (syntax-only tag correction; no behavior change)
+  - `IDEA2-AEGIS_Monitor/package.json`
+  - `IDEA2-AEGIS_Monitor/tests/designContract.test.mjs`
+- **Updated Obsidian notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `00 - 🗺️ AEGIS System Overview.md`
+  - `log.md`
+- **Verification**: `npm test` (6/6 passing), `npm run build` (Vite production build successful), `git diff --check` clean. Browser visual inspection was attempted, but the isolated browser session could not reach the local Vite port.
+
+## [2026-07-28] vibe-coding | Clarify IDEA2 Monitor and CCTV-Operator folder boundary
+- **Prompt goal**: Confirm which IDEA2 folder owns the authenticated CCTV UI and whether the legacy CCTV-Operator folder can be removed.
+- **Modified source code paths**: None; clarification/documentation only.
+- **Updated Obsidian notes**:
+  - `03 - 📹 IDEA2 AEGIS Monitor.md`
+  - `00 - 🗺️ AEGIS System Overview.md`
+  - `log.md`
+- **Result**: Monitor owns the UI/API/login/RBAC; `detection-engine/` remains active and the entire old folder must not be deleted.
+
+## [2026-07-28] vibe-coding | Publish shared UI workflow and Nodes routing cleanup
+
+- **Prompt goal**: Publish the current AEGIS System state to GitHub and document the shared Impeccable + Obsidian workflow for future agents; remove obsolete camera feed panels from Nodes & routing and prevent stale Monitor HTML after Docker rebuilds.
+- **Modified source code paths**: `README.md`, `AGENTS.md`, `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx`, `IDEA2-AEGIS_Monitor/src/index.css`, `IDEA2-AEGIS_Monitor/server/index.js`.
+- **Updated Obsidian notes**: `[[00 - 🗺️ AEGIS System Overview]]`, `[[03 - 📹 IDEA2 AEGIS Monitor]]`, `[[concepts/Impeccable_UI_Design_Workflow]]`, and `[[log]]`.
+- **Verification**: Monitor tests pass (6/6), production build succeeds, Docker services are healthy, `http://localhost/monitor/` returns HTTP 200, and the served bundle contains the routing card markup without the removed `nodefeed` markup.

@@ -1,46 +1,24 @@
 import { Check, RefreshCw, Send, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { fmtHM } from '../data.js'
 import { EmptyState, TBox } from '../components/ui.jsx'
+import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
 /* ⚠️ Phase 2: alerts มาจาก GET /api/alerts (SOC-Responder เท่านั้น — requireRole
    ฝั่งเซิร์ฟเวอร์) · camName/route ถูกคำนวณฝั่งเซิร์ฟเวอร์จาก camera_assignment
    Acknowledge = POST จริง — การเขียนเดียวของ console นี้ (review-only) */
 export default function Alerts({ alerts, ackAlert, api }) {
-  if (api?.loading) {
+  const state = getViewState(api, (data) => (data?.alerts ?? []).length === 0)
+
+  if (state === VIEW_STATE.ERROR) {
     return (
-      <>
-        <PageHead unackedZero={false} />
-        <div className="alertlist" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <article key={i} className="alert glass" style={{ opacity: 0.45 }}>
-              <div className="asnap" aria-hidden="true"><div className="grid2" /></div>
-              <div className="acol">
-                <div className="atype amber">Loading…</div>
-                <div className="atitle">​</div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </>
+      <EmptyState icon={ShieldAlert} title="Could not load alerts"
+        hint="The Monitor backend did not respond. Check the server, then retry."
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
     )
   }
 
-  if (api?.error) {
-    return (
-      <>
-        <PageHead unackedZero={false} />
-        <EmptyState
-          icon={ShieldAlert}
-          title="Could not load alerts"
-          hint="The Monitor backend did not respond. Check the server, then retry."
-          action={
-            <button type="button" className="ackbtn" onClick={api.retry}>
-              <RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry
-            </button>
-          }
-        />
-      </>
-    )
+  if (state === VIEW_STATE.LOADING) {
+    return <EmptyState icon={ShieldAlert} title="Loading alerts" hint="Retrieving the current alert queue." />
   }
 
   const sorted = [...alerts].sort((a, b) => b.at - a.at)
@@ -53,7 +31,7 @@ export default function Alerts({ alerts, ackAlert, api }) {
         <ShieldCheck aria-hidden="true" />
         <p>Telegram is a one-way notification mirror. Each alert is pushed only to the operator assigned to that camera via this app's camera assignment.</p>
       </div>
-      {sorted.length === 0 ? (
+      {state === VIEW_STATE.SUCCESS_EMPTY ? (
         <EmptyState
           icon={ShieldCheck}
           title="No alerts in this window"

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, ServerOff, UserPlus } from 'lucide-react'
 import { ini } from '../data.js'
-import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
+import { EmptyState, StaleBadge } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.jsx'
+import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
 // ⚠️ Phase 2: SOC-only view — self-fetches GET /api/nodes (cameras + assignments +
 // operators + link, all pre-scoped/joined server-side). No props from App.jsx;
@@ -14,6 +15,7 @@ import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.j
 // ไม่เคยได้รับวิวนี้ใน DOM เลย และ POST /api/operators ยังบังคับ requireRole ซ้ำอีกชั้น
 export default function Nodes() {
   const api = useApi('/api/nodes', { refreshMs: 30_000 })
+  const state = getViewState(api, (data) => (data?.cameras ?? []).length === 0)
   // null = ปิด · 'form' = ฟอร์มเพิ่ม operator · { username, tempPassword } = โชว์รหัสครั้งเดียว
   const [modal, setModal] = useState(null)
 
@@ -26,14 +28,19 @@ export default function Nodes() {
 
   const head = <PageHead link={api.data?.link} onAdd={api.loading || api.error ? null : () => setModal('form')} />
 
-  if (api.loading) {
+  if (state === VIEW_STATE.LOADING) {
     return (
       <>
         {head}
         <div className="nodegrid" aria-busy="true">
           {[0, 1, 2].map((i) => (
-            <article key={i} className="node glass rise" style={{ opacity: 0.45 }}>
-              <div className="nodefeed"><FeedChrome /></div>
+            <article key={i} className="node node--routing glass rise" style={{ opacity: 0.45 }}>
+              <div className="nodebody nodebody--loading" aria-hidden="true">
+                <span className="node-skeleton node-skeleton--title" />
+                <span className="node-skeleton" />
+                <span className="node-skeleton" />
+                <span className="node-skeleton" />
+              </div>
             </article>
           ))}
         </div>
@@ -41,21 +48,11 @@ export default function Nodes() {
     )
   }
 
-  if (api.error) {
+  if (state === VIEW_STATE.ERROR) {
     return (
-      <>
-        {head}
-        <EmptyState
-          icon={ServerOff}
-          title="Could not load nodes"
-          hint="The Monitor backend did not respond. Check the server, then retry."
-          action={
-            <button type="button" className="ackbtn" onClick={api.retry}>
-              <RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry
-            </button>
-          }
-        />
-      </>
+      <EmptyState icon={ServerOff} title="Could not load nodes"
+        hint="The Monitor backend did not respond. Check the server, then retry."
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
     )
   }
 
@@ -79,7 +76,7 @@ export default function Nodes() {
     </>
   )
 
-  if (cameras.length === 0) {
+  if (state === VIEW_STATE.SUCCESS_EMPTY) {
     return (
       <>
         <PageHead link={link} onAdd={() => setModal('form')} />
@@ -100,21 +97,7 @@ export default function Nodes() {
         {cameras.map((c, i) => {
           const op = resolve(c.id)
           return (
-            <article key={c.id} className="node glass rise" style={{ '--i': Math.min(i, 8) }}>
-              <div className="nodefeed">
-                <FeedChrome />
-                {c.online ? (
-                  <>
-                    <span className="clipid mono">{c.id}</span>
-                    <span className="sflive"><span className="rec" />LIVE</span>
-                  </>
-                ) : (
-                  <div className="nodeoff">
-                    <span className="offbadge">Signal lost</span>
-                    <span>Camera offline</span>
-                  </div>
-                )}
-              </div>
+            <article key={c.id} className="node node--routing glass rise" style={{ '--i': Math.min(i, 8) }}>
               <div className="nodebody">
                 <div className="nodename">
                   {c.name}

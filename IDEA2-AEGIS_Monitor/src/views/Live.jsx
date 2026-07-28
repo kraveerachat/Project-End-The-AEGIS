@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
@@ -13,15 +13,28 @@ const SECONDARY_PRIORITY = ['CAM-01', 'CAM-05', 'CAM-04', 'CAM-06', 'CAM-02']
 // ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
 // SOC-Responder ได้ทุกกล้อง; CCTV-Operator ได้เฉพาะกล้องที่มอบหมาย
 // วิวนี้ไม่กรองสิทธิ์เอง (และต้องไม่ทำ) — แค่ render ขอบเขตที่ได้รับ
-export default function Live({ now, link, detections, sysEvents, cameras = [], heroCam, setHeroCam }) {
+export default function Live({ now, link, detections, sysEvents, cameras, heroCam, setHeroCam }) {
   const heroRef = useRef(null)
-  const visibleIds = new Set(cameras.map((c) => c.id))
-  const cam = cameras.find((c) => c.id === heroCam) ?? cameras[0] ?? null
+  const [swapOrder, setSwapOrder] = useState(SECONDARY_PRIORITY)
+
+  if (cameras === null) {
+    return (
+      <div className="pagehead">
+        <div>
+          <h1 className="h1">Live canvas</h1>
+          <p className="sub">Connecting to AEGIS Monitor feed server...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const visibleIds = new Set((cameras ?? []).map((c) => c.id))
+  const cam = (cameras ?? []).find((c) => c.id === heroCam) ?? cameras?.[0] ?? null
   const lost = link.status === 'lost'
   const stale = link.status !== 'online'
 
   if (!cam) {
-    // ยังไม่ได้กล้องจากเซิร์ฟเวอร์ (กำลังโหลด) หรือบัญชีนี้ไม่มีกล้องที่มอบหมาย
+    // บัญชีนี้ไม่มีกล้องที่มอบหมาย
     return (
       <>
         <div className="pagehead">
@@ -38,11 +51,20 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
     )
   }
 
-  const secondary = SECONDARY_PRIORITY
+  const secondary = [...swapOrder, ...SECONDARY_PRIORITY]
     .filter((id) => id !== cam.id && visibleIds.has(id))
     .map((id) => cameras.find((c) => c.id === id))
     .filter((c) => c && c.online)
     .slice(0, 3)
+
+  const swapHeroCamera = (nextCamera) => {
+    if (nextCamera.id === cam.id) return
+    setSwapOrder((order) => [
+      cam.id,
+      ...order.filter((id) => id !== cam.id && id !== nextCamera.id),
+    ])
+    setHeroCam(nextCamera.id)
+  }
 
   // เหตุการณ์ถูกจำกัดตามขอบเขตกล้องที่มองเห็น — operator ไม่เห็น event ของกล้องอื่น
   const scoped = detections.filter((d) => visibleIds.has(d.cam))
@@ -98,14 +120,16 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
         </div>
       </motion.div>
       <div className="canvas">
-        <motion.div
-          className="canvasL"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-        >
-          <div className="hero" ref={heroRef}>
-            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วาง <img> ที่
+        <div className="canvasL">
+          <motion.div
+            key={cam.id}
+            className={`hero${lost ? ' hero--lost' : ''}`}
+            ref={heroRef}
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
+          >
+            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วางภาพที่
                 inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
                 อ้างอิงกรอบใบเดิมไม่เปลี่ยน (ดูคอมเมนต์ .feedimg ใน index.css) */}
             <LiveFeed
@@ -113,19 +137,21 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
               cameraName={cam.name}
               hasStream={Boolean(camBeat?.hasStream)}
               lost={lost}
+              hideStatus={lost}
             />
             <FeedChrome /><div className="scanline" /><div className="vign" />
             <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
-            <div className="herotop">
+            <div className="herotop absolute top-4 left-4 flex items-center gap-2 z-10">
               {lost ? (
-                <span className="htag lost">LINK LOST</span>
+                <span className="htag lost bg-rose-950/90 border border-rose-500/50 text-rose-300 px-2 py-1 rounded font-mono text-xs font-bold">LINK LOST</span>
               ) : hasUnknownNow ? (
                 <span className="htag focus"><span className="rec" />UNKNOWN IN FRAME</span>
               ) : (
                 <span className="htag manual">MANUAL FOCUS</span>
               )}
-              <span className="hchip mono">{cam.id} · {cam.name}</span>
-              <div className="heroright">
+              <span className="hchip mono text-white font-mono text-xs font-semibold bg-black/40 px-2 py-1 rounded backdrop-blur-sm">{cam.id} · {cam.name}</span>
+            </div>
+            <div className="heroright absolute top-4 right-4 flex items-center gap-2 z-10">
                 {link.status === 'degraded' && <StaleBadge label="Link degraded" />}
                 {/* ⚠️ เดิมตรงนี้ hardcode "REC • 1080p • 24fps" — ความละเอียดมาจากตาราง
                     cameras จริง ส่วน fps จริงมาจาก heartbeat (capture_fps) ถ้ายังไม่มี
@@ -146,7 +172,6 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
                   <Maximize2 aria-hidden="true" />
                 </motion.button>
               </div>
-            </div>
             {!lost && heroBoxes.map((b, i) => <BBox key={`${b.label}-${i}`} {...b} kind={b.kind} />)}
             {/* ⚠️ เดิมประกาศชื่อรุ่นโมเดล "FACE_RECOGNITION V1.3" ที่ไม่มีอยู่จริง
                 (engine ยังรัน PlaceholderRecognizer) และนับ subject จากฉากที่แต่งไว้
@@ -160,27 +185,27 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
               {lost ? `LAST FRAME ${fmtTime(link.lastFrameAt ?? now)}` : `${fmtDate(now)} ${fmtTime(now)}`}
             </span>
             {lost && (
-              <div className="lostwrap" role="alert">
+              <div className="lostwrap flex flex-col items-center justify-center gap-3" role="alert">
                 <WifiOff aria-hidden="true" />
-                <span className="lost-t">CONNECTION LOST</span>
-                <span className="lost-s mono">Last frame {fmtTime(link.lastFrameAt ?? now)}</span>
-                <span className="lost-r">Reconnecting</span>
+                <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">CONNECTION LOST</span>
+                <span className="lost-state text-slate-300">NO LIVE STREAM</span>
+                <span className="lost-s mono text-slate-300">Last frame {fmtTime(link.lastFrameAt ?? now)}</span>
+                <span className="lost-detail mono text-white/80">No Detection Engine is streaming {cam.id}</span>
+                <span className="lost-r text-slate-300">Reconnecting</span>
               </div>
             )}
-          </div>
+          </motion.div>
           <div className="secondrow">
-            {secondary.map((c, idx) => (
+            {secondary.map((c) => (
               <motion.button
                 key={c.id}
                 type="button"
-                className="sfeed"
-                onClick={() => setHeroCam(c.id)}
+                className="sfeed sfeed--clickable"
+                onClick={() => swapHeroCamera(c)}
                 aria-label={`Focus ${c.id} — ${c.name}`}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 1, y: 0 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.1 * (idx + 1), ease: 'easeOut' }}
-                whileHover={{ y: -6, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.25), 0 0 18px rgba(0, 229, 255, 0.2)' }}
-                whileTap={{ scale: 0.985 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
               >
                 <LiveFeed
                   cameraId={c.id}
@@ -190,11 +215,15 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
                   compact
                 />
                 <FeedChrome />
-                <span className="sfid mono">{c.id}</span>
-                {lost
-                  ? <span className="sflive warn">STALE</span>
-                  : <span className="sflive"><span className="rec" />LIVE</span>}
-                <span className="sfloc">{c.name}</span>
+                <div className="sfeed-overlay">
+                  <div className="sfeed-topline">
+                    <span className="sfid mono bg-white/95 border border-slate-300 text-slate-800 backdrop-blur-md px-2 py-1 rounded shadow-sm font-mono text-xs font-bold dark:bg-slate-900/90 dark:border-slate-700 dark:text-white">{c.id}</span>
+                    {lost
+                      ? <span className="sflive warn bg-amber-100 border border-amber-300 text-amber-700 px-2 py-1 rounded shadow-sm font-mono text-[10px] uppercase font-bold tracking-wider dark:bg-amber-900/50 dark:border-amber-500/50 dark:text-amber-400">STALE</span>
+                      : <span className="sflive"><span className="rec" />LIVE</span>}
+                  </div>
+                  <span className="sfloc bg-white/95 border border-slate-300 text-slate-700 backdrop-blur-md px-2 py-1 rounded shadow-sm text-xs dark:bg-slate-900/90 dark:border-slate-700 dark:text-slate-300">{c.name}</span>
+                </div>
                 {/* กล่องบน tile มาจาก detection ล่าสุดจริงของกล้องตัวนั้น (เดิมเป็น
                     TILE_BOXES ที่ตั้งไว้ตายตัว) — ไม่มี detection = ไม่มีกล่อง */}
                 {!lost && bboxesFor(scoped.find((d) => d.cam === c.id)).map((b, i) => (
@@ -203,7 +232,7 @@ export default function Live({ now, link, detections, sysEvents, cameras = [], h
               </motion.button>
             ))}
           </div>
-        </motion.div>
+        </div>
         <motion.div
           className="canvasR"
           initial={{ opacity: 0, y: 20 }}

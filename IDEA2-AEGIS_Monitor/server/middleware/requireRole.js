@@ -4,6 +4,7 @@
 // ผ่าน camera_assignment ฝั่งเซิร์ฟเวอร์เสมอ — ห้ามเชื่อ filter จาก client
 import { currentUser } from '../auth/session.js'
 import { isValidRole } from '../rbac/permissions.js'
+import { isPasswordResetEnforced } from '../auth/passwordResetPolicy.js'
 
 // ── Force Password Reset gate ───────────────────────────────────────────
 // บัญชีที่ถูก CLI ตั้งรหัสผ่านชั่วคราวให้ (must_reset_password = TRUE) ผ่านได้แค่เส้นทาง
@@ -11,7 +12,7 @@ import { isValidRole } from '../rbac/permissions.js'
 const RESET_EXEMPT_PATHS = new Set(['/password/reset', '/logout', '/me'])
 
 function blockedByPasswordReset(req, user) {
-  return user.mustResetPassword && !RESET_EXEMPT_PATHS.has(req.path)
+  return isPasswordResetEnforced() && user.mustResetPassword && !RESET_EXEMPT_PATHS.has(req.path)
 }
 
 export function requireAuth(req, res, next) {

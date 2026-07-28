@@ -9,13 +9,13 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 # ⚡ ESP32 & Relay Module (Physical Breaker)
 
-> **บทบาท**: อุปกรณ์ควบคุมการตัด/ต่อวงจรสายสัญญาณเครือข่ายระดับกายภาพ (Uplink Breaker) เมื่อเกิดภัยคุกคามไซเบอร์หรือสัญญาณ Heartbeat เงียบหายไป
+> **Role**: Control device for physical network line connection/cutoff (Uplink Breaker) when cyber threats occur or heartbeat signals go silent.
 
 ---
 
-## 🛠️ รายการฮาร์ดแวร์และวงจร (BOM Details)
+## 🛠️ Hardware & Circuit Details (BOM Details)
 
-| รายการอุปกรณ์ | รายละเอียดสเปก | สถานะจัดซื้อ |
+| Item | Specifications | Procurement Status |
 | :--- | :--- | :--- |
 | **ESP32 WROOM-32** | DevKit 38-pin, USB-C, WiFi+Bluetooth | ✅ Purchased (135 THB) |
 | **5V 2-Channel Relay Module** | JQC3F-05VDC-C (Channel 1 Cut Uplink) | ✅ Purchased (35 THB) |
@@ -24,7 +24,7 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 ---
 
-## 🔗 ความสัมพันธ์กับโน้ตอื่น
+## 🔗 Related Notes
 * [[04 - 🔒 IDEA3 AEGIS Lockdown]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Contain_Before_Notify]]

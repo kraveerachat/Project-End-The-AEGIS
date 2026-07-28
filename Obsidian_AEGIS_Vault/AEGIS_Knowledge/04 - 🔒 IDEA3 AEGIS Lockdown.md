@@ -7,11 +7,11 @@ created: 2026-07-20
 
 # 🔒 IDEA3: AEGIS Lockdown
 
-> **หน้าที่หลัก**: ระบบตัดการเชื่อมต่อและปิดล็อกกายภาพอัตโนมัติเมื่อเกิดเหตุคุกคามสูง (Physical Emergency Lockdown System) สั่งงานบอร์ด ESP32 ผ่านโปรโตคอลความปลอดภัย MQTT + HMAC-SHA256
+> **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## ⚡ สถาปัตยกรรมการสั่งงาน Hardware & Firmware
+## ⚡ Hardware & Firmware Architecture
 
 ```mermaid
 sequenceDiagram
@@ -37,15 +37,15 @@ sequenceDiagram
 
 ---
 
-## 🛠️ คุณสมบัติด้านความปลอดภัยทางกายภาพ
+## 🛠️ Physical Security Features
 
-* **HMAC-SHA256 Validation**: บอร์ด ESP32 จะไม่ทำตามคำสั่งใดๆ หากลายเซ็น HMAC ไม่ถูกต้อง
-* **Anti-Replay Attack (Nonce)**: ใช้ค่า Nonce สุ่มป้องกันคำสั่งดักจับแล้วส่งซ้ำ
-* **Dead Man's Switch**: หากขาดการติดต่อจากเซิร์ฟเวอร์หลักเกินเวลาที่กำหนด ระบบจะสลับเข้าสู่โหมดปลอดภัยอัตโนมัติ
+* **HMAC-SHA256 Validation**: The ESP32 board rejects any commands lacking valid HMAC signatures.
+* **Anti-Replay Attack (Nonce)**: Random nonces prevent command interception and replay attacks.
+* **Dead Man's Switch**: If heartbeat communication from the central server drops beyond the threshold, the system automatically triggers fail-secure isolation.
 
 ---
 
-## 🔗 เอกสารที่เกี่ยวข้อง
+## 🔗 Related Notes
 * [[00 - 🗺️ AEGIS System Overview]]
 * [[03 - 📹 IDEA2 AEGIS Monitor]]
 * [[05 - 🛡️ Security Architecture]]

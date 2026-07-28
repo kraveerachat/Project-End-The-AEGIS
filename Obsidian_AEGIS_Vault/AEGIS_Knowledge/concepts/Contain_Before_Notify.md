@@ -9,13 +9,13 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 # 🛑 Contain Before Notify (NIST SP 800-61 Alignment)
 
-> **แนวคิดหลัก**: การเปลี่ยนลำดับขั้นตอนตอบสนองเหตุการณ์ความมั่นคงปลอดภัย (Incident Response Workflow) โดยเลือก **ควบคุมความเสียหายและจำกัดการแพร่กระจาย (Containment) ก่อนส่งการแจ้งเตือน (Notification)** เปรียบเสมือน "ดับไฟก่อนโทรแจ้งญาติ"
+> **Core Concept**: Reordering the Incident Response Workflow to prioritize **Containment before Notification**, analogous to "extinguishing the fire before calling relatives."
 
 ---
 
-## 💡 เหตุผลทางเทคนิค (The Paradox Solved)
+## 💡 Technical Rationale (The Paradox Solved)
 
-หากเกิดการโจมตีประเภท DDoS บน NAS สายสัญญาณ WAN จะถูกจราจรหนาแน่นจนเต็ม Bandwidth หากระบบเลือกระดับขั้นตอนแบบเดิม (ส่ง Telegram ก่อนแล้วค่อยสั่งตัดวงจร) คำสั่ง Telegram จะติด Timeout ทำให้ระบบค้างและไม่เคยสั่งตัดวงจรจริง
+If a DDoS attack occurs on the NAS, the WAN connection becomes saturated with traffic. Under traditional workflows (sending a Telegram alert before triggering isolation), Telegram requests would time out, causing the system to hang and never execute the actual network cutoff.
 
 ```mermaid
 sequenceDiagram
@@ -38,7 +38,7 @@ sequenceDiagram
 
 ---
 
-## 🔗 ความสัมพันธ์กับโน้ตอื่น
+## 🔗 Related Notes
 * [[04 - 🔒 IDEA3 AEGIS Lockdown]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Cyber-Physical_Defense]]
