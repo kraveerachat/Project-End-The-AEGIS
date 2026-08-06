@@ -1051,3 +1051,51 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Prompt goal**: Upload the complete trackable contents of `C:\Users\User\AEGIS_System` to `kraveerachat/Project-End-The-AEGIS` and make the current project state visible from `main`.
 - **Repository scope**: All source, configuration templates, Docker files, tests, documentation, agent guidance, and Obsidian Knowledge Base files tracked by Git were included. `.env`, local agent settings, generated dependencies/build output, and the empty accidental note were excluded.
 - **Updated Obsidian notes**: `[[00 - 🗺️ AEGIS System Overview]]` and `[[log]]`.
+
+## [2026-08-06] infrastructure | Build the as-built Infrastructure track (network, server, remote access, deployment)
+
+- **Prompt goal**: Organise the vault around the real state of the AEGIS infrastructure as of 6 Aug 2026 — 15 completed steps, VLAN/IP plan, SSH hardening status, Twingate ZTNA, deprecated OpenVPN, Docker deployment plan, backlog, and document conflicts — with explicit ✅/🔧/⏳/📋 markers and no claim of completion without test evidence.
+- **Inspected before writing**: full vault listing; `00-MOC/AEGIS-Infrastructure-MOC.md` already existed from an earlier session and was kept and extended rather than recreated. `00.md` (0-byte accidental note) was left untouched.
+- **Created notes** (13 new files):
+  - `10-Network/Hardware-Inventory.md`, `10-Network/VLAN-IP-Plan.md`, `10-Network/MikroTik-Config.md`, `10-Network/Switch-VLAN-Config.md`
+  - `20-Server/Beelink-Ubuntu-Host.md`, `20-Server/Linux-User-Accounts.md`, `20-Server/SSH-Hardening-Status.md`
+  - `30-RemoteAccess/Twingate-Setup.md`, `30-RemoteAccess/OpenVPN-Deprecated.md`
+  - `40-Deployment/Docker-Stack-Plan.md`
+  - `90-Status/Progress-Log-2026-08-06.md`, `90-Status/Open-Items-Backlog.md`, `90-Status/Document-Conflicts.md`
+- **Updated notes** (merged in place, nothing deleted): `00-MOC/AEGIS-Infrastructure-MOC.md`, `index.md`, `.schema.md` (new folder layout + status-marker rules), `00 - 🗺️ AEGIS System Overview.md` (5 infrastructure rows added to Outstanding Items), and **Reality Check** callouts prepended to `concepts/ZTNA_Twingate_vs_OpenVPN.md`, `concepts/VLAN_Segmentation_and_Port_Mapping.md`, `entities/MikroTik_hEX_lite.md`, `entities/Beelink_Mini_S_NAS.md`.
+- **Conflicts found against existing vault content**: (1) `ZTNA_Twingate_vs_OpenVPN` still described the dual OpenVPN/Twingate design and a Twingate resource on Drive port 443 — reality is Twingate only with a single SSH resource; (2) `MikroTik_hEX_lite` still listed an OpenVPN server and pool `192.168.30.100–200` that never worked; (3) `VLAN_Segmentation_and_Port_Mapping` listed macvlan `.11`/`.12`/`.13` as if allocated — none are deployed; (4) **newly identified** — the "Docker stack healthy / HTTP 200" results recorded in `00 - 🗺️ AEGIS System Overview` were measured on the developer machine, not on the Beelink, and the note did not say which host (now logged as conflict item 7); (5) hardware model conflict `RB750Gr3`/`TL-SG108E` does **not** exist anywhere in the vault — a grep confirmed the vault already carries the correct `RB750r2`/`TL-SG105E`, so that discrepancy lives in documents outside the vault.
+- **Verification**: no test commands apply (documentation change). Wikilink targets were checked against the on-disk file list; secrets were kept out (placeholders `<TWINGATE_CONNECTOR_TOKEN>`, `<ROUTER_ADMIN_PASSWORD>`, `<PASSWORD>` only). Nothing is marked ✅ without an accompanying evidence line; UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware are all recorded as unverified/not done.
+
+## [2026-08-06] vibe-coding | Publish AEGIS project to GitHub and sync Twingate documentation
+- **Prompt goal**: Upload the complete AEGIS System Git history and tracked project files to `kraveerachat/sina-fn-Web_app-01.git` and add the current Twingate ZTNA operational update to Obsidian.
+- **Repository result**: Published at branch `aegis-system`, HEAD `70d262ff2eeaeb0acddeeda893c582c815c8f9cf`; existing `main` was preserved because it belongs to an unrelated Sina health app.
+- **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md`, `00 - 🗺️ AEGIS System Overview.md`, and `log.md`.
+- **Security**: `.env` and real tokens were excluded; only placeholders are documented. Twingate P1 housekeeping remains open until token rotation and connector resilience are completed.
+
+## [2026-08-06] vibe-coding | Publish complete AEGIS project and sync Twingate documentation
+- **Prompt Goal**: Upload the current AEGIS project to GitHub and update Obsidian with the verified Twingate remote-access status.
+- **Modified Source Code Paths**: No application source changes; repository publication and documentation synchronization only.
+- **Updated Obsidian Notes**:
+  - `30-RemoteAccess/Twingate-Setup.md` — corrected the GitHub repository and branch reference.
+  - `log.md` — recorded the successful publication.
+- **GitHub**: Pushed `3bcf0af` to `kraveerachat/Project-End-The-AEGIS` branch `fix/hub-nginx-monitor-routing-and-ingest-guard`.
+- **Safety**: `main` was not overwritten; repository status was clean and no tracked secret-like files were found.
+
+## [2026-08-06] vibe-coding | Verify AEGIS GitHub publication and Twingate Obsidian sync
+- **Prompt goal**: Confirm the complete AEGIS project publication and current Twingate documentation update in `kraveerachat/Project-End-The-AEGIS`.
+- **Verification**: Local HEAD matches `origin/fix/hub-nginx-monitor-routing-and-ingest-guard` (`3d9a461`); remote contains both the AEGIS branch and the existing unrelated `main`; no tracked `.env` or secret-like token files found.
+- **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md` and `log.md` were already synchronized; this entry records the verification without duplicating the Twingate note.
+
+## [2026-08-06] vibe-coding | Audit the infrastructure note set against the as-built brief
+- **User Prompt Goal**: Confirm whether the Infrastructure vault re-organisation (13 notes across `00-MOC/`, `10-Network/`, `20-Server/`, `30-RemoteAccess/`, `40-Deployment/`, `90-Status/`) was actually finished, and verify it against the requested spec rather than assuming.
+- **Modified Code Paths**: None — documentation audit only.
+- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` (only file changed).
+- **Key Changes**: Corrected an arithmetic error in the numeric summary table — the ✅ row read **12** while listing 13 steps (1–9, 11–14); now **13**, so 13 ✅ + 2 🔧 = 15 steps.
+- **Audit result**: All 13 notes exist with complete YAML frontmatter (`title`/`tags`/`type`/`status`/`created`/`updated`), wikilinks resolve to on-disk files, and ✅/🔧/⏳/📋 markers are applied per item. No token, private key, or real password appears in any infrastructure note — placeholders only. UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware all remain recorded as unverified/not done, as required. Reality Check banners are in place on `[[concepts/ZTNA_Twingate_vs_OpenVPN]]`, `[[concepts/VLAN_Segmentation_and_Port_Mapping]]`, `[[entities/MikroTik_hEX_lite]]`. No other defect found.
+
+## [2026-08-06] vibe-coding | Publish the infrastructure audit fix to GitHub
+- **User Prompt Goal**: Push the vault update from this session to `kraveerachat/Project-End-The-AEGIS`.
+- **Modified Code Paths**: None — documentation only.
+- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` and `[[log]]`.
+- **GitHub**: Commit `0f988d9` pushed to branch `fix/hub-nginx-monitor-routing-and-ingest-guard` (`5fbee9c..0f988d9`). Verified local HEAD equals `origin/fix/hub-nginx-monitor-routing-and-ingest-guard`.
+- **Safety**: `main` untouched; the diff was reviewed before pushing and contained no token, key, or password — the 13 infrastructure notes were already committed in the earlier session, so only the step-count correction and the audit log entry shipped.

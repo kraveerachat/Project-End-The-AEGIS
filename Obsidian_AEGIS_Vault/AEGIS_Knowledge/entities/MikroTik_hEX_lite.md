@@ -3,11 +3,22 @@ title: MikroTik hEX lite (RB750r2)
 tags: [aegis, entity, network, router, mikrotik, vlan, vpn]
 type: entity
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-08-06
+status: ✅ Routing ใช้งานจริง · ⚠️ ส่วน OpenVPN ล้าสมัย
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 🌐 MikroTik hEX lite (RB750r2 Edge Router)
+
+> ## ⚠️ Reality Check (2026-08-06)
+>
+> * ✅ **รุ่นถูกต้อง** — RB750r2 ตรงกับของจริง
+> * ✅ **Inter-VLAN Routing ทำงานจริงและทดสอบแล้ว** (ping VLAN30→VLAN10 loss 0%, 0.5–0.8 ms) → [[10-Network/MikroTik-Config]]
+> * ❌ **หัวข้อ "OpenVPN Server" ด้านล่างล้าสมัย** — OpenVPN **ใช้งานจริงไม่ได้** เพราะระบบอยู่หลัง Double NAT และทีมไม่มีสิทธิ์ Admin ที่ Router ตัวหน้าสุด จึงทำ Port Forwarding ไม่ได้ → เปลี่ยนไปใช้ [[30-RemoteAccess/Twingate-Setup|Twingate ZTNA]] แล้ว
+>   IP pool `192.168.30.100–200` **ไม่เคยถูกใช้งานจริง** → [[30-RemoteAccess/OpenVPN-Deprecated]]
+> * ⏳ **ยังไม่ Export Config Backup** และ **ยังไม่ Review Firewall Rule ครบก่อน Production**
+
+---
 
 > **Role**: Isolation Gateway compensating between home ISP internet and the AEGIS system. Functions as Layer 3 Gateway, Inter-VLAN Router, NAT/Firewall, and OpenVPN Server.
 
