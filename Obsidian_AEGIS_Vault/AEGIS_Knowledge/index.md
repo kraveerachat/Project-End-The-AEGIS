@@ -3,7 +3,7 @@ title: AEGIS LLM Wiki Catalog Index
 tags: [aegis, wiki, index, catalog]
 type: catalog
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-08-06
 ---
 
 # 📚 AEGIS System LLM Wiki Catalog
@@ -14,7 +14,37 @@ updated: 2026-07-27
 
 ## 🗺️ System Architecture & Dashboard
 * [[00 - 🗺️ AEGIS System Overview]] — Monorepo architecture overview, Data Flow Diagram, and component comparison table
+* [[00-MOC/AEGIS-Infrastructure-MOC]] — **[NEW 2026-08-06]** Map of Content for the **physical infrastructure** track (network, server, remote access, deployment) with per-item status markers
 * [[AEGIS_Architecture_Canvas.canvas]] — Interactive 2D Visual Canvas mapping system interconnections
+
+---
+
+## 🏗️ Infrastructure — สิ่งที่ทำจริงบนฮาร์ดแวร์ (`10-Network/` · `20-Server/` · `30-RemoteAccess/` · `40-Deployment/` · `90-Status/`)
+
+> **[NEW 2026-08-06]** ชุดโน้ตนี้บันทึก **ของจริงบนอุปกรณ์** ส่วน `concepts/` และ `entities/` บันทึก **สิ่งที่ออกแบบไว้ในเล่ม** เมื่อสองฝั่งไม่ตรงกัน **ยึดชุดนี้**
+
+### 10-Network
+* [[10-Network/Hardware-Inventory]] — อุปกรณ์จริง 6 รายการพร้อมสเปกและสถานะ (RB750r2 / TL-SG105E ยืนยันแล้ว · ESP32 ⏳)
+* [[10-Network/VLAN-IP-Plan]] — ผัง VLAN 10/20/30, ตารางจอง IP, และหลักฐานผลทดสอบ routing
+* [[10-Network/MikroTik-Config]] — Edge Router, Double NAT, ลำดับ Firewall Rule, งาน backup ที่ค้าง
+* [[10-Network/Switch-VLAN-Config]] — Port mapping / PVID บน TL-SG105E
+
+### 20-Server
+* [[20-Server/Beelink-Ubuntu-Host]] — Host `aegis-system` (`192.168.10.10`) และงานค้างบนเครื่อง
+* [[20-Server/Linux-User-Accounts]] — บัญชีรายบุคคล 3 บัญชี + ประเด็น sudo scope
+* [[20-Server/SSH-Hardening-Status]] — สถานะ Key + **Checklist 8 ขั้นก่อนปิด Password Login**
+
+### 30-RemoteAccess
+* [[30-RemoteAccess/Twingate-Setup]] — ZTNA `aegissut`, Resource `AEGIS-Beelink-SSH` (TCP 22), หลักฐานทดสอบจากภายนอก, housekeeping ที่ค้าง
+* [[30-RemoteAccess/OpenVPN-Deprecated]] — เหตุผลที่ใช้ไม่ได้ (Double NAT) และวิธีเขียนเรื่องนี้ในเล่มให้ถูกต้อง
+
+### 40-Deployment
+* [[40-Deployment/Docker-Stack-Plan]] — แผน deploy 3 แอป + PostgreSQL ลง Beelink และการตัดสินใจ Macvlan vs Bridge
+
+### 90-Status
+* [[90-Status/Progress-Log-2026-08-06]] — สรุปงาน Infrastructure 15 ขั้นตอนพร้อมสถานะและหลักฐาน
+* [[90-Status/Open-Items-Backlog]] — คิวงาน P1/P2/P3
+* [[90-Status/Document-Conflicts]] — 7 จุดที่เอกสาร/เล่มขัดกับของจริง
 
 ---
 
