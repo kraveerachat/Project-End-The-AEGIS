@@ -1085,3 +1085,10 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Prompt goal**: Confirm the complete AEGIS project publication and current Twingate documentation update in `kraveerachat/Project-End-The-AEGIS`.
 - **Verification**: Local HEAD matches `origin/fix/hub-nginx-monitor-routing-and-ingest-guard` (`3d9a461`); remote contains both the AEGIS branch and the existing unrelated `main`; no tracked `.env` or secret-like token files found.
 - **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md` and `log.md` were already synchronized; this entry records the verification without duplicating the Twingate note.
+
+## [2026-08-06] vibe-coding | Audit the infrastructure note set against the as-built brief
+- **User Prompt Goal**: Confirm whether the Infrastructure vault re-organisation (13 notes across `00-MOC/`, `10-Network/`, `20-Server/`, `30-RemoteAccess/`, `40-Deployment/`, `90-Status/`) was actually finished, and verify it against the requested spec rather than assuming.
+- **Modified Code Paths**: None — documentation audit only.
+- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` (only file changed).
+- **Key Changes**: Corrected an arithmetic error in the numeric summary table — the ✅ row read **12** while listing 13 steps (1–9, 11–14); now **13**, so 13 ✅ + 2 🔧 = 15 steps.
+- **Audit result**: All 13 notes exist with complete YAML frontmatter (`title`/`tags`/`type`/`status`/`created`/`updated`), wikilinks resolve to on-disk files, and ✅/🔧/⏳/📋 markers are applied per item. No token, private key, or real password appears in any infrastructure note — placeholders only. UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware all remain recorded as unverified/not done, as required. Reality Check banners are in place on `[[concepts/ZTNA_Twingate_vs_OpenVPN]]`, `[[concepts/VLAN_Segmentation_and_Port_Mapping]]`, `[[entities/MikroTik_hEX_lite]]`. No other defect found.
