@@ -110,6 +110,11 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 
 ---
 
+## 🔄 อัปเดตการจัดเก็บเอกสาร (2026-08-06)
+
+สถานะการใช้งานจริงยังคงเดิม: Twingate `aegissut` เชื่อมต่อผ่าน Connector บน Beelink และเปิด Resource `AEGIS-Beelink-SSH` เฉพาะ TCP 22 ได้ โดยมีหลักฐานทดสอบจาก Mobile Hotspot แล้ว เอกสารชุดนี้ถูกเก็บร่วมกับ source ของ AEGIS ใน GitHub branch `aegis-system` ของ `kraveerachat/sina-fn-Web_app-01` เพื่อให้ตรวจสอบย้อนหลังได้ ส่วน `main` ของ repository ปลายทางเป็นโปรเจกต์เดิมคนละระบบ จึงยังไม่ถูก overwrite
+
+> ย้ำ: ใน repository และ Obsidian มีเฉพาะ placeholder เท่านั้น ห้าม commit Connector Token จริง และงาน P1 เดิม (rotate token, จำกัด Group, restart policy/health check) ยังไม่ปิด
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
 * [[00-MOC/AEGIS-Infrastructure-MOC]]
