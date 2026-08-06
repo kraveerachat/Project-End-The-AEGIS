@@ -1071,3 +1071,12 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Repository result**: Published at branch `aegis-system`, HEAD `70d262ff2eeaeb0acddeeda893c582c815c8f9cf`; existing `main` was preserved because it belongs to an unrelated Sina health app.
 - **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md`, `00 - 🗺️ AEGIS System Overview.md`, and `log.md`.
 - **Security**: `.env` and real tokens were excluded; only placeholders are documented. Twingate P1 housekeeping remains open until token rotation and connector resilience are completed.
+
+## [2026-08-06] vibe-coding | Publish complete AEGIS project and sync Twingate documentation
+- **Prompt Goal**: Upload the current AEGIS project to GitHub and update Obsidian with the verified Twingate remote-access status.
+- **Modified Source Code Paths**: No application source changes; repository publication and documentation synchronization only.
+- **Updated Obsidian Notes**:
+  - `30-RemoteAccess/Twingate-Setup.md` — corrected the GitHub repository and branch reference.
+  - `log.md` — recorded the successful publication.
+- **GitHub**: Pushed `3bcf0af` to `kraveerachat/Project-End-The-AEGIS` branch `fix/hub-nginx-monitor-routing-and-ingest-guard`.
+- **Safety**: `main` was not overwritten; repository status was clean and no tracked secret-like files were found.
