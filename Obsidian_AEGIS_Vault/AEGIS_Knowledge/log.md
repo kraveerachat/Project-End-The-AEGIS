@@ -1092,3 +1092,10 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` (only file changed).
 - **Key Changes**: Corrected an arithmetic error in the numeric summary table — the ✅ row read **12** while listing 13 steps (1–9, 11–14); now **13**, so 13 ✅ + 2 🔧 = 15 steps.
 - **Audit result**: All 13 notes exist with complete YAML frontmatter (`title`/`tags`/`type`/`status`/`created`/`updated`), wikilinks resolve to on-disk files, and ✅/🔧/⏳/📋 markers are applied per item. No token, private key, or real password appears in any infrastructure note — placeholders only. UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware all remain recorded as unverified/not done, as required. Reality Check banners are in place on `[[concepts/ZTNA_Twingate_vs_OpenVPN]]`, `[[concepts/VLAN_Segmentation_and_Port_Mapping]]`, `[[entities/MikroTik_hEX_lite]]`. No other defect found.
+
+## [2026-08-06] vibe-coding | Publish the infrastructure audit fix to GitHub
+- **User Prompt Goal**: Push the vault update from this session to `kraveerachat/Project-End-The-AEGIS`.
+- **Modified Code Paths**: None — documentation only.
+- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` and `[[log]]`.
+- **GitHub**: Commit `0f988d9` pushed to branch `fix/hub-nginx-monitor-routing-and-ingest-guard` (`5fbee9c..0f988d9`). Verified local HEAD equals `origin/fix/hub-nginx-monitor-routing-and-ingest-guard`.
+- **Safety**: `main` untouched; the diff was reviewed before pushing and contained no token, key, or password — the 13 infrastructure notes were already committed in the earlier session, so only the step-count correction and the audit log entry shipped.
