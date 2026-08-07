@@ -1370,5 +1370,6 @@ Deleting any tree would have silently broken that tool's hook with no way to rec
 - **Intentional exclusions**: root/module `.env`, `.claude/settings.local.json`, nested clone `Project-End-The-AEGIS/`, `AEGIS_Camera/clips/`, `AEGIS_Camera/detection_log.csv`, dependencies และ generated local artifacts; `.env.example` ยังคงเป็น template ที่เผยแพร่ได้
 - **Verification**: Drive PostgreSQL suite **132/132 pass, 0 fail, 0 skip**; Monitor **6/6 pass**; Docker bootstrap **2/2 pass**; `npm run build` สำเร็จใน HUB, Drive และ Monitor (Drive มีเพียง chunk-size warning); ไม่พบ Python test files
 - **Database safety**: ใช้ `TEST_DATABASE_URL` เฉพาะ ephemeral Node 24 test process กับฐาน `aegis_drive_test` ที่มี OID แยก; live/test pre-run counts เท่ากันตาม seed (users=2, vault_blobs=0, vault_meta=0, shares=0); cleanup ยืนยัน test database count=0
-- **Modified source/test paths**: ไม่มี source change เพิ่มจากงานเดิม; งานนี้จัดทำ publication manifest, verification, Git commit/push และ Pull Request
+- **Publication result**: commit `79ded7e` ถูก push ไป `origin/fix/hub-nginx-monitor-routing-and-ingest-guard`; remote hash ตรงกับ local และ worktree สะอาด. เครื่องนี้ไม่มี GitHub CLI จึงไม่ได้สร้าง PR อัตโนมัติ แต่เตรียม compare URL สำหรับเปิด PR เข้า `main`
+- **Modified source/test paths**: ไม่มี source change เพิ่มจากงานเดิม; งานนี้จัดทำ publication manifest, verification, Git commit/push และ PR handoff
 - **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `log.md`
