@@ -323,6 +323,7 @@ async function pgListShares() {
        JOIN files f ON f.id = s.file_id
        LEFT JOIN users u ON u.id = s.created_by
       WHERE s.revoked = false
+        AND s.expires_at > now()
       ORDER BY s.created_at DESC`,
   )
   return rows.map(mapShareRow)
@@ -330,7 +331,10 @@ async function pgListShares() {
 
 export async function listShares() {
   if (usingPostgres) return pgListShares()
-  return shares.filter((s) => !s.revoked).map((s) => ({ ...s, tokenHash: undefined, passwordHash: undefined }))
+  const now = Date.now()
+  return shares
+    .filter((s) => !s.revoked && s.expiresAt > now)
+    .map((s) => ({ ...s, tokenHash: undefined, passwordHash: undefined }))
 }
 
 /**

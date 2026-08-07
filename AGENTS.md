@@ -1,13 +1,22 @@
 # AGENTS.md — Global Rules for AI Coding Assistants in AEGIS System
 
+> ## 🧭 READ FIRST, EVERY SESSION
+> **`Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md`**
+>
+> The single entry point to this project's knowledge base: system orientation, agent reading
+> protocol, project knowledge-network diagram, and the full table of contents. Read it before
+> starting work, then check `summaries/08_Outstanding_Items_Consolidated.md` so you don't
+> re-report an already-tracked bug. Full rules live in the vault at
+> `06 - 🤖 Agent Operating Rules.md`.
+
 > **Mandatory instruction for all AI Agents**: Whenever you finish executing a user prompt, writing code, or adding features in this repository, you MUST update the project's Obsidian Knowledge Base in-place.
 
 ---
 
 ## 📌 Post-Prompt Auto-Sync & In-Place Update Requirement
 
-**Target Obsidian Vault Directory**:  
-`C:\Users\User\AEGIS_System\Obsidian_AEGIS_Vault\AEGIS_Knowledge`
+**Target Obsidian Vault Directory** (relative to this repository root — do **not** hardcode an absolute path, the repo has moved before):
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge`
 
 ## Shared UI/design workflow
 

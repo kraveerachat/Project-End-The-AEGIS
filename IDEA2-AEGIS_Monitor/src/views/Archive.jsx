@@ -134,6 +134,22 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                 </div>
                 {open && (
                   <div className="clipdetail">
+                    {/* ⚠️ Phase 1: /api/clips/:id/video เสิร์ฟจากโฟลเดอร์ clips ของ
+                        Detection Engine ที่ mount แทน NAS จริงไปก่อน (ดู
+                        docker-compose.yml + server/routes/api.js) — เปลี่ยนแค่
+                        mount source ตอนมี NAS จริง ไม่ต้องแก้ตรงนี้เลย
+                        เบราว์เซอร์แนบ session cookie ให้เองเพราะ same-origin —
+                        ⚠️ ต้องต่อ prefix ด้วย import.meta.env.BASE_URL เสมอ
+                        (เหมือน LiveFeed.jsx) — เขียน '/api/...' เฉย ๆ จะหลุด
+                        prefix '/monitor/' แล้วโดน nginx gateway ส่งไปคนละแอป */}
+                    <video
+                      key={cl.id}
+                      className="clipvideo"
+                      src={`${import.meta.env.BASE_URL}api/clips/${cl.id}/video`}
+                      controls
+                      preload="metadata"
+                      style={{ width: '100%', borderRadius: 8, marginBottom: 10, background: '#000' }}
+                    />
                     {markers.length === 0 ? (
                       <div className="mkrow"><span className="mkdot" />No flagged windows — authorized activity only.</div>
                     ) : (
@@ -145,7 +161,6 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                         </div>
                       ))
                     )}
-                    <div className="mkrow mut">Playback streams from the NAS in the integrated deployment.</div>
                   </div>
                 )}
               </article>

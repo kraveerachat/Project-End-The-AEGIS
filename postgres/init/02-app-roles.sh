@@ -1,5 +1,6 @@
 #!/bin/sh
 # AEGIS · Postgres — สร้าง DB role แยกต่อแอป แล้วล็อกให้ต่อได้เฉพาะฐานของตัวเอง
+# Keep this file LF-only: Docker executes it inside Linux during first boot.
 #
 # ⚠️ Identity Decoupling ระดับฐานข้อมูล (นี่คือชั้นที่บังคับด้วย SQL จริง ไม่ใช่ธรรมเนียม):
 #    แยก database + แยก DB user เพื่อบังคับ Identity Decoupling ระดับฐานข้อมูล

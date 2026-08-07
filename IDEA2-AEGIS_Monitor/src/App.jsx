@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { MotionConfig } from 'framer-motion'
 import TopBar from './components/TopBar.jsx'
 import Sidebar, { MobileNav } from './components/Sidebar.jsx'
 import Footer from './components/Footer.jsx'
@@ -32,7 +33,11 @@ export default function App() {
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('aegis_theme') || 'dark'
   })
-  const [lang, setLang] = useState('th')
+  // ⚠️ เดิม lang ไม่ persist และไม่ถูกส่งไปที่ view/chrome อื่นเลยนอกจาก
+  // Settings/Login — เก็บลง localStorage เหมือน theme ตอนนี้ เพื่อให้รอดรีเฟรช
+  const [lang, setLang] = useState(() => {
+    return localStorage.getItem('aegis_lang') || 'th'
+  })
 
   useEffect(() => {
     const dark = theme === 'dark'
@@ -49,9 +54,16 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    localStorage.setItem('aegis_lang', lang)
+  }, [lang])
+
+  useEffect(() => {
     const onStorage = (e) => {
       if (e.key === 'aegis_theme' && e.newValue) {
         setTheme(e.newValue)
+      }
+      if (e.key === 'aegis_lang' && e.newValue) {
+        setLang(e.newValue)
       }
     }
     window.addEventListener('storage', onStorage)
@@ -156,24 +168,31 @@ export default function App() {
     return <div className="app" aria-busy="true" />
   }
 
+  // ⚠️ reducedMotion="user" — อ่าน prefers-reduced-motion ของ OS ให้ทุก whileHover/
+  // whileTap/animate ของ Framer Motion "ทั้งแอป" ยุบเหลือ fade แทบไม่มีการขยับเอง
+  // โดยอัตโนมัติ ไม่ต้องเขียน useReducedMotion() ซ้ำในทุก component — CSS
+  // @media (prefers-reduced-motion) ที่มีอยู่แล้วครอบแค่ CSS animation/transition
+  // ดิบ ๆ เท่านั้น ไม่ครอบ Framer Motion ซึ่งขับเคลื่อนด้วย JS แยกระบบกัน
   if (!session) {
     return (
-      <Login
-        theme={theme}
-        setTheme={setTheme}
-        lang={lang}
-        setLang={setLang}
-        onAuthed={({ user, menu: m }) => {
-          setSession({ ...user, menu: m })
-        }}
-      />
+      <MotionConfig reducedMotion="user">
+        <Login
+          theme={theme}
+          setTheme={setTheme}
+          lang={lang}
+          setLang={setLang}
+          onAuthed={({ user, menu: m }) => {
+            setSession({ ...user, menu: m })
+          }}
+        />
+      </MotionConfig>
     )
   }
 
   const visibleCams = cameras ?? []
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <a className="skiplink" href="#main">Skip to content</a>
       <div className="orb a" /><div className="orb b" /><div className="orb c" />
       <div className="app">
@@ -237,8 +256,8 @@ export default function App() {
             </div>
           </main>
         </div>
-        <Footer linkStatus={link.status} />
+        <Footer link={link} />
       </div>
-    </>
+    </MotionConfig>
   )
 }

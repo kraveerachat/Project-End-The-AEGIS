@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { UserPlus, Info, Users, Search } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, EmptyState, SkeletonLoader, Avatar } from '../components/ui.jsx'
+import { UserPlus, Info, Search } from 'lucide-react'
+import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, InlineEmptyState, SkeletonLoader, Avatar } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
 
@@ -46,10 +47,29 @@ function PermCell({ granted, label }) {
   )
 }
 
-export function Access({ t }) {
+export function Access({ t, user, placeholderMode = false }) {
   const now = useNow(30_000)
   const usersApi = useApi('/api/users')
   const allUsers = usersApi.data?.users ?? []
+  const apiCurrent = allUsers.find((u) => String(u.id) === String(user?.id))
+  const currentAccount = user ? {
+    ...apiCurrent,
+    id: String(user.id),
+    name: user.displayName,
+    accountName: user.accountName ?? user.displayName,
+    username: user.username,
+    role: user.role,
+    mustResetPassword: Boolean(user.mustResetPassword),
+    activeSessions: apiCurrent?.activeSessions ?? 1,
+    isCurrent: true,
+  } : null
+  // The memory fallback contains login fixtures, not provisioned production accounts.
+  // Keep only the authenticated account there; PostgreSQL rows remain authoritative.
+  const additionalUsers = placeholderMode
+    ? []
+    : allUsers.filter((u) => String(u.id) !== String(user?.id))
+  const identityRows = currentAccount ? [currentAccount, ...additionalUsers] : allUsers
+  const fetchError = visibleFetchError(usersApi.error, placeholderMode)
 
   // ตัวกรองของ "ตารางนี้" โดยเฉพาะ — ไม่ใช่ช่องค้นหาระดับระบบ
   // จอนี้ตอบคำถามเดียว: "บัญชีชื่อนี้มีสิทธิ์อะไร" ค้นชื่อในที่ตรงนี้ตรงประเด็นกว่า
@@ -58,8 +78,8 @@ export function Access({ t }) {
   // ค้นทั้งชื่อที่ผู้ใช้ตั้งเอง ชื่อที่ Admin ตั้ง และ username — Admin ที่จำได้แค่ชื่อ
   // ที่ตัวเองตั้งให้ตอน provision ต้องหาบัญชีนั้นเจอ แม้เจ้าตัวจะเปลี่ยนชื่อแสดงไปแล้ว
   const users = fq
-    ? allUsers.filter((u) => `${u.name} ${u.accountName ?? ''} ${u.username}`.toLowerCase().includes(fq))
-    : allUsers
+    ? identityRows.filter((u) => `${u.name} ${u.accountName ?? ''} ${u.username}`.toLowerCase().includes(fq))
+    : identityRows
 
   const [addOpen, setAddOpen] = useState(false)
   const [name, setName] = useState('')
@@ -112,7 +132,6 @@ export function Access({ t }) {
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder={t('accessFilter')}
                 aria-label={t('accessFilter')}
-                disabled={usersApi.loading || !!usersApi.error}
                 className="w-full h-8 pl-9 pr-3 rounded-full bg-sunken border border-line text-[13px] text-ink placeholder:text-ink-3 outline-none transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] disabled:opacity-45"
               />
             </div>
@@ -121,15 +140,7 @@ export function Access({ t }) {
               {t('addUser')}
             </Btn>
           </div>
-          {usersApi.loading ? (
-            <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
-          ) : usersApi.error ? (
-            <ErrorState t={t} kind={usersApi.error} onRetry={usersApi.retry} />
-          ) : users.length === 0 ? (
-            // ว่างเพราะ "ไม่มีบัญชี" กับว่างเพราะ "ตัวกรองไม่ตรง" คนละเรื่อง — อย่ารวมข้อความ
-            <EmptyState icon={Users} title={fq ? t('accessFilterNone', { q: filter.trim() }) : t('emptyNoUsers')} />
-          ) : (
-            <div className="overflow-x-auto">
+          <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-line bg-sunken">
@@ -137,6 +148,7 @@ export function Access({ t }) {
                     <Th>{t('colRole')}</Th>
                     <Th>{t('colStatus')}</Th>
                     <Th>{t('colLastLogin')}</Th>
+                    <Th>{t('sessionsThisInstance')}</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -176,18 +188,51 @@ export function Access({ t }) {
                             <Chip tone="warn">{t('pendingReset')}</Chip>
                           </span>
                         ) : (
-                          <Chip tone="ok">{t('active')}</Chip>
+                          <Chip tone="ok">{t('accountReady')}</Chip>
                         )}
                       </td>
                       <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">
                         {u.lastLogin ? fmtRelative(t, u.lastLogin, now) : t('neverLoggedIn')}
                       </td>
+                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">
+                        {u.activeSessions == null
+                          ? t('notAvailable')
+                          : u.isCurrent
+                            ? (u.activeSessions === 1
+                              ? t('currentDeviceSession')
+                              : t('sessionCountCurrent', { n: u.activeSessions }))
+                            : t('sessionCount', { n: u.activeSessions })}
+                      </td>
                     </tr>
                   ))}
+                  {usersApi.loading && (
+                    <tr><td colSpan={5} className="px-5 py-4"><SkeletonLoader type="table" /></td></tr>
+                  )}
+                  {fetchError && (
+                    <tr><td colSpan={5}><ErrorState t={t} kind={fetchError} onRetry={usersApi.retry} /></td></tr>
+                  )}
+                  {!usersApi.loading && !fetchError && fq && users.length === 0 && (
+                    <tr><td colSpan={5}><InlineEmptyState>{t('accessFilterNone', { q: filter.trim() })}</InlineEmptyState></td></tr>
+                  )}
+                  {!usersApi.loading && !fetchError && !fq && additionalUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>
+                        <InlineEmptyState
+                          action={
+                            <Btn variant="outline" size="sm" onClick={() => { setAddOpen(true); setSaveError(false) }}>
+                              <UserPlus size={13} strokeWidth={1.5} />
+                              {t('addUser')}
+                            </Btn>
+                          }
+                        >
+                          {t('noOtherUsers')}
+                        </InlineEmptyState>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          )}
         </Card>
       </div>
 

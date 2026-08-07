@@ -7,7 +7,7 @@ import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
 import {
   establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
-  setSessionDisplayName, listSessionsForUser, revokeSessionByRef, sessionRef,
+  setSessionDisplayName, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getNavForRole } from '../rbac/permissions.js'
@@ -191,8 +191,9 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
     const myLogins = audit
       .filter((e) => label(e) === req.user.username && e.action === 'LOGIN')
       .slice(0, 5)
-    // สถานะความปลอดภัยรวม: จำนวนเหตุการณ์ DENIED/BLOCKED ล่าสุด (0 = all clear)
-    const securityAlerts = audit.filter((e) => e.result !== 'OK').length
+    // ป้ายระบุขอบเขตตามจริง: นับเฉพาะ DENIED/BLOCKED ใน 100 audit rows ล่าสุด
+    // ไม่เรียกว่า incident ที่ยัง active เพราะ schema ไม่มี resolved/unresolved state
+    const securityAlerts = audit.filter((e) => e.result === 'DENIED' || e.result === 'BLOCKED').length
     const shares = await store.listShares()
     res.json({
       ...(await store.dashboard()),
@@ -297,6 +298,34 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
       next(err)
     }
   })
+})
+
+// ── Verify checksum — อ่าน bytes ปัจจุบันจาก Storage Layer ใหม่ทุกครั้ง ───────
+// ⚠️ นี่เป็นด่านตรวจความสมบูรณ์จริง ไม่ใช่การคืนค่า verified ที่จดไว้ตอนอัปโหลด:
+//    metadata hash คือหลักฐานตั้งต้น ส่วน actualSha256 ต้องมาจากการอ่านไฟล์บนดิสก์
+//    ณ เวลาที่ผู้ใช้กดตรวจเท่านั้น จึงจับการแก้/เสียหายหลังอัปโหลดได้
+apiRouter.post('/files/:id/verify', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Not found' })
+    if (file.type === 'Folder' || !file.sha256) {
+      return res.status(409).json({ error: 'Verification unavailable' })
+    }
+
+    const abs = resolveKey(file.path)
+    if (!abs || !(await keyExists(file.path))) {
+      await auditAct(req, 'FILE_VERIFY', file.name, 'DENIED')
+      return res.status(409).json({ error: 'Verification unavailable' })
+    }
+
+    const actualSha256 = await sha256OfFile(abs)
+    const storedSha256 = String(file.sha256).toLowerCase()
+    const match = actualSha256 === storedSha256
+    await auditAct(req, 'FILE_VERIFY', file.name, match ? 'OK' : 'DENIED')
+    res.json({ match, storedSha256, actualSha256 })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Download — stream bytes จริงจาก Storage Layer ────────────────────────────
@@ -609,7 +638,15 @@ apiRouter.delete('/zones/:id', requireRole(ROLES.ADMIN), async (req, res, next) 
 //    สถานะการเข้าถึงที่ตรงกับความจริงเสมอ ไม่ใช่ชุดข้อมูลคู่ขนานที่ค่อย ๆ เพี้ยนออกจากกัน
 apiRouter.get('/users', requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
-    res.json({ users: await listUsers() })
+    const [users, sessionCounts] = await Promise.all([listUsers(), countSessionsByUser(req)])
+    res.json({
+      users: users.map((u) => ({
+        ...u,
+        activeSessions: sessionCounts ? (sessionCounts.get(String(u.id)) ?? 0) : null,
+      })),
+      sessionScope: 'instance',
+      sessionsVolatile: true,
+    })
   } catch (err) {
     next(err)
   }

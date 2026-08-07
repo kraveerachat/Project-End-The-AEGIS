@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bell, Menu, LogOut } from 'lucide-react'
 import { Dot, Avatar } from './ui.jsx'
-import { useApi } from '../lib/hooks.js'
 
 function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
   const ref = useRef(null)
@@ -30,7 +29,7 @@ function Dropdown({ open, onClose, children, align = 'right', width = 280 }) {
   )
 }
 
-export function TopBar({ t, scrolled, user, onSignOut, openMobileNav }) {
+export function TopBar({ t, scrolled, user, health, onSignOut, openMobileNav }) {
   const [bellOpen, setBellOpen] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
 
@@ -43,9 +42,12 @@ export function TopBar({ t, scrolled, user, onSignOut, openMobileNav }) {
   const clockText = now.toLocaleTimeString('en-GB', { hour12: false })
   const dateText = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-  // สถานะจริงจาก /healthz — ไม่มี "online" ที่เขียนตายตัวอีกต่อไป
-  const health = useApi('/healthz', { refreshMs: 15_000 })
-  const up = Boolean(health.data?.ok)
+  // สอง pill อ่านคนละ probe: Drive = Application process, Metadata = SELECT 1 จริง
+  // ห้ามเรียก Edge node เพราะ endpoint นี้ไม่ได้วัด host/Docker daemon ทั้งเครื่อง
+  const applicationUp = health.data?.layers?.application?.ok === true
+    && health.data?.layers?.application?.checked === true
+  const metadataUp = health.data?.layers?.metadata?.ok === true
+    && health.data?.layers?.metadata?.checked === true
   const dbMode = health.data?.db
 
   return (
@@ -68,12 +70,12 @@ export function TopBar({ t, scrolled, user, onSignOut, openMobileNav }) {
       {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
       <div className="flex items-center justify-center gap-3 max-md:hidden" role="status" aria-live="polite">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
-          <Dot tone={up ? 'ok' : 'danger'} pulse={up} size={6} />
-          <span>{up ? 'Edge node: online' : 'Edge node: unreachable'}</span>
+          <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={applicationUp} size={6} />
+          <span>{applicationUp ? t('driveOnline') : t('driveNotConnected')}</span>
         </div>
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
-          <Dot tone={up ? 'accent' : 'danger'} pulse={up} size={6} />
-          <span>{up ? `Metadata: ${dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory'}` : 'Metadata: —'}</span>
+          <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={metadataUp} size={6} />
+          <span>{metadataUp ? `Metadata: ${dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory'}` : t('metadataNotConnected')}</span>
         </div>
       </div>
 

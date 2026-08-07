@@ -40,28 +40,28 @@
 # COOKIE_SECURE=false is required here (and only here) because this gateway
 # terminates plain HTTP — the session cookie's Secure flag would otherwise
 # never let the browser send it back, breaking login entirely.
+#
+# ⚠️ monitor.ports (แทน expose เดิม): เปิด 8002 ออกสู่ host ชั่วคราวเพื่อให้
+#    Detection Engine ที่รันนอก Docker (บน Windows ตรงๆ เพื่อเข้าถึง webcam จริง)
+#    ยิง POST /internal/* เข้ามาได้ทาง http://localhost:8002 — ถ้าภายหลัง
+#    aegis-camera กลับมารันเป็น container ในสแตกนี้เอง (คุยกันผ่านชื่อ service
+#    "monitor" ในเน็ตเวิร์ก docker-compose ได้อยู่แล้ว) เปลี่ยนกลับเป็น expose ได้
+version: '3.8'
+
 services:
   postgres:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aegis}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis-postgres-dev-change-me}
-      # bootstrap DB only — neither app connects to this one, see
-      # postgres/init/00-databases.sql for the two real per-app databases
       POSTGRES_DB: aegis_db
-      # ⚠️ รหัสของ role แยกต่อแอป (drive_app / monitor_app) — ใช้โดย
-      # postgres/init/02-app-roles.sh ตอน init เท่านั้น ตัว POSTGRES_USER ด้านบน
-      # (superuser) ไม่ถูกใช้โดยแอปที่รันอยู่เลย มีไว้ init/migrate/ตรวจสอบเท่านั้น
       DRIVE_DB_PASSWORD: ${DRIVE_DB_PASSWORD:-drive-app-dev-password-change-me}
       MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
       - ./postgres/init/01-run-app-init.sh:/docker-entrypoint-initdb.d/01-run-app-init.sh:ro
-      # รันเป็นตัวสุดท้าย — GRANT ... ON ALL TABLES ต้องมีตารางจาก 01- ก่อน
       - ./postgres/init/02-app-roles.sh:/docker-entrypoint-initdb.d/02-app-roles.sh:ro
-      # each app's OWN schema/seed, bind-mounted read-only — single source of
-      # truth stays in server/db/, nothing is duplicated into postgres/init/
       - ./IDEA1-AEGIS_Drive_LC/server/db/schema.sql:/sql-src/idea1-schema.sql:ro
       - ./IDEA1-AEGIS_Drive_LC/server/db/seed.sql:/sql-src/idea1-seed.sql:ro
       - ./IDEA2-AEGIS_Monitor/server/db/schema.sql:/sql-src/idea2-schema.sql:ro
@@ -84,10 +84,6 @@ services:
     depends_on:
       - drive
       - monitor
-    # ⚠️ ยิงหา /healthz ของ nginx เอง ไม่ใช่ /drive หรือ /monitor โดยเจตนา — gateway
-    # เป็น routing-only สุขภาพของมันคือ "ยังรับและ route request ได้ไหม" ถ้าผูก
-    # healthcheck ไว้กับ backend ตัวใดตัวหนึ่ง backend ล่มทีเดียว docker จะรีสตาร์ท
-    # router ที่ยังทำงานได้ดีทิ้งไปด้วย ทำให้ปัญหาลุกลามแทนที่จะจำกัดวง
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 15s
@@ -102,25 +98,12 @@ services:
       NODE_ENV: production
       PORT: 8001
       SESSION_SECRET: ${DRIVE_SESSION_SECRET:-localhost-test-stack-insecure-drive-secret-change-me}
-      COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
-      # ⚠️ ต่อด้วย drive_app ไม่ใช่ superuser — role นี้ REVOKE CONNECT จาก
-      # aegis_monitor ไว้แล้ว โปรเซสนี้จึงเปิด connection ไปฐานของ IDEA2 ไม่ได้เลย
-      # ต่อให้โค้ดถูกแก้/ถูกยึด (ดู postgres/init/02-app-roles.sh)
+      COOKIE_SECURE: "false"
       DATABASE_URL: postgresql://drive_app:${DRIVE_DB_PASSWORD:-drive-app-dev-password-change-me}@postgres:5432/aegis_drive
-      # Storage Layer ของ Data Lake — ต้องตรงกับจุด mount ของ volume drive_storage ด้านล่าง
       STORAGE_ROOT: ${DRIVE_STORAGE_ROOT:-/datalake}
-      # Day-0 admin bootstrap (server/db/bootstrapAdmin.js) — no-ops once an Admin row
-      # exists, and no-ops entirely if left unset (both blank by default here so the
-      # localhost stack keeps using the seeded demo admin from server/db/seed.sql).
-      # Generate the hash with IDEA1-AEGIS_Drive_LC/scripts/hash_password.py — never
-      # put a raw password in ADMIN_BOOTSTRAP_PASSWORD_HASH.
       ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
       ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
     volumes:
-      # ── Storage Layer (HDFS concept) — ไฟล์ดิบของ Data Lake ──────────────
-      # บนเครื่องจริง (Beelink/NAS) volume นี้จะถูก bind ไปที่ HDD; บน stack ทดสอบ
-      # ใช้ named volume ให้ข้อมูลอยู่รอด `docker compose down` (หายเมื่อ -v เท่านั้น)
-      # ⚠️ mount ให้ drive เท่านั้น — monitor/gateway ไม่มีสิทธิ์แตะไฟล์ของ IDEA1
       - drive_storage:/datalake
     depends_on:
       postgres:
@@ -141,21 +124,21 @@ services:
       NODE_ENV: production
       PORT: 8002
       SESSION_SECRET: ${MONITOR_SESSION_SECRET:-localhost-test-stack-insecure-monitor-secret-change-me}
-      COOKIE_SECURE: "false" # gateway is plain HTTP on this stack — see header comment
-      # Localhost demo only. Production keeps the default true and requires reset.
+      COOKIE_SECURE: "false"
       ENFORCE_PASSWORD_RESET: "false"
-      # ⚠️ ต่อด้วย monitor_app ไม่ใช่ superuser — สมมาตรกับ drive: REVOKE CONNECT
-      # จาก aegis_drive ไว้แล้ว อ่านตาราง users/files ของ IDEA1 ไม่ได้เลย
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
-      # ⚠️ service-to-service key สำหรับ Detection Engine (Laptop, VLAN 20) ยิงเข้า
-      # POST /internal/{detections,clips,alerts} — ไม่ผูกกับ role ผู้ใช้ ไม่มี fallback:
-      # ไม่ตั้งค่า = endpoint /internal ปิดตาย (503). ตั้งค่าจริงใน root .env เสมอ
       DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
+      # ⚠️ Phase 1 (ยังไม่มี NAS จริง) — ชี้ไปโฟลเดอร์ clips ของ Detection Engine
+      #    ที่ถูก bind-mount ไว้ด้านล่างแทน เมื่อมี NAS จริงค่อยเปลี่ยน mount source
+      #    เป็นตำแหน่งบน NAS แทน ไม่ต้องแก้โค้ด route เลย
+      CLIPS_STORAGE_DIR: /nas/clips
+    volumes:
+      - ./AEGIS_Camera/clips:/nas/clips:ro
     depends_on:
       postgres:
         condition: service_healthy
-    expose:
-      - "8002"
+    ports:
+      - "8002:8002"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8002/healthz || exit 1"]
       interval: 15s
@@ -163,7 +146,20 @@ services:
       retries: 5
     restart: unless-stopped
 
+  aegis-camera:
+    build:
+      context: ./AEGIS_Camera
+    container_name: aegis_python_cam
+    environment:
+      DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
+      MONITOR_INTERNAL_URL: http://monitor:8002
+      AEGIS_CAMERA_ID: CAM-02
+    depends_on:
+      - monitor
+    ports:
+      - "8005:8000"
+    restart: unless-stopped
+
 volumes:
   postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
   drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
-  

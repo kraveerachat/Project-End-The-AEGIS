@@ -1,10 +1,48 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, ServerOff, UserPlus } from 'lucide-react'
 import { ini } from '../data.js'
-import { EmptyState, StaleBadge } from '../components/ui.jsx'
+import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.jsx'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
+
+// ⚠️ กรอบภาพสด: ใช้ proxy เดียวกับ Live canvas (GET /api/cameras/:id/stream) —
+//    ไม่ต่อตรงไปหา Detection Engine เด็ดขาด เหมือนทุกจุดที่แสดงภาพกล้องในระบบนี้
+//    เบา/เรียบง่ายกว่า components/LiveFeed.jsx โดยตั้งใจ (ไม่มี backoff/reconnect
+//    เต็มรูปแบบ) เพราะที่นี่เป็นแค่ thumbnail ภาพรวมของทั้ง fleet ไม่ใช่จอเฝ้าดูหลัก
+//    — โหลดพังก็แค่ตกกลับไปโชว์ placeholder เฉย ๆ ไม่ต้อง retry loop
+function NodeThumb({ camera }) {
+  const [broken, setBroken] = useState(false)
+  const [nonce, setNonce] = useState(0)
+
+  // กล้องเปลี่ยนสถานะ online/offline → รีเซ็ต ลองโหลดใหม่อีกครั้งเสมอ
+  useEffect(() => {
+    setBroken(false)
+    setNonce((n) => n + 1)
+  }, [camera.online])
+
+  const showPlaceholder = !camera.online || broken
+
+  return (
+    <div
+      className="nodethumb"
+      style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: '#05060e' }}
+    >
+      {showPlaceholder ? (
+        <FeedChrome />
+      ) : (
+        <img
+          key={nonce}
+          src={`${import.meta.env.BASE_URL}api/cameras/${camera.id}/stream?t=${nonce}`}
+          alt={`${camera.id} live preview`}
+          draggable={false}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  )
+}
 
 // ⚠️ Phase 2: SOC-only view — self-fetches GET /api/nodes (cameras + assignments +
 // operators + link, all pre-scoped/joined server-side). No props from App.jsx;
@@ -98,6 +136,7 @@ export default function Nodes() {
           const op = resolve(c.id)
           return (
             <article key={c.id} className="node node--routing glass rise" style={{ '--i': Math.min(i, 8) }}>
+              <NodeThumb camera={c} />
               <div className="nodebody">
                 <div className="nodename">
                   {c.name}

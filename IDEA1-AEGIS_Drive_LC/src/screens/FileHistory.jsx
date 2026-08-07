@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { History, RotateCcw, Download, FileText, Info } from 'lucide-react'
 import {
-  Card, CardTitle, Chip, Btn, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader,
+  Card, CardTitle, Chip, Btn, Modal, ModalClose, ErrorState, InlineEmptyState, SkeletonLoader,
 } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtRelative, fmtDateTime, fmtBytes } from '../lib/format.js'
 
@@ -38,17 +39,38 @@ function ScopeNote({ t }) {
   )
 }
 
-export function FileHistory({ t, lang }) {
+function VersionEmptyTrack({ t }) {
+  return (
+    <div className="version-empty-track px-5 py-6" role="status">
+      <div className="flex items-center gap-3" aria-hidden>
+        <span className="size-2.5 rounded-full border border-line bg-sunken shrink-0" />
+        <span className="flex-1 border-t border-dashed border-line" />
+        <span className="size-2.5 rounded-full border border-line bg-sunken shrink-0" />
+      </div>
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <p className="text-[12.5px] text-ink-3 flex-1 min-w-[220px]">{t('versionsTrackEmpty')}</p>
+        <Btn variant="outline" size="sm" disabled>
+          <RotateCcw size={13} strokeWidth={1.6} />
+          {t('versionRestore')}
+        </Btn>
+      </div>
+    </div>
+  )
+}
+
+export function FileHistory({ t, lang, placeholderMode = false }) {
   const now = useNow(30_000)
   const listApi = useApi('/api/file-versions')
-  const files = listApi.data?.files ?? []
-  const stats = listApi.data?.stats
+  const files = placeholderMode ? [] : (listApi.data?.files ?? [])
+  const stats = placeholderMode ? null : listApi.data?.stats
 
   const [selectedId, setSelectedId] = useState(null)
   const activeId = selectedId ?? files.find((f) => f.versionCount > 0)?.id ?? files[0]?.id ?? null
   const detailApi = useApi(activeId ? `/api/files/${encodeURIComponent(activeId)}/versions` : null)
   const versions = detailApi.data?.versions ?? []
   const current = detailApi.data?.file
+  const listError = visibleFetchError(listApi.error, placeholderMode)
+  const detailError = visibleFetchError(detailApi.error, placeholderMode)
 
   const [ask, setAsk] = useState(null)      // เวอร์ชันที่กำลังยืนยันจะกู้คืน
   const [busy, setBusy] = useState(false)
@@ -67,9 +89,6 @@ export function FileHistory({ t, lang }) {
     setResult(res.ok ? 'ok' : 'error')
     if (res.ok) { detailApi.retry(); listApi.retry() }
   }
-
-  if (listApi.loading) return <SkeletonLoader type="table" />
-  if (listApi.error) return <Card><ErrorState t={t} kind={listApi.error} onRetry={listApi.retry} /></Card>
 
   return (
     <div className="flex flex-col gap-5">
@@ -92,10 +111,14 @@ export function FileHistory({ t, lang }) {
             <div className="px-5 pt-5 pb-3 flex items-center gap-2">
               <FileText size={16} strokeWidth={1.5} className="text-ink-3" />
               <h2 className="text-[15px] font-semibold text-ink">{t('versionsMyFiles')}</h2>
-              {stats && <Chip tone="neutral" className="ml-auto">{stats.versions}</Chip>}
+              <Chip tone="neutral" className="ml-auto">{stats?.versions ?? 0}</Chip>
             </div>
-            {files.length === 0 ? (
-              <EmptyState icon={FileText} title={t('emptyNoFiles')} hint={t('versionsEmptyHint')} />
+            {listApi.loading ? (
+              <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
+            ) : listError ? (
+              <ErrorState t={t} kind={listError} onRetry={listApi.retry} />
+            ) : files.length === 0 ? (
+              <InlineEmptyState>{t('versionsNoFiles')}</InlineEmptyState>
             ) : (
               <div className="flex flex-col">
                 {files.map((f) => {
@@ -135,12 +158,16 @@ export function FileHistory({ t, lang }) {
               </h2>
             </div>
 
-            {detailApi.loading ? (
+            {placeholderMode ? (
+              <VersionEmptyTrack t={t} />
+            ) : listApi.loading || detailApi.loading ? (
               <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
-            ) : detailApi.error ? (
-              <ErrorState t={t} kind={detailApi.error} onRetry={detailApi.retry} />
+            ) : listError ? (
+              <VersionEmptyTrack t={t} />
+            ) : detailError ? (
+              <ErrorState t={t} kind={detailError} onRetry={detailApi.retry} />
             ) : !current ? (
-              <EmptyState icon={History} title={t('versionsPickFile')} />
+              <VersionEmptyTrack t={t} />
             ) : (
               <div className="flex flex-col">
                 {/* แถวปัจจุบัน — แยกให้เห็นชัดว่าอันไหนคือของที่ใช้อยู่ตอนนี้ */}
@@ -157,7 +184,7 @@ export function FileHistory({ t, lang }) {
                 </div>
 
                 {versions.length === 0 ? (
-                  <EmptyState icon={History} title={t('versionsNone')} hint={t('versionsEmptyHint')} />
+                  <VersionEmptyTrack t={t} />
                 ) : (
                   versions.map((v) => (
                     <div key={v.id} className="flex items-center gap-3 px-5 py-3.5 border-b border-line last:border-b-0 flex-wrap">

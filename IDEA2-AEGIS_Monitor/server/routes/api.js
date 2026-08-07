@@ -4,6 +4,8 @@
 //    server ต้องค้นจาก DB เองเท่านั้น (OWASP A01)
 // ⚠️ ไม่มี SSO — endpoint นี้ไม่อ่าน ไม่ validate และไม่ mint เซสชันจาก cookie ของแอปอื่น
 import bcrypt from 'bcryptjs'
+import fs from 'node:fs'
+import path from 'node:path'
 import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
 import { establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset } from '../auth/session.js'
@@ -339,6 +341,51 @@ apiRouter.get('/clips', requireAuth, async (req, res, next) => {
     const visible = new Set(cams.map((c) => c.id))
     const nameOf = (id) => cams.find((c) => c.id === id)?.name ?? id
     res.json({ clips: (await store.listClips(visible)).map((c) => ({ ...c, camName: nameOf(c.cam) })) })
+  } catch (err) { next(err) }
+})
+
+// ── Clip playback — เสิร์ฟไฟล์วิดีโอจริงจากโฟลเดอร์ที่ mount ไว้แทน NAS ───────
+// GET /api/clips/:id/video — ด่านเดียวกับทุก endpoint ที่แตะข้อมูลกล้อง:
+//   1. requireAuth      — ต้องมีเซสชัน
+//   2. canSeeCamera     — operator ขอคลิปของกล้องที่ไม่ได้รับมอบหมาย → 403
+//   3. storedOnNas      — ยังไม่ verify sha256 เสร็จ (nas_sync ยังไม่ยืนยัน) → ยังไม่เสิร์ฟ
+//   4. path.basename    — ตัดทุกอย่างเหลือแค่ชื่อไฟล์ ป้องกัน path traversal
+//      แม้ file_path ในฐานข้อมูลจะถูก validate ตอน insertClip แล้วก็ตาม (defense in depth)
+// ⚠️ Phase 1 (ยังไม่มี NAS ฮาร์ดแวร์จริง): CLIPS_STORAGE_DIR ชี้ไปโฟลเดอร์ clips ของ
+//    Detection Engine ที่ถูก bind-mount เข้ามา (ดู docker-compose.yml) — เมื่อมี NAS จริง
+//    ให้เปลี่ยนเป็น mount จาก NAS แทน โค้ด route นี้ไม่ต้องแก้เลย
+// ⚠️ Cache-Control: no-store ต้องอยู่ "ก่อน" ทุก return ในฟังก์ชันนี้ (รวม 403/404/409)
+//    ไม่ใช่แค่ตอนสำเร็จ — วัดจริงแล้ว: ถ้ากดเล่นคลิประหว่างที่ยังบันทึกไม่เสร็จ (ได้ 404
+//    กลับมา) แล้ว response นั้นไม่มี header กันแคช เบราว์เซอร์จะ "จำ" 404 ตัวนั้นไว้
+//    แล้วใช้ซ้ำตลอดแม้ไฟล์จะเสร็จสมบูรณ์แล้วก็ตาม ต้องกันแคชทุก branch ไม่ใช่แค่ตัวท้าย
+apiRouter.get('/clips/:id/video', requireAuth, async (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store')
+  try {
+    const clip = await store.getClipById(req.params.id)
+    if (!clip) return res.status(404).json({ error: 'Not found' })
+
+    // ด่านเดียวกับ /api/clips และ /api/cameras/:id/stream — ไม่มีทางลัด
+    if (!(await canSeeCamera(req.user, clip.cam))) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    if (!clip.storedOnNas) {
+      return res.status(409).json({ error: 'Clip not yet verified on NAS' })
+    }
+
+    const dir = process.env.CLIPS_STORAGE_DIR
+    if (!dir) return res.status(503).json({ error: 'Clip storage not configured' })
+
+    const filename = path.basename(clip.filePath) // กัน ../ ทุกรูปแบบ
+    const absPath = path.join(dir, filename)
+
+    if (!fs.existsSync(absPath)) {
+      return res.status(404).json({ error: 'Clip file missing from storage' })
+    }
+
+    // res.sendFile รองรับ Range header เองอยู่แล้ว (ใช้ package `send` ข้างใน)
+    // ทำให้ scrub วิดีโอได้ปกติโดยไม่ต้องเขียน streaming logic เอง
+    res.sendFile(absPath)
   } catch (err) { next(err) }
 })
 

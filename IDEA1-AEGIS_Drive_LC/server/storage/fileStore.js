@@ -16,8 +16,7 @@
 //    ไฟล์ไหนคืออะไร (2) ชื่อจากผู้ใช้ไม่มีวันกลายเป็น path บนดิสก์ = ตัด path traversal
 //    ตั้งแต่ต้นทาง ไม่ต้องพึ่ง sanitize ที่อาจพลาด
 import multer from 'multer'
-import { createHash } from 'node:crypto'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -49,6 +48,40 @@ export async function initStorage() {
   await fsp.writeFile(probe, 'ok')
   await fsp.unlink(probe)
   return { root: STORAGE_ROOT, writable: true }
+}
+
+/**
+ * ตรวจ Storage Layer ขณะ runtime ด้วยการเขียน→อ่าน→เทียบ→ลบไบต์จริงบน mount เดียวกับไฟล์
+ * ผู้ใช้ ไม่ใช้ statfs อย่างเดียว เพราะ statfs สำเร็จไม่ได้พิสูจน์ว่า volume ยังเขียน/อ่านได้
+ * ⚠️ probe ใช้ชื่อสุ่มทึบและลบในทุกเส้นทาง ไม่แตะ metadata และไม่มีข้อมูลผู้ใช้/ความลับปน
+ * @returns {Promise<{ok:boolean, checked:boolean, measured:boolean, latencyMs:number|null,
+ *                    check:'write-read-delete'}>}
+ */
+export async function checkStorage() {
+  const probe = path.join(STORAGE_ROOT, UPLOAD_DIR, `.health-probe-${randomUUID()}`)
+  const expected = randomBytes(32)
+  const startedAt = process.hrtime.bigint()
+  let exists = false
+  try {
+    await fsp.writeFile(probe, expected, { flag: 'wx' })
+    exists = true
+    const actual = await fsp.readFile(probe)
+    if (!actual.equals(expected)) throw new Error('storage probe byte mismatch')
+    await fsp.unlink(probe)
+    exists = false
+    return {
+      ok: true,
+      checked: true,
+      measured: true,
+      latencyMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+      check: 'write-read-delete',
+    }
+  } catch {
+    if (exists) {
+      try { await fsp.unlink(probe) } catch { /* health response must not leak filesystem details */ }
+    }
+    return { ok: false, checked: true, measured: false, latencyMs: null, check: 'write-read-delete' }
+  }
 }
 
 /**

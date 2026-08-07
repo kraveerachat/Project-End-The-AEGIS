@@ -206,6 +206,34 @@ test('จำนวนไฟล์และลิงก์ที่เปิด�
   assert.equal((await dash(c)).metrics.files, before.files, 'ลบไฟล์แล้วจำนวนต้องกลับเท่าเดิม')
 })
 
+test('ลิงก์ที่หมดอายุไม่ถูกนับหรือส่งเป็น active share', {
+  skip: usingPostgres ? false : 'ต้องเลื่อน expires_at ในฐานทดสอบเพื่อพิสูจน์ expiry โดยไม่รอจริง',
+}, async () => {
+  const c = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  const file = await upload(c, 'expired share count probe')
+  const created = await c.req('/api/shares', {
+    method: 'POST', body: { fileId: file.id, expiry: '1h', authType: 'none', scope: 'any' },
+  })
+  assert.equal(created.status, 201)
+
+  await query(`UPDATE shares SET expires_at = now() - interval '1 minute' WHERE id = $1`, [created.data.share.id])
+
+  const dashboard = await dash(c)
+  assert.equal(
+    dashboard.shares.some((s) => String(s.id) === String(created.data.share.id)),
+    false,
+    'Dashboard active-link sample ต้องไม่รวมลิงก์หมดอายุ',
+  )
+  const listed = await c.req('/api/shares')
+  assert.equal(
+    listed.data.shares.some((s) => String(s.id) === String(created.data.share.id)),
+    false,
+    'หน้าลิงก์ที่ใช้งานอยู่ต้องไม่คืนลิงก์หมดอายุ',
+  )
+
+  await c.req(`/api/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' })
+})
+
 test('recentFiles มาจากไฟล์จริง และไม่มีชื่อไฟล์เดโม่ที่เคย hard-code ไว้', async () => {
   const c = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
   const name = uniqueName()

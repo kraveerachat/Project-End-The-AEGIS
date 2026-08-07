@@ -11,6 +11,7 @@
 //     (ไม่มี redirect ตายตัว — App เป็นคนตัดสินว่า "กลับประตู" หน้าตาเป็นอย่างไร)
 
 const TIMEOUT_MS = 10_000
+export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 
 // เติม import.meta.env.BASE_URL (Vite `base`, ดู vite.config.js) นำหน้า path
 // รูท-สัมบูรณ์ทุกครั้ง — ทำให้ apiFetch('/api/x') วิ่งไปที่ '/drive/api/x' เมื่อ build
@@ -35,6 +36,82 @@ export const clearCsrfToken = () => { csrfToken = null }
 // 401 handler — App ลงทะเบียนไว้ตอน mount; เรียกเมื่อเซสชันหมดอายุกลางคัน
 let onUnauthorized = null
 export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
+
+/**
+ * อัปโหลด multipart ด้วย XHR เพราะ fetch ไม่มี upload-progress event ที่ใช้ได้ข้าม browser
+ * ⚠️ จำนวนที่ส่งให้ UI มาจาก event.loaded/event.total เท่านั้น ถ้า browser ไม่บอก total
+ * จะไม่เดาเปอร์เซ็นต์ และ CSRF/session ยังคงเป็น header + HttpOnly cookie เหมือน apiFetch
+ */
+export function apiUpload(path, {
+  method = 'POST',
+  body,
+  signal,
+  onProgress,
+  suppressAuthHandler = false,
+  timeoutMs = 10 * 60_000,
+} = {}) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest()
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      if (signal) signal.removeEventListener('abort', abortFromSignal)
+      resolve(result)
+    }
+    const abortFromSignal = () => xhr.abort()
+
+    xhr.open(method, withBase(path), true)
+    xhr.withCredentials = true
+    xhr.timeout = timeoutMs
+    if (method !== 'GET' && csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken)
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return
+      const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 10_000) / 100))
+      onProgress?.({ loadedBytes: event.loaded, totalBytes: event.total, percent })
+    }
+
+    xhr.onload = () => {
+      let data = null
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null } catch { /* body may be empty */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        finish({ ok: true, status: xhr.status, data, errorKind: null })
+        return
+      }
+      if (xhr.status === 401) {
+        if (!suppressAuthHandler) onUnauthorized?.()
+        finish({ ok: false, status: 401, data, errorKind: 'unauthorized' })
+        return
+      }
+      if (xhr.status === 403) {
+        if (typeof data?.code === 'string' && data.code.startsWith('CSRF_')) {
+          finish({ ok: false, status: 403, data, errorKind: 'csrf' })
+          return
+        }
+        if (data?.error === PASSWORD_RESET_REQUIRED) {
+          finish({ ok: false, status: 403, data, errorKind: 'password-reset-required', errorCode: PASSWORD_RESET_REQUIRED })
+          return
+        }
+        finish({ ok: false, status: 403, data, errorKind: 'forbidden' })
+        return
+      }
+      finish({ ok: false, status: xhr.status, data, errorKind: 'server' })
+    }
+    xhr.ontimeout = () => finish({ ok: false, status: 0, data: null, errorKind: 'timeout' })
+    xhr.onerror = () => finish({ ok: false, status: 0, data: null, errorKind: 'network' })
+    xhr.onabort = () => finish({ ok: false, status: 0, data: null, errorKind: 'network' })
+
+    if (signal) {
+      if (signal.aborted) {
+        finish({ ok: false, status: 0, data: null, errorKind: 'network' })
+        return
+      }
+      signal.addEventListener('abort', abortFromSignal, { once: true })
+    }
+    xhr.send(body)
+  })
+}
 
 /**
  * ดึง response แบบ "ไบต์ดิบ" (ไม่ parse JSON) — ใช้กับ ciphertext ของ Private Vault
@@ -81,7 +158,8 @@ export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) 
  * @param {{ method?: string, body?: object, signal?: AbortSignal,
  *           suppressAuthHandler?: boolean }} opts
  * @returns {Promise<{ ok: boolean, status: number, data: any,
- *                     errorKind: null|'timeout'|'network'|'unauthorized'|'forbidden'|'server' }>}
+ *                     errorKind: null|'timeout'|'network'|'unauthorized'|'csrf'|'password-reset-required'|'forbidden'|'server',
+ *                     errorCode?: string }>}
  */
 export async function apiFetch(path, { method = 'GET', body, signal, suppressAuthHandler = false, timeoutMs = TIMEOUT_MS } = {}) {
   const ctrl = new AbortController()
@@ -139,6 +217,17 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     // จอที่เรียกจึงต้องไม่มีทางเอาไปแสดงว่าเป็นความล้มเหลวของรหัสผ่าน/สิทธิ์
     if (typeof data?.code === 'string' && data.code.startsWith('CSRF_')) {
       return { ok: false, status: 403, data, errorKind: 'csrf' }
+    }
+    // บัญชีที่ยังใช้รหัสผ่านชั่วคราวถูกยืนยันตัวตนแล้ว แต่ยังไม่มีสิทธิ์เข้าแอป
+    // เก็บรหัสนี้ไว้เป็นสถานะเฉพาะ ห้ามลดทอนเป็น forbidden จน UI แปลผิดว่า RBAC ปฏิเสธ
+    if (data?.error === PASSWORD_RESET_REQUIRED) {
+      return {
+        ok: false,
+        status: 403,
+        data,
+        errorKind: 'password-reset-required',
+        errorCode: PASSWORD_RESET_REQUIRED,
+      }
     }
     return { ok: false, status: 403, data, errorKind: 'forbidden' }
   }

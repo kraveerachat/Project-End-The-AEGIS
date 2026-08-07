@@ -3,6 +3,7 @@ import { fetchMe, logout as apiLogout } from './lib/auth.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
 import { makeT } from './lib/strings.js'
 import { useApi, useReducedMotion } from './lib/hooks.js'
+import { isPlatformWired } from './lib/fetchState.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { TopBar } from './components/TopBar.jsx'
@@ -18,6 +19,7 @@ import { Storage } from './screens/Storage.jsx'
 import { Audit } from './screens/Audit.jsx'
 import { Access } from './screens/Access.jsx'
 import { Settings } from './screens/Settings.jsx'
+import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
 const TITLE_KEYS = {
   dashboard: 'dashTitle', files: 'filesTitle', vault: 'vaultTitle', uploads: 'uploadsTitle',
@@ -72,9 +74,17 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
+  // บัญชีที่ยังใช้รหัสชั่วคราวไม่มีสิทธิ์อ่าน protected endpoint ใด ๆ:
+  // ส่ง null ให้ทุก hook เพื่อหยุดทั้ง request แรกและ polling 403 จนรีเซ็ตรหัสสำเร็จ
+  const protectedDataEnabled = Boolean(session && !session.mustResetPassword)
+
   // ตัวเลขรวมของแอป (มิเตอร์ใน Sidebar) — จากเซิร์ฟเวอร์เท่านั้น, poll เงียบ ๆ ทุก 30s
-  const dashApi = useApi(session ? '/api/dashboard' : null, { refreshMs: 30_000 })
+  const dashApi = useApi(protectedDataEnabled ? '/api/dashboard' : null, { refreshMs: 30_000 })
   const metrics = dashApi.data?.metrics ?? null
+  const healthApi = useApi(protectedDataEnabled ? '/healthz' : null, { refreshMs: 15_000 })
+  // The in-memory fallback is seeded for development. Treat it as an unwired
+  // backend on data screens so fixture rows never masquerade as NAS content.
+  const placeholderMode = !isPlatformWired(healthApi.data)
 
   // ⚠️ ไม่มี preview-as-role / role switcher ใด ๆ — role มาจากเซิร์ฟเวอร์เท่านั้น
   // การเดโม่สองบทบาทใช้ "สองบัญชีจริง" ล็อกอินสลับกัน (ดู server/db/seed.sql)
@@ -91,11 +101,11 @@ export default function App() {
 
   // ── ดัชนีสำหรับ GlobalSearch — fetch ที่นี่ตัวเดียว (คงที่ข้ามการเปลี่ยนจอ)
   // ส่วน "เปิด/ปิด dropdown" เป็นของ GlobalSearch เองล้วน ๆ ไม่ยกขึ้นมาที่นี่
-  const filesApi = useApi(session ? '/api/files' : null, { refreshMs: 60_000 })
+  const filesApi = useApi(protectedDataEnabled ? '/api/files' : null, { refreshMs: 60_000 })
   // กลุ่ม PEOPLE โผล่เฉพาะคนที่เซิร์ฟเวอร์ให้เห็นจอ Access อยู่แล้ว —
   // ใช้เมนูที่ถูก filter มาจากเซิร์ฟเวอร์เป็นตัวตัดสิน ไม่เดา role ฝั่ง client
   const canSeePeople = nav.some((n) => n.id === 'access')
-  const usersApi = useApi(session && canSeePeople ? '/api/users' : null, { refreshMs: 60_000 })
+  const usersApi = useApi(protectedDataEnabled && canSeePeople ? '/api/users' : null, { refreshMs: 60_000 })
 
   // theme: light | dark | system → data-theme on <html>
   useEffect(() => {
@@ -174,29 +184,6 @@ export default function App() {
     return 'generic'
   }
 
-  const screenEl = {
-    dashboard: <Dashboard t={t} lang={lang} />,
-    files: <Files t={t} lang={lang} go={setScreen} />,
-    vault: <Vault t={t} />,
-    uploads: <Uploads t={t} lang={lang} />,
-    shares: <Shares t={t} />,
-    versions: <FileHistory t={t} lang={lang} />,
-    storage: <Storage t={t} />,
-    audit: <Audit t={t} />,
-    access: <Access t={t} />,
-    settings: (
-      <Settings
-        t={t} lang={lang} setLang={setLang}
-        theme={theme} setTheme={setTheme}
-        density={density} setDensity={setDensity}
-        role={effectiveRole} user={session}
-        // ผู้ใช้แก้ชื่อโปรไฟล์ของตัวเอง → อัปเดต session state ทันทีเพื่อให้ TopBar/
-        // จอทุกจอเห็นชื่อใหม่โดยไม่ต้องรีเฟรช (เซิร์ฟเวอร์อัปเดต session ของมันเองแล้ว)
-        onProfileSaved={(u) => setSession((s) => (s ? { ...s, ...u } : s))}
-      />
-    ),
-  }[screen]
-
   // ยังตรวจเซสชันกับเซิร์ฟเวอร์ไม่เสร็จ — อย่าเพิ่งแสดง Login กันหน้ากระพริบ
   if (!authChecked) {
     return <div className="h-full bg-canvas" aria-busy="true" />
@@ -220,6 +207,52 @@ export default function App() {
     )
   }
 
+  const signOut = () => {
+    // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
+    apiLogout()
+    setSession(null)
+    setScreen('dashboard')
+  }
+
+  // ด่านนี้มาก่อนการสร้าง protected screen ทุกจอ: ไม่มี Sidebar/TopBar และไม่มี
+  // data component ใดถูก mount จน backend ยืนยันว่าเลิกใช้รหัสผ่านชั่วคราวแล้ว
+  if (session.mustResetPassword) {
+    return (
+      <MandatoryPasswordReset
+        t={t}
+        user={session}
+        onSignOut={signOut}
+        onReset={() => setSession((current) => (
+          current ? { ...current, mustResetPassword: false } : current
+        ))}
+      />
+    )
+  }
+
+  const screenEl = {
+    dashboard: <Dashboard t={t} lang={lang} health={healthApi} />,
+    files: <Files t={t} lang={lang} go={setScreen} placeholderMode={placeholderMode} />,
+    vault: <Vault t={t} placeholderMode={placeholderMode} />,
+    uploads: <Uploads t={t} lang={lang} placeholderMode={placeholderMode} />,
+    shares: <Shares t={t} placeholderMode={placeholderMode} />,
+    versions: <FileHistory t={t} lang={lang} placeholderMode={placeholderMode} />,
+    storage: <Storage t={t} go={setScreen} placeholderMode={placeholderMode} />,
+    audit: <Audit t={t} placeholderMode={placeholderMode} />,
+    access: <Access t={t} user={session} placeholderMode={placeholderMode} />,
+    settings: (
+      <Settings
+        t={t} lang={lang} setLang={setLang}
+        theme={theme} setTheme={setTheme}
+        density={density} setDensity={setDensity}
+        role={effectiveRole} user={session}
+        placeholderMode={placeholderMode}
+        // ผู้ใช้แก้ชื่อโปรไฟล์ของตัวเอง → อัปเดต session state ทันทีเพื่อให้ TopBar/
+        // จอทุกจอเห็นชื่อใหม่โดยไม่ต้องรีเฟรช (เซิร์ฟเวอร์อัปเดต session ของมันเองแล้ว)
+        onProfileSaved={(u) => setSession((s) => (s ? { ...s, ...u } : s))}
+      />
+    ),
+  }[screen]
+
   return (
     <div className="h-full flex bg-canvas">
       <HatchDefs />
@@ -239,13 +272,8 @@ export default function App() {
           t={t}
           scrolled={scrolled}
           user={session}
-          onSignOut={() => {
-            // ทำลายเซสชัน "ฝั่งเซิร์ฟเวอร์" (POST /api/logout) แล้วกลับสู่ประตูของ Drive
-            // fire-and-forget: ต่อให้ request ล้ม client ก็ถือว่าออกแล้ว (state ถูกล้าง)
-            apiLogout()
-            setSession(null)
-            setScreen('dashboard')
-          }}
+          health={healthApi}
+          onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
         />
         <main

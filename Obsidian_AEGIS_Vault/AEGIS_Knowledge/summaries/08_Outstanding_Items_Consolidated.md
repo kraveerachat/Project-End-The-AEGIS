@@ -1,0 +1,82 @@
+---
+title: Outstanding Items — Consolidated
+tags: [aegis, summary, outstanding, open-items, tracking]
+type: summary
+created: 2026-08-06
+updated: 2026-08-07
+sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
+---
+
+# 🚦 Outstanding Items — Consolidated
+
+> Every 🔴/🟠/🟡/🟢/⚠️ flag left behind across every session in `[[log]]`, gathered into one list instead of scattered across a dozen "Carried forward" sections. Severity markers are kept as the original sessions used them: 🔴 = real functional gap, 🟠 = known limitation (often infra-blocked, not code), 🟡 = cosmetic/deferred-by-choice, 🟢 = designed but not yet implemented, ⚠️ = operational caveat to remember, not a bug.
+>
+> Status is as of the last log entry (**2026-08-07**). If a later `[[log]]` entry closes one of these, update the item here rather than leaving it stale — that's the entire point of this page.
+>
+> Items marked **Awaiting go-ahead** were found by an audit and reported with a specific fix, but deliberately left unapplied pending the user's confirmation — they are open by decision, not by oversight.
+
+---
+
+## 🔴 Real functional gaps
+
+| Item | Module | Detail |
+|---|---|---|
+| No real face-recognition model | IDEA2 | `PlaceholderRecognizer` only finds Haar boxes → everything is `Unknown`. Seam is fully wired (`matched_name`, confidence, DB columns); the model itself is the only missing piece. Largest tracked gap in the whole project. |
+| `confirmDelete()` swallows 403 | IDEA1 (`Files.jsx:353-365`) | A denied delete fails silently instead of surfacing the error to the user; re-verified open across two later sessions, still outside the scope of every pass that touched the area. |
+| No encryption at rest for Data Lake uploads | IDEA1 | Only the Private Vault path (Argon2id + envelope AES-256-GCM) is encrypted; regular file uploads remain plaintext. The UI overclaim is closed: Uploads now labels this limitation explicitly and no longer uses an encryption-success badge for ordinary files. Implementing encryption at rest remains a separate architecture task. |
+| No off-site backup | IDEA1 | Storage is a single ext4 volume; P5 of the mock-removal pass explicitly reported this as infra-blocked rather than built a fake backup UI. |
+| No per-user share defaults / snapshot schedule | IDEA1 | Design decision not yet made, not a bug. |
+| Dev-only `gateway/nginx.conf` still case-sensitive on `/monitor/internal/` | Infra | Production `HUB-AEGIS_Entry/nginx.conf` was fixed to a case-insensitive regex guard (2026-07-26); the dev-compose gateway config was never patched to match, so the bypass re-verified still open. |
+| No heartbeat *history* (uptime %, 24h disconnects, latency sparkline) | IDEA2 | Current heartbeat only proves live/dead at a point in time; needs a time-series table to show trend data honestly instead of a fake sparkline. |
+| No `audit_log` table in IDEA2 | IDEA2 | IDEA1 has full audit logging; IDEA2's forensic trail is limited to what `camera_heartbeat`/`detections` incidentally capture. |
+| Multi-camera deployment not implemented | IDEA2 | Running two Detection Engine instances (one per camera) is design-confirmed (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL`, shared `MONITOR_INTERNAL_URL`/key) but not built — see 🟢 below. |
+| Notification preferences are UI-only | IDEA2 | Settings screen presents controls that don't yet wire to real delivery logic beyond the Telegram routing that does exist. |
+
+## 🟠 Known limitations (often infra-blocked, not code)
+
+| Item | Module | Detail |
+|---|---|---|
+| SMART/RAID telemetry and filesystem snapshots unavailable | IDEA1 | Measured, not assumed: the container has neither `smartctl`/`mdadm` nor `CAP_SYS_RAWIO`/`CAP_SYS_ADMIN` on plain ext4. Correctly reported as "unavailable, and why" per [[concepts/Honest_Telemetry_and_Unavailable_States]] rather than faked. |
+| Session list does not survive restart | IDEA1 | Backed by `MemoryStore`; needs a shared/persistent session store before running multiple app instances. |
+| Safari does not support `multipart/x-mixed-replace` in an `<img>` tag | IDEA2 | Live MJPEG streaming works in Chrome/Firefox-family browsers; Safari needs a different delivery mechanism if it must be supported. |
+| `object-fit: cover` will misalign bounding boxes once real bbox telemetry exists | IDEA2 | Needs to become `object-fit: contain`, or normalized coordinates will be off by the cropped margin — currently harmless only because the recognizer is a placeholder. |
+
+## 🟡 Cosmetic / explicitly deferred by user choice
+
+| Item | Module | Detail |
+|---|---|---|
+| ~5 stacked "redesign pass" CSS blocks with duplicate `:root`/`.hero`/`.topbar`/`.panel`/`.side` declarations | IDEA2 (`src/index.css`) | Each later block silently wins the cascade, leaving earlier ones as dead code. Flagged to the user before a 2026-08-01 session touched the file; **explicitly deferred by their own choice**, not an oversight. |
+| i18n rollout incomplete | IDEA2 | `lib/i18n.js` + `Settings.jsx` consume it; `Live.jsx`, `TopBar.jsx`, `Sidebar.jsx`, `Footer.jsx`, `Detection.jsx`, `Diagnostics.jsx`, and `Login.jsx` still render hardcoded English/Thai strings. In progress since 2026-08-01, not yet finished as of the latest entry. |
+| Design-hook false positives | Both | `broken-image` findings on the literal string `<img>` inside code comments (IDEA2 — and the same pattern re-confirmed in IDEA1 `Settings.jsx:83` on 2026-08-07) and an `Avatar` fallback pattern (IDEA1) — all confirmed false positives, left unsuppressed pending explicit confirmation rather than silently muted. |
+
+## 🟢 Designed and confirmed, not yet implemented
+
+| Item | Module | Detail |
+|---|---|---|
+| Multi-instance Detection Engine (one process per camera) | IDEA2 | Config shape agreed (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL`, shared `MONITOR_INTERNAL_URL` + key); not built. |
+| Real NAS integration | IDEA2 | Current `nas_sync_clip()` is a same-disk sha256-only Phase-1 simulation; the real version (swap the Compose bind-mount source, add an actual rsync/scp step) is design-confirmed but not implemented. |
+
+## ⚠️ Operational caveats (not bugs — remember before demoing/testing)
+
+- **IDEA1 `npm test` glob requires the verified Node 24 runner.** The package script passes the quoted argument `"tests/**/*.test.js"`; Linux Node 20.20.2 treated it as a literal path and stopped before test discovery, while Node 24.14.0 expanded it and completed 119/119. No application/test code was changed during the run-and-report pass. If Node 20 CI support is required later, adjust the runner/script only after explicit approval.
+- **Demo credentials rotate on test runs.** IDEA1's seeded accounts are single-use per database once the force-reset gate is real (running the test suite against a DB rotates them); IDEA2's demo passwords were similarly rotated during the 2026-07-27 verification pass. `docker compose down -v` restores the originals in both cases — check this before any live demo.
+- **Ethics documentation discrepancy** in `AEGIS_System_Design.docx` (§5.5–5.7 BOM renumbering, §2.3.4 "Terminal Account" naming, a duplicated §2.1) blocked full syllabus-alignment work pending a decision from the report's own source — see [[summaries/07_Ethics_and_Compliance]].
+- **`.env` must exist, not just `.env.example`**, or `DETECTION_ENGINE_API_KEY` silently ends up empty inside the container and the internal-route endpoint fails secure (503) rather than open — this bit a live session on 2026-08-01.
+
+---
+
+## Closed since first flagged (for continuity — do not re-report these as open)
+
+- ✅ IDEA1 P0 data-honesty findings closed: ordinary Uploads no longer claim encryption at rest, `POST /api/files/:id/verify` rehashes current disk bytes and detects tampering, and Dashboard Demo Override is fully removed; isolated PostgreSQL verification is 125/125 (2026-08-07).
+- ✅ IDEA1 P1 data-honesty findings closed: one binary capacity formatter across Sidebar/Dashboard/Storage; active shares exclude revoked and expired rows through one store predicate; the security KPI is explicitly DENIED/BLOCKED among the latest 100; Access reports Account ready and real per-instance session counts without claiming persistence. Isolated PostgreSQL verification is 128/128 (2026-08-07).
+- ✅ IDEA1 P2 data-honesty findings closed: `/healthz.layers` independently probes Express event-loop, PostgreSQL `SELECT 1`, and Storage write/read/delete with measured timings; TopBar says Drive rather than Edge node; fixed `12/4/2 ms` and staged `5/40/75/100%` upload progress are removed in favor of measured evidence/XHR byte events. Isolated PostgreSQL verification is 132/132 and live Docker health is green (2026-08-07).
+- ✅ IDEA1 first-login onboarding closed: `PASSWORD_RESET_REQUIRED` is first-class, `MandatoryPasswordReset.jsx` replaces the shell, all protected hooks pause until reset, and success unlocks in memory without reload; isolated PostgreSQL verification is 122/122 (2026-08-07).
+- ✅ IDEA1 Shares secondary `/api/files` false-negative fixed: the picker now shows the existing load-failed notice + Retry and never claims the list is empty after a failed request (2026-08-07).
+- ✅ IDEA1 “platform wired” predicate consolidated into `isPlatformWired(healthData)`; the stale literal-source test was replaced with behavioral assertions (2026-08-07).
+- ✅ IDEA1 health polling consolidated: `App.jsx` owns the only `/healthz` cycle and shares it with TopBar and Dashboard (2026-08-07).
+- ✅ IDEA1 Dashboard genuine failure no longer double-signals error + `ยังไม่เชื่อมต่อ`; placeholder labels now depend on shared health only (2026-08-07).
+- ✅ Add-Operator CLI + web, end-to-end (2026-07-24).
+- ✅ Detection Engine wired to real DB, demo generator removed (2026-07-24 → 07-25).
+- ✅ Zero automated tests in IDEA2 → 6/6 passing by 2026-07-28.
+- ✅ Clip playback, CAM-02 stream, Telegram routing by camera, real heartbeat-based node status (all closed 2026-08-01).
+- ✅ `GET /api/clips/:id/video` regression (vanished, then re-added same day, 2026-08-01).

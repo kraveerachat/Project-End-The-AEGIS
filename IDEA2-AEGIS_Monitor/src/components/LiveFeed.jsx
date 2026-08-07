@@ -21,11 +21,17 @@ import { RefreshCw, VideoOff, WifiOff } from 'lucide-react'
 const RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000] // backoff, หยุดที่ 30 วิ
 
 export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compact = false, hideStatus = false }) {
-  // nonce เปลี่ยน = บังคับเบราว์เซอร์เปิดคำขอใหม่ (ไม่งั้นมันจะใช้ src เดิมที่ตายแล้ว)
+
+  // 1. ปล่อยให้ React โหลด Hooks ตามกฎให้เสร็จก่อน
   const [nonce, setNonce] = useState(0)
   const [state, setState] = useState('connecting') // connecting | live | error
   const attempts = useRef(0)
   const timer = useRef(0)
+  // ⚠️ live-state feedback: กระพริบกรอบสั้น ๆ "เฉพาะตอนกู้คืนจาก error สำเร็จ"
+  // (attempts.current > 0 แปลว่าก่อนหน้านี้หลุดไปแล้วอย่างน้อยหนึ่งรอบ) — ไม่ทำ
+  // ตอนเชื่อมต่อสำเร็จครั้งแรกตอนโหลดหน้า เพราะนั่นจะกลายเป็น "page-load
+  // choreography" อีกแบบหนึ่ง สัญญาณนี้มีความหมายเฉพาะตอน "กลับมาออนไลน์" จริง ๆ
+  const [justRecovered, setJustRecovered] = useState(false)
 
   const base = import.meta.env.BASE_URL
   const src = `${base}api/cameras/${encodeURIComponent(cameraId)}/stream?t=${nonce}`
@@ -37,7 +43,6 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
     setNonce((n) => n + 1)
   }, [])
 
-  // เปลี่ยนกล้อง = เริ่มนับใหม่ทั้งหมด (ไม่ให้ backoff ของกล้องเก่าติดมา)
   useEffect(() => {
     clearTimeout(timer.current)
     attempts.current = 0
@@ -46,7 +51,6 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
     return () => clearTimeout(timer.current)
   }, [cameraId])
 
-  // กล้องที่ engine ไม่ได้รายงาน → ไม่ยิงคำขอเลย
   useEffect(() => {
     if (!hasStream) {
       clearTimeout(timer.current)
@@ -58,8 +62,6 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
   }, [hasStream])
 
   const onError = () => {
-    // engine ตายกลางสตรีม / proxy คืน 5xx / เซสชันหมด — image element แยกไม่ออก
-    // จึงถอยแบบ backoff แล้วลองใหม่ ไม่ปล่อยให้เป็นกรอบดำเงียบ ๆ
     setState('error')
     const wait = RETRY_MS[Math.min(attempts.current, RETRY_MS.length - 1)]
     attempts.current += 1
@@ -71,26 +73,24 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
   }
 
   const onLoad = () => {
-    // MJPEG: 'load' ยิงเมื่อได้เฟรมแรก — ถือว่าเชื่อมต่อสำเร็จจริง
+    if (attempts.current > 0) {
+      // เพิ่งกู้คืนจาก error จริง ๆ (ไม่ใช่การเชื่อมต่อครั้งแรก) — ให้ feedback สั้น ๆ
+      setJustRecovered(true)
+      setTimeout(() => setJustRecovered(false), 700)
+    }
     attempts.current = 0
     setState('live')
   }
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  // ── สถานะที่ไม่ใช่ "กำลังฉาย" — ทุกกรณีมีข้อความของตัวเอง ไม่มีกล่องว่าง ──
   if (!hasStream || state === 'nostream') {
-    // ในไทล์เล็ก ๆ ไม่ยัดข้อความเต็มรูปแบบ — ป้าย NO FEED ที่ .sfeed มีอยู่แล้วพอ
     if (compact || hideStatus) return <div className="hatch" />
     return (
       <>
         <div className="hatch" />
-        <div className="lostwrap flex flex-col items-center justify-center gap-3">
-          <VideoOff aria-hidden="true" className="text-slate-300" />
-          <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">NO LIVE STREAM</span>
-          <span className="lost-s mono text-slate-300">
-            No Detection Engine is streaming {cameraId}
-          </span>
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 999 }}>
+          <div className="hatch" />
         </div>
       </>
     )
@@ -98,7 +98,6 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
 
   return (
     <>
-      {/* hatch อยู่ใต้ภาพเสมอ — ระหว่างเชื่อมต่อ/สตรีมพัง จะเห็นลายนี้แทนกรอบดำ */}
       <div className="hatch" />
       <img
         key={nonce}
@@ -109,6 +108,7 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
         onLoad={onLoad}
         draggable={false}
       />
+      {justRecovered && <div className="feed-recovered" aria-hidden="true" />}
       {!compact && !hideStatus && state !== 'live' && (
         <div className="feedstate" role="status" aria-live="polite">
           {state === 'error' ? (
@@ -127,7 +127,6 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
           )}
         </div>
       )}
-      {/* link lost แต่สตรีมยังมา = ภาพที่เห็นอาจเก่ากว่าความจริง — เตือนไว้ */}
       {!compact && !hideStatus && lost && state === 'live' && (
         <div className="feedstate" role="status">
           <WifiOff aria-hidden="true" size={14} />

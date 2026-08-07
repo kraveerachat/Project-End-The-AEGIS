@@ -103,12 +103,11 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
 
   return (
     <>
-      <motion.div
-        className="pagehead"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-      >
+      {/* ⚠️ .pagehead เดิมเป็น motion.div ที่ fade+slide ทุกครั้งที่ mount วิวนี้ —
+          นั่นคือ "page-load choreography" (การไล่โผล่ทีละส่วนตอนเปิดหน้า) ที่ brief
+          บอกห้ามทำโดยตรง เพราะทำให้ operator รอภาพนิ่งช้าลงทุกครั้งที่สลับมาหน้านี้
+          ตัดออกเหลือ static header — ข้อมูลสำคัญ (สถานะกล้อง) ต้องขึ้นทันที ไม่รอ 400ms */}
+      <div className="pagehead">
         <div>
           <h1 className="h1">Live canvas</h1>
           {/* ⚠️ เดิมบรรทัดนี้ประกาศว่า "AI auto-elevated CAM-02 on unknown detection"
@@ -118,16 +117,22 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
             Manual focus · {cam.name}. Scoped to the cameras this account is assigned server-side.
           </p>
         </div>
-      </motion.div>
+      </div>
       <div className="canvas">
         <div className="canvasL">
           <motion.div
+            // ⚠️ key={cam.id} บังคับ remount ทุกครั้งที่สลับกล้อง (คลิก tile หรือ
+            // ตอน hero เปลี่ยน) — initial/animate ตอนนี้ "ต่างค่ากันจริง" (0 → 1)
+            // จึงเป็น fade transition ของจริงตอนสลับกล้อง ไม่ใช่ no-op เหมือนเดิม
+            // (เดิม initial/animate ทั้งคู่เป็น opacity:1 = ไม่มีอะไรเกิดขึ้นเลย)
+            // 200ms อยู่ในกรอบ 150–250ms ตามที่ brief กำหนด และเร็วพอไม่ทำให้
+            // operator รู้สึกหน่วงตอนไล่ดูหลายกล้องต่อกัน
             key={cam.id}
             className={`hero${lost ? ' hero--lost' : ''}`}
             ref={heroRef}
-            initial={{ opacity: 1 }}
+            initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.24, ease: 'easeOut' }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
           >
             {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วางภาพที่
                 inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
@@ -168,6 +173,7 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
                   aria-label="Toggle fullscreen feed"
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.92 }}
+                  transition={{ duration: 0.15 }}
                 >
                   <Maximize2 aria-hidden="true" />
                 </motion.button>
@@ -190,22 +196,25 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
                 <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">CONNECTION LOST</span>
                 <span className="lost-state text-slate-300">NO LIVE STREAM</span>
                 <span className="lost-s mono text-slate-300">Last frame {fmtTime(link.lastFrameAt ?? now)}</span>
-                <span className="lost-detail mono text-white/80">No Detection Engine is streaming {cam.id}</span>
+                <span className="lost-detail mono text-white/80"> {cam.id}</span>
                 <span className="lost-r text-slate-300">Reconnecting</span>
               </div>
             )}
           </motion.div>
           <div className="secondrow">
+            {/* ⚠️ เดิมทุก tile เป็น motion.button ที่ initial/animate ค่าเดียวกัน
+                (opacity:1, y:0 → opacity:1, y:0) = no-op ทั้งหมด ไม่มี whileHover/
+                whileTap อยู่ด้วยซ้ำ — hover/press feedback จริงมาจาก CSS ล้วน ๆ
+                (.sfeed--clickable:hover / :active ใน index.css) อยู่แล้ว ตัด
+                wrapper Framer Motion ที่ไม่ทำอะไรออก เหลือ <button> ธรรมดา:
+                เบากว่า, ไม่มี JS reflow ที่ไม่จำเป็นตอนโฟกัสกล้องบ่อย ๆ */}
             {secondary.map((c) => (
-              <motion.button
+              <button
                 key={c.id}
                 type="button"
                 className="sfeed sfeed--clickable"
                 onClick={() => swapHeroCamera(c)}
                 aria-label={`Focus ${c.id} — ${c.name}`}
-                initial={{ opacity: 1, y: 0 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
               >
                 <LiveFeed
                   cameraId={c.id}
@@ -229,16 +238,17 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
                 {!lost && bboxesFor(scoped.find((d) => d.cam === c.id)).map((b, i) => (
                   <TBox key={i} kind={b.kind} top={b.top} left={b.left} width={b.width} height={b.height} />
                 ))}
-              </motion.button>
+              </button>
             ))}
           </div>
         </div>
-        <motion.div
-          className="canvasR"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.15, ease: 'easeOut' }}
-        >
+        {/* ⚠️ เดิม canvasR เป็น motion.div ที่ fade+slide เข้ามาช้ากว่าฝั่งซ้าย
+            150ms (delay: 0.15) โดยเจตนา — นี่คือ staggered page-load choreography
+            ชัด ๆ (ไล่โผล่ทีละฝั่งตอนเปิดหน้า) ตัดออกเหมือนกับ .pagehead:
+            Access control + Event stream ต้องขึ้นพร้อมกล้องหลักทันที ไม่ใช่รอ
+            ให้ตาสังเกตเห็นการเลื่อนเข้ามาก่อน — panel เหล่านี้คือข้อมูลปฏิบัติการ
+            ไม่ใช่ของตกแต่งที่ควร "reveal" ให้ดูสวย */}
+        <div className="canvasR">
           <section className={stale ? 'panel glass acpanel isstale' : 'panel glass acpanel'}>
             <div className="acglow" />
             <div className="ptitle" style={{ justifyContent: 'space-between' }}>
@@ -297,7 +307,7 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               ))}
             </div>
           </section>
-        </motion.div>
+        </div>
       </div>
     </>
   )

@@ -1,8 +1,9 @@
 import { HardDrive, Database, Archive } from 'lucide-react'
 import {
-  Card, CardTitle, ErrorState, SkeletonLoader, NotYetImplemented,
+  Card, CardTitle, Btn, ErrorState, InlineEmptyState, SkeletonLoader, NotYetImplemented,
 } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { fmtBytes } from '../lib/format.js'
 
 /* ── จอนี้เคยเป็นแหล่งข้อมูลปลอมที่อันตรายที่สุดในแอป ────────────────────────────────
@@ -37,33 +38,23 @@ const SEG = [
 
 /* ── Capacity — ตัวเลขจาก statfs; ส่วนว่างเป็นลายขวาง = ไม่มีอะไรอยู่ตรงนั้น ── */
 function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
-  // ⚠️ อ่านความจุไม่ได้ ≠ ความจุเป็นศูนย์ — บอกตรง ๆ ว่าไม่รู้ ดีกว่าวาดแท่งจากค่าที่เดา
-  if (!capacityBytes) {
-    return (
-      <Card className="p-5">
-        <CardTitle>{t('capacity')}</CardTitle>
-        <NotYetImplemented label={t('notAvailable')}>{t('capacityUnreadable')}</NotYetImplemented>
-      </Card>
-    )
-  }
-
-  const total = capacityBytes.totalBytes
+  const total = capacityBytes?.totalBytes ?? 0
   const segs = SEG
     .map((s) => ({ ...s, bytes: usage?.[s.key] ?? 0 }))
-    .filter((s) => s.bytes > 0)
   const unaccounted = unaccountedBytes ?? 0
-  const free = capacityBytes.freeBytes
+  const free = capacityBytes?.freeBytes ?? 0
   const pct = (b) => (total > 0 ? (b / total) * 100 : 0)
+  const amount = (bytes) => bytes === 0 ? t('storageZeroGb') : fmtBytes(bytes)
 
   return (
     <Card className="p-5">
       <CardTitle sub={t('capacitySub')}>{t('capacity')}</CardTitle>
 
-      <div className="flex items-center gap-0.5 h-10" aria-hidden>
+      <div className="relative flex items-center gap-0.5 h-10 rounded-full border border-line bg-sunken hatch hatch-ink3 overflow-hidden" aria-hidden>
         {segs.map((seg, i) => (
           <div
             key={seg.key}
-            className={`h-9 ${i === 0 ? 'rounded-l-full' : ''}`}
+            className={`h-9 relative z-[1] ${i === 0 ? 'rounded-l-full' : ''}`}
             style={{ width: `${pct(seg.bytes)}%`, backgroundColor: seg.color, minWidth: seg.bytes > 0 ? 2 : 0 }}
           />
         ))}
@@ -71,7 +62,7 @@ function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
           <div className="h-9" style={{ width: `${pct(unaccounted)}%`, backgroundColor: 'var(--line)' }} />
         )}
         <div
-          className="h-9 hatch hatch-ink3 border border-line rounded-r-full"
+          className="h-9 relative z-[1] hatch hatch-ink3 rounded-r-full"
           style={{ width: `${pct(free)}%`, backgroundColor: 'var(--card-sunken)' }}
         />
       </div>
@@ -82,7 +73,7 @@ function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
             <span className="size-3 rounded-[4px]" style={{ backgroundColor: seg.color }} aria-hidden />
             <span className="font-medium text-ink-2">{t(seg.key)}</span>
             <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {fmtBytes(seg.bytes)}
+              {amount(seg.bytes)}
             </span>
           </span>
         ))}
@@ -98,16 +89,16 @@ function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
         <span className="flex items-center gap-2 text-[13px]">
           <span className="size-3 rounded-[4px] hatch hatch-ink3 border border-line" style={{ backgroundColor: 'var(--card-sunken)' }} aria-hidden />
           <span className="font-medium text-ink-2">{t('free')}</span>
-          <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(free)}</span>
+          <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{amount(free)}</span>
         </span>
       </div>
 
       <div className="mt-4 pt-3 border-t border-line flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-ink-2">
-        <span>{t('capacityTotal')}: <span className="font-mono text-ink">{fmtBytes(total)}</span></span>
-        <span>{t('capacityUsed')}: <span className="font-mono text-ink">{fmtBytes(capacityBytes.usedBytes)}</span></span>
+        <span>{t('capacityTotal')}: <span className="font-mono text-ink">{amount(total)}</span></span>
+        <span>{t('capacityUsed')}: <span className="font-mono text-ink">{amount(capacityBytes?.usedBytes ?? 0)}</span></span>
         <span>
           {t('capacityUsedPct')}: <span className="font-mono text-ink">
-            {total > 0 ? Math.round((capacityBytes.usedBytes / total) * 100) : 0}%
+            {total > 0 ? Math.round(((capacityBytes?.usedBytes ?? 0) / total) * 100) : 0}%
           </span>
         </span>
       </div>
@@ -115,16 +106,15 @@ function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
   )
 }
 
-export function Storage({ t }) {
+export function Storage({ t, go, placeholderMode = false }) {
   const api = useApi('/api/storage', { refreshMs: 60_000 })
-
-  if (api.loading) return <SkeletonLoader type="table" />
-  if (api.error) return <Card><ErrorState t={t} kind={api.error} onRetry={api.retry} /></Card>
-
-  const d = api.data ?? {}
+  const d = placeholderMode ? {} : (api.data ?? {})
+  const fetchError = visibleFetchError(api.error, placeholderMode)
 
   return (
     <div className="flex flex-col gap-5">
+      {api.loading && <Card className="p-5"><SkeletonLoader type="table" /></Card>}
+      {fetchError && <Card><ErrorState t={t} kind={fetchError} onRetry={api.retry} /></Card>}
       <CapacityCard
         t={t}
         capacityBytes={d.capacityBytes}
@@ -151,17 +141,30 @@ export function Storage({ t }) {
           <div className="flex items-start gap-3">
             <Database size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
             <div className="min-w-0 flex-1">
-              <NotYetImplemented label={t('notConfigured')}>{t('raidWhy')}</NotYetImplemented>
+              <NotYetImplemented label={t('notConnected')}>{t('raidWhy')}</NotYetImplemented>
             </div>
           </div>
         </Card>
 
         <Card className="p-5">
           <CardTitle>{t('backupJobs')}</CardTitle>
-          <div className="flex items-start gap-3">
-            <Archive size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <NotYetImplemented label={t('notConfigured')}>{t('backupJobsWhy')}</NotYetImplemented>
+          <div className="overflow-x-auto rounded-[var(--r-tile)] border border-line">
+            <div className="min-w-[520px]">
+              <div className="grid grid-cols-[1fr_120px_120px] gap-3 px-4 h-9 items-center bg-sunken border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]">
+                <span>{t('backupTarget')}</span>
+                <span>{t('backupSchedule')}</span>
+                <span>{t('colStatus')}</span>
+              </div>
+              <InlineEmptyState
+                action={
+                  <Btn variant="outline" size="sm" onClick={() => go?.('settings')}>
+                    <Archive size={13} strokeWidth={1.5} />
+                    {t('setupNow')}
+                  </Btn>
+                }
+              >
+                {t('backupScheduleEmpty')}
+              </InlineEmptyState>
             </div>
           </div>
         </Card>

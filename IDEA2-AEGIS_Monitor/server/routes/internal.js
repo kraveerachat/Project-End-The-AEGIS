@@ -54,6 +54,18 @@ internalRouter.post('/heartbeat', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /internal/route/:cameraId — engine ถามก่อนส่ง Telegram ว่ากล้องนี้ต้องยิงหา
+// chat ไหน (ผู้ปฏิบัติงานที่ camera_assignment ผูกไว้ หรือ SOC-Team fallback)
+// ⚠️ engine ไม่ต้องรู้จัก users/camera_assignment เอง — Node เป็นเจ้าของ mapping
+//    นี้แต่ผู้เดียว เหมือนทุก endpoint อื่นที่ engine "ถาม" แทนที่จะ "รู้เอง"
+internalRouter.get('/route/:cameraId', async (req, res, next) => {
+  try {
+    const r = await store.telegramRouteFor(req.params.cameraId)
+    if (r.error) return res.status(r.status || 400).json({ error: r.error })
+    res.json({ chatId: r.chatId, routeLabel: r.routeLabel })
+  } catch (err) { next(err) }
+})
+
 // ทุก path/method อื่นใต้ /internal ที่ไม่แมตช์ → 404 JSON (ไม่ปล่อยตกไป SPA fallback)
 internalRouter.use((req, res) => {
   res.status(404).json({ error: 'Not found' })

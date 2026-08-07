@@ -1,0 +1,142 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+
+import * as fetchState from '../src/lib/fetchState.js'
+
+const { visibleFetchError } = fetchState
+
+const read = (path) => fs.readFile(new URL(path, import.meta.url), 'utf8')
+
+test('Files keeps the toolbar and offers the first-folder action in an empty folder', async () => {
+  const source = await read('../src/screens/Files.jsx')
+  assert.match(source, /t\('emptyFolder'\)/)
+  assert.match(source, /t\('createFirstFolder'\)/)
+  assert.match(source, /setFolderModal\(true\)/)
+})
+
+test('Vault and File History do not replace the full screen with early loading/error returns', async () => {
+  const [vault, history] = await Promise.all([
+    read('../src/screens/Vault.jsx'),
+    read('../src/screens/FileHistory.jsx'),
+  ])
+  assert.doesNotMatch(vault, /if\s*\(vaultApi\.loading\)\s*return/)
+  assert.doesNotMatch(vault, /if\s*\(vaultApi\.error\)\s*return/)
+  assert.match(vault, /t\('encryptFirstFile'\)/)
+  assert.doesNotMatch(history, /if\s*\(listApi\.loading\)\s*return/)
+  assert.doesNotMatch(history, /if\s*\(listApi\.error\)\s*return/)
+  assert.match(history, /version-empty-track/)
+  assert.match(history, /disabled/)
+})
+
+test('Uploads, Shares, and Audit preserve list/table chrome around compact empty rows', async () => {
+  const [uploads, shares, audit] = await Promise.all([
+    read('../src/screens/Uploads.jsx'),
+    read('../src/screens/Shares.jsx'),
+    read('../src/screens/Audit.jsx'),
+  ])
+  assert.match(uploads, /InlineEmptyState/)
+  assert.match(shares, /t\('emptyNoShares'\)/)
+  assert.match(shares, /min-w-\[720px\]/)
+  assert.doesNotMatch(shares, /\{shares\.length > 0 && \(/)
+  assert.doesNotMatch(audit, /if\s*\(api\.loading\)\s*return/)
+  assert.doesNotMatch(audit, /if\s*\(api\.error\)\s*return/)
+  assert.match(audit, /t\('emptyNoAudit'\)/)
+})
+
+test('Storage always renders zero categories, neutral RAID, and backup table chrome', async () => {
+  const source = await read('../src/screens/Storage.jsx')
+  assert.doesNotMatch(source, /\.filter\(\(s\) => s\.bytes > 0\)/)
+  assert.doesNotMatch(source, /if\s*\(api\.loading\)\s*return/)
+  assert.doesNotMatch(source, /if\s*\(api\.error\)\s*return/)
+  assert.match(source, /t\('storageZeroGb'\)/)
+  assert.match(source, /t\('backupScheduleEmpty'\)/)
+  assert.match(source, /t\('setupNow'\)/)
+})
+
+test('Access receives the authenticated account and keeps an additional-account empty row', async () => {
+  const [app, access] = await Promise.all([
+    read('../src/App.jsx'),
+    read('../src/screens/Access.jsx'),
+  ])
+  assert.match(app, /<Access t=\{t\} user=\{session\}/)
+  assert.match(access, /export function Access\(\{ t, user, placeholderMode = false \}\)/)
+  assert.match(access, /t\('currentDeviceSession'\)/)
+  assert.match(access, /t\('noOtherUsers'\)/)
+})
+
+test('Settings is Twingate-only and does not offer a fake working mnemonic generator', async () => {
+  const source = await read('../src/screens/Settings.jsx')
+  assert.doesNotMatch(source, /VPN \+ VLAN|VPN \(0-A\)/)
+  assert.match(source, /t\('remoteInactive'\)/)
+  assert.match(source, /t\('vaultRecoveryNotConnected'\)/)
+  assert.match(source, /t\('generateRecoveryPhrase'\)/)
+  assert.match(source, /disabled/)
+})
+
+test('a backend that is not wired yet is an empty state, not a fetch error', () => {
+  assert.equal(visibleFetchError('server', true), null)
+  assert.equal(visibleFetchError('network', true), null)
+  assert.equal(visibleFetchError('timeout', true), null)
+  // wired platform: a request that genuinely fails still surfaces its ErrorState
+  assert.equal(visibleFetchError('server', false), 'server')
+  assert.equal(visibleFetchError(null, false), null)
+  assert.equal(visibleFetchError(undefined, false), null)
+})
+
+test('no screen renders ErrorState straight off a raw api.error — placeholderMode gates every one', async () => {
+  const screens = [
+    'Access', 'Audit', 'FileHistory', 'Files', 'Settings', 'Shares', 'Storage', 'Uploads', 'Vault',
+  ]
+  for (const name of screens) {
+    const source = await read(`../src/screens/${name}.jsx`)
+    assert.match(source, /visibleFetchError\(/, `${name} must derive its error through visibleFetchError`)
+    // ErrorState may only be reached through a placeholderMode-aware flag
+    assert.doesNotMatch(
+      source,
+      /\w*[Aa]pi\.error\s*(\?|&&)/,
+      `${name} still gates render on a raw api.error`,
+    )
+    assert.doesNotMatch(
+      source,
+      /kind=\{\w*[Aa]pi\.error\}/,
+      `${name} still passes a raw api.error to ErrorState`,
+    )
+  }
+})
+
+test('Settings receives placeholderMode so its cards obey the same rule as the data screens', async () => {
+  const source = await read('../src/App.jsx')
+  assert.match(source, /<Settings[\s\S]*?placeholderMode=\{placeholderMode\}[\s\S]*?\/>/)
+})
+
+test('one shared helper decides whether platform data is wired', () => {
+  assert.equal(typeof fetchState.isPlatformWired, 'function')
+  assert.equal(fetchState.isPlatformWired(null), false)
+  assert.equal(fetchState.isPlatformWired({ ok: false, db: 'postgres' }), false)
+  assert.equal(fetchState.isPlatformWired({ ok: true, db: 'memory' }), false)
+  assert.equal(fetchState.isPlatformWired({ ok: true, db: 'postgres' }), true)
+})
+
+test('App uses the shared platform gate on every non-Dashboard screen', async () => {
+  const source = await read('../src/App.jsx')
+  assert.match(source, /!isPlatformWired\(healthApi\.data\)/)
+  assert.doesNotMatch(source, /healthApi\.data\.db === 'memory'/)
+  for (const name of ['Files', 'Vault', 'Uploads', 'Shares', 'FileHistory', 'Storage', 'Audit', 'Access']) {
+    assert.match(source, new RegExp(`<${name}[^>]*placeholderMode=\\{placeholderMode\\}`))
+  }
+  assert.doesNotMatch(source, /<Dashboard[^>]*placeholderMode=/)
+})
+
+test('App owns the only health poll and passes that same cycle to Dashboard and TopBar', async () => {
+  const [app, dashboard, topBar] = await Promise.all([
+    read('../src/App.jsx'),
+    read('../src/screens/Dashboard.jsx'),
+    read('../src/components/TopBar.jsx'),
+  ])
+  assert.equal((app.match(/useApi\([^\n]*['"]\/healthz['"]/g) ?? []).length, 1)
+  assert.match(app, /<Dashboard[^>]*health=\{healthApi\}/)
+  assert.match(app, /<TopBar[\s\S]*?health=\{healthApi\}[\s\S]*?\/>/)
+  assert.doesNotMatch(dashboard, /useApi\(['"]\/healthz['"]/)
+  assert.doesNotMatch(topBar, /useApi\(['"]\/healthz['"]/)
+})
