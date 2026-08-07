@@ -3,7 +3,7 @@ title: Honest Telemetry and Unavailable States
 tags: [aegis, concept, telemetry, integrity, ui, security]
 type: concept
 created: 2026-07-27
-updated: 2026-07-27
+updated: 2026-08-07
 ---
 
 # 🔍 Honest Telemetry & "Unavailable" States
@@ -56,6 +56,24 @@ flowchart TD
 | AI engine pill | `running` (green, always) | Count of engines actually reporting, or `no engine reporting` |
 | Disk health / SMART (IDEA1) | Fabricated device rows | `unavailable` + the measured reason (no `CAP_SYS_RAWIO`, no raw block device) |
 | Transfer volume (IDEA1) | Seven hard-coded rows + a fake `projected` flag | Real counts from `audit_log`, labelled **events, not GB**, because byte size is not stored |
+
+### Follow-up: a real source can still produce a misleading “live” label (2026-08-07)
+
+The Drive live-status inventory exposed a second-order failure mode: a value may originate from a real endpoint but still overclaim what was measured.
+
+| UI claim | Actual evidence |
+|---|---|
+| `Edge node: online` | **P2 closed:** renamed `Drive: online` and sourced only from the Application event-loop probe; no host-level claim remains |
+| Data Lake Application / Metadata / Storage healthy with `12/4/2 ms` | **P2 closed:** each row consumes its own probe and measured latency—event-loop turn, PostgreSQL `SELECT 1`, or filesystem write/read/delete; unavailable evidence stays neutral |
+| Active links | **P1 closed:** the shared store query excludes both revoked and expired rows before Dashboard or Shares consumes it |
+| Security incidents | **P1 closed:** the KPI explicitly counts only `DENIED`/`BLOCKED` entries among the latest 100 audit rows; it does not claim unresolved incidents |
+| Verify checksum | **P0 closed:** the server now rereads current Storage Layer bytes, recomputes SHA-256 and compares against the upload-time metadata hash; Vault plaintext verification is honestly unavailable server-side |
+| One storage capacity | **P1 closed:** Sidebar, Dashboard and Storage keep the same source bytes and render through the same binary `fmtBytes` helper |
+| Ordinary upload encryption/progress | **P0/P2 closed:** regular Data Lake bytes are explicitly labelled plaintext-at-rest on Uploads and the Login defense readout; only Vault claims browser-side encryption. Transfer progress now comes from XHR `loaded/total` byte events, never stage constants |
+
+Access Control follows the same rule: “Account ready” means the real password-reset gate is clear, while session totals come from the current Express session store and are explicitly scoped to **this instance**. With `MemoryStore`, those counts are real but volatile; they are not evidence of a global, persistent session inventory.
+
+The rule therefore has two parts: **measurement provenance** and **semantic scope**. A live label must state only what its probe proves, and every repeated rendering of one measurement must use one unit convention.
 
 ---
 

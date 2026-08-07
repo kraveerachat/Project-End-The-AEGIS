@@ -8,7 +8,7 @@ export function securityHeaders(req, res, next) {
       "default-src 'self'",
       "script-src 'self'",
       "style-src 'self'",
-      "img-src 'self' data:",
+      "img-src 'self' data",
       "font-src 'self'",
       // connect-src 'self' ครอบทั้ง fetch และ WebSocket (ws จาก origin เดียวกัน)
       // เมื่อ integration กับ Detection Engine ใช้ reverse proxy เข้า origin เดียว

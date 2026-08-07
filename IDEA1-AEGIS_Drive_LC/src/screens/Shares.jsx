@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link2, Plus, ShieldCheck, Globe, Copy } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, InlineEmptyState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtCountdown } from '../lib/format.js'
 
@@ -96,12 +97,15 @@ function LinkRow({ t, link, now, revoking, onAskRevoke }) {
   )
 }
 
-export function Shares({ t }) {
+export function Shares({ t, placeholderMode = false }) {
   const now = useNow(1000)
   const sharesApi = useApi('/api/shares', { refreshMs: 30_000 })
   const filesApi = useApi('/api/files')
-  const shares = sharesApi.data?.shares ?? []
-  const files = (filesApi.data?.files ?? []).filter((f) => !f.vault && f.type !== 'Folder')
+  const shares = placeholderMode ? [] : (sharesApi.data?.shares ?? [])
+  const files = placeholderMode ? [] : (filesApi.data?.files ?? []).filter((f) => !f.vault && f.type !== 'Folder')
+  const fetchError = visibleFetchError(sharesApi.error, placeholderMode)
+  const filesError = visibleFetchError(filesApi.error, placeholderMode)
+  const filesUnavailable = Boolean(filesApi.error)
 
   const [revokingIds, setRevokingIds] = useState(new Set())
   const [askRevoke, setAskRevoke] = useState(null)
@@ -117,24 +121,21 @@ export function Shares({ t }) {
   const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs } | null
   const [copied, setCopied] = useState(false)
 
-  // ── ตัวกรองของตารางนี้เอง (scope / status / expiry) ────────────────────────
+  // ── ตัวกรองของตาราง active links (scope / expiry) ──────────────────────────
   // จอนี้ไม่มีช่องค้นหาระดับระบบโดยเจตนา: คำถามที่คนถามกับตารางลิงก์คือ
   // "อันไหนยังเปิดอยู่ / อันไหนเปิดกว้างเกินไป / อันไหนกำลังจะหมดอายุ" — ไม่ใช่ค้นชื่อไฟล์
   const [fScope, setFScope] = useState('all')
-  const [fStatus, setFStatus] = useState('all')
   const [fExpiry, setFExpiry] = useState('all')
   const EXPIRY_MS = { '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000 }
 
   const visibleShares = shares.filter((s) => {
     const msLeft = s.expiresAt - now
     if (fScope !== 'all' && s.scope !== fScope) return false
-    if (fStatus === 'active' && msLeft <= 0) return false
-    if (fStatus === 'expired' && msLeft > 0) return false
     // "หมดอายุภายใน X" = ลิงก์ที่ยังไม่ตายแต่เหลือเวลาน้อยกว่า X
     if (fExpiry !== 'all' && !(msLeft > 0 && msLeft <= EXPIRY_MS[fExpiry])) return false
     return true
   })
-  const filtered = fScope !== 'all' || fStatus !== 'all' || fExpiry !== 'all'
+  const filtered = fScope !== 'all' || fExpiry !== 'all'
 
   const selectedFileId = fileId || files[0]?.id || ''
 
@@ -190,12 +191,16 @@ export function Shares({ t }) {
           <CardTitle sub={t('newShareSub')}>{t('newShare')}</CardTitle>
           <div className="flex flex-col gap-4">
             <Field id="share-file" label={t('shareFile')}>
-              <PillSelect id="share-file" value={selectedFileId} onChange={(e) => setFileId(e.target.value)} disabled={filesApi.loading || files.length === 0}>
-                {files.length === 0 && <option value="">{t('emptyNoFiles')}</option>}
-                {files.map((f) => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
-                ))}
-              </PillSelect>
+              {filesError ? (
+                <ErrorState t={t} kind={filesError} onRetry={filesApi.retry} />
+              ) : (
+                <PillSelect id="share-file" value={selectedFileId} onChange={(e) => setFileId(e.target.value)} disabled={filesApi.loading || files.length === 0}>
+                  {files.length === 0 && !filesUnavailable && <option value="">{t('emptyNoFiles')}</option>}
+                  {files.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </PillSelect>
+              )}
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field id="share-expiry" label={t('expiry')}>
@@ -310,20 +315,12 @@ export function Shares({ t }) {
           </div>
 
           {/* ตัวกรองของตารางนี้ — แทนที่ช่องค้นหาระดับระบบบนจอนี้ */}
-          {shares.length > 0 && (
-            <div className="px-5 pb-3 flex items-center gap-2.5 flex-wrap">
+          <div className="px-5 pb-3 flex items-center gap-2.5 flex-wrap">
               <div className="w-[168px]">
                 <PillSelect aria-label={t('filterScope')} value={fScope} onChange={(e) => setFScope(e.target.value)}>
                   <option value="all">{t('filterScope')} · {t('filterAll')}</option>
                   <option value="zones">{t('scopeZones')}</option>
                   <option value="any">{t('scopeAny')}</option>
-                </PillSelect>
-              </div>
-              <div className="w-[148px]">
-                <PillSelect aria-label={t('filterStatus')} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-                  <option value="all">{t('filterStatus')} · {t('filterAll')}</option>
-                  <option value="active">{t('filterActive')}</option>
-                  <option value="expired">{t('expired')}</option>
                 </PillSelect>
               </div>
               <div className="w-[168px]">
@@ -334,37 +331,35 @@ export function Shares({ t }) {
                   <option value="7d">{t('days7')}</option>
                 </PillSelect>
               </div>
-            </div>
-          )}
-          {sharesApi.loading ? (
-            <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
-          ) : sharesApi.error ? (
-            <ErrorState t={t} kind={sharesApi.error} onRetry={sharesApi.retry} />
-          ) : shares.length === 0 ? (
-            <EmptyState icon={Link2} title={t('emptyNoShares')} hint={t('emptyNoSharesHint')} />
-          ) : visibleShares.length === 0 ? (
-            // "ยังไม่มีลิงก์เลย" กับ "ตัวกรองไม่ตรง" คนละเรื่อง — อย่ารวมข้อความ
-            <EmptyState icon={Link2} title={t('emptyNoSharesFiltered')} />
-          ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[720px]">
-                <div
-                  className="grid gap-3 px-4 py-2 border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]"
-                  style={{ gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px' }}
-                >
-                  <span>{t('shareFile')}</span>
-                  <span>{t('colScope')}</span>
-                  <span>{t('colAuth')}</span>
-                  <span>{t('colExpiresIn')}</span>
-                  <span>{t('colHits')}</span>
-                  <span />
-                </div>
-                {visibleShares.map((link) => (
-                  <LinkRow key={link.id} t={t} link={link} now={now} revoking={revokingIds.has(link.id)} onAskRevoke={setAskRevoke} />
-                ))}
+          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px]">
+              <div
+                className="grid gap-3 px-4 py-2 border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]"
+                style={{ gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px' }}
+              >
+                <span>{t('shareFile')}</span>
+                <span>{t('colScope')}</span>
+                <span>{t('colAuth')}</span>
+                <span>{t('colExpiresIn')}</span>
+                <span>{t('colHits')}</span>
+                <span />
               </div>
+              {sharesApi.loading ? (
+                <div className="px-5 py-4"><SkeletonLoader type="table" /></div>
+              ) : fetchError ? (
+                <ErrorState t={t} kind={fetchError} onRetry={sharesApi.retry} />
+              ) : shares.length === 0 ? (
+                <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
+              ) : visibleShares.length === 0 ? (
+                <InlineEmptyState>{t('emptyNoSharesFiltered')}</InlineEmptyState>
+              ) : (
+                visibleShares.map((link) => (
+                  <LinkRow key={link.id} t={t} link={link} now={now} revoking={revokingIds.has(link.id)} onAskRevoke={setAskRevoke} />
+                ))
+              )}
             </div>
-          )}
+          </div>
         </Card>
       </div>
 

@@ -24,6 +24,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(usern
 --    ต้องถูกบังคับเปลี่ยนก่อนใช้งานอย่างอื่น ยกเว้น /me, /logout, /password/reset
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_reset_password BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- ⚠️ Telegram routing (Active alerts): เก็บ chat id ของแต่ละบัญชีไว้ที่นี่ แทนการ
+--    hardcode chat เดียวไว้ในโค้ด Detection Engine (ของเดิม) — เพื่อให้แจ้งเตือน
+--    ส่งไปหา "ผู้ปฏิบัติงานที่ถูกมอบหมายกล้องนั้นจริง ๆ" ผ่าน camera_assignment
+--    แทนที่จะกระจายไปทุกคนหรือคนเดียวคงที่ตลอด
+--    NULL = บัญชีนี้ยังไม่ได้ผูก Telegram ไว้ (เส้นทางแจ้งเตือนจะตกไป SOC-Team
+--    fallback แทน — ดู server/db/store.js:telegramRouteFor)
+--    ตั้งค่าผ่าน server/cli/manage_users.py เท่านั้น (add-operator --telegram-chat-id
+--    หรือ set-telegram สำหรับบัญชีที่มีอยู่แล้ว) — ไม่มี endpoint เว็บที่แก้ค่านี้ได้
+--    เหตุผลเดียวกับ password provisioning: ลดพื้นผิวเว็บที่ต้องป้องกัน
+ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;
+
 CREATE TABLE IF NOT EXISTS cameras (
   id         TEXT PRIMARY KEY,                 -- 'CAM-01' … ตรงกับ Detection Engine
   name       TEXT NOT NULL,

@@ -1,13 +1,17 @@
 ---
 title: IDEA2 AEGIS Monitor
-tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat]
+tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-07-28
+updated: 2026-08-01
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 📹 IDEA2: AEGIS Monitor (Dual-View SOC & CCTV Operator)
+
+### 🧪 Local run check (2026-08-06)
+
+For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. The shipped detection engine remains a separate manual process under `IDEA2-AEGIS_CCTV-Operator/detection-engine` and uses `python run.py` after its own `.venv`, dependencies, and `.env` are configured.
 
 > **Codebase Status**: ✅ Built & Implemented — Backend Express `:8002` + unified React app `:5176` + database `aegis_monitor` + Python Detection Engine (in-repo, runs on the Laptop edge node, **not** in `docker-compose`).
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
@@ -220,14 +224,14 @@ sequenceDiagram
 
 | # | View | Roles | Status |
 | :-- | :--- | :--- | :--- |
-| 1 | Live canvas | SOC + Operator | ✅ Real MJPEG video + overlays from real detections |
-| 2 | Archival footage | SOC + Operator | 🟡 Real clip metadata; **no playback** (see outstanding) |
+| 1 | Live canvas | SOC + Operator | ✅ Real MJPEG video + overlays from real detections; CAM-02 hardcoded `host.docker.internal` removed, now proxied like every other camera (2026-08-01). CCTV Operator motion/hierarchy pass (2026-08-01, follow-up): real camera-swap fade transition, page-load choreography removed, brief live-state recovery flash, `prefers-reduced-motion` now respected by Framer Motion via `MotionConfig`, not just raw CSS. |
+| 2 | Archival footage | SOC + Operator | ✅ Real clip metadata + **real playback** — `GET /api/clips/:id/video` + `<video>` element (2026-08-01, closes the prior open item). Independently re-verified live in the 2026-08-01 follow-up session (see below) after a regression briefly broke it. |
 | 3 | Detection stream | SOC | ✅ Real rows; multi-person frames reveal tailgating |
-| 4 | Alerts | SOC | ✅ Real rows; Acknowledge is the console's only write |
-| 5 | Nodes & routing | SOC | ✅ Real fleet + assignment + link state |
+| 4 | Alerts | SOC | ✅ Real rows; Acknowledge is the console's only write; Telegram delivery now routes per-camera via `camera_assignment` instead of one hardcoded chat id (2026-08-01), independently verified live in the follow-up session |
+| 5 | Nodes & routing | SOC | ✅ Real fleet + assignment + link state, now derived from `camera_heartbeat` rows instead of a static column (2026-08-01); live preview frame added to node cards |
 | 6 | **Operators** | SOC | ✅ **Built 2026-07-27** — table + assignment editor |
 | 7 | Camera diagnostics | Operator | ✅ Rebuilt on real heartbeat data |
-| 8 | Settings | SOC + Operator | 🟡 Display/theme real; notification prefs are UI-only |
+| 8 | Settings | SOC + Operator | 🟡 Display/theme real; notification prefs are UI-only; language selector now persists to `localStorage` and syncs cross-tab like theme (2026-08-01 follow-up), but only `Settings.jsx` itself reads translated strings so far |
 
 ### Operators view (View #6) — the dead menu entry, resolved
 
@@ -257,6 +261,7 @@ See [[concepts/Honest_Telemetry_and_Unavailable_States]].
 | `AI engine: running` | Pinned green regardless. Now derived from how many engines are actually reporting. |
 | `Running v1.3` / `AEGIS Monitor v3.0` (Settings) | Version strings typed into the screen. Version now from `package.json` via a vite `define`. |
 | `demo · user / aegis-user · admin / aegis-admin` (login page) | Credentials printed to every unauthenticated visitor — **and they were IDEA1's, not Monitor's**, so the hint also misdirected. |
+| `192.168.1.42 · LAN` / `v3.0-spatial` (`Footer.jsx`, found + fixed 2026-08-01 follow-up) | A fixed IP with nothing measured behind it (identical regardless of which node was actually reporting, or whether any node was reporting at all), and a version string that disagreed with the one `Settings.jsx` already read from `__APP_VERSION__`. Footer now shows the real `node_id` from the freshest `camera_heartbeat` row (or "No edge node reporting") and the same `__APP_VERSION__` as Settings. |
 
 Overlays are now derived from the newest real detection for that camera and render **nothing** when there is none. With the placeholder recogniser in play every box reads `UNKNOWN`, which is the truth.
 
@@ -269,6 +274,7 @@ Overlays are now derived from the newest real detection for that camera and rend
 * **Any operator could black out every console** — `POST /api/link/outage` was `requireAuth` only, but the state it flips is process-wide. One request (or pressing `L`) put every connected console into LINK LOST for 60s.
 * **A dying stream could hang forever** — found during Phase B testing of my own implementation: when the upstream socket went quiet without FIN/RST, the client hung >30s with no bytes and no error, freezing the last frame with nobody told. Fixed with a 6s idle watchdog on the proxy.
 * **Streams outlived their session** — authorisation was checked only at open, so a logged-out user kept receiving video. Fixed with 10s revalidation.
+* **[2026-08-01 follow-up] `GET /api/clips/:id/video` silently disappeared for one deploy cycle** — an earlier same-day edit pass re-copied the pristine uploaded `api.js` as a base for the `/api/nodes` heartbeat-status fix instead of continuing from the version that already had the clip-video route, dropping the route entirely while the `/nodes` fix rode along on top of the reset file. Not caught by any test or lint; only surfaced as a plain 404 in the browser against a clip independently confirmed present on disk (`sha256sum` matching the `nas_sync` log line) and readable by the `node` user (`fs.existsSync` from inside the container). Re-added, and `Cache-Control: no-store` — previously only set on the success path — was moved to the top of the handler so it now covers every response branch (403/404/409/503), closing a related caching footgun the route had already been bitten by once before.
 
 ### Measured failure behaviour (live video)
 
@@ -293,21 +299,72 @@ Run against the live compose stack with a real camera and a synthetic feed:
 
 ---
 
+## 🔧 2026-08-01 Pass — CAM-02 fix, clip playback, Telegram routing, heartbeat nodes, Operators rebuild, i18n kickoff
+
+> ⚠️ **User-reported at the time this was first logged, not independently re-verified in that session.** A follow-up same-day session (below) did have live source-code access and a running stack, and independently re-confirmed several of these claims against real terminal output — see the section directly below for exactly which ones.
+
+* **CAM-02 live stream fixed.** `LiveFeed.jsx` had a hardcoded `host.docker.internal` URL that bypassed the documented `/api/cameras/:id/stream` proxy architecture (see [Live Video — Proxied MJPEG](#-live-video--proxied-mjpeg-phase-b-2026-07-27) above). Removed; CAM-02 now goes through the proxy like every other camera.
+* **Docker/CSP/OpenCV/codec cluster fixed.** `docker-compose.yml` port mapping, volume mounts, and env vars corrected; CSP header fixed; a conflicting `opencv-python` version resolved; `aegis_scanner.py` gained an ffmpeg transcode step (mp4v → H.264) so recorded segments are broadly playable.
+* **Clip playback closed** — see the Screens table and Open Items table above.
+* **Alerts now route by camera, not a single hardcoded chat.** `telegram_chat_id` added to the schema; `telegramRouteFor()` + `GET /internal/route/:cameraId` resolve the right Telegram destination per camera; `aegis_scanner.py` routes through `camera_assignment` instead of one fixed chat id; a `set-telegram` CLI command was added for provisioning.
+* **Nodes & routing online/offline now sourced from `camera_heartbeat`** rather than a static column, plus a live stream preview frame added to node cards. Note this is described as a fix to a *different* signal than the `linkStatus()` row-age logic documented under [Heartbeat & Real Edge-Link State](#-heartbeat--real-edge-link-state-2026-07-27) — worth reconciling in a future audit pass to confirm there was only ever one source of truth for online/offline.
+* **`Operators.jsx` (View #6) rebuilt** — the file was missing from the working tree despite the backend (`PUT /api/assignments`, etc., documented above) already being wired up.
+* **Central i18n started, not finished.** New `src/lib/i18n.js`; `Settings.jsx` now imports from it. `App.jsx` and the remaining views still need to accept a `lang` prop and use translated strings — tracked as a new open item below.
+
+---
+
+## 🔧 2026-08-01 Follow-up — video-route regression, Live canvas motion pass, Footer honesty fix, live-verified Telegram routing
+
+This is a same-day continuation of the pass immediately above, this time run with live source-code access and a real running dev stack, so the claims here are backed by terminal output rather than a developer's own summary.
+
+**The video-route regression** is documented in [Bugs Found & Fixed Along The Way](#-bugs-found--fixed-along-the-way) above (`GET /api/clips/:id/video` disappearing during the `/nodes` edit, then re-added with `Cache-Control: no-store` moved to cover every response branch).
+
+**Live canvas motion/hierarchy pass**, per an explicit CCTV-Operator-focused design brief (feed → switcher → access/event rail hierarchy; a real camera-swap transition; live-state feedback; no page-load choreography; full `prefers-reduced-motion` support):
+
+* `App.jsx` — wrapped the whole app in `<MotionConfig reducedMotion="user">`. The existing `@media (prefers-reduced-motion: reduce)` CSS rules only ever covered raw CSS `animation`/`transition` properties; every Framer Motion `whileHover`/`whileTap`/`animate` interaction across the entire app was previously **not** honoring the OS-level reduced-motion setting at all. One wrapper fixes it site-wide. `lang` also now persists to `localStorage` and syncs cross-tab, matching how `theme` already worked (`aegis_theme`) — closing a small gap where language reset to Thai on every reload.
+* `Live.jsx` — removed staggered entrance animation from `.pagehead` and `.canvasR` (the `.canvasR` panel was fading/sliding in **150ms after** the left column on every page visit — literal page-load choreography). Fixed the hero's camera-swap transition, previously `initial={{opacity:1}} animate={{opacity:1}}` (a no-op — both values identical, nothing ever animated despite the code appearing to intend a swap effect), to a real 200ms fade tied to the `key={cam.id}` remount. Replaced `motion.button` wrappers on the three secondary-camera tiles with plain `<button>` elements — those wrappers also had matching `initial`/`animate` values and no `whileHover`/`whileTap` props, so they did nothing that the existing `.sfeed--clickable:hover`/`:active` CSS wasn't already doing.
+* `LiveFeed.jsx` — added a `justRecovered` state that briefly flashes a teal inset ring (`.feed-recovered`, 700ms CSS keyframe) specifically when a stream **recovers from a prior error** (`attempts.current > 0` at the moment `onLoad` fires), not on first connect — this was a deliberate design choice to avoid reintroducing page-load choreography under a different name; a flash on every fresh page load would be exactly that.
+* `src/index.css` — new rules appended at the very end of the file (`.feed-recovered` keyframe, `.hero`/`.secondrow`/`.sfeed` weighting tweaks, `.sfeed--clickable:focus-visible`). **Not** consolidated with the file's existing ~5 stacked "redesign pass" blocks (several of which redeclare `:root`/`.hero`/`.topbar`/`.panel`/`.side` with different values, where only the last-in-file declaration is ever live) — that cleanup was explicitly proposed to the user and explicitly deferred by their own choice, so this pass deliberately followed the file's existing "append last, let it win the cascade" convention rather than touching anything upstream.
+
+**`Footer.jsx` honesty fix** — see the new row in [Fabricated Content Removed](#-fabricated-content-removed-2026-07-27) above. `link` replaces the narrower `linkStatus` prop so the component can read `camera_heartbeat.node_id` from the freshest row.
+
+**Independently verified live in this session** (terminal output, not self-reported):
+
+* `docker compose exec monitor grep -c "clips/:id/video" server/routes/api.js` → `2`; `grep -c "getClipById" server/db/store.js` → `1` — confirms the regression fix actually deployed.
+* A camera was relabeled from `CAM-02` to `CAM-05` purely via the engine's `AEGIS_CAMERA_ID` env var (no code change), to exercise the Telegram-routing logic against a camera that already had a real `camera_assignment` row (`operator` / M. Reyes). `GET /internal/route/CAM-05` → `{"chatId":"8686991056","routeLabel":"M. Reyes"}`; the running engine's own log then showed `OK: Telegram alert sent -> M. Reyes` repeatedly, confirming `telegramRouteFor()` resolves through `camera_assignment` correctly once an operator has both a camera and a `telegram_chat_id`, rather than always falling back to SOC-Team.
+* `ffprobe` on the newly recorded CAM-05 clip: `Video: h264 (High) ... encoder: Lavc62.28.102 libx264` — confirms the ffmpeg mp4v→H.264 transcode step from the earlier same-day pass is still working correctly after the camera relabel.
+
+**Operational issues found and resolved during this verification (not code changes, recorded for anyone else hitting the same thing)**:
+
+* The project's root `.env` did not exist — only `.env.example` did. `DETECTION_ENGINE_API_KEY` was silently empty inside the `monitor` container the entire time, so `requireDetectionEngineKey.js`'s fail-secure design correctly returned `503` on `/internal/route/:cameraId` (this is the fail-secure behavior working as designed — the bug was the missing `.env`, not the 503). Recreating `.env` from `.env.example` then surfaced a second, unrelated issue: the freshly-copied `.env`'s DB password placeholders didn't match what Postgres had actually been initialized with on first boot (`password authentication failed for user "monitor_app"`, `500`) until corrected to match the `docker-compose.yml` defaults.
+* `telegram_chat_id` for `operator` (M. Reyes) was set via a direct `UPDATE users ... WHERE username = 'operator'` SQL statement, not a code change, to complete the routing verification above (reusing the same chat id already set for `soc`, since both route to the same tester's own Telegram in this dev environment).
+
+---
+
 ## 📂 Codebase File Paths
 
 **Monitor (Beelink, `:8002`)**
 * `server/index.js` — Express API server
-* `server/routes/api.js` — user-facing API incl. **`GET /api/cameras/:id/stream`** (scoped MJPEG proxy)
-* `server/routes/internal.js` — engine ingest incl. **`POST /internal/heartbeat`**
-* `server/db/schema.sql` — incl. **`camera_heartbeat`**
-* `server/db/store.js` — `linkStatus()`, `recordHeartbeat()`, `streamSourceFor()`, `provisionOperator()`
+* `server/routes/api.js` — user-facing API incl. **`GET /api/cameras/:id/stream`** (scoped MJPEG proxy), **[NEW 2026-08-01]** `GET /api/clips/:id/video` (briefly regressed and re-fixed same-day — see Bugs Found)
+* `server/routes/internal.js` — engine ingest incl. **`POST /internal/heartbeat`**, **[NEW 2026-08-01]** `telegramRouteFor()` + `GET /internal/route/:cameraId`
+* `server/db/schema.sql` — incl. **`camera_heartbeat`**, **[NEW 2026-08-01]** `telegram_chat_id`
+* `server/db/store.js` — `linkStatus()`, `recordHeartbeat()`, `streamSourceFor()`, `provisionOperator()`, **[NEW 2026-08-01]** `getClipById()`
 * `server/rbac/permissions.js` — view registry (source of truth for menus)
-* `src/components/LiveFeed.jsx` — **[NEW]** MJPEG `<img>` + reconnect/failure states
-* `src/components/ui.jsx` · `src/index.css` — shared dual-theme HUD state, controls, panels and motion rules for all Monitor views
-* `src/views/Operators.jsx` — **[NEW]** View #6
-* `src/components/AddOperator.jsx` — **[NEW]** shared provisioning modals (lifted out of `Nodes.jsx`)
+* `src/App.jsx` — **[UPDATED 2026-08-01 follow-up]** `<MotionConfig reducedMotion="user">` wraps the app; `lang` persists to `localStorage` and syncs cross-tab
+* `src/components/LiveFeed.jsx` — MJPEG `<img>` + reconnect/failure states; **[FIXED 2026-08-01]** removed hardcoded `host.docker.internal` for CAM-02; **[UPDATED 2026-08-01 follow-up]** brief `.feed-recovered` flash on error recovery
+* `src/components/Footer.jsx` — **[FIXED 2026-08-01 follow-up]** `link` prop replaces `linkStatus`; real `node_id` + `__APP_VERSION__` replace a hardcoded IP and a mismatched version string
+* `src/components/ui.jsx` · `src/index.css` — shared dual-theme HUD state, controls, panels and motion rules for all Monitor views; **[UPDATED 2026-08-01 follow-up]** additive block appended at file end for the Live canvas motion pass
+* `src/views/Operators.jsx` — View #6; **[REBUILT 2026-08-01]** — was missing from the working tree
+* `src/components/AddOperator.jsx` — shared provisioning modals (lifted out of `Nodes.jsx`)
 * `src/views/Diagnostics.jsx` — rebuilt on real heartbeat data
+* `src/views/Archive.jsx` — **[NEW 2026-08-01]** real `<video>` playback via `GET /api/clips/:id/video`
+* `src/views/Nodes.jsx` — **[UPDATED 2026-08-01]** online/offline sourced from `camera_heartbeat`; live preview frame on node cards
+* `src/views/Live.jsx` — **[UPDATED 2026-08-01 follow-up]** removed page-load choreography from `.pagehead`/`.canvasR`; real camera-swap fade transition; simplified no-op `motion.button` wrappers to plain buttons on secondary tiles
+* `src/lib/api.js` — **[UPDATED 2026-08-01]** `GET /api/clips/:id/video`
+* `src/lib/store.js` — **[UPDATED 2026-08-01]** `getClipById()`
+* `src/lib/i18n.js` — **[NEW 2026-08-01]** central i18n module; only `Settings.jsx` consumes it so far
 * `src/data.js` — display helpers only; `bboxesFor()` replaced the fabricated scene tables
+* `aegis_scanner.py` — **[UPDATED 2026-08-01]** ffmpeg transcode (mp4v → H.264); Telegram routing via `camera_assignment` — independently re-confirmed working in the 2026-08-01 follow-up session (`ffprobe` on a CAM-05 clip, live Telegram delivery log)
 
 **Detection Engine (Laptop, VLAN 20)**
 * `aegis_engine/video_catcher.py` — the only thread touching the device
@@ -324,15 +381,18 @@ Run against the live compose stack with a real camera and a synthetic feed:
 | Item | Status | Notes |
 | :--- | :--- | :--- |
 | **Real face-recognition model** | 🔴 Open | The seam is ready; the model is not. Until injected, every detection is `Unknown` and identity-based UI has nothing to show. Deliberately out of scope for both build-out phases. |
-| **Clip playback** | 🔴 Open | `clips.file_path` points at the NAS, but the `monitor` service declares **no volume mounts at all** and there is no `/api/clips/:id/stream`. Archive's play button only toggles a text panel. Needs NAS access plus a Range-capable endpoint. |
+| ~~**Clip playback**~~ | ✅ Resolved (2026-08-01) | `GET /api/clips/:id/video` + `getClipById()` in `store.js` + a real `<video>` element in `Archive.jsx` replaced the text-panel-only play button; a URL bug that dropped the `/monitor/` prefix was fixed in the same pass. **Independently re-verified live in the 2026-08-01 follow-up session** after briefly regressing to a 404 (see Bugs Found) — `grep` confirms the route is deployed and a real CAM-05 clip was confirmed playable end to end. |
 | **`gateway/nginx.conf` case-sensitivity gap** | 🔴 Open | `location /monitor/internal/` is a case-sensitive literal, but Express matches paths case-insensitively — `/monitor/Internal/...` bypasses the edge guard. The production HUB config already uses `location ~* ^/monitor/internal(/\|$)` and its comment records that the gateway has the same hole. Still guarded by the API key; the *edge* layer is what is bypassable. |
 | **Heartbeat history / uptime %** | 🔴 Open | `camera_heartbeat` keeps only the latest row per camera. Uptime %, 24h disconnects and a real latency sparkline all need a time-series table. Currently shown as `unavailable`. |
-| **Multi-camera engine deployment** | 🔴 Open | One process serves one camera; six cameras means six configured instances. No supervisor or compose service. |
+| **Multi-camera engine deployment** | 🔴 Open | One process serves one camera; six cameras means six configured instances. No supervisor or compose service. Running two instances against two different cameras (e.g. CAM-02 + CAM-05) simultaneously was design-confirmed with the user 2026-08-01 (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL` per instance, shared `MONITOR_INTERNAL_URL`/`DETECTION_ENGINE_API_KEY`) but not yet implemented. |
 | **Real bbox geometry** | 🟠 Design constraint | `detections` has no bbox column, so overlay boxes are evenly-spaced slots. `.feedimg` uses `object-fit: cover`, which crops within the box — **when real bbox telemetry arrives this must become `contain` or letterbox-aware**, or normalised coordinates will be wrong by the cropped margin. |
 | **Safari live video** | 🟠 Known limitation | `multipart/x-mixed-replace` in `<img>` works in Chrome/Edge/Firefox; **Safari does not support it** and will sit in the reconnect state. |
 | **Notification preferences (Settings)** | 🔴 Open | Sound / desktop push / snooze are `useState` only — never persisted — yet each toggle fires a "saved successfully" toast. |
 | **No audit log** | 🔴 Open | IDEA2 has **no `audit_log` table at all** (unlike IDEA1). Operator creation, camera reassignment, alert acknowledgement, password resets and every login leave no record. If built, use awaited writes from the start rather than repeating IDEA1's fire-and-forget bug. |
 | **Zero automated tests** | 🔴 Open | No test script, no test dependency, no `tests/` directory (IDEA1 has 11 suites). The RBAC/scoping boundary — the project's headline security claim — has no automated proof. |
+| **Real NAS integration** | 🔴 Open | `nas_sync_clip()` still only verifies sha256 against a file on the **same disk** as the engine (Phase 1 simulation, documented in-code) rather than actually transferring bytes to a separate NAS host. Swapping the `docker-compose.yml` bind-mount source and adding a real rsync/scp step was design-confirmed with the user 2026-08-01 but not yet implemented. |
+| **i18n rollout incomplete** | 🟡 In progress (2026-08-01, still incomplete as of the same-day follow-up) | `src/lib/i18n.js` exists and `Settings.jsx` consumes it. The 2026-08-01 follow-up pass added `lang` persistence (`localStorage` + cross-tab sync) to `App.jsx`, but **no additional view or shell component was wired to read translated strings** — `Live.jsx`, `TopBar.jsx`, `Sidebar.jsx`, `Footer.jsx`, `Detection.jsx`, `Diagnostics.jsx`, and `Login.jsx` still render hardcoded English/Thai strings. |
+| **`src/index.css` has ~5 stacked redesign-pass blocks with duplicate declarations** | 🟡 Flagged, deferred by user choice (2026-08-01) | Several blocks redeclare the same `:root`/`.hero`/`.topbar`/`.panel`/`.side` selectors with different values; only the last one in the file is ever live, so the earlier ones are dead code that makes the file harder to reason about. Flagged to the user before the 2026-08-01 follow-up motion pass; the user explicitly chose to defer the cleanup rather than have it done as part of that pass. |
 
 ---
 

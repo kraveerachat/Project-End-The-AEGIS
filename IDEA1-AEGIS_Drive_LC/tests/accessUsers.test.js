@@ -87,12 +87,11 @@ test('GET /api/users คืนบัญชีจริงจากตารา�
     )
   }
 
-  // ⚠️ หัวใจของ Phase นี้: ห้ามมีฟิลด์ที่ตาราง users ไม่มีทางรู้คำตอบ
-  //    status (ไม่มีคอลัมน์ active/suspended) และ sessions (ไม่มี session store ที่นับได้)
-  //    การเดาค่าให้ครบตามที่ UI เดิมวาดไว้ = สร้าง mock ใหม่ในที่ที่เพิ่งถอดมันออก
+  // ⚠️ status ยังห้ามแต่งขึ้น; activeSessions อนุญาตเพราะ endpoint อ่าน MemoryStore
+  //    ของ Express จริงใน request นี้ และต้องเป็น null หาก store นับไม่ได้
   for (const u of users) {
     assert.equal('status' in u, false, `ฟิลด์ status เป็นค่าที่แต่งขึ้น — พบใน ${u.username}`)
-    assert.equal('sessions' in u, false, `ฟิลด์ sessions เป็นค่าที่แต่งขึ้น — พบใน ${u.username}`)
+    assert.ok(u.activeSessions === null || Number.isInteger(u.activeSessions), 'activeSessions ต้องเป็นค่าที่นับได้จริงหรือ null')
     assert.ok(typeof u.role === 'string', 'role ต้องมาจาก DB')
     assert.equal(typeof u.mustResetPassword, 'boolean', 'mustResetPassword ต้องเป็น boolean จริงจาก DB')
   }
@@ -104,6 +103,21 @@ test('GET /api/users คืนบัญชีจริงจากตารา�
     Math.abs(Date.now() - adminRow.lastLogin) < 120_000,
     `lastLogin ต้องเป็นเวลาที่เพิ่งเกิดจริง ไม่ใช่ค่าคงที่ — ได้ ${new Date(adminRow.lastLogin).toISOString()}`,
   )
+})
+
+test('GET /api/users นับเซสชันจริงต่อบัญชีจาก session store ของอินสแตนซ์นี้', async () => {
+  const first = await loginClient(baseUrl, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const before = await first.req('/api/users')
+  const beforeCount = before.data.users.find((u) => u.username === DEMO_ADMIN.username)?.activeSessions
+  assert.ok(Number.isInteger(beforeCount) && beforeCount >= 1, 'เซสชันปัจจุบันต้องถูกนับอย่างน้อยหนึ่ง')
+
+  await loginClient(baseUrl, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const after = await first.req('/api/users')
+  const afterCount = after.data.users.find((u) => u.username === DEMO_ADMIN.username)?.activeSessions
+  assert.equal(afterCount, beforeCount + 1, 'ล็อกอินอีก browser session ต้องเพิ่ม count จริงหนึ่ง')
+
+  const userCount = after.data.users.find((u) => u.username === 'user')?.activeSessions
+  assert.ok(Number.isInteger(userCount), 'บัญชีอื่นต้องได้ count ของตัวเอง ไม่ใช่ค่าของ Admin ที่คัดลอกมา')
 })
 
 test('บัญชีที่ Admin provision ปรากฏใน GET /api/users เพราะมันมีอยู่จริง (ไม่ใช่เพราะซิงก์เข้าอาเรย์)', async () => {

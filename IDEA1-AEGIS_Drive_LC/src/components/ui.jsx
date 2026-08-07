@@ -527,6 +527,20 @@ export function EmptyState({ icon: Icon, title, hint, action }) {
   )
 }
 
+/* Compact empty state for a table/list body. The surrounding card, header, and
+   controls stay mounted; only the data row becomes quiet placeholder copy. */
+export function InlineEmptyState({ children, action, className = '' }) {
+  return (
+    <div
+      role="status"
+      className={`min-h-14 px-5 py-4 flex items-center justify-center gap-3 text-center text-[12.5px] text-ink-3 ${className}`}
+    >
+      <span>{children}</span>
+      {action}
+    </div>
+  )
+}
+
 /* ── Not-yet-implemented marker ────────────────────────────────────────────────
    ⚠️ กติกาของโปรเจกต์นี้: จอห้ามแสดงข้อมูลที่แต่งขึ้นเพื่อให้ดูสมบูรณ์ อะไรที่ยังไม่มี
    ของจริงต้องบอกตรง ๆ ว่ายังไม่มี — เพราะตัวเลข/สถานะปลอมที่ดูน่าเชื่อจะถูกเอาไป

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { TriangleAlert, Lock, LockOpen, FileText, FileImage, File as FileIcon, Plus, Download, KeyRound } from 'lucide-react'
 import { Btn, Chip, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader, Card } from '../components/ui.jsx'
 import { useApi, useReducedMotion } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiFetchBytes } from '../lib/api.js'
 import { fmtBytes } from '../lib/format.js'
 import {
@@ -78,7 +79,7 @@ function VaultTile({ t, entry, unlocked, index, onDownload, busy }) {
   )
 }
 
-export function Vault({ t }) {
+export function Vault({ t, placeholderMode = false }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
 
@@ -311,19 +312,25 @@ export function Vault({ t }) {
     setAutoLocked(false)
   }
 
-  if (vaultApi.loading) return <SkeletonLoader type="files" />
-  if (vaultApi.error) return <Card><ErrorState t={t} kind={vaultApi.error} onRetry={vaultApi.retry} /></Card>
-
-  const list = unlocked ? entries : blobs.map((b) => ({ id: b.id, name: null, size: b.size }))
+  const list = placeholderMode ? [] : (unlocked ? entries : blobs.map((b) => ({ id: b.id, name: null, size: b.size })))
+  const fetchError = visibleFetchError(vaultApi.error, placeholderMode)
+  const openEmptyAction = () => {
+    if (!configured) openModal('setup')
+    else if (!unlocked) openModal('unlock')
+    else fileRef.current?.click()
+  }
 
   return (
     <div>
       {/* persistent, calm callout — this warning never goes away */}
       <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
         <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
-        <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
-          {t('vaultWarning')}
-        </p>
+        <div className="min-w-0">
+          <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
+            {t('vaultWarning')}
+          </p>
+          <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -374,9 +381,23 @@ export function Vault({ t }) {
         </p>
       )}
 
-      {list.length === 0 ? (
+      {vaultApi.loading ? (
+        <Card className="p-5"><SkeletonLoader type="files" /></Card>
+      ) : fetchError ? (
+        <Card><ErrorState t={t} kind={fetchError} onRetry={vaultApi.retry} /></Card>
+      ) : list.length === 0 ? (
         <Card>
-          <EmptyState icon={Lock} title={t('emptyNoFiles')} hint={t('vaultKeyNote')} />
+          <EmptyState
+            icon={Lock}
+            title={t('emptyVault')}
+            hint={t('vaultKeyNote')}
+            action={
+              <Btn variant="primary" size="sm" onClick={openEmptyAction} disabled={addBusy}>
+                <Plus size={14} strokeWidth={1.8} />
+                {t('encryptFirstFile')}
+              </Btn>
+            }
+          />
         </Card>
       ) : (
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>

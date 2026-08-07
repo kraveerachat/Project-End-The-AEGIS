@@ -22,6 +22,7 @@ build/
 
 # local / editor / OS
 *.local
+.claude/settings.local.json
 .DS_Store
 Thumbs.db
 *.log
@@ -34,5 +35,10 @@ __pycache__/
 # Churns every session and causes pointless merge conflicts; the notes stay tracked.
 Obsidian_AEGIS_Vault/**/.obsidian/workspace.json
 Obsidian_AEGIS_Vault/**/.obsidian/graph.json
+
+# operational camera evidence and accidental nested clones stay local
+AEGIS_Camera/clips/
+AEGIS_Camera/detection_log.csv
+Project-End-The-AEGIS/
 
 .aegis-dev-nas-key

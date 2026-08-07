@@ -235,9 +235,8 @@ export async function createUserWithTempPassword({ username, displayName, role }
  *    แล้วตัดสินใจบนภาพนั้น (ไม่ใช่แค่ตัวเลขผิดสวย ๆ)
  *
  * ⚠️ คืน "เฉพาะสิ่งที่มีอยู่จริงในตาราง" เท่านั้น — ตาราง users ของ Drive ไม่มีคอลัมน์
- *    active/suspended และไม่มี session store ที่นับเซสชันต่อบัญชีได้ (express-session
- *    ใช้ MemoryStore) จึงไม่มีฟิลด์ status/sessions ในผลลัพธ์นี้ การเดาค่าให้ครบ
- *    ตามที่ UI เดิมวาดไว้ = สร้าง mock ขึ้นใหม่ในที่ที่เพิ่งถอดมันออก
+ *    active/suspended จึงไม่มีฟิลด์ status ในผลลัพธ์นี้ ส่วนจำนวน session ถูกเติม
+ *    ภายหลังใน route จาก Express session store จริง และระบุขอบเขตว่าเป็นอินสแตนซ์นี้
  *
  * lastLogin มาจาก audit_log จริง (LOGIN/OK ล่าสุดของ actor_id นั้น) — เป็นข้อมูลที่
  * ระบบบันทึกเองอยู่แล้ว ไม่ใช่คอลัมน์ที่ต้องเพิ่มและไม่ใช่ค่าที่แต่งขึ้น
@@ -367,12 +366,16 @@ export async function readAudit(limit = 100) {
 
 /** ตรวจว่า DB ติดต่อได้ — ใช้โดย /healthz (docker healthcheck + deploy.sh) */
 export async function checkDb() {
-  if (!pool) return { ok: true, mode: 'memory' }
+  // memory fallback ไม่มี database round-trip ให้จับเวลา — ห้ามคืนเลข 0 ms เพราะจะ
+  // กลายเป็นหลักฐานปลอมว่า Metadata Layer ถูก probe แล้ว ทั้งที่ไม่มี PostgreSQL อยู่เลย
+  if (!pool) return { ok: true, mode: 'memory', measured: false, latencyMs: null }
+  const startedAt = process.hrtime.bigint()
   try {
     await pool.query('SELECT 1')
-    return { ok: true, mode: 'postgres' }
+    const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1e6
+    return { ok: true, mode: 'postgres', measured: true, latencyMs }
   } catch {
-    return { ok: false, mode: 'postgres' }
+    return { ok: false, mode: 'postgres', measured: false, latencyMs: null }
   }
 }
 

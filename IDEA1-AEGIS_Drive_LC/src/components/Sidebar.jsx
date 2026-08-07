@@ -6,6 +6,7 @@ import {
 import { AegisLockup, AegisMark } from './AegisMark.jsx'
 import { Progress } from './ui.jsx'
 import { useCountUp } from '../lib/hooks.js'
+import { fmtBytes } from '../lib/format.js'
 
 const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
 
@@ -59,8 +60,10 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
 
 export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, mobileOpen, closeMobile }) {
   // metrics มาจาก /api/dashboard — ระหว่างโหลดเป็น null → มิเตอร์แสดง skeleton
-  const storage = useCountUp(metrics?.storageGB ?? 0, 700)
-  const totalGB = metrics?.storageTotalGB ?? 1024
+  // ใช้ bytes + fmtBytes ชุดเดียวกับ Dashboard/Storage ห้ามผสม decimal GB กับ binary GB
+  const storageBytes = useCountUp(metrics?.storageBytes ?? 0, 700)
+  const totalBytes = metrics?.storageTotalBytes ?? 0
+  const storagePct = totalBytes > 0 ? (storageBytes / totalBytes) * 100 : 0
   const groups = ['navGroupWorkspace', 'navGroupProtection', 'navGroupAdmin']
 
   const body = (
@@ -138,10 +141,10 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
               <div className="flex items-baseline justify-between">
                 <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
                 <p className="text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  <span className="font-semibold text-ink">{Math.round(storage)} GB</span> / {Math.round(totalGB)} GB
+                  <span className="font-semibold text-ink">{fmtBytes(storageBytes)}</span> / {fmtBytes(totalBytes)}
                 </p>
               </div>
-              <Progress value={(storage / totalGB) * 100} height={4} className="mt-2.5" />
+              <Progress value={storagePct} height={4} className="mt-2.5" />
             </>
           ) : (
             <div className="flex flex-col gap-2.5" aria-busy="true">

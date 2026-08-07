@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Download, ScrollText } from 'lucide-react'
-import { Chip, Btn, PillSelect, ErrorState, EmptyState, SkeletonLoader, Card } from '../components/ui.jsx'
+import { Download } from 'lucide-react'
+import { Chip, Btn, PillSelect, ErrorState, InlineEmptyState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { fmtStamp } from '../lib/format.js'
 
 /* The audit ledger is deliberately a different material: sharper corners,
@@ -28,7 +29,7 @@ const norm = (e) => ({
   ip: e.source_ip ?? e.sourceIp ?? '—',
 })
 
-export function Audit({ t }) {
+export function Audit({ t, placeholderMode = false }) {
   const api = useApi('/api/audit', { refreshMs: 30_000 })
   const [result, setResult] = useState('all')
   const [actor, setActor] = useState('all')
@@ -36,7 +37,11 @@ export function Audit({ t }) {
   const [range, setRange] = useState('all')
   const nowTs = Date.now()
 
-  const events = useMemo(() => (api.data?.events ?? []).map(norm), [api.data])
+  const events = useMemo(
+    () => placeholderMode ? [] : (api.data?.events ?? []).map(norm),
+    [api.data, placeholderMode],
+  )
+  const fetchError = visibleFetchError(api.error, placeholderMode)
   const actors = useMemo(() => [...new Set(events.map((e) => e.actor))], [events])
   const actions = useMemo(() => [...new Set(events.map((e) => e.action))], [events])
 
@@ -59,9 +64,6 @@ export function Audit({ t }) {
     a.click()
     URL.revokeObjectURL(url)
   }
-
-  if (api.loading) return <SkeletonLoader type="table" />
-  if (api.error) return <Card><ErrorState t={t} kind={api.error} onRetry={api.retry} /></Card>
 
   const visibleCount = events.filter(visible).length
 
@@ -105,12 +107,7 @@ export function Audit({ t }) {
 
       <p className="text-[12px] text-ink-3 mb-3">{t('auditSubtitle')}</p>
 
-      {events.length === 0 ? (
-        <Card>
-          <EmptyState icon={ScrollText} title={t('emptyNoAudit')} hint={t('emptyNoAuditHint')} />
-        </Card>
-      ) : (
-        <div className="bg-card border border-line overflow-hidden" style={{ borderRadius: 'var(--r-ledger)', boxShadow: 'var(--elev-1)' }}>
+      <div className="bg-card border border-line overflow-hidden" style={{ borderRadius: 'var(--r-ledger)', boxShadow: 'var(--elev-1)' }}>
           <div className="overflow-x-auto">
             <div className="min-w-[860px] relative">
               {/* header */}
@@ -130,13 +127,19 @@ export function Audit({ t }) {
               <div className="absolute left-4 top-9 bottom-0 w-px bg-line" aria-hidden />
 
               {/* แถวทั้งหมดยุบเหลือ 0 เมื่อไม่มีอะไรตรงตัวกรอง — ต้องบอก ไม่ใช่ปล่อยว่างเปล่า */}
-              {visibleCount === 0 && (
+              {api.loading ? (
+                <div className="px-5 py-4"><SkeletonLoader type="table" /></div>
+              ) : fetchError ? (
+                <ErrorState t={t} kind={fetchError} onRetry={api.retry} />
+              ) : events.length === 0 ? (
+                <InlineEmptyState className="justify-start pl-10">{t('emptyNoAudit')}</InlineEmptyState>
+              ) : visibleCount === 0 ? (
                 <p role="status" className="px-4 pl-10 h-10 flex items-center text-[12.5px] text-ink-3">
                   {t('emptyNoAuditFiltered')}
                 </p>
-              )}
+              ) : null}
 
-              {events.map((e, i) => {
+              {!api.loading && !fetchError && events.map((e, i) => {
                 const bad = e.result !== 'OK'
                 const shown = visible(e)
                 return (
@@ -177,7 +180,6 @@ export function Audit({ t }) {
             </div>
           </div>
         </div>
-      )}
     </div>
   )
 }

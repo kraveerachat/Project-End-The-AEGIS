@@ -17,6 +17,11 @@ What it does:
                     — never as a CLI argument (shell history / `ps` would
                     leak it) — or piped via --password-stdin for scripted
                     local test-fixture setup (see that flag's help text).
+                    Optionally set --telegram-chat-id so Active alerts for
+                    this operator's cameras route to their Telegram.
+  set-telegram      Set/clear telegram_chat_id on an existing account —
+                    for accounts created before this field existed, or to
+                    rotate a chat id (e.g. operator got a new phone).
   list-cameras      Read-only: camera ids + who they're currently assigned to.
   list-operators    Read-only: existing CCTV-Operator / SOC-Responder accounts.
 
@@ -28,7 +33,10 @@ Connection:
 
     export DATABASE_URL=postgresql://aegis:<password>@localhost:5432/aegis_monitor
     python server/cli/manage_users.py add-operator \\
-        --username m.reyes --display-name "M. Reyes" --camera CAM-05
+        --username m.reyes --display-name "M. Reyes" --camera CAM-05 \\
+        --telegram-chat-id 123456789
+
+    python server/cli/manage_users.py set-telegram --username soc --chat-id 987654321
 
     # scripted local test fixture, known password, immediately usable:
     echo 'CamOne#2026' | python server/cli/manage_users.py add-operator \\
@@ -50,6 +58,11 @@ import psycopg2
 import psycopg2.extras
 
 USERNAME_RE = re.compile(r"^[a-z][a-z0-9._-]{2,39}$")
+# Telegram chat ids are signed 64-bit ints in practice (negative for group
+# chats) — accept digits with an optional leading '-', nothing else. This is
+# an operator's private chat destination; validate the shape, don't try to
+# verify it's reachable here (that's what a test alert / Telegram itself does).
+TELEGRAM_CHAT_ID_RE = re.compile(r"^-?\d{3,20}$")
 MIN_PASSWORD_LENGTH = 12
 BCRYPT_COST = 12
 
@@ -129,6 +142,20 @@ def actor_label() -> str:
     return f"{user}@{host} at {at}"
 
 
+def validate_chat_id(raw: str | None) -> str | None:
+    """None/empty stays None (no Telegram routing for this account yet).
+    Anything else must look like a real chat id — fail loudly on typos rather
+    than silently storing garbage that Telegram will just 400 on later."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if raw == "":
+        return None
+    if not TELEGRAM_CHAT_ID_RE.match(raw):
+        die(f"--telegram-chat-id / --chat-id '{raw}' doesn't look like a Telegram chat id (digits, optional leading -)")
+    return raw
+
+
 def cmd_list_cameras(args: argparse.Namespace) -> None:
     conn = connect()
     try:
@@ -166,7 +193,8 @@ def cmd_list_operators(args: argparse.Namespace) -> None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT username, display_name, role, active, must_reset_password, created_at
+                SELECT username, display_name, role, active, must_reset_password,
+                       telegram_chat_id, created_at
                   FROM users
                  ORDER BY created_at
                 """
@@ -178,11 +206,12 @@ def cmd_list_operators(args: argparse.Namespace) -> None:
     if not rows:
         print("(no users found)")
         return
-    print(f"{'USERNAME':<20} {'ROLE':<16} {'ACTIVE':<8} {'MUST RESET':<11} DISPLAY NAME")
+    print(f"{'USERNAME':<20} {'ROLE':<16} {'ACTIVE':<8} {'MUST RESET':<11} {'TELEGRAM':<14} DISPLAY NAME")
     for r in rows:
+        telegram = r["telegram_chat_id"] or "(not set)"
         print(
             f"{r['username']:<20} {r['role']:<16} {str(r['active']):<8} "
-            f"{str(r['must_reset_password']):<11} {r['display_name']}"
+            f"{str(r['must_reset_password']):<11} {telegram:<14} {r['display_name']}"
         )
 
 
@@ -190,6 +219,7 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
     username = args.username.strip().lower()
     display_name = args.display_name.strip()
     cameras = list(dict.fromkeys(args.camera or []))  # de-dupe, preserve order
+    telegram_chat_id = validate_chat_id(args.telegram_chat_id)
 
     if not USERNAME_RE.match(username):
         die("username must be lowercase, start with a letter, and use only a-z 0-9 . _ - (3-40 chars)")
@@ -242,11 +272,12 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
 
             cur.execute(
                 """
-                INSERT INTO users (username, password_hash, role, display_name, active, must_reset_password)
-                VALUES (%s, %s, %s, %s, TRUE, %s)
+                INSERT INTO users (username, password_hash, role, display_name, active,
+                                    must_reset_password, telegram_chat_id)
+                VALUES (%s, %s, %s, %s, TRUE, %s, %s)
                 RETURNING id
                 """,
-                (username, password_hash, args.role, display_name, must_reset),
+                (username, password_hash, args.role, display_name, must_reset, telegram_chat_id),
             )
             user_id = cur.fetchone()["id"]
 
@@ -273,12 +304,54 @@ def cmd_add_operator(args: argparse.Namespace) -> None:
         print(f"✓ assigned cameras: {', '.join(cameras)}")
     elif args.role == "CCTV-Operator":
         print("  no cameras assigned yet — this operator has no Scoped View until you assign one")
+    if telegram_chat_id:
+        print(f"✓ Telegram alerts for this account's cameras will route to chat {telegram_chat_id}")
+    else:
+        print("  no Telegram chat id set — alerts for this account's cameras fall back to SOC-Team routing")
     print(f"  provisioned by {actor_label()}")
     if not args.password_stdin:
         print(
             "\nHand the password to the user out-of-band (in person, secure chat) — it was never "
             "written to disk, logged, or stored anywhere but their own memory just now."
         )
+
+
+def cmd_set_telegram(args: argparse.Namespace) -> None:
+    """Set (or clear, with --clear) telegram_chat_id on an EXISTING account.
+
+    Exists mainly for accounts seeded before this column existed (soc,
+    operator, operator2 — see seed.sql) and for rotating a chat id later
+    (operator switched phones, needs a fresh chat with the bot, etc.).
+    """
+    username = args.username.strip().lower()
+    chat_id = None if args.clear else validate_chat_id(args.chat_id)
+    if not args.clear and chat_id is None:
+        die("provide --chat-id <id>, or pass --clear to remove the current one")
+
+    conn = connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "UPDATE users SET telegram_chat_id = %s WHERE lower(username) = %s RETURNING username, display_name",
+                (chat_id, username),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                die(f"no user found with username '{username}' — see `list-operators`")
+        conn.commit()
+    except psycopg2.Error as e:
+        conn.rollback()
+        die(f"database error, rolled back — no changes were made: {e}")
+    finally:
+        conn.close()
+
+    if args.clear:
+        print(f"✓ cleared telegram_chat_id for '{row['username']}' ({row['display_name']})")
+        print("  alerts for this account's cameras now fall back to SOC-Team routing")
+    else:
+        print(f"✓ set telegram_chat_id for '{row['username']}' ({row['display_name']}) → {chat_id}")
+    print(f"  changed by {actor_label()}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -300,6 +373,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--camera", action="append", metavar="CAM-ID",
         help="camera id to assign (repeatable, e.g. --camera CAM-05 --camera CAM-06)",
     )
+    p_add.add_argument(
+        "--telegram-chat-id", metavar="CHAT_ID", default=None,
+        help="Telegram chat id to route Active alerts to for this account's cameras "
+             "(get it from the bot's /start reply, or @userinfobot). Omit to leave "
+             "unset — alerts fall back to SOC-Team routing until set-telegram is run",
+    )
     p_add.add_argument("--yes", "-y", action="store_true", help="skip the reassignment confirmation prompt")
     p_add.add_argument(
         "--password-stdin", action="store_true",
@@ -312,6 +391,12 @@ def build_parser() -> argparse.ArgumentParser:
              "immediately. For local test fixtures with a known password; never for real provisioning",
     )
     p_add.set_defaults(func=cmd_add_operator)
+
+    p_tg = sub.add_parser("set-telegram", help="set/clear telegram_chat_id on an existing account")
+    p_tg.add_argument("--username", required=True, help="existing account username")
+    p_tg.add_argument("--chat-id", metavar="CHAT_ID", default=None, help="new Telegram chat id")
+    p_tg.add_argument("--clear", action="store_true", help="remove the current chat id instead of setting one")
+    p_tg.set_defaults(func=cmd_set_telegram)
 
     p_lc = sub.add_parser("list-cameras", help="list cameras and their current assignment")
     p_lc.set_defaults(func=cmd_list_cameras)

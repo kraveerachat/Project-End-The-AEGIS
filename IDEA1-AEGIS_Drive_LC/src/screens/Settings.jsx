@@ -6,6 +6,7 @@ import {
 } from '../components/ui.jsx'
 import { canAdministrate } from '../lib/authz.js'
 import { useApi, useNow } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
 import { LANGS } from '../lib/strings.js'
@@ -219,8 +220,9 @@ function ChangePasswordCard({ t }) {
    ตอนนี้เป็น ip/User-Agent/เวลาจริงของทุกเซสชันที่ยังมีชีวิตของบัญชีนี้
    ⚠️ volatile = session store เป็น MemoryStore: รายการหายทั้งหมดเมื่อเซิร์ฟเวอร์รีสตาร์ท
    (ทุกคนถูก log out พร้อมกัน) — บอกผู้ใช้ตรง ๆ ดีกว่าให้เข้าใจว่าเป็นทะเบียนถาวร */
-function SessionsCard({ t, api, now }) {
+function SessionsCard({ t, api, now, placeholderMode = false }) {
   const sessions = api.data?.sessions ?? []
+  const fetchError = visibleFetchError(api.error, placeholderMode)
   const [revoking, setRevoking] = useState(null)
 
   const revoke = async (ref) => {
@@ -235,8 +237,8 @@ function SessionsCard({ t, api, now }) {
       <CardTitle sub={api.data?.volatile ? t('sessionsVolatileNote') : undefined}>{t('activeSessions')}</CardTitle>
       {api.loading ? (
         <SkeletonLoader type="table" />
-      ) : api.error ? (
-        <ErrorState t={t} kind={api.error} onRetry={api.retry} />
+      ) : fetchError ? (
+        <ErrorState t={t} kind={fetchError} onRetry={api.retry} />
       ) : sessions.length === 0 ? (
         <EmptyState icon={Monitor} title={t('emptyNoSessions')} hint={t('emptyNoSessionsHint')} />
       ) : (
@@ -296,7 +298,7 @@ function Row({ label, children, note }) {
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved }) {
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved, placeholderMode = false }) {
   const now = useNow(30_000)
   const [tab, setTab] = useState('appearance')
   // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จาก session store จริงฝั่งเซิร์ฟเวอร์
@@ -310,6 +312,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
   //    เหตุผลเต็มอยู่ที่หัวหมวด Network zones ใน server/db/store.js
   const zonesApi = useApi('/api/zones')
   const zones = zonesApi.data?.zones ?? []
+  const zonesError = visibleFetchError(zonesApi.error, placeholderMode)
   const [zoneName, setZoneName] = useState('')
   const [zoneCidr, setZoneCidr] = useState('')
   const [zoneErr, setZoneErr] = useState(false)
@@ -402,7 +405,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
           <div className="flex flex-col gap-5 fade-in">
             <ProfileCard t={t} user={user} role={role} onSaved={onProfileSaved} />
             <ChangePasswordCard t={t} />
-            <SessionsCard t={t} api={sessionsApi} now={now} />
+            <SessionsCard t={t} api={sessionsApi} now={now} placeholderMode={placeholderMode} />
           </div>
         )}
 
@@ -416,6 +419,19 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               </div>
             </Card>
             <Card className="p-5">
+              <CardTitle>{t('vaultRecoveryTitle')}</CardTitle>
+              <div className="rounded-[var(--r-tile)] border border-dashed border-line bg-sunken px-4 py-4 flex items-center gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <Chip tone="neutral">{t('notConnected')}</Chip>
+                  <p className="text-[12.5px] text-ink-3 mt-2 max-w-[58ch] leading-relaxed">{t('vaultRecoveryNotConnected')}</p>
+                </div>
+                <Btn variant="outline" size="sm" disabled title={t('vaultRecoveryUnavailable')}>
+                  <KeyRound size={13} strokeWidth={1.5} />
+                  {t('generateRecoveryPhrase')}
+                </Btn>
+              </div>
+            </Card>
+            <Card className="p-5">
               <CardTitle>{t('shareDefaults')}</CardTitle>
               {/* เดิมเป็น <select> สองอันที่ไม่ผูกกับ state ใดและไม่เคยถูกส่งไปที่ไหน —
                   ผู้ใช้เลือกค่า กดออกจากหน้า แล้วค่าก็หายไปเงียบ ๆ ไม่มีผลต่อฟอร์มสร้าง
@@ -423,78 +439,33 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               <NotYetImplemented label={t('notImplemented')}>{t('shareDefaultsTodo')}</NotYetImplemented>
             </Card>
 
-            {/* SECTION 1 — Remote Access & Devices
-                ⚠️ ทุกค่าในหมวดนี้ hard-code ไว้ในไฟล์นี้ และแอปไม่ได้ตรวจสอบอะไรเลย:
-                ไม่มีการ query สถานะ VPN/Twingate connector, ไม่มี health check, ไม่มีการ
-                อ่าน config ของ firewall เดิมหัวข้อเขียนว่า "status" และติดชิป "Active"
-                สีเขียวไว้ทั้งสองใบ — ผู้ดูแลที่เปิดจอนี้จะสรุปว่าช่องทางทั้งสองทำงานอยู่จริง
-                ณ วินาทีนั้น ซึ่งจอนี้ไม่มีทางรู้ ตอนนี้ระบุชัดว่าเป็น "เอกสารการออกแบบ"
-                (ค่าที่ตั้งใจให้เป็น) ไม่ใช่สถานะที่วัดได้ — เนื้อหายังมีประโยชน์ในฐานะ
-                คำอธิบายสถาปัตยกรรม แต่ต้องไม่ถูกอ่านว่าเป็น telemetry */}
+            {/* Twingate is the only documented remote channel. There is no connector
+                health integration yet, so Inactive is the only honest default. */}
             <Card className="p-5">
               <CardTitle sub={t('remoteAccessDocNote')}>
-                {lang === 'th' ? 'การเข้าถึงระยะไกลและอุปกรณ์ (เอกสารการออกแบบ)' : 'Remote Access & Devices (design reference)'}
+                {t('remoteAccessTitle')}
               </CardTitle>
 
-              <div className={`grid gap-4 mt-2 ${canAdministrate(role) ? 'grid-cols-2 max-md:grid-cols-1' : 'grid-cols-1'}`}>
-                {canAdministrate(role) && (
-                  <Card className="p-5 flex flex-col gap-4 bg-card-sunken border border-line">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-semibold text-ink text-[14.5px]">VPN + VLAN (Gate 0-A)</h3>
-                        <p className="text-[12px] text-ink-3 mt-0.5">{lang === 'th' ? 'การเข้าถึงเครือข่ายเต็มรูปแบบ · แอดมิน / พีซีที่ลงทะเบียน' : 'Full network access · Admin / registered PCs'}</p>
-                      </div>
-                      <Chip tone="neutral">{t('designIntent')}</Chip>
-                    </div>
-                    <div className="flex flex-col gap-2 mt-2">
-                      <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                        <span className="text-ink-2">{lang === 'th' ? 'ประเภทไคลเอนต์ที่อนุญาต' : 'Allowed client type'}</span>
-                        <span className="font-mono text-ink">Registered PC only</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                        <span className="text-ink-2">{lang === 'th' ? 'ขอบเขตเครือข่าย' : 'Scope'}</span>
-                        <span className="font-mono text-ink">Full L3 (all services + Mgmt VLAN)</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                        <span className="text-ink-2">{lang === 'th' ? 'พอร์ตที่เปิดเผย' : 'Visible ports'}</span>
-                        <span className="font-mono text-accent-ink">80/443, 9870, 10002</span>
-                      </div>
-                    </div>
-                    <p className="text-[11.5px] text-ink-3 leading-relaxed mt-1">
-                      {lang === 'th' 
-                        ? 'ออกแบบมาสำหรับงานผู้ดูแลระบบที่ต้องการการเข้าถึงหลายบริการและ Management VLAN' 
-                        : 'Intended for administrative tasks that require multi-service and Management VLAN access.'}
-                    </p>
-                  </Card>
-                )}
-                
+              <div className="grid grid-cols-1 gap-4 mt-2">
                 <Card className="p-5 flex flex-col gap-4 bg-card-sunken border border-line">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-semibold text-ink text-[14.5px]">Zero Trust Access · Twingate (Gate 0-B)</h3>
-                      <p className="text-[12px] text-ink-3 mt-0.5">{lang === 'th' ? 'สิทธิ์ขั้นต่ำ · มือถือ / นอกสถานที่' : 'Least-privilege · Mobile / off-site'}</p>
+                      <h3 className="font-semibold text-ink text-[14.5px]">Zero Trust Access · Twingate</h3>
+                      <p className="text-[12px] text-ink-3 mt-0.5">{t('remoteLeastPrivilege')}</p>
                     </div>
-                    <Chip tone="neutral">{t('designIntent')}</Chip>
+                    <Chip tone="neutral">{t('remoteInactive')}</Chip>
                   </div>
                   <div className="flex flex-col gap-2 mt-2">
                     <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                      <span className="text-ink-2">{lang === 'th' ? 'สถานะคอนเนคเตอร์' : 'Connector status'}</span>
-                      <span className="font-mono text-ink">Outbound-only (no inbound ports opened)</span>
+                      <span className="text-ink-2">{t('remoteConnectorStatus')}</span>
+                      <span className="font-mono text-ink-3">{t('remoteInactive')}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                      <span className="text-ink-2">{lang === 'th' ? 'รีซอร์สที่เข้าถึงได้' : 'Reachable resource'}</span>
+                      <span className="text-ink-2">{t('remoteReachableResource')}</span>
                       <span className="font-mono text-ink">AEGIS Drive · NAS :443 only</span>
                     </div>
-                    <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                      <span className="text-ink-2">{lang === 'th' ? 'บล็อกการเชื่อมต่อ' : 'Blocked'}</span>
-                      <span className="font-mono text-danger">ICMP / port scan / other LAN hosts</span>
-                    </div>
                   </div>
-                  <p className="text-[11.5px] text-ink-3 leading-relaxed mt-1">
-                    {lang === 'th'
-                      ? 'ไคลเอนต์ระยะไกลไม่สามารถมองเห็นอุปกรณ์อื่นๆ ในเครือข่ายได้ ไม่มี IP สาธารณะ และไม่มีการส่งต่อพอร์ตบน Edge Router'
-                      : 'Remote clients cannot see any other device on the network. No public IP and no port-forwarding on the Edge Router.'}
-                  </p>
+                  <p className="text-[11.5px] text-ink-3 leading-relaxed mt-1">{t('remoteInactiveHint')}</p>
                 </Card>
               </div>
 
@@ -512,13 +483,8 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                       </thead>
                       <tbody>
                         <tr className="border-b border-line last:border-b-0">
-                          <td className="px-4 py-2.5 font-medium text-ink">Admin</td>
-                          <td className="px-4 py-2.5 font-mono text-ink">VPN (0-A)</td>
-                          <td className="px-4 py-2.5 font-mono text-ink">All services + Mgmt</td>
-                        </tr>
-                        <tr className="border-b border-line last:border-b-0">
                           <td className="px-4 py-2.5 font-medium text-ink">DataLake-User</td>
-                          <td className="px-4 py-2.5 font-mono text-ink">Twingate (0-B)</td>
+                          <td className="px-4 py-2.5 font-mono text-ink">Twingate</td>
                           <td className="px-4 py-2.5 font-mono text-ink">AEGIS Drive :443</td>
                         </tr>
                       </tbody>
@@ -558,8 +524,8 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               <CardTitle sub={t('zonesNote')}>{t('networkZones')}</CardTitle>
               {zonesApi.loading ? (
                 <SkeletonLoader />
-              ) : zonesApi.error ? (
-                <ErrorState t={t} kind={zonesApi.error} onRetry={zonesApi.retry} />
+              ) : zonesError ? (
+                <ErrorState t={t} kind={zonesError} onRetry={zonesApi.retry} />
               ) : zones.length === 0 ? (
                 <EmptyState icon={ShieldCheck} title={t('emptyNoZones')} />
               ) : (

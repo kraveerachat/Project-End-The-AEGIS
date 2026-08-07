@@ -319,6 +319,38 @@ export async function insertAlert(input) {
   return { id: String(rows[0].id) }
 }
 
+/** ปลายทาง Telegram ของกล้องหนึ่งตัว — ใช้โดย Detection Engine "ก่อน" ส่งข้อความ
+ *  จริง (GET /internal/route/:cameraId) เพื่อให้ engine รู้ว่าต้องยิงหา chat ไหน
+ *  โดยไม่ต้องรู้จัก camera_assignment/users เอง (Node เป็นเจ้าของข้อมูลนั้นแต่ผู้เดียว)
+ *  ⚠️ default-deny เหมือน resolveRoute(): ไม่มีคนรับ/บัญชีถูกปิด/ยังไม่ตั้ง Telegram
+ *  ไว้ → ตกไปหา SOC-Responder คนแรกที่ตั้ง telegram_chat_id ไว้ (เส้นทางกลุ่ม
+ *  SOC-Team) ไม่ใช่ chat คงที่ตัวเดียวที่ hardcode ไว้เหมือนโค้ดเดิมของ engine */
+export async function telegramRouteFor(cameraId) {
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  if (!usingPostgres) return { chatId: null, routeLabel: 'SOC-Team' } // dev fallback ไม่มี Telegram ให้ route
+  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+
+  const { rows: assigned } = await query(
+    `SELECT u.telegram_chat_id, u.display_name
+       FROM camera_assignment a
+       JOIN users u ON u.id = a.user_id
+      WHERE a.camera_id = $1 AND u.active = TRUE`,
+    [cameraId],
+  )
+  if (assigned[0]?.telegram_chat_id) {
+    return { chatId: assigned[0].telegram_chat_id, routeLabel: assigned[0].display_name }
+  }
+
+  // ไม่มี operator รับ (หรือรับแล้วแต่ยังไม่ตั้ง Telegram) → SOC-Team fallback:
+  // ส่งหา SOC-Responder คนแรกที่ตั้ง telegram_chat_id ไว้ (เรียงตาม id ให้ deterministic)
+  const { rows: soc } = await query(
+    `SELECT telegram_chat_id FROM users
+      WHERE role = 'SOC-Responder' AND active = TRUE AND telegram_chat_id IS NOT NULL
+      ORDER BY id LIMIT 1`,
+  )
+  return { chatId: soc[0]?.telegram_chat_id ?? null, routeLabel: 'SOC-Team' }
+}
+
 // ── queries (ทุกตัวรับ visibleIds — เซ็ตกล้องที่ "ผู้เรียกคนนี้" เห็นได้; กรองที่ SQL) ──
 // ⚠️ อ่านจากตารางจริงใน Postgres เท่านั้น — dev fallback (ไม่มี DB) คืนลิสต์ว่าง
 //    เพราะแหล่งข้อมูลเดียวคือ Detection Engine ที่เขียนผ่าน /internal/*
@@ -436,6 +468,28 @@ export async function listClips(visibleIds) {
     storedOnNas: r.stored_on_nas,
     segs: [], // option A: ไม่มี segment-level heat จาก engine
   }))
+}
+
+/** clip เดียว "พร้อม file_path" — ใช้โดย route เล่นวิดีโอเท่านั้น (listClips ข้างบน
+ *  ไม่คืน file_path ให้ client โดยเจตนา — เส้นทางไฟล์บนดิสก์ไม่ควรรั่วไปทาง JSON
+ *  ทั่วไป) ผู้เรียกต้องเช็ค canSeeCamera(user, clip.cam) เองก่อนใช้ค่านี้เสมอ —
+ *  ฟังก์ชันนี้ไม่กรองสิทธิ์ให้ เป็นแค่ query ดิบ */
+export async function getClipById(id) {
+  if (!usingPostgres) return null
+  const { rows } = await query(
+    `SELECT id, camera_id, file_path, duration_sec, stored_on_nas
+       FROM clips WHERE id = $1 LIMIT 1`,
+    [id],
+  )
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return {
+    id: String(r.id),
+    cam: r.camera_id,
+    filePath: r.file_path,
+    durationSec: r.duration_sec,
+    storedOnNas: r.stored_on_nas,
+  }
 }
 
 // ── operators + camera_assignment (SOC จัดการผ่านวิว Operators) ─────────

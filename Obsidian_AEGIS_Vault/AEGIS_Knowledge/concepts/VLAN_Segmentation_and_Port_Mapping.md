@@ -3,22 +3,11 @@ title: VLAN Segmentation & Port Mapping
 tags: [aegis, concept, network, vlan, port-mapping, macvlan]
 type: concept
 created: 2026-07-20
-updated: 2026-08-06
-status: ✅ VLAN/Port ตรงของจริง · 📋 ส่วน Macvlan ยังเป็น Design
+updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
 # 🌐 VLAN Segmentation & Port Mapping Architecture
-
-> ## ⚠️ Reality Check (2026-08-06)
->
-> * ✅ **ตาราง VLAN/Subnet และ Port Mapping ด้านล่างตรงกับของจริง** และผ่านการทดสอบแล้ว → [[10-Network/VLAN-IP-Plan]] · [[10-Network/Switch-VLAN-Config]]
-> * 📋 **หัวข้อ "Docker Macvlan IP Allocation" ยังเป็นแค่ Design** — มีเพียง `192.168.10.10` (Beelink Host) ที่ใช้งานจริง ส่วน `.11` / `.12` / `.13` **ยังไม่มี container ใดถือ IP เหล่านี้**
-> * ⚠️ แผน Macvlan อาจใช้ไม่ได้ตามที่ออกแบบ เพราะ Twingate Connector รันบน Docker **bridge** และ Linux มีข้อจำกัด **Macvlan-to-Host isolation** → ดูข้อ 4 ใน [[90-Status/Document-Conflicts]] และทางเลือกใน [[40-Deployment/Docker-Stack-Plan]]
-> * ⚠️ VLAN 30 ในตารางระบุ "OpenVPN Pool `30.100–200`" — **ไม่เคยถูกใช้จริง** → [[30-RemoteAccess/OpenVPN-Deprecated]]
-> * ⏳ Detection Laptop (VLAN 20) **ยังไม่ได้กำหนด IP**
-
----
 
 > **Core Concept**: Layer 2 (802.1Q VLAN) security zone segmentation on [[entities/TP-Link_TL-SG105E|TP-Link TL-SG105E]] Managed Switch combined with [[entities/MikroTik_hEX_lite|MikroTik Router]] and Docker Macvlan on [[entities/Beelink_Mini_S_NAS|Beelink NAS]].
 

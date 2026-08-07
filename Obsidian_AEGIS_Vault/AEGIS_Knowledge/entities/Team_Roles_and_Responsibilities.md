@@ -25,6 +25,23 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 ---
 
+---
+
+## 🧭 Ownership map — which member owns which knowledge area
+
+| Member | Owns these notes |
+|---|---|
+| **Music** (Network/Infra) | [[entities/Beelink_Mini_S_NAS]] · [[entities/MikroTik_hEX_lite]] · [[entities/TP-Link_TL-SG105E]] · [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[concepts/Three_Layer_Data_Lake]] · [[concepts/ZTNA_Twingate_vs_OpenVPN]] |
+| **Pub** (IoT & Data Flow) | [[entities/ESP32_Relay_Module]] · [[04 - 🔒 IDEA3 AEGIS Lockdown]] · [[concepts/Dead_Mans_Switch]] · [[entities/Detection_Engine_Service]] |
+| **Kla** (Coordinator & Security Architecture) | [[05 - 🛡️ Security Architecture]] · [[concepts/Identity_Decoupling]] · [[concepts/OWASP_Security_Defense]] · [[02 - 💾 IDEA1 AEGIS Drive LC]] · [[03 - 📹 IDEA2 AEGIS Monitor]] · main report author |
+
+The team is also the participant group for the ethics submission — see [[ethics/Participant_Information_Sheet_IDEA2]], since face enrolment requires consent from the same "authorized internal personnel" who built the system.
+
+---
+
 ## 🔗 Related Notes
+* [[START_HERE]]
 * [[00 - 🗺️ AEGIS System Overview]]
 * [[concepts/Identity_Decoupling]]
+* [[ethics/Informed_Consent_Form_IDEA2]]
+* [[summaries/07_Ethics_and_Compliance]]

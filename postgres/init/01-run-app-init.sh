@@ -3,6 +3,7 @@
 # repo, see docker-compose.yml) into its OWN database. Nothing here is a
 # copy — this script is the only thing that's AEGIS-specific; the SQL is
 # the single source of truth already living in each app's server/db/.
+# Keep this file LF-only: Docker executes it inside Linux during first boot.
 set -eu
 
 echo "[aegis-postgres] aegis_drive <- IDEA1-AEGIS_Drive_LC/server/db/{schema,seed}.sql"

@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, deployment, docker, macvlan, postgresql, plan]
 type: infrastructure
 status: ⏳ ยังไม่ deploy ลง Beelink
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-07
 ---
 
 # 🐳 แผน Deploy Docker Production Stack ลง Beelink
@@ -85,6 +85,14 @@ flowchart TD
 [[00 - 🗺️ AEGIS System Overview]] บันทึกไว้ว่า (2026-07-28) *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` HTTP 200"*
 
 ⚠️ **นั่นคือผลบนเครื่อง dev ของผู้พัฒนา ไม่ใช่บน Beelink** — ตอนอ่านเล่มหรือรายงานความคืบหน้าต้องแยกสองอย่างนี้ให้ชัด ดูข้อ 7 ใน [[90-Status/Document-Conflicts]]
+
+### Windows checkout: Postgres init scripts must remain LF-only
+
+การทดสอบ local Docker เมื่อ 2026-08-07 พบ `502 Bad Gateway` ที่ `/drive/` แม้ image build สำเร็จ เพราะ `postgres/init/01-run-app-init.sh` ถูก checkout เป็น CRLF บน Windows แล้ว Linux อ่าน shebang เป็น `/bin/sh^M`. Postgres init หยุดหลังสร้าง database เปล่า จึงไม่มี schema และไม่มี roles `drive_app` / `monitor_app`; Drive restart ด้วย `Role "drive_app" does not exist` และ NGINX หา upstream ไม่เจอในท้ายที่สุด
+
+แก้ถาวรด้วย `.gitattributes` (`*.sh text eol=lf`) และ `tests/dockerBootstrap.test.mjs` ซึ่งตรวจทั้งไฟล์จริงและกฎ Git. สำหรับ volume ที่ initialization ล้มไปแล้ว **ไม่ต้องลบ volume** ถ้ายังต้องการเก็บข้อมูล: รัน `01-run-app-init.sh` และ `02-app-roles.sh` ภายใน Postgres container แล้ว restart services. รอบที่ซ่อมนี้ยืนยัน `http://localhost/drive/` = HTTP 200, `/drive/healthz` = `ok:true, db:postgres`, และ `drive`/`monitor`/`gateway`/`postgres` healthy.
+
+> `aegis-camera` ยังเป็นปัญหาแยกต่างหากในรอบเดียวกัน: container หาไฟล์ YOLO `best (2).pt` ไม่พบ จึง restart แต่ไม่ใช่ต้นเหตุของ Drive 502.
 
 ---
 

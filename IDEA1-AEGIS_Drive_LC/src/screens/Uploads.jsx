@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { UploadCloud, FileText, File as FileIcon } from 'lucide-react'
-import { Card, CardTitle, Chip, ScrambleHash, ErrorState, EmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, ScrambleHash, ErrorState, InlineEmptyState } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
-import { apiFetch } from '../lib/api.js'
+import { visibleFetchError } from '../lib/fetchState.js'
+import { apiUpload } from '../lib/api.js'
 import { fmtBytes, fmtRelative } from '../lib/format.js'
 
 /* ไม่มีการจำลองในจอนี้เลย —
@@ -32,7 +33,6 @@ async function sha256OfFile(file) {
 
 /* One upload row — สถานะเดินตาม "งานจริง" ไม่ใช่ timer */
 function UploadRow({ t, item }) {
-  const isCipher = item.stage === 'hashing' || item.stage === 'transferring'
   const chipTone = item.stage === 'indexed' ? 'ok' : item.stage === 'failed' ? 'danger' : item.stage === 'staged' ? 'neutral' : 'accent'
 
   return (
@@ -40,17 +40,6 @@ function UploadRow({ t, item }) {
       className="relative overflow-hidden rounded-[var(--r-tile)] border border-line transition-colors duration-[var(--dur-base)]"
       style={{ background: item.stage === 'indexed' ? 'var(--ok-soft)' : item.stage === 'failed' ? 'var(--danger-soft)' : 'var(--card)' }}
     >
-      {/* the file becoming ciphertext before your eyes */}
-      <div
-        aria-hidden
-        className="absolute inset-0 hatch hatch-ink3 pointer-events-none transition-[clip-path,opacity]"
-        style={{
-          clipPath: isCipher ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
-          opacity: item.stage === 'hashing' ? 0.9 : isCipher ? 0.28 : 0,
-          transitionDuration: '600ms',
-          transitionTimingFunction: 'var(--ease)',
-        }}
-      />
       <div className="relative flex items-center gap-3 px-4 py-3">
         <div className="size-8 rounded-[9px] bg-sunken flex items-center justify-center shrink-0">
           <FileIcon size={15} strokeWidth={1.5} className="text-ink-2" />
@@ -81,12 +70,18 @@ function UploadRow({ t, item }) {
         </div>
       )}
 
-      {/* thin live progress under the row */}
-      <div className="relative h-0.5 bg-transparent">
+      {/* เปอร์เซ็นต์ระหว่าง transferring มาจาก byte event ของ browser เท่านั้น */}
+      <div
+        className="relative h-0.5 bg-transparent"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={item.stage === 'indexed' ? 100 : item.progress}
+      >
         <div
           className="h-full transition-[width] duration-300"
           style={{
-            width: item.stage === 'staged' ? '5%' : item.stage === 'hashing' ? '40%' : item.stage === 'transferring' ? '75%' : '100%',
+            width: `${item.stage === 'indexed' ? 100 : item.progress}%`,
             background: item.stage === 'indexed' ? 'var(--ok)' : item.stage === 'failed' ? 'var(--danger)' : 'var(--accent)',
           }}
         />
@@ -95,10 +90,11 @@ function UploadRow({ t, item }) {
   )
 }
 
-export function Uploads({ t }) {
+export function Uploads({ t, placeholderMode = false }) {
   const now = useNow(30_000)
   const filesApi = useApi('/api/files', { refreshMs: 30_000 })
-  const recent = (filesApi.data?.files ?? []).filter((f) => f.type !== 'Folder').slice(0, 6)
+  const recent = placeholderMode ? [] : (filesApi.data?.files ?? []).filter((f) => f.type !== 'Folder').slice(0, 6)
+  const fetchError = visibleFetchError(filesApi.error, placeholderMode)
 
   const [dragOver, setDragOver] = useState(false)
   const [queue, setQueue] = useState([])
@@ -113,18 +109,19 @@ export function Uploads({ t }) {
    *  แล้วเทียบ ถ้าไม่ตรง = ไฟล์เพี้ยนระหว่างทาง เซิร์ฟเวอร์ปฏิเสธ (422) ไม่เก็บของที่ไม่ครบ */
   const processFile = async (file, id) => {
     try {
-      setStage(id, { stage: 'hashing' })
+      setStage(id, { stage: 'hashing', progress: 0 })
       const sha256 = await sha256OfFile(file)
-      setStage(id, { stage: 'transferring', sha256 })
+      setStage(id, { stage: 'transferring', sha256, progress: 0 })
       const form = new FormData()
       form.append('sha256', sha256)
       form.append('file', file, file.name) // ต้องต่อท้ายสุด — multer อ่าน field ตามลำดับ stream
-      const res = await apiFetch('/api/files/upload', {
+      const res = await apiUpload('/api/files/upload', {
         method: 'POST',
         body: form,
+        onProgress: ({ percent }) => setStage(id, { progress: percent }),
         timeoutMs: 10 * 60_000, // ไฟล์ใหญ่ใช้เวลานานกว่า request ปกติมาก
       })
-      setStage(id, { stage: res.ok ? 'indexed' : 'failed' })
+      setStage(id, { stage: res.ok ? 'indexed' : 'failed', ...(res.ok ? { progress: 100 } : {}) })
       if (res.ok) filesApi.retry()
     } catch {
       setStage(id, { stage: 'failed' })
@@ -142,12 +139,12 @@ export function Uploads({ t }) {
       const id = `up-${idRef.current++}`
       if (f.size > MAX_UPLOAD_BYTES) {
         setQueue((prev) => [
-          { id, name: f.name, size: f.size, sha256: null, stage: 'failed', reason: 'tooLarge' },
+          { id, name: f.name, size: f.size, sha256: null, stage: 'failed', reason: 'tooLarge', progress: 0 },
           ...prev,
         ])
         continue
       }
-      setQueue((prev) => [{ id, name: f.name, size: f.size, sha256: null, stage: 'staged' }, ...prev])
+      setQueue((prev) => [{ id, name: f.name, size: f.size, sha256: null, stage: 'staged', progress: 0 }, ...prev])
       processFile(f, id)
     }
   }
@@ -182,6 +179,8 @@ export function Uploads({ t }) {
         >
           <UploadCloud size={28} strokeWidth={1.5} style={{ color: dragOver ? 'var(--accent)' : 'var(--ink-3)' }} />
           <p className="text-[15px] font-semibold text-ink">{t('dropHere')}</p>
+          {/* ⚠️ สองเส้นทางมีการปกป้องคนละแบบ: หน้านี้คือ Data Lake ปกติซึ่งยังเก็บ
+              plaintext; คำว่าเข้ารหัสก่อนส่งใช้ได้เฉพาะหน้า Private Vault เท่านั้น */}
           <p className="text-[12.5px] text-ink-3">{t('dropSub')}</p>
           <input
             ref={inputRef}
@@ -213,10 +212,10 @@ export function Uploads({ t }) {
             <div className="flex flex-col gap-2 animate-pulse" aria-busy="true">
               {[0, 1, 2].map((i) => <div key={i} className="h-9 skeleton rounded-[9px]" />)}
             </div>
-          ) : filesApi.error ? (
-            <ErrorState t={t} kind={filesApi.error} onRetry={filesApi.retry} />
+          ) : fetchError ? (
+            <ErrorState t={t} kind={fetchError} onRetry={filesApi.retry} />
           ) : recent.length === 0 ? (
-            <EmptyState icon={UploadCloud} title={t('emptyNoUploads')} hint={t('emptyNoUploadsHint')} />
+            <InlineEmptyState>{t('emptyNoUploads')}</InlineEmptyState>
           ) : (
             <div className="flex flex-col">
               {recent.map((f) => (
@@ -227,7 +226,7 @@ export function Uploads({ t }) {
                   <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-md:hidden">{f.uploader}</span>
                   <span className="text-[12.5px] text-ink-3 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtRelative(t, f.modified, now)}</span>
                   <span className="ml-2 shrink-0">
-                    <Chip tone="ok">{t('encServer')}</Chip>
+                    <Chip tone="neutral">{t('encServer')}</Chip>
                   </span>
                 </div>
               ))}

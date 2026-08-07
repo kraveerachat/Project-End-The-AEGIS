@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, X as XIcon,
+  LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, Database, X as XIcon,
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
   Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
+import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 
 const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
 const iconFor = (f) => EXT_ICONS[f.ext] ?? FileIcon
 
-/* Encryption badge — solid blue = server can index it; hatched = ciphertext */
-function EncBadge({ vault, t }) {
+/* วิธีจัดเก็บต้องแยกให้ชัด: Vault เป็น ciphertext จริง ส่วน Data Lake ปกติค้นหาได้
+   แต่ยังไม่มี encryption at rest — ห้ามใช้โล่/สีเขียวทำให้ดูเหมือนเข้ารหัสแล้ว */
+function StorageBadge({ vault, t }) {
+  const Icon = vault ? Shield : Database
   return (
     <span
       title={vault ? t('encVault') : t('encServer')}
-      className={`inline-flex items-center justify-center size-6 rounded-[7px] shrink-0 ${vault ? 'hatch hatch-ink3 border border-line bg-sunken' : ''}`}
-      style={vault ? {} : { background: 'var(--accent)' }}
+      className={`inline-flex items-center justify-center size-6 rounded-[7px] shrink-0 border border-line bg-sunken ${vault ? 'hatch hatch-ink3' : ''}`}
     >
-      <Shield size={12} strokeWidth={1.8} style={{ color: vault ? 'var(--ink-3)' : '#fff' }} />
+      <Icon size={12} strokeWidth={1.8} style={{ color: 'var(--ink-3)' }} />
     </span>
   )
 }
@@ -100,16 +102,16 @@ function FlipGhost({ ghost, onDone }) {
 
 /* ── Metadata drawer ─────────────────────────────────────────────── */
 function MetaDrawer({ t, lang, file, onClose }) {
-  const [verifyState, setVerifyState] = useState('idle') // idle | running | ok | fail
+  const [verifyState, setVerifyState] = useState('idle') // idle | running | ok | fail | unavailable
   const [copied, setCopied] = useState(false)
   const [jolt, setJolt] = useState(false)
   const Icon = iconFor(file)
-  const willFail = !file.verified
+  const canVerify = !file.vault && file.type !== 'Folder' && Boolean(file.sha256)
 
   useEffect(() => {
-    setVerifyState('idle')
+    setVerifyState(canVerify ? 'idle' : 'unavailable')
     setCopied(false)
-  }, [file.id])
+  }, [file.id, canVerify])
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
@@ -117,9 +119,23 @@ function MetaDrawer({ t, lang, file, onClose }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const verify = () => {
-    if (verifyState === 'running') return
+  // ⚠️ ต้องรอผล re-hash จากเซิร์ฟเวอร์ก่อนเปลี่ยนเป็น verified/mismatch เสมอ
+  //    ห้ามอนุมานจาก file.verified เพราะค่านั้นเป็นเพียงผลตรวจตอนอัปโหลดครั้งแรก
+  const verify = async () => {
+    if (!canVerify || verifyState === 'running') return
     setVerifyState('running')
+    const res = await apiFetch(`/api/files/${encodeURIComponent(file.id)}/verify`, { method: 'POST' })
+    if (!res.ok) {
+      setVerifyState('unavailable')
+      return
+    }
+    if (res.data?.match) {
+      setVerifyState('ok')
+    } else {
+      setVerifyState('fail')
+      setJolt(true)
+      setTimeout(() => setJolt(false), 300)
+    }
   }
 
   const copy = async () => {
@@ -159,7 +175,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
             <Icon size={44} strokeWidth={1.2} className="text-ink-3" />
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <EncBadge vault={file.vault} t={t} />
+            <StorageBadge vault={file.vault} t={t} />
             <p className="text-[14px] font-semibold text-ink break-all leading-snug">{file.name}</p>
           </div>
           {file.vault && (
@@ -186,8 +202,8 @@ function MetaDrawer({ t, lang, file, onClose }) {
             <div className="contents">
               <dt className="text-ink-3 font-medium">{t('integrity')}</dt>
               <dd className="text-right">
-                <Chip tone={verifyState === 'fail' ? 'danger' : file.verified || verifyState === 'ok' ? 'ok' : 'warn'}>
-                  {verifyState === 'fail' ? t('integrityFail') : file.verified || verifyState === 'ok' ? t('integrityOk') : t('integrityPending')}
+                <Chip tone={verifyState === 'fail' ? 'danger' : verifyState === 'ok' ? 'ok' : 'neutral'}>
+                  {verifyState === 'fail' ? t('integrityFail') : verifyState === 'ok' ? t('integrityOk') : t('integrityPending')}
                 </Chip>
               </dd>
             </div>
@@ -200,15 +216,6 @@ function MetaDrawer({ t, lang, file, onClose }) {
               hash={file.sha256}
               playing={verifyState === 'running'}
               duration={900}
-              onDone={() => {
-                if (willFail) {
-                  setVerifyState('fail')
-                  setJolt(true)
-                  setTimeout(() => setJolt(false), 300)
-                } else {
-                  setVerifyState('ok')
-                }
-              }}
               groupClass="text-ink-2"
             />
             <button
@@ -227,8 +234,13 @@ function MetaDrawer({ t, lang, file, onClose }) {
           {verifyState === 'fail' && (
             <p role="alert" className="mt-2 text-[12px] font-semibold" style={{ color: 'var(--danger)' }}>{t('integrityMismatch')}</p>
           )}
+          {verifyState === 'unavailable' && (
+            <p role="status" className="mt-2 text-[12px] text-ink-3 leading-relaxed">
+              {file.vault ? t('verifyUnavailableVault') : t('verifyUnavailable')}
+            </p>
+          )}
 
-          <Btn variant="dark" className="w-full mt-4" onClick={verify} disabled={verifyState === 'running'}>
+          <Btn variant="dark" className="w-full mt-4" onClick={verify} disabled={!canVerify || verifyState === 'running'}>
             <ShieldCheck size={15} strokeWidth={1.5} />
             {verifyState === 'running' ? t('verifying') : t('verifyChecksum')}
           </Btn>
@@ -300,7 +312,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
             {fmtBytes(file.size)} · {fmtRelative(t, file.modified, now)}
           </p>
         </div>
-        <EncBadge vault={file.vault} t={t} />
+            <StorageBadge vault={file.vault} t={t} />
       </div>
     </div>
   )
@@ -309,7 +321,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go }) {
+export function Files({ t, lang, go, placeholderMode = false }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -317,10 +329,11 @@ export function Files({ t, lang, go }) {
   const view = viewMode
   const setView = setViewMode
 
-  const [currentPath, setCurrentPath] = useState(['Files explorer', 'Company'])
+  const [currentPath, setCurrentPath] = useState([t('filesTitle')])
 
   const filesApi = useApi('/api/files')
-  const files = filesApi.data?.files ?? []
+  const files = placeholderMode ? [] : (filesApi.data?.files ?? [])
+  const fetchError = visibleFetchError(filesApi.error, placeholderMode)
 
   const [sort, setSort] = useState('modified')
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -473,18 +486,17 @@ export function Files({ t, lang, go }) {
       {/* สี่สถานะของรายการไฟล์ */}
       {filesApi.loading ? (
         <SkeletonLoader type="files" />
-      ) : filesApi.error ? (
-        <Card><ErrorState t={t} kind={filesApi.error} onRetry={filesApi.retry} /></Card>
+      ) : fetchError ? (
+        <Card><ErrorState t={t} kind={fetchError} onRetry={filesApi.retry} /></Card>
       ) : sorted.length === 0 ? (
         <Card>
           <EmptyState
             icon={FolderPlus}
-            title={t('emptyNoFiles')}
-            hint={t('emptyNoFilesHint')}
+            title={t('emptyFolder')}
             action={
-              <Btn variant="primary" size="sm" onClick={handleUpload}>
-                <Upload size={14} strokeWidth={1.5} />
-                {t('upload')}
+              <Btn variant="primary" size="sm" onClick={() => { setFolderModal(true); setMutateError(false) }}>
+                <FolderPlus size={14} strokeWidth={1.5} />
+                {t('createFirstFolder')}
               </Btn>
             }
           />
@@ -540,7 +552,7 @@ export function Files({ t, lang, go }) {
                       <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
                       <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
                       <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
-                      <td className="px-4"><EncBadge vault={file.vault} t={t} /></td>
+                      <td className="px-4"><StorageBadge vault={file.vault} t={t} /></td>
                       <td className="px-4 text-right">
                         <IconBtn label={t('viewMetadata')} onClick={(e) => { e.stopPropagation(); openDetail(file) }}>
                           <MoreHorizontal size={15} strokeWidth={1.5} />

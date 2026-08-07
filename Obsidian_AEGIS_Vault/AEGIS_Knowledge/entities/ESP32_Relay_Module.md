@@ -24,7 +24,25 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 ---
 
+---
+
+## Firmware status — scaffold only
+
+Source: `IDEA3-AEGIS_Lockdown/firmware/README.md`. **Hardware is purchased; firmware is a scaffold with no code yet.**
+
+Security model still to implement:
+- **Transport**: MQTT.
+- **Authenticity**: every command signed with **HMAC-SHA256** — the device rejects any message whose MAC does not verify against the shared key.
+- **Replay protection**: each command carries a single-use **nonce**; the device refuses a nonce it has already seen.
+
+This is the actuation half of [[concepts/Cyber-Physical_Defense]] — the sensing half is [[entities/Detection_Engine_Service]]. The inverted fail-secure logic it must implement is specified in [[concepts/Dead_Mans_Switch]].
+
+---
+
 ## 🔗 Related Notes
+* [[START_HERE]]
 * [[04 - 🔒 IDEA3 AEGIS Lockdown]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Contain_Before_Notify]]
+* [[concepts/Cyber-Physical_Defense]]
+* [[entities/Team_Roles_and_Responsibilities]]

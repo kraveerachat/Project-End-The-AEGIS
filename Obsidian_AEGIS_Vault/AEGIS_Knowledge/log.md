@@ -3,7 +3,7 @@ title: LLM Wiki Audit & Operation Log
 tags: [aegis, wiki, log, audit, append-only]
 type: wiki-admin
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-08-07
 ---
 
 # 📜 LLM Wiki Audit & Operation Log
@@ -1052,50 +1052,323 @@ Only IDEA2 code paths (Monitor + detection-engine) and the vault notes listed ab
 - **Repository scope**: All source, configuration templates, Docker files, tests, documentation, agent guidance, and Obsidian Knowledge Base files tracked by Git were included. `.env`, local agent settings, generated dependencies/build output, and the empty accidental note were excluded.
 - **Updated Obsidian notes**: `[[00 - 🗺️ AEGIS System Overview]]` and `[[log]]`.
 
-## [2026-08-06] infrastructure | Build the as-built Infrastructure track (network, server, remote access, deployment)
+## [2026-08-01] vibe-coding | CAM-02 live stream fix, clip playback, real Telegram alert routing, heartbeat-based node status, Operators view, i18n kickoff
 
-- **Prompt goal**: Organise the vault around the real state of the AEGIS infrastructure as of 6 Aug 2026 — 15 completed steps, VLAN/IP plan, SSH hardening status, Twingate ZTNA, deprecated OpenVPN, Docker deployment plan, backlog, and document conflicts — with explicit ✅/🔧/⏳/📋 markers and no claim of completion without test evidence.
-- **Inspected before writing**: full vault listing; `00-MOC/AEGIS-Infrastructure-MOC.md` already existed from an earlier session and was kept and extended rather than recreated. `00.md` (0-byte accidental note) was left untouched.
-- **Created notes** (13 new files):
-  - `10-Network/Hardware-Inventory.md`, `10-Network/VLAN-IP-Plan.md`, `10-Network/MikroTik-Config.md`, `10-Network/Switch-VLAN-Config.md`
-  - `20-Server/Beelink-Ubuntu-Host.md`, `20-Server/Linux-User-Accounts.md`, `20-Server/SSH-Hardening-Status.md`
-  - `30-RemoteAccess/Twingate-Setup.md`, `30-RemoteAccess/OpenVPN-Deprecated.md`
-  - `40-Deployment/Docker-Stack-Plan.md`
-  - `90-Status/Progress-Log-2026-08-06.md`, `90-Status/Open-Items-Backlog.md`, `90-Status/Document-Conflicts.md`
-- **Updated notes** (merged in place, nothing deleted): `00-MOC/AEGIS-Infrastructure-MOC.md`, `index.md`, `.schema.md` (new folder layout + status-marker rules), `00 - 🗺️ AEGIS System Overview.md` (5 infrastructure rows added to Outstanding Items), and **Reality Check** callouts prepended to `concepts/ZTNA_Twingate_vs_OpenVPN.md`, `concepts/VLAN_Segmentation_and_Port_Mapping.md`, `entities/MikroTik_hEX_lite.md`, `entities/Beelink_Mini_S_NAS.md`.
-- **Conflicts found against existing vault content**: (1) `ZTNA_Twingate_vs_OpenVPN` still described the dual OpenVPN/Twingate design and a Twingate resource on Drive port 443 — reality is Twingate only with a single SSH resource; (2) `MikroTik_hEX_lite` still listed an OpenVPN server and pool `192.168.30.100–200` that never worked; (3) `VLAN_Segmentation_and_Port_Mapping` listed macvlan `.11`/`.12`/`.13` as if allocated — none are deployed; (4) **newly identified** — the "Docker stack healthy / HTTP 200" results recorded in `00 - 🗺️ AEGIS System Overview` were measured on the developer machine, not on the Beelink, and the note did not say which host (now logged as conflict item 7); (5) hardware model conflict `RB750Gr3`/`TL-SG108E` does **not** exist anywhere in the vault — a grep confirmed the vault already carries the correct `RB750r2`/`TL-SG105E`, so that discrepancy lives in documents outside the vault.
-- **Verification**: no test commands apply (documentation change). Wikilink targets were checked against the on-disk file list; secrets were kept out (placeholders `<TWINGATE_CONNECTOR_TOKEN>`, `<ROUTER_ADMIN_PASSWORD>`, `<PASSWORD>` only). Nothing is marked ✅ without an accompanying evidence line; UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware are all recorded as unverified/not done.
+- **Prompt Summary**: A multi-part Monitor pass closing several `🔴 Open` items from the prior audit: (1) fixed CAM-02's live stream by removing a hardcoded `host.docker.internal` from `LiveFeed.jsx` so it goes through the existing `/api/cameras/:id/stream` proxy like every other camera; (2) fixed a cluster of Docker/CSP/OpenCV/codec issues blocking the stack (`docker-compose.yml` port mapping, volume mounts, env vars; CSP header; conflicting `opencv-python` version; added an ffmpeg transcode step, mp4v → H.264, in `aegis_scanner.py`); (3) closed the previously-open **Clip playback** gap — added `GET /api/clips/:id/video`, `getClipById()` in `store.js`, and a real `<video>` element in `Archive.jsx` (also fixed a URL bug that dropped the `/monitor/` prefix); (4) made Active alerts route to the right destination — added `telegram_chat_id` to the schema, `telegramRouteFor()` + `GET /internal/route/:cameraId`, switched `aegis_scanner.py` to route Telegram by `camera_assignment` instead of a hardcoded chat id, and added a `set-telegram` CLI command; (5) made Nodes & routing online/offline reflect real `camera_heartbeat` rows instead of a static column, and added a live stream preview frame to the node cards; (6) rebuilt `Operators.jsx` (View #6), which was missing from the working tree despite the wired-up backend; (7) started a central i18n system — new `src/lib/i18n.js`, `Settings.jsx` now imports from it — **not yet complete**, `App.jsx` and the remaining views still need to accept a `lang` prop and use it.
+- **Modified Source Code Paths**:
+  - `IDEA2-AEGIS_Monitor/src/components/LiveFeed.jsx` (removed hardcoded `host.docker.internal`; routes through proxy)
+  - `docker-compose.yml` (port mapping, volume mounts, env vars)
+  - CSP header config
+  - `aegis_scanner.py` (opencv-python version fix; ffmpeg transcode mp4v → H.264)
+  - `IDEA2-AEGIS_Monitor/src/lib/api.js` (`GET /api/clips/:id/video`)
+  - `IDEA2-AEGIS_Monitor/src/lib/store.js` (`getClipById()`)
+  - `IDEA2-AEGIS_Monitor/src/views/Archive.jsx` (real `<video>` element; fixed dropped `/monitor/` URL prefix)
+  - `server/db/schema.sql` (+`telegram_chat_id`)
+  - `server/routes/internal.js` (`telegramRouteFor()`, `GET /internal/route/:cameraId`)
+  - `aegis_scanner.py` (Telegram routing by `camera_assignment`)
+  - CLI (`set-telegram` command)
+  - `IDEA2-AEGIS_Monitor/src/views/Nodes.jsx` (online/offline from `camera_heartbeat`; live stream preview frame on node cards)
+  - `IDEA2-AEGIS_Monitor/src/views/Operators.jsx` (rebuilt — was missing)
+  - `IDEA2-AEGIS_Monitor/src/lib/i18n.js` (**[NEW]** — central i18n module)
+  - `IDEA2-AEGIS_Monitor/src/views/Settings.jsx` (imports from `lib/i18n.js`)
+- **Updated Obsidian Notes**: [[03 - 📹 IDEA2 AEGIS Monitor]], `index.md`, `log.md`
+- **Verification**: Reported by the user from their own dev session; not independently re-run or re-verified inside this Obsidian-only session (no source-code access here). Treat status below as user-reported until re-confirmed against the running stack.
+- **Status**: Items 1–6 reported complete. Item 7 (i18n) is **in progress** — `App.jsx` and other views still need a `lang` prop and translated strings before it's usable end to end.
 
-## [2026-08-06] vibe-coding | Publish AEGIS project to GitHub and sync Twingate documentation
-- **Prompt goal**: Upload the complete AEGIS System Git history and tracked project files to `kraveerachat/sina-fn-Web_app-01.git` and add the current Twingate ZTNA operational update to Obsidian.
-- **Repository result**: Published at branch `aegis-system`, HEAD `70d262ff2eeaeb0acddeeda893c582c815c8f9cf`; existing `main` was preserved because it belongs to an unrelated Sina health app.
-- **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md`, `00 - 🗺️ AEGIS System Overview.md`, and `log.md`.
-- **Security**: `.env` and real tokens were excluded; only placeholders are documented. Twingate P1 housekeeping remains open until token rotation and connector resilience are completed.
+[2026-08-01] vibe-coding | Follow-up: video-route regression fix, Live canvas motion pass, Footer honesty fix, live-verified Telegram routing
+Prompt Summary: Direct continuation of the same-day session logged above, this time with live source-code access and a running dev stack, so findings here are independently verified against real terminal output rather than user-reported secondhand. Three threads: (1) diagnosed and fixed a real regression where GET /api/clips/:id/video had silently disappeared from api.js — traced to an earlier edit pass that re-copied the pristine uploaded api.js as a base instead of continuing from the version that already had the clip-video route, dropping it entirely while adding the /api/nodes heartbeat-status fix on top; (2) a CCTV Operator-focused Live canvas motion/hierarchy pass per an explicit design brief (feed → switcher → access/event rail hierarchy, real camera-swap transition, live-state feedback, no page-load choreography, prefers-reduced-motion support end to end); (3) a Footer.jsx honesty fix matching the project's established "no fabricated telemetry" pattern (hardcoded 192.168.1.42 · LAN and v3.0-spatial replaced with real camera_heartbeat.node_id and the same __APP_VERSION__ Settings.jsx already uses).
+Modified Source Code Paths:
+IDEA2-AEGIS_Monitor/server/routes/api.js (re-added GET /clips/:id/video with fs/path imports; moved Cache-Control: no-store to the top of the handler so it covers every response path — 403/404/409/503 — not just the success path, closing a caching footgun the same route had already been bitten by once)
+IDEA2-AEGIS_Monitor/src/App.jsx (wrapped the app in <MotionConfig reducedMotion="user"> so every Framer Motion interaction site-wide honors OS-level reduced-motion automatically, not just the existing raw-CSS @media rules; lang now persists to localStorage and syncs cross-tab like theme already did)
+IDEA2-AEGIS_Monitor/src/views/Live.jsx (removed staggered entrance animation from .pagehead and .canvasR — a literal page-load choreography violation of the brief; fixed the hero's camera-swap transition, previously a no-op initial={{opacity:1}} animate={{opacity:1}}, to a real 200ms fade; replaced no-op motion.button wrappers on the secondary-camera tiles with plain <button> elements since hover/press feedback was already fully owned by existing CSS)
+IDEA2-AEGIS_Monitor/src/components/LiveFeed.jsx (added a brief CSS-driven recovery flash — justRecovered state — fired only when a stream recovers from a prior error, not on first connect, to avoid reintroducing page-load choreography under a different name)
+IDEA2-AEGIS_Monitor/src/components/Footer.jsx (link prop replaces linkStatus; node identity and app version now read from real data)
+IDEA2-AEGIS_Monitor/src/index.css (additive block appended at the end of the file — .feed-recovered keyframe, hierarchy-weighting tweaks to .hero/.secondrow/.sfeed, .sfeed--clickable:focus-visible outline — deliberately not touching or consolidating the file's existing several stacked "redesign pass" blocks with duplicate :root/.hero/.topbar redeclarations, per an explicit user decision to defer that cleanup)
+Regression found and fixed: the /api/clips/:id/video disappearance above was not caught by any test or lint — it only surfaced when a real CAM-05 clip (id=3, confirmed present on disk via sha256sum matching the nas_sync log line, and confirmed readable by the node user via fs.existsSync) returned a plain 404 in the browser. getClipById() in store.js was unaffected (a separate file, edited via a different, un-reset working copy) — only api.js's route registration was lost.
+Verification performed live in this session (terminal output, not self-reported):
+docker compose exec monitor grep -c "clips/:id/video" server/routes/api.js → 2; grep -c "getClipById" server/db/store.js → 1 (post-fix deploy confirmation)
+End-to-end Telegram routing test on a relabeled camera (AEGIS_CAMERA_ID changed from CAM-02 to CAM-05 via the engine's env, no code change): GET /internal/route/CAM-05 → {"chatId":"8686991056","routeLabel":"M. Reyes"}; engine log then showed OK: Telegram alert sent -> M. Reyes repeatedly, confirming telegramRouteFor() correctly resolves through camera_assignment rather than falling back to SOC-Team once an operator has both a camera and a telegram_chat_id set
+ffprobe on the newly recorded CAM-05 clip confirmed Video: h264 (High) ... encoder: Lavc62.28.102 libx264 — the ffmpeg transcode step from the prior entry is still working correctly after the camera relabel
+Operational issues found and resolved during verification (not code changes):
+The project's root .env did not exist (only .env.example did) — DETECTION_ENGINE_API_KEY was silently empty inside the monitor container the whole time, causing requireDetectionEngineKey.js's fail-secure 503 on /internal/route/:cameraId. Recreating .env from .env.example fixed the 503, but surfaced a second issue: the freshly-copied .env's DB password placeholders didn't match the password Postgres had actually been initialized with on first boot, causing password authentication failed for user "monitor_app" (500) until the .env values were corrected to match the docker-compose.yml defaults.
+telegram_chat_id was set for operator (M. Reyes) via a direct UPDATE users ... WHERE username = 'operator' SQL statement (not a code change) to complete the routing verification above.
+Updated Obsidian Notes: log.md (this entry). 03 - 📹 IDEA2 AEGIS Monitor.md and 00 - 🗺️ AEGIS System Overview.md still need their in-place edits for this entry — not performed yet because this session did not have those two notes' current content on hand; see the outstanding item below.
+Status: All three threads verified working end-to-end in this session, live. The i18n rollout flagged as in-progress in the prior entry is still incomplete — this session's App.jsx change added lang persistence infrastructure only; Live.jsx, TopBar.jsx, Sidebar.jsx, Footer.jsx, Detection.jsx, Diagnostics.jsx, and Login.jsx still render hardcoded English/Thai strings rather than reading from lib/i18n.js.
+Outstanding / carried forward:
+🟡 src/index.css still has ~5 stacked "redesign pass" blocks with duplicate :root/.hero/.topbar/.panel/.side redeclarations (each later block silently wins the cascade, leaving the earlier ones as dead code) — flagged to the user before this pass; explicitly deferred by their own choice rather than cleaned up.
+🟡 i18n rollout (see Status above) — i18n.js + Settings.jsx exist; the rest of the shell/views do not yet consume it.
+🟢 Running two Detection Engine instances simultaneously (one per camera) was discussed and design-confirmed (distinct AEGIS_CAMERA_ID / AEGIS_STREAM_URL per instance, same MONITOR_INTERNAL_URL and DETECTION_ENGINE_API_KEY) but not yet implemented.
+🟢 Real NAS integration (replacing the same-disk sha256-only Phase 1 simulation in nas_sync_clip()) was discussed and design-confirmed (swap the docker-compose.yml bind-mount source; add an actual rsync/scp step to nas_sync_clip()) but not yet implemented.
 
-## [2026-08-06] vibe-coding | Publish complete AEGIS project and sync Twingate documentation
-- **Prompt Goal**: Upload the current AEGIS project to GitHub and update Obsidian with the verified Twingate remote-access status.
-- **Modified Source Code Paths**: No application source changes; repository publication and documentation synchronization only.
-- **Updated Obsidian Notes**:
-  - `30-RemoteAccess/Twingate-Setup.md` — corrected the GitHub repository and branch reference.
-  - `log.md` — recorded the successful publication.
-- **GitHub**: Pushed `3bcf0af` to `kraveerachat/Project-End-The-AEGIS` branch `fix/hub-nginx-monitor-routing-and-ingest-guard`.
-- **Safety**: `main` was not overwritten; repository status was clean and no tracked secret-like files were found.
+---
 
-## [2026-08-06] vibe-coding | Verify AEGIS GitHub publication and Twingate Obsidian sync
-- **Prompt goal**: Confirm the complete AEGIS project publication and current Twingate documentation update in `kraveerachat/Project-End-The-AEGIS`.
-- **Verification**: Local HEAD matches `origin/fix/hub-nginx-monitor-routing-and-ingest-guard` (`3d9a461`); remote contains both the AEGIS branch and the existing unrelated `main`; no tracked `.env` or secret-like token files found.
-- **Updated Obsidian notes**: `30-RemoteAccess/Twingate-Setup.md` and `log.md` were already synchronized; this entry records the verification without duplicating the Twingate note.
+## [2026-08-06] obsidian-sync | New `summaries/` folder — history reorganized by category
+- **User Prompt Goal**: Organize the vault's content summary by work category — consolidate items scattered across many separate `log.md` sessions into clean, well-separated pieces, presented nicely.
+- **Modified Code Paths**: N/A — Obsidian Knowledge Base reorganization only, no source code touched.
+- **New Obsidian Notes** (all `type: summary`, in new `summaries/` folder):
+  - `[[summaries/00_Work_Summary_Index]]` — folder overview and how it relates to `log.md`
+  - `[[summaries/01_UI_Design_and_Theming]]` — consolidates ~22 scattered Login/theme/Impeccable-shell sessions (2026-07-25 → 2026-08-01)
+  - `[[summaries/02_Security_Auth_and_Identity]]` — provisioning, CSRF, SQL-level identity decoupling, Private Vault crypto, ownership
+  - `[[summaries/03_Infrastructure_Networking_and_Gateway]]` — NGINX gateway/DNS-resolver fixes, Docker/Compose topology
+  - `[[summaries/04_IDEA1_Drive_Build_Out]]` — Storage Layer, Global Search, Share links, the 7-phase mock-data removal pass
+  - `[[summaries/05_IDEA2_Monitor_and_Detection_Engine]]` — mock-vs-real audit, Phase A/B real pipeline + live video, 2026-08-01 closures
+  - `[[summaries/06_Wiki_Admin_and_Housekeeping]]` — vault audits, English translation pass, GitHub publishing, Claude Code tuning
+  - `[[summaries/07_Ethics_and_Compliance]]` — HREC-SUT PIS + Consent Form for IDEA2
+  - `[[summaries/08_Outstanding_Items_Consolidated]]` — every 🔴/🟠/🟡/🟢/⚠️ flag from every "Carried forward" section across the whole log, gathered into one open-items table
+- **Other Obsidian Updates**: `[[index.md]]` (new "📊 Work Summaries by Category" section), `[[.schema.md]]` (directory tree + Page Conventions now document `summaries/`; `ethics/` was also missing from the tree and added)
+- **Key Changes**: This is a read-only re-indexing pass — every fact in `summaries/*.md` is sourced from existing `log.md` entries and the current numbered module notes; nothing was invented, and `log.md` itself remains untouched as the authoritative chronological record. The reorganization exists because the same subject (e.g. the Drive/Monitor Login redesign) was spread across 8+ same-day-but-separate log entries, and finding "everything about UI theming" or "everything still open" required reading the whole 1,100+ line log end to end.
+- **Status**: ✅ 9 new summary notes created; `index.md` and `.schema.md` updated in place; no source code or existing vault content modified.
 
-## [2026-08-06] vibe-coding | Audit the infrastructure note set against the as-built brief
-- **User Prompt Goal**: Confirm whether the Infrastructure vault re-organisation (13 notes across `00-MOC/`, `10-Network/`, `20-Server/`, `30-RemoteAccess/`, `40-Deployment/`, `90-Status/`) was actually finished, and verify it against the requested spec rather than assuming.
-- **Modified Code Paths**: None — documentation audit only.
-- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` (only file changed).
-- **Key Changes**: Corrected an arithmetic error in the numeric summary table — the ✅ row read **12** while listing 13 steps (1–9, 11–14); now **13**, so 13 ✅ + 2 🔧 = 15 steps.
-- **Audit result**: All 13 notes exist with complete YAML frontmatter (`title`/`tags`/`type`/`status`/`created`/`updated`), wikilinks resolve to on-disk files, and ✅/🔧/⏳/📋 markers are applied per item. No token, private key, or real password appears in any infrastructure note — placeholders only. UFW state, `PasswordAuthentication`, Beelink deployment, and IDEA3 hardware all remain recorded as unverified/not done, as required. Reality Check banners are in place on `[[concepts/ZTNA_Twingate_vs_OpenVPN]]`, `[[concepts/VLAN_Segmentation_and_Port_Mapping]]`, `[[entities/MikroTik_hEX_lite]]`. No other defect found.
+---
 
-## [2026-08-06] vibe-coding | Publish the infrastructure audit fix to GitHub
-- **User Prompt Goal**: Push the vault update from this session to `kraveerachat/Project-End-The-AEGIS`.
-- **Modified Code Paths**: None — documentation only.
-- **Obsidian Updates**: `[[90-Status/Progress-Log-2026-08-06]]` and `[[log]]`.
-- **GitHub**: Commit `0f988d9` pushed to branch `fix/hub-nginx-monitor-routing-and-ingest-guard` (`5fbee9c..0f988d9`). Verified local HEAD equals `origin/fix/hub-nginx-monitor-routing-and-ingest-guard`.
-- **Safety**: `main` untouched; the diff was reviewed before pushing and contained no token, key, or password — the 13 infrastructure notes were already committed in the earlier session, so only the step-count correction and the audit log entry shipped.
+## [2026-08-06] obsidian-sync | Graph diagnosis + knowledge-network wiring + entry point for agents
+
+- **User Prompt Goal**: Analyse the Obsidian graph screenshots — the original structure (image 4) versus the scattered orphan clusters added since (images 1/2/3/5/6) — then reorganise the scattered material into existing topics where they exist and new topics where they don't, connect the relationships between groups, and produce a table of contents + project network that an agentic AI reads on every session. Follow-up instruction: remove whatever is irrelevant.
+
+### 🔍 Root-cause finding — the scatter was NOT a knowledge-organisation problem
+
+Measured, not assumed. Counting `.md` files reachable from the repository root:
+
+| Source | files | Appears in the graph as |
+|---|---|---|
+| `node_modules/**` | **374** | The orphan `README` / `LICENSE` / `CHANGELOG` / `HISTORY` clouds (images 1, 2, 5) |
+| `.claude/` + `.agents/` + `.cursor/` + `.gemini/` skill trees (4 identical copies) | **~120** | The `SKILL` hub cluster — `spec-driven-testing`, `playwright-tests`, `tracing`, … (image 3) |
+| `PUT-LOGOS-HERE.md`, `dist/` duplicates | ~5 | Isolated stray dots (image 2) |
+| **Real AEGIS knowledge** | **~45** | The single interlinked cluster (image 4) |
+
+So **~92% of the nodes in the scattered graphs were never project knowledge** — they are npm package docs and deliberately-duplicated AI tool configs. The repository root contains a (previously empty) `.obsidian/` folder, meaning Obsidian had been opened on the whole repo rather than on `AEGIS_Knowledge`. No amount of re-linking notes could have fixed this; it is a vault-scope problem.
+
+- **Fix applied**: created repo-root `.obsidian/app.json` with `userIgnoreFilters` for `node_modules/`, the four skill directories, `.git/`, `.impeccable/`, `dist/`, `build/`, `__pycache__/`, `.venv/`, and `PUT-LOGOS-HERE.md`. **Nothing was deleted** — `node_modules/` is required to run the apps and the skill duplication is intentional (one tree per AI tool).
+- **Recommendation recorded**: open Obsidian directly on `Obsidian_AEGIS_Vault/AEGIS_Knowledge`, making the filters a safety net rather than the primary defence.
+
+### 📐 Analysis of the original structure (image 4) before changing anything
+
+The existing cluster was already healthy: 6 numbered module notes, 11 concepts, 5 entities, 2 ethics, 2 raw sources, plus the 9 summaries added earlier the same day. An inbound-wikilink count identified the weak periphery — `entities/Team_Roles_and_Responsibilities` (1 inbound), `concepts/Cyber-Physical_Defense`, `concepts/ZTNA_Twingate_vs_OpenVPN`, `entities/ESP32_Relay_Module` (2 each). Those are the loosely-attached dots on the rim of image 4, and each was given real relationship content rather than a bare link list.
+
+### 🆕 New notes — repo knowledge that had no vault node at all
+
+Audited the 180 non-`node_modules` Markdown files and found genuine project knowledge living only in the repo, linked from nothing:
+
+- **`06 - 🤖 Agent Operating Rules.md`** [NEW] — from `AGENTS.md`, `CLAUDE.md`, `.claude/skills/`. The 4 core principles mapped to their enforcement points and concept notes, the mandatory 3-step sync (as a Mermaid flow), the dedup policy, a repo-doc → vault-note mapping table, and the vault-scope finding above. Also records the one **deliberate documented exception** to principle #4: `aegis_theme`/`lang` in `localStorage` are UI preferences, not tokens — noted so future agents stop "fixing" it.
+- **`07 - 🎨 Design System & UI Language.md`** [NEW] — from `PRODUCT.md`, `DESIGN.md`, `AURORA-GLASS-PROMPT.md`, `docs/superpowers/`. Product register, the Aurora Glass → Precision Light → Modern Elevated lineage (with `AURORA-GLASS-PROMPT.md` marked **superseded**), and the measured contrast rules verbatim.
+- **`concepts/Schema_Ownership_Map.md`** [NEW] — from `shared/db-schema/README.md`. The missing bridge between [[concepts/Identity_Decoupling]] and [[concepts/Three_Layer_Data_Lake]].
+- **`concepts/Terminal_Verification_Protocol.md`** [NEW] — from `docs/auth-test.md` (828 lines), which [[index]] could previously only cite as a bare path. Maps each test section to the concept it proves.
+- **`entities/Detection_Engine_Service.md`** [NEW] — from `detection-engine/README.md`. A separately deployed unit on its own host/VLAN with its own trust boundary, previously only prose inside [[03 - 📹 IDEA2 AEGIS Monitor]]. Includes the trust-boundary Mermaid diagram (engine holds no DB credential) and the ⚠️ absent recognition model.
+
+### 🕸️ Connection & navigation work
+
+- **`START_HERE.md`** [NEW, `type: moc`] — the single entry point: 60-second orientation, the **agent reading protocol**, a colour-coded Mermaid knowledge-network diagram, full table of contents, current-state summary, and the two environment warnings.
+- **`AEGIS_Knowledge_Network.canvas`** [NEW] — 45 nodes / 40 **labelled** edges across 7 colour-coded groups. Validated programmatically: 0 missing file references, 0 dangling edges. The pre-existing `AEGIS_Architecture_Canvas.canvas` had only 5 nodes / 5 edges and was left untouched.
+- **Weak-periphery notes strengthened** — `Team_Roles` gained a member → owned-notes map; `Cyber-Physical_Defense` gained a table of where each half is actually enforced; `ZTNA` gained the "network reachability ≠ application privilege" relationship to the security model; `ESP32_Relay_Module` absorbed the firmware README (MQTT + HMAC-SHA256 + nonce, **scaffold only, no code yet**).
+- **`index.md`**, **`.schema.md`** updated in place: new `Scope` workflow section, `START_HERE` and the canvas added to the directory tree, `moc`/`wiki-admin` added to the type taxonomy, numbering range corrected to `00–07`.
+
+### 🔧 Repo-side changes
+
+- **`AGENTS.md`** and **`CLAUDE.md`** now open with a `READ FIRST, EVERY SESSION` block pointing at `START_HERE.md` — this is what makes the entry point actually load for agents rather than being a file nobody opens.
+- **Stale-path bug fixed in both**: they pointed at `C:\Users\User\AEGIS_System\Obsidian_AEGIS_Vault\AEGIS_Knowledge`, a user and location that **no longer exist** (the repo is now under `…\puppu\OneDrive\Desktop\…`). Replaced with the repo-relative `Obsidian_AEGIS_Vault/AEGIS_Knowledge` plus an explicit "do not hardcode an absolute path" note.
+
+### 🗑️ Removals
+
+- Deleted `.obsidian/2026-08-01 AEGIS Dev Log.md` — byte-identical to the vault-root copy apart from a trailing note stating it had been saved into the config folder by mistake. Obsidian never indexes `.obsidian/`, so it was invisible dead weight. Its unique content was that self-describing note; nothing of value lost.
+- Everything else proposed for removal was **left in place pending user confirmation** — this repository is **not under git**, so deletions here are irreversible.
+
+### ✅ Verification
+
+- Canvas validated by script: 45 nodes, 40 edges, no missing files, no dangling edges.
+- Wikilink lint across the vault: **606 links scanned**. All resolve. The linter's initial hits were false positives — `.schema.md` (a dotfile the glob skipped) and `\|` escapes, which are correct Obsidian table syntax. The only genuinely unresolved links sit in **historical `log.md` entries** referencing the retired `modules/` folder; left untouched because `log.md` is append-only.
+- ⚠️ **Environment issue hit during the session**: the C: drive reached **100% full (0 bytes free)**, causing one `ENOSPC` write failure that had to be retried. Reclaimable space identified but **not deleted**: `%TEMP%\DockerDesktopUpdates` (**3.3 GB**), plus `node_modules` in HUB (135 MB) and Monitor (129 MB), both regenerable via `npm install`.
+
+### 🗑️ Cleanup pass (user-approved, executed after the above)
+
+Removed **3 redundant vault files**, each verified fully superseded before deletion:
+- `Category.base` — a 3-line empty Obsidian Bases view stub, no knowledge content.
+- `2026-08-01 AEGIS Dev Log.md` — a Thai-language day summary whose seven items are covered in full by this log's 2026-08-01 entries and by [[summaries/05_IDEA2_Monitor_and_Detection_Engine]].
+- `AEGIS_Architecture_Canvas.canvas` — 5 nodes / 5 edges, superseded by the new 45-node `AEGIS_Knowledge_Network.canvas`.
+
+Stale references to the deleted files were then fixed in `index.md` and [[summaries/06_Wiki_Admin_and_Housekeeping]].
+
+Reclaimed **3.3 GB** by clearing `%TEMP%\DockerDesktopUpdates` (a stale Docker installer cache, regenerated on demand), taking the C: drive from **0 bytes free to 3.4 GB**.
+
+### 🔴 Deletion NOT performed — a corrected finding
+
+The four duplicated `impeccable` skill trees (`.claude/`, `.agents/`, `.cursor/`, `.gemini/`, ~120 files) were initially proposed for deletion as "identical copies for other AI tools." **That description was wrong, and the deletion was cancelled after inspection:**
+
+- The copies are **path-rewritten per tool** — each `SKILL.md` hardcodes its own directory (`node .cursor/skills/impeccable/scripts/context.mjs` vs `node .claude/…`), so they are **not interchangeable**.
+- Each carries **live executable scripts**, not just Markdown, and is wired to a **working hook config**: `.codex/hooks.json` → `.agents/…/hook.mjs`, `.cursor/hooks.json` → `.cursor/…/hook-before-edit.mjs`.
+- `AGENTS.md` and `README.md` both cite `.agents/skills/impeccable/SKILL.md` as the canonical tool-neutral path.
+
+Deleting any tree would have silently broken that tool's hook with no way to recover (no git). **Exclusion via `userIgnoreFilters` already achieves the actual goal** — keeping them out of the graph — with none of the risk. Recorded in [[06 - 🤖 Agent Operating Rules]] as an explicit "do not delete these" warning so the same proposal isn't made again.
+
+- **Status**: ✅ Root cause identified and fixed non-destructively; 7 new notes (1 MOC + 2 modules + 2 concepts + 1 entity + 1 canvas); 4 weak notes reconnected; `index.md`/`.schema.md`/`AGENTS.md`/`CLAUDE.md` updated in place; 4 redundant files removed; 3.3 GB reclaimed; skill-tree deletion correctly cancelled; all 606 wikilinks verified.
+
+
+## [2026-08-06] vibe-coding | Import nested GitHub project into workspace root
+- **Prompt goal**: Move the complete contents of `Project-End-The-AEGIS-main` from `pubpup2006p-design/Project-End-The-AEGIS` into `C:\Users\User\AEGIS_System` so the project paths match the local workspace.
+- **Import result**: 706 files copied; destination-only files were preserved; `.git`, `.env`, `.aegis-dev-nas-key`, local dependency/build folders, and local agent state were not imported or overwritten.
+- **Backup**: Previous local `AEGIS_Knowledge/index.md` saved to `C:\tmp\AEGIS-index-before-github-import-20260806.md` before the remote version replaced it.
+- **Updated Obsidian notes**: `index.md`, `00 - 🗺️ AEGIS System Overview.md`, `03 - 📹 IDEA2 AEGIS Monitor.md`, `30-RemoteAccess/Twingate-Setup.md`, and `log.md` came from the imported project; this entry records the path correction.
+
+## [2026-08-06] vibe-coding | ตรวจวิธีรันและทดสอบ IDEA2 หลังรับไฟล์จากเพื่อน
+- **Prompt goal**: ตรวจว่า IDEA2 ใช้งานได้หรือไม่ และสรุปลำดับคำสั่งสำหรับรัน/ทดสอบหลังดึงไฟล์จากงานของเพื่อน
+- **Modified source code paths**: ไม่มีการแก้ source code; ตรวจ `IDEA2-AEGIS_Monitor/package.json`, `README.md`, `vite.config.js`, root `docker-compose.yml`, root `.env`, และ `IDEA2-AEGIS_CCTV-Operator/detection-engine/README.md`
+- **Verification**: `npm test` ผ่าน 6/6; `npm run build` ถูก sandbox บล็อกการอ่าน directory ระดับบน (`Access is denied`); Docker CLI มีอยู่แต่ Docker daemon ยังไม่ทำงาน
+- **Updated Obsidian notes**: `03 - 📹 IDEA2 AEGIS Monitor.md`
+
+## [2026-08-06] vibe-coding | อธิบายข้อความเตือน dev server ของ IDEA2
+- **Prompt goal**: อธิบาย `[aegis-monitor] SESSION_SECRET not set` และ `auth store: in-memory dev fallback` ที่ปรากฏหลังเริ่ม backend
+- **Finding**: ไม่ใช่ startup failure; backend ทำงานที่ `:8002` แต่ไม่มี `SESSION_SECRET` และ `DATABASE_URL` จึงใช้ secret ชั่วคราวกับผู้ใช้/ข้อมูลในหน่วยความจำ
+- **Recommended operation**: ใช้ environment variables ใน PowerShell สำหรับการรันตรง หรือใช้ root Docker Compose เพื่อเชื่อม PostgreSQL แบบ local integration
+- **Updated Obsidian notes**: ไม่มี note ใหม่; ใช้คำอธิบายเดิมใน `03 - 📹 IDEA2 AEGIS Monitor.md`
+
+## [2026-08-07] vibe-coding | จัดทำ prompt แก้ Dashboard zero/empty-state regression ของ IDEA1
+- **Prompt goal**: สร้างคำสั่งสำหรับคืน Dashboard UI ทั้งโครงสร้างหลังการลบ mock data โดยให้ค่าที่ยังไม่มีข้อมูลจริงเป็นศูนย์/ว่างอย่างซื่อสัตย์ แยกจาก runtime fetch error
+- **Finding**: `IDEA1-AEGIS_Drive_LC/src/screens/Dashboard.jsx` ใช้ `if (dash.error) return <ErrorState ... />` ทำให้ Dashboard ทั้งหมดหายเมื่อ request หลักล้มเหลว ทั้งที่ widget และ empty-state components เดิมยังอยู่ครบ
+- **Modified source code paths**: ไม่มีการแก้ source code; จัดทำ prompt ที่ระบุ `Dashboard.jsx`, `ui.jsx`, `hooks.js`, `strings.js`, `TopBar.jsx` และ acceptance tests
+- **Updated Obsidian notes**: `log.md` เท่านั้น เนื่องจากยังไม่มี implementation หรือ architecture change
+
+## [2026-08-07] vibe-coding | แก้ IDEA1 Dashboard ให้คง layout ใน zero/empty state
+- **Prompt goal**: คืน Dashboard เต็มโครงสร้างหลังการถอด mock data โดยใช้ค่า 0/รายการว่างแทนหน้า error ทั้งจอ และรักษาสถานะเชื่อมต่อให้ตรงกับของจริง
+- **Implementation**: เพิ่ม `src/lib/dashboardState.js` สำหรับ normalize payload; ยกเลิก page-level error early return; ทำ inline empty states สำหรับ login/share/recent files; คง storage track และ activity chart ที่ 0%; ป้องกัน seeded in-memory dev fallback จากการถูกแสดงเป็น telemetry จริง; ทำ status pills เป็น neutral เมื่อไม่เชื่อมต่อ; proxy `/drive/healthz` ใน Vite; แก้ Sidebar ให้ใช้ byte metrics และถอด total `1024 GB` ที่ hard-code
+- **Modified source code paths**: `IDEA1-AEGIS_Drive_LC/src/screens/Dashboard.jsx`, `src/lib/dashboardState.js`, `src/components/TopBar.jsx`, `src/components/Sidebar.jsx`, `src/lib/strings.js`, `vite.config.js`, `tests/dashboardEmptyState.test.js`
+- **Verification**: regression tests 7/7; full `npm test` = 86 pass / 0 fail / 18 PostgreSQL-only skipped (104 total); `npm run build` สำเร็จ; browser inspection ยืนยัน full Dashboard, Storage `0 GB / 0 GB`, muted widget empty states, 0% storage/activity visuals และไม่มีหน้า error ทั้งจอ
+- **Updated Obsidian notes**: `02 - 💾 IDEA1 AEGIS Drive LC.md`, `00 - 🗺️ AEGIS System Overview.md`, `log.md`
+
+## [2026-08-07] vibe-coding | ขยาย zero/empty-state contract ไปยังทุกหน้า IDEA1 Drive
+- **Prompt goal**: แก้ Files, Private Vault, Uploads, Secure Shares, File History, Storage & Backup, Audit Log, Access Control และ Settings ให้คง breadcrumb/title/card/table/toolbar/action ทั้งหมดเมื่อยังไม่มีข้อมูล โดยไม่แก้ Dashboard และไม่สร้างสถานะ Healthy/Online ปลอม
+- **Implementation**: เพิ่ม `InlineEmptyState`; ใช้ health-derived `placeholderMode` กรอง seeded in-memory fixtures ออกจากหน้าจอ; เพิ่ม empty rows/zero charts/neutral RAID และ disabled restore; ให้ Access แสดงเฉพาะ Admin ที่ล็อกอินกับ `1 · เครื่องนี้`; ทำ Settings เป็น Twingate-only Inactive และแสดง mnemonic recovery แบบยังไม่เชื่อมต่อพร้อมปุ่ม Generate ที่ disabled
+- **Architecture truth preserved**: File History ยังคงใช้ per-file `file_versions` จริงแทนการอ้างว่ามี filesystem snapshots; RAID/SMART/backup schedule ไม่ถูกแต่งขึ้น; mnemonic ไม่สร้างคำที่กู้ Vault ไม่ได้; PostgreSQL payload จริงยังแทน placeholder ใน layout เดิมได้
+- **Modified source code paths**: `IDEA1-AEGIS_Drive_LC/src/App.jsx`, `src/components/ui.jsx`, `src/screens/{Files,Vault,Uploads,Shares,FileHistory,Storage,Audit,Access,Settings}.jsx`, `src/lib/strings.js`, `tests/allScreensEmptyState.test.js`, `docs/superpowers/specs/2026-08-07-all-screens-empty-state-design.md`, `docs/superpowers/plans/2026-08-07-all-screens-empty-state-plan.md`
+- **Verification**: focused regression 7/7; full `npm test` = 93 pass / 0 fail / 18 PostgreSQL-only skipped (111 total); `npm run build` สำเร็จ; browser inspection ยืนยันทุกหน้าตามสเปกและ Settings ทุกหมวดไม่มี whole-screen error
+- **Updated Obsidian notes**: `02 - 💾 IDEA1 AEGIS Drive LC.md`, `00 - 🗺️ AEGIS System Overview.md`, `log.md`
+
+## [2026-08-07] vibe-coding | แก้ Docker `/drive/` 502 จาก Postgres init แบบ CRLF
+- **Prompt goal**: หาสาเหตุที่ `docker compose up --build` สำเร็จแต่ `http://localhost/drive/` ตอบ `502 Bad Gateway` และทำให้เปิดได้จริง
+- **Root cause evidence**: `drive` restart ด้วย `Role "drive_app" does not exist`; Postgres log ระบุ `/docker-entrypoint-initdb.d/01-run-app-init.sh: /bin/sh^M: bad interpreter`. ไฟล์ init ทั้งสองเป็น CRLF จึงหยุดก่อนโหลด schema/seed และก่อนสร้าง `drive_app`/`monitor_app`; NGINX จึงไม่มี Drive upstream
+- **Fix**: เพิ่ม root `.gitattributes` บังคับ `*.sh text eol=lf`, normalize `postgres/init/01-run-app-init.sh` และ `02-app-roles.sh`, เพิ่ม `tests/dockerBootstrap.test.mjs`; ซ่อม volume ปัจจุบันแบบไม่ลบข้อมูลด้วยการรันสอง init scripts ภายใน Postgres และ restart dependent services
+- **Verification**: line-ending regression 2/2; `drive`, `monitor`, `gateway`, `postgres` healthy; `/drive/` HTTP 200; `/drive/healthz` = `ok:true`, `db:postgres`; browser แสดงหน้า AEGIS Drive login ผ่าน gateway สำเร็จ
+- **Separate finding**: `aegis-camera` ยัง restart เพราะไม่มีไฟล์ YOLO `best (2).pt`; ไม่เกี่ยวกับ Drive 502 และยังไม่ได้แก้ใน prompt นี้
+- **Modified paths**: `.gitattributes`, `postgres/init/01-run-app-init.sh`, `postgres/init/02-app-roles.sh`, `tests/dockerBootstrap.test.mjs`
+- **Updated Obsidian notes**: `40-Deployment/Docker-Stack-Plan.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `00 - 🗺️ AEGIS System Overview.md`, `log.md`
+
+## [2026-08-07] vibe-coding | ถอดกล่อง error แดงที่ค้างอยู่ทุกหน้าของ IDEA1 Drive
+- **Prompt goal**: ลบกล่องแดง "โหลดหน้านี้ไม่สำเร็จ / เซิร์ฟเวอร์ Drive ไม่ตอบสนอง" + ปุ่ม "ลองใหม่" ออกจากทุกหน้า (Dashboard, Files, Private Vault, Uploads, Secure Shares, File History, Storage & Backup, Audit Log, Access Control) ให้ empty state ที่ถูกต้องอยู่แล้วเข้ามาแทนที่ โดยห้ามแตะ empty state/card/banner/form/table/dark HUD เดิม และคง pill `Edge node: online` / `Metadata: PostgreSQL` ไว้ตามเดิม
+- **Root cause evidence**: กล่องนี้ **ไม่ใช่ component ที่ hardcode ค้างไว้** — `useApi` เซ็ต `error` จาก fetch ที่ล้มจริง สิ่งที่ผิดคือ "เงื่อนไขที่ให้มันโผล่": เมื่อไม่มี PostgreSQL pool `checkDb()` คืน `{ ok: true, mode: 'memory' }` ทำให้ `/healthz` เขียวและ pill ขึ้น online ขณะที่ `/api/*` ของทุกหน้าล้ม รอบก่อนกรองเฉพาะ *ข้อมูล* ด้วย `placeholderMode` แต่ปล่อย *error panel* ไว้ไม่ได้กรอง ทุกหน้าจึงแสดง empty state ที่ถูกต้อง **พร้อม** กล่อง error ทับข้างบน
+- **Implementation**: เพิ่ม `src/lib/fetchState.js` — `visibleFetchError(error, placeholderMode)` คืน `null` เมื่อ backend ยังไม่ wired และ pass-through เมื่อ wired แล้ว; ทุกหน้าคำนวณ `fetchError` ตัวเดียวจาก helper นี้แล้วใช้ทั้งกับ `ErrorState` และ guard `!error` รอบ ๆ (ไม่มีหน้าไหนอ่าน `api.error` ดิบอีก); Settings รับ `placeholderMode` จาก `App.jsx` เพิ่ม (active sessions + network zones); `shouldShowDashboardFetchError` เพิ่มเงื่อนไข `db !== 'memory'` ครอบทั้ง Dashboard และการ์ด storage breakdown
+- **Scope discipline**: ไม่มีการแก้ empty state, card, banner, form, table, filter, drop zone, status pill หรือ design system ใด ๆ และไม่ได้ใส่ placeholder ตัวใหม่แทนกล่องที่หายไป — ปล่อยให้ empty state เดิมกินพื้นที่เอง; error state จริงยังอยู่ครบและจะโผล่พร้อม Retry ที่ทำงานจริงเมื่อ deployment ที่ต่อ PostgreSQL แล้ว fetch ล้มจริง
+- **Modified source code paths**: `IDEA1-AEGIS_Drive_LC/src/lib/fetchState.js` (ใหม่), `src/lib/dashboardState.js`, `src/App.jsx`, `src/screens/{Files,Vault,Uploads,Shares,FileHistory,Storage,Audit,Access,Settings}.jsx`, `tests/allScreensEmptyState.test.js`, `tests/dashboardEmptyState.test.js`
+- **Verification**: `npm test` = 97 pass / 0 fail / 18 PostgreSQL-only skipped (115 total); `npm run build` สำเร็จ; ตรวจซ้ำด้วย grep ว่าไม่มีหน้าไหนเหลือ `api.error ?` / `kind={api.error}` และ string empty state ที่สเปกระบุ (`emptyFolder`, `emptyVault`, `emptyNoUploads`, `emptyNoShares`, `versionsNoFiles`, `emptyNoAudit`, `noOtherUsers`) มีอยู่จริงครบใน `strings.js` ตรงตามข้อความที่ผู้ใช้ระบุ
+- **Design hook note**: `broken-image:83` ใน `Settings.jsx` เป็น false positive เดิม (ชนกับสตริง `<img>` ในคอมเมนต์ ไม่ใช่ tag จริง) — บันทึกไว้แล้วใน `summaries/08_Outstanding_Items_Consolidated.md` ไม่ได้ suppress เพิ่ม
+- **Updated Obsidian notes**: `02 - 💾 IDEA1 AEGIS Drive LC.md`, `00 - 🗺️ AEGIS System Overview.md`, `summaries/04_IDEA1_Drive_Build_Out.md`, `log.md`
+
+## [2026-08-07] audit | ตรวจสอบ error-state gating ทั้ง 9 หน้าของ IDEA1 Drive (Part 1 static + Part 2 negative-case)
+- **Prompt goal**: ยืนยันว่า 7 หน้าที่เหลือใช้ logic กรอง error แบบ *เดียวกัน* กับ Dashboard ไม่ใช่ของที่ copy-paste แยกกัน และทดสอบทิศทางตรงข้ามที่ยังไม่เคยทดสอบ — "เมื่อ `db=postgres` และ fetch ล้มจริง กล่อง error ต้องขึ้น" (ทิศทางนี้ถ้าพังจะเงียบและซ่อนปัญหา production จากผู้ใช้)
+- **Premise correction**: ผู้ใช้เข้าใจว่า `Storage.jsx` ใช้ `shouldShowDashboardFetchError` — **ไม่ใช่** มีแค่ `Dashboard.jsx` หน้าเดียวที่ใช้ helper นั้น ส่วน `Storage.jsx` ใช้ `visibleFetchError` เหมือนอีก 7 หน้า ดังนั้นโครงจริงคือ helper 2 ตัว (8 หน้า + Settings ใช้ `fetchState.js`, Dashboard ใช้ `dashboardState.js`)
+- **Part 1 result**: ทั้ง 9 หน้า import shared helper ทุกหน้า — **ไม่มีหน้าไหน** hardcode, ไม่มีเงื่อนไข, หรือเขียนเงื่อนไขเองแบบ copy-paste จึงไม่เข้าเกณฑ์ HIGH RISK ที่ผู้ใช้ตั้งไว้; ทั้ง 9 หน้าอ่าน `/healthz` ตัวเดียวกัน แต่ Dashboard poll เอง (`Dashboard.jsx:383`) แยกจาก `App.jsx:78`
+- **Equivalence proof (executed)**: รัน helper ทั้งสองเทียบกันทุก `/healthz` body ที่ server ปล่อยได้จริง — `200 {db:postgres}` → true/true, `200 {db:memory}` → false/false, `503` → false/false (non-2xx ไม่เคย populate `data`, `hooks.js:37`) ⇒ equivalent ทุกสถานะที่เข้าถึงได้
+- **Part 2 method**: bundle screen component จริงด้วย `esbuild` ของแอปเอง → render ด้วย `react-dom/client` ลง jsdom → stub `fetch` ที่ขอบเขตที่ `apiFetch` ใช้จริง (`ok`/`status`/`json()`) → assert จาก DOM text ว่ามี `t('errLoadTitle')` / `t('retry')`; harness อยู่ใน scratchpad ทั้งหมด **ไม่แตะ repo และไม่แตะ backend จึงไม่มีอะไรต้อง revert** (`git diff` ของ `package.json` ว่างเปล่านอกจาก line-ending ที่มีมาก่อน)
+- **Part 2 result**: negative case (`db=postgres` + ทุก `/api/*` = 500) → **9/9 หน้าแสดงกล่อง error พร้อมปุ่ม Retry**; control `db=memory` + 500 → 0/9; control `db=postgres` + สำเร็จหมด → 0/9 ⇒ ไม่มี false negative และไม่มี false positive บน primary endpoint
+- **Findings (อยู่ *รอบ* gate ไม่ใช่ใน gate — grep หา source ไม่เจอ)**:
+  - 🔴 `Shares.jsx:195-196` — `filesApi.error` ไม่เคยถูก gate หรือแสดงเลย เมื่อ `/api/files` ล้ม picker จะ disable แล้วขึ้น `ยังไม่มีไฟล์` = **ยืนยันข้อเท็จจริงที่ไม่จริง** ไม่ใช่แค่ error หาย (พิสูจน์แล้ว: shares OK + files 500 → ไม่มี error ขึ้นเลย)
+  - 🟡 `App.jsx:81` + `dashboardState.js` เข้ารหัสนิยาม "wired" ซ้ำ 3 ที่ (equivalent วันนี้ แต่แก้ที่เดียวจะไม่ propagate; test ที่ assert ข้อความ literal ของ `App.jsx` ต้องแก้ตามถ้า refactor)
+  - 🟡 `Dashboard.jsx:387` double-signal — error box + `ยังไม่เชื่อมต่อ` พร้อมกัน เพราะ `usingPlaceholder` ผูกกับ `data == null`
+  - 🟡 `Dashboard.jsx:383` poll `/healthz` แยกของตัวเอง — สอง cycle 15s อาจไม่ตรงกันชั่วขณะ
+- **Fixture lesson**: harness รอบแรกพังที่ `fmtDateTime` เพราะ fixture ส่ง ISO string ขณะที่ server ส่ง epoch millis (`new Date(...).getTime()`) — fixture ที่รูปร่างไม่ตรง server ไม่ได้ทดสอบอะไรเลย และ red result รอบนั้นเป็นความผิดของ harness ไม่ใช่ของแอป
+- **Deliberately not applied**: ผู้ใช้สั่ง audit อย่างเดียวและจะยืนยันก่อนแก้ — ทั้ง 4 ข้อจึงเปิดค้างไว้โดยตั้งใจ บันทึกใน `summaries/08_Outstanding_Items_Consolidated.md` พร้อมวิธีแก้เฉพาะข้อ
+- **Modified source code paths**: ไม่มี (audit-only pass)
+- **Updated Obsidian notes**: `concepts/Client_Render_State_Verification.md` (ใหม่), `index.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `00 - 🗺️ AEGIS System Overview.md`, `log.md`
+
+## [2026-08-07] vibe-coding | ปิด fixes 1–4 จาก IDEA1 empty-state/error-gating audit
+- **Prompt goal**: แก้ Shares secondary-fetch false-negative, รวมคำจำกัดความ “platform wired” และ `/healthz` poll ให้เหลือแหล่งเดียว, และหยุด Dashboard จากการแสดง error พร้อม `ยังไม่เชื่อมต่อ` ซ้อนกัน โดยไม่เปลี่ยน layout/styling/dark HUD
+- **Fix 1 — Shares**: เพิ่ม `filesError = visibleFetchError(filesApi.error, placeholderMode)`; เมื่อ `/api/files` ล้ม Field ของ file picker ยังคงอยู่และแสดง `ErrorState` + Retry เดิม ขณะที่ `emptyNoFiles` แสดงได้เฉพาะรายการว่างที่ไม่มี raw fetch error
+- **Fix 2/4 — shared health truth**: เพิ่ม `isPlatformWired(healthData)` ใน `src/lib/fetchState.js`; `App.jsx` ใช้ helper นี้สร้าง `placeholderMode` และเป็นเจ้าของ `/healthz` poll เพียงจุดเดียว จากนั้นส่ง health object รอบเดียวกันให้ TopBar และ Dashboard; ลบ private poll จากทั้งสอง consumer; `shouldShowDashboardFetchError` เรียก predicate เดียวกัน
+- **Fix 3 — Dashboard**: `usingPlaceholder` ขึ้นกับ `!isPlatformWired(health.data)` เท่านั้น ไม่ผูกกับ `dash.data == null`; genuine PostgreSQL-backed fetch failure จึงแสดงกล่อง error โดยไม่มี `ยังไม่เชื่อมต่อ` บน KPI พร้อมกัน และยังคง Dashboard chrome/cards ตาม contract เดิม
+- **Regression coverage**: เพิ่ม jsdom dev dependency และ `tests/uiNegativeCases.test.js` + mock hook fixture สำหรับ Shares secondary failure และ Dashboard conflict; ปรับ static tests ให้ assert helper behavior/single poll แทน literal source expression
+- **Part 1 result**: ทุก data screen ใช้ shared gate; ไม่พบ raw `api.error` render gate; source scan พบ `useApi('/healthz')` เพียง `App.jsx` จุดเดียว
+- **Part 2 result**: full original jsdom harness — `db=postgres` + primary endpoint 500 = error + Retry **9/9**; `db=memory` + 500 = **0/9**; all healthy = **0/9** false positive. Secondary probes: Shares files 500 ✅, File History detail 500 ✅, Dashboard storage 500 ✅; Dashboard dashboard 500 มี error และ `alsoShowsNotConnected:false` ✅
+- **Verification**: `npm test` = 119 total / 101 pass / 0 fail / 18 PostgreSQL-only skipped; `npm run build` สำเร็จ (มีเพียงคำเตือน chunk >500 kB เดิม); `npm audit --omit=dev` = 0 vulnerabilities; `git diff --check` ผ่าน; rebuild เฉพาะ `drive` container สำเร็จและเป็น `healthy`, `GET /drive/` = 200 พร้อม React root, `GET /drive/healthz` = 200 `{ok:true,db:postgres}`
+- **Modified source/test paths**: `IDEA1-AEGIS_Drive_LC/src/{App.jsx,components/TopBar.jsx,lib/fetchState.js,lib/dashboardState.js,screens/Dashboard.jsx,screens/Shares.jsx}`, `tests/{allScreensEmptyState.test.js,dashboardEmptyState.test.js,uiNegativeCases.test.js,fixtures/mockHooks.js}`, `package.json`, `package-lock.json`
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Client_Render_State_Verification.md`, `summaries/04_IDEA1_Drive_Build_Out.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+
+## [2026-08-07] verification | รัน PostgreSQL-only tests ครบ 119/119 ด้วยฐานแยกและลบทิ้งหลังจบ
+- **Prompt goal**: หา exact skip condition ของ 18 PostgreSQL-only tests, รัน full suite กับ PostgreSQL จริงโดยห้ามแตะ live `aegis_drive`, รายงาน failure โดยไม่แก้ และลบฐานทดสอบหลังเสร็จ
+- **Skip inventory**: `accessReconciliation.test.js` 5 + `vaultPostgres.test.js` 9 ใช้ `{ skip }` จาก `process.env.TEST_DATABASE_URL`; `accessUsers.test.js` 1 และ `shareRedemption.test.js` 3 skip เมื่อ `usingPostgres` เป็น false รวม 18 พอดี
+- **Why isolation was mandatory**: suite ไม่มี transaction rollback ระดับรวมและจงใจรัน `DELETE FROM vault_blobs/vault_meta/shares`, reset profile/avatar, ลบ+สร้าง seed user เพื่อพิสูจน์ FK cascade และ helper อาจเปลี่ยนรหัส seed accounts จริง จึงไม่ชี้ `TEST_DATABASE_URL` ไป live เด็ดขาด
+- **Pre-run proof**: สร้าง `aegis_drive_test` ใน Postgres container เดิม, โหลด IDEA1 `schema.sql` + `seed.sql`, จำกัด CONNECT/DML ให้ `drive_app`; database identity แยกจริง (`aegis_drive` OID 16385, test OID 16672). Row counts ก่อนรันทั้งสองฐาน: users=2, vault_blobs=0, vault_meta=0, shares=0
+- **Environment scope**: source bind-mount read-only; dependencies อยู่ anonymous volume; `TEST_DATABASE_URL=postgresql://drive_app:***@postgres:5432/aegis_drive_test` ถูกส่งเฉพาะ `docker exec` test process. ไม่แก้ root `.env`, ไม่เปลี่ยน Drive container `DATABASE_URL`, ไม่สร้าง/แก้ application หรือ test file
+- **Runner finding**: Node 20.20.2 หยุดก่อน discovery ด้วย `Could not find '/work/tests/**/*.test.js'` เพราะไม่ expand quoted glob; ไม่มี test ใดเริ่มและฐานไม่ถูกแตะ. เปลี่ยนเฉพาะ ephemeral runner เป็น Node 24 (ตรงกับ local 24.14.0), ไม่แก้ package/test source
+- **Final result**: `npm test` = **119 total / 119 pass / 0 fail / 0 skipped / 0 cancelled**, duration 47.14s. ทั้ง 18 ที่เคย skip ทำงานและผ่านครบ
+- **Post-run safety proof**: live counts ยัง users=2, vault_blobs=0, vault_meta=0, shares=0 และ `/drive/healthz` = 200 `{ok:true,db:postgres}`; test counts cleanup กลับค่าเดียวกัน; ลบ runner + anonymous volume, connection ค้างใน test DB = 0, `DROP DATABASE aegis_drive_test` สำเร็จ; final DB list มีเพียง `aegis_db`, `aegis_drive`, `aegis_monitor`, `postgres`
+- **Cleanup diagnostic note**: terminate query ครั้งแรกพิมพ์ตก `FROM pg_stat_activity` จึงถูก PostgreSQL ปฏิเสธก่อนทำอะไร; query ที่แก้แล้วคืน 0 active sessions ก่อน DROP — ไม่กระทบ live หรือผลทดสอบ
+- **Modified source/test paths**: ไม่มี (run-and-report only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Terminal_Verification_Protocol.md`, `summaries/04_IDEA1_Drive_Build_Out.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+
+## [2026-08-07] investigation | `/api/storage` และ `/api/files` ถูก force-reset gate ไม่ใช่ PostgreSQL 500
+- **Prompt goal**: ตรวจ log รอบ 20:35 เพื่อหา exact error ของ Storage/Files, แยก transient กับ reproducible และเสนอแนวแก้โดยยังไม่แก้ source
+- **Timestamp evidence**: Gateway log แสดง login `200` เวลา 20:31; เวลา 20:35 `/api/me` และ `/healthz` สำเร็จ แต่ `/api/dashboard`, `/api/files`, `/api/storage`, `/api/users` ตอบ `403` body 35 bytes ซ้ำตามรอบ poll ไม่มี `500`; Drive ไม่มี `unhandled error` stack และ PostgreSQL ไม่มี query/connection error
+- **Root cause**: live DB มี `must_reset_password=TRUE` ทั้ง `admin`/`user`; backend จึงตอบ `PASSWORD_RESET_REQUIRED` ถูกต้องก่อนเข้า route handler แต่ `Login.jsx`/`App.jsx` ไม่พาผู้ใช้เข้า mandatory reset flow และเปิด data hooks ทันที ส่วน `apiFetch` ลดรหัสเฉพาะนี้เป็น generic `forbidden`
+- **Reproduction/safety**: เรียก `listFiles()` และ `storageStatus()` แบบ read-only ใน Drive container อย่างละ 3 รอบ สำเร็จครบ 6 ครั้ง; Files = 0 แถว, Storage = real `statfs` + ทุก category 0 จึงตัด empty-table/query/filesystem ออกจากสาเหตุ ไม่มีการแก้หรือเขียน live data
+- **Transient assessment**: reproducible authorization/UI integration bug ไม่ใช่ connection drop; retry/backoff ช่วยไม่ได้เพราะทุก poll ถูกบล็อกจน `/api/password/reset` สำเร็จ และ `useApi` ไม่มี exponential backoff
+- **Proposed fix — not applied**: แยก `PASSWORD_RESET_REQUIRED` ใน `apiFetch`, render mandatory reset surface ก่อน shell, gate data hooks ระหว่าง flag เป็น true, แล้วอัปเดต session หลัง reset; คง server gate เดิม
+- **Modified source/test paths**: ไม่มี (investigation/report only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `summaries/04_IDEA1_Drive_Build_Out.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+
+## [2026-08-07] vibe-coding | ปิด first-login PASSWORD_RESET_REQUIRED flow ของ IDEA1 Drive
+- **Prompt goal**: ทำให้ `PASSWORD_RESET_REQUIRED` เป็น auth state โดยตรงแทน generic Forbidden; แสดง mandatory password reset gate แทน shell; หยุด protected hooks ทุกตัวก่อนรีเซ็ต; ใช้ endpoint เดิมและเข้า shell ต่อโดยไม่ reload
+- **API classification**: `src/lib/api.js` export ค่าคงที่ `PASSWORD_RESET_REQUIRED` และคืน `errorKind:'password-reset-required'` + `errorCode` สำหรับ 403 body นี้โดยเฉพาะ ขณะที่ CSRF/Forbidden เดิมไม่เปลี่ยน
+- **Client gate**: เพิ่ม `src/screens/MandatoryPasswordReset.jsx` — current temporary/new/confirm อยู่ใน React state เท่านั้น, ไม่มี local/session storage, มี identity + logout โดยไม่มี Sidebar/TopBar nav; wrong-current ใช้ `suppressAuthHandler` เพื่อไม่ให้ 401 ที่ endpoint ใช้ตามสัญญาถูกตีความว่า session หมด, weak-password และ server error แสดงตรงสาเหตุ
+- **Polling prevention**: `App.jsx` สร้าง `protectedDataEnabled = session && !mustResetPassword`; Dashboard, `/healthz`, Files และ Users hooks รับ `null` ระหว่าง gate และ protected screen map ถูกสร้างหลัง reset branch เท่านั้น จึงไม่มี 403 polling storm หรือ screen mount หลุดเข้ามา
+- **Unlock behavior**: หลัง `POST /api/password/reset` ตอบสำเร็จ อัปเดต session copy ในหน่วยความจำเป็น `mustResetPassword:false`; shell และ hooks เริ่มเองจาก render ถัดไป ไม่มี reload และไม่แก้ backend `requireRole.js`/endpoint/schema
+- **Regression**: เพิ่ม `tests/passwordResetGate.test.js` + lightweight shell fixture ครอบ first-class API error, reset-required session = gate + 0 protected calls, reset success = shell + protected calls, และ normal session bypass; RED พิสูจน์ก่อนแก้ว่าเดิมคืน `forbidden` และ mount Dashboard ทันที
+- **Verification**: local `npm test` = 104 pass / 0 fail / 18 PostgreSQL-only skip; production `npm run build` สำเร็จ (warning chunk >500 kB เดิม); isolated PostgreSQL Node 24 runner = **122/122 pass, 0 fail, 0 skip** ใน 47.1s
+- **Database safety**: test DB OID แยก (`aegis_drive` 16385, `aegis_drive_test` 16672); ก่อน/หลัง live counts คงเดิม users=2, vault_blobs=0, vault_meta=0, shares=0; health ยัง `{ok:true,db:postgres}`; runner/anonymous volume ไม่มีค้าง, active test sessions=0, DROP สำเร็จ และ final DB list ไม่มี `aegis_drive_test`
+- **UI audit**: ไม่มี P0/P1 ในหน้าด่านใหม่ — landmarks/form labels/alert/focus states ครบ, primary controls ขนาด touch-friendly, ใช้ token รองรับ light/dark และ responsive; คง HUD ambience แบบ Login โดยไม่เพิ่ม motion choreography หรือข้อมูลปลอม
+- **Modified source/test paths**: `IDEA1-AEGIS_Drive_LC/src/App.jsx`, `src/lib/api.js`, `src/lib/strings.js`, `src/screens/MandatoryPasswordReset.jsx`, `tests/passwordResetGate.test.js`, `tests/fixtures/appShellStubs.jsx`, `docs/superpowers/plans/2026-08-07-drive-password-reset-gate.md`
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `summaries/02_Security_Auth_and_Identity.md`, `summaries/04_IDEA1_Drive_Build_Out.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+
+## [2026-08-07] vibe-coding | สำรวจจุดแสดง Live Status ของ IDEA1 Drive จากภาพทั้ง 15 หน้า
+- **Prompt goal**: ลิสต์จุดที่แสดงค่าสด/สถานะสดทั่ว AEGIS Drive เพื่อใช้วิเคราะห์และตัดสินใจขั้นถัดไป โดยตรวจทั้งภาพและแหล่งข้อมูลจริงในโค้ด
+- **Refresh inventory**: TopBar health 15 วินาที; Dashboard/Sidebar 30 วินาที; Storage 60 วินาที; Shares/Audit 30 วินาที; clock/countdown 1 วินาที; Upload queue เปลี่ยนตามงานจริง; Files/File History/Access/Settings/Vault ส่วนใหญ่เป็น snapshot ตอนเปิดหน้าหรือหลัง manual retry
+- **New evidence**: `/healthz` ตรวจ DB เท่านั้นแต่ถูกเรียก Edge node; Data Lake ใช้ health bit เดียวกับสาม layer และ latency 12/4/2 ms เป็นค่าคงที่; Storage display ปน decimal/binary จึงเห็น 89/1081, 88.6/1007 และ 82.6/1007 จาก payload เดียว; active-share totals รวมลิงก์หมดอายุ; security KPI เป็น rolling audit count; Verify checksum ไม่ rehash ไฟล์บนดิสก์; Upload rail เป็นเปอร์เซ็นต์ประจำ stage ไม่ใช่ byte progress และ copy เรื่อง encryption ขัดกับ Data Lake plaintext-at-rest ที่ track อยู่แล้ว
+- **Decision status**: บันทึก 5 รายการเป็น **Awaiting go-ahead**; ยังไม่แก้ source ตามขอบเขตที่ผู้ใช้ขอให้วิเคราะห์และลิสต์เท่านั้น
+- **Modified source/test paths**: ไม่มี (analysis/report only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Honest_Telemetry_and_Unavailable_States.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+## [2026-08-07] vibe-coding | ปิด IDEA1 data-honesty Tier P0 — encryption copy, real checksum, no demo override
+- **Prompt goal**: ปิดข้อค้นพบ P0 จาก live-vs-snapshot-vs-fake audit ก่อนเริ่ม P1/P2 โดยห้ามสร้างสถานะหรือคำกล่าวอ้างที่ไม่มีหลักฐาน
+- **P0-1**: Upload ปกติและ Login defense-layer readout ระบุชัดว่า Data Lake ยังไม่มี encryption at rest, ลบภาพ/ชิปที่สื่อว่าไฟล์กำลังกลายเป็น ciphertext และเปลี่ยน storage badge เป็น neutral; Private Vault ยังเป็นเส้นทางเดียวที่อ้าง client-side AES-256-GCM ได้ตามจริง
+- **P0-2**: เพิ่ม `POST /api/files/:id/verify` อ่านไบต์ปัจจุบันจาก volume แบบ stream, คำนวณ SHA-256 ใหม่, เทียบ metadata hash และลง `FILE_VERIFY` audit; Files UI รอผล API จริงและไม่ใช้ upload-time `verified` flag อีก; Vault plaintext แสดง unavailable อย่างซื่อสัตย์
+- **P0-3**: ลบ Dashboard Flask/Demo control, local override state และ translation keys ทั้ง EN/TH/ZH; source scan ไม่พบ code path ที่บังคับ Healthy/Degraded/Down เหลืออยู่
+- **TDD/verification**: RED ยืนยันเดิมได้ 404/ข้อความเท็จ/demo control; GREEN targeted 15/15. Full Node 24 บน `aegis_drive_test` สดใหม่ = **125/125 pass, 0 fail, 0 skip**; Vite production build ผ่าน (มี chunk-size warning เดิม). Source mount read-only, live DB ไม่ถูกชี้, test DB ถูก DROP และตรวจไม่พบหลังจบ
+- **Modified source/test paths**: `IDEA1-AEGIS_Drive_LC/server/routes/api.js`, `src/screens/{Files.jsx,Uploads.jsx,Dashboard.jsx}`, `src/lib/strings.js`, `tests/{filesOwnership.test.js,dashboardEmptyState.test.js}`
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Honest_Telemetry_and_Unavailable_States.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+## [2026-08-07] vibe-coding | ปิด IDEA1 data-honesty Tier P1 — shared capacity/share semantics and scoped Access evidence
+- **Prompt goal**: ปิด finding P1 จาก live-vs-snapshot-vs-fake audit โดยให้ค่าที่ซ้ำกันใช้ source/predicate/หน่วยเดียว และไม่ขยาย semantic เกินหลักฐานจริง
+- **Capacity/share**: Sidebar + Dashboard เปลี่ยนจาก decimal division เป็น `fmtBytes` เดียวกับ Storage; store ทั้ง PostgreSQL/memory กรอง active shares ด้วย not-revoked + not-expired ก่อน Dashboard และ `/api/shares` ใช้ร่วมกัน
+- **Security/Access**: KPI ระบุ `DENIED/BLOCKED (100 รายการล่าสุด)` ตาม query จริง; ป้ายบัญชีเป็น Account ready ตาม reset gate; `/api/users` นับ session จริงจาก Express store ต่อ user และ UI ระบุชัดว่าเป็นอินสแตนซ์นี้/volatile ภายใต้ MemoryStore
+- **TDD/verification**: regression ใหม่ครอบ expired share, byte formatter, label scope และ session count จริง; full Node 24 บนฐานแยกสด = **128/128 pass, 0 fail, 0 skip**; production buildผ่านพร้อม chunk-size warning เดิม
+- **Database safety**: `TEST_DATABASE_URL` อยู่เฉพาะ test process, `.env` แอปไม่ถูกแก้; live/test sanity counts ก่อนรันเท่ากันตาม seed แต่เป็นคนละฐาน; หลังจบ DROP `aegis_drive_test` และ query ยืนยันไม่พบ
+- **Modified source/test paths**: `IDEA1-AEGIS_Drive_LC/server/{auth/session.js,db/connection.js,db/store.js,routes/api.js}`, `src/components/Sidebar.jsx`, `src/screens/{Access.jsx,Dashboard.jsx,Shares.jsx}`, `src/lib/strings.js`, `tests/{accessUsers.test.js,dashboardAggregates.test.js,dashboardEmptyState.test.js}`
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Honest_Telemetry_and_Unavailable_States.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+## [2026-08-07] vibe-coding | ปิด IDEA1 data-honesty Tier P2 — independent health probes and real byte progress
+- **Prompt goal**: ลบ telemetry placeholder ที่ดูเหมือนสดออกทั้งหมด โดยให้แต่ละ layer มีหลักฐานแยกและ upload progress มาจากไบต์จริง
+- **Health probes**: `/healthz.layers` วัด Application ด้วย Express event-loop turn, Metadata ด้วย PostgreSQL `SELECT 1`, Storage ด้วย write/read/compare/delete 32 random bytes บน mount จริง; probe ลบไฟล์ทุกเส้นทางและไม่เปิด path/error ภายใน
+- **UI semantics**: Dashboard อ่าน status/latency ของแต่ละ layer โดยตรงและไม่มี `baseLat 12/4/2`; missing/unchecked เป็น neutral ไม่มีข้อมูล; TopBar เปลี่ยน Edge node เป็น Drive และแยก Metadata probe
+- **Upload progress**: เพิ่ม `apiUpload` ด้วย XHR `upload.onprogress`, CSRF/session/auth-error contract เดิม; `Uploads.jsx` เก็บเปอร์เซ็นต์จาก `loaded/total` เท่านั้นและลบ 5/40/75/100 stage constants
+- **TDD/verification**: RED 4/4 ก่อน implementation; targeted compatibility suite 32/32; full Node 24 บนฐานแยกสด = **132/132 pass, 0 fail, 0 skip**; production build และ Docker rebuild ผ่าน (chunk-size warning เดิม)
+- **Runtime evidence/cleanup**: live `/drive/healthz` ตอบ PostgreSQL พร้อม Application 0.451 ms, Metadata 0.948 ms, Storage 1.579 ms ณรอบตรวจ; Drive container healthy; login UI HTTP ใช้งานได้และ console ไม่มี warning/error; `aegis_drive_test` ถูก DROP และตรวจไม่พบ
+- **Modified source/test paths**: `IDEA1-AEGIS_Drive_LC/server/{app.js,db/connection.js,storage/fileStore.js}`, `src/{components/TopBar.jsx,lib/api.js,lib/strings.js,screens/Dashboard.jsx,screens/Uploads.jsx}`, `tests/{healthTelemetry.test.js,uploadProgress.test.js}`
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `02 - 💾 IDEA1 AEGIS Drive LC.md`, `concepts/Honest_Telemetry_and_Unavailable_States.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`
+## [2026-08-08] handoff | เตรียมคำสั่ง Git สำหรับ IDEA1 Drive + Obsidian โดยไม่ stage ไฟล์ local ปะปน
+- **Prompt goal**: ให้คำสั่งนำงานที่ทำเสร็จขึ้น Git โดยคงความปลอดภัยของ worktree ที่มีการเปลี่ยนแปลงจำนวนมากจากหลายโมดูล
+- **Repository state**: branch ปัจจุบันคือ `fix/hub-nginx-monitor-routing-and-ingest-guard`; `origin` ชี้ `kraveerachat/Project-End-The-AEGIS`; worktree มีไฟล์ local/tooling และ clone ซ้อน จึงห้ามใช้ `git add .`
+- **Recommended scope**: สร้าง branch `codex/idea1-drive-honesty-sync`, stage เฉพาะ `IDEA1-AEGIS_Drive_LC`, Docker bootstrap files และ Obsidian notes ที่เกี่ยวข้อง จากนั้นตรวจ `git diff --cached` ก่อน commit/push
+- **Modified source/test paths**: ไม่มี (read-only Git inspection and handoff guidance)
+- **Updated Obsidian notes**: `log.md`
+
+## [2026-08-08] git | เผยแพร่ accumulated AEGIS_System workspace updates
+- **Prompt goal**: นำงานที่สะสมใน `AEGIS_System` ขึ้น `https://github.com/kraveerachat/Project-End-The-AEGIS.git` โดยรักษาความปลอดภัยของข้อมูล local และไม่ force push
+- **Publication scope**: application source ของ HUB/IDEA1/IDEA2, Docker/PostgreSQL bootstrap, automated tests, project docs และ Obsidian knowledge base บน branch `fix/hub-nginx-monitor-routing-and-ingest-guard`
+- **Intentional exclusions**: root/module `.env`, `.claude/settings.local.json`, nested clone `Project-End-The-AEGIS/`, `AEGIS_Camera/clips/`, `AEGIS_Camera/detection_log.csv`, dependencies และ generated local artifacts; `.env.example` ยังคงเป็น template ที่เผยแพร่ได้
+- **Verification**: Drive PostgreSQL suite **132/132 pass, 0 fail, 0 skip**; Monitor **6/6 pass**; Docker bootstrap **2/2 pass**; `npm run build` สำเร็จใน HUB, Drive และ Monitor (Drive มีเพียง chunk-size warning); ไม่พบ Python test files
+- **Database safety**: ใช้ `TEST_DATABASE_URL` เฉพาะ ephemeral Node 24 test process กับฐาน `aegis_drive_test` ที่มี OID แยก; live/test pre-run counts เท่ากันตาม seed (users=2, vault_blobs=0, vault_meta=0, shares=0); cleanup ยืนยัน test database count=0
+- **Modified source/test paths**: ไม่มี source change เพิ่มจากงานเดิม; งานนี้จัดทำ publication manifest, verification, Git commit/push และ Pull Request
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `log.md`

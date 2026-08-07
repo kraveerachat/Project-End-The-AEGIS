@@ -1,0 +1,21 @@
+{
+  "userIgnoreFilters": [
+    "node_modules/",
+    ".claude/",
+    ".agents/",
+    ".cursor/",
+    ".gemini/",
+    ".git/",
+    ".impeccable/",
+    "dist/",
+    "build/",
+    "__pycache__/",
+    ".venv/",
+    "**/PUT-LOGOS-HERE.md"
+  ],
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "relative",
+  "useMarkdownLinks": false,
+  "attachmentFolderPath": "./attachments",
+  "showUnsupportedFiles": false
+}

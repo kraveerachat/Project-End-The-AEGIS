@@ -162,6 +162,35 @@ test('ไฟล์ที่ไม่มีอยู่ → 404 (ด่าน own
   assert.equal(res.status, 404)
 })
 
+// ═══ Verify checksum ต้องอ่าน bytes ปัจจุบันจากดิสก์จริง ═══════════════════════
+test('ตรวจ SHA-256 ใหม่จาก Storage Layer และจับไฟล์ที่ถูกแก้หลังอัปโหลดได้จริง', async () => {
+  const alice = await loginAs(USER_A)
+  const original = 'integrity probe — original bytes'
+  const file = await uploadFile(alice, {
+    name: `checksum-${Date.now()}.txt`,
+    content: original,
+  })
+
+  const first = await alice.req(`/api/files/${encodeURIComponent(file.id)}/verify`, { method: 'POST' })
+  assert.equal(first.status, 200)
+  assert.equal(first.data?.match, true, 'ไฟล์ที่ยังไม่ถูกแก้ต้องตรงกับ hash ตอนอัปโหลด')
+  assert.equal(first.data?.storedSha256, file.sha256)
+  assert.equal(first.data?.actualSha256, file.sha256)
+
+  // ⚠️ แก้ bytes ที่ Storage Layer โดยตรงเพื่อพิสูจน์ว่า endpoint ไม่ได้อ่านแค่ flag
+  //    verified จาก metadata เดิม ซึ่งจะยังเป็น true แม้ไฟล์จริงถูกแก้ไปแล้ว
+  const abs = resolveKey(file.path)
+  await fs.writeFile(abs, 'integrity probe — tampered bytes')
+
+  const second = await alice.req(`/api/files/${encodeURIComponent(file.id)}/verify`, { method: 'POST' })
+  assert.equal(second.status, 200)
+  assert.equal(second.data?.match, false, 'ต้องตรวจพบ bytes ที่เปลี่ยนหลังอัปโหลด')
+  assert.equal(second.data?.storedSha256, file.sha256)
+  assert.notEqual(second.data?.actualSha256, file.sha256)
+
+  await alice.req(`/api/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' })
+})
+
 // ═══ audit ต้องเห็นความพยายามที่ถูกปฏิเสธ ═════════════════════════════════════
 test('ความพยายามลบข้ามเจ้าของถูกบันทึกลง audit เป็น DENIED', async () => {
   const alice = await loginAs(USER_A)

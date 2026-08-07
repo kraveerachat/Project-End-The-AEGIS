@@ -170,6 +170,40 @@ export function listSessionsForUser(req) {
   })
 }
 
+/**
+ * นับเซสชันต่อ user จาก store ของ Express อินสแตนซ์นี้จริง ๆ สำหรับจอ Admin
+ *
+ * ⚠️ คืนเฉพาะจำนวน ไม่คืน IP/user-agent/session ref ของคนอื่น เพื่อลดการเปิดเผยข้อมูล
+ * ⚠️ null หมายถึง store นี้ไม่มี all() หรืออ่านล้มเหลว — ห้ามแทนด้วย 0 เพราะ 0 จะเป็น
+ *    คำกล่าวอ้างว่าไม่มีเซสชัน ทั้งที่ความจริงคืออินสแตนซ์นี้นับไม่ได้
+ * ⚠️ MemoryStore มีขอบเขตแค่ process ปัจจุบันและหายเมื่อ restart; API/UI ต้องระบุ
+ *    "อินสแตนซ์นี้" ไม่เรียกตัวเลขนี้ว่าเซสชันทั่วทั้งระบบ
+ * @returns {Promise<Map<string, number>|null>}
+ */
+export function countSessionsByUser(req) {
+  const store = req.sessionStore
+  if (!store?.all) return Promise.resolve(null)
+
+  return new Promise((resolve) => {
+    store.all((err, sessions) => {
+      if (err || !sessions) return resolve(null)
+      const entries = Array.isArray(sessions) ? sessions : Object.values(sessions)
+      const counts = new Map()
+      const now = Date.now()
+      for (const raw of entries) {
+        const data = typeof raw === 'string' ? safeParse(raw) : raw
+        const userId = data?.user?.id
+        if (userId == null) continue
+        const expiresAt = data.cookie?.expires ? new Date(data.cookie.expires).getTime() : null
+        if (Number.isFinite(expiresAt) && expiresAt <= now) continue
+        const key = String(userId)
+        counts.set(key, (counts.get(key) ?? 0) + 1)
+      }
+      resolve(counts)
+    })
+  })
+}
+
 function safeParse(s) {
   try { return JSON.parse(s) } catch { return null }
 }
