@@ -1,0 +1,30 @@
+name: Collaboration guardrails
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  collaboration-policy:
+    name: collaboration-guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Pull Request history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-status "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/aegis-changed-files.txt"
+
+      - name: Validate collaboration policy
+        run: >-
+          node scripts/validate-collaboration-policy.mjs
+          --event "$GITHUB_EVENT_PATH"
+          --changed-files "$RUNNER_TEMP/aegis-changed-files.txt"

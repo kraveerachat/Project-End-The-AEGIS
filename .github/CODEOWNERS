@@ -1,0 +1,30 @@
+# Default integration reviewer until the team ownership map is fully stabilized.
+* @kraveerachat
+
+# Governance and enforcement rules.
+/.github/ @kraveerachat
+/AGENTS.md @kraveerachat
+/CLAUDE.md @kraveerachat
+/GEMINI.md @kraveerachat
+/CONTRIBUTING.md @kraveerachat
+/scripts/validate-collaboration-policy.mjs @kraveerachat
+/tests/collaborationPolicy.test.mjs @kraveerachat
+
+# Application ownership and review routing.
+/IDEA1-AEGIS_Drive_LC/ @kraveerachat
+/IDEA2-AEGIS_CCTV-Operator/ @kraveerachat @pubpup2006p-design
+/IDEA2-AEGIS_Monitor/ @kraveerachat @pubpup2006p-design
+/AEGIS_Camera/ @kraveerachat @pubpup2006p-design
+/IDEA3-AEGIS_Lockdown/ @kraveerachat
+
+# Shared integration surfaces.
+/HUB-AEGIS_Entry/ @kraveerachat
+/gateway/ @kraveerachat
+/postgres/ @kraveerachat
+/shared/ @kraveerachat
+/docker-compose.yml @kraveerachat
+
+# Knowledge base: Kla remains integration reviewer; IDEA2 also routes to Pub.
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/ @kraveerachat
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/03* @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/05_* @kraveerachat @pubpup2006p-design
