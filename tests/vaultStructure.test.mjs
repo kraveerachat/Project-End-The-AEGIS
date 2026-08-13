@@ -174,6 +174,40 @@ test('rejects phantom legacy files, empty untitled canvases, and an ungrouped gr
   });
 });
 
+test('rejects each missing Global Graph search exclusion independently', () => {
+  const cases = [
+    {
+      search: '-file:"log" -path:"raw"',
+      matches: (error) => error.includes('90-Status/logs'),
+    },
+    {
+      search: '-path:"90-Status/logs" -path:"raw"',
+      matches: (error) => /\blog\b/.test(error),
+    },
+    {
+      search: '-path:"90-Status/logs" -file:"log"',
+      matches: (error) => error.includes('raw'),
+    },
+  ];
+
+  for (const { search, matches } of cases) {
+    const files = workspaceFiles();
+    files['.obsidian/graph.json'] = JSON.stringify({
+      search,
+      hideUnresolved: true,
+      showOrphans: false,
+      showArrow: true,
+      colorGroups: ['core', 'idea1', 'idea2', 'idea3', 'infrastructure'].map((path) => ({
+        query: `path:"${path}"`, color: { a: 1, rgb: 1 },
+      })),
+    });
+    withVault(files, (root) => {
+      const result = validateWorkspaceLayout({ vaultDir: root });
+      assert.ok(result.errors.some(matches));
+    });
+  }
+});
+
 test('warns instead of approving deletion when an untitled canvas contains data', () => {
   const files = workspaceFiles();
   files['ยังไม่ได้ตั้งชื่อ.canvas'] = '{"nodes":[{"id":"owner-data"}],"edges":[]}';
