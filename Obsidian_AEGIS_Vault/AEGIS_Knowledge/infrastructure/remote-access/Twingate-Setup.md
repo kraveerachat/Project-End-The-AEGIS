@@ -4,13 +4,15 @@ tags: [aegis, infrastructure, remote-access, twingate, ztna, zero-trust, securit
 type: infrastructure
 status: ✅ ใช้งานได้จริง+ทดสอบจากภายนอกแล้ว · ⏳ ค้าง security housekeeping
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-11
+owner: kla
+edit_policy: owner-writable
 ---
 
 # ☁️ Twingate ZTNA — ช่องทาง Remote Access จริง
 
-> **นี่คือช่องทาง Remote Access เดียวที่ใช้งานจริง** ส่วน OpenVPN ถูกยกเลิกแล้ว → [[30-RemoteAccess/OpenVPN-Deprecated]]
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> **นี่คือช่องทาง Remote Access เดียวที่ใช้งานจริง** ส่วน OpenVPN ถูกยกเลิกแล้ว → [[infrastructure/remote-access/OpenVPN-Deprecated]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -72,7 +74,7 @@ flowchart TD
     class L3 warn;
 ```
 
-> ชั้นที่ 3 ยังไม่แข็งเต็มที่ → [[20-Server/SSH-Hardening-Status]]
+> ชั้นที่ 3 ยังไม่แข็งเต็มที่ → [[infrastructure/server/SSH-Hardening-Status]]
 
 ---
 
@@ -87,6 +89,15 @@ flowchart TD
 
 > ⚠️ **ห้ามใส่ Connector Token / Service Key จริงลงในโน้ตนี้หรือใน repo** — ใช้ placeholder `<TWINGATE_CONNECTOR_TOKEN>` เท่านั้น
 
+### UFW path status (อัปเดต 2026-08-11)
+
+| เส้นทาง | สถานะ | หลักฐานที่บันทึกได้ |
+| :--- | :--- | :--- |
+| Twingate → Beelink SSH | ✅ ผู้ดูแลระบบยืนยันว่าตั้งและทดสอบแล้ว | Prompt นี้ไม่ได้แนบ exact UFW rule/source/interface output จึงไม่เดาค่าเพิ่ม |
+| VLAN 30 → Beelink SSH โดยตรง | ⏳ ยังต้องทดสอบ | ต้องเปิด session ใหม่จาก Management VLAN ให้ผ่านก่อนถือว่า production policy ครบ |
+
+ข้อกำหนดเดิมที่ให้ allow SSH เฉพาะ `192.168.30.0/24` เป็นเศษจากแผน OpenVPN และไม่พอสำหรับ Twingate; ตอนนี้ Twingate path ปิดงานแล้ว แต่ต้องรักษา rule นั้นไว้ระหว่างทดสอบ VLAN 30 และคง working Twingate/admin session เพื่อ rollback หาก direct test ไม่ผ่าน
+
 ---
 
 ## ⚠️ ข้อควรระวังก่อน Deploy Docker Stack
@@ -97,7 +108,7 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 * ⇒ Connector อาจ **เข้าถึง Drive/Monitor ไม่ได้** แม้จะสร้าง Resource ชี้ไปที่ `.11` / `.12` แล้วก็ตาม
 * แผนสำรอง: เปลี่ยน Connector เป็น `--network host` **หรือ** เลิกใช้ Macvlan แล้วใช้ Bridge + Reverse Proxy แทน
 
-รายละเอียด: ข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[40-Deployment/Docker-Stack-Plan]]
+รายละเอียด: ข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[infrastructure/deployment/Docker-Stack-Plan]]
 
 ---
 
@@ -106,7 +117,7 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 เล่ม §2.3.4 / §3.5.6 ระบุว่า **"ต้องเข้าวง VLAN 30 Management ก่อนจึงเข้าถึงบริการอื่นได้"**
 แต่ Resource `AEGIS-Beelink-SSH` **ชี้ตรงไปที่ `192.168.10.10` (VLAN 10) โดยไม่ผ่าน VLAN 30**
 
-→ ยังไม่ตัดสินใจว่าจะแก้ทางไหน ดูข้อ 3 ใน [[90-Status/Document-Conflicts]] ⏳
+→ สำหรับ Security Layer 0 ให้ยึด **Resource-level path ที่ใช้งานจริง** และไม่บังคับ Twingate ให้ได้สิทธิ์ทั้ง VLAN 30; VLAN 30 ยังเป็น direct-management path แยกต่างหาก ส่วนการแก้ถ้อยคำในเล่มยังค้างตามข้อ 3 ใน [[90-Status/Document-Conflicts]].
 
 ---
 
@@ -117,9 +128,9 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 > ย้ำ: ใน repository และ Obsidian มีเฉพาะ placeholder เท่านั้น ห้าม commit Connector Token จริง และงาน P1 เดิม (rotate token, จำกัด Group, restart policy/health check) ยังไม่ปิด
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[30-RemoteAccess/OpenVPN-Deprecated]]
-* [[20-Server/SSH-Hardening-Status]] · [[20-Server/Beelink-Ubuntu-Host]]
-* [[10-Network/MikroTik-Config]] (Double NAT)
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/remote-access/OpenVPN-Deprecated]]
+* [[infrastructure/server/SSH-Hardening-Status]] · [[infrastructure/server/Beelink-Ubuntu-Host]]
+* [[infrastructure/network/MikroTik-Config]] (Double NAT)
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] (ฉบับออกแบบในเล่ม — ⚠️ ล้าสมัย)
 * [[90-Status/Document-Conflicts]] · [[90-Status/Open-Items-Backlog]]

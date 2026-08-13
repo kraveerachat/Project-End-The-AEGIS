@@ -5,6 +5,8 @@ type: entity
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: music
+edit_policy: owner-writable
 ---
 
 # ⚡ ESP32 & Relay Module (Physical Breaker)
@@ -41,7 +43,7 @@ This is the actuation half of [[concepts/Cyber-Physical_Defense]] — the sensin
 
 ## 🔗 Related Notes
 * [[START_HERE]]
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
+* [[idea3/idea3-status]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Contain_Before_Notify]]
 * [[concepts/Cyber-Physical_Defense]]

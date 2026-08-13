@@ -5,6 +5,8 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 Infrastructure, Networking & Gateway — Consolidated
@@ -37,7 +39,7 @@ sources: ["[[log]]"]
 - Production network: `subnet=192.168.10.0/24`, `gateway=.1`, `hub=.10` (nginx TLS :443 + :80→301), `drive=.11:8001`, `monitor=.12:8002`, `postgres=.15`.
 - Named volumes introduced for persistent storage: `drive_storage` (IDEA1 file bytes, mounted `/datalake`), with the Dockerfile switched to `mkdir /datalake && chown node:node` + `USER node` so the app never runs as root against its own data volume.
 - Session secrets decoupled per app (`DRIVE_SESSION_SECRET` / `MONITOR_SESSION_SECRET`) rather than shared.
-- `.dockerignore` added for IDEA1 after discovering `COPY . .` was pulling host `node_modules`/`dist` into the build context and bloating the image with unused multi-megabyte background assets (later replaced by WebP versions — see [[01 - 🚪 HUB-AEGIS Entry]]).
+- `.dockerignore` added for IDEA1 after discovering `COPY . .` was pulling host `node_modules`/`dist` into the build context and bloating the image with unused multi-megabyte background assets (later replaced by WebP versions — see [[core/hub-aegis-entry]]).
 - 12,551 tracked `node_modules` files removed from git (`git rm -r --cached`) after discovering they'd been committed; `.gitignore` corrected and verified with `git check-ignore`.
 
 ---

@@ -5,9 +5,14 @@ type: module-doc
 created: 2026-07-20
 updated: 2026-08-07
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 💾 IDEA1: AEGIS Drive LC (Secure NAS & Data Lake)
+
+> [!info] Ownership
+> Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
@@ -453,10 +458,10 @@ Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `t
 ---
 
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[01 - 🚪 HUB-AEGIS Entry]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/system-overview]]
+* [[core/hub-aegis-entry]]
+* [[idea2/idea2-status]]
+* [[core/security-architecture]]
 * [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]
 * [[concepts/Three_Layer_Data_Lake]]
 * [[concepts/OWASP_Security_Defense]]

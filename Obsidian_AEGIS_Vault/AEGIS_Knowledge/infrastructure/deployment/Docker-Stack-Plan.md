@@ -5,13 +5,15 @@ type: infrastructure
 status: ⏳ ยังไม่ deploy ลง Beelink
 created: 2026-08-06
 updated: 2026-08-07
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🐳 แผน Deploy Docker Production Stack ลง Beelink
 
 > ⚠️ **สถานะ: ⏳ ยังไม่ deploy ลง Beelink** — ห้ามเขียนในเล่มว่าระบบ deploy บน Server แล้ว
 > สิ่งที่รันบน Beelink จริง ณ ตอนนี้มีเพียง **Twingate Connector** container เท่านั้น
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -19,10 +21,10 @@ updated: 2026-08-07
 
 | Service | หน้าที่ | โน้ตรายละเอียด | สถานะบน Beelink |
 | :--- | :--- | :--- | :--- |
-| **gateway** (NGINX) | Reverse Proxy + HUB entry ที่ `/` | [[01 - 🚪 HUB-AEGIS Entry]] | ⏳ |
-| **drive** (IDEA1) | UI `:5174` / API `:8001` — Secure NAS & Data Lake | [[02 - 💾 IDEA1 AEGIS Drive LC]] | ⏳ |
-| **monitor** (IDEA2) | UI `:5176` / API `:8002` — SOC + CCTV Operator **รวมเป็นตัวเดียว** | [[03 - 📹 IDEA2 AEGIS Monitor]] | ⏳ |
-| **postgres** | `aegis_drive` + `aegis_monitor` (แยก DB / แยก role) | [[05 - 🛡️ Security Architecture]] | ⏳ |
+| **gateway** (NGINX) | Reverse Proxy + HUB entry ที่ `/` | [[core/hub-aegis-entry]] | ⏳ |
+| **drive** (IDEA1) | UI `:5174` / API `:8001` — Secure NAS & Data Lake | [[idea1/idea1-status]] | ⏳ |
+| **monitor** (IDEA2) | UI `:5176` / API `:8002` — SOC + CCTV Operator **รวมเป็นตัวเดียว** | [[idea2/idea2-status]] | ⏳ |
+| **postgres** | `aegis_drive` + `aegis_monitor` (แยก DB / แยก role) | [[core/security-architecture]] | ⏳ |
 | **storage volume** | `drive_storage → /datalake` (mount ให้ `drive` เท่านั้น) | [[concepts/Three_Layer_Data_Lake]] | ⏳ |
 
 > ⚠️ **CCTV Operator ถูกรวมเข้า Monitor แล้ว — ห้ามนับเป็นแอปที่ 4** (ดูข้อ 5 ใน [[90-Status/Document-Conflicts]])
@@ -36,7 +38,7 @@ updated: 2026-08-07
 
 **ปัญหาที่มองเห็นล่วงหน้า**:
 
-* [[30-RemoteAccess/Twingate-Setup|Twingate Connector]] รันอยู่บน **Docker bridge**
+* [[infrastructure/remote-access/Twingate-Setup|Twingate Connector]] รันอยู่บน **Docker bridge**
 * Linux มีข้อจำกัด **Macvlan-to-Host isolation** — โดยดีฟอลต์ host (และ container บน bridge) **คุยกับ container บน macvlan ไม่ได้** แม้จะอยู่ subnet เดียวกัน
 * ⇒ ถ้า deploy ตามเล่มตรง ๆ **Twingate อาจเข้าถึง Drive/Monitor ไม่ได้เลย** ทั้งที่ทุกอย่างดูเหมือนถูกต้อง
 
@@ -61,7 +63,7 @@ flowchart TD
 | **ข. เลิก Macvlan → Bridge + Reverse Proxy** ⭐ | ทุก service อยู่ bridge, เปิดผ่าน `gateway` ตัวเดียว, Twingate ชี้ที่ `192.168.10.10:80/443` | ตรงกับ compose ที่พัฒนามาแล้ว, Resource ใน Twingate เหลือน้อย, จัดการ TLS ที่จุดเดียว | ต้องแก้เล่มเรื่อง IP `.11`/`.12` |
 | **ค. Macvlan + สร้าง macvlan shim interface บน host** | เพิ่ม interface พิเศษบน host | เก็บทั้งสองอย่าง | ซับซ้อน ต้องแก้ netplan และอธิบายยากในเล่ม |
 
-> 💡 **ข้อเสนอแนะ**: ทางเลือก **ข** สอดคล้องกับสถาปัตยกรรมที่โค้ดเป็นอยู่จริงมากที่สุด (มี `gateway` NGINX ทำ reverse proxy ให้ `/drive/` และ `/monitor/` อยู่แล้ว ตาม [[00 - 🗺️ AEGIS System Overview]]) — ยังไม่ตัดสินใจ ⏳
+> 💡 **ข้อเสนอแนะ**: ทางเลือก **ข** สอดคล้องกับสถาปัตยกรรมที่โค้ดเป็นอยู่จริงมากที่สุด (มี `gateway` NGINX ทำ reverse proxy ให้ `/drive/` และ `/monitor/` อยู่แล้ว ตาม [[core/system-overview]]) — ยังไม่ตัดสินใจ ⏳
 
 ---
 
@@ -70,8 +72,8 @@ flowchart TD
 | # | งาน | สถานะ |
 | :-- | :--- | :--- |
 | 1 | **ตรวจสถานะ UFW จริง** (เคยปิดชั่วคราวตอนทดสอบ routing) แล้วเปิด production rules | ⏳ P1 |
-| 2 | ปิดงาน [[20-Server/SSH-Hardening-Status\|SSH Hardening]] | ⏳ P1 |
-| 3 | Rotate [[30-RemoteAccess/Twingate-Setup\|Twingate Connector Token]] | ⏳ P1 |
+| 2 | ปิดงาน [[infrastructure/server/SSH-Hardening-Status\|SSH Hardening]] | ⏳ P1 |
+| 3 | Rotate [[infrastructure/remote-access/Twingate-Setup\|Twingate Connector Token]] | ⏳ P1 |
 | 4 | **ตัดสินใจ Macvlan vs Bridge** ตามตารางด้านบน | ⏳ P2 |
 | 5 | Audit ว่า repo / Docker image / `.env` secrets เป็นเวอร์ชันล่าสุด | ⏳ P2 |
 | 6 | Deploy `gateway` + `drive` + `monitor` + `postgres` + storage volume | ⏳ P2 |
@@ -82,7 +84,7 @@ flowchart TD
 
 ## 🔍 หมายเหตุสำคัญเรื่องคำว่า "Deployed"
 
-[[00 - 🗺️ AEGIS System Overview]] บันทึกไว้ว่า (2026-07-28) *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` HTTP 200"*
+[[core/system-overview]] บันทึกไว้ว่า (2026-07-28) *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` HTTP 200"*
 
 ⚠️ **นั่นคือผลบนเครื่อง dev ของผู้พัฒนา ไม่ใช่บน Beelink** — ตอนอ่านเล่มหรือรายงานความคืบหน้าต้องแยกสองอย่างนี้ให้ชัด ดูข้อ 7 ใน [[90-Status/Document-Conflicts]]
 
@@ -98,8 +100,8 @@ flowchart TD
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[20-Server/Beelink-Ubuntu-Host]] · [[10-Network/VLAN-IP-Plan]]
-* [[30-RemoteAccess/Twingate-Setup]]
-* [[00 - 🗺️ AEGIS System Overview]] · [[05 - 🛡️ Security Architecture]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/server/Beelink-Ubuntu-Host]] · [[infrastructure/network/VLAN-IP-Plan]]
+* [[infrastructure/remote-access/Twingate-Setup]]
+* [[core/system-overview]] · [[core/security-architecture]]
 * [[90-Status/Document-Conflicts]] · [[90-Status/Open-Items-Backlog]]

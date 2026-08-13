@@ -3,7 +3,9 @@ title: Security Architecture
 tags: [aegis, security, owasp, rbac, authentication, trust-boundary]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-08-11
+owner: kla
+edit_policy: owner-only
 ---
 
 # 🛡️ AEGIS Security & Identity Architecture
@@ -65,10 +67,27 @@ erDiagram
 
 ---
 
+## 🔐 Host Security Layer 0 — SSH Administration
+
+The Beelink host has a separate least-privilege boundary beneath application RBAC:
+
+```mermaid
+flowchart LR
+    TG["Twingate Resource<br/>192.168.10.10:22/TCP"] --> SSH["OpenSSH daemon"]
+    SSH --> KEY["Individual ed25519 key"]
+    KEY --> ADMIN["admin-main<br/>system administration + sudo"]
+    KEY --> MEMBER["member account<br/>no implicit sudo"]
+    ADMIN --> CFG["sshd effective-config checks"]
+```
+
+The 2026-08-08 baseline through `admin-main` was `PubkeyAuthentication yes`, `PasswordAuthentication yes`, and `PermitRootLogin prohibit-password`, with the explicit password setting coming from `/etc/ssh/sshd_config.d/50-cloud-init.conf`. On 2026-08-11 the operator confirmed `PermitRootLogin no` is now applied and the Twingate UFW path works. `krayukantk` remains a non-sudo member with a working individual key; `pubpup2006p` still needs owner-generated key onboarding, so Password Auth intentionally remains enabled. The remaining target is `PasswordAuthentication no` after onboarding/cleanup, plus a direct VLAN 30 UFW test. Full operational status: [[infrastructure/server/SSH-Hardening-Status]] and [[infrastructure/server/Linux-User-Accounts]].
+
+---
+
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[01 - 🚪 HUB-AEGIS Entry]]
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
+* [[core/system-overview]]
+* [[core/hub-aegis-entry]]
+* [[idea1/idea1-status]]
+* [[idea2/idea2-status]]
+* [[idea3/idea3-status]]
 * [[concepts/Honest_Telemetry_and_Unavailable_States]]

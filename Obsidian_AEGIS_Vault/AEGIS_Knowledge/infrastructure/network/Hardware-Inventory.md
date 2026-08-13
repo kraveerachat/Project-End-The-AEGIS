@@ -5,6 +5,8 @@ type: infrastructure
 status: ✅ ครบตามแผน (ยกเว้น IDEA3 ⏳)
 created: 2026-08-06
 updated: 2026-08-06
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🧰 Hardware Inventory — อุปกรณ์จริงที่ติดตั้งแล้ว
@@ -12,7 +14,7 @@ updated: 2026-08-06
 > โน้ตนี้บันทึก **อุปกรณ์ที่มีอยู่จริงและใช้งานจริง** ณ 6 ส.ค. 2026
 > ถ้าเอกสาร/เล่มรายงานระบุรุ่นไม่ตรงกับตารางนี้ → **ยึดตารางนี้** และดู [[90-Status/Document-Conflicts]]
 >
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -24,8 +26,8 @@ updated: 2026-08-06
 | 2 | **MikroTik hEX lite** | **RB750r2** | Edge Router / Inter-VLAN Routing / Firewall | ether1 = WAN, ether2 = Trunk | ✅ ตั้งค่า+ทดสอบ Routing แล้ว |
 | 3 | **TP-Link Managed Switch** | **TL-SG105E** (5 พอร์ต) | Layer 2 VLAN Segmentation (802.1Q) | Port 1 = Trunk | ✅ ตั้ง VLAN/PVID+ทดสอบแล้ว |
 | 4 | **Admin Laptop** | เครื่องของกล้า (ผู้ดูแล infra) | Management workstation + Twingate client | VLAN 30 (Port 5) | ✅ ใช้งานจริง (📋 ยังไม่ fix IP) |
-| 5 | **Detection Laptop** | Laptop + Webcam | Edge AI — Detection Engine ของ [[03 - 📹 IDEA2 AEGIS Monitor]] | VLAN 20 (Port 3) | ✅ มีเครื่อง / ⏳ ยังไม่กำหนด IP |
-| 6 | **ESP32 + Relay Module** | ตาม [[entities/ESP32_Relay_Module]] | Cyber-Physical Lockdown ของ [[04 - 🔒 IDEA3 AEGIS Lockdown]] | ⏳ ยังไม่เข้าเครือข่าย | ⏳ **ต้องตรวจสถานะจริงว่ามีของ/ต่อได้หรือยัง** |
+| 5 | **Detection Laptop** | Laptop + Webcam | Edge AI — Detection Engine ของ [[idea2/idea2-status]] | VLAN 20 (Port 3) | ✅ มีเครื่อง / ⏳ ยังไม่กำหนด IP |
+| 6 | **ESP32 + Relay Module** | ตาม [[entities/ESP32_Relay_Module]] | Cyber-Physical Lockdown ของ [[idea3/idea3-status]] | ⏳ ยังไม่เข้าเครือข่าย | ⏳ **ต้องตรวจสถานะจริงว่ามีของ/ต่อได้หรือยัง** |
 
 > ⚠️ แถวที่ 6 ห้ามเขียนในเล่มว่าติดตั้งแล้ว — สถานะปัจจุบันของ IDEA3 คือ **"เขียนโค้ดแล้วยังไม่ทดสอบกับฮาร์ดแวร์"**
 
@@ -43,17 +45,17 @@ updated: 2026-08-06
 
 | งาน | สถานะ | อ้างอิง |
 | :--- | :--- | :--- |
-| Export config backup ของ MikroTik | ⏳ | [[10-Network/MikroTik-Config]] |
-| Backup config ของ Switch | ⏳ | [[10-Network/Switch-VLAN-Config]] |
-| กำหนด Static / DHCP Reservation ให้ Detection Laptop | ⏳ | [[10-Network/VLAN-IP-Plan]] |
-| ตรวจสถานะ ESP32 / Relay | ⏳ | [[04 - 🔒 IDEA3 AEGIS Lockdown]] |
+| Export config backup ของ MikroTik | ⏳ | [[infrastructure/network/MikroTik-Config]] |
+| Backup config ของ Switch | ⏳ | [[infrastructure/network/Switch-VLAN-Config]] |
+| กำหนด Static / DHCP Reservation ให้ Detection Laptop | ⏳ | [[infrastructure/network/VLAN-IP-Plan]] |
+| ตรวจสถานะ ESP32 / Relay | ⏳ | [[idea3/idea3-status]] |
 
 ---
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[10-Network/VLAN-IP-Plan]]
-* [[20-Server/Beelink-Ubuntu-Host]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/network/VLAN-IP-Plan]]
+* [[infrastructure/server/Beelink-Ubuntu-Host]]
 * [[entities/Beelink_Mini_S_NAS]] · [[entities/MikroTik_hEX_lite]] · [[entities/TP-Link_TL-SG105E]] · [[entities/ESP32_Relay_Module]]
 * [[90-Status/Open-Items-Backlog]]

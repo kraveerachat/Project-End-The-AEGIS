@@ -4,6 +4,8 @@ tags: [aegis, ui, ux, design-system, impeccable]
 type: workflow
 created: 2026-07-28
 updated: 2026-07-28
+owner: kla
+edit_policy: owner-writable
 ---
 
 # Impeccable UI Design Workflow

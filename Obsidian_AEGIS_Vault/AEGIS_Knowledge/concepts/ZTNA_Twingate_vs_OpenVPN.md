@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 ZTNA Twingate vs OpenVPN Dual Remote Access
@@ -59,7 +61,7 @@ graph TD
 
 ## Relationship to the rest of the security model
 
-Both doors are **remote-access paths into** the system; neither replaces the in-application controls. Whichever door a user arrives through, they still hit the same server-side gate: session → role → `camera_assignment` / ownership check. See [[05 - 🛡️ Security Architecture]] and [[concepts/Identity_Decoupling]] — a VPN grants *network reachability*, never application privilege.
+Both doors are **remote-access paths into** the system; neither replaces the in-application controls. Whichever door a user arrives through, they still hit the same server-side gate: session → role → `camera_assignment` / ownership check. See [[core/security-architecture]] and [[concepts/Identity_Decoupling]] — a VPN grants *network reachability*, never application privilege.
 
 The scoped, outbound-only ZTNA path is the same least-privilege reasoning applied at the network layer that [[concepts/Identity_Decoupling]] applies at the database layer and [[concepts/OWASP_Security_Defense]] applies at the request layer.
 
@@ -69,6 +71,6 @@ The scoped, outbound-only ZTNA path is the same least-privilege reasoning applie
 * [[START_HERE]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]
 * [[entities/MikroTik_hEX_lite]]
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[05 - 🛡️ Security Architecture]]
+* [[idea1/idea1-status]]
+* [[core/security-architecture]]
 * [[concepts/Cyber-Physical_Defense]]

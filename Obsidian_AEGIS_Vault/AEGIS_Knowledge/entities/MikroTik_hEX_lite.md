@@ -5,6 +5,8 @@ type: entity
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 MikroTik hEX lite (RB750r2 Edge Router)

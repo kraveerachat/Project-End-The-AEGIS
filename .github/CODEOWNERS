@@ -9,9 +9,12 @@
 /GEMINI.md @kraveerachat @pubpup2006p-design
 /CONTRIBUTING.md @kraveerachat @pubpup2006p-design
 /scripts/validate-collaboration-policy.mjs @kraveerachat @pubpup2006p-design
+/scripts/validate-vault.mjs @kraveerachat @pubpup2006p-design
 /tests/collaborationPolicy.test.mjs @kraveerachat @pubpup2006p-design
+/tests/vaultStructure.test.mjs @kraveerachat @pubpup2006p-design
 
-# Application ownership and review routing.
+# Application ownership and review routing. Functional ownership is enforced by
+# PR metadata and Obsidian owner fields; both accounts can provide the required review.
 /IDEA1-AEGIS_Drive_LC/ @kraveerachat @pubpup2006p-design
 /IDEA2-AEGIS_CCTV-Operator/ @kraveerachat @pubpup2006p-design
 /IDEA2-AEGIS_Monitor/ @kraveerachat @pubpup2006p-design
@@ -25,7 +28,11 @@
 /shared/ @kraveerachat @pubpup2006p-design
 /docker-compose.yml @kraveerachat @pubpup2006p-design
 
-# Knowledge base: Kla remains functional integration owner; both accounts can review.
+# Knowledge-base ownership boundaries.
 /Obsidian_AEGIS_Vault/AEGIS_Knowledge/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/03* @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/05_* @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/ @kraveerachat @pubpup2006p-design

@@ -5,6 +5,8 @@ type: entity
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 💻 Beelink Mini S (System Core NAS Server)
@@ -29,6 +31,6 @@ The team selected the Beelink Mini S (x86-64) over ARM boards (such as Raspberry
 ---
 
 ## 🔗 Related Notes
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
+* [[idea1/idea1-status]]
 * [[concepts/Three_Layer_Data_Lake]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]

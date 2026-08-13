@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: music
+edit_policy: owner-writable
 ---
 
 # 🛑 Contain Before Notify (NIST SP 800-61 Alignment)
@@ -39,6 +41,6 @@ sequenceDiagram
 ---
 
 ## 🔗 Related Notes
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
+* [[idea3/idea3-status]]
 * [[concepts/Dead_Mans_Switch]]
 * [[concepts/Cyber-Physical_Defense]]

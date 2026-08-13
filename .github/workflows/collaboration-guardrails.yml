@@ -28,3 +28,8 @@ jobs:
           node scripts/validate-collaboration-policy.mjs
           --event "$GITHUB_EVENT_PATH"
           --changed-files "$RUNNER_TEMP/aegis-changed-files.txt"
+
+      - name: Validate Obsidian ownership and links
+        run: >-
+          node scripts/validate-vault.mjs
+          --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge

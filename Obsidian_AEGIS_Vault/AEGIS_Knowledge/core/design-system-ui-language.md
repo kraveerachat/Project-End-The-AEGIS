@@ -5,6 +5,8 @@ type: module
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["DESIGN.md", "PRODUCT.md", "AURORA-GLASS-PROMPT.md", "docs/superpowers/"]
+owner: kla
+edit_policy: owner-only
 ---
 
 # 🎨 Design System & UI Language
@@ -17,13 +19,13 @@ sources: ["DESIGN.md", "PRODUCT.md", "AURORA-GLASS-PROMPT.md", "docs/superpowers
 
 **AEGIS Hub is the single entry gate**: it authenticates, receives the **server-decided** role, and launches exactly the modules that role is entitled to — nothing else exists in the output. Success = "feels like powering on a very expensive machine, while the code underneath demonstrates textbook least-privilege architecture."
 
-**Three audiences**: Thai-first standard users (Drive), administrators (Drive + CCTV + Monitoring), and **graders/code reviewers** — this is a security-course project, so the source will be read for access-control correctness. That third audience is why [[concepts/OWASP_Security_Defense]] and [[05 - 🛡️ Security Architecture]] matter as *deliverables*, not just engineering hygiene.
+**Three audiences**: Thai-first standard users (Drive), administrators (Drive + CCTV + Monitoring), and **graders/code reviewers** — this is a security-course project, so the source will be read for access-control correctness. That third audience is why [[concepts/OWASP_Security_Defense]] and [[core/security-architecture]] matter as *deliverables*, not just engineering hygiene.
 
 ### The five design principles
 1. **One texture, one meaning.** The diagonal hatch is the AEGIS signature: SOLID = the system can see this; HATCHED = it cannot (pending gates, ciphertext, projections, denied cells). This is the visual counterpart of [[concepts/Honest_Telemetry_and_Unavailable_States]].
 2. **Restraint.** Mostly grayscale; color appears only where it carries meaning.
 3. **Precision.** Crisp edges, perfect alignment, tabular numerals, near-imperceptible shadows.
-4. **Security invisible in UI, explicit in code.** Uniform auth errors, default-deny module resolution, no DOM trace of unauthorized capability — each with a Thai comment explaining why. Directly implements principle #1 of [[06 - 🤖 Agent Operating Rules]].
+4. **Security invisible in UI, explicit in code.** Uniform auth errors, default-deny module resolution, no DOM trace of unauthorized capability — each with a Thai comment explaining why. Directly implements principle #1 of [[core/agent-operating-rules]].
 5. **Motion is state.** 120–400 ms, one easing curve; the login cascade gates on the server's answer. Fully usable under `prefers-reduced-motion`.
 
 ### Anti-references (deliberately removed directions)
@@ -87,4 +89,4 @@ The command framework that produced them is documented in [[concepts/Impeccable_
 ---
 
 ## Related
-[[START_HERE]] · [[00 - 🗺️ AEGIS System Overview]] · [[01 - 🚪 HUB-AEGIS Entry]] · [[02 - 💾 IDEA1 AEGIS Drive LC]] · [[03 - 📹 IDEA2 AEGIS Monitor]] · [[06 - 🤖 Agent Operating Rules]] · [[concepts/Impeccable_UI_Design_Workflow]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[summaries/01_UI_Design_and_Theming]]
+[[START_HERE]] · [[core/system-overview]] · [[core/hub-aegis-entry]] · [[idea1/idea1-status]] · [[idea2/idea2-status]] · [[core/agent-operating-rules]] · [[concepts/Impeccable_UI_Design_Workflow]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[summaries/01_UI_Design_and_Theming]]

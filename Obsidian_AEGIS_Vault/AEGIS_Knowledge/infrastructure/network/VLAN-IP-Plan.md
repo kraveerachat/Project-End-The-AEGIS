@@ -5,12 +5,14 @@ type: infrastructure
 status: ✅ VLAN/Routing ทดสอบแล้ว · ⏳ IP บางตัวยังไม่กำหนด
 created: 2026-08-06
 updated: 2026-08-06
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 VLAN & IP Plan — ผังจริงที่ใช้งานอยู่
 
 > ผังนี้คือ **ของจริงบนอุปกรณ์** ส่วนผังฉบับออกแบบในเล่มอยู่ที่ [[concepts/VLAN_Segmentation_and_Port_Mapping]]
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -23,7 +25,7 @@ updated: 2026-08-06
 | **30** | Management Zone | `192.168.30.0/24` | `192.168.30.1` | Admin Laptop | ✅ ใช้งานจริง |
 | **1** | Native / Technician | — | — | หน้าเว็บจัดการ Switch | ✅ ใช้จัดการ Switch ผ่าน Port 4 |
 
-Gateway ทั้งสามวงทำงานบน [[10-Network/MikroTik-Config|MikroTik RB750r2]] ผ่าน VLAN Interface บน `ether2`
+Gateway ทั้งสามวงทำงานบน [[infrastructure/network/MikroTik-Config|MikroTik RB750r2]] ผ่าน VLAN Interface บน `ether2`
 
 ---
 
@@ -32,13 +34,13 @@ Gateway ทั้งสามวงทำงานบน [[10-Network/MikroTik-C
 | IP | เจ้าของ | สถานะ | หมายเหตุ |
 | :--- | :--- | :--- | :--- |
 | `192.168.10.1` | Gateway (MikroTik VLAN 10) | ✅ | ping ผ่าน |
-| `192.168.10.10` | **Beelink Host OS** (`aegis-system`) | ✅ **ใช้งานจริง + SSH ผ่าน** | [[20-Server/Beelink-Ubuntu-Host]] |
-| `192.168.10.11` | IDEA1 **AEGIS Drive** (Macvlan) | 📋 **Design เท่านั้น — ยังไม่ deploy** | [[02 - 💾 IDEA1 AEGIS Drive LC]] |
-| `192.168.10.12` | IDEA2 **AEGIS Monitor** (Macvlan) | 📋 **Design เท่านั้น — ยังไม่ deploy** | [[03 - 📹 IDEA2 AEGIS Monitor]] |
-| `192.168.10.13` | **MQTT Broker** (IDEA3) | ⏳ **จองไว้ ยังไม่มีของจริง** | [[04 - 🔒 IDEA3 AEGIS Lockdown]] |
+| `192.168.10.10` | **Beelink Host OS** (`aegis-system`) | ✅ **ใช้งานจริง + SSH ผ่าน** | [[infrastructure/server/Beelink-Ubuntu-Host]] |
+| `192.168.10.11` | IDEA1 **AEGIS Drive** (Macvlan) | 📋 **Design เท่านั้น — ยังไม่ deploy** | [[idea1/idea1-status]] |
+| `192.168.10.12` | IDEA2 **AEGIS Monitor** (Macvlan) | 📋 **Design เท่านั้น — ยังไม่ deploy** | [[idea2/idea2-status]] |
+| `192.168.10.13` | **MQTT Broker** (IDEA3) | ⏳ **จองไว้ ยังไม่มีของจริง** | [[idea3/idea3-status]] |
 
 > ⚠️ `.11` / `.12` / `.13` เป็น **การจองบนกระดาษ** — ยังไม่มี container ใดถือ IP เหล่านี้จริง
-> ⚠️ แผน Macvlan มีความเสี่ยงชนกับ Twingate Connector ที่รันบน Docker Bridge → ดูข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[40-Deployment/Docker-Stack-Plan]]
+> ⚠️ แผน Macvlan มีความเสี่ยงชนกับ Twingate Connector ที่รันบน Docker Bridge → ดูข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[infrastructure/deployment/Docker-Stack-Plan]]
 
 ---
 
@@ -91,8 +93,8 @@ flowchart LR
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[10-Network/MikroTik-Config]] · [[10-Network/Switch-VLAN-Config]] · [[10-Network/Hardware-Inventory]]
-* [[40-Deployment/Docker-Stack-Plan]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/network/MikroTik-Config]] · [[infrastructure/network/Switch-VLAN-Config]] · [[infrastructure/network/Hardware-Inventory]]
+* [[infrastructure/deployment/Docker-Stack-Plan]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]] (ฉบับออกแบบในเล่ม)
 * [[90-Status/Document-Conflicts]]

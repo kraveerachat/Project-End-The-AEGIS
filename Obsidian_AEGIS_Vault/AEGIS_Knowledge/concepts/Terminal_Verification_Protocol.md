@@ -5,6 +5,8 @@ type: concept
 created: 2026-08-06
 updated: 2026-08-07
 sources: ["docs/auth-test.md"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🧪 Terminal Verification Protocol
@@ -19,7 +21,7 @@ sources: ["docs/auth-test.md"]
 
 > Everything proven in that file is enforced **server-side**. Hiding a menu in the UI is not a security control — what counts is what the endpoint returns when hit directly with `curl`, bypassing the screen entirely.
 
-This is principle #1 of [[06 - 🤖 Agent Operating Rules]], expressed as a test methodology. Every command in the file is copy-pasteable against a localhost stack (`docker compose up -d --build`).
+This is principle #1 of [[core/agent-operating-rules]], expressed as a test methodology. Every command in the file is copy-pasteable against a localhost stack (`docker compose up -d --build`).
 
 Base URLs go through the gateway:
 - IDEA1 AEGIS Drive → `http://localhost/drive/api/...`
@@ -30,13 +32,13 @@ Base URLs go through the gateway:
 | Area | Proves | Linked concept |
 |---|---|---|
 | Auth & session | Uniform auth errors, session cookie behaviour, `401` on unauthenticated | [[concepts/OWASP_Security_Defense]] |
-| RBAC | Role-gated endpoints return `403`, not a filtered success | [[05 - 🛡️ Security Architecture]] |
+| RBAC | Role-gated endpoints return `403`, not a filtered success | [[core/security-architecture]] |
 | Scoped view via `camera_assignment` | An operator requesting another operator's camera gets `403` | [[concepts/Schema_Ownership_Map]] |
 | Storage Layer round-trip | Upload → download is byte-for-byte identical (sha256 + `cmp`) | [[concepts/Three_Layer_Data_Lake]] |
 | SQL-level Identity Decoupling (§11) | Cross-database connect fails with `permission denied` | [[concepts/Identity_Decoupling]] |
 | Rate limiting (§8) | Attempt 6 → `429` with `Retry-After` | [[concepts/OWASP_Security_Defense]] |
-| HUB has no auth (§12) | No credentials in the bundle; `/api/login` → `405` | [[01 - 🚪 HUB-AEGIS Entry]] |
-| In-web Add Operator (§13) | `201` + one-time temp password; duplicate → `409` + rollback | [[03 - 📹 IDEA2 AEGIS Monitor]] |
+| HUB has no auth (§12) | No credentials in the bundle; `/api/login` → `405` | [[core/hub-aegis-entry]] |
+| In-web Add Operator (§13) | `201` + one-time temp password; duplicate → `409` + rollback | [[idea2/idea2-status]] |
 | Detection Engine `/internal` (§14) | No key / wrong key → `401`; gateway → `404` | [[entities/Detection_Engine_Service]] |
 | Private Vault against real Postgres (§15) | Plaintext absent from `pg_dump`, statement logs, and app logs | [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] |
 
@@ -56,7 +58,7 @@ The 2026-08-07 execution followed this procedure: `aegis_drive` OID 16385 and `a
 
 ## Why this matters beyond testing
 
-`PRODUCT.md` names **graders / code reviewers** as a first-class audience (see [[07 - 🎨 Design System & UI Language]]). For that audience this file *is* the deliverable — it is how a reviewer confirms least-privilege behaviour without reading every line of source.
+`PRODUCT.md` names **graders / code reviewers** as a first-class audience (see [[core/design-system-ui-language]]). For that audience this file *is* the deliverable — it is how a reviewer confirms least-privilege behaviour without reading every line of source.
 
 ## Verification discipline established across sessions
 
@@ -70,4 +72,4 @@ Patterns that recur throughout [[log]] and are worth preserving as house rules:
 ---
 
 ## Related
-[[05 - 🛡️ Security Architecture]] · [[concepts/OWASP_Security_Defense]] · [[concepts/Identity_Decoupling]] · [[concepts/Schema_Ownership_Map]] · [[entities/Detection_Engine_Service]] · [[summaries/02_Security_Auth_and_Identity]] · [[06 - 🤖 Agent Operating Rules]] · [[START_HERE]]
+[[core/security-architecture]] · [[concepts/OWASP_Security_Defense]] · [[concepts/Identity_Decoupling]] · [[concepts/Schema_Ownership_Map]] · [[entities/Detection_Engine_Service]] · [[summaries/02_Security_Auth_and_Identity]] · [[core/agent-operating-rules]] · [[START_HERE]]

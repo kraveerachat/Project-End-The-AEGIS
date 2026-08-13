@@ -3,7 +3,9 @@ title: AEGIS LLM Wiki Catalog Index
 tags: [aegis, wiki, index, catalog]
 type: catalog
 created: 2026-07-20
-updated: 2026-08-06
+updated: 2026-08-13
+owner: kla
+edit_policy: owner-only
 ---
 
 # 📚 AEGIS System LLM Wiki Catalog
@@ -16,19 +18,22 @@ updated: 2026-08-06
 
 ## 🗺️ System Architecture & Dashboard
 * [[START_HERE]] — ⭐ **Entry point** — orientation, agent reading protocol, knowledge-network diagram, full ToC
-* [[00 - 🗺️ AEGIS System Overview]] — Monorepo architecture overview, Data Flow Diagram, and component comparison table
+* [[core/system-overview]] — Monorepo architecture overview, Data Flow Diagram, and component comparison table
 * [[AEGIS_Knowledge_Network.canvas]] — Interactive 2D canvas mapping every note and its relationships (45 nodes / 40 labelled edges, 7 colour-coded groups). Replaced the 5-node `AEGIS_Architecture_Canvas.canvas` on 2026-08-06
 
 ---
 
-## 📦 Core Modules (numbered top-level notes)
-* [[01 - 🚪 HUB-AEGIS Entry]] — Static app picker with no login/backend of its own (served at `/` via gateway)
-* [[02 - 💾 IDEA1 AEGIS Drive LC]] — Enterprise Secure NAS & Edge Data Lake file management system (Port `:8001` / `:5174`)
-* [[03 - 📹 IDEA2 AEGIS Monitor]] — Dual-View SOC & Scoped CCTV Operator surveillance control center (Port `:8002` / `:5176`) · real heartbeat + proxied live MJPEG · real clip playback + per-camera Telegram alert routing (2026-08-01) · 🟡 i18n rollout in progress · ⚠️ recognition model not yet supplied
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]] — Physical network isolation system via ESP32 + Relay (MQTT HMAC)
-* [[05 - 🛡️ Security Architecture]] — Server-Side Enforcement & Identity Decoupling security architecture
-* [[06 - 🤖 Agent Operating Rules]] — **[NEW 2026-08-06]** The 4 core principles, the mandatory post-prompt sync procedure, the repo-doc → vault map, and the vault-scope fix for the scattered graph
-* [[07 - 🎨 Design System & UI Language]] — **[NEW 2026-08-06]** Product register, Precision Light / Modern Elevated lineage, measured contrast rules, and the documented `DESIGN.md`-vs-shipped drift
+## 📦 Owned workstreams
+* [[core/hub-aegis-entry]] — Static app picker with no login/backend of its own (served at `/` via gateway)
+* [[idea1/idea1-moc]] → [[idea1/idea1-status]] — Kla-owned Secure NAS & Edge Data Lake workstream
+* [[idea2/idea2-moc]] → [[idea2/idea2-status]] — Pub-owned Monitor, CCTV Operator and Detection Engine workstream
+* [[idea3/idea3-moc]] → [[idea3/idea3-status]] — Music-owned Lockdown workstream; design/report state until hardware proof
+* [[infrastructure/infrastructure-moc]] — Kla-owned operational network, server, remote-access and deployment truth
+* [[core/security-architecture]] — Server-Side Enforcement & Identity Decoupling security architecture
+* [[core/system-context]] — Preserved detailed architecture content embedded by [[core/system-overview]]
+* [[core/integration-points]] — Cross-module contracts reviewed by the integration owner
+* [[core/agent-operating-rules]] — **[NEW 2026-08-06]** The 4 core principles, the mandatory post-prompt sync procedure, the repo-doc → vault map, and the vault-scope fix for the scattered graph
+* [[core/design-system-ui-language]] — **[NEW 2026-08-06]** Product register, Precision Light / Modern Elevated lineage, measured contrast rules, and the documented `DESIGN.md`-vs-shipped drift
 
 ---
 
@@ -95,4 +100,6 @@ updated: 2026-08-06
 
 ## ⚙️ Wiki Administration
 * [[.schema.md]] — Operational rules and Wiki maintenance standards for LLM Agents
-* [[log.md]] — Append-only processing history and operation log
+* [[90-Status/integration-queue]] — Reviewed cross-module requests waiting for integration
+* [[90-Status/logs/_template]] — Required template for one immutable receipt per completed task
+* [[log.md]] — Frozen legacy processing history; do not append new work
