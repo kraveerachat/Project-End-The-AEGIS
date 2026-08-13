@@ -20,9 +20,17 @@ edit_policy: owner-writable
 > โน้ตชุดนี้บันทึก **สิ่งที่ทำจริงบนฮาร์ดแวร์** แยกจากชุดโน้ตเดิม (`concepts/`, `entities/`) ที่บันทึก **สิ่งที่ออกแบบไว้ในเล่มรายงาน**
 > เมื่อสองฝั่งไม่ตรงกัน ให้ยึดโน้ตชุดนี้เป็นความจริง และดูรายการที่ขัดกันได้ที่ [[90-Status/Document-Conflicts]]
 
----
+## Start here
 
-## 🚦 ความหมายของ Status Marker
+Start with the current operating-state table below, then open the authoritative network, server, remote-access, or deployment note for the change at hand. This MOC records what is real on the infrastructure, not merely what the report designed.
+
+## Owned source and canonical notes
+
+Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, database, deployment, and network surfaces. The canonical notes are the linked `infrastructure/` network, server, remote-access, and deployment records.
+
+## Current state and open work
+
+### 🚦 ความหมายของ Status Marker
 
 | Marker | ความหมาย |
 | :--- | :--- |
@@ -35,7 +43,7 @@ edit_policy: owner-writable
 
 ---
 
-## 📌 บริบทโปรเจกต์
+### 📌 บริบทโปรเจกต์
 
 * **ชื่อเต็ม**: AEGIS — Autonomous Edge-Guard Infrastructure System for Cyber-Physical Security
 * **รายวิชา**: 1101911 มหาวิทยาลัยเทคโนโลยีสุรนารี
@@ -48,7 +56,7 @@ edit_policy: owner-writable
 
 ---
 
-## 🧭 สถานะภาพรวม (Infrastructure Layer)
+### 🧭 สถานะภาพรวม (Infrastructure Layer)
 
 | ชั้นงาน | สถานะ | โน้ตหลัก |
 | :--- | :--- | :--- |
@@ -73,7 +81,7 @@ edit_policy: owner-writable
 
 ---
 
-## 🗂️ สารบัญโน้ต
+### 🗂️ สารบัญโน้ต
 
 ### 10-Network
 * [[infrastructure/network/Hardware-Inventory]] — รายการอุปกรณ์จริงและสเปก
@@ -100,7 +108,11 @@ edit_policy: owner-writable
 
 ---
 
-## 🖼️ ภาพรวมเส้นทางเครือข่ายจริง
+## Shared dependencies
+
+Infrastructure is the shared runtime dependency for every area. Coordinate cross-area gateway, database, identity, network, and deployment changes through [[core/integration-points]] and [[core/security-architecture]].
+
+### 🖼️ ภาพรวมเส้นทางเครือข่ายจริง
 
 ```mermaid
 flowchart TD
@@ -135,9 +147,21 @@ flowchart TD
 
 ---
 
-## 🔗 เชื่อมกับโน้ตชุดเดิมในวอลต์
+### 🔗 เชื่อมกับโน้ตชุดเดิมในวอลต์
 
 * [[core/system-overview]] — สถาปัตยกรรมซอฟต์แวร์ (Monorepo/Docker)
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]] — ผัง VLAN ฉบับออกแบบในเล่ม
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] — การเปรียบเทียบฉบับออกแบบ (⚠️ ยังเขียนแบบ 2 ช่องทางคู่ขนาน)
 * [[core/security-architecture]] — Defense in Depth ระดับแอปพลิเคชัน
+
+## Recent task receipts — infrastructure-related receipt discovery
+
+Kla also owns IDEA1, so this query is a discovery aid rather than a complete infrastructure-only filter. Confirm the changed paths in each receipt.
+
+```query
+path:"90-Status/logs" [owner:kla]
+```
+
+## Finish an area task
+
+Record verified evidence and remaining limitations in the canonical infrastructure note, add one immutable receipt, and request integration review for every shared runtime or contract change.
