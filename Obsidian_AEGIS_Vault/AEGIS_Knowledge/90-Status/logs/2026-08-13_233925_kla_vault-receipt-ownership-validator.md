@@ -16,11 +16,13 @@ edit_policy: append-by-new-file
 - Enforced the repository mapping `idea1` → `kla`, `idea2` → `pub`, `idea3` → `music`, and retained `kla` for `infrastructure` and `shared`.
 - Kept filename-owner and frontmatter-owner agreement mandatory, rejected missing or unknown receipt areas, and added focused regression coverage for accepted and rejected mappings.
 - Did not change the IDEA2 Task 1 receipt owner; `pub` remains the required owner for `area: idea2`.
+- Added a Thai team-facing report that explains the failure, root cause, exact fix, policy guarantees, verification evidence, rollout, and rollback.
 
 ## Source files changed
 
 - `scripts/validate-vault.mjs` — validates receipt owner from the fixed area-owner policy while preserving path-based ownership for non-receipt notes.
 - `tests/vaultStructure.test.mjs` — covers all valid area-owner mappings, wrong area-owner combinations, and unknown receipt areas.
+- `docs/reports/2026-08-13-vault-receipt-ownership-validator-th.md` — Thai implementation and verification report for reviewers and operators.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_233925_kla_vault-receipt-ownership-validator.md` — immutable evidence for this shared validator task.
 
 ## Verification evidence
@@ -38,6 +40,7 @@ edit_policy: append-by-new-file
 
 - `scripts/validate-vault.mjs` — repository-wide Obsidian ownership and receipt validation.
 - `tests/vaultStructure.test.mjs` — repository-wide regression contract for Vault validation.
+- `docs/reports/2026-08-13-vault-receipt-ownership-validator-th.md` — shared reviewer-facing explanation of the validator change and rollout.
 
 ## Integration requests
 
