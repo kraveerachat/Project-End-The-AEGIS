@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 ### 🧪 Local run check (2026-08-06)
 
-For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. The shipped detection engine remains a separate manual process under `IDEA2-AEGIS_CCTV-Operator/detection-engine` and uses `python run.py` after its own `.venv`, dependencies, and `.env` are configured.
+For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. As of Task 2 on 2026-08-13, root Compose builds the canonical modular runtime from `IDEA2-AEGIS_CCTV-Operator/detection-engine/`; the same runtime remains directly runnable with `python run.py` after dependencies and environment are configured.
 
 ## Current-state audit (2026-08-13)
 
@@ -87,7 +87,33 @@ Legend: **Real code** means the behavior has a concrete implementation; **placeh
 5. Replace `cameras.online` UI decisions with heartbeat-derived camera state and add bounding-box geometry if spatial overlays are required.
 6. Add API/RBAC/stream/engine integration tests before claiming end-to-end readiness; then verify camera, PostgreSQL, NAS, and Telegram behavior on the target VLAN.
 
-> **Codebase Status**: ⚠️ Monitor UI/API built; detection runtime split and not deployment-ready — Backend Express `:8002` + React app `:5176` + database `aegis_monitor` + two conflicting Python engine paths.
+## Canonical modular runtime update (Task 2, 2026-08-13)
+
+> [!success] `IDEA2-AEGIS_CCTV-Operator/detection-engine/` is now the canonical IDEA2 development detection runtime. This update supersedes the runtime-split findings in the audit above; the legacy `AEGIS_Camera/` directory is retained but is no longer selected by root Compose.
+
+### Runtime before and after
+
+```text
+Before: docker compose -> aegis-camera -> AEGIS_Camera/Dockerfile -> uvicorn aegis_scanner:app
+After:  docker compose -> aegis-camera -> detection-engine/Dockerfile -> python run.py -> DetectionEngine
+```
+
+- Development defaults now set NAS to disabled. Core API, capture/reconnect loop, detector abstraction, recorder, alert manager, Monitor client, and heartbeat worker can initialize without production NAS configuration.
+- Disabled NAS reports `disabled`, leaves local recordings in place, creates no successful clip record, and never deletes the local file. Enabled NAS rejects missing host/user and rejects unverified success modes; only transfer plus checksum/size verification may set `storedOnNas=true` and delete local footage.
+- Startup is transactional: a component failure stops/joins components that already started and reports the failing component. SIGINT/SIGTERM use the same cooperative shutdown path.
+- The modular configuration now owns Monitor URL/key/timeout values; the service key is redacted from startup logs. Monitor remains optional/fail-soft for standalone development and the engine still holds no database credential.
+- The legacy helper no longer contains or prints hard-coded Telegram or engine credentials. **Credential Rotation Required Before Telegram Real Testing.**
+- The placeholder recognizer remains explicit: face boxes can only produce `Unknown` with no identity. No YOLO/object-to-authorization behavior was migrated.
+- Root Compose keeps service name `aegis-camera` for compatibility, maps the modular API to host loopback `127.0.0.1:8005`, and uses named local development volumes. These volumes are not a production NAS claim.
+
+### Verification boundary
+
+- 17 modular Python tests passed, covering configuration, NAS-disabled startup, lifecycle rollback/shutdown, startup errors, NAS verification truthfulness, Compose wiring, credential removal, and placeholder authorization safety.
+- Default runtime components started with a deliberately unavailable camera, returned `/health` HTTP 200 with `status=degraded` and `camera_connected=false`, reported NAS `disabled`, and shut down cleanly.
+- Python syntax compilation passed. Docker configuration/container execution could not be verified because Docker CLI is unavailable in the audit environment.
+- **REAL CAMERA VERIFICATION PENDING.** Monitor real heartbeat integration, Telegram real routing, and production NAS integration remain pending and are not claimed by this task.
+
+> **Codebase Status**: ✅ Monitor UI/API built; modular engine is the canonical development runtime. ⚠️ Real camera, Monitor heartbeat, Telegram routing, production NAS, and production deployment verification remain pending.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
@@ -463,8 +489,8 @@ This is a same-day continuation of the pass immediately above, this time run wit
 | **Safari live video** | 🟠 Known limitation | `multipart/x-mixed-replace` in `<img>` works in Chrome/Edge/Firefox; **Safari does not support it** and will sit in the reconnect state. |
 | **Notification preferences (Settings)** | 🔴 Open | Sound / desktop push / snooze are `useState` only — never persisted — yet each toggle fires a "saved successfully" toast. |
 | **No audit log** | 🔴 Open | IDEA2 has **no `audit_log` table at all** (unlike IDEA1). Operator creation, camera reassignment, alert acknowledgement, password resets and every login leave no record. If built, use awaited writes from the start rather than repeating IDEA1's fire-and-forget bug. |
-| **Zero automated tests** | 🔴 Open | No test script, no test dependency, no `tests/` directory (IDEA1 has 11 suites). The RBAC/scoping boundary — the project's headline security claim — has no automated proof. |
-| **Real NAS integration** | 🔴 Open | `nas_sync_clip()` still only verifies sha256 against a file on the **same disk** as the engine (Phase 1 simulation, documented in-code) rather than actually transferring bytes to a separate NAS host. Swapping the `docker-compose.yml` bind-mount source and adding a real rsync/scp step was design-confirmed with the user 2026-08-01 but not yet implemented. |
+| **Automated coverage remains incomplete** | 🟠 Partial | Task 2 added 17 modular-engine tests for configuration, lifecycle, NAS truthfulness, wiring, credential safety, and placeholder recognition. Monitor still has only 6 narrow UI/design/default tests; API RBAC, camera assignment, streaming, database integration, and real-device integration remain unproved. |
+| **Production NAS integration** | 🔴 Open | The canonical modular worker implements `rsync`/`scp` plus remote checksum/size verification, but NAS is deliberately disabled by default and no production NAS was exercised in Task 2. Local Compose volumes are explicitly not NAS. Real target-host transfer and operational recovery remain pending. |
 | **i18n rollout incomplete** | 🟡 In progress (2026-08-01, still incomplete as of the same-day follow-up) | `src/lib/i18n.js` exists and `Settings.jsx` consumes it. The 2026-08-01 follow-up pass added `lang` persistence (`localStorage` + cross-tab sync) to `App.jsx`, but **no additional view or shell component was wired to read translated strings** — `Live.jsx`, `TopBar.jsx`, `Sidebar.jsx`, `Footer.jsx`, `Detection.jsx`, `Diagnostics.jsx`, and `Login.jsx` still render hardcoded English/Thai strings. |
 | **`src/index.css` has ~5 stacked redesign-pass blocks with duplicate declarations** | 🟡 Flagged, deferred by user choice (2026-08-01) | Several blocks redeclare the same `:root`/`.hero`/`.topbar`/`.panel`/`.side` selectors with different values; only the last one in the file is ever live, so the earlier ones are dead code that makes the file harder to reason about. Flagged to the user before the 2026-08-01 follow-up motion pass; the user explicitly chose to defer the cleanup rather than have it done as part of that pass. |
 

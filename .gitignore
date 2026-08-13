@@ -39,6 +39,8 @@ Obsidian_AEGIS_Vault/**/.obsidian/graph.json
 # operational camera evidence and accidental nested clones stay local
 AEGIS_Camera/clips/
 AEGIS_Camera/detection_log.csv
+IDEA2-AEGIS_CCTV-Operator/detection-engine/segments/
+IDEA2-AEGIS_CCTV-Operator/detection-engine/snapshots/
 Project-End-The-AEGIS/
 
 .aegis-dev-nas-key

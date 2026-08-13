@@ -30,11 +30,20 @@ from aegis_engine.engine import DetectionEngine
 
 
 def main() -> int:
-    # >>> To enable real recognition, construct your model and pass it here:
-    #     engine = DetectionEngine(recognizer=YourModel())
-    engine = DetectionEngine()
-    engine.run_forever()
-    return 0
+    try:
+        # >>> To enable real recognition, construct your model and pass it here:
+        #     engine = DetectionEngine(recognizer=YourModel())
+        engine = DetectionEngine()
+        engine.run_forever()
+        return 0
+    except Exception as exc:
+        # Keep the first operator-facing failure concise and actionable. Worker
+        # and dependency errors already preserve their component/setting name.
+        print(
+            f"AEGIS Detection Engine failed to start: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
 
 
 if __name__ == "__main__":

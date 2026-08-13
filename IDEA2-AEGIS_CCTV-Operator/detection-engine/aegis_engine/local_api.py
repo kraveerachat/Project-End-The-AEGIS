@@ -189,8 +189,7 @@ class LocalEventAPI:
         stream_hub = self._stream
 
         def _authorized(req: "Request") -> Optional[Response]:
-            import os
-            expected = os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
+            expected = cfg.detection_engine_api_key or ""
             if not expected:
                 return Response(status_code=503, content='{"error":"stream disabled"}',
                                 media_type="application/json")
