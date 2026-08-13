@@ -39,7 +39,13 @@ None
 `;
 }
 
-function validReceipt({ area, owner, branch }) {
+function validReceipt({
+  area,
+  owner,
+  branch,
+  sharedSurfaces = '- None — scoped task.',
+  integrationRequests = '- None',
+}) {
   return `---
 title: Task Receipt — Policy test
 date: 2026-08-13T17:00:00+07:00
@@ -65,10 +71,10 @@ edit_policy: append-by-new-file
 - None — fixture only.
 
 ## Shared surfaces touched
-- None — scoped task.
+${sharedSurfaces}
 
 ## Integration requests
-- None
+${integrationRequests}
 
 ## Known limitations
 - None
@@ -205,6 +211,64 @@ test('accepts a scoped IDEA2 pull request with one new Pub receipt', () => {
 });
 
 test('accepts a declared cross-scope change that requests integration review', () => {
+  const branch = 'feat/idea1-policy-test';
+  const result = runPolicy({
+    branch,
+    body: validBody({
+      integrationReview: 'yes',
+      sharedSurfaces: '- `gateway/nginx.conf` — route required by IDEA1.',
+    }),
+    receiptContent: validReceipt({
+      area: 'idea1',
+      owner: 'kla',
+      branch,
+      sharedSurfaces: '- `gateway/nginx.conf` — route required by IDEA1.',
+      integrationRequests: '- Gateway owner must review the route and rollback behavior.',
+    }),
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'M\tgateway/nginx.conf',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('accepts an IDEA2 server deployment when every cross-scope path is declared in PR and receipt', () => {
+  const branch = 'deploy/idea2-server-runtime';
+  const sharedSurfaces = [
+    '- `docker-compose.yml` — connect the IDEA2 service to the deployment stack.',
+    '- `gateway/nginx.conf` — expose the IDEA2 service through the shared gateway.',
+  ].join('\n');
+  const result = runPolicy({
+    branch,
+    body: validBody({
+      area: 'idea2',
+      owner: 'pub',
+      integrationReview: 'yes',
+      sharedSurfaces,
+    }),
+    receiptContent: validReceipt({
+      area: 'idea2',
+      owner: 'pub',
+      branch,
+      sharedSurfaces,
+      integrationRequests: '- Infrastructure owner must review deployment, gateway, and rollback effects.',
+    }),
+    changes: [
+      'M\tIDEA2-AEGIS_Monitor/src/App.jsx',
+      'M\tdocker-compose.yml',
+      'M\tgateway/nginx.conf',
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_pub_policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('rejects a cross-scope path declared in PR but missing from the Obsidian receipt', () => {
   const result = runPolicy({
     body: validBody({
       integrationReview: 'yes',
@@ -217,7 +281,9 @@ test('accepts a declared cross-scope change that requests integration review', (
     ].join('\n'),
   });
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /receipt shared surfaces touched must name gateway\/nginx\.conf/i);
+  assert.match(result.stderr, /receipt integration requests must describe the required review/i);
 });
 
 test('rejects a cross-scope path omitted from the shared surfaces list', () => {

@@ -24,9 +24,18 @@ const errors = [];
 let area = '';
 let owner = '';
 let integrationReview = '';
+let receiptSharedSurfaces = '';
+let receiptIntegrationRequests = '';
 
-if (!/^(feat|fix|docs|infra|chore|codex)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(branch)) {
-  errors.push('Branch must match <feat|fix|docs|infra|chore|codex>/<lowercase-task-slug>.');
+if (!/^(feat|fix|docs|infra|deploy|chore|codex)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(branch)) {
+  errors.push('Branch must match <feat|fix|docs|infra|deploy|chore|codex>/<lowercase-task-slug>.');
+}
+
+function extractSection(source, title) {
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return source.match(
+    new RegExp(`^##\\s+${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'im'),
+  )?.[1]?.trim() || '';
 }
 
 if (!policyMatch) {
@@ -145,13 +154,12 @@ if (newReceipts.length !== 1) {
       'Known limitations',
     ];
     for (const title of requiredSections) {
-      const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const content = receipt.match(new RegExp(`^##\\s+${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s+|$)`, 'im'))?.[1]?.trim();
+      const content = extractSection(receipt, title);
       if (!content) errors.push(`Receipt is missing required section content: ${title}.`);
     }
-    const receiptVerification = receipt.match(
-      /^##\s+Verification evidence\s*\r?\n([\s\S]*?)(?=^##\s+|$)/im,
-    )?.[1] || '';
+    const receiptVerification = extractSection(receipt, 'Verification evidence');
+    receiptSharedSurfaces = extractSection(receipt, 'Shared surfaces touched');
+    receiptIntegrationRequests = extractSection(receipt, 'Integration requests');
     if (!/`[^`]+`/.test(receiptVerification) || !/\b(pass(?:ed)?|fail(?:ed)?)\b/i.test(receiptVerification)) {
       errors.push('Receipt verification evidence must contain a command in backticks and its pass/fail result.');
     }
@@ -204,8 +212,7 @@ function isPathOwnedByArea(path, taskArea) {
 }
 
 function sectionText(title) {
-  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return body.match(new RegExp(`^##\\s+${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s+|$)`, 'im'))?.[1]?.trim() || '';
+  return extractSection(body, title);
 }
 
 const crossScopePaths = changedEntries
@@ -228,6 +235,15 @@ for (const path of crossScopePaths) {
   if (!sharedSurfaces.includes(path)) {
     errors.push(`Shared surfaces touched must name ${path}.`);
   }
+  if (!receiptSharedSurfaces.includes(path)) {
+    errors.push(`Receipt Shared surfaces touched must name ${path}.`);
+  }
+}
+if (
+  crossScopePaths.length > 0
+  && (!receiptIntegrationRequests || /^-?\s*none\b/i.test(receiptIntegrationRequests))
+) {
+  errors.push('Receipt Integration requests must describe the required review.');
 }
 if (area === 'shared' && integrationReview !== 'yes') {
   errors.push('Shared tasks require integration-review: yes.');
