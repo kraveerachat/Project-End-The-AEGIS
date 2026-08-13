@@ -4,7 +4,7 @@ date: 2026-08-13T16:23:40+07:00
 owner: kla
 area: shared
 branch: codex/obsidian-workspace-separation
-status: complete
+status: partial
 edit_policy: append-by-new-file
 ---
 
@@ -12,19 +12,17 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Completed the shared Obsidian workspace migration: Core, IDEA1, IDEA2, IDEA3, and Infrastructure have explicit dashboards, path-coloured Global Graph groups, and canonical navigation through `START_HERE.md`, `index.md`, and `.schema.md`.
+- Implemented the shared Obsidian workspace migration: Core, IDEA1, IDEA2, IDEA3, and Infrastructure have explicit dashboards, path-coloured Global Graph groups, and canonical navigation through `START_HERE.md`, `index.md`, and `.schema.md`.
 - Added and verified one unique historical alias for each of the eight moved canonical notes, so frozen legacy links resolve without recreating phantom root notes.
 - Added the workspace validator, regression coverage, migration design and implementation plan, and aligned shared governance documentation and receipt policy.
+- Hardened the validator after final review: each legacy alias must have exactly one canonical owner, legacy root shadows are blocking errors without deleting owner data, every workspace entry point must retain its required route, and Global Graph must hide attachments.
 - Removed seven verified-empty local artifacts: they were untracked before removal and therefore do not appear in this branch's commit diff. The named project canvases were preserved.
 - Corrected the stacking record: the immediate workspace Pull Request base is `codex/collaboration-workflow-rules`, which itself depends on `origin/codex/obsidian-multi-writer-restructure`. The workspace receipt range contains only this receipt.
 
 ## Source files changed
 
-- `AGENTS.md` — shared collaboration and Obsidian-workflow governance context.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/.obsidian/graph.json` — native Global Graph exclusions and path-colour groups.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/.schema.md` — separated workspace, navigation, alias, and validator rules.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_160833_kla_collaboration-workflow-rules.md` — immutable governance receipt on the immediate parent stack; it is not part of the workspace Pull Request range.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md` — shared immutable-receipt contract.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md` — shared entry point and workspace navigation.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/agent-operating-rules.md` — shared agent workflow and legacy-link rules.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/core-moc.md` — Core shared-work dashboard.
@@ -42,15 +40,13 @@ edit_policy: append-by-new-file
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/infrastructure-moc.md` — Infrastructure dashboard.
 - `docs/superpowers/plans/2026-08-13-obsidian-workspace-separation.md` — approved implementation plan.
 - `docs/superpowers/specs/2026-08-13-obsidian-workspace-separation-design.md` — workspace-separation design and preservation constraints.
-- `scripts/validate-collaboration-policy.mjs` — shared policy gate updated for the workspace/receipt contract.
 - `scripts/validate-vault.mjs` — live vault layout, alias, empty-artifact, graph, and frozen-log validation.
-- `tests/collaborationPolicy.test.mjs` — governance regression coverage.
 - `tests/vaultStructure.test.mjs` — workspace separation and preservation regression coverage.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_162340_kla_obsidian-workspace-separation.md` — this immutable completion receipt.
 
 ## Verification evidence
 
-- `node --test tests/*.test.mjs` — pass: 39 tests passed, 0 failed, 0 skipped, 0 todo.
+- `node --test tests/*.test.mjs` — pass: 42 tests passed, 0 failed, 0 skipped, 0 todo.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass: exit 0 with 2 expected owner-data preservation warnings: `AEGIS_Architecture_Canvas.canvas contains owner data and needs owner review.` and `AEGIS_Knowledge_Network.canvas contains owner data and needs owner review.`
 - `git diff --check` — pass: no whitespace errors.
 - `git diff --name-status origin/codex/obsidian-multi-writer-restructure...HEAD` — pass: 26 intentional tracked migration paths before this untracked completion receipt was committed; this is the full dependency-stack comparison, not the immediate workspace Pull Request range.
@@ -111,11 +107,8 @@ Result: exit 0; the command printed `All seven verified-empty local files are ab
 
 ## Shared surfaces touched
 
-- `AGENTS.md` — repository-wide agent workflow.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/.obsidian/graph.json` — Global Graph navigation for every vault user.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/.schema.md` — shared vault governance.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_160833_kla_collaboration-workflow-rules.md` — parent-stack governance evidence, excluded from the immediate workspace Pull Request range.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md` — repository-wide receipt contract.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_162340_kla_obsidian-workspace-separation.md` — shared completion evidence for this migration.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md` — all-user vault entry point.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/index.md` — all-user vault catalog.
@@ -134,9 +127,7 @@ Result: exit 0; the command printed `All seven verified-empty local files are ab
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/infrastructure-moc.md` — Infrastructure navigation boundary.
 - `docs/superpowers/plans/2026-08-13-obsidian-workspace-separation.md` — reviewed migration plan.
 - `docs/superpowers/specs/2026-08-13-obsidian-workspace-separation-design.md` — shared workspace design constraints.
-- `scripts/validate-collaboration-policy.mjs` — shared Pull Request policy enforcement.
 - `scripts/validate-vault.mjs` — shared vault health gate.
-- `tests/collaborationPolicy.test.mjs` — shared governance regression tests.
 - `tests/vaultStructure.test.mjs` — shared vault-structure regression tests.
 
 ## Integration requests
@@ -146,7 +137,7 @@ Result: exit 0; the command printed `All seven verified-empty local files are ab
 
 ## Known limitations
 
-- The branch remains unpublished by controller ruling: no push or Pull Request was created in this task, and publication waits for the controller's final whole-branch review.
+- Automated implementation and validation are complete, but the receipt remains `partial` until the owner performs the live Obsidian visual acceptance check.
 - The immediate stacked/Pull Request base is `codex/collaboration-workflow-rules`; that branch depends on `origin/codex/obsidian-multi-writer-restructure`. The workspace range therefore contains only this receipt, and it must be retargeted and reverified after the prerequisite branches merge.
 - Live Obsidian visual acceptance (reload, Global Graph colours, MOC Local Graph, and legacy-link clicks) remains an owner/controller manual check; automated validation verifies its file-level contract.
 - Expected preservation warnings: `AEGIS_Architecture_Canvas.canvas contains owner data and needs owner review.` and `AEGIS_Knowledge_Network.canvas contains owner data and needs owner review.` The named canvases are intentionally retained.

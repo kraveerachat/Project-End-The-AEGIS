@@ -42,14 +42,21 @@ const legacyAliases = {
 
 function workspaceFiles() {
   const files = {
-    'START_HERE.md': note({ policy: 'owner-only', body: '[[core/core-moc]]' }),
-    'core/core-moc.md': note({ policy: 'owner-only' }),
-    'idea1/idea1-moc.md': note(),
-    'idea2/idea2-moc.md': note({ owner: 'pub' }),
-    'idea3/idea3-moc.md': note({ owner: 'music' }),
-    'infrastructure/infrastructure-moc.md': note(),
+    'START_HERE.md': note({
+      policy: 'owner-only',
+      body: '[[core/core-moc]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
+    }),
+    'core/core-moc.md': note({
+      policy: 'owner-only',
+      body: '[[core/system-overview]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
+    }),
+    'idea1/idea1-moc.md': note({ body: '[[idea1/idea1-status]]' }),
+    'idea2/idea2-moc.md': note({ owner: 'pub', body: '[[idea2/idea2-status]]' }),
+    'idea3/idea3-moc.md': note({ owner: 'music', body: '[[idea3/idea3-status]]' }),
+    'infrastructure/infrastructure-moc.md': note({ body: '[[90-Status/Open-Items-Backlog]]' }),
     '.obsidian/graph.json': JSON.stringify({
       search: '-path:"90-Status/logs" -file:"log" -path:"raw"',
+      showAttachments: false,
       hideUnresolved: true,
       showOrphans: false,
       showArrow: true,
@@ -146,6 +153,22 @@ test('rejects a missing or wrong canonical alias', () => {
   });
 });
 
+test('rejects a canonical legacy alias declared by more than one note', () => {
+  const files = workspaceFiles();
+  files['concepts/duplicate-overview.md'] = `---
+title: Duplicate
+aliases: ["00 - 🗺️ AEGIS System Overview"]
+owner: kla
+edit_policy: owner-writable
+---
+# Duplicate
+`;
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('must resolve exactly once')));
+  });
+});
+
 test('rejects a missing required workspace entry point', () => {
   const files = workspaceFiles();
   delete files['idea3/idea3-moc.md'];
@@ -153,6 +176,29 @@ test('rejects a missing required workspace entry point', () => {
     const result = validateWorkspaceLayout({ vaultDir: root });
     assert.ok(result.errors.some((error) => error.includes('Missing workspace entry point')));
   });
+});
+
+test('rejects a workspace entry point missing a required canonical route', () => {
+  const cases = [
+    ['START_HERE.md', '[[idea2/idea2-moc]]'],
+    ['core/core-moc.md', '[[infrastructure/infrastructure-moc]]'],
+    ['idea1/idea1-moc.md', '[[idea1/idea1-status]]'],
+    ['idea2/idea2-moc.md', '[[idea2/idea2-status]]'],
+    ['idea3/idea3-moc.md', '[[idea3/idea3-status]]'],
+    ['infrastructure/infrastructure-moc.md', '[[90-Status/Open-Items-Backlog]]'],
+  ];
+
+  for (const [entryPoint, requiredLink] of cases) {
+    const files = workspaceFiles();
+    files[entryPoint] = files[entryPoint].replace(requiredLink, '');
+    withVault(files, (root) => {
+      const result = validateWorkspaceLayout({ vaultDir: root });
+      assert.ok(
+        result.errors.some((error) => error.includes(`Workspace entry point is missing required link: ${entryPoint}`)),
+        `${entryPoint} should require ${requiredLink}`,
+      );
+    });
+  }
 });
 
 test('rejects phantom legacy files, empty untitled canvases, and an ungrouped graph', () => {
@@ -218,14 +264,14 @@ test('warns instead of approving deletion when an untitled canvas contains data'
   });
 });
 
-test('preserves non-empty legacy-name notes and named project canvases for owner review', () => {
+test('blocks a non-empty legacy-name shadow while preserving owner data for review', () => {
   const files = workspaceFiles();
   files['02 - 💾 IDEA1 AEGIS Drive LC.md'] = note({ body: 'Owner-authored legacy content.' });
   files['AEGIS_Architecture_Canvas.canvas'] = '{"nodes":[{"id":"architecture"}],"edges":[]}';
   files['AEGIS_Knowledge_Network.canvas'] = '{"nodes":[{"id":"knowledge"}],"edges":[]}';
   withVault(files, (root) => {
     const result = validateWorkspaceLayout({ vaultDir: root });
-    assert.equal(result.errors.some((error) => error.includes('phantom legacy note')), false);
+    assert.ok(result.errors.some((error) => error.includes('shadows canonical alias')));
     assert.equal(result.errors.some((error) => error.includes('empty untitled canvas')), false);
     assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
   });
@@ -236,7 +282,7 @@ test('preserves a legacy root note whose owner content is JSON braces', () => {
   files['02 - 💾 IDEA1 AEGIS Drive LC.md'] = '{}';
   withVault(files, (root) => {
     const result = validateWorkspaceLayout({ vaultDir: root });
-    assert.equal(result.errors.some((error) => error.includes('phantom legacy note')), false);
+    assert.ok(result.errors.some((error) => error.includes('shadows canonical alias')));
     assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
   });
 });
@@ -283,5 +329,16 @@ test('rejects negative Global Graph color-group queries', () => {
   withVault(files, (root) => {
     const result = validateWorkspaceLayout({ vaultDir: root });
     assert.ok(result.errors.some((error) => error.includes('missing path color group: core')));
+  });
+});
+
+test('rejects a Global Graph that shows attachments', () => {
+  const files = workspaceFiles();
+  const graph = JSON.parse(files['.obsidian/graph.json']);
+  graph.showAttachments = true;
+  files['.obsidian/graph.json'] = JSON.stringify(graph);
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('hide attachments')));
   });
 });

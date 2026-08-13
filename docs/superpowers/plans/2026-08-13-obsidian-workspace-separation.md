@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-13-obsidian-workspace-separation-design.md`
 
+## Progress snapshot — 2026-08-13
+
+- Tasks 1–4 and Task 5 Steps 1–3 are implemented and verified in Git.
+- Task 5 Steps 4–5 (push and stacked Draft Pull Request) are performed during publication.
+- Task 5 Step 6 remains intentionally open for the owner: reload Obsidian and visually verify Global Graph colors, each MOC's Local Graph, and legacy-link navigation.
+- The detailed checkboxes below preserve the original execution plan; this snapshot is the authoritative current status.
+
 ## Global Constraints
 
 - Open the Vault at `Obsidian_AEGIS_Vault/AEGIS_Knowledge`, never at repository root.

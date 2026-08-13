@@ -28,6 +28,26 @@ const WORKSPACE_ENTRY_POINTS = [
   'idea3/idea3-moc.md',
   'infrastructure/infrastructure-moc.md',
 ];
+const WORKSPACE_REQUIRED_LINKS = new Map([
+  ['START_HERE.md', [
+    'core/core-moc',
+    'idea1/idea1-moc',
+    'idea2/idea2-moc',
+    'idea3/idea3-moc',
+    'infrastructure/infrastructure-moc',
+  ]],
+  ['core/core-moc.md', [
+    'core/system-overview',
+    'idea1/idea1-moc',
+    'idea2/idea2-moc',
+    'idea3/idea3-moc',
+    'infrastructure/infrastructure-moc',
+  ]],
+  ['idea1/idea1-moc.md', ['idea1/idea1-status']],
+  ['idea2/idea2-moc.md', ['idea2/idea2-status']],
+  ['idea3/idea3-moc.md', ['idea3/idea3-status']],
+  ['infrastructure/infrastructure-moc.md', ['90-Status/Open-Items-Backlog']],
+]);
 const LEGACY_ALIAS_TARGETS = new Map([
   ['00 - 🗺️ AEGIS System Overview', 'core/system-overview.md'],
   ['01 - 🚪 HUB-AEGIS Entry', 'core/hub-aegis-entry.md'],
@@ -178,8 +198,31 @@ export function validateWorkspaceLayout({ vaultDir }) {
   if (!existsSync(root)) return { errors: [`Vault directory does not exist: ${root}`], warnings };
 
   for (const entryPoint of WORKSPACE_ENTRY_POINTS) {
-    if (!existsSync(join(root, entryPoint))) {
+    const entryPointPath = join(root, entryPoint);
+    if (!existsSync(entryPointPath)) {
       errors.push(`Missing workspace entry point: ${entryPoint}.`);
+      continue;
+    }
+    const content = readFileSync(entryPointPath, 'utf8');
+    const links = new Set(
+      [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => stripLinkDecoration(match[1])),
+    );
+    for (const requiredLink of WORKSPACE_REQUIRED_LINKS.get(entryPoint) || []) {
+      if (!links.has(requiredLink)) {
+        errors.push(`Workspace entry point is missing required link: ${entryPoint} -> ${requiredLink}.`);
+      }
+    }
+  }
+
+  const aliasDeclarations = new Map();
+  for (const file of walk(root).filter((path) => extname(path).toLowerCase() === '.md')) {
+    const relativePath = normalizePath(relative(root, file));
+    const metadata = parseFrontmatter(readFileSync(file, 'utf8'));
+    for (const alias of extractAliases(metadata.aliases)) {
+      const key = alias.toLocaleLowerCase('en-US');
+      const declarations = aliasDeclarations.get(key) || [];
+      declarations.push(relativePath);
+      aliasDeclarations.set(key, declarations);
     }
   }
 
@@ -191,6 +234,10 @@ export function validateWorkspaceLayout({ vaultDir }) {
     if (aliases.filter((candidate) => candidate === alias).length !== 1) {
       errors.push(`Missing canonical legacy alias: ${alias} on ${target}.`);
     }
+    const declarations = aliasDeclarations.get(alias.toLocaleLowerCase('en-US')) || [];
+    if (declarations.length !== 1 || declarations[0] !== target) {
+      errors.push(`Canonical legacy alias must resolve exactly once: ${alias} -> ${target}; found ${declarations.join(', ') || 'none'}.`);
+    }
 
     const rootLegacyFile = join(root, `${alias}.md`);
     if (existsSync(rootLegacyFile)) {
@@ -198,6 +245,7 @@ export function validateWorkspaceLayout({ vaultDir }) {
       if (content.trim() === '') {
         errors.push(`Root phantom legacy note must be removed: ${alias}.md.`);
       } else {
+        errors.push(`Root legacy note shadows canonical alias and must be reconciled: ${alias}.md.`);
         warnings.push(`${alias}.md contains owner data and needs owner review.`);
       }
     }
@@ -223,6 +271,7 @@ export function validateWorkspaceLayout({ vaultDir }) {
   if (!isPlainObject(graph)) {
     errors.push('Global Graph settings must be a non-null plain object.');
   } else {
+    if (graph.showAttachments !== false) errors.push('Global Graph must hide attachments.');
     if (graph.hideUnresolved !== true) errors.push('Global Graph must hide unresolved links.');
     if (graph.showOrphans !== false) errors.push('Global Graph must set show orphans to false.');
     if (graph.showArrow !== true) errors.push('Global Graph must set show arrow to true.');

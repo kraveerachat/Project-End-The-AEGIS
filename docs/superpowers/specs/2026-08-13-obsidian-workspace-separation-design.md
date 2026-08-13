@@ -1,7 +1,7 @@
 # Obsidian Workspace Separation Design
 
 Date: 2026-08-13
-Status: approved direction; implementation pending
+Status: implemented and automated validation complete; manual Obsidian acceptance pending
 Owner: Kla
 Branch: `codex/obsidian-workspace-separation`
 
