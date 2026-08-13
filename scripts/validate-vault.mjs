@@ -70,17 +70,31 @@ function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) return {};
   const metadata = {};
-  for (const line of match[1].split(/\r?\n/)) {
+  const lines = match[1].split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const separator = line.indexOf(':');
     if (separator === -1) continue;
     const key = line.slice(0, separator).trim();
     const value = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
-    if (key) metadata[key] = value;
+    if (!key) continue;
+    if (!value) {
+      const values = [];
+      while (/^\s+-\s+/.test(lines[index + 1] || '')) {
+        values.push(lines[index + 1].replace(/^\s+-\s+/, '').trim().replace(/^['"]|['"]$/g, ''));
+        index += 1;
+      }
+      if (values.length > 0) metadata[key] = values;
+      else metadata[key] = value;
+    } else {
+      metadata[key] = value;
+    }
   }
   return metadata;
 }
 
 function extractAliases(rawValue = '') {
+  if (Array.isArray(rawValue)) return rawValue.map((value) => value.trim()).filter(Boolean);
   const trimmed = rawValue.trim();
   if (!trimmed) return [];
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
@@ -136,7 +150,7 @@ function stripLinkDecoration(value) {
     .replace(/\.md$/i, '');
 }
 
-function isEmptyAccidentalFile(content) {
+function isEmptyUntitledCanvas(content) {
   const trimmed = content.trim();
   return trimmed === '' || trimmed === '{}';
 }
@@ -144,6 +158,17 @@ function isEmptyAccidentalFile(content) {
 function graphSearchExcludes(search, value) {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?:^|\\s)-(?:path|file):"${escaped}"(?:\\s|$)`).test(search);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function hasPositivePathGroup(query, group) {
+  if (typeof query !== 'string') return false;
+  const escaped = group.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)path:"${escaped}"(?=\\s|$)`).test(query);
 }
 
 export function validateWorkspaceLayout({ vaultDir }) {
@@ -170,7 +195,7 @@ export function validateWorkspaceLayout({ vaultDir }) {
     const rootLegacyFile = join(root, `${alias}.md`);
     if (existsSync(rootLegacyFile)) {
       const content = readFileSync(rootLegacyFile, 'utf8');
-      if (isEmptyAccidentalFile(content)) {
+      if (content.trim() === '') {
         errors.push(`Root phantom legacy note must be removed: ${alias}.md.`);
       } else {
         warnings.push(`${alias}.md contains owner data and needs owner review.`);
@@ -181,9 +206,9 @@ export function validateWorkspaceLayout({ vaultDir }) {
   for (const file of walk(root).filter((path) => extname(path).toLowerCase() === '.canvas')) {
     const relativePath = normalizePath(relative(root, file));
     const content = readFileSync(file, 'utf8');
-    if (/^ยังไม่ได้ตั้งชื่อ(?: \d+)?\.canvas$/u.test(relativePath) && isEmptyAccidentalFile(content)) {
+    if (/^ยังไม่ได้ตั้งชื่อ(?: \d+)?\.canvas$/u.test(basename(relativePath)) && isEmptyUntitledCanvas(content)) {
       errors.push(`Empty untitled canvas must be removed: ${relativePath}; this empty untitled canvas is accidental.`);
-    } else if (!isEmptyAccidentalFile(content)) {
+    } else if (content.trim() !== '') {
       warnings.push(`${relativePath} contains owner data and needs owner review.`);
     }
   }
@@ -195,7 +220,9 @@ export function validateWorkspaceLayout({ vaultDir }) {
   } catch {
     errors.push('Global Graph settings are missing or invalid: .obsidian/graph.json.');
   }
-  if (graph) {
+  if (!isPlainObject(graph)) {
+    errors.push('Global Graph settings must be a non-null plain object.');
+  } else {
     if (graph.hideUnresolved !== true) errors.push('Global Graph must hide unresolved links.');
     if (graph.showOrphans !== false) errors.push('Global Graph must set show orphans to false.');
     if (graph.showArrow !== true) errors.push('Global Graph must set show arrow to true.');
@@ -206,7 +233,7 @@ export function validateWorkspaceLayout({ vaultDir }) {
     }
     for (const group of GRAPH_PATH_GROUPS) {
       if (!Array.isArray(graph.colorGroups)
-          || !graph.colorGroups.some((colorGroup) => colorGroup?.query?.includes(`path:"${group}"`))) {
+          || !graph.colorGroups.some((colorGroup) => hasPositivePathGroup(colorGroup?.query, group))) {
         errors.push(`Global Graph is missing path color group: ${group}.`);
       }
     }

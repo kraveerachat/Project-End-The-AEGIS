@@ -230,3 +230,58 @@ test('preserves non-empty legacy-name notes and named project canvases for owner
     assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
   });
 });
+
+test('preserves a legacy root note whose owner content is JSON braces', () => {
+  const files = workspaceFiles();
+  files['02 - 💾 IDEA1 AEGIS Drive LC.md'] = '{}';
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.equal(result.errors.some((error) => error.includes('phantom legacy note')), false);
+    assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
+  });
+});
+
+test('validates empty and non-empty untitled canvases in nested directories', () => {
+  const files = workspaceFiles();
+  files['drafts/ยังไม่ได้ตั้งชื่อ.canvas'] = '{}';
+  files['owner-data/ยังไม่ได้ตั้งชื่อ 1.canvas'] = '{"nodes":[{"id":"owner-data"}],"edges":[]}';
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('drafts/ยังไม่ได้ตั้งชื่อ.canvas')));
+    assert.ok(result.warnings.some((warning) => warning.includes('owner-data/ยังไม่ได้ตั้งชื่อ 1.canvas')));
+  });
+});
+
+test('accepts canonical aliases written as YAML block lists', () => {
+  const files = workspaceFiles();
+  files['core/system-overview.md'] = files['core/system-overview.md'].replace(
+    'aliases: ["00 - 🗺️ AEGIS System Overview"]',
+    'aliases:\n  - "00 - 🗺️ AEGIS System Overview"',
+  );
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.equal(result.errors.some((error) => error.includes('Missing canonical legacy alias')), false);
+  });
+});
+
+test('rejects non-object Global Graph JSON values', () => {
+  for (const graphValue of ['null', 'false', '0', '[]', '"graph"']) {
+    const files = workspaceFiles();
+    files['.obsidian/graph.json'] = graphValue;
+    withVault(files, (root) => {
+      const result = validateWorkspaceLayout({ vaultDir: root });
+      assert.ok(result.errors.some((error) => error.includes('non-null plain object')));
+    });
+  }
+});
+
+test('rejects negative Global Graph color-group queries', () => {
+  const files = workspaceFiles();
+  const graph = JSON.parse(files['.obsidian/graph.json']);
+  graph.colorGroups[0].query = '-path:"core"';
+  files['.obsidian/graph.json'] = JSON.stringify(graph);
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('missing path color group: core')));
+  });
+});
