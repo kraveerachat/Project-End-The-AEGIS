@@ -136,6 +136,25 @@ test('accepts separated workspaces, canonical aliases, and grouped graph setting
   });
 });
 
+test('rejects a missing or wrong canonical alias', () => {
+  const missingAliasFiles = workspaceFiles();
+  missingAliasFiles['core/system-overview.md'] = missingAliasFiles['core/system-overview.md']
+    .replace('00 - 🗺️ AEGIS System Overview', 'Not the canonical alias');
+  withVault(missingAliasFiles, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('Missing canonical legacy alias')));
+  });
+});
+
+test('rejects a missing required workspace entry point', () => {
+  const files = workspaceFiles();
+  delete files['idea3/idea3-moc.md'];
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('Missing workspace entry point')));
+  });
+});
+
 test('rejects phantom legacy files, empty untitled canvases, and an ungrouped graph', () => {
   const files = workspaceFiles();
   files['02 - 💾 IDEA1 AEGIS Drive LC.md'] = '';
@@ -148,6 +167,9 @@ test('rejects phantom legacy files, empty untitled canvases, and an ungrouped gr
     assert.ok(result.errors.some((error) => error.includes('phantom legacy note')));
     assert.ok(result.errors.some((error) => error.includes('empty untitled canvas')));
     assert.ok(result.errors.some((error) => error.includes('hide unresolved')));
+    assert.ok(result.errors.some((error) => error.includes('90-Status/logs')));
+    assert.ok(result.errors.some((error) => error.includes('show orphans')));
+    assert.ok(result.errors.some((error) => error.includes('arrow')));
     assert.ok(result.errors.some((error) => error.includes('color group')));
   });
 });
@@ -157,6 +179,19 @@ test('warns instead of approving deletion when an untitled canvas contains data'
   files['ยังไม่ได้ตั้งชื่อ.canvas'] = '{"nodes":[{"id":"owner-data"}],"edges":[]}';
   withVault(files, (root) => {
     const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.equal(result.errors.some((error) => error.includes('empty untitled canvas')), false);
+    assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
+  });
+});
+
+test('preserves non-empty legacy-name notes and named project canvases for owner review', () => {
+  const files = workspaceFiles();
+  files['02 - 💾 IDEA1 AEGIS Drive LC.md'] = note({ body: 'Owner-authored legacy content.' });
+  files['AEGIS_Architecture_Canvas.canvas'] = '{"nodes":[{"id":"architecture"}],"edges":[]}';
+  files['AEGIS_Knowledge_Network.canvas'] = '{"nodes":[{"id":"knowledge"}],"edges":[]}';
+  withVault(files, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.equal(result.errors.some((error) => error.includes('phantom legacy note')), false);
     assert.equal(result.errors.some((error) => error.includes('empty untitled canvas')), false);
     assert.ok(result.warnings.some((warning) => warning.includes('owner review')));
   });
