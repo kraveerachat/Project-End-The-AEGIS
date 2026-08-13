@@ -3,8 +3,8 @@ title: Agent Operating Rules
 tags: [aegis, agent, workflow, rules, automation, ai]
 type: module
 created: 2026-08-06
-updated: 2026-08-06
-sources: ["AGENTS.md", "CLAUDE.md", ".claude/skills/"]
+updated: 2026-08-13
+sources: ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"]
 ---
 
 # 🤖 Agent Operating Rules
@@ -28,29 +28,54 @@ These are the load-bearing constraints every agent and every commit must respect
 
 ---
 
-## The post-prompt Obsidian sync requirement
+## Branch → test → receipt → Pull Request
 
-`AGENTS.md` and `CLAUDE.md` both mandate that after finishing **any** prompt, feature, or coding task, the agent updates this vault in place. The procedure lives in the `vibe_coding_obsidian_sync` skill:
+All humans and AI agents follow **one task, one branch, one Pull Request**. Nobody
+pushes directly to `main`. Start from current `origin/main`, work only in the selected
+area, test the result, and let the functional owner plus integration owner review the
+Pull Request.
 
 ```mermaid
-flowchart TD
-    Work[Agent finishes a prompt/task] --> S1
-    subgraph Sync ["3-step mandatory sync"]
-        S1["1 · Update the master overview<br/>00 - AEGIS System Overview<br/>(incl. its Mermaid diagram if flow changed)"]
-        S2["2 · In-place update of the affected<br/>module / concept / entity note"]
-        S3["3 · Append to log.md<br/>+ add any new note to index.md"]
-        S1 --> S2 --> S3
-    end
-    S3 --> Rule{New note needed?}
-    Rule -->|"Feature fits an existing note"| InPlace["EDIT IN PLACE — never duplicate"]
-    Rule -->|"Genuinely new system"| New["Create under concepts/ entities/<br/>or a new numbered note"]
+flowchart LR
+    Main["Current origin/main"] --> Branch["One task branch"]
+    Branch --> Work["Scoped code and canonical facts"]
+    Work --> Test["Run affected verification"]
+    Test --> Receipt["Create one new 90-Status/logs receipt"]
+    Receipt --> PR["Pull Request + owner review"]
+    PR --> Main
 ```
 
-### The deduplication policy (the rule most often broken)
-1. **In-place edit is the default.** If the work relates to an existing note, update that note — including replacing stale or outdated content — so the vault never carries two conflicting versions of the same fact.
-2. **New files only for genuinely new systems.** A new `.md` under `concepts/`, `entities/`, or a new numbered top-level note is justified only when nothing existing covers the subject.
+### Ownership and current maturity
 
-See [[.schema.md]] for the directory layout and frontmatter contract this policy operates within.
+| Area | Receipt owner | Working boundary | Current maturity |
+|---|---|---|---|
+| IDEA1 | `kla` | `IDEA1-AEGIS_Drive_LC/` | UI largely stable; backend and server deployment evolving |
+| IDEA2 | `pub` | IDEA2 Monitor/CCTV/Camera folders | UI largely stable; identity and backend integration evolving |
+| IDEA3 | `music` | `IDEA3-AEGIS_Lockdown/` | Design/report knowledge only; implementation not established |
+| Infrastructure | `kla` | gateway, Postgres, Docker, VLAN, Twingate, server setup | Network and deployment setup still evolving |
+| Core/shared | `kla` | cross-module contracts and governance | About 60–70% settled; integration may still change it |
+
+Kla is the integration owner and temporary GitHub reviewer for IDEA3. Editing another
+owner's area is not forbidden, but every exact cross-scope path must be declared under
+`Shared surfaces touched` and reviewed before merge.
+
+### Mandatory Obsidian receipt after every completed task
+
+Create exactly one new file:
+
+`90-Status/logs/YYYY-MM-DD_HHMMSS_<owner>_<lowercase-topic>.md`
+
+Copy `90-Status/logs/_template.md`. Record exact changed paths, verification commands
+and results, canonical notes updated, shared surfaces, integration requests, and known
+limitations. Never edit another task's receipt and never add a new task entry to legacy
+[[log]]. This append-by-new-file pattern allows IDEA1 and IDEA2 to finish concurrently.
+
+Update a canonical module/concept note only when its durable implementation fact changed;
+replace stale claims in place and do not duplicate notes. Update [[index]] only when a
+genuinely new canonical note is introduced. Broad vault restructuring remains an
+integration-owner task, not part of every feature branch.
+
+See [[.schema.md]] for the directory layout and receipt contract.
 
 ---
 

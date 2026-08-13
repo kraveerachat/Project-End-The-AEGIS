@@ -8,7 +8,10 @@ updated: 2026-08-07
 
 # 📜 LLM Wiki Audit & Operation Log
 
-> Append-only chronological log of all ingestion, query synthesis, and lint passes performed by the LLM Agent.
+> [!warning] LEGACY LOG FROZEN
+> Historical entries below remain immutable. After the collaboration guardrails land,
+> do not append task updates to this shared file. Each completed task creates exactly
+> one new receipt under `90-Status/logs/` so parallel branches do not overwrite one another.
 
 ## [2026-07-28] vibe-coding | AEGIS Monitor: Full Self-Healing DDL & Circular Dependency Fix
 - **Prompt Summary**: Resolved issue on `http://localhost/monitor/` where switching to Alerts view displayed "Could not load alerts / The Monitor backend did not respond" (HTTP 500 error caused by missing SQL tables or DB initialization timing). Added full `CREATE TABLE IF NOT EXISTS` DDL statements for all system tables (`users`, `cameras`, `camera_assignment`, `detections`, `alerts`, `camera_heartbeat`, `clips`) to `bootstrapDbIfNeeded()` in `server/db/connection.js`, and decoupled the circular import dependency between `connection.js` and `store.js`.

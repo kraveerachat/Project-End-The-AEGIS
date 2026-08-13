@@ -96,12 +96,14 @@ the AEGIS product register.
 
 After implementation:
 
-1. Update the relevant existing Obsidian note in place for functional, architectural,
-   security, or deployment changes; keep `00 - 🗺️ AEGIS System Overview.md`, `index.md`,
-   and `log.md` consistent. Avoid duplicate notes.
-2. Run the affected tests and production build. For Monitor UI/deployment work, verify
+1. Run the affected tests and production build. For Monitor UI/deployment work, verify
    `docker compose up -d --build` and `http://localhost/monitor/` when requested.
-3. Keep local agent settings and secrets out of commits. Use `AGENTS.md` as the
+2. Update the selected area's canonical Obsidian note only when durable implementation,
+   security, deployment, or maturity facts changed; avoid duplicate notes.
+3. Create exactly one new task receipt from
+   `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md`. Never edit another
+   task's receipt or append a new task entry to the frozen legacy `log.md`.
+4. Keep local agent settings and secrets out of commits. Use `AGENTS.md` as the
    authoritative repository policy when this README and an agent's defaults differ.
 
 ### Automatic Impeccable command selection
@@ -128,6 +130,6 @@ apply commands mechanically: preserve real API data, routes, RBAC, state machine
 copy, WCAG AA contrast, reduced motion, and the existing AEGIS product/design register.
 
 Every agent must read the relevant existing Obsidian note before changing code and update
-that note in place afterward. Functional, architectural, security, or deployment changes
-must also update `00 - 🗺️ AEGIS System Overview.md` and append `log.md`; do not create
-duplicate notes unless a genuinely new concept is introduced.
+durable facts in that note when needed. Every completed task adds one immutable receipt
+under `90-Status/logs/`; Core/shared notes are reconciled by the integration owner through
+Pull Request review.
