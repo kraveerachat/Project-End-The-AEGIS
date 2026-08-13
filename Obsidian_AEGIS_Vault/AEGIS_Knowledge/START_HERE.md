@@ -45,7 +45,7 @@ Full rules, including the mandatory post-prompt sync procedure: **[[core/agent-o
 1. **[[START_HERE]]** (this file) — orientation and the map below.
 2. **[[core/agent-operating-rules]]** — the four principles, the in-place-edit policy, and the 3-step sync you owe at the end.
 3. **[[summaries/08_Outstanding_Items_Consolidated]]** — what is already known to be broken. **Check this before reporting any "new" bug**; most are already tracked, and several were re-discovered and re-reported across sessions because nobody looked.
-4. **The MOC and status note for your owned area**: [[idea1/idea1-moc]], [[idea2/idea2-moc]], [[idea3/idea3-moc]], or [[infrastructure/infrastructure-moc]].
+4. **Choose the workspace dashboard before reading area detail**: [[core/core-moc]] for shared contracts and integration; [[idea1/idea1-moc]], [[idea2/idea2-moc]], [[idea3/idea3-moc]], or [[infrastructure/infrastructure-moc]] for an owned area. Then open that dashboard's canonical status note.
 5. For UI work → **[[core/design-system-ui-language]]**; for security work → **[[concepts/Terminal_Verification_Protocol]]**.
 
 **Before you finish — the conflict-safe 3-step sync:**
@@ -130,9 +130,19 @@ flowchart TD
 
 ## 📇 Table of contents
 
+### 🧭 Workspace dashboards — *choose the operating surface*
+| Dashboard | Use it for |
+|---|---|
+| [[core/core-moc]] | Shared contracts, integration decisions, and shared-task completion |
+| [[idea1/idea1-moc]] | AEGIS Drive LC work owned by Kla |
+| [[idea2/idea2-moc]] | AEGIS Monitor, CCTV Operator, and Detection Engine work owned by Pub |
+| [[idea3/idea3-moc]] | AEGIS Lockdown work owned by Music |
+| [[infrastructure/infrastructure-moc]] | Network, server, remote-access, and deployment operational truth |
+
 ### 🏛️ Core modules — *what the system is*
 | Note | Covers |
 |---|---|
+| [[core/core-moc]] | Shared contracts, integration queue, and the four workstream dashboards |
 | [[core/system-overview]] | Monorepo topology, data-flow diagram, port map |
 | [[core/hub-aegis-entry]] | Routing-only entry; why it has no auth |
 | [[idea1/idea1-moc]] → [[idea1/idea1-status]] | Kla-owned Data Lake, Storage Layer, Private Vault, shares, audit |

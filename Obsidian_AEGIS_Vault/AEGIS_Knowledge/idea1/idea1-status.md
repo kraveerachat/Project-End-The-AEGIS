@@ -1,5 +1,6 @@
 ---
 title: IDEA1 AEGIS Drive LC
+aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20

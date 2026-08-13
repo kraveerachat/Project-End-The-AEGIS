@@ -18,6 +18,7 @@ edit_policy: owner-only
 
 ## 🗺️ System Architecture & Dashboard
 * [[START_HERE]] — ⭐ **Entry point** — orientation, agent reading protocol, knowledge-network diagram, full ToC
+* [[core/core-moc]] — Shared contracts, integration queue, verification, and the four workstream dashboards
 * [[core/system-overview]] — Monorepo architecture overview, Data Flow Diagram, and component comparison table
 * [[AEGIS_Knowledge_Network.canvas]] — Interactive 2D canvas mapping every note and its relationships (45 nodes / 40 labelled edges, 7 colour-coded groups). Replaced the 5-node `AEGIS_Architecture_Canvas.canvas` on 2026-08-06
 
