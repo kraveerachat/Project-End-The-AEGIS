@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-01
+updated: 2026-08-13
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -19,7 +19,75 @@ edit_policy: owner-writable
 
 For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. The shipped detection engine remains a separate manual process under `IDEA2-AEGIS_CCTV-Operator/detection-engine` and uses `python run.py` after its own `.venv`, dependencies, and `.env` are configured.
 
-> **Codebase Status**: ✅ Built & Implemented — Backend Express `:8002` + unified React app `:5176` + database `aegis_monitor` + Python Detection Engine (in-repo, runs on the Laptop edge node, **not** in `docker-compose`).
+## Current-state audit (2026-08-13)
+
+> [!warning] This section supersedes older implementation and verification claims below wherever they conflict. The audit inspected the current source, configuration, tests, and root orchestration. It did not use a real camera, NAS, Telegram account, PostgreSQL runtime, or Docker daemon.
+
+### Executive verdict
+
+- The authenticated Monitor UI/API is implemented and builds, but several operational values remain static, synthetic, or UI-only.
+- The repository has **two materially different detection engines**. The root `docker-compose.yml` starts legacy `AEGIS_Camera/aegis_scanner.py`; the newer modular engine under `IDEA2-AEGIS_CCTV-Operator/detection-engine/` is manual-only. There is therefore no single canonical runtime in deployment configuration.
+- The modular engine has the stronger capture, retry, recording, heartbeat, and NAS design, but its default configuration fails validation because NAS is enabled while host/user are unset. Its recognition remains an explicit placeholder that reports every detected face as `Unknown`.
+- The legacy engine used by Compose cannot be considered production-ready: its referenced YOLO model is absent, its internal stream port does not match the advertised Docker URL, it has no camera reconnect loop, and it treats generic YOLO object detections as `Authorized / Admin` identities.
+- A committed Telegram bot credential exists in `AEGIS_Camera/run_engine.ps1`. Its value is intentionally omitted here. Revoke/rotate it immediately and remove the tracked credential in a dedicated security fix.
+
+### Feature matrix
+
+Legend: **Real code** means the behavior has a concrete implementation; **placeholder/mock** means it deliberately substitutes for the required behavior; **unverified** means source exists but this audit did not prove it against real infrastructure.
+
+| Feature | Monitor / modular engine | Legacy engine selected by Compose | Audit verdict |
+|---|---|---|---|
+| Camera Capture | `VideoCatcher` opens index or URL and reconnects with backoff | Hard-coded `VideoCapture(0)` | Real code, hardware unverified; legacy is fixed-source |
+| Camera Selection | `setup_camera.py` probes local devices and writes selection | None | Implemented, unverified |
+| Camera Configuration | Environment-driven source and timing values | Most capture behavior hard-coded | Partial; modular `.env.example` omits required Monitor/stream variables |
+| Auto Start | `run.py` starts API, capture, detector, recorder, alerts, NAS, and heartbeat | Docker CMD auto-starts scanner | Implemented in both paths, but neither default path is currently reliable |
+| Face Detection | Haar-based face boxes in `PlaceholderRecognizer` | Haar boxes plus YOLO object detections | Placeholder quality; no production face model |
+| Face Recognition | No identity model | No face identity model | Missing |
+| Authorization Classification | All modular detections are honestly `Unknown` | Generic YOLO objects become `Authorized / Admin` | Modular placeholder; legacy classification is invalid and unsafe |
+| Live Stream | API-key-gated MJPEG stream proxied through Monitor RBAC | Unauthenticated MJPEG endpoints with permissive CORS | Modular real code, unverified; legacy exposes stream on LAN |
+| Continuous Recording | `SegmentRecorder` records continuously | Continuous camera loop records segments | Real code, unverified |
+| Segment Recording | Configurable rotation, default 600 seconds | Segment rotation plus optional ffmpeg transcode | Real code, unverified |
+| Detection Events | Posted to authenticated Monitor internal API | Posted to Monitor when configured | Real code, unverified end to end |
+| Clips / Playback | Monitor serves registered clips; modular registers only after verified NAS upload | Local read-only clip mount may support playback | Partial; modular local-only clips are not registered when NAS is disabled/fails |
+| Telegram | Queue/retry/dry-run with one static chat ID | Dynamic route lookup exists | Real code, delivery unverified; routing behavior differs by runtime |
+| Heartbeat | Posts even when camera is disconnected and records metrics | Posts scanner state | Real code, unverified against deployed DB |
+| Monitor API | User API is role/camera scoped; internal ingest fails secure if key unset | Uses the same Monitor ingest contract when configured | Real code; no API/RBAC integration tests |
+| NAS Sync | Real `rsync`/`scp` path with remote size/hash verification | Hashes the same local file and reports `storedOnNas: true` without transfer | Modular implemented but unverified; legacy is a false operational claim |
+| Retry | Camera reconnect, alert retry, and NAS retry exist | No camera reconnect and no real NAS retry | Partial |
+| Integrity Check | Remote size/hash verification before modular registration/deletion | Local self-hash only | Modular real code, unverified; legacy check does not prove transfer |
+| Error Recovery | Modular workers expose stop/retry behavior | Camera loop exits permanently after open failure | Partial; unsynced modular clips are not reconstructed after restart |
+| Logging | Structured/component logging exists | Basic scanner logging/prints | Implemented, operational retention unverified |
+| Runtime Startup | Manual modular entry point exists | Compose selects legacy entry point | Conflicting; consolidation is required before deployment can be called canonical |
+
+### Monitor truthfulness and coverage gaps
+
+- Without `DATABASE_URL`, the server silently enters memory mode with demo users and static camera records. `/healthz` reports the mode, but the fallback must never be mistaken for deployed persistence.
+- Per-camera status in Nodes and Live still reads the seeded/static `cameras.online` field. Heartbeat data is returned separately, so the prior claim that all node online/offline state is heartbeat-derived is incorrect.
+- Detection labels are real event data, but displayed box positions come from fixed `BOX_SLOTS` because the schema has no bounding-box geometry.
+- Settings notification controls are UI-only even though the interface shows a saved-success toast. The SOC outage control is an explicitly labeled simulation/drill.
+- The Monitor package currently has three test files with six passing tests. They cover request-state classification, password-reset defaults, and a CSS/design contract; they do **not** cover API authorization, camera assignment, internal ingest, streaming, database integration, or either detection engine.
+- `src/lib/i18n.js` does not exist. Login and Settings contain inline translations, so the documented app-wide i18n rollout is not complete.
+- The modular local API protects `/stream.mjpg`, but `/health`, `/metrics`, `/detections/recent`, and `/ws/events` are unauthenticated and use permissive CORS. Legacy stream endpoints are also unauthenticated. Restrict network exposure before deployment.
+
+### Requirement-to-implementation conflicts
+
+1. **Canonical engine:** documentation presents the modular engine as shipped, while root Compose deploys the legacy engine.
+2. **Authorization:** the requirement needs face identity matching; modular code has no recognizer, while legacy code incorrectly converts object detections into authorized identities.
+3. **NAS truth:** modular code implements real remote transfer but was not exercised here; the currently composed legacy path performs no transfer while claiming NAS storage.
+4. **Operational status:** global link state is heartbeat-driven, but camera cards and feed filtering still use a static database boolean.
+5. **Configuration:** modular defaults are described as usable, but startup validation fails unless NAS is explicitly disabled or its host/user are supplied; the example environment omits additional required integration variables.
+6. **Documentation:** Monitor and root READMEs still describe simulated/direct-database/old-port behavior that no longer matches the current HTTP-ingest architecture.
+
+### Recommended migration order
+
+1. Revoke/rotate the exposed Telegram credential and remove it from tracked history/workflows.
+2. Choose one detection engine. Prefer migrating Compose to the modular engine, then quarantine or delete the legacy authorization path after compatibility review.
+3. Add a real face embedding/identity pipeline with explicit thresholds and a fail-unknown policy; never infer authorization from object detection.
+4. Make modular startup configuration complete and fail-secure, including Monitor API, API key, stream URL, heartbeat, NAS, and camera source examples.
+5. Replace `cameras.online` UI decisions with heartbeat-derived camera state and add bounding-box geometry if spatial overlays are required.
+6. Add API/RBAC/stream/engine integration tests before claiming end-to-end readiness; then verify camera, PostgreSQL, NAS, and Telegram behavior on the target VLAN.
+
+> **Codebase Status**: ⚠️ Monitor UI/API built; detection runtime split and not deployment-ready — Backend Express `:8002` + React app `:5176` + database `aegis_monitor` + two conflicting Python engine paths.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
