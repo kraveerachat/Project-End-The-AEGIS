@@ -1,5 +1,6 @@
 ---
 title: Design System & UI Language
+aliases: ["07 - 🎨 Design System & UI Language"]
 tags: [aegis, design, ui, tokens, accessibility, wcag, thai-first]
 type: module
 created: 2026-08-06
