@@ -20,6 +20,25 @@ const RECEIPT_SECTIONS = [
   'Integration requests',
   'Known limitations',
 ];
+const WORKSPACE_ENTRY_POINTS = [
+  'START_HERE.md',
+  'core/core-moc.md',
+  'idea1/idea1-moc.md',
+  'idea2/idea2-moc.md',
+  'idea3/idea3-moc.md',
+  'infrastructure/infrastructure-moc.md',
+];
+const LEGACY_ALIAS_TARGETS = new Map([
+  ['00 - 🗺️ AEGIS System Overview', 'core/system-overview.md'],
+  ['01 - 🚪 HUB-AEGIS Entry', 'core/hub-aegis-entry.md'],
+  ['02 - 💾 IDEA1 AEGIS Drive LC', 'idea1/idea1-status.md'],
+  ['03 - 📹 IDEA2 AEGIS Monitor', 'idea2/idea2-status.md'],
+  ['04 - 🔒 IDEA3 AEGIS Lockdown', 'idea3/idea3-status.md'],
+  ['05 - 🛡️ Security Architecture', 'core/security-architecture.md'],
+  ['06 - 🤖 Agent Operating Rules', 'core/agent-operating-rules.md'],
+  ['07 - 🎨 Design System & UI Language', 'core/design-system-ui-language.md'],
+]);
+const GRAPH_PATH_GROUPS = ['core', 'idea1', 'idea2', 'idea3', 'infrastructure'];
 
 function normalizePath(path) {
   return path.split(sep).join('/');
@@ -115,6 +134,85 @@ function stripLinkDecoration(value) {
     .trim()
     .replace(/\\/g, '/')
     .replace(/\.md$/i, '');
+}
+
+function isEmptyAccidentalFile(content) {
+  const trimmed = content.trim();
+  return trimmed === '' || trimmed === '{}';
+}
+
+function graphSearchExcludes(search, value) {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)-(?:path|file):"${escaped}"(?:\\s|$)`).test(search);
+}
+
+export function validateWorkspaceLayout({ vaultDir }) {
+  const root = resolve(vaultDir);
+  const errors = [];
+  const warnings = [];
+  if (!existsSync(root)) return { errors: [`Vault directory does not exist: ${root}`], warnings };
+
+  for (const entryPoint of WORKSPACE_ENTRY_POINTS) {
+    if (!existsSync(join(root, entryPoint))) {
+      errors.push(`Missing workspace entry point: ${entryPoint}.`);
+    }
+  }
+
+  for (const [alias, target] of LEGACY_ALIAS_TARGETS) {
+    const targetPath = join(root, target);
+    const aliases = existsSync(targetPath)
+      ? extractAliases(parseFrontmatter(readFileSync(targetPath, 'utf8')).aliases)
+      : [];
+    if (aliases.filter((candidate) => candidate === alias).length !== 1) {
+      errors.push(`Missing canonical legacy alias: ${alias} on ${target}.`);
+    }
+
+    const rootLegacyFile = join(root, `${alias}.md`);
+    if (existsSync(rootLegacyFile)) {
+      const content = readFileSync(rootLegacyFile, 'utf8');
+      if (isEmptyAccidentalFile(content)) {
+        errors.push(`Root phantom legacy note must be removed: ${alias}.md.`);
+      } else {
+        warnings.push(`${alias}.md contains owner data and needs owner review.`);
+      }
+    }
+  }
+
+  for (const file of walk(root).filter((path) => extname(path).toLowerCase() === '.canvas')) {
+    const relativePath = normalizePath(relative(root, file));
+    const content = readFileSync(file, 'utf8');
+    if (/^ยังไม่ได้ตั้งชื่อ(?: \d+)?\.canvas$/u.test(relativePath) && isEmptyAccidentalFile(content)) {
+      errors.push(`Empty untitled canvas must be removed: ${relativePath}; this empty untitled canvas is accidental.`);
+    } else if (!isEmptyAccidentalFile(content)) {
+      warnings.push(`${relativePath} contains owner data and needs owner review.`);
+    }
+  }
+
+  const graphPath = join(root, '.obsidian', 'graph.json');
+  let graph = null;
+  try {
+    graph = JSON.parse(readFileSync(graphPath, 'utf8'));
+  } catch {
+    errors.push('Global Graph settings are missing or invalid: .obsidian/graph.json.');
+  }
+  if (graph) {
+    if (graph.hideUnresolved !== true) errors.push('Global Graph must hide unresolved links.');
+    if (graph.showOrphans !== false) errors.push('Global Graph must set show orphans to false.');
+    if (graph.showArrow !== true) errors.push('Global Graph must set show arrow to true.');
+    for (const exclusion of ['90-Status/logs', 'log', 'raw']) {
+      if (!graphSearchExcludes(graph.search || '', exclusion)) {
+        errors.push(`Global Graph search must exclude ${exclusion}.`);
+      }
+    }
+    for (const group of GRAPH_PATH_GROUPS) {
+      if (!Array.isArray(graph.colorGroups)
+          || !graph.colorGroups.some((colorGroup) => colorGroup?.query?.includes(`path:"${group}"`))) {
+        errors.push(`Global Graph is missing path color group: ${group}.`);
+      }
+    }
+  }
+
+  return { errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
 }
 
 export function validateVault({ vaultDir, changedFiles = [] }) {
@@ -262,7 +360,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const changedFiles = changedFileList && existsSync(changedFileList)
     ? readFileSync(changedFileList, 'utf8').split(/\r?\n/).filter(Boolean)
     : [];
-  const result = validateVault({ vaultDir, changedFiles });
+  const vaultResult = validateVault({ vaultDir, changedFiles });
+  const workspaceResult = validateWorkspaceLayout({ vaultDir });
+  const result = {
+    errors: [...new Set([...vaultResult.errors, ...workspaceResult.errors])],
+    warnings: [...new Set([...vaultResult.warnings, ...workspaceResult.warnings])],
+  };
   for (const warning of result.warnings) console.warn(`WARNING: ${warning}`);
   for (const error of result.errors) console.error(`ERROR: ${error}`);
   if (result.errors.length > 0) process.exitCode = 1;
