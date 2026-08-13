@@ -5,13 +5,15 @@ type: infrastructure
 status: ✅ ตั้งค่า+ทดสอบแล้ว · ⏳ ยังไม่ backup config
 created: 2026-08-06
 updated: 2026-08-06
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔌 Managed Switch — VLAN / PVID ที่ตั้งจริง
 
 > อุปกรณ์: **TP-Link TL-SG105E** 5 พอร์ต ([[entities/TP-Link_TL-SG105E]])
 > บทบาท: **Layer 2 802.1Q Segmentation** — บังคับให้แต่ละพอร์ตอยู่เฉพาะวงของตัวเอง
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -53,7 +55,7 @@ updated: 2026-08-06
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[10-Network/VLAN-IP-Plan]] · [[10-Network/MikroTik-Config]] · [[10-Network/Hardware-Inventory]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/network/VLAN-IP-Plan]] · [[infrastructure/network/MikroTik-Config]] · [[infrastructure/network/Hardware-Inventory]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]] (ฉบับออกแบบในเล่ม)
 * [[90-Status/Open-Items-Backlog]]

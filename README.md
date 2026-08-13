@@ -102,7 +102,7 @@ After implementation:
    security, deployment, or maturity facts changed; avoid duplicate notes.
 3. Create exactly one new task receipt from
    `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md`. Never edit another
-   task's receipt or append a new task entry to the frozen legacy `log.md`.
+   task's receipt. Never append a new task entry to the frozen legacy `log.md`.
 4. Keep local agent settings and secrets out of commits. Use `AGENTS.md` as the
    authoritative repository policy when this README and an agent's defaults differ.
 

@@ -5,6 +5,8 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 📊 AEGIS Work Summary — Organized by Category
@@ -35,6 +37,6 @@ Some sessions touch more than one category (e.g. the IDEA1 mock-removal pass has
 
 - Looking for **what shipped in a given area** → open the matching category page; each is a chronological digest with the log date kept next to every bullet so you can jump back to `[[log]]` for full command/verification transcripts.
 - Looking for **what's still broken or half-done** → go straight to [[summaries/08_Outstanding_Items_Consolidated|Outstanding Items]].
-- Looking for **the current state of a module** (not its history) → that's what the canonical numbered notes ([[00 - 🗺️ AEGIS System Overview]] … [[05 - 🛡️ Security Architecture]]) are for; these summaries are historical/by-category, not a live spec.
+- Looking for **the current state of a module** (not its history) → that's what the canonical numbered notes ([[core/system-overview]] … [[core/security-architecture]]) are for; these summaries are historical/by-category, not a live spec.
 
 See [[.schema.md]] for the vault's wiki conventions.

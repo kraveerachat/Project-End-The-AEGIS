@@ -5,12 +5,14 @@ type: infrastructure
 status: ✅ บัญชีครบ+ทดสอบ login แล้ว · 🔧 sudo scope ยังไม่ทบทวน
 created: 2026-08-06
 updated: 2026-08-08
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 👥 บัญชีผู้ใช้บน `aegis-system`
 
 > หลักการ: **บัญชีรายบุคคล ไม่ใช้บัญชีร่วม** เพื่อให้ตรวจสอบย้อนหลังได้ว่าใครทำอะไร (Accountability) และถอนสิทธิ์รายคนได้โดยไม่กระทบคนอื่น
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -23,7 +25,7 @@ updated: 2026-08-08
 | `krayukantk` | มิวสิค (B6701635) | สมาชิกทีมพัฒนา | ✅ ทดสอบผ่าน | ✅ สร้าง key บนเครื่องตัวเอง, ติดตั้ง Public Key และ login ด้วย identity นี้สำเร็จ | 🚫 ไม่มีสิทธิ์; `sudo sshd -T` ถูกปฏิเสธ | 🔧 รอ strict no-fallback test + ล้าง key เก่า/ซ้ำ |
 
 > ทีมและบทบาทเต็ม ดูที่ [[entities/Team_Roles_and_Responsibilities]]
-> รายละเอียดเรื่อง Key ทั้งหมดอยู่ที่ [[20-Server/SSH-Hardening-Status]]
+> รายละเอียดเรื่อง Key ทั้งหมดอยู่ที่ [[infrastructure/server/SSH-Hardening-Status]]
 
 ---
 
@@ -63,8 +65,8 @@ updated: 2026-08-08
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[20-Server/SSH-Hardening-Status]] · [[20-Server/Beelink-Ubuntu-Host]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/server/SSH-Hardening-Status]] · [[infrastructure/server/Beelink-Ubuntu-Host]]
 * [[entities/Team_Roles_and_Responsibilities]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/security-architecture]]
 * [[90-Status/Open-Items-Backlog]]

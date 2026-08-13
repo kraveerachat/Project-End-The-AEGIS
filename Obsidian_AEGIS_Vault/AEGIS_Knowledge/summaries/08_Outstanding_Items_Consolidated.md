@@ -4,7 +4,9 @@ tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
 updated: 2026-08-11
-sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
+sources: ["[[log]]", "[[core/system-overview]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🚦 Outstanding Items — Consolidated

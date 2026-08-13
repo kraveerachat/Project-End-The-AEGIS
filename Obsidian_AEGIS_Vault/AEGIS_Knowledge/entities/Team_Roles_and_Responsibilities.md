@@ -3,8 +3,10 @@ title: Team Roles & Responsibilities
 tags: [aegis, entity, team, responsibilities]
 type: entity
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-08-13
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 👥 Team Structure & Responsibilities
@@ -19,9 +21,9 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 | Student ID | Name | Nickname | Primary Role in Project |
 | :--- | :--- | :--- | :--- |
-| **B6701635** | Mr. Kittiphat Chanthasila | **Music** | **Member 1 (Network – Infrastructure)**: Beelink NAS, HDFS/HIVE Concept, NGINX Layered Auth, Edge Router/Managed Switch/VLAN, Docker Macvlan, UFW |
-| **B6702861** | Mr. Naruebet Saengprathum | **Pub** | **Member 2 (Network – IoT & Data Flow)**: ESP32 Firmware, MQTT Broker, Relay Circuit, Watchdog/Heartbeat, Data Pipeline from AI CCTV → NAS |
-| **B6703370** | Mr. Weerachat Jinaparivataporn | **Kla** | **Main Coordinator & Cross-System Security Architecture**: Main report author, oversees IDEA 1 & 2 overall architecture, cross-system consistency, lead owner of IDEA 3 |
+| **B6701635** | Mr. Kittiphat Chanthasila | **Music** | **IDEA3 owner**: Lockdown firmware, ESP32 relay, signed MQTT command, watchdog/heartbeat and physical fail-secure behavior |
+| **B6702861** | Mr. Naruebet Saengprathum | **Pub** | **IDEA2 owner**: AEGIS Monitor, CCTV Operator, camera ingest, Detection Engine integration and IDEA2 ethics notes |
+| **B6703370** | Mr. Weerachat Jinaparivataporn | **Kla** | **Main coordinator / integration owner**: IDEA1 Drive, HUB, shared architecture/security, infrastructure/network/server/deployment and final integration |
 
 ---
 
@@ -31,9 +33,21 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 | Member | Owns these notes |
 |---|---|
-| **Music** (Network/Infra) | [[entities/Beelink_Mini_S_NAS]] · [[entities/MikroTik_hEX_lite]] · [[entities/TP-Link_TL-SG105E]] · [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[concepts/Three_Layer_Data_Lake]] · [[concepts/ZTNA_Twingate_vs_OpenVPN]] |
-| **Pub** (IoT & Data Flow) | [[entities/ESP32_Relay_Module]] · [[04 - 🔒 IDEA3 AEGIS Lockdown]] · [[concepts/Dead_Mans_Switch]] · [[entities/Detection_Engine_Service]] |
-| **Kla** (Coordinator & Security Architecture) | [[05 - 🛡️ Security Architecture]] · [[concepts/Identity_Decoupling]] · [[concepts/OWASP_Security_Defense]] · [[02 - 💾 IDEA1 AEGIS Drive LC]] · [[03 - 📹 IDEA2 AEGIS Monitor]] · main report author |
+| **Music — IDEA3** | [[idea3/idea3-moc]] · [[idea3/idea3-status]] · [[entities/ESP32_Relay_Module]] · [[concepts/Dead_Mans_Switch]] · [[concepts/Contain_Before_Notify]] · [[concepts/Cyber-Physical_Defense]] |
+| **Pub — IDEA2** | [[idea2/idea2-moc]] · [[idea2/idea2-status]] · [[entities/Detection_Engine_Service]] · [[ethics/Participant_Information_Sheet_IDEA2]] · [[ethics/Informed_Consent_Form_IDEA2]] |
+| **Kla — core, IDEA1, infrastructure** | [[core/system-overview]] · [[core/integration-points]] · [[idea1/idea1-moc]] · [[idea1/idea1-status]] · [[infrastructure/infrastructure-moc]] · [[core/security-architecture]] |
+
+## 🔀 Collaboration contract
+
+| Work | Branch area | Canonical note | Receipt owner |
+|---|---|---|---|
+| IDEA1 | `idea1` | [[idea1/idea1-status]] | `kla` |
+| IDEA2 | `idea2` | [[idea2/idea2-status]] | `pub` |
+| IDEA3 | `idea3` | [[idea3/idea3-status]] | `music` |
+| Infrastructure | `infrastructure` | [[infrastructure/infrastructure-moc]] and its subfolders | `kla` |
+| Shared integration | `shared` | [[core/integration-points]] / [[90-Status/integration-queue]] | `kla` with affected-owner review |
+
+Each task uses one branch, one Pull Request and one new immutable receipt. Nobody edits another owner's status fragment merely to record that their own task finished.
 
 The team is also the participant group for the ethics submission — see [[ethics/Participant_Information_Sheet_IDEA2]], since face enrolment requires consent from the same "authorized internal personnel" who built the system.
 
@@ -41,7 +55,7 @@ The team is also the participant group for the ethics submission — see [[ethic
 
 ## 🔗 Related Notes
 * [[START_HERE]]
-* [[00 - 🗺️ AEGIS System Overview]]
+* [[core/system-overview]]
 * [[concepts/Identity_Decoupling]]
 * [[ethics/Informed_Consent_Form_IDEA2]]
 * [[summaries/07_Ethics_and_Compliance]]

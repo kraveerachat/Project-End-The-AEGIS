@@ -5,11 +5,13 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]"]
+owner: pub
+edit_policy: owner-writable
 ---
 
 # 📹 IDEA2 Monitor & Detection Engine — Consolidated
 
-> Current-state spec: [[03 - 📹 IDEA2 AEGIS Monitor]]. UI-only passes on this module are covered in [[summaries/01_UI_Design_and_Theming]] and only cross-referenced here.
+> Current-state spec: [[idea2/idea2-status]]. UI-only passes on this module are covered in [[summaries/01_UI_Design_and_Theming]] and only cross-referenced here.
 
 ---
 

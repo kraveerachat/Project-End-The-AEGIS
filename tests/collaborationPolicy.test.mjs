@@ -118,7 +118,7 @@ test('accepts a scoped IDEA1 pull request with one new Kla receipt', () => {
   const result = runPolicy({
     changes: [
       'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
-      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/02 - 💾 IDEA1 AEGIS Drive LC.md',
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md',
       'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
     ].join('\n'),
   });
@@ -196,7 +196,7 @@ test('accepts a scoped IDEA2 pull request with one new Pub receipt', () => {
     branch: 'feat/idea2-camera-routing',
     changes: [
       'M\tIDEA2-AEGIS_Monitor/src/App.jsx',
-      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/03 - 📹 IDEA2 AEGIS Monitor.md',
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md',
       'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_pub_policy-test.md',
     ].join('\n'),
   });
@@ -250,6 +250,41 @@ test('rejects modification of an existing task receipt even when a new receipt i
   assert.match(result.stderr, /existing Obsidian task receipts are immutable/i);
 });
 
+test('rejects future writes to the frozen legacy log', () => {
+  const result = runPolicy({
+    changes: [
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/log.md',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /legacy log\.md is frozen/i);
+});
+
+test('allows the one-time legacy-log migration only when its lock is newly added', () => {
+  const body = validBody({
+    area: 'shared',
+    owner: 'kla',
+    integrationReview: 'yes',
+    sharedSurfaces: [
+      '- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/log.md` — freeze legacy history.',
+      '- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/legacy-log-migration.lock` — one-time migration lock.',
+    ].join('\n'),
+  });
+  const result = runPolicy({
+    body,
+    branch: 'codex/obsidian-log-migration',
+    changes: [
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/log.md',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/legacy-log-migration.lock',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test('rejects a newly added receipt without the required metadata and evidence sections', () => {
   const result = runPolicy({
     receiptContent: '# Empty receipt\n',
@@ -282,9 +317,11 @@ test('repository provides PR metadata, code-owner routing, and a read-only polic
   assert.match(template, /## Shared surfaces touched/);
 
   const codeowners = readFileSync(codeownersPath, 'utf8');
-  assert.match(codeowners, /IDEA1-AEGIS_Drive_LC\/\s+@kraveerachat/);
+  assert.match(codeowners, /\*\s+@kraveerachat\s+@pubpup2006p-design/);
+  assert.match(codeowners, /IDEA1-AEGIS_Drive_LC\/\s+@kraveerachat\s+@pubpup2006p-design/);
   assert.match(codeowners, /IDEA2-AEGIS_Monitor\/\s+@kraveerachat\s+@pubpup2006p-design/);
-  assert.match(codeowners, /\.github\/\s+@kraveerachat/);
+  assert.match(codeowners, /\.github\/\s+@kraveerachat\s+@pubpup2006p-design/);
+  assert.match(codeowners, /AEGIS_Knowledge\/idea2\/\s+@kraveerachat\s+@pubpup2006p-design/);
 
   const workflow = readFileSync(workflowPath, 'utf8');
   assert.match(workflow, /pull_request:/);
@@ -341,7 +378,7 @@ test('Obsidian uses immutable per-task receipts and freezes the legacy shared lo
   );
   const legacyLogPath = resolve('Obsidian_AEGIS_Vault/AEGIS_Knowledge/log.md');
   const operatingRulesPath = resolve(
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/06 - 🤖 Agent Operating Rules.md',
+    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/agent-operating-rules.md',
   );
   const schemaPath = resolve('Obsidian_AEGIS_Vault/AEGIS_Knowledge/.schema.md');
 

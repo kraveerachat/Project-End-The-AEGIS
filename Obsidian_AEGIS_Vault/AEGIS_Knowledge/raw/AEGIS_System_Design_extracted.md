@@ -1,3 +1,13 @@
+---
+title: AEGIS System Design extracted
+tags: [aegis, raw, source]
+type: raw-source
+created: 2026-07-20
+updated: 2026-08-13
+owner: kla
+edit_policy: immutable-source
+---
+
 # Raw Source: AEGIS_System_Design.docx
 
 Project Details

@@ -3,9 +3,15 @@ title: IDEA3 AEGIS Lockdown
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
+updated: 2026-08-13
+owner: music
+edit_policy: owner-writable
 ---
 
 # 🔒 IDEA3: AEGIS Lockdown
+
+> [!warning] Ownership and evidence boundary
+> Owner: **Music**. This note currently describes the report/design baseline. Do not promote hardware, firmware or deployment claims to “implemented” until a Music-owned task receipt records concrete test evidence.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -46,6 +52,6 @@ sequenceDiagram
 ---
 
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/system-overview]]
+* [[idea2/idea2-status]]
+* [[core/security-architecture]]

@@ -5,13 +5,15 @@ type: status
 status: 🔧 living-document — ยังมีข้อที่ไม่ตัดสินใจ
 created: 2026-08-06
 updated: 2026-08-11
+owner: kla
+edit_policy: owner-writable
 ---
 
 # ⚠️ Document Conflicts — จุดที่เอกสารขัดกับของจริง
 
 > รายการนี้คือจุดที่ **เล่มรายงาน / โน้ตเดิมในวอลต์ ไม่ตรงกับสิ่งที่ทำจริงบนฮาร์ดแวร์**
 > **หลักการตัดสิน: ยึดของจริงเป็นความจริง** แล้วแก้เอกสารตาม; ข้อ 3 มี operational direction แล้วเมื่อ 2026-08-08 แต่ถ้อยคำในเล่มยังต้องแก้
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -46,7 +48,7 @@ updated: 2026-08-11
 → แปะ banner เตือนไว้แล้ว (2026-08-06) แต่ยังไม่เขียนใหม่ทั้งฉบับ = **P3-8** ใน [[90-Status/Open-Items-Backlog]]
 
 **สถานะ**: ⏳ ยังไม่แก้เล่ม · 🔧 วอลต์แปะเตือนแล้ว
-รายละเอียด: [[30-RemoteAccess/OpenVPN-Deprecated]] · [[30-RemoteAccess/Twingate-Setup]]
+รายละเอียด: [[infrastructure/remote-access/OpenVPN-Deprecated]] · [[infrastructure/remote-access/Twingate-Setup]]
 
 ---
 
@@ -92,14 +94,14 @@ flowchart LR
 | **เล่มกำหนด** | `192.168.10.11` = Drive, `192.168.10.12` = Monitor ผ่าน **Docker Macvlan** |
 | **ของจริง** | **ยังไม่ deploy** — ยังไม่มี container ใดถือ IP เหล่านี้ |
 
-⚠️ **ข้อควรระวังที่พบล่วงหน้า**: [[30-RemoteAccess/Twingate-Setup|Twingate Connector]] รันบน **Docker Bridge** และ Linux มีข้อจำกัด **Macvlan-to-Host isolation** → Connector อาจ **มองไม่เห็น** container ที่อยู่บน Macvlan แม้อยู่ subnet เดียวกัน
+⚠️ **ข้อควรระวังที่พบล่วงหน้า**: [[infrastructure/remote-access/Twingate-Setup|Twingate Connector]] รันบน **Docker Bridge** และ Linux มีข้อจำกัด **Macvlan-to-Host isolation** → Connector อาจ **มองไม่เห็น** container ที่อยู่บน Macvlan แม้อยู่ subnet เดียวกัน
 
 **แผนสำรองที่ต้องเตรียม**:
 1. เปลี่ยน Connector เป็น `--network host` หรือ
 2. เลิก Macvlan → ใช้ **Bridge + Reverse Proxy** (`gateway` NGINX ที่มีอยู่แล้ว) ⭐ สอดคล้องกับโค้ดปัจจุบันมากที่สุด
 
 **สถานะ**: ⏳ **ยังไม่ตัดสินใจ** — เป็น P2-4 ใน [[90-Status/Open-Items-Backlog]]
-รายละเอียด: [[40-Deployment/Docker-Stack-Plan]]
+รายละเอียด: [[infrastructure/deployment/Docker-Stack-Plan]]
 
 > โน้ต [[concepts/VLAN_Segmentation_and_Port_Mapping]] ยังลิสต์ `.11`/`.12`/`.13` เหมือนเป็นของที่ใช้งานอยู่ — ถูกแปะ banner แล้ว 2026-08-06
 
@@ -114,7 +116,7 @@ flowchart LR
 
 > `IDEA2-AEGIS_CCTV-Operator/detection-engine/` **ยังมีอยู่และยังใช้งานจริง** แต่มันคือ **Python process บน Detection Laptop (VLAN 20)** ไม่ใช่ web application และไม่อยู่ใน `docker-compose`
 
-**สถานะ**: ✅ วอลต์บันทึกถูกต้องแล้ว ([[index|index.md]], [[00 - 🗺️ AEGIS System Overview]], [[03 - 📹 IDEA2 AEGIS Monitor]]) · ⏳ ตรวจในเล่มอีกครั้ง
+**สถานะ**: ✅ วอลต์บันทึกถูกต้องแล้ว ([[index|index.md]], [[core/system-overview]], [[idea2/idea2-status]]) · ⏳ ตรวจในเล่มอีกครั้ง
 
 ---
 
@@ -135,13 +137,13 @@ flowchart LR
 
 | | ค่า |
 | :--- | :--- |
-| **[[00 - 🗺️ AEGIS System Overview]] บันทึกไว้ (2026-07-28)** | *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` returned HTTP 200"* |
+| **[[core/system-overview]] บันทึกไว้ (2026-07-28)** | *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` returned HTTP 200"* |
 | **ความจริง** | นั่นคือผลบน **เครื่อง dev ของผู้พัฒนา** — บน **Beelink `aegis-system` ยังไม่มี stack นี้เลย** มีแค่ Twingate Connector |
 
 > ⚠️ นี่คือจุดที่อ่านแล้วเข้าใจผิดได้ง่ายที่สุดเวลาสรุปความคืบหน้า — โน้ตเดิมไม่ได้เขียนผิด แต่ **ไม่ได้ระบุว่าเป็นเครื่องไหน**
 > ⇒ ต่อจากนี้ ทุกครั้งที่บันทึกผล deploy ต้องระบุเครื่องเป้าหมายเสมอ (`dev machine` หรือ `beelink`)
 
-**สถานะ**: 🔧 แปะหมายเหตุไว้แล้วใน [[20-Server/Beelink-Ubuntu-Host]] และ [[40-Deployment/Docker-Stack-Plan]]
+**สถานะ**: 🔧 แปะหมายเหตุไว้แล้วใน [[infrastructure/server/Beelink-Ubuntu-Host]] และ [[infrastructure/deployment/Docker-Stack-Plan]]
 
 ---
 
@@ -161,6 +163,6 @@ flowchart LR
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
+* [[infrastructure/infrastructure-moc]]
 * [[90-Status/Progress-Log-2026-08-06]] · [[90-Status/Open-Items-Backlog]]
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] · [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[entities/MikroTik_hEX_lite]]

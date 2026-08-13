@@ -48,15 +48,15 @@ side without reconciling both sets of facts.
 
 ## Current ownership and maturity routing
 
-The full Obsidian folder migration is not complete. Use these current paths:
+The Obsidian ownership migration is active. Use these canonical paths:
 
 | Area | Functional owner | Primary code | Canonical knowledge | Current maturity |
 |---|---|---|---|---|
-| IDEA1 | Kla | `IDEA1-AEGIS_Drive_LC/` | `02 - 💾 IDEA1 AEGIS Drive LC.md`, `summaries/04_*` | UI is largely stable; backend and server deployment are still evolving |
-| IDEA2 | Pub | `IDEA2-AEGIS_CCTV-Operator/`, `IDEA2-AEGIS_Monitor/`, `AEGIS_Camera/` | `03 - 📹 IDEA2 AEGIS Monitor.md`, `summaries/05_*` | UI is largely stable; identity and backend integration are still evolving |
-| IDEA3 | Music | `IDEA3-AEGIS_Lockdown/` | `04 - 🔒 IDEA3 AEGIS Lockdown.md` | Design/report knowledge only; repository implementation is not established |
-| Infrastructure/network | Kla as integration reviewer | `HUB-AEGIS_Entry/`, `gateway/`, `postgres/`, `shared/`, `docker-compose.yml` | `00-MOC/`, `10-Network/`, `20-Server/`, `30-RemoteAccess/`, `40-Deployment/` | Active setup; server, Docker, VLAN, remote access, and deployment are not stable |
-| Core/shared | Kla | Cross-module contracts and governance | Overview, Security Architecture, `START_HERE.md`, `index.md`, `.schema.md` | Overall structure is about 60–70% settled and may still change through integration review |
+| IDEA1 | Kla | `IDEA1-AEGIS_Drive_LC/` | `idea1/idea1-moc.md`, `idea1/idea1-status.md`, `summaries/04_*` | UI is largely stable; backend and server deployment are still evolving |
+| IDEA2 | Pub | `IDEA2-AEGIS_CCTV-Operator/`, `IDEA2-AEGIS_Monitor/`, `AEGIS_Camera/` | `idea2/idea2-moc.md`, `idea2/idea2-status.md`, `summaries/05_*` | UI is largely stable; identity and backend integration are still evolving |
+| IDEA3 | Music | `IDEA3-AEGIS_Lockdown/` | `idea3/idea3-moc.md`, `idea3/idea3-status.md` | Design/report knowledge only; repository implementation is not established |
+| Infrastructure/network | Kla as integration reviewer | `HUB-AEGIS_Entry/`, `gateway/`, `postgres/`, `shared/`, `docker-compose.yml` | `infrastructure/infrastructure-moc.md` and its subfolders | Active setup; server, Docker, VLAN, remote access, and deployment are not stable |
+| Core/shared | Kla | Cross-module contracts and governance | `core/`, `START_HERE.md`, `index.md`, `.schema.md`, `90-Status/integration-queue.md` | Shared edits require integration review |
 
 Kla maps to GitHub user `kraveerachat`; Pub maps to
 `pubpup2006p-design`. Music's GitHub username is not recorded yet, so Kla is the

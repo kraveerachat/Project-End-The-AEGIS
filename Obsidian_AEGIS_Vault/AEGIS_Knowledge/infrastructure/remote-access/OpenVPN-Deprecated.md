@@ -5,13 +5,15 @@ type: infrastructure
 status: ❌ Deprecated — ใช้งานไม่ได้จริง (Double NAT)
 created: 2026-08-06
 updated: 2026-08-06
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🚫 OpenVPN — ยกเลิกการใช้งาน (Deprecated)
 
 > ⚠️ **ห้ามเขียนในเล่มรายงานว่า OpenVPN ผ่านการทดสอบแล้ว** — ไม่เคยใช้งานได้จริง
-> ช่องทาง Remote Access ที่ใช้จริงคือ [[30-RemoteAccess/Twingate-Setup]]
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> ช่องทาง Remote Access ที่ใช้จริงคือ [[infrastructure/remote-access/Twingate-Setup]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -20,7 +22,7 @@ updated: 2026-08-06
 | รายการ | สถานะ |
 | :--- | :--- |
 | ออกแบบไว้ในเล่ม (§2.3.4) เป็น "Door 0-A" สำหรับ Admin PC | 📋 มีในเล่ม |
-| เคยตั้งค่าจริงบางส่วนบน [[10-Network/MikroTik-Config\|MikroTik]] | 🔧 เคยทำจริง |
+| เคยตั้งค่าจริงบางส่วนบน [[infrastructure/network/MikroTik-Config\|MikroTik]] | 🔧 เคยทำจริง |
 | **ใช้งานเชื่อมต่อจากภายนอกได้จริง** | ❌ **ไม่เคยสำเร็จ** |
 | Disable service ไม่ให้รันค้าง | ⏳ **ยังไม่ยืนยันว่าทำแล้ว** |
 
@@ -71,7 +73,7 @@ OpenVPN ต้องการ **Inbound port** ที่เปิดจากอ
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[30-RemoteAccess/Twingate-Setup]]
-* [[10-Network/MikroTik-Config]] · [[10-Network/VLAN-IP-Plan]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/remote-access/Twingate-Setup]]
+* [[infrastructure/network/MikroTik-Config]] · [[infrastructure/network/VLAN-IP-Plan]]
 * [[90-Status/Document-Conflicts]]

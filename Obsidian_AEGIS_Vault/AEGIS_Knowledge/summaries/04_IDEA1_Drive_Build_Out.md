@@ -1,3 +1,13 @@
+---
+title: 04 IDEA1 Drive Build Out
+tags: [aegis, raw, source]
+type: raw-source
+created: 2026-07-20
+updated: 2026-08-13
+owner: kla
+edit_policy: owner-writable
+---
+
 ﻿---
 title: Work Summary — IDEA1 Drive Feature Build-Out
 tags: [aegis, summary, idea1, drive, features]
@@ -9,7 +19,7 @@ sources: ["[[log]]"]
 
 # 💾 IDEA1 Drive — Feature Build-Out — Consolidated
 
-> Current-state spec: [[02 - 💾 IDEA1 AEGIS Drive LC]]. Security-specific parts of this history (provisioning, ownership, Private Vault crypto) are covered in [[summaries/02_Security_Auth_and_Identity]] and only cross-referenced here.
+> Current-state spec: [[idea1/idea1-status]]. Security-specific parts of this history (provisioning, ownership, Private Vault crypto) are covered in [[summaries/02_Security_Auth_and_Identity]] and only cross-referenced here.
 
 ---
 

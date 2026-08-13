@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌊 Three-Layer Edge Data Lake Architecture
@@ -53,6 +55,6 @@ graph TD
 ---
 
 ## 🔗 Related Notes
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
+* [[idea1/idea1-status]]
 * [[entities/Beelink_Mini_S_NAS]]
 * [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]]

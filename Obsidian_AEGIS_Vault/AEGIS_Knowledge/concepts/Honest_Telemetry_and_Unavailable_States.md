@@ -4,13 +4,15 @@ tags: [aegis, concept, telemetry, integrity, ui, security]
 type: concept
 created: 2026-07-27
 updated: 2026-08-07
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔍 Honest Telemetry & "Unavailable" States
 
 > **The rule**: a number on screen must come from a measurement. If a value cannot be measured yet, the interface says **`unavailable`** — and ideally *why* — rather than showing a plausible-looking figure.
 
-This concept was extracted after the same failure pattern was found independently in **both** [[02 - 💾 IDEA1 AEGIS Drive LC]] and [[03 - 📹 IDEA2 AEGIS Monitor]]. It is now a standing rule for the project.
+This concept was extracted after the same failure pattern was found independently in **both** [[idea1/idea1-status]] and [[idea2/idea2-status]]. It is now a standing rule for the project.
 
 ---
 
@@ -89,8 +91,8 @@ The rule therefore has two parts: **measurement provenance** and **semantic scop
 ---
 
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/system-overview]]
+* [[idea1/idea1-status]]
+* [[idea2/idea2-status]]
+* [[core/security-architecture]]
 * [[concepts/Dead_Mans_Switch]] — the same "silence is the signal" inversion, applied to physical cutoff

@@ -5,12 +5,14 @@ type: infrastructure
 status: 🔧 ยังไม่ปิดงาน — Password Auth ยังเปิดอยู่
 created: 2026-08-06
 updated: 2026-08-11
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔑 SSH Hardening — สถานะและ Checklist
 
 > ⚠️ **สถานะรวม: 🔧 ยังไม่ปิดงาน** — `PasswordAuthentication` **ยังเปิดอยู่** ห้ามเขียนในเล่มว่าปิดแล้ว
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 > **Status correction 2026-08-11 (ผู้ดูแลระบบยืนยัน)**: `PermitRootLogin no`, `PubkeyAuthentication yes` และ UFW Twingate path ทำแล้ว; `admin-main`/`krayukantk` key ผ่าน. งานค้างคือ key ของ `pubpup2006p`, `PasswordAuthentication no`, UFW VLAN 30 direct test, Twingate token rotation และ DB password rotation
 >
@@ -90,7 +92,7 @@ passwordauthentication yes
 | :-- | :--- | :--- |
 | 1 | สมาชิกทุกคนสร้าง Key บนเครื่องตัวเอง (`ssh-keygen -t ed25519`) | 🔧 `admin-main` + `krayukantk` ผ่าน · `pubpup2006p` ค้าง |
 | 2 | เพิ่ม **Public Key** ลงในบัญชี Linux ของตนเองบน Server | 🔧 `admin-main` + `krayukantk` ผ่าน · `pubpup2006p` ค้าง |
-| 3 | ทดสอบเข้าผ่าน [[30-RemoteAccess/Twingate-Setup\|Twingate]] **จากเครือข่ายภายนอก** ด้วย key รายบุคคล | 🔧 Twingate/UFW path และ key ของ `krayukantk` ผ่านแล้ว; strict no-fallback ของสมาชิก + `pubpup2006p` ยังค้าง |
+| 3 | ทดสอบเข้าผ่าน [[infrastructure/remote-access/Twingate-Setup\|Twingate]] **จากเครือข่ายภายนอก** ด้วย key รายบุคคล | 🔧 Twingate/UFW path และ key ของ `krayukantk` ผ่านแล้ว; strict no-fallback ของสมาชิก + `pubpup2006p` ยังค้าง |
 | 4 | ยืนยันว่า **ไม่ถูกถาม Ubuntu password** และบังคับ client `PasswordAuthentication=no` | 🔧 รอบปกติของ `krayukantk` ไม่ถาม Ubuntu password; strict test ยังค้าง |
 | 5 | **ลบ Key เก่า / ซ้ำ / ที่สร้างผิดเครื่อง** ออกจาก `authorized_keys` ทุกบัญชี | ⏳ |
 | 6 | **เปิด session สำรองค้างไว้อย่างน้อย 1 session** ก่อนแก้ `sshd_config` | ⏳ |
@@ -116,8 +118,8 @@ flowchart LR
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[20-Server/Linux-User-Accounts]] · [[20-Server/Beelink-Ubuntu-Host]]
-* [[30-RemoteAccess/Twingate-Setup]]
-* [[05 - 🛡️ Security Architecture]] · [[concepts/OWASP_Security_Defense]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/server/Linux-User-Accounts]] · [[infrastructure/server/Beelink-Ubuntu-Host]]
+* [[infrastructure/remote-access/Twingate-Setup]]
+* [[core/security-architecture]] · [[concepts/OWASP_Security_Defense]]
 * [[90-Status/Open-Items-Backlog]] (P1)

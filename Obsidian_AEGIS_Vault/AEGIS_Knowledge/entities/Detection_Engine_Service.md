@@ -5,11 +5,13 @@ type: entity
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["IDEA2-AEGIS_CCTV-Operator/detection-engine/README.md", "[[log]]"]
+owner: pub
+edit_policy: owner-writable
 ---
 
 # 🎥 Detection Engine Service
 
-> **Why this note exists**: the Detection Engine is a **separately deployed unit on its own host and VLAN**, with its own trust boundary and its own README — but it had no vault node, so it appeared only as prose inside [[03 - 📹 IDEA2 AEGIS Monitor]]. It is the sensor layer of the whole cyber-physical system and deserves a node the graph can point at.
+> **Why this note exists**: the Detection Engine is a **separately deployed unit on its own host and VLAN**, with its own trust boundary and its own README — but it had no vault node, so it appeared only as prose inside [[idea2/idea2-status]]. It is the sensor layer of the whole cyber-physical system and deserves a node the graph can point at.
 
 ---
 
@@ -71,4 +73,4 @@ Runs alongside [[entities/Beelink_Mini_S_NAS]] (which hosts the Monitor API and 
 ---
 
 ## Related
-[[03 - 📹 IDEA2 AEGIS Monitor]] · [[entities/Beelink_Mini_S_NAS]] · [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[concepts/Schema_Ownership_Map]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[concepts/Terminal_Verification_Protocol]] · [[ethics/Participant_Information_Sheet_IDEA2]] · [[summaries/05_IDEA2_Monitor_and_Detection_Engine]] · [[START_HERE]]
+[[idea2/idea2-status]] · [[entities/Beelink_Mini_S_NAS]] · [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[concepts/Schema_Ownership_Map]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[concepts/Terminal_Verification_Protocol]] · [[ethics/Participant_Information_Sheet_IDEA2]] · [[summaries/05_IDEA2_Monitor_and_Detection_Engine]] · [[START_HERE]]

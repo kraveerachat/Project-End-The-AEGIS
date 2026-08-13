@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: music
+edit_policy: owner-writable
 ---
 
 # 🛡️ Cyber-Physical Defense Concept
@@ -19,8 +21,8 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 2. **Physical Level Response**: If the system detects a severe software breach or Root Compromise, it immediately triggers physical network disconnection (**Physical Isolation / Air-Gap**).
 3. **Tripartite Collaboration**:
    - **[[entities/Beelink_Mini_S_NAS|NAS Server]]**: Central command brain and primary data store.
-   - **[[03 - 📹 IDEA2 AEGIS Monitor|AI CCTV (IDEA 2)]]**: Detects physical threats (faces/unauthorized intruders).
-   - **[[04 - 🔒 IDEA3 AEGIS Lockdown|Lockdown Breaker (IDEA 3)]]**: Cuts network circuits upon attack detection.
+   - **[[idea2/idea2-status|AI CCTV (IDEA 2)]]**: Detects physical threats (faces/unauthorized intruders).
+   - **[[idea3/idea3-status|Lockdown Breaker (IDEA 3)]]**: Cuts network circuits upon attack detection.
 
 ---
 
@@ -30,7 +32,7 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 | Dimension | Enforcement point | Note |
 |---|---|---|
-| **Cyber** | Server-side RBAC, CSRF, per-app Postgres roles with `CONNECT` isolation | [[05 - 🛡️ Security Architecture]] · [[concepts/Identity_Decoupling]] · [[concepts/Schema_Ownership_Map]] |
+| **Cyber** | Server-side RBAC, CSRF, per-app Postgres roles with `CONNECT` isolation | [[core/security-architecture]] · [[concepts/Identity_Decoupling]] · [[concepts/Schema_Ownership_Map]] |
 | **Physical (sensing)** | Detection Engine on VLAN 20 — capture, detect, alert; holds no DB credential | [[entities/Detection_Engine_Service]] |
 | **Physical (actuation)** | ESP32 relay cuts the WAN uplink on heartbeat loss | [[entities/ESP32_Relay_Module]] · [[concepts/Dead_Mans_Switch]] |
 | **Network boundary** | VLAN 10/20/30 segmentation between the two dimensions | [[concepts/VLAN_Segmentation_and_Port_Mapping]] · [[concepts/ZTNA_Twingate_vs_OpenVPN]] |

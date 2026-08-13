@@ -5,11 +5,13 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🛡️ Security, Auth & Identity — Consolidated
 
-> See also [[05 - 🛡️ Security Architecture]] for the current-state spec and [[concepts/Identity_Decoupling]] / [[concepts/OWASP_Security_Defense]] / [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] for the underlying concepts. This page is the **history** of how each protection landed.
+> See also [[core/security-architecture]] for the current-state spec and [[concepts/Identity_Decoupling]] / [[concepts/OWASP_Security_Defense]] / [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] for the underlying concepts. This page is the **history** of how each protection landed.
 
 ---
 

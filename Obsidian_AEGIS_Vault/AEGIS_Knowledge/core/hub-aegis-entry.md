@@ -5,6 +5,8 @@ type: module-doc
 created: 2026-07-20
 updated: 2026-07-28
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-only
 ---
 
 # 🚪 HUB-AEGIS Entry (Stateless App Picker — **Not** an Authentication Hub)
@@ -133,8 +135,8 @@ flowchart LR
 ---
 
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/system-overview]]
+* [[idea1/idea1-status]]
+* [[idea2/idea2-status]]
+* [[core/security-architecture]]
 * [[concepts/Identity_Decoupling]]

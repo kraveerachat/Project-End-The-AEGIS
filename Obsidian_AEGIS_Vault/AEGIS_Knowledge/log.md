@@ -4,6 +4,8 @@ tags: [aegis, wiki, log, audit, append-only]
 type: wiki-admin
 created: 2026-07-20
 updated: 2026-08-07
+owner: kla
+edit_policy: owner-only
 ---
 
 # 📜 LLM Wiki Audit & Operation Log

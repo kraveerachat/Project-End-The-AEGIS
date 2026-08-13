@@ -5,12 +5,14 @@ type: infrastructure
 status: ✅ ใช้งานได้จริง+ทดสอบจากภายนอกแล้ว · ⏳ ค้าง security housekeeping
 created: 2026-08-06
 updated: 2026-08-11
+owner: kla
+edit_policy: owner-writable
 ---
 
 # ☁️ Twingate ZTNA — ช่องทาง Remote Access จริง
 
-> **นี่คือช่องทาง Remote Access เดียวที่ใช้งานจริง** ส่วน OpenVPN ถูกยกเลิกแล้ว → [[30-RemoteAccess/OpenVPN-Deprecated]]
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> **นี่คือช่องทาง Remote Access เดียวที่ใช้งานจริง** ส่วน OpenVPN ถูกยกเลิกแล้ว → [[infrastructure/remote-access/OpenVPN-Deprecated]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -72,7 +74,7 @@ flowchart TD
     class L3 warn;
 ```
 
-> ชั้นที่ 3 ยังไม่แข็งเต็มที่ → [[20-Server/SSH-Hardening-Status]]
+> ชั้นที่ 3 ยังไม่แข็งเต็มที่ → [[infrastructure/server/SSH-Hardening-Status]]
 
 ---
 
@@ -106,7 +108,7 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 * ⇒ Connector อาจ **เข้าถึง Drive/Monitor ไม่ได้** แม้จะสร้าง Resource ชี้ไปที่ `.11` / `.12` แล้วก็ตาม
 * แผนสำรอง: เปลี่ยน Connector เป็น `--network host` **หรือ** เลิกใช้ Macvlan แล้วใช้ Bridge + Reverse Proxy แทน
 
-รายละเอียด: ข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[40-Deployment/Docker-Stack-Plan]]
+รายละเอียด: ข้อ 4 ใน [[90-Status/Document-Conflicts]] และ [[infrastructure/deployment/Docker-Stack-Plan]]
 
 ---
 
@@ -126,9 +128,9 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 > ย้ำ: ใน repository และ Obsidian มีเฉพาะ placeholder เท่านั้น ห้าม commit Connector Token จริง และงาน P1 เดิม (rotate token, จำกัด Group, restart policy/health check) ยังไม่ปิด
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[30-RemoteAccess/OpenVPN-Deprecated]]
-* [[20-Server/SSH-Hardening-Status]] · [[20-Server/Beelink-Ubuntu-Host]]
-* [[10-Network/MikroTik-Config]] (Double NAT)
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/remote-access/OpenVPN-Deprecated]]
+* [[infrastructure/server/SSH-Hardening-Status]] · [[infrastructure/server/Beelink-Ubuntu-Host]]
+* [[infrastructure/network/MikroTik-Config]] (Double NAT)
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] (ฉบับออกแบบในเล่ม — ⚠️ ล้าสมัย)
 * [[90-Status/Document-Conflicts]] · [[90-Status/Open-Items-Backlog]]

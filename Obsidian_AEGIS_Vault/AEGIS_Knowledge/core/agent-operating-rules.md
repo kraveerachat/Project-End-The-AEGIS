@@ -5,6 +5,8 @@ type: module
 created: 2026-08-06
 updated: 2026-08-13
 sources: ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"]
+owner: kla
+edit_policy: owner-only
 ---
 
 # 🤖 Agent Operating Rules
@@ -19,7 +21,7 @@ These are the load-bearing constraints every agent and every commit must respect
 
 | # | Principle | Enforced by | Concept note |
 |---|---|---|---|
-| 1 | **Server-Side Enforcement** — all auth/RBAC checks occur on backend Express servers; hiding a menu in the UI is not a security control | `requireRole.js`, `canSeeCamera()` | [[05 - 🛡️ Security Architecture]] |
+| 1 | **Server-Side Enforcement** — all auth/RBAC checks occur on backend Express servers; hiding a menu in the UI is not a security control | `requireRole.js`, `canSeeCamera()` | [[core/security-architecture]] |
 | 2 | **Identity Decoupling** — IDEA1, IDEA2, and HUB are independent identity domains | Separate DBs + `drive_app`/`monitor_app` Postgres roles with `REVOKE CONNECT … FROM PUBLIC` | [[concepts/Identity_Decoupling]] |
 | 3 | **Fail-Secure & Air-Gap** — IDEA3 cuts WAN uplink on heartbeat loss | ESP32 relay, inverted logic | [[concepts/Dead_Mans_Switch]] · [[concepts/Contain_Before_Notify]] |
 | 4 | **OWASP Hardening** — no `localStorage`/`sessionStorage` for tokens; HttpOnly + SameSite=Strict cookies + CSRF tokens | `csrf.js`, `session.js` | [[concepts/OWASP_Security_Defense]] |
@@ -81,7 +83,7 @@ See [[.schema.md]] for the directory layout and receipt contract.
 
 ## The Impeccable UI design workflow
 
-All English UI/design prompts route through the Impeccable command set rather than being improvised. Full detail in [[concepts/Impeccable_UI_Design_Workflow]]; the visual constraints those commands operate under are in [[07 - 🎨 Design System & UI Language]].
+All English UI/design prompts route through the Impeccable command set rather than being improvised. Full detail in [[concepts/Impeccable_UI_Design_Workflow]]; the visual constraints those commands operate under are in [[core/design-system-ui-language]].
 
 - Skill definition: `.claude/skills/impeccable/SKILL.md` (+ ~29 `reference/*.md` command files).
 - ⚠️ **The skill tree exists four times — and the copies are NOT interchangeable.** `.claude/`, `.agents/`, `.cursor/`, and `.gemini/` each carry a version whose internal script paths are **rewritten to its own directory**, and each is wired to a live hook config:
@@ -106,13 +108,13 @@ The repo root carries several real knowledge documents that are **not** vault no
 | `AGENTS.md`, `CLAUDE.md` | **this note** | Agent rules |
 | `.claude/skills/vibe_coding_obsidian_sync/SKILL.md` | **this note** + [[.schema.md]] | Sync procedure |
 | `.claude/skills/impeccable/**` | [[concepts/Impeccable_UI_Design_Workflow]] | Design workflow |
-| `PRODUCT.md`, `DESIGN.md`, `AURORA-GLASS-PROMPT.md` | [[07 - 🎨 Design System & UI Language]] | Design system |
-| `docs/superpowers/plans/`, `docs/superpowers/specs/` | [[07 - 🎨 Design System & UI Language]] | Design plans/specs |
+| `PRODUCT.md`, `DESIGN.md`, `AURORA-GLASS-PROMPT.md` | [[core/design-system-ui-language]] | Design system |
+| `docs/superpowers/plans/`, `docs/superpowers/specs/` | [[core/design-system-ui-language]] | Design plans/specs |
 | `docs/auth-test.md` | [[concepts/Terminal_Verification_Protocol]] | Verification |
 | `shared/db-schema/README.md` | [[concepts/Schema_Ownership_Map]] | Data model |
 | `IDEA2-AEGIS_CCTV-Operator/detection-engine/README.md` | [[entities/Detection_Engine_Service]] | Sensor service |
-| `IDEA3-AEGIS_Lockdown/firmware/README.md` | [[04 - 🔒 IDEA3 AEGIS Lockdown]] · [[entities/ESP32_Relay_Module]] | Firmware |
-| `README.md` (root) | [[00 - 🗺️ AEGIS System Overview]] | Monorepo map |
+| `IDEA3-AEGIS_Lockdown/firmware/README.md` | [[idea3/idea3-status]] · [[entities/ESP32_Relay_Module]] | Firmware |
+| `README.md` (root) | [[core/system-overview]] | Monorepo map |
 
 ---
 
@@ -136,4 +138,4 @@ So roughly **92% of the nodes in the scattered graph were never project knowledg
 ---
 
 ## Related
-[[START_HERE]] · [[00 - 🗺️ AEGIS System Overview]] · [[.schema.md]] · [[index]] · [[log]] · [[concepts/Impeccable_UI_Design_Workflow]] · [[07 - 🎨 Design System & UI Language]] · [[summaries/06_Wiki_Admin_and_Housekeeping]]
+[[START_HERE]] · [[core/system-overview]] · [[.schema.md]] · [[index]] · [[log]] · [[concepts/Impeccable_UI_Design_Workflow]] · [[core/design-system-ui-language]] · [[summaries/06_Wiki_Admin_and_Housekeeping]]

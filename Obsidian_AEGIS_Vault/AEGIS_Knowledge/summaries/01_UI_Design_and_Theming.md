@@ -5,6 +5,8 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🎨 UI Design & Theming — Consolidated

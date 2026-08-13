@@ -3,6 +3,8 @@ Document: Informed Consent Form
 Project: AEGIS System — IDEA 2 (AEGIS AI Monitoring / Facial Recognition)
 Status: Draft for submission to Suranaree University of Technology Human Research Ethics Committee (HREC-SUT)
 Version: v1.0 — Date [____/____/2026]
+owner: pub
+edit_policy: owner-writable
 ---
 
 # Informed Consent Form

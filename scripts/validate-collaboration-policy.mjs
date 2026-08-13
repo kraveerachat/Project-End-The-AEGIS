@@ -74,6 +74,15 @@ const changedEntries = changedFilesText
     const [status, ...paths] = line.split('\t');
     return { status, path: paths.at(-1) || '' };
   });
+const legacyLogPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/log.md';
+const legacyLogLockPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/legacy-log-migration.lock';
+const legacyLogChanged = changedEntries.some(({ path }) => path === legacyLogPath);
+const oneTimeMigrationLockAdded = changedEntries.some(
+  ({ status, path }) => status === 'A' && path === legacyLogLockPath,
+);
+if (legacyLogChanged && !oneTimeMigrationLockAdded) {
+  errors.push('Legacy log.md is frozen; create a new immutable task receipt instead.');
+}
 const receiptDirectory = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/';
 const receiptPattern = /^Obsidian_AEGIS_Vault\/AEGIS_Knowledge\/90-Status\/logs\/(\d{4}-\d{2}-\d{2}_\d{6})_(kla|pub|music)_([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
 const changedTaskReceipts = changedEntries.filter(
@@ -154,21 +163,21 @@ if (newReceipts.length !== 1) {
 const areaPathPrefixes = {
   idea1: [
     'IDEA1-AEGIS_Drive_LC/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/02 - ',
+    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/04_',
   ],
   idea2: [
     'AEGIS_Camera/',
     'IDEA2-AEGIS_CCTV-Operator/',
     'IDEA2-AEGIS_Monitor/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/03 - ',
+    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/05_',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/entities/Detection_Engine_Service',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/ethics/',
   ],
   idea3: [
     'IDEA3-AEGIS_Lockdown/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/04 - ',
+    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/entities/ESP32_Relay_Module',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/concepts/Dead_Mans_Switch',
     'Obsidian_AEGIS_Vault/AEGIS_Knowledge/concepts/Contain_Before_Notify',
@@ -180,11 +189,7 @@ const areaPathPrefixes = {
     'gateway/',
     'postgres/',
     'shared/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/00-MOC/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/10-Network/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/20-Server/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/30-RemoteAccess/',
-    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/40-Deployment/',
+    'Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/',
   ],
   shared: [''],
 };

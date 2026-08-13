@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔐 Mnemonic Recovery & Zero-Knowledge Architecture
@@ -37,7 +39,7 @@ graph TD
 
 > ⚠️ **Reconcile 2026-07-26**: Previous notes described a **12-word BIP-39 Mnemonic** mechanism. In implementation, **passphrase recovery is intentionally omitted** to preserve pure Zero-Knowledge properties.
 
-**Verified Implementation Details (See [[02 - 💾 IDEA1 AEGIS Drive LC]]):**
+**Verified Implementation Details (See [[idea1/idea1-status]]):**
 1. **Passphrase Decoupled from Account Password**: Users configure a dedicated vault passphrase during initial setup (minimum 12 characters).
 2. **Zero-Knowledge Principle**: Passphrases, KEKs, and unwrapped DEKs **never leave the browser**, never appear in request bodies, and are never logged.
 3. **Insider Threat / Admin Abuse Protection**: Even if an administrator inspects server files or database rows, they cannot decrypt contents or derive keys.
@@ -57,6 +59,6 @@ graph TD
 ---
 
 ## 🔗 Related Notes
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
+* [[idea1/idea1-status]]
 * [[concepts/OWASP_Security_Defense]]
 * [[concepts/Identity_Decoupling]]

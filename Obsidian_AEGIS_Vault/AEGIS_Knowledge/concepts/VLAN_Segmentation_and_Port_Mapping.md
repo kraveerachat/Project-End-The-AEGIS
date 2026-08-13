@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 VLAN Segmentation & Port Mapping Architecture
@@ -40,8 +42,8 @@ sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 
 For performance and isolation, each service on Beelink receives a real dedicated IP address in VLAN 10 via Docker Macvlan:
 * `192.168.10.10`: Beelink Host OS (Ubuntu Server)
-* `192.168.10.11`: [[02 - 💾 IDEA1 AEGIS Drive LC|AEGIS Drive Web App]]
-* `192.168.10.12`: [[03 - 📹 IDEA2 AEGIS Monitor|AEGIS Monitor Web App]]
+* `192.168.10.11`: [[idea1/idea1-status|AEGIS Drive Web App]]
+* `192.168.10.12`: [[idea2/idea2-status|AEGIS Monitor Web App]]
 * `192.168.10.13`: Local MQTT Broker
 
 ---

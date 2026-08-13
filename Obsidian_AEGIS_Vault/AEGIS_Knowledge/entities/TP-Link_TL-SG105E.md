@@ -5,6 +5,8 @@ type: entity
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔌 TP-Link TL-SG105E (5-Port Easy Smart Managed Switch)

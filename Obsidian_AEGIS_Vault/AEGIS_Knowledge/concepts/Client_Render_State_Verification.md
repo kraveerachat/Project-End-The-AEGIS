@@ -4,7 +4,9 @@ tags: [aegis, concept, testing, verification, ui, error-states, idea1]
 type: concept
 created: 2026-08-07
 updated: 2026-08-07
-sources: ["[[log]]", "[[02 - 💾 IDEA1 AEGIS Drive LC]]"]
+sources: ["[[log]]", "[[idea1/idea1-status]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🖥️ Client Render-State Verification
@@ -88,4 +90,4 @@ Extending the discipline list in [[concepts/Terminal_Verification_Protocol]]:
 ---
 
 ## Related
-[[concepts/Terminal_Verification_Protocol]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[02 - 💾 IDEA1 AEGIS Drive LC]] · [[summaries/08_Outstanding_Items_Consolidated]] · [[summaries/04_IDEA1_Drive_Build_Out]] · [[07 - 🎨 Design System & UI Language]] · [[06 - 🤖 Agent Operating Rules]] · [[START_HERE]]
+[[concepts/Terminal_Verification_Protocol]] · [[concepts/Honest_Telemetry_and_Unavailable_States]] · [[idea1/idea1-status]] · [[summaries/08_Outstanding_Items_Consolidated]] · [[summaries/04_IDEA1_Drive_Build_Out]] · [[core/design-system-ui-language]] · [[core/agent-operating-rules]] · [[START_HERE]]

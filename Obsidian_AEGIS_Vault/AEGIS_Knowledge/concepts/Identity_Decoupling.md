@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-25
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🔑 Identity Decoupling (v4 Architectural Shift)
@@ -37,9 +39,9 @@ graph LR
 
 | Application | Roles | Data Boundary |
 | :--- | :--- | :--- |
-| **[[02 - 💾 IDEA1 AEGIS Drive LC|AEGIS Drive (IDEA 1)]]** | `Admin`, `DataLake-User` | File management and 3-Layer Data Lake access control |
-| **[[03 - 📹 IDEA2 AEGIS Monitor|AEGIS Monitor (IDEA 2)]]** | `SOC-Responder`, `CCTV-Operator` | Overall CCTV system monitoring and scoped camera view per `camera_assignment` |
-| **[[01 - 🚪 HUB-AEGIS Entry\|HUB Entry]]** | **No roles** | No database, no accounts, no session — pure routing signpost |
+| **[[idea1/idea1-status|AEGIS Drive (IDEA 1)]]** | `Admin`, `DataLake-User` | File management and 3-Layer Data Lake access control |
+| **[[idea2/idea2-status|AEGIS Monitor (IDEA 2)]]** | `SOC-Responder`, `CCTV-Operator` | Overall CCTV system monitoring and scoped camera view per `camera_assignment` |
+| **[[core/hub-aegis-entry\|HUB Entry]]** | **No roles** | No database, no accounts, no session — pure routing signpost |
 
 ---
 
@@ -72,6 +74,6 @@ If a security incident occurs in IDEA 2/3 and the administrator needs to unblock
 ---
 
 ## 🔗 Related Notes
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
+* [[idea1/idea1-status]]
+* [[idea2/idea2-status]]
 * [[concepts/OWASP_Security_Defense]]

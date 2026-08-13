@@ -5,13 +5,15 @@ type: infrastructure
 status: ✅ ทำงานจริง+ทดสอบ Routing แล้ว · ⏳ ยังไม่ backup config
 created: 2026-08-06
 updated: 2026-08-06
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🌐 MikroTik Edge Router — สิ่งที่ตั้งค่าจริง
 
 > อุปกรณ์: **MikroTik hEX lite RB750r2** ([[entities/MikroTik_hEX_lite]])
 > บทบาท: **Edge Router / Inter-VLAN Router / Firewall boundary** ระหว่างวงบ้านกับวง AEGIS
-> กลับไปหน้าศูนย์รวม: [[00-MOC/AEGIS-Infrastructure-MOC]]
+> กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
@@ -39,7 +41,7 @@ Internet (ISP)
 ```
 
 > ผลตามมา: **ทำ Inbound Port Forwarding ไม่ได้เลย** → เป็นเหตุผลหลักที่ทิ้ง OpenVPN แล้วเปลี่ยนไปใช้ ZTNA
-> ดู [[30-RemoteAccess/Twingate-Setup]] และ [[30-RemoteAccess/OpenVPN-Deprecated]]
+> ดู [[infrastructure/remote-access/Twingate-Setup]] และ [[infrastructure/remote-access/OpenVPN-Deprecated]]
 
 ---
 
@@ -58,14 +60,14 @@ Internet (ISP)
 
 ## 🔐 หมายเหตุด้านความปลอดภัย
 
-* ⚠️ **OpenVPN Server บน MikroTik**: [[entities/MikroTik_hEX_lite]] (โน้ตฉบับออกแบบ) ยังระบุว่า Router ทำหน้าที่ OpenVPN Server แจก pool `192.168.30.100–200` — **ของจริงเลิกใช้แล้ว** ดู [[30-RemoteAccess/OpenVPN-Deprecated]]
+* ⚠️ **OpenVPN Server บน MikroTik**: [[entities/MikroTik_hEX_lite]] (โน้ตฉบับออกแบบ) ยังระบุว่า Router ทำหน้าที่ OpenVPN Server แจก pool `192.168.30.100–200` — **ของจริงเลิกใช้แล้ว** ดู [[infrastructure/remote-access/OpenVPN-Deprecated]]
 * ห้ามใส่รหัสผ่าน/คีย์จริงลงโน้ตนี้ ใช้ placeholder เช่น `<ROUTER_ADMIN_PASSWORD>` เท่านั้น
 
 ---
 
 ## 🔗 โน้ตที่เกี่ยวข้อง
 
-* [[00-MOC/AEGIS-Infrastructure-MOC]]
-* [[10-Network/VLAN-IP-Plan]] · [[10-Network/Switch-VLAN-Config]] · [[10-Network/Hardware-Inventory]]
-* [[30-RemoteAccess/Twingate-Setup]] · [[30-RemoteAccess/OpenVPN-Deprecated]]
+* [[infrastructure/infrastructure-moc]]
+* [[infrastructure/network/VLAN-IP-Plan]] · [[infrastructure/network/Switch-VLAN-Config]] · [[infrastructure/network/Hardware-Inventory]]
+* [[infrastructure/remote-access/Twingate-Setup]] · [[infrastructure/remote-access/OpenVPN-Deprecated]]
 * [[90-Status/Open-Items-Backlog]] · [[90-Status/Document-Conflicts]]

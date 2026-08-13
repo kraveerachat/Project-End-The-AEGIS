@@ -5,9 +5,14 @@ type: module-doc
 created: 2026-07-20
 updated: 2026-08-01
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: pub
+edit_policy: owner-writable
 ---
 
 # 📹 IDEA2: AEGIS Monitor (Dual-View SOC & CCTV Operator)
+
+> [!info] Ownership
+> Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
 ### 🧪 Local run check (2026-08-06)
 
@@ -397,10 +402,10 @@ This is a same-day continuation of the pass immediately above, this time run wit
 ---
 
 ## 🔗 Related Notes
-* [[00 - 🗺️ AEGIS System Overview]]
-* [[01 - 🚪 HUB-AEGIS Entry]]
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
-* [[05 - 🛡️ Security Architecture]]
+* [[core/system-overview]]
+* [[core/hub-aegis-entry]]
+* [[idea3/idea3-status]]
+* [[core/security-architecture]]
 * [[concepts/Identity_Decoupling]]
 * [[concepts/Honest_Telemetry_and_Unavailable_States]]
 * [[concepts/OWASP_Security_Defense]]

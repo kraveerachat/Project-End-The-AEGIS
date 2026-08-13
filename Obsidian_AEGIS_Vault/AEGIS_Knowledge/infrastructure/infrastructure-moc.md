@@ -5,9 +5,14 @@ type: moc
 status: 🔧 living-document
 created: 2026-08-06
 updated: 2026-08-11
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🗺️ AEGIS Infrastructure — Map of Content
+
+> [!info] Ownership
+> Owner: **Kla**. Infrastructure is a shared runtime dependency but has one canonical writer; IDEA owners submit integration requests through their task receipts.
 
 > ศูนย์รวมลิงก์และสถานะจริงของงาน **Infrastructure / Network / Remote Access** ของโปรเจกต์ AEGIS
 > ณ วันที่ **8 สิงหาคม 2026**
@@ -37,9 +42,9 @@ updated: 2026-08-11
 * **อาจารย์ที่ปรึกษา**: ผศ. ดร.ทรงยุทธ เพิ่มผล
 * **ทีม 3 คน**: กล้า (B6703370 — infra/network/security), มิวสิค (B6701635), ปั๊บ (B6702861) → [[entities/Team_Roles_and_Responsibilities]]
 * **3 IDEA**:
-  * IDEA1 **AEGIS Drive** — Edge Data Lake / NAS → [[02 - 💾 IDEA1 AEGIS Drive LC]]
-  * IDEA2 **AEGIS Monitor** — AI CCTV → [[03 - 📹 IDEA2 AEGIS Monitor]]
-  * IDEA3 **Cyber-Physical Lockdown** — ESP32 + Relay + MQTT → [[04 - 🔒 IDEA3 AEGIS Lockdown]]
+  * IDEA1 **AEGIS Drive** — Edge Data Lake / NAS → [[idea1/idea1-status]]
+  * IDEA2 **AEGIS Monitor** — AI CCTV → [[idea2/idea2-status]]
+  * IDEA3 **Cyber-Physical Lockdown** — ESP32 + Relay + MQTT → [[idea3/idea3-status]]
 
 ---
 
@@ -47,18 +52,18 @@ updated: 2026-08-11
 
 | ชั้นงาน | สถานะ | โน้ตหลัก |
 | :--- | :--- | :--- |
-| สถาปัตยกรรมเครือข่าย & Defense in Depth | ✅ | [[10-Network/VLAN-IP-Plan]] |
-| ฮาร์ดแวร์ครบตามแผน (ยกเว้น IDEA3) | ✅ / ⏳ ESP32 | [[10-Network/Hardware-Inventory]] |
-| Edge Router (MikroTik) + Inter-VLAN Routing | ✅ (⏳ ยังไม่ backup config) | [[10-Network/MikroTik-Config]] |
-| Managed Switch VLAN + PVID | ✅ | [[10-Network/Switch-VLAN-Config]] |
-| Ubuntu Server Host พร้อมใช้งาน | ✅ | [[20-Server/Beelink-Ubuntu-Host]] |
-| บัญชีผู้ใช้รายบุคคล | ✅ (🔧 sudo scope) | [[20-Server/Linux-User-Accounts]] |
-| SSH Key Authentication | 🔧 `admin-main` + `krayukantk` ใช้ key ได้ · `pubpup2006p`/strict tests/global Password Auth ยังค้าง | [[20-Server/SSH-Hardening-Status]] |
-| Remote Access ผ่าน Twingate ZTNA | ✅ | [[30-RemoteAccess/Twingate-Setup]] |
-| OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[30-RemoteAccess/OpenVPN-Deprecated]] |
+| สถาปัตยกรรมเครือข่าย & Defense in Depth | ✅ | [[infrastructure/network/VLAN-IP-Plan]] |
+| ฮาร์ดแวร์ครบตามแผน (ยกเว้น IDEA3) | ✅ / ⏳ ESP32 | [[infrastructure/network/Hardware-Inventory]] |
+| Edge Router (MikroTik) + Inter-VLAN Routing | ✅ (⏳ ยังไม่ backup config) | [[infrastructure/network/MikroTik-Config]] |
+| Managed Switch VLAN + PVID | ✅ | [[infrastructure/network/Switch-VLAN-Config]] |
+| Ubuntu Server Host พร้อมใช้งาน | ✅ | [[infrastructure/server/Beelink-Ubuntu-Host]] |
+| บัญชีผู้ใช้รายบุคคล | ✅ (🔧 sudo scope) | [[infrastructure/server/Linux-User-Accounts]] |
+| SSH Key Authentication | 🔧 `admin-main` + `krayukantk` ใช้ key ได้ · `pubpup2006p`/strict tests/global Password Auth ยังค้าง | [[infrastructure/server/SSH-Hardening-Status]] |
+| Remote Access ผ่าน Twingate ZTNA | ✅ | [[infrastructure/remote-access/Twingate-Setup]] |
+| OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[infrastructure/remote-access/OpenVPN-Deprecated]] |
 | UFW Production Rules | 🔧 Twingate path ✅ · VLAN 30 direct test ⏳ | [[90-Status/Open-Items-Backlog]] |
-| Docker Production Stack บน Beelink | ⏳ ยังไม่ deploy | [[40-Deployment/Docker-Stack-Plan]] |
-| IDEA3 MQTT / ESP32 / Relay | ⏳ เขียนแล้วยังไม่ทดสอบ | [[04 - 🔒 IDEA3 AEGIS Lockdown]] |
+| Docker Production Stack บน Beelink | ⏳ ยังไม่ deploy | [[infrastructure/deployment/Docker-Stack-Plan]] |
+| IDEA3 MQTT / ESP32 / Relay | ⏳ เขียนแล้วยังไม่ทดสอบ | [[idea3/idea3-status]] |
 
 > 📋 **สรุปงาน 15 ขั้นตอนแบบละเอียดพร้อมหลักฐานการทดสอบ** อยู่ที่ [[90-Status/Progress-Log-2026-08-06]]
 >
@@ -71,22 +76,22 @@ updated: 2026-08-11
 ## 🗂️ สารบัญโน้ต
 
 ### 10-Network
-* [[10-Network/Hardware-Inventory]] — รายการอุปกรณ์จริงและสเปก
-* [[10-Network/VLAN-IP-Plan]] — ผัง VLAN / Subnet / IP ทุกตัว
-* [[10-Network/MikroTik-Config]] — Edge Router, VLAN Interface, Firewall order
-* [[10-Network/Switch-VLAN-Config]] — Port mapping / PVID บน TL-SG105E
+* [[infrastructure/network/Hardware-Inventory]] — รายการอุปกรณ์จริงและสเปก
+* [[infrastructure/network/VLAN-IP-Plan]] — ผัง VLAN / Subnet / IP ทุกตัว
+* [[infrastructure/network/MikroTik-Config]] — Edge Router, VLAN Interface, Firewall order
+* [[infrastructure/network/Switch-VLAN-Config]] — Port mapping / PVID บน TL-SG105E
 
 ### 20-Server
-* [[20-Server/Beelink-Ubuntu-Host]] — Ubuntu Server host `aegis-system`
-* [[20-Server/Linux-User-Accounts]] — บัญชีรายบุคคลและสิทธิ์
-* [[20-Server/SSH-Hardening-Status]] — สถานะ SSH Key + Checklist ก่อนปิด Password Login
+* [[infrastructure/server/Beelink-Ubuntu-Host]] — Ubuntu Server host `aegis-system`
+* [[infrastructure/server/Linux-User-Accounts]] — บัญชีรายบุคคลและสิทธิ์
+* [[infrastructure/server/SSH-Hardening-Status]] — สถานะ SSH Key + Checklist ก่อนปิด Password Login
 
 ### 30-RemoteAccess
-* [[30-RemoteAccess/Twingate-Setup]] — ZTNA Connector / Resource / Policy
-* [[30-RemoteAccess/OpenVPN-Deprecated]] — เหตุผลที่เลิกใช้และสิ่งที่ต้องระวังตอนเขียนเล่ม
+* [[infrastructure/remote-access/Twingate-Setup]] — ZTNA Connector / Resource / Policy
+* [[infrastructure/remote-access/OpenVPN-Deprecated]] — เหตุผลที่เลิกใช้และสิ่งที่ต้องระวังตอนเขียนเล่ม
 
 ### 40-Deployment
-* [[40-Deployment/Docker-Stack-Plan]] — แผน deploy Gateway/Drive/Monitor/PostgreSQL
+* [[infrastructure/deployment/Docker-Stack-Plan]] — แผน deploy Gateway/Drive/Monitor/PostgreSQL
 
 ### 90-Status
 * [[90-Status/Progress-Log-2026-08-06]] — สรุปงาน 15 ขั้นตอนที่ทำไปแล้ว
@@ -132,7 +137,7 @@ flowchart TD
 
 ## 🔗 เชื่อมกับโน้ตชุดเดิมในวอลต์
 
-* [[00 - 🗺️ AEGIS System Overview]] — สถาปัตยกรรมซอฟต์แวร์ (Monorepo/Docker)
+* [[core/system-overview]] — สถาปัตยกรรมซอฟต์แวร์ (Monorepo/Docker)
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]] — ผัง VLAN ฉบับออกแบบในเล่ม
 * [[concepts/ZTNA_Twingate_vs_OpenVPN]] — การเปรียบเทียบฉบับออกแบบ (⚠️ ยังเขียนแบบ 2 ช่องทางคู่ขนาน)
-* [[05 - 🛡️ Security Architecture]] — Defense in Depth ระดับแอปพลิเคชัน
+* [[core/security-architecture]] — Defense in Depth ระดับแอปพลิเคชัน

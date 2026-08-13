@@ -5,6 +5,8 @@ type: summary
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["[[log]]", "[[ethics/Participant_Information_Sheet_IDEA2]]", "[[ethics/Informed_Consent_Form_IDEA2]]"]
+owner: pub
+edit_policy: owner-writable
 ---
 
 # 📑 Ethics & Compliance — Consolidated

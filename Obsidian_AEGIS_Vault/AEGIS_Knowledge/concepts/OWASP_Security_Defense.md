@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🛡️ OWASP Security Defense & System Hardening
@@ -65,7 +67,7 @@ However, generic error messages apply strictly to **credential verification fail
 ---
 
 ## 🔗 Related Notes
-* [[05 - 🛡️ Security Architecture]]
+* [[core/security-architecture]]
 * [[concepts/Identity_Decoupling]]
-* [[02 - 💾 IDEA1 AEGIS Drive LC]]
-* [[03 - 📹 IDEA2 AEGIS Monitor]]
+* [[idea1/idea1-status]]
+* [[idea2/idea2-status]]

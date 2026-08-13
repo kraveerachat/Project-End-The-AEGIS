@@ -5,6 +5,8 @@ type: concept
 created: 2026-08-06
 updated: 2026-08-06
 sources: ["shared/db-schema/README.md"]
+owner: kla
+edit_policy: owner-writable
 ---
 
 # 🗄️ Schema Ownership Map
@@ -31,7 +33,7 @@ sources: ["shared/db-schema/README.md"]
 ## Two enforcement facts that make this real
 
 1. **Connection-level isolation, not convention.** Runtime roles `drive_app` and `monitor_app` each hold `CONNECT` on their own database only, with `REVOKE CONNECT … FROM PUBLIC` applied. A cross-database read fails at *connection* time, before any query is parsed. Full detail in [[concepts/Identity_Decoupling]] and [[summaries/02_Security_Auth_and_Identity]].
-2. **`camera_assignment` is the scoping primitive.** It is the single table that decides which cameras a CCTV-Operator may see, stream, or receive alerts for — enforced server-side in `canSeeCamera()`, never in the UI. It is also what routes Telegram alerts to the right operator (see [[03 - 📹 IDEA2 AEGIS Monitor]]).
+2. **`camera_assignment` is the scoping primitive.** It is the single table that decides which cameras a CCTV-Operator may see, stream, or receive alerts for — enforced server-side in `canSeeCamera()`, never in the UI. It is also what routes Telegram alerts to the right operator (see [[idea2/idea2-status]]).
 
 ## Known gap
 
@@ -40,4 +42,4 @@ sources: ["shared/db-schema/README.md"]
 ---
 
 ## Related
-[[concepts/Identity_Decoupling]] · [[concepts/Three_Layer_Data_Lake]] · [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] · [[05 - 🛡️ Security Architecture]] · [[02 - 💾 IDEA1 AEGIS Drive LC]] · [[03 - 📹 IDEA2 AEGIS Monitor]] · [[concepts/Terminal_Verification_Protocol]] · [[START_HERE]]
+[[concepts/Identity_Decoupling]] · [[concepts/Three_Layer_Data_Lake]] · [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] · [[core/security-architecture]] · [[idea1/idea1-status]] · [[idea2/idea2-status]] · [[concepts/Terminal_Verification_Protocol]] · [[START_HERE]]

@@ -5,6 +5,8 @@ type: concept
 created: 2026-07-20
 updated: 2026-07-20
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
+owner: music
+edit_policy: owner-writable
 ---
 
 # ⏱️ Dead Man's Switch & Fail-Secure Mechanism
@@ -38,6 +40,6 @@ flowchart TD
 ---
 
 ## 🔗 Related Notes
-* [[04 - 🔒 IDEA3 AEGIS Lockdown]]
+* [[idea3/idea3-status]]
 * [[entities/ESP32_Relay_Module]]
 * [[concepts/Contain_Before_Notify]]

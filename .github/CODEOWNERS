@@ -1,30 +1,37 @@
-# Default integration reviewer until the team ownership map is fully stabilized.
-* @kraveerachat
+# Two review-capable accounts are listed on every protected surface so a Pull
+# Request author is never the only CODEOWNER and therefore never self-deadlocks.
+* @kraveerachat @pubpup2006p-design
 
 # Governance and enforcement rules.
-/.github/ @kraveerachat
-/AGENTS.md @kraveerachat
-/CLAUDE.md @kraveerachat
-/GEMINI.md @kraveerachat
-/CONTRIBUTING.md @kraveerachat
-/scripts/validate-collaboration-policy.mjs @kraveerachat
-/tests/collaborationPolicy.test.mjs @kraveerachat
+/.github/ @kraveerachat @pubpup2006p-design
+/AGENTS.md @kraveerachat @pubpup2006p-design
+/CLAUDE.md @kraveerachat @pubpup2006p-design
+/GEMINI.md @kraveerachat @pubpup2006p-design
+/CONTRIBUTING.md @kraveerachat @pubpup2006p-design
+/scripts/validate-collaboration-policy.mjs @kraveerachat @pubpup2006p-design
+/scripts/validate-vault.mjs @kraveerachat @pubpup2006p-design
+/tests/collaborationPolicy.test.mjs @kraveerachat @pubpup2006p-design
+/tests/vaultStructure.test.mjs @kraveerachat @pubpup2006p-design
 
-# Application ownership and review routing.
-/IDEA1-AEGIS_Drive_LC/ @kraveerachat
+# Application ownership and review routing. Functional ownership is enforced by
+# PR metadata and Obsidian owner fields; both accounts can provide the required review.
+/IDEA1-AEGIS_Drive_LC/ @kraveerachat @pubpup2006p-design
 /IDEA2-AEGIS_CCTV-Operator/ @kraveerachat @pubpup2006p-design
 /IDEA2-AEGIS_Monitor/ @kraveerachat @pubpup2006p-design
 /AEGIS_Camera/ @kraveerachat @pubpup2006p-design
-/IDEA3-AEGIS_Lockdown/ @kraveerachat
+/IDEA3-AEGIS_Lockdown/ @kraveerachat @pubpup2006p-design
 
 # Shared integration surfaces.
-/HUB-AEGIS_Entry/ @kraveerachat
-/gateway/ @kraveerachat
-/postgres/ @kraveerachat
-/shared/ @kraveerachat
-/docker-compose.yml @kraveerachat
+/HUB-AEGIS_Entry/ @kraveerachat @pubpup2006p-design
+/gateway/ @kraveerachat @pubpup2006p-design
+/postgres/ @kraveerachat @pubpup2006p-design
+/shared/ @kraveerachat @pubpup2006p-design
+/docker-compose.yml @kraveerachat @pubpup2006p-design
 
-# Knowledge base: Kla remains integration reviewer; IDEA2 also routes to Pub.
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/ @kraveerachat
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/03* @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/05_* @kraveerachat @pubpup2006p-design
+# Knowledge-base ownership boundaries.
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/ @kraveerachat @pubpup2006p-design
