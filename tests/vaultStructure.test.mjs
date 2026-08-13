@@ -29,6 +29,30 @@ edit_policy: ${policy}
 ${body}
 `;
 
+const receipt = ({ owner, area }) => `---
+title: Test receipt
+owner: ${owner}
+area: ${area}
+branch: fix/shared-vault-receipt-ownership
+status: complete
+edit_policy: append-by-new-file
+---
+## What changed
+Done.
+## Source files changed
+- \`test\`
+## Verification evidence
+- \`node --test\` — pass.
+## Canonical notes updated
+None.
+## Shared surfaces touched
+- \`scripts/validate-vault.mjs\`
+## Integration requests
+Review required.
+## Known limitations
+None.
+`;
+
 const legacyAliases = {
   'core/system-overview.md': '00 - 🗺️ AEGIS System Overview',
   'core/hub-aegis-entry.md': '01 - 🚪 HUB-AEGIS Entry',
@@ -116,6 +140,43 @@ Done.
     const result = validateVault({ vaultDir: root });
     assert.ok(result.errors.some((error) => error.includes('Verification evidence')));
     assert.ok(result.errors.some((error) => error.includes('Canonical notes updated')));
+  });
+});
+
+test('accepts task receipts only when owner matches the policy mapping for their area', () => {
+  const areaOwners = new Map([
+    ['idea1', 'kla'],
+    ['idea2', 'pub'],
+    ['idea3', 'music'],
+    ['infrastructure', 'kla'],
+    ['shared', 'kla'],
+  ]);
+
+  for (const [area, owner] of areaOwners) {
+    withVault({
+      [`90-Status/logs/2026-08-13_180000_${owner}_${area}-task.md`]: receipt({ owner, area }),
+    }, (root) => {
+      const result = validateVault({ vaultDir: root });
+      assert.deepEqual(result.errors, [], `${area} should require ${owner}`);
+    });
+  }
+});
+
+test('rejects a receipt owner that matches the filename but not the receipt area', () => {
+  withVault({
+    '90-Status/logs/2026-08-13_180000_pub_wrong-area-owner.md': receipt({ owner: 'pub', area: 'idea1' }),
+  }, (root) => {
+    const result = validateVault({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('owner for area idea1 must be kla, received pub')));
+  });
+});
+
+test('rejects a receipt without a recognized task area', () => {
+  withVault({
+    '90-Status/logs/2026-08-13_180000_kla_unknown-area.md': receipt({ owner: 'kla', area: 'unknown' }),
+  }, (root) => {
+    const result = validateVault({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('receipt area must be one of')));
   });
 });
 
