@@ -30,17 +30,17 @@ These are the load-bearing constraints every agent and every commit must respect
 
 ---
 
-## Branch → test → receipt → Pull Request
+## Branch → scope → test → receipt → Pull Request
 
-All humans and AI agents follow **one task, one branch, one Pull Request**. Nobody
-pushes directly to `main`. Start from current `origin/main`, work only in the selected
-area, test the result, and let the functional owner plus integration owner review the
-Pull Request.
+All humans and AI agents follow **one task, one branch, one Pull Request, one
+immutable receipt**. Nobody pushes directly to `main`. The complete executable
+runbook is `AGENTS.md`; this note records the durable knowledge model behind it.
 
 ```mermaid
 flowchart LR
     Main["Current origin/main"] --> Branch["One task branch"]
-    Branch --> Work["Scoped code and canonical facts"]
+    Branch --> Scope["Select one area and declare shared paths"]
+    Scope --> Work["Scoped code and canonical facts"]
     Work --> Test["Run affected verification"]
     Test --> Receipt["Create one new 90-Status/logs receipt"]
     Receipt --> PR["Pull Request + owner review"]
@@ -57,9 +57,44 @@ flowchart LR
 | Infrastructure | `kla` | gateway, Postgres, Docker, VLAN, Twingate, server setup | Network and deployment setup still evolving |
 | Core/shared | `kla` | cross-module contracts and governance | About 60–70% settled; integration may still change it |
 
-Kla is the integration owner and temporary GitHub reviewer for IDEA3. Editing another
-owner's area is not forbidden, but every exact cross-scope path must be declared under
-`Shared surfaces touched` and reviewed before merge.
+Kla is the integration owner and temporary GitHub reviewer for IDEA3. Editing
+outside the selected area is allowed when it is necessary for a working system,
+but it is an explicitly reviewed exception rather than silent scope expansion.
+
+### Cross-scope deployment contract
+
+An IDEA task may need infrastructure changes to run for real. For example, an
+IDEA2 server task may change its own Monitor code plus `docker-compose.yml`,
+`gateway/nginx.conf`, `postgres/init/**`, or `.env.example`. In that case the
+agent must:
+
+1. keep the infrastructure change to the minimum necessary;
+2. set PR metadata `integration-review: yes`;
+3. list every exact path under PR `Shared surfaces touched`;
+4. repeat the same exact paths under receipt `Shared surfaces touched`;
+5. describe the owner decision, rollout, migration, or rollback under receipt
+   `Integration requests`; and
+6. run area verification plus the applicable integration/deployment check.
+
+The GitHub collaboration validator enforces both declarations. A PR-only
+declaration is insufficient because future agents read receipts from Obsidian.
+
+### Branch and publication sequence
+
+Start a normal task from synchronized `origin/main`:
+
+```bash
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git switch -c feat/idea2-short-task-name
+```
+
+Allowed prefixes are `feat/`, `fix/`, `docs/`, `infra/`, `deploy/`, `chore/`,
+and `codex/`. A task that depends on an unmerged PR uses a stacked branch and PR
+against that dependency until it merges. Before publication, inspect the diff,
+stage exact paths, commit, and push the branch with `git push -u origin
+<branch-name>`. Force-push is prohibited.
 
 ### Mandatory Obsidian receipt after every completed task
 
@@ -72,9 +107,12 @@ and results, canonical notes updated, shared surfaces, integration requests, and
 limitations. Never edit another task's receipt and never add a new task entry to legacy
 [[log]]. This append-by-new-file pattern allows IDEA1 and IDEA2 to finish concurrently.
 
-Update a canonical module/concept note only when its durable implementation fact changed;
-replace stale claims in place and do not duplicate notes. Update [[index]] only when a
-genuinely new canonical note is introduced. Broad vault restructuring remains an
+Update a canonical module/concept note only when its durable implementation fact
+changed; replace stale claims in place and do not duplicate notes. An area's
+functional owner updates that area's canonical notes. A non-owner records the
+proposed fact and exact target note under `Integration requests` instead of
+rewriting another owner's source of truth. Update [[index]] only when a genuinely
+new canonical note is introduced. Broad vault restructuring remains an
 integration-owner task, not part of every feature branch.
 
 See [[.schema.md]] for the directory layout and receipt contract.
