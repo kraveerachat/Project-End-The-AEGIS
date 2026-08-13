@@ -103,17 +103,18 @@ frontmatter remain the source of enforcement.
 
 ## 5. Legacy-link and empty-file handling
 
-Historical evidence must remain readable without generating phantom nodes.
+Historical evidence must remain readable without generating phantom nodes. Frozen
+`log.md` must not be edited, so canonical moved notes will declare their former
+top-level names as YAML aliases, including:
 
-The migration will replace only obsolete wikilink targets with their canonical
-targets, including:
+- `idea1/idea1-status.md` alias `02 - 💾 IDEA1 AEGIS Drive LC`
+- `idea2/idea2-status.md` alias `03 - 📹 IDEA2 AEGIS Monitor`
+- equivalent aliases for moved System Overview, HUB, IDEA3, Security, Agent Rules,
+  and Design System notes
 
-- `[[02 - 💾 IDEA1 AEGIS Drive LC]]` → `[[idea1/idea1-status|02 - 💾 IDEA1 AEGIS Drive LC]]`
-- `[[03 - 📹 IDEA2 AEGIS Monitor]]` → `[[idea2/idea2-status|03 - 📹 IDEA2 AEGIS Monitor]]`
-- equivalent moved Core and IDEA3 legacy names where still present
-
-Visible historical wording remains unchanged through link aliases. Commit hashes,
-dates, commands, and task evidence in frozen `log.md` remain untouched.
+Obsidian then resolves historical links directly to the canonical moved files.
+Active owner-writable notes may use canonical path links, but commit hashes, dates,
+commands, wording, and task evidence in frozen `log.md` remain byte-for-byte intact.
 
 Before removal, each suspected accidental file will be checked for size and content.
 Only files proven empty will be removed:
@@ -145,7 +146,7 @@ Automated validation will verify:
 
 - every canonical Markdown note has valid `owner` and `edit_policy` metadata;
 - the five workspace entry points exist and link to their area status;
-- obsolete unresolved legacy targets are absent from active Markdown links;
+- every obsolete legacy target resolves through exactly one canonical alias;
 - no zero-byte root legacy notes or empty untitled Canvas files remain;
 - graph configuration defines the expected path color groups;
 - graph configuration hides unresolved links and orphan nodes by default;
