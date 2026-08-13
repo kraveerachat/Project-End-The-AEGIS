@@ -1,21 +1,17 @@
-# 🤖 AI Agent Workflow & Vibe Coding Obsidian Sync Rules
+# Claude Code Instructions for AEGIS
 
-> ## 🧭 READ FIRST, EVERY SESSION
-> **`Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md`**
->
-> That file is the single entry point to this project's knowledge base. It carries the system
-> orientation, the agent reading protocol, the project knowledge-network diagram, and the full
-> table of contents. Read it **before** starting work — then read
-> `summaries/08_Outstanding_Items_Consolidated.md` so you don't re-report a known-open bug.
+Read and follow repository-root `AGENTS.md` before every task. It is the
+canonical workflow for ownership, branch scope, testing, Pull Requests, and
+the mandatory Obsidian task receipt.
 
-> **MANDATORY INSTRUCTION FOR CLAUDE CODE & AI AGENTS**:  
-> Upon completing any user prompt, feature request, or "Vibe Coding" task, the AI Agent MUST automatically update the Obsidian Knowledge Base at `Obsidian_AEGIS_Vault/AEGIS_Knowledge` (path relative to this repository root — do **not** hardcode an absolute path; the repo has moved before).
-> The full sync procedure (in-place edit policy, the 3-step update, and the `log.md` template) lives in the `vibe_coding_obsidian_sync` skill — invoke it to perform the sync. The same rules are mirrored in the vault at `06 - 🤖 Agent Operating Rules.md`.
+Never push directly to `main`. Use one task branch and one Pull Request. Every
+completed task must add exactly one Obsidian task receipt under
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/` and update only the
+owner-writable canonical note unless integration review is requested.
 
----
+Do not weaken these architecture boundaries:
 
-## 🛡️ CORE AEGIS ARCHITECTURAL PRINCIPLES (Never Violate)
-1. **Server-Side Enforcement**: All auth/RBAC checks occur on backend Express servers.
-2. **Identity Decoupling**: IDEA 1, IDEA 2, and HUB are independent identity domains.
-3. **Fail-Secure & Air-Gap**: IDEA 3 hardware lockdown cuts WAN Uplink on Heartbeat loss (Dead Man's Switch).
-4. **OWASP Hardening**: No `localStorage`/`sessionStorage` for tokens. Use HttpOnly + SameSite=Strict cookies + CSRF tokens.
+1. Authorization and RBAC are server-side controls.
+2. IDEA1, IDEA2, and HUB identities remain decoupled.
+3. IDEA3 is fail-secure, and its repository implementation must not be claimed before evidence exists.
+4. Tokens never use browser storage; HttpOnly/SameSite cookies and CSRF controls remain enforced.
