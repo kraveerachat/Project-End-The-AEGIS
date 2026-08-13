@@ -282,9 +282,10 @@ test('repository provides PR metadata, code-owner routing, and a read-only polic
   assert.match(template, /## Shared surfaces touched/);
 
   const codeowners = readFileSync(codeownersPath, 'utf8');
-  assert.match(codeowners, /IDEA1-AEGIS_Drive_LC\/\s+@kraveerachat/);
+  assert.match(codeowners, /\*\s+@kraveerachat\s+@pubpup2006p-design/);
+  assert.match(codeowners, /IDEA1-AEGIS_Drive_LC\/\s+@kraveerachat\s+@pubpup2006p-design/);
   assert.match(codeowners, /IDEA2-AEGIS_Monitor\/\s+@kraveerachat\s+@pubpup2006p-design/);
-  assert.match(codeowners, /\.github\/\s+@kraveerachat/);
+  assert.match(codeowners, /\.github\/\s+@kraveerachat\s+@pubpup2006p-design/);
 
   const workflow = readFileSync(workflowPath, 'utf8');
   assert.match(workflow, /pull_request:/);
