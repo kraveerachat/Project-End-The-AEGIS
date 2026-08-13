@@ -1,5 +1,6 @@
 ---
 title: Security Architecture
+aliases: ["05 - 🛡️ Security Architecture"]
 tags: [aegis, security, owasp, rbac, authentication, trust-boundary]
 type: architecture-doc
 created: 2026-07-20

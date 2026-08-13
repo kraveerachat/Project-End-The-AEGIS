@@ -1,5 +1,6 @@
 ---
 title: Agent Operating Rules
+aliases: ["06 - 🤖 Agent Operating Rules"]
 tags: [aegis, agent, workflow, rules, automation, ai]
 type: module
 created: 2026-08-06

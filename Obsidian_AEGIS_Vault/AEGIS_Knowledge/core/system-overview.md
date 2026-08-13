@@ -1,6 +1,6 @@
 ---
 title: AEGIS System Overview
-aliases: ["core/system-overview"]
+aliases: ["core/system-overview", "00 - 🗺️ AEGIS System Overview"]
 tags: [aegis, architecture, overview, moc]
 type: moc
 created: 2026-08-13
