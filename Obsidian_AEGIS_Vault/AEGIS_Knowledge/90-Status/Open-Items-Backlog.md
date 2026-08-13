@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-11
 ---
 
 # 📌 Open Items Backlog — คิวงานถัดไป
@@ -19,12 +19,13 @@ updated: 2026-08-06
 
 | # | งาน | ทำไมเป็น P1 | โน้ต | สถานะ |
 | :-- | :--- | :--- | :--- | :--- |
-| P1-1 | **ปิดงาน SSH Hardening** — เพื่อน 2 คนสร้าง Key บนเครื่องตัวเอง → ทดสอบผ่าน Twingate → ลบ Key ผิดเครื่อง → ปิด Password Auth | ตอนนี้ทางเข้า Server ยังพึ่งรหัสผ่านล้วน | [[20-Server/SSH-Hardening-Status]] | ⏳ |
-| P1-2 | **เปิด UFW Production Rules** | เคยปิดชั่วคราวตอนทดสอบ routing ⚠️ **ห้ามสมมติว่าเปิดแล้ว — ต้องรัน `ufw status verbose` ตรวจของจริงก่อน** | [[20-Server/Beelink-Ubuntu-Host]] | ⏳ **สถานะจริงยังไม่ทราบ** |
+| P1-1 | **ปิดงาน SSH Hardening** — `pubpup2006p` สร้าง/ทดสอบ key; strict no-fallback/ล้าง key เก่า; แล้วจึงปิด Password Auth | `PermitRootLogin no`, `PubkeyAuthentication yes`, key ของ `admin-main`/`krayukantk` ผ่านแล้ว; Password Auth ยังเปิด | [[20-Server/SSH-Hardening-Status]] | 🔧 **root/pubkey done · รอคนที่ 3 + password off** |
+| P1-2 | **ปิด UFW Production Rules ให้ครบสอง path** | Twingate SSH path ผ่านแล้ว; ต้องทดสอบ session ใหม่จาก VLAN 30 โดยคง Twingate/admin session สำหรับ rollback | [[20-Server/Beelink-Ubuntu-Host]] · [[30-RemoteAccess/Twingate-Setup]] | 🔧 **Twingate ✅ · VLAN 30 ⏳** |
 | P1-3 | **Rotate Twingate Connector Token** | Token เคยปรากฏบนหน้าจอ → ต้องถือว่ารั่วแล้ว | [[30-RemoteAccess/Twingate-Setup]] | ⏳ |
 | P1-4 | ตั้ง **Restart Policy / Health Check** ให้ Twingate Connector | ถ้า container ตายแล้วไม่ restart = ล็อกทั้งทีมออกจาก Server | [[30-RemoteAccess/Twingate-Setup]] | ⏳ |
 | P1-5 | ตรวจ **Twingate Group Membership** ไม่ให้กว้างเกิน | ใครอยู่ในกลุ่ม `Admin` = เข้า SSH ได้ | [[30-RemoteAccess/Twingate-Setup]] | ⏳ |
 | P1-6 | ยืนยันว่า **OpenVPN service ถูก disable** ไม่ให้รันค้าง | service ที่ค้างโดยไม่มีใครดูแล = attack surface ที่ไม่จำเป็น | [[30-RemoteAccess/OpenVPN-Deprecated]] | ⏳ |
+| P1-7 | **Rotate credential ของ `drive_app` / `monitor_app` ก่อน Production deploy** | ค่า DB application-role เป็น production secret; ต้องเปลี่ยนพร้อมอัปเดต secret source ของแต่ละ service และทดสอบ SQL-level isolation ซ้ำ | [[05 - 🛡️ Security Architecture]] · [[concepts/Schema_Ownership_Map]] | ⏳ |
 
 ---
 
@@ -61,13 +62,15 @@ updated: 2026-08-06
 
 ```mermaid
 flowchart LR
-    A["P1-2 ตรวจ UFW จริง<br/>(รู้สถานะก่อนตัดสินใจอะไร)"] --> B["P1-1 ปิด SSH Hardening"]
-    B --> C["P1-3 Rotate Token<br/>+ P1-4 Restart Policy"]
-    C --> D["P2-4 ตัดสินใจ Macvlan/Bridge"]
+    A["P1-2 ทดสอบ VLAN 30 direct path<br/>Twingate path ผ่านแล้ว"] --> B["P1-3 Rotate Token<br/>+ ยืนยัน Connector Healthy"]
+    B --> C["P1-1 pubpup2006p key<br/>+ cleanup/strict tests"]
+    C --> H["P1-1 ปิด Password Auth<br/>+ ทดสอบ session ใหม่"]
+    H --> J["P1-7 Rotate DB app-role passwords"]
+    J --> D["P2-4 ตัดสินใจ Macvlan/Bridge"]
     D --> E["P2-3 Audit version"]
     E --> F["P2-5 Deploy stack"]
     F --> G["P2-6 ทดสอบ Recovery"]
-    G --> H["P3 · IDEA2/IDEA3 + TLS + เล่ม"]
+    G --> K["P3 · IDEA2/IDEA3 + TLS + เล่ม"]
 ```
 
 ---

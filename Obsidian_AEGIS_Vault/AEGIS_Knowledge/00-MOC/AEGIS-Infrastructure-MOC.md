@@ -4,13 +4,13 @@ tags: [aegis, moc, infrastructure, network, status]
 type: moc
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-11
 ---
 
 # 🗺️ AEGIS Infrastructure — Map of Content
 
 > ศูนย์รวมลิงก์และสถานะจริงของงาน **Infrastructure / Network / Remote Access** ของโปรเจกต์ AEGIS
-> ณ วันที่ **6 สิงหาคม 2026**
+> ณ วันที่ **8 สิงหาคม 2026**
 >
 > โน้ตชุดนี้บันทึก **สิ่งที่ทำจริงบนฮาร์ดแวร์** แยกจากชุดโน้ตเดิม (`concepts/`, `entities/`) ที่บันทึก **สิ่งที่ออกแบบไว้ในเล่มรายงาน**
 > เมื่อสองฝั่งไม่ตรงกัน ให้ยึดโน้ตชุดนี้เป็นความจริง และดูรายการที่ขัดกันได้ที่ [[90-Status/Document-Conflicts]]
@@ -53,18 +53,18 @@ updated: 2026-08-06
 | Managed Switch VLAN + PVID | ✅ | [[10-Network/Switch-VLAN-Config]] |
 | Ubuntu Server Host พร้อมใช้งาน | ✅ | [[20-Server/Beelink-Ubuntu-Host]] |
 | บัญชีผู้ใช้รายบุคคล | ✅ (🔧 sudo scope) | [[20-Server/Linux-User-Accounts]] |
-| SSH Key Authentication | 🔧 **ยังไม่ปิดงาน** | [[20-Server/SSH-Hardening-Status]] |
+| SSH Key Authentication | 🔧 `admin-main` + `krayukantk` ใช้ key ได้ · `pubpup2006p`/strict tests/global Password Auth ยังค้าง | [[20-Server/SSH-Hardening-Status]] |
 | Remote Access ผ่าน Twingate ZTNA | ✅ | [[30-RemoteAccess/Twingate-Setup]] |
 | OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[30-RemoteAccess/OpenVPN-Deprecated]] |
-| UFW Production Rules | ⏳ **ต้องตรวจสถานะจริง** | [[90-Status/Open-Items-Backlog]] |
+| UFW Production Rules | 🔧 Twingate path ✅ · VLAN 30 direct test ⏳ | [[90-Status/Open-Items-Backlog]] |
 | Docker Production Stack บน Beelink | ⏳ ยังไม่ deploy | [[40-Deployment/Docker-Stack-Plan]] |
 | IDEA3 MQTT / ESP32 / Relay | ⏳ เขียนแล้วยังไม่ทดสอบ | [[04 - 🔒 IDEA3 AEGIS Lockdown]] |
 
 > 📋 **สรุปงาน 15 ขั้นตอนแบบละเอียดพร้อมหลักฐานการทดสอบ** อยู่ที่ [[90-Status/Progress-Log-2026-08-06]]
 >
-> 🔴 **3 งานที่ต้องทำก่อนอื่น (P1)**: ตรวจสถานะ UFW จริง → ปิดงาน SSH Hardening → Rotate Twingate Connector Token
+> 🔴 **ลำดับ Security Layer 0 ปัจจุบัน**: `PermitRootLogin no` + Twingate UFW path ผ่านแล้ว → ทดสอบ VLAN 30 direct path → rotate Connector token + ยืนยัน Healthy → key ของ `pubpup2006p`/cleanup → ปิด Password Auth → rotate DB app-role passwords ก่อน deploy
 >
-> ⏳ **2 เรื่องที่ทีมยังไม่ตัดสินใจ**: (1) Twingate ต้องผ่าน VLAN 30 ไหม (2) Macvlan หรือ Bridge+Reverse Proxy — ดู [[90-Status/Document-Conflicts]]
+> 🔧 **ข้อสรุปเชิงปฏิบัติเรื่อง remote path**: Twingate ใช้ Resource-level access ตรงไป `192.168.10.10:22`; ไม่ขยายสิทธิ์เป็น VLAN 30 ทั้งวง ส่วน VLAN 30 คงเป็น direct-management path แยกต่างหาก การแก้ถ้อยคำในเล่มและการตัดสิน Macvlan vs Bridge+Reverse Proxy ยังอยู่ใน [[90-Status/Document-Conflicts]].
 
 ---
 
@@ -118,7 +118,7 @@ flowchart TD
 
     BEE -.->|Connector เชื่อมออกอย่างเดียว| TG
     REMOTE -->|SSH TCP 22 เท่านั้น| TG
-    TG -.->|ทะลุถึง 192.168.10.10 โดยตรง<br/>⚠️ ไม่ผ่าน VLAN 30| BEE
+    TG -.->|Resource-level path ถึง 192.168.10.10:22 โดยตรง<br/>✅ ไม่ขยายสิทธิ์เป็นทั้ง VLAN 30| BEE
 
     classDef ok fill:#065f46,stroke:#10b981,color:#fff;
     classDef warn fill:#78350f,stroke:#f59e0b,color:#fff;
@@ -126,7 +126,7 @@ flowchart TD
     class DET,HomeRouter warn;
 ```
 
-> ⚠️ เส้นประจาก Twingate ไปยัง Beelink คือจุดที่ **ขัดกับหลักการในเล่ม** ที่ระบุว่าต้องเข้า VLAN 30 ก่อน — ดูข้อ 3 ใน [[90-Status/Document-Conflicts]]
+> เส้นประจาก Twingate ไปยัง Beelink คือ path ที่ใช้งานจริงและแคบกว่า `/24`; ผู้ดูแลระบบยืนยันว่า UFW สำหรับ path นี้ผ่านแล้ว ส่วน VLAN 30 direct-management path ยังต้องทดสอบและความขัดแย้งกับถ้อยคำเดิมในเล่มติดตามที่ข้อ 3 ใน [[90-Status/Document-Conflicts]].
 
 ---
 

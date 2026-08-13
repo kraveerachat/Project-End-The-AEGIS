@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, server, ubuntu, beelink, docker, host]
 type: infrastructure
 status: ✅ Host พร้อมใช้งาน · ⏳ ยังไม่ deploy production stack
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-11
 ---
 
 # 💻 Beelink Ubuntu Host — `aegis-system`
@@ -23,6 +23,7 @@ updated: 2026-08-06
 | **IP** | `192.168.10.10` — VLAN 10 Server Zone | ✅ ping/SSH ผ่าน |
 | **การเชื่อมต่อ** | LAN เข้า Port 2 ของ [[10-Network/Switch-VLAN-Config|TL-SG105E]] (Access VLAN 10) | ✅ |
 | **SSH Service** | เปิดใช้งาน เข้าได้ทั้งจากภายในและผ่าน [[30-RemoteAccess/Twingate-Setup\|Twingate]] | ✅ |
+| **Effective SSH config** | `PubkeyAuthentication yes`; `PermitRootLogin no`; `PasswordAuthentication yes` ชั่วคราว | 🔧 root/pubkey ผู้ดูแลยืนยันแล้ว; password=`no` รอ `pubpup2006p` |
 | **Docker Environment** | ติดตั้งแล้ว และรัน [[30-RemoteAccess/Twingate-Setup\|Twingate Connector]] เป็น container อยู่จริง | ✅ |
 | **Production Stack (Gateway/Drive/Monitor/PostgreSQL)** | **ยังไม่ deploy ลงเครื่องนี้** | ⏳ |
 
@@ -48,8 +49,8 @@ flowchart TD
 
 | งาน | ความสำคัญ | สถานะ |
 | :--- | :--- | :--- |
-| **ตรวจสถานะ UFW จริง** — เคยปิดชั่วคราวตอนทดสอบ routing | P1 | ⏳ **ห้ามสมมติว่าเปิดแล้ว ต้องรัน `ufw status verbose` ยืนยัน** |
-| ปิดงาน SSH Hardening | P1 | 🔧 [[20-Server/SSH-Hardening-Status]] |
+| **UFW production paths** | P1 | 🔧 Twingate SSH path ✅ ผู้ดูแลยืนยัน · VLAN 30 direct test ⏳; คง working Twingate/admin session ระหว่างทดสอบ |
+| ปิดงาน SSH Hardening | P1 | 🔧 `admin-main` + `krayukantk` ใช้ key ได้; `pubpup2006p`, strict tests, key cleanup และ global Password Auth ยังค้าง → [[20-Server/SSH-Hardening-Status]] |
 | Audit ว่า Docker / repo / secrets เป็นเวอร์ชันล่าสุดก่อน deploy | P2 | ⏳ |
 | Deploy production stack | P2 | ⏳ [[40-Deployment/Docker-Stack-Plan]] |
 | ทดสอบ Persistence / Health Check / Restart / Recovery | P2 | ⏳ |

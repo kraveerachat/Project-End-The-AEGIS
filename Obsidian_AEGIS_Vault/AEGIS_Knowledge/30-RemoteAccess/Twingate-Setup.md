@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, remote-access, twingate, ztna, zero-trust, securit
 type: infrastructure
 status: ✅ ใช้งานได้จริง+ทดสอบจากภายนอกแล้ว · ⏳ ค้าง security housekeeping
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-11
 ---
 
 # ☁️ Twingate ZTNA — ช่องทาง Remote Access จริง
@@ -87,6 +87,15 @@ flowchart TD
 
 > ⚠️ **ห้ามใส่ Connector Token / Service Key จริงลงในโน้ตนี้หรือใน repo** — ใช้ placeholder `<TWINGATE_CONNECTOR_TOKEN>` เท่านั้น
 
+### UFW path status (อัปเดต 2026-08-11)
+
+| เส้นทาง | สถานะ | หลักฐานที่บันทึกได้ |
+| :--- | :--- | :--- |
+| Twingate → Beelink SSH | ✅ ผู้ดูแลระบบยืนยันว่าตั้งและทดสอบแล้ว | Prompt นี้ไม่ได้แนบ exact UFW rule/source/interface output จึงไม่เดาค่าเพิ่ม |
+| VLAN 30 → Beelink SSH โดยตรง | ⏳ ยังต้องทดสอบ | ต้องเปิด session ใหม่จาก Management VLAN ให้ผ่านก่อนถือว่า production policy ครบ |
+
+ข้อกำหนดเดิมที่ให้ allow SSH เฉพาะ `192.168.30.0/24` เป็นเศษจากแผน OpenVPN และไม่พอสำหรับ Twingate; ตอนนี้ Twingate path ปิดงานแล้ว แต่ต้องรักษา rule นั้นไว้ระหว่างทดสอบ VLAN 30 และคง working Twingate/admin session เพื่อ rollback หาก direct test ไม่ผ่าน
+
 ---
 
 ## ⚠️ ข้อควรระวังก่อน Deploy Docker Stack
@@ -106,7 +115,7 @@ Connector **รันบน Docker bridge network** ขณะที่แผน�
 เล่ม §2.3.4 / §3.5.6 ระบุว่า **"ต้องเข้าวง VLAN 30 Management ก่อนจึงเข้าถึงบริการอื่นได้"**
 แต่ Resource `AEGIS-Beelink-SSH` **ชี้ตรงไปที่ `192.168.10.10` (VLAN 10) โดยไม่ผ่าน VLAN 30**
 
-→ ยังไม่ตัดสินใจว่าจะแก้ทางไหน ดูข้อ 3 ใน [[90-Status/Document-Conflicts]] ⏳
+→ สำหรับ Security Layer 0 ให้ยึด **Resource-level path ที่ใช้งานจริง** และไม่บังคับ Twingate ให้ได้สิทธิ์ทั้ง VLAN 30; VLAN 30 ยังเป็น direct-management path แยกต่างหาก ส่วนการแก้ถ้อยคำในเล่มยังค้างตามข้อ 3 ใน [[90-Status/Document-Conflicts]].
 
 ---
 

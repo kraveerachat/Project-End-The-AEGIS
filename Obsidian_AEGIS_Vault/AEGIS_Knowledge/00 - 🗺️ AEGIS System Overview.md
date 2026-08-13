@@ -3,7 +3,7 @@ title: AEGIS System Overview
 tags: [aegis, architecture, overview, monorepo, verified-code]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-08-07
+updated: 2026-08-11
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 ---
 
@@ -96,6 +96,26 @@ flowchart TD
 > ⚠️ **Per-App DB Roles (2026-07-22)**: Each application connects to PostgreSQL using its own role (`drive_app` / `monitor_app`) with `REVOKE CONNECT` applied against the other database. Cross-database queries are rejected at the connection layer. Superuser `aegis` is restricted to init/migrate tasks (`postgres/init/02-app-roles.sh`).
 >
 > ⚠️ **Runtime Gateway DNS Re-Resolution (2026-07-23)**: `/drive/` and `/monitor/` `proxy_pass` directives resolve dynamic upstreams (`set $drive_upstream drive:8001;`) alongside `resolver 127.0.0.11 valid=10s`.
+
+---
+
+## 🛡️ Security Layer 0 — Remote Administrative Path (2026-08-11)
+
+The real remote-administration path is Twingate-only: the outbound Connector on Beelink exposes one Resource, `AEGIS-Beelink-SSH` → `192.168.10.10:22/TCP`. It does not grant the whole VLAN 30 subnet. VLAN 30 remains a separate direct-management path, while OpenVPN is deprecated because Double NAT prevents the required inbound path.
+
+```mermaid
+flowchart LR
+    R["Remote admin<br/>Twingate client"] --> T["Twingate identity/device<br/>+ Resource policy"]
+    T --> C["Connector on Beelink<br/>Docker bridge · outbound-only"]
+    C --> S["sshd · 192.168.10.10:22"]
+    M["Admin laptop<br/>VLAN 30 direct management"] --> S
+    S --> K{"Individual SSH key"}
+    K --> A["admin-main ✅"]
+    K --> U["krayukantk ✅ key works<br/>🔧 strict no-fallback test pending"]
+    K --> P["pubpup2006p ⏳ key pending"]
+```
+
+The operator confirms the current hardened state is `PubkeyAuthentication yes`, `PermitRootLogin no`, and temporary `PasswordAuthentication yes`; `admin-main` is the sudo-capable administration path, while `krayukantk` has an individual key and no sudo. Password Auth remains enabled only until `pubpup2006p` completes owner-generated key onboarding and key cleanup. UFW now passes the Twingate SSH path, while a direct VLAN 30 session test is still pending. Connector-token rotation and `drive_app`/`monitor_app` credential rotation remain required before production deployment. Exact post-apply SSH/UFW command output was not attached to the 2026-08-11 correction, so the vault records these items as operator-confirmed without inventing rule/source details. See [[20-Server/SSH-Hardening-Status]], [[20-Server/Linux-User-Accounts]], [[30-RemoteAccess/Twingate-Setup]], and [[90-Status/Open-Items-Backlog]].
 
 ---
 

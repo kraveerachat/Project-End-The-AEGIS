@@ -3,7 +3,7 @@ title: Work Summary — Wiki Admin & Housekeeping
 tags: [aegis, summary, wiki-admin, housekeeping, git]
 type: summary
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-13
 sources: ["[[log]]"]
 ---
 
@@ -43,6 +43,29 @@ After a context-clear, reconstructed exactly what had and hadn't landed by readi
 ## Claude Code environment tuning (2026-07-26)
 
 A `/doctor` session reduced `CLAUDE.md` from 2,747 to 977 characters by moving the "AUTOMATIC POST-PROMPT SYNC WORKFLOW" section (~1,943 chars) out into the `vibe_coding_obsidian_sync` skill file instead, so it lazy-loads only when relevant rather than sitting in every session's context. Also identified an idle MCP connector (`vyra.ai_Edit`) consuming ~1,300 estimated tokens per session across 16 sessions with 0 uses, flagged for removal from connector config; and set `permissions.defaultMode: "auto"` after user confirmation.
+
+## Multi-writer restructure audit (2026-08-13)
+
+The supplied `STAGE 0 — Audit Report` was a useful preflight assessment, not a completed restructure. It explicitly ended with **“Nothing has been modified”** and deferred implementation pending decisions D1–D10. A filesystem and Git audit on 2026-08-13 confirmed that the proposed stages have not landed:
+
+- the vault still has 59 Markdown notes with **0** `owner:` fields and **0** `edit_policy:` fields;
+- the proposed `overview/` and `90-Status/logs/` directories do not exist;
+- `.github/CODEOWNERS` does not exist, while `.gitattributes` only normalizes `*.sh` files;
+- no commit on any local/remote branch contains the proposed restructure paths;
+- the worktree still contains the modified vault files that triggered Stage 0's safety stop;
+- three untracked, empty two-byte canvases named `ยังไม่ได้ตั้งชื่อ*.canvas` appear as isolated nodes in Obsidian's global graph.
+
+The current graph demonstrates that wikilinks exist and that infrastructure notes form a recognizable cluster, but it is not evidence that the multi-writer conflict design is complete. The dense central hairball, mixed old/new hierarchy, isolated canvases, and large shared hubs (`START_HERE`, `index`, `log`, and the system overview) show that ownership boundaries and graph navigation still need deliberate restructuring. Before Stage 1, preserve the dirty worktree, resolve D1–D10, avoid `merge=union` on Markdown tables, and separate any all-Markdown LF renormalization into its own reviewed commit.
+
+On 2026-08-13 the owner approved beginning the redesign. A dedicated branch,
+`codex/obsidian-multi-writer-restructure`, was created from current `origin/main` while
+preserving all meaningful uncommitted vault edits. The approved direction uses phased
+migration: first stop shared-file conflicts with unique task receipts, scoped ownership,
+and per-IDEA overview fragments; then regroup Infrastructure and module navigation with
+link validation; finally add GitHub pull-request checks and perform line-ending
+normalization as an isolated commit. The implementation design is recorded at
+`docs/superpowers/specs/2026-08-13-obsidian-multi-writer-restructure-design.md` for owner
+review before file moves begin.
 
 ---
 

@@ -1373,3 +1373,61 @@ Deleting any tree would have silently broken that tool's hook with no way to rec
 - **Publication result**: commit `79ded7e` ถูก push ไป `origin/fix/hub-nginx-monitor-routing-and-ingest-guard`; remote hash ตรงกับ local และ worktree สะอาด. เครื่องนี้ไม่มี GitHub CLI จึงไม่ได้สร้าง PR อัตโนมัติ แต่เตรียม compare URL สำหรับเปิด PR เข้า `main`
 - **Modified source/test paths**: ไม่มี source change เพิ่มจากงานเดิม; งานนี้จัดทำ publication manifest, verification, Git commit/push และ PR handoff
 - **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `log.md`
+
+## [2026-08-08] vibe-coding | Sync Security Layer 0 จากแชทอ้างอิง
+- **Prompt goal**: นำสถานะทั้งหมดจากแชท `Security Layer 0 Update` มาอัปเดต Obsidian แบบ in-place โดยแยกสิ่งที่พิสูจน์แล้วออกจากสิ่งที่ยังเป็น dependency/เบาะแส และไม่บันทึก key/token/password จริง
+- **SSH evidence**: `krayukantk` สร้าง ed25519 key บน Windows ของเจ้าของ, เพิ่ม Public Key ในบัญชี Linux ของตน และเข้า `aegis-system` สำเร็จด้วย explicit identity + `IdentitiesOnly=yes` โดยถาม key passphrase ไม่ใช่ Ubuntu password; `admin-main` ผ่านอยู่แล้ว; `pubpup2006p` ยังต้องสร้าง key บนเครื่องเจ้าของ
+- **SSH boundary**: ยังไม่ปิด global `PasswordAuthentication`; `krayukantk` ยังต้องทำ strict client test ที่ตั้ง `PasswordAuthentication=no`/`PreferredAuthentications=publickey`, ตรวจ `authorized_keys` และล้าง key เก่า/ซ้ำ; `PermitRootLogin no` ยังรอ effective-config proof จาก `sshd -T`
+- **UFW/Twingate correction**: ยกเลิกการถือ rule `allow 192.168.30.0/24` จากแผน OpenVPN เป็นคำตอบเดียว; Twingate ปัจจุบันเป็น Resource-level path ไป `192.168.10.10:22/TCP`. ต้องตรวจ UFW status และวัด source/interface จาก session ภายนอกด้วย SSH logs + `ss` + `tcpdump` ก่อน apply โดยคง working session ไว้. `172.17.0.2` เป็นเพียง Docker-bridge clue; `192.168.10.10` ที่เห็นเป็น nested local SSH ไม่ใช่ Twingate proof
+- **Remaining Security Layer 0 work**: key ของ `pubpup2006p`, strict key tests/cleanup, ปิด Password Auth, UFW measured rule + new-session proof, rotate Twingate Connector token + health/restart/group review และ rotate DB credentials ของ `drive_app`/`monitor_app` ก่อน production deploy
+- **Modified source/test paths**: ไม่มี (Knowledge Base sync only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `00-MOC/AEGIS-Infrastructure-MOC.md`, `20-Server/Beelink-Ubuntu-Host.md`, `20-Server/Linux-User-Accounts.md`, `20-Server/SSH-Hardening-Status.md`, `30-RemoteAccess/Twingate-Setup.md`, `90-Status/Document-Conflicts.md`, `90-Status/Open-Items-Backlog.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`; no new note, so `index.md` unchanged
+
+## [2026-08-08] vibe-coding | Sync effective SSH config และ sudo boundary จาก Twingate Setup chat
+- **Prompt goal**: อัปเดต Security / SSH Hardening จากแชท `Twingate Setup for AEGIS` โดยรวมกับหลักฐาน key ที่ใหม่กว่าจาก Security Layer 0 และไม่ย้อนสถานะ `krayukantk` กลับเป็น pending
+- **Measured SSH state**: `sudo sshd -T` ผ่าน `admin-main` ให้ `permitrootlogin prohibit-password`, `pubkeyauthentication yes`, `passwordauthentication yes`; การค้น config พบ explicit `PasswordAuthentication yes` ที่ `/etc/ssh/sshd_config.d/50-cloud-init.conf:1` และไม่พบ explicit root/pubkey setting ในไฟล์ที่ค้น
+- **Privilege boundary**: `krayukantk` ถูก sudo ปฏิเสธด้วยข้อความ `I'm sorry ... I can't do that`; `admin-main` เข้าโดย key เฉพาะและใช้ sudo ตรวจ config ได้ จึงบันทึก `admin-main` เป็น system-administration path และคงสมาชิกทั่วไปแบบไม่มี implicit sudo
+- **Evidence boundary**: การสร้าง `/etc/ssh/sshd_config.d/99-aegis-hardening.conf` ด้วย `PermitRootLogin no` + `PubkeyAuthentication yes` เป็นแผนที่ตกลงแล้ว แต่ยังไม่มีหลักฐาน `sshd -t`/reload/post-apply `sshd -T`; จึงเก็บสถานะ `PermitRootLogin` เป็น `prohibit-password` และยังไม่ปิดงาน
+- **Reconciled latest state**: `admin-main` และ `krayukantk` มี key ใช้งานได้; `pubpup2006p` ยัง pending; Password Auth ยังเปิดชั่วคราว; strict no-fallback test/key cleanup/UFW/token/DB credential work จาก sync ก่อนหน้ายังคงเดิม
+- **Modified source/test paths**: ไม่มี (Knowledge Base sync only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `00-MOC/AEGIS-Infrastructure-MOC.md`, `05 - 🛡️ Security Architecture.md`, `20-Server/Beelink-Ubuntu-Host.md`, `20-Server/Linux-User-Accounts.md`, `20-Server/SSH-Hardening-Status.md`, `90-Status/Open-Items-Backlog.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`; no new note, so `index.md` unchanged
+
+## [2026-08-11] status-audit | ตรวจความครบถ้วนของ Security Layer 0 checklist 8 ข้อ
+- **Prompt goal**: ตอบว่ารายการ Security / SSH Hardening ที่กำหนดไว้ทำครบแล้วหรือยัง โดยยึดหลักฐานล่าสุดในวอลต์
+- **Result**: ยังไม่มีข้อใดใน 8 ข้อปิดครบ 100%; ข้อ 1–3 และ 5 มีความคืบหน้าบางส่วน ส่วนข้อ 4 (`PasswordAuthentication no`), 6 (UFW measured production rules), 7 (Twingate token rotation) และ 8 (DB app-role credential rotation) ยังไม่มีหลักฐานสำเร็จ
+- **Verified foundations**: Twingate Connector/Resource/TCP 22/remote SSH ผ่านแล้ว; `admin-main` key + sudo ผ่าน; `krayukantk` individual key ใช้งานได้และไม่มี sudo; effective SSH baseline คือ `permitrootlogin prohibit-password`, `pubkeyauthentication yes`, `passwordauthentication yes`
+- **No status promotion**: ไม่มี output ใหม่จาก Beelink/Twingate/PostgreSQL หลัง 2026-08-08 จึงไม่เลื่อน marker ใดเป็น ✅
+- **Modified source/test paths**: ไม่มี (status review only)
+- **Updated Obsidian notes**: `20-Server/SSH-Hardening-Status.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`; architecture unchanged, no new note, `index.md` unchanged
+
+## [2026-08-11] planning | จัดลำดับเริ่มปิด Security Layer 0
+- **Prompt goal**: ระบุว่างานใดเริ่มแก้ได้ทันทีจาก checklist 8 ข้อ โดยลดความเสี่ยง remote lockout
+- **Immediate safe work**: ใช้ `admin-main` apply+verify `PermitRootLogin no` โดยคง working session; ประสาน `pubpup2006p` ให้สร้าง owner-generated ed25519 key; ทำ UFW source/interface investigation แบบ read-only; เตรียม Connector token rotation พร้อม health/recovery checks
+- **Blocked mutations**: ยังห้ามตั้ง `PasswordAuthentication no`; ยังห้าม activate UFW production policy; ยังห้ามลบ key เก่าจน key ใหม่ของเจ้าของและ session ใหม่ผ่าน
+- **Modified source/test paths**: ไม่มี (execution planning only)
+- **Updated Obsidian notes**: `20-Server/SSH-Hardening-Status.md`, `log.md`; architecture/status markers unchanged, no new note, `index.md` unchanged
+
+## [2026-08-11] status-correction | ผู้ดูแลยืนยันงาน Security Layer 0 ที่ทำแล้ว
+- **Prompt goal**: แก้ status audit ที่ประเมินต่ำกว่าความจริง หลังผู้ดูแลแจ้งว่าจำได้ว่าได้ทำ root/pubkey hardening และ UFW Twingate path แล้ว
+- **Confirmed complete**: SSH key ของ `admin-main` และ `krayukantk`; `PermitRootLogin no`; `PubkeyAuthentication yes`; UFW path สำหรับ Twingate SSH
+- **Still open**: `PasswordAuthentication no` รอ key ของ `pubpup2006p`; UFW direct test จาก VLAN 30; rotate Twingate Connector token; rotate DB passwords ของ `drive_app`/`monitor_app`
+- **Evidence scope**: เป็น operator confirmation; prompt ไม่ได้แนบ exact post-apply `sshd -T`, UFW rule, source address หรือ interface output จึงไม่สร้างค่ารายละเอียดเหล่านั้นขึ้นเอง
+- **Modified source/test paths**: ไม่มี (Knowledge Base status correction only)
+- **Updated Obsidian notes**: `00 - 🗺️ AEGIS System Overview.md`, `00-MOC/AEGIS-Infrastructure-MOC.md`, `05 - 🛡️ Security Architecture.md`, `20-Server/Beelink-Ubuntu-Host.md`, `20-Server/SSH-Hardening-Status.md`, `30-RemoteAccess/Twingate-Setup.md`, `90-Status/Document-Conflicts.md`, `90-Status/Open-Items-Backlog.md`, `summaries/08_Outstanding_Items_Consolidated.md`, `log.md`; no new note, `index.md` unchanged
+
+## [2026-08-13] vibe-coding | ประเมินผล STAGE 0 และโครงสร้างกราฟ Obsidian
+- **Prompt goal**: ตรวจว่ารายงาน `STAGE 0 — Audit Report` ของ Claude และกราฟ Obsidian ปัจจุบันแสดงว่าการ restructure เพื่อเลี่ยง multi-writer merge conflicts เสร็จและเป็นระบบแล้วหรือไม่
+- **Result**: STAGE 0 เป็น preflight audit ที่ทำได้ละเอียดและพบความเสี่ยงสำคัญ แต่ยังไม่ใช่ผลลัพธ์ของการ restructure; รายงานระบุชัดว่าไม่ได้แก้ไฟล์และรอคำตอบ D1–D10
+- **Filesystem evidence**: วอลต์มี Markdown 59 ไฟล์ แต่พบ `owner:` 0 ไฟล์และ `edit_policy:` 0 ไฟล์; ไม่มี `overview/`, `90-Status/logs/` หรือ `.github/CODEOWNERS`; `.gitattributes` ยังมีเพียงกฎ LF สำหรับ `*.sh`; ไม่พบ commit ที่สร้าง path ตามแผน
+- **Graph evidence**: กลุ่ม infrastructure เชื่อมโยงกันพอมองเห็น แต่ global graph ยังหนาแน่นเป็น hairball รอบ shared hubs และมี Canvas ว่างชื่อ `ยังไม่ได้ตั้งชื่อ*.canvas` 3 ไฟล์เป็น orphan จึงยังใช้ยืนยันความเป็นระเบียบภายใน/ownership boundary ไม่ได้
+- **Safety boundary**: ไม่เริ่ม Stage 1 และไม่ลบ Canvas เพราะ worktree ยังมีงาน Obsidian ที่แก้ค้างอยู่; ต้องตัดสิน D1–D10 และเก็บสถานะด้วย commit/stash ที่ตรวจ scope ก่อน
+- **Modified source/test paths**: ไม่มี (read-only vault/Git/graph audit)
+- **Updated Obsidian notes**: `summaries/06_Wiki_Admin_and_Housekeeping.md`, `log.md`; architecture unchanged, no new note, `index.md` and system overview unchanged
+
+## [2026-08-13] planning | เริ่ม branch สำหรับ Obsidian multi-writer restructure
+- **Prompt goal**: เริ่มแก้โครงสร้างการทำงานร่วมกัน โดยตัดสินลำดับระหว่างสร้าง Git branch กับย้าย Obsidian
+- **Decision**: สร้าง Git branch ก่อน เพื่อแยกงาน migration ออกจาก `main`, ตรวจ diff ได้ และย้อนกลับได้; branch คือ `codex/obsidian-multi-writer-restructure` สร้างจาก `origin/main`
+- **Safety evidence**: tree ของ branch เดิมและ `origin/main` ตรงกันก่อน switch จึงคง modified vault files ทั้งหมดไว้; Canvas ว่าง `ยังไม่ได้ตั้งชื่อ*.canvas` 3 ไฟล์ยังเป็น untracked และยังไม่ถูกลบหรือ stage
+- **Design direction**: migration แบบเป็นเฟส—หยุด shared-file conflicts ก่อนด้วย unique task receipts, ownership/write scope และ per-IDEA status fragments; จากนั้นค่อยย้ายกลุ่ม Infrastructure/IDEA พร้อมตรวจ wikilinks, แล้วจึงเพิ่ม PR/CI controls และแยก LF normalization เป็น commit ต่างหาก
+- **Modified source/test paths**: `docs/superpowers/specs/2026-08-13-obsidian-multi-writer-restructure-design.md` (design only; no application source change)
+- **Updated Obsidian notes**: `summaries/06_Wiki_Admin_and_Housekeeping.md`, `log.md`; implementation/file moves not started, `index.md` and system overview unchanged

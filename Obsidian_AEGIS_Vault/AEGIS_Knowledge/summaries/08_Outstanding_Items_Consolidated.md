@@ -3,7 +3,7 @@ title: Outstanding Items — Consolidated
 tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-07
+updated: 2026-08-11
 sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
 ---
 
@@ -11,7 +11,7 @@ sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
 
 > Every 🔴/🟠/🟡/🟢/⚠️ flag left behind across every session in `[[log]]`, gathered into one list instead of scattered across a dozen "Carried forward" sections. Severity markers are kept as the original sessions used them: 🔴 = real functional gap, 🟠 = known limitation (often infra-blocked, not code), 🟡 = cosmetic/deferred-by-choice, 🟢 = designed but not yet implemented, ⚠️ = operational caveat to remember, not a bug.
 >
-> Status is as of the last log entry (**2026-08-07**). If a later `[[log]]` entry closes one of these, update the item here rather than leaving it stale — that's the entire point of this page.
+> Status is as of the last log entry (**2026-08-11**). The operator subsequently corrected the audit: `PermitRootLogin no`, `PubkeyAuthentication yes`, and the UFW Twingate path are complete; VLAN 30 direct testing and the remaining credential work stay open. If a later `[[log]]` entry closes one of these, update the item here rather than leaving it stale — that's the entire point of this page.
 >
 > Items marked **Awaiting go-ahead** were found by an audit and reported with a specific fix, but deliberately left unapplied pending the user's confirmation — they are open by decision, not by oversight.
 
@@ -27,6 +27,10 @@ sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
 | No off-site backup | IDEA1 | Storage is a single ext4 volume; P5 of the mock-removal pass explicitly reported this as infra-blocked rather than built a fake backup UI. |
 | No per-user share defaults / snapshot schedule | IDEA1 | Design decision not yet made, not a bug. |
 | Dev-only `gateway/nginx.conf` still case-sensitive on `/monitor/internal/` | Infra | Production `HUB-AEGIS_Entry/nginx.conf` was fixed to a case-insensitive regex guard (2026-07-26); the dev-compose gateway config was never patched to match, so the bypass re-verified still open. |
+| Security Layer 0 SSH hardening incomplete | Infra / Beelink | `admin-main` and `krayukantk` keys, `PermitRootLogin no`, and `PubkeyAuthentication yes` are complete. `pubpup2006p` still needs an owner-generated/tested key; strict no-fallback/key cleanup and server-wide `PasswordAuthentication no` remain blocked on that dependency. |
+| UFW VLAN 30 direct path not yet tested | Infra / Beelink | The operator confirms the Twingate SSH path is configured and working. A fresh direct SSH session from Management VLAN 30 must still pass while the Twingate/admin session remains available for rollback; exact UFW rule/source output was not attached to the correction prompt. |
+| Twingate security housekeeping incomplete | Infra / Remote access | Rotate the exposed Connector token and re-confirm Healthy; review `Admin` group membership; add restart policy/health check and a local-console recovery note. Current Resource remains correctly scoped to `192.168.10.10:22/TCP`. |
+| Production DB application-role credentials not rotated | Infra / PostgreSQL | Rotate `drive_app` and `monitor_app` credentials before production deploy, update each service's secret source, then re-run cross-database `CONNECT` isolation proof. Never store the values in the vault/repo. |
 | No heartbeat *history* (uptime %, 24h disconnects, latency sparkline) | IDEA2 | Current heartbeat only proves live/dead at a point in time; needs a time-series table to show trend data honestly instead of a fake sparkline. |
 | No `audit_log` table in IDEA2 | IDEA2 | IDEA1 has full audit logging; IDEA2's forensic trail is limited to what `camera_heartbeat`/`detections` incidentally capture. |
 | Multi-camera deployment not implemented | IDEA2 | Running two Detection Engine instances (one per camera) is design-confirmed (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL`, shared `MONITOR_INTERNAL_URL`/key) but not built — see 🟢 below. |
@@ -67,6 +71,7 @@ sources: ["[[log]]", "[[00 - 🗺️ AEGIS System Overview]]"]
 
 ## Closed since first flagged (for continuity — do not re-report these as open)
 
+- ✅ Beelink now enforces `PermitRootLogin no` with `PubkeyAuthentication yes`; operator-confirmed 2026-08-11. Password Authentication is a separate open dependency and remains enabled for `pubpup2006p` onboarding.
 - ✅ IDEA1 P0 data-honesty findings closed: ordinary Uploads no longer claim encryption at rest, `POST /api/files/:id/verify` rehashes current disk bytes and detects tampering, and Dashboard Demo Override is fully removed; isolated PostgreSQL verification is 125/125 (2026-08-07).
 - ✅ IDEA1 P1 data-honesty findings closed: one binary capacity formatter across Sidebar/Dashboard/Storage; active shares exclude revoked and expired rows through one store predicate; the security KPI is explicitly DENIED/BLOCKED among the latest 100; Access reports Account ready and real per-instance session counts without claiming persistence. Isolated PostgreSQL verification is 128/128 (2026-08-07).
 - ✅ IDEA1 P2 data-honesty findings closed: `/healthz.layers` independently probes Express event-loop, PostgreSQL `SELECT 1`, and Storage write/read/delete with measured timings; TopBar says Drive rather than Edge node; fixed `12/4/2 ms` and staged `5/40/75/100%` upload progress are removed in favor of measured evidence/XHR byte events. Isolated PostgreSQL verification is 132/132 and live Docker health is green (2026-08-07).

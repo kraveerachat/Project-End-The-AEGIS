@@ -3,7 +3,7 @@ title: Security Architecture
 tags: [aegis, security, owasp, rbac, authentication, trust-boundary]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-07-27
+updated: 2026-08-11
 ---
 
 # 🛡️ AEGIS Security & Identity Architecture
@@ -62,6 +62,23 @@ erDiagram
 7. **The edge service is never exposed to browsers (2026-07-27, IDEA2)**: the Detection Engine's MJPEG endpoint is gated by the shared service key and reached **only** by Monitor's backend. The browser talks to Monitor's own origin; the engine's address (`camera_heartbeat.stream_url`) and its key never appear in any client payload — the client receives only a `hasStream` boolean. Scoping (`canSeeCamera`) completes **before** any socket to the engine is opened.
 8. **Values that reach the backend become attack surface**: `stream_url` arrives from the engine but becomes a destination Monitor itself dials, so it is validated to `http`/`https` on ingest (SSRF containment) — being authenticated is not the same as being trusted.
 9. **Seeded credentials are single-use in both apps (2026-07-27)**: bcrypt hashes committed to a public repository are public knowledge forever. Both `seed.sql` files now set `must_reset_password = TRUE` with an idempotent follow-up `UPDATE` (matched on the git-known hashes) so databases created before the change are closed too. Plaintext passwords were also removed from IDEA2's seed header — a comment recording real credentials is itself the leak.
+
+---
+
+## 🔐 Host Security Layer 0 — SSH Administration
+
+The Beelink host has a separate least-privilege boundary beneath application RBAC:
+
+```mermaid
+flowchart LR
+    TG["Twingate Resource<br/>192.168.10.10:22/TCP"] --> SSH["OpenSSH daemon"]
+    SSH --> KEY["Individual ed25519 key"]
+    KEY --> ADMIN["admin-main<br/>system administration + sudo"]
+    KEY --> MEMBER["member account<br/>no implicit sudo"]
+    ADMIN --> CFG["sshd effective-config checks"]
+```
+
+The 2026-08-08 baseline through `admin-main` was `PubkeyAuthentication yes`, `PasswordAuthentication yes`, and `PermitRootLogin prohibit-password`, with the explicit password setting coming from `/etc/ssh/sshd_config.d/50-cloud-init.conf`. On 2026-08-11 the operator confirmed `PermitRootLogin no` is now applied and the Twingate UFW path works. `krayukantk` remains a non-sudo member with a working individual key; `pubpup2006p` still needs owner-generated key onboarding, so Password Auth intentionally remains enabled. The remaining target is `PasswordAuthentication no` after onboarding/cleanup, plus a direct VLAN 30 UFW test. Full operational status: [[20-Server/SSH-Hardening-Status]] and [[20-Server/Linux-User-Accounts]].
 
 ---
 
