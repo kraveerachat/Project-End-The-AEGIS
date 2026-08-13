@@ -12,6 +12,8 @@ edit_policy: append-by-new-file
 
 > Copy this template to `YYYY-MM-DD_HHMMSS_<owner>_<lowercase-topic>.md`.
 > A task creates one new receipt and never edits another task's receipt.
+> For cross-scope work, repeat every exact path from the PR's
+> `Shared surfaces touched` section here; the policy check compares both records.
 
 ## What changed
 
@@ -37,8 +39,8 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- <decision or follow-up required from the integration owner>
-- None
+- <reviewer/owner, decision required, downstream effect, and rollout or rollback>
+- None — valid only when no cross-scope/shared path changed
 
 ## Known limitations
 
