@@ -1,5 +1,6 @@
 ---
 title: IDEA3 AEGIS Lockdown
+aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
