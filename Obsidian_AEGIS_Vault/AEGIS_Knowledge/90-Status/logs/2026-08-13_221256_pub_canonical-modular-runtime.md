@@ -17,6 +17,7 @@ edit_policy: append-by-new-file
 - Added transactional startup rollback, cooperative shutdown, operator-readable failures, dependency-injected lifecycle tests, and configuration-owned Monitor integration.
 - Preserved `FaceRecognizer` as a placeholder seam: the built-in recognizer returns only `Unknown` and does not import legacy object-to-authorization behavior.
 - Removed hard-coded credentials from the legacy launch helper without using or reproducing the exposed Telegram value.
+- Added `docs/reports/2026-08-14-idea2-canonical-modular-runtime-th.md`, a Thai reviewer/operator report covering the implementation, verification checklist, pending real-runtime proof, dependency chain, integration review, and rollback.
 
 ## Source files changed
 
@@ -38,21 +39,23 @@ edit_policy: append-by-new-file
 - `IDEA2-AEGIS_CCTV-Operator/detection-engine/tests/` — 17 focused configuration, lifecycle, NAS, recognition, entry-point, and wiring tests.
 - `README.md` — corrected the root module map to the canonical HTTP-ingest runtime.
 - `docker-compose.yml` — switched only the IDEA2 camera service/build/environment/storage/port wiring to the modular runtime.
+- `docs/reports/2026-08-14-idea2-canonical-modular-runtime-th.md` — Thai Task 2 implementation and verification report.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md` — recorded verified canonical development-runtime status and honest remaining integrations.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_221256_pub_canonical-modular-runtime.md` — this immutable receipt.
 
 ## Verification evidence
 
-- `python -m unittest discover -s tests -v` from the modular engine — pass: 17/17 tests.
-- Python `compile()` over modular, test, and legacy Python files — pass: 27 files.
-- Default-component smoke script with unavailable camera index, NAS/Monitor/Telegram disabled — pass: runtime started, NAS reported `disabled`, camera reported disconnected, and shutdown completed.
-- Default-component `/health` smoke script — pass: HTTP 200, `status=degraded`, `camera_connected=false`, and clean shutdown.
-- PyYAML Compose structure check — pass: YAML parsed, `aegis-camera` build context resolved to the modular engine, NAS default was false, local recording volume was present, and port mapping was loopback-only.
-- `npm.cmd test` from `IDEA2-AEGIS_Monitor` — pass: 6/6 tests.
-- `node --test tests/*.test.mjs` — pass: 42/42 repository governance and Vault tests.
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — fail: the known validator defect assigns all receipt paths to owner `kla`; both correctly owned IDEA2 `pub` receipts are rejected while the dedicated collaboration-policy tests accept IDEA2 `pub` receipts.
+- `python -m unittest discover -s tests -v` from the modular engine — pass on 2026-08-14: 17/17 tests.
+- Python in-memory `compile()` over modular, test, and legacy Python files — pass on 2026-08-14: 27 files.
+- Default-component smoke with unavailable camera index 9999 and NAS/Monitor/Telegram disabled — pass: runtime started, NAS reported `disabled`, camera remained disconnected, and shutdown completed.
+- Default-component `/health` smoke — pass: HTTP 200, `status=degraded`, `camera_connected=false`, and clean shutdown.
+- Python `signal.raise_signal(SIGINT)` smoke through `run_forever()` — pass: cooperative shutdown completed.
+- PyYAML Compose structure check — pass: YAML parsed, `aegis-camera` build context resolved to the modular engine, NAS default was false, local recording volumes were present, Monitor mounted recordings read-only, and port mapping was loopback-only.
+- `npm.cmd test` from `IDEA2-AEGIS_Monitor` — pass on 2026-08-14: 6/6 tests.
+- `node --test tests/*.test.mjs` — pass on 2026-08-14: 45/45 repository governance and Vault tests.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass after the shared validator fix: no errors; two pre-existing canvas owner-review warnings remain.
 - `docker compose config` — not run: Docker CLI is unavailable; PyYAML parsing and source-level Compose wiring tests passed instead.
-- `git diff --check` — pass before receipt creation; final staged check required before commit.
+- `git diff --check` — pass after adding the Thai report and updating this receipt; no whitespace errors.
 
 ## Canonical notes updated
 
@@ -64,6 +67,7 @@ edit_policy: append-by-new-file
 - `.gitignore` — repository-wide exclusion for modular runtime evidence output.
 - `README.md` — shared repository module map.
 - `docker-compose.yml` — shared local orchestration; only the `aegis-camera` service, Monitor's camera recording mount, and IDEA2 camera volumes changed.
+- `docs/reports/2026-08-14-idea2-canonical-modular-runtime-th.md` — shared reviewer-facing Task 2 implementation, verification, rollout, and rollback report.
 
 ## Integration requests
 
@@ -76,6 +80,6 @@ edit_policy: append-by-new-file
 - **REAL CAMERA VERIFICATION PENDING.** No camera frame, recorded segment, or MJPEG frame was produced in this environment.
 - Monitor real heartbeat integration, Telegram real routing, production NAS integration, and production deployment remain pending.
 - Face recognition remains `PlaceholderRecognizer`; all placeholder faces are `Unknown` and no enrollment exists.
-- Docker CLI is unavailable, so container build, Compose parsing, volume permissions, device pass-through, and container health were not executed.
-- Full Vault validation remains blocked by the known receipt-owner validator defect; this task does not fix that unrelated shared validator.
-- The branch is stacked on Task 1 audit commit `ee5151e`; publication must preserve that dependency until Task 1 merges.
+- Docker CLI is unavailable, so container build, Compose runtime parsing, volume permissions, device pass-through, SIGTERM inside Linux, and container health were not executed.
+- Vault validation now passes after merging the dedicated shared validator-fix dependency; the two canvas owner-review warnings are unchanged.
+- As of 2026-08-14, `origin/main` still does not contain Task 1 or the validator fix. This branch is stacked on `fix/shared-vault-receipt-ownership` until those dependencies merge and must be retargeted/reverified afterward.
