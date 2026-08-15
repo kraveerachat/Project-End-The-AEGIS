@@ -3,7 +3,7 @@ title: Task Receipt — Formal Production Audit Checkpoint 2
 date: 2026-08-16T00:03:26+07:00
 owner: kla
 area: infrastructure
-branch: docs/obsidian-vault-sync
+branch: docs/formal-production-audit-checkpoint-2
 status: complete
 edit_policy: append-by-new-file
 ---
