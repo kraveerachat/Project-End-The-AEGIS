@@ -3,7 +3,7 @@ title: Outstanding Items — Consolidated
 tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-11
+updated: 2026-08-15
 sources: ["[[log]]", "[[core/system-overview]]"]
 owner: kla
 edit_policy: owner-writable
@@ -13,7 +13,10 @@ edit_policy: owner-writable
 
 > Every 🔴/🟠/🟡/🟢/⚠️ flag left behind across every session in `[[log]]`, gathered into one list instead of scattered across a dozen "Carried forward" sections. Severity markers are kept as the original sessions used them: 🔴 = real functional gap, 🟠 = known limitation (often infra-blocked, not code), 🟡 = cosmetic/deferred-by-choice, 🟢 = designed but not yet implemented, ⚠️ = operational caveat to remember, not a bug.
 >
-> Status is as of the last log entry (**2026-08-11**). The operator subsequently corrected the audit: `PermitRootLogin no`, `PubkeyAuthentication yes`, and the UFW Twingate path are complete; VLAN 30 direct testing and the remaining credential work stay open. If a later `[[log]]` entry closes one of these, update the item here rather than leaving it stale — that's the entire point of this page.
+> Status is reconciled through the infrastructure readiness evidence dated **2026-08-15**.
+> SSH hardening, VLAN 30 on-site reachability, backup/restore, service persistence
+> and controlled host reboot are closed. UFW production rules, Docker/Twingate
+> restart policies and server-side post-reboot health are now verified.
 >
 > Items marked **Awaiting go-ahead** were found by an audit and reported with a specific fix, but deliberately left unapplied pending the user's confirmation — they are open by decision, not by oversight.
 
@@ -29,9 +32,7 @@ edit_policy: owner-writable
 | No off-site backup | IDEA1 | Storage is a single ext4 volume; P5 of the mock-removal pass explicitly reported this as infra-blocked rather than built a fake backup UI. |
 | No per-user share defaults / snapshot schedule | IDEA1 | Design decision not yet made, not a bug. |
 | Dev-only `gateway/nginx.conf` still case-sensitive on `/monitor/internal/` | Infra | Production `HUB-AEGIS_Entry/nginx.conf` was fixed to a case-insensitive regex guard (2026-07-26); the dev-compose gateway config was never patched to match, so the bypass re-verified still open. |
-| Security Layer 0 SSH hardening incomplete | Infra / Beelink | `admin-main` and `krayukantk` keys, `PermitRootLogin no`, and `PubkeyAuthentication yes` are complete. `pubpup2006p` still needs an owner-generated/tested key; strict no-fallback/key cleanup and server-wide `PasswordAuthentication no` remain blocked on that dependency. |
-| UFW VLAN 30 direct path not yet tested | Infra / Beelink | The operator confirms the Twingate SSH path is configured and working. A fresh direct SSH session from Management VLAN 30 must still pass while the Twingate/admin session remains available for rollback; exact UFW rule/source output was not attached to the correction prompt. |
-| Twingate security housekeeping incomplete | Infra / Remote access | Rotate the exposed Connector token and re-confirm Healthy; review `Admin` group membership; add restart policy/health check and a local-console recovery note. Current Resource remains correctly scoped to `192.168.10.10:22/TCP`. |
+| Twingate independent audit follow-up | Infra / Remote access | Connector production path, UFW path, `unless-stopped`, `AutoRemove=false` and reboot recovery pass. Token rotation was previously recorded as completed, not independently re-verified in this documentation pass. `Admin` membership still needs a current least-privilege audit. |
 | Production DB application-role credentials not rotated | Infra / PostgreSQL | Rotate `drive_app` and `monitor_app` credentials before production deploy, update each service's secret source, then re-run cross-database `CONNECT` isolation proof. Never store the values in the vault/repo. |
 | No heartbeat *history* (uptime %, 24h disconnects, latency sparkline) | IDEA2 | Current heartbeat only proves live/dead at a point in time; needs a time-series table to show trend data honestly instead of a fake sparkline. |
 | No `audit_log` table in IDEA2 | IDEA2 | IDEA1 has full audit logging; IDEA2's forensic trail is limited to what `camera_heartbeat`/`detections` incidentally capture. |
@@ -65,7 +66,7 @@ edit_policy: owner-writable
 ## ⚠️ Operational caveats (not bugs — remember before demoing/testing)
 
 - **IDEA1 `npm test` glob requires the verified Node 24 runner.** The package script passes the quoted argument `"tests/**/*.test.js"`; Linux Node 20.20.2 treated it as a literal path and stopped before test discovery, while Node 24.14.0 expanded it and completed 119/119. No application/test code was changed during the run-and-report pass. If Node 20 CI support is required later, adjust the runner/script only after explicit approval.
-- **Demo credentials rotate on test runs.** IDEA1's seeded accounts are single-use per database once the force-reset gate is real (running the test suite against a DB rotates them); IDEA2's demo passwords were similarly rotated during the 2026-07-27 verification pass. `docker compose down -v` restores the originals in both cases — check this before any live demo.
+- **Demo credentials rotate on isolated test runs.** IDEA1's seeded accounts are single-use per disposable test database once the force-reset gate is real; IDEA2's demo passwords were similarly rotated during the 2026-07-27 verification pass. Never use `docker compose down -v` on the Beelink production workload: it destroys volumes/state. Recreating disposable volumes applies only to an explicitly isolated local test environment.
 - **Ethics documentation discrepancy** in `AEGIS_System_Design.docx` (§5.5–5.7 BOM renumbering, §2.3.4 "Terminal Account" naming, a duplicated §2.1) blocked full syllabus-alignment work pending a decision from the report's own source — see [[summaries/07_Ethics_and_Compliance]].
 - **`.env` must exist, not just `.env.example`**, or `DETECTION_ENGINE_API_KEY` silently ends up empty inside the container and the internal-route endpoint fails secure (503) rather than open — this bit a live session on 2026-08-01.
 
@@ -73,7 +74,11 @@ edit_policy: owner-writable
 
 ## Closed since first flagged (for continuity — do not re-report these as open)
 
-- ✅ Beelink now enforces `PermitRootLogin no` with `PubkeyAuthentication yes`; operator-confirmed 2026-08-11. Password Authentication is a separate open dependency and remains enabled for `pubpup2006p` onboarding.
+- ✅ **SERVER / INFRASTRUCTURE PRODUCTION READINESS = CLOSED / PASS** (2026-08-15): Ubuntu/hostname/static IP baseline, SSH key authentication with `PasswordAuthentication no` and `PermitRootLogin no`, `ssh.socket` reboot activation, VLAN 30 on-site reachability, backup/SHA256/true restore, Windows off-host copy, service persistence and controlled host reboot recovery are verified within the documented evidence boundary.
+- ✅ VLAN 30 direct validation used a friend Linux laptop at `192.168.30.99/24`: gateway `192.168.30.1` and Beelink `192.168.10.10` each returned `4/4`, `0%` loss; Drive and Monitor opened according to user-confirmed on-site browser evidence. No `curl /healthz` JSON is claimed from the screenshot.
+- ✅ UFW production state: enabled/active, logging low, deny incoming/routed, allow outgoing, allow TCP/22 on `docker0` from `172.17.0.0/16`, and allow TCP/22 from `192.168.30.0/24`.
+- ✅ Docker restart policy: `aegis-prod-postgres-1`, `aegis-prod-drive-1`, `aegis-prod-monitor-1`, `aegis-prod-hub-1` and `twingate-aegis-connector-02` use `unless-stopped`; Twingate has `AutoRemove=false`.
+- ✅ Server-side post-reboot checks are separate from VLAN 30 screenshots: `/healthz`, `/drive/healthz` and `/monitor/healthz` returned HTTP 200 with the documented application/database health.
 - ✅ IDEA1 P0 data-honesty findings closed: ordinary Uploads no longer claim encryption at rest, `POST /api/files/:id/verify` rehashes current disk bytes and detects tampering, and Dashboard Demo Override is fully removed; isolated PostgreSQL verification is 125/125 (2026-08-07).
 - ✅ IDEA1 P1 data-honesty findings closed: one binary capacity formatter across Sidebar/Dashboard/Storage; active shares exclude revoked and expired rows through one store predicate; the security KPI is explicitly DENIED/BLOCKED among the latest 100; Access reports Account ready and real per-instance session counts without claiming persistence. Isolated PostgreSQL verification is 128/128 (2026-08-07).
 - ✅ IDEA1 P2 data-honesty findings closed: `/healthz.layers` independently probes Express event-loop, PostgreSQL `SELECT 1`, and Storage write/read/delete with measured timings; TopBar says Drive rather than Edge node; fixed `12/4/2 ms` and staged `5/40/75/100%` upload progress are removed in favor of measured evidence/XHR byte events. Isolated PostgreSQL verification is 132/132 and live Docker health is green (2026-08-07).
