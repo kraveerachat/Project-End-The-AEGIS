@@ -4,7 +4,7 @@ tags: [aegis, moc, infrastructure, network, status]
 type: moc
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-11
+updated: 2026-08-15
 owner: kla
 edit_policy: owner-writable
 ---
@@ -15,7 +15,7 @@ edit_policy: owner-writable
 > Owner: **Kla**. Infrastructure is a shared runtime dependency but has one canonical writer; IDEA owners submit integration requests through their task receipts.
 
 > ศูนย์รวมลิงก์และสถานะจริงของงาน **Infrastructure / Network / Remote Access** ของโปรเจกต์ AEGIS
-> ณ วันที่ **8 สิงหาคม 2026**
+> ณ วันที่ **15 สิงหาคม 2026**
 >
 > โน้ตชุดนี้บันทึก **สิ่งที่ทำจริงบนฮาร์ดแวร์** แยกจากชุดโน้ตเดิม (`concepts/`, `entities/`) ที่บันทึก **สิ่งที่ออกแบบไว้ในเล่มรายงาน**
 > เมื่อสองฝั่งไม่ตรงกัน ให้ยึดโน้ตชุดนี้เป็นความจริง และดูรายการที่ขัดกันได้ที่ [[90-Status/Document-Conflicts]]
@@ -66,18 +66,24 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 | Managed Switch VLAN + PVID | ✅ | [[infrastructure/network/Switch-VLAN-Config]] |
 | Ubuntu Server Host พร้อมใช้งาน | ✅ | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 | บัญชีผู้ใช้รายบุคคล | ✅ (🔧 sudo scope) | [[infrastructure/server/Linux-User-Accounts]] |
-| SSH Key Authentication | 🔧 `admin-main` + `krayukantk` ใช้ key ได้ · `pubpup2006p`/strict tests/global Password Auth ยังค้าง | [[infrastructure/server/SSH-Hardening-Status]] |
-| Remote Access ผ่าน Twingate ZTNA | ✅ | [[infrastructure/remote-access/Twingate-Setup]] |
+| SSH Key Authentication | ✅ `PasswordAuthentication no` · `PermitRootLogin no` · `ssh.socket` recovered หลัง reboot | [[infrastructure/server/SSH-Hardening-Status]] |
+| Remote Access ผ่าน Twingate ZTNA | ✅ production path + recovery หลัง reboot | [[infrastructure/remote-access/Twingate-Setup]] |
 | OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[infrastructure/remote-access/OpenVPN-Deprecated]] |
-| UFW Production Rules | 🔧 Twingate path ✅ · VLAN 30 direct test ⏳ | [[90-Status/Open-Items-Backlog]] |
-| Docker Production Stack บน Beelink | ⏳ ยังไม่ deploy | [[infrastructure/deployment/Docker-Stack-Plan]] |
+| UFW production state | ✅ active; deny incoming/routed, allow outgoing; SSH allow จาก Docker/Twingate และ VLAN 30 | [[infrastructure/server/Beelink-Ubuntu-Host]] |
+| VLAN 30 management path | ✅ on-site client `192.168.30.99` ถึง gateway และ Beelink `4/4`, `0%` loss | [[infrastructure/network/VLAN-IP-Plan]] |
+| Server / Infrastructure Production Readiness | ✅ **CLOSED / PASS** | [[infrastructure/server/Beelink-Ubuntu-Host]] |
+| Production workload context | ✅ restart policy `unless-stopped` และ server-side post-reboot health HTTP 200 ผ่าน; formal deployment ยังเป็นคนละเฟส | [[infrastructure/deployment/Docker-Stack-Plan]] |
 | IDEA3 MQTT / ESP32 / Relay | ⏳ เขียนแล้วยังไม่ทดสอบ | [[idea3/idea3-status]] |
 
 > 📋 **สรุปงาน 15 ขั้นตอนแบบละเอียดพร้อมหลักฐานการทดสอบ** อยู่ที่ [[90-Status/Progress-Log-2026-08-06]]
 >
-> 🔴 **ลำดับ Security Layer 0 ปัจจุบัน**: `PermitRootLogin no` + Twingate UFW path ผ่านแล้ว → ทดสอบ VLAN 30 direct path → rotate Connector token + ยืนยัน Healthy → key ของ `pubpup2006p`/cleanup → ปิด Password Auth → rotate DB app-role passwords ก่อน deploy
+> ✅ **Infrastructure readiness ปัจจุบัน**: SSH hardening, VLAN 30 on-site path,
+> backup/true restore, service persistence และ controlled host reboot ผ่านแล้ว
+> ดูผลและขอบเขตหลักฐานที่ [[infrastructure/server/Beelink-Ubuntu-Host]].
 >
-> 🔧 **ข้อสรุปเชิงปฏิบัติเรื่อง remote path**: Twingate ใช้ Resource-level access ตรงไป `192.168.10.10:22`; ไม่ขยายสิทธิ์เป็น VLAN 30 ทั้งวง ส่วน VLAN 30 คงเป็น direct-management path แยกต่างหาก การแก้ถ้อยคำในเล่มและการตัดสิน Macvlan vs Bridge+Reverse Proxy ยังอยู่ใน [[90-Status/Document-Conflicts]].
+> ⚠️ **Open evidence:** Twingate token rotation ถูกบันทึกก่อนหน้านี้ว่าสำเร็จ
+> แต่ไม่ได้ independently re-verify ใน documentation pass นี้ และยังไม่มีหลักฐาน
+> post-reboot SSH login แยกรายบัญชีครบทุกคน ดู [[90-Status/Open-Items-Backlog]].
 
 ---
 
@@ -143,7 +149,9 @@ flowchart TD
     class DET,HomeRouter warn;
 ```
 
-> เส้นประจาก Twingate ไปยัง Beelink คือ path ที่ใช้งานจริงและแคบกว่า `/24`; ผู้ดูแลระบบยืนยันว่า UFW สำหรับ path นี้ผ่านแล้ว ส่วน VLAN 30 direct-management path ยังต้องทดสอบและความขัดแย้งกับถ้อยคำเดิมในเล่มติดตามที่ข้อ 3 ใน [[90-Status/Document-Conflicts]].
+> เส้นประจาก Twingate ไปยัง Beelink คือ remote resource path ที่ใช้งานจริงและแคบกว่า `/24`.
+> VLAN 30 เป็น on-site direct-management path แยกต่างหากและผ่าน validation ล่าสุดแล้ว
+> ตาม [[infrastructure/network/VLAN-IP-Plan]].
 
 ---
 

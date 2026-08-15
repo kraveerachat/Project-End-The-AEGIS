@@ -1,34 +1,71 @@
 ---
-title: Docker Production Stack Plan (Beelink)
+title: Docker Production Stack — Formal Deployment Boundary (Beelink)
 tags: [aegis, infrastructure, deployment, docker, macvlan, postgresql, plan]
 type: infrastructure
-status: ⏳ ยังไม่ deploy ลง Beelink
+status: ⚠️ production workload exists · formal deployment audit pending
 created: 2026-08-06
-updated: 2026-08-07
+updated: 2026-08-15
 owner: kla
 edit_policy: owner-writable
 ---
 
-# 🐳 แผน Deploy Docker Production Stack ลง Beelink
+# 🐳 Docker Production Stack — Current Safety Boundary
 
-> ⚠️ **สถานะ: ⏳ ยังไม่ deploy ลง Beelink** — ห้ามเขียนในเล่มว่าระบบ deploy บน Server แล้ว
-> สิ่งที่รันบน Beelink จริง ณ ตอนนี้มีเพียง **Twingate Connector** container เท่านั้น
+> [!warning] Current Production Audit required
+> Beelink ไม่ใช่เครื่องเปล่า ปัจจุบันมี PostgreSQL, AEGIS Drive, AEGIS Monitor
+> และ HUB / NGINX อยู่บนเครื่อง และเคยถูกใช้ทดสอบ persistence,
+> backup/restore และ host reboot recovery ตาม [[infrastructure/server/Beelink-Ubuntu-Host]].
+> ข้อมูลนี้เป็น deployment context สำหรับ infrastructure validation เท่านั้น
+> **ไม่ใช่ข้อสรุปว่า Formal Deployment เสร็จแล้ว**
 > กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
+
+## ⛔ Safety rules before the next phase
+
+- ห้ามสมมติว่า Server เป็นเครื่องเปล่า
+- ห้ามใช้ `docker compose down` ในลักษณะที่ทำลาย state
+- ห้ามลบ Docker volumes หรือ PostgreSQL databases
+- ห้าม deploy/rebuild ใหม่จากศูนย์ก่อน Current Production Audit
+- ต้องตรวจ Git commit/source, runtime configuration, containers/images,
+  network และ volumes พร้อม checkpoint/rollback ก่อนเปลี่ยนของจริง
+
+เฟสถัดไปคือ **AEGIS Formal Deployment & Web Functional Testing** และต้องจัดทำ
+หลักฐานของเฟสนั้นแยกจาก infrastructure readiness
 
 ---
 
-## 🧾 ของที่จะ deploy (3 แอปจริง ไม่ใช่ 4)
+## 🧾 Services present during infrastructure validation
 
 | Service | หน้าที่ | โน้ตรายละเอียด | สถานะบน Beelink |
 | :--- | :--- | :--- | :--- |
-| **gateway** (NGINX) | Reverse Proxy + HUB entry ที่ `/` | [[core/hub-aegis-entry]] | ⏳ |
-| **drive** (IDEA1) | UI `:5174` / API `:8001` — Secure NAS & Data Lake | [[idea1/idea1-status]] | ⏳ |
-| **monitor** (IDEA2) | UI `:5176` / API `:8002` — SOC + CCTV Operator **รวมเป็นตัวเดียว** | [[idea2/idea2-status]] | ⏳ |
-| **postgres** | `aegis_drive` + `aegis_monitor` (แยก DB / แยก role) | [[core/security-architecture]] | ⏳ |
-| **storage volume** | `drive_storage → /datalake` (mount ให้ `drive` เท่านั้น) | [[concepts/Three_Layer_Data_Lake]] | ⏳ |
+| **gateway** (NGINX) | Reverse Proxy + HUB entry | [[core/hub-aegis-entry]] | ✅ มีอยู่ในการ validation · 🔧 audit topology/config ก่อนแก้ |
+| **drive** (IDEA1) | AEGIS Drive workload | [[idea1/idea1-status]] | ✅ มีอยู่ในการ validation · 🔧 formal feature test แยก |
+| **monitor** (IDEA2) | AEGIS Monitor workload | [[idea2/idea2-status]] | ✅ มีอยู่ในการ validation · 🔧 formal feature test แยก |
+| **postgres** | Application database runtime | [[core/security-architecture]] | ✅ restart/reconnect ผ่าน · 🔧 audit DB/runtime ก่อนเปลี่ยน |
+| **storage/volumes** | Persistent runtime state | [[concepts/Three_Layer_Data_Lake]] | ✅ persistence/restore ผ่านในขอบเขต infra · 🔧 inventory ก่อน formal deployment |
 
-> ⚠️ **CCTV Operator ถูกรวมเข้า Monitor แล้ว — ห้ามนับเป็นแอปที่ 4** (ดูข้อ 5 ใน [[90-Status/Document-Conflicts]])
-> `IDEA2-AEGIS_CCTV-Operator/detection-engine/` ยังมีอยู่และยังใช้งาน แต่มันคือ **Python process บน Detection Laptop (VLAN 20)** ไม่ใช่ web app และไม่อยู่ใน `docker-compose`
+> ตารางนี้ไม่รับรอง exact container names, image digests, ports, volume mappings
+> หรือ source commit ปัจจุบัน รายละเอียดเหล่านั้นต้องมาจาก Current Production Audit
+
+## ✅ VERIFIED — Runtime restart policy
+
+| Container | Restart policy |
+| :--- | :--- |
+| `aegis-prod-postgres-1` | `unless-stopped` |
+| `aegis-prod-drive-1` | `unless-stopped` |
+| `aegis-prod-monitor-1` | `unless-stopped` |
+| `aegis-prod-hub-1` | `unless-stopped` |
+| `twingate-aegis-connector-02` | `unless-stopped`; `AutoRemove=false` |
+
+## ✅ VERIFIED — Server-side post-reboot health
+
+| Endpoint | Result |
+| :--- | :--- |
+| `/healthz` | HTTP `200`; `aegis-entry ok:true` |
+| `/drive/healthz` | HTTP `200`; `aegis-drive ok:true`; `db=postgres` |
+| `/monitor/healthz` | HTTP `200`; `aegis-monitor ok:true`; `db=postgres` |
+
+หลักฐานนี้มาจาก server-side test หลัง reboot ไม่ใช่การอ่านข้อความ JSON
+จากภาพ VLAN 30 และยังไม่ใช่ Formal Web Functional Testing
 
 ---
 
@@ -67,18 +104,16 @@ flowchart TD
 
 ---
 
-## 📋 ลำดับงานก่อน deploy
+## 📋 Gate ก่อน AEGIS Formal Deployment & Web Functional Testing
 
 | # | งาน | สถานะ |
 | :-- | :--- | :--- |
-| 1 | **ตรวจสถานะ UFW จริง** (เคยปิดชั่วคราวตอนทดสอบ routing) แล้วเปิด production rules | ⏳ P1 |
-| 2 | ปิดงาน [[infrastructure/server/SSH-Hardening-Status\|SSH Hardening]] | ⏳ P1 |
-| 3 | Rotate [[infrastructure/remote-access/Twingate-Setup\|Twingate Connector Token]] | ⏳ P1 |
-| 4 | **ตัดสินใจ Macvlan vs Bridge** ตามตารางด้านบน | ⏳ P2 |
-| 5 | Audit ว่า repo / Docker image / `.env` secrets เป็นเวอร์ชันล่าสุด | ⏳ P2 |
-| 6 | Deploy `gateway` + `drive` + `monitor` + `postgres` + storage volume | ⏳ P2 |
-| 7 | ทดสอบ **Persistence / Health Check / Restart / Recovery** | ⏳ P2 |
-| 8 | HTTPS/TLS ที่ gateway | ⏳ P3 |
+| 1 | ทำ immutable backup/checkpoint ก่อนแตะ runtime | ⏳ next phase |
+| 2 | Inventory Git/source, images, containers, networks, volumes และ PostgreSQL databases | ⏳ next phase |
+| 3 | ตรวจ runtime secrets โดยไม่พิมพ์ค่าลง log/vault/repo | ⏳ next phase |
+| 4 | Reconcile topology จริงกับ Macvlan/Bridge design เดิม | ⏳ next phase |
+| 5 | กำหนด rollout/rollback โดยไม่ลบ state | ⏳ next phase |
+| 6 | ทำ Formal Deployment evidence และ Web Functional Testing แยกจาก infra receipt | ⏳ next phase |
 
 ---
 
@@ -86,7 +121,9 @@ flowchart TD
 
 [[core/system-overview]] บันทึกไว้ว่า (2026-07-28) *"`postgres`, `monitor`, `drive`, `gateway` healthy · `http://localhost/monitor/` HTTP 200"*
 
-⚠️ **นั่นคือผลบนเครื่อง dev ของผู้พัฒนา ไม่ใช่บน Beelink** — ตอนอ่านเล่มหรือรายงานความคืบหน้าต้องแยกสองอย่างนี้ให้ชัด ดูข้อ 7 ใน [[90-Status/Document-Conflicts]]
+⚠️ ผลวันที่ 2026-07-28 นั้นยังเป็นผลบนเครื่อง dev และต้องคงไว้เป็น historical evidence
+แยกจาก validation บน Beelink วันที่ 2026-08-15 ซึ่งยืนยันว่ามี production workload
+และ recovery behavior จริง แต่ยังไม่ใช่ Formal Deployment acceptance
 
 ### Windows checkout: Postgres init scripts must remain LF-only
 
