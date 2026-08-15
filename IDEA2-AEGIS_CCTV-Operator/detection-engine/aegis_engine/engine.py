@@ -151,6 +151,8 @@ class DetectionEngine:
             recognizer=recognizer,
             stop_event=stop_event,
         )
+        # Recording keeps bounded continuity, while detection and streaming favor
+        # the newest frame so a slow consumer cannot build up stale live latency.
         sinks = [
             Sink("record", record_queue, OverflowPolicy.DROP_OLDEST),
             Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY),

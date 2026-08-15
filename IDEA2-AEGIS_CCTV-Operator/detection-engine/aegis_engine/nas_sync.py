@@ -7,8 +7,8 @@ For every ~10-minute segment the recorder finalizes, this worker:
 2. Ensures the remote directory exists, then transfers the file with
    ``rsync`` (default) or ``scp`` via :mod:`subprocess`.
 3. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
-   (``checksum``), comparing byte size (``size``), or trusting the transfer
-   exit code (``none``).
+   (``checksum``) or comparing byte size (``size``). Transfer success alone is
+   intentionally insufficient because it cannot prove the remote file is intact.
 4. Deletes the local file **only if** verification passed.
 
 Transfers are retried with exponential backoff. A segment that never verifies

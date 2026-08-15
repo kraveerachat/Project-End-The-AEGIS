@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY aegis_engine ./aegis_engine
 COPY run.py setup_camera.py README.md .env.example ./
 
+# Runtime files and mount targets are owned by an unprivileged account so camera
+# processing never needs root privileges inside the container.
 RUN useradd --create-home --uid 10001 aegis \
     && mkdir -p /nas/clips /data/snapshots \
     && chown -R aegis:aegis /app /nas /data
