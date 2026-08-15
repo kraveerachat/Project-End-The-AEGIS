@@ -33,8 +33,8 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass: 0 errors, 0 warnings; frontmatter and wikilinks resolve.
-- `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — pass: 7 tests, 0 failures.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass: 0 errors, 2 owner-review warnings for pre-existing Canvas files introduced by the latest `main`; frontmatter and wikilinks resolve.
+- `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — pass: 22 tests, 0 failures after merging the latest `main`.
 - `git diff --check` — pass after correcting four blank lines found by the first run.
 - Targeted `rg` status scan — pass: stale `PasswordAuthentication yes` appears only inside the explicitly labeled historical baseline; the old VLAN 30 pending and empty-server claims are removed from current-state notes.
 
