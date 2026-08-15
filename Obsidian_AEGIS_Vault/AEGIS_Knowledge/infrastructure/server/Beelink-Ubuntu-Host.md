@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, server, ubuntu, beelink, docker, host, production-
 type: infrastructure
 status: ✅ SERVER / INFRASTRUCTURE PRODUCTION READINESS — CLOSED / PASS
 created: 2026-08-06
-updated: 2026-08-15
+updated: 2026-08-16
 owner: kla
 edit_policy: owner-writable
 ---
@@ -144,26 +144,50 @@ backup/restore และ host reboot recovery เท่านั้น
 
 ---
 
-## ⏭️ PENDING — AEGIS Formal Deployment & Web Functional Testing
+## ✅ COMPLETED — Phase B Formal Current Production Audit
 
-เฟสถัดไปต้องเริ่มด้วย **Current Production Audit** เพราะเครื่องไม่ใช่ server เปล่า:
+> **Checkpoint 1 (STEP 1–5) = COMPLETED**
+>
+> **Checkpoint 2 (STEP 6–9 + final documentation) = COMPLETED**
+>
+> **Phase B audit execution = COMPLETED**
+>
+> **Phase C = NOT STARTED / WAITING FOR HUMAN FINAL REVIEW**
 
-- ตรวจ Git commit/source, runtime configuration, container/image, network และ volume ที่ใช้งานจริงก่อนเปลี่ยนระบบ
+| Audit step | State | Current finding |
+| :--- | :--- | :--- |
+| 1. Git / Source | ✅ COMPLETED | Beelink `main` clean; local `origin/main` ตรง HEAD; GitHub drift 6 commits เป็น documentation-only |
+| 2. Compose vs Source | ✅ COMPLETED | production Compose อยู่ `/opt/aegis/runtime`, runtime-only และไม่ตรง Git-tracked Compose |
+| 3. Image / Build provenance | ✅ COMPLETED | Drive/HUB moderate provenance; PostgreSQL upstream identified; Monitor healthy แต่มี image/rollback gap |
+| 4. Network / Macvlan | ✅ COMPLETED | bridge + Macvlan runtime verified; Drive `.11`, Monitor `.12`; `aegis_internal Internal=false` |
+| 5. Volume / Persistence | ✅ COMPLETED | PostgreSQL/Drive named volumes, Monitor RO clips, HUB runtime mounts verified; anonymous volume owner unknown |
+| 6. PostgreSQL | ✅ PASS | PostgreSQL 15.19; expected DBs/roles present; cross-DB CONNECT isolation and scoped DML/default ACLs verified |
+| 7. Application Account / RBAC | ✅ PASS | Drive `admin` and Monitor `soc` match production state; demo/operator fixtures remain Web-test readiness gaps |
+| 8. Runtime Files Outside Repository | ✅ PASS | Compose/NGINX/Postgres-script/TLS baselined; `.env` and TLS key audited metadata-only; backups protected |
+| 9. SSH + Twingate side checks | ✅ PASS | key-only SSH + sudo functional for `pubpup2006p`/`krayukantk`; Connector Console/runtime identity matched and healthy |
+
+Checkpoint 1 ไม่ได้แก้ production: ไม่มี Git mutation, deploy/rebuild/restart,
+Compose/`.env`, Docker network/volume, database/account, VLAN/UFW/Twingate หรือ SSH change
+
+Current safety boundaries remain:
+
 - ห้ามใช้ `docker compose down` ในลักษณะที่ทำลาย state
-- ห้ามลบ Docker volumes
-- ห้ามลบ PostgreSQL databases
-- ห้าม deploy ใหม่จากศูนย์ก่อน audit และกำหนด rollback/checkpoint
+- ห้ามลบ Docker volumes หรือ PostgreSQL databases
+- ห้าม recreate/rebuild Monitor จนกว่าจะมี rollback plan
+- ห้ามลบ anonymous volume ที่ยังไม่ทราบ owner/purpose
+- ต้องผ่าน human final review และ Source Freeze/Alignment แยกก่อนเปลี่ยนของจริง
 - แยก application feature testing ออกจาก infrastructure readiness ที่ปิดแล้ว
 
 ดู safety boundary ที่ [[infrastructure/deployment/Docker-Stack-Plan]]
 
 ---
 
-## ⚠️ NOT VERIFIED / NOT IN SCOPE
+## ⚠️ OPEN FINDINGS / NOT IN SCOPE
 
-- **Twingate Connector token rotation:** previously recorded as completed, not independently re-verified in this documentation pass; ไม่บันทึก token ใด ๆ
-- **Post-reboot SSH login รายบัญชี:** account state คงอยู่ แต่ยังไม่มีหลักฐานครบว่าทุกบัญชี login หลัง reboot แยกกันสำเร็จ
-- **Formal Deployment procedures, rebuild และ application feature acceptance:** ไม่อยู่ในขอบเขต Note นี้
+- **Twingate token timestamp:** token values ตั้งค่าและ Connector ใช้งานได้ แต่ creation/rotation date ไม่แสดง/ไม่ยืนยัน; ไม่ต้อง rotate ใน Phase B
+- **Monitor rollback artifact:** runtime healthy แต่ running image object resolve ใน local store ไม่ได้; ห้าม recreate ก่อน rollback plan
+- **Application test identities:** Drive `user`, Monitor `operator`/`operator2` และ camera fixtures ยังไม่มีใน production; เป็น Web-test readiness gap
+- **Formal Deployment procedures, rebuild และ Web Functional Testing:** ยังไม่เริ่มและไม่อยู่ในขอบเขต Phase B documentation
 - **VLAN 30 screenshot:** ไม่ใช้เป็นหลักฐาน `/healthz` JSON; JSON/HTTP evidence ด้านบนมาจาก server-side test แยกต่างหาก
 
 ---

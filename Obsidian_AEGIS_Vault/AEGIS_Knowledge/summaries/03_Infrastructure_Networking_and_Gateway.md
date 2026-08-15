@@ -3,7 +3,7 @@ title: Work Summary — Infrastructure, Networking & Gateway
 tags: [aegis, summary, infrastructure, nginx, docker, networking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-16
 sources: ["[[log]]"]
 owner: kla
 edit_policy: owner-writable
@@ -34,9 +34,13 @@ edit_policy: owner-writable
 - Also fixed `proxy_set_header Host $host` → `$http_host`, needed because `:8443` deployments were sending `Origin: https://localhost:8443` to a backend that saw `Host: localhost`, tripping the CSRF Origin/Host check — this is the same class of bug as the dev-proxy CSRF issue in [[summaries/02_Security_Auth_and_Identity]], but at the production gateway layer instead of vite's dev proxy.
 - Confirmed the equivalent guard in the **dev-only** `gateway/nginx.conf` was still case-sensitive (not yet patched to match production) — tracked in [[summaries/08_Outstanding_Items_Consolidated]].
 
-## Docker / Compose topology
+## Historical Docker / Compose topology record
 
-- Production network: `subnet=192.168.10.0/24`, `gateway=.1`, `hub=.10` (nginx TLS :443 + :80→301), `drive=.11:8001`, `monitor=.12:8002`, `postgres=.15`.
+- Historical plan recorded `subnet=192.168.10.0/24`, `gateway=.1`, `hub=.10`,
+  `drive=.11:8001`, `monitor=.12:8002`, `postgres=.15`. Checkpoint 1 supersedes
+  this as a complete runtime map: HUB/PostgreSQL use `aegis_internal` bridge,
+  Drive/Monitor additionally use Macvlan `.11/.12`, and no runtime evidence
+  from this audit supports PostgreSQL `.15`.
 - Named volumes introduced for persistent storage: `drive_storage` (IDEA1 file bytes, mounted `/datalake`), with the Dockerfile switched to `mkdir /datalake && chown node:node` + `USER node` so the app never runs as root against its own data volume.
 - Session secrets decoupled per app (`DRIVE_SESSION_SECRET` / `MONITOR_SESSION_SECRET`) rather than shared.
 - `.dockerignore` added for IDEA1 after discovering `COPY . .` was pulling host `node_modules`/`dist` into the build context and bloating the image with unused multi-megabyte background assets (later replaced by WebP versions — see [[core/hub-aegis-entry]]).
@@ -46,3 +50,52 @@ edit_policy: owner-writable
 
 ## Open items
 The dev-only `gateway/nginx.conf` case-sensitivity gap for `/monitor/internal/` (production is fixed, dev is not) is tracked in [[summaries/08_Outstanding_Items_Consolidated]].
+
+## Formal Current Production Audit — Checkpoint 1 (2026-08-15)
+
+Current production is not an empty Beelink: PostgreSQL, Drive, Monitor, HUB/NGINX
+and the Twingate Connector are present. Phase A infrastructure readiness is
+**CLOSED / PASS**. At the Checkpoint 1 snapshot, Phase B was **IN PROGRESS** with
+STEP 1–5 completed read-only and STEP 6–9 pending; the Checkpoint 2 section below
+supersedes that progress state. Canonical evidence is
+[[infrastructure/deployment/Docker-Stack-Plan]].
+
+- Beelink source checkout is clean at `53e347af4626dc548f1b259c00040259939ebe8b`;
+  the observed six-commit GitHub drift was Obsidian-only, not application source.
+- Production Compose is `/opt/aegis/runtime/docker-compose.production.yml`, outside
+  Git and intentionally specialized; `git pull` alone is not a complete production update.
+- Monitor is running and healthy, but its running image differs from local `latest`
+  and is no longer locally resolvable: rollback/provenance gap, **DO NOT RECREATE**.
+- Runtime network is dual-surface: `aegis_internal` bridge (`Internal=false`) and
+  `aegis_vlan10_macvlan`; Drive `.11`, Monitor `.12` are runtime-verified.
+- PostgreSQL and Drive named volumes are persistent and **DO NOT TOUCH**;
+  Monitor reads `/nas/clips` from a read-only host bind; HUB config/certs are runtime-only.
+- One unattached anonymous volume has unknown ownership and must not be deleted
+  until read-only provenance investigation is complete.
+
+No deploy, rebuild, restart, Git mutation, Compose/`.env`, Docker network/volume,
+database/account, VLAN/UFW/Twingate or SSH change occurred during Checkpoint 1.
+
+## Formal Current Production Audit — Checkpoint 2 (2026-08-16)
+
+Phase B STEP 1–9 and final documentation are complete; Phase C remains NOT STARTED
+pending human review. Canonical matrices and detailed evidence live in
+[[infrastructure/deployment/Docker-Stack-Plan]].
+
+- PostgreSQL 15.19 has expected application DBs and scoped roles. Cross-database
+  `CONNECT` isolation, table/sequence privileges, default ACLs and functional app
+  authentication passed without recording credential values.
+- Runtime accounts are intentionally minimal: Drive has `admin`; Monitor has `soc`;
+  both remain behind first-login reset. Missing DataLake/CCTV test identities and
+  zero Monitor cameras are Web-test readiness gaps, not production failures.
+- Runtime Compose, NGINX, PostgreSQL script and TLS certificate hashes are baselined;
+  `.env` and TLS key remain metadata-only protected artifacts. Backups are present.
+- SSH policy and socket activation pass. `pubpup2006p` and `krayukantk` completed
+  key-only SSH through Twingate and functional sudo elevation; least-privilege and
+  Docker-group policy review remains separate.
+- Twingate runtime and Admin Console match by container hostname prefix and
+  `172.17.0.2`; Controller/Relay are connected, STUN available, offset `0s`,
+  version `1.90.0` up to date. Token timestamp remains not exposed/not verified.
+
+Monitor rollback provenance and the unknown anonymous volume remain **DO NOT TOUCH**.
+No production or application behavior changed during Checkpoint 2 documentation.

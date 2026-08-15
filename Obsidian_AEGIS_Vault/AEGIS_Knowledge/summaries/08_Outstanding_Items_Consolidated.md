@@ -3,7 +3,7 @@ title: Outstanding Items — Consolidated
 tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-15
+updated: 2026-08-16
 sources: ["[[log]]", "[[core/system-overview]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,6 +17,9 @@ edit_policy: owner-writable
 > SSH hardening, VLAN 30 on-site reachability, backup/restore, service persistence
 > and controlled host reboot are closed. UFW production rules, Docker/Twingate
 > restart policies and server-side post-reboot health are now verified.
+> Phase B Formal Current Production Audit STEP 1–9 and Documentation Checkpoint 2
+> are **COMPLETED** read-only. Phase C / Web Functional Testing is **NOT STARTED**
+> and waits for human final review. See [[infrastructure/deployment/Docker-Stack-Plan]].
 >
 > Items marked **Awaiting go-ahead** were found by an audit and reported with a specific fix, but deliberately left unapplied pending the user's confirmation — they are open by decision, not by oversight.
 
@@ -32,8 +35,8 @@ edit_policy: owner-writable
 | No off-site backup | IDEA1 | Storage is a single ext4 volume; P5 of the mock-removal pass explicitly reported this as infra-blocked rather than built a fake backup UI. |
 | No per-user share defaults / snapshot schedule | IDEA1 | Design decision not yet made, not a bug. |
 | Dev-only `gateway/nginx.conf` still case-sensitive on `/monitor/internal/` | Infra | Production `HUB-AEGIS_Entry/nginx.conf` was fixed to a case-insensitive regex guard (2026-07-26); the dev-compose gateway config was never patched to match, so the bypass re-verified still open. |
-| Twingate independent audit follow-up | Infra / Remote access | Connector production path, UFW path, `unless-stopped`, `AutoRemove=false` and reboot recovery pass. Token rotation was previously recorded as completed, not independently re-verified in this documentation pass. `Admin` membership still needs a current least-privilege audit. |
-| Production DB application-role credentials not rotated | Infra / PostgreSQL | Rotate `drive_app` and `monitor_app` credentials before production deploy, update each service's secret source, then re-run cross-database `CONNECT` isolation proof. Never store the values in the vault/repo. |
+| Twingate governance follow-up | Infra / Remote access | Runtime/Admin Console/SSH path PASS. Current tokens are SET and functional; token creation/rotation timestamp is not exposed or verified and no rotation is required now. `Admin` membership still needs a current least-privilege audit. |
+| Production DB credential lifecycle | Infra / PostgreSQL | Runtime app credentials are SET/NON-DEFAULT, SCRAM and endpoint-isolated; known dev defaults are not used. Future expiry/rotation policy needs controlled planning and re-verification; never store values in vault/repo. |
 | No heartbeat *history* (uptime %, 24h disconnects, latency sparkline) | IDEA2 | Current heartbeat only proves live/dead at a point in time; needs a time-series table to show trend data honestly instead of a fake sparkline. |
 | No `audit_log` table in IDEA2 | IDEA2 | IDEA1 has full audit logging; IDEA2's forensic trail is limited to what `camera_heartbeat`/`detections` incidentally capture. |
 | Multi-camera deployment not implemented | IDEA2 | Running two Detection Engine instances (one per camera) is design-confirmed (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL`, shared `MONITOR_INTERNAL_URL`/key) but not built — see 🟢 below. |
@@ -65,6 +68,9 @@ edit_policy: owner-writable
 
 ## ⚠️ Operational caveats (not bugs — remember before demoing/testing)
 
+- **Production Compose is runtime-only.** `/opt/aegis/runtime/docker-compose.production.yml` is the verified production artifact and does not match either Git-tracked Compose file; `git pull` alone is not a complete production update.
+- **Do not recreate the healthy Monitor container yet.** Its running image differs from local `aegis-prod-monitor:latest` and the running image object is no longer locally resolvable; this is a rollback/provenance gap, not a service-health failure.
+- **Production state must be preserved.** `aegis_postgres_data`, `aegis_drive_storage`, runtime HUB config/certs and Monitor clip bind mounts are verified active contracts. An unattached anonymous volume has unknown ownership and must not be deleted before read-only investigation.
 - **IDEA1 `npm test` glob requires the verified Node 24 runner.** The package script passes the quoted argument `"tests/**/*.test.js"`; Linux Node 20.20.2 treated it as a literal path and stopped before test discovery, while Node 24.14.0 expanded it and completed 119/119. No application/test code was changed during the run-and-report pass. If Node 20 CI support is required later, adjust the runner/script only after explicit approval.
 - **Demo credentials rotate on isolated test runs.** IDEA1's seeded accounts are single-use per disposable test database once the force-reset gate is real; IDEA2's demo passwords were similarly rotated during the 2026-07-27 verification pass. Never use `docker compose down -v` on the Beelink production workload: it destroys volumes/state. Recreating disposable volumes applies only to an explicitly isolated local test environment.
 - **Ethics documentation discrepancy** in `AEGIS_System_Design.docx` (§5.5–5.7 BOM renumbering, §2.3.4 "Terminal Account" naming, a duplicated §2.1) blocked full syllabus-alignment work pending a decision from the report's own source — see [[summaries/07_Ethics_and_Compliance]].
@@ -74,6 +80,7 @@ edit_policy: owner-writable
 
 ## Closed since first flagged (for continuity — do not re-report these as open)
 
+- ✅ **PHASE B FORMAL CURRENT PRODUCTION AUDIT = EXECUTION + CHECKPOINT 2 DOCUMENTATION COMPLETED** (2026-08-16): STEP 1–9, final classification, source-of-truth, service contract, preservation and blast-radius maps are reconciled. Phase C remains NOT STARTED pending human review.
 - ✅ **SERVER / INFRASTRUCTURE PRODUCTION READINESS = CLOSED / PASS** (2026-08-15): Ubuntu/hostname/static IP baseline, SSH key authentication with `PasswordAuthentication no` and `PermitRootLogin no`, `ssh.socket` reboot activation, VLAN 30 on-site reachability, backup/SHA256/true restore, Windows off-host copy, service persistence and controlled host reboot recovery are verified within the documented evidence boundary.
 - ✅ VLAN 30 direct validation used a friend Linux laptop at `192.168.30.99/24`: gateway `192.168.30.1` and Beelink `192.168.10.10` each returned `4/4`, `0%` loss; Drive and Monitor opened according to user-confirmed on-site browser evidence. No `curl /healthz` JSON is claimed from the screenshot.
 - ✅ UFW production state: enabled/active, logging low, deny incoming/routed, allow outgoing, allow TCP/22 on `docker0` from `172.17.0.0/16`, and allow TCP/22 from `192.168.30.0/24`.

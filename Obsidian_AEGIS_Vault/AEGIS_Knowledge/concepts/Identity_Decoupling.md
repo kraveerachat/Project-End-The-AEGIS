@@ -3,7 +3,7 @@ title: Identity Decoupling
 tags: [aegis, concept, security, identity, rbac]
 type: concept
 created: 2026-07-20
-updated: 2026-07-25
+updated: 2026-08-16
 sources: ["[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -57,6 +57,25 @@ Identity Decoupling is enforced across three overlapping physical layers:
    * Result: Cross-database queries are rejected at **connection establishment**, not query level — SQL injection in IDEA1 cannot access IDEA2 data. Superuser `aegis` is restricted to init/migrate tasks (`postgres/init/02-app-roles.sh`).
 
 3. **Session Layer (Session Secret)** — `drive` and `monitor` sign cookies with **different secrets** (`DRIVE_SESSION_SECRET` / `MONITOR_SESSION_SECRET`). A leaked secret from one app cannot forge cookies for the other.
+
+### Production verification — Phase B (2026-08-16)
+
+Runtime PostgreSQL 15.19 confirms the intended engine-layer boundary:
+
+| Test | Result |
+| :--- | :--- |
+| `drive_app` → `aegis_drive` | PASS |
+| `drive_app` → `aegis_monitor` | NO CONNECT |
+| `monitor_app` → `aegis_monitor` | PASS |
+| `monitor_app` → `aegis_drive` | NO CONNECT |
+| Cross-schema table privileges | 0 outside the owned application DB |
+| Credential identity | SCRAM verifier SET; runtime endpoint identity matches; values not recorded |
+
+`aegis` is technically a cluster-wide superuser with CREATEROLE/CREATEDB,
+REPLICATION and BYPASSRLS. Its intended migration/admin use does not reduce that
+blast radius; never use it as an application runtime role. `PUBLIC CONNECT` remains
+on `aegis_db`/`postgres` and Drive `audit_log` remains mutable by `drive_app` as
+documented security observations for a future controlled review.
 
 ---
 
