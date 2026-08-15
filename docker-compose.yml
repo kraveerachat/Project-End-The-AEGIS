@@ -146,6 +146,8 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Keep the service name for existing Compose dependencies, while the build
+  # context selects the canonical modular runtime instead of the legacy engine.
   aegis-camera:
     build:
       context: ./IDEA2-AEGIS_CCTV-Operator/detection-engine
@@ -157,7 +159,11 @@ services:
       AEGIS_CAMERA_SOURCE: ${AEGIS_CAMERA_SOURCE:-0}
       AEGIS_API_HOST: 0.0.0.0
       AEGIS_API_PORT: 8077
+      # Containers use the Compose service name and container port; host port
+      # 8005 below is only for diagnostics from the Docker host.
       AEGIS_STREAM_PUBLIC_URL: http://aegis-camera:8077/stream.mjpg
+      # This container path is backed by a local named volume. It does not claim
+      # a successful NAS transfer when AEGIS_NAS_ENABLED is false.
       AEGIS_SEGMENT_DIR: /nas/clips
       AEGIS_ALERT_SNAPSHOT_DIR: /data/snapshots
       AEGIS_MONITOR_API_BASE: http://monitor:8002
@@ -176,6 +182,7 @@ services:
     depends_on:
       - monitor
     ports:
+      # Bind diagnostics to loopback; service-to-service traffic stays on 8077.
       - "127.0.0.1:8005:8077"
     restart: unless-stopped
 

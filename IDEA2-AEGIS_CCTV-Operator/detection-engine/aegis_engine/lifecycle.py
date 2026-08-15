@@ -52,6 +52,8 @@ class RuntimeLifecycle:
                 self._api_started = True
                 for worker in self._workers:
                     component = getattr(worker, "name", type(worker).__name__)
+                    # Track the worker before start() so a partial start failure is
+                    # still included in the same rollback and bounded join path.
                     self._started_workers.append(worker)
                     worker.start()
             except Exception as exc:
