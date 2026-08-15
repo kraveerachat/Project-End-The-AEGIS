@@ -1,5 +1,6 @@
 ---
 title: HUB-AEGIS Entry
+aliases: ["01 - 🚪 HUB-AEGIS Entry"]
 tags: [aegis, hub, routing, gateway, Security]
 type: module-doc
 created: 2026-07-20
