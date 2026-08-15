@@ -4,7 +4,7 @@ tags: [aegis, moc, infrastructure, network, status]
 type: moc
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-15
+updated: 2026-08-16
 owner: kla
 edit_policy: owner-writable
 ---
@@ -65,14 +65,15 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 | Edge Router (MikroTik) + Inter-VLAN Routing | ✅ (⏳ ยังไม่ backup config) | [[infrastructure/network/MikroTik-Config]] |
 | Managed Switch VLAN + PVID | ✅ | [[infrastructure/network/Switch-VLAN-Config]] |
 | Ubuntu Server Host พร้อมใช้งาน | ✅ | [[infrastructure/server/Beelink-Ubuntu-Host]] |
-| บัญชีผู้ใช้รายบุคคล | ✅ (🔧 sudo scope) | [[infrastructure/server/Linux-User-Accounts]] |
+| บัญชีผู้ใช้รายบุคคล | ✅ per-account SSH + functional sudo evidence · 🔧 least-privilege/docker policy audit | [[infrastructure/server/Linux-User-Accounts]] |
 | SSH Key Authentication | ✅ `PasswordAuthentication no` · `PermitRootLogin no` · `ssh.socket` recovered หลัง reboot | [[infrastructure/server/SSH-Hardening-Status]] |
-| Remote Access ผ่าน Twingate ZTNA | ✅ production path + recovery หลัง reboot | [[infrastructure/remote-access/Twingate-Setup]] |
+| Remote Access ผ่าน Twingate ZTNA | ✅ runtime + Admin Console + functional SSH path PASS | [[infrastructure/remote-access/Twingate-Setup]] |
 | OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[infrastructure/remote-access/OpenVPN-Deprecated]] |
 | UFW production state | ✅ active; deny incoming/routed, allow outgoing; SSH allow จาก Docker/Twingate และ VLAN 30 | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 | VLAN 30 management path | ✅ on-site client `192.168.30.99` ถึง gateway และ Beelink `4/4`, `0%` loss | [[infrastructure/network/VLAN-IP-Plan]] |
 | Server / Infrastructure Production Readiness | ✅ **CLOSED / PASS** | [[infrastructure/server/Beelink-Ubuntu-Host]] |
-| Production workload context | ✅ restart policy `unless-stopped` และ server-side post-reboot health HTTP 200 ผ่าน; formal deployment ยังเป็นคนละเฟส | [[infrastructure/deployment/Docker-Stack-Plan]] |
+| Production workload context | ✅ restart policy `unless-stopped` และ server-side post-reboot health HTTP 200 ผ่าน | [[infrastructure/deployment/Docker-Stack-Plan]] |
+| Phase B Formal Current Production Audit | ✅ STEP 1–9 + Checkpoint 2 documentation COMPLETED · Phase C NOT STARTED | [[infrastructure/deployment/Docker-Stack-Plan]] |
 | IDEA3 MQTT / ESP32 / Relay | ⏳ เขียนแล้วยังไม่ทดสอบ | [[idea3/idea3-status]] |
 
 > 📋 **สรุปงาน 15 ขั้นตอนแบบละเอียดพร้อมหลักฐานการทดสอบ** อยู่ที่ [[90-Status/Progress-Log-2026-08-06]]
@@ -81,9 +82,16 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 > backup/true restore, service persistence และ controlled host reboot ผ่านแล้ว
 > ดูผลและขอบเขตหลักฐานที่ [[infrastructure/server/Beelink-Ubuntu-Host]].
 >
-> ⚠️ **Open evidence:** Twingate token rotation ถูกบันทึกก่อนหน้านี้ว่าสำเร็จ
-> แต่ไม่ได้ independently re-verify ใน documentation pass นี้ และยังไม่มีหลักฐาน
-> post-reboot SSH login แยกรายบัญชีครบทุกคน ดู [[90-Status/Open-Items-Backlog]].
+> ✅ **Production audit ปัจจุบัน**: STEP 1–9 และ Documentation Checkpoint 2
+> เสร็จแบบ read-only แล้ว ครอบคลุม Git/Compose/image/network/persistence,
+> PostgreSQL/RBAC, runtime integrity และ SSH/Twingate. Monitor ยัง healthy
+> แต่มี rollback gap; Phase C ยังไม่เริ่มและรอ human final review.
+>
+> ⚠️ **Open evidence:** Twingate token creation/rotation timestamp ไม่แสดงและ
+> ไม่ยืนยัน แต่ Connector ปัจจุบัน healthy/connected และไม่ต้อง rotate.
+> Functional SSH + sudo ของ `pubpup2006p`/`krayukantk` ผ่านแล้ว;
+> least-privilege policy enumeration และ `docker` membership ยังรอตรวจ
+> ตาม [[90-Status/Open-Items-Backlog]].
 
 ---
 

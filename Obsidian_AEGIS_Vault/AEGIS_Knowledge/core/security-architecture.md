@@ -4,7 +4,7 @@ aliases: ["05 - 🛡️ Security Architecture"]
 tags: [aegis, security, owasp, rbac, authentication, trust-boundary]
 type: architecture-doc
 created: 2026-07-20
-updated: 2026-08-11
+updated: 2026-08-16
 owner: kla
 edit_policy: owner-only
 ---
@@ -81,7 +81,15 @@ flowchart LR
     ADMIN --> CFG["sshd effective-config checks"]
 ```
 
-The 2026-08-08 baseline through `admin-main` was `PubkeyAuthentication yes`, `PasswordAuthentication yes`, and `PermitRootLogin prohibit-password`, with the explicit password setting coming from `/etc/ssh/sshd_config.d/50-cloud-init.conf`. On 2026-08-11 the operator confirmed `PermitRootLogin no` is now applied and the Twingate UFW path works. `krayukantk` remains a non-sudo member with a working individual key; `pubpup2006p` still needs owner-generated key onboarding, so Password Auth intentionally remains enabled. The remaining target is `PasswordAuthentication no` after onboarding/cleanup, plus a direct VLAN 30 UFW test. Full operational status: [[infrastructure/server/SSH-Hardening-Status]] and [[infrastructure/server/Linux-User-Accounts]].
+The 2026-08-08 transitional baseline used password authentication, but current
+production supersedes it: `PubkeyAuthentication yes`, `PasswordAuthentication no`,
+`PermitRootLogin no`, and systemd `ssh.socket` activation are verified. VLAN 30
+reachability and the Twingate SSH path pass. Phase B STEP 9 also verified key-only
+SSH and functional sudo elevation for `pubpup2006p` and `krayukantk`; this proves
+operational elevation, not least-privilege policy correctness. Final `sudo`/`docker`
+membership review remains separate. Full operational status:
+[[infrastructure/server/SSH-Hardening-Status]] and
+[[infrastructure/server/Linux-User-Accounts]].
 
 ---
 

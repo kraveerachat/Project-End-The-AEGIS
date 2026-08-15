@@ -3,7 +3,7 @@ title: Work Summary — Security, Auth & Identity
 tags: [aegis, summary, security, auth, rbac, identity, encryption]
 type: summary
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-16
 sources: ["[[log]]"]
 owner: kla
 edit_policy: owner-writable
@@ -76,3 +76,22 @@ Full detail in [[summaries/05_IDEA2_Monitor_and_Detection_Engine]]. Security-rel
 
 ## Open items
 See [[summaries/08_Outstanding_Items_Consolidated]] for encryption-at-rest for Data Lake uploads, session-store persistence, and other unresolved security-adjacent gaps.
+
+## Production identity/RBAC audit checkpoint (2026-08-16)
+
+Phase B read-only evidence now confirms that the SQL identity model above is active
+in current production, without exposing password/verifier values:
+
+- `drive_app` can connect only to `aegis_drive`; `monitor_app` only to
+  `aegis_monitor`; `PUBLIC CONNECT` is revoked on both application databases.
+- Scoped DML, sequence permissions and default ACLs match each application boundary;
+  both functional application authentications passed with SCRAM credentials.
+- `aegis` remains a cluster-wide privileged administrative role with high blast
+  radius and must not be used as an application role.
+- Drive production has only `admin` (`Admin`, reset required). Monitor production
+  has only `soc` (`SOC-Responder`, active, reset required).
+- Missing Drive `DataLake-User`, Monitor `CCTV-Operator` identities and camera
+  fixtures are Web Functional Test readiness gaps. No account was created, reset,
+  enabled, disabled or deleted during the audit.
+
+Canonical runtime detail: [[infrastructure/deployment/Docker-Stack-Plan]].

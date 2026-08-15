@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-15
+updated: 2026-08-16
 owner: kla
 edit_policy: owner-writable
 ---
@@ -33,21 +33,42 @@ edit_policy: owner-writable
 
 | Item | Why still open |
 | :--- | :--- |
-| Independently re-verify historical Twingate token-rotation record when required | Previously recorded as completed, not independently re-verified in this documentation pass; ห้ามเก็บ token ใน vault/repo |
+| Record Twingate token lifecycle metadata only if the console exposes it | Current token pair is SET and functional; creation/rotation timestamp = NOT EXPOSED / NOT VERIFIED; no rotation required now |
 | Review Twingate Admin group membership | ต้องยืนยัน least privilege ด้วย current console evidence |
-| Verify post-reboot SSH login per account | account persistence ผ่าน แต่ยังไม่มีหลักฐานครบทุกบัญชี |
-| Review Linux sudo/docker groups | account separation ผ่าน แต่ privilege membership ยังต้องตรวจครบ |
+| Final Linux account least-privilege audit | `pubpup2006p`/`krayukantk` key-only SSH และ functional sudo PASS; ยังต้องเก็บ policy enumeration, ตรวจ `docker` membership และทบทวนความจำเป็นรายบุคคล |
 | Verify OpenVPN service remains disabled | deprecated design ต้องไม่เหลือ unnecessary service |
 
-## 🟠 P2 — AEGIS Formal Deployment & Web Functional Testing
+## ✅ P2 — Formal Current Production Audit completed
 
-ก่อนทำเฟสนี้ต้องเริ่มจาก Current Production Audit:
+**Phase B audit execution = COMPLETED**
 
-- ตรวจ Git commit/source, runtime configuration, containers/images, network และ volumes
-- ห้ามทำลาย state ด้วย `docker compose down`
-- ห้ามลบ Docker volumes หรือ PostgreSQL databases
-- ห้าม redeploy จากศูนย์ก่อน checkpoint และ rollback plan
-- ทดสอบ application features แยกจาก infrastructure readiness
+**Checkpoint 1 + Documentation Checkpoint 2 = COMPLETED**
+
+| Step | Current state / follow-up |
+| :--- | :--- |
+| 1–5 Git, Compose, image, network, persistence | ✅ COMPLETED — ดู [[infrastructure/deployment/Docker-Stack-Plan]] |
+| 6 PostgreSQL Audit | ✅ PASS — DB/roles/privileges/CONNECT isolation/schema/default ACL/credential state verified |
+| 7 Application Account / RBAC Audit | ✅ PASS — current accounts match; missing test identities/cameras are readiness gaps |
+| 8 Runtime Files Outside Repository | ✅ BASELINED — hashes/metadata recorded without secret values |
+| 9 SSH + Twingate side checks | ✅ PASS — per-account SSH/sudo and Admin Console/runtime identity verified |
+| Monitor image rollback gap | 🔴 running + healthy แต่ running image ไม่ตรง local `latest`; **DO NOT RECREATE** ก่อน Phase D rollback plan |
+| Anonymous Docker volume | ⚠️ owner/purpose unknown; **DO NOT DELETE**; investigate read-only |
+| `aegis_internal Internal=false` | ⚠️ security/design observation; review dependency/outbound/blast radius ภายหลัง |
+
+Final source-of-truth matrix, service contract, dependency/blast-radius map,
+data-preservation map และ runtime integrity baseline ถูกบันทึกแล้ว.
+
+### Phase C gate — NOT STARTED
+
+- รอ human approval ของ Phase B final documentation
+- ทำ Source Freeze / Source-Runtime Alignment เป็นงานแยก
+- วาง Monitor rollback plan ก่อน recreate
+- อนุมัติการ provision Drive `DataLake-User`, Monitor `CCTV-Operator` และ camera fixtures
+- รักษา first-login reset ของ Drive `admin` และ Monitor `soc`
+- ทดสอบ self-signed/internal TLS ใน Web Functional Testing โดยไม่ seed production แบบไม่ควบคุม
+
+ข้อห้ามยังคงเดิม: ห้ามทำลาย state, ลบ volumes/databases, redeploy จากศูนย์
+หรือเริ่ม Web Functional Testing ก่อน human final review
 
 รายละเอียด safety boundary: [[infrastructure/deployment/Docker-Stack-Plan]]
 
