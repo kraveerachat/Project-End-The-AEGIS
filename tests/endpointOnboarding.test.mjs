@@ -73,10 +73,13 @@ test('Twingate detection guards registry entries that do not have DisplayName', 
   assert.match(source, /PSObject\.Properties\.Name\s+-contains\s+['"]DisplayName['"]/);
 });
 
-test('curl probe handles empty stdout and stderr streams without calling Trim on null', () => {
+test('curl probe uses explicit null fallback for empty stdout and stderr streams', () => {
   const source = readFileSync(scriptPath, 'utf8');
-  assert.match(source, /\(\[string\]\(Get-Content -LiteralPath \$stdout -Raw\)\)\.Trim\(\)/);
-  assert.match(source, /\(\[string\]\(Get-Content -LiteralPath \$stderr -Raw\)\)\.Trim\(\)/);
+  assert.match(source, /function Get-TrimmedFileContent/);
+  assert.match(source, /\$null\s+-eq\s+\$raw/);
+  assert.match(source, /Get-TrimmedFileContent -Path \$stdout -Fallback '000'/);
+  assert.match(source, /Get-TrimmedFileContent -Path \$stderr -Fallback ''/);
+  assert.doesNotMatch(source, /\(\[string\]\(Get-Content -LiteralPath \$(?:stdout|stderr) -Raw\)\)\.Trim\(\)/);
 });
 
 test('setup creates the friendly AEGIS shortcut and verifies HTTPS without insecure bypass', () => {
