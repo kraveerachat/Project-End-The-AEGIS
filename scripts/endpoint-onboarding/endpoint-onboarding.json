@@ -1,0 +1,11 @@
+{
+  "rootCaSha256": "8D03EC3090DE7D3DC38DCE86234219F3675ED0124D44B32D721B6A4EABA10CA7",
+  "rootCaThumbprint": "1B3DFBBFA2DD5F2E80F5729D54248B04B8E030A5",
+  "rootCaSubject": "CN=AEGIS Internal Root CA, O=AEGIS, C=TH",
+  "aegisUrl": "https://aegis.internal/",
+  "healthUrls": [
+    "https://aegis.internal/drive/healthz",
+    "https://aegis.internal/monitor/healthz"
+  ],
+  "twingateInstallerUri": "https://api.twingate.com/download/windows"
+}
