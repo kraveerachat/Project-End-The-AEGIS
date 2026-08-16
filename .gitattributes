@@ -1,2 +1,6 @@
 # Linux container entrypoints must remain executable from Windows checkouts.
 *.sh text eol=lf
+
+# AEGIS public certificate bytes are integrity-pinned by SHA-256.
+# Force LF so Windows core.autocrlf cannot rewrite the PEM and create false hash drift.
+scripts/endpoint-onboarding/certificates/*.crt text eol=lf
