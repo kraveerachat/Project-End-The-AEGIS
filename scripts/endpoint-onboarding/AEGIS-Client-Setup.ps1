@@ -104,7 +104,10 @@ function Get-TwingateInstallState {
     )
 
     $match = Get-ItemProperty -Path $roots -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like 'Twingate*' } |
+        Where-Object {
+            $_.PSObject.Properties.Name -contains 'DisplayName' -and
+            [string]$_.DisplayName -like 'Twingate*'
+        } |
         Select-Object -First 1
 
     return $match
