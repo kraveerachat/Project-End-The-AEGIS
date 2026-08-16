@@ -228,7 +228,7 @@ function Ensure-AegisShortcut {
 function Get-TrimmedFileContent {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Fallback
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Fallback
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
