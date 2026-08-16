@@ -75,7 +75,9 @@ data-preservation map และ runtime integrity baseline ถูกบันท
 ## 🟡 P3 — Project follow-up
 
 - ยืนยัน IP และ integration ของ Detection Laptop บน VLAN 20
-- ทำ Formal TLS/certificate plan; self-signed warning ยัง expected ใน validation stage
+- ⚠️ **OPEN / FUTURE HARDENING — Private PKI CRL/OCSP:** trusted Root CA และ `aegis.internal` hostname validation ผ่านแล้ว แต่ PKI ยังไม่มี revocation publication; X1 จึงรายงาน `PASS_WITH_REVOCATION_LIMITATION` โดยไม่ใช้ `-k`/`--insecure`
+- ⚠️ **OPEN / TEST ON DISPOSABLE VM — Clean Windows Twingate first-install:** accepted client มี Twingate อยู่ก่อนแล้ว; ห้ามถอน client ที่ใช้งานจริงเพื่อทดสอบ ให้ใช้ Windows VM/test PC แยก
+- ⏳ **FUTURE — Enterprise endpoint deployment:** X1 เป็น endpoint onboarding package; Intune/MDM centralized certificate, Twingate client และ shortcut rollout ยังไม่ได้ทำ
 - ทำ monitoring/alerting และ incident runbook โดยไม่แก้สถานะ infrastructure pass ย้อนหลัง
 - reconcile รายงาน/diagram เก่าที่อ้างว่า Beelink ว่างหรือ stack ยังไม่อยู่บน host
 
