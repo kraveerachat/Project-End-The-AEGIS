@@ -1,6 +1,6 @@
 ---
 title: Twingate ZTNA Setup and Endpoint Onboarding
- tags: [aegis, infrastructure, remote-access, twingate, ztna, zero-trust, security, endpoint-onboarding]
+tags: [aegis, infrastructure, remote-access, twingate, ztna, zero-trust, security, endpoint-onboarding]
 type: infrastructure
 status: ✅ remote SSH, AEGIS Web, private CA and Windows onboarding verified
 created: 2026-08-06
