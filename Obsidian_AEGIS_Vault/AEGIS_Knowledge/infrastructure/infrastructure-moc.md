@@ -67,7 +67,7 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 | Ubuntu Server Host พร้อมใช้งาน | ✅ | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 | บัญชีผู้ใช้รายบุคคล | ✅ per-account SSH + functional sudo evidence · 🔧 least-privilege/docker policy audit | [[infrastructure/server/Linux-User-Accounts]] |
 | SSH Key Authentication | ✅ `PasswordAuthentication no` · `PermitRootLogin no` · `ssh.socket` recovered หลัง reboot | [[infrastructure/server/SSH-Hardening-Status]] |
-| Remote Access ผ่าน Twingate ZTNA | ✅ runtime + Admin Console + functional SSH path PASS | [[infrastructure/remote-access/Twingate-Setup]] |
+| Remote Access ผ่าน Twingate ZTNA | ✅ Remote SSH + AEGIS Web + `aegis.internal` + Private CA trust + X1 Windows endpoint onboarding verified | [[infrastructure/remote-access/Twingate-Setup]] |
 | OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[infrastructure/remote-access/OpenVPN-Deprecated]] |
 | UFW production state | ✅ active; deny incoming/routed, allow outgoing; SSH allow จาก Docker/Twingate และ VLAN 30 | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 | VLAN 30 management path | ✅ on-site client `192.168.30.99` ถึง gateway และ Beelink `4/4`, `0%` loss | [[infrastructure/network/VLAN-IP-Plan]] |

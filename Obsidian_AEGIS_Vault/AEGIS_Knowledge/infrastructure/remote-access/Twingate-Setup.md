@@ -41,36 +41,191 @@ Resource-level paths ชี้ตรงไปยัง Beelink VLAN 10 และ
 ส่วน VLAN 30 เป็น direct on-site management path แยกต่างหากตาม
 [[infrastructure/network/VLAN-IP-Plan]]
 
-## ✅ VERIFIED — AEGIS Web and Windows endpoint onboarding
+## ✅ VERIFIED — X1 AEGIS Endpoint Onboarding Automation
 
-X1 endpoint onboarding automation is accepted on the current Windows validation client at commit lineage ending in the accepted implementation branch. The validation intentionally preserved the pre-existing Twingate installation and existing Root CA trust instead of uninstalling or re-provisioning working access.
+**Final status:** `COMPLETE / MERGED / WINDOWS ACCEPTANCE PASS` through PR #17,
+merge commit `4796c69017ef91de58188f17c4b27eccacf24c32`.
 
-Verified endpoint behavior:
+### Before X1 — secure access worked, but endpoint preparation was manual
 
-- `node --test tests/endpointOnboarding.test.mjs` completed **11/11 pass** after the PowerShell 5.1 null/empty-output regressions were fixed.
-- PowerShell parser validation returned `PARSER=PASS`.
-- Pre-write `-VerifyOnly` reported Windows/Admin PASS, Root CA and Twingate `ALREADY_INSTALLED`, shortcut `PENDING`, and HTTPS `PASS_WITH_REVOCATION_LIMITATION`.
-- First normal setup created the AEGIS Start Menu shortcut and recorded non-secret onboarding state.
-- Second normal setup returned shortcut `ALREADY_EXISTS`, proving the exercised path is idempotent.
-- Final `-VerifyOnly` returned shortcut `ALREADY_EXISTS` with no `Failure` result.
-- Read-only acceptance confirmed the shortcut exists, targets Windows Explorer, opens exactly `https://aegis.internal/`, and the state file exists with version `1`, the same primary URL, and `twingatePreExisting=true`.
+The production Twingate Connector and Remote SSH path were already healthy.
+The `AEGIS-Beelink-Web` Resource later exposed only TCP `80/443`, the friendly
+alias `aegis.internal` routed users to AEGIS Web, and the server certificate was
+signed by the AEGIS Internal Root CA. Browser access worked after an administrator
+manually transferred and imported the **public** Root CA certificate into Windows
+`LocalMachine\Root`.
 
-Endpoint artifacts:
+That architecture was secure but not repeatable for employee onboarding:
 
-- Start Menu shortcut: `%ProgramData%\Microsoft\Windows\Start Menu\Programs\AEGIS.lnk`
-- Non-secret state: `%ProgramData%\AEGIS\endpoint-onboarding-state.json`
-- Repository package: `scripts/endpoint-onboarding/`
-- Bundled trust artifact: public Root CA certificate only; private CA/server keys remain server-side and are never distributed.
+```text
+Twingate Connector
+→ Web Resource
+→ aegis.internal
+→ private-CA server certificate
+→ manual public Root CA transfer/import
+→ manual endpoint preparation
+```
 
-### TLS revocation limitation
+Every new Windows endpoint still depended on manual certificate import, manual
+Twingate verification/installation and knowledge of the friendly URL. X1 replaced
+that operator-dependent sequence with one controlled, auditable IT package.
 
-Windows Schannel's default strict revocation check can return `CRYPT_E_NO_REVOCATION_CHECK` because the current private PKI does not publish CRL/OCSP revocation information. The onboarding verifier retries only that documented case with `curl.exe --ssl-revoke-best-effort`; it never uses `-k`/`--insecure` and never disables certificate verification globally. HTTPS then returns the expected application response, so the accepted client result is `PASS_WITH_REVOCATION_LIMITATION` rather than an unqualified revocation-service PASS.
+### X1 execution contract
 
-Future enterprise hardening can add CRL/CRL Distribution Points and/or OCSP plus certificate re-issuance. This is not required to preserve the currently verified trusted-browser workflow.
+The single entry point is
+`scripts/endpoint-onboarding/AEGIS-Client-Setup.ps1`. X1 v1 supports Windows,
+is compatible with Windows PowerShell 5.1 and requires Administrator privileges
+because it can change the machine trust store. It accepts `-TwingateNetwork` for
+the organization network name and `-VerifyOnly` for a read-only assessment.
 
-### Clean-install boundary
+`-VerifyOnly` verifies Windows/Admin state, the Root CA artifact/trust state,
+Twingate installation, shortcut drift and HTTPS reachability. It does **not**
+import a certificate, install Twingate, create a shortcut or write onboarding state.
 
-The official Twingate installer path is implemented with the managed-device EXE contract, silent install arguments, Authenticode verification and post-install registry verification, but it was **not** destructively exercised on the current working client because Twingate already existed. A true first-install test belongs on a disposable Windows VM/test PC; never uninstall the working production-access client only to create test evidence.
+```text
+AEGIS-Client-Setup.ps1
+├─ verify Windows and Administrator context
+├─ validate the public Root CA artifact
+├─ verify or install machine trust
+├─ detect or install Twingate
+├─ create the AEGIS shortcut
+├─ verify HTTPS
+└─ record non-secret endpoint state
+```
+
+### Root CA trust handling
+
+- The endpoint package contains only the approved **public** Root CA certificate.
+- Before import, X1 verifies its file SHA-256, certificate thumbprint, expected
+  Subject and self-issued `Subject == Issuer` property.
+- Trust is checked in `Cert:\LocalMachine\Root`; one exact match returns
+  `ALREADY_INSTALLED`.
+- Missing trust returns `PENDING` in `-VerifyOnly` or is imported and verified in
+  normal mode.
+- Hash, identity or duplicate-trust-anchor drift fails closed before a trust-store
+  write.
+- The Root CA private key and `aegis.internal` server private key are never placed
+  in the endpoint package or distributed to Windows clients.
+
+### Twingate handling
+
+- X1 searches both 64-bit and 32-bit Windows uninstall registry paths.
+- Registry records without `DisplayName` are handled safely by checking property
+  existence before evaluating the value.
+- A working installation returns `ALREADY_INSTALLED`; X1 does not reinstall,
+  replace or reconfigure it.
+- If absent, the script downloads the official installer specified by the
+  non-secret configuration, validates its Authenticode signature, performs a
+  silent managed-device install with auto-update enabled and verifies installation
+  state afterwards.
+- Temporary installer files are removed in the cleanup path.
+
+The accepted Windows client already had Twingate installed. Existing-install
+detection is runtime verified; the true first-install path is implemented and
+source-tested but remains **NOT RUNTIME-PROVEN** until tested on a disposable
+Windows VM/test PC. The working client must not be uninstalled merely to create
+that evidence.
+
+### Shortcut and non-secret state
+
+X1 creates one idempotent Start Menu shortcut:
+
+- `%ProgramData%\Microsoft\Windows\Start Menu\Programs\AEGIS.lnk`
+- target: Windows Explorer
+- URL: `https://aegis.internal/`
+
+It writes non-secret ownership/verification metadata to
+`%ProgramData%\AEGIS\endpoint-onboarding-state.json`, including the package
+version, public Root CA thumbprint reference, shortcut path, primary URL and
+whether Twingate existed before X1. The state file does not store credentials,
+tokens or private keys.
+
+### HTTPS verification and revocation boundary
+
+X1 first performs normal trusted TLS verification and never uses `-k`,
+`--insecure` or a global TLS bypass. Windows Schannel can return
+`CRYPT_E_NO_REVOCATION_CHECK` (`0x80092012`) because the current private PKI does
+not publish CRL/OCSP information. For that specific condition only, X1 retries
+with `curl.exe --ssl-revoke-best-effort` and reports
+`PASS_WITH_REVOCATION_LIMITATION` when the application responds successfully.
+
+This accepted status means certificate trust and hostname validation work. It is
+not `UNTRUSTED_ROOT`, not a hostname mismatch and not disabled TLS verification.
+CRL/CRL Distribution Points and/or OCSP remain future PKI hardening work.
+
+### Windows acceptance evidence
+
+`node --test tests/endpointOnboarding.test.mjs`:
+
+```text
+tests 11
+pass  11
+fail  0
+```
+
+| Checkpoint | Windows | Administrator | Root CA | Twingate | Shortcut | HTTPS |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Pre-write `-VerifyOnly` | PASS | PASS | ALREADY_INSTALLED | ALREADY_INSTALLED | PENDING | PASS_WITH_REVOCATION_LIMITATION |
+| Normal setup #1 | PASS | PASS | ALREADY_INSTALLED | ALREADY_INSTALLED | PASS | PASS_WITH_REVOCATION_LIMITATION |
+| Normal setup #2 | PASS | PASS | ALREADY_INSTALLED | ALREADY_INSTALLED | ALREADY_EXISTS | PASS_WITH_REVOCATION_LIMITATION |
+| Final `-VerifyOnly` | PASS | PASS | ALREADY_INSTALLED | ALREADY_INSTALLED | ALREADY_EXISTS | PASS_WITH_REVOCATION_LIMITATION |
+
+- PowerShell parser: `PARSER=PASS`.
+- Final artifact validation: `SHORTCUT_EXISTS=True`, `STATE_EXISTS=True`,
+  `SHORTCUT_TARGET_OK=True`, `SHORTCUT_URL_OK=True`, `STATE_VERSION_OK=True`,
+  `STATE_URL_OK=True`, `STATE_TWINGATE_PREEXISTING=True`.
+
+### Engineering regression fixes
+
+These were Windows onboarding compatibility defects, not production-server
+incidents:
+
+1. Root CA PEM CRLF/LF checkout drift changed the byte hash on Windows;
+   `.gitattributes` now pins tracked certificate files to LF.
+2. Some uninstall-registry records had no `DisplayName`; detection now checks
+   property existence before reading it.
+3. Empty curl stdout/stderr files could make `Get-Content -Raw` return `$null`;
+   a null-safe file-content helper now applies explicit fallbacks.
+4. Windows PowerShell 5.1 rejected the empty-string fallback for a mandatory
+   string parameter; the fallback now permits `[AllowEmptyString()]`.
+
+### After X1 — employee and administrator flow
+
+```text
+IT-approved X1 endpoint onboarding
+→ Windows trusts the approved AEGIS Internal Root CA
+→ Twingate client is available
+→ employee signs in to Twingate
+→ Twingate Group/Resource authorization
+→ open the AEGIS shortcut
+→ https://aegis.internal/
+→ AEGIS application login and RBAC
+→ HUB → Drive / Monitor
+```
+
+Twingate authentication and Resource authorization are the network-access layer.
+AEGIS application authentication and RBAC are a separate security layer.
+**Twingate access does not replace Drive or Monitor application login/RBAC.**
+
+### X1 blast-radius boundary
+
+X1 acceptance did not modify production PostgreSQL data, Drive users/RBAC,
+Monitor users/RBAC, camera data, the Monitor runtime/image, production Docker
+containers, persistent volumes, production `.env`, MikroTik configuration,
+TP-Link VLAN configuration or the Twingate Connector runtime. It did not
+distribute the Root CA private key or `aegis.internal` private key. Only the
+approved public Root CA certificate belongs in the endpoint package.
+
+### Remaining endpoint hardening
+
+| Item | Current status | Next evidence |
+| :--- | :--- | :--- |
+| Private PKI CRL/OCSP | ⚠️ OPEN | Publish revocation infrastructure and reissue certificates if required |
+| Clean Twingate first-install | ⚠️ NOT RUNTIME-PROVEN | Test on a disposable Windows VM/test PC |
+| Enterprise endpoint management | ⏳ FUTURE | Design Intune/MDM certificate, client and shortcut rollout |
+
+X1 is an endpoint onboarding package; it is not yet an Intune deployment, MDM
+policy or centralized certificate/client rollout.
 
 ## ⚠️ Token and secret handling
 
