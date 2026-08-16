@@ -77,6 +77,7 @@ test('curl probe uses explicit null fallback for empty stdout and stderr streams
   const source = readFileSync(scriptPath, 'utf8');
   assert.match(source, /function Get-TrimmedFileContent/);
   assert.match(source, /\$null\s+-eq\s+\$raw/);
+  assert.match(source, /\[AllowEmptyString\(\)\][\s\S]{0,120}\[string\]\$Fallback/);
   assert.match(source, /Get-TrimmedFileContent -Path \$stdout -Fallback '000'/);
   assert.match(source, /Get-TrimmedFileContent -Path \$stderr -Fallback ''/);
   assert.doesNotMatch(source, /\(\[string\]\(Get-Content -LiteralPath \$(?:stdout|stderr) -Raw\)\)\.Trim\(\)/);
