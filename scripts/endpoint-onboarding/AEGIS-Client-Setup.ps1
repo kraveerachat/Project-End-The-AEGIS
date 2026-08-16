@@ -27,7 +27,7 @@ function Test-IsWindows {
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    $principal = New-Object Security.Principal.WindowsPrincipal -ArgumentList $identity
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
@@ -52,7 +52,7 @@ function Test-RootCaArtifact {
         throw 'ROOT_CA_HASH_DRIFT'
     }
 
-    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certPath)
+    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList $certPath
     if ($cert.Thumbprint.ToUpperInvariant() -ne ([string]$Config.rootCaThumbprint).ToUpperInvariant()) {
         throw 'ROOT_CA_THUMBPRINT_DRIFT'
     }
