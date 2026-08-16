@@ -249,8 +249,8 @@ function Invoke-CurlProbe {
         $arguments += $Url
 
         $process = Start-Process -FilePath $curl.Source -ArgumentList $arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        $httpCode = if (Test-Path $stdout) { (Get-Content -LiteralPath $stdout -Raw).Trim() } else { '000' }
-        $errorText = if (Test-Path $stderr) { (Get-Content -LiteralPath $stderr -Raw).Trim() } else { '' }
+        $httpCode = if (Test-Path $stdout) { ([string](Get-Content -LiteralPath $stdout -Raw)).Trim() } else { '000' }
+        $errorText = if (Test-Path $stderr) { ([string](Get-Content -LiteralPath $stderr -Raw)).Trim() } else { '' }
         return @{ ExitCode = $process.ExitCode; HttpCode = $httpCode; Error = $errorText }
     }
     finally {
