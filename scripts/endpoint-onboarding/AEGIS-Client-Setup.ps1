@@ -225,6 +225,24 @@ function Ensure-AegisShortcut {
     return 'PASS'
 }
 
+function Get-TrimmedFileContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Fallback
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $Fallback
+    }
+
+    $raw = Get-Content -LiteralPath $Path -Raw
+    if ($null -eq $raw) {
+        return $Fallback
+    }
+
+    return $raw.Trim()
+}
+
 function Invoke-CurlProbe {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -249,8 +267,8 @@ function Invoke-CurlProbe {
         $arguments += $Url
 
         $process = Start-Process -FilePath $curl.Source -ArgumentList $arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        $httpCode = if (Test-Path $stdout) { ([string](Get-Content -LiteralPath $stdout -Raw)).Trim() } else { '000' }
-        $errorText = if (Test-Path $stderr) { ([string](Get-Content -LiteralPath $stderr -Raw)).Trim() } else { '' }
+        $httpCode = Get-TrimmedFileContent -Path $stdout -Fallback '000'
+        $errorText = Get-TrimmedFileContent -Path $stderr -Fallback ''
         return @{ ExitCode = $process.ExitCode; HttpCode = $httpCode; Error = $errorText }
     }
     finally {
