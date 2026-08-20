@@ -4,9 +4,10 @@ import {
 } from 'recharts'
 import {
   Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
-  LogIn, FileText, Clock, Upload, Vault,
+  LogIn, FileText, Clock,
 } from 'lucide-react'
-import { Btn, Card, CardTitle, Chip, Dot, Reveal, ErrorState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Dot, Reveal, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
+import { ServerTelemetry } from '../components/ServerTelemetry.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
@@ -30,15 +31,15 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
     <Card
-      className={`relative overflow-hidden p-6 pb-6 rise-in ${alarm ? 'border-pulse' : ''}`}
+      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${alarm ? 'border-pulse' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
       }}
     >
       <div className="flex items-start justify-between">
-        <div className="size-10 rounded-xl bg-accent-soft flex items-center justify-center text-accent-ink">
-          <Icon size={18} strokeWidth={1.5} />
+        <div className="metric-icon flex size-9 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink">
+          <Icon size={17} strokeWidth={1.6} />
         </div>
         {delta != null ? (
           <Chip tone={deltaUp ? 'ok' : 'danger'}>
@@ -49,18 +50,18 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
           <Chip tone={alarm ? 'danger' : statusTone}>{alarm ? `▲ ${value}` : allClearLabel}</Chip>
         ) : null}
       </div>
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-4">{label}</p>
+      <p className="mt-3 text-[13px] font-medium text-ink-2">{label}</p>
       {/* lang="en" — DESIGN.md · Cascade traps. This is a tabular-nums stat */}
       <p
         lang="en"
-        className="text-3xl font-mono font-semibold tracking-tight leading-none mt-1.5 text-slate-900 dark:text-white"
+        className="mt-1.5 font-mono text-[28px] font-semibold tracking-[-0.025em] leading-none text-ink"
         style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel && statusTone === 'ok' ? 'var(--ok)' : undefined }}
       >
         {valueLabel ?? display}
-        {suffix && <span className="text-lg font-semibold text-slate-400 dark:text-slate-500 ml-1.5">{suffix}</span>}
+        {suffix && <span className="ml-1.5 text-[15px] font-semibold text-ink-3">{suffix}</span>}
       </p>
       {footer && (
-        <div className="mt-4 pt-3 border-t border-line">
+        <div className="mt-3 border-t border-line pt-3">
           {footer}
         </div>
       )}
@@ -98,7 +99,7 @@ function LakeHealth({ t, health }) {
   const brokenBelow = (idx) => TIERS.some((tier, i) => i > idx && tierStates[tier.id] !== 'healthy')
 
   return (
-    <Card className="p-5 rise-in" style={{ animationDelay: '160ms' }}>
+    <Card className="lake-health-card p-5 rise-in" style={{ animationDelay: '160ms' }}>
       <CardTitle sub={t('lakeSubtitle')}>{t('lakeHealth')}</CardTitle>
 
       <div className="flex flex-col">
@@ -114,7 +115,7 @@ function LakeHealth({ t, health }) {
           return (
             <div key={tier.id}>
               {idx > 0 && (
-                <div className="flex justify-center h-3" aria-hidden>
+                <div className="lake-connector flex h-3 justify-center" aria-hidden>
                   <div
                     className="w-px h-full"
                     style={
@@ -126,7 +127,7 @@ function LakeHealth({ t, health }) {
                 </div>
               )}
               <div
-                className="flex items-center gap-3 rounded-[var(--r-tile)] border px-4 h-14 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
+                className="lake-health-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
                 style={{
                   transform: dimmed ? 'translateY(2px)' : 'translateY(0)',
                   filter: dimmed ? 'saturate(0)' : 'none',
@@ -138,7 +139,7 @@ function LakeHealth({ t, health }) {
               >
                 <Dot tone={tone} pulse={state === 'healthy'} />
                 <span className="text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-sm:hidden">{tech}</span>
+                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
                 <div className="flex-1 min-w-4" />
                 <span className="text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
@@ -154,11 +155,13 @@ function LakeHealth({ t, health }) {
 }
 
 /* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
-function LoginHistoryCard({ t, events }) {
+function LoginHistoryCard({ t, events, unavailable = false }) {
   return (
     <Card className="p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
       <CardTitle sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
-      {events.length === 0 ? (
+      {unavailable ? (
+        <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+      ) : events.length === 0 ? (
         <InlineEmptyState>{t('emptyNoLoginHistory')}</InlineEmptyState>
       ) : (
         <div className="flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
@@ -187,11 +190,13 @@ function LoginHistoryCard({ t, events }) {
 }
 
 /* ── Active share links (สเปกของจอ Dashboard) ────────────────────────── */
-function ActiveLinksCard({ t, shares, now }) {
+function ActiveLinksCard({ t, shares, now, unavailable = false }) {
   return (
     <Card className="p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
       <CardTitle>{t('activeLinks')}</CardTitle>
-      {shares.length === 0 ? (
+      {unavailable ? (
+        <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+      ) : shares.length === 0 ? (
         <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -353,7 +358,7 @@ function ActivityChart({ t, lang, data }) {
 }
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
-export function Dashboard({ t, lang, health, go }) {
+export function Dashboard({ t, lang, health, go, telemetry = null }) {
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
@@ -364,7 +369,7 @@ export function Dashboard({ t, lang, health, go }) {
   const d = normalizeDashboardData(usingPlaceholder ? null : dash.data)
   const m = d.metrics
   // ⚠️ null = statfs อ่านค่าไม่ได้ ไม่ใช่ "ศูนย์" — การ์ดต้องบอกว่าไม่รู้ ไม่ใช่วาด 0%
-  const hasCapacity = m.storageTotalBytes != null && m.storageBytes != null
+  const hasCapacity = !usingPlaceholder && m.storageTotalBytes != null && m.storageBytes != null
   const usedPct = hasCapacity && m.storageTotalBytes > 0
     ? Math.min(100, Math.round((m.storageBytes / m.storageTotalBytes) * 100))
     : 0
@@ -373,30 +378,13 @@ export function Dashboard({ t, lang, health, go }) {
   const placeholderLabel = usingPlaceholder ? t('notConnected') : null
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex items-center justify-between gap-3 flex-wrap" aria-labelledby="quick-actions-title">
-        <h2 id="quick-actions-title" className="text-sm font-semibold text-ink">{t('quickActions')}</h2>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Btn variant="primary" size="sm" onClick={() => go('uploads')}>
-            <Upload size={14} strokeWidth={1.7} />
-            {t('uploadFile')}
-          </Btn>
-          <Btn variant="outline" size="sm" onClick={() => go('shares')}>
-            <Link2 size={14} strokeWidth={1.7} />
-            {t('createShareLink')}
-          </Btn>
-          <Btn variant="outline" size="sm" onClick={() => go('vault')}>
-            <Vault size={14} strokeWidth={1.7} />
-            {t('openPrivateVault')}
-          </Btn>
-        </div>
-      </section>
+    <div className="flex flex-col gap-5">
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
       {/* Top 4 KPI Cards — ตัวเลขจริงจากเซิร์ฟเวอร์ทั้งหมด */}
       <Reveal delay={0}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 max-xl:gap-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             icon={Database}
             label={t('statStorage')}
@@ -420,12 +408,13 @@ export function Dashboard({ t, lang, health, go }) {
               <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('capacityUnreadable')}</p>
             )}
           />
-          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={40} />
-          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={80} />
+          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={40} />
+          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={80} />
           <StatCard
             icon={ShieldCheck}
             label={t('statSecurity')}
             value={d.securityAlerts}
+            valueLabel={usingPlaceholder ? '—' : undefined}
             alarm={d.securityAlerts > 0}
             allClearLabel={placeholderLabel ?? t('allClear')}
             statusTone={usingPlaceholder ? 'neutral' : 'ok'}
@@ -441,17 +430,25 @@ export function Dashboard({ t, lang, health, go }) {
             <LakeHealth t={t} health={health.data} />
           </div>
           <div className="w-full lg:w-1/3 flex flex-col gap-6">
-            <LoginHistoryCard t={t} events={d.loginHistory ?? []} />
-            <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} />
+            <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={usingPlaceholder} />
+            <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={usingPlaceholder} />
           </div>
         </div>
+      </Reveal>
+
+      {/* Host-level collector is intentionally outside this UI-only task.
+          A null contract renders six explicit unavailable states, never zeroes. */}
+      <Reveal delay={160}>
+        <ServerTelemetry t={t} data={telemetry} />
       </Reveal>
 
       {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
       <Reveal delay={200}>
         <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-1 lg:w-1/2">
-            {storage.loading ? (
+            {usingPlaceholder ? (
+              <Card className="p-5"><CardTitle>{t('storageBreakdown')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
+            ) : storage.loading ? (
               <Card className="p-5 h-64 animate-pulse"><div className="w-1/3 h-5 skeleton" /><div className="w-full h-8 skeleton mt-6 rounded-full" /></Card>
             ) : showStorageError ? (
               <Card><ErrorState t={t} kind={storage.error} onRetry={storage.retry} /></Card>
@@ -466,7 +463,11 @@ export function Dashboard({ t, lang, health, go }) {
             )}
           </div>
           <div className="flex-1 lg:w-1/2">
-            <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
+            {usingPlaceholder ? (
+              <Card className="p-5"><CardTitle>{t('activityTitle')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
+            ) : (
+              <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
+            )}
           </div>
         </div>
       </Reveal>
@@ -475,7 +476,9 @@ export function Dashboard({ t, lang, health, go }) {
       <Reveal delay={260}>
         <Card className="p-5">
           <CardTitle>{t('recentFiles')}</CardTitle>
-          {(d.recentFiles ?? []).length === 0 ? (
+          {usingPlaceholder ? (
+            <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+          ) : (d.recentFiles ?? []).length === 0 ? (
             <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>
           ) : (
             <div className="flex flex-col">

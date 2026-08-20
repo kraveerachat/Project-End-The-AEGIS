@@ -1,46 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-function useIsDarkMode() {
-  const [isDark, setIsDark] = useState(() => {
-    const theme = document.documentElement.dataset.theme
-    if (theme === 'dark') return true
-    if (theme === 'light') return false
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  })
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      const theme = document.documentElement.dataset.theme
-      if (theme === 'dark') {
-        setIsDark(true)
-      } else if (theme === 'light') {
-        setIsDark(false)
-      } else {
-        setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches)
-      }
-    })
-
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme'],
-    })
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleMq = (e) => {
-      const theme = document.documentElement.dataset.theme
-      if (theme !== 'dark' && theme !== 'light') {
-        setIsDark(e.matches)
-      }
-    }
-    mq.addEventListener('change', handleMq)
-
-    return () => {
-      observer.disconnect()
-      mq.removeEventListener('change', handleMq)
-    }
-  }, [])
-
-  return isDark
+/** Shared asset contract for every theme-aware AEGIS surface. */
+export function themeAssetsFor(theme) {
+  const dark = theme === 'dark'
+  return {
+    logo: dark ? 'assets/logo/aegis-mark-light-ink.png' : 'assets/logo/aegis-mark-dark-ink.png',
+    welcome: dark ? 'assets/BG_AEGIS02.png' : 'assets/BG_AEGIS01.png',
+  }
 }
 
 /**
@@ -49,11 +15,14 @@ function useIsDarkMode() {
  * are dropped in, a built-in SVG placeholder with the same dash-dither
  * language renders instead.
  */
-export function AegisMark({ size = 32, dark, className = '' }) {
+export function AegisMark({ size = 32, theme = 'light', className = '' }) {
   const [fallback, setFallback] = useState(false)
-  const isDarkTheme = useIsDarkMode()
-  const isDark = dark !== undefined ? dark : isDarkTheme
-  const src = import.meta.env.BASE_URL + (isDark ? 'assets/logo/aegis-mark-light-ink.png' : 'assets/logo/aegis-mark-dark-ink.png')
+  const isDark = theme === 'dark'
+  const src = import.meta.env.BASE_URL + themeAssetsFor(theme).logo
+
+  useEffect(() => {
+    setFallback(false)
+  }, [src])
 
   if (!fallback) {
     return (
@@ -68,7 +37,7 @@ export function AegisMark({ size = 32, dark, className = '' }) {
           width: size,
           height: size,
           objectFit: 'contain',
-          filter: isDark ? 'drop-shadow(0 0 8px rgba(0, 229, 255, 0.35))' : 'none',
+          filter: isDark ? 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))' : 'none',
         }}
         onError={() => setFallback(true)}
         draggable={false}
@@ -89,11 +58,11 @@ export function AegisMark({ size = 32, dark, className = '' }) {
 }
 
 /** Mark + wordmark lockup matching CCTV-Operator layout style. */
-export function AegisLockup({ markSize = 36, dark, title = 'AEGIS Drive_LC', sub = 'SECURE NAS · NEXT-GEN HUD' }) {
+export function AegisLockup({ markSize = 36, theme = 'light', title = 'AEGIS Drive_LC', sub = 'SECURE NAS · NEXT-GEN HUD' }) {
   return (
     <div className="flex items-center gap-3 min-w-0">
       <div className="shrink-0 flex items-center justify-center" style={{ width: markSize, height: markSize }}>
-        <AegisMark size={markSize} dark={dark} />
+        <AegisMark size={markSize} theme={theme} />
       </div>
       <div className="min-w-0">
         <div lang="en" className="font-bold text-[16px] tracking-[0.02em] text-ink leading-tight truncate">

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { History, RotateCcw, Download, FileText, Info } from 'lucide-react'
 import {
-  Card, CardTitle, Chip, Btn, Modal, ModalClose, ErrorState, InlineEmptyState, SkeletonLoader,
+  Card, CardTitle, Chip, Btn, Modal, ModalClose, ErrorState, InlineEmptyState, DependencyUnavailableState, SkeletonLoader,
 } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
@@ -58,13 +58,16 @@ function VersionEmptyTrack({ t }) {
   )
 }
 
-export function FileHistory({ t, lang, placeholderMode = false }) {
+export function FileHistory({ t, lang, initialFileId = null, placeholderMode = false }) {
   const now = useNow(30_000)
   const listApi = useApi('/api/file-versions')
   const files = placeholderMode ? [] : (listApi.data?.files ?? [])
   const stats = placeholderMode ? null : listApi.data?.stats
 
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(initialFileId)
+  useEffect(() => {
+    if (initialFileId) setSelectedId(initialFileId)
+  }, [initialFileId])
   const activeId = selectedId ?? files.find((f) => f.versionCount > 0)?.id ?? files[0]?.id ?? null
   const detailApi = useApi(activeId ? `/api/files/${encodeURIComponent(activeId)}/versions` : null)
   const versions = detailApi.data?.versions ?? []
@@ -117,6 +120,8 @@ export function FileHistory({ t, lang, placeholderMode = false }) {
               <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
             ) : listError ? (
               <ErrorState t={t} kind={listError} onRetry={listApi.retry} />
+            ) : placeholderMode ? (
+              <DependencyUnavailableState t={t} title={t('historyUnavailable')} compact />
             ) : files.length === 0 ? (
               <InlineEmptyState>{t('versionsNoFiles')}</InlineEmptyState>
             ) : (
@@ -159,7 +164,7 @@ export function FileHistory({ t, lang, placeholderMode = false }) {
             </div>
 
             {placeholderMode ? (
-              <VersionEmptyTrack t={t} />
+              <DependencyUnavailableState t={t} title={t('historyUnavailable')} compact />
             ) : listApi.loading || detailApi.loading ? (
               <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
             ) : listError ? (
