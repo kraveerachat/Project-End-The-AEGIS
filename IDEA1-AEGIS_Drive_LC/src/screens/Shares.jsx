@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link2, Plus, ShieldCheck, Globe, Copy } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, InlineEmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, InlineEmptyState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
@@ -97,7 +97,7 @@ function LinkRow({ t, link, now, revoking, onAskRevoke }) {
   )
 }
 
-export function Shares({ t, placeholderMode = false }) {
+export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const now = useNow(1000)
   const sharesApi = useApi('/api/shares', { refreshMs: 30_000 })
   const filesApi = useApi('/api/files')
@@ -109,7 +109,10 @@ export function Shares({ t, placeholderMode = false }) {
 
   const [revokingIds, setRevokingIds] = useState(new Set())
   const [askRevoke, setAskRevoke] = useState(null)
-  const [fileId, setFileId] = useState('')
+  const [fileId, setFileId] = useState(initialFileId)
+  useEffect(() => {
+    if (initialFileId) setFileId(initialFileId)
+  }, [initialFileId])
   const [expiry, setExpiry] = useState('24h')
   const [auth, setAuth] = useState('password')
   const [linkPassword, setLinkPassword] = useState('')
@@ -191,7 +194,9 @@ export function Shares({ t, placeholderMode = false }) {
           <CardTitle sub={t('newShareSub')}>{t('newShare')}</CardTitle>
           <div className="flex flex-col gap-4">
             <Field id="share-file" label={t('shareFile')}>
-              {filesError ? (
+              {placeholderMode ? (
+                <DependencyUnavailableState t={t} title={t('filesUnavailable')} compact />
+              ) : filesError ? (
                 <ErrorState t={t} kind={filesError} onRetry={filesApi.retry} />
               ) : (
                 <PillSelect id="share-file" value={selectedFileId} onChange={(e) => setFileId(e.target.value)} disabled={filesApi.loading || files.length === 0}>
@@ -349,6 +354,8 @@ export function Shares({ t, placeholderMode = false }) {
                 <div className="px-5 py-4"><SkeletonLoader type="table" /></div>
               ) : fetchError ? (
                 <ErrorState t={t} kind={fetchError} onRetry={sharesApi.retry} />
+              ) : placeholderMode ? (
+                <DependencyUnavailableState t={t} title={t('sharesUnavailable')} compact />
               ) : shares.length === 0 ? (
                 <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
               ) : visibleShares.length === 0 ? (

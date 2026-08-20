@@ -4,11 +4,11 @@ import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
-export function Card({ children, className = '', style, onClick }) {
+export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick) }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-card rounded-[var(--r-card)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg dark:hover:shadow-black/30 ${className}`}
+      className={`ui-card bg-card rounded-[var(--r-card)] ${interactive ? 'is-interactive' : ''} ${className}`}
       style={{ boxShadow: 'var(--elev-1)', ...style }}
     >
       {children}
@@ -95,25 +95,18 @@ export function IconBtn({ label, className = '', children, ...rest }) {
   )
 }
 
-/* ── Sparkle button — primary action pop ────────────────────────── */
+/* ── Primary gate button — restrained, no decorative particle layer ── */
 const SPARKLE_SIZES = {
   lg: 'h-12 px-6 text-[14px]',
   xl: 'h-14 px-8 text-[15px]',
 }
-const POINTS = Array.from({ length: 10 })
-
-export function SparkleButton({ sparkles = 'hover', size = 'lg', className = '', children, ...rest }) {
+export function SparkleButton({ size = 'lg', className = '', children, ...rest }) {
   return (
     <button
       type="button"
-      className={`sparkle-btn sparkle-btn--${sparkles} inline-flex items-center justify-center font-semibold cursor-pointer ${SPARKLE_SIZES[size]} ${className}`}
+      className={`sparkle-btn inline-flex items-center justify-center font-semibold cursor-pointer ${SPARKLE_SIZES[size]} ${className}`}
       {...rest}
     >
-      <span className="sparkle-points" aria-hidden>
-        {POINTS.map((_, i) => (
-          <i key={i} className="sparkle-point" />
-        ))}
-      </span>
       <span className="sparkle-btn__label">{children}</span>
     </button>
   )
@@ -126,7 +119,7 @@ export function ThemeToggle({ theme, setTheme, t }) {
       type="button"
       aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
       onClick={() => setTheme(dark ? 'light' : 'dark')}
-      className="size-9 flex items-center justify-center rounded-full text-ink-3 bg-sunken hover:text-ink hover:bg-card border border-line transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
+      className="theme-toggle size-9 flex items-center justify-center rounded-full text-ink-3 bg-sunken hover:text-ink hover:bg-card border border-line transition-[color,background-color,border-color,transform] duration-[var(--dur-fast)] cursor-pointer shrink-0 active:scale-[0.96]"
     >
       {dark ? (
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -147,7 +140,7 @@ export function Toggle({ on, onChange, label }) {
       aria-label={label}
       onClick={() => onChange(!on)}
       className="relative w-10 h-6 rounded-full transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
-      style={{ background: on ? 'linear-gradient(135deg, #2563eb, #0284c7)' : 'var(--line)' }}
+      style={{ background: on ? 'var(--accent)' : 'var(--line)' }}
     >
       <span
         className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform duration-[var(--dur-fast)]"
@@ -158,7 +151,7 @@ export function Toggle({ on, onChange, label }) {
 }
 
 /* ── Segmented control (theme / language / density / view switch) ── */
-export function Segmented({ options, value, onChange, ariaLabel }) {
+export function Segmented({ options, value, onChange, ariaLabel, disabled = false }) {
   return (
     <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
       {options.map((opt) => {
@@ -167,10 +160,11 @@ export function Segmented({ options, value, onChange, ariaLabel }) {
           <button
             key={opt.value}
             type="button"
+            disabled={disabled}
             role="radio"
             aria-checked={active}
             onClick={() => onChange(opt.value)}
-            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer whitespace-nowrap ${
+            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer disabled:cursor-wait disabled:opacity-60 whitespace-nowrap ${
               active ? 'bg-ink text-card' : 'text-ink-2 hover:text-ink'
             }`}
           >
@@ -563,12 +557,13 @@ export function NotYetImplemented({ label, children }) {
 }
 
 /* ── Avatar — รูปโปรไฟล์จริงจากเซิร์ฟเวอร์ ถ้ายังไม่มีก็ใช้อักษรย่อ ────────────────
-   ⚠️ ไม่ถามเซิร์ฟเวอร์ก่อนว่า "มีรูปไหม" โดยเจตนา: ปล่อยให้ <img> ไปเอาแล้วถ้า 404
+   ⚠️ ไม่ถามเซิร์ฟเวอร์ก่อนว่า "มีรูปไหม" โดยเจตนา: ปล่อยให้ image element ไปเอาแล้วถ้า 404
    ก็ตกลงมาที่อักษรย่อเอง — ประหยัดหนึ่ง round trip ต่อการ render ทุกครั้ง และ
    self-correcting (รูปถูกลบทีหลังก็ตกกลับมาเองโดยไม่ต้องมีใคร invalidate cache)
    ⚠️ userId ใช้ประกอบ URL อย่างเดียว ไม่ใช่ credential — endpoint ยังต้องล็อกอินอยู่ดี */
 export function Avatar({ userId, name, size = 40, className = '' }) {
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const initials = String(name ?? '')
     .split(/\s+/)
     .filter(Boolean)
@@ -583,40 +578,63 @@ export function Avatar({ userId, name, size = 40, className = '' }) {
     fontSize: Math.max(10, Math.round(size * 0.34)),
   }
 
-  if (failed || userId == null) {
-    return (
-      <span
-        aria-hidden
-        style={box}
-        className={`rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 ${className}`}
-      >
-        {initials}
-      </span>
-    )
-  }
-
   return (
-    <img
-      src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
-      alt=""
-      width={size}
-      height={size}
+    <span
+      aria-hidden
       style={box}
-      onError={() => setFailed(true)}
-      className={`rounded-full object-cover shrink-0 bg-sunken ${className}`}
-    />
+      className={`relative rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 overflow-hidden ${className}`}
+    >
+      {initials}
+      {!failed && userId != null && (
+        <img
+          src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
+          alt=""
+          width={size}
+          height={size}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={`absolute inset-0 rounded-full object-cover bg-sunken transition-opacity duration-[var(--dur-fast)] ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        />
+      )}
+    </span>
+  )
+}
+
+/* A missing dependency is not the same thing as an empty collection. Keep the
+   surrounding page chrome mounted, but state clearly that data cannot be read. */
+export function DependencyUnavailableState({ t, title, compact = false, className = '' }) {
+  return (
+    <div role="status" aria-live="polite" className={`flex ${compact ? 'items-center text-left' : 'flex-col items-center text-center'} justify-center gap-3 ${compact ? 'px-5 py-4' : 'px-6 py-10'} hatch hatch-ink3 rounded-[var(--r-tile)] border border-dashed border-line bg-sunken ${className}`}>
+      <span className="size-9 shrink-0 rounded-[9px] border border-line bg-card flex items-center justify-center" aria-hidden>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 2v4M16 2v4M7 10h10M12 14v3M9 20h6" />
+          <rect x="5" y="6" width="14" height="8" rx="2" />
+        </svg>
+      </span>
+      <span className={compact ? 'min-w-0' : ''}>
+        <span className="block text-[13.5px] font-semibold text-ink">{title}</span>
+        <span className={`block text-[12px] text-ink-2 leading-relaxed ${compact ? 'mt-0.5' : 'mt-1 max-w-[52ch]'}`}>{t('dependencyUnavailableHint')}</span>
+      </span>
+    </div>
   )
 }
 
 export function Reveal({ children, delay = 0 }) {
-  const [visible, setVisible] = useState(false)
   const ref = useRef(null)
+  const reduced = useReducedMotion()
 
   useEffect(() => {
+    if (reduced || typeof IntersectionObserver === 'undefined') return undefined
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setVisible(true)
+          entry.target.animate(
+            [
+              { opacity: 0.01, transform: 'translateY(8px)' },
+              { opacity: 1, transform: 'translateY(0)' },
+            ],
+            { duration: 220, delay, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'none' },
+          )
           observer.unobserve(entry.target)
         }
       },
@@ -624,16 +642,10 @@ export function Reveal({ children, delay = 0 }) {
     )
     if (ref.current) observer.observe(ref.current)
     return () => observer.disconnect()
-  }, [])
+  }, [delay, reduced])
 
   return (
-    <div
-      ref={ref}
-      className={`transition-all duration-[500ms] ease-out ${
-        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-      }`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
+    <div ref={ref} className="dashboard-reveal">
       {children}
     </div>
   )

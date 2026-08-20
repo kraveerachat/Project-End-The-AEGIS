@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import {
   LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, Database, X as XIcon,
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
-  Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check,
+  Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check, Search, History,
 } from 'lucide-react'
-import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
+import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
+import { UploadDrawer } from '../components/UploadDrawer.jsx'
 
 const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
 const iconFor = (f) => EXT_ICONS[f.ext] ?? FileIcon
@@ -28,12 +29,13 @@ function StorageBadge({ vault, t }) {
 }
 
 /* ── per-file overflow menu ──────────────────────────────────────── */
-function FileMenu({ t, onAction, onClose }) {
+export function FileMenu({ t, onAction, onClose }) {
   const items = [
     { id: 'download', icon: Download, label: t('download') },
-    { id: 'rename', icon: PenLine, label: t('rename') },
-    { id: 'move', icon: FolderInput, label: t('move') },
-    { id: 'link', icon: Link2, label: t('createLink') },
+    { id: 'rename', icon: PenLine, label: t('rename'), disabled: true },
+    { id: 'move', icon: FolderInput, label: t('move'), disabled: true },
+    { id: 'link', icon: Link2, label: t('createSecureShare') },
+    { id: 'history', icon: History, label: t('viewHistory') },
     { id: 'verify', icon: ShieldCheck, label: t('verifySha') },
     { id: 'meta', icon: Info, label: t('viewMetadata') },
     { id: 'delete', icon: Trash2, label: t('delete'), danger: true },
@@ -49,12 +51,13 @@ function FileMenu({ t, onAction, onClose }) {
       style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
       onClick={(e) => e.stopPropagation()}
     >
-      {items.map(({ id, icon: Icon, label, danger }) => (
+      {items.map(({ id, icon: Icon, label, danger, disabled }) => (
         <button
           key={id}
           type="button"
-          onClick={() => { onAction(id); onClose() }}
-          className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer"
+          disabled={disabled}
+          onClick={() => { if (!disabled) onAction(id); onClose() }}
+          className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ color: danger ? 'var(--danger)' : 'var(--ink-2)' }}
         >
           <Icon size={14} strokeWidth={1.5} />
@@ -291,7 +294,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
       {/* overflow */}
       <button
         type="button"
-        aria-label="More"
+                    aria-label={t('moreActions')}
         onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
         className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
         style={{ opacity: showControls ? 1 : 0 }}
@@ -321,7 +324,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go, placeholderMode = false }) {
+export function Files({ t, lang, go, navigationParams = {}, placeholderMode = false }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -336,6 +339,11 @@ export function Files({ t, lang, go, placeholderMode = false }) {
   const fetchError = visibleFetchError(filesApi.error, placeholderMode)
 
   const [sort, setSort] = useState('modified')
+  const [query, setQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [uploadOpen, setUploadOpen] = useState(Boolean(navigationParams.uploadOpen))
+  const [dragOver, setDragOver] = useState(false)
+  const [dropRequest, setDropRequest] = useState({ files: [], id: 0 })
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [detail, setDetail] = useState(null)
   const [ghost, setGhost] = useState(null)
@@ -346,9 +354,13 @@ export function Files({ t, lang, go, placeholderMode = false }) {
   const [mutateError, setMutateError] = useState(false)
   const tileRefs = useRef({})
 
+  useEffect(() => {
+    if (navigationParams.uploadOpen) setUploadOpen(true)
+  }, [navigationParams.uploadOpen])
+
   // สร้างลิงก์แชร์ = งานของจอ Shares (ฟอร์มเต็ม: expiry/auth/network scope)
-  const handleSecureShare = () => go?.('shares')
-  const handleUpload = () => go?.('uploads')
+  const handleSecureShare = (file) => go?.('shares', file ? { fileId: file.id } : {})
+  const handleUpload = () => setUploadOpen(true)
 
   const createFolder = async () => {
     const name = folderName.trim()
@@ -377,7 +389,13 @@ export function Files({ t, lang, go, placeholderMode = false }) {
     filesApi.retry()
   }
 
-  const sorted = [...files].sort((a, b) =>
+  const availableTypes = [...new Set(files.map((file) => file.type).filter(Boolean))].sort()
+  const filtered = files.filter((file) => {
+    const matchesQuery = file.name.toLowerCase().includes(query.trim().toLowerCase())
+    const matchesType = typeFilter === 'all' || file.type === typeFilter
+    return matchesQuery && matchesType
+  })
+  const sorted = [...filtered].sort((a, b) =>
     sort === 'name' ? a.name.localeCompare(b.name) : sort === 'size' ? b.size - a.size : b.modified - a.modified,
   )
 
@@ -423,7 +441,18 @@ export function Files({ t, lang, go, placeholderMode = false }) {
       openDetail(file)
     } else if (action === 'link') {
       handleSecureShare(file)
+    } else if (action === 'history') {
+      go?.('versions', { fileId: file.id })
     }
+  }
+
+  const acceptDrop = (event) => {
+    event.preventDefault()
+    setDragOver(false)
+    const dropped = event.dataTransfer?.files
+    if (!dropped?.length) return
+    setDropRequest({ files: [...dropped], id: Date.now() })
+    setUploadOpen(true)
   }
 
   const deleteSelected = () => {
@@ -451,6 +480,23 @@ export function Files({ t, lang, go, placeholderMode = false }) {
 
       {/* toolbar */}
       <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+        <label className="relative flex-1 min-w-[220px] max-w-md">
+          <span className="sr-only">{t('searchFilesPlaceholder')}</span>
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" aria-hidden />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('searchFilesPlaceholder')}
+            className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)]"
+          />
+        </label>
+        <div className="w-40 max-md:flex-1">
+          <PillSelect aria-label={t('filter')} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <option value="all">{t('allFileTypes')}</option>
+            {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+          </PillSelect>
+        </div>
         <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
           {[{ v: 'grid', icon: LayoutGrid, label: t('gridView') }, { v: 'list', icon: List, label: t('listView') }].map(({ v, icon: I, label }) => (
             <button
@@ -472,7 +518,6 @@ export function Files({ t, lang, go, placeholderMode = false }) {
             <option value="size">{t('sortSize')}</option>
           </PillSelect>
         </div>
-        <div className="flex-1" />
         <Btn variant="outline" onClick={() => { setFolderModal(true); setMutateError(false) }}>
           <FolderPlus size={15} strokeWidth={1.5} />
           {t('newFolder')}
@@ -483,21 +528,36 @@ export function Files({ t, lang, go, placeholderMode = false }) {
         </Btn>
       </div>
 
+      <div
+        onDragEnter={(event) => { event.preventDefault(); setDragOver(true) }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false) }}
+        onDrop={acceptDrop}
+        className={`relative rounded-[var(--r-card)] transition-[outline-color,background-color] ${dragOver ? 'outline-2 outline-dashed outline-accent bg-[var(--accent-soft)]' : ''}`}
+      >
+      <p className="sr-only">{t('filesDropHint')}</p>
+      {dragOver && (
+        <div className="absolute inset-0 z-20 rounded-[var(--r-card)] border-2 border-dashed border-accent bg-[var(--accent-soft)] flex items-center justify-center pointer-events-none">
+          <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-[13px] font-semibold text-accent shadow-[var(--elev-1)]"><Upload size={16} aria-hidden />{t('filesDropHint')}</span>
+        </div>
+      )}
       {/* สี่สถานะของรายการไฟล์ */}
       {filesApi.loading ? (
         <SkeletonLoader type="files" />
       ) : fetchError ? (
         <Card><ErrorState t={t} kind={fetchError} onRetry={filesApi.retry} /></Card>
+      ) : placeholderMode ? (
+        <Card><DependencyUnavailableState t={t} title={t('filesUnavailable')} /></Card>
       ) : sorted.length === 0 ? (
         <Card>
           <EmptyState
             icon={FolderPlus}
-            title={t('emptyFolder')}
+            title={query || typeFilter !== 'all' ? t('emptyNoFilesFiltered') : t('emptyFolder')}
             action={
-              <Btn variant="primary" size="sm" onClick={() => { setFolderModal(true); setMutateError(false) }}>
+              !query && typeFilter === 'all' ? <Btn variant="primary" size="sm" onClick={() => { setFolderModal(true); setMutateError(false) }}>
                 <FolderPlus size={14} strokeWidth={1.5} />
                 {t('createFirstFolder')}
-              </Btn>
+              </Btn> : null
             }
           />
         </Card>
@@ -566,6 +626,7 @@ export function Files({ t, lang, go, placeholderMode = false }) {
           </div>
         </Card>
       )}
+      </div>
 
       {/* floating multi-select action bar — black pill, slides up */}
       {selectedIds.size > 0 && (
@@ -656,6 +717,19 @@ export function Files({ t, lang, go, placeholderMode = false }) {
           </Btn>
         </div>
       </Modal>
+
+      <UploadDrawer
+        t={t}
+        open={uploadOpen}
+        onOpen={() => setUploadOpen(true)}
+        onClose={() => setUploadOpen(false)}
+        destination="/Files"
+        recentFiles={files.filter((file) => file.type !== 'Folder')}
+        recentLoading={filesApi.loading}
+        initialFiles={dropRequest.files}
+        requestId={dropRequest.id}
+        onUploaded={filesApi.retry}
+      />
     </div>
   )
 }

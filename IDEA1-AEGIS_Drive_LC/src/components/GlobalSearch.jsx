@@ -17,6 +17,27 @@ const NAV_ICONS = {
 
 const SUGGESTED_IDS = ['files', 'vault', 'shares']
 const MAX_PER_GROUP = 5
+const SEARCH_PLACEHOLDER_KEYS = {
+  dashboard: 'searchDashboardPlaceholder',
+  files: 'searchFilesPlaceholder',
+  uploads: 'searchUploadsPlaceholder',
+  shares: 'searchSharesPlaceholder',
+  versions: 'searchVersionsPlaceholder',
+  storage: 'searchStoragePlaceholder',
+  audit: 'searchAuditPlaceholder',
+  access: 'searchPeoplePlaceholder',
+  settings: 'searchSettingsPlaceholder',
+}
+const SEARCH_SCOPE_BY_SCREEN = {
+  dashboard: 'global',
+  files: 'files',
+  shares: 'files',
+  versions: 'files',
+  storage: 'actions',
+  audit: 'actions',
+  access: 'people',
+  settings: 'actions',
+}
 
 /* ตัวหนาเฉพาะช่วงที่ตรงกับคำค้น — ไม่ใช้ dangerouslySetInnerHTML */
 function Mark({ text, q }) {
@@ -69,7 +90,7 @@ function Row({ row, idx, active, q, onRun, onHover }) {
  * ปิดตัวเองสี่ทาง: คลิกนอกกรอบ · Escape · เปลี่ยนจอ · เลือกผลลัพธ์
  * ข้อมูลมาจาก props (App ถือ fetch ไว้ตัวเดียว) — ที่นี่ไม่ยิง request เอง
  */
-export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [], disabled = false }) {
+export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [], disabled = false, className = '' }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -77,6 +98,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
   const inputRef = useRef(null)
   const listRef = useRef(null)
   const now = useNow(30_000)
+  const searchLabel = t(SEARCH_PLACEHOLDER_KEYS[screen] ?? 'searchPlaceholder')
 
   // ① คลิกนอกกรอบ (input + panel อยู่ใน containerRef เดียวกัน) → ปิด
   useEffect(() => {
@@ -122,6 +144,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
   }, [disabled])
 
   const q = query.trim().toLowerCase()
+  const scope = SEARCH_SCOPE_BY_SCREEN[screen] ?? 'global'
 
   const sections = useMemo(() => {
     // ชั้นกันที่สอง: จอ Vault ไม่มีดัชนีให้ค้นเลย ต่อให้มีใครถอด disabled ทิ้งใน devtools
@@ -141,6 +164,13 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
       meta: t('searchJumpTo'),
       run: () => go(n.id),
     })
+    const personRow = (u) => ({
+      id: `p:${u.id}`,
+      icon: User,
+      label: u.name,
+      meta: `${u.username} · ${u.role === 'Admin' ? t('roleAdmin') : t('roleUser')}`,
+      run: () => go('access'),
+    })
 
     if (!q) {
       const recent = [...files]
@@ -152,6 +182,16 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
         .map((id) => nav.find((n) => n.id === id))
         .filter(Boolean)
         .map(navRow)
+      const visiblePeople = people.slice(0, MAX_PER_GROUP).map(personRow)
+      if (scope === 'files') {
+        return [{ key: 'searchSecRecent', rows: recent, emptyText: t('searchNoRecent'), emptyIcon: Clock }]
+      }
+      if (scope === 'people') {
+        return [{ key: 'searchSecPeople', rows: visiblePeople }]
+      }
+      if (scope === 'actions') {
+        return suggested.length ? [{ key: 'searchSecSuggested', rows: suggested }] : []
+      }
       return [
         { key: 'searchSecRecent', rows: recent, emptyText: t('searchNoRecent'), emptyIcon: Clock },
         ...(suggested.length ? [{ key: 'searchSecSuggested', rows: suggested }] : []),
@@ -163,21 +203,21 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
     const peopleRows = people
       .filter((u) => `${u.name} ${u.username}`.toLowerCase().includes(q))
       .slice(0, MAX_PER_GROUP)
-      .map((u) => ({
-        id: `p:${u.id}`,
-        icon: User,
-        label: u.name,
-        meta: `${u.username} · ${u.role === 'Admin' ? t('roleAdmin') : t('roleUser')}`,
-        run: () => go('access'),
-      }))
+      .map(personRow)
     const actionRows = nav.filter((n) => t(n.labelKey).toLowerCase().includes(q)).slice(0, MAX_PER_GROUP).map(navRow)
 
-    return [
-      { key: 'searchSecFiles', rows: fileRows },
-      { key: 'searchSecPeople', rows: peopleRows },
-      { key: 'searchSecActions', rows: actionRows },
-    ].filter((s) => s.rows.length > 0)
-  }, [q, files, people, nav, t, now, go, disabled])
+    const groups = {
+      files: [{ key: 'searchSecFiles', rows: fileRows }],
+      people: [{ key: 'searchSecPeople', rows: peopleRows }],
+      actions: [{ key: 'searchSecActions', rows: actionRows }],
+      global: [
+        { key: 'searchSecFiles', rows: fileRows },
+        { key: 'searchSecPeople', rows: peopleRows },
+        { key: 'searchSecActions', rows: actionRows },
+      ],
+    }
+    return groups[scope].filter((s) => s.rows.length > 0)
+  }, [q, files, people, nav, t, now, go, disabled, scope])
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections])
 
@@ -221,7 +261,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
   const tip = t('searchUnavailableVault')
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-[380px]">
+    <div ref={containerRef} className={`relative w-full max-w-[360px] ${className}`}>
       {/* ฉากรับคลิก — กันคลิก "เพื่อปิด dropdown" ทะลุไปโดนปุ่มที่ถูกบังอยู่ข้างล่าง
           (เช่น "อัปโหลด" บนแถบเครื่องมือของจอไฟล์) ปิดอย่างเดียว ไม่สั่งงานอย่างอื่น
           อยู่ใต้ panel แต่เหนือเนื้อหาหน้า และต่ำกว่าชั้น modal เสมอ */}
@@ -245,18 +285,18 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
         onKeyDown={onInputKey}
         disabled={disabled}
         title={disabled ? tip : undefined}
-        placeholder={disabled ? t('searchUnavailable') : t('searchPlaceholder')}
-        aria-label={disabled ? tip : t('searchPlaceholder')}
+        placeholder={disabled ? t('searchUnavailable') : searchLabel}
+        aria-label={disabled ? tip : searchLabel}
         role="combobox"
         aria-expanded={panelOpen}
         aria-controls="global-search-panel"
         aria-autocomplete="list"
         aria-activedescendant={panelOpen && flat[active] ? `gs-opt-${active}` : undefined}
-        className="w-full h-10 pl-10 pr-12 rounded-full bg-sunken border border-line text-sm text-ink placeholder:text-ink-3 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-soft shadow-xs disabled:cursor-not-allowed disabled:opacity-55 disabled:border-dashed disabled:focus:border-line disabled:focus:ring-0"
+        className="context-search-input w-full h-10 pl-10 pr-12 rounded-[12px] bg-card border border-line text-[13.5px] text-ink placeholder:text-ink-3 outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:border-dashed disabled:focus:border-line disabled:focus:ring-0"
       />
       {/* ⌘K เป็นคำสัญญาว่า "กดแล้วค้นได้" — จอที่ปิดการค้นหาจึงไม่ควรโชว์ */}
       {!disabled && (
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10.5px] font-mono font-medium text-ink-3 bg-card border border-line rounded px-1.5 py-0.5 pointer-events-none max-sm:hidden">
+        <kbd className="search-shortcut absolute right-3 top-1/2 -translate-y-1/2 rounded-[5px] border border-line bg-sunken px-1.5 py-0.5 font-mono text-[10px] font-medium text-ink-3 pointer-events-none max-sm:hidden">
           ⌘K
         </kbd>
       )}
@@ -267,7 +307,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
           id="global-search-panel"
           ref={listRef}
           role="listbox"
-          aria-label={t('searchPlaceholder')}
+          aria-label={searchLabel}
           /* ยึดใต้ "ช่องค้นหา" เท่านั้น: กว้างเท่า input (right-0 กันล้นขอบขวาของจอ)
              ไม่ยืดเต็มบรรทัดหัวเรื่อง จึงไม่กินพื้นที่ปุ่มอื่นในแนวนอน */
           className="absolute top-[calc(100%+6px)] right-0 w-full rounded-xl border border-line bg-card py-1.5 overflow-y-auto overscroll-contain search-pop"

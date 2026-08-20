@@ -29,9 +29,9 @@ test('Vault and File History do not replace the full screen with early loading/e
   assert.match(history, /disabled/)
 })
 
-test('Uploads, Shares, and Audit preserve list/table chrome around compact empty rows', async () => {
+test('Upload Drawer, Shares, and Audit preserve list/table chrome around compact empty rows', async () => {
   const [uploads, shares, audit] = await Promise.all([
-    read('../src/screens/Uploads.jsx'),
+    read('../src/components/UploadDrawer.jsx'),
     read('../src/screens/Shares.jsx'),
     read('../src/screens/Audit.jsx'),
   ])
@@ -74,7 +74,7 @@ test('Settings is Twingate-only and does not offer a fake working mnemonic gener
   assert.match(source, /disabled/)
 })
 
-test('a backend that is not wired yet is an empty state, not a fetch error', () => {
+test('a backend that is not wired yet is handled separately from a transport fetch error', () => {
   assert.equal(visibleFetchError('server', true), null)
   assert.equal(visibleFetchError('network', true), null)
   assert.equal(visibleFetchError('timeout', true), null)
@@ -86,7 +86,7 @@ test('a backend that is not wired yet is an empty state, not a fetch error', () 
 
 test('no screen renders ErrorState straight off a raw api.error — placeholderMode gates every one', async () => {
   const screens = [
-    'Access', 'Audit', 'FileHistory', 'Files', 'Settings', 'Shares', 'Storage', 'Uploads', 'Vault',
+    'Access', 'Audit', 'FileHistory', 'Files', 'Settings', 'Shares', 'Storage', 'Vault',
   ]
   for (const name of screens) {
     const source = await read(`../src/screens/${name}.jsx`)
@@ -103,6 +103,15 @@ test('no screen renders ErrorState straight off a raw api.error — placeholderM
       `${name} still passes a raw api.error to ErrorState`,
     )
   }
+})
+
+test('affected data screens render dependency unavailable separately from real empty data', async () => {
+  for (const name of ['Files', 'Shares', 'FileHistory', 'Audit', 'Access']) {
+    const source = await read(`../src/screens/${name}.jsx`)
+    assert.match(source, /DependencyUnavailableState/, `${name} must distinguish an unavailable dependency from an empty collection`)
+  }
+  const dashboard = await read('../src/screens/Dashboard.jsx')
+  assert.match(dashboard, /DependencyUnavailableState/)
 })
 
 test('Settings receives placeholderMode so its cards obey the same rule as the data screens', async () => {
@@ -122,7 +131,7 @@ test('App uses the shared platform gate on every non-Dashboard screen', async ()
   const source = await read('../src/App.jsx')
   assert.match(source, /!isPlatformWired\(healthApi\.data\)/)
   assert.doesNotMatch(source, /healthApi\.data\.db === 'memory'/)
-  for (const name of ['Files', 'Vault', 'Uploads', 'Shares', 'FileHistory', 'Storage', 'Audit', 'Access']) {
+  for (const name of ['Files', 'Vault', 'Shares', 'FileHistory', 'Storage', 'Audit', 'Access']) {
     assert.match(source, new RegExp(`<${name}[^>]*placeholderMode=\\{placeholderMode\\}`))
   }
   assert.doesNotMatch(source, /<Dashboard[^>]*placeholderMode=/)

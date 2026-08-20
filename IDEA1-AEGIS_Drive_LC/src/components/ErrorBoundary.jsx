@@ -1,4 +1,12 @@
 import { Component } from 'react'
+import { makeT } from '../lib/strings.js'
+
+function activeLanguage() {
+  const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang.toLowerCase()
+  if (language.startsWith('th')) return 'th'
+  if (language.startsWith('zh')) return 'zh'
+  return 'en'
+}
 
 /**
  * ErrorBoundary — ตาข่ายสุดท้ายกัน "จอขาว" ระหว่างเดโม่บนฮาร์ดแวร์จริง
@@ -21,6 +29,7 @@ export class ErrorBoundary extends Component {
 
   render() {
     if (!this.state.crashed) return this.props.children
+    const t = makeT(activeLanguage())
     return (
       <div className="h-full flex items-center justify-center bg-canvas px-6">
         <div
@@ -34,17 +43,16 @@ export class ErrorBoundary extends Component {
               <circle cx="12" cy="12" r="10" />
             </svg>
           </span>
-          {/* สองภาษาแบบตายตัวโดยเจตนา — จอนี้ต้องทำงานแม้ i18n เองพัง */}
-          <p className="text-[16px] font-semibold text-ink">เกิดข้อผิดพลาดที่ไม่คาดคิด</p>
+          <p className="text-[16px] font-semibold text-ink">{t('errorBoundaryTitle')}</p>
           <p className="text-[13px] text-ink-2 leading-relaxed">
-            Something went wrong while rendering. รายละเอียดถูกบันทึกไว้ใน console ของเบราว์เซอร์
+            {t('errorBoundaryBody')}
           </p>
           <button
             type="button"
             onClick={() => window.location.reload()}
             className="mt-2 inline-flex items-center justify-center h-10 px-5 rounded-full bg-accent text-white text-[14px] font-semibold cursor-pointer"
           >
-            โหลดแอปใหม่ · Reload
+            {t('errorBoundaryReload')}
           </button>
         </div>
       </div>
