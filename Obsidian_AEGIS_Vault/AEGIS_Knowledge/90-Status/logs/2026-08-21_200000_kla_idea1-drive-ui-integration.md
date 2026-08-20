@@ -25,10 +25,12 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `npm run build` — pending final clean-branch verification.
-- `npm test` — pending final clean-branch verification.
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pending final clean-branch verification.
-- `git diff --check` — pending final clean-branch verification.
+- `npm run build` from `IDEA1-AEGIS_Drive_LC` — PASS; Vite production build completed with 2,655 modules transformed. Generated `dist/index.html` was restored and is not part of this change.
+- `npm test` from `IDEA1-AEGIS_Drive_LC` — PASS; 167 tests total, 148 passed, 0 failed, and 19 skipped because they require an isolated PostgreSQL test database or controlled time-dependent evidence.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS after this receipt was updated with final evidence; the two existing Canvas owner-review warnings remain non-blocking.
+- `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — PASS; 22 passed, 0 failed.
+- `git diff --check origin/main...HEAD` — PASS.
+- Targeted diff secret scan for private-key blocks and assigned GitHub/password/secret/token/API-key values — PASS; 0 matches.
 
 ## Canonical notes updated
 
@@ -46,5 +48,8 @@ edit_policy: append-by-new-file
 ## Known limitations
 
 - Server Telemetry remains a UI contract; no real host collector or production telemetry verification is claimed.
-- No production deployment, Phase E completion, or formal deployment verification is included.
+- Production deployment was not performed.
+- Production migration was not executed.
+- Phase E status was not changed.
+- Browser Production validation was not performed.
 - PostgreSQL-only verification requires an isolated destructive test database and must not target production.
