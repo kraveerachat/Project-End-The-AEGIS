@@ -45,10 +45,10 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       title={collapsed ? label : undefined}
-      className={`flex items-center gap-3 h-10 rounded-xl text-[14px] font-medium transition-all duration-[var(--dur-fast)] cursor-pointer w-full rise-in ${
+      className={`sidebar-nav-item flex items-center gap-3 h-10 rounded-[10px] text-[14px] font-medium transition-all duration-[var(--dur-fast)] cursor-pointer w-full rise-in ${
         active
-          ? 'bg-accent-soft text-accent-ink shadow-[0_4px_12px_rgba(37,99,235,0.04)]'
-          : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:rounded-xl hover:text-ink'
+          ? 'is-active bg-accent-soft text-accent-ink'
+          : 'text-ink-3 hover:bg-sunken hover:text-ink'
       } ${collapsed ? 'justify-center px-0' : 'px-3.5'}`}
       style={{ animationDelay: `${delay}ms` }}
     >
@@ -58,7 +58,7 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
   )
 }
 
-export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, mobileOpen, closeMobile }) {
+export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile }) {
   // metrics มาจาก /api/dashboard — ระหว่างโหลดเป็น null → มิเตอร์แสดง skeleton
   // ใช้ bytes + fmtBytes ชุดเดียวกับ Dashboard/Storage ห้ามผสม decimal GB กับ binary GB
   const storageBytes = useCountUp(metrics?.storageBytes ?? 0, 700)
@@ -69,13 +69,15 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const body = (
     <div className="flex flex-col h-full bg-card border-r border-line">
       <div className={`flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
-        {collapsed ? <AegisMark size={32} /> : <AegisLockup markSize={36} title="AEGIS Drive_LC" sub="ENTERPRISE STORAGE · SECURE HUD" />}
+        {collapsed
+          ? <AegisMark size={32} theme={resolvedTheme} />
+          : <AegisLockup markSize={36} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />}
         {!collapsed && (
           <button
             type="button"
             aria-label={t('collapseSidebar')}
             onClick={() => setCollapsed(true)}
-            className="size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer max-md:hidden"
+            className="size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer max-lg:hidden"
           >
             <PanelLeftClose size={15} strokeWidth={1.5} />
           </button>
@@ -136,7 +138,12 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       {/* storage meter — จากเซิร์ฟเวอร์เท่านั้น; ระหว่างโหลด = skeleton ไม่ใช่เลขปลอม */}
       {!collapsed && (
         <div className="m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
-          {metrics ? (
+          {metricsUnavailable ? (
+            <div role="status" className="hatch hatch-ink3 rounded-[9px] border border-dashed border-line px-3 py-2.5 flex items-center justify-between gap-3">
+              <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
+              <p className="text-[11.5px] font-semibold text-ink-3">{t('notAvailable')}</p>
+            </div>
+          ) : metrics ? (
             <>
               <div className="flex items-baseline justify-between">
                 <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
@@ -161,14 +168,14 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
     <>
       {/* desktop */}
       <aside
-        className="hidden md:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
+        className="hidden lg:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
         style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
       >
         {body}
       </aside>
       {/* mobile off-canvas */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0" style={{ zIndex: 'var(--z-drawer)' }}>
+        <div className="lg:hidden fixed inset-0" style={{ zIndex: 'var(--z-drawer)' }}>
           <div className="absolute inset-0 fade-in" style={{ background: 'color-mix(in srgb, var(--ink) 30%, transparent)' }} onClick={closeMobile} aria-hidden />
           <div className="absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
             {body}

@@ -201,7 +201,7 @@ test('reset-required session mounts only the gate, then unlocks protected reads 
   const app = await renderApp(true)
   try {
     await waitFor(
-      () => document.querySelector('form[aria-label="mandatory-password-reset"]'),
+      () => document.querySelector('form#mandatory-password-reset[aria-labelledby="mandatory-reset-title"]'),
       `mandatory reset form did not render; body was ${document.body.textContent}`,
     )
     assert.equal(document.querySelector('aside'), null, 'Sidebar must not mount before password reset')
@@ -217,11 +217,11 @@ test('reset-required session mounts only the gate, then unlocks protected reads 
       setInput(document.getElementById('mandatory-confirm-password'), 'aegis-drive-admin-new-2026')
     })
     await waitFor(
-      () => !document.querySelector('form[aria-label="mandatory-password-reset"] button[type="submit"]')?.disabled,
-      `password reset form did not accept input; form was ${document.querySelector('form[aria-label="mandatory-password-reset"]')?.outerHTML}`,
+      () => !document.querySelector('form#mandatory-password-reset button[type="submit"]')?.disabled,
+      `password reset form did not accept input; form was ${document.querySelector('form#mandatory-password-reset')?.outerHTML}`,
     )
     await act(async () => {
-      document.querySelector('form[aria-label="mandatory-password-reset"]')
+      document.querySelector('form#mandatory-password-reset')
         .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
     })
 

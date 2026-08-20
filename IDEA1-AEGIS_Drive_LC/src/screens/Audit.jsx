@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import { Chip, Btn, PillSelect, ErrorState, InlineEmptyState, SkeletonLoader } from '../components/ui.jsx'
+import { Chip, Btn, PillSelect, ErrorState, InlineEmptyState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { fmtStamp } from '../lib/format.js'
@@ -131,6 +131,8 @@ export function Audit({ t, placeholderMode = false }) {
                 <div className="px-5 py-4"><SkeletonLoader type="table" /></div>
               ) : fetchError ? (
                 <ErrorState t={t} kind={fetchError} onRetry={api.retry} />
+              ) : placeholderMode ? (
+                <DependencyUnavailableState t={t} title={t('auditUnavailable')} compact className="mx-4 my-3" />
               ) : events.length === 0 ? (
                 <InlineEmptyState className="justify-start pl-10">{t('emptyNoAudit')}</InlineEmptyState>
               ) : visibleCount === 0 ? (

@@ -4,7 +4,7 @@ import { Eye, EyeOff, X as XIcon } from 'lucide-react'
 import { login } from '../lib/auth.js'
 import { useReducedMotion } from '../lib/hooks.js'
 import { Toggle, Segmented, SparkleButton, ThemeToggle } from '../components/ui.jsx'
-import { AegisMark } from '../components/AegisMark.jsx'
+import { AegisMark, themeAssetsFor } from '../components/AegisMark.jsx'
 import { LANGS } from '../lib/strings.js'
 
 const LAYERS = [
@@ -105,7 +105,7 @@ function LayerRow({ t, layer, status }) {
   )
 }
 
-export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
+export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme, onAuthed }) {
   const reduced = useReducedMotion()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -121,6 +121,7 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
   const [leaving, setLeaving] = useState(false)
   const [statuses, setStatuses] = useState(['ok', 'active', 'pending', 'pending'])
   const busyRef = useRef(false)
+  const welcomeAsset = import.meta.env.BASE_URL + themeAssetsFor(resolvedTheme).welcome
 
   const setLayer = (i, s) =>
     setStatuses((prev) => prev.map((v, idx) => (idx === i ? s : v)))
@@ -166,11 +167,17 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 md:p-6 bg-canvas text-ink font-sans select-none relative overflow-hidden transition-colors duration-[var(--dur-base)]">
+    <div className="login-shell min-h-screen w-full flex flex-col items-center justify-center p-4 md:p-6 bg-canvas text-ink font-sans select-none relative overflow-hidden transition-colors duration-[var(--dur-base)]">
+      <div
+        className="gate-bg absolute inset-0 pointer-events-none"
+        style={{ '--gate-image': `url("${welcomeAsset}")` }}
+        aria-hidden
+      />
+      <div className="gate-halo absolute inset-0 pointer-events-none" aria-hidden />
 
       {/* Top right language selector and theme toggle */}
       <div className="absolute top-5 right-5 z-30 flex items-center gap-2">
-        <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
+        <ThemeToggle theme={resolvedTheme} setTheme={setTheme} t={t} />
         <Segmented
           ariaLabel={t('language')}
           options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))}
@@ -183,17 +190,13 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
       <div className="relative my-auto w-full max-w-[440px] md:max-w-[920px] flex justify-center z-10">
         {/* Split sign-in card */}
         <motion.div
-          initial={{ scale: 0.96, opacity: 0, y: 15 }}
+          initial={reduced ? false : { scale: 0.985, opacity: 0, y: 10 }}
           animate={{
             scale: leaving ? 1.03 : 1,
             opacity: leaving ? 0 : 1,
             y: 0,
           }}
-          transition={{
-            type: 'spring',
-            stiffness: 260,
-            damping: 20,
-          }}
+          transition={reduced ? { duration: 0 } : { duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
           className={`w-full rounded-[var(--r-card)] bg-card border border-line overflow-hidden flex flex-col md:flex-row md:items-stretch relative transition-colors duration-[var(--dur-base)] ${
             shake ? 'shake-x' : ''
           }`}
@@ -203,7 +206,7 @@ export function Login({ t, lang, setLang, theme, setTheme, onAuthed }) {
           <div className="w-full md:w-[42%] p-8 md:p-12 flex flex-col items-center justify-center text-center bg-sunken border-b md:border-b-0 md:border-r border-line relative">
             <div className="my-auto flex flex-col items-center">
               <div className="relative flex items-center justify-center">
-                <AegisMark size={180} />
+                <AegisMark size={180} theme={resolvedTheme} />
               </div>
               <h1 lang="en" className="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">
                 AEGIS

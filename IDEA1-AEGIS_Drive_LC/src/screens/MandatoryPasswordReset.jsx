@@ -80,7 +80,7 @@ export function MandatoryPasswordReset({ t, user, onReset, onSignOut }) {
           <h1 id="mandatory-reset-title" className="text-2xl font-bold tracking-tight text-ink">{t('mandatoryResetTitle')}</h1>
           <p className="mt-2 text-[14px] leading-6 text-ink-2">{t('mandatoryResetSubtitle')}</p>
 
-          <form aria-label="mandatory-password-reset" onSubmit={submit} className="mt-7 space-y-4">
+          <form id="mandatory-password-reset" aria-labelledby="mandatory-reset-title" onSubmit={submit} className="mt-7 space-y-4">
             <Field id="mandatory-current-password" label={t('temporaryPassword')}>
               <PillInput
                 id="mandatory-current-password"

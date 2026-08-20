@@ -4,11 +4,11 @@ import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
-export function Card({ children, className = '', style, onClick }) {
+export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick) }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-card rounded-[var(--r-card)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg dark:hover:shadow-black/30 ${className}`}
+      className={`ui-card bg-card rounded-[var(--r-card)] ${interactive ? 'is-interactive' : ''} ${className}`}
       style={{ boxShadow: 'var(--elev-1)', ...style }}
     >
       {children}
@@ -119,7 +119,7 @@ export function ThemeToggle({ theme, setTheme, t }) {
       type="button"
       aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
       onClick={() => setTheme(dark ? 'light' : 'dark')}
-      className="size-9 flex items-center justify-center rounded-full text-ink-3 bg-sunken hover:text-ink hover:bg-card border border-line transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
+      className="theme-toggle size-9 flex items-center justify-center rounded-full text-ink-3 bg-sunken hover:text-ink hover:bg-card border border-line transition-[color,background-color,border-color,transform] duration-[var(--dur-fast)] cursor-pointer shrink-0 active:scale-[0.96]"
     >
       {dark ? (
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -557,7 +557,7 @@ export function NotYetImplemented({ label, children }) {
 }
 
 /* ── Avatar — รูปโปรไฟล์จริงจากเซิร์ฟเวอร์ ถ้ายังไม่มีก็ใช้อักษรย่อ ────────────────
-   ⚠️ ไม่ถามเซิร์ฟเวอร์ก่อนว่า "มีรูปไหม" โดยเจตนา: ปล่อยให้ <img> ไปเอาแล้วถ้า 404
+   ⚠️ ไม่ถามเซิร์ฟเวอร์ก่อนว่า "มีรูปไหม" โดยเจตนา: ปล่อยให้ image element ไปเอาแล้วถ้า 404
    ก็ตกลงมาที่อักษรย่อเอง — ประหยัดหนึ่ง round trip ต่อการ render ทุกครั้ง และ
    self-correcting (รูปถูกลบทีหลังก็ตกกลับมาเองโดยไม่ต้องมีใคร invalidate cache)
    ⚠️ userId ใช้ประกอบ URL อย่างเดียว ไม่ใช่ credential — endpoint ยังต้องล็อกอินอยู่ดี */
@@ -600,15 +600,41 @@ export function Avatar({ userId, name, size = 40, className = '' }) {
   )
 }
 
+/* A missing dependency is not the same thing as an empty collection. Keep the
+   surrounding page chrome mounted, but state clearly that data cannot be read. */
+export function DependencyUnavailableState({ t, title, compact = false, className = '' }) {
+  return (
+    <div role="status" aria-live="polite" className={`flex ${compact ? 'items-center text-left' : 'flex-col items-center text-center'} justify-center gap-3 ${compact ? 'px-5 py-4' : 'px-6 py-10'} hatch hatch-ink3 rounded-[var(--r-tile)] border border-dashed border-line bg-sunken ${className}`}>
+      <span className="size-9 shrink-0 rounded-[9px] border border-line bg-card flex items-center justify-center" aria-hidden>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 2v4M16 2v4M7 10h10M12 14v3M9 20h6" />
+          <rect x="5" y="6" width="14" height="8" rx="2" />
+        </svg>
+      </span>
+      <span className={compact ? 'min-w-0' : ''}>
+        <span className="block text-[13.5px] font-semibold text-ink">{title}</span>
+        <span className={`block text-[12px] text-ink-2 leading-relaxed ${compact ? 'mt-0.5' : 'mt-1 max-w-[52ch]'}`}>{t('dependencyUnavailableHint')}</span>
+      </span>
+    </div>
+  )
+}
+
 export function Reveal({ children, delay = 0 }) {
-  const [visible, setVisible] = useState(false)
   const ref = useRef(null)
+  const reduced = useReducedMotion()
 
   useEffect(() => {
+    if (reduced || typeof IntersectionObserver === 'undefined') return undefined
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setVisible(true)
+          entry.target.animate(
+            [
+              { opacity: 0.01, transform: 'translateY(8px)' },
+              { opacity: 1, transform: 'translateY(0)' },
+            ],
+            { duration: 220, delay, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'none' },
+          )
           observer.unobserve(entry.target)
         }
       },
@@ -616,16 +642,10 @@ export function Reveal({ children, delay = 0 }) {
     )
     if (ref.current) observer.observe(ref.current)
     return () => observer.disconnect()
-  }, [])
+  }, [delay, reduced])
 
   return (
-    <div
-      ref={ref}
-      className={`transition-all duration-[500ms] ease-out ${
-        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-      }`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
+    <div ref={ref} className="dashboard-reveal">
       {children}
     </div>
   )

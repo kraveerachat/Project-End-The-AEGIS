@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { UserPlus, Info, Search } from 'lucide-react'
-import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, InlineEmptyState, SkeletonLoader, Avatar } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Btn, Th, Modal, ModalClose, Field, PillInput, ErrorState, InlineEmptyState, DependencyUnavailableState, SkeletonLoader, Avatar } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch } from '../lib/api.js'
@@ -211,10 +211,13 @@ export function Access({ t, user, placeholderMode = false }) {
                   {fetchError && (
                     <tr><td colSpan={5}><ErrorState t={t} kind={fetchError} onRetry={usersApi.retry} /></td></tr>
                   )}
-                  {!usersApi.loading && !fetchError && fq && users.length === 0 && (
+                  {!usersApi.loading && !fetchError && placeholderMode && (
+                    <tr><td colSpan={5}><DependencyUnavailableState t={t} title={t('accessUnavailable')} compact /></td></tr>
+                  )}
+                  {!usersApi.loading && !fetchError && !placeholderMode && fq && users.length === 0 && (
                     <tr><td colSpan={5}><InlineEmptyState>{t('accessFilterNone', { q: filter.trim() })}</InlineEmptyState></td></tr>
                   )}
-                  {!usersApi.loading && !fetchError && !fq && additionalUsers.length === 0 && (
+                  {!usersApi.loading && !fetchError && !placeholderMode && !fq && additionalUsers.length === 0 && (
                     <tr>
                       <td colSpan={5}>
                         <InlineEmptyState
