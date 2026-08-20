@@ -58,9 +58,7 @@ export function MandatoryPasswordReset({ t, user, onReset, onSignOut }) {
   return (
     <div className="relative min-h-full bg-canvas text-ink overflow-y-auto">
       <HatchDefs />
-      <div className="absolute inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_50%_18%,var(--accent-soft),transparent_38%)]" aria-hidden />
-
-      <header className="relative z-10 min-h-20 px-6 py-4 border-b border-line bg-card/70 backdrop-blur-xl flex items-center justify-between gap-4 max-sm:px-4">
+      <header className="relative z-10 min-h-20 px-6 py-4 border-b border-line bg-card flex items-center justify-between gap-4 max-sm:px-4">
         <AegisLockup />
         <div className="flex items-center gap-3 min-w-0">
           <div className="text-right min-w-0 max-sm:hidden">

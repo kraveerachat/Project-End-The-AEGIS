@@ -95,25 +95,18 @@ export function IconBtn({ label, className = '', children, ...rest }) {
   )
 }
 
-/* ── Sparkle button — primary action pop ────────────────────────── */
+/* ── Primary gate button — restrained, no decorative particle layer ── */
 const SPARKLE_SIZES = {
   lg: 'h-12 px-6 text-[14px]',
   xl: 'h-14 px-8 text-[15px]',
 }
-const POINTS = Array.from({ length: 10 })
-
-export function SparkleButton({ sparkles = 'hover', size = 'lg', className = '', children, ...rest }) {
+export function SparkleButton({ size = 'lg', className = '', children, ...rest }) {
   return (
     <button
       type="button"
-      className={`sparkle-btn sparkle-btn--${sparkles} inline-flex items-center justify-center font-semibold cursor-pointer ${SPARKLE_SIZES[size]} ${className}`}
+      className={`sparkle-btn inline-flex items-center justify-center font-semibold cursor-pointer ${SPARKLE_SIZES[size]} ${className}`}
       {...rest}
     >
-      <span className="sparkle-points" aria-hidden>
-        {POINTS.map((_, i) => (
-          <i key={i} className="sparkle-point" />
-        ))}
-      </span>
       <span className="sparkle-btn__label">{children}</span>
     </button>
   )
@@ -147,7 +140,7 @@ export function Toggle({ on, onChange, label }) {
       aria-label={label}
       onClick={() => onChange(!on)}
       className="relative w-10 h-6 rounded-full transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
-      style={{ background: on ? 'linear-gradient(135deg, #2563eb, #0284c7)' : 'var(--line)' }}
+      style={{ background: on ? 'var(--accent)' : 'var(--line)' }}
     >
       <span
         className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform duration-[var(--dur-fast)]"
@@ -158,7 +151,7 @@ export function Toggle({ on, onChange, label }) {
 }
 
 /* ── Segmented control (theme / language / density / view switch) ── */
-export function Segmented({ options, value, onChange, ariaLabel }) {
+export function Segmented({ options, value, onChange, ariaLabel, disabled = false }) {
   return (
     <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
       {options.map((opt) => {
@@ -167,10 +160,11 @@ export function Segmented({ options, value, onChange, ariaLabel }) {
           <button
             key={opt.value}
             type="button"
+            disabled={disabled}
             role="radio"
             aria-checked={active}
             onClick={() => onChange(opt.value)}
-            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer whitespace-nowrap ${
+            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer disabled:cursor-wait disabled:opacity-60 whitespace-nowrap ${
               active ? 'bg-ink text-card' : 'text-ink-2 hover:text-ink'
             }`}
           >
@@ -569,6 +563,7 @@ export function NotYetImplemented({ label, children }) {
    ⚠️ userId ใช้ประกอบ URL อย่างเดียว ไม่ใช่ credential — endpoint ยังต้องล็อกอินอยู่ดี */
 export function Avatar({ userId, name, size = 40, className = '' }) {
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const initials = String(name ?? '')
     .split(/\s+/)
     .filter(Boolean)
@@ -583,28 +578,25 @@ export function Avatar({ userId, name, size = 40, className = '' }) {
     fontSize: Math.max(10, Math.round(size * 0.34)),
   }
 
-  if (failed || userId == null) {
-    return (
-      <span
-        aria-hidden
-        style={box}
-        className={`rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 ${className}`}
-      >
-        {initials}
-      </span>
-    )
-  }
-
   return (
-    <img
-      src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
-      alt=""
-      width={size}
-      height={size}
+    <span
+      aria-hidden
       style={box}
-      onError={() => setFailed(true)}
-      className={`rounded-full object-cover shrink-0 bg-sunken ${className}`}
-    />
+      className={`relative rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 overflow-hidden ${className}`}
+    >
+      {initials}
+      {!failed && userId != null && (
+        <img
+          src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
+          alt=""
+          width={size}
+          height={size}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={`absolute inset-0 rounded-full object-cover bg-sunken transition-opacity duration-[var(--dur-fast)] ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        />
+      )}
+    </span>
   )
 }
 

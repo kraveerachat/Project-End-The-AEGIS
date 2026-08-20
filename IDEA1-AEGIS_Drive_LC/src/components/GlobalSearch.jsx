@@ -17,6 +17,17 @@ const NAV_ICONS = {
 
 const SUGGESTED_IDS = ['files', 'vault', 'shares']
 const MAX_PER_GROUP = 5
+const SEARCH_PLACEHOLDER_KEYS = {
+  dashboard: 'searchDashboardPlaceholder',
+  files: 'searchFilesPlaceholder',
+  uploads: 'searchUploadsPlaceholder',
+  shares: 'searchSharesPlaceholder',
+  versions: 'searchVersionsPlaceholder',
+  storage: 'searchStoragePlaceholder',
+  audit: 'searchAuditPlaceholder',
+  access: 'searchPeoplePlaceholder',
+  settings: 'searchSettingsPlaceholder',
+}
 
 /* ตัวหนาเฉพาะช่วงที่ตรงกับคำค้น — ไม่ใช้ dangerouslySetInnerHTML */
 function Mark({ text, q }) {
@@ -77,6 +88,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
   const inputRef = useRef(null)
   const listRef = useRef(null)
   const now = useNow(30_000)
+  const searchLabel = t(SEARCH_PLACEHOLDER_KEYS[screen] ?? 'searchPlaceholder')
 
   // ① คลิกนอกกรอบ (input + panel อยู่ใน containerRef เดียวกัน) → ปิด
   useEffect(() => {
@@ -245,8 +257,8 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
         onKeyDown={onInputKey}
         disabled={disabled}
         title={disabled ? tip : undefined}
-        placeholder={disabled ? t('searchUnavailable') : t('searchPlaceholder')}
-        aria-label={disabled ? tip : t('searchPlaceholder')}
+        placeholder={disabled ? t('searchUnavailable') : searchLabel}
+        aria-label={disabled ? tip : searchLabel}
         role="combobox"
         aria-expanded={panelOpen}
         aria-controls="global-search-panel"
@@ -267,7 +279,7 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
           id="global-search-panel"
           ref={listRef}
           role="listbox"
-          aria-label={t('searchPlaceholder')}
+          aria-label={searchLabel}
           /* ยึดใต้ "ช่องค้นหา" เท่านั้น: กว้างเท่า input (right-0 กันล้นขอบขวาของจอ)
              ไม่ยืดเต็มบรรทัดหัวเรื่อง จึงไม่กินพื้นที่ปุ่มอื่นในแนวนอน */
           className="absolute top-[calc(100%+6px)] right-0 w-full rounded-xl border border-line bg-card py-1.5 overflow-y-auto overscroll-contain search-pop"

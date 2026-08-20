@@ -22,6 +22,32 @@ if (DATABASE_URL) {
 
 export const usingPostgres = Boolean(pool)
 
+export const DEFAULT_USER_PREFERENCES = Object.freeze({
+  theme: 'light',
+  language: 'th',
+  density: 'comfortable',
+})
+
+const PREFERENCE_VALUES = Object.freeze({
+  theme: new Set(['light', 'dark', 'system']),
+  language: new Set(['th', 'en', 'zh']),
+  density: new Set(['comfortable', 'compact']),
+})
+
+/** ตรวจ preference แบบ fail-closed — ไม่ clamp ค่าที่ client ส่งมาเงียบ ๆ */
+export function normalizeUserPreferences(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const next = {
+    theme: value.theme,
+    language: value.language,
+    density: value.density,
+  }
+  if (!PREFERENCE_VALUES.theme.has(next.theme)) return null
+  if (!PREFERENCE_VALUES.language.has(next.language)) return null
+  if (!PREFERENCE_VALUES.density.has(next.density)) return null
+  return next
+}
+
 /** query ทั่วไปสำหรับ store.js — เรียกได้เฉพาะเมื่อ usingPostgres === true */
 export async function query(text, params) {
   return pool.query(text, params)
@@ -43,6 +69,7 @@ const DEV_SEED = DATABASE_URL
       profileName: null,          // = profile_name (ผู้ใช้ยังไม่ตั้งชื่อของตัวเอง)
       avatarKey: null,
       avatarMime: null,
+      preferences: { ...DEFAULT_USER_PREFERENCES },
       role: u.role,
       passwordHash: bcrypt.hashSync(u.password, 10), // ไม่มี plaintext ค้างในหน่วยความจำ
       mustResetPassword: false, // บัญชีเดโม่ล็อกอินได้ทันที ไม่ผ่าน force-reset
@@ -64,6 +91,7 @@ export async function getUserByUsername(username) {
     // parameterized query เท่านั้น — กัน SQL injection (ห้าม string-concat)
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
+              ui_theme, ui_language, ui_density,
               role, password_hash, must_reset_password
          FROM users
         WHERE lower(username) = $1
@@ -86,6 +114,11 @@ function mapUserRow(r) {
     profileName: r.profile_name ?? null,
     avatarKey: r.avatar_key ?? null,
     avatarMime: r.avatar_mime ?? null,
+    preferences: normalizeUserPreferences({
+      theme: r.ui_theme,
+      language: r.ui_language,
+      density: r.ui_density,
+    }) ?? { ...DEFAULT_USER_PREFERENCES },
     role: r.role,
     passwordHash: r.password_hash,
     mustResetPassword: r.must_reset_password,
@@ -106,6 +139,7 @@ export async function getUserById(id) {
   if (pool) {
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
+              ui_theme, ui_language, ui_density,
               role, password_hash, must_reset_password
          FROM users WHERE id = $1 LIMIT 1`,
       [id],
@@ -142,6 +176,33 @@ export async function updateProfileName(userId, name) {
   if (!u) return false
   u.profileName = next
   return next
+}
+
+/** บันทึก appearance preference ของบัญชีปัจจุบันเท่านั้น — userId ต้องมาจาก session */
+export async function updateUserPreferences(userId, value) {
+  const next = normalizeUserPreferences(value)
+  if (!next) return null
+
+  if (pool) {
+    const { rows } = await pool.query(
+      `UPDATE users
+          SET ui_theme = $1, ui_language = $2, ui_density = $3
+        WHERE id = $4
+      RETURNING ui_theme, ui_language, ui_density`,
+      [next.theme, next.language, next.density, userId],
+    )
+    if (rows.length === 0) return null
+    return {
+      theme: rows[0].ui_theme,
+      language: rows[0].ui_language,
+      density: rows[0].ui_density,
+    }
+  }
+
+  const user = DEV_SEED.find((candidate) => String(candidate.id) === String(userId))
+  if (!user) return null
+  user.preferences = { ...next }
+  return { ...next }
 }
 
 /**
