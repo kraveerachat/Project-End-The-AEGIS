@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-20
+updated: 2026-08-21
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -31,6 +31,90 @@ edit_policy: owner-writable
 * Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
 * The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
 * G-A remains unresolved: nginx already forwards `X-Real-IP` and `X-Forwarded-For`, but the repository does not yet define one exact stable nginx proxy address for Express to trust. `app.set('trust proxy', 1)` must not be replaced with a guessed or broad trust rule; this requires an infrastructure-reviewed deployment contract.
+
+## 🧩 Current functional design baseline (2026-08-21)
+
+> [!info] Scope of this section
+> This is the current **application design and information architecture** for
+> AEGIS Drive_LC. It records intended screen/function placement after the latest
+> frontend revision. It is **not** a production-validation result, does not
+> change any PASS/FAIL statement below, and does not assert that a UI capability
+> has a completed backend, host collector, or deployed data source.
+
+### Primary screen map — 9 screens
+
+| Group | Primary screen | Intended responsibility |
+| :--- | :--- | :--- |
+| Workspace | Dashboard | AEGIS Drive operational overview and common workflow entry |
+| Workspace | Files | File/folder exploration and normal Data Lake upload workflow |
+| Workspace | Private Vault | Dedicated encrypted-file workspace and Vault lifecycle |
+| Protection | Secure Shares | Secure-share creation, policy, lifecycle, tracking and revoke |
+| Protection | File History / Versions | Per-file version history, historical access and restore workflow |
+| Protection | Storage & Backup | Storage/backup-oriented status and configuration surface |
+| Administration | Audit Log | Event, actor, IP and resource investigation surface |
+| Administration | Access Control | User and access-administration surface |
+| Administration | Settings | Application preferences and administrative configuration groups |
+
+### Information-architecture decisions
+
+- **Files + Upload consolidated:** Upload is no longer a standalone primary navigation screen. It is an action/workflow within **Files**, alongside file/folder exploration, contextual file/folder search, sort/filter, grid/list choice, folder navigation, folder creation, drag-and-drop, upload queue/status, and recent-upload context where useful. The capability was moved, not removed.
+- **Legacy route compatibility:** current frontend navigation normalizes `/upload` and `/uploads` to the Files upload workflow (`Files` with upload open). This is a compatibility detail, not a tenth screen.
+- **Private Vault remains independent:** it is not a subsection inside Files. Its intended lifecycle is setup, unlock, lock, recovery, Vault-specific upload, and Vault file access. This section does not add a new cryptographic or production-verification claim.
+- **File History / Versions replaces the old snapshot-oriented concept:** it represents file-level version/recovery behavior. It must not be described as a filesystem-level snapshot facility merely because an older design used that term.
+- **Secure Shares remains separate:** Files may launch a share action, but share selection, expiration, password/policy options, access tracking, revoke, and share history/status remain part of the Secure Shares workspace.
+
+### Dashboard functional model
+
+Dashboard is designed as the **AEGIS Drive operational overview**. Its current functional groups are:
+
+- overview/summary: storage usage, total files, active shares, and denied or blocked event context (role terminology may vary);
+- Data Lake operational status: Application Layer, Metadata Layer, and Storage Layer — separate from host telemetry;
+- activity/context: login history, active shares, storage composition, activity, and recent-file context where the applicable source is available;
+- Quick Actions: **Upload File**, **Create Secure Share**, and **Open Private Vault**, which provide fast entry into the three common workflows; and
+- Server Telemetry: a separate UI contract for CPU, RAM, disk, network, Twingate, and host/application uptime categories. It is structured for real measurable sources when those sources are available.
+
+Server Telemetry is part of the current Dashboard design, **not** a claim that a host collector, CPU temperature, Twingate RTT, or network telemetry has been production-verified. Unavailable telemetry must render an explicit unavailable/not-connected state rather than fabricated values or misleading zeroes.
+
+### Data-honesty and empty-state behavior
+
+The current UI design distinguishes a usable but empty data source from a failed or unavailable dependency:
+
+| State | Meaning |
+| :--- | :--- |
+| Empty data | The source is available but has no rows/items, for example “No files yet.” |
+| Dependency/service unavailable | The application cannot retrieve the required source, for example metadata, SMART/RAID, Twingate live telemetry, or a host metric is unavailable. |
+
+This is a product/design rule. It does not turn either presentation state into a production test result.
+
+### Context-aware search and settings model
+
+Search is contextual rather than one identical control everywhere:
+
+| Context | Intended search scope |
+| :--- | :--- |
+| Dashboard | Global/application navigation and permitted file/user context |
+| Files | Local file/folder search in the Files workspace |
+| Private Vault | Explicitly unavailable when the encrypted Vault content cannot be safely indexed |
+| Secure Shares | Share/file context |
+| File History / Versions | File/version context |
+| Audit Log | Event/user/IP/resource context |
+| Access Control | User context |
+
+Storage & Backup and Settings remain configuration-oriented surfaces; they do not imply a large generic content-search workflow. Settings is one primary screen with five conceptual groups: **Appearance**, **Account**, **Security & Privacy**, **Storage & Data**, and **Administrator**. The application design also supports Light/Dark themes, TH/EN/ZH localization, and theme-aware branding; visual polish details such as glow, animation, or exact asset placement are not part of this functional baseline.
+
+### Current functional relationship model
+
+```text
+Authentication → RBAC → Files
+                         ├─ Upload
+                         ├─ File management
+                         ├─ File History / Versions
+                         ├─ Secure Share workflow
+                         └─ Private Vault workflow where applicable
+
+Files / metadata / storage / audit → Dashboard operational overview
+System / infrastructure metrics → Dashboard Server Telemetry UI contract
+```
 
 ---
 
