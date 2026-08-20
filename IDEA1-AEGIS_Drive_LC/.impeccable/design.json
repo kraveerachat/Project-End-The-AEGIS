@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-20T00:00:00+07:00",
+  "title": "Design System: AEGIS Drive_LC",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Instrument Blue", "canonical": "#2563eb", "tonalRamp": ["#172554", "#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#bfdbfe", "#eff6ff"] },
+      "canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#f8fafc", "tonalRamp": ["#0f172a", "#1e293b", "#334155", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f8fafc"] },
+      "surface": { "role": "neutral", "displayName": "Paper Surface", "canonical": "#ffffff", "tonalRamp": ["#111827", "#1f2937", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f3f4f6", "#ffffff"] },
+      "danger": { "role": "semantic", "displayName": "Measured Danger", "canonical": "#ef4444", "tonalRamp": ["#450a0a", "#7f1d1d", "#b91c1c", "#ef4444", "#f87171", "#fca5a5", "#fecaca", "#fef2f2"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Page Headline", "purpose": "One page title per screen." },
+      "body": { "displayName": "Thai-first Body", "purpose": "Operational copy with Thai glyph clearance." },
+      "label": { "displayName": "Technical Label", "purpose": "Timestamps, metrics, breadcrumbs, and IDs." }
+    },
+    "shadows": [
+      { "name": "ambient-surface", "value": "0 10px 25px -5px rgba(148,163,184,.12), 0 4px 12px -2px rgba(148,163,184,.05)", "purpose": "Ordinary solid cards." },
+      { "name": "raised-overlay", "value": "0 20px 40px -4px rgba(148,163,184,.18), 0 8px 16px -4px rgba(148,163,184,.08)", "purpose": "Dropdowns and modal-level surfaces." }
+    ],
+    "motion": [
+      { "name": "precise", "value": "cubic-bezier(0.32, 0.72, 0, 1)", "purpose": "All state transitions." },
+      { "name": "fast", "value": "120ms", "purpose": "Hover and focus feedback." },
+      { "name": "base", "value": "240ms", "purpose": "Dropdown and screen transitions." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The strongest local action; one per action region.",
+      "html": "<button class=\"ds-btn-primary\">Upload file</button>",
+      "css": ".ds-btn-primary{height:40px;padding:0 16px;border:0;border-radius:999px;background:#2563eb;color:#fff;font:600 14px Inter,system-ui;transition:background 120ms,transform 120ms}.ds-btn-primary:hover{background:#1d4ed8}.ds-btn-primary:active{transform:scale(.98)}.ds-btn-primary:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A solid neutral secondary action.",
+      "html": "<button class=\"ds-btn-outline\">Create share link</button>",
+      "css": ".ds-btn-outline{height:40px;padding:0 16px;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#0f172a;font:500 14px Inter,system-ui;transition:background 120ms,transform 120ms}.ds-btn-outline:hover{background:#f1f5f9}.ds-btn-outline:active{transform:scale(.98)}.ds-btn-outline:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Paper Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A solid working surface over the cool canvas.",
+      "html": "<section class=\"ds-card\"><strong>Storage used</strong><p>Measured server data</p></section>",
+      "css": ".ds-card{padding:24px;border:1px solid #e2e8f0;border-radius:24px;background:#fff;color:#0f172a;box-shadow:0 10px 25px -5px rgba(148,163,184,.12);font:400 14px Inter,system-ui}.ds-card strong{font-weight:600}.ds-card p{margin:8px 0 0;color:#475569}"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A context-specific search affordance.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search files and folders…\">",
+      "css": ".ds-input{height:44px;width:300px;padding:0 16px;border:1px solid #e2e8f0;border-radius:10px;background:#f1f5f9;color:#0f172a;font:400 14px Inter,system-ui}.ds-input:hover{border-color:#94a3b8}.ds-input:focus-visible{outline:2px solid #2563eb;outline-offset:2px;background:#fff}"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "description": "A passive measured-state label.",
+      "html": "<span class=\"ds-chip\">Healthy</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;background:#ecfdf5;color:#10b981;font:600 11px Inter,system-ui;letter-spacing:.02em}"
+    },
+    {
+      "name": "Active Navigation",
+      "kind": "nav",
+      "description": "The sole selected destination in server-filtered navigation.",
+      "html": "<button class=\"ds-nav-active\">Dashboard</button>",
+      "css": ".ds-nav-active{height:40px;padding:0 16px;border:0;border-radius:999px;background:#eff6ff;color:#1d4ed8;font:600 14px Inter,system-ui}.ds-nav-active:hover{background:#dbeafe}.ds-nav-active:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Unavailable Hatch",
+      "kind": "custom",
+      "description": "The system cannot see or verify this region.",
+      "html": "<div class=\"ds-hatch\">Not connected</div>",
+      "css": ".ds-hatch{padding:16px;border:1px dashed #e2e8f0;border-radius:16px;color:#475569;font:500 13px Inter,system-ui;background-color:#f1f5f9;background-image:repeating-linear-gradient(45deg,#e2e8f0 0,#e2e8f0 1px,transparent 1px,transparent 5px)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Precision Ledger",
+    "overview": "AEGIS Drive_LC is a trustworthy instrument for files, access, and measured system state. Solid paper-like surfaces, near-black ink, and one restrained blue replace decorative security theatre.",
+    "keyCharacteristics": ["Thai-first information architecture", "Solid surfaces and tabular numerals", "One semantic hatch", "Server-decided identity and state"],
+    "rules": [
+      { "name": "The One Blue Rule", "body": "Blue identifies action or selection. It must never become ambient decoration.", "section": "colors" },
+      { "name": "The Thai Clearance Rule", "body": "Thai text uses 1.7 line height so tone marks and upper vowels are never clipped.", "section": "typography" },
+      { "name": "The Neutral Shadow Rule", "body": "Shadows are neutral and low-contrast. Colored shadows, bloom, and glass effects are forbidden.", "section": "elevation" }
+    ],
+    "dos": ["Do default to Thai, Light, and Comfortable density for a new account.", "Do use solid white cards on the cool gray canvas and reserve Instrument Blue for action.", "Do use server-owned preferences, identity, RBAC, health, and telemetry."],
+    "donts": ["Don't use glow, bloom, glassmorphism, backdrop-blur, dark aurora gradients, particle fields, orbs, or colored shadows.", "Don't use generic SaaS dashboards: cream themes, gradient CTAs, or hero-metric templates.", "Don't invent success telemetry, storage health, notifications, or backup state to make a screen look complete."]
+  }
+}

@@ -45,6 +45,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT
   CONSTRAINT users_avatar_mime_allowed CHECK (avatar_mime IS NULL OR avatar_mime IN ('image/png', 'image/jpeg'));
 
+-- ── การตั้งค่าหน้าจอรายบัญชี ────────────────────────────────────────────────
+-- ห้ามย้ายสามค่านี้ไป localStorage/sessionStorage: อุปกรณ์แต่ละเครื่องต้องอ่านค่า
+-- เดียวกันจากบัญชี และค่าต้องไม่กลายเป็น state ฝั่ง client ที่ตรวจสอบไม่ได้
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme TEXT NOT NULL DEFAULT 'light'
+  CHECK (ui_theme IN ('light', 'dark', 'system'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_language TEXT NOT NULL DEFAULT 'th'
+  CHECK (ui_language IN ('th', 'en', 'zh'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_density TEXT NOT NULL DEFAULT 'comfortable'
+  CHECK (ui_density IN ('comfortable', 'compact'));
+
 -- ── ไฟล์ใน Data Lake (Metadata Layer — ไฟล์จริงอยู่บนดิสก์/Storage Layer) ──────
 CREATE TABLE IF NOT EXISTS files (
   id           BIGSERIAL PRIMARY KEY,

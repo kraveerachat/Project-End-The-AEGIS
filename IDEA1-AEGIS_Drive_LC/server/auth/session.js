@@ -65,6 +65,7 @@ export function establishSession(req, user, remember) {
         accountName: user.accountName ?? user.displayName,
         role: user.role,
         mustResetPassword: Boolean(user.mustResetPassword),
+        preferences: user.preferences,
       }
       // ── ข้อมูลของ "เซสชันนี้" สำหรับจอ Settings → Active sessions ──────────────
       // ⚠️ ค่าจริงทั้งหมด: ip จาก connection, device จาก User-Agent ที่เบราว์เซอร์ส่งมา
@@ -103,6 +104,13 @@ export function currentUser(req) {
 /** CSRF token ของเซสชันปัจจุบัน (null ถ้าไม่มีเซสชัน) */
 export function currentCsrfToken(req) {
   return req.session?.csrfToken ?? null
+}
+
+/** อัปเดตสำเนา preference ในเซสชันหลังเขียน DB สำเร็จ เพื่อให้ /me ตรงทันที */
+export function setSessionPreferences(req, preferences) {
+  if (!req.session?.user) return false
+  req.session.user.preferences = { ...preferences }
+  return true
 }
 
 /**

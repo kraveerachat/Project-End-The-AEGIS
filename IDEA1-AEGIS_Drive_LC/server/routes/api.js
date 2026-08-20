@@ -8,6 +8,7 @@ import { verifyCredentials } from '../auth/login.js'
 import {
   establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
   setSessionDisplayName, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
+  setSessionPreferences,
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getNavForRole } from '../rbac/permissions.js'
@@ -16,6 +17,7 @@ import {
   recordAudit, readAudit, sha256Hex,
   getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
   updateProfileName, updateAvatar, getAvatar, effectiveDisplayName,
+  updateUserPreferences, DEFAULT_USER_PREFERENCES,
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
@@ -53,6 +55,7 @@ const publicUser = (u) => ({
   accountName: u.accountName ?? u.displayName,
   role: u.role,
   mustResetPassword: Boolean(u.mustResetPassword),
+  preferences: u.preferences ?? { ...DEFAULT_USER_PREFERENCES },
 })
 
 export const apiRouter = Router()
@@ -147,6 +150,26 @@ apiRouter.get('/me', (req, res) => {
     menu: getNavForRole(user.role),
     csrfToken: currentCsrfToken(req),
   })
+})
+
+// ── การตั้งค่าหน้าจอรายบัญชี ────────────────────────────────────────────────
+// userId มาจาก session เท่านั้น; field อื่นใน body (รวม userId/role) ไม่ถูกอ่าน
+apiRouter.patch('/preferences', requireAuth, async (req, res, next) => {
+  try {
+    const preferences = await updateUserPreferences(req.user.id, {
+      theme: req.body?.theme,
+      language: req.body?.language,
+      density: req.body?.density,
+    })
+    if (!preferences) return res.status(400).json({ error: 'Invalid input' })
+
+    setSessionPreferences(req, preferences)
+    await new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())))
+    await auditAct(req, 'PREFERENCES_UPDATE', req.user.username)
+    res.json({ preferences })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // ── Audit (Admin เท่านั้น — ตรวจ role ฝั่งเซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนเมนู) ──────

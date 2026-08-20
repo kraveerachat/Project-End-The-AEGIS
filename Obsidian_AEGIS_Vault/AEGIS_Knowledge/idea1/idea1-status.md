@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-07
+updated: 2026-08-20
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,11 +17,20 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
+> **Latest change verification**: **139 discovered · 120 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-20). This does not replace the isolated-PostgreSQL release result above.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
 
-`IDEA1-AEGIS_Drive_LC/src/index.css` now carries the shared visual interaction contract used across the AEGIS frontends: light/dark surface tokens, glass card elevation, focus-visible rings, restrained active press feedback, and responsive content bounds. Existing Drive data, routes, auth/session behavior, and form logic were preserved; the change is presentation-only. The Drive dashboard remains the hierarchy reference for the sibling applications.
+`IDEA1-AEGIS_Drive_LC/src/index.css` carries the shared visual interaction contract used across the AEGIS frontends: light/dark solid-surface tokens, neutral card elevation, focus-visible rings, restrained active press feedback, and responsive content bounds. The Drive dashboard remains the hierarchy reference for the sibling applications.
+
+### UI foundation revision (2026-08-20)
+
+* Appearance preferences are now per-user database state (`users.ui_theme`, `ui_language`, `ui_density`) returned at login and `/api/me`, updated through `PATCH /api/preferences`, and mirrored into the active server session. New accounts default to Light / Thai / Comfortable. Browser storage is not used. Existing databases use the idempotent `server/db/migrations/002_user_preferences.sql` migration before the revised server starts.
+* The profile menu now exposes Profile, Settings, and Sign out; the unwired notification bell is absent. Global search explains the active page scope, and Dashboard provides Upload / Share / Private Vault quick actions.
+* Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
+* The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
+* G-A remains unresolved: nginx already forwards `X-Real-IP` and `X-Forwarded-For`, but the repository does not yet define one exact stable nginx proxy address for Express to trust. `app.set('trust proxy', 1)` must not be replaced with a guessed or broad trust rule; this requires an infrastructure-reviewed deployment contract.
 
 ---
 
@@ -203,6 +212,9 @@ erDiagram
         TEXT avatar_key "avatars/uuid.ext"
         TEXT avatar_mime "CHECK png|jpeg only"
         BOOLEAN must_reset_password "force-reset gate"
+        TEXT ui_theme "light | dark | system"
+        TEXT ui_language "th | en | zh"
+        TEXT ui_density "comfortable | compact"
     }
     shares {
         BIGSERIAL id PK
@@ -384,6 +396,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | Method & Path | Guard | Notes |
 | :--- | :--- | :--- |
 | `POST /api/login` · `/logout` · `GET /api/me` | — / session | rate limited, scope `login` |
+| `PATCH /api/preferences` | `requireAuth` | current user only; validated theme/language/density |
 | `POST /api/password/reset` | `requireAuth` | exempt from the force-reset gate |
 | `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` | same-name upload ⇒ new version |
 | `POST /api/files/:id/verify` | `requireAuth` | fresh SHA-256 over current Storage Layer bytes |

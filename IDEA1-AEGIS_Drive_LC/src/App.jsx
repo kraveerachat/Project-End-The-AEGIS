@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchMe, logout as apiLogout } from './lib/auth.js'
-import { registerUnauthorizedHandler } from './lib/api.js'
+import { apiFetch, registerUnauthorizedHandler } from './lib/api.js'
 import { makeT } from './lib/strings.js'
 import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
@@ -9,17 +9,19 @@ import { Sidebar } from './components/Sidebar.jsx'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { Login } from './screens/Login.jsx'
-import { Dashboard } from './screens/Dashboard.jsx'
-import { Files } from './screens/Files.jsx'
-import { Vault } from './screens/Vault.jsx'
-import { Uploads } from './screens/Uploads.jsx'
-import { Shares } from './screens/Shares.jsx'
-import { FileHistory } from './screens/FileHistory.jsx'
-import { Storage } from './screens/Storage.jsx'
-import { Audit } from './screens/Audit.jsx'
-import { Access } from './screens/Access.jsx'
-import { Settings } from './screens/Settings.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
+
+const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ default: module[name] })))
+const Dashboard = lazyNamed(() => import('./screens/Dashboard.jsx'), 'Dashboard')
+const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
+const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
+const Uploads = lazyNamed(() => import('./screens/Uploads.jsx'), 'Uploads')
+const Shares = lazyNamed(() => import('./screens/Shares.jsx'), 'Shares')
+const FileHistory = lazyNamed(() => import('./screens/FileHistory.jsx'), 'FileHistory')
+const Storage = lazyNamed(() => import('./screens/Storage.jsx'), 'Storage')
+const Audit = lazyNamed(() => import('./screens/Audit.jsx'), 'Audit')
+const Access = lazyNamed(() => import('./screens/Access.jsx'), 'Access')
+const Settings = lazyNamed(() => import('./screens/Settings.jsx'), 'Settings')
 
 const TITLE_KEYS = {
   dashboard: 'dashTitle', files: 'filesTitle', vault: 'vaultTitle', uploads: 'uploadsTitle',
@@ -53,7 +55,12 @@ export default function App() {
     let alive = true
     fetchMe().then((me) => {
       if (!alive) return
-      if (me) setSession({ ...me.user, menu: me.menu })
+      if (me) {
+        setSession({ ...me.user, menu: me.menu })
+        setLang(me.user.preferences?.language ?? 'th')
+        setTheme(me.user.preferences?.theme ?? 'light')
+        setDensity(me.user.preferences?.density ?? 'comfortable')
+      }
       setAuthChecked(true)
     })
     return () => { alive = false }
@@ -65,10 +72,11 @@ export default function App() {
   }, [])
 
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('aegis_theme') || 'dark'
-  })
+  const [theme, setTheme] = useState('light')
   const [density, setDensity] = useState('comfortable')
+  const [preferenceSaving, setPreferenceSaving] = useState(false)
+  const [preferenceError, setPreferenceError] = useState(false)
+  const [settingsTab, setSettingsTab] = useState('appearance')
   const [screen, setScreen] = useState('dashboard')
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
@@ -115,8 +123,6 @@ export default function App() {
       document.documentElement.dataset.theme = dark ? 'dark' : 'light'
       document.documentElement.classList.toggle('dark', dark)
       document.documentElement.classList.toggle('light', !dark)
-      localStorage.setItem('aegis_theme', theme)
-
       const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
       link.type = 'image/png'
       link.rel = 'shortcut icon'
@@ -127,16 +133,6 @@ export default function App() {
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [theme])
-
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === 'aegis_theme' && e.newValue) {
-        setTheme(e.newValue)
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.density = density
@@ -201,6 +197,9 @@ export default function App() {
         onAuthed={({ user, menu }) => {
           // role + เมนู (filter ตาม role แล้ว) มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น
           setSession({ ...user, menu })
+          setLang(user.preferences?.language ?? 'th')
+          setTheme(user.preferences?.theme ?? 'light')
+          setDensity(user.preferences?.density ?? 'comfortable')
           setScreen('dashboard')
         }}
       />
@@ -229,8 +228,29 @@ export default function App() {
     )
   }
 
+  const updatePreference = async (key, value) => {
+    const previous = { theme, language: lang, density }
+    const setValue = {
+      theme: setTheme,
+      language: setLang,
+      density: setDensity,
+    }[key]
+    setValue(value)
+    setPreferenceSaving(true)
+    setPreferenceError(false)
+    const next = { ...previous, [key]: value }
+    const result = await apiFetch('/api/preferences', { method: 'PATCH', body: next })
+    setPreferenceSaving(false)
+    if (!result.ok) {
+      setValue(previous[key])
+      setPreferenceError(true)
+      return
+    }
+    setSession((current) => current ? { ...current, preferences: result.data.preferences } : current)
+  }
+
   const screenEl = {
-    dashboard: <Dashboard t={t} lang={lang} health={healthApi} />,
+    dashboard: <Dashboard t={t} lang={lang} health={healthApi} go={setScreen} />,
     files: <Files t={t} lang={lang} go={setScreen} placeholderMode={placeholderMode} />,
     vault: <Vault t={t} placeholderMode={placeholderMode} />,
     uploads: <Uploads t={t} lang={lang} placeholderMode={placeholderMode} />,
@@ -241,10 +261,13 @@ export default function App() {
     access: <Access t={t} user={session} placeholderMode={placeholderMode} />,
     settings: (
       <Settings
-        t={t} lang={lang} setLang={setLang}
-        theme={theme} setTheme={setTheme}
-        density={density} setDensity={setDensity}
+        t={t} lang={lang} setLang={(value) => updatePreference('language', value)}
+        theme={theme} setTheme={(value) => updatePreference('theme', value)}
+        density={density} setDensity={(value) => updatePreference('density', value)}
         role={effectiveRole} user={session}
+        initialTab={settingsTab}
+        preferenceSaving={preferenceSaving}
+        preferenceError={preferenceError}
         placeholderMode={placeholderMode}
         // ผู้ใช้แก้ชื่อโปรไฟล์ของตัวเอง → อัปเดต session state ทันทีเพื่อให้ TopBar/
         // จอทุกจอเห็นชื่อใหม่โดยไม่ต้องรีเฟรช (เซิร์ฟเวอร์อัปเดต session ของมันเองแล้ว)
@@ -273,6 +296,8 @@ export default function App() {
           scrolled={scrolled}
           user={session}
           health={healthApi}
+          onProfile={() => { setSettingsTab('account'); setScreen('settings') }}
+          onSettings={() => { setSettingsTab('appearance'); setScreen('settings') }}
           onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
         />
@@ -313,7 +338,9 @@ export default function App() {
             {loadingScreen ? (
               <SkeletonLoader type={getSkeletonType(loadingScreen)} />
             ) : (
-              <div className="fade-in">{screenEl}</div>
+              <Suspense fallback={<SkeletonLoader type={getSkeletonType(screen)} />}>
+                <div className="fade-in">{screenEl}</div>
+              </Suspense>
             )}
           </div>
         </main>

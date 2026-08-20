@@ -4,9 +4,9 @@ import {
 } from 'recharts'
 import {
   Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
-  LogIn, FileText, Clock,
+  LogIn, FileText, Clock, Upload, Vault,
 } from 'lucide-react'
-import { Card, CardTitle, Chip, Dot, Reveal, ErrorState, SkeletonLoader } from '../components/ui.jsx'
+import { Btn, Card, CardTitle, Chip, Dot, Reveal, ErrorState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
@@ -25,7 +25,7 @@ import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/da
    ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
-function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, gradientValue = false }) {
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
@@ -53,7 +53,7 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
       {/* lang="en" — DESIGN.md · Cascade traps. This is a tabular-nums stat */}
       <p
         lang="en"
-        className={`text-3xl font-mono font-semibold tracking-tight leading-none mt-1.5 ${gradientValue ? 'bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400' : 'text-slate-900 dark:text-white'}`}
+        className="text-3xl font-mono font-semibold tracking-tight leading-none mt-1.5 text-slate-900 dark:text-white"
         style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel && statusTone === 'ok' ? 'var(--ok)' : undefined }}
       >
         {valueLabel ?? display}
@@ -353,7 +353,7 @@ function ActivityChart({ t, lang, data }) {
 }
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
-export function Dashboard({ t, lang, health }) {
+export function Dashboard({ t, lang, health, go }) {
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
@@ -374,6 +374,23 @@ export function Dashboard({ t, lang, health }) {
 
   return (
     <div className="flex flex-col gap-6">
+      <section className="flex items-center justify-between gap-3 flex-wrap" aria-labelledby="quick-actions-title">
+        <h2 id="quick-actions-title" className="text-sm font-semibold text-ink">{t('quickActions')}</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Btn variant="primary" size="sm" onClick={() => go('uploads')}>
+            <Upload size={14} strokeWidth={1.7} />
+            {t('uploadFile')}
+          </Btn>
+          <Btn variant="outline" size="sm" onClick={() => go('shares')}>
+            <Link2 size={14} strokeWidth={1.7} />
+            {t('createShareLink')}
+          </Btn>
+          <Btn variant="outline" size="sm" onClick={() => go('vault')}>
+            <Vault size={14} strokeWidth={1.7} />
+            {t('openPrivateVault')}
+          </Btn>
+        </div>
+      </section>
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
@@ -388,11 +405,10 @@ export function Dashboard({ t, lang, health }) {
             suffix={hasCapacity ? `/ ${m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(m.storageTotalBytes)}` : t('notAvailable')}
             allClearLabel={placeholderLabel}
             statusTone="neutral"
-            gradientValue
             footer={hasCapacity ? (
               <div className="flex flex-col gap-1.5">
                 <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full" style={{ width: `${usedPct}%` }} />
+                  <div className="h-full bg-accent rounded-full" style={{ width: `${usedPct}%` }} />
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
                   <span>{usedPct}% {t('capacityUsed')}</span>

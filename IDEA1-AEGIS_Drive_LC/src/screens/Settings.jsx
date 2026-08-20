@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, Trash2, ImagePlus } from 'lucide-react'
 import {
   Card, CardTitle, Chip, Btn, Segmented, Field, PillInput,
@@ -81,7 +81,7 @@ function ProfileCard({ t, user, role, onSaved }) {
       setAvatarErr(res.status === 413 ? 'size' : res.status === 415 ? 'type' : 'failed')
       return
     }
-    setAvatarBust((n) => n + 1) // บังคับ <img> โหลดใหม่ (URL เดิม เนื้อหาใหม่)
+    setAvatarBust((n) => n + 1) // บังคับ Avatar โหลดใหม่ (URL เดิม เนื้อหาใหม่)
   }
 
   const removeAvatar = async () => {
@@ -298,9 +298,10 @@ function Row({ label, children, note }) {
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved, placeholderMode = false }) {
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
   const now = useNow(30_000)
-  const [tab, setTab] = useState('appearance')
+  const [tab, setTab] = useState(initialTab)
+  useEffect(() => setTab(initialTab), [initialTab])
   // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จาก session store จริงฝั่งเซิร์ฟเวอร์
   const sessionsApi = useApi('/api/sessions')
 
@@ -372,6 +373,8 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         {activeTab === 'appearance' && (
           <Card className="p-5 fade-in">
             <CardTitle>{t('setAppearance')}</CardTitle>
+            {preferenceSaving && <p role="status" className="mb-2 text-xs text-ink-3">{t('preferencesSaving')}</p>}
+            {preferenceError && <p role="alert" className="mb-2 text-xs text-danger">{t('preferencesSaveFailed')}</p>}
             <Row label={t('theme')}>
               <Segmented
                 ariaLabel={t('theme')}
@@ -382,10 +385,11 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                 ]}
                 value={theme}
                 onChange={setTheme}
+                disabled={preferenceSaving}
               />
             </Row>
             <Row label={t('language')}>
-              <Segmented ariaLabel={t('language')} options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))} value={lang} onChange={setLang} />
+              <Segmented ariaLabel={t('language')} options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))} value={lang} onChange={setLang} disabled={preferenceSaving} />
             </Row>
             <Row label={t('density')}>
               <Segmented
@@ -396,6 +400,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                 ]}
                 value={density}
                 onChange={setDensity}
+                disabled={preferenceSaving}
               />
             </Row>
           </Card>
