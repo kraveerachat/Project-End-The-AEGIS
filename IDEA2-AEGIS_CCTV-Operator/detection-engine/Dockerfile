@@ -17,8 +17,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt requirements-ai.txt ./
+# Ultralytics depends on the GUI OpenCV distribution. Reinstall the headless
+# build last so Linux camera containers do not require X11 libraries.
 RUN if [ "$AEGIS_INSTALL_AI" = "true" ]; then \
-        pip install --no-cache-dir -r requirements-ai.txt; \
+        pip install --no-cache-dir -r requirements-ai.txt \
+        && pip uninstall --yes opencv-python opencv-python-headless \
+        && pip install --no-cache-dir --no-deps \
+            "opencv-python-headless>=4.8,<5.0"; \
     else \
         pip install --no-cache-dir -r requirements.txt; \
     fi

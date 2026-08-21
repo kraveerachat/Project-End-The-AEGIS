@@ -150,12 +150,16 @@ other faces remain `Unknown`. The safe default is still the placeholder backend.
 
 Enrollment images, SFace templates, YOLO weights, and OpenCV model files remain
 local runtime material and are excluded from Git and Docker build contexts.
-The Dockerfile can install optional AI dependencies, but actual Docker AI
-build/up is still unverified because Docker CLI is unavailable in the current
-verification environment. Automated Detection Engine evidence is 40/40 tests;
-earlier local Windows-camera testing exercised enrolled Admin and Unknown
-results. Internal/Production rollout remains blocked on Docker evidence,
-credential rotation, and integration review.
+The optional AI Docker image now installs the headless OpenCV distribution after
+Ultralytics so Linux containers do not depend on X11 `libxcb`. The AI image
+imported OpenCV, Torch, FastAPI, Uvicorn, and YOLO successfully, and an isolated
+Compose run remained healthy with zero restarts while an unavailable camera
+reported `degraded`; SIGTERM stopped all workers with exit code 0. CUDA was not
+available in the Docker Desktop test, and Docker webcam passthrough was not
+claimed. Automated Detection Engine evidence remains 40/40 tests; earlier local
+Windows-camera testing exercised enrolled Admin and Unknown results.
+Internal/Production rollout remains blocked on credential rotation and
+integration review.
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
 
