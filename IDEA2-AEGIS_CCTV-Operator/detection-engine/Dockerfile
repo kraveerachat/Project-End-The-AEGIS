@@ -5,14 +5,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Core is the safe default. Camera nodes that explicitly use the trained
+# YOLO+SFace backend build with --build-arg AEGIS_INSTALL_AI=true; model weights
+# and biometric templates are mounted at runtime and never copied into images.
+ARG AEGIS_INSTALL_AI=false
+
 # OpenSSH/rsync are installed for the optional verified NAS path. Development
 # keeps NAS disabled, so their presence never implies a successful transfer.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client rsync \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-ai.txt ./
+RUN if [ "$AEGIS_INSTALL_AI" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-ai.txt; \
+    else \
+        pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 COPY aegis_engine ./aegis_engine
 COPY run.py setup_camera.py README.md .env.example ./

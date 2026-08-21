@@ -139,10 +139,28 @@ evidence previously showed idle → active → idle behavior. Docker camera acce
 deployed browser E2E, production heartbeat, tunnel auto-start, Telegram after
 credential rotation, and production NAS remain unverified.
 
+## YOLO + SFace Admin recognition update (2026-08-21)
+
+The modular Detection Engine now has an opt-in
+`AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin` backend. YOLO supplies an Admin
+candidate region, but it cannot authorize identity by itself. The overlapping
+YuNet face must also match an enrolled SFace template before the result becomes
+`Authorized/Admin`; missing models, weak matches, inference errors, and all
+other faces remain `Unknown`. The safe default is still the placeholder backend.
+
+Enrollment images, SFace templates, YOLO weights, and OpenCV model files remain
+local runtime material and are excluded from Git and Docker build contexts.
+The Dockerfile can install optional AI dependencies, but actual Docker AI
+build/up is still unverified because Docker CLI is unavailable in the current
+verification environment. Automated Detection Engine evidence is 40/40 tests;
+earlier local Windows-camera testing exercised enrolled Admin and Unknown
+results. Internal/Production rollout remains blocked on Docker evidence,
+credential rotation, and integration review.
+
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
 
-> ⚠️ **Read this first — what is and is not real (audited 2026-07-27).**
-> A full mock-vs-real audit was run against this module, followed by two build-out phases. The subsystems below are now genuinely wired end to end: capture → detection → segment recording → NAS sync → metadata → live video. **The one thing that is still not real is identity recognition itself** — see [Detection Engine](#-detection-engine-laptop-vlan-20) — and there is still **no clip playback**. Everything else on this page has been verified against a running system, not inferred from code.
+> ⚠️ **Historical audit boundary (2026-07-27; superseded in part on 2026-08-21).**
+> The July audit used the safe placeholder and therefore had no real identity recognition. The modular runtime now includes the opt-in YOLO+SFace backend described above, while placeholder remains the default. This is local implementation evidence, not an Internal/Production deployment claim.
 
 ---
 
@@ -503,7 +521,7 @@ This is a same-day continuation of the pass immediately above, this time run wit
 
 | Item | Status | Notes |
 | :--- | :--- | :--- |
-| **Real face-recognition model** | 🔴 Open | The seam is ready; the model is not. Until injected, every detection is `Unknown` and identity-based UI has nothing to show. Deliberately out of scope for both build-out phases. |
+| **Real face-recognition model** | 🟠 Partial | The modular runtime has an opt-in YOLO+SFace backend with fail-secure dual-gate authorization and 40/40 automated tests. Model weights and enrolled SFace templates stay local and are not committed. Docker AI build/up, Internal/Production deployment, threshold calibration for all three Admins, and post-rotation Telegram verification remain open. |
 | ~~**Clip playback**~~ | ✅ Resolved (2026-08-01) | `GET /api/clips/:id/video` + `getClipById()` in `store.js` + a real `<video>` element in `Archive.jsx` replaced the text-panel-only play button; a URL bug that dropped the `/monitor/` prefix was fixed in the same pass. **Independently re-verified live in the 2026-08-01 follow-up session** after briefly regressing to a 404 (see Bugs Found) — `grep` confirms the route is deployed and a real CAM-05 clip was confirmed playable end to end. |
 | **`gateway/nginx.conf` case-sensitivity gap** | 🔴 Open | `location /monitor/internal/` is a case-sensitive literal, but Express matches paths case-insensitively — `/monitor/Internal/...` bypasses the edge guard. The production HUB config already uses `location ~* ^/monitor/internal(/\|$)` and its comment records that the gateway has the same hole. Still guarded by the API key; the *edge* layer is what is bypassable. |
 | **Heartbeat history / uptime %** | 🔴 Open | `camera_heartbeat` keeps only the latest row per camera. Uptime %, 24h disconnects and a real latency sparkline all need a time-series table. Currently shown as `unavailable`. |

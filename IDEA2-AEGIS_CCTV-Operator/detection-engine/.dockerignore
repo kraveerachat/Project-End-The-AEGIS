@@ -1,0 +1,27 @@
+# Keep credentials, biometric material, models, and runtime evidence outside
+# the Docker build context. AI artifacts are mounted read-only at runtime.
+.env
+.env.*
+!.env.example
+*.pt
+*.pth
+*.weights
+*.onnx
+*.npz
+*.h5
+
+admin_photos/
+models/
+snapshots/
+segments/
+logs/
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+.git/
+.gitignore

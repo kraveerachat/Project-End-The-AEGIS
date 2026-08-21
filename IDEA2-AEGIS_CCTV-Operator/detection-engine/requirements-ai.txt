@@ -1,0 +1,7 @@
+# Optional trained-model backend for IDEA2 camera nodes.
+# Install the core runtime first, then this file on nodes configured with
+# AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin. YOLO supplies candidate regions;
+# YuNet and SFace still have to verify identity. Models and biometric templates
+# remain local and ignored.
+-r requirements.txt
+ultralytics>=8.4,<9

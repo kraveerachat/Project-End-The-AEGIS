@@ -12,5 +12,8 @@ venv/
 segments/
 snapshots/
 
+# Local biometric templates are sensitive node assets, never source code.
+*.npz
+
 # Synthetic verification feed generated for the first end-to-end run
 testfeed.mp4

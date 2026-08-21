@@ -10,30 +10,30 @@ Configuration is entirely via environment variables (see ``.env.example``);
 copy that to ``.env`` and edit, or export the variables in your process
 manager (systemd, supervisor, Task Scheduler…).
 
-Injecting the real face-recognition model
------------------------------------------
-The engine ships with a placeholder recognizer so the whole pipeline runs
-today. When the AI model is ready, implement the tiny ``FaceRecognizer``
-contract (see ``aegis_engine/face_detector.py``) and pass an instance in::
-
-    from aegis_engine.engine import DetectionEngine
-    from my_team.model import ArcFaceRecognizer   # your module
-
-    DetectionEngine(recognizer=ArcFaceRecognizer(weights="./model.pt")).run_forever()
+Selecting the face-recognition backend
+--------------------------------------
+The safe default is the identity-free placeholder. A camera node opts into the
+trained YOLO model plus SFace identity verification with
+``AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin``. Model and biometric template
+files remain outside Git.
 """
 
 from __future__ import annotations
 
 import sys
 
+from aegis_engine.config import EngineConfig
 from aegis_engine.engine import DetectionEngine
+from aegis_engine.yolo_sface_admin_recognizer import build_configured_recognizer
 
 
 def main() -> int:
     try:
-        # >>> To enable real recognition, construct your model and pass it here:
-        #     engine = DetectionEngine(recognizer=YourModel())
-        engine = DetectionEngine()
+        config = EngineConfig.from_env().validate()
+        # Model selection is configuration-driven so every camera node can use
+        # its own local weight path without editing or committing source code.
+        recognizer = build_configured_recognizer(config)
+        engine = DetectionEngine(config=config, recognizer=recognizer)
         engine.run_forever()
         return 0
     except Exception as exc:

@@ -26,18 +26,19 @@ docker compose
 |---|---|
 | Configuration and logging | Implemented |
 | Camera capture/reconnect | Implemented; real camera verification pending |
-| Viewer-demand camera | Implemented behind `AEGIS_CAPTURE_ON_DEMAND`; deployed Monitor E2E pending |
-| Face detection | Haar-based development placeholder |
-| Face recognition | **Placeholder only**; every placeholder face is `Unknown` with no identity |
+| Viewer-demand camera | Implemented behind `AEGIS_CAPTURE_ON_DEMAND`; real Monitor E2E pending |
+| Face detection | Placeholder Haar fallback; optional trained YOLO candidate gate plus YuNet face/landmark detection |
+| Face recognition | Placeholder by default; `yolo-sface-admin` requires YOLO and an enrolled SFace identity match before returning `Authorized` |
 | Recording | Implemented; local segments are retained when NAS is disabled |
 | Monitor client | Implemented, optional/fail-soft; real heartbeat integration pending |
-| Live MJPEG stream | Implemented; Monitor proxy integration remains environment-dependent |
+| Live MJPEG stream | Implemented; detector-aligned `Unknown` boxes verified on a real Windows webcam; Production proxy remains unverified |
 | Telegram | Dry-run when token/chat are absent; credential rotation required before real testing |
 | NAS | Disabled by default; production transfer/integrity verification pending |
 
-Object detection is not identity. The modular runtime does not import the
-legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
-authorization from an object class.
+Object detection is not identity. The optional hybrid backend keeps the trained
+YOLO model as its first gate, then verifies the aligned face against a local
+SFace Admin template. A YOLO box alone, a missing model, a weak identity match,
+or an inference failure cannot become `Authorized`.
 
 ## Development quick start
 
@@ -51,12 +52,47 @@ copy .env.example .env      # Windows
 python run.py
 ```
 
+For a node using the trained local Admin model, install the optional YOLO
+backend (YuNet/SFace run through the existing OpenCV dependency):
+
+```bash
+pip install -r requirements-ai.txt
+```
+
+Create the biometric template from at least three trusted images of the same
+Admin. Source photos, ONNX files, the generated `.npz`, `.pt`, and `.env` all
+remain local and must never be committed:
+
+```bash
+python enroll_admin.py \
+  --input C:/local/trusted-admin-photos \
+  --detector-model C:/local/models/face_detection_yunet_2023mar.onnx \
+  --recognizer-model C:/local/models/face_recognition_sface_2021dec.onnx \
+  --output C:/local/identity/admin_sface_v1.npz
+```
+
+Then set these local `.env` values:
+
+```text
+AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin
+AEGIS_ADMIN_MODEL_PATH=C:/path/to/admin-model.pt
+AEGIS_ADMIN_CLASS_NAME=Admin-Face-Scan
+AEGIS_ADMIN_DISPLAY_NAME=Admin
+AEGIS_ADMIN_MIN_CONFIDENCE=50
+AEGIS_FACE_DETECTOR_MODEL_PATH=C:/path/to/face_detection_yunet_2023mar.onnx
+AEGIS_FACE_RECOGNIZER_MODEL_PATH=C:/path/to/face_recognition_sface_2021dec.onnx
+AEGIS_ADMIN_EMBEDDINGS_PATH=C:/path/to/admin_sface_v1.npz
+AEGIS_FACE_MATCH_COSINE_THRESHOLD=0.50
+AEGIS_YOLO_GATE_TTL_S=2.0
+```
+
 The default development configuration has:
 
 - `AEGIS_NAS_ENABLED=false`
 - Monitor persistence disabled until both Monitor URL and service key are set
 - Telegram in dry-run until both token and chat ID are set
-- `PlaceholderRecognizer`, which can return only `Unknown` identities
+- `PlaceholderRecognizer`, which can return only `Unknown` identities; real
+  Admin recognition requires the explicit `yolo-sface-admin` configuration above
 
 The runtime API can start while the camera is unavailable; `VideoCatcher`
 reports disconnected state and retries with bounded exponential backoff.
@@ -75,10 +111,19 @@ This mode requires `AEGIS_STREAM_ENABLED=true` and a non-empty
 either boundary is missing. Multiple authorized viewers share one camera
 handle, so one logout does not interrupt another viewer who is still watching.
 
-The MJPEG feed uses the exact processed frame/result pair, so detector boxes
-stay aligned. Annotations are drawn on a copy for live viewing only; recordings
-retain the original camera pixels. Viewer-demand changes camera resource use,
-not web authorization: Monitor remains the server-side RBAC boundary.
+The MJPEG feed is produced from the exact frame/result pair processed by the
+detector. Bounding boxes are drawn on a copy for live viewing only; the
+recording queue keeps the original camera pixels. The placeholder backend
+labels every visible box `UNKNOWN`; the optional trained backend labels a face
+authorized only after both the YOLO candidate gate and SFace identity gate pass.
+No unrelated object class, YOLO-only result, or model failure is treated as an
+authorized identity. This recognition label does not grant Monitor RBAC; web
+access remains enforced server-side by Monitor.
+
+The hybrid backend retains an overlapping YOLO candidate for two seconds to
+smooth normal detector flicker in video. The cache is position-scoped and never
+replaces SFace: identity verification still runs on every Authorized frame, and
+an inference exception clears the cache immediately.
 
 ## Docker development stack
 
@@ -97,6 +142,25 @@ not a production NAS and not evidence of a successful NAS transfer.
 Camera device pass-through varies by Docker host. A running/degraded container
 does not prove webcam capture; record that separately as
 `REAL CAMERA VERIFICATION PENDING` until tested on the target edge node.
+
+The default image installs only the safe core runtime and therefore keeps the
+placeholder recognizer. Build the same Dockerfile with the optional AI layer
+only on a node that will use the hybrid recognizer:
+
+```bash
+docker build \
+  --build-arg AEGIS_INSTALL_AI=true \
+  -t aegis-detection-engine:ai \
+  IDEA2-AEGIS_CCTV-Operator/detection-engine
+```
+
+The YOLO weight, YuNet/SFace ONNX files, and enrolled `.npz` template must be
+read-only runtime mounts outside the image. Point the corresponding
+`AEGIS_*_MODEL_PATH` and `AEGIS_ADMIN_EMBEDDINGS_PATH` variables at those mount
+paths. Never add those artifacts to a Docker build context, image layer, or Git.
+Without the AI build argument and all four local artifacts, keep
+`AEGIS_RECOGNIZER_BACKEND=placeholder`; the runtime must not claim Admin
+recognition.
 
 ## Optional integrations
 
@@ -171,12 +235,13 @@ python -m unittest discover -s tests -v
 
 They cover configuration loading, NAS-disabled startup, lifecycle rollback and
 shutdown, NAS success truthfulness, placeholder authorization safety,
-viewer-demand capture and segment finalization, aligned live boxes without raw
-frame mutation, and operator-readable startup failures.
+YOLO+SFace two-gate authorization/fail-secure fallback, viewer-demand capture,
+detector-aligned live boxes without raw-frame mutation, and operator-readable
+startup failures.
 
 ## Deferred work
 
-- Real face recognition and enrollment
+- Unknown-person negative-set calibration, liveness, and production accuracy acceptance
 - Real camera verification on the edge node
 - Real Monitor heartbeat integration
 - Telegram routing/delivery after credential rotation

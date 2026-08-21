@@ -27,6 +27,20 @@ class CanonicalRuntimeWiringTests(unittest.TestCase):
             / "Dockerfile"
         ).read_text(encoding="utf-8")
         self.assertIn('CMD ["python", "run.py"]', dockerfile)
+        self.assertIn("ARG AEGIS_INSTALL_AI=false", dockerfile)
+        self.assertIn("requirements-ai.txt", dockerfile)
+        self.assertNotRegex(dockerfile, r"(?i)COPY\s+.*\.(?:pt|onnx|npz)")
+
+    def test_docker_context_excludes_secrets_models_and_biometrics(self):
+        dockerignore = (
+            REPOSITORY_ROOT
+            / "IDEA2-AEGIS_CCTV-Operator"
+            / "detection-engine"
+            / ".dockerignore"
+        ).read_text(encoding="utf-8")
+
+        for pattern in (".env", "*.pt", "*.onnx", "*.npz", "admin_photos/"):
+            self.assertIn(pattern, dockerignore)
 
     def test_legacy_helper_contains_no_hard_coded_credentials(self):
         helper = (REPOSITORY_ROOT / "AEGIS_Camera" / "run_engine.ps1").read_text(

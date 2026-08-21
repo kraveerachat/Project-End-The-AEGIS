@@ -117,6 +117,23 @@ class EngineConfig:
     # --- Detection (FaceDetectorProcessor) -------------------------------
     detect_every_n_frames: int = 1  # throttle inference (e.g. 2 = every other)
     detect_min_confidence: float = 60.0
+    # Placeholder is deliberately the safe default. The production candidate
+    # keeps the trained YOLO model, but requires SFace identity verification;
+    # a one-class object detector is never sufficient to authorize a person.
+    recognizer_backend: str = "placeholder"  # placeholder | yolo-sface-admin
+    admin_model_path: Optional[str] = None
+    admin_class_name: str = "Admin-Face-Scan"
+    admin_display_name: str = "Admin"
+    admin_min_confidence: float = 50.0
+    face_detector_model_path: Optional[str] = None
+    face_recognizer_model_path: Optional[str] = None
+    admin_embeddings_path: Optional[str] = None
+    face_match_cosine_threshold: float = 0.50
+    face_detector_score_threshold: float = 0.60
+    face_detector_max_side: int = 640
+    yolo_gate_ttl_s: float = 2.0
+    unknown_min_face_ratio: float = 0.12
+    unknown_large_face_ratio: float = 0.22
 
     # --- Recording (SegmentRecorder) -------------------------------------
     segment_seconds: int = 600  # ~10 minutes per file
@@ -216,6 +233,42 @@ class EngineConfig:
             detect_min_confidence=_env_float(
                 "AEGIS_DETECT_MIN_CONFIDENCE", cls.detect_min_confidence
             ),
+            recognizer_backend=_env_str(
+                "AEGIS_RECOGNIZER_BACKEND", cls.recognizer_backend
+            ).strip().lower(),
+            admin_model_path=_env_opt("AEGIS_ADMIN_MODEL_PATH"),
+            admin_class_name=_env_str(
+                "AEGIS_ADMIN_CLASS_NAME", cls.admin_class_name
+            ),
+            admin_display_name=_env_str(
+                "AEGIS_ADMIN_DISPLAY_NAME", cls.admin_display_name
+            ),
+            admin_min_confidence=_env_float(
+                "AEGIS_ADMIN_MIN_CONFIDENCE", cls.admin_min_confidence
+            ),
+            face_detector_model_path=_env_opt("AEGIS_FACE_DETECTOR_MODEL_PATH"),
+            face_recognizer_model_path=_env_opt("AEGIS_FACE_RECOGNIZER_MODEL_PATH"),
+            admin_embeddings_path=_env_opt("AEGIS_ADMIN_EMBEDDINGS_PATH"),
+            face_match_cosine_threshold=_env_float(
+                "AEGIS_FACE_MATCH_COSINE_THRESHOLD",
+                cls.face_match_cosine_threshold,
+            ),
+            face_detector_score_threshold=_env_float(
+                "AEGIS_FACE_DETECTOR_SCORE_THRESHOLD",
+                cls.face_detector_score_threshold,
+            ),
+            face_detector_max_side=_env_int(
+                "AEGIS_FACE_DETECTOR_MAX_SIDE", cls.face_detector_max_side
+            ),
+            yolo_gate_ttl_s=_env_float(
+                "AEGIS_YOLO_GATE_TTL_S", cls.yolo_gate_ttl_s
+            ),
+            unknown_min_face_ratio=_env_float(
+                "AEGIS_UNKNOWN_MIN_FACE_RATIO", cls.unknown_min_face_ratio
+            ),
+            unknown_large_face_ratio=_env_float(
+                "AEGIS_UNKNOWN_LARGE_FACE_RATIO", cls.unknown_large_face_ratio
+            ),
             segment_seconds=_env_int("AEGIS_SEGMENT_SECONDS", cls.segment_seconds),
             segment_dir=_env_str("AEGIS_SEGMENT_DIR", cls.segment_dir),
             segment_fourcc=_env_str("AEGIS_SEGMENT_FOURCC", cls.segment_fourcc),
@@ -278,6 +331,57 @@ class EngineConfig:
             raise ValueError("AEGIS_SEGMENT_SECONDS must be > 0")
         if self.detect_every_n_frames <= 0:
             raise ValueError("AEGIS_DETECT_EVERY_N_FRAMES must be > 0")
+        if not 0 < self.detect_min_confidence <= 100:
+            raise ValueError("AEGIS_DETECT_MIN_CONFIDENCE must be between 0 and 100")
+        if self.recognizer_backend not in {"placeholder", "yolo-sface-admin"}:
+            raise ValueError(
+                "AEGIS_RECOGNIZER_BACKEND must be placeholder or "
+                "yolo-sface-admin; yolo-admin alone cannot prove identity"
+            )
+        if self.recognizer_backend == "yolo-sface-admin":
+            if not self.admin_model_path:
+                raise ValueError(
+                    "AEGIS_ADMIN_MODEL_PATH is required when "
+                    "AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin"
+                )
+            required_identity_paths = {
+                "AEGIS_FACE_DETECTOR_MODEL_PATH": self.face_detector_model_path,
+                "AEGIS_FACE_RECOGNIZER_MODEL_PATH": self.face_recognizer_model_path,
+                "AEGIS_ADMIN_EMBEDDINGS_PATH": self.admin_embeddings_path,
+            }
+            missing = [name for name, value in required_identity_paths.items() if not value]
+            if missing:
+                raise ValueError(
+                    "Identity verification requires: " + ", ".join(missing)
+                )
+            if not self.admin_class_name.strip() or not self.admin_display_name.strip():
+                raise ValueError(
+                    "AEGIS_ADMIN_CLASS_NAME and AEGIS_ADMIN_DISPLAY_NAME must not be empty"
+                )
+            if not 0 < self.admin_min_confidence <= 100:
+                raise ValueError(
+                    "AEGIS_ADMIN_MIN_CONFIDENCE must be between 0 and 100"
+                )
+            if not 0 < self.face_match_cosine_threshold <= 1:
+                raise ValueError(
+                    "AEGIS_FACE_MATCH_COSINE_THRESHOLD must be between 0 and 1"
+                )
+            if not 0 < self.face_detector_score_threshold <= 1:
+                raise ValueError(
+                    "AEGIS_FACE_DETECTOR_SCORE_THRESHOLD must be between 0 and 1"
+                )
+            if self.face_detector_max_side < 320:
+                raise ValueError("AEGIS_FACE_DETECTOR_MAX_SIDE must be >= 320")
+            if not 0 <= self.yolo_gate_ttl_s <= 10:
+                raise ValueError("AEGIS_YOLO_GATE_TTL_S must be between 0 and 10")
+            if not (
+                0 < self.unknown_min_face_ratio
+                <= self.unknown_large_face_ratio
+                <= 1
+            ):
+                raise ValueError(
+                    "AEGIS_UNKNOWN face ratios must satisfy 0 < min <= large <= 1"
+                )
         if self.record_queue_size <= 0 or self.detect_queue_size <= 0:
             raise ValueError("AEGIS_RECORD_QUEUE_SIZE and AEGIS_DETECT_QUEUE_SIZE must be > 0")
         if self.nas_enabled:
@@ -336,5 +440,13 @@ class EngineConfig:
                 and val
             ):
                 val = _redact_url_credentials(str(val))
+            elif f.name in {
+                "admin_model_path",
+                "face_detector_model_path",
+                "face_recognizer_model_path",
+                "admin_embeddings_path",
+            } and val:
+                # Logs need the selected filename, not a user's absolute path.
+                val = os.path.basename(str(val))
             out[f.name] = val
         return out

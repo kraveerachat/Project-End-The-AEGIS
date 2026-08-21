@@ -68,6 +68,56 @@ class EngineConfigTests(unittest.TestCase):
             detection_engine_api_key="service-key",
         ).validate()
 
+    def test_yolo_sface_backend_requires_detection_and_identity_models(self):
+        with self.assertRaisesRegex(ValueError, "AEGIS_ADMIN_MODEL_PATH"):
+            EngineConfig(recognizer_backend="yolo-sface-admin").validate()
+
+        with self.assertRaisesRegex(ValueError, "AEGIS_FACE_DETECTOR_MODEL_PATH"):
+            EngineConfig(
+                recognizer_backend="yolo-sface-admin",
+                admin_model_path="C:/local/admin.pt",
+            ).validate()
+
+        EngineConfig(
+            recognizer_backend="yolo-sface-admin",
+            admin_model_path="C:/local/admin.pt",
+            face_detector_model_path="C:/local/yunet.onnx",
+            face_recognizer_model_path="C:/local/sface.onnx",
+            admin_embeddings_path="C:/local/admin.npz",
+        ).validate()
+
+    def test_yolo_only_backend_is_rejected_as_not_identity(self):
+        with self.assertRaisesRegex(ValueError, "cannot prove identity"):
+            EngineConfig(
+                recognizer_backend="yolo-admin",
+                admin_model_path="C:/local/admin.pt",
+            ).validate()
+
+    def test_unknown_face_ratios_are_fail_fast(self):
+        with self.assertRaisesRegex(ValueError, "AEGIS_UNKNOWN face ratios"):
+            EngineConfig(
+                recognizer_backend="yolo-sface-admin",
+                admin_model_path="C:/local/admin.pt",
+                face_detector_model_path="C:/local/yunet.onnx",
+                face_recognizer_model_path="C:/local/sface.onnx",
+                admin_embeddings_path="C:/local/admin.npz",
+                unknown_min_face_ratio=0.4,
+                unknown_large_face_ratio=0.2,
+            ).validate()
+
+    def test_model_path_logs_only_filename(self):
+        redacted = EngineConfig(
+            recognizer_backend="yolo-sface-admin",
+            admin_model_path="C:/Users/example/private/admin.pt",
+            face_detector_model_path="C:/Users/example/private/yunet.onnx",
+            face_recognizer_model_path="C:/Users/example/private/sface.onnx",
+            admin_embeddings_path="C:/Users/example/private/admin.npz",
+        ).redacted()
+        self.assertEqual(redacted["admin_model_path"], "admin.pt")
+        self.assertEqual(redacted["face_detector_model_path"], "yunet.onnx")
+        self.assertEqual(redacted["face_recognizer_model_path"], "sface.onnx")
+        self.assertEqual(redacted["admin_embeddings_path"], "admin.npz")
+
 
 if __name__ == "__main__":
     unittest.main()

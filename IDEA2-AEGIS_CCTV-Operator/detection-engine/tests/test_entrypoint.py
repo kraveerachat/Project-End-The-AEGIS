@@ -10,7 +10,9 @@ class EntrypointTests(unittest.TestCase):
     def test_startup_failure_is_operator_readable(self):
         stderr = io.StringIO()
         with patch.object(
-            run, "DetectionEngine", side_effect=ValueError("AEGIS_TARGET_FPS must be > 0")
+            run.EngineConfig,
+            "from_env",
+            side_effect=ValueError("AEGIS_TARGET_FPS must be > 0"),
         ), contextlib.redirect_stderr(stderr):
             code = run.main()
 
