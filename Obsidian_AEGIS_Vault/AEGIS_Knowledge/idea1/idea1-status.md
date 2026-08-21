@@ -37,10 +37,49 @@ edit_policy: owner-writable
 > [!warning] Local fix complete; production acceptance pending
 > **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** Do not describe these UI defects as resolved in production until the Drive image is rebuilt and FT-1D is rerun.
 
+| Production-discovered defect | Local state |
+| :--- | :--- |
+| Successful upload gave no clear completion feedback | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
+| Floating upload queue stayed at 1 after completion | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
+| Theme transition was one-way (Dark Login → Light App) | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
+
 * Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
-* The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state.
-* Login and the authenticated shell now share one theme resolver. A fresh client without a hint starts Light; the authenticated PostgreSQL account preference wins after login and refreshes the theme-only shell hint. Dark and explicit System choices therefore continue across logout and hard reload without storing identity, role, session, password, or authorization state in browser storage.
+* The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
+* Login and the authenticated shell share one theme resolver, and continuity is bidirectional. A fresh client without a hint starts Light. Crossing the authentication boundary follows one precedence rule: an explicit Login-screen choice made during the current unauthenticated session > the authenticated PostgreSQL account preference > the persisted shell hint > Light. Dark and explicit System choices continue across login, logout, and hard reload without storing identity, role, session, password, or authorization state in browser storage.
 * The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
+* **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
+
+#### Theme continuity — manual acceptance and the remaining defect (2026-08-22)
+
+Manual acceptance of the first theme-continuity fix confirmed two directions and
+one failure. The failure is part of **this same open item**; it is not a new one.
+
+| Transition | Expected | Observed | Result |
+| :--- | :--- | :--- | :--- |
+| Light Login → sign in → Dashboard | Light | Light | ✅ PASS |
+| Dark App → sign out → Login | Dark | Dark | ✅ PASS |
+| Dark Login → sign in → Dashboard | Dark | **Light** | ❌ FAIL |
+
+* **Root cause.** Theme continuity was one-way. On successful authentication the
+  shell replaced the current theme with the account's stored `users.ui_theme`, so
+  a Dark chosen on the Login screen was discarded by a stale Light preference the
+  moment the Dashboard mounted. Logout kept working because nothing overwrites the
+  theme on the way out.
+* **Fix (local).** `resolveAuthenticatedTheme()` in `src/lib/theme.js` is now the
+  single precedence model for crossing the authentication boundary: an explicit
+  Login-screen choice made during the current unauthenticated session > the account
+  preference > the persisted shell hint > Light. A Login-screen choice is applied to
+  `<html>` synchronously before the authenticated shell mounts (no flash) and is
+  synchronized into `users.ui_theme` through `PATCH /api/preferences`, so account,
+  shell hint, and rendered theme converge instead of overriding each other.
+* **Deliberate limit.** When the user makes no explicit choice on the Login screen,
+  the account preference still decides. Signing into an account therefore never
+  rewrites that account's stored theme with a hint left behind by a previous
+  session; only a choice the user just made does.
+* **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
+  six acceptance cases through the real `App` and `Login` components and reads the
+  theme from `<html>`, including a mutation-observed no-flash assertion and a
+  reload case proving persistence rather than React state.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 

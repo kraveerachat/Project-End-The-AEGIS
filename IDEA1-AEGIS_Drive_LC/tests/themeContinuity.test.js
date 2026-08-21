@@ -6,6 +6,8 @@ import {
   SHELL_THEME_KEY,
   applyThemeToDocument,
   readShellTheme,
+  readStoredShellTheme,
+  resolveAuthenticatedTheme,
   resolveTheme,
   writeShellTheme,
 } from '../src/lib/theme.js'
@@ -35,6 +37,64 @@ test('an authenticated account preference overrides and replaces an older shell 
   const storage = memoryStorage({ [SHELL_THEME_KEY]: 'dark' })
   writeShellTheme('light', storage)
   assert.equal(readShellTheme(storage), 'light')
+})
+
+test('"never chosen" is a distinct state from "chose light"', () => {
+  // readShellTheme() collapses both to light because something must be rendered.
+  // The precedence model cannot: a stored light is a decision the user made and
+  // may need to survive login, while an absent hint must defer to the account.
+  assert.equal(readStoredShellTheme(memoryStorage()), null)
+  assert.equal(readStoredShellTheme(memoryStorage({ [SHELL_THEME_KEY]: 'light' })), 'light')
+  assert.equal(readStoredShellTheme(memoryStorage({ [SHELL_THEME_KEY]: 'purple' })), null)
+  assert.equal(readStoredShellTheme({ getItem() { throw new Error('denied') } }), null)
+})
+
+// ── The authentication transition contract ───────────────────────────────────────
+// One precedence model, stated once, so Login.jsx / App.jsx / Settings.jsx cannot
+// each invent their own:
+//   explicit login-screen choice > account preference > persisted shell hint > light
+
+test('a theme picked on the login screen wins and is pushed to the account', () => {
+  // The regression case: users.ui_theme still says light, the user just clicked dark.
+  assert.deepEqual(
+    resolveAuthenticatedTheme({ selection: 'dark', accountTheme: 'light', shellTheme: 'dark' }),
+    { theme: 'dark', source: 'login-selection', persistToAccount: true },
+  )
+})
+
+test('re-picking the theme the account already stores does not write to the account', () => {
+  assert.deepEqual(
+    resolveAuthenticatedTheme({ selection: 'dark', accountTheme: 'dark', shellTheme: 'dark' }),
+    { theme: 'dark', source: 'login-selection', persistToAccount: false },
+  )
+})
+
+test('with no explicit choice the account preference decides and nothing is overwritten', () => {
+  // Account switching: a dark hint left behind by the previous session must not
+  // rewrite this account's stored light preference when the user touched nothing.
+  assert.deepEqual(
+    resolveAuthenticatedTheme({ selection: null, accountTheme: 'light', shellTheme: 'dark' }),
+    { theme: 'light', source: 'account', persistToAccount: false },
+  )
+  assert.deepEqual(
+    resolveAuthenticatedTheme({ selection: null, accountTheme: 'system', shellTheme: null }),
+    { theme: 'system', source: 'account', persistToAccount: false },
+  )
+})
+
+test('an account with no usable preference keeps the visible theme and converges to it', () => {
+  assert.deepEqual(
+    resolveAuthenticatedTheme({ selection: null, accountTheme: undefined, shellTheme: 'dark' }),
+    { theme: 'dark', source: 'shell', persistToAccount: true },
+  )
+})
+
+test('nothing anywhere resolves to light, never to the OS preference', () => {
+  assert.deepEqual(
+    resolveAuthenticatedTheme(),
+    { theme: 'light', source: 'default', persistToAccount: false },
+  )
+  assert.equal(resolveAuthenticatedTheme({ selection: 'purple', accountTheme: 'teal' }).theme, 'light')
 })
 
 test('system mode follows OS changes only when system was explicitly selected', () => {
