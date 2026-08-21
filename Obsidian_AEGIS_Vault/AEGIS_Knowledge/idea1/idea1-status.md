@@ -37,11 +37,11 @@ edit_policy: owner-writable
 > [!warning] Local fix complete; production acceptance pending
 > **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** Do not describe these UI defects as resolved in production until the Drive image is rebuilt and FT-1D is rerun.
 
-| Production-discovered defect | Local state |
-| :--- | :--- |
-| Successful upload gave no clear completion feedback | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
-| Floating upload queue stayed at 1 after completion | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
-| Theme transition was one-way (Dark Login → Light App) | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE |
+| Production-discovered defect | Local state | Local verification |
+| :--- | :--- | :--- |
+| Successful upload gave no clear completion feedback | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Success notification fires exactly once per completed file |
+| Floating upload queue stayed at 1 after completion | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Completed work is no longer counted as active; completed history is still retained |
+| Theme transition was one-way (Dark Login → Light App) | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ All three transitions PASS locally — see the acceptance table below |
 
 * Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
 * The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
@@ -49,18 +49,33 @@ edit_policy: owner-writable
 * The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
 * **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
 
-#### Theme continuity — manual acceptance and the remaining defect (2026-08-22)
+#### Theme continuity — local acceptance results (2026-08-22)
 
-Manual acceptance of the first theme-continuity fix confirmed two directions and
-one failure. The failure is part of **this same open item**; it is not a new one.
+Manual acceptance of the *first* theme-continuity fix confirmed two directions and
+one failure. That failure was part of **this same open item**, not a new one, and
+the follow-up fix below closes it. **All three transitions now pass locally.**
 
-| Transition | Expected | Observed | Result |
+| Transition | Expected | First fix | After follow-up fix (local) |
 | :--- | :--- | :--- | :--- |
-| Light Login → sign in → Dashboard | Light | Light | ✅ PASS |
-| Dark App → sign out → Login | Dark | Dark | ✅ PASS |
-| Dark Login → sign in → Dashboard | Dark | **Light** | ❌ FAIL |
+| Light Login → sign in → Dashboard | Light | ✅ PASS | ✅ PASS |
+| Dark App → sign out → Login | Dark | ✅ PASS | ✅ PASS |
+| Dark Login → sign in → Dashboard | Dark | ❌ FAIL — rendered Light | ✅ PASS |
 
-* **Root cause.** Theme continuity was one-way. On successful authentication the
+Confirmed locally in the same pass:
+
+| Behaviour | Local result |
+| :--- | :--- |
+| Fresh browser, no stored shell hint | ✅ Light |
+| Explicit Login-screen theme synchronized into `users.ui_theme` after authentication | ✅ PASS |
+| Visible theme flash during the login transition | ✅ None observed |
+
+> [!warning] Local results only
+> These are **local** acceptance results. They do not change the production state
+> of this item, which remains FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION
+> REDEPLOYMENT AND ACCEPTANCE until the Drive image is rebuilt and FT-1D is rerun
+> against production.
+
+* **Root cause of the one failure.** Theme continuity was one-way. On successful authentication the
   shell replaced the current theme with the account's stored `users.ui_theme`, so
   a Dark chosen on the Login screen was discarded by a stale Light preference the
   moment the Dashboard mounted. Logout kept working because nothing overwrites the
@@ -79,7 +94,12 @@ one failure. The failure is part of **this same open item**; it is not a new one
 * **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
   six acceptance cases through the real `App` and `Login` components and reads the
   theme from `<html>`, including a mutation-observed no-flash assertion and a
-  reload case proving persistence rather than React state.
+  reload case proving persistence rather than React state. Reconfirmed on
+  2026-08-22 for this documentation pass: `node --test --test-concurrency=1
+  tests/themeAuthTransition.test.js tests/themeContinuity.test.js
+  tests/uploadCompletionUx.test.js` — **31 pass, 0 fail, 0 skip**, covering the
+  three transitions above together with exactly-once upload success notification,
+  truthful active-queue counting, and completed/cancelled history retention.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
@@ -169,8 +189,17 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 
 ## 🛡️ FT-1 security finding — File object-level authorization (2026-08-21)
 
-> [!success] Authorization patch deployed; listing isolation observed in FT-1D
-> The file-object authorization patch is now present in production. FT-1D observed owner-scoped listing in both directions: Admin did not see the DataLake-User file, and DataLake-User did not see the Admin file. Keep the complete cross-owner regression suite in every future Drive redeployment; this production fact does not mark the separate upload/theme UI findings above as resolved.
+> [!warning] Authorization patch deployed; acceptance NOT yet complete — do not mark this finding resolved
+> The file-object authorization patch **is present in production**, and FT-1D observed owner-scoped **listing** isolation in both directions: Admin did not see the DataLake-User file, and DataLake-User did not see the Admin file.
+>
+> | Acceptance step | State |
+> | :--- | :--- |
+> | Patch deployed to production | ✅ DONE |
+> | Cross-owner listing isolation (`GET /api/files`) | ✅ PASS observed in FT-1D |
+> | Cross-owner **verify** (`POST /api/files/:id/verify`) acceptance | ⏳ PENDING |
+> | Cross-owner **share creation** (`POST /api/shares`) acceptance | ⏳ PENDING |
+>
+> **This finding stays OPEN until the pending cross-owner verify and share-creation acceptance is executed against production and recorded.** Keep the complete cross-owner regression suite in every future Drive redeployment. This production fact also does not mark the separate upload/theme UI findings above as resolved.
 
 FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
 
@@ -200,7 +229,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
-**Next step:** preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The pending redeployment in this status is for the upload/theme UI follow-up, not for the already deployed authorization patch.
+**Next step:** run the outstanding cross-owner **verify** and **share-creation** acceptance against production and record the result here; only then may this finding be marked resolved. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The pending *redeployment* in this status is for the upload/theme UI follow-up, not for the already deployed authorization patch — the authorization item is pending **acceptance**, not pending deployment.
 
 ---
 

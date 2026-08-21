@@ -103,15 +103,17 @@ pre-push integration gate, not carried over from an earlier iteration.
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — the "Upload completion and theme continuity follow-up (2026-08-22)" section is the single canonical open item for all three defects. It replaces the obsolete no-browser-storage statement with the account-authority/shell-hint distinction, states the approved precedence rule, records the manual acceptance table and the root cause of the remaining failure, notes the System-selector limitation, and removes the stale claim that the authorization patch is not deployed. Status remains FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — the "Upload completion and theme continuity follow-up (2026-08-22)" section is the single canonical open item for all three defects. It replaces the obsolete no-browser-storage statement with the account-authority/shell-hint distinction, states the approved precedence rule, records the manual acceptance table and the root cause of the remaining failure, notes the System-selector limitation, and reconciles the FT-1 authorization finding with its actual acceptance state. Status remains FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/Open-Items-Backlog.md` — the file object-level authorization backlog entry is reconciled to match `idea1-status.md`: the patch is deployed to production and cross-owner **listing** isolation passed FT-1D, but cross-owner **verify** and **share-creation** acceptance are still outstanding. The entry is downgraded from 🔴 URGENT/pre-fix to 🟠 OPEN/patched-pending-acceptance; it is explicitly not marked resolved.
 
 ## Shared surfaces touched
 
-- None — task stayed within IDEA1 source, tests, canonical status, and its required immutable receipt.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/Open-Items-Backlog.md` — this is an infrastructure-owned living status surface (owner `kla`, area `infrastructure` per `AGENTS.md`), touched from an `idea1`-area task to reconcile the file object-level authorization entry with the current, more precise acceptance state already recorded in `idea1/idea1-status.md`. The edit corrects the entry's own stale wording (it previously implied the patch itself was undeployed/pending redeploy) to state plainly that the patch **is** deployed to production and only cross-owner verify/share acceptance remains outstanding; the item is kept OPEN, not closed. No infrastructure runtime, deployment, or code change is included.
 
 ## Integration requests
 
 - IDEA1 owner: review and merge the patch, then rebuild and redeploy only the Drive service and rerun FT-1D upload/theme production acceptance — including the six theme-transition cases — before changing the status from pending to resolved.
+- Infrastructure/code-owner review is required for the `90-Status/Open-Items-Backlog.md` edit above, since it is a shared, infrastructure-owned surface outside this task's `idea1` area.
 
 ## Known limitations
 
