@@ -58,6 +58,54 @@ _KEY_HEADER = "x-detection-engine-key"
 _MJPEG_BOUNDARY = "aegisframe"
 
 
+class _DisconnectAwareStreamingResponse(StreamingResponse):
+    """Cancel the stream producer as soon as ASGI reports a client disconnect.
+
+    Recent ASGI servers may advertise spec 2.4, where Starlette relies on a
+    failed socket write instead of listening for ``http.disconnect``.  Some
+    Windows/browser combinations close cleanly without making that write fail,
+    which leaves the MJPEG generator (and its camera demand lease) alive.  This
+    response keeps an explicit disconnect listener so the generator's
+    ``finally`` block always releases the viewer.
+    """
+
+    async def __call__(self, scope, receive, send) -> None:
+        stream_task = asyncio.create_task(self.stream_response(send))
+        disconnect_task = asyncio.create_task(self.listen_for_disconnect(receive))
+        tasks = {stream_task, disconnect_task}
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+            if stream_task in done:
+                try:
+                    await stream_task
+                except OSError:
+                    # A failed write is the other valid disconnect signal.
+                    pass
+            if disconnect_task in done:
+                try:
+                    await disconnect_task
+                except OSError:
+                    pass
+        finally:
+            # Server shutdown can cancel the response itself before either
+            # child wins the race; do not leave the generator/viewer alive.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self.background is not None:
+            await self.background()
+
+
 def _part(jpeg: bytes) -> bytes:
     """One multipart/x-mixed-replace part. Content-Length matters: without it
     some clients wait for the next boundary before painting, adding a frame of
@@ -77,11 +125,13 @@ class LocalEventAPI:
         metrics: MetricsRegistry,
         event_hub: Optional[EventHub] = None,
         stream_hub: Optional["StreamHub"] = None,
+        capture_demand_event: Optional[threading.Event] = None,
     ) -> None:
         self._cfg = config
         self._metrics = metrics
         self._hub = event_hub or EventHub()
         self._stream = stream_hub
+        self._capture_demand_event = capture_demand_event
         self._recent: "Deque[dict]" = deque(maxlen=config.api_recent_events)
         self._recent_lock = threading.Lock()
         self._server = None  # uvicorn.Server
@@ -112,6 +162,7 @@ class LocalEventAPI:
         hub = self._hub
         cfg = self._cfg
         recent_events = self._recent_events
+        capture_demand_event = self._capture_demand_event
 
         @asynccontextmanager
         async def lifespan(app):
@@ -160,9 +211,18 @@ class LocalEventAPI:
         async def health():
             snap = metrics.snapshot()
             connected = snap["camera_connected"]
+            demanded = (
+                capture_demand_event is None
+                or capture_demand_event.is_set()
+            )
             return {
-                "status": "ok" if connected else "degraded",
+                "status": (
+                    "ok" if connected
+                    else "idle" if cfg.capture_on_demand and not demanded
+                    else "degraded"
+                ),
                 "camera_connected": connected,
+                "camera_demanded": demanded,
                 "uptime_s": snap["uptime_s"],
                 "capture_fps": snap["capture_fps"],
                 "detect_fps": snap["detect_fps"],
@@ -222,8 +282,6 @@ class LocalEventAPI:
                         last = cur[0]
                         yield _part(cur[1])
                     while True:
-                        if await request.is_disconnected():
-                            break
                         # Block off-loop so the event loop stays responsive.
                         got = await loop.run_in_executor(
                             None, stream_hub.wait_for, last, 1.0
@@ -242,7 +300,7 @@ class LocalEventAPI:
                 finally:
                     stream_hub.remove_viewer()
 
-            return StreamingResponse(
+            return _DisconnectAwareStreamingResponse(
                 frames(),
                 media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY}",
                 headers={

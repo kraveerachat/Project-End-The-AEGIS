@@ -114,6 +114,7 @@ class DetectionEngine:
         record_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.record_queue_size)
         detect_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.detect_queue_size)
         stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
+        capture_demand = threading.Event() if cfg.capture_on_demand else None
 
         # Monitor owns persistence. The edge runtime never receives a DB credential.
         monitor = MonitorClient(
@@ -122,11 +123,28 @@ class DetectionEngine:
             timeout_s=cfg.monitor_http_timeout_s,
         )
         stream = (
-            StreamHub(cfg, stream_queue, stop_event=stop_event)
+            StreamHub(
+                cfg,
+                stream_queue,
+                stop_event=stop_event,
+                capture_demand_event=capture_demand,
+            )
             if cfg.stream_enabled else None
         )
+
+        def publish_detection(result: DetectionResult, frame: Frame) -> None:
+            # Stream the exact frame that produced these boxes. The capture
+            # fan-out keeps recording raw frames on its independent queue.
+            if stream is not None:
+                stream.submit_detection(result, frame)
+            context.on_detection(result, frame)
+
         api = LocalEventAPI(
-            cfg, metrics, event_hub=context.event_hub, stream_hub=stream,
+            cfg,
+            metrics,
+            event_hub=context.event_hub,
+            stream_hub=stream,
+            capture_demand_event=capture_demand,
         )
         alerts = AlertManager(
             cfg,
@@ -142,12 +160,13 @@ class DetectionEngine:
             record_queue,
             on_segment=nas.submit,
             stop_event=stop_event,
+            capture_demand_event=capture_demand,
         )
         detector = FaceDetectorProcessor(
             cfg,
             metrics,
             detect_queue,
-            on_result=context.on_detection,
+            on_result=publish_detection,
             recognizer=recognizer,
             stop_event=stop_event,
         )
@@ -155,9 +174,13 @@ class DetectionEngine:
             Sink("record", record_queue, OverflowPolicy.DROP_OLDEST),
             Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY),
         ]
-        if stream is not None:
-            sinks.append(Sink("stream", stream_queue, OverflowPolicy.LATEST_ONLY))
-        catcher = VideoCatcher(cfg, metrics, sinks=sinks, stop_event=stop_event)
+        catcher = VideoCatcher(
+            cfg,
+            metrics,
+            sinks=sinks,
+            stop_event=stop_event,
+            capture_demand_event=capture_demand,
+        )
         heartbeat = HeartbeatWorker(cfg, metrics, monitor, stop_event=stop_event)
 
         workers = [catcher, detector, recorder, alerts, nas, heartbeat]

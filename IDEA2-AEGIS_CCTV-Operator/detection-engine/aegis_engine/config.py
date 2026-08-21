@@ -106,6 +106,9 @@ class EngineConfig:
     target_fps: int = 24
     capture_reconnect_delay_s: float = 2.0
     capture_max_reconnect_delay_s: float = 30.0
+    # Keep the API/heartbeat process available while releasing the physical
+    # camera whenever no authenticated Monitor stream is being consumed.
+    capture_on_demand: bool = False
 
     # --- Queues -----------------------------------------------------------
     record_queue_size: int = 240  # ~10s of headroom @ 24fps before dropping
@@ -202,6 +205,9 @@ class EngineConfig:
                 "AEGIS_CAPTURE_MAX_RECONNECT_DELAY_S",
                 cls.capture_max_reconnect_delay_s,
             ),
+            capture_on_demand=_env_bool(
+                "AEGIS_CAPTURE_ON_DEMAND", cls.capture_on_demand
+            ),
             record_queue_size=_env_int("AEGIS_RECORD_QUEUE_SIZE", cls.record_queue_size),
             detect_queue_size=_env_int("AEGIS_DETECT_QUEUE_SIZE", cls.detect_queue_size),
             detect_every_n_frames=_env_int(
@@ -290,6 +296,15 @@ class EngineConfig:
                 raise ValueError("AEGIS_NAS_MAX_RETRIES must be > 0 when NAS is enabled")
         if not (1 <= self.stream_jpeg_quality <= 100):
             raise ValueError("AEGIS_STREAM_JPEG_QUALITY must be between 1 and 100")
+        if self.capture_on_demand and not self.stream_enabled:
+            raise ValueError(
+                "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_STREAM_ENABLED=true"
+            )
+        if self.capture_on_demand and not self.detection_engine_api_key:
+            raise ValueError(
+                "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_DETECTION_ENGINE_API_KEY; "
+                "an unauthenticated viewer must never activate the camera"
+            )
         return self
 
     def resolved_stream_url(self) -> Optional[str]:

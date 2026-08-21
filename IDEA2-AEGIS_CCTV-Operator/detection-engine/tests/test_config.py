@@ -52,6 +52,22 @@ class EngineConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "AEGIS_NAS_ENABLED"):
                 EngineConfig.from_env()
 
+    def test_viewer_demand_requires_stream_and_service_key(self):
+        with self.assertRaisesRegex(ValueError, "AEGIS_STREAM_ENABLED"):
+            EngineConfig(
+                capture_on_demand=True,
+                stream_enabled=False,
+                detection_engine_api_key="service-key",
+            ).validate()
+
+        with self.assertRaisesRegex(ValueError, "AEGIS_DETECTION_ENGINE_API_KEY"):
+            EngineConfig(capture_on_demand=True).validate()
+
+        EngineConfig(
+            capture_on_demand=True,
+            detection_engine_api_key="service-key",
+        ).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

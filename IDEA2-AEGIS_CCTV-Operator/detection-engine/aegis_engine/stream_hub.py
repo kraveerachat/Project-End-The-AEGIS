@@ -1,15 +1,13 @@
 """
-StreamHub — hand the newest captured frame to N MJPEG viewers.
+StreamHub — hand the newest AI-processed frame to N MJPEG viewers.
 
-Why not just read the detector's queue
---------------------------------------
-``detect_queue`` is a ``LATEST_ONLY`` queue of size 1 and every item put on it
-is *consumed once*. If the streamer read from it, each frame would go either to
-the detector or to a viewer, never both, and inference throughput would halve
-the moment somebody opened the live view. So the streamer gets its own sink on
-the **existing** VideoCatcher fan-out: no second ``cv2.VideoCapture``, no extra
-device handle, no change to how capture works — one more consumer on the
-already-existing broadcast.
+Why the detector submits frames
+-------------------------------
+The raw capture fan-out cannot attach a trustworthy bounding box: detection
+finishes asynchronously, after that raw frame may already have been encoded.
+The detector therefore submits the exact frame/result pair it just processed.
+Stream annotations stay spatially aligned, while the recorder continues to
+receive the untouched camera frame on its separate queue.
 
 Why a hub rather than a queue per viewer
 ----------------------------------------
@@ -42,7 +40,7 @@ except Exception as exc:  # pragma: no cover
 
 from .config import EngineConfig
 from .logging_setup import get_logger
-from .models import Frame
+from .models import DetectionResult, DetectionStatus, Frame
 
 log = get_logger("StreamHub")
 
@@ -53,17 +51,94 @@ class StreamHub(threading.Thread):
         config: EngineConfig,
         frame_queue: "queue.Queue[Frame]",
         stop_event: Optional[threading.Event] = None,
+        capture_demand_event: Optional[threading.Event] = None,
     ) -> None:
         super().__init__(name="StreamHub", daemon=True)
         self._cfg = config
         self._queue = frame_queue
         self._stop_event = stop_event or threading.Event()
+        self._capture_demand_event = capture_demand_event
 
         self._cond = threading.Condition()
         self._seq = 0
         self._jpeg: Optional[bytes] = None
         self._viewers = 0
         self._encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(config.stream_jpeg_quality)]
+
+    def submit_detection(self, result: DetectionResult, frame: Frame) -> None:
+        """Queue the newest processed frame with its real detector geometry.
+
+        Annotation happens only while an authorized viewer is connected. The
+        source image is copied before drawing so recordings and alert evidence
+        keep the original pixels.
+        """
+        if self.viewers == 0:
+            return
+
+        image = frame.image.copy()
+        height, width = image.shape[:2]
+        for entity in result.entities:
+            if entity.bbox is None or entity.status is DetectionStatus.NO_FACE:
+                continue
+            x, y, w, h = entity.bbox
+            x1 = max(0, min(int(x), width - 1))
+            y1 = max(0, min(int(y), height - 1))
+            x2 = max(x1, min(int(x + w), width - 1))
+            y2 = max(y1, min(int(y + h), height - 1))
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            # Placeholder recognition may only claim Unknown. Teal remains for
+            # a future recognizer that explicitly returns Authorized.
+            color = (
+                (0, 157, 255)
+                if entity.status is DetectionStatus.UNKNOWN
+                else (255, 229, 0)
+            )
+            label = entity.display_name().upper()
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+            (text_w, text_h), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+            )
+            label_top = max(0, y1 - text_h - baseline - 6)
+            label_right = min(width - 1, x1 + text_w + 8)
+            cv2.rectangle(
+                image,
+                (x1, label_top),
+                (label_right, y1),
+                color,
+                cv2.FILLED,
+            )
+            cv2.putText(
+                image,
+                label,
+                (x1 + 4, max(text_h + 1, y1 - baseline - 3)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (20, 20, 20),
+                2,
+                cv2.LINE_AA,
+            )
+
+        annotated = Frame(
+            seq=frame.seq,
+            image=image,
+            captured_at=frame.captured_at,
+            captured_wall=frame.captured_wall,
+        )
+        try:
+            self._queue.put_nowait(annotated)
+        except queue.Full:
+            # Live video values freshness over completeness. Drop the previous
+            # frame and keep the newest aligned detection result.
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(annotated)
+            except queue.Full:
+                pass
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -75,13 +150,30 @@ class StreamHub(threading.Thread):
         with self._cond:
             self._viewers += 1
             n = self._viewers
+            if n == 1 and self._capture_demand_event is not None:
+                # Never replay a previous session's final frame to a newly
+                # authorized viewer while the camera is waking up.
+                self._jpeg = None
+                self._drain_frame_queue()
+                self._capture_demand_event.set()
         log.info("viewer connected (%d watching)", n)
 
     def remove_viewer(self) -> None:
         with self._cond:
             self._viewers = max(0, self._viewers - 1)
             n = self._viewers
+            if n == 0 and self._capture_demand_event is not None:
+                self._capture_demand_event.clear()
+                self._jpeg = None
+                self._drain_frame_queue()
         log.info("viewer disconnected (%d watching)", n)
+
+    def _drain_frame_queue(self) -> None:
+        while True:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                return
 
     @property
     def viewers(self) -> int:

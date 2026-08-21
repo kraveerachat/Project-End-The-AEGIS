@@ -70,6 +70,7 @@ class VideoCatcher(threading.Thread):
         metrics: MetricsRegistry,
         sinks: List[Sink],
         stop_event: Optional[threading.Event] = None,
+        capture_demand_event: Optional[threading.Event] = None,
     ) -> None:
         super().__init__(name="VideoCatcher", daemon=True)
         self._cfg = config
@@ -78,6 +79,7 @@ class VideoCatcher(threading.Thread):
         # NB: attribute is deliberately NOT named ``_stop`` — that shadows
         # ``threading.Thread._stop`` (an internal method used by join()).
         self._stop_event = stop_event or threading.Event()
+        self._capture_demand_event = capture_demand_event
         self._cap: "Optional[cv2.VideoCapture]" = None
         self._seq = 0
 
@@ -116,7 +118,7 @@ class VideoCatcher(threading.Thread):
         """Block (interruptibly) until the camera opens or we're told to stop."""
         delay = self._cfg.capture_reconnect_delay_s
         first = True
-        while not self._stop_event.is_set():
+        while not self._stop_event.is_set() and self._capture_is_demanded():
             if self._open_camera():
                 w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self._cfg.frame_width
                 h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self._cfg.frame_height
@@ -130,8 +132,34 @@ class VideoCatcher(threading.Thread):
             )
             self._metrics.on_camera_state(connected=False)
             first = False
-            self._stop_event.wait(delay)
+            if not self._wait_while_demanded(delay):
+                break
             delay = min(delay * 2, self._cfg.capture_max_reconnect_delay_s)
+        return False
+
+    def _capture_is_demanded(self) -> bool:
+        """Always-on mode has implicit demand; viewer mode uses the shared event."""
+        return (
+            self._capture_demand_event is None
+            or self._capture_demand_event.is_set()
+        )
+
+    def _wait_for_demand(self) -> bool:
+        if self._capture_demand_event is None:
+            return not self._stop_event.is_set()
+        while not self._stop_event.is_set():
+            if self._capture_demand_event.wait(0.25):
+                return True
+        return False
+
+    def _wait_while_demanded(self, timeout_s: float) -> bool:
+        """Backoff that stops promptly when the last viewer disconnects."""
+        deadline = time.monotonic() + timeout_s
+        while not self._stop_event.is_set() and self._capture_is_demanded():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True
+            self._stop_event.wait(min(remaining, 0.25))
         return False
 
     # -- fan-out -----------------------------------------------------------
@@ -177,37 +205,48 @@ class VideoCatcher(threading.Thread):
 
     # -- main loop ---------------------------------------------------------
     def run(self) -> None:
-        log.info("starting capture loop for %s", self._cfg.camera_id)
-        if not self._connect_with_backoff():
-            log.info("stop requested before camera opened; exiting")
-            return
-
-        consecutive_failures = 0
+        mode = "viewer-demand" if self._capture_demand_event is not None else "always-on"
+        log.info("starting capture loop for %s (%s)", self._cfg.camera_id, mode)
         try:
             while not self._stop_event.is_set():
-                ok, image = self._cap.read()
-                if not ok or image is None:
-                    consecutive_failures += 1
-                    log.warning(
-                        "frame grab failed (%d in a row)", consecutive_failures
-                    )
-                    # A few misses can be transient; a run of them means the
-                    # device is gone — tear down and reconnect.
-                    if consecutive_failures >= 15:
-                        self._metrics.on_camera_state(connected=False)
-                        self._release_camera()
-                        if not self._connect_with_backoff():
-                            break
-                        consecutive_failures = 0
-                    else:
-                        time.sleep(0.05)
+                if not self._wait_for_demand():
+                    break
+                if not self._connect_with_backoff():
                     continue
 
                 consecutive_failures = 0
-                self._seq += 1
-                frame = Frame(seq=self._seq, image=image)
-                self._metrics.on_frame_captured()
-                self._dispatch(frame)
+                while (
+                    not self._stop_event.is_set()
+                    and self._capture_is_demanded()
+                ):
+                    ok, image = self._cap.read()
+                    if not ok or image is None:
+                        consecutive_failures += 1
+                        log.warning(
+                            "frame grab failed (%d in a row)", consecutive_failures
+                        )
+                        # A few misses can be transient; a run of them means the
+                        # device is gone — tear down and reconnect.
+                        if consecutive_failures >= 15:
+                            self._metrics.on_camera_state(connected=False)
+                            self._release_camera()
+                            if not self._connect_with_backoff():
+                                break
+                            consecutive_failures = 0
+                        else:
+                            time.sleep(0.05)
+                        continue
+
+                    consecutive_failures = 0
+                    self._seq += 1
+                    frame = Frame(seq=self._seq, image=image)
+                    self._metrics.on_frame_captured()
+                    self._dispatch(frame)
+
+                if self._capture_demand_event is not None:
+                    self._release_camera()
+                    self._metrics.on_camera_state(connected=False)
+                    log.info("camera released (no authenticated viewers)")
         except Exception:  # pragma: no cover - defensive catch-all
             log.exception("unhandled error in capture loop")
         finally:

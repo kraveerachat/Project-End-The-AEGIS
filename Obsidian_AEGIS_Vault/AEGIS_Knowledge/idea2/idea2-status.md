@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-13
+updated: 2026-08-21
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -115,6 +115,29 @@ After:  docker compose -> aegis-camera -> detection-engine/Dockerfile -> python 
 
 > **Codebase Status**: ✅ Monitor UI/API built; modular engine is the canonical development runtime. ⚠️ Real camera, Monitor heartbeat, Telegram routing, production NAS, and production deployment verification remain pending.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
+
+## Viewer-demand camera update (2026-08-21)
+
+The modular Detection Engine now has an opt-in
+`AEGIS_CAPTURE_ON_DEMAND=true` mode for interactive camera nodes. The Engine
+process, local API, and heartbeat stay available, while the physical camera
+opens for the first authenticated Monitor stream and is released after the
+last viewer disconnects. Disconnect also clears the previous JPEG and
+finalizes the active recording segment. Continuous capture remains the default.
+
+This does not move authorization to the camera node. Monitor still validates
+the browser session and `camera_assignment`, and the Engine stream still
+requires `AEGIS_DETECTION_ENGINE_API_KEY`. Viewer-demand configuration is
+rejected unless streaming and the service key are both enabled. The live MJPEG
+path draws detector geometry on a copy of the exact processed frame; recorded
+frames remain unmodified.
+
+Automated evidence passed for first/last viewer tracking, camera release,
+segment finalization, ASGI disconnect cleanup, aligned boxes, raw-frame
+preservation, and fresh-idle Monitor stream availability. Local real-camera
+evidence previously showed idle → active → idle behavior. Docker camera access,
+deployed browser E2E, production heartbeat, tunnel auto-start, Telegram after
+credential rotation, and production NAS remain unverified.
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
 

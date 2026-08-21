@@ -26,6 +26,7 @@ docker compose
 |---|---|
 | Configuration and logging | Implemented |
 | Camera capture/reconnect | Implemented; real camera verification pending |
+| Viewer-demand camera | Implemented behind `AEGIS_CAPTURE_ON_DEMAND`; deployed Monitor E2E pending |
 | Face detection | Haar-based development placeholder |
 | Face recognition | **Placeholder only**; every placeholder face is `Unknown` with no identity |
 | Recording | Implemented; local segments are retained when NAS is disabled |
@@ -59,6 +60,25 @@ The default development configuration has:
 
 The runtime API can start while the camera is unavailable; `VideoCatcher`
 reports disconnected state and retries with bounded exponential backoff.
+
+### Viewer-demand camera mode
+
+Set `AEGIS_CAPTURE_ON_DEMAND=true` on an interactive webcam node to keep the
+Detection Engine API and heartbeat online without holding the physical camera
+open. Monitor still authenticates the browser session and checks
+`camera_assignment` before opening its upstream MJPEG connection. The first
+authenticated upstream viewer activates capture; the last disconnect releases
+the camera, clears the previous JPEG, and finalizes the active segment.
+
+This mode requires `AEGIS_STREAM_ENABLED=true` and a non-empty
+`AEGIS_DETECTION_ENGINE_API_KEY`. Configuration validation fails closed when
+either boundary is missing. Multiple authorized viewers share one camera
+handle, so one logout does not interrupt another viewer who is still watching.
+
+The MJPEG feed uses the exact processed frame/result pair, so detector boxes
+stay aligned. Annotations are drawn on a copy for live viewing only; recordings
+retain the original camera pixels. Viewer-demand changes camera resource use,
+not web authorization: Monitor remains the server-side RBAC boundary.
 
 ## Docker development stack
 
@@ -150,8 +170,9 @@ python -m unittest discover -s tests -v
 ```
 
 They cover configuration loading, NAS-disabled startup, lifecycle rollback and
-shutdown, NAS success truthfulness, placeholder authorization safety, and
-operator-readable startup failures.
+shutdown, NAS success truthfulness, placeholder authorization safety,
+viewer-demand capture and segment finalization, aligned live boxes without raw
+frame mutation, and operator-readable startup failures.
 
 ## Deferred work
 
