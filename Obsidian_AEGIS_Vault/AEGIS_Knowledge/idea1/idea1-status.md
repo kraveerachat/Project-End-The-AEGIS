@@ -118,6 +118,43 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 
 ---
 
+## 🛡️ FT-1 security finding — File object-level authorization (2026-08-21)
+
+> [!danger] Confirmed production defect — code fixed locally, production NOT yet patched
+> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT.** The Drive build currently running in production (`aegis-system`) **still contains this defect**. Do not describe this finding as resolved until the patched build is deployed to Beelink and retested — see Next step below.
+
+FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
+
+**Known affected operations, confirmed:**
+
+| Operation | Before this fix | After this fix |
+| :--- | :--- | :--- |
+| Listing (`GET /api/files`) | Returned every user's files to any authenticated caller | `store.listFiles(userId)` filters by `uploaded_by` in SQL — own files only |
+| Verify (`POST /api/files/:id/verify`) | No ownership check — any authenticated user could checksum another user's file by id | Ownership checked before any Storage Layer read; cross-owner → `404` |
+| Download (`GET /api/files/:id/download`) | No ownership check — any authenticated user could download another user's file by id | Ownership checked before `resolveKey`/`keyExists`/`openReadStream`; cross-owner → `404` |
+| Secure Share creation (`POST /api/shares`) | No ownership check on the supplied `fileId` — one user could mint a public, no-login redemption link for another user's file | `createShare` now requires `uploaded_by === req.user.id`; cross-owner → `400` |
+
+**Already owner-protected — unaffected, preserved as-is:**
+- `DELETE /api/files/:id` — already compared `ownerId` with no Admin exception (`403`, audited `DENIED`).
+- File-version routes (`GET /file-versions`, `GET /files/:id/versions[/:vid/download]`, `POST /files/:id/versions/:vid/restore`) — already owner-only, `404` for non-owners, no Admin exception.
+- `findOwnFileByName` (upload/new-version detection) — already scoped to the uploader; same-name files from different owners remain distinct.
+
+**Deliberately left unchanged (out of scope for this patch):** `GET /api/shares` (listing) and `DELETE /api/shares/:id` (revoke) remain un-scoped by design intent already pinned by an existing regression test (`tests/shareRedemption.test.js`, "ผู้ใช้ที่ล็อกอินแล้วเพิกถอนลิงก์ของคนอื่นได้ … ต้องเป็นการตัดสินใจที่ตั้งใจ ไม่ใช่หลุดไปเงียบ ๆ") stating that an ownership gate on shares would need to be a deliberate, separate decision. This finding did not extend to that decision; flagged here for awareness, not fixed.
+
+**No Admin override was added or exists.** Both roles are bound by the identical `ownerId` check (`rbac/permissions.js`: the two roles manage files "equally" — Admin's only addition is the governance screens, never elevated file-content access). Regression tests prove this in both directions (Admin → DataLake-User file denied, and DataLake-User → Admin file denied) for listing, download, verify, and share creation.
+
+**Fix + verification:**
+- Source: `IDEA1-AEGIS_Drive_LC/server/db/store.js` (`listFiles(userId)` now mandatory-scoped; `dashboard(userId)` threads the same scoping through so Dashboard's `recentFiles`/file totals stop leaking other users' filenames; `createShare` now checks `uploaded_by`), `IDEA1-AEGIS_Drive_LC/server/routes/api.js` (owner checks added to verify/download before any Storage Layer access; `GET /files`, `GET /file-versions`, `GET /dashboard` pass `req.user.id` through).
+- New regression suite: `IDEA1-AEGIS_Drive_LC/tests/fileObjectAuthorization.test.js` — 8 tests covering listing, download, verify (both cross-owner directions each), audited-denial evidence, DELETE/version-route preservation, share-creation ownership (both directions), and the DataLake-User `/api/users` 403 / `/api/files` 200 RBAC boundary.
+- Full IDEA1 suite (in-memory dev-fallback mode, no local Postgres available in this environment): **175 tests, 156 pass, 0 fail, 19 skipped** (all pre-existing Postgres-only skips) — no regressions. Production build (`npm run build`) succeeded; the regenerated `dist/index.html` build artifact was reverted since no frontend change was made.
+- **Not run in this pass:** the Postgres-backed branch of these same tests (no local PostgreSQL available in this environment). The SQL change is a single added `AND f.uploaded_by = $1` / `uploaded_by` column read, following the exact parameterized pattern already used by `findOwnFileByName` elsewhere in the same file. Recommend running `TEST_DATABASE_URL`-backed tests against an isolated `aegis_drive_test` database before/with the production redeploy.
+
+Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
+
+**Next step:** deploy the patched Drive image to Beelink only (no other production service needs touching, no migration required — `files.uploaded_by` already exists), then rerun FT-0 baseline, FT-1 role RBAC, and this file owner-isolation regression against production before marking the production finding resolved.
+
+---
+
 ## 🧭 What is real, and what this deployment cannot do
 
 This module went through a pass (2026-07-27) whose whole purpose was removing data that *looked* measured but was written into the source. The table below is the honest state. **When code changes, this table changes in the same commit.**
@@ -482,14 +519,14 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `POST /api/login` · `/logout` · `GET /api/me` | — / session | rate limited, scope `login` |
 | `PATCH /api/preferences` | `requireAuth` | current user only; validated theme/language/density |
 | `POST /api/password/reset` | `requireAuth` | exempt from the force-reset gate |
-| `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` | same-name upload ⇒ new version |
-| `POST /api/files/:id/verify` | `requireAuth` | fresh SHA-256 over current Storage Layer bytes |
-| `GET /api/files/:id/download` | `requireAuth` | octet-stream + attachment + nosniff |
+| `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` + **owner-scoped listing** | listing filters `uploaded_by` in SQL (2026-08-21 fix); same-name upload ⇒ new version |
+| `POST /api/files/:id/verify` | `requireAuth` + **owner only** | fresh SHA-256 over current Storage Layer bytes; cross-owner → 404, audited DENIED (2026-08-21 fix) |
+| `GET /api/files/:id/download` | `requireAuth` + **owner only** | octet-stream + attachment + nosniff; cross-owner → 404, audited DENIED (2026-08-21 fix) |
 | `DELETE /api/files/:id` | `requireAuth` + **owner only** | no Admin exception; also deletes version bytes |
-| `GET /api/file-versions` | `requireAuth` | own files + version counts |
+| `GET /api/file-versions` | `requireAuth` + **owner-scoped listing** | own files + version counts |
 | `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
 | `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
-| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` | create returns the token **once** |
+| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` (**create: owner only**, 2026-08-21 fix) | create returns the token **once**; list/revoke deliberately remain unscoped — pinned by `tests/shareRedemption.test.js` |
 | **`GET/POST /s/:token`** | **public** | redemption; own gates (see above) |
 | `GET /api/storage` · `/api/dashboard` | `requireAuth` | real aggregates + `unavailable{}` |
 | `PATCH /api/profile` · `POST/DELETE /api/profile/avatar` | `requireAuth` | session-scoped; never accepts a `userId` |

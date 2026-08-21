@@ -219,7 +219,7 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
     const securityAlerts = audit.filter((e) => e.result === 'DENIED' || e.result === 'BLOCKED').length
     const shares = await store.listShares()
     res.json({
-      ...(await store.dashboard()),
+      ...(await store.dashboard(req.user.id)),
       loginHistory: myLogins,
       securityAlerts,
       shares: shares.slice(0, 4), // ลิงก์แชร์ที่เปิดอยู่ (สเปกของจอ Dashboard)
@@ -230,9 +230,11 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
 })
 
 // ── Files ────────────────────────────────────────────────────────────
+// ⚠️ Files คือ namespace ต่อผู้ใช้ — store.listFiles(userId) กรองด้วย uploaded_by
+//    ในชั้น SQL แล้ว (ดูเหตุผลเต็มที่ db/store.js) ห้ามเปลี่ยนกลับไปเรียกแบบไม่ส่ง userId
 apiRouter.get('/files', requireAuth, async (req, res, next) => {
   try {
-    res.json({ files: await store.listFiles() })
+    res.json({ files: await store.listFiles(req.user.id) })
   } catch (err) {
     next(err)
   }
@@ -327,10 +329,18 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
 // ⚠️ นี่เป็นด่านตรวจความสมบูรณ์จริง ไม่ใช่การคืนค่า verified ที่จดไว้ตอนอัปโหลด:
 //    metadata hash คือหลักฐานตั้งต้น ส่วน actualSha256 ต้องมาจากการอ่านไฟล์บนดิสก์
 //    ณ เวลาที่ผู้ใช้กดตรวจเท่านั้น จึงจับการแก้/เสียหายหลังอัปโหลดได้
+// ⚠️ ด่าน ownership — เหมือนกับ DELETE /api/files/:id (เทียบด้วย ownerId เท่านั้น ไม่มี
+//    ข้อยกเว้นให้ Admin) แต่ตอบ 404 แทน 403 เพื่อไม่ยืนยันว่า id นี้มีไฟล์ของใครอยู่จริง
+//    ตรงกับแบบแผนของเส้นทางเวอร์ชัน (GET /files/:id/versions ฯลฯ) ที่ cross-owner = 404
+//    ต้องเช็ค "ก่อน" แตะ Storage Layer เสมอ — ห้ามอ่าน bytes ก่อนด่านนี้ผ่าน
 apiRouter.post('/files/:id/verify', requireAuth, async (req, res, next) => {
   try {
     const file = await store.findFile(req.params.id)
     if (!file) return res.status(404).json({ error: 'Not found' })
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      await auditAct(req, 'FILE_VERIFY', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
     if (file.type === 'Folder' || !file.sha256) {
       return res.status(409).json({ error: 'Verification unavailable' })
     }
@@ -355,10 +365,18 @@ apiRouter.post('/files/:id/verify', requireAuth, async (req, res, next) => {
 // ⚠️ client ส่งมาแค่ id ของแถวใน Metadata Layer — path บนดิสก์มาจากคอลัมน์ใน DB
 //    เท่านั้น ไม่เคยมาจาก input ของ client (ไม่มีทางขอไฟล์นอก STORAGE_ROOT)
 //    resolveKey() ยังกันซ้ำอีกชั้นเผื่อค่าใน DB ถูกแก้ให้ชี้ออกนอกกรอบ
+// ⚠️ ด่าน ownership — เหมือนกับ verify ด้านบนและ DELETE /api/files/:id เป๊ะ ๆ: เทียบ
+//    ownerId เท่านั้น ไม่มีข้อยกเว้นให้ Admin, ตอบ 404 เพื่อไม่ยืนยันว่ามีไฟล์ของใครอยู่
+//    ต้องอยู่ "ก่อน" resolveKey/keyExists/openReadStream ทุกจุด — ห้ามอ่านไบต์ใด ๆ ของ
+//    ไฟล์ก่อนด่านนี้ผ่าน (บั๊กที่ยืนยันแล้วใน production: ไม่มีด่านนี้มาก่อน)
 apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
   try {
     const file = await store.findFile(req.params.id)
     if (!file) return res.status(404).json({ error: 'Not found' })
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      await auditAct(req, 'FILE_DOWNLOAD', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
     if (file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
 
     const abs = resolveKey(file.path)
@@ -483,12 +501,13 @@ apiRouter.delete('/shares/:id', requireAuth, async (req, res, next) => {
 //    DELETE /api/files/:id) — ประวัติเวอร์ชันคือเนื้อหาของไฟล์ในอดีต การให้คนอื่นอ่านได้
 //    เท่ากับให้อ่านไฟล์ของเขา และการให้กู้คืนได้เท่ากับให้เขียนทับไฟล์ของเขา
 
-/** ไฟล์ที่ผู้ใช้คนนี้เป็นเจ้าของ + มีประวัติเวอร์ชัน — ใช้เป็นรายการฝั่งซ้ายของจอ */
+/** ไฟล์ที่ผู้ใช้คนนี้เป็นเจ้าของ + มีประวัติเวอร์ชัน — ใช้เป็นรายการฝั่งซ้ายของจอ
+ *  ⚠️ store.listFiles(req.user.id) กรอง ownership ให้แล้วในชั้น SQL — ที่นี่กรองแค่
+ *     type !== 'Folder' ต่อ ไม่ต้องเทียบ ownerId ซ้ำอีกชั้น (เคยเป็นด่านซ้อนด่านที่
+ *     พลาดดูแลง่ายเพราะดูเหมือนกันสองที่ ตอนนี้ ownership อยู่จุดเดียวคือ listFiles) */
 apiRouter.get('/file-versions', requireAuth, async (req, res, next) => {
   try {
-    const own = (await store.listFiles()).filter(
-      (f) => f.ownerId != null && String(f.ownerId) === String(req.user.id) && f.type !== 'Folder',
-    )
+    const own = (await store.listFiles(req.user.id)).filter((f) => f.type !== 'Folder')
     const withCounts = await Promise.all(own.map(async (f) => {
       const versions = await store.listFileVersions(f.id)
       return {

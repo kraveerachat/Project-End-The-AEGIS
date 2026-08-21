@@ -80,12 +80,19 @@ function mapFileRow(r) {
 }
 
 // ── Postgres-backed Files (Metadata Layer) ──────────────────────────────
-async function pgListFiles() {
+//
+// ⚠️ Files คือ "namespace ต่อผู้ใช้" สำหรับการดำเนินการปกติ (list/upload/verify/
+//    download/delete/version) — Admin ไม่ได้มีสิทธิ์เห็นไฟล์ของผู้อื่นเพิ่มเติมจาก
+//    DataLake-User (ดู rbac/permissions.js: สอง role จัดการไฟล์ "เท่ากัน" ไม่ใช่
+//    Admin เหนือกว่า) จึงกรองด้วย uploaded_by = $1 ในชั้น SQL โดยตรง ไม่ใช่กรองที่
+//    route หรือฝั่ง client — พลาดจุดใดจุดหนึ่งในสองที่หลังคือ IDOR ทันที
+async function pgListFiles(userId) {
   const { rows } = await query(
     `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
-      WHERE f.vault = false
+      WHERE f.vault = false AND f.uploaded_by = $1
       ORDER BY f.modified_at DESC`,
+    [userId],
   )
   return rows.map(mapFileRow)
 }
@@ -161,9 +168,18 @@ const files = [
 const DEV_OWNER_BY_NAME = { 'Veerachat J.': '1', 'Kanya Srisuwan': '2' }
 for (const f of files) f.ownerId = DEV_OWNER_BY_NAME[f.uploader] ?? null
 
-export async function listFiles() {
-  if (usingPostgres) return pgListFiles()
-  return files.filter((f) => !f.vault)
+/**
+ * ไฟล์ "ของผู้ใช้คนนี้เท่านั้น" ที่ไม่ใช่ vault — ด่าน ownership อยู่ที่นี่จุดเดียว
+ * ⚠️ userId เป็นพารามิเตอร์บังคับโดยเจตนา (ไม่มีค่า default) — ผู้เรียกที่ลืมส่งมา
+ *    ต้องเห็น error ทันทีตอน dev/test ไม่ใช่ได้ไฟล์ของทุกคนกลับไปเงียบ ๆ แบบเดิม
+ *    (บั๊กที่ยืนยันแล้วใน production: GET /api/files คืนไฟล์ของผู้ใช้ทุกคนโดยไม่กรอง)
+ */
+export async function listFiles(userId) {
+  if (userId == null) throw new Error('listFiles requires a userId — do not call it unscoped')
+  if (usingPostgres) return pgListFiles(userId)
+  return files.filter(
+    (f) => !f.vault && f.ownerId != null && String(f.ownerId) === String(userId),
+  )
 }
 
 export async function findFile(id) {
@@ -367,9 +383,13 @@ export async function createShare({ fileId, expiry, authType, scope, password },
 
   if (usingPostgres) {
     if (!/^\d+$/.test(String(fileId))) return null
-    const { rows: fileRows } = await query(`SELECT id, name, vault FROM files WHERE id = $1`, [fileId])
+    const { rows: fileRows } = await query(`SELECT id, name, vault, uploaded_by FROM files WHERE id = $1`, [fileId])
     const file = fileRows[0]
     if (!file || file.vault) return null // แชร์ไฟล์ vault ไม่ได้ — server อ่าน ciphertext ไม่ออก
+    // ⚠️ ต้องเป็นเจ้าของไฟล์ถึงจะสร้างลิงก์แชร์ได้ — ไม่งั้นผู้ใช้คนหนึ่งระบุ id ไฟล์ของ
+    //    คนอื่นแล้วสร้างลิงก์สาธารณะที่ไถ่ได้โดยไม่ต้องล็อกอินเลย ซึ่งหนักกว่าการอ่าน
+    //    metadata ข้ามเจ้าของ (Defect A/B) เพราะเปิดเนื้อไฟล์ให้ "ใครก็ได้" ที่ถือลิงก์
+    if (file.uploaded_by == null || String(file.uploaded_by) !== String(user.id)) return null
     const { rows } = await query(
       `INSERT INTO shares (file_id, created_by, auth_type, password_hash, scope, vlan_scope, expires_at, token_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
@@ -381,6 +401,7 @@ export async function createShare({ fileId, expiry, authType, scope, password },
 
   const file = files.find((f) => f.id === fileId)
   if (!file || file.vault) return null
+  if (file.ownerId == null || String(file.ownerId) !== String(user.id)) return null
   const row = {
     id: nextId('s'), fileId, fileName: file.name, createdBy: user.displayName,
     authType, scope, scopeCidrs: cidrs, hits: 0, revoked: false,
@@ -811,9 +832,14 @@ async function activity7d() {
   return days
 }
 
-export async function dashboard() {
+// ⚠️ fileList ต้องเป็นไฟล์ "ของผู้ใช้ที่เรียก Dashboard คนนี้เท่านั้น" — เหตุผลเดียวกับ
+//    listFiles(): metrics.files/dataLakeBytes/recentFiles มาจากอาเรย์นี้ตรง ๆ ถ้าไม่กรอง
+//    ผู้ใช้ทุกคนจะเห็นชื่อไฟล์ล่าสุดของคนอื่นใน recentFiles (การรั่วแบบเดียวกับ
+//    GET /api/files ที่ไม่กรอง เพียงแต่โผล่ที่จอ Dashboard แทน) capacity/activity7d
+//    ยังคงเป็นภาพรวมทั้งระบบโดยเจตนา (สถิติของเครื่อง/audit ไม่ใช่เนื้อไฟล์รายตัว)
+export async function dashboard(userId) {
   const [fileList, shareList, capacity, versionStats, activity] = await Promise.all([
-    listFiles(), listShares(), filesystemCapacity(), fileVersionStats(), activity7d(),
+    listFiles(userId), listShares(), filesystemCapacity(), fileVersionStats(), activity7d(),
   ])
   // ขนาดที่ "แอปนี้เป็นเจ้าของ" — แยกจากพื้นที่ที่ใช้ไปทั้ง volume ซึ่งรวมของอื่นด้วย
   const dataLakeBytes = fileList.reduce((s, f) => s + f.size, 0)
