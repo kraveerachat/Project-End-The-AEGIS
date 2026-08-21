@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-21
+updated: 2026-08-22
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: **139 discovered · 120 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-20). This does not replace the isolated-PostgreSQL release result above.
+> **Latest change verification**: **189 discovered · 170 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-22). This does not replace the isolated-PostgreSQL release result above.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -26,11 +26,21 @@ edit_policy: owner-writable
 
 ### UI foundation revision (2026-08-20)
 
-* Appearance preferences are now per-user database state (`users.ui_theme`, `ui_language`, `ui_density`) returned at login and `/api/me`, updated through `PATCH /api/preferences`, and mirrored into the active server session. New accounts default to Light / Thai / Comfortable. Browser storage is not used. Existing databases use the idempotent `server/db/migrations/002_user_preferences.sql` migration before the revised server starts.
+* Appearance preferences are per-user database state (`users.ui_theme`, `ui_language`, `ui_density`) returned at login and `/api/me`, updated through `PATCH /api/preferences`, and mirrored into the active server session. New accounts default to Light / Thai / Comfortable. PostgreSQL remains authoritative; browser storage contains only the non-sensitive `aegis_shell_theme` presentation hint (`light`/`dark`/`system`) used before authentication and across logout. Existing databases use the idempotent `server/db/migrations/002_user_preferences.sql` migration before the revised server starts.
 * The profile menu now exposes Profile, Settings, and Sign out; the unwired notification bell is absent. Global search explains the active page scope, and Dashboard provides Upload / Share / Private Vault quick actions.
 * Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
 * The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
 * G-A remains unresolved: nginx already forwards `X-Real-IP` and `X-Forwarded-For`, but the repository does not yet define one exact stable nginx proxy address for Express to trust. `app.set('trust proxy', 1)` must not be replaced with a guessed or broad trust rule; this requires an infrastructure-reviewed deployment contract.
+
+### Upload completion and theme continuity follow-up (2026-08-22)
+
+> [!warning] Local fix complete; production acceptance pending
+> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** Do not describe these UI defects as resolved in production until the Drive image is rebuilt and FT-1D is rerun.
+
+* Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
+* The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state.
+* Login and the authenticated shell now share one theme resolver. A fresh client without a hint starts Light; the authenticated PostgreSQL account preference wins after login and refreshes the theme-only shell hint. Dark and explicit System choices therefore continue across logout and hard reload without storing identity, role, session, password, or authorization state in browser storage.
+* The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
@@ -120,8 +130,8 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 
 ## 🛡️ FT-1 security finding — File object-level authorization (2026-08-21)
 
-> [!danger] Confirmed production defect — code fixed locally, production NOT yet patched
-> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT.** The Drive build currently running in production (`aegis-system`) **still contains this defect**. Do not describe this finding as resolved until the patched build is deployed to Beelink and retested — see Next step below.
+> [!success] Authorization patch deployed; listing isolation observed in FT-1D
+> The file-object authorization patch is now present in production. FT-1D observed owner-scoped listing in both directions: Admin did not see the DataLake-User file, and DataLake-User did not see the Admin file. Keep the complete cross-owner regression suite in every future Drive redeployment; this production fact does not mark the separate upload/theme UI findings above as resolved.
 
 FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
 
@@ -151,7 +161,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
-**Next step:** deploy the patched Drive image to Beelink only (no other production service needs touching, no migration required — `files.uploaded_by` already exists), then rerun FT-0 baseline, FT-1 role RBAC, and this file owner-isolation regression against production before marking the production finding resolved.
+**Next step:** preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The pending redeployment in this status is for the upload/theme UI follow-up, not for the already deployed authorization patch.
 
 ---
 

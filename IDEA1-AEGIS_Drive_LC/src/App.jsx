@@ -11,6 +11,7 @@ import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
 import { themeAssetsFor } from './components/AegisMark.jsx'
+import { applyThemeToDocument, readShellTheme, resolveTheme, writeShellTheme } from './lib/theme.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
@@ -49,7 +50,8 @@ export default function App() {
   // ที่ JavaScript อ่านไม่ได้ — ต่อให้เกิด XSS ก็ขโมย session ไม่ได้
   // ฝั่ง client เก็บได้แค่ "สำเนาที่เซิร์ฟเวอร์ตัดสินมา" ใน React state:
   // null = ยังไม่ล็อกอิน · { username, role, displayName, menu } = คำตอบจาก /api/me
-  // ไม่มี localStorage/sessionStorage ที่ไหนเลย: ปิดแท็บ = state หาย, cookie ยังอยู่
+  // ข้อมูล session ไม่ลง localStorage/sessionStorage: ปิดแท็บ = state หาย, cookie ยังอยู่
+  // localStorage เก็บเฉพาะ shell theme (light/dark/system) เพื่อกันหน้ากระพริบ
   const [session, setSession] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
@@ -75,8 +77,11 @@ export default function App() {
   }, [])
 
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState('light')
-  const [resolvedTheme, setResolvedTheme] = useState('light')
+  const [theme, setTheme] = useState(() => readShellTheme())
+  const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(
+    readShellTheme(),
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches,
+  ))
   const [density, setDensity] = useState('comfortable')
   const [preferenceSaving, setPreferenceSaving] = useState(false)
   const [preferenceError, setPreferenceError] = useState(false)
@@ -161,18 +166,15 @@ export default function App() {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
-      const dark = theme === 'dark' || (theme === 'system' && mq.matches)
-      const nextResolvedTheme = dark ? 'dark' : 'light'
+      const nextResolvedTheme = applyThemeToDocument(theme, { prefersDark: mq.matches })
       setResolvedTheme(nextResolvedTheme)
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-      document.documentElement.classList.toggle('dark', dark)
-      document.documentElement.classList.toggle('light', !dark)
       const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
       link.type = 'image/png'
       link.rel = 'shortcut icon'
       link.href = import.meta.env.BASE_URL + themeAssetsFor(nextResolvedTheme).logo
       if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
     }
+    writeShellTheme(theme)
     apply()
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
