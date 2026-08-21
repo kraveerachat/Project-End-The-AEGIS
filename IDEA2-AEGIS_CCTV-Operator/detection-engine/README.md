@@ -124,6 +124,73 @@ The hybrid backend retains an overlapping YOLO candidate for two seconds to
 smooth normal detector flicker in video. The cache is position-scoped and never
 replaces SFace: identity verification still runs on every Authorized frame, and
 an inference exception clears the cache immediately.
+## Windows edge auto-start
+
+Use the current-user Scheduled Task workflow after the virtual environment,
+dependencies, `.env`, and camera selection are ready. It runs at user logon,
+keeps the engine in the interactive Windows session where webcam access works,
+starts with a hidden PowerShell window, and asks Task Scheduler to restart a
+failed process.
+
+Windows Service / `AtStartup` execution is intentionally not the default:
+services run in Session 0 before the user's camera session is available and can
+turn a working webcam into a false disconnected state.
+
+From this directory in PowerShell:
+
+```powershell
+# Select/test the camera and write only the local .env first.
+.\.venv\Scripts\python.exe setup_camera.py
+
+# Safe parse/preflight: shows what would be registered without changing Task Scheduler.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\install_autostart.ps1 -WhatIf
+
+# Register only the engine for the current Windows user and start it now.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\install_autostart.ps1 -StartNow
+
+# Read task state and the latest local log lines.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\status_autostart.ps1
+```
+
+When Monitor reaches this Detection Laptop through the approved IDEA2 SSH
+reverse-tunnel boundary, register the optional tunnel task in the same command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\windows\install_autostart.ps1 `
+  -TunnelHost "<ssh-user>@<server-ip>" `
+  -IdentityFile "$env:USERPROFILE\.ssh\<private-key-file>" `
+  -RemoteBindAddress "<approved-server-bind-ip>" `
+  -RemotePort 18077 `
+  -LocalPort 8077 `
+  -StartNow
+```
+
+The tunnel is reverse-only and uses `BatchMode`, fail-fast forwarding, and SSH
+keepalives. Its private key stays outside the repository. A protected key must
+already be available to `ssh-agent`; otherwise the unattended task exits and
+Task Scheduler applies the bounded restart policy. The SSH server's
+`PermitListen` policy remains the authorization boundary, so this client task
+cannot grant itself a broader bind address or port.
+
+The wrapper stores lifecycle, stdout, and stderr logs under
+`%LOCALAPPDATA%\AEGIS\DetectionEngine\logs`, outside the repository. Keeping
+native process streams separate avoids Windows PowerShell 5.1 treating normal
+Python stderr logging as a task failure. Configuration remains in the ignored
+local `.env`; the scheduled task contains paths only and never copies secrets
+into its definition.
+
+Rollback removes only the engine and tunnel scheduled tasks and preserves
+source, `.env`, the SSH identity, logs, recordings, and snapshots:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\uninstall_autostart.ps1
+```
+
+Auto-start installation does not prove real-camera capture, tunnel reachability,
+or Monitor heartbeat. Verify those independently after a fresh Windows
+logoff/logon. Do not reuse one remote port for multiple camera nodes; each node
+needs an infrastructure-approved listener and unique camera/node identity.
 
 ## Docker development stack
 
@@ -246,4 +313,5 @@ startup failures.
 - Real Monitor heartbeat integration
 - Telegram routing/delivery after credential rotation
 - Production NAS transfer verification
-- Production deployment and operating-system auto-start
+- Automatic reverse-tunnel startup after Windows logon
+- PC/USB-camera auto-start verification

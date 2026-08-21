@@ -111,9 +111,9 @@ After:  docker compose -> aegis-camera -> detection-engine/Dockerfile -> python 
 - 17 modular Python tests passed, covering configuration, NAS-disabled startup, lifecycle rollback/shutdown, startup errors, NAS verification truthfulness, Compose wiring, credential removal, and placeholder authorization safety.
 - Default runtime components started with a deliberately unavailable camera, returned `/health` HTTP 200 with `status=degraded` and `camera_connected=false`, reported NAS `disabled`, and shut down cleanly.
 - Python syntax compilation passed. Docker configuration/container execution could not be verified because Docker CLI is unavailable in the audit environment.
-- **REAL CAMERA VERIFICATION PENDING.** Monitor real heartbeat integration, Telegram real routing, and production NAS integration remain pending and are not claimed by this task.
+- **Windows real-camera runtime verified on 2026-08-15.** The Laptop built-in camera opened at 1280x720 under the modular engine, capture/recording/local authenticated MJPEG worked, and the final `AtLogOn` Scheduled Task reopened the camera after a fresh Windows sign-in. Docker USB-camera passthrough, PC/USB auto-start, Monitor heartbeat/RBAC live view, Telegram real routing, and production NAS integration remain pending.
 
-> **Codebase Status**: ✅ Monitor UI/API built; modular engine is the canonical development runtime. ⚠️ Real camera, Monitor heartbeat, Telegram routing, production NAS, and production deployment verification remain pending.
+> **Codebase Status**: ✅ Monitor UI/API built; modular engine is the canonical development runtime; Windows Laptop real-camera capture and `AtLogOn` auto-start are verified. ⚠️ PC/USB auto-start, Monitor heartbeat/live view, Telegram routing, production NAS, and production deployment verification remain pending.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 ## Viewer-demand camera update (2026-08-21)
@@ -160,6 +160,20 @@ claimed. Automated Detection Engine evidence remains 40/40 tests; earlier local
 Windows-camera testing exercised enrolled Admin and Unknown results.
 Internal/Production rollout remains blocked on credential rotation and
 integration review.
+## Windows camera-laptop auto-start (2026-08-15)
+
+- Added a current-user Windows Scheduled Task workflow that starts the modular Detection Engine at login, keeps webcam access in the interactive session, hides the terminal window, and restarts non-zero exits up to ten times at one-minute intervals.
+- Installation performs import/config validation without opening the camera and supports PowerShell `-WhatIf`; it refuses to register when `.env` or Python is missing.
+- Runtime lifecycle/stdout/stderr logs live under `%LOCALAPPDATA%\AEGIS\DetectionEngine\logs`, not in the repository. Native streams are redirected at the process boundary so Windows PowerShell logging cannot terminate the engine or mix encodings. Scheduled Task configuration contains paths only and does not duplicate `.env` values or grant PostgreSQL access.
+- Uninstall stops/removes only the scheduled task and preserves configuration, logs, recordings and source.
+- **Verified on the Detection Laptop:** `-WhatIf` preflight, task registration, hidden manual scheduled start, stability beyond 120 seconds, fresh Windows sign-out/sign-in trigger, `/health`, camera reopen, capture, segment startup and authenticated local MJPEG all passed. **Still pending:** PC/USB-camera installation, Monitor heartbeat/RBAC live view, graceful process handling during Windows shutdown, Telegram delivery and real NAS transfer. Production credential rotation remains required after secret disclosure; functional key matching is not a security PASS.
+
+## Windows reverse-tunnel auto-start boundary (2026-08-21)
+
+- The Windows installer can optionally register a second current-user `AtLogOn` task that maintains the IDEA2 reverse SSH tunnel independently from the Detection Engine task. The tunnel is reverse-only, fail-fast, uses bounded Task Scheduler restart and SSH keepalives, and keeps the private identity file outside the repository.
+- Tunnel host, identity path, remote bind and ports are installation parameters rather than committed credentials. `BatchMode` prevents an unattended task from hanging at a password/passphrase prompt; protected keys require a separately configured user `ssh-agent`.
+- The SSH server's restricted `PermitListen`/firewall policy remains the final authorization boundary. The Windows task does not change server policy, other accounts, IDEA1 or IDEA3.
+- Static contract tests and PowerShell parsing pass. **Automatic tunnel registration and reconnect after a fresh Windows sign-in remain unverified**, so this is still partial and must not be described as production-ready.
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
 
