@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-21
+updated: 2026-08-22
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: **139 discovered · 120 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-20). This does not replace the isolated-PostgreSQL release result above.
+> **Latest change verification**: **189 discovered · 170 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-22). This does not replace the isolated-PostgreSQL release result above.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -26,11 +26,80 @@ edit_policy: owner-writable
 
 ### UI foundation revision (2026-08-20)
 
-* Appearance preferences are now per-user database state (`users.ui_theme`, `ui_language`, `ui_density`) returned at login and `/api/me`, updated through `PATCH /api/preferences`, and mirrored into the active server session. New accounts default to Light / Thai / Comfortable. Browser storage is not used. Existing databases use the idempotent `server/db/migrations/002_user_preferences.sql` migration before the revised server starts.
+* Appearance preferences are per-user database state (`users.ui_theme`, `ui_language`, `ui_density`) returned at login and `/api/me`, updated through `PATCH /api/preferences`, and mirrored into the active server session. New accounts default to Light / Thai / Comfortable. PostgreSQL remains authoritative; browser storage contains only the non-sensitive `aegis_shell_theme` presentation hint (`light`/`dark`/`system`) used before authentication and across logout. Existing databases use the idempotent `server/db/migrations/002_user_preferences.sql` migration before the revised server starts.
 * The profile menu now exposes Profile, Settings, and Sign out; the unwired notification bell is absent. Global search explains the active page scope, and Dashboard provides Upload / Share / Private Vault quick actions.
 * Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
 * The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
 * G-A remains unresolved: nginx already forwards `X-Real-IP` and `X-Forwarded-For`, but the repository does not yet define one exact stable nginx proxy address for Express to trust. `app.set('trust proxy', 1)` must not be replaced with a guessed or broad trust rule; this requires an infrastructure-reviewed deployment contract.
+
+### Upload completion and theme continuity follow-up (2026-08-22)
+
+> [!warning] Local fix complete; production acceptance pending
+> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** Do not describe these UI defects as resolved in production until the Drive image is rebuilt and FT-1D is rerun.
+
+| Production-discovered defect | Local state | Local verification |
+| :--- | :--- | :--- |
+| Successful upload gave no clear completion feedback | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Success notification fires exactly once per completed file |
+| Floating upload queue stayed at 1 after completion | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Completed work is no longer counted as active; completed history is still retained |
+| Theme transition was one-way (Dark Login → Light App) | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ All three transitions PASS locally — see the acceptance table below |
+
+* Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
+* The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
+* Login and the authenticated shell share one theme resolver, and continuity is bidirectional. A fresh client without a hint starts Light. Crossing the authentication boundary follows one precedence rule: an explicit Login-screen choice made during the current unauthenticated session > the authenticated PostgreSQL account preference > the persisted shell hint > Light. Dark and explicit System choices continue across login, logout, and hard reload without storing identity, role, session, password, or authorization state in browser storage.
+* The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
+* **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
+
+#### Theme continuity — local acceptance results (2026-08-22)
+
+Manual acceptance of the *first* theme-continuity fix confirmed two directions and
+one failure. That failure was part of **this same open item**, not a new one, and
+the follow-up fix below closes it. **All three transitions now pass locally.**
+
+| Transition | Expected | First fix | After follow-up fix (local) |
+| :--- | :--- | :--- | :--- |
+| Light Login → sign in → Dashboard | Light | ✅ PASS | ✅ PASS |
+| Dark App → sign out → Login | Dark | ✅ PASS | ✅ PASS |
+| Dark Login → sign in → Dashboard | Dark | ❌ FAIL — rendered Light | ✅ PASS |
+
+Confirmed locally in the same pass:
+
+| Behaviour | Local result |
+| :--- | :--- |
+| Fresh browser, no stored shell hint | ✅ Light |
+| Explicit Login-screen theme synchronized into `users.ui_theme` after authentication | ✅ PASS |
+| Visible theme flash during the login transition | ✅ None observed |
+
+> [!warning] Local results only
+> These are **local** acceptance results. They do not change the production state
+> of this item, which remains FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION
+> REDEPLOYMENT AND ACCEPTANCE until the Drive image is rebuilt and FT-1D is rerun
+> against production.
+
+* **Root cause of the one failure.** Theme continuity was one-way. On successful authentication the
+  shell replaced the current theme with the account's stored `users.ui_theme`, so
+  a Dark chosen on the Login screen was discarded by a stale Light preference the
+  moment the Dashboard mounted. Logout kept working because nothing overwrites the
+  theme on the way out.
+* **Fix (local).** `resolveAuthenticatedTheme()` in `src/lib/theme.js` is now the
+  single precedence model for crossing the authentication boundary: an explicit
+  Login-screen choice made during the current unauthenticated session > the account
+  preference > the persisted shell hint > Light. A Login-screen choice is applied to
+  `<html>` synchronously before the authenticated shell mounts (no flash) and is
+  synchronized into `users.ui_theme` through `PATCH /api/preferences`, so account,
+  shell hint, and rendered theme converge instead of overriding each other.
+* **Deliberate limit.** When the user makes no explicit choice on the Login screen,
+  the account preference still decides. Signing into an account therefore never
+  rewrites that account's stored theme with a hint left behind by a previous
+  session; only a choice the user just made does.
+* **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
+  six acceptance cases through the real `App` and `Login` components and reads the
+  theme from `<html>`, including a mutation-observed no-flash assertion and a
+  reload case proving persistence rather than React state. Reconfirmed on
+  2026-08-22 for this documentation pass: `node --test --test-concurrency=1
+  tests/themeAuthTransition.test.js tests/themeContinuity.test.js
+  tests/uploadCompletionUx.test.js` — **31 pass, 0 fail, 0 skip**, covering the
+  three transitions above together with exactly-once upload success notification,
+  truthful active-queue counting, and completed/cancelled history retention.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
@@ -120,8 +189,17 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 
 ## 🛡️ FT-1 security finding — File object-level authorization (2026-08-21)
 
-> [!danger] Confirmed production defect — code fixed locally, production NOT yet patched
-> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT.** The Drive build currently running in production (`aegis-system`) **still contains this defect**. Do not describe this finding as resolved until the patched build is deployed to Beelink and retested — see Next step below.
+> [!warning] Authorization patch deployed; acceptance NOT yet complete — do not mark this finding resolved
+> The file-object authorization patch **is present in production**, and FT-1D observed owner-scoped **listing** isolation in both directions: Admin did not see the DataLake-User file, and DataLake-User did not see the Admin file.
+>
+> | Acceptance step | State |
+> | :--- | :--- |
+> | Patch deployed to production | ✅ DONE |
+> | Cross-owner listing isolation (`GET /api/files`) | ✅ PASS observed in FT-1D |
+> | Cross-owner **verify** (`POST /api/files/:id/verify`) acceptance | ⏳ PENDING |
+> | Cross-owner **share creation** (`POST /api/shares`) acceptance | ⏳ PENDING |
+>
+> **This finding stays OPEN until the pending cross-owner verify and share-creation acceptance is executed against production and recorded.** Keep the complete cross-owner regression suite in every future Drive redeployment. This production fact also does not mark the separate upload/theme UI findings above as resolved.
 
 FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
 
@@ -151,7 +229,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
-**Next step:** deploy the patched Drive image to Beelink only (no other production service needs touching, no migration required — `files.uploaded_by` already exists), then rerun FT-0 baseline, FT-1 role RBAC, and this file owner-isolation regression against production before marking the production finding resolved.
+**Next step:** run the outstanding cross-owner **verify** and **share-creation** acceptance against production and record the result here; only then may this finding be marked resolved. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The pending *redeployment* in this status is for the upload/theme UI follow-up, not for the already deployed authorization patch — the authorization item is pending **acceptance**, not pending deployment.
 
 ---
 

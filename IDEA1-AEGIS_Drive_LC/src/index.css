@@ -673,6 +673,15 @@ input::-webkit-inner-spin-button {
   to { transform: translateX(0); opacity: 1 }
 }
 
+@keyframes upload-toast-enter {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.upload-success-toast {
+  animation: upload-toast-enter 200ms ease-out both;
+}
+
 /* ── Reduced motion: everything collapses; every state also reads
      statically via color/icon/label ─────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

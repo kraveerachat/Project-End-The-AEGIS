@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
 
 import { apiUpload } from '../lib/api.js'
 import { fmtBytes } from '../lib/format.js'
 import { Btn, Chip, IconBtn, InlineEmptyState } from './ui.jsx'
 
 const MAX_UPLOAD_BYTES = 1_073_741_824
+const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'processing', 'uploading'])
+
+export const activeUploadCount = (queue = []) => queue.filter((item) => ACTIVE_UPLOAD_STAGES.has(item.stage)).length
+export const failedUploadCount = (queue = []) => queue.filter((item) => item.stage === 'failed').length
+export const shouldShowQueueLauncher = (queue = []) => activeUploadCount(queue) > 0 || failedUploadCount(queue) > 0
 
 const STAGE_LABEL = {
   waiting: 'uploadWaiting',
@@ -67,6 +72,24 @@ function QueueRow({ t, item, onCancel, onRetry, onDismiss }) {
   )
 }
 
+function UploadSuccessToast({ t, toast, onDismiss }) {
+  if (!toast) return null
+  return (
+    <div role="status" aria-live="polite" className="upload-success-toast fixed right-5 top-5 z-[var(--z-toast)] w-[min(360px,calc(100vw-2rem))] rounded-[var(--r-card)] border border-line bg-card p-4 shadow-[var(--elev-2)]">
+      <div className="flex items-start gap-3">
+        <span className="size-9 shrink-0 rounded-[10px] flex items-center justify-center" style={{ color: 'var(--ok)', background: 'var(--ok-soft)' }}>
+          <CheckCircle2 size={18} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13.5px] font-bold text-ink">{t('uploadSuccessTitle')}</p>
+          <p className="mt-0.5 text-[12px] text-ink-2 break-words">{t('uploadSuccessBody', { name: toast.name })}</p>
+        </div>
+        <IconBtn label={t('dismiss')} onClick={onDismiss}><X size={15} /></IconBtn>
+      </div>
+    </div>
+  )
+}
+
 export function UploadDrawer({
   t,
   open,
@@ -83,10 +106,13 @@ export function UploadDrawer({
   hashFile = sha256OfFile,
 }) {
   const [queue, setQueue] = useState(initialQueue)
+  const [successToasts, setSuccessToasts] = useState([])
   const inputRef = useRef(null)
   const drawerRef = useRef(null)
   const idRef = useRef(0)
   const controllers = useRef(new Map())
+  const notifiedCompletions = useRef(new Set())
+  const handledRequests = useRef(new Set())
 
   const patchItem = (id, patch) => setQueue((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
 
@@ -114,6 +140,10 @@ export function UploadDrawer({
       if (controller.signal.aborted) patchItem(id, { stage: 'cancelled', progress: null })
       else if (response.ok) {
         patchItem(id, { stage: 'complete', progress: 100 })
+        if (!notifiedCompletions.current.has(id)) {
+          notifiedCompletions.current.add(id)
+          setSuccessToasts((current) => [...current, { id, name: file.name }])
+        }
         onUploaded?.()
       } else patchItem(id, { stage: 'failed', progress: null })
     } catch {
@@ -137,9 +167,18 @@ export function UploadDrawer({
   }
 
   useEffect(() => {
-    if (initialFiles?.length) enqueue(initialFiles)
+    if (initialFiles?.length && !handledRequests.current.has(requestId)) {
+      handledRequests.current.add(requestId)
+      enqueue(initialFiles)
+    }
     // requestId deliberately represents a distinct drag/drop action.
   }, [requestId])
+
+  useEffect(() => {
+    if (successToasts.length === 0) return undefined
+    const timer = window.setTimeout(() => setSuccessToasts((current) => current.slice(1)), 4500)
+    return () => window.clearTimeout(timer)
+  }, [successToasts])
 
   useEffect(() => () => {
     for (const controller of controllers.current.values()) controller.abort()
@@ -182,20 +221,30 @@ export function UploadDrawer({
     for (const item of queue) if (['waiting', 'processing', 'uploading'].includes(item.stage)) cancel(item.id)
   }
   const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
+  const activeCount = activeUploadCount(queue)
+  const failedCount = failedUploadCount(queue)
+  const successToast = successToasts[0] ?? null
+  const dismissSuccessToast = () => setSuccessToasts((current) => current.slice(1))
 
   if (!open) {
-    if (queue.length === 0) return null
+    if (!shouldShowQueueLauncher(queue) && !successToast) return null
     return portal(
-      <button type="button" onClick={onOpen} className="fixed bottom-5 right-5 z-[var(--z-toast)] h-11 px-4 rounded-full bg-ink text-card inline-flex items-center gap-2 text-[13px] font-semibold shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-        <UploadCloud size={15} aria-hidden />
-        {t('uploadQueue')}
-        <span className="min-w-5 h-5 px-1 rounded-full bg-accent text-white inline-flex items-center justify-center text-[11px]">{queue.length}</span>
-      </button>
+      <>
+        <UploadSuccessToast t={t} toast={successToast} onDismiss={dismissSuccessToast} />
+        {shouldShowQueueLauncher(queue) && (
+          <button type="button" onClick={onOpen} className="fixed bottom-5 right-5 z-[var(--z-toast)] h-11 px-4 rounded-full bg-ink text-card inline-flex items-center gap-2 text-[13px] font-semibold shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            {activeCount > 0 ? <UploadCloud size={15} aria-hidden /> : <AlertTriangle size={15} aria-hidden />}
+            {activeCount > 0 ? t('uploadQueue') : t('uploadNeedsAttention')}
+            <span className="min-w-5 h-5 px-1 rounded-full bg-accent text-white inline-flex items-center justify-center text-[11px]">{activeCount || failedCount}</span>
+          </button>
+        )}
+      </>
     )
   }
 
   return portal(
     <>
+      <UploadSuccessToast t={t} toast={successToast} onDismiss={dismissSuccessToast} />
       <div className="fixed inset-0 z-[var(--z-modal)] bg-black/20" aria-hidden />
       <aside ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-drawer-title" className="fixed z-[calc(var(--z-modal)+1)] inset-y-0 right-0 w-full max-w-[440px] bg-canvas border-l border-line shadow-[var(--elev-2)] flex flex-col outline-none">
         <header className="h-17 px-5 border-b border-line flex items-center gap-3 bg-card">

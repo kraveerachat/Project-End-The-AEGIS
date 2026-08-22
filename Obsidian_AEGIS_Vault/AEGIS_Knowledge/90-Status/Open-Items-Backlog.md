@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-21
+updated: 2026-08-22
 owner: kla
 edit_policy: owner-writable
 ---
@@ -29,21 +29,23 @@ edit_policy: owner-writable
 | Docker/Twingate restart policies | ✅ CLOSED — five containers use `unless-stopped`; Twingate `AutoRemove=false` | [[infrastructure/deployment/Docker-Stack-Plan]] |
 | Server-side post-reboot health | ✅ CLOSED — entry/Drive/Monitor HTTP 200 with application health | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 
-## 🔴 URGENT — Confirmed production security defect (fix pending redeploy)
+## 🟠 OPEN — Production security defect patched, acceptance not complete
 
 **File object-level authorization (IDOR) — IDEA1 Drive.** Confirmed during FT-1 role RBAC testing (2026-08-21): role RBAC itself works, but `GET /api/files`, `POST /api/files/:id/verify`, `GET /api/files/:id/download`, and `POST /api/shares` did not check per-file ownership, letting any authenticated user list/verify/download another user's files or mint a public share link for another user's file by supplying its id. `DELETE /api/files/:id` and the file-version routes were already owner-only and are unaffected.
 
 | Field | State |
 | :--- | :--- |
-| Fix status | **FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT** |
-| Production status | **Beelink `aegis-system` still runs the pre-fix build — defect is live in production until redeployed and retested** |
+| Fix status | **PATCH DEPLOYED TO PRODUCTION / ACCEPTANCE STILL PENDING — NOT RESOLVED** |
+| Production status | Beelink `aegis-system` Drive now runs the patched build; the previously recorded "still runs the pre-fix build" state is **superseded** |
+| Acceptance observed | ✅ Cross-owner **listing** isolation PASS in FT-1D, both directions (Admin ↔ DataLake-User) |
+| Acceptance outstanding | ⏳ Cross-owner **verify** (`POST /api/files/:id/verify`) and **share creation** (`POST /api/shares`) not yet accepted against production |
 | Code | `IDEA1-AEGIS_Drive_LC/server/db/store.js`, `server/routes/api.js` |
 | Tests | New `tests/fileObjectAuthorization.test.js` (8 tests); full IDEA1 suite 175/175 non-skipped pass, 0 fail, in-memory mode; Postgres-mode branch not run in this environment |
 | Evidence | `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`; narrative in [[idea1/idea1-status#🛡️ FT-1 security finding — File object-level authorization (2026-08-21)]] |
 | Deliberately not touched | `GET /api/shares` (list) and `DELETE /api/shares/:id` (revoke) remain unscoped — pinned as intentional current behavior by an existing test; a decision to gate those must be separate and explicit |
-| Next step | Deploy patched Drive image to Beelink only (no migration required, `files.uploaded_by` already exists), then rerun FT-0 baseline, FT-1 role RBAC, and the file owner-isolation regression against production before marking this resolved |
+| Next step | Execute and record the outstanding cross-owner verify/share acceptance against production, alongside FT-0 baseline and FT-1 role RBAC, before marking this resolved |
 
-Do not mark this item resolved until the redeploy + retest above is actually done.
+Do not mark this item resolved until the outstanding cross-owner verify and share acceptance above is actually executed and recorded.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 

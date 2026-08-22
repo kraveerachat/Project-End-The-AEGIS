@@ -4,7 +4,8 @@
 //
 // role ถูกตัดสินฝั่งเซิร์ฟเวอร์จาก record ใน PostgreSQL แล้วเก็บใน session store
 // (cookie เป็นแค่ session id ทึบ + HttpOnly) — JavaScript อ่าน/แก้ไม่ได้
-// client ไม่เคยประกาศ role ของตัวเอง และไม่มี localStorage/sessionStorage ที่ไหนเลย
+// client ไม่เคยประกาศ role ของตัวเอง และไม่เก็บ auth state ใน local/session storage
+// (aegis_shell_theme เป็นเพียง hint ด้านภาพ ไม่มี identity/role/token)
 import { apiFetch, setCsrfToken, clearCsrfToken } from './api.js'
 
 /**

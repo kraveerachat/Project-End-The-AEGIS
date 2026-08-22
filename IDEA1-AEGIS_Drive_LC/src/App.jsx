@@ -11,6 +11,10 @@ import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
 import { themeAssetsFor } from './components/AegisMark.jsx'
+import {
+  applyThemeToDocument, readShellTheme, readStoredShellTheme,
+  resolveAuthenticatedTheme, resolveTheme, writeShellTheme,
+} from './lib/theme.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
@@ -49,25 +53,10 @@ export default function App() {
   // ที่ JavaScript อ่านไม่ได้ — ต่อให้เกิด XSS ก็ขโมย session ไม่ได้
   // ฝั่ง client เก็บได้แค่ "สำเนาที่เซิร์ฟเวอร์ตัดสินมา" ใน React state:
   // null = ยังไม่ล็อกอิน · { username, role, displayName, menu } = คำตอบจาก /api/me
-  // ไม่มี localStorage/sessionStorage ที่ไหนเลย: ปิดแท็บ = state หาย, cookie ยังอยู่
+  // ข้อมูล session ไม่ลง localStorage/sessionStorage: ปิดแท็บ = state หาย, cookie ยังอยู่
+  // localStorage เก็บเฉพาะ shell theme (light/dark/system) เพื่อกันหน้ากระพริบ
   const [session, setSession] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-
-  // ตรวจเซสชันเดิมตอนเปิดแอป — cookie (HttpOnly) แนบไปเอง; server ตอบ user+menu
-  useEffect(() => {
-    let alive = true
-    fetchMe().then((me) => {
-      if (!alive) return
-      if (me) {
-        setSession({ ...me.user, menu: me.menu })
-        setLang(me.user.preferences?.language ?? 'th')
-        setTheme(me.user.preferences?.theme ?? 'light')
-        setDensity(me.user.preferences?.density ?? 'comfortable')
-      }
-      setAuthChecked(true)
-    })
-    return () => { alive = false }
-  }, [])
 
   // เซสชันหมดอายุกลางคัน (401 จาก endpoint ใดก็ตาม) → กลับประตูทันที ไม่ค้างจอ
   useEffect(() => {
@@ -75,8 +64,11 @@ export default function App() {
   }, [])
 
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState('light')
-  const [resolvedTheme, setResolvedTheme] = useState('light')
+  const [theme, setTheme] = useState(() => readShellTheme())
+  const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(
+    readShellTheme(),
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches,
+  ))
   const [density, setDensity] = useState('comfortable')
   const [preferenceSaving, setPreferenceSaving] = useState(false)
   const [preferenceError, setPreferenceError] = useState(false)
@@ -94,6 +86,85 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+
+  // ── สัญญาธีมข้ามด่านล็อกอิน (ดู resolveAuthenticatedTheme ใน lib/theme.js) ────────
+  //
+  // "ผู้ใช้เพิ่งเลือกธีมเองบนหน้า Login ในเซสชันที่ยังไม่ล็อกอินนี้หรือยัง" — เก็บใน ref
+  // ไม่ใช่ state เพราะมันไม่ใช่สิ่งที่ต้อง render และไม่ใช่สิ่งที่ควรค้างข้ามการโหลดหน้า:
+  // มันมีอายุแค่ "ตั้งแต่ผู้ใช้กดปุ่มธีม จนถึงตอนล็อกอินสำเร็จ" ครั้งเดียวแล้วถูกล้างทิ้ง
+  // (shell hint ใน localStorage ยังถูกเขียนตามปกติ — ที่นี่เก็บแค่ "ความตั้งใจที่เพิ่งเกิด")
+  const loginThemeSelection = useRef(null)
+
+  const prefersDarkNow = () => (
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+
+  /**
+   * ใช้ธีมนี้ "เดี๋ยวนี้" — เขียน DOM ทันทีแบบ synchronous ก่อนคืนไปให้ React re-render
+   *
+   * ⚠️ การเขียน DOM ตรงนี้ไม่ใช่ของซ้ำซ้อนกับ effect ด้านล่าง แต่คือสิ่งที่กันหน้ากระพริบ:
+   *    effect ของธีมทำงาน "หลัง" React commit จอใหม่ ถ้ารอมัน เฟรมแรกของ Dashboard จะถูก
+   *    วาดด้วยธีมเก่าก่อนแล้วค่อยสลับ = แฟลชขาวที่ผู้ใช้เห็นจริง effect จึงเหลือหน้าที่แค่
+   *    ตามการเปลี่ยนของ OS (system) และอัปเดต favicon เท่านั้น
+   */
+  const adoptTheme = useCallback((next) => {
+    setTheme(next)
+    writeShellTheme(next)
+    setResolvedTheme(applyThemeToDocument(next, { prefersDark: prefersDarkNow() }))
+  }, [])
+
+  /** ผู้ใช้กดเลือกธีมเองบนหน้า Login — บันทึกเจตนาไว้ให้ด่านล็อกอินใช้ */
+  const selectLoginTheme = useCallback((next) => {
+    loginThemeSelection.current = next
+    adoptTheme(next)
+  }, [adoptTheme])
+
+  /** ดัน ui_theme ขึ้นบัญชีให้ตรงกับที่ตาเห็น — ยิงเฉพาะตอนค่ามันต่างกันจริงเท่านั้น */
+  const persistThemeToAccount = useCallback(async (nextTheme, preferences) => {
+    const result = await apiFetch('/api/preferences', {
+      method: 'PATCH',
+      body: {
+        theme: nextTheme,
+        language: preferences?.language ?? 'th',
+        density: preferences?.density ?? 'comfortable',
+      },
+    })
+    // บันทึกไม่ผ่าน = ธีมที่ตาเห็นยังถูกต้องสำหรับเบราว์เซอร์นี้ (shell hint เขียนไปแล้ว)
+    // แต่จอ Settings ต้องพูดความจริงว่าค่าฝั่งบัญชียังไม่ถูกบันทึก
+    if (!result.ok) return setPreferenceError(true)
+    setSession((current) => (current ? { ...current, preferences: result.data.preferences } : current))
+  }, [])
+
+  /**
+   * ด่านเดียวที่ unauthenticated → authenticated เดินผ่าน (ทั้งล็อกอินใหม่และกู้เซสชันเดิม)
+   * ธีมถูกตัดสินที่นี่จุดเดียว — ไม่มี component ไหนตั้งธีมหลังล็อกอินแข่งกับที่นี่อีก
+   */
+  const applyAuthenticatedSession = useCallback(({ user, menu }) => {
+    const decision = resolveAuthenticatedTheme({
+      selection: loginThemeSelection.current,
+      accountTheme: user.preferences?.theme,
+      shellTheme: readStoredShellTheme(),
+    })
+    loginThemeSelection.current = null // เจตนาถูกใช้ไปแล้ว — ไม่ค้างไปถึงการล็อกอินครั้งหน้า
+
+    setSession({ ...user, menu })
+    setLang(user.preferences?.language ?? 'th')
+    setDensity(user.preferences?.density ?? 'comfortable')
+    adoptTheme(decision.theme)
+    // หลังจุดนี้: users.ui_theme = shell hint = ธีมที่ render จริง (ไม่เหลือค่าที่ขัดกัน)
+    if (decision.persistToAccount) persistThemeToAccount(decision.theme, user.preferences)
+  }, [adoptTheme, persistThemeToAccount])
+
+  // ตรวจเซสชันเดิมตอนเปิดแอป — cookie (HttpOnly) แนบไปเอง; server ตอบ user+menu
+  useEffect(() => {
+    let alive = true
+    fetchMe().then((me) => {
+      if (!alive) return
+      if (me) applyAuthenticatedSession(me)
+      setAuthChecked(true)
+    })
+    return () => { alive = false }
+  }, [applyAuthenticatedSession])
 
   // บัญชีที่ยังใช้รหัสชั่วคราวไม่มีสิทธิ์อ่าน protected endpoint ใด ๆ:
   // ส่ง null ให้ทุก hook เพื่อหยุดทั้ง request แรกและ polling 403 จนรีเซ็ตรหัสสำเร็จ
@@ -158,21 +229,21 @@ export default function App() {
   const usersApi = useApi(protectedDataEnabled && canSeePeople ? '/api/users' : null, { refreshMs: 60_000 })
 
   // theme: light | dark | system → data-theme on <html>
+  // ⚠️ effect นี้ "ตาม" การเปลี่ยนธีม ไม่ใช่ตัวที่ทำให้ธีมเปลี่ยน — adoptTheme() เขียน DOM
+  //    ไปก่อนแล้วแบบ synchronous สิ่งที่เหลือให้ที่นี่ทำคือฟังการเปลี่ยนของ OS (system) และ
+  //    อัปเดต favicon ให้ตรงธีม การเรียก apply() ซ้ำเป็น idempotent จึงไม่มีการแข่งกันเขียน
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
-      const dark = theme === 'dark' || (theme === 'system' && mq.matches)
-      const nextResolvedTheme = dark ? 'dark' : 'light'
+      const nextResolvedTheme = applyThemeToDocument(theme, { prefersDark: mq.matches })
       setResolvedTheme(nextResolvedTheme)
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-      document.documentElement.classList.toggle('dark', dark)
-      document.documentElement.classList.toggle('light', !dark)
       const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
       link.type = 'image/png'
       link.rel = 'shortcut icon'
       link.href = import.meta.env.BASE_URL + themeAssetsFor(nextResolvedTheme).logo
       if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
     }
+    writeShellTheme(theme)
     apply()
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
@@ -238,14 +309,10 @@ export default function App() {
         setLang={setLang}
         theme={theme}
         resolvedTheme={resolvedTheme}
-        setTheme={setTheme}
-        onAuthed={({ user, menu }) => {
-          // role + เมนู (filter ตาม role แล้ว) มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น
-          setSession({ ...user, menu })
-          setLang(user.preferences?.language ?? 'th')
-          setTheme(user.preferences?.theme ?? 'light')
-          setDensity(user.preferences?.density ?? 'comfortable')
-        }}
+        setTheme={selectLoginTheme}
+        // role + เมนู (filter ตาม role แล้ว) มาจากคำตอบของเซิร์ฟเวอร์เท่านั้น
+        // ธีมของจอถัดไปตัดสินใน applyAuthenticatedSession() — ที่นี่ไม่ตั้งธีมเองเด็ดขาด
+        onAuthed={applyAuthenticatedSession}
       />
     )
   }
@@ -254,6 +321,9 @@ export default function App() {
     // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
     apiLogout()
     setSession(null)
+    // ⚠️ ธีมไม่ถูกรีเซ็ตตอนออกจากระบบโดยเจตนา — จอ Login ต้องรับช่วงธีมของแอปต่อทันที
+    //    (App Dark → Logout → Login Dark) shell hint ถูกเขียนไว้แล้วตั้งแต่ตอนเลือกธีม
+    loginThemeSelection.current = null // เริ่มเซสชัน Login ใหม่แบบ "ยังไม่มีการเลือกใหม่"
     go('dashboard', {}, { replace: true })
   }
 
@@ -274,8 +344,10 @@ export default function App() {
 
   const updatePreference = async (key, value) => {
     const previous = { theme, language: lang, density }
+    // ธีมเดินผ่าน adoptTheme() เสมอ (เขียน DOM + shell hint ทันที) — จอ Settings/TopBar
+    // จึงใช้เส้นทางเดียวกับด่านล็อกอิน ไม่มีเส้นทางที่สองที่เขียนธีมด้วยกฎของตัวเอง
     const setValue = {
-      theme: setTheme,
+      theme: adoptTheme,
       language: setLang,
       density: setDensity,
     }[key]
