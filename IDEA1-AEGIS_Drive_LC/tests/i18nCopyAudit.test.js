@@ -97,6 +97,46 @@ test('TH, EN, and ZH keep exact key parity with no empty values or wrong-script 
   assert.equal(Object.values(STRINGS.zh).some((value) => /[ก-๙]/u.test(value)), false)
 })
 
+test('share scope copy describes AEGIS reachability and current CIDR limits in every locale', () => {
+  const labels = {
+    en: {
+      scopeAny: 'Any AEGIS-reachable network',
+      scopeAnyTitle: 'Any AEGIS-reachable network',
+      chipAnyNetwork: 'AEGIS-REACHABLE',
+    },
+    th: {
+      scopeAny: 'ทุกเครือข่ายที่เข้าถึง AEGIS ได้',
+      scopeAnyTitle: 'ทุกเครือข่ายที่เข้าถึง AEGIS ได้',
+      chipAnyNetwork: 'เข้าถึง AEGIS ได้',
+    },
+    zh: {
+      scopeAny: '任何可访问 AEGIS 的网络',
+      scopeAnyTitle: '任何可访问 AEGIS 的网络',
+      chipAnyNetwork: '可访问 AEGIS',
+    },
+  }
+  for (const lang of LANGS) {
+    for (const [key, value] of Object.entries(labels[lang])) {
+      assert.equal(STRINGS[lang][key], value, `${lang}.${key}`)
+    }
+  }
+
+  assert.match(`${STRINGS.en.newShareSub} ${STRINGS.en.scopeAnyBody}`, /Public Internet sharing is not currently available/)
+  assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /source address visible to AEGIS/)
+  assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /Twingate recipients may appear through the connector-visible address/)
+  assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /not a substitute for Twingate access or device policy/)
+
+  assert.match(`${STRINGS.th.newShareSub} ${STRINGS.th.scopeAnyBody}`, /ยังไม่รองรับการแชร์ผ่านอินเทอร์เน็ตสาธารณะ/)
+  assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /ที่อยู่ต้นทางที่ AEGIS มองเห็น/)
+  assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /Twingate.*ที่อยู่ที่ Connector มองเห็น/)
+  assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /ไม่ใช้แทนนโยบายการเข้าถึงของ Twingate หรือนโยบายอุปกรณ์/)
+
+  assert.match(`${STRINGS.zh.newShareSub} ${STRINGS.zh.scopeAnyBody}`, /当前不支持通过公共互联网共享/)
+  assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /AEGIS 可见的来源地址/)
+  assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /Twingate.*连接器可见地址/)
+  assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /不能替代 Twingate 访问策略或设备策略/)
+})
+
 test('Dashboard and navigation use the approved user-facing terminology in all three languages', () => {
   const expected = {
     en: {

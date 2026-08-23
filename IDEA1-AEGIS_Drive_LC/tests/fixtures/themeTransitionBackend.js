@@ -12,8 +12,16 @@ export function backend() {
   return globalThis.__AEGIS_THEME_BACKEND__
 }
 
-export function resetBackend({ account, restoreSession = false } = {}) {
+export function resetBackend({ account, user, restoreSession = false, persistPreferences = true } = {}) {
   globalThis.__AEGIS_THEME_BACKEND__ = {
+    user: {
+      id: '1',
+      username: 'admin',
+      displayName: 'Veerachat J.',
+      accountName: 'Veerachat J.',
+      role: 'Admin',
+      ...user,
+    },
     // users.ui_theme / ui_language / ui_density
     account: { theme: 'light', language: 'th', density: 'comfortable', ...account },
     // true = a valid session cookie already exists (app reload / GET /api/me path)
@@ -21,6 +29,7 @@ export function resetBackend({ account, restoreSession = false } = {}) {
     // every PATCH /api/preferences the client sends, in order — a duplicate or an
     // unnecessary write shows up here as an extra entry
     patches: [],
+    persistPreferences,
   }
   return globalThis.__AEGIS_THEME_BACKEND__
 }
@@ -32,14 +41,11 @@ export const NAV = [
 ]
 
 export function sessionUser() {
+  const state = backend()
   return {
-    id: '1',
-    username: 'admin',
-    displayName: 'Veerachat J.',
-    accountName: 'Veerachat J.',
-    role: 'Admin',
+    ...state.user,
     mustResetPassword: false,
     // the server always answers with a complete preference set (DEFAULT_USER_PREFERENCES)
-    preferences: { ...backend().account },
+    preferences: { ...state.account },
   }
 }

@@ -16,6 +16,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import express from 'express'
 import { Client, loginClient, DEMO_USER, DEMO_ADMIN } from './helpers/testClient.mjs'
 
 const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-share-test-'))
@@ -50,10 +51,14 @@ let server, baseUrl
 before(async () => {
   await initStorage()
   await initAvatarStorage()
-  const app = createApp()
-  server = app.listen(0)
+  // Production exposes Drive below /drive and strips that prefix before the
+  // child Express app handles the request. Mounting the real app here exercises
+  // the same browser-visible base path without changing production nginx.
+  const mounted = express()
+  mounted.use('/drive', createApp())
+  server = mounted.listen(0)
   await new Promise((r) => server.once('listening', r))
-  baseUrl = `http://127.0.0.1:${server.address().port}`
+  baseUrl = `http://127.0.0.1:${server.address().port}/drive`
 })
 
 after(async () => {
@@ -170,6 +175,13 @@ test('รหัสลิงก์: ต้องกรอกถูกจึงไ
   const html = form.buffer.toString('utf8')
   assert.ok(html.includes('<form'), 'ต้องได้ฟอร์มกรอกรหัส')
   assert.ok(!html.includes(FILE_BODY), '⚠️ เนื้อไฟล์ต้องไม่หลุดมากับหน้าฟอร์มเด็ดขาด')
+  const formTag = html.match(/<form\b[^>]*>/i)?.[0] ?? ''
+  assert.match(formTag, /method="post"/i, 'ฟอร์มต้อง POST กลับ URL ปัจจุบัน')
+  assert.doesNotMatch(formTag, /\saction=/i, 'ห้ามสร้าง relative action ที่ทำให้ /s/s/ ซ้ำ')
+  const action = /\saction="([^"]*)"/i.exec(formTag)?.[1] ?? ''
+  const browserPost = new URL(action, `${baseUrl}/s/${token}`)
+  assert.equal(browserPost.pathname, `/drive/s/${token}`, 'browser ต้อง POST กลับ public URL เดิม')
+  assert.doesNotMatch(browserPost.pathname, /\/s\/s\//, 'production base path ต้องไม่มี /s/s/')
 
   // รหัสผิด → ไม่ได้ไฟล์
   const wrong = await recipient().req(`/s/${token}`, {

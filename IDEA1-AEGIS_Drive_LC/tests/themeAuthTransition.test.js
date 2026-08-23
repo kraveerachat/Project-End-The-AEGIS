@@ -14,9 +14,10 @@
 //
 // Precedence under test (the single model — see resolveAuthenticatedTheme):
 //   1. a theme the user explicitly picked on the Login screen this session
-//   2. the authenticated account preference
-//   3. the persisted shell hint
-//   4. light
+//   2. same-account one-shot logout continuity
+//   3. the authenticated account preference
+//   4. the persisted shell hint
+//   5. light
 import test, { after, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -237,6 +238,87 @@ test('signing out of a dark app leaves a dark login screen', async () => {
     assert.equal(app.onLoginScreen, true)
     assert.equal(app.theme, 'dark', 'the gate must inherit the theme the app was left in')
     assert.equal(app.shellHint, 'dark')
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('dark app logout continuity returns the same account to a dark app', async () => {
+  resetBackend({ account: { theme: 'light' }, persistPreferences: false })
+  const app = await loadApp()
+  try {
+    await app.signIn()
+    await app.click(app.button('Switch to dark mode'))
+    assert.equal(app.theme, 'dark')
+    assert.equal(backend().account.theme, 'light', 'model a stale authoritative account preference')
+
+    await app.signOut()
+    assert.equal(app.theme, 'dark')
+    await app.signIn()
+
+    assert.equal(app.onLoginScreen, false)
+    assert.equal(app.theme, 'dark', 'same-account one-shot continuity must beat stale ui_theme')
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('light app logout continuity returns the same account to a light app', async () => {
+  resetBackend({ account: { theme: 'dark' }, persistPreferences: false })
+  const app = await loadApp({ shell: 'dark' })
+  try {
+    await app.signIn()
+    await app.click(app.button('Switch to light mode'))
+    assert.equal(app.theme, 'light')
+    assert.equal(backend().account.theme, 'dark', 'model a stale authoritative account preference')
+
+    await app.signOut()
+    assert.equal(app.theme, 'light')
+    await app.signIn()
+
+    assert.equal(app.onLoginScreen, false)
+    assert.equal(app.theme, 'light', 'same-account one-shot continuity must beat stale ui_theme')
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('a different account does not inherit another user logout continuity', async () => {
+  resetBackend({ account: { theme: 'light' }, persistPreferences: false })
+  const app = await loadApp()
+  try {
+    await app.signIn()
+    await app.click(app.button('Switch to dark mode'))
+    await app.signOut()
+
+    backend().user = {
+      id: '2',
+      username: 'second-user',
+      displayName: 'Second User',
+      accountName: 'Second User',
+      role: 'DataLake-User',
+    }
+    backend().account = { theme: 'light', language: 'th', density: 'comfortable' }
+    await app.signIn()
+
+    assert.equal(app.theme, 'light', 'the second account must receive its own preference')
+    assert.equal(app.shellHint, 'light')
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('an explicit login choice wins over same-account logout continuity', async () => {
+  resetBackend({ account: { theme: 'light' }, persistPreferences: false })
+  const app = await loadApp()
+  try {
+    await app.signIn()
+    await app.click(app.button('Switch to dark mode'))
+    await app.signOut()
+    await app.click(app.button('Switch to light mode'))
+    await app.signIn()
+
+    assert.equal(app.theme, 'light')
   } finally {
     await app.cleanup()
   }

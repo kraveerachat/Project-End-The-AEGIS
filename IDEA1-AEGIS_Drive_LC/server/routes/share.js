@@ -162,13 +162,13 @@ function outOfScope(res, nonce) {
   })
 }
 
-function passwordForm(res, { nonce, token, fileName, error }) {
+function passwordForm(res, { nonce, fileName, error }) {
   page(res, {
     status: error ? 401 : 200, nonce, title: 'Password required',
     body: `<h1>Password required</h1>` +
       `<p>This file was shared with a password. Ask the sender if you do not have it.</p>` +
       `<div class="file">${esc(fileName)}</div>` +
-      `<form method="post" action="${esc(`s/${token}`)}">` +
+      `<form method="post">` +
       `<label for="pw">Link password</label>` +
       `<input id="pw" name="password" type="password" autocomplete="off" autofocus required>` +
       `<button type="submit">Download</button></form>` +
@@ -254,7 +254,7 @@ shareRouter.get('/s/:token', async (req, res, next) => {
     const { share } = result
     if (share.authType === 'password') {
       // ยังไม่ยืนยันรหัส — แสดงฟอร์ม (ยังไม่นับ hit: การเห็นฟอร์มไม่ใช่การเข้าถึงไฟล์)
-      return passwordForm(res, { nonce, token: req.params.token, fileName: share.fileName })
+      return passwordForm(res, { nonce, fileName: share.fileName })
     }
     return deliver(req, res, share, nonce)
   } catch (err) {
@@ -293,7 +293,7 @@ shareRouter.post('/s/:token', async (req, res, next) => {
       recordFailure(req, rateKey, 'share')
       await auditShare(req, 'SHARE_REDEEM', share.fileName, 'DENIED')
       return passwordForm(res, {
-        nonce, token: req.params.token, fileName: share.fileName,
+        nonce, fileName: share.fileName,
         error: 'That password is not correct.',
       })
     }

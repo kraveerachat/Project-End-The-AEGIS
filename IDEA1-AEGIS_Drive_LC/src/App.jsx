@@ -94,6 +94,9 @@ export default function App() {
   // มันมีอายุแค่ "ตั้งแต่ผู้ใช้กดปุ่มธีม จนถึงตอนล็อกอินสำเร็จ" ครั้งเดียวแล้วถูกล้างทิ้ง
   // (shell hint ใน localStorage ยังถูกเขียนตามปกติ — ที่นี่เก็บแค่ "ความตั้งใจที่เพิ่งเกิด")
   const loginThemeSelection = useRef(null)
+  // ส่งต่อธีมตอน logout ได้หนึ่งครั้งและเฉพาะ user id เดิมเท่านั้น เก็บในหน่วยความจำ
+  // จึงไม่ทิ้ง identity/role/token/session ใด ๆ ไว้ใน browser storage และหายเมื่อ reload
+  const logoutThemeContinuity = useRef(null)
 
   const prefersDarkNow = () => (
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -140,8 +143,13 @@ export default function App() {
    * ธีมถูกตัดสินที่นี่จุดเดียว — ไม่มี component ไหนตั้งธีมหลังล็อกอินแข่งกับที่นี่อีก
    */
   const applyAuthenticatedSession = useCallback(({ user, menu }) => {
+    const continuity = logoutThemeContinuity.current
+    logoutThemeContinuity.current = null // one-shot: การล็อกอินครั้งถัดไปใช้หรือทิ้งทันที
     const decision = resolveAuthenticatedTheme({
       selection: loginThemeSelection.current,
+      logoutTheme: continuity && String(continuity.userId) === String(user.id)
+        ? continuity.theme
+        : null,
       accountTheme: user.preferences?.theme,
       shellTheme: readStoredShellTheme(),
     })
@@ -318,6 +326,11 @@ export default function App() {
   }
 
   const signOut = () => {
+    // เก็บเฉพาะ user id + presentation theme ในหน่วยความจำ เพื่อให้บัญชีเดิมกลับมาใช้
+    // ธีมที่เพิ่งเห็นได้หนึ่งครั้ง บัญชีอื่นไม่เคยได้รับค่านี้
+    logoutThemeContinuity.current = session?.id == null
+      ? null
+      : { userId: session.id, theme }
     // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
     apiLogout()
     setSession(null)
