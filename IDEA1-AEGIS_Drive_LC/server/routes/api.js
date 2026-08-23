@@ -11,6 +11,7 @@ import {
   setSessionPreferences,
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
+import { requestSourceIp } from '../request/sourceIp.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -91,12 +92,12 @@ apiRouter.post('/login', async (req, res) => {
     // ⚠️ await: ดูเหตุผลที่เส้นทาง login สำเร็จด้านล่าง — ความพยายามที่ล้มเหลวยิ่งต้องไม่หาย
     await recordAudit({
       actorLabel: 'unknown', action: 'LOGIN', targetHash: sha256Hex(String(username)),
-      result: 'DENIED', sourceIp: req.ip,
+      result: 'DENIED', sourceIp: requestSourceIp(req),
     })
     if (accountLockMs || ipLockMs) {
       await recordAudit({
         actorLabel: 'system', action: 'LOGIN_LOCKOUT', targetHash: sha256Hex(String(username)),
-        result: 'BLOCKED', sourceIp: req.ip,
+        result: 'BLOCKED', sourceIp: requestSourceIp(req),
       })
     }
     return res.status(401).json({ error: INVALID_CREDENTIALS }) // เหมือนกันทุกกรณี
@@ -117,7 +118,7 @@ apiRouter.post('/login', async (req, res) => {
   //    เห็นปัญหานี้ (แบบแผนและเหตุผลเดียวกับ /vault/unlock-attempt ด้านล่างไฟล์นี้)
   await recordAudit({
     actorId: user.id, actorLabel: user.username, role: user.role,
-    action: 'LOGIN', result: 'OK', sourceIp: req.ip,
+    action: 'LOGIN', result: 'OK', sourceIp: requestSourceIp(req),
   })
 
   // เมนูถูก filter ตาม role จาก DB (default-deny) + CSRF token ผูกกับเซสชันใหม่
@@ -135,7 +136,7 @@ apiRouter.post('/logout', async (req, res) => {
     // บันทึกจะอ่านเหมือนเซสชันที่ยังเปิดค้างอยู่ตลอด
     await recordAudit({
       actorId: user.id, actorLabel: user.username, role: user.role,
-      action: 'LOGOUT', result: 'OK', sourceIp: req.ip,
+      action: 'LOGOUT', result: 'OK', sourceIp: requestSourceIp(req),
     })
   }
   await destroySession(req, res) // invalidate ฝั่งเซิร์ฟเวอร์เสมอ ไม่ใช่แค่ลบ cookie
@@ -202,7 +203,7 @@ apiRouter.get('/audit', requireRole(ROLES.ADMIN), async (req, res, next) => {
 const auditAct = (req, action, target, result = 'OK') =>
   recordAudit({
     actorId: req.user.id, actorLabel: req.user.username, role: req.user.role,
-    action, targetHash: target ? sha256Hex(target) : null, result, sourceIp: req.ip,
+    action, targetHash: target ? sha256Hex(target) : null, result, sourceIp: requestSourceIp(req),
   })
 
 // ── Dashboard ────────────────────────────────────────────────────────
@@ -643,7 +644,8 @@ apiRouter.get('/storage', requireAuth, async (req, res, next) => {
 // ── Network zones (Admin governance เท่านั้น) ──────────────────────────
 // ⚠️ ไม่มี /keys และ /keys/rotate อีกแล้ว — ทั้งคู่รายงานสถานะกุญแจ master ที่ไม่มีอยู่
 //    จริงในระบบนี้ (ดูเหตุผลเต็มที่หัวหมวด Network zones ใน db/store.js)
-// ⚠️ zone คือบันทึกเจตนา ไม่ใช่กลไกบังคับ — endpoint เหล่านี้ไม่เปลี่ยนการเข้าถึงใด ๆ
+// Zone CIDR ถูก snapshot ลง restricted shares ตอนสร้างและเทียบกับ canonical req.ip
+// ตอน redemption; เป็น defense in depth ไม่ใช่ตัวแทน Twingate/device/firewall policy
 apiRouter.get('/zones', requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
     res.json({ zones: await store.listNetworkZones() })

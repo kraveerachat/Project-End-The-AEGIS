@@ -55,7 +55,7 @@ Do not mark this item resolved until the outstanding cross-owner verify and shar
 | Theme continuity | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | PR #24 Batch A: A1 Dark PASS and A2 Light PASS. Preserve the former PR #22 failure as regression history only. |
 | Password-protected share redemption | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS with duplicated `/s/s/` = NO; A4 wrong-password denial PASS; A5 no-password Share PASS. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy PASS. |
-| Network-scoped share acceptance | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Current audit/application source IP is `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR. Correct and verify real-client-IP/trusted-proxy behavior, or document the precise Twingate limitation, before claiming CIDR enforcement. |
+| Network-scoped share acceptance | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Batch B2 trusted-proxy hardening is implemented and verified locally but not deployed. Current production still reports `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR; the published-port path loses endpoint identity before nginx. Deploy the dedicated HUB→Drive boundary separately and complete B3/B4 production allow/deny/spoof acceptance before claiming CIDR enforcement. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private/Twingate-only. If approved later, design a separate share-only public gateway limited to `GET/POST /s/:token`; do not expose the authenticated Drive application or claim this mode exists today. |
 
 Canonical detail: [[idea1/idea1-status#Secure Share production findings (2026-08-23)]].

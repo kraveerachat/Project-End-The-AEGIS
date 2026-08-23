@@ -16,12 +16,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import express from 'express'
+import { createServer, request as httpRequest } from 'node:http'
 import { Client, loginClient, DEMO_USER, DEMO_ADMIN } from './helpers/testClient.mjs'
 
 const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-share-test-'))
 process.env.STORAGE_ROOT = STORAGE_ROOT
 process.env.SESSION_SECRET = 'test-only-session-secret-not-used-in-production'
+process.env.TRUSTED_PROXY_CIDRS = '127.0.0.2/32'
 
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
 else delete process.env.DATABASE_URL
@@ -46,23 +47,52 @@ console.log(`[share redemption tests] database mode: ${DB_MODE}`)
 const FILE_BODY = 'Q3 pricing model. Unit cost 412.50 THB, margin 31.4 percent.'
 const FILE_NAME = 'sharetest-q3-pricing.txt'
 
-let server, baseUrl
+let driveServer, proxyServer, baseUrl, directBaseUrl
 
 before(async () => {
   await initStorage()
   await initAvatarStorage()
-  // Production exposes Drive below /drive and strips that prefix before the
-  // child Express app handles the request. Mounting the real app here exercises
-  // the same browser-visible base path without changing production nginx.
-  const mounted = express()
-  mounted.use('/drive', createApp())
-  server = mounted.listen(0)
-  await new Promise((r) => server.once('listening', r))
-  baseUrl = `http://127.0.0.1:${server.address().port}/drive`
+  driveServer = createApp().listen(0, '127.0.0.1')
+  await new Promise((r) => driveServer.once('listening', r))
+  directBaseUrl = `http://127.0.0.1:${driveServer.address().port}`
+
+  // A real TCP hop models the trusted edge. It connects from 127.0.0.2 (the
+  // only CIDR trusted by the child app), strips /drive, discards inbound
+  // forwarding chains, and overwrites attribution exactly like tracked nginx.
+  proxyServer = createServer((clientReq, clientRes) => {
+    const sourceIp = String(clientReq.headers['x-test-client-ip'] ?? '198.51.100.250')
+    const headers = {
+      ...clientReq.headers,
+      'x-forwarded-for': sourceIp,
+      'x-real-ip': sourceIp,
+      'x-forwarded-proto': 'http',
+      'x-forwarded-host': clientReq.headers.host,
+    }
+    delete headers.forwarded
+    delete headers['x-test-client-ip']
+
+    const upstream = httpRequest({
+      hostname: '127.0.0.1',
+      port: driveServer.address().port,
+      localAddress: '127.0.0.2',
+      method: clientReq.method,
+      path: clientReq.url.replace(/^\/drive(?=\/|$)/, '') || '/',
+      headers,
+    }, (upstreamRes) => {
+      clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers)
+      upstreamRes.pipe(clientRes)
+    })
+    upstream.on('error', (error) => clientRes.destroy(error))
+    clientReq.pipe(upstream)
+  })
+  proxyServer.listen(0, '127.0.0.1')
+  await new Promise((r) => proxyServer.once('listening', r))
+  baseUrl = `http://127.0.0.1:${proxyServer.address().port}/drive`
 })
 
 after(async () => {
-  await new Promise((r) => server.close(r))
+  await new Promise((r) => proxyServer.close(r))
+  await new Promise((r) => driveServer.close(r))
   if (usingPostgres) {
     // เก็บกวาดของตัวเองให้หมด — แถวไฟล์ที่ค้างไว้จะไปโผล่ในชุดทดสอบอื่นที่ใช้ฐานเดียวกัน
     // (shares ถูกลบก่อน files เพราะ file_id เป็น FK แบบ CASCADE — ลบตามลำดับนี้ชัดเจนกว่า
@@ -100,8 +130,8 @@ async function createShare(client, fileId, opts = {}) {
 /**
  * ผู้รับ = ไม่มี cookie ไม่มี session ไม่มี CSRF token เลย (เหมือนคนเปิดลิงก์จากอีเมล)
  *
- * ⚠️ ทุก recipient ระบุ X-Forwarded-For ของตัวเอง (app.set('trust proxy', 1) ทำให้
- *    ค่านี้กลายเป็น req.ip) เพราะ rate limit ของการเดารหัสลิงก์นับ "ต่อ IP" ด้วย —
+ * ⚠️ ทุก recipient ระบุ source จำลองให้ test reverse proxy ซึ่งจะลบ forwarding
+ *    header ขาเข้าแล้วเขียน X-Forwarded-For ใหม่ เหมือน trusted nginx edge —
  *    ถ้าทุกเทสต์ยิงจาก 127.0.0.1 เหมือนกันหมด เทสต์ brute-force จะล็อก IP นั้นค้างไว้
  *    แล้วเทสต์ถัดไปล้มเพราะ 429 โดยที่โค้ดโปรดักชันไม่ได้ผิดอะไรเลย
  *    (การล็อกต่อ IP เป็นพฤติกรรมที่ถูกต้อง — เทสต์ต่างหากที่ต้องเป็นผู้รับต่างคนกัน)
@@ -109,7 +139,7 @@ async function createShare(client, fileId, opts = {}) {
  */
 function recipient(ip = '198.51.100.10') {
   const c = new Client(baseUrl)
-  const withIp = (extra = {}) => ({ 'X-Forwarded-For': ip, ...extra })
+  const withIp = (extra = {}) => ({ 'X-Test-Client-IP': ip, ...extra })
   return {
     raw: (pathname, opts = {}) => c.raw(pathname, { ...opts, headers: withIp(opts.headers) }),
     rawPost: (pathname, body) => c.raw(pathname, {
@@ -306,16 +336,94 @@ test('ขอบเขตเครือข่าย: IP นอกช่วงไ
     const hits = (await admin.req('/api/shares')).data.shares.find((s) => s.id === share.id)?.hits
     assert.equal(hits, 0, 'คำขอที่ถูกปฏิเสธต้องไม่เพิ่มตัวนับ')
 
-    // X-Forwarded-For ที่อยู่ในช่วง → ผ่าน (พิสูจน์ว่าเทียบ IP จริง ไม่ใช่ปฏิเสธทุกอย่าง)
-    // (app.set('trust proxy', 1) ทำให้ req.ip มาจาก header นี้ — ดูข้อจำกัดใน routes/share.js)
-    const allowed = await recipient().raw(sharePath, { headers: { 'X-Forwarded-For': '203.0.113.42' } })
+    // Trusted edge ที่เห็น source อยู่ในช่วง → ผ่าน (พิสูจน์ว่าเทียบ canonical req.ip)
+    const allowed = await recipient('203.0.113.42').raw(sharePath)
     assert.equal(allowed.status, 200, `IP ในขอบเขตต้องได้ไฟล์ — ได้ ${allowed.status}`)
     assert.equal(allowed.buffer.toString('utf8'), FILE_BODY)
+
+    // B2-T5: audit ต้องบันทึก address เดียวกับที่ใช้ตัดสิน CIDR
+    const event = (await readAudit(50)).find((e) => e.action === 'SHARE_REDEEM' && e.result === 'OK')
+    assert.equal(event?.sourceIp, '203.0.113.42')
   } finally {
     const zones = (await admin.req('/api/zones')).data.zones
     const row = zones.find((z) => z.cidr === cidr)
     if (row) await admin.req(`/api/zones/${row.id}`, { method: 'DELETE' })
   }
+})
+
+test('B2-T8 direct caller cannot forge XFF to bypass a restricted share', async () => {
+  const admin = await loginClient(baseUrl, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const file = await uploadFile(admin, { name: 'sharetest-forged-xff.txt' })
+  const cidr = '203.0.113.0/24'
+  const zone = await admin.req('/api/zones', { method: 'POST', body: { name: 'share-test forged-xff', cidr } })
+  assert.equal(zone.status, 201)
+
+  try {
+    const { path: sharePath, share } = await createShare(admin, file.id, { scope: 'zones' })
+    const attacker = new Client(directBaseUrl)
+    const denied = await attacker.raw(sharePath, {
+      headers: { 'X-Forwarded-For': '203.0.113.42' },
+    })
+    assert.equal(denied.status, 403)
+    assert.ok(!denied.buffer.toString('utf8').includes(FILE_BODY))
+    const hits = (await admin.req('/api/shares')).data.shares.find((s) => s.id === share.id)?.hits
+    assert.equal(hits, 0)
+  } finally {
+    const zones = (await admin.req('/api/zones')).data.zones
+    const row = zones.find((z) => z.cidr === cidr)
+    if (row) await admin.req(`/api/zones/${row.id}`, { method: 'DELETE' })
+  }
+})
+
+test('B2-T11 share IP limiter cannot be bypassed with changing forged XFF', async () => {
+  const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  const file = await uploadFile(owner, { name: 'sharetest-rate-source.txt' })
+  const direct = new Client(directBaseUrl)
+  const shares = []
+  for (let i = 0; i < 6; i++) {
+    shares.push(await createShare(owner, file.id, {
+      authType: 'password', password: `rate-source-password-${i}`,
+    }))
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const wrong = await direct.raw(shares[i].path, {
+      method: 'POST',
+      body: `password=wrong-${i}`,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Forwarded-For': `198.51.100.${i + 1}`,
+      },
+    })
+    assert.equal(wrong.status, 401)
+  }
+  const locked = await direct.raw(shares[5].path, {
+    method: 'POST',
+    body: 'password=still-wrong',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Forwarded-For': '198.51.100.200',
+    },
+  })
+  assert.equal(locked.status, 429)
+})
+
+test('B2-T11 login IP limiter cannot be bypassed with changing forged XFF', async () => {
+  const direct = new Client(directBaseUrl)
+  for (let i = 0; i < 5; i++) {
+    const wrong = await direct.req('/api/login', {
+      method: 'POST',
+      body: { username: `missing-b2-user-${i}`, password: 'wrong-password' },
+      headers: { 'X-Forwarded-For': `192.0.2.${i + 1}` },
+    })
+    assert.equal(wrong.status, 401)
+  }
+  const locked = await direct.req('/api/login', {
+    method: 'POST',
+    body: { username: 'missing-b2-user-last', password: 'wrong-password' },
+    headers: { 'X-Forwarded-For': '192.0.2.200' },
+  })
+  assert.equal(locked.status, 429)
 })
 
 test('scope zones แต่ยังไม่มี zone ใดถูกกำหนด → ปฏิเสธการสร้าง (ไม่สร้างลิงก์ที่อ้างว่าจำกัด)', async () => {
