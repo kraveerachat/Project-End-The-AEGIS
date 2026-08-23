@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-22
+updated: 2026-08-23
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -34,14 +34,14 @@ edit_policy: owner-writable
 
 ### Upload completion and theme continuity follow-up (2026-08-22)
 
-> [!warning] Local fix complete; production acceptance pending
-> **Status: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** Do not describe these UI defects as resolved in production until the Drive image is rebuilt and FT-1D is rerun.
+> [!warning] Production acceptance split after PR #22 deployment
+> **UPLOAD: VERIFIED IN PRODUCTION. THEME: FAIL IN PRODUCTION / OPEN.** PR #22 is deployed. Upload passed the production checks recorded below; Theme remains open because the authenticated Dashboard did not preserve the Dark Login state when no new Login-screen theme choice was made.
 
-| Production-discovered defect | Local state | Local verification |
+| Production-discovered defect | Production status | Production acceptance after PR #22 |
 | :--- | :--- | :--- |
-| Successful upload gave no clear completion feedback | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Success notification fires exactly once per completed file |
-| Floating upload queue stayed at 1 after completion | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ Completed work is no longer counted as active; completed history is still retained |
-| Theme transition was one-way (Dark Login → Light App) | FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE | ✅ All three transitions PASS locally — see the acceptance table below |
+| Successful upload gave no clear completion feedback | ✅ VERIFIED IN PRODUCTION | Upload succeeds; success popup is visible exactly once; uploaded file appears in Files |
+| Floating upload queue stayed at 1 after completion | ✅ VERIFIED IN PRODUCTION | Floating active-queue badge disappears after completion |
+| Theme transition was one-way (Dark Login → Light App) | ❌ FAIL IN PRODUCTION / OPEN | Dashboard Dark → Logout → Login Dark → Login produced Dashboard Light instead of Dashboard Dark |
 
 * Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
 * The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
@@ -49,11 +49,35 @@ edit_policy: owner-writable
 * The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
 * **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
 
-#### Theme continuity — local acceptance results (2026-08-22)
+#### Production acceptance after PR #22 deployment (2026-08-22)
+
+**Upload — VERIFIED IN PRODUCTION**
+
+| Production check | Result |
+| :--- | :--- |
+| Upload success | ✅ PASS |
+| Success popup visible | ✅ PASS |
+| Success popup appears exactly once | ✅ PASS |
+| Floating active-queue badge disappears after completion | ✅ PASS |
+| Uploaded file visible in Files | ✅ PASS |
+
+**Theme — FAIL IN PRODUCTION / OPEN**
+
+| Flow | Result |
+| :--- | :--- |
+| Expected | Dashboard Dark → Logout → Login Dark → Login → Dashboard Dark |
+| Observed | Dashboard Dark → Logout → Login Dark → Login → **Dashboard Light** |
+
+> [!danger] Theme remains open
+> Do not mark Theme resolved and do not create a duplicate issue. The likely behavior to investigate is that, when no new explicit Login-screen toggle is made, the persisted Dark shell/Login state is overridden by the authenticated account preference. This is an investigation hypothesis, not a confirmed root cause.
+
+#### Theme continuity — local evidence (does not override production failure)
 
 Manual acceptance of the *first* theme-continuity fix confirmed two directions and
 one failure. That failure was part of **this same open item**, not a new one, and
-the follow-up fix below closes it. **All three transitions now pass locally.**
+the follow-up fix made all three transitions pass locally. Production acceptance
+after PR #22 nevertheless failed the no-new-toggle Dark transition above, so the
+local result is regression evidence only and does not close the production item.
 
 | Transition | Expected | First fix | After follow-up fix (local) |
 | :--- | :--- | :--- | :--- |
@@ -69,11 +93,10 @@ Confirmed locally in the same pass:
 | Explicit Login-screen theme synchronized into `users.ui_theme` after authentication | ✅ PASS |
 | Visible theme flash during the login transition | ✅ None observed |
 
-> [!warning] Local results only
-> These are **local** acceptance results. They do not change the production state
-> of this item, which remains FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION
-> REDEPLOYMENT AND ACCEPTANCE until the Drive image is rebuilt and FT-1D is rerun
-> against production.
+> [!danger] Production result overrides local acceptance
+> PR #22 is deployed. The production no-new-toggle transition failed, so Theme
+> remains **FAIL IN PRODUCTION / OPEN** until the behavior is investigated, fixed,
+> redeployed, and accepted in production.
 
 * **Root cause of the one failure.** Theme continuity was one-way. On successful authentication the
   shell replaced the current theme with the account's stored `users.ui_theme`, so
@@ -87,10 +110,13 @@ Confirmed locally in the same pass:
   `<html>` synchronously before the authenticated shell mounts (no flash) and is
   synchronized into `users.ui_theme` through `PATCH /api/preferences`, so account,
   shell hint, and rendered theme converge instead of overriding each other.
-* **Deliberate limit.** When the user makes no explicit choice on the Login screen,
-  the account preference still decides. Signing into an account therefore never
-  rewrites that account's stored theme with a hint left behind by a previous
-  session; only a choice the user just made does.
+* **Open production behavior to investigate.** When the user makes no explicit
+  choice on the Login screen, the current precedence lets the account preference
+  decide. Production shows this can break expected Dark continuity across logout
+  and login. Determine whether the shell/Login state should be synchronized or
+  promoted in this case without allowing an unrelated prior-session hint to
+  overwrite an account preference. Do not treat this hypothesis as a confirmed
+  root cause or the item as resolved.
 * **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
   six acceptance cases through the real `App` and `Login` components and reads the
   theme from `<html>`, including a mutation-observed no-flash assertion and a
@@ -100,6 +126,28 @@ Confirmed locally in the same pass:
   tests/uploadCompletionUx.test.js` — **31 pass, 0 fail, 0 skip**, covering the
   three transitions above together with exactly-once upload success notification,
   truthful active-queue counting, and completed/cancelled history retention.
+
+### Secure Share production findings (2026-08-23)
+
+> [!danger] Production acceptance remains incomplete
+> **PASSWORD SHARE: OPEN — production confirmed defect. NETWORK-SCOPED SHARE:
+> BLOCKED FOR VALID ACCEPTANCE. PUBLIC EXTERNAL SHARE: NOT IMPLEMENTED.** These
+> findings do not change Upload's verified state and do not resolve Theme.
+
+| Share capability | Current production state | Evidence and boundary |
+| :--- | :--- | :--- |
+| Password-protected share | ❌ **OPEN — production confirmed** | `GET /drive/s/:token` renders the password form correctly. Submitting it resolves to duplicated `/drive/s/s/:token` and returns `Cannot POST`. Source inspection confirms the form uses the relative action `s/${token}` in `server/routes/share.js`, while the server route is `POST /s/:token`. |
+| Network-scoped share | ⛔ **BLOCKED FOR VALID ACCEPTANCE** | Audit/application evidence currently records source IP `172.18.0.1`. This Docker bridge/proxy address is not valid evidence of the recipient CIDR and must not be accepted as successful CIDR enforcement. Correct real-client-IP/trusted-proxy behavior, or document the Twingate limitation precisely, before claiming enforcement. |
+| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
+
+The current route implementation still performs password, expiry, revoke, rate-limit,
+Vault exclusion, and CIDR checks at the application layer, but those source-level
+controls do not override the production findings above. In particular,
+`app.set('trust proxy', 1)` and forwarded headers are not sufficient evidence that
+the observed `172.18.0.1` represents the real recipient across the current
+Docker/nginx/Twingate path. Do not mark Password Share, Network Scope, or Public
+Share resolved until each stated production boundary has its own valid acceptance
+evidence.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
@@ -196,10 +244,11 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 > | :--- | :--- |
 > | Patch deployed to production | ✅ DONE |
 > | Cross-owner listing isolation (`GET /api/files`) | ✅ PASS observed in FT-1D |
+> | Cross-owner **download** (`GET /api/files/:id/download`) acceptance | ⏳ PENDING |
 > | Cross-owner **verify** (`POST /api/files/:id/verify`) acceptance | ⏳ PENDING |
 > | Cross-owner **share creation** (`POST /api/shares`) acceptance | ⏳ PENDING |
 >
-> **This finding stays OPEN until the pending cross-owner verify and share-creation acceptance is executed against production and recorded.** Keep the complete cross-owner regression suite in every future Drive redeployment. This production fact also does not mark the separate upload/theme UI findings above as resolved.
+> **This finding stays OPEN until the pending cross-owner download, verify, and share-creation acceptance is executed against production and recorded.** Keep the complete cross-owner regression suite in every future Drive redeployment. This production fact also does not mark the separate Theme UI finding above as resolved; Upload has been verified separately in production.
 
 FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
 
@@ -229,7 +278,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
-**Next step:** run the outstanding cross-owner **verify** and **share-creation** acceptance against production and record the result here; only then may this finding be marked resolved. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The pending *redeployment* in this status is for the upload/theme UI follow-up, not for the already deployed authorization patch — the authorization item is pending **acceptance**, not pending deployment.
+**Next step:** run the outstanding cross-owner **download**, **verify**, and **share-creation** acceptance against production and record the result here; only then may this finding be marked resolved. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The authorization patch is already deployed; this item is pending **acceptance**, not pending deployment. Theme remains a separate open production failure after PR #22, while Upload is verified in production.
 
 ---
 
