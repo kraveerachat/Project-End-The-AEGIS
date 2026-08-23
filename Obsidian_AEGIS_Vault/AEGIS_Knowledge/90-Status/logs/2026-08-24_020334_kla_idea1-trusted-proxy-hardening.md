@@ -13,10 +13,14 @@ edit_policy: append-by-new-file
 ## What changed
 
 - Replaced Express hop-count trust with explicit, standard CIDR-aware
-  `TRUSTED_PROXY_CIDRS`. Production refuses to start without a valid value;
-  development and tests trust no proxy unless configured.
-- Rejected malformed values, hop counts, proxy-addr aliases, and the old shared
-  `172.18.0.0/16` / `172.18.0.1` bridge identities.
+  `TRUSTED_PROXY_CIDRS`. Production accepts only the approved HUB identity
+  `172.19.255.2/32` and refuses to start for empty, malformed, multiple, broad,
+  overlapping, or unrelated values; development and tests trust no proxy unless
+  explicitly configured.
+- Rejected hop counts, proxy-addr aliases, the full dedicated network `/29`,
+  broad RFC1918 ranges, and the old shared `172.18.0.0/16` / `172.18.0.1`
+  bridge identities. The `/29` remains the Docker network topology, not the
+  Express trust allowlist.
 - Made Express `req.ip` the one source used by audit, Secure Share CIDR decisions,
   share/login rate limiting, and session metadata. No route parses forwarding
   headers independently.
@@ -39,7 +43,7 @@ edit_policy: append-by-new-file
 
 ## Source files changed
 
-- `IDEA1-AEGIS_Drive_LC/.env.example` — documents the required production proxy CIDR contract.
+- `IDEA1-AEGIS_Drive_LC/.env.example` — documents the exact production HUB `/32` trust contract.
 - `IDEA1-AEGIS_Drive_LC/package.json` — declares the CIDR compiler as a direct dependency.
 - `IDEA1-AEGIS_Drive_LC/package-lock.json` — locks the direct dependency declaration.
 - `IDEA1-AEGIS_Drive_LC/server/config/trustedProxy.js` — validates and compiles the explicit trust boundary.
@@ -52,7 +56,7 @@ edit_policy: append-by-new-file
 - `IDEA1-AEGIS_Drive_LC/server/db/store.js` — corrects Network Zone snapshot/enforcement comments.
 - `IDEA1-AEGIS_Drive_LC/server/db/schema.sql` — corrects comments only; no SQL structure or migration changed.
 - `IDEA1-AEGIS_Drive_LC/src/lib/strings.js` — truthful EN/TH/ZH Network Zone copy.
-- `IDEA1-AEGIS_Drive_LC/tests/trustedProxy.test.js` — B2-T1 through T4 and forbidden-boundary coverage.
+- `IDEA1-AEGIS_Drive_LC/tests/trustedProxy.test.js` — B2-T1 through T4, exact-HUB acceptance, and broad/overlapping/multiple CIDR rejection coverage.
 - `IDEA1-AEGIS_Drive_LC/tests/shareRedemption.test.js` — real trusted proxy hop, CIDR/audit consistency, spoof, password/open share, and limiter regressions.
 - `IDEA1-AEGIS_Drive_LC/tests/i18nCopyAudit.test.js` — B2-T12 truthful Network Zone copy coverage.
 - `docker-compose.yml` — tracked dedicated proxy network and service attachments.
@@ -66,17 +70,17 @@ edit_policy: append-by-new-file
 ## Verification evidence
 
 - RED: `node --test --test-concurrency=1 tests/trustedProxy.test.js tests/shareRedemption.test.js tests/i18nCopyAudit.test.js` — expected 17 pass, 8 fail, 3 PostgreSQL-only skip; failures reproduced direct XFF/CIDR and limiter bypass, broad trust, missing validation, and stale copy.
-- GREEN: the same focused command — PASS: 26 passed, 0 failed, 3 PostgreSQL-only skipped.
-- Focused security/auth: `node --test --test-concurrency=1 tests/trustedProxy.test.js tests/shareRedemption.test.js tests/fileObjectAuthorization.test.js tests/filesOwnership.test.js tests/auditViewer.test.js tests/profileIdentity.test.js tests/userPreferences.test.js tests/passwordResetGate.test.js tests/accessUsers.test.js` — PASS: 59 passed, 0 failed, 4 environment/PostgreSQL-only skipped.
-- `npm test` — PASS: 221 discovered, 202 passed, 0 failed, 19 PostgreSQL-only skipped. Existing non-failing React `act(...)` warnings remain visible.
+- Blocking-review RED: `node --test --test-reporter=tap tests/trustedProxy.test.js` — expected failure: 6 passed and TP-R1..R8 failed because production accepted `10.0.0.0/8`.
+- GREEN: `node --test --test-concurrency=1 --test-reporter=tap tests/trustedProxy.test.js tests/shareRedemption.test.js tests/i18nCopyAudit.test.js` — PASS: 28 passed, 0 failed, 3 PostgreSQL-only skipped; TP-A1 accepts only `172.19.255.2/32` and TP-R1..R8 reject broad, overlapping, full-`/29`, legacy, and multiple values.
+- Focused security/auth: `node --test --test-concurrency=1 --test-reporter=tap tests/trustedProxy.test.js tests/shareRedemption.test.js tests/fileObjectAuthorization.test.js tests/filesOwnership.test.js tests/auditViewer.test.js tests/profileIdentity.test.js tests/userPreferences.test.js tests/passwordResetGate.test.js tests/accessUsers.test.js` — PASS: 61 passed, 0 failed, 4 environment/PostgreSQL-only skipped.
+- `npm test` — PASS: 223 discovered, 204 passed, 0 failed, 19 PostgreSQL-only skipped. Existing non-failing React `act(...)` warnings remain visible.
 - `npm run build` — PASS: 2,657 modules transformed; tracked generated `dist/index.html` restored and excluded from the task diff.
-- `docker compose -f docker-compose.yml config --quiet` — PASS; existing obsolete `version` warning only.
-- `docker compose -f HUB-AEGIS_Entry/docker-compose.yml config --quiet` — PASS.
+- Root and HUB Compose render validation — PASS: network remains `172.19.255.0/29`, HUB/gateway `.2`, Drive `.3`, production trust `172.19.255.2/32`; Monitor and PostgreSQL remain only on `aegis_internal`. Existing obsolete root `version` warning only.
 - nginx syntax validation — NOT RUN: no local nginx executable and Docker engine unavailable; both config semantics are covered by focused inspection and require CI/deployment validation before rollout.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS with 2 pre-existing owner-review Canvas warnings.
 - `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — PASS: 22 passed, 0 failed.
 - `node --test tests/collaborationPolicy.test.mjs` — PASS: 18 passed, 0 failed.
-- `node scripts/validate-collaboration-policy.mjs --event .codex-temp/b2-event.json --changed-files .codex-temp/b2-changed-files.txt` — PASS for the actual IDEA1/Kla metadata, six declared shared surfaces, one new receipt, and `integration-review: yes`.
+- Local collaboration guardrail against the current PR #26 body and `git diff --name-status origin/main` — PASS for the actual IDEA1/Kla metadata, six declared shared surfaces, one new receipt, and `integration-review: yes`.
 - `git diff --check` — PASS: no whitespace errors.
 - High-confidence secret scan over introduced lines and new files — PASS; pre-existing development-placeholder database URLs in unchanged Compose/example lines were reviewed and excluded rather than misreported as newly introduced secrets.
 
@@ -98,7 +102,7 @@ edit_policy: append-by-new-file
 
 - Kla/infrastructure review: confirm `172.19.255.0/29` does not conflict with the production Docker address pools, approve HUB `.2` / Drive `.3`, and confirm PostgreSQL, Monitor, and Camera remain excluded.
 - Gateway/security review: confirm Drive overwrites inbound forwarding chains, blanks `Forwarded`, reaches only `drive-proxy:8001`, and leaves Monitor behavior unchanged.
-- Deployment owner: in a separate approved B3 task, create the production network, attach HUB/Drive, set `TRUSTED_PROXY_CIDRS`, validate nginx before reload, and retain a rollback to the current `drive:8001` path. Do not remove Drive Macvlan in this task.
+- Deployment owner: in a separate approved B3 task, create the production network, attach HUB/Drive, set `TRUSTED_PROXY_CIDRS=172.19.255.2/32`, validate nginx before reload, and retain a rollback to the current `drive:8001` path. Do not remove Drive Macvlan in this task.
 - Production acceptance owner: run B4 trusted-proxy, untrusted-spoof, CIDR allow/deny, audit, and rate-limit evidence before changing Network Scope from open/blocked.
 
 ## Known limitations

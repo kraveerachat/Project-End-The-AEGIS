@@ -1,6 +1,9 @@
 import proxyaddr from 'proxy-addr'
 
 const REQUIRED_NAME = 'TRUSTED_PROXY_CIDRS'
+const APPROVED_PRODUCTION_PROXY_CIDRS = new Set([
+  '172.19.255.2/32',
+])
 const FORBIDDEN_SHARED_RANGES = new Set([
   '172.18.0.0/16',
   '172.18.0.1/32',
@@ -28,6 +31,12 @@ export function trustedProxyFromEnv(env = process.env) {
   }
   if (cidrs.some((value) => FORBIDDEN_SHARED_RANGES.has(value))) {
     throw new Error(`${REQUIRED_NAME} must not trust the shared aegis_internal bridge`)
+  }
+  if (
+    env.NODE_ENV === 'production'
+    && (cidrs.length !== 1 || !APPROVED_PRODUCTION_PROXY_CIDRS.has(cidrs[0]))
+  ) {
+    throw new Error(`${REQUIRED_NAME} must contain only the approved HUB proxy identity`)
   }
 
   try {

@@ -59,7 +59,7 @@ test('B2-T3 malformed TRUSTED_PROXY_CIDRS fails application configuration', () =
   assert.throws(
     () => createApp({
       env: {
-        NODE_ENV: 'test',
+        NODE_ENV: 'production',
         SESSION_SECRET: 'test-secret',
         TRUSTED_PROXY_CIDRS: '172.19.255.0/29,definitely-not-a-cidr',
       },
@@ -88,6 +88,47 @@ test('B2 trust configuration rejects hop counts, aliases, and the old shared bri
       () => createApp({
         env: {
           NODE_ENV: 'test',
+          SESSION_SECRET: 'test-secret',
+          TRUSTED_PROXY_CIDRS: value,
+        },
+      }),
+      /TRUSTED_PROXY_CIDRS/i,
+      value,
+    )
+  }
+})
+
+test('TP-A1 production accepts only the exact HUB proxy identity', () => {
+  const app = createApp({
+    env: {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'test-secret',
+      TRUSTED_PROXY_CIDRS: '172.19.255.2/32',
+    },
+  })
+  const trust = app.get('trust proxy fn')
+  assert.equal(trust('172.19.255.2', 0), true)
+  assert.equal(trust('172.19.255.1', 0), false)
+  assert.equal(trust('172.19.255.3', 0), false)
+})
+
+test('TP-R1..R8 production rejects every proxy range except the exact HUB identity', () => {
+  const rejected = [
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+    '172.18.0.0/15',
+    '172.19.255.0/24',
+    '172.19.255.0/29',
+    '172.18.0.1/32',
+    '172.19.255.2/32,10.0.0.0/8',
+  ]
+
+  for (const value of rejected) {
+    assert.throws(
+      () => createApp({
+        env: {
+          NODE_ENV: 'production',
           SESSION_SECRET: 'test-secret',
           TRUSTED_PROXY_CIDRS: value,
         },

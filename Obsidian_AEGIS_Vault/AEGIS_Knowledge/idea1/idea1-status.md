@@ -181,9 +181,11 @@ current path:
 
 Batch B2 replaces hop-count trust with `TRUSTED_PROXY_CIDRS`, parsed by the
 standard `proxy-addr` CIDR compiler. Production fails closed when the setting is
-missing or malformed; development/test defaults to no trusted proxy. The tracked
-deployment contract uses only `aegis_drive_proxy` (`172.19.255.0/29`, gateway
-`.1`, HUB `.2`, Drive `.3`) for HUB→Drive proxy traffic. PostgreSQL, Monitor, and
+missing, malformed, contains multiple values, or differs from the explicitly
+approved HUB identity `172.19.255.2/32`; development/test defaults to no trusted
+proxy. The tracked deployment network remains `aegis_drive_proxy`
+(`172.19.255.0/29`, gateway `.1`, HUB `.2`, Drive `.3`) for HUB→Drive traffic,
+but Express trusts only HUB `.2`, not the full `/29`. PostgreSQL, Monitor, and
 Camera do not join that network; Drive retains `aegis_internal` for PostgreSQL.
 Tracked Drive nginx locations overwrite `X-Forwarded-For` and `X-Real-IP` with
 `$remote_addr`, preserve explicit proto/host, and remove inbound `Forwarded`.
