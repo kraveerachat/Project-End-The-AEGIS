@@ -47,21 +47,23 @@ edit_policy: owner-writable
 
 Do not mark this item resolved until the outstanding cross-owner verify and share acceptance above is actually executed and recorded.
 
-## 🔴 OPEN / BLOCKED — IDEA1 production share acceptance
+## 🟠 IDEA1 Batch A production acceptance — closed items plus retained boundaries
 
 | Item | Current state | Required follow-up before closure |
 | :--- | :--- | :--- |
-| Upload completion | ✅ **VERIFIED IN PRODUCTION** | No additional closure action for this finding; preserve the accepted exactly-once popup, cleared active-queue badge, and visible uploaded file behavior. |
-| Theme continuity | ❌ **OPEN** | Persisted Dark Login can still become Light after authentication when no new Login-screen choice is made. Investigate, fix, redeploy, and rerun production acceptance; do not let passing local transition tests override the production failure. |
-| Password-protected share redemption | ❌ **OPEN — PRODUCTION CONFIRMED** | `GET /drive/s/:token` renders correctly, but form submission resolves to `/drive/s/s/:token` and returns `Cannot POST`. Correct the relative form action in `IDEA1-AEGIS_Drive_LC/server/routes/share.js`, then rerun GET + password POST production acceptance. |
-| Network-scoped share acceptance | ⛔ **BLOCKED FOR VALID ACCEPTANCE** | Current audit/application source IP is `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR. Correct and verify real-client-IP/trusted-proxy behavior, or document the precise Twingate limitation, before claiming CIDR enforcement. |
+| Upload completion | ✅ **VERIFIED IN PRODUCTION / REGRESSION PASS** | A6 PASS; success popup exactly once = YES; active queue idle = YES; uploaded file remains visible. |
+| Theme continuity | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | PR #24 Batch A: A1 Dark PASS and A2 Light PASS. Preserve the former PR #22 failure as regression history only. |
+| Password-protected share redemption | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS with duplicated `/s/s/` = NO; A4 wrong-password denial PASS; A5 no-password Share PASS. |
+| Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy PASS. |
+| Network-scoped share acceptance | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Current audit/application source IP is `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR. Correct and verify real-client-IP/trusted-proxy behavior, or document the precise Twingate limitation, before claiming CIDR enforcement. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private/Twingate-only. If approved later, design a separate share-only public gateway limited to `GET/POST /s/:token`; do not expose the authenticated Drive application or claim this mode exists today. |
 
 Canonical detail: [[idea1/idea1-status#Secure Share production findings (2026-08-23)]].
 
-Do not mark Theme, Password Share, Network Scope, or Public Share resolved from
-source/unit evidence alone. The Formal Report is outside this documentation task
-and remains unchanged.
+Batch A reconfirmed Upload (A6 PASS, popup once YES, queue idle YES). Keep Network
+Scope open/blocked and Public Share unimplemented until their separate evidence
+boundaries are satisfied. The Formal Report is outside this documentation task and
+remains unchanged.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 

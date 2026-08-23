@@ -34,14 +34,16 @@ edit_policy: owner-writable
 
 ### Upload completion and theme continuity follow-up (2026-08-22)
 
-> [!warning] Production acceptance split after PR #22 deployment
-> **UPLOAD: VERIFIED IN PRODUCTION. THEME: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** PR #22 remains the deployed production build. Batch A adds the local fix for the confirmed production failure; production remains open until a later redeployment and acceptance pass.
+> [!success] Batch A production acceptance closed after PR #24
+> **UPLOAD: VERIFIED IN PRODUCTION / REGRESSION PASS. THEME: VERIFIED IN PRODUCTION / RESOLVED.**
+> PR #22 exposed the persisted-theme failure recorded below; merged PR #24 and
+> the 2026-08-23 Batch A acceptance supersede that failure as the Current State.
 
 | Production-discovered defect | Production status | Production acceptance after PR #22 |
 | :--- | :--- | :--- |
 | Successful upload gave no clear completion feedback | ✅ VERIFIED IN PRODUCTION | Upload succeeds; success popup is visible exactly once; uploaded file appears in Files |
 | Floating upload queue stayed at 1 after completion | ✅ VERIFIED IN PRODUCTION | Floating active-queue badge disappears after completion |
-| Theme transition was one-way (Dark Login → Light App) | 🟡 **FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | Current production still produces Dashboard Light after Dashboard Dark → Logout → Login Dark → Login; Batch A adds a same-account one-shot continuity fix locally only. |
+| Theme transition was one-way (Dark Login → Light App) | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | After PR #24, both Dark and Light authentication transitions passed production acceptance. |
 
 * Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
 * The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
@@ -49,7 +51,25 @@ edit_policy: owner-writable
 * The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
 * **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
 
-#### Production acceptance after PR #22 deployment (2026-08-22)
+#### Batch A production acceptance after PR #24 (2026-08-23)
+
+| Acceptance ID | Production result |
+| :--- | :--- |
+| A1 — Theme Dark | ✅ PASS |
+| A2 — Theme Light | ✅ PASS |
+| A3 — Password Share | ✅ PASS; duplicated `/s/s/` path = **NO** |
+| A4 — Wrong password denied | ✅ PASS |
+| A5 — No-password Share | ✅ PASS |
+| A6 — Upload regression | ✅ PASS; popup exactly once = **YES**; queue idle = **YES** |
+| A7 — Share Copy | ✅ PASS |
+
+> [!success] Current production state
+> **THEME = VERIFIED IN PRODUCTION / RESOLVED. PASSWORD SHARE = VERIFIED IN
+> PRODUCTION / RESOLVED. SHARE COPY = VERIFIED IN PRODUCTION. UPLOAD = VERIFIED
+> IN PRODUCTION / REGRESSION PASS.** Network Scope and Public Share retain their
+> separate states below.
+
+#### Historical production acceptance after PR #22 deployment (2026-08-22)
 
 **Upload — VERIFIED IN PRODUCTION**
 
@@ -61,23 +81,24 @@ edit_policy: owner-writable
 | Floating active-queue badge disappears after completion | ✅ PASS |
 | Uploaded file visible in Files | ✅ PASS |
 
-**Theme — FAIL IN PRODUCTION / OPEN**
+**Theme — historical failure, superseded by PR #24 acceptance**
 
 | Flow | Result |
 | :--- | :--- |
 | Expected | Dashboard Dark → Logout → Login Dark → Login → Dashboard Dark |
 | Observed | Dashboard Dark → Logout → Login Dark → Login → **Dashboard Light** |
 
-> [!warning] Theme fix implemented locally; production remains open
-> The confirmed gap was the absence of a user-keyed one-shot handoff: when no new Login-screen toggle was made, the authenticated account preference could override the Dark shell/Login state. Batch A implements that handoff locally. Do not mark Theme resolved until the Drive service is redeployed and the production transition matrix passes.
+> [!note] Historical evidence only
+> This PR #22 failure remains recorded for traceability. PR #24 Batch A production
+> acceptance passed A1 Dark and A2 Light, so it no longer defines Current State.
 
-#### Theme continuity — local evidence (does not override production failure)
+#### Theme continuity — local and historical evidence
 
 Manual acceptance of the *first* theme-continuity fix confirmed two directions and
 one failure. That failure was part of **this same open item**, not a new one, and
 the follow-up fix made all three transitions pass locally. Production acceptance
-after PR #22 nevertheless failed the no-new-toggle Dark transition above, so the
-local result is regression evidence only and does not close the production item.
+after PR #22 nevertheless failed the no-new-toggle Dark transition above. PR #24
+then passed both A1 Dark and A2 Light in production, closing the current Theme item.
 
 | Transition | Expected | First fix | After follow-up fix (local) |
 | :--- | :--- | :--- | :--- |
@@ -93,10 +114,10 @@ Confirmed locally in the same pass:
 | Explicit Login-screen theme synchronized into `users.ui_theme` after authentication | ✅ PASS |
 | Visible theme flash during the login transition | ✅ None observed |
 
-> [!warning] Local fix does not override the production result
-> PR #22 is still the deployed build. Theme is **FIX IMPLEMENTED LOCALLY / PENDING
-> PRODUCTION REDEPLOYMENT AND ACCEPTANCE** until a later task redeploys Drive and
-> reruns the transition matrix against production.
+> [!success] Production closure overrides the historical failure
+> PR #24 is merged and Batch A acceptance passed A1 Dark and A2 Light. Theme is
+> therefore **VERIFIED IN PRODUCTION / RESOLVED**. Keep the older PR #22 result as
+> regression history, not as Current State.
 
 * **Confirmed Batch A root cause.** The authentication resolver had no same-account
   logout handoff. After logout it retained only the unkeyed shell presentation hint;
@@ -109,6 +130,9 @@ Confirmed locally in the same pass:
   continuity > account preference > shell hint > fresh-browser Light. A different
   account receives its own preference, and hard refresh continues to use the
   authenticated account preference. DOM theme application remains synchronous.
+* **Production closure.** Merged PR #24 was accepted in production for both Dark
+  and Light authentication transitions (A1/A2). The former no-new-toggle failure
+  is retained only as regression history and is no longer an open Current State.
 * **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
   real `App` and `Login` components and reads theme state from `<html>`, including
   Dark and Light same-account logout round trips, explicit-selection precedence,
@@ -119,28 +143,26 @@ Confirmed locally in the same pass:
 
 ### Secure Share production findings (2026-08-23)
 
-> [!danger] Production acceptance remains incomplete
-> **PASSWORD SHARE: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND
-> ACCEPTANCE. SHARE COPY: UPDATED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND
-> ACCEPTANCE. NETWORK-SCOPED SHARE: BLOCKED / UNRESOLVED. PUBLIC EXTERNAL SHARE:
-> NOT IMPLEMENTED.** These local changes do not change the current production result.
+> [!warning] Batch A closed; network/public boundaries remain
+> **PASSWORD SHARE: VERIFIED IN PRODUCTION / RESOLVED. SHARE COPY: VERIFIED IN
+> PRODUCTION. NETWORK-SCOPED SHARE: OPEN / BLOCKED FOR VALID ACCEPTANCE. PUBLIC
+> EXTERNAL SHARE: NOT IMPLEMENTED.**
 
 | Share capability | Current production state | Evidence and boundary |
 | :--- | :--- | :--- |
-| Password-protected share | 🟡 **FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | Batch A removes the form action, so the browser posts to the exact current `/drive/s/:token` URL without hardcoding the deployment prefix. Current production still runs the broken relative-action form until redeployment. |
-| Share scope copy | 🟡 **UPDATED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | EN/TH/ZH now say “Any AEGIS-reachable network,” state that Public Internet sharing is unavailable, and explain source-address/connector-visible CIDR limits. |
-| Network-scoped share | ⛔ **BLOCKED FOR VALID ACCEPTANCE** | Audit/application evidence currently records source IP `172.18.0.1`. This Docker bridge/proxy address is not valid evidence of the recipient CIDR and must not be accepted as successful CIDR enforcement. Correct real-client-IP/trusted-proxy behavior, or document the Twingate limitation precisely, before claiming enforcement. |
+| Password-protected share | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS; duplicated `/drive/s/s/:token` = **NO**. A4 confirmed a wrong password is denied, and A5 confirmed no-password sharing still passes. The earlier relative-action defect is historical and superseded by PR #24 acceptance. |
+| Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy = PASS; production displays the AEGIS-reachable scope semantics introduced by Batch A. |
+| Network-scoped share | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Audit/application evidence currently records source IP `172.18.0.1`. This Docker bridge/proxy address is not valid evidence of the recipient CIDR and must not be accepted as successful CIDR enforcement. Correct and verify real-client-IP/trusted-proxy behavior, or document the Twingate limitation precisely, before claiming enforcement. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
 
-The local route implementation still performs password, expiry, revoke, rate-limit,
-Vault exclusion, and CIDR checks at the application layer. Batch A changes only the
-password form submission URL behavior and explanatory copy; it does not redesign
-the IP source or network policy. In particular,
+The current route implementation performs password, expiry, revoke, rate-limit,
+Vault exclusion, and CIDR checks at the application layer. Batch A production
+acceptance validates the password/no-password and copy paths, but it does not
+validate Network Scope. In particular,
 `app.set('trust proxy', 1)` and forwarded headers are not sufficient evidence that
 the observed `172.18.0.1` represents the real recipient across the current
-Docker/nginx/Twingate path. Do not mark Password Share resolved before redeployment
-and acceptance. Network Scope remains blocked/unresolved, and Public Share remains
-not implemented.
+Docker/nginx/Twingate path. Network Scope remains open/blocked for valid acceptance,
+and Public Share remains not implemented.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
