@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-22
+updated: 2026-08-23
 owner: kla
 edit_policy: owner-writable
 ---
@@ -46,6 +46,22 @@ edit_policy: owner-writable
 | Next step | Execute and record the outstanding cross-owner verify/share acceptance against production, alongside FT-0 baseline and FT-1 role RBAC, before marking this resolved |
 
 Do not mark this item resolved until the outstanding cross-owner verify and share acceptance above is actually executed and recorded.
+
+## 🔴 OPEN / BLOCKED — IDEA1 production share acceptance
+
+| Item | Current state | Required follow-up before closure |
+| :--- | :--- | :--- |
+| Upload completion | ✅ **VERIFIED IN PRODUCTION** | No additional closure action for this finding; preserve the accepted exactly-once popup, cleared active-queue badge, and visible uploaded file behavior. |
+| Theme continuity | ❌ **OPEN** | Persisted Dark Login can still become Light after authentication when no new Login-screen choice is made. Investigate, fix, redeploy, and rerun production acceptance; do not let passing local transition tests override the production failure. |
+| Password-protected share redemption | ❌ **OPEN — PRODUCTION CONFIRMED** | `GET /drive/s/:token` renders correctly, but form submission resolves to `/drive/s/s/:token` and returns `Cannot POST`. Correct the relative form action in `IDEA1-AEGIS_Drive_LC/server/routes/share.js`, then rerun GET + password POST production acceptance. |
+| Network-scoped share acceptance | ⛔ **BLOCKED FOR VALID ACCEPTANCE** | Current audit/application source IP is `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR. Correct and verify real-client-IP/trusted-proxy behavior, or document the precise Twingate limitation, before claiming CIDR enforcement. |
+| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private/Twingate-only. If approved later, design a separate share-only public gateway limited to `GET/POST /s/:token`; do not expose the authenticated Drive application or claim this mode exists today. |
+
+Canonical detail: [[idea1/idea1-status#Secure Share production findings (2026-08-23)]].
+
+Do not mark Theme, Password Share, Network Scope, or Public Share resolved from
+source/unit evidence alone. The Formal Report is outside this documentation task
+and remains unchanged.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 
