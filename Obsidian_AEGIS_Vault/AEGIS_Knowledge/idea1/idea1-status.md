@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: **189 discovered · 170 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-22). This does not replace the isolated-PostgreSQL release result above.
+> **Latest change verification**: **213 discovered · 194 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-23). This does not replace the isolated-PostgreSQL release result above or constitute production acceptance.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -35,17 +35,17 @@ edit_policy: owner-writable
 ### Upload completion and theme continuity follow-up (2026-08-22)
 
 > [!warning] Production acceptance split after PR #22 deployment
-> **UPLOAD: VERIFIED IN PRODUCTION. THEME: FAIL IN PRODUCTION / OPEN.** PR #22 is deployed. Upload passed the production checks recorded below; Theme remains open because the authenticated Dashboard did not preserve the Dark Login state when no new Login-screen theme choice was made.
+> **UPLOAD: VERIFIED IN PRODUCTION. THEME: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE.** PR #22 remains the deployed production build. Batch A adds the local fix for the confirmed production failure; production remains open until a later redeployment and acceptance pass.
 
 | Production-discovered defect | Production status | Production acceptance after PR #22 |
 | :--- | :--- | :--- |
 | Successful upload gave no clear completion feedback | ✅ VERIFIED IN PRODUCTION | Upload succeeds; success popup is visible exactly once; uploaded file appears in Files |
 | Floating upload queue stayed at 1 after completion | ✅ VERIFIED IN PRODUCTION | Floating active-queue badge disappears after completion |
-| Theme transition was one-way (Dark Login → Light App) | ❌ FAIL IN PRODUCTION / OPEN | Dashboard Dark → Logout → Login Dark → Login produced Dashboard Light instead of Dashboard Dark |
+| Theme transition was one-way (Dark Login → Light App) | 🟡 **FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | Current production still produces Dashboard Light after Dashboard Dark → Logout → Login Dark → Login; Batch A adds a same-account one-shot continuity fix locally only. |
 
 * Successful normal-file uploads now produce one localized TH/EN/ZH completion notification per file, including its filename. A request-id and completion-id guard prevents route rerenders or React effect replay from duplicating queue items or success notifications.
 * The floating queue indicator now derives from active `waiting`/`processing`/`uploading` work. Completed and cancelled items may remain visible as history but do not count as active; terminal failures use a separate attention-required launcher state. When no active or failed work remains the launcher is hidden.
-* Login and the authenticated shell share one theme resolver, and continuity is bidirectional. A fresh client without a hint starts Light. Crossing the authentication boundary follows one precedence rule: an explicit Login-screen choice made during the current unauthenticated session > the authenticated PostgreSQL account preference > the persisted shell hint > Light. Dark and explicit System choices continue across login, logout, and hard reload without storing identity, role, session, password, or authorization state in browser storage.
+* Login and the authenticated shell share one theme resolver, and continuity is bidirectional. A fresh client without a hint starts Light. Crossing the authentication boundary follows one precedence rule: an explicit Login-screen choice made during the current unauthenticated session > same-account one-shot logout continuity > the authenticated PostgreSQL account preference > the persisted shell hint > Light. The one-shot handoff is keyed to the authenticated user ID and kept only in React memory; browser storage still contains no identity, role, token, password, session, or authorization state. Theme application remains synchronous before the authenticated shell mounts.
 * The theme is applied through an external early bootstrap module before the React entry, preserving the existing CSP without adding an unsafe inline-script exception. Existing theme-aware logo and Welcome background assets remain unchanged.
 * **Known UX limitation.** The unauthenticated Login screen still offers a Light/Dark toggle only. `system` remains a fully supported account preference: it is chosen in Settings, persists in `users.ui_theme`, reaches the Login screen through the shell hint, and survives the login transition — but it cannot be newly selected while unauthenticated. Turning the gate control into a three-way selector was deliberately left out of this follow-up.
 
@@ -68,8 +68,8 @@ edit_policy: owner-writable
 | Expected | Dashboard Dark → Logout → Login Dark → Login → Dashboard Dark |
 | Observed | Dashboard Dark → Logout → Login Dark → Login → **Dashboard Light** |
 
-> [!danger] Theme remains open
-> Do not mark Theme resolved and do not create a duplicate issue. The likely behavior to investigate is that, when no new explicit Login-screen toggle is made, the persisted Dark shell/Login state is overridden by the authenticated account preference. This is an investigation hypothesis, not a confirmed root cause.
+> [!warning] Theme fix implemented locally; production remains open
+> The confirmed gap was the absence of a user-keyed one-shot handoff: when no new Login-screen toggle was made, the authenticated account preference could override the Dark shell/Login state. Batch A implements that handoff locally. Do not mark Theme resolved until the Drive service is redeployed and the production transition matrix passes.
 
 #### Theme continuity — local evidence (does not override production failure)
 
@@ -93,61 +93,54 @@ Confirmed locally in the same pass:
 | Explicit Login-screen theme synchronized into `users.ui_theme` after authentication | ✅ PASS |
 | Visible theme flash during the login transition | ✅ None observed |
 
-> [!danger] Production result overrides local acceptance
-> PR #22 is deployed. The production no-new-toggle transition failed, so Theme
-> remains **FAIL IN PRODUCTION / OPEN** until the behavior is investigated, fixed,
-> redeployed, and accepted in production.
+> [!warning] Local fix does not override the production result
+> PR #22 is still the deployed build. Theme is **FIX IMPLEMENTED LOCALLY / PENDING
+> PRODUCTION REDEPLOYMENT AND ACCEPTANCE** until a later task redeploys Drive and
+> reruns the transition matrix against production.
 
-* **Root cause of the one failure.** Theme continuity was one-way. On successful authentication the
-  shell replaced the current theme with the account's stored `users.ui_theme`, so
-  a Dark chosen on the Login screen was discarded by a stale Light preference the
-  moment the Dashboard mounted. Logout kept working because nothing overwrites the
-  theme on the way out.
-* **Fix (local).** `resolveAuthenticatedTheme()` in `src/lib/theme.js` is now the
-  single precedence model for crossing the authentication boundary: an explicit
-  Login-screen choice made during the current unauthenticated session > the account
-  preference > the persisted shell hint > Light. A Login-screen choice is applied to
-  `<html>` synchronously before the authenticated shell mounts (no flash) and is
-  synchronized into `users.ui_theme` through `PATCH /api/preferences`, so account,
-  shell hint, and rendered theme converge instead of overriding each other.
-* **Open production behavior to investigate.** When the user makes no explicit
-  choice on the Login screen, the current precedence lets the account preference
-  decide. Production shows this can break expected Dark continuity across logout
-  and login. Determine whether the shell/Login state should be synchronized or
-  promoted in this case without allowing an unrelated prior-session hint to
-  overwrite an account preference. Do not treat this hypothesis as a confirmed
-  root cause or the item as resolved.
+* **Confirmed Batch A root cause.** The authentication resolver had no same-account
+  logout handoff. After logout it retained only the unkeyed shell presentation hint;
+  on the next successful authentication a stale `users.ui_theme` could therefore
+  win even though the same user had just left a Dark authenticated shell.
+* **Fix (local).** `App.jsx` captures `{ userId, theme }` in an in-memory ref at
+  logout and consumes it exactly once on the next authentication. It is supplied to
+  `resolveAuthenticatedTheme()` only when the returned authenticated user ID matches.
+  The resulting precedence is explicit Login selection > same-account one-shot
+  continuity > account preference > shell hint > fresh-browser Light. A different
+  account receives its own preference, and hard refresh continues to use the
+  authenticated account preference. DOM theme application remains synchronous.
 * **Evidence.** `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js` drives the
-  six acceptance cases through the real `App` and `Login` components and reads the
-  theme from `<html>`, including a mutation-observed no-flash assertion and a
-  reload case proving persistence rather than React state. Reconfirmed on
-  2026-08-22 for this documentation pass: `node --test --test-concurrency=1
-  tests/themeAuthTransition.test.js tests/themeContinuity.test.js
-  tests/uploadCompletionUx.test.js` — **31 pass, 0 fail, 0 skip**, covering the
-  three transitions above together with exactly-once upload success notification,
-  truthful active-queue counting, and completed/cancelled history retention.
+  real `App` and `Login` components and reads theme state from `<html>`, including
+  Dark and Light same-account logout round trips, explicit-selection precedence,
+  different-account isolation, fresh Light, hard refresh, and a mutation-observed
+  no-flash assertion. Batch A focused result: `node --test --test-concurrency=1
+  tests/themeAuthTransition.test.js tests/themeContinuity.test.js` — **29 pass,
+  0 fail, 0 skip**.
 
 ### Secure Share production findings (2026-08-23)
 
 > [!danger] Production acceptance remains incomplete
-> **PASSWORD SHARE: OPEN — production confirmed defect. NETWORK-SCOPED SHARE:
-> BLOCKED FOR VALID ACCEPTANCE. PUBLIC EXTERNAL SHARE: NOT IMPLEMENTED.** These
-> findings do not change Upload's verified state and do not resolve Theme.
+> **PASSWORD SHARE: FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND
+> ACCEPTANCE. SHARE COPY: UPDATED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND
+> ACCEPTANCE. NETWORK-SCOPED SHARE: BLOCKED / UNRESOLVED. PUBLIC EXTERNAL SHARE:
+> NOT IMPLEMENTED.** These local changes do not change the current production result.
 
 | Share capability | Current production state | Evidence and boundary |
 | :--- | :--- | :--- |
-| Password-protected share | ❌ **OPEN — production confirmed** | `GET /drive/s/:token` renders the password form correctly. Submitting it resolves to duplicated `/drive/s/s/:token` and returns `Cannot POST`. Source inspection confirms the form uses the relative action `s/${token}` in `server/routes/share.js`, while the server route is `POST /s/:token`. |
+| Password-protected share | 🟡 **FIX IMPLEMENTED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | Batch A removes the form action, so the browser posts to the exact current `/drive/s/:token` URL without hardcoding the deployment prefix. Current production still runs the broken relative-action form until redeployment. |
+| Share scope copy | 🟡 **UPDATED LOCALLY / PENDING PRODUCTION REDEPLOYMENT AND ACCEPTANCE** | EN/TH/ZH now say “Any AEGIS-reachable network,” state that Public Internet sharing is unavailable, and explain source-address/connector-visible CIDR limits. |
 | Network-scoped share | ⛔ **BLOCKED FOR VALID ACCEPTANCE** | Audit/application evidence currently records source IP `172.18.0.1`. This Docker bridge/proxy address is not valid evidence of the recipient CIDR and must not be accepted as successful CIDR enforcement. Correct real-client-IP/trusted-proxy behavior, or document the Twingate limitation precisely, before claiming enforcement. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
 
-The current route implementation still performs password, expiry, revoke, rate-limit,
-Vault exclusion, and CIDR checks at the application layer, but those source-level
-controls do not override the production findings above. In particular,
+The local route implementation still performs password, expiry, revoke, rate-limit,
+Vault exclusion, and CIDR checks at the application layer. Batch A changes only the
+password form submission URL behavior and explanatory copy; it does not redesign
+the IP source or network policy. In particular,
 `app.set('trust proxy', 1)` and forwarded headers are not sufficient evidence that
 the observed `172.18.0.1` represents the real recipient across the current
-Docker/nginx/Twingate path. Do not mark Password Share, Network Scope, or Public
-Share resolved until each stated production boundary has its own valid acceptance
-evidence.
+Docker/nginx/Twingate path. Do not mark Password Share resolved before redeployment
+and acceptance. Network Scope remains blocked/unresolved, and Public Share remains
+not implemented.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 

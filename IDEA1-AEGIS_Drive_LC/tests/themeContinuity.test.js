@@ -52,7 +52,32 @@ test('"never chosen" is a distinct state from "chose light"', () => {
 // ── The authentication transition contract ───────────────────────────────────────
 // One precedence model, stated once, so Login.jsx / App.jsx / Settings.jsx cannot
 // each invent their own:
-//   explicit login-screen choice > account preference > persisted shell hint > light
+//   explicit login-screen choice > same-account logout continuity
+//   > account preference > persisted shell hint > light
+
+test('same-account logout continuity beats a stale account preference once', () => {
+  assert.deepEqual(
+    resolveAuthenticatedTheme({
+      selection: null,
+      logoutTheme: 'dark',
+      accountTheme: 'light',
+      shellTheme: 'dark',
+    }),
+    { theme: 'dark', source: 'logout-continuity', persistToAccount: true },
+  )
+})
+
+test('an explicit Login selection beats logout continuity', () => {
+  assert.deepEqual(
+    resolveAuthenticatedTheme({
+      selection: 'light',
+      logoutTheme: 'dark',
+      accountTheme: 'dark',
+      shellTheme: 'dark',
+    }),
+    { theme: 'light', source: 'login-selection', persistToAccount: true },
+  )
+})
 
 test('a theme picked on the login screen wins and is pushed to the account', () => {
   // The regression case: users.ui_theme still says light, the user just clicked dark.

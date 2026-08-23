@@ -61,18 +61,28 @@ export function applyThemeToDocument(theme, { root = globalThis.document?.docume
  *      ชนะเสมอ และถูก sync กลับไปเป็น users.ui_theme หลังล็อกอินสำเร็จ
  *      ⚠️ นี่คือหัวใจของบั๊กที่แก้: ตัวเลือกธีมบนหน้า Login เป็น "การตั้งค่าจริงของผู้ใช้"
  *         ไม่ใช่ของประดับ — ค่า ui_theme เก่าที่ค้างอยู่ในบัญชีห้ามทับสิ่งที่ผู้ใช้เพิ่งกด
- *   2. accountTheme — ถ้าไม่มีการเลือกใหม่ ให้ค่าของบัญชีเป็นตัวตัดสิน (พฤติกรรมเดิม)
+ *   2. logoutTheme — ธีมที่บัญชีเดียวกันเพิ่งออกจากระบบมา ใช้ครั้งเดียวเพื่อปิดช่องว่าง
+ *      ระหว่างธีมที่เห็นจริงกับ ui_theme ที่อาจยังเป็นค่าเก่า ห้ามใช้กับบัญชีอื่น
+ *   3. accountTheme — ถ้าไม่มีการเลือกใหม่/การกลับเข้าบัญชีเดิม ให้ค่าของบัญชีเป็นตัวตัดสิน
  *      ⚠️ เจตนา: การสลับบัญชีต้องไม่ทำให้บัญชีที่เพิ่งล็อกอินถูกเขียนทับ ui_theme ด้วย
  *         ธีมที่ค้างอยู่จากบัญชีก่อนหน้า ทั้งที่ผู้ใช้ไม่ได้แตะตัวเลือกธีมเลยสักครั้ง
- *   3. shellTheme — บัญชีไม่มีค่าที่ใช้ได้ (ข้อมูลเก่า/เพี้ยน) → ใช้ธีมที่ตาเห็นอยู่ต่อ
+ *   4. shellTheme — บัญชีไม่มีค่าที่ใช้ได้ (ข้อมูลเก่า/เพี้ยน) → ใช้ธีมที่ตาเห็นอยู่ต่อ
  *      แล้ว sync ขึ้นบัญชี เพื่อให้สามค่า (บัญชี · shell · ที่ render จริง) ลู่เข้าหากัน
- *   4. light — เบราว์เซอร์ใหม่เอี่ยม ไม่มีอะไรเลย (ห้ามเดาจาก OS ถ้าไม่ได้เลือก system)
+ *   5. light — เบราว์เซอร์ใหม่เอี่ยม ไม่มีอะไรเลย (ห้ามเดาจาก OS ถ้าไม่ได้เลือก system)
  *
  * @returns {{ theme: string, source: string, persistToAccount: boolean }}
  */
-export function resolveAuthenticatedTheme({ selection = null, accountTheme = null, shellTheme = null } = {}) {
+export function resolveAuthenticatedTheme({
+  selection = null,
+  logoutTheme = null,
+  accountTheme = null,
+  shellTheme = null,
+} = {}) {
   if (isValidTheme(selection)) {
     return { theme: selection, source: 'login-selection', persistToAccount: selection !== accountTheme }
+  }
+  if (isValidTheme(logoutTheme)) {
+    return { theme: logoutTheme, source: 'logout-continuity', persistToAccount: logoutTheme !== accountTheme }
   }
   if (isValidTheme(accountTheme)) {
     return { theme: accountTheme, source: 'account', persistToAccount: false }
