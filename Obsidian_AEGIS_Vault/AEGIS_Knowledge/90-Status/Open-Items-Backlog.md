@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-23
+updated: 2026-08-24
 owner: kla
 edit_policy: owner-writable
 ---
@@ -47,7 +47,7 @@ edit_policy: owner-writable
 
 Do not mark this item resolved until the outstanding cross-owner verify and share acceptance above is actually executed and recorded.
 
-## 🟠 IDEA1 Batch A production acceptance — closed items plus retained boundaries
+## ✅ IDEA1 production acceptance — Batch A and B4 Network Scope
 
 | Item | Current state | Required follow-up before closure |
 | :--- | :--- | :--- |
@@ -55,15 +55,21 @@ Do not mark this item resolved until the outstanding cross-owner verify and shar
 | Theme continuity | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | PR #24 Batch A: A1 Dark PASS and A2 Light PASS. Preserve the former PR #22 failure as regression history only. |
 | Password-protected share redemption | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS with duplicated `/s/s/` = NO; A4 wrong-password denial PASS; A5 no-password Share PASS. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy PASS. |
-| Network-scoped share acceptance | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Batch B2 trusted-proxy hardening is implemented and verified locally but not deployed. Current production still reports `172.18.0.1`, a Docker bridge/proxy address that must not be treated as a recipient CIDR; the published-port path loses endpoint identity before nginx. Deploy the dedicated HUB→Drive boundary separately and complete B3/B4 production allow/deny/spoof acceptance before claiming CIDR enforcement. |
+| Network-scoped share acceptance | ✅ **VERIFIED IN PRODUCTION / PASS / CLOSED** | B2 local hardening was the historical predecessor. B4.3 supersedes that open state: `172.18.0.6` allowed with HTTP 200; `172.18.0.7` denied with HTTP 403; spoofed forwarding headers could not replace canonical source attribution. Windows/Twingate requests are canonically observed as `172.19.255.1`, so endpoint-subnet attribution through Twingate is limited/not available, but the application CIDR engine passed. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private/Twingate-only. If approved later, design a separate share-only public gateway limited to `GET/POST /s/:token`; do not expose the authenticated Drive application or claim this mode exists today. |
 
 Canonical detail: [[idea1/idea1-status#Secure Share production findings (2026-08-23)]].
 
-Batch A reconfirmed Upload (A6 PASS, popup once YES, queue idle YES). Keep Network
-Scope open/blocked and Public Share unimplemented until their separate evidence
-boundaries are satisfied. The Formal Report is outside this documentation task and
-remains unchanged.
+Batch A reconfirmed Upload (A6 PASS, popup once YES, queue idle YES). B4.3 closes
+Network Scope at the application layer while preserving the documented Twingate
+endpoint-IP limitation. Post-cleanup verification confirms Drive and Monitor HTTPS
+health at HTTP 200, all four production containers healthy, no `b4-network-*`
+containers remaining, `network_zones` at 0 rows, and temporary B4 test shares
+revoked. The final filtered SQL check for active, non-expired
+`AEGIS_BATCH_A_UPLOAD_REGRESSION.txt` shares returned 0 rows. Therefore
+`B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`, `B4_TEMP_CONTAINERS=NONE`, and
+`B4_POST_CLEANUP=PASS / CLOSED`. Public Share remains unimplemented. The Formal
+Report is outside this documentation task and remains unchanged.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 
