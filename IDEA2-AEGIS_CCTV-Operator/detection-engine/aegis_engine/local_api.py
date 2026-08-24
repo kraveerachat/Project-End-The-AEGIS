@@ -118,6 +118,15 @@ def _part(jpeg: bytes) -> bytes:
     )
 
 
+def _stream_wait_limit(config: EngineConfig, has_sent_frame: bool) -> int:
+    """Select the startup or steady-state timeout for an MJPEG viewer."""
+    return (
+        config.stream_idle_timeout_s
+        if has_sent_frame
+        else config.stream_first_frame_timeout_s
+    )
+
+
 class LocalEventAPI:
     def __init__(
         self,
@@ -273,6 +282,7 @@ class LocalEventAPI:
                 loop = asyncio.get_running_loop()
                 last = -1
                 idle = 0
+                has_sent_frame = False
                 stream_hub.add_viewer()
                 try:
                     # Prime immediately with whatever is current so the <img>
@@ -280,6 +290,7 @@ class LocalEventAPI:
                     cur = stream_hub.latest()
                     if cur is not None:
                         last = cur[0]
+                        has_sent_frame = True
                         yield _part(cur[1])
                     while True:
                         # Block off-loop so the event loop stays responsive.
@@ -290,12 +301,19 @@ class LocalEventAPI:
                             # Capture stalled or engine stopping. Bounded wait so
                             # a dead stream is closed rather than hanging open.
                             idle += 1
-                            if idle >= cfg.stream_idle_timeout_s:
-                                log.info("closing idle stream (no frames for %ds)", idle)
+                            limit = _stream_wait_limit(cfg, has_sent_frame)
+                            if idle >= limit:
+                                phase = "idle" if has_sent_frame else "first frame"
+                                log.info(
+                                    "closing stream (%s unavailable for %ds)",
+                                    phase,
+                                    idle,
+                                )
                                 break
                             continue
                         idle = 0
                         last, jpeg = got
+                        has_sent_frame = True
                         yield _part(jpeg)
                 finally:
                     stream_hub.remove_viewer()

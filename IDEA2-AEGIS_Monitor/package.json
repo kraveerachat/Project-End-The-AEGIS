@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --port 5176",
     "dev:server": "node --watch server/index.js",
-    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs tests/streamAvailability.test.mjs",
+    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs tests/streamAvailability.test.mjs tests/streamProxyPolicy.test.mjs",
     "build": "vite build",
     "preview": "vite preview --port 5176",
     "start": "node server/index.js",

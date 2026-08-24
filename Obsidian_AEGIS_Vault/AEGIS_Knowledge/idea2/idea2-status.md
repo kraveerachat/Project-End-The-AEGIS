@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-21
+updated: 2026-08-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -138,6 +138,33 @@ preservation, and fresh-idle Monitor stream availability. Local real-camera
 evidence previously showed idle → active → idle behavior. Docker camera access,
 deployed browser E2E, production heartbeat, tunnel auto-start, Telegram after
 credential rotation, and production NAS remain unverified.
+
+### Cold-start stream timing correction (2026-08-23)
+
+Viewer-demand cold start now uses a separate timeout from steady-state stream
+idle detection. The Detection Engine allows up to 45 seconds for the first
+annotated frame while YOLO and SFace warm up, and Monitor allows up to 50
+seconds for the first upstream byte. After the first byte, Monitor returns to
+the existing 6-second idle watchdog and the Engine uses its 15-second viewer
+idle timeout. Monitor also awaits and suppresses expected asynchronous reader
+cancellation errors so a normal client disconnect cannot become an unhandled
+`AbortError`.
+
+Local verification passed with the real Windows camera: the cold first frame
+arrived in 26.67 seconds, close returned the Engine to idle, reopen delivered a
+frame in 5.97 seconds, and the authenticated stream boundary remained 401
+without a key and 200 with the configured key. An isolated Docker Monitor
+validated the actual proxy route twice without a container restart. This is
+local evidence only; Internal/Production deployment and the remote reverse
+tunnel were not changed or tested by this task.
+
+Final local operator verification on 2026-08-24 passed through the real
+`http://localhost/monitor/` Live canvas with the existing Windows auto-started
+Engine: opening the assigned camera changed health from `idle / false / false`
+to active viewer demand with a connected camera, leaving Live canvas released
+the camera back to `idle / false / false`, and reopening restored the stream
+without manually starting `run.py`. This confirms the local Monitor-to-Engine
+viewer-demand lifecycle; it does not claim an Internal deployment.
 
 ## YOLO + SFace Admin recognition update (2026-08-21)
 

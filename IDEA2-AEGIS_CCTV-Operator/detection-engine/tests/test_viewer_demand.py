@@ -14,7 +14,10 @@ import aegis_engine.video_catcher as video_catcher_module
 from aegis_engine.config import EngineConfig
 from aegis_engine.metrics import MetricsRegistry
 from aegis_engine.models import DetectedEntity, DetectionResult, DetectionStatus, Frame
-from aegis_engine.local_api import _DisconnectAwareStreamingResponse
+from aegis_engine.local_api import (
+    _DisconnectAwareStreamingResponse,
+    _stream_wait_limit,
+)
 from aegis_engine.segment_recorder import SegmentRecorder
 from aegis_engine.stream_hub import StreamHub
 from aegis_engine.video_catcher import VideoCatcher
@@ -36,6 +39,15 @@ class FakeCapture:
 
 
 class ViewerDemandTests(unittest.TestCase):
+    def test_stream_waits_longer_for_first_ai_frame_than_for_a_stall(self):
+        config = EngineConfig(
+            stream_first_frame_timeout_s=45,
+            stream_idle_timeout_s=15,
+        )
+
+        self.assertEqual(_stream_wait_limit(config, has_sent_frame=False), 45)
+        self.assertEqual(_stream_wait_limit(config, has_sent_frame=True), 15)
+
     def test_stream_response_releases_viewer_on_asgi_disconnect(self):
         demand = threading.Event()
         with patch.object(

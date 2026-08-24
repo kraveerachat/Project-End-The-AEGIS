@@ -189,6 +189,11 @@ class EngineConfig:
     # from. Blank -> derived from api_host/api_port (localhost is rewritten to
     # 127.0.0.1 since 0.0.0.0 is not dialable).
     stream_public_url: Optional[str] = None
+    # A cold YOLO+SFace worker can take materially longer than a normal frame
+    # interval to load models and publish its first annotated JPEG. Keep this
+    # separate from the steady-state idle timeout so startup is patient while
+    # an already-running stream still fails fast when frames stop.
+    stream_first_frame_timeout_s: int = 45
     # Close a stream that has produced no frames for this long (capture died,
     # camera unplugged). Without it a viewer holds an open socket forever.
     stream_idle_timeout_s: int = 15
@@ -313,6 +318,10 @@ class EngineConfig:
             stream_jpeg_quality=_env_int("AEGIS_STREAM_JPEG_QUALITY", cls.stream_jpeg_quality),
             stream_max_fps=_env_float("AEGIS_STREAM_MAX_FPS", cls.stream_max_fps),
             stream_public_url=_env_opt("AEGIS_STREAM_PUBLIC_URL"),
+            stream_first_frame_timeout_s=_env_int(
+                "AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S",
+                cls.stream_first_frame_timeout_s,
+            ),
             stream_idle_timeout_s=_env_int(
                 "AEGIS_STREAM_IDLE_TIMEOUT_S", cls.stream_idle_timeout_s
             ),
@@ -409,6 +418,10 @@ class EngineConfig:
                 "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_DETECTION_ENGINE_API_KEY; "
                 "an unauthenticated viewer must never activate the camera"
             )
+        if self.stream_first_frame_timeout_s <= 0:
+            raise ValueError("AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S must be > 0")
+        if self.stream_idle_timeout_s <= 0:
+            raise ValueError("AEGIS_STREAM_IDLE_TIMEOUT_S must be > 0")
         return self
 
     def resolved_stream_url(self) -> Optional[str]:

@@ -106,6 +106,13 @@ open. Monitor still authenticates the browser session and checks
 authenticated upstream viewer activates capture; the last disconnect releases
 the camera, clears the previous JPEG, and finalizes the active segment.
 
+The first annotated frame may take longer while the optional YOLO+SFace models
+warm up. `AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S` controls only that cold-start
+window (default 45 seconds). After at least one frame has been delivered,
+`AEGIS_STREAM_IDLE_TIMEOUT_S` remains the shorter stalled-stream watchdog
+(default 15 seconds). This keeps cold startup usable without hiding a camera
+that stops producing frames after it was already live.
+
 This mode requires `AEGIS_STREAM_ENABLED=true` and a non-empty
 `AEGIS_DETECTION_ENGINE_API_KEY`. Configuration validation fails closed when
 either boundary is missing. Multiple authorized viewers share one camera

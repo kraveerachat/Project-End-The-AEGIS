@@ -68,6 +68,27 @@ class EngineConfigTests(unittest.TestCase):
             detection_engine_api_key="service-key",
         ).validate()
 
+    def test_stream_startup_and_idle_timeouts_are_independent_and_positive(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S": "45",
+                "AEGIS_STREAM_IDLE_TIMEOUT_S": "15",
+            },
+            clear=True,
+        ):
+            config = EngineConfig.from_env().validate()
+
+        self.assertEqual(config.stream_first_frame_timeout_s, 45)
+        self.assertEqual(config.stream_idle_timeout_s, 15)
+
+        with self.assertRaisesRegex(
+            ValueError, "AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S"
+        ):
+            EngineConfig(stream_first_frame_timeout_s=0).validate()
+        with self.assertRaisesRegex(ValueError, "AEGIS_STREAM_IDLE_TIMEOUT_S"):
+            EngineConfig(stream_idle_timeout_s=0).validate()
+
     def test_yolo_sface_backend_requires_detection_and_identity_models(self):
         with self.assertRaisesRegex(ValueError, "AEGIS_ADMIN_MODEL_PATH"):
             EngineConfig(recognizer_backend="yolo-sface-admin").validate()
