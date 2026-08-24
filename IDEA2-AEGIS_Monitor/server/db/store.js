@@ -38,6 +38,12 @@ function statusFromAge(ageMs) {
   return 'lost'
 }
 
+/** A fresh Engine can accept an authenticated stream request while its camera
+ * is intentionally idle. Camera state remains separate and is never faked. */
+export function streamAvailableFromHeartbeat({ streamUrl, ageMs }) {
+  return Boolean(streamUrl) && statusFromAge(ageMs) !== 'lost'
+}
+
 // ── simulated outage — ยังมีอยู่ แต่ "ประกาศตัวว่าเป็นการซ้อม" ────────────────
 // SOC-Responder เท่านั้น (requireRole ใน routes/api.js) ใช้แทนการเดินไปดึงสาย LAN
 // ⚠️ ต่างจากของเดิมตรงที่ payload ติดธง simulated: true กลับไปด้วยเสมอ — จอที่แสดง
@@ -101,7 +107,10 @@ export async function listHeartbeats(visibleIds) {
       nasPending: r.nas_pending,
       // ⚠️ ไม่ส่ง stream_url ออกไปฝั่ง client — เป็นที่อยู่ภายในของ engine บน VLAN 20
       //    client รู้แค่ว่า "กล้องนี้สตรีมได้ไหม" แล้วขอผ่าน proxy ของ Monitor เท่านั้น
-      hasStream: Boolean(r.stream_url) && (r.camera_connected === true),
+      hasStream: streamAvailableFromHeartbeat({
+        streamUrl: r.stream_url,
+        ageMs,
+      }),
     }
   })
 }

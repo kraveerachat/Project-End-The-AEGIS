@@ -13,6 +13,10 @@ import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getMenuForRole, ROLES } from '../rbac/permissions.js'
 import { requireAuth } from '../middleware/requireRole.js'
 import { getVisibleCameras, canSeeCamera, getUserById, updatePasswordHash } from '../db/connection.js'
+import {
+  cancelStreamReaderQuietly,
+  streamWatchdogDelay,
+} from '../streamProxyPolicy.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
@@ -20,10 +24,6 @@ const INVALID_CREDENTIALS = 'Invalid credentials'
 // heartbeat เก่ากว่านี้ = ถือว่า engine ไม่อยู่แล้ว ไม่ต้องพยายามต่อสตรีม
 // (ตรงกับเกณฑ์ 'lost' ของ store.linkStatus — จอกับสตรีมจึงไม่ขัดกันเอง)
 const STREAM_STALE_MS = 45_000
-
-// ไม่มีไบต์จาก engine นานเกินนี้ = ถือว่าสตรีมตาย ปิดทิ้งเพื่อให้เบราว์เซอร์รู้ตัว
-// ต้องมากกว่าคาบเฟรมปกติพอสมควร (12fps → ~83ms) แต่สั้นพอที่ผู้ใช้ไม่รู้สึกว่าค้าง
-const STREAM_IDLE_MS = 6_000
 
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
 const STREAM_REVALIDATE_MS = 10_000
@@ -223,13 +223,16 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
 
     const reader = upstream.body.getReader()
     let idleTimer = null
+    let hasReceivedData = false
     const armIdle = () => {
       clearTimeout(idleTimer)
+      const timeoutMs = streamWatchdogDelay(hasReceivedData)
       idleTimer = setTimeout(() => {
-        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
+        const phase = hasReceivedData ? 'idle' : 'first byte'
+        console.warn(`[aegis-monitor] stream ${cameraId}: ${phase} unavailable for ${timeoutMs}ms — closing`)
         abort()
-        try { reader.cancel() } catch { /* already gone */ }
-      }, STREAM_IDLE_MS)
+        void cancelStreamReaderQuietly(reader)
+      }, timeoutMs)
     }
 
     try {
@@ -237,6 +240,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       for (;;) {
         const { value, done } = await reader.read()
         if (done || closed) break
+        hasReceivedData = true
         armIdle() // ได้ข้อมูลแล้ว — เริ่มจับเวลาใหม่
         // เขียนไม่ทัน (client ช้า) → รอ backpressure แทนที่จะกองใน memory
         if (!res.write(Buffer.from(value))) {
@@ -250,6 +254,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       clearTimeout(idleTimer)
       clearInterval(revalidate)
       abort()
+      await cancelStreamReaderQuietly(reader)
       if (!res.writableEnded) res.end()
     }
   } catch (err) {
