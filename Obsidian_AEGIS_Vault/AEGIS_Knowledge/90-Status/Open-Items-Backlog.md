@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-24
+updated: 2026-08-25
 owner: kla
 edit_policy: owner-writable
 ---
@@ -71,6 +71,31 @@ revoked. The final filtered SQL check for active, non-expired
 `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`, `B4_TEMP_CONTAINERS=NONE`, and
 `B4_POST_CLEANUP=PASS / CLOSED`. Public Share remains unimplemented. The Formal
 Report is outside this documentation task and remains unchanged.
+
+## 🟠 IDEA1 acceptance evidence provenance reconciliation
+
+This is a bounded documentation/provenance item, **not a production failure**.
+Current canonical production closures remain Batch A, B4, and FT1D
+**PASS / CLOSED**, including FT1D documentation integration.
+
+- Recover or formally disposition the missing detailed evidence for E1, E2, FT0,
+  and FT1A–C. E1, E2, and FT1A–C are currently `USER_SUPPLIED_ONLY`; FT0 is
+  `RECOVERED_PARTIAL_EVIDENCE`.
+- The referenced
+  `2026-08-21_214500_kla_idea1-production-deployment-checkpoint.md` is
+  `REFERENCED_ONLY`; the file itself was not recovered from reachable repository
+  or PR history.
+- Determine whether any actual IDEA1 functional gap remains before defining a new
+  test matrix. **FT2_SCOPE = NOT CANONICALLY DEFINED**, **FT2_EXECUTION = NOT
+  AUTHORIZED**, and **READY_TO_EXECUTE_FT2 = NO**.
+- Phase C is `PARTIALLY_SUPERSEDED` for IDEA1 by later Batch A/B4/FT1D evidence.
+  The infrastructure owner must reconcile older Phase C wording separately while
+  preserving Monitor/SOC/CCTV/camera prerequisites as cross-system concerns. No
+  Monitor recreation is authorized by this documentation item.
+
+This item does not change the existing privacy-safe `SHARE_CREATE / DENIED` audit
+follow-up, share list/revoke ownership decision, Public External Share
+`NOT IMPLEMENTED`, or the `MemoryStore` session-durability limitation.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 

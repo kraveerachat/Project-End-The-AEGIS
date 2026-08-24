@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-24
+updated: 2026-08-25
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -402,6 +402,53 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
 **Current state:** the authorization patch is deployed and FT1D production acceptance is **PASS / CLOSED**. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during future Drive redeployments. The remaining `SHARE_CREATE / DENIED` audit-coverage improvement is non-blocking and does not reopen the authorization finding.
+
+---
+
+## Acceptance evidence provenance (2026-08-25)
+
+This reconciliation separates current canonical production closures from historical
+reports whose detailed source evidence is unavailable. Missing provenance is a
+documentation gap, not a newly demonstrated production runtime failure.
+
+### Canonical production closures
+
+- **Batch A — PASS / CLOSED**
+- **B4 — PASS / CLOSED**
+- **FT1D — PASS / CLOSED**
+- **FT1D documentation integration — PASS / CLOSED**
+
+### Historical acceptance evidence status
+
+| Evidence set | Classification | Reconciled state |
+| :--- | :--- | :--- |
+| FT0 | `RECOVERED_PARTIAL_EVIDENCE` | Current IDEA1 status preserves FT-0 as a redeployment regression baseline, and the 2026-08-21 file-object-authorization receipt references prior FT-0/DPL results. The detailed matrix and production checkpoint were not recovered. |
+| E1 | `USER_SUPPLIED_ONLY` | A historical/user-supplied PASS report exists, but no canonical Web Functional Baseline matrix, receipt, status entry, commit, or PR evidence was recovered. The similarly named design-functional-baseline receipt on an unmerged branch explicitly states that it is not production acceptance evidence. |
+| E2 | `USER_SUPPLIED_ONLY` | A historical/user-supplied PASS/CLOSED report exists, but no independently attributable Browser Role/Workflow matrix, receipt, status entry, commit, or PR metadata was recovered. |
+| FT1A | `USER_SUPPLIED_ONLY` | Historical/user-supplied PASS report; canonical matrix/evidence not recovered. |
+| FT1B | `USER_SUPPLIED_ONLY` | Historical/user-supplied PASS report; canonical matrix/evidence not recovered. |
+| FT1C | `USER_SUPPLIED_ONLY` | Historical/user-supplied PASS report; canonical matrix/evidence not recovered. |
+
+The referenced historical artifact
+`2026-08-21_214500_kla_idea1-production-deployment-checkpoint.md` is
+`REFERENCED_ONLY`: later canonical material names the path, but no matching file,
+blob, tree entry, reachable commit, remote branch copy, PR artifact, or Git note was
+recovered.
+
+### Phase C and FT2 boundary
+
+- **Phase C = PARTIALLY SUPERSEDED for IDEA1.** The older infrastructure readiness
+  checkpoint remains historically valid. Later Batch A, B4, and FT1D evidence
+  supersedes its broad IDEA1 assumptions. DataLake provisioning is satisfied by
+  FT1D, and trusted AEGIS CA readiness is satisfied by endpoint onboarding.
+- Remaining Monitor/SOC/CCTV/camera-fixture readiness belongs to separately
+  authorized cross-system or infrastructure testing and is not an automatic IDEA1
+  blocker. Infrastructure-owned Phase C notes were not modified by this task.
+- **FT2_SCOPE = NOT CANONICALLY DEFINED.** No explicit canonical IDEA1 FT2 matrix
+  exists.
+- **FT2_EXECUTION = NOT AUTHORIZED; READY_TO_EXECUTE_FT2 = NO.** Evidence
+  reconciliation and an explicit functional-gap decision must precede any FT2
+  definition or execution. No FT2 PASS, FAIL, or STARTED state is claimed.
 
 ---
 
