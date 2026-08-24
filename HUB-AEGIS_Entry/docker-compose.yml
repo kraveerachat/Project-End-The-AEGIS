@@ -12,6 +12,9 @@ services:
     volumes:
       # ใบรับรองสำหรับ listen 443 (ดู nginx.conf) — self-signed หรือ internal CA
       - ./deploy/certs:/etc/nginx/certs:ro
+    networks:
+      aegis_drive_proxy:
+        ipv4_address: 172.19.255.2
     restart: unless-stopped
     healthcheck:
       # ยิง 443 ตรง ๆ — พอร์ต 80 ใน nginx.conf เป็น 301 → https อย่างเดียว
@@ -20,3 +23,10 @@ services:
       interval: 15s
       timeout: 3s
       retries: 5
+
+networks:
+  # Created during the separately approved production deploy. Only HUB and
+  # Drive join this boundary; Drive receives alias "drive-proxy" there.
+  aegis_drive_proxy:
+    external: true
+    name: aegis_drive_proxy

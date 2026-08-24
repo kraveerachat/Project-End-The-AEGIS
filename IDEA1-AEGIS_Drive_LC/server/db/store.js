@@ -8,7 +8,7 @@
 //    - audit                  : อยู่ใน connection.js (recordAudit / readAudit)
 //
 //    - file_versions          : ตารางจริง + ไบต์จริงใต้ versions/ (กู้คืนได้จริง)
-//    - network_zones          : ตารางจริง แต่เป็น "บันทึกเจตนา" ไม่ใช่กลไกบังคับ
+//    - network_zones          : ช่วง CIDR จริงที่ snapshot ลง restricted shares ตอนสร้าง
 //    - storage capacity       : statfs ของ mount จริง (ดู filesystemCapacity)
 //    - dashboard activity     : นับจาก audit_log จริง
 //
@@ -705,10 +705,10 @@ export async function storageStatus() {
 
 const mapZoneRow = (r) => ({ id: String(r.id), name: r.name, cidr: r.cidr })
 
-// ⚠️ zone เป็น "บันทึกเจตนา" ของผู้ดูแลระบบ ไม่ใช่กลไกบังคับ — การบังคับจริงอยู่ที่
-//    UFW/VLAN บนโฮสต์ ตารางนี้ไม่มีผลต่อการเข้าถึงใด ๆ ในแอป จอที่แสดงมันต้องพูด
-//    ตรงตามนี้ (ดู zonesNote ใน Settings.jsx) การเก็บลง Postgres ทำให้มัน "จริง"
-//    ในความหมายเดียวที่มันเป็นได้: บันทึกที่อยู่รอด restart และตรวจย้อนได้
+// Network zones เป็นช่วง CIDR ที่ restricted shares snapshot ณ เวลาสร้าง แล้ว route
+// redemption เทียบกับ source address ที่ Express มองเห็นจริง การตรวจนี้เป็น defense in
+// depth ไม่ใช่ตัวแทน UFW/VLAN/Twingate device policy และใช้ยืนยัน endpoint ไม่ได้เมื่อ
+// ingress ทำ source identity หายก่อนถึง trusted nginx edge
 async function pgListZones() {
   const { rows } = await query(`SELECT id, name, cidr FROM network_zones ORDER BY id`)
   return rows.map(mapZoneRow)

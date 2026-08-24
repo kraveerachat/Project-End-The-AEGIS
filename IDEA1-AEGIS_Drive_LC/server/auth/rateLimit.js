@@ -5,6 +5,8 @@
 //   2) ต่อ IP ต้นทาง (per-IP)  — กันเครื่องเดียวไล่ทั้งรายชื่อบัญชี (credential stuffing)
 // Lockout ใช้ exponential backoff: ครั้งแรก 1 นาที แล้ว 2, 4, 8 ... สูงสุด 1 ชั่วโมง
 // ⚠️ เก็บใน memory — instance เดียวพอสำหรับเดโม่; หลายเครื่องต้องใช้ store ร่วม (Redis)
+import { requestSourceIp } from '../request/sourceIp.js'
+
 const MAX_ATTEMPTS = 5
 const WINDOW_MS = 15 * 60 * 1000
 const BASE_LOCK_MS = 60 * 1000
@@ -16,7 +18,6 @@ const byAccount = new Map()
 const byIp = new Map()
 
 const norm = (username) => String(username ?? '').trim().toLowerCase()
-const rawIp = (req) => req.ip || req.socket?.remoteAddress || 'unknown'
 
 // ⚠️ scope แยกตัวนับของ "คนละเรื่อง" ออกจากกัน — ไม่ใช่ความสวยงาม แต่กัน DoS ที่เรา
 //    ยิงตัวเอง: เดิมด่านนี้มีตัวนับ IP ชุดเดียว ถ้าเส้นทางอื่นเอาไปใช้ด้วย (เช่นการเดา
@@ -25,7 +26,7 @@ const rawIp = (req) => req.ip || req.socket?.remoteAddress || 'unknown'
 //    แล้วทั้งบริษัทล็อกอินไม่ได้ (พบจากเทสต์ brute-force ของลิงก์แชร์ ไม่ใช่จากทฤษฎี)
 //    ทั้งสองแกนถูก namespace ด้วย scope: การกันเดารหัสของลิงก์ยังทำงานเต็มที่
 //    แต่ไปโดนแค่ตัวมันเอง
-const ipOf = (req, scope) => `${scope}|${rawIp(req)}`
+const ipOf = (req, scope) => `${scope}|${requestSourceIp(req)}`
 const accountOf = (username, scope) => `${scope}|${norm(username)}`
 
 function check(map, key) {

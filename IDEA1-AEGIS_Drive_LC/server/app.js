@@ -14,17 +14,19 @@ import { apiRouter } from './routes/api.js'
 import { shareRouter } from './routes/share.js'
 import { checkDb } from './db/connection.js'
 import { checkStorage } from './storage/fileStore.js'
+import { trustedProxyFromEnv } from './config/trustedProxy.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DIST = path.join(ROOT, 'dist')
 
-export function createApp() {
+export function createApp({ env = process.env } = {}) {
   const app = express()
 
-  // อยู่หลัง reverse proxy — เชื่อ X-Forwarded-* เพื่อให้ req.ip เป็น IP จริงของ client
-  // (rate limit + audit ต้องเห็น IP จริง ไม่ใช่ IP ของ proxy) และ secure cookie ทำงานถูก
-  app.set('trust proxy', 1)
+  // Trust only the deployment-defined HUB→Drive proxy CIDR. Development/test
+  // default to no proxy; production fails closed when the boundary is absent.
+  // req.ip remains Express-owned — routes never parse forwarding headers.
+  app.set('trust proxy', trustedProxyFromEnv(env))
   app.disable('x-powered-by') // ไม่ประกาศว่าเป็น Express — ลด fingerprinting
 
   app.use(securityHeaders)                 // ทุก response มี CSP/XFO/HSTS ครบ

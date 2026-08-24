@@ -135,6 +135,15 @@ test('share scope copy describes AEGIS reachability and current CIDR limits in e
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /AEGIS 可见的来源地址/)
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /Twingate.*连接器可见地址/)
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /不能替代 Twingate 访问策略或设备策略/)
+
+  assert.match(STRINGS.en.zonesNote, /source address visible to AEGIS/i)
+  assert.match(STRINGS.en.zonesNote, /Twingate.*connector-visible/i)
+  assert.match(STRINGS.en.zonesNote, /not a substitute/i)
+  assert.doesNotMatch(STRINGS.en.zonesNote, /changes nothing in the app/i)
+  assert.match(STRINGS.th.zonesNote, /ที่อยู่ต้นทางที่ AEGIS มองเห็น/)
+  assert.match(STRINGS.th.zonesNote, /Twingate.*Connector/)
+  assert.match(STRINGS.zh.zonesNote, /AEGIS 可见的来源地址/)
+  assert.match(STRINGS.zh.zonesNote, /Twingate.*连接器可见地址/)
 })
 
 test('Dashboard and navigation use the approved user-facing terminology in all three languages', () => {

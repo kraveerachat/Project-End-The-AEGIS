@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-23
+updated: 2026-08-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -30,7 +30,7 @@ edit_policy: owner-writable
 * The profile menu now exposes Profile, Settings, and Sign out; the unwired notification bell is absent. Global search explains the active page scope, and Dashboard provides Upload / Share / Private Vault quick actions.
 * Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
 * The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
-* G-A remains unresolved: nginx already forwards `X-Real-IP` and `X-Forwarded-For`, but the repository does not yet define one exact stable nginx proxy address for Express to trust. `app.set('trust proxy', 1)` must not be replaced with a guessed or broad trust rule; this requires an infrastructure-reviewed deployment contract.
+* G-A trusted-proxy hardening is implemented locally in Batch B2: Express now requires explicit CIDR configuration in production, tracked nginx overwrites inbound forwarding attribution, and the tracked deployment contract defines a dedicated HUB→Drive proxy network. This is not deployed and does not recover endpoint IP lost before nginx; Network Scope remains open pending production B3/B4 acceptance.
 
 ### Upload completion and theme continuity follow-up (2026-08-22)
 
@@ -158,11 +158,50 @@ Confirmed locally in the same pass:
 The current route implementation performs password, expiry, revoke, rate-limit,
 Vault exclusion, and CIDR checks at the application layer. Batch A production
 acceptance validates the password/no-password and copy paths, but it does not
-validate Network Scope. In particular,
-`app.set('trust proxy', 1)` and forwarded headers are not sufficient evidence that
-the observed `172.18.0.1` represents the real recipient across the current
-Docker/nginx/Twingate path. Network Scope remains open/blocked for valid acceptance,
-and Public Share remains not implemented.
+validate Network Scope.
+
+### Batch B2 trusted-proxy hardening — implemented locally, not deployed (2026-08-24)
+
+> [!warning] Security boundary hardened locally; endpoint preservation still unresolved
+> **B2 = IMPLEMENTED AND VERIFIED LOCALLY / NOT DEPLOYED. NETWORK SCOPE = OPEN /
+> BLOCKED FOR VALID PRODUCTION ACCEPTANCE. PUBLIC SHARE = NOT IMPLEMENTED.**
+
+Production evidence collected before this implementation establishes the actual
+current path:
+
+- HUB ingress at `192.168.10.10:80/443` is Docker-published; the production HUB
+  is `172.18.0.5` on `aegis_internal`.
+- Drive is `172.18.0.3` on `aegis_internal`, retains Macvlan
+  `192.168.10.11`, and port `8001` is not host-published.
+- The current production HUB upstream is `drive:8001`.
+- A Twingate/Windows request is already observed by HUB as `172.18.0.1`.
+  Therefore endpoint identity is lost before nginx on this published-port path;
+  neither an Express nor nginx header change can reconstruct it, and
+  `172.18.0.1` must not be treated as the recipient CIDR.
+
+Batch B2 replaces hop-count trust with `TRUSTED_PROXY_CIDRS`, parsed by the
+standard `proxy-addr` CIDR compiler. Production fails closed when the setting is
+missing, malformed, contains multiple values, or differs from the explicitly
+approved HUB identity `172.19.255.2/32`; development/test defaults to no trusted
+proxy. The tracked deployment network remains `aegis_drive_proxy`
+(`172.19.255.0/29`, gateway `.1`, HUB `.2`, Drive `.3`) for HUB→Drive traffic,
+but Express trusts only HUB `.2`, not the full `/29`. PostgreSQL, Monitor, and
+Camera do not join that network; Drive retains `aegis_internal` for PostgreSQL.
+Tracked Drive nginx locations overwrite `X-Forwarded-For` and `X-Real-IP` with
+`$remote_addr`, preserve explicit proto/host, and remove inbound `Forwarded`.
+
+Audit, restricted-share CIDR decisions, login/share rate limiting, and session
+metadata all consume one Express-derived request source. Direct callers cannot
+make arbitrary `X-Forwarded-For` authoritative. Restricted shares still compare
+only the source identity visible to AEGIS: direct VLAN CIDR is meaningful only
+when ingress preserves it, Twingate recipients may appear as connector-visible
+infrastructure identity, and application CIDR remains defense in depth rather
+than a substitute for Twingate/device/firewall policy.
+
+No production Docker network, environment, container, nginx process, Macvlan,
+Twingate setting, UFW rule, or database schema was changed. B3/B4 must deploy the
+reviewed boundary and run production allow/deny/spoof attribution acceptance
+before Network Scope can change state. Public Share remains not implemented.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
@@ -313,7 +352,7 @@ This module went through a pass (2026-07-27) whose whole purpose was removing da
 | File history (earlier versions + restore) | ✅ Real | `file_versions` table + bytes under `versions/` |
 | Storage capacity | ✅ Real | `fs.statfs` on the Data Lake mount |
 | Dashboard activity (7 days) | ✅ Real | counted from `audit_log` |
-| Network zones | 🟠 Real record, **not** an enforcement mechanism | `network_zones` table |
+| Network zones | 🟠 Real CIDR input for restricted shares; source-identity limit remains | `network_zones` snapshot into `shares.vlan_scope` + `req.ip` check |
 | Encryption at rest for Data Lake uploads | 🔴 **Not implemented** — files are plaintext on disk | — |
 | Disk health / SMART, RAID | 🔴 **Not measurable here** (needs host access) | declared via `storageStatus().unavailable` |
 | Off-site backup jobs | 🔴 **None configured anywhere** | declared via `storageStatus().unavailable` |
@@ -676,7 +715,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `GET /api/sessions` · `DELETE /api/sessions/:ref` | `requireAuth` | own sessions only; `ref` is a hash, never the sid |
 | `GET /api/users` · `POST /api/users` | `requireRole(Admin)` | same table for read and write |
 | `GET /api/audit` | `requireRole(Admin)` | sha256 targets only |
-| `GET/POST/DELETE /api/zones[/:id]` | `requireRole(Admin)` | record of intent, not enforcement |
+| `GET/POST/DELETE /api/zones[/:id]` | `requireRole(Admin)` | CIDRs snapshot into newly created restricted shares; enforcement uses AEGIS-visible source identity |
 | ~~`/api/keys`, `/api/keys/rotate`~~ | — | **removed — 404, pinned by test** |
 | ~~`/api/snapshots`, `/api/snapshots/:id/rollback`~~ | — | **removed — 404, pinned by test** |
 
