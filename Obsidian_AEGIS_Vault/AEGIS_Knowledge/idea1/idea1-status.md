@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-23
+updated: 2026-08-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -143,26 +143,62 @@ Confirmed locally in the same pass:
 
 ### Secure Share production findings (2026-08-23)
 
-> [!warning] Batch A closed; network/public boundaries remain
+> [!success] Batch A and B4 Network Scope acceptance closed
 > **PASSWORD SHARE: VERIFIED IN PRODUCTION / RESOLVED. SHARE COPY: VERIFIED IN
-> PRODUCTION. NETWORK-SCOPED SHARE: OPEN / BLOCKED FOR VALID ACCEPTANCE. PUBLIC
+> PRODUCTION. NETWORK SCOPE ENGINE: VERIFIED IN PRODUCTION / PASS / CLOSED. PUBLIC
 > EXTERNAL SHARE: NOT IMPLEMENTED.**
 
 | Share capability | Current production state | Evidence and boundary |
 | :--- | :--- | :--- |
 | Password-protected share | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS; duplicated `/drive/s/s/:token` = **NO**. A4 confirmed a wrong password is denied, and A5 confirmed no-password sharing still passes. The earlier relative-action defect is historical and superseded by PR #24 acceptance. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy = PASS; production displays the AEGIS-reachable scope semantics introduced by Batch A. |
-| Network-scoped share | ⛔ **OPEN / BLOCKED FOR VALID ACCEPTANCE** | Audit/application evidence currently records source IP `172.18.0.1`. This Docker bridge/proxy address is not valid evidence of the recipient CIDR and must not be accepted as successful CIDR enforcement. Correct and verify real-client-IP/trusted-proxy behavior, or document the Twingate limitation precisely, before claiming enforcement. |
+| Network-scoped share | ✅ **VERIFIED IN PRODUCTION / PASS / CLOSED** | B4.3 proved direct-source CIDR allow/deny behavior and trusted-proxy spoof resistance. The engine enforces the canonical source observed by the application. Twingate endpoint-subnet attribution remains limited as documented below; this topology limitation is not an application enforcement failure. |
 | Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
 
 The current route implementation performs password, expiry, revoke, rate-limit,
-Vault exclusion, and CIDR checks at the application layer. Batch A production
-acceptance validates the password/no-password and copy paths, but it does not
-validate Network Scope. In particular,
-`app.set('trust proxy', 1)` and forwarded headers are not sufficient evidence that
-the observed `172.18.0.1` represents the real recipient across the current
-Docker/nginx/Twingate path. Network Scope remains open/blocked for valid acceptance,
-and Public Share remains not implemented.
+Vault exclusion, and CIDR checks at the application layer. B4.3 production
+acceptance closes Network Scope with the following evidence:
+
+| B4.3 production probe | Canonical source observed | Result |
+| :--- | :--- | :--- |
+| Restricted share from direct source `172.18.0.6` | `172.18.0.6` | HTTP 200; `SHARE_REDEEM / OK` |
+| Same restricted share from direct source `172.18.0.7` | `172.18.0.7` | HTTP 403; `SHARE_REDEEM_OUT_OF_SCOPE / BLOCKED` |
+| Restricted share from Windows/Twingate endpoint `192.168.0.104` | `172.19.255.1` | HTTP 403; `SHARE_REDEEM_OUT_OF_SCOPE / BLOCKED` |
+| Unrestricted `scope=any`, `vlan_scope={}` share from Windows/Twingate | `172.19.255.1` | HTTP 200; 40-byte file delivered; `SHARE_REDEEM / OK` |
+
+Trusted-proxy hardening prevented spoofed forwarding headers from changing canonical
+source attribution. Therefore the **Network Scope engine = PASS**, **Twingate
+connectivity = PASS**, and **production failure = NO**.
+
+> [!warning] Twingate endpoint-IP topology limitation
+> The current Twingate/Docker ingress path does not preserve the original Windows
+> endpoint IP `192.168.0.104` to Drive. The application observes infrastructure
+> identity `172.19.255.1`. Endpoint-subnet attribution through Twingate is therefore
+> **LIMITED / NOT AVAILABLE**. Do not model `172.19.255.1` as a recipient subnet merely
+> to force policy acceptance. This limitation does not reopen the verified
+> application-layer CIDR engine.
+
+#### B4 post-cleanup closure (2026-08-24)
+
+Cleanup completed without changing the B4.3 acceptance result or the Twingate
+attribution boundary:
+
+| Post-cleanup check | Confirmed result |
+| :--- | :--- |
+| Drive HTTPS health | HTTP 200 |
+| Monitor HTTPS health | HTTP 200 |
+| Production containers | `aegis-prod-drive-1`, `aegis-prod-hub-1`, `aegis-prod-monitor-1`, and `aegis-prod-postgres-1` all `healthy` |
+| Temporary B4 containers | No `b4-network-*` containers remain |
+| Temporary network zones | `network_zones` = 0 rows |
+| Temporary B4 test shares | Revoked; final SQL query for `file_name = AEGIS_BATCH_A_UPLOAD_REGRESSION.txt`, `revoked = false`, and `expires_at > now()` returned **0 rows** |
+
+Production remained healthy after cleanup. B4 Network Scope acceptance remains
+**VERIFIED IN PRODUCTION / PASS / CLOSED** with **PRODUCTION FAILURE = NO**. The
+Twingate endpoint-IP preservation limitation remains **LIMITED / NOT AVAILABLE**.
+Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
+`B4_TEMP_CONTAINERS=NONE`, and `B4_POST_CLEANUP=PASS / CLOSED`.
+
+Public Share remains not implemented.
 
 ## 🧩 Current functional design baseline (2026-08-21)
 
