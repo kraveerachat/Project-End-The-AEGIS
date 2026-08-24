@@ -334,18 +334,44 @@ System / infrastructure metrics → Dashboard Server Telemetry UI contract
 
 ## 🛡️ FT-1 security finding — File object-level authorization (2026-08-21)
 
-> [!warning] Authorization patch deployed; acceptance NOT yet complete — do not mark this finding resolved
-> The file-object authorization patch **is present in production**, and FT-1D observed owner-scoped **listing** isolation in both directions: Admin did not see the DataLake-User file, and DataLake-User did not see the Admin file.
+> [!success] FT1D cross-owner authorization verified in production — PASS / CLOSED
+> The file-object authorization patch is present in production. FT1D verified owner-scoped listing in both directions and completed DataLake-User → Admin cross-owner download, verify, and share-creation acceptance without disclosing file bytes, checksums, or a usable share.
 >
 > | Acceptance step | State |
 > | :--- | :--- |
 > | Patch deployed to production | ✅ DONE |
 > | Cross-owner listing isolation (`GET /api/files`) | ✅ PASS observed in FT-1D |
-> | Cross-owner **download** (`GET /api/files/:id/download`) acceptance | ⏳ PENDING |
-> | Cross-owner **verify** (`POST /api/files/:id/verify`) acceptance | ⏳ PENDING |
-> | Cross-owner **share creation** (`POST /api/shares`) acceptance | ⏳ PENDING |
+> | FT1D.1 cross-owner **download** (`GET /api/files/4/download`) | ✅ PASS — HTTP 404; no attachment or file bytes disclosed |
+> | FT1D.2 cross-owner **verify** (`POST /api/files/4/verify`) | ✅ PASS — HTTP 404; no checksum fields disclosed |
+> | FT1D.3 cross-owner **share creation** (`POST /api/shares`, `fileId=4`) | ✅ PASS — HTTP 400; no share row, path, or usable token created |
 >
-> **This finding stays OPEN until the pending cross-owner download, verify, and share-creation acceptance is executed against production and recorded.** Keep the complete cross-owner regression suite in every future Drive redeployment. This production fact also does not mark the separate Theme UI finding above as resolved; Upload has been verified separately in production.
+> **FT1D_CROSS_OWNER_AUTHORIZATION=PASS / CLOSED; PRODUCTION_FAILURE=NO.** Keep the complete cross-owner regression suite in every future Drive redeployment. B4 remains PASS / CLOSED, and Public External Share remains NOT IMPLEMENTED.
+
+### FT1D production closure evidence (2026-08-24)
+
+The authenticated test identities were `admin` (`id=1`, role `Admin`) and
+`datalake` (`id=2`, role `DataLake-User`). The primary cross-owner target was
+Admin-owned `file_id=4`, `AEGIS_FT1D_ADMIN.txt`: `vault=false`, `verified=true`,
+32 bytes.
+
+| Probe | Expected / actual | Disclosure and persistence result | Audit |
+| :--- | :--- | :--- | :--- |
+| FT1D.1 DataLake → Admin download | HTTP 404 / HTTP 404 | JSON `Not found`; no `Content-Disposition`, octet-stream response, or Admin-owned bytes | `FILE_DOWNLOAD / DENIED`, actor `datalake`, source `192.168.10.10` |
+| FT1D.2 DataLake → Admin verify | HTTP 404 / HTTP 404 | JSON `Not found`; `match`, `storedSha256`, and `actualSha256` absent, proving the owner check preceded checksum disclosure | `FILE_VERIFY / DENIED`, actor `datalake`, source `192.168.10.10` |
+| FT1D.3 DataLake → Admin share creation | HTTP 400 / HTTP 400 | `Invalid input`; `share` and `path` absent. Share counts remained total `14`, file 4 `0`, max id `14`; final file-4 query returned 0 rows | No `SHARE_CREATE / DENIED` event because validation returns before the current success-only audit call |
+
+The existing `datalake` credential was recovered/rotated during test preparation
+through the application's `updatePasswordHash()` path inside the Drive container.
+After recovery, identity `id=2`, role `DataLake-User`, and
+`must_reset_password=false` were confirmed; subsequent authentication succeeded.
+No password, password hash, CSRF value, session cookie, or other credential is
+recorded here.
+
+> [!info] Non-blocking audit-coverage improvement
+> Cross-owner download and verify attempts create explicit DENIED audit events.
+> Cross-owner share creation currently returns HTTP 400 before `SHARE_CREATE` is
+> audited. Add a privacy-safe `SHARE_CREATE / DENIED` event in a future scoped
+> task, without reopening FT1D.
 
 FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works correctly (`DataLake-User` gets `403` on `GET /api/users` and is blocked from `/audit`/`/access`; `200` on `GET /api/files` as an authenticated Files-capable role), but **file object-level authorization was incomplete** — a Broken Object Level Authorization / IDOR-class defect distinct from role RBAC.
 
@@ -375,7 +401,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
-**Next step:** run the outstanding cross-owner **download**, **verify**, and **share-creation** acceptance against production and record the result here; only then may this finding be marked resolved. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during the next Drive-only redeployment. The authorization patch is already deployed; this item is pending **acceptance**, not pending deployment. Theme remains a separate open production failure after PR #22, while Upload is verified in production.
+**Current state:** the authorization patch is deployed and FT1D production acceptance is **PASS / CLOSED**. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during future Drive redeployments. The remaining `SHARE_CREATE / DENIED` audit-coverage improvement is non-blocking and does not reopen the authorization finding.
 
 ---
 

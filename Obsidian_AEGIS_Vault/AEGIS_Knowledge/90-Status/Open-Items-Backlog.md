@@ -29,23 +29,24 @@ edit_policy: owner-writable
 | Docker/Twingate restart policies | ✅ CLOSED — five containers use `unless-stopped`; Twingate `AutoRemove=false` | [[infrastructure/deployment/Docker-Stack-Plan]] |
 | Server-side post-reboot health | ✅ CLOSED — entry/Drive/Monitor HTTP 200 with application health | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 
-## 🟠 OPEN — Production security defect patched, acceptance not complete
+## ✅ CLOSED / PASS — IDEA1 file object-level authorization production acceptance
 
 **File object-level authorization (IDOR) — IDEA1 Drive.** Confirmed during FT-1 role RBAC testing (2026-08-21): role RBAC itself works, but `GET /api/files`, `POST /api/files/:id/verify`, `GET /api/files/:id/download`, and `POST /api/shares` did not check per-file ownership, letting any authenticated user list/verify/download another user's files or mint a public share link for another user's file by supplying its id. `DELETE /api/files/:id` and the file-version routes were already owner-only and are unaffected.
 
 | Field | State |
 | :--- | :--- |
-| Fix status | **PATCH DEPLOYED TO PRODUCTION / ACCEPTANCE STILL PENDING — NOT RESOLVED** |
+| Fix status | **PATCH DEPLOYED / FT1D PRODUCTION ACCEPTANCE PASS / CLOSED** |
 | Production status | Beelink `aegis-system` Drive now runs the patched build; the previously recorded "still runs the pre-fix build" state is **superseded** |
-| Acceptance observed | ✅ Cross-owner **listing** isolation PASS in FT-1D, both directions (Admin ↔ DataLake-User) |
-| Acceptance outstanding | ⏳ Cross-owner **verify** (`POST /api/files/:id/verify`) and **share creation** (`POST /api/shares`) not yet accepted against production |
+| Acceptance observed | ✅ Listing isolation PASS in both directions; DataLake → Admin download returned 404 without bytes, verify returned 404 without checksum fields, and share creation returned 400 without creating a row or usable share |
+| Final production state | `FT1D.1=PASS`; `FT1D.2=PASS`; `FT1D.3=PASS`; `FT1D_CROSS_OWNER_AUTHORIZATION=PASS / CLOSED`; `PRODUCTION_FAILURE=NO` |
 | Code | `IDEA1-AEGIS_Drive_LC/server/db/store.js`, `server/routes/api.js` |
 | Tests | New `tests/fileObjectAuthorization.test.js` (8 tests); full IDEA1 suite 175/175 non-skipped pass, 0 fail, in-memory mode; Postgres-mode branch not run in this environment |
-| Evidence | `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`; narrative in [[idea1/idea1-status#🛡️ FT-1 security finding — File object-level authorization (2026-08-21)]] |
+| Evidence | `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`; `90-Status/logs/2026-08-24_202849_kla_idea1-ft1d-authorization-closure.md`; narrative in [[idea1/idea1-status#🛡️ FT-1 security finding — File object-level authorization (2026-08-21)]] |
 | Deliberately not touched | `GET /api/shares` (list) and `DELETE /api/shares/:id` (revoke) remain unscoped — pinned as intentional current behavior by an existing test; a decision to gate those must be separate and explicit |
-| Next step | Execute and record the outstanding cross-owner verify/share acceptance against production, alongside FT-0 baseline and FT-1 role RBAC, before marking this resolved |
+| Non-blocking audit improvement | Cross-owner `FILE_DOWNLOAD` and `FILE_VERIFY` emit `DENIED`; rejected `POST /api/shares` returns 400 before a `SHARE_CREATE / DENIED` event is written. Add privacy-safe denied auditing in a future scoped task without reopening FT1D. |
 
-Do not mark this item resolved until the outstanding cross-owner verify and share acceptance above is actually executed and recorded.
+FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
+(`NOT IMPLEMENTED`). No Formal Report state is changed by this documentation task.
 
 ## ✅ IDEA1 production acceptance — Batch A and B4 Network Scope
 
