@@ -94,9 +94,9 @@ CREATE TABLE IF NOT EXISTS shares (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── Network zones — "บันทึกเจตนา" ของผู้ดูแลระบบ ไม่ใช่กลไกบังคับ ─────────────
--- ⚠️ ตารางนี้ไม่มีผลต่อการเข้าถึงใด ๆ ในแอป: การบังคับขอบเขตเครือข่ายเกิดที่ UFW/VLAN
---    บนโฮสต์ (network layer) จอที่แสดงข้อมูลนี้ต้องบอกตรง ๆ ว่าเป็นบันทึก ไม่ใช่สวิตช์
+-- ── Network zones — source CIDRs snapshotted into restricted shares ────────────
+-- ⚠️ redemption เทียบ CIDR กับ source address ที่ Express มองเห็น เป็น defense in depth
+--    ไม่ใช่ตัวแทน UFW/VLAN/Twingate policy และไม่กู้ endpoint IP ที่ ingress ทำหายไปแล้ว
 --    เดิมข้อมูลชุดนี้เป็นอาเรย์ในหน่วยความจำที่หายทุก restart — การเก็บลงตารางทำให้มัน
 --    "จริง" ในความหมายเดียวที่มันเป็นได้: อยู่รอด restart และตรวจย้อนหลังได้
 CREATE TABLE IF NOT EXISTS network_zones (

@@ -6,6 +6,7 @@
 //    สองแอปไม่มีวันอ่าน session ข้ามกัน (Identity Decoupling)
 import session from 'express-session'
 import { createHash, randomBytes } from 'node:crypto'
+import { requestSourceIp } from '../request/sourceIp.js'
 
 export const SESSION_COOKIE = 'aegis.drive.sid'
 
@@ -72,7 +73,7 @@ export function establishSession(req, user, remember) {
       //    ไม่มีการเดา/แต่งค่า และ userAgent ถูกตัดความยาวก่อนเก็บ (header นี้ผู้ใช้
       //    ควบคุมได้ — ปล่อยยาวไม่จำกัดคือปล่อยให้เขียนขยะเข้า session store ของเรา)
       req.session.meta = {
-        ip: req.ip ?? null,
+        ip: requestSourceIp(req),
         userAgent: String(req.get('user-agent') ?? '').slice(0, 200) || null,
         loginAt: Date.now(),
         lastSeenAt: Date.now(),

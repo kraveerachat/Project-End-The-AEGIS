@@ -74,6 +74,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - aegis_internal
 
   gateway:
     build:
@@ -90,6 +92,10 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      aegis_internal:
+      aegis_drive_proxy:
+        ipv4_address: 172.19.255.2
 
   drive:
     build:
@@ -99,6 +105,7 @@ services:
       PORT: 8001
       SESSION_SECRET: ${DRIVE_SESSION_SECRET:-localhost-test-stack-insecure-drive-secret-change-me}
       COOKIE_SECURE: "false"
+      TRUSTED_PROXY_CIDRS: 172.19.255.2/32
       DATABASE_URL: postgresql://drive_app:${DRIVE_DB_PASSWORD:-drive-app-dev-password-change-me}@postgres:5432/aegis_drive
       STORAGE_ROOT: ${DRIVE_STORAGE_ROOT:-/datalake}
       ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
@@ -116,6 +123,12 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      aegis_internal:
+      aegis_drive_proxy:
+        ipv4_address: 172.19.255.3
+        aliases:
+          - drive-proxy
 
   monitor:
     build:
@@ -145,6 +158,8 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - aegis_internal
 
   aegis-camera:
     build:
@@ -159,7 +174,20 @@ services:
     ports:
       - "8005:8000"
     restart: unless-stopped
+    networks:
+      - aegis_internal
 
 volumes:
   postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
   drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
+
+networks:
+  aegis_internal:
+    driver: bridge
+  aegis_drive_proxy:
+    name: aegis_drive_proxy
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.255.0/29
+          gateway: 172.19.255.1

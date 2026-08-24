@@ -24,6 +24,7 @@ import { recordAudit, sha256Hex } from '../db/connection.js'
 import * as store from '../db/store.js'
 import { keyExists, openReadStream } from '../storage/fileStore.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
+import { requestSourceIp } from '../request/sourceIp.js'
 
 export const shareRouter = Router()
 
@@ -34,9 +35,10 @@ shareRouter.use(express.urlencoded({ extended: false, limit: '4kb' }))
 // ⚠️ ขอบเขตของการบังคับนี้ (พูดให้ตรง เพื่อไม่ให้กลายเป็นคำสัญญาเกินจริงอีกครั้ง):
 //    นี่คือการเทียบ IP ต้นทางที่ "ชั้นแอปพลิเคชัน" — เป็น defense in depth ที่ทำงานจริง
 //    และตรวจสอบได้ แต่ไม่ใช่สิ่งเดียวกับการแยก VLAN ที่ firewall/switch:
-//      - req.ip มาจาก X-Forwarded-For (app.set('trust proxy', 1)) ค่านี้เชื่อถือได้
-//        "เท่าที่ reverse proxy หน้าบ้านตั้งให้" ถ้าวันหนึ่งมีเส้นทางที่ยิงเข้า Express
-//        ตรงโดยไม่ผ่าน nginx ผู้ยิงจะตั้ง header นี้เองได้
+//      - req.ip มาจาก Express ซึ่งเชื่อ forwarding header เฉพาะเมื่อ socket peer อยู่ใน
+//        TRUSTED_PROXY_CIDRS; direct caller จึงปลอม X-Forwarded-For ไม่ได้
+//      - current Docker-published/Twingate path may already have collapsed the endpoint
+//        into infrastructure identity before nginx; this check cannot reconstruct it
 //      - การแยกเครือข่ายจริงต้องทำให้ packet ไปไม่ถึงพอร์ตตั้งแต่แรก ไม่ใช่ให้ถึงแล้ว
 //        ค่อยปฏิเสธ
 //    จอ Shares จึงต้องพูดตรงตามนี้ ไม่ใช่วาดว่า firewall บล็อกให้
@@ -181,7 +183,7 @@ function passwordForm(res, { nonce, fileName, error }) {
 const auditShare = (req, action, target, result) =>
   recordAudit({
     actorLabel: 'share-link', action, targetHash: target ? sha256Hex(target) : null,
-    result, sourceIp: req.ip,
+    result, sourceIp: requestSourceIp(req),
   })
 
 /**
@@ -209,7 +211,7 @@ async function resolveShare(req, token) {
     await auditShare(req, 'SHARE_REDEEM', share.fileName, 'BLOCKED')
     return { ok: false, kind: 'gone' }
   }
-  if (!ipAllowed(req.ip, share.scopeCidrs)) {
+  if (!ipAllowed(requestSourceIp(req), share.scopeCidrs)) {
     await auditShare(req, 'SHARE_REDEEM_OUT_OF_SCOPE', share.fileName, 'BLOCKED')
     return { ok: false, kind: 'scope' }
   }
