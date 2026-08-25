@@ -48,11 +48,11 @@ edit_policy: owner-writable
 FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
 (`NOT IMPLEMENTED`). No Formal Report state is changed by this documentation task.
 
-## 🟠 IDEA1 Share Ownership Authorization Hardening — acceptance pending
+## 🟠 IDEA1 Share Ownership Authorization Hardening — test-harness integration pending
 
 | Field | Current state |
 | :--- | :--- |
-| Share Ownership Authorization Hardening | **IMPLEMENTED LOCALLY / ACCEPTANCE PENDING** |
+| Share Ownership Authorization Hardening | **POSTGRESQL VERIFIED / FOLLOW-UP TEST-HARNESS INTEGRATION PENDING** |
 | Approved policy | **OWNER ONLY** for Admin and DataLake-User |
 | Share list authorization | Owner-scoped; active and non-expired shares only |
 | Dashboard share data | Uses the same authenticated owner scope |
@@ -60,22 +60,31 @@ FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
 | Object hiding | Cross-owner, nonexistent, revoked, expired, and malformed/unusable targets return the same 404 contract |
 | Audit | Owner success records `SHARE_REVOKE / OK`; authenticated failure records `SHARE_REVOKE / DENIED` |
 | Implementation commit | `78f631492ad65a903cfb88c21c4288739017d6ce` |
-| PostgreSQL verification | **NOT EXECUTED** — safe isolated Docker PostgreSQL environment unavailable |
+| Source integration | **PASS / CLOSED** through PR #30 |
+| PostgreSQL verification | **PASS** — share redemption 17/17; ownership 9/9; affected regression 57/57; full IDEA1 233/233 |
+| Test-harness normalization | `6c16f137988e4c09f5eff31aa60f1d8779a1b86e` — `source_ip ?? sourceIp`; pending merge |
 | Production state | **NOT DEPLOYED / PRODUCTION ACCEPTANCE NOT STARTED / READY_FOR_PRODUCTION=NO** |
 
 This item is no longer an undecided design question, but it is **not closed**.
+Completed evidence:
+
+- OWNER ONLY policy implementation and PR #30 source integration.
+- Isolated PostgreSQL execution covering owner-list behavior, atomic revoke,
+  object hiding, Admin no-override, audit attribution, and the full PostgreSQL
+  regression suite.
+- PostgreSQL audit `source_ip=203.0.113.42` was persisted and observed correctly;
+  the initial failure was a test field-shape mismatch, not a runtime defect.
+
 Remaining blockers, in order:
 
-1. Run the ownership and affected PostgreSQL-capable suites against a safe,
-   isolated test database; never point destructive test cleanup at production.
-2. Complete integration/code-owner PR review and merge.
+1. Merge the test-only `source_ip` / `sourceIp` normalization.
+2. Complete production deployment preparation.
 3. Perform a Drive-only deployment through the approved production workflow.
 4. Run controlled production owner/cross-owner list, Dashboard, revoke, audit,
    privacy, and object-hiding acceptance.
 5. Verify post-deployment Drive health and preserve unrelated production state.
+6. Record final production closure documentation.
 
-Static SQL review confirmed an owner-filtered list and one atomic owner/state-
-constrained revoke statement. That review is not experimental PostgreSQL proof.
 Orphan shares with `created_by=NULL` remain a separate governance problem, and
 Public External Share remains **NOT IMPLEMENTED**.
 

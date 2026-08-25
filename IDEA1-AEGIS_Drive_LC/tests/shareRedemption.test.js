@@ -343,7 +343,7 @@ test('ขอบเขตเครือข่าย: IP นอกช่วงไ
 
     // B2-T5: audit ต้องบันทึก address เดียวกับที่ใช้ตัดสิน CIDR
     const event = (await readAudit(50)).find((e) => e.action === 'SHARE_REDEEM' && e.result === 'OK')
-    assert.equal(event?.sourceIp, '203.0.113.42')
+    assert.equal(event?.source_ip ?? event?.sourceIp, '203.0.113.42')
   } finally {
     const zones = (await admin.req('/api/zones')).data.zones
     const row = zones.find((z) => z.cidr === cidr)
