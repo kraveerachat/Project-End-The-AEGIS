@@ -10,6 +10,7 @@ import { sessionMiddleware } from './auth/session.js'
 import { securityHeaders } from './middleware/securityHeaders.js'
 import { csrfProtection } from './middleware/csrf.js'
 import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
+import { requireAuth } from './middleware/requireRole.js'
 import { apiRouter } from './routes/api.js'
 import { shareRouter } from './routes/share.js'
 import { checkDb } from './db/connection.js'
@@ -66,6 +67,12 @@ export function createApp({ env = process.env } = {}) {
       layers: { application, metadata, storage },
     })
   })
+
+  // Share revoke has an explicit 401 unauthenticated contract. Authenticate
+  // this route before CSRF so a caller with no session is classified correctly;
+  // authenticated callers still continue through the normal CSRF gate below.
+  // This pre-gate is route-specific and grants no role or owner exception.
+  app.delete('/api/shares/:id', requireAuth)
 
   // CSRF ครอบทุก /api ที่เปลี่ยนสถานะ — ต้องมาก่อน router
   app.use('/api', csrfProtection, apiRouter)

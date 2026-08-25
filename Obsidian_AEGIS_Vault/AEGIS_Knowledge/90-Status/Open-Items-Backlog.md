@@ -42,11 +42,42 @@ edit_policy: owner-writable
 | Code | `IDEA1-AEGIS_Drive_LC/server/db/store.js`, `server/routes/api.js` |
 | Tests | New `tests/fileObjectAuthorization.test.js` (8 tests); full IDEA1 suite 175/175 non-skipped pass, 0 fail, in-memory mode; Postgres-mode branch not run in this environment |
 | Evidence | `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`; `90-Status/logs/2026-08-24_202849_kla_idea1-ft1d-authorization-closure.md`; narrative in [[idea1/idea1-status#🛡️ FT-1 security finding — File object-level authorization (2026-08-21)]] |
-| Deliberately not touched | `GET /api/shares` (list) and `DELETE /api/shares/:id` (revoke) remain unscoped — pinned as intentional current behavior by an existing test; a decision to gate those must be separate and explicit |
+| Share list/revoke follow-up | The separate OWNER ONLY decision is now implemented locally in `78f631492ad65a903cfb88c21c4288739017d6ce`; see the still-open acceptance item below. This does not change FT1D's existing production closure. |
 | Non-blocking audit improvement | Cross-owner `FILE_DOWNLOAD` and `FILE_VERIFY` emit `DENIED`; rejected `POST /api/shares` returns 400 before a `SHARE_CREATE / DENIED` event is written. Add privacy-safe denied auditing in a future scoped task without reopening FT1D. |
 
 FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
 (`NOT IMPLEMENTED`). No Formal Report state is changed by this documentation task.
+
+## 🟠 IDEA1 Share Ownership Authorization Hardening — acceptance pending
+
+| Field | Current state |
+| :--- | :--- |
+| Share Ownership Authorization Hardening | **IMPLEMENTED LOCALLY / ACCEPTANCE PENDING** |
+| Approved policy | **OWNER ONLY** for Admin and DataLake-User |
+| Share list authorization | Owner-scoped; active and non-expired shares only |
+| Dashboard share data | Uses the same authenticated owner scope |
+| Share revoke authorization | Atomic owner/state-scoped mutation; no Admin cross-owner override |
+| Object hiding | Cross-owner, nonexistent, revoked, expired, and malformed/unusable targets return the same 404 contract |
+| Audit | Owner success records `SHARE_REVOKE / OK`; authenticated failure records `SHARE_REVOKE / DENIED` |
+| Implementation commit | `78f631492ad65a903cfb88c21c4288739017d6ce` |
+| PostgreSQL verification | **NOT EXECUTED** — safe isolated Docker PostgreSQL environment unavailable |
+| Production state | **NOT DEPLOYED / PRODUCTION ACCEPTANCE NOT STARTED / READY_FOR_PRODUCTION=NO** |
+
+This item is no longer an undecided design question, but it is **not closed**.
+Remaining blockers, in order:
+
+1. Run the ownership and affected PostgreSQL-capable suites against a safe,
+   isolated test database; never point destructive test cleanup at production.
+2. Complete integration/code-owner PR review and merge.
+3. Perform a Drive-only deployment through the approved production workflow.
+4. Run controlled production owner/cross-owner list, Dashboard, revoke, audit,
+   privacy, and object-hiding acceptance.
+5. Verify post-deployment Drive health and preserve unrelated production state.
+
+Static SQL review confirmed an owner-filtered list and one atomic owner/state-
+constrained revoke statement. That review is not experimental PostgreSQL proof.
+Orphan shares with `created_by=NULL` remain a separate governance problem, and
+Public External Share remains **NOT IMPLEMENTED**.
 
 ## ✅ IDEA1 production acceptance — Batch A and B4 Network Scope
 
@@ -94,8 +125,9 @@ Current canonical production closures remain Batch A, B4, and FT1D
   Monitor recreation is authorized by this documentation item.
 
 This item does not change the existing privacy-safe `SHARE_CREATE / DENIED` audit
-follow-up, share list/revoke ownership decision, Public External Share
-`NOT IMPLEMENTED`, or the `MemoryStore` session-durability limitation.
+follow-up, Public External Share `NOT IMPLEMENTED`, or the `MemoryStore`
+session-durability limitation. The former share list/revoke ownership decision is
+superseded by the locally implemented, acceptance-pending hardening item above.
 
 ## 🔴 P1 — Security housekeeping still requiring direct evidence
 

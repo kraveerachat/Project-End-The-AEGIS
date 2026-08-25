@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: **213 discovered · 194 pass · 0 fail · 19 PostgreSQL-only skip** in the in-memory development mode, plus a successful production Vite build (2026-08-23). This does not replace the isolated-PostgreSQL release result above or constitute production acceptance.
+> **Latest change verification**: Share Ownership Authorization Hardening commit `78f631492ad65a903cfb88c21c4288739017d6ce` was verified in memory mode with **233 discovered · 214 pass · 0 fail · 19 PostgreSQL-only skip**, plus a successful production Vite build (2026-08-25). PostgreSQL execution for this change was **NOT EXECUTED** because the safe isolated Docker PostgreSQL environment was unavailable. `POSTGRES_EXECUTION_GAP=OPEN`; this is not production acceptance and `READY_FOR_PRODUCTION=NO`.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -389,7 +389,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 - File-version routes (`GET /file-versions`, `GET /files/:id/versions[/:vid/download]`, `POST /files/:id/versions/:vid/restore`) — already owner-only, `404` for non-owners, no Admin exception.
 - `findOwnFileByName` (upload/new-version detection) — already scoped to the uploader; same-name files from different owners remain distinct.
 
-**Deliberately left unchanged (out of scope for this patch):** `GET /api/shares` (listing) and `DELETE /api/shares/:id` (revoke) remain un-scoped by design intent already pinned by an existing regression test (`tests/shareRedemption.test.js`, "ผู้ใช้ที่ล็อกอินแล้วเพิกถอนลิงก์ของคนอื่นได้ … ต้องเป็นการตัดสินใจที่ตั้งใจ ไม่ใช่หลุดไปเงียบ ๆ") stating that an ownership gate on shares would need to be a deliberate, separate decision. This finding did not extend to that decision; flagged here for awareness, not fixed.
+**Historical boundary, now superseded locally:** FT1D deliberately left `GET /api/shares` and `DELETE /api/shares/:id` unchanged until a separate policy decision was approved. The later OWNER ONLY decision is implemented by commit `78f631492ad65a903cfb88c21c4288739017d6ce` and recorded in [[#Share Ownership Authorization Hardening (2026-08-25)]]. It remains pending isolated PostgreSQL verification, integration, deployment, and production acceptance; FT1D's production closure is unchanged.
 
 **No Admin override was added or exists.** Both roles are bound by the identical `ownerId` check (`rbac/permissions.js`: the two roles manage files "equally" — Admin's only addition is the governance screens, never elevated file-content access). Regression tests prove this in both directions (Admin → DataLake-User file denied, and DataLake-User → Admin file denied) for listing, download, verify, and share creation.
 
@@ -402,6 +402,68 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`.
 
 **Current state:** the authorization patch is deployed and FT1D production acceptance is **PASS / CLOSED**. Preserve FT-0, FT-1 role RBAC, and the complete file-owner isolation regression during future Drive redeployments. The remaining `SHARE_CREATE / DENIED` audit-coverage improvement is non-blocking and does not reopen the authorization finding.
+
+---
+
+## Share Ownership Authorization Hardening (2026-08-25)
+
+> [!warning] Implemented locally; acceptance remains pending
+> **SHARE_OWNERSHIP_HARDENING = IMPLEMENTED LOCALLY / PENDING POSTGRESQL AND
+> PRODUCTION ACCEPTANCE. OWNER_ONLY_POLICY = IMPLEMENTED. SHARE_LIST_AUTHORIZATION
+> = OWNER-SCOPED. SHARE_REVOKE_AUTHORIZATION = OWNER-SCOPED.
+> ADMIN_CROSS_OWNER_OVERRIDE = NONE. POSTGRES_VERIFICATION = NOT EXECUTED.
+> POSTGRES_EXECUTION_GAP = OPEN. PRODUCTION_DEPLOYMENT = NOT PERFORMED.
+> PRODUCTION_ACCEPTANCE = NOT STARTED. READY_FOR_PRODUCTION = NO.**
+
+The confirmed baseline was an authenticated horizontal-authorization weakness:
+authenticated users could list active shares across owners and revoke another
+user's share. The approved security model is **OWNER ONLY** for both Admin and
+DataLake-User; Admin receives no implicit cross-owner governance override.
+
+Implemented source behavior:
+
+- `GET /api/shares` returns only active, non-expired shares whose `created_by`
+  matches the authenticated user.
+- Dashboard share samples and the share-derived `activeShares` metric use the
+  same authenticated owner scope, preventing Dashboard from becoming a listing
+  bypass.
+- `DELETE /api/shares/:id` succeeds only for the authenticated owner's own
+  active, non-expired share. PostgreSQL performs the owner and state checks in
+  the same atomic `UPDATE`; the memory fallback applies the same visible
+  contract.
+- Cross-owner, nonexistent, revoked, expired, and malformed/unusable targets are
+  object-hidden with HTTP 404 `{error:"Not found"}`. Admin has no exception.
+- A successful owner revoke records `SHARE_REVOKE / OK`; an authenticated
+  unsuccessful revoke records `SHARE_REVOKE / DENIED`. Audit attribution uses
+  the canonical request source and hashes the supplied internal share identifier;
+  it does not record a raw token, password/hash, or another owner's filename.
+- The Secure Shares UI keeps a failed revoke visible through the existing generic
+  localized action-failed message without disclosing why the target was hidden.
+- No database migration or runtime configuration change is required.
+
+Current local verification for implementation commit
+`78f631492ad65a903cfb88c21c4288739017d6ce`:
+
+| Verification | Result |
+| :--- | :--- |
+| Ownership authorization behavior | ✅ PASS in memory mode; 9 Node test blocks cover the 12 required behavior cases |
+| Directly affected suites | ✅ 53 pass · 0 fail · 4 PostgreSQL-only skipped |
+| Full IDEA1 suite | ✅ 214 pass · 0 fail · 19 PostgreSQL-only skipped |
+| Production Vite build | ✅ PASS; 2,657 modules transformed |
+| Static PostgreSQL contract review | ✅ Owner-scoped list and atomic owner/state-constrained revoke confirmed in source |
+| Executed PostgreSQL verification | ⚠️ **NOT EXECUTED** |
+
+The safe isolated Docker PostgreSQL environment was unavailable because the
+Docker engine was not running. Static SQL review is not equivalent to executing
+the PostgreSQL code path. Therefore `POSTGRES_EXECUTION_GAP=OPEN`, and the
+remaining gates are isolated PostgreSQL verification, integration PR review and
+merge, Drive-only deployment, controlled production acceptance, and
+post-deployment health verification. This section does **not** claim closure,
+PostgreSQL verification, deployment, or production acceptance.
+
+Orphan shares with `created_by=NULL` remain invisible and non-revocable through
+the ordinary owner API; their governance is a separate problem. Public External
+Share remains **NOT IMPLEMENTED**.
 
 ---
 
@@ -823,7 +885,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `GET /api/file-versions` | `requireAuth` + **owner-scoped listing** | own files + version counts |
 | `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
 | `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
-| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` (**create: owner only**, 2026-08-21 fix) | create returns the token **once**; list/revoke deliberately remain unscoped — pinned by `tests/shareRedemption.test.js` |
+| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` + **owner only** for create/list/revoke; no Admin exception | create returns the token **once**; list returns only the caller's active, non-expired shares; revoke atomically requires caller ownership and active/unexpired state. Implemented locally in `78f631492ad65a903cfb88c21c4288739017d6ce`; PostgreSQL and production acceptance remain pending. |
 | **`GET/POST /s/:token`** | **public** | redemption; own gates (see above) |
 | `GET /api/storage` · `/api/dashboard` | `requireAuth` | real aggregates + `unavailable{}` |
 | `PATCH /api/profile` · `POST/DELETE /api/profile/avatar` | `requireAuth` | session-scoped; never accepts a `userId` |
@@ -845,6 +907,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `accessReconciliation` | API response vs the `users` table row by row, via an **independent** pg connection |
 | `profileIdentity` | profile name vs username; avatar sniffing / limit / EXIF stripping; real sessions + revoke |
 | `shareRedemption` | redemption, link password, rate limit, hits, CIDR enforcement, expiry, revoke |
+| `shareOwnershipAuthorization` | owner-only share list/Dashboard/revoke; no Admin override; object hiding; revoke OK/DENIED audit and privacy |
 | `fileVersions` | version capture, real restore, owner-only, delete cleanup, honest storage payload |
 | `dashboardAggregates` | activity counts move with real use; capacity is real; no `projected` flag |
 | `auditViewer` | Admin-only; sha256 targets; DENIED recorded; no secrets in the log |

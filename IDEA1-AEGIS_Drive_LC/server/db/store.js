@@ -332,25 +332,44 @@ function mapShareRow(r) {
   }
 }
 
-async function pgListShares() {
+// Memory rows carry createdById only for server-side authorization. Build the
+// public shape explicitly so this identity and the credential hashes cannot
+// leak through a spread when the internal row shape evolves.
+function mapMemoryShare(s) {
+  return {
+    id: String(s.id), fileId: String(s.fileId), fileName: s.fileName,
+    createdBy: s.createdBy, authType: s.authType, scope: s.scope,
+    scopeCidrs: s.scopeCidrs ?? [], hits: s.hits, revoked: s.revoked,
+    expiresAt: s.expiresAt, hasPassword: s.hasPassword, redeemable: s.redeemable,
+  }
+}
+
+async function pgListShares(userId) {
   const { rows } = await query(
     `SELECT s.*, f.name AS file_name, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS created_by_name
        FROM shares s
        JOIN files f ON f.id = s.file_id
        LEFT JOIN users u ON u.id = s.created_by
-      WHERE s.revoked = false
+      WHERE s.created_by = $1
+        AND s.revoked = false
         AND s.expires_at > now()
       ORDER BY s.created_at DESC`,
+    [userId],
   )
   return rows.map(mapShareRow)
 }
 
-export async function listShares() {
-  if (usingPostgres) return pgListShares()
+export async function listShares(userId) {
+  // Missing/invalid identity must never degrade into a global query.
+  if (!/^\d+$/.test(String(userId ?? ''))) return []
+  if (usingPostgres) return pgListShares(userId)
   const now = Date.now()
   return shares
-    .filter((s) => !s.revoked && s.expiresAt > now)
-    .map((s) => ({ ...s, tokenHash: undefined, passwordHash: undefined }))
+    .filter((s) => s.createdById != null
+      && String(s.createdById) === String(userId)
+      && !s.revoked
+      && s.expiresAt > now)
+    .map(mapMemoryShare)
 }
 
 /**
@@ -404,13 +423,14 @@ export async function createShare({ fileId, expiry, authType, scope, password },
   if (file.ownerId == null || String(file.ownerId) !== String(user.id)) return null
   const row = {
     id: nextId('s'), fileId, fileName: file.name, createdBy: user.displayName,
+    createdById: String(user.id),
     authType, scope, scopeCidrs: cidrs, hits: 0, revoked: false,
     expiresAt: Date.now() + EXPIRY_MS[expiry],
     hasPassword: Boolean(passwordHash), redeemable: true,
     tokenHash, passwordHash,
   }
   shares.unshift(row)
-  return { share: { ...row, tokenHash: undefined, passwordHash: undefined }, token }
+  return { share: mapMemoryShare(row), token }
 }
 
 /**
@@ -467,13 +487,28 @@ export async function countShareHit(id) {
   return true
 }
 
-export async function revokeShare(id) {
+export async function revokeShare(id, userId) {
+  if (!/^\d+$/.test(String(userId ?? ''))) return false
   if (usingPostgres) {
     if (!/^\d+$/.test(String(id))) return false
-    const { rowCount } = await query(`UPDATE shares SET revoked = true WHERE id = $1`, [id])
+    // Atomic owner-scoped mutation: authorization and state change cannot race.
+    const { rowCount } = await query(
+      `UPDATE shares
+          SET revoked = true
+        WHERE id = $1
+          AND created_by = $2
+          AND revoked = false
+          AND expires_at > now()`,
+      [id, userId],
+    )
     return rowCount > 0
   }
-  const s = shares.find((x) => x.id === id)
+  const now = Date.now()
+  const s = shares.find((x) => String(x.id) === String(id)
+    && x.createdById != null
+    && String(x.createdById) === String(userId)
+    && !x.revoked
+    && x.expiresAt > now)
   if (!s) return false
   s.revoked = true
   return true
@@ -832,14 +867,13 @@ async function activity7d() {
   return days
 }
 
-// ⚠️ fileList ต้องเป็นไฟล์ "ของผู้ใช้ที่เรียก Dashboard คนนี้เท่านั้น" — เหตุผลเดียวกับ
-//    listFiles(): metrics.files/dataLakeBytes/recentFiles มาจากอาเรย์นี้ตรง ๆ ถ้าไม่กรอง
-//    ผู้ใช้ทุกคนจะเห็นชื่อไฟล์ล่าสุดของคนอื่นใน recentFiles (การรั่วแบบเดียวกับ
-//    GET /api/files ที่ไม่กรอง เพียงแต่โผล่ที่จอ Dashboard แทน) capacity/activity7d
+// ⚠️ fileList และ shareList ต้องเป็นของผู้ใช้ที่เรียก Dashboard คนนี้เท่านั้น —
+//    recentFiles/share sample รวมทั้ง metrics.files/activeShares เปิดเผย metadata รายตัว
+//    หรือจำนวนวัตถุของบัญชี จึงใช้ owner scope เดียวกับหน้ารายการเสมอ capacity/activity7d
 //    ยังคงเป็นภาพรวมทั้งระบบโดยเจตนา (สถิติของเครื่อง/audit ไม่ใช่เนื้อไฟล์รายตัว)
 export async function dashboard(userId) {
   const [fileList, shareList, capacity, versionStats, activity] = await Promise.all([
-    listFiles(userId), listShares(), filesystemCapacity(), fileVersionStats(), activity7d(),
+    listFiles(userId), listShares(userId), filesystemCapacity(), fileVersionStats(), activity7d(),
   ])
   // ขนาดที่ "แอปนี้เป็นเจ้าของ" — แยกจากพื้นที่ที่ใช้ไปทั้ง volume ซึ่งรวมของอื่นด้วย
   const dataLakeBytes = fileList.reduce((s, f) => s + f.size, 0)
