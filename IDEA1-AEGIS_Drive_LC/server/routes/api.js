@@ -218,7 +218,7 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
     // ป้ายระบุขอบเขตตามจริง: นับเฉพาะ DENIED/BLOCKED ใน 100 audit rows ล่าสุด
     // ไม่เรียกว่า incident ที่ยัง active เพราะ schema ไม่มี resolved/unresolved state
     const securityAlerts = audit.filter((e) => e.result === 'DENIED' || e.result === 'BLOCKED').length
-    const shares = await store.listShares()
+    const shares = await store.listShares(req.user.id)
     res.json({
       ...(await store.dashboard(req.user.id)),
       loginHistory: myLogins,
@@ -454,7 +454,7 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
 // ── Shares — VLAN-aware secure links ─────────────────────────────────
 apiRouter.get('/shares', requireAuth, async (req, res, next) => {
   try {
-    res.json({ shares: await store.listShares() })
+    res.json({ shares: await store.listShares(req.user.id) })
   } catch (err) {
     next(err)
   }
@@ -484,8 +484,14 @@ apiRouter.post('/shares', requireAuth, async (req, res, next) => {
 
 apiRouter.delete('/shares/:id', requireAuth, async (req, res, next) => {
   try {
-    const ok = await store.revokeShare(req.params.id)
-    if (!ok) return res.status(404).json({ error: 'Not found' })
+    const ok = await store.revokeShare(req.params.id, req.user.id)
+    if (!ok) {
+      // Cross-owner, missing, expired, revoked and malformed targets share one
+      // object-hiding response. Audit only the supplied internal id; never a
+      // token, token hash, password, or another owner's file metadata.
+      await auditAct(req, 'SHARE_REVOKE', req.params.id, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
     await auditAct(req, 'SHARE_REVOKE', req.params.id)
     res.json({ ok: true })
   } catch (err) {

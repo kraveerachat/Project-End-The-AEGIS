@@ -518,15 +518,14 @@ test('audit บันทึกการไถ่ลิงก์ (สำเร็
   assert.ok(!dump.includes(FILE_NAME), 'ชื่อไฟล์ต้องถูกเก็บเป็น hash ไม่ใช่ค่าดิบ')
 })
 
-test('ผู้ใช้ที่ล็อกอินแล้วเพิกถอนลิงก์ของคนอื่นได้ (ทั้งสอง role จัดการแชร์เท่ากันตาม rbac)', async () => {
-  // ⚠️ เอกสาร rbac/permissions.js ระบุว่าสอง role จัดการไฟล์/แชร์ได้ "เท่ากัน" — เทสต์นี้
-  //    ตรึงพฤติกรรมปัจจุบันไว้ให้เห็นชัด ๆ ถ้าวันหนึ่งต้องการด่าน ownership บนแชร์
-  //    (เหมือนที่ DELETE /api/files/:id มี) ต้องเป็นการตัดสินใจที่ตั้งใจ ไม่ใช่หลุดไปเงียบ ๆ
+test('ผู้ใช้ที่ล็อกอินแล้วเพิกถอนลิงก์ของคนอื่นไม่ได้ และลิงก์ยังไถ่ได้', async () => {
+  // Share lifecycle เป็น owner-only เหมือนการสร้าง share: Admin ไม่มี cross-owner
+  // override และ 404 ไม่บอกว่า id นี้เป็นของใครหรือมีอยู่จริงหรือไม่
   const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
   const other = await loginClient(baseUrl, DEMO_ADMIN.username, DEMO_ADMIN.password)
   const file = await uploadFile(owner)
   const { share, path: sharePath } = await createShare(owner, file.id)
 
-  assert.equal((await other.req(`/api/shares/${share.id}`, { method: 'DELETE' })).status, 200)
-  assert.equal((await recipient().raw(sharePath)).status, 404)
+  assert.equal((await other.req(`/api/shares/${share.id}`, { method: 'DELETE' })).status, 404)
+  assert.equal((await recipient().raw(sharePath)).status, 200)
 })

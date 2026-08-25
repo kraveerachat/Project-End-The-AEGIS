@@ -108,6 +108,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const filesUnavailable = Boolean(filesApi.error)
 
   const [revokingIds, setRevokingIds] = useState(new Set())
+  const [revokeError, setRevokeError] = useState(false)
   const [askRevoke, setAskRevoke] = useState(null)
   const [fileId, setFileId] = useState(initialFileId)
   useEffect(() => {
@@ -177,9 +178,15 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const confirmRevoke = async () => {
     const id = askRevoke.id
     setAskRevoke(null)
+    setRevokeError(false)
     setRevokingIds((prev) => new Set(prev).add(id))
     // ให้แถวยุบเป็น hatch ก่อน แล้วค่อย refetch — การเพิกถอนจริงเกิดฝั่งเซิร์ฟเวอร์
-    await apiFetch(`/api/shares/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    const result = await apiFetch(`/api/shares/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!result.ok) {
+      setRevokingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+      setRevokeError(true)
+      return
+    }
     setTimeout(() => {
       setRevokingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
       sharesApi.retry()
@@ -362,11 +369,23 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 <InlineEmptyState>{t('emptyNoSharesFiltered')}</InlineEmptyState>
               ) : (
                 visibleShares.map((link) => (
-                  <LinkRow key={link.id} t={t} link={link} now={now} revoking={revokingIds.has(link.id)} onAskRevoke={setAskRevoke} />
+                  <LinkRow
+                    key={link.id}
+                    t={t}
+                    link={link}
+                    now={now}
+                    revoking={revokingIds.has(link.id)}
+                    onAskRevoke={(target) => { setRevokeError(false); setAskRevoke(target) }}
+                  />
                 ))
               )}
             </div>
           </div>
+          {revokeError && (
+            <p role="alert" className="px-5 py-3 border-t border-line text-[12.5px] font-medium" style={{ color: 'var(--danger)' }}>
+              {t('actionFailed')}
+            </p>
+          )}
         </Card>
       </div>
 
