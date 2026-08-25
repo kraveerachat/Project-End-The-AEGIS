@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: Share Ownership Authorization Hardening commit `78f631492ad65a903cfb88c21c4288739017d6ce` was verified in memory mode with **233 discovered · 214 pass · 0 fail · 19 PostgreSQL-only skip**, plus a successful production Vite build (2026-08-25). PostgreSQL execution for this change was **NOT EXECUTED** because the safe isolated Docker PostgreSQL environment was unavailable. `POSTGRES_EXECUTION_GAP=OPEN`; this is not production acceptance and `READY_FOR_PRODUCTION=NO`.
+> **Latest change verification**: Share Ownership Authorization Hardening source integration is **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233 discovered · 233 pass · 0 fail · 0 skip**, and the production Vite build passed with 2,657 modules transformed (2026-08-25). `POSTGRES_VERIFICATION=PASS`; `POSTGRES_EXECUTION_GAP=CLOSED`. Test-harness normalization commit `6c16f137988e4c09f5eff31aa60f1d8779a1b86e` is implemented but pending merge. Production deployment and acceptance have not started; `READY_FOR_DEPLOYMENT_PREPARATION=NO` and `READY_FOR_PRODUCTION=NO`.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -389,7 +389,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 - File-version routes (`GET /file-versions`, `GET /files/:id/versions[/:vid/download]`, `POST /files/:id/versions/:vid/restore`) — already owner-only, `404` for non-owners, no Admin exception.
 - `findOwnFileByName` (upload/new-version detection) — already scoped to the uploader; same-name files from different owners remain distinct.
 
-**Historical boundary, now superseded locally:** FT1D deliberately left `GET /api/shares` and `DELETE /api/shares/:id` unchanged until a separate policy decision was approved. The later OWNER ONLY decision is implemented by commit `78f631492ad65a903cfb88c21c4288739017d6ce` and recorded in [[#Share Ownership Authorization Hardening (2026-08-25)]]. It remains pending isolated PostgreSQL verification, integration, deployment, and production acceptance; FT1D's production closure is unchanged.
+**Historical boundary, now superseded:** FT1D deliberately left `GET /api/shares` and `DELETE /api/shares/:id` unchanged until a separate policy decision was approved. The later OWNER ONLY decision is implemented by commit `78f631492ad65a903cfb88c21c4288739017d6ce` and recorded in [[#Share Ownership Authorization Hardening (2026-08-25)]]. Source integration and isolated PostgreSQL verification are complete; the test-harness normalization remains pending merge, followed by deployment and production acceptance. FT1D's production closure is unchanged.
 
 **No Admin override was added or exists.** Both roles are bound by the identical `ownerId` check (`rbac/permissions.js`: the two roles manage files "equally" — Admin's only addition is the governance screens, never elevated file-content access). Regression tests prove this in both directions (Admin → DataLake-User file denied, and DataLake-User → Admin file denied) for listing, download, verify, and share creation.
 
@@ -407,13 +407,15 @@ Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authoriza
 
 ## Share Ownership Authorization Hardening (2026-08-25)
 
-> [!warning] Implemented locally; acceptance remains pending
-> **SHARE_OWNERSHIP_HARDENING = IMPLEMENTED LOCALLY / PENDING POSTGRESQL AND
-> PRODUCTION ACCEPTANCE. OWNER_ONLY_POLICY = IMPLEMENTED. SHARE_LIST_AUTHORIZATION
+> [!warning] PostgreSQL verified; test-harness integration and production acceptance remain pending
+> **SHARE_OWNERSHIP_SOURCE_INTEGRATION = PASS / CLOSED.
+> SHARE_OWNERSHIP_HARDENING = POSTGRESQL VERIFIED / PRODUCTION ACCEPTANCE PENDING.
+> OWNER_ONLY_POLICY = IMPLEMENTED. SHARE_LIST_AUTHORIZATION
 > = OWNER-SCOPED. SHARE_REVOKE_AUTHORIZATION = OWNER-SCOPED.
-> ADMIN_CROSS_OWNER_OVERRIDE = NONE. POSTGRES_VERIFICATION = NOT EXECUTED.
-> POSTGRES_EXECUTION_GAP = OPEN. PRODUCTION_DEPLOYMENT = NOT PERFORMED.
-> PRODUCTION_ACCEPTANCE = NOT STARTED. READY_FOR_PRODUCTION = NO.**
+> ADMIN_CROSS_OWNER_OVERRIDE = NONE. POSTGRES_VERIFICATION = PASS.
+> POSTGRES_EXECUTION_GAP = CLOSED. TEST_HARNESS_NORMALIZATION = IMPLEMENTED /
+> PENDING MERGE. PRODUCTION_DEPLOYMENT = NOT PERFORMED. PRODUCTION_ACCEPTANCE =
+> NOT STARTED. READY_FOR_DEPLOYMENT_PREPARATION = NO. READY_FOR_PRODUCTION = NO.**
 
 The confirmed baseline was an authenticated horizontal-authorization weakness:
 authenticated users could list active shares across owners and revoke another
@@ -441,25 +443,35 @@ Implemented source behavior:
   localized action-failed message without disclosing why the target was hidden.
 - No database migration or runtime configuration change is required.
 
-Current local verification for implementation commit
-`78f631492ad65a903cfb88c21c4288739017d6ce`:
+Verification for implementation commit
+`78f631492ad65a903cfb88c21c4288739017d6ce` and test-only normalization commit
+`6c16f137988e4c09f5eff31aa60f1d8779a1b86e`:
 
 | Verification | Result |
 | :--- | :--- |
 | Ownership authorization behavior | ✅ PASS in memory mode; 9 Node test blocks cover the 12 required behavior cases |
 | Directly affected suites | ✅ 53 pass · 0 fail · 4 PostgreSQL-only skipped |
 | Full IDEA1 suite | ✅ 214 pass · 0 fail · 19 PostgreSQL-only skipped |
+| PostgreSQL share redemption | ✅ 17 pass · 0 fail · 0 skip |
+| PostgreSQL ownership authorization | ✅ 9 pass · 0 fail · 0 skip |
+| Affected PostgreSQL regression | ✅ 57 pass · 0 fail · 0 skip |
+| Full IDEA1 PostgreSQL suite | ✅ 233 pass · 0 fail · 0 skip |
 | Production Vite build | ✅ PASS; 2,657 modules transformed |
-| Static PostgreSQL contract review | ✅ Owner-scoped list and atomic owner/state-constrained revoke confirmed in source |
-| Executed PostgreSQL verification | ⚠️ **NOT EXECUTED** |
+| PostgreSQL audit source IP | ✅ `203.0.113.42` persisted and observed correctly |
 
-The safe isolated Docker PostgreSQL environment was unavailable because the
-Docker engine was not running. Static SQL review is not equivalent to executing
-the PostgreSQL code path. Therefore `POSTGRES_EXECUTION_GAP=OPEN`, and the
-remaining gates are isolated PostgreSQL verification, integration PR review and
-merge, Drive-only deployment, controlled production acceptance, and
-post-deployment health verification. This section does **not** claim closure,
-PostgreSQL verification, deployment, or production acceptance.
+The initial affected PostgreSQL run failed only because
+`tests/shareRedemption.test.js` read the memory representation `sourceIp`, while
+the PostgreSQL read object exposes the persisted `source_ip` column. Direct
+database evidence confirmed `audit_log.source_ip = 203.0.113.42`; request source
+attribution, persistence, and runtime security behavior were correct. The
+normalization `event?.source_ip ?? event?.sourceIp` is **test only** and does not
+change application or runtime semantics.
+
+`POSTGRES_VERIFICATION=PASS` and `POSTGRES_EXECUTION_GAP=CLOSED`. Remaining gates
+are merge of the follow-up test-harness normalization, production deployment
+preparation, Drive-only deployment, controlled production acceptance, and
+post-deployment health verification. This section does **not** claim deployment
+or production acceptance.
 
 Orphan shares with `created_by=NULL` remain invisible and non-revocable through
 the ordinary owner API; their governance is a separate problem. Public External
