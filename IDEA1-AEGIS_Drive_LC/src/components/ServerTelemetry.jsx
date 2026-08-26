@@ -31,7 +31,25 @@ const STATE_META = {
   stale: { labelKey: 'telemetryStateStale', tone: 'warn' },
   warning: { labelKey: 'telemetryStateWarning', tone: 'warn' },
   critical: { labelKey: 'telemetryStateCritical', tone: 'danger' },
+  restricted: { labelKey: 'telemetryStateRestricted', tone: 'neutral' },
   unavailable: { labelKey: 'telemetryStateUnavailable', tone: 'neutral' },
+}
+
+/**
+ * The three ways a tile can carry no number. They are three different facts,
+ * and collapsing them is exactly the blur this component exists to prevent:
+ *
+ *   loading      not asked yet — no claim about the source is possible at all
+ *   restricted   measured, and deliberately not shown to this role
+ *   unavailable  asked, and the source could not answer
+ *
+ * `loading` has no body copy: the chip already says it, and any sentence here
+ * would be a statement about a source nothing has queried yet.
+ */
+const EMPTY_COPY = {
+  loading: null,
+  restricted: 'telemetryRestricted',
+  unavailable: 'telemetryNoSource',
 }
 
 const number = (value) => typeof value === 'number' && Number.isFinite(value)
@@ -45,9 +63,17 @@ const duration = (seconds) => (number(seconds) ? fmtCountdown(seconds * 1000) : 
  *
  * Thresholds are applied only to a metric that reported a real percentage, so
  * an unavailable tile can never be coloured as if it were healthy.
+ *
+ * `loading` applies only where there is nothing to replace: a refresh in flight
+ * over a metric that already has a value leaves that value on screen, because
+ * blanking a real reading to announce that a newer one is coming loses
+ * information for no gain.
  */
-function metricState(id, metric) {
-  if (!metric || metric.available !== true) return 'unavailable'
+function metricState(id, metric, loading = false) {
+  if (!metric) return loading ? 'loading' : 'unavailable'
+  if (metric.available !== true) {
+    return metric.reason === 'requires-admin' ? 'restricted' : 'unavailable'
+  }
   if (metric.stale === true) return 'stale'
   const value = id === 'uptime' ? null : metric.percent
   if (!number(value)) return 'available'
@@ -154,17 +180,21 @@ function MetricRows({ t, id, metric }) {
   )
 }
 
-function TelemetryTile({ t, definition, value }) {
+function TelemetryTile({ t, definition, value, loading }) {
   const metric = value && typeof value === 'object' ? value : {}
-  const state = metricState(definition.id, value)
+  const state = metricState(definition.id, value, loading)
   const meta = STATE_META[state]
   const Icon = definition.icon
-  const unavailable = state === 'unavailable'
+  // A tile with no reading to render. The hatch marks a source that failed;
+  // loading and restricted are not failures and are not hatched.
+  const emptyKey = EMPTY_COPY[state]
+  const isEmpty = state in EMPTY_COPY
 
   return (
     <article
-      className={`min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${unavailable ? 'hatch hatch-ink3' : ''}`}
+      className={`min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
+      aria-busy={state === 'loading' ? 'true' : undefined}
     >
       <div className="flex items-center gap-2.5">
         <span className="size-8 rounded-[9px] bg-sunken grid place-items-center text-ink-2">
@@ -173,9 +203,9 @@ function TelemetryTile({ t, definition, value }) {
         <h3 className="text-[13px] font-semibold text-ink">{t(definition.labelKey)}</h3>
         <Chip tone={meta.tone} className="ml-auto">{t(meta.labelKey)}</Chip>
       </div>
-      {unavailable ? (
+      {isEmpty ? (
         <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">
-          {t('telemetryNoSource')}
+          {emptyKey ? t(emptyKey) : ' '}
         </p>
       ) : (
         <div
@@ -191,17 +221,28 @@ function TelemetryTile({ t, definition, value }) {
 
 /**
  * @param {object} props
- * @param {object|null} props.data a full /api/telemetry response, or null while
- *   the source is unknown — null renders six explicit unavailable tiles.
+ * @param {object|null} props.data a full /api/telemetry response, or null when
+ *   there is nothing to show.
+ * @param {boolean} [props.loading] true while the first request for this screen
+ *   is still in flight. It only changes tiles that have no value yet: "not
+ *   asked" and "asked and failed" are different facts, and a tile must not
+ *   accuse a source that has not been queried. A refresh over data already on
+ *   screen leaves that data visible.
  */
-export function ServerTelemetry({ t, data }) {
+export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
     <Card className="p-5">
       <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {METRICS.map((definition) => (
-          <TelemetryTile key={definition.id} t={t} definition={definition} value={metrics?.[definition.id]} />
+          <TelemetryTile
+            key={definition.id}
+            t={t}
+            definition={definition}
+            value={metrics?.[definition.id]}
+            loading={loading}
+          />
         ))}
       </div>
     </Card>

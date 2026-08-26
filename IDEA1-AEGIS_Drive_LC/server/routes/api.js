@@ -658,11 +658,19 @@ apiRouter.get('/storage', requireAuth, async (req, res, next) => {
 //    เหตุการณ์ด้านความปลอดภัยจริงจะจมหายไปในกองบรรทัดสำเร็จรูปนี้
 // ⚠️ agent ล่มหรือตอบผิดรูป ไม่ใช่เหตุให้ request นี้ล้ม — คืน 200 พร้อมความจริงบางส่วน
 //    (disk และ service uptime ยังวัดได้เสมอ) แทนที่จะทำให้ทั้งจอพัง
+// ⚠️ ค่าระดับ "เครื่อง" (CPU/RAM/network/host uptime) เป็นของ Admin เท่านั้น —
+//    DataLake-User ได้เฉพาะสิ่งที่ Drive วัดเองและเห็นอยู่แล้วที่อื่น คือความจุ Data Lake
+//    (เหมือน /api/storage) กับอายุโปรเซสของ Drive ขนาด RAM + CPU สด + ชื่อ NIC +
+//    throughput + host uptime รวมกันคือการบรรยาย "ตัวเครื่อง" และ host uptime ยังบอก
+//    ช่วงเวลาที่ยังไม่ได้แพตช์ด้วย — ไม่ใช่ข้อมูลที่ผู้ใช้ทั่วไปต้องรู้เพื่อใช้ที่เก็บไฟล์
+//    ⚠️ role มาจาก req.user (เซสชันฝั่งเซิร์ฟเวอร์) เสมอ ไม่เคยมาจากสิ่งที่ client ส่งมา
+//    ⚠️ ตัดสินใจ "ก่อน" เรียก agent — ผู้ใช้ที่ไม่มีสิทธิ์ไม่ทำให้ socket ถูกเปิดเลย
+//       ข้อมูลจึงไม่เคยเข้ามาในโปรเซสนี้ และรั่วออกไปไม่ได้
 apiRouter.get('/telemetry', requireAuth, async (req, res, next) => {
   try {
     // no-store: telemetry คือค่า ณ วินาทีนั้น สำเนาที่ถูก cache คือค่าที่ไม่จริงแล้ว
     res.set('Cache-Control', 'no-store')
-    res.json(await buildTelemetry())
+    res.json(await buildTelemetry({ includeHostMetrics: req.user.role === ROLES.ADMIN }))
   } catch (err) {
     next(err)
   }

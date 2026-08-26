@@ -46,6 +46,23 @@ const TWINGATE = Object.freeze({
 /** The single unavailable shape: no scope for a stray number to hide in. */
 const unavailable = () => ({ available: false })
 
+/**
+ * Withheld by authorization — a different fact from unmeasurable, and reported
+ * as one.
+ *
+ * A DataLake-User keeps what Drive already showed them elsewhere: Data Lake
+ * capacity (also on /api/storage) and Drive's own process uptime. The host
+ * counters are not theirs. RAM size, live CPU, the NIC name, throughput and
+ * host uptime together describe the machine rather than the storage product,
+ * and host uptime in particular discloses the patch window.
+ *
+ * The reason travels with it so the screen can say "not available to your role"
+ * instead of the untrue "could not be measured". That is the same
+ * unavailable-is-never-zero rule applied one level up — to *why* a value is
+ * missing, not just to whether it is.
+ */
+const withheld = () => ({ available: false, reason: 'requires-admin' })
+
 /** Socket path is server configuration only — never a request parameter. */
 export const agentSocketPath = (env = process.env) =>
   env.AEGIS_TELEMETRY_SOCKET || DEFAULT_AGENT_SOCKET
@@ -73,6 +90,8 @@ function hostMetric(metric, keys, stale) {
  * problem must degrade the dashboard rather than a Drive request.
  *
  * @param {object} [options]
+ * @param {boolean} [options.includeHostMetrics] false withholds every host
+ *   counter and never opens the agent socket at all — see `withheld()`
  * @param {() => Promise<object>} [options.fetchHost] host agent client
  * @param {() => Promise<object>} [options.disk] Data Lake capacity projection
  * @param {() => number} [options.serviceUptimeSeconds]
@@ -80,6 +99,7 @@ function hostMetric(metric, keys, stale) {
  * @param {NodeJS.ProcessEnv} [options.env]
  */
 export async function buildTelemetry({
+  includeHostMetrics = true,
   fetchHost,
   disk = dataLakeTelemetry,
   serviceUptimeSeconds = () => process.uptime(),
@@ -89,8 +109,14 @@ export async function buildTelemetry({
   const readHost = fetchHost
     ?? (() => fetchHostTelemetry({ socketPath: agentSocketPath(env), now }))
 
+  // Not merely filtered afterwards: a caller who may not see host metrics does
+  // not cause the socket to be opened. The data never enters this process, so
+  // it cannot leak from it, and an unprivileged account cannot use its own
+  // dashboard poll to drive traffic at the agent.
   const [host, diskMetric] = await Promise.all([
-    readHost().catch(() => ({ ok: false, reason: 'unreachable' })),
+    includeHostMetrics
+      ? readHost().catch(() => ({ ok: false, reason: 'unreachable' }))
+      : null,
     disk().catch(() => ({ available: false, reason: 'capacity-unreadable' })),
   ])
 
@@ -101,26 +127,41 @@ export async function buildTelemetry({
   const hostMetrics = hostOk ? host.snapshot.metrics : null
   const stale = hostOk ? isStale(host.snapshot.measuredAt, now) : false
 
-  const cpu = hostMetric(hostMetrics?.cpu, ['percent', 'windowSeconds'], stale)
-  const memory = hostMetric(hostMetrics?.memory, ['usedBytes', 'totalBytes', 'percent'], stale)
-  const network = hostMetric(
-    hostMetrics?.network,
-    ['interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds'],
-    stale,
-  )
+  const cpu = includeHostMetrics
+    ? hostMetric(hostMetrics?.cpu, ['percent', 'windowSeconds'], stale)
+    : withheld()
+  const memory = includeHostMetrics
+    ? hostMetric(hostMetrics?.memory, ['usedBytes', 'totalBytes', 'percent'], stale)
+    : withheld()
+  const network = includeHostMetrics
+    ? hostMetric(
+      hostMetrics?.network,
+      ['interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds'],
+      stale,
+    )
+    : withheld()
 
   // Host uptime and Drive service uptime answer different questions — "has the
   // machine rebooted" versus "has this container restarted" — so they are kept
-  // as two labelled facts rather than collapsed into one number.
-  const hostUptime = hostMetrics?.uptime?.available === true
-    ? { available: true, seconds: hostMetrics.uptime.hostSeconds, stale }
-    : unavailable()
+  // as two labelled facts rather than collapsed into one number. Only the host
+  // half is privileged; Drive's own process age is the caller's own service.
+  let hostUptime
+  if (!includeHostMetrics) hostUptime = withheld()
+  else if (hostMetrics?.uptime?.available === true) {
+    hostUptime = { available: true, seconds: hostMetrics.uptime.hostSeconds, stale }
+  } else hostUptime = unavailable()
   const service = { available: true, seconds: serviceUptimeSeconds() }
 
+  // `ok` answers "was everything this caller is entitled to actually measured".
+  // Withholding is an authorization outcome, not a measurement failure, so a
+  // complete in-scope response stays ok — otherwise every DataLake-User would
+  // see a permanently degraded dashboard describing a perfectly healthy system.
   const ok = Boolean(
-    hostOk && !stale
-    && cpu.available && memory.available && network.available && hostUptime.available
-    && diskMetric.available,
+    diskMetric.available
+    && (!includeHostMetrics || (
+      hostOk && !stale
+      && cpu.available && memory.available && network.available && hostUptime.available
+    )),
   )
 
   return {

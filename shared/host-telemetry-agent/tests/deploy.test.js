@@ -23,16 +23,38 @@ const DEPLOY_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const unit = await fs.readFile(path.join(DEPLOY_DIR, 'aegis-telemetry.service'), 'utf8')
 const sysusers = await fs.readFile(path.join(DEPLOY_DIR, 'aegis-telemetry.sysusers.conf'), 'utf8')
 
-/** Directive lookup that ignores comments, so a commented-out line never counts. */
-const directives = new Map(
-  unit.split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#') && line.includes('='))
-    .map((line) => {
-      const index = line.indexOf('=')
-      return [line.slice(0, index).trim(), line.slice(index + 1).trim()]
-    }),
-)
+/**
+ * Parse the unit into `section -> key -> value`, ignoring comments so a
+ * commented-out line never counts.
+ *
+ * Sections are tracked rather than flattened. systemd reads a key only in the
+ * section that owns it and ignores it anywhere else, so a directive in the
+ * wrong section is indistinguishable at runtime from one that was never
+ * written. A parser that discards `[Section]` headers cannot tell those apart,
+ * and would report a boundary as enforced while systemd enforces nothing.
+ */
+const sections = new Map()
+{
+  let current = null
+  for (const raw of unit.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue
+    if (line.startsWith('[') && line.endsWith(']')) {
+      current = line.slice(1, -1)
+      if (!sections.has(current)) sections.set(current, new Map())
+      continue
+    }
+    const index = line.indexOf('=')
+    if (index === -1 || current === null) continue
+    sections.get(current).set(line.slice(0, index).trim(), line.slice(index + 1).trim())
+  }
+}
+
+/** Value of `key` in `section`, or undefined when systemd would not read it there. */
+const directiveIn = (section, key) => sections.get(section)?.get(key)
+
+/** Flat lookup, for the assertions where the section is not what is under test. */
+const directives = new Map([...sections.values()].flatMap((entries) => [...entries]))
 
 test('the service runs as the dedicated unprivileged identity', () => {
   assert.equal(directives.get('User'), 'aegis-telemetry')
@@ -57,6 +79,42 @@ test('sysusers pins the approved numeric GID so Drive group_add can match it', (
   assert.match(line, /aegis-telemetry/)
   assert.match(line, /\b29100\b/, 'the GID Drive will be added to must be fixed, not allocated')
   assert.match(line, /nologin|false/, 'the service identity must not be able to log in')
+})
+
+test('start rate limiting is written where systemd actually reads it', () => {
+  // StartLimitIntervalSec= and StartLimitBurst= are [Unit] keys — systemd moved
+  // them out of [Service] in v230, and only the legacy spellings survive there
+  // as ignored compat entries. Under [Service] the two lines are dropped, the
+  // unit falls back to the manager default (DefaultStartLimitIntervalSec=10s),
+  // and with RestartSec=5s five restarts span more than 10s, so the burst can
+  // never trip. An agent that refuses to start on a bad interface would then
+  // restart-loop forever instead of entering `failed` — the opposite of the
+  // intent stated beside the directives.
+  assert.equal(directiveIn('Unit', 'StartLimitIntervalSec'), '60')
+  assert.equal(directiveIn('Unit', 'StartLimitBurst'), '5')
+  assert.equal(
+    directiveIn('Service', 'StartLimitIntervalSec'), undefined,
+    'systemd ignores StartLimitIntervalSec= in [Service]',
+  )
+  assert.equal(
+    directiveIn('Service', 'StartLimitBurst'), undefined,
+    'systemd ignores StartLimitBurst= in [Service]',
+  )
+})
+
+test('every load-bearing directive sits in the section systemd reads it from', () => {
+  // Guards the rest of the unit against the same class of mistake: a hardening
+  // line that looks present to a reviewer but is in a section where it does
+  // nothing. Every directive named here is one the security boundary rests on.
+  assert.equal(directiveIn('Unit', 'Description'), 'AEGIS host telemetry agent')
+  assert.equal(directiveIn('Service', 'User'), 'aegis-telemetry')
+  assert.equal(directiveIn('Service', 'Group'), 'aegis-telemetry')
+  assert.equal(directiveIn('Service', 'NoNewPrivileges'), 'true')
+  assert.equal(directiveIn('Service', 'RestrictAddressFamilies'), 'AF_UNIX')
+  assert.equal(directiveIn('Service', 'RuntimeDirectory'), 'aegis-telemetry')
+  assert.equal(directiveIn('Service', 'RuntimeDirectoryMode'), '0750')
+  assert.equal(directiveIn('Service', 'ProtectSystem'), 'strict')
+  assert.equal(directiveIn('Install', 'WantedBy'), 'multi-user.target')
 })
 
 test('the agent is granted no capability and cannot gain one', () => {

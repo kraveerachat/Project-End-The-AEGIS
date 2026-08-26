@@ -5,6 +5,17 @@ Description=AEGIS host telemetry agent
 Documentation=file:/opt/aegis/host-telemetry-agent/deploy/README.md
 After=network.target
 
+# The agent refuses to start on a bad interface or interval, so a failed start
+# is a configuration error worth surfacing rather than retrying forever. Five
+# failures inside 60s put the unit in `failed`, where it stays until someone
+# looks at it.
+# These are [Unit] keys. systemd moved them out of [Service] in v230 and only
+# the legacy spellings remain there as ignored compat entries — written under
+# [Service] both lines are dropped, the manager default of 10s applies, and
+# with RestartSec=5s the burst can never trip.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=exec
 
@@ -20,11 +31,8 @@ ExecStart=/usr/bin/node /opt/aegis/host-telemetry-agent/src/index.js
 WorkingDirectory=/opt/aegis/host-telemetry-agent
 Restart=on-failure
 RestartSec=5s
-
-# The agent refuses to start on a bad interface or interval, so a failed start
-# is a configuration error worth surfacing rather than retrying forever.
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# The start rate limit that bounds this Restart= lives in [Unit] above, which is
+# the only section systemd reads it from.
 
 # ── configuration ─────────────────────────────────────────────────────
 # The interface is explicit on purpose: an agent that auto-selects a NIC

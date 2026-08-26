@@ -113,13 +113,86 @@ test('TELEM-API-2 an authenticated request succeeds', async () => {
   )
 })
 
-test('TELEM-API-2 a non-admin user may read telemetry', async () => {
+// ── TELEM-API-11 · host counters are Admin-scoped ─────────────────────
+// A DataLake-User keeps exactly what Drive already showed them elsewhere: Data
+// Lake capacity (also on /api/storage) and Drive's own process uptime. Host
+// counters are not theirs: RAM size, live CPU, the NIC name, throughput and
+// host uptime together describe the machine, and host uptime in particular
+// discloses the patch window. Withheld is reported with its own reason so the
+// screen can say "not available to your role" instead of the untrue
+// "could not be measured".
+test('TELEM-API-11 a non-admin user reads Drive-measured telemetry only', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
   const user = new Client(baseUrl)
   await performLogin(user, DEMO_USER.username, DEMO_USER.password)
   const res = await user.req('/api/telemetry')
-  assert.equal(res.status, 200)
+
+  assert.equal(res.status, 200, 'a non-admin still gets a response, not a 403')
+  for (const name of ['cpu', 'memory', 'network']) {
+    assert.equal(res.data.metrics[name].available, false, `${name} must be withheld`)
+    assert.equal(res.data.metrics[name].reason, 'requires-admin')
+  }
+  assert.equal(res.data.metrics.uptime.host.available, false)
+  assert.equal(res.data.metrics.uptime.host.reason, 'requires-admin')
+
+  // What a DataLake-User keeps.
+  assert.equal(res.data.metrics.disk.available, true)
+  assert.equal(res.data.metrics.uptime.service.available, true)
+  assert.ok(res.data.metrics.uptime.service.seconds >= 0)
+})
+
+test('TELEM-API-11 no host value survives anywhere in a non-admin response', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+  const { data } = await user.req('/api/telemetry')
+
+  // Two complementary checks, because neither alone is both sound and complete.
+  //
+  // 1) Structural: a withheld metric carries the availability flag and the
+  //    reason, and nothing else. This is what actually proves no number leaked,
+  //    including numbers this test did not think to name.
+  for (const name of ['cpu', 'memory', 'network']) {
+    assert.deepEqual(
+      Object.keys(data.metrics[name]).sort(), ['available', 'reason'],
+      `metrics.${name} must carry no value of any kind`,
+    )
+  }
+  assert.deepEqual(Object.keys(data.metrics.uptime.host).sort(), ['available', 'reason'])
+
+  // 2) Substring: only for values distinctive enough that a match cannot be a
+  //    coincidence. Short numerics from the snapshot (12.5, 1024, 512) are
+  //    deliberately NOT scanned for — they occur inside the real statfs byte
+  //    counts this response legitimately carries, which would make the
+  //    assertion fail at random. That is the same flake shape recorded for
+  //    TELEM-SOCKET-5, and the structural check above already covers them.
+  const body = JSON.stringify(data)
+  for (const leak of ['enp1s0', '8333651968', '3150000000', '86400.55']) {
+    assert.equal(body.includes(leak), false, `a non-admin response must not contain ${leak}`)
+  }
+})
+
+test('TELEM-API-11 an Admin still receives the full host contract', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const res = await admin.req('/api/telemetry')
+
   assert.equal(res.data.metrics.cpu.available, true)
+  assert.equal(res.data.metrics.memory.available, true)
+  assert.equal(res.data.metrics.network.available, true)
+  assert.equal(res.data.metrics.network.interface, 'enp1s0')
+  assert.equal(res.data.metrics.uptime.host.available, true)
+})
+
+test('TELEM-API-11 withholding is not reported as a measurement failure', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+  const res = await user.req('/api/telemetry')
+
+  // `ok` answers "was everything this caller is entitled to actually measured".
+  // A healthy agent the user is simply not shown must not read as degraded.
+  assert.equal(res.data.ok, true, 'a complete in-scope response is ok')
+  assert.equal(res.data.stale, false)
 })
 
 test('TELEM-API-3 a healthy agent is normalized into the Drive contract', async () => {

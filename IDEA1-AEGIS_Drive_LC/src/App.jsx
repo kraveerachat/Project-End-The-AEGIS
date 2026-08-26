@@ -391,7 +391,17 @@ export default function App() {
   }
 
   const screenEl = {
-    dashboard: <Dashboard t={t} lang={lang} health={healthApi} go={go} telemetry={telemetryApi.data} />,
+    dashboard: (
+      <Dashboard
+        t={t}
+        lang={lang}
+        health={healthApi}
+        go={go}
+        telemetry={telemetryApi.data}
+        // Passed so the tiles can tell "not read yet" from "read and failed".
+        telemetryLoading={telemetryApi.loading}
+      />
+    ),
     files: <Files t={t} lang={lang} go={go} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
     vault: <Vault t={t} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,

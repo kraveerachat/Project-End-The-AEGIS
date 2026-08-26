@@ -68,8 +68,47 @@ const telemetry = (overrides = {}) => ({
   },
 })
 
-const render = (data, lang = 'en') =>
-  renderToStaticMarkup(React.createElement(ServerTelemetry, { t: makeT(lang), data }))
+const render = (data, lang = 'en', extra = {}) =>
+  renderToStaticMarkup(React.createElement(ServerTelemetry, { t: makeT(lang), data, ...extra }))
+
+// ── TELEM-UI-11 · the first paint ──────────────────────────────────────
+// "Not yet measured" and "could not be measured" are different facts, and the
+// component's whole reason for existing is refusing to blur that line. Before
+// the first response lands there is nothing to report either way, so the tiles
+// must not accuse a source that has not been asked yet.
+test('TELEM-UI-11 tiles say loading, not unavailable, before the first response', () => {
+  const html = render(null, 'en', { loading: true })
+  assert.equal((html.match(/aria-label="[^"]+ · Loading"/g) ?? []).length, 6)
+  assert.doesNotMatch(html, /· Unavailable"/)
+  assert.doesNotMatch(
+    html, /No telemetry source connected/,
+    'claiming there is no source is a different assertion from "not read yet"',
+  )
+  // The loading state is still not permission to invent a number.
+  assert.doesNotMatch(html, /0(?:\.0+)?\s*(?:%|GB|B\/s)/)
+})
+
+test('TELEM-UI-11 a finished load with no data still reports unavailable', () => {
+  // loading:false + data:null is a real failure, and must keep saying so.
+  const html = render(null, 'en', { loading: false })
+  assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
+})
+
+test('TELEM-UI-11 loading never overrides a metric that already has a value', () => {
+  // A refresh in flight over data already on screen must not blank the tiles.
+  const html = render(telemetry(), 'en', { loading: true })
+  assert.match(html, /37%/, 'the CPU reading already on screen must survive a refresh')
+  assert.match(html, /2\.9 GB \/ 7\.8 GB/, 'so must memory')
+  assert.doesNotMatch(html, /· Loading"/)
+})
+
+test('TELEM-UI-12 a metric withheld by role says so instead of claiming no source', () => {
+  const html = render(telemetry({
+    cpu: { available: false, reason: 'requires-admin' },
+  }))
+  assert.match(html, /CPU · Restricted/)
+  assert.match(html, /Requires an Admin role/)
+})
 
 // ── the pre-existing contract, unchanged ──────────────────────────────
 test('Server Telemetry renders six truthful unavailable metric cards', () => {
