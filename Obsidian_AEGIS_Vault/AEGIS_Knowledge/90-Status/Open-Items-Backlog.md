@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-25
+updated: 2026-08-26
 owner: kla
 edit_policy: owner-writable
 ---
@@ -42,17 +42,17 @@ edit_policy: owner-writable
 | Code | `IDEA1-AEGIS_Drive_LC/server/db/store.js`, `server/routes/api.js` |
 | Tests | New `tests/fileObjectAuthorization.test.js` (8 tests); full IDEA1 suite 175/175 non-skipped pass, 0 fail, in-memory mode; Postgres-mode branch not run in this environment |
 | Evidence | `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authorization-fix.md`; `90-Status/logs/2026-08-24_202849_kla_idea1-ft1d-authorization-closure.md`; narrative in [[idea1/idea1-status#🛡️ FT-1 security finding — File object-level authorization (2026-08-21)]] |
-| Share list/revoke follow-up | The separate OWNER ONLY decision is now implemented locally in `78f631492ad65a903cfb88c21c4288739017d6ce`; see the still-open acceptance item below. This does not change FT1D's existing production closure. |
+| Share list/revoke follow-up | The separate OWNER ONLY decision from `78f631492ad65a903cfb88c21c4288739017d6ce` is now **VERIFIED IN PRODUCTION / PASS / CLOSED**; see the closure item below. This does not change FT1D's existing production closure. |
 | Non-blocking audit improvement | Cross-owner `FILE_DOWNLOAD` and `FILE_VERIFY` emit `DENIED`; rejected `POST /api/shares` returns 400 before a `SHARE_CREATE / DENIED` event is written. Add privacy-safe denied auditing in a future scoped task without reopening FT1D. |
 
 FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
 (`NOT IMPLEMENTED`). No Formal Report state is changed by this documentation task.
 
-## 🟠 IDEA1 Share Ownership Authorization Hardening — test-harness integration pending
+## ✅ CLOSED / PASS — IDEA1 Share Ownership Authorization Hardening
 
 | Field | Current state |
 | :--- | :--- |
-| Share Ownership Authorization Hardening | **POSTGRESQL VERIFIED / FOLLOW-UP TEST-HARNESS INTEGRATION PENDING** |
+| Share Ownership Authorization Hardening | **VERIFIED IN PRODUCTION / PASS / CLOSED** |
 | Approved policy | **OWNER ONLY** for Admin and DataLake-User |
 | Share list authorization | Owner-scoped; active and non-expired shares only |
 | Dashboard share data | Uses the same authenticated owner scope |
@@ -62,11 +62,14 @@ FT1D closure does not change B4 (`PASS / CLOSED`) or Public External Share
 | Implementation commit | `78f631492ad65a903cfb88c21c4288739017d6ce` |
 | Source integration | **PASS / CLOSED** through PR #30 |
 | PostgreSQL verification | **PASS** — share redemption 17/17; ownership 9/9; affected regression 57/57; full IDEA1 233/233 |
-| Test-harness normalization | `6c16f137988e4c09f5eff31aa60f1d8779a1b86e` — `source_ip ?? sourceIp`; pending merge |
-| Production state | **NOT DEPLOYED / PRODUCTION ACCEPTANCE NOT STARTED / READY_FOR_PRODUCTION=NO** |
+| Test-harness normalization | `6c16f137988e4c09f5eff31aa60f1d8779a1b86e` — `source_ip ?? sourceIp`; **PASS / CLOSED through PR #31** |
+| Production source | `9992557f123dbbbf05841c107d27ab285ea77ad4` on `aegis-system` |
+| Deployment | **PASS** — Drive recreated only; HUB, Monitor, and PostgreSQL preserved; no migration, schema, Compose, NGINX, or volume change |
+| Production acceptance | **10/10 PASS** — owner-scoped list/Dashboard, own revoke, bidirectional cross-owner 404/object hiding, audit result/source/target privacy |
+| Post-deployment health | **PASS** — Drive, HUB, Monitor, and PostgreSQL healthy; Drive application, metadata, and storage layers true |
+| Final state | **SHARE_OWNERSHIP_AUTHORIZATION=PASS / CLOSED; READY_FOR_PRODUCTION=YES for this authorization scope only** |
 
-This item is no longer an undecided design question, but it is **not closed**.
-Completed evidence:
+This item is closed. Completed evidence:
 
 - OWNER ONLY policy implementation and PR #30 source integration.
 - Isolated PostgreSQL execution covering owner-list behavior, atomic revoke,
@@ -74,19 +77,33 @@ Completed evidence:
   regression suite.
 - PostgreSQL audit `source_ip=203.0.113.42` was persisted and observed correctly;
   the initial failure was a test field-shape mismatch, not a runtime defect.
-
-Remaining blockers, in order:
-
-1. Merge the test-only `source_ip` / `sourceIp` normalization.
-2. Complete production deployment preparation.
-3. Perform a Drive-only deployment through the approved production workflow.
-4. Run controlled production owner/cross-owner list, Dashboard, revoke, audit,
-   privacy, and object-hiding acceptance.
-5. Verify post-deployment Drive health and preserve unrelated production state.
-6. Record final production closure documentation.
+- PR #31 integrated the test-only normalization and closed the PostgreSQL
+  execution gap without changing runtime behavior.
+- Drive-only production deployment advanced source from
+  `6c1b59dd1eb887e8b7cc1539a49783e33a61756c` to
+  `9992557f123dbbbf05841c107d27ab285ea77ad4` and image from
+  `sha256:9133518e1066db8d8f79d7992af04e3ee8ebef932d4fa81e2560f1d598f30bd8`
+  to `sha256:ab51af1ca410c0dbe1b4da7cec695739130e02d1b6cc2da02d1c3554aa221846`.
+  The rollback tag was pinned and no rollback was required.
+- `PROD-SHARE-1` through `PROD-SHARE-10` passed **10/10**. Cross-owner revoke
+  returned HTTP 404 in both directions and preserved the target; success/denial
+  audits were `SHARE_REVOKE / OK` and `SHARE_REVOKE / DENIED`. Audit targets were
+  SHA-256 privacy-safe and disclosed no raw token, password/hash, or cross-owner
+  filename.
+- The observed audit source IP `172.19.255.1` is the known
+  infrastructure-visible NAT/Twingate identity, not a Windows endpoint-IP
+  recovery claim.
+- Post-deployment health passed with the production checkout at the expected SHA
+  and clean. The dedicated proxy topology remained gateway `.1`, HUB `.2`, Drive
+  `.3`.
 
 Orphan shares with `created_by=NULL` remain a separate governance problem, and
 Public External Share remains **NOT IMPLEMENTED**.
+
+Server Telemetry remains a separate non-blocking product/infrastructure item:
+the UI exists, but production data sources for CPU, RAM, disk, network, Twingate,
+and uptime are not implemented. Those fields must remain truthfully unavailable
+until real sources are approved and connected.
 
 ## ✅ IDEA1 production acceptance — Batch A and B4 Network Scope
 

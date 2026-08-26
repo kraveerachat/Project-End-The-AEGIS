@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-25
+updated: 2026-08-26
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,7 +17,7 @@ edit_policy: owner-writable
 
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: Share Ownership Authorization Hardening source integration is **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233 discovered · 233 pass · 0 fail · 0 skip**, and the production Vite build passed with 2,657 modules transformed (2026-08-25). `POSTGRES_VERIFICATION=PASS`; `POSTGRES_EXECUTION_GAP=CLOSED`. Test-harness normalization commit `6c16f137988e4c09f5eff31aa60f1d8779a1b86e` is implemented but pending merge. Production deployment and acceptance have not started; `READY_FOR_DEPLOYMENT_PREPARATION=NO` and `READY_FOR_PRODUCTION=NO`.
+> **Latest change verification**: Share Ownership Authorization Hardening is **VERIFIED IN PRODUCTION / PASS / CLOSED**. PR #30 source integration and PR #31 test normalization/verification are **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233/233** full-suite, **57/57** affected-regression, **9/9** ownership, and **17/17** share-redemption tests passing. Drive-only deployment of production source `9992557f123dbbbf05841c107d27ab285ea77ad4` completed on `aegis-system`; controlled production acceptance passed **10/10**, and post-deployment health passed. `POSTGRES_EXECUTION_GAP=CLOSED`; `READY_FOR_PRODUCTION=YES` for this authorization scope only.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -389,7 +389,7 @@ FT-1 (Authentication / Session / RBAC) confirmed that role RBAC itself works cor
 - File-version routes (`GET /file-versions`, `GET /files/:id/versions[/:vid/download]`, `POST /files/:id/versions/:vid/restore`) — already owner-only, `404` for non-owners, no Admin exception.
 - `findOwnFileByName` (upload/new-version detection) — already scoped to the uploader; same-name files from different owners remain distinct.
 
-**Historical boundary, now superseded:** FT1D deliberately left `GET /api/shares` and `DELETE /api/shares/:id` unchanged until a separate policy decision was approved. The later OWNER ONLY decision is implemented by commit `78f631492ad65a903cfb88c21c4288739017d6ce` and recorded in [[#Share Ownership Authorization Hardening (2026-08-25)]]. Source integration and isolated PostgreSQL verification are complete; the test-harness normalization remains pending merge, followed by deployment and production acceptance. FT1D's production closure is unchanged.
+**Historical boundary, now superseded:** FT1D deliberately left `GET /api/shares` and `DELETE /api/shares/:id` unchanged until a separate policy decision was approved. The later OWNER ONLY decision is implemented by commit `78f631492ad65a903cfb88c21c4288739017d6ce` and recorded in [[#Share Ownership Authorization Hardening (2026-08-25)]]. Source integration, isolated PostgreSQL verification, Drive-only production deployment, and 10/10 production acceptance are complete. FT1D's production closure is unchanged.
 
 **No Admin override was added or exists.** Both roles are bound by the identical `ownerId` check (`rbac/permissions.js`: the two roles manage files "equally" — Admin's only addition is the governance screens, never elevated file-content access). Regression tests prove this in both directions (Admin → DataLake-User file denied, and DataLake-User → Admin file denied) for listing, download, verify, and share creation.
 
@@ -407,15 +407,17 @@ Full evidence: `90-Status/logs/2026-08-21_231500_kla_idea1-file-object-authoriza
 
 ## Share Ownership Authorization Hardening (2026-08-25)
 
-> [!warning] PostgreSQL verified; test-harness integration and production acceptance remain pending
+> [!success] Verified in production / PASS / CLOSED
 > **SHARE_OWNERSHIP_SOURCE_INTEGRATION = PASS / CLOSED.
-> SHARE_OWNERSHIP_HARDENING = POSTGRESQL VERIFIED / PRODUCTION ACCEPTANCE PENDING.
+> TEST_HARNESS_INTEGRATION = PASS / CLOSED THROUGH PR #31.
+> SHARE_OWNERSHIP_AUTHORIZATION = VERIFIED IN PRODUCTION / PASS / CLOSED.
 > OWNER_ONLY_POLICY = IMPLEMENTED. SHARE_LIST_AUTHORIZATION
 > = OWNER-SCOPED. SHARE_REVOKE_AUTHORIZATION = OWNER-SCOPED.
 > ADMIN_CROSS_OWNER_OVERRIDE = NONE. POSTGRES_VERIFICATION = PASS.
-> POSTGRES_EXECUTION_GAP = CLOSED. TEST_HARNESS_NORMALIZATION = IMPLEMENTED /
-> PENDING MERGE. PRODUCTION_DEPLOYMENT = NOT PERFORMED. PRODUCTION_ACCEPTANCE =
-> NOT STARTED. READY_FOR_DEPLOYMENT_PREPARATION = NO. READY_FOR_PRODUCTION = NO.**
+> POSTGRES_EXECUTION_GAP = CLOSED. PRODUCTION_DEPLOYMENT = PASS.
+> PRODUCTION_ACCEPTANCE = 10/10 PASS. POST_ACCEPTANCE_HEALTH = PASS.
+> READY_FOR_PRODUCTION = YES FOR THIS
+> AUTHORIZATION SCOPE ONLY.**
 
 The confirmed baseline was an authenticated horizontal-authorization weakness:
 authenticated users could list active shares across owners and revoke another
@@ -445,7 +447,8 @@ Implemented source behavior:
 
 Verification for implementation commit
 `78f631492ad65a903cfb88c21c4288739017d6ce` and test-only normalization commit
-`6c16f137988e4c09f5eff31aa60f1d8779a1b86e`:
+`6c16f137988e4c09f5eff31aa60f1d8779a1b86e`, integrated through PR #30 and
+PR #31 respectively:
 
 | Verification | Result |
 | :--- | :--- |
@@ -467,11 +470,37 @@ attribution, persistence, and runtime security behavior were correct. The
 normalization `event?.source_ip ?? event?.sourceIp` is **test only** and does not
 change application or runtime semantics.
 
-`POSTGRES_VERIFICATION=PASS` and `POSTGRES_EXECUTION_GAP=CLOSED`. Remaining gates
-are merge of the follow-up test-harness normalization, production deployment
-preparation, Drive-only deployment, controlled production acceptance, and
-post-deployment health verification. This section does **not** claim deployment
-or production acceptance.
+`POSTGRES_VERIFICATION=PASS` and `POSTGRES_EXECUTION_GAP=CLOSED`. PR #31 closes
+the test-harness integration gap. Production deployment and acceptance then used
+the reviewed `origin/main` source SHA
+`9992557f123dbbbf05841c107d27ab285ea77ad4` on host `aegis-system`:
+
+| Production checkpoint | Result |
+| :--- | :--- |
+| Source transition | ✅ `6c1b59dd1eb887e8b7cc1539a49783e33a61756c` → `9992557f123dbbbf05841c107d27ab285ea77ad4`; final production checkout clean |
+| Drive image transition | ✅ `sha256:9133518e1066db8d8f79d7992af04e3ee8ebef932d4fa81e2560f1d598f30bd8` → `sha256:ab51af1ca410c0dbe1b4da7cec695739130e02d1b6cc2da02d1c3554aa221846`; rollback tag pinned, rollback not required |
+| Deployment scope | ✅ Drive recreated; HUB, Monitor, and PostgreSQL not recreated; no migration, schema, Compose, NGINX, or volume change |
+| Proxy topology | ✅ Unchanged `aegis_drive_proxy`: gateway `172.19.255.1`, HUB `172.19.255.2`, Drive `172.19.255.3` |
+| Production acceptance | ✅ `PROD-SHARE-1` through `PROD-SHARE-10`: **10/10 PASS** |
+| Post-deployment health | ✅ Drive, HUB, Monitor, and PostgreSQL healthy; Drive `/healthz` reported `service=aegis-drive`, `ok=true`, `db=postgres`, with application, metadata, and storage layers true |
+
+Production acceptance confirmed that Admin and DataLake users list only their
+own shares in both the Secure Shares view and Dashboard, and each owner can
+revoke their own share. Cross-owner revoke attempts in both directions returned
+HTTP 404 and left the target share valid. Owner revoke auditing recorded
+`SHARE_REVOKE / OK`; cross-owner denial recorded `SHARE_REVOKE / DENIED`.
+The audit target remained privacy-safe SHA-256 evidence with no raw share token,
+password/hash, or cross-owner filename.
+
+The observed audit source IP was `172.19.255.1`. This is the known
+infrastructure-visible NAT/Twingate identity, **not** the Windows recipient
+endpoint IP; the result does not claim endpoint-IP recovery through Twingate.
+
+`SHARE_OWNERSHIP_AUTHORIZATION=PASS / CLOSED` and
+`READY_FOR_PRODUCTION=YES` apply only to this authorization scope. Server
+Telemetry UI remains implemented without a production data source for CPU, RAM,
+disk, network, Twingate, or uptime and must continue to render truthful
+unavailable states; that non-blocking product/infrastructure item is separate.
 
 Orphan shares with `created_by=NULL` remain invisible and non-revocable through
 the ordinary owner API; their governance is a separate problem. Public External
@@ -897,7 +926,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `GET /api/file-versions` | `requireAuth` + **owner-scoped listing** | own files + version counts |
 | `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
 | `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
-| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` + **owner only** for create/list/revoke; no Admin exception | create returns the token **once**; list returns only the caller's active, non-expired shares; revoke atomically requires caller ownership and active/unexpired state. Implemented locally in `78f631492ad65a903cfb88c21c4288739017d6ce`; PostgreSQL and production acceptance remain pending. |
+| `GET/POST/DELETE /api/shares[/:id]` | `requireAuth` + **owner only** for create/list/revoke; no Admin exception | create returns the token **once**; list returns only the caller's active, non-expired shares; revoke atomically requires caller ownership and active/unexpired state. Implemented in `78f631492ad65a903cfb88c21c4288739017d6ce`; PostgreSQL and production acceptance are **PASS / CLOSED**. |
 | **`GET/POST /s/:token`** | **public** | redemption; own gates (see above) |
 | `GET /api/storage` · `/api/dashboard` | `requireAuth` | real aggregates + `unavailable{}` |
 | `PATCH /api/profile` · `POST/DELETE /api/profile/avatar` | `requireAuth` | session-scoped; never accepts a `userId` |
