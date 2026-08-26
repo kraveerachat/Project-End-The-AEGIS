@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-26
+updated: 2026-08-27
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -289,6 +289,54 @@ Dashboard is designed as the **AEGIS Drive operational overview**. Its current f
 
 Server Telemetry is part of the current Dashboard design, **not** a claim that a host collector, CPU temperature, Twingate RTT, or network telemetry has been production-verified. Unavailable telemetry must render an explicit unavailable/not-connected state rather than fabricated values or misleading zeroes.
 
+### Server Telemetry V1 implementation (2026-08-27)
+
+`SERVER_TELEMETRY_V1_IMPLEMENTATION = IMPLEMENTED / LOCALLY VERIFIED / NOT DEPLOYED`
+
+`PRODUCTION_DEPLOYMENT = NOT PERFORMED`. `PRODUCTION_ACCEPTANCE = NOT STARTED`.
+Server Telemetry production availability remains **unclaimed**; the paragraph
+above continues to govern what may be shown until a deployment task closes it.
+
+A data source now exists in the repository and passes local verification. It has
+not been installed, deployed, or accepted anywhere.
+
+* A dedicated least-privilege host agent (`shared/host-telemetry-agent/`) reads
+  five allowlisted files — `/proc/stat`, `/proc/meminfo`, `/proc/uptime`, and the
+  `rx_bytes`/`tx_bytes` counters of the explicitly configured interface `enp1s0`
+  — samples them on a background ~5 s timer, and serves one normalized snapshot
+  over a Unix socket. No TCP listener, no shell execution, no capability, no
+  Docker socket, no host PID namespace, and no host `/proc` or `/sys` mount into
+  any container.
+* Drive exposes authenticated `GET /api/telemetry` (`Cache-Control: no-store`,
+  no audit row per poll). It combines validated host metrics with two values
+  Drive already measures itself — Data Lake capacity via the existing
+  `filesystemCapacity()`, and Drive process uptime, kept distinct from host
+  uptime. Twingate remains explicitly unavailable with reason
+  `no-approved-source`; no Twingate status projector was built.
+* Partial availability is the normal case: a dead or malformed agent leaves disk
+  and Drive service uptime available and still returns 200. Host data older than
+  15 s is marked **stale** and shown with that label rather than blanked. An
+  unavailable metric renders no number at all — never a fabricated zero.
+* Data Lake disk semantics were inspected before implementation and **not
+  changed**: total from `blocks`, free from `bavail` (not `bfree`), and
+  `used = total - bavail`, so root-reserved blocks count as used and
+  `used + free == total`. These already governed `/api/storage` and
+  `/api/dashboard`; they are now documented in code and pinned by tests.
+* **Local verification:** IDEA1 suite **274/274 pass, 0 fail** (19 pre-existing
+  `TEST_DATABASE_URL` skips); host agent suite **51 pass, 0 fail, 3 skipped**;
+  repository-root suite **53/53 pass**; production build passed.
+* **Not verified:** the three skipped agent tests need a real `AF_UNIX` socket
+  file and must be run on Linux; no systemd directive has been executed, so
+  `systemd-analyze verify`/`security` and the host smoke test in
+  `shared/host-telemetry-agent/deploy/README.md` remain required and unrun.
+* Deployment packaging is prepared but **not installed**. The proposed Drive
+  delta is bounded to `group_add: ["29100"]` plus the read-only bind
+  `/run/aegis-telemetry:/run/aegis-telemetry:ro`, and awaits integration review
+  (`shared/host-telemetry-agent/deploy/production-delta.md`). No Compose,
+  gateway, firewall, Twingate, MikroTik, database, or Monitor change was made.
+
+Recorded in [[90-Status/logs/2026-08-27_023247_kla_idea1-server-telemetry-v1-integration]].
+
 ### Data-honesty and empty-state behavior
 
 The current UI design distinguishes a usable but empty data source from a failed or unavailable dependency:
@@ -498,9 +546,11 @@ endpoint IP; the result does not claim endpoint-IP recovery through Twingate.
 
 `SHARE_OWNERSHIP_AUTHORIZATION=PASS / CLOSED` and
 `READY_FOR_PRODUCTION=YES` apply only to this authorization scope. Server
-Telemetry UI remains implemented without a production data source for CPU, RAM,
-disk, network, Twingate, or uptime and must continue to render truthful
-unavailable states; that non-blocking product/infrastructure item is separate.
+Telemetry has **no production data source deployed** for CPU, RAM, disk,
+network, Twingate, or uptime and must continue to render truthful unavailable
+states in production; a source is now implemented and locally verified but not
+deployed (see "Server Telemetry V1 implementation (2026-08-27)"). That
+non-blocking product/infrastructure item remains separate.
 
 Orphan shares with `created_by=NULL` remain invisible and non-revocable through
 the ordinary owner API; their governance is a separate problem. Public External

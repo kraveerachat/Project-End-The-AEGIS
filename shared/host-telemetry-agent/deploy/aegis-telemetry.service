@@ -1,0 +1,123 @@
+[Unit]
+# AEGIS host telemetry agent — publishes CPU, memory, network and host uptime
+# on a Unix socket for AEGIS Drive. Reads five allowlisted files; nothing else.
+Description=AEGIS host telemetry agent
+Documentation=file:/opt/aegis/host-telemetry-agent/deploy/README.md
+After=network.target
+
+# The agent refuses to start on a bad interface or interval, so a failed start
+# is a configuration error worth surfacing rather than retrying forever. Five
+# failures inside 60s put the unit in `failed`, where it stays until someone
+# looks at it.
+# These are [Unit] keys. systemd moved them out of [Service] in v230 and only
+# the legacy spellings remain there as ignored compat entries — written under
+# [Service] both lines are dropped, the manager default of 10s applies, and
+# with RestartSec=5s the burst can never trip.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+
+# ── identity ──────────────────────────────────────────────────────────
+# A dedicated, unprivileged, non-login account. Deliberately NOT DynamicUser:
+# the UID/GID must be stable at 29100 because the Drive container joins that
+# numeric GID via group_add to read the socket. A dynamic UID would change on
+# restart and silently break Drive's access.
+User=aegis-telemetry
+Group=aegis-telemetry
+
+ExecStart=/usr/bin/node /opt/aegis/host-telemetry-agent/src/index.js
+WorkingDirectory=/opt/aegis/host-telemetry-agent
+Restart=on-failure
+RestartSec=5s
+# The start rate limit that bounds this Restart= lives in [Unit] above, which is
+# the only section systemd reads it from.
+
+# ── configuration ─────────────────────────────────────────────────────
+# The interface is explicit on purpose: an agent that auto-selects a NIC
+# publishes throughput for a link nobody named. Non-secret; no credentials
+# exist anywhere in this service.
+Environment=AEGIS_TELEMETRY_INTERFACE=enp1s0
+Environment=AEGIS_TELEMETRY_SOCKET=/run/aegis-telemetry/telemetry.sock
+Environment=AEGIS_TELEMETRY_INTERVAL_MS=5000
+Environment=NODE_ENV=production
+
+# ── socket directory ──────────────────────────────────────────────────
+# systemd creates /run/aegis-telemetry owned by aegis-telemetry:aegis-telemetry
+# and removes it on stop.
+#   0750 — owner rwx; group r-x so Drive (added to GID 29100) can traverse to
+#          the socket; nothing at all for other users on the host.
+#   UMask 0007 — the socket is created 0660 by default, matching the explicit
+#          chmod the agent performs after binding.
+RuntimeDirectory=aegis-telemetry
+RuntimeDirectoryMode=0750
+UMask=0007
+
+# ── privileges ────────────────────────────────────────────────────────
+# No capability is granted and none can be acquired. The agent only ever reads
+# world-readable files, so it needs nothing.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ── network ───────────────────────────────────────────────────────────
+# AF_UNIX only. This is what makes "no TCP listener" a property of the
+# deployment rather than only of the code: even a compromised agent process
+# cannot open an IP socket.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+
+# ── filesystem and kernel ─────────────────────────────────────────────
+# Every directive below was chosen because it leaves the five required reads
+# working: /proc/stat, /proc/meminfo, /proc/uptime, and the rx_bytes/tx_bytes
+# counters under /sys/class/net/<iface>/statistics/.
+# systemd has no inline comments — the rest of the line is the value — so every
+# note below sits on its own line above the directive it explains.
+#
+# /usr, /boot and /etc become read-only; /proc and /sys are unaffected.
+ProtectSystem=strict
+# No home directory is ever read.
+ProtectHome=true
+PrivateTmp=true
+# A private /dev. Does not touch /proc or /sys.
+PrivateDevices=true
+# /proc/sys becomes read-only. /proc/stat is not under /proc/sys and stays readable.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+# Blocks /proc/kmsg and syslog(2); neither is read by this agent.
+ProtectKernelLogs=true
+# /sys/fs/cgroup becomes read-only; cgroups are not read.
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+# Hides other processes' /proc/<pid>. The aggregate files this agent reads are
+# not per-PID, so they remain readable.
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ── deliberately NOT set ──────────────────────────────────────────────
+# These appear on most hardening checklists and would each break this agent.
+# They are listed rather than omitted so nobody "improves" the unit by adding
+# one and then debugging an agent that reports everything as unavailable.
+#
+#   ProcSubset=pid            restricts /proc to PID directories, hiding
+#                             /proc/stat, /proc/meminfo and /proc/uptime.
+#   PrivateNetwork=true       gives the agent its own network namespace, where
+#                             enp1s0 does not exist — /sys/class/net has only lo.
+#   MemoryDenyWriteExecute=true  V8 requires writable-executable pages; Node
+#                             fails at startup under it.
+#   PrivateMounts=true        a private mount namespace for /run would hide the
+#                             socket from the Drive bind mount.
+#   PrivateUsers=true         breaks the shared numeric GID 29100 that Drive
+#                             relies on to read the socket.
+#   ReadWritePaths=/proc      unnecessary — the agent never writes to /proc.
+
+[Install]
+WantedBy=multi-user.target

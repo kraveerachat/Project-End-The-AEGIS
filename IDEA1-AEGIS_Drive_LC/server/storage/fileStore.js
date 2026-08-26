@@ -246,12 +246,19 @@ export async function restoreFromVersions(versionKey) {
  *    แทนค่าคงที่ 1024 GB / 342 GB ที่เคย hard-code ไว้
  * ⚠️ bsize/bavail เป็นของ "ทั้ง filesystem ที่ mount อยู่" ไม่ใช่โควตาของโฟลเดอร์นี้
  *    ถ้าวันหนึ่งมี quota ต่อ path ตัวเลขนี้จะกว้างกว่าความจริง — บอกไว้ในจอด้วย
+ * ⚠️ `usedBytes` = total - bavail จึงรวม "ส่วนสำรองของ root" ไว้ในฝั่งที่ใช้ไปด้วย
+ *    ผลคือ used + free = total พอดีเสมอ และ used จะมากกว่าไบต์ของไฟล์จริงอยู่เล็กน้อย
+ *    นี่คือความหมายที่ /api/storage, /api/dashboard และ Server Telemetry ใช้ร่วมกัน
+ *    (ดู tests/dataLakeCapacity.test.js ที่ตรึงความหมายนี้ไว้)
+ * ⚠️ พารามิเตอร์ statfs/root มีไว้ให้เทสต์ฉีดค่าเท่านั้น — ผู้เรียกจริงทุกจุดเรียกแบบไม่ส่ง
+ *    อาร์กิวเมนต์ และยังได้ STORAGE_ROOT กับ statfs ของจริงเหมือนเดิมทุกประการ
+ * @param {{ statfs?: Function, root?: string }} [deps]
  * @returns {Promise<{ totalBytes: number, freeBytes: number, usedBytes: number } | null>}
  */
-export async function filesystemCapacity() {
-  if (typeof fsp.statfs !== 'function') return null // Node เก่ากว่า 18.15 — ไม่เดาค่าให้
+export async function filesystemCapacity({ statfs = fsp.statfs, root = STORAGE_ROOT } = {}) {
+  if (typeof statfs !== 'function') return null // Node เก่ากว่า 18.15 — ไม่เดาค่าให้
   try {
-    const st = await fsp.statfs(STORAGE_ROOT)
+    const st = await statfs(root)
     const total = Number(st.blocks) * Number(st.bsize)
     // bavail = บล็อกที่ "ผู้ใช้ทั่วไป" เขียนได้จริง (ไม่รวมส่วนสำรองของ root)
     // ใช้ค่านี้เพราะโปรเซสนี้รันด้วย user 'node' ไม่ใช่ root — bfree จะมองโลกในแง่ดีเกินจริง
