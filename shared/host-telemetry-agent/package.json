@@ -7,6 +7,6 @@
   "engines": { "node": ">=20.0.0" },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
+    "test": "node --test --test-concurrency=1"
   }
 }
