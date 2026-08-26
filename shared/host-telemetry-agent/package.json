@@ -1,0 +1,12 @@
+{
+  "name": "aegis-host-telemetry-agent",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Least-privilege host telemetry agent for AEGIS. Reads an allowlisted set of /proc and /sys counters and publishes one normalized snapshot over a Unix socket.",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
+  }
+}

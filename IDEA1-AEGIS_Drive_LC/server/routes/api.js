@@ -22,6 +22,8 @@ import {
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
+// Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
+import { buildTelemetry } from '../telemetry/index.js'
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
@@ -642,6 +644,25 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
 apiRouter.get('/storage', requireAuth, async (req, res, next) => {
   try {
     res.json(await store.storageStatus())
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Server Telemetry ─────────────────────────────────────────────────
+// ⚠️ ต้องล็อกอินเสมอ — ตัวเลขของ "เครื่อง" ไม่ใช่ข้อมูลสาธารณะ และ endpoint นี้ไม่มี
+//    เส้นทางสาธารณะใหม่ใน nginx (ดูเหตุผลเต็มที่ server/telemetry/index.js)
+// ⚠️ ไม่รับพารามิเตอร์ใด ๆ จาก client เลย: interface และ socket path เป็นค่าคอนฟิกฝั่ง
+//    เซิร์ฟเวอร์เท่านั้น เบราว์เซอร์เลือก path/interface/agent ไม่ได้ (TELEM-11F/11G)
+// ⚠️ ห้ามลง audit ต่อหนึ่ง poll — จอ Dashboard เรียกทุก ~10 วินาที ถ้าบันทึกทุกครั้ง
+//    เหตุการณ์ด้านความปลอดภัยจริงจะจมหายไปในกองบรรทัดสำเร็จรูปนี้
+// ⚠️ agent ล่มหรือตอบผิดรูป ไม่ใช่เหตุให้ request นี้ล้ม — คืน 200 พร้อมความจริงบางส่วน
+//    (disk และ service uptime ยังวัดได้เสมอ) แทนที่จะทำให้ทั้งจอพัง
+apiRouter.get('/telemetry', requireAuth, async (req, res, next) => {
+  try {
+    // no-store: telemetry คือค่า ณ วินาทีนั้น สำเนาที่ถูก cache คือค่าที่ไม่จริงแล้ว
+    res.set('Cache-Control', 'no-store')
+    res.json(await buildTelemetry())
   } catch (err) {
     next(err)
   }

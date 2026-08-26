@@ -182,6 +182,16 @@ export default function App() {
   const dashApi = useApi(protectedDataEnabled ? '/api/dashboard' : null, { refreshMs: 30_000 })
   const metrics = dashApi.data?.metrics ?? null
   const healthApi = useApi(protectedDataEnabled ? '/healthz' : null, { refreshMs: 15_000 })
+  // Server Telemetry — polled only while the Dashboard is the visible screen,
+  // because that is the only place the tiles render.
+  // Cadence: the host agent samples about every 5s and Drive marks a host
+  // measurement stale after 15s, so 10s picks up every second sample at worst
+  // and still leaves room for one missed agent cycle before the tiles say
+  // "Stale". Anything faster re-fetches snapshots the agent has not recomputed.
+  const telemetryApi = useApi(
+    protectedDataEnabled && screen === 'dashboard' ? '/api/telemetry' : null,
+    { refreshMs: 10_000 },
+  )
   // The in-memory fallback is seeded for development. Treat it as an unwired
   // backend on data screens so fixture rows never masquerade as NAS content.
   const placeholderMode = !isPlatformWired(healthApi.data)
@@ -381,7 +391,7 @@ export default function App() {
   }
 
   const screenEl = {
-    dashboard: <Dashboard t={t} lang={lang} health={healthApi} go={go} />,
+    dashboard: <Dashboard t={t} lang={lang} health={healthApi} go={go} telemetry={telemetryApi.data} />,
     files: <Files t={t} lang={lang} go={go} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
     vault: <Vault t={t} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
