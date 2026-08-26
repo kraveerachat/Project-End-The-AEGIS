@@ -358,7 +358,7 @@ function ActivityChart({ t, lang, data }) {
 }
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
-export function Dashboard({ t, lang, health, go, telemetry = null }) {
+export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoading = false }) {
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
@@ -436,10 +436,13 @@ export function Dashboard({ t, lang, health, go, telemetry = null }) {
         </div>
       </Reveal>
 
-      {/* Host-level collector is intentionally outside this UI-only task.
-          A null contract renders six explicit unavailable states, never zeroes. */}
+      {/* Fed by App's /api/telemetry poll (10s). Disk and Drive service uptime
+          are measured by Drive itself; CPU/memory/network/host uptime come from
+          the host telemetry agent over a Unix socket. null — and any metric the
+          agent could not supply — renders an explicit unavailable tile, never a
+          zero. See server/telemetry/index.js for the contract. */}
       <Reveal delay={160}>
-        <ServerTelemetry t={t} data={telemetry} />
+        <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
       </Reveal>
 
       {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
