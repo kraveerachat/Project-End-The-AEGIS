@@ -403,7 +403,7 @@ export default function App() {
       />
     ),
     files: <Files t={t} lang={lang} go={go} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
-    vault: <Vault t={t} placeholderMode={placeholderMode} />,
+    vault: <Vault t={t} lang={lang} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     storage: <Storage t={t} go={go} placeholderMode={placeholderMode} />,

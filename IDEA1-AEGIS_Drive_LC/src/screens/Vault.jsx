@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  TriangleAlert, Lock, LockOpen, FileText, FileImage, File as FileIcon, Plus, Download,
-  KeyRound, MoreHorizontal, Trash2,
+  TriangleAlert, Lock, LockOpen, FileText, FileImage, FileVideo, File as FileIcon, Plus, Download,
+  KeyRound, MoreHorizontal, Trash2, Eye, Info,
 } from 'lucide-react'
 import { Btn, Chip, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader, Card } from '../components/ui.jsx'
 import { useApi, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiFetchBytes } from '../lib/api.js'
-import { fmtBytes } from '../lib/format.js'
+import { fmtBytes, fmtDateTime } from '../lib/format.js'
 import {
   createVaultSetup, unlockVault, encryptFileEnvelope, decryptBlobMeta,
   decryptFileContent, fileToBytes, ARGON2_DEFAULTS,
@@ -16,6 +16,7 @@ import {
   reconcileVaultInventory, addLocalVaultBlob, removeLocalVaultBlob,
   tombstoneVaultBlob, vaultBlobId, lockedVaultEntry,
 } from '../lib/vaultInventory.js'
+import { previewKindFor } from '../lib/vaultPreview.js'
 
 /* ⚠️ Zero-Knowledge จริง:
    - GET /api/vault ให้แค่ salt + พารามิเตอร์ KDF + verifier + envelope ของแต่ละ blob
@@ -37,21 +38,39 @@ const EMPTY_BLOBS = Object.freeze([])
 const EXT_ICONS = { docx: FileText, pdf: FileText, pptx: FileImage, png: FileImage, jpg: FileImage, jpeg: FileImage }
 const iconFor = (name = '') => EXT_ICONS[name.split('.').pop()?.toLowerCase()] ?? FileIcon
 
+/** ไอคอนของการ์ดที่ปลดล็อกแล้ว — ชนิดไฟล์ที่ preview ได้ควรดูต่างจากไฟล์ที่เปิดในแอปไม่ได้ */
+const tileIconFor = (entry) => {
+  const kind = previewKindFor(entry?.type)
+  if (kind === 'video') return FileVideo
+  if (kind === 'image') return FileImage
+  return iconFor(entry?.name ?? '')
+}
+
 /* ── per-tile overflow menu ───────────────────────────────────────
    ภาษาการโต้ตอบเดียวกับจอ Files (MoreHorizontal มุมขวาบน → dropdown ปุ่มจริง)
    แต่ "รายการคำสั่ง" ไม่ใช่ชุดเดียวกัน: Vault ไม่มี Rename / Move / Secure Share /
    ตรวจ SHA เพราะเซิร์ฟเวอร์มองไม่เห็นอะไรเลยนอกจาก ciphertext — การยืมเมนูของ
    Files มาทั้งชุดคือการสัญญาสิ่งที่ระบบทำไม่ได้
 
-   ⚠️ ขณะล็อก เมนูนี้ต้องไม่มีคำที่มาจาก plaintext แม้แต่คำเดียว และไม่มี Download
-      เพราะสิ่งที่ดาวน์โหลดได้ตอนล็อกคือ .aegisenc ที่ผู้ใช้เปิดไม่ได้ */
-function VaultTileMenu({ t, unlocked, onAction }) {
+   ⚠️ นโยบายขณะล็อก (เจ้าของผลิตภัณฑ์เปลี่ยนจาก PR #39):
+      ล็อกอยู่ = "ดูข้อมูลทึบได้อย่างเดียว" ไม่มี Delete / Download / Preview / Open
+      เหลือเพียง "รายละเอียดรายการที่เข้ารหัส" ซึ่งอ่านจาก blob ทึบล้วน ๆ
+      และรายการบอกทางที่กดไม่ได้ เพื่อให้ผู้ใช้รู้ว่าต้องปลดล็อกก่อน ไม่ใช่ว่าเมนูพัง
+      คำในเมนูตอนล็อกต้องไม่มีคำใดที่มาจาก plaintext แม้แต่คำเดียว */
+function VaultTileMenu({ t, unlocked, previewable, onAction }) {
   const items = unlocked
     ? [
+        // Preview มาก่อน Download เพราะมันคือคำสั่งที่ไม่ทำลายอะไรและตอบคำถาม
+        // "ไฟล์นี้คืออะไร" ได้ทันที — ปรากฏเฉพาะชนิดที่ render ได้จริงเท่านั้น
+        ...(previewable ? [{ id: 'preview', icon: Eye, label: t('preview') }] : []),
+        { id: 'details', icon: Info, label: t('fileDetails') },
         { id: 'download', icon: Download, label: t('download') },
         { id: 'delete', icon: Trash2, label: t('delete'), danger: true },
       ]
-    : [{ id: 'delete', icon: Trash2, label: t('vaultDeleteLockedAction'), danger: true }]
+    : [
+        { id: 'details', icon: Info, label: t('vaultEncryptedDetails') },
+        { id: 'locked-hint', icon: Lock, label: t('vaultLockedManageHint'), disabled: true },
+      ]
 
   return (
     <div
@@ -60,14 +79,18 @@ function VaultTileMenu({ t, unlocked, onAction }) {
       className="absolute right-0 top-9 bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-48 fade-in"
       style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
     >
-      {items.map(({ id, icon: Icon, label, danger }) => (
+      {items.map(({ id, icon: Icon, label, danger, disabled }) => (
         <button
           key={id}
           type="button"
           role="menuitem"
-          onClick={() => onAction(id)}
-          className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer text-left whitespace-nowrap"
-          style={{ color: danger ? 'var(--danger)' : 'var(--ink-2)' }}
+          disabled={disabled}
+          aria-disabled={disabled ? 'true' : undefined}
+          onClick={disabled ? undefined : () => onAction(id)}
+          className={`w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium text-left whitespace-nowrap transition-colors duration-[var(--dur-fast)] ${
+            disabled ? 'cursor-default' : 'hover:bg-sunken cursor-pointer'
+          }`}
+          style={{ color: danger ? 'var(--danger)' : disabled ? 'var(--ink-3)' : 'var(--ink-2)' }}
         >
           <Icon size={14} strokeWidth={1.5} />
           {label}
@@ -79,13 +102,16 @@ function VaultTileMenu({ t, unlocked, onAction }) {
 
 /* A vault tile: plaintext rendering sits underneath; the hatch layer covers
    it completely while locked. Unlock peels the hatch away left→right. */
-function VaultTile({ t, entry, unlocked, index, onDownload, onDelete, busy }) {
+function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload, onDelete, busy }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hover, setHover] = useState(false)
   const menuRef = useRef(null)
   const named = unlocked && Boolean(entry.name)
-  const Icon = named ? iconFor(entry.name) : FileIcon
+  const Icon = named ? tileIconFor(entry) : FileIcon
   const delay = `${index * 40}ms`
+  // ⚠️ ล็อกอยู่ = ไม่รู้ชนิดไฟล์ ดังนั้น previewable เป็น false เสมอโดยโครงสร้าง
+  //    ไม่ใช่เพราะบังเอิญไม่มี type ใน entry
+  const previewable = unlocked && previewKindFor(entry.type) !== null
 
   /* click-away + Escape. การตรวจ `contains` คือสิ่งที่ทำให้คลิกที่เปิดเมนูไม่ปิดเมนู
      ตัวเองทันที — ไม่ต้องพึ่งจังหวะการ flush effect ของ React ซึ่งไม่ใช่สัญญาที่
@@ -108,7 +134,9 @@ function VaultTile({ t, entry, unlocked, index, onDownload, onDelete, busy }) {
 
   const runAction = (action) => {
     setMenuOpen(false)
-    if (action === 'download') onDownload(entry)
+    if (action === 'preview') onPreview(entry)
+    else if (action === 'details') onDetails(entry)
+    else if (action === 'download') onDownload(entry)
     else if (action === 'delete') onDelete(entry)
   }
 
@@ -118,9 +146,25 @@ function VaultTile({ t, entry, unlocked, index, onDownload, onDelete, busy }) {
       onMouseLeave={() => setHover(false)}
       className="relative bg-card border border-line rounded-[var(--r-tile)] p-3 overflow-hidden"
     >
-      <div className="h-28 rounded-[9px] bg-sunken flex items-center justify-center">
-        <Icon size={34} strokeWidth={1.2} className={unlocked ? 'text-accent' : 'text-ink-3'} />
-      </div>
+      {/* คลิกที่ตัวการ์ดเพื่อ Preview เป็นทางลัด ไม่ใช่ทางเดียว — เมนูสามจุดยังเป็น
+          คำสั่งที่ถือสิทธิ์อย่างเป็นทางการ และปุ่มนี้ถูก render เป็น <button> จริง
+          เฉพาะตอนที่ "มี preview ให้เปิดจริง" เท่านั้น ไฟล์ที่เปิดในแอปไม่ได้จะไม่มี
+          พื้นที่กดได้ที่ไม่ทำอะไร (และต้องไม่แอบดาวน์โหลดเมื่อถูกคลิก) */}
+      {previewable ? (
+        <button
+          type="button"
+          aria-label={`${t('preview')} — ${entry.name}`}
+          onClick={() => onPreview(entry)}
+          disabled={busy}
+          className="w-full h-28 rounded-[9px] bg-sunken flex items-center justify-center cursor-pointer transition-colors duration-[var(--dur-fast)] hover:bg-accent-soft disabled:cursor-not-allowed"
+        >
+          <Icon size={34} strokeWidth={1.2} className="text-accent" />
+        </button>
+      ) : (
+        <div className="h-28 rounded-[9px] bg-sunken flex items-center justify-center">
+          <Icon size={34} strokeWidth={1.2} className={unlocked ? 'text-accent' : 'text-ink-3'} />
+        </div>
+      )}
       <p className="mt-2.5 text-[13.5px] font-medium text-ink truncate" title={named ? entry.name : undefined}>
         {unlocked ? (entry.name ?? t('vaultUnnamed')) : `${entry.id}.aegisenc`}
       </p>
@@ -164,13 +208,13 @@ function VaultTile({ t, entry, unlocked, index, onDownload, onDelete, busy }) {
         >
           <MoreHorizontal size={14} strokeWidth={1.5} />
         </button>
-        {menuOpen && <VaultTileMenu t={t} unlocked={unlocked} onAction={runAction} />}
+        {menuOpen && <VaultTileMenu t={t} unlocked={unlocked} previewable={previewable} onAction={runAction} />}
       </div>
     </div>
   )
 }
 
-export function Vault({ t, placeholderMode = false }) {
+export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
 
@@ -191,9 +235,18 @@ export function Vault({ t, placeholderMode = false }) {
      รอบถัดไปมายืนยัน เพราะผู้ใช้กด Lock ชนะ refetch ได้เสมอ */
   const [localBlobs, setLocalBlobs] = useState([])
   const [removedIds, setRemovedIds] = useState(() => new Set())
-  const [askDelete, setAskDelete] = useState(null) // { id, name|null, size, locked }
+  const [askDelete, setAskDelete] = useState(null) // { id, name|null, size, opaque }
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(false)
+  /* Preview / Details — สองกล่องนี้ "ถือ plaintext ไว้ในมือ" จึงต้องถูกเก็บกวาด
+     พร้อมกุญแจเสมอ ไม่ใช่ตอนที่ผู้ใช้นึกได้ว่าจะปิด (ดู releasePreview + lock) */
+  const [preview, setPreview] = useState(null) // { entry, kind, url, loading, failed }
+  const [details, setDetails] = useState(null) // { locked, id, name?, type?, plainSize?, size, createdAt }
+  const previewUrlRef = useRef(null)
+  /* ทุกครั้งที่เปิด/ปิด preview ตัวนับนี้จะเดินหน้า งานถอดรหัสที่ยังค้างอยู่ในสาย
+     จะเทียบ token ของตัวเองก่อนสร้าง object URL — ถ้าไม่ตรงแปลว่ามันถูกแทนที่หรือ
+     ถูกล็อกไปแล้ว และ "ห้าม" สร้าง URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน */
+  const previewToken = useRef(0)
   const fileRef = useRef(null)
 
   const configured = vaultApi.data?.configured === true
@@ -206,6 +259,26 @@ export function Vault({ t, placeholderMode = false }) {
     () => reconcileVaultInventory({ serverBlobs, localBlobs, removedIds }),
     [serverBlobs, localBlobs, removedIds],
   )
+
+  /* ── object URL ของ preview: อายุสั้นที่สุดเท่าที่ทำได้ ─────────────────
+     object URL คือ "ตัวชี้ไปยัง plaintext ที่ยังอยู่ใน memory ของแท็บ" ตราบใดที่ยัง
+     ไม่ revoke เบราว์เซอร์ต้องกันบัฟเฟอร์นั้นไว้ และใครก็ตามที่เดา/อ่าน URL ได้ก็อ่าน
+     ไฟล์ได้ การ revoke จึงไม่ใช่เรื่องความสะอาดของหน่วยความจำ แต่เป็นเรื่องความลับ */
+  const releasePreview = useCallback(() => {
+    previewToken.current += 1 // งานถอดรหัสที่ยังค้างอยู่จะกลายเป็นโมฆะทันที
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+  }, [])
+
+  const closePreview = useCallback(() => {
+    releasePreview()
+    setPreview(null)
+  }, [releasePreview])
+
+  // ปิดแท็บ / เปลี่ยนหน้าจอ = unmount — ต้องปล่อย URL เหมือนกดปิดเอง
+  useEffect(() => releasePreview, [releasePreview])
 
   /* ── ล็อก: ทิ้งกุญแจ + plaintext ทั้งหมดจาก memory ─────────────────────
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
@@ -221,7 +294,12 @@ export function Vault({ t, placeholderMode = false }) {
     //    = ชื่อไฟล์ยังอยู่บนจอทั้งที่ระบบประกาศว่าล็อกแล้ว ต้องปิดไปพร้อมกุญแจ
     setAskDelete(null)
     setDeleteError(false)
-  }, [])
+    // ⚠️ เช่นเดียวกับ Preview (ถือทั้งชื่อไฟล์และ "เนื้อไฟล์" ที่ถอดแล้ว) และ Details
+    //    ที่ถือชื่อไฟล์/MIME/ขนาดจริง ทั้งสองต้องหายไปพร้อมกุญแจในจังหวะเดียวกัน
+    //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบ 10 นาที (ทางเดียวกันเป๊ะ)
+    closePreview()
+    setDetails(null)
+  }, [closePreview])
 
   /* ── idle auto-lock ────────────────────────────────────────────────
      นับเฉพาะตอนปลดล็อกอยู่ — ทุก interaction รีเซ็ตนาฬิกา ครบ 10 นาทีเงียบ = ล็อก
@@ -241,16 +319,19 @@ export function Vault({ t, placeholderMode = false }) {
     }
   }, [unlocked, lock])
 
-  /** ถอด metadata ของทุก blob ด้วย KEK ที่เพิ่งได้ — เนื้อไฟล์ยังไม่ถูกดึงลงมา */
+  /** ถอด metadata ของทุก blob ด้วย KEK ที่เพิ่งได้ — เนื้อไฟล์ยังไม่ถูกดึงลงมา
+   *  ⚠️ `type` ถูกเก็บไว้ด้วยตั้งแต่ตรงนี้: มันถูกเข้ารหัสมาพร้อมชื่อไฟล์อยู่แล้ว
+   *     (ดู encryptFileEnvelope) การทิ้งไปแล้วเดาจากนามสกุลภายหลังคือการเดาในสิ่งที่
+   *     ระบบ "รู้จริง" อยู่แล้ว และเป็นการเดาที่ตัดสินว่าไฟล์ไหนถูก render ในหน้าเว็บ */
   const decryptEntries = async (key, list) => {
     const out = []
     for (const b of list) {
       try {
         const meta = await decryptBlobMeta(key, b)
-        out.push({ id: vaultBlobId(b), name: meta.name, plainSize: meta.size, size: b.size, blob: b })
+        out.push({ id: vaultBlobId(b), name: meta.name, type: meta.type ?? null, plainSize: meta.size, size: b.size, blob: b })
       } catch {
         // blob เสียหาย/ถูกแก้ — แสดงตาม id แทน ไม่ทำให้ทั้งจอล้ม
-        out.push({ id: vaultBlobId(b), name: null, plainSize: null, size: b.size, blob: b })
+        out.push({ id: vaultBlobId(b), name: null, type: null, plainSize: null, size: b.size, blob: b })
       }
     }
     return out
@@ -376,7 +457,7 @@ export function Vault({ t, placeholderMode = false }) {
       //   และ blob ที่เพิ่งอัปโหลดต้องยังอยู่บนจอในรูป ciphertext
       setLocalBlobs((prev) => addLocalVaultBlob(prev, b))
       setEntries((prev) => (prev ? [
-        { id, name: file.name, plainSize: file.size, size: b.size, blob: b },
+        { id, name: file.name, type: file.type || null, plainSize: file.size, size: b.size, blob: b },
         ...prev.filter((e) => vaultBlobId(e) !== id),
       ] : prev))
       // reconcile กับสถานะจริงของ server แบบเงียบ ๆ — dedupe ด้วย id ทำให้ไม่เกิดการ์ดซ้ำ
@@ -390,7 +471,7 @@ export function Vault({ t, placeholderMode = false }) {
   /* ── ดาวน์โหลด: ดึง ciphertext → แกะ DEK → ถอด → ค่อยส่งให้เบราว์เซอร์เซฟ ──
      ไม่ใช้ <a href> ตรงไปที่ endpoint เพราะผู้ใช้จะได้ .aegisenc ที่เปิดไม่ได้ */
   const download = async (entry) => {
-    if (!kek || addBusy) return
+    if (!kek || !unlocked || addBusy) return // ล็อกอยู่ = ไม่มีคำสั่งนี้ให้กด
     setAddBusy(true)
     setActionError(false)
     let url = null
@@ -421,25 +502,93 @@ export function Vault({ t, placeholderMode = false }) {
     }
   }
 
+  /* ── Preview: ถอดรหัสในเบราว์เซอร์ แล้ว render จาก object URL ในเครื่อง ──
+     เส้นทางเดียวกับ Download ทุกประการ ต่างกันแค่ปลายทางของ bytes:
+
+       GET /api/vault/blobs/:id → ciphertext
+         → decryptFileContent(kek, entry.blob, ciphertext)   ← ในเบราว์เซอร์เท่านั้น
+         → Blob/object URL ชั่วคราว
+         → <img> หรือ <video controls>
+
+     ⚠️ เซิร์ฟเวอร์ไม่เคยได้รับหรือสร้าง plaintext, thumbnail, ชื่อไฟล์, MIME, KEK
+        หรือ DEK เลย ไม่มี endpoint ใหม่ ไม่มี transcode ฝั่งเซิร์ฟเวอร์
+     ⚠️ วิดีโอต้องโหลด ciphertext ทั้งก้อนมาถอดก่อนถึงจะเล่นได้ (GCM พิสูจน์
+        integrity ของทั้งก้อน — ไม่มี range request ที่ถอดทีละส่วนได้) สถานะ
+        "กำลังถอดรหัส" จึงเป็นความจริง ไม่ใช่ spinner ประดับ */
+  const openPreview = async (entry) => {
+    if (!kek || !unlocked) return
+    const kind = previewKindFor(entry.type)
+    if (!kind) return // ชนิดที่ไม่อยู่ใน allowlist ไม่มีคำสั่งนี้ในเมนูอยู่แล้ว
+
+    setDetails(null)
+    releasePreview() // preview ใบก่อนถูกแทนที่ = ปล่อย URL ใบก่อนทันที
+    const token = previewToken.current
+    setPreview({ entry, kind, url: null, loading: true, failed: false })
+
+    try {
+      const res = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(entry.id)}`)
+      if (token !== previewToken.current) return
+      if (!res.ok) throw new Error('fetch-failed')
+      // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
+      const plain = await decryptFileContent(kek, entry.blob, res.bytes)
+      // ⚠️ ตรวจอีกครั้งหลังถอดเสร็จ: ผู้ใช้อาจกดล็อกระหว่างที่ถอดอยู่ ถ้าสร้าง URL
+      //    ตอนนี้จะได้ object URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน = plaintext ค้าง
+      if (token !== previewToken.current) return
+      const url = URL.createObjectURL(new Blob([plain], { type: entry.type || 'application/octet-stream' }))
+      previewUrlRef.current = url
+      setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, url, loading: false } : prev))
+    } catch {
+      if (token !== previewToken.current) return
+      setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, loading: false, failed: true } : prev))
+    }
+  }
+
+  /* ── Details: กล่องเดียว สองสถานะที่ "จริงคนละแบบ" ──────────────────
+     ปลดล็อก = พูดถึงไฟล์ต้นฉบับได้ตามจริง (ชื่อ / MIME / ขนาด plaintext)
+     ล็อก = พูดได้เฉพาะสิ่งที่เซิร์ฟเวอร์เห็นอยู่แล้ว (id ทึบ / ขนาด ciphertext / เวลา)
+     ⚠️ กิ่งของสถานะล็อกต้องไม่แตะ entry.name / entry.type / entry.plainSize เลย
+        แม้ค่าเหล่านั้นจะเป็น null อยู่แล้วจาก lockedVaultEntry — เขียนให้ "อ่านแล้ว
+        เห็นว่าไม่มีทางรั่ว" สำคัญกว่าเขียนให้สั้น และไม่มีการถอดรหัสใด ๆ ที่นี่ */
+  const openDetails = (entry) => {
+    closePreview()
+    const createdAt = entry.createdAt ?? entry.blob?.createdAt ?? null
+    setDetails(unlocked
+      ? {
+          locked: false,
+          id: vaultBlobId(entry),
+          name: entry.name ?? null,
+          type: entry.type ?? null,
+          plainSize: entry.plainSize ?? null,
+          size: entry.size,
+          createdAt,
+        }
+      : { locked: true, id: vaultBlobId(entry), size: entry.size, createdAt })
+  }
+
   /* ── ลบไฟล์ในห้องนิรภัย ─────────────────────────────────────────
      ใช้ DELETE /api/vault/blobs/:id ที่มีอยู่แล้ว — ไม่มี endpoint ใหม่ และ
      ⚠️ ไม่มี user id ใด ๆ ใน request: สิทธิ์มาจาก req.user ฝั่ง server เท่านั้น
 
-     นโยบายที่เลือก: "ลบได้ขณะล็อก" พร้อมคำยืนยันที่หนักกว่า
-     เหตุผล — ห้องนิรภัยที่กุญแจหายคือสภาวะที่ตั้งใจให้กู้คืนไม่ได้ ถ้าปิดการลบ
-     ขณะล็อก ผู้ใช้ที่ลืมกุญแจจะเหลือ blob ที่ทั้งเปิดไม่ได้และลบไม่ได้ตลอดไป
-     สิทธิ์ฝั่ง server เท่ากันทั้งสองกรณีอยู่แล้ว สิ่งที่ต่างคือผู้ใช้ระบุไฟล์ไม่ได้
-     กล่องยืนยันตอนล็อกจึงพูดตรง ๆ ว่า AEGIS แสดงชื่อไฟล์เดิมให้ไม่ได้ และแสดง
-     เฉพาะสิ่งที่ระบบเห็นจริง: opaque id + ขนาด ciphertext
-     ⚠️ ห้ามถอดรหัส metadata เพียงเพื่อเติมข้อความในกล่องนี้เด็ดขาด */
+     นโยบาย (เจ้าของผลิตภัณฑ์เปลี่ยนจาก PR #39): "ลบได้เฉพาะตอนปลดล็อก"
+     PR #39 เปิดให้ลบขณะล็อกโดยเจตนา เหตุผลตอนนั้นคือ vault ที่กุญแจหายจะเหลือ
+     blob ที่ลบไม่ได้ตลอดไป — เจ้าของผลิตภัณฑ์รับข้อแลกเปลี่ยนนั้นแล้วและเลือก
+     "ล็อก = ดูข้อมูลทึบอย่างเดียว" แทน: การกดลบสิ่งที่ระบุตัวไม่ได้คือการทำลาย
+     ข้อมูลโดยไม่รู้ว่ากำลังทำลายอะไร ทางออกของผู้ใช้คือปลดล็อกก่อน
+     ⚠️ นี่คือนโยบายฝั่ง client เท่านั้น — route DELETE ฝั่ง server ไม่ถูกแตะต้อง
+        และยังคุมสิทธิ์ด้วย req.user เหมือนเดิม UI ที่ซ่อนปุ่มไม่ใช่ระบบสิทธิ์
+
+     ยังมี "รูปแบบทึบ" ของกล่องยืนยันอยู่ แต่เหตุผลเปลี่ยนไป: มันใช้กับ entry ที่
+     ปลดล็อกแล้วแต่ metadata ถอดไม่ออก (envelope เสีย) — กล่องนั้นจึงต้องไม่พูดว่า
+     "ห้องนิรภัยล็อกอยู่" ซึ่งไม่จริง แต่พูดว่าอ่าน metadata ของรายการนี้ไม่ได้ */
   const requestDelete = (entry) => {
-    const named = unlocked && Boolean(entry.name)
+    if (!unlocked) return // ล็อกอยู่ = ไม่มีเส้นทางไปถึงกล่องนี้เลย
+    const named = Boolean(entry.name)
     setDeleteError(false)
     setAskDelete({
       id: vaultBlobId(entry),
       name: named ? entry.name : null,
       size: entry.size,
-      locked: !named,
+      opaque: !named,
     })
   }
 
@@ -576,7 +725,9 @@ export function Vault({ t, placeholderMode = false }) {
           {list.map((entry, i) => (
             <VaultTile
               key={entry.id} t={t} entry={entry} unlocked={unlocked}
-              index={reduced ? 0 : i} onDownload={download} onDelete={requestDelete}
+              index={reduced ? 0 : i}
+              onPreview={openPreview} onDetails={openDetails}
+              onDownload={download} onDelete={requestDelete}
               busy={addBusy}
             />
           ))}
@@ -584,21 +735,22 @@ export function Vault({ t, placeholderMode = false }) {
       )}
 
       {/* ── ยืนยันการลบ ─────────────────────────────────────────────
-          กล่องเดียว สองโหมด: ปลดล็อกอยู่ = เอ่ยชื่อไฟล์ที่ถอดแล้วได้ตามจริง
-          ล็อกอยู่ = ห้ามมีชื่อไฟล์ / MIME / นามสกุลเดิม แม้ใน aria ใด ๆ */}
+          เปิดได้เฉพาะตอนปลดล็อกเท่านั้น (ดู requestDelete) สองโหมด:
+          metadata ถอดได้ = เอ่ยชื่อไฟล์ที่ถอดแล้วได้ตามจริง
+          metadata ถอดไม่ได้ = ระบุด้วย id ทึบ + ขนาด ciphertext ไม่แต่งชื่อขึ้นมาเอง */}
       <Modal open={!!askDelete} onClose={closeDelete} width={440} labelledBy="vault-del-title">
         <ModalClose onClose={closeDelete} label={t('cancel')} />
         <h2 id="vault-del-title" className="text-[18px] font-semibold text-ink pr-8">
-          {askDelete?.locked
-            ? t('vaultDeleteLockedTitle', { id: `${askDelete?.id}.aegisenc` })
+          {askDelete?.opaque
+            ? t('vaultDeleteOpaqueTitle', { id: `${askDelete?.id}.aegisenc` })
             : t('vaultDeleteTitle', { name: askDelete?.name ?? '' })}
         </h2>
         <p className="text-[13.5px] text-ink-2 mt-3 leading-relaxed">
-          {askDelete?.locked ? t('vaultDeleteLockedBody') : t('vaultDeleteBody')}
+          {askDelete?.opaque ? t('vaultDeleteOpaqueBody') : t('vaultDeleteBody')}
         </p>
 
-        {/* ตอนล็อก แสดง "เท่าที่ระบบเห็นจริง" เท่านั้น — id ทึบ + ขนาด ciphertext */}
-        {askDelete?.locked && (
+        {/* แสดง "เท่าที่ระบบเห็นจริง" เท่านั้น — id ทึบ + ขนาด ciphertext */}
+        {askDelete?.opaque && (
           <dl className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line px-3.5 py-3 text-[12.5px]">
             <div className="flex items-baseline justify-between gap-3">
               <dt className="text-ink-3">{t('vaultOpaqueId')}</dt>
@@ -626,6 +778,125 @@ export function Vault({ t, placeholderMode = false }) {
             {deleteBusy ? t('vaultDeleting') : t('vaultDeleteConfirm')}
           </Btn>
         </div>
+      </Modal>
+
+      {/* ── Preview ─────────────────────────────────────────────────
+          plaintext ที่ถอดแล้วอยู่หลัง object URL ในเครื่องเท่านั้น ไม่มี src ที่ชี้ไป
+          เซิร์ฟเวอร์ ไม่มี <iframe>/<object>/<embed> และไม่มีการตีความ HTML/SVG
+          ของผู้ใช้ — รองรับเฉพาะ raster image และวิดีโอตาม allowlist ใน
+          src/lib/vaultPreview.js เท่านั้น */}
+      <Modal open={!!preview} onClose={closePreview} width={880} labelledBy="vault-preview-title">
+        <ModalClose onClose={closePreview} label={t('close')} />
+        <h2 id="vault-preview-title" className="text-[16px] font-semibold text-ink pr-8 truncate">
+          {preview?.entry.name ?? t('vaultUnnamed')}
+        </h2>
+        {/* หัวเรื่องพูดความจริงสองอย่างที่ต่างกันจริง ๆ: ขนาดต้นฉบับ กับ ขนาดที่เก็บจริง */}
+        <p className="text-[12px] text-ink-3 mt-1" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {preview?.entry.type} · {t('vaultPlaintextSize')} {fmtBytes(preview?.entry.plainSize ?? 0)}
+          {' · '}{t('vaultCiphertextSize')} {fmtBytes(preview?.entry.size ?? 0)}
+        </p>
+
+        <div
+          className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden"
+          style={{ minHeight: 220 }}
+          data-vault-preview-stage={preview?.kind ?? ''}
+        >
+          {preview?.failed ? (
+            <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center" style={{ color: 'var(--danger)' }}>
+              {t('vaultPreviewUnavailable')}
+            </p>
+          ) : preview?.url ? (
+            preview.kind === 'video' ? (
+              /* ⚠️ controls ใช่, autoPlay ไม่ — ไฟล์ในห้องนิรภัยต้องไม่เริ่มเล่นเสียง
+                 ขึ้นมาเองในที่สาธารณะ และ preload="none" ไม่มีประโยชน์ที่นี่เพราะ
+                 bytes ถูกถอดครบแล้วอยู่ในเครื่อง */
+              <video
+                controls
+                src={preview.url}
+                className="max-w-full"
+                style={{ maxHeight: '68vh' }}
+              />
+            ) : (
+              /* contain + aspect ratio เดิม ไม่ crop: ห้องนิรภัยไม่ควรตัดภาพของผู้ใช้ทิ้ง
+                 เพียงเพื่อให้กรอบสวย */
+              <img
+                src={preview.url}
+                alt={preview.entry.name ?? ''}
+                className="max-w-full object-contain"
+                style={{ maxHeight: '68vh' }}
+              />
+            )
+          ) : (
+            <p role="status" className="text-[13px] text-ink-3 px-6 py-10">{t('vaultDecrypting')}</p>
+          )}
+        </div>
+
+        <div className="flex gap-2.5 mt-5 justify-end">
+          <Btn variant="outline" onClick={closePreview}>{t('close')}</Btn>
+          <Btn
+            variant="primary"
+            onClick={() => preview && download(preview.entry)}
+            disabled={addBusy || !preview}
+          >
+            <Download size={14} strokeWidth={1.5} />
+            {t('download')}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* ── Details ─────────────────────────────────────────────────
+          กล่องเดียว สองสถานะที่จริงคนละแบบ ปลดล็อก = พูดถึงไฟล์ต้นฉบับได้
+          ล็อก = พูดได้เฉพาะสิ่งที่เซิร์ฟเวอร์เห็นอยู่แล้ว และบอกตรง ๆ ว่าต้องปลดล็อกก่อน
+          ⚠️ ทั้งสองสถานะไม่แสดง path บนดิสก์ / storage_key / รายละเอียดภายในของเซิร์ฟเวอร์ */}
+      <Modal open={!!details} onClose={() => setDetails(null)} width={460} labelledBy="vault-details-title">
+        <ModalClose onClose={() => setDetails(null)} label={t('close')} />
+        <h2 id="vault-details-title" className="text-[18px] font-semibold text-ink pr-8">
+          {details?.locked ? t('vaultEncryptedDetails') : t('fileDetails')}
+        </h2>
+        {details?.locked && (
+          <p className="text-[13px] text-ink-2 mt-2.5 leading-relaxed">{t('vaultLockedDetailsBody')}</p>
+        )}
+
+        <dl className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line px-3.5 py-3 text-[12.5px] space-y-1.5">
+          {!details?.locked && (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-3 shrink-0">{t('colName')}</dt>
+              <dd className="text-ink truncate text-right">{details?.name ?? t('vaultUnnamed')}</dd>
+            </div>
+          )}
+          {!details?.locked && details?.type && (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-3 shrink-0">{t('type')}</dt>
+              <dd className="font-mono text-ink truncate text-right">{details.type}</dd>
+            </div>
+          )}
+          {!details?.locked && details?.plainSize != null && (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-3 shrink-0">{t('vaultPlaintextSize')}</dt>
+              <dd className="font-mono text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(details.plainSize)}</dd>
+            </div>
+          )}
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3 shrink-0">{t('vaultCiphertextSize')}</dt>
+            <dd className="font-mono text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(details?.size ?? 0)}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-3 shrink-0">{t('vaultOpaqueId')}</dt>
+            <dd className="font-mono text-ink truncate text-right">{details?.id}</dd>
+          </div>
+          {/* เวลาที่แถวถูกบันทึกเป็นข้อมูลฝั่งเซิร์ฟเวอร์ล้วน — แสดงได้ทั้งสองสถานะ
+              และถ้าเซิร์ฟเวอร์ไม่ได้ส่งมา ก็ไม่แต่งขึ้นมาเอง */}
+          {details?.createdAt != null && (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-3 shrink-0">{t('uploadedAt')}</dt>
+              <dd className="text-ink text-right">{fmtDateTime(details.createdAt, lang)}</dd>
+            </div>
+          )}
+        </dl>
+
+        <Btn variant="outline" className="w-full mt-5" data-modal-autofocus onClick={() => setDetails(null)}>
+          {t('close')}
+        </Btn>
       </Modal>
 
       {/* ── ปลดล็อก ─────────────────────────────────────────────── */}

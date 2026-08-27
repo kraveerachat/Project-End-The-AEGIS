@@ -5,11 +5,17 @@
 // but the *actions* are not: the server sees only ciphertext, so Rename, Move,
 // Secure Share and SHA verification are not offered here.
 //
-// The locked-mode policy under test is: deletion IS allowed while locked, with
-// a stronger confirmation that shows only the opaque blob id and the ciphertext
-// size. Rationale is recorded in src/screens/Vault.jsx — a vault whose key is
-// lost is unrecoverable by design, and disabling locked deletion would leave
-// such a user with blobs that can neither be opened nor removed, forever.
+// The locked-mode policy under test CHANGED after PR #39, by an explicit product
+// owner decision: a locked vault is now VIEW-OPAQUE-INFORMATION-ONLY. While
+// locked there is no Delete, no Download, and no Preview — only "Encrypted item
+// details", built from the opaque blob record without decrypting anything.
+//
+// PR #39 deliberately allowed locked deletion, reasoning that a vault whose key
+// is lost would otherwise hold blobs that can neither be opened nor removed.
+// That trade-off was accepted and reversed: destroying data you cannot identify
+// is the worse outcome, and unlocking is the way out. This is a client policy
+// only — DELETE /api/vault/blobs/:id is unchanged and still derives
+// authorization from req.user. A hidden button is not an access control.
 import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 
@@ -18,7 +24,7 @@ import React from 'react'
 import { makeT } from '../src/lib/strings.js'
 import { makeVaultBackend, serverBlob, CORRECT_PASSPHRASE } from './fixtures/vaultScreenBackend.js'
 import {
-  startVaultScreenEnv, settle, click, pressKey, byText,
+  startVaultScreenEnv, settle, click, pressKey, byText, byTextContaining,
   tileMenuButtons, tileIds, unlock, lockVault, uploadFile,
 } from './helpers/vaultScreenHarness.js'
 
@@ -194,11 +200,11 @@ test('the menu layer sits above the tile ciphertext hatch', async () => {
 
 /* ── unlocked actions ─────────────────────────────────────────────── */
 
-test('the unlocked menu offers exactly Download and Delete', async () => {
+test('the unlocked menu offers Preview, File details, Download and Delete for a previewable file', async () => {
   const h = env.mount()
   try {
     await openUnlockedMenu(h)
-    assert.deepEqual(menuItems(), [t('download'), t('delete')])
+    assert.deepEqual(menuItems(), [t('preview'), t('fileDetails'), t('download'), t('delete')])
 
     // Actions the Vault cannot truthfully perform must not be borrowed from Files.
     for (const absent of [t('rename'), t('move'), t('createSecureShare'), t('verifySha'), t('viewMetadata'), t('viewHistory')]) {
@@ -363,65 +369,102 @@ test('a delete confirmation open when the vault locks does not keep the filename
   }
 })
 
-/* ── locked delete: zero-knowledge confirmation ───────────────────── */
+/* ── locked mode: view opaque information only ─────────────────────
+   The product policy reversal from PR #39 lives here. A locked vault may look
+   at what the server can already see, and may do nothing else. */
 
-test('the locked menu offers only Delete encrypted item — never a plaintext Download', async () => {
+test('the locked menu offers Encrypted item details and no destructive or plaintext action', async () => {
   const h = env.mount()
   try {
     await h.render(React.createElement(Vault, { t }))
     await click(dom, menuButton())
 
-    assert.deepEqual(menuItems(), [t('vaultDeleteLockedAction')])
-    assert.equal(menuItem(t('download')), undefined, 'downloading undecryptable bytes is not offered')
+    assert.deepEqual(menuItems(), [t('vaultEncryptedDetails'), t('vaultLockedManageHint')])
+    for (const absent of [t('delete'), t('download'), t('preview'), t('fileDetails')]) {
+      assert.equal(menuItem(absent), undefined, `"${absent}" is not offered while locked`)
+    }
     assert.doesNotMatch(html(), /DSC09870\.gif/, 'the menu leaks no decrypted metadata')
   } finally {
     await h.unmount()
   }
 })
 
-test('the locked confirmation shows only the opaque id and the ciphertext size', async () => {
+test('the locked hint is present but inert — it explains, it does not act', async () => {
   const h = env.mount()
   try {
     await h.render(React.createElement(Vault, { t }))
     await click(dom, menuButton())
-    await click(dom, menuItem(t('vaultDeleteLockedAction')))
 
-    const modal = dialog()
-    assert.ok(modal, 'locked deletion still confirms first')
-    assert.match(modal.textContent, /blob-a/, 'the opaque blob id identifies the target')
-    assert.match(modal.textContent, /2\.0 KB|2 KB|2,096|2\.05 KB/, 'the ciphertext size is shown')
-    assert.match(modal.textContent, new RegExp(t('vaultDeleteLockedBody').slice(0, 40)), 'it says why no filename is shown')
-    assert.match(modal.textContent, new RegExp(t('vaultOpaqueId')))
-    assert.match(modal.textContent, new RegExp(t('vaultCiphertextSize')))
+    const hint = menuItem(t('vaultLockedManageHint'))
+    assert.ok(hint, 'the menu says how to get out of this state')
+    assert.equal(hint.disabled, true, 'and cannot be activated')
+    assert.equal(hint.getAttribute('aria-disabled'), 'true')
 
-    // ⚠️ The whole point: nothing was decrypted to populate this dialog.
-    assert.doesNotMatch(doc().body.innerHTML, /DSC09870/, 'no plaintext filename anywhere in the DOM')
-    assert.doesNotMatch(doc().body.innerHTML, /image\/gif/, 'no MIME type either')
-    for (const el of doc().querySelectorAll('[title], [aria-label], [alt], [aria-describedby]')) {
-      const attrs = ['title', 'aria-label', 'alt'].map((a) => el.getAttribute(a) ?? '').join(' ')
-      assert.doesNotMatch(attrs, /DSC09870|\.gif/, 'no accessibility attribute leaks plaintext')
-    }
+    await click(dom, hint)
+    assert.equal(dialog(), null, 'clicking it opens nothing')
+    assert.equal(
+      backend.requests.filter((r) => r.method !== 'REFRESH' && r.method !== 'RETRY').length, 0,
+      'and sends no request of any kind',
+    )
   } finally {
     await h.unmount()
   }
 })
 
-test('a locked delete uses the same endpoint and removes the blob', async () => {
+test('a locked vault reaches no destructive or plaintext action, whichever menu item is driven', async () => {
+  // Each label is activated from a freshly opened menu: the menu closes as soon
+  // as an item runs, which detaches the remaining buttons, so iterating one
+  // snapshot would silently exercise only the first item. Every label the
+  // unlocked menu offers is attempted here, including the ones that should not
+  // exist while locked — if a future edit puts one back, this bites.
   acceptDelete('blob-a')
   const h = env.mount()
   try {
     await h.render(React.createElement(Vault, { t }))
+
+    for (const label of [t('delete'), t('download'), t('preview'), t('vaultEncryptedDetails')]) {
+      await click(dom, menuButton())
+      const item = menuItem(label)
+      if (item) await click(dom, item)
+      await settle()
+      const closer = byText(dom, 'button', t('close'))
+      if (closer) await click(dom, closer)
+      await click(dom, doc().body)
+    }
+
+    assert.equal(backend.requests.filter((r) => r.method === 'DELETE').length, 0, 'nothing destructive is reachable')
+    assert.equal(backend.requests.filter((r) => r.method === 'GET_BYTES').length, 0, 'and no ciphertext is fetched')
+    assert.equal(byText(dom, 'button', t('vaultDeleteConfirm')), undefined, 'the delete confirmation never opened')
+    assert.deepEqual(tileIds(dom), ['blob-a'], 'the encrypted item is still listed')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('the locked encrypted details show only the opaque id, the ciphertext size and the server timestamp', async () => {
+  const h = env.mount()
+  try {
+    await h.render(React.createElement(Vault, { t }))
     await click(dom, menuButton())
-    await click(dom, menuItem(t('vaultDeleteLockedAction')))
-    await click(dom, byText(dom, 'button', t('vaultDeleteConfirm')))
+    await click(dom, menuItem(t('vaultEncryptedDetails')))
 
-    const deletes = backend.requests.filter((r) => r.method === 'DELETE')
-    assert.deepEqual(deletes.map((r) => r.path), ['/api/vault/blobs/blob-a'])
-    assert.deepEqual(tileIds(dom), [], 'the encrypted item is gone')
-    assert.match(html(), new RegExp(t('emptyVault')))
+    const modal = dialog()
+    assert.ok(modal, 'the locked vault can still describe what it holds')
+    assert.match(modal.textContent, /blob-a/, 'the opaque blob id identifies the item')
+    assert.match(modal.textContent, /2\.0 KB|2 KB|2,096|2\.05 KB/, 'the ciphertext size is shown')
+    assert.match(modal.textContent, new RegExp(t('vaultOpaqueId')))
+    assert.match(modal.textContent, new RegExp(t('vaultCiphertextSize')))
+    assert.match(modal.textContent, new RegExp(t('vaultLockedDetailsBody').slice(0, 40)), 'it says how to see more')
 
-    await unlock(dom, t, CORRECT_PASSPHRASE)
-    assert.deepEqual(tileIds(dom), [], 'unlocking does not bring it back')
+    // ⚠️ The whole point: nothing was decrypted to populate this dialog.
+    assert.equal(byTextContaining(dom, 'dt', t('vaultPlaintextSize')), undefined, 'plaintext size is not knowable')
+    assert.doesNotMatch(doc().body.innerHTML, /DSC09870/, 'no plaintext filename anywhere in the DOM')
+    assert.doesNotMatch(doc().body.innerHTML, /image\/gif/, 'no MIME type either')
+    assert.equal(backend.requests.filter((r) => r.method === 'GET_BYTES').length, 0, 'and no ciphertext was fetched')
+    for (const el of doc().querySelectorAll('[title], [aria-label], [alt], [data-vault-tile-menu]')) {
+      const attrs = ['title', 'aria-label', 'alt'].map((a) => el.getAttribute(a) ?? '').join(' ')
+      assert.doesNotMatch(attrs, /DSC09870|\.gif|image\//, 'no accessibility attribute leaks plaintext')
+    }
   } finally {
     await h.unmount()
   }
@@ -443,9 +486,12 @@ test('an entry whose metadata will not decrypt is deleted through the opaque con
     assert.match(html(), new RegExp(t('vaultUnnamed')), 'an unreadable entry says so')
 
     await click(dom, menuButton('blob-x'))
+    assert.equal(menuItem(t('preview')), undefined, 'an entry with no readable type cannot be previewed')
     await click(dom, menuItem(t('delete')))
     assert.match(dialog().textContent, /blob-x/, 'it is identified by its opaque id')
     assert.match(dialog().textContent, new RegExp(t('vaultOpaqueId')))
+    // The vault IS unlocked here, so the copy must not claim it is locked.
+    assert.match(dialog().textContent, new RegExp(t('vaultDeleteOpaqueBody').slice(0, 30)))
 
     await click(dom, byText(dom, 'button', t('vaultDeleteConfirm')))
     assert.deepEqual(tileIds(dom), [])
