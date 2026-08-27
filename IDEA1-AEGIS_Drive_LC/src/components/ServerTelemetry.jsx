@@ -45,6 +45,14 @@ const STATE_META = {
  *
  * `loading` has no body copy: the chip already says it, and any sentence here
  * would be a statement about a source nothing has queried yet.
+ *
+ * `restricted` is currently unreachable from /api/telemetry: since the
+ * 2026-08-27 visibility decision the server sends every authenticated user the
+ * same approved host metrics and emits no `requires-admin` reason at all. The
+ * branch is kept anyway, because it is generic — it renders whatever the
+ * response says. Deleting it would mean that the day any metric is withheld
+ * again, the screen would call an authorization outcome a measurement failure,
+ * which is the one thing this component must never do.
  */
 const EMPTY_COPY = {
   loading: null,
@@ -72,6 +80,9 @@ const duration = (seconds) => (number(seconds) ? fmtCountdown(seconds * 1000) : 
 function metricState(id, metric, loading = false) {
   if (!metric) return loading ? 'loading' : 'unavailable'
   if (metric.available !== true) {
+    // Reason-driven, not role-driven: this component never asks who is looking.
+    // It reports what the response reported. See EMPTY_COPY on why the
+    // restricted branch survives a policy that no longer produces it.
     return metric.reason === 'requires-admin' ? 'restricted' : 'unavailable'
   }
   if (metric.stale === true) return 'stale'

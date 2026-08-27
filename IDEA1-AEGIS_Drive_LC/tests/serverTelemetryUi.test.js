@@ -102,12 +102,57 @@ test('TELEM-UI-11 loading never overrides a metric that already has a value', ()
   assert.doesNotMatch(html, /· Loading"/)
 })
 
-test('TELEM-UI-12 a metric withheld by role says so instead of claiming no source', () => {
+// ── TELEM-UI-12 · role no longer changes what these tiles show ────────
+// Product decision 2026-08-27: every authenticated Drive user receives the
+// approved host telemetry, so the normal response now renders identically for
+// a DataLake-User and an Admin. There is no role prop and never was — the
+// component renders the response it is handed — which is precisely why this
+// test asserts against the response an authenticated non-admin actually gets
+// from the server today (see tests/telemetryApi.test.js, TELEM-API-11).
+test('TELEM-UI-12 an authenticated user sees real CPU, RAM, network, and host uptime', () => {
+  const html = render(telemetry())
+
+  assert.match(html, /CPU · Normal/)
+  assert.match(html, /RAM · Normal/)
+  assert.match(html, /Network · Normal/)
+  assert.match(html, /System uptime · Normal/)
+
+  // The readings themselves, not just the chips.
+  assert.match(html, /37%/)               // CPU
+  assert.match(html, /2\.9 GB \/ 7\.8 GB/)  // RAM
+  assert.match(html, /2\.3 MB\/s/)         // network rx
+  assert.match(html, /enp1s0/)            // the approved interface
+  assert.match(html, /11d 0h/)            // host uptime
+  assert.match(html, /2h 00m/)            // Drive service uptime
+})
+
+test('TELEM-UI-12 the normal response shows no restricted state for any tile', () => {
+  const html = render(telemetry())
+
+  // The screen must no longer tell an ordinary user that a measured value is
+  // being kept from them, because it is not.
+  assert.doesNotMatch(html, /· Restricted/)
+  assert.doesNotMatch(html, /Requires an Admin role/)
+  assert.doesNotMatch(html, /requires-admin/)
+})
+
+// The restricted rendering itself is kept as a defensive contract, not as a
+// description of the current API: nothing in /api/telemetry emits
+// `requires-admin` any more. If a future policy withholds some metric again,
+// the tile must still say "not shown to your account" rather than the untrue
+// "could not be measured" — that distinction is the component's whole purpose,
+// so it stays covered even though the server no longer exercises it.
+test('TELEM-UI-12 a withheld metric would still be distinguished from an unmeasurable one', () => {
   const html = render(telemetry({
     cpu: { available: false, reason: 'requires-admin' },
+    memory: { available: false },
   }))
+
   assert.match(html, /CPU · Restricted/)
   assert.match(html, /Requires an Admin role/)
+  // The unmeasurable one keeps its own, different story.
+  assert.match(html, /RAM · Unavailable/)
+  assert.match(html, /No telemetry source connected/)
 })
 
 // ── the pre-existing contract, unchanged ──────────────────────────────
@@ -245,6 +290,19 @@ test('TELEM-UI-9 stale host metrics are visibly distinguishable from fresh ones'
   // A Drive-local metric measured just now must not inherit the host's age.
   assert.match(stale, /25%/)
   assert.equal((stale.match(/>Stale</g) ?? []).length, 2, 'only the stale metrics are labelled')
+})
+
+// ── TELEM-UI-13 · Twingate stays truthful ─────────────────────────────
+// Widening host-metric visibility did not connect a Twingate source. The tile
+// must never read Online, Connected, or Reachable while none exists.
+test('TELEM-UI-13 the Twingate tile claims no connection for any authenticated user', () => {
+  const html = render(telemetry())
+
+  assert.match(html, /Twingate · Unavailable/)
+  assert.match(html, /No telemetry source connected/)
+  for (const claim of [/>Online</, />Connected</, />Reachable</]) {
+    assert.doesNotMatch(html, claim, 'no approved connector source exists')
+  }
 })
 
 // ── TELEM-UI-10 · localization ────────────────────────────────────────

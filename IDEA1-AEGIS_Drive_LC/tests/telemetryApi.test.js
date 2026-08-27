@@ -113,63 +113,51 @@ test('TELEM-API-2 an authenticated request succeeds', async () => {
   )
 })
 
-// ── TELEM-API-11 · host counters are Admin-scoped ─────────────────────
-// A DataLake-User keeps exactly what Drive already showed them elsewhere: Data
-// Lake capacity (also on /api/storage) and Drive's own process uptime. Host
-// counters are not theirs: RAM size, live CPU, the NIC name, throughput and
-// host uptime together describe the machine, and host uptime in particular
-// discloses the patch window. Withheld is reported with its own reason so the
-// screen can say "not available to your role" instead of the untrue
-// "could not be measured".
-test('TELEM-API-11 a non-admin user reads Drive-measured telemetry only', async () => {
+// ── TELEM-API-11 · approved host telemetry is visible to every session ─
+// Product decision 2026-08-27. The V1 policy withheld CPU, RAM, network and
+// host uptime from a DataLake-User with `reason: 'requires-admin'`; the new
+// policy is that authentication alone earns the approved host counters, and
+// `requireAuth` is the entire boundary.
+//
+// What did NOT move: the response allowlist. "Who sees it" changed, "what is in
+// it" did not, so the assertions below check both halves — a DataLake-User must
+// receive the host metrics AND must receive nothing an Admin does not.
+test('TELEM-API-11 an authenticated non-admin reads the approved host telemetry', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
   const user = new Client(baseUrl)
   await performLogin(user, DEMO_USER.username, DEMO_USER.password)
   const res = await user.req('/api/telemetry')
 
-  assert.equal(res.status, 200, 'a non-admin still gets a response, not a 403')
+  assert.equal(res.status, 200)
   for (const name of ['cpu', 'memory', 'network']) {
-    assert.equal(res.data.metrics[name].available, false, `${name} must be withheld`)
-    assert.equal(res.data.metrics[name].reason, 'requires-admin')
+    assert.equal(res.data.metrics[name].available, true, `${name} must be readable`)
+    assert.equal(
+      res.data.metrics[name].reason, undefined,
+      `${name} must no longer carry a requires-admin reason`,
+    )
   }
-  assert.equal(res.data.metrics.uptime.host.available, false)
-  assert.equal(res.data.metrics.uptime.host.reason, 'requires-admin')
+  assert.equal(res.data.metrics.cpu.percent, 12.5)
+  assert.equal(res.data.metrics.memory.totalBytes, 8_333_651_968)
+  assert.equal(res.data.metrics.network.interface, 'enp1s0')
+  assert.equal(res.data.metrics.uptime.host.available, true)
+  assert.equal(res.data.metrics.uptime.host.seconds, 86_400.55)
 
-  // What a DataLake-User keeps.
+  // What a DataLake-User already had must not have regressed.
   assert.equal(res.data.metrics.disk.available, true)
   assert.equal(res.data.metrics.uptime.service.available, true)
   assert.ok(res.data.metrics.uptime.service.seconds >= 0)
 })
 
-test('TELEM-API-11 no host value survives anywhere in a non-admin response', async () => {
+test('TELEM-API-11 the response body no longer contains requires-admin anywhere', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
   const user = new Client(baseUrl)
   await performLogin(user, DEMO_USER.username, DEMO_USER.password)
   const { data } = await user.req('/api/telemetry')
 
-  // Two complementary checks, because neither alone is both sound and complete.
-  //
-  // 1) Structural: a withheld metric carries the availability flag and the
-  //    reason, and nothing else. This is what actually proves no number leaked,
-  //    including numbers this test did not think to name.
-  for (const name of ['cpu', 'memory', 'network']) {
-    assert.deepEqual(
-      Object.keys(data.metrics[name]).sort(), ['available', 'reason'],
-      `metrics.${name} must carry no value of any kind`,
-    )
-  }
-  assert.deepEqual(Object.keys(data.metrics.uptime.host).sort(), ['available', 'reason'])
-
-  // 2) Substring: only for values distinctive enough that a match cannot be a
-  //    coincidence. Short numerics from the snapshot (12.5, 1024, 512) are
-  //    deliberately NOT scanned for — they occur inside the real statfs byte
-  //    counts this response legitimately carries, which would make the
-  //    assertion fail at random. That is the same flake shape recorded for
-  //    TELEM-SOCKET-5, and the structural check above already covers them.
-  const body = JSON.stringify(data)
-  for (const leak of ['enp1s0', '8333651968', '3150000000', '86400.55']) {
-    assert.equal(body.includes(leak), false, `a non-admin response must not contain ${leak}`)
-  }
+  assert.equal(
+    JSON.stringify(data).includes('requires-admin'), false,
+    'a withheld-by-role state is not part of the current contract',
+  )
 })
 
 test('TELEM-API-11 an Admin still receives the full host contract', async () => {
@@ -181,18 +169,61 @@ test('TELEM-API-11 an Admin still receives the full host contract', async () => 
   assert.equal(res.data.metrics.network.available, true)
   assert.equal(res.data.metrics.network.interface, 'enp1s0')
   assert.equal(res.data.metrics.uptime.host.available, true)
+  assert.equal(res.data.metrics.disk.available, true)
+  assert.equal(res.data.metrics.uptime.service.available, true)
 })
 
-test('TELEM-API-11 withholding is not reported as a measurement failure', async () => {
+// The point of the policy change is equal visibility, not wider visibility.
+// Comparing the two responses structurally is what proves a DataLake-User was
+// not handed some broader host view of its own — including keys neither this
+// test nor the allowlist test thought to name.
+test('TELEM-API-11 admin and non-admin receive the identical telemetry schema', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+
+  const adminBody = (await admin.req('/api/telemetry')).data
+  const userBody = (await user.req('/api/telemetry')).data
+
+  const shape = (value) => {
+    if (Array.isArray(value)) return value.map(shape)
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shape(value[k])]))
+    }
+    return typeof value
+  }
+  assert.deepEqual(shape(userBody), shape(adminBody), 'the two roles share one schema')
+
+  // The host half comes from one snapshot, so the values must match too. Only
+  // Drive's own process uptime advances between the two requests, and the
+  // response timestamp differs — those are the two legitimate differences.
+  assert.deepEqual(userBody.metrics.cpu, adminBody.metrics.cpu)
+  assert.deepEqual(userBody.metrics.memory, adminBody.metrics.memory)
+  assert.deepEqual(userBody.metrics.network, adminBody.metrics.network)
+  assert.deepEqual(userBody.metrics.uptime.host, adminBody.metrics.uptime.host)
+  assert.deepEqual(userBody.metrics.twingate, adminBody.metrics.twingate)
+})
+
+test('TELEM-API-11 a healthy agent reads ok for a non-admin too', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
   const user = new Client(baseUrl)
   await performLogin(user, DEMO_USER.username, DEMO_USER.password)
   const res = await user.req('/api/telemetry')
 
-  // `ok` answers "was everything this caller is entitled to actually measured".
-  // A healthy agent the user is simply not shown must not read as degraded.
-  assert.equal(res.data.ok, true, 'a complete in-scope response is ok')
+  assert.equal(res.data.ok, true)
   assert.equal(res.data.stale, false)
+})
+
+// ── TELEM-API-11 · what authentication still gates ────────────────────
+// Visibility widened to every session; it did not widen to no session.
+test('TELEM-API-11 a non-admin response is still refused without a session', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const anonymous = new Client(baseUrl)
+  const res = await anonymous.req('/api/telemetry')
+
+  assert.equal(res.status, 401)
+  assert.equal(res.data.metrics, undefined)
+  assert.equal(JSON.stringify(res.data).includes('enp1s0'), false)
 })
 
 test('TELEM-API-3 a healthy agent is normalized into the Drive contract', async () => {
@@ -331,20 +362,46 @@ test('TELEM-API-9 Twingate is explicitly unavailable with a stated reason', asyn
   assert.equal(data.ok, true)
 })
 
+test('TELEM-API-9 Twingate is equally unavailable for a non-admin', async () => {
+  // The visibility change does not invent a connector source that still does
+  // not exist. Nothing may read Online, Connected, or Reachable for any role.
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+  const { data } = await user.req('/api/telemetry')
+
+  assert.deepEqual(data.metrics.twingate, {
+    available: false,
+    scope: 'server-connector',
+    status: 'unavailable',
+    reason: 'no-approved-source',
+  })
+})
+
 // ── TELEM-API-10 ──────────────────────────────────────────────────────
 test('TELEM-API-10 telemetry responses are never cached', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
-  const res = await admin.req('/api/telemetry')
-  assert.equal(res.headers.get('cache-control'), 'no-store')
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+
+  for (const [role, client] of [['admin', admin], ['datalake-user', user]]) {
+    const res = await client.req('/api/telemetry')
+    assert.equal(res.headers.get('cache-control'), 'no-store', `${role}: a cached copy is an untrue copy`)
+  }
 })
 
 // ── audit hygiene ─────────────────────────────────────────────────────
 test('polling telemetry does not write an audit event per request', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
+  // A DataLake-User's Dashboard now reaches the host agent on every poll, so
+  // the account that could most easily flood the audit log is included here.
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
   const before = (await readAudit(200)).length
 
   for (let i = 0; i < 8; i += 1) {
     assert.equal((await admin.req('/api/telemetry')).status, 200)
+    assert.equal((await user.req('/api/telemetry')).status, 200)
   }
 
   const after = (await readAudit(200)).length
@@ -352,9 +409,13 @@ test('polling telemetry does not write an audit event per request', async () => 
 })
 
 // ── TELEM-11D / TELEM-12 · response allowlist ─────────────────────────
+// Checked for both roles since 2026-08-27: widening visibility must not widen
+// the allowlist, so the DataLake-User response is held to exactly the same set
+// of approved keys as the Admin one.
 test('TELEM-12 the response carries only approved telemetry keys', async () => {
   await useFakeAgent(respondWith(hostSnapshot()))
-  const { data } = await admin.req('/api/telemetry')
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
 
   const allowed = {
     cpu: ['available', 'percent', 'windowSeconds', 'stale'],
@@ -364,28 +425,47 @@ test('TELEM-12 the response carries only approved telemetry keys', async () => {
     twingate: ['available', 'scope', 'status', 'reason'],
     uptime: ['available', 'host', 'service'],
   }
-  for (const [name, keys] of Object.entries(allowed)) {
-    for (const key of Object.keys(data.metrics[name])) {
-      assert.ok(keys.includes(key), `metrics.${name}.${key} is not an approved telemetry key`)
+  for (const [role, client] of [['admin', admin], ['datalake-user', user]]) {
+    const { data } = await client.req('/api/telemetry')
+    assert.deepEqual(
+      Object.keys(data.metrics).sort(),
+      ['cpu', 'disk', 'memory', 'network', 'twingate', 'uptime'],
+      `${role}: no metric may be added or dropped`,
+    )
+    for (const [name, keys] of Object.entries(allowed)) {
+      for (const key of Object.keys(data.metrics[name])) {
+        assert.ok(keys.includes(key), `${role}: metrics.${name}.${key} is not an approved telemetry key`)
+      }
     }
+    assert.deepEqual(
+      Object.keys(data.metrics.uptime.host).sort(), ['available', 'seconds', 'stale'],
+      `${role}: host uptime carries the boot age and nothing else`,
+    )
   }
 })
 
 test('TELEM-11D the response leaks no environment, user, container, or path detail', async () => {
   process.env.AEGIS_TELEMETRY_API_CANARY = 'canary-must-not-appear'
   await useFakeAgent(respondWith(hostSnapshot()))
-  const res = await admin.req('/api/telemetry')
-  const body = JSON.stringify(res.data)
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
 
-  for (const needle of [
-    'canary-must-not-appear', os.hostname(), os.userInfo().username,
-    process.cwd(), STORAGE_ROOT, process.env.AEGIS_TELEMETRY_SOCKET,
-  ]) {
-    if (!needle) continue
-    assert.ok(!body.includes(needle), `response must not contain ${JSON.stringify(needle)}`)
-  }
-  for (const word of ['password', 'token', 'secret', 'docker', 'container', 'csrf', 'session', '/datalake', '/proc', '/sys']) {
-    assert.ok(!body.toLowerCase().includes(word.toLowerCase()), `response must not mention ${word}`)
+  // Both roles: the account that newly gained host visibility is exactly the
+  // one this assertion most needs to cover.
+  for (const [role, client] of [['admin', admin], ['datalake-user', user]]) {
+    const res = await client.req('/api/telemetry')
+    const body = JSON.stringify(res.data)
+
+    for (const needle of [
+      'canary-must-not-appear', os.hostname(), os.userInfo().username,
+      process.cwd(), STORAGE_ROOT, process.env.AEGIS_TELEMETRY_SOCKET,
+    ]) {
+      if (!needle) continue
+      assert.ok(!body.includes(needle), `${role}: response must not contain ${JSON.stringify(needle)}`)
+    }
+    for (const word of ['password', 'token', 'secret', 'docker', 'container', 'csrf', 'session', '/datalake', '/proc', '/sys']) {
+      assert.ok(!body.toLowerCase().includes(word.toLowerCase()), `${role}: response must not mention ${word}`)
+    }
   }
   delete process.env.AEGIS_TELEMETRY_API_CANARY
 })
@@ -406,6 +486,28 @@ test('TELEM-11F the browser cannot choose a path, an interface, or an agent', as
     assert.equal(res.status, 200)
     // The query string must be inert: same interface, same disk scope.
     assert.equal(res.data.metrics.network.interface, baseline.metrics.network.interface)
+    assert.equal(res.data.metrics.disk.scope, 'datalake')
+  }
+})
+
+test('TELEM-11F a non-admin cannot select an interface, path, socket, or root either', async () => {
+  await useFakeAgent(respondWith(hostSnapshot()))
+  const user = new Client(baseUrl)
+  await performLogin(user, DEMO_USER.username, DEMO_USER.password)
+  const baseline = (await user.req('/api/telemetry')).data
+
+  for (const query of [
+    '?interface=eth0',
+    '?path=/etc/passwd',
+    '?socket=/var/run/docker.sock',
+    '?agent=http://127.0.0.1:9999',
+    '?root=/',
+    '?scope=host',
+  ]) {
+    const res = await user.req(`/api/telemetry${query}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.data.metrics.network.interface, baseline.metrics.network.interface)
+    assert.equal(res.data.metrics.network.interface, 'enp1s0')
     assert.equal(res.data.metrics.disk.scope, 'datalake')
   }
 })

@@ -337,6 +337,69 @@ not been installed, deployed, or accepted anywhere.
 
 Recorded in [[90-Status/logs/2026-08-27_023247_kla_idea1-server-telemetry-v1-integration]].
 
+### Dashboard telemetry visibility policy (2026-08-27)
+
+`TELEMETRY_VISIBILITY_POLICY = ALL AUTHENTICATED DRIVE USERS`
+
+`IMPLEMENTATION = SOURCE + TESTS / LOCALLY VERIFIED / NOT DEPLOYED`
+
+An explicit product decision replaced the RBAC contract that Server Telemetry V1
+shipped with. It is a server-side policy change, not a frontend presentation
+change: the Dashboard was already rendering whatever the API reported.
+
+**OLD** — host metrics were Admin-only. `GET /api/telemetry` called
+`buildTelemetry({ includeHostMetrics: req.user.role === ROLES.ADMIN })`, so a
+DataLake-User received `available: false` with `reason: 'requires-admin'` for
+CPU, RAM, network and host uptime, and the tiles read **Restricted / Requires an
+Admin role**.
+
+**NEW** — approved host telemetry is visible to every authenticated Drive user.
+CPU, RAM, network throughput with the already-approved interface name, host
+uptime, Data Lake disk capacity and Drive service uptime are returned to Admin
+and DataLake-User alike. `requireAuth` is now the entire authorization boundary
+for this endpoint, enforced once at the route. The role-conditional branch and
+the `requires-admin` reason were removed from `server/telemetry/index.js` rather
+than merely left defaulted, so one code path serves both roles and the two
+responses are provably identical in shape.
+
+**UNCHANGED** — anonymous callers still receive **401**. The response allowlist
+is still exactly the V1 schema: no telemetry field was added, and a
+DataLake-User receives the same approved keys as an Admin, never a broader host
+view. The agent keeps its dedicated `aegis-telemetry` user/group at fixed GID
+`29100`, Unix socket only, no TCP listener, no privileged container, no Docker
+socket, no host PID namespace, no host `/proc` or `/sys` mount into Drive, and a
+read-only telemetry bind. Client timeout and staleness behavior,
+`Cache-Control: no-store`, and the no-audit-row-per-poll rule are untouched. The
+browser still cannot select an interface, host path, socket, agent, or
+filesystem root. Twingate remains `available: false`,
+`scope: server-connector`, `status: unavailable`, `reason: no-approved-source` —
+future scope and non-blocking; no connector source was implemented or implied.
+
+One accepted consequence: every authenticated Dashboard poll now opens the agent
+socket, where previously only an Admin's did. The agent answers from an
+in-memory snapshot behind the existing 1500 ms client ceiling, so the added work
+is bounded and local, but it is a real load change and is called out here rather
+than discovered later.
+
+The generic **Restricted** rendering in `ServerTelemetry.jsx` and its three
+localized strings were deliberately kept. Nothing in the current API produces
+`requires-admin`, but the branch is reason-driven rather than role-driven: if a
+future policy withholds a metric again, the screen must still say "not shown to
+your account" instead of the untrue "could not be measured". It is covered by a
+test that documents it as a defensive contract, not as current behavior.
+
+**Local verification:** IDEA1 suite **288 pass, 0 fail, 19 pre-existing
+`TEST_DATABASE_URL` skips** (307 discovered); `telemetryApi.test.js` **25/25**;
+`serverTelemetryUi.test.js` **20/20**; repository-root policy suite **53/53**;
+production build passed.
+
+**Not verified in this task:** nothing was deployed, rebuilt, or accepted on the
+production server, and no live `/api/telemetry` response from a real
+DataLake-User session was observed. Production acceptance of the new policy is a
+separate gate.
+
+Recorded in [[90-Status/logs/2026-08-27_181500_kla_idea1-dashboard-telemetry-authenticated-visibility]].
+
 ### Data-honesty and empty-state behavior
 
 The current UI design distinguishes a usable but empty data source from a failed or unavailable dependency:
