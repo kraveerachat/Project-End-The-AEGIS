@@ -291,14 +291,20 @@ Server Telemetry is part of the current Dashboard design, **not** a claim that a
 
 ### Server Telemetry V1 implementation (2026-08-27)
 
-`SERVER_TELEMETRY_V1_IMPLEMENTATION = IMPLEMENTED / LOCALLY VERIFIED / NOT DEPLOYED`
+`SERVER_TELEMETRY_V1_IMPLEMENTATION = IMPLEMENTED / PRODUCTION DEPLOYED / PRODUCTION ACCEPTED`
 
-`PRODUCTION_DEPLOYMENT = NOT PERFORMED`. `PRODUCTION_ACCEPTANCE = NOT STARTED`.
-Server Telemetry production availability remains **unclaimed**; the paragraph
-above continues to govern what may be shown until a deployment task closes it.
+`SERVER_TELEMETRY_PRODUCTION_ACCEPTANCE = PASS`
 
-A data source now exists in the repository and passes local verification. It has
-not been installed, deployed, or accepted anywhere.
+`RUNTIME_DIRECTORY_PERSISTENCE = PASS`
+
+`AGENT_ACTIVE = YES`. `AGENT_ENABLED = YES`.
+
+`BOOT_ENABLE = CONFIGURED_AND_VERIFIED`. `REBOOT_ACCEPTANCE = NOT_PERFORMED`.
+
+The original local-only implementation record is historical. PR #35 source
+commit `cee711c476cc7cddc597a44827752e811d956f35` merged to `main` as
+`47342b46a7fe14276a15ea24341ecb26497d2277`, and the production deployment and
+controlled persistence acceptance completed on 2026-08-27.
 
 * A dedicated least-privilege host agent (`shared/host-telemetry-agent/`) reads
   five allowlisted files — `/proc/stat`, `/proc/meminfo`, `/proc/uptime`, and the
@@ -322,26 +328,41 @@ not been installed, deployed, or accepted anywhere.
   `used = total - bavail`, so root-reserved blocks count as used and
   `used + free == total`. These already governed `/api/storage` and
   `/api/dashboard`; they are now documented in code and pinned by tests.
-* **Local verification:** IDEA1 suite **274/274 pass, 0 fail** (19 pre-existing
-  `TEST_DATABASE_URL` skips); host agent suite **51 pass, 0 fail, 3 skipped**;
-  repository-root suite **53/53 pass**; production build passed.
-* **Not verified:** the three skipped agent tests need a real `AF_UNIX` socket
-  file and must be run on Linux; no systemd directive has been executed, so
-  `systemd-analyze verify`/`security` and the host smoke test in
-  `shared/host-telemetry-agent/deploy/README.md` remain required and unrun.
-* Deployment packaging is prepared but **not installed**. The proposed Drive
-  delta is bounded to `group_add: ["29100"]` plus the read-only bind
-  `/run/aegis-telemetry:/run/aegis-telemetry:ro`, and awaits integration review
-  (`shared/host-telemetry-agent/deploy/production-delta.md`). No Compose,
-  gateway, firewall, Twingate, MikroTik, database, or Monitor change was made.
+* **Production persistence checkpoints:** C1 source sync, C2 merged systemd
+  unit installation, C3 `systemd-analyze verify` plus daemon reload, C4
+  controlled stop/start without Drive recreation, C5 client/API/security/health
+  acceptance, and C6 boot-enable configuration all passed.
+* **Permanent runtime-directory fix:** the installed unit uses
+  `RuntimeDirectoryPreserve=yes`. During the controlled service stop followed
+  by start, `/run/aegis-telemetry` retained the directory inode and the Unix
+  socket returned inside the already-running Drive container without recreating
+  Drive. This closes the stale runtime-directory bind regression.
+* **Boot boundary:** the agent is active and enabled, and boot enable is
+  configured and verified. No actual machine reboot acceptance was performed;
+  `REBOOT_ACCEPTANCE` remains **NOT PERFORMED**.
+* **Least privilege retained:** Drive runs as `USER=node`, is not privileged,
+  joins supplementary GID `29100`, and mounts `/run/aegis-telemetry` read-only.
+  There is no Docker socket, privileged container, host PID namespace, host
+  `/proc` or `/sys` mount, or new TCP listener.
+* **Twingate boundary:** remote access is operational, but Connector telemetry
+  still has no approved source. The truthful payload remains
+  `available=false`, `scope=server-connector`, `status=unavailable`, and
+  `reason=no-approved-source`; this is future scope, not a Dashboard defect.
 
-Recorded in [[90-Status/logs/2026-08-27_023247_kla_idea1-server-telemetry-v1-integration]].
+Historical implementation evidence remains in
+[[90-Status/logs/2026-08-27_023247_kla_idea1-server-telemetry-v1-integration]]
+and the persistence-fix implementation in
+[[90-Status/logs/2026-08-27_155951_kla_idea1-telemetry-runtime-directory-persistence]].
+Current production closure is recorded in
+[[90-Status/logs/2026-08-27_201226_kla_idea1-dashboard-production-closure]].
 
 ### Dashboard telemetry visibility policy (2026-08-27)
 
 `TELEMETRY_VISIBILITY_POLICY = ALL AUTHENTICATED DRIVE USERS`
 
-`IMPLEMENTATION = SOURCE + TESTS / LOCALLY VERIFIED / NOT DEPLOYED`
+`DASHBOARD_AUTHENTICATED_VISIBILITY_PRODUCTION_ACCEPTANCE = PASS`
+
+`PAGE_01_DASHBOARD = PASS / CLOSED`
 
 An explicit product decision replaced the RBAC contract that Server Telemetry V1
 shipped with. It is a server-side policy change, not a frontend presentation
@@ -388,17 +409,45 @@ future policy withholds a metric again, the screen must still say "not shown to
 your account" instead of the untrue "could not be measured". It is covered by a
 test that documents it as a defensive contract, not as current behavior.
 
-**Local verification:** IDEA1 suite **288 pass, 0 fail, 19 pre-existing
+**Historical local verification:** IDEA1 suite **288 pass, 0 fail, 19 pre-existing
 `TEST_DATABASE_URL` skips** (307 discovered); `telemetryApi.test.js` **25/25**;
 `serverTelemetryUi.test.js` **20/20**; repository-root policy suite **53/53**;
 production build passed.
 
-**Not verified in this task:** nothing was deployed, rebuilt, or accepted on the
-production server, and no live `/api/telemetry` response from a real
-DataLake-User session was observed. Production acceptance of the new policy is a
-separate gate.
+**Production deployment chronology:** PR #36 source commit
+`3cee6df` merged to `main` as `499060637fabb8f7c829724fb874e38411c919e3`.
+Production source was synchronized to that merged `main` state. The previous
+Drive image was `sha256:9595...` and was retained under rollback tag
+`aegis-prod-drive:rollback-dashboard-pr36-20260827_105003`; the accepted Drive
+image is `sha256:66334...`. Deployment recreated Drive only. HUB, Monitor and
+PostgreSQL were not recreated and remained healthy.
 
-Recorded in [[90-Status/logs/2026-08-27_181500_kla_idea1-dashboard-telemetry-authenticated-visibility]].
+**Production authorization and schema acceptance:** unauthenticated access to
+`GET /api/telemetry` returned **401**. Authenticated Admin and DataLake-User
+requests both returned **200** with the same approved schema and usable CPU,
+RAM, network throughput for `enp1s0`, host uptime, Drive uptime and Data Lake
+disk values. Neither authenticated role received `requires-admin`. Eight Admin
+polls and eight DataLake-User polls all returned **200**, and the polling run
+created no audit events. A production browser session under DataLake-User showed
+real Dashboard values and no **Restricted** state.
+
+**Post-deployment runtime acceptance:** the host and Drive both observed runtime
+directory inode `903027`, and the telemetry socket was visible from the
+already-running Drive container. The Drive container remained `USER=node`,
+non-privileged, with supplementary GID `29100` and a read-only runtime bind. It
+still has no Docker socket, host PID namespace, host `/proc` or `/sys` mount, or
+new TCP listener.
+
+**Closure:** the authenticated telemetry visibility policy and Page 01
+Dashboard are **VERIFIED IN PRODUCTION / PASS / CLOSED**. Twingate remote access
+remains operational, while Connector telemetry remains unavailable because no
+approved source exists; implementing such a source is future work and is not a
+Dashboard acceptance failure.
+
+Historical implementation evidence is recorded in
+[[90-Status/logs/2026-08-27_181500_kla_idea1-dashboard-telemetry-authenticated-visibility]].
+Current production closure is recorded in
+[[90-Status/logs/2026-08-27_201226_kla_idea1-dashboard-production-closure]].
 
 ### Data-honesty and empty-state behavior
 
