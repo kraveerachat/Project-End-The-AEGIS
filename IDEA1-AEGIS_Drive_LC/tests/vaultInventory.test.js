@@ -95,17 +95,25 @@ test('a failed upload leaves no ghost: nothing was added, so nothing renders', (
 })
 
 test('the locked view of a blob carries no plaintext field at all', () => {
-  const entry = lockedVaultEntry({ id: 'a', size: 4096, metaB64: 'ciphertext', name: 'secret.gif' })
-  assert.deepEqual(Object.keys(entry).sort(), ['blob', 'id', 'name', 'size'])
+  const entry = lockedVaultEntry({
+    id: 'a', size: 4096, createdAt: 1_756_000_000_000, metaB64: 'ciphertext',
+    // Neither of these may survive, however they got attached to the record.
+    name: 'secret.gif', type: 'image/gif',
+  })
+  assert.deepEqual(Object.keys(entry).sort(), ['blob', 'createdAt', 'id', 'name', 'size', 'type'])
   assert.equal(entry.name, null, 'the locked view has no filename, even if one is handed in')
+  assert.equal(entry.type, null, 'and no MIME type — which is also why nothing is previewable while locked')
   assert.equal(entry.size, 4096, 'size is the ciphertext size the server measured')
   assert.equal(entry.plainSize, undefined, 'plaintext size is not knowable while locked')
+  assert.equal(entry.createdAt, 1_756_000_000_000, 'the row timestamp is the server\u2019s own fact, not a decrypted one')
 
-  const serialised = JSON.stringify({ id: entry.id, name: entry.name, size: entry.size })
+  const serialised = JSON.stringify({ ...entry, blob: undefined })
   assert.doesNotMatch(serialised, /secret\.gif/, 'the rendered locked identity cannot leak the filename')
+  assert.doesNotMatch(serialised, /image\/gif/, 'nor the MIME type')
 })
 
-test('a blob missing a size still renders a locked identity instead of crashing', () => {
+test('a blob missing a size or a timestamp still renders a locked identity instead of crashing', () => {
   assert.equal(lockedVaultEntry({ id: 'a' }).size, 0)
+  assert.equal(lockedVaultEntry({ id: 'a' }).createdAt, null, 'an absent timestamp is absent, not invented')
   assert.equal(lockedVaultEntry(null).id, null)
 })

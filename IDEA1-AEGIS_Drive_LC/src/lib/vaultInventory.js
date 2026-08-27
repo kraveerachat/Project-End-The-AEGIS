@@ -76,6 +76,21 @@ export function tombstoneVaultBlob(removedIds, id) {
 
 /**
  * มุมมอง "ล็อกอยู่" ของ blob — สิ่งที่ระบบเห็นจริงโดยไม่ต้องมี KEK
+ *
  * ⚠️ ห้ามเติมฟิลด์ใดที่มาจาก plaintext ลงในค่าที่คืนจากฟังก์ชันนี้
+ *
+ * `name` และ `type` ถูกตั้งเป็น null "อย่างตั้งใจ" ไม่ใช่ปล่อยให้ขาดหาย: จอที่อ่านค่านี้
+ * จะได้เจอ null ตรง ๆ แทนที่จะเจอ undefined ที่แยกไม่ออกว่า "ไม่มี" หรือ "ลืมส่ง"
+ * และถ้าใครเผลอส่ง blob ที่มีชื่อไฟล์ติดมา ค่านั้นจะถูกทิ้งที่บรรทัดนี้
+ *
+ * `createdAt` เป็นข้อมูลฝั่งเซิร์ฟเวอร์ล้วน (เวลาที่แถวถูกบันทึก) ไม่ได้มาจากการถอดรหัส
+ * จึงแสดงได้ขณะล็อกโดยไม่ผิดสัญญา zero-knowledge — เซิร์ฟเวอร์รู้เวลานี้อยู่แล้ว
  */
-export const lockedVaultEntry = (blob) => ({ id: vaultBlobId(blob), name: null, size: blob?.size ?? 0, blob })
+export const lockedVaultEntry = (blob) => ({
+  id: vaultBlobId(blob),
+  name: null,
+  type: null,
+  size: blob?.size ?? 0,
+  createdAt: blob?.createdAt ?? null,
+  blob,
+})

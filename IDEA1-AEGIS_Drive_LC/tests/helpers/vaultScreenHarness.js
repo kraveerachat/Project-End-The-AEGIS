@@ -27,16 +27,21 @@ export async function startVaultScreenEnv() {
   Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-  // The download path calls bare `URL.createObjectURL`, which in an SSR-loaded
-  // module resolves to Node's global URL, not jsdom's. Patch both so the test
-  // observes the same call the browser would make.
+  // The download and preview paths call bare `URL.createObjectURL`, which in an
+  // SSR-loaded module resolves to Node's global URL, not jsdom's. Patch both so
+  // the test observes the same call the browser would make.
+  //
+  // Revocations are recorded, not swallowed: an object URL that is never revoked
+  // is decrypted plaintext the tab keeps alive, so "was it revoked, and when" is
+  // a security assertion the preview suite has to be able to make.
   const objectUrls = []
+  const revokedUrls = []
   const createObjectURL = () => {
     const url = `blob:mock/${objectUrls.length}`
     objectUrls.push(url)
     return url
   }
-  const revokeObjectURL = () => {}
+  const revokeObjectURL = (url) => { revokedUrls.push(url) }
   const restoreUrl = { create: globalThis.URL.createObjectURL, revoke: globalThis.URL.revokeObjectURL }
   globalThis.URL.createObjectURL = createObjectURL
   globalThis.URL.revokeObjectURL = revokeObjectURL
@@ -75,6 +80,23 @@ export async function startVaultScreenEnv() {
     dom,
     Vault,
     objectUrls,
+    revokedUrls,
+    /**
+     * Scope the object-URL ledger to what happens next.
+     *
+     * The ledger is per-environment and every suite shares one environment, so a
+     * bare "nothing is live" assertion would also indict URLs left over from an
+     * earlier test — the download path revokes on a 10s timer that no test waits
+     * out. Snapshot immediately before the interaction under test and assert on
+     * `live()`, which reports only URLs created after the snapshot.
+     */
+    trackObjectUrls() {
+      const from = objectUrls.length
+      return {
+        created: () => objectUrls.slice(from),
+        live: () => objectUrls.slice(from).filter((url) => !revokedUrls.includes(url)),
+      }
+    },
     async stop() {
       globalThis.URL.createObjectURL = restoreUrl.create
       globalThis.URL.revokeObjectURL = restoreUrl.revoke
