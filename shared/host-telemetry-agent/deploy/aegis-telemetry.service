@@ -44,14 +44,20 @@ Environment=AEGIS_TELEMETRY_INTERVAL_MS=5000
 Environment=NODE_ENV=production
 
 # ── socket directory ──────────────────────────────────────────────────
-# systemd creates /run/aegis-telemetry owned by aegis-telemetry:aegis-telemetry
-# and removes it on stop.
+# systemd creates /run/aegis-telemetry owned by aegis-telemetry:aegis-telemetry.
+# Drive bind-mounts this directory, so its inode must survive a separate service
+# stop followed by start. Otherwise Docker remains attached to the removed inode
+# and cannot see the socket created in the replacement directory.
 #   0750 — owner rwx; group r-x so Drive (added to GID 29100) can traverse to
 #          the socket; nothing at all for other users on the host.
 #   UMask 0007 — the socket is created 0660 by default, matching the explicit
 #          chmod the agent performs after binding.
 RuntimeDirectory=aegis-telemetry
 RuntimeDirectoryMode=0750
+# `restart` covers systemctl restart but not separate stop/start operations.
+# `yes` preserves the inode across both; /run remains tmpfs and is cleared at
+# host reboot, and an operator can still use systemctl clean when appropriate.
+RuntimeDirectoryPreserve=yes
 UMask=0007
 
 # ── privileges ────────────────────────────────────────────────────────

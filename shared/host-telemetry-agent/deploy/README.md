@@ -41,6 +41,24 @@ free inside the Drive image.
 group (which Drive joins) can read it, and no other account on the host can
 reach host metrics.
 
+### Runtime-directory lifetime and the Drive bind mount
+
+The service sets `RuntimeDirectoryPreserve=yes`. This is required because Drive
+bind-mounts `/run/aegis-telemetry` read-only. A bind mount follows the directory
+inode that existed when the container was created; if systemd removes that
+directory during `systemctl stop` and creates a new one during a later
+`systemctl start`, the running Drive container remains attached to the removed
+inode and cannot see the new `telemetry.sock`.
+
+`RuntimeDirectoryPreserve=restart` is intentionally not used. In systemd 259 it
+preserves the directory for automatic restart and `systemctl restart`, but not
+for a separate stop followed by start—the lifecycle that exposed this defect.
+The `yes` value keeps the same directory inode across both forms. This does not
+make runtime state persistent across a host reboot: `/run` is `tmpfs` and is
+cleared at reboot. Operators can explicitly remove the managed directory with
+`systemctl clean aegis-telemetry.service` when the service is stopped and no
+running Drive container depends on that bind.
+
 ## Hardening: why each directive is there
 
 Every directive in the unit leaves the five required reads working. The ones
