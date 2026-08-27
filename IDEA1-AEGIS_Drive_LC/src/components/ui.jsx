@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
@@ -216,17 +216,51 @@ export function PillSelect({ className = '', children, ...rest }) {
 }
 
 /* ── Modal — solid scrim, NO backdrop blur ───────────────────────── */
+
+/* ลำดับการเลือกเป้าหมายโฟกัสแรก: ตัวที่หน้าจอ "ระบุเอง" มาก่อนเสมอ แล้วค่อยเป็น
+   ช่องกรอกจริงตัวแรก — ปุ่มปิดมุมขวาบนเป็นทางเลือกสุดท้าย ไม่ใช่ผู้ชนะเพียงเพราะ
+   มันถูก render ก่อนใน DOM */
+const MODAL_AUTOFOCUS_MARKER = '[data-modal-autofocus]:not([disabled])'
+const MODAL_FORM_CONTROL = [
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+].join(', ')
+const MODAL_FALLBACK_CONTROL = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+
+function initialFocusTarget(root) {
+  if (!root) return null
+  return root.querySelector(MODAL_AUTOFOCUS_MARKER)
+    ?? root.querySelector(MODAL_FORM_CONTROL)
+    ?? root.querySelector(MODAL_FALLBACK_CONTROL)
+}
+
 export function Modal({ open, onClose, children, width = 480, labelledBy }) {
   const ref = useRef(null)
+
+  /* onClose ที่หน้าจอส่งมามักเป็น inline arrow (`onClose={() => setModal(null)}`)
+     ตัวตนของมันเปลี่ยนทุกครั้งที่ parent re-render — เก็บไว้ใน ref แล้วอ้างผ่าน ref
+     เพื่อให้ Escape เรียก callback ล่าสุดเสมอ โดยที่ lifecycle ของ modal ไม่ต้อง
+     ผูกกับ identity ของฟังก์ชัน */
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const requestClose = useCallback(() => onCloseRef.current?.(), [])
+
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current?.()
     }
     window.addEventListener('keydown', onKey)
-    ref.current?.querySelector('input, button')?.focus()
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open])
+
+  /* โฟกัสเริ่มต้นเกิดเฉพาะตอน "เพิ่งเปิด" เท่านั้น — พิมพ์ลงช่อง controlled แล้ว
+     หน้าจอ re-render ต้องไม่ดึงโฟกัสออกจากช่องที่ผู้ใช้กำลังพิมพ์อยู่ */
+  useEffect(() => {
+    if (!open) return
+    initialFocusTarget(ref.current)?.focus()
+  }, [open])
 
   if (!open) return null
   return (
@@ -234,7 +268,7 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
       <div
         className="absolute inset-0 fade-in"
         style={{ background: 'color-mix(in srgb, var(--ink) 32%, transparent)' }}
-        onClick={onClose}
+        onClick={requestClose}
         aria-hidden
       />
       <div

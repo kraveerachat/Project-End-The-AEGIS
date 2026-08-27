@@ -420,6 +420,7 @@ export function Vault({ t, placeholderMode = false }) {
           </label>
           <input
             id="vault-key"
+            data-modal-autofocus
             type="password"
             value={pass}
             onChange={(e) => { setPass(e.target.value); setFormError(null) }}
@@ -453,6 +454,7 @@ export function Vault({ t, placeholderMode = false }) {
         </label>
         <input
           id="vault-new-key"
+          data-modal-autofocus
           type="password"
           value={pass}
           onChange={(e) => { setPass(e.target.value); setFormError(null) }}
