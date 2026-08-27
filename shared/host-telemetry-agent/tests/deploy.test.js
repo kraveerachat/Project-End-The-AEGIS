@@ -73,6 +73,16 @@ test('the socket directory is created by systemd and closed to unrelated users',
   assert.ok(DEFAULT_SOCKET_PATH.startsWith('/run/aegis-telemetry/'))
 })
 
+test('the runtime directory inode survives separate service stop and start operations', () => {
+  // Docker bind-mounts the host directory inode into Drive. If systemd removes
+  // and recreates that directory on stop/start, the running container remains
+  // attached to the old inode and cannot see the new telemetry socket. The
+  // `restart` value is insufficient because it covers `systemctl restart` but
+  // not a separate stop followed by start; `yes` preserves the directory for
+  // both lifecycle forms while /run is still cleared naturally at host reboot.
+  assert.equal(directiveIn('Service', 'RuntimeDirectoryPreserve'), 'yes')
+})
+
 test('sysusers pins the approved numeric GID so Drive group_add can match it', () => {
   const line = sysusers.split('\n').find((row) => row.trim().startsWith('u '))
   assert.ok(line, 'a user entry must exist')
