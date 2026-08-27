@@ -650,27 +650,27 @@ apiRouter.get('/storage', requireAuth, async (req, res, next) => {
 })
 
 // ── Server Telemetry ─────────────────────────────────────────────────
-// ⚠️ ต้องล็อกอินเสมอ — ตัวเลขของ "เครื่อง" ไม่ใช่ข้อมูลสาธารณะ และ endpoint นี้ไม่มี
-//    เส้นทางสาธารณะใหม่ใน nginx (ดูเหตุผลเต็มที่ server/telemetry/index.js)
+// ⚠️ นโยบายการมองเห็น (ตัดสินใจเชิงผลิตภัณฑ์ 2026-08-27): ผู้ใช้ Drive ที่ล็อกอินแล้ว
+//    "ทุกคน" เห็นค่า host ที่อยู่ใน allowlist V1 ได้ — CPU / RAM / network throughput +
+//    ชื่อ interface ที่อนุมัติไว้แล้ว / host uptime / ความจุ Data Lake / อายุโปรเซส Drive
+//    ของเดิมกันไว้ให้ Admin เท่านั้นและตอบ reason=requires-admin ให้ DataLake-User —
+//    ตอนนี้ไม่ทำแล้ว และไม่ได้แก้ที่หน้าจอ แต่แก้ที่นโยบายจริงฝั่งเซิร์ฟเวอร์
+// ⚠️ ขอบเขตการอนุญาตเหลือชั้นเดียวคือ requireAuth และไม่ถูกลดทอน — ไม่มีเซสชัน = 401
+//    เสมอ ไม่มีเส้นทางสาธารณะใหม่ใน nginx (ดูเหตุผลเต็มที่ server/telemetry/index.js)
+// ⚠️ ไม่มีการเปิดฟิลด์ telemetry ใหม่แม้แต่ฟิลด์เดียว — allowlist ยังเป็น schema V1 เดิม
+//    ทุกประการ ที่เปลี่ยนคือ "ใครเห็น" ไม่ใช่ "เห็นอะไร" ดังนั้น Admin กับ DataLake-User
+//    ได้ response รูปร่างเดียวกันเป๊ะ ไม่ใช่ผู้ใช้ทั่วไปได้ข้อมูลเครื่องกว้างกว่าเดิม
 // ⚠️ ไม่รับพารามิเตอร์ใด ๆ จาก client เลย: interface และ socket path เป็นค่าคอนฟิกฝั่ง
 //    เซิร์ฟเวอร์เท่านั้น เบราว์เซอร์เลือก path/interface/agent ไม่ได้ (TELEM-11F/11G)
 // ⚠️ ห้ามลง audit ต่อหนึ่ง poll — จอ Dashboard เรียกทุก ~10 วินาที ถ้าบันทึกทุกครั้ง
 //    เหตุการณ์ด้านความปลอดภัยจริงจะจมหายไปในกองบรรทัดสำเร็จรูปนี้
 // ⚠️ agent ล่มหรือตอบผิดรูป ไม่ใช่เหตุให้ request นี้ล้ม — คืน 200 พร้อมความจริงบางส่วน
 //    (disk และ service uptime ยังวัดได้เสมอ) แทนที่จะทำให้ทั้งจอพัง
-// ⚠️ ค่าระดับ "เครื่อง" (CPU/RAM/network/host uptime) เป็นของ Admin เท่านั้น —
-//    DataLake-User ได้เฉพาะสิ่งที่ Drive วัดเองและเห็นอยู่แล้วที่อื่น คือความจุ Data Lake
-//    (เหมือน /api/storage) กับอายุโปรเซสของ Drive ขนาด RAM + CPU สด + ชื่อ NIC +
-//    throughput + host uptime รวมกันคือการบรรยาย "ตัวเครื่อง" และ host uptime ยังบอก
-//    ช่วงเวลาที่ยังไม่ได้แพตช์ด้วย — ไม่ใช่ข้อมูลที่ผู้ใช้ทั่วไปต้องรู้เพื่อใช้ที่เก็บไฟล์
-//    ⚠️ role มาจาก req.user (เซสชันฝั่งเซิร์ฟเวอร์) เสมอ ไม่เคยมาจากสิ่งที่ client ส่งมา
-//    ⚠️ ตัดสินใจ "ก่อน" เรียก agent — ผู้ใช้ที่ไม่มีสิทธิ์ไม่ทำให้ socket ถูกเปิดเลย
-//       ข้อมูลจึงไม่เคยเข้ามาในโปรเซสนี้ และรั่วออกไปไม่ได้
 apiRouter.get('/telemetry', requireAuth, async (req, res, next) => {
   try {
     // no-store: telemetry คือค่า ณ วินาทีนั้น สำเนาที่ถูก cache คือค่าที่ไม่จริงแล้ว
     res.set('Cache-Control', 'no-store')
-    res.json(await buildTelemetry({ includeHostMetrics: req.user.role === ROLES.ADMIN }))
+    res.json(await buildTelemetry())
   } catch (err) {
     next(err)
   }
