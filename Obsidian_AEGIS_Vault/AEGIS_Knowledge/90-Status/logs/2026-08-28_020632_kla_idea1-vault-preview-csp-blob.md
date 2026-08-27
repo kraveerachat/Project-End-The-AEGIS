@@ -179,8 +179,7 @@ No other file in the repository was changed.
 
 ## Verification evidence
 
-- `node --test --test-concurrency=1 tests/contentSecurityPolicy.test.js` —
-  pass: 8/8.
+- `node --test --test-concurrency=1 tests/contentSecurityPolicy.test.js` — pass: 8/8.
 - `node --test --test-concurrency=1 tests/vaultMediaPreview.test.js` —
   pass: 26/26 (25 pre-existing, all still passing, plus the new bridge test).
 - `npm test` (IDEA1) — pass: 414 tests, 395 passed, **0 failed**, 19 skipped.
