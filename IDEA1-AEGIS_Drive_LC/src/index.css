@@ -85,6 +85,12 @@
   --z-toast: 60;
   --z-tooltip: 70;
 
+  /* Global modal layer — one scrim for the whole shell (TopBar included).
+     The blur is deliberately restrained: enough to push the shell behind the
+     dialog, never a frosted-glass panel. */
+  --modal-scrim: color-mix(in srgb, var(--ink) 32%, transparent);
+  --modal-blur: 3px;
+
   /* display density (Settings → Appearance) */
   --row-h: 44px;
 
@@ -116,6 +122,10 @@
   --elev-1: 0 2px 8px -4px rgba(0, 0, 0, 0.78);
   --elev-2: 0 4px 8px -4px rgba(0, 0, 0, 0.82);
   --active-glow: 0 2px 8px -3px rgba(96, 165, 250, 0.34);
+
+  /* --ink is near-white in dark mode, so the light-theme formula would *wash*
+     the shell instead of dimming it. Dark mode dims toward the canvas. */
+  --modal-scrim: rgba(2, 6, 23, 0.62);
 
   color-scheme: dark;
 }
@@ -847,4 +857,68 @@ textarea:focus-visible {
 
 @media (max-width: 900px) {
   .main > div[class*="max-w-"] { max-width: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Global modal layer
+   ─────────────────────────────────────────────────────────────────
+   The shared Modal (src/components/ui.jsx) portals into
+   #aegis-modal-root on document.body, so this layer always lives in
+   the root stacking context — above the sticky TopBar, the page
+   header, the page content, and the Sidebar alike.
+
+   ⚠️ Regression guard: the dim + blur belong to ONE scrim that covers
+   the whole viewport. Do not blur the TopBar separately, and do not
+   move these values back into per-screen inline styles — the clear
+   TopBar behind a dimmed page was exactly that bug.
+   ───────────────────────────────────────────────────────────────── */
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--modal-scrim);
+  -webkit-backdrop-filter: blur(var(--modal-blur));
+  backdrop-filter: blur(var(--modal-blur));
+}
+
+/* The dialog itself stays crisp: the blur is on the scrim behind it. */
+.modal-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Reduced motion keeps the dim and the blur — they are static, not motion —
+   and only removes the entrance animation. */
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim,
+  .modal-card {
+    animation: none !important;
+  }
+}
+
+/* ── Tile hover controls (Private Vault overflow menu) ────────────
+   Hover-reveal is a pointer affordance, not an access requirement.
+   Touch and coarse pointers never produce hover, so the control stays
+   visible there; only fine-pointer devices get the quiet default. */
+.tile-hover-control {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tile-hover-control {
+    opacity: 0;
+  }
+  .tile-hover-control[data-visible="true"],
+  .tile-hover-control:hover,
+  .tile-hover-control:focus-visible {
+    opacity: 1;
+  }
 }

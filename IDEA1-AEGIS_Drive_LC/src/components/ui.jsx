@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
@@ -215,7 +216,36 @@ export function PillSelect({ className = '', children, ...rest }) {
   )
 }
 
-/* ── Modal — solid scrim, NO backdrop blur ───────────────────────── */
+/* ── Modal — one global modal layer, portalled out of the screen tree ──
+
+   ⚠️ ประวัติของบั๊กนี้อยู่ในโครงสร้าง ไม่ใช่ตัวเลข z-index:
+   App shell วาง <TopBar> เป็น `sticky` + `z-index: var(--z-sticky)` ซึ่ง "สร้าง
+   stacking context ของตัวเอง" ในระดับ root ส่วนตัว Modal เดิมถูก render จากใต้
+   <main> → <div class="fade-in"> ซึ่ง `.fade-in` ใช้ `animation-fill-mode: both`
+   บน opacity เบราว์เซอร์จึงคง stacking context ของ div นั้นไว้หลัง animation จบ
+   ผลคือ `z-index: 50` ของ Modal ถูกขังอยู่ในกล่องที่มี z-index: auto — scrim จึง
+   คลุม Sidebar และเนื้อหาหน้าได้ แต่ "ลอดใต้" TopBar ตลอดกาล
+   การไล่เพิ่ม z-index ใน Vault.jsx จะไม่มีวันแก้ได้เลย เพราะปัญหาไม่ได้อยู่ที่ค่า
+
+   ทางแก้จึงเป็นเชิงสถาปัตยกรรม: portal ออกไปที่ modal root ระดับ document.body
+   ทำให้ scrim อยู่ใน root stacking context เดียวกับ TopBar และสูงกว่าเสมอ */
+
+const MODAL_ROOT_ID = 'aegis-modal-root'
+
+/* หา (หรือสร้าง) modal root ของ document ปัจจุบัน — ตั้งใจไม่ cache ไว้ระดับโมดูล
+   เพราะชุดทดสอบสลับ jsdom document ได้ และ node ที่ค้างจาก document เก่าคือ node
+   ที่ไม่มีวันแสดงผลอีก */
+function modalPortalRoot() {
+  if (typeof document === 'undefined') return null
+  let root = document.getElementById(MODAL_ROOT_ID)
+  if (!root) {
+    root = document.createElement('div')
+    root.id = MODAL_ROOT_ID
+    root.setAttribute('data-aegis-modal-root', '')
+    document.body.appendChild(root)
+  }
+  return root
+}
 
 /* ลำดับการเลือกเป้าหมายโฟกัสแรก: ตัวที่หน้าจอ "ระบุเอง" มาก่อนเสมอ แล้วค่อยเป็น
    ช่องกรอกจริงตัวแรก — ปุ่มปิดมุมขวาบนเป็นทางเลือกสุดท้าย ไม่ใช่ผู้ชนะเพียงเพราะ
@@ -263,25 +293,26 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
   }, [open])
 
   if (!open) return null
-  return (
-    <div className="fixed inset-0 flex items-center justify-center p-6" style={{ zIndex: 'var(--z-modal)' }}>
-      <div
-        className="absolute inset-0 fade-in"
-        style={{ background: 'color-mix(in srgb, var(--ink) 32%, transparent)' }}
-        onClick={requestClose}
-        aria-hidden
-      />
+  const portalRoot = modalPortalRoot()
+  if (!portalRoot) return null
+
+  /* ชั้นเดียว หนึ่ง scrim: การหรี่ + เบลอทั้งหมดอยู่ใน .modal-scrim (index.css)
+     ไม่ใช่ inline style ซ้ำ ๆ ต่อจอ และไม่ใช่การเบลอ TopBar แยกชิ้น */
+  return createPortal(
+    <div className="modal-layer">
+      <div className="modal-scrim fade-in" onClick={requestClose} aria-hidden />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="relative bg-card rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
+        className="modal-card relative bg-card rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
         style={{ maxWidth: width, boxShadow: 'var(--elev-2)' }}
       >
         {children}
       </div>
-    </div>
+    </div>,
+    portalRoot,
   )
 }
 

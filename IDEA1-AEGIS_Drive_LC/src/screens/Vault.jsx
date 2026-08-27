@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { TriangleAlert, Lock, LockOpen, FileText, FileImage, File as FileIcon, Plus, Download, KeyRound } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  TriangleAlert, Lock, LockOpen, FileText, FileImage, File as FileIcon, Plus, Download,
+  KeyRound, MoreHorizontal, Trash2,
+} from 'lucide-react'
 import { Btn, Chip, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader, Card } from '../components/ui.jsx'
 import { useApi, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
@@ -9,6 +12,10 @@ import {
   createVaultSetup, unlockVault, encryptFileEnvelope, decryptBlobMeta,
   decryptFileContent, fileToBytes, ARGON2_DEFAULTS,
 } from '../lib/vaultCrypto.js'
+import {
+  reconcileVaultInventory, addLocalVaultBlob, removeLocalVaultBlob,
+  tombstoneVaultBlob, vaultBlobId, lockedVaultEntry,
+} from '../lib/vaultInventory.js'
 
 /* ⚠️ Zero-Knowledge จริง:
    - GET /api/vault ให้แค่ salt + พารามิเตอร์ KDF + verifier + envelope ของแต่ละ blob
@@ -24,38 +31,102 @@ import {
 const IDLE_LOCK_MS = 10 * 60_000
 const MIN_PASSPHRASE = 12
 
+// อ้างอิงคงที่ — ป้องกัน useMemo ด้านล่างถูก invalidate ทุก render เพราะ `?? []` สร้าง array ใหม่
+const EMPTY_BLOBS = Object.freeze([])
+
 const EXT_ICONS = { docx: FileText, pdf: FileText, pptx: FileImage, png: FileImage, jpg: FileImage, jpeg: FileImage }
 const iconFor = (name = '') => EXT_ICONS[name.split('.').pop()?.toLowerCase()] ?? FileIcon
 
+/* ── per-tile overflow menu ───────────────────────────────────────
+   ภาษาการโต้ตอบเดียวกับจอ Files (MoreHorizontal มุมขวาบน → dropdown ปุ่มจริง)
+   แต่ "รายการคำสั่ง" ไม่ใช่ชุดเดียวกัน: Vault ไม่มี Rename / Move / Secure Share /
+   ตรวจ SHA เพราะเซิร์ฟเวอร์มองไม่เห็นอะไรเลยนอกจาก ciphertext — การยืมเมนูของ
+   Files มาทั้งชุดคือการสัญญาสิ่งที่ระบบทำไม่ได้
+
+   ⚠️ ขณะล็อก เมนูนี้ต้องไม่มีคำที่มาจาก plaintext แม้แต่คำเดียว และไม่มี Download
+      เพราะสิ่งที่ดาวน์โหลดได้ตอนล็อกคือ .aegisenc ที่ผู้ใช้เปิดไม่ได้ */
+function VaultTileMenu({ t, unlocked, onAction }) {
+  const items = unlocked
+    ? [
+        { id: 'download', icon: Download, label: t('download') },
+        { id: 'delete', icon: Trash2, label: t('delete'), danger: true },
+      ]
+    : [{ id: 'delete', icon: Trash2, label: t('vaultDeleteLockedAction'), danger: true }]
+
+  return (
+    <div
+      role="menu"
+      aria-label={t('moreActions')}
+      className="absolute right-0 top-9 bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-48 fade-in"
+      style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
+    >
+      {items.map(({ id, icon: Icon, label, danger }) => (
+        <button
+          key={id}
+          type="button"
+          role="menuitem"
+          onClick={() => onAction(id)}
+          className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer text-left whitespace-nowrap"
+          style={{ color: danger ? 'var(--danger)' : 'var(--ink-2)' }}
+        >
+          <Icon size={14} strokeWidth={1.5} />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /* A vault tile: plaintext rendering sits underneath; the hatch layer covers
    it completely while locked. Unlock peels the hatch away left→right. */
-function VaultTile({ t, entry, unlocked, index, onDownload, busy }) {
-  const Icon = unlocked && entry.name ? iconFor(entry.name) : FileIcon
+function VaultTile({ t, entry, unlocked, index, onDownload, onDelete, busy }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [hover, setHover] = useState(false)
+  const menuRef = useRef(null)
+  const named = unlocked && Boolean(entry.name)
+  const Icon = named ? iconFor(entry.name) : FileIcon
   const delay = `${index * 40}ms`
+
+  /* click-away + Escape. การตรวจ `contains` คือสิ่งที่ทำให้คลิกที่เปิดเมนูไม่ปิดเมนู
+     ตัวเองทันที — ไม่ต้องพึ่งจังหวะการ flush effect ของ React ซึ่งไม่ใช่สัญญาที่
+     เชื่อถือได้ และเป็นเหตุผลเดียวกับที่ mobile/touch ใช้เมนูนี้ได้จริง */
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDocClick = (e) => {
+      if (!menuRef.current?.contains(e.target)) setMenuOpen(false)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('click', onDocClick)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', onDocClick)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  const runAction = (action) => {
+    setMenuOpen(false)
+    if (action === 'download') onDownload(entry)
+    else if (action === 'delete') onDelete(entry)
+  }
+
   return (
-    <div className="relative bg-card border border-line rounded-[var(--r-tile)] p-3 overflow-hidden group">
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="relative bg-card border border-line rounded-[var(--r-tile)] p-3 overflow-hidden"
+    >
       <div className="h-28 rounded-[9px] bg-sunken flex items-center justify-center">
         <Icon size={34} strokeWidth={1.2} className={unlocked ? 'text-accent' : 'text-ink-3'} />
       </div>
-      <p className="mt-2.5 text-[13.5px] font-medium text-ink truncate" title={unlocked ? entry.name : undefined}>
+      <p className="mt-2.5 text-[13.5px] font-medium text-ink truncate" title={named ? entry.name : undefined}>
         {unlocked ? (entry.name ?? t('vaultUnnamed')) : `${entry.id}.aegisenc`}
       </p>
       <p className="text-[11.5px] text-ink-3 mt-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {fmtBytes(entry.plainSize ?? entry.size)}
       </p>
-
-      {/* ปุ่มดาวน์โหลดโผล่เฉพาะตอนปลดล็อก — ตอนล็อกไม่มีอะไรให้ดาวน์โหลดที่มีความหมาย */}
-      {unlocked && entry.name && (
-        <button
-          type="button"
-          onClick={() => onDownload(entry)}
-          disabled={busy}
-          aria-label={`${t('vaultDownload')} ${entry.name}`}
-          className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-full bg-card/90 border border-line text-ink-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-[var(--dur-fast)] hover:text-accent disabled:opacity-40"
-        >
-          <Download size={14} strokeWidth={1.8} />
-        </button>
-      )}
 
       {/* ciphertext veil — a wipe, not a fade */}
       <div
@@ -74,6 +145,26 @@ function VaultTile({ t, entry, unlocked, index, onDownload, busy }) {
       >
         <p className="text-[13px] font-medium text-ink truncate bg-card/90 rounded-[6px] px-2 py-1 font-mono">{entry.id}.aegisenc · {fmtBytes(entry.size)}</p>
         <p className="font-mono text-[10px] text-ink-3 mt-1.5 tracking-[0.02em]">{t('vaultCipherCaption')}</p>
+      </div>
+
+      {/* ⚠️ วางไว้ "หลัง" ชั้น hatch ใน DOM และยก z-index ขึ้น 1 ชั้น เพื่อให้ปุ่มยัง
+          กดได้และมองเห็นตอนล็อก — hatch เป็น pointer-events-none อยู่แล้ว
+          aria-label ผูกชื่อไฟล์เฉพาะตอนปลดล็อกเท่านั้น ตอนล็อกเป็นคำกลางล้วน */}
+      <div ref={menuRef} className="absolute top-2 right-2" style={{ zIndex: 2 }}>
+        <button
+          type="button"
+          aria-label={named ? `${t('moreActions')} — ${entry.name}` : t('moreActions')}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          disabled={busy}
+          data-vault-tile-menu={entry.id}
+          data-visible={hover || menuOpen ? 'true' : 'false'}
+          onClick={() => setMenuOpen((v) => !v)}
+          className="tile-hover-control size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.5} />
+        </button>
+        {menuOpen && <VaultTileMenu t={t} unlocked={unlocked} onAction={runAction} />}
       </div>
     </div>
   )
@@ -95,11 +186,26 @@ export function Vault({ t, placeholderMode = false }) {
   const [addBusy, setAddBusy] = useState(false)
   const [actionError, setActionError] = useState(false)
   const [autoLocked, setAutoLocked] = useState(false)
+  /* บัญชี blob ทึบฝั่ง client — ดู src/lib/vaultInventory.js สำหรับเหตุผลเต็ม
+     โดยย่อ: ผลของ POST ที่สำเร็จแล้วเป็นความจริงที่รู้แน่ทันที ไม่ควรต้องรอ GET
+     รอบถัดไปมายืนยัน เพราะผู้ใช้กด Lock ชนะ refetch ได้เสมอ */
+  const [localBlobs, setLocalBlobs] = useState([])
+  const [removedIds, setRemovedIds] = useState(() => new Set())
+  const [askDelete, setAskDelete] = useState(null) // { id, name|null, size, locked }
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState(false)
   const fileRef = useRef(null)
 
   const configured = vaultApi.data?.configured === true
-  const blobs = vaultApi.data?.blobs ?? []
+  const serverBlobs = vaultApi.data?.blobs ?? EMPTY_BLOBS
   const unlocked = Boolean(kek && entries)
+
+  /* รายการ blob ทึบที่ "เป็นจริงตอนนี้" = server + POST ที่สำเร็จแล้ว − ที่ลบสำเร็จแล้ว
+     dedupe ด้วย id เข้มงวด GET ที่ตามมาทีหลังจึงไม่สร้างการ์ดใบที่สอง */
+  const inventory = useMemo(
+    () => reconcileVaultInventory({ serverBlobs, localBlobs, removedIds }),
+    [serverBlobs, localBlobs, removedIds],
+  )
 
   /* ── ล็อก: ทิ้งกุญแจ + plaintext ทั้งหมดจาก memory ─────────────────────
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
@@ -111,6 +217,10 @@ export function Vault({ t, placeholderMode = false }) {
     setPass2('')
     setActionError(false)
     setAutoLocked(auto)
+    // ⚠️ กล่องยืนยันลบขณะปลดล็อกถือ "ชื่อไฟล์ plaintext" อยู่ในมือ ปล่อยค้างไว้หลังล็อก
+    //    = ชื่อไฟล์ยังอยู่บนจอทั้งที่ระบบประกาศว่าล็อกแล้ว ต้องปิดไปพร้อมกุญแจ
+    setAskDelete(null)
+    setDeleteError(false)
   }, [])
 
   /* ── idle auto-lock ────────────────────────────────────────────────
@@ -137,10 +247,10 @@ export function Vault({ t, placeholderMode = false }) {
     for (const b of list) {
       try {
         const meta = await decryptBlobMeta(key, b)
-        out.push({ id: b.id, name: meta.name, plainSize: meta.size, size: b.size, blob: b })
+        out.push({ id: vaultBlobId(b), name: meta.name, plainSize: meta.size, size: b.size, blob: b })
       } catch {
         // blob เสียหาย/ถูกแก้ — แสดงตาม id แทน ไม่ทำให้ทั้งจอล้ม
-        out.push({ id: b.id, name: null, plainSize: null, size: b.size, blob: b })
+        out.push({ id: vaultBlobId(b), name: null, plainSize: null, size: b.size, blob: b })
       }
     }
     return out
@@ -174,7 +284,7 @@ export function Vault({ t, placeholderMode = false }) {
       setPass('')
       setPass2('')
       setAck(false)
-      vaultApi.retry()
+      vaultApi.refresh()
     } catch {
       setFormError('actionFailed')
     }
@@ -195,7 +305,7 @@ export function Vault({ t, placeholderMode = false }) {
         params: vaultApi.data.params,
         verifier: vaultApi.data.verifier,
       })
-      const decrypted = await decryptEntries(key, blobs)
+      const decrypted = await decryptEntries(key, inventory)
       setKek(key)
       setEntries(decrypted)
       setModal(null)
@@ -253,16 +363,24 @@ export function Vault({ t, placeholderMode = false }) {
       form.append('metaB64', env.metaB64)
 
       const res = await apiFetch('/api/vault/blobs', { method: 'POST', body: form, timeoutMs: 120_000 })
-      if (!res.ok) {
+      const b = res.ok ? res.data?.blob : null
+      // ⚠️ อัปโหลดล้มเหลว = ไม่มีอะไรถูกเพิ่ม ทั้งในบัญชีทึบและใน entries ที่ถอดแล้ว
+      //    การ์ดผีที่หายไปเองตอน refetch คือการโกหกผู้ใช้ว่าไฟล์ถูกเก็บแล้ว
+      if (!b || b.id === undefined || b.id === null) {
         setActionError(true)
         setAddBusy(false)
         return
       }
-      const b = res.data.blob
-      setEntries((prev) => [
-        { id: b.id, name: file.name, plainSize: file.size, size: b.size, blob: b },
-        ...(prev ?? []),
-      ])
+      const id = vaultBlobId(b)
+      // ★ สองบรรทัดนี้ต้องเกิด "ก่อน" การ refetch ใด ๆ: ผู้ใช้กด Lock ได้ทันทีในจังหวะนี้
+      //   และ blob ที่เพิ่งอัปโหลดต้องยังอยู่บนจอในรูป ciphertext
+      setLocalBlobs((prev) => addLocalVaultBlob(prev, b))
+      setEntries((prev) => (prev ? [
+        { id, name: file.name, plainSize: file.size, size: b.size, blob: b },
+        ...prev.filter((e) => vaultBlobId(e) !== id),
+      ] : prev))
+      // reconcile กับสถานะจริงของ server แบบเงียบ ๆ — dedupe ด้วย id ทำให้ไม่เกิดการ์ดซ้ำ
+      vaultApi.refresh()
     } catch {
       setActionError(true)
     }
@@ -277,7 +395,7 @@ export function Vault({ t, placeholderMode = false }) {
     setActionError(false)
     let url = null
     try {
-      const res = await apiFetchBytes(`/api/vault/blobs/${entry.id}`)
+      const res = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(entry.id)}`)
       if (!res.ok) {
         setActionError(true)
         setAddBusy(false)
@@ -303,6 +421,54 @@ export function Vault({ t, placeholderMode = false }) {
     }
   }
 
+  /* ── ลบไฟล์ในห้องนิรภัย ─────────────────────────────────────────
+     ใช้ DELETE /api/vault/blobs/:id ที่มีอยู่แล้ว — ไม่มี endpoint ใหม่ และ
+     ⚠️ ไม่มี user id ใด ๆ ใน request: สิทธิ์มาจาก req.user ฝั่ง server เท่านั้น
+
+     นโยบายที่เลือก: "ลบได้ขณะล็อก" พร้อมคำยืนยันที่หนักกว่า
+     เหตุผล — ห้องนิรภัยที่กุญแจหายคือสภาวะที่ตั้งใจให้กู้คืนไม่ได้ ถ้าปิดการลบ
+     ขณะล็อก ผู้ใช้ที่ลืมกุญแจจะเหลือ blob ที่ทั้งเปิดไม่ได้และลบไม่ได้ตลอดไป
+     สิทธิ์ฝั่ง server เท่ากันทั้งสองกรณีอยู่แล้ว สิ่งที่ต่างคือผู้ใช้ระบุไฟล์ไม่ได้
+     กล่องยืนยันตอนล็อกจึงพูดตรง ๆ ว่า AEGIS แสดงชื่อไฟล์เดิมให้ไม่ได้ และแสดง
+     เฉพาะสิ่งที่ระบบเห็นจริง: opaque id + ขนาด ciphertext
+     ⚠️ ห้ามถอดรหัส metadata เพียงเพื่อเติมข้อความในกล่องนี้เด็ดขาด */
+  const requestDelete = (entry) => {
+    const named = unlocked && Boolean(entry.name)
+    setDeleteError(false)
+    setAskDelete({
+      id: vaultBlobId(entry),
+      name: named ? entry.name : null,
+      size: entry.size,
+      locked: !named,
+    })
+  }
+
+  const closeDelete = () => {
+    if (deleteBusy) return
+    setAskDelete(null)
+    setDeleteError(false)
+  }
+
+  const confirmDelete = async () => {
+    if (!askDelete || deleteBusy) return
+    const id = askDelete.id
+    setDeleteBusy(true)
+    setDeleteError(false)
+    const res = await apiFetch(`/api/vault/blobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    setDeleteBusy(false)
+    if (!res.ok) {
+      // ⚠️ ไม่มี optimistic removal: การ์ดต้องอยู่ต่อ เพราะ ciphertext ยังอยู่จริงบน server
+      setDeleteError(true)
+      return
+    }
+    // 204 แล้วเท่านั้นจึงเอาออกจากทุกมุมมองพร้อมกัน + ปักป้ายหลุมศพกัน GET เก่าปลุกคืน
+    setRemovedIds((prev) => tombstoneVaultBlob(prev, id))
+    setLocalBlobs((prev) => removeLocalVaultBlob(prev, id))
+    setEntries((prev) => (prev ? prev.filter((e) => vaultBlobId(e) !== id) : prev))
+    setAskDelete(null)
+    vaultApi.refresh()
+  }
+
   const openModal = (which) => {
     setModal(which)
     setFormError(null)
@@ -312,7 +478,13 @@ export function Vault({ t, placeholderMode = false }) {
     setAutoLocked(false)
   }
 
-  const list = placeholderMode ? [] : (unlocked ? entries : blobs.map((b) => ({ id: b.id, name: null, size: b.size })))
+  /* ปลดล็อก = รายการที่ถอดแล้ว (กรอง tombstone ซ้ำอีกชั้นกันการ์ดผี)
+     ล็อก = บัญชี blob ทึบล้วน ไม่มีฟิลด์ใดที่มาจาก plaintext เลย */
+  const list = placeholderMode
+    ? []
+    : unlocked
+      ? reconcileVaultInventory({ serverBlobs: entries ?? [], removedIds })
+      : inventory.map(lockedVaultEntry)
   const fetchError = visibleFetchError(vaultApi.error, placeholderMode)
   const openEmptyAction = () => {
     if (!configured) openModal('setup')
@@ -404,11 +576,57 @@ export function Vault({ t, placeholderMode = false }) {
           {list.map((entry, i) => (
             <VaultTile
               key={entry.id} t={t} entry={entry} unlocked={unlocked}
-              index={reduced ? 0 : i} onDownload={download} busy={addBusy}
+              index={reduced ? 0 : i} onDownload={download} onDelete={requestDelete}
+              busy={addBusy}
             />
           ))}
         </div>
       )}
+
+      {/* ── ยืนยันการลบ ─────────────────────────────────────────────
+          กล่องเดียว สองโหมด: ปลดล็อกอยู่ = เอ่ยชื่อไฟล์ที่ถอดแล้วได้ตามจริง
+          ล็อกอยู่ = ห้ามมีชื่อไฟล์ / MIME / นามสกุลเดิม แม้ใน aria ใด ๆ */}
+      <Modal open={!!askDelete} onClose={closeDelete} width={440} labelledBy="vault-del-title">
+        <ModalClose onClose={closeDelete} label={t('cancel')} />
+        <h2 id="vault-del-title" className="text-[18px] font-semibold text-ink pr-8">
+          {askDelete?.locked
+            ? t('vaultDeleteLockedTitle', { id: `${askDelete?.id}.aegisenc` })
+            : t('vaultDeleteTitle', { name: askDelete?.name ?? '' })}
+        </h2>
+        <p className="text-[13.5px] text-ink-2 mt-3 leading-relaxed">
+          {askDelete?.locked ? t('vaultDeleteLockedBody') : t('vaultDeleteBody')}
+        </p>
+
+        {/* ตอนล็อก แสดง "เท่าที่ระบบเห็นจริง" เท่านั้น — id ทึบ + ขนาด ciphertext */}
+        {askDelete?.locked && (
+          <dl className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line px-3.5 py-3 text-[12.5px]">
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-3">{t('vaultOpaqueId')}</dt>
+              <dd className="font-mono text-ink truncate">{askDelete?.id}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 mt-1.5">
+              <dt className="text-ink-3">{t('vaultCiphertextSize')}</dt>
+              <dd className="font-mono text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(askDelete?.size ?? 0)}</dd>
+            </div>
+          </dl>
+        )}
+
+        {deleteError && (
+          <p role="alert" aria-live="assertive" className="text-[12.5px] font-medium mt-3" style={{ color: 'var(--danger)' }}>
+            {t('vaultDeleteFailed')}
+          </p>
+        )}
+
+        <div className="flex gap-2.5 mt-6">
+          {/* โฟกัสแรกลงที่ทางออกที่ไม่ทำลายข้อมูล ไม่ใช่ปุ่มลบ */}
+          <Btn variant="outline" className="flex-1" data-modal-autofocus onClick={closeDelete} disabled={deleteBusy}>
+            {t('cancel')}
+          </Btn>
+          <Btn variant="danger" className="flex-1" onClick={confirmDelete} disabled={deleteBusy}>
+            {deleteBusy ? t('vaultDeleting') : t('vaultDeleteConfirm')}
+          </Btn>
+        </div>
+      </Modal>
 
       {/* ── ปลดล็อก ─────────────────────────────────────────────── */}
       <Modal open={modal === 'unlock'} onClose={() => setModal(null)} width={420} labelledBy="vault-unlock-title">

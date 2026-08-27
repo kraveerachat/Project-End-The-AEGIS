@@ -8,7 +8,11 @@ import { apiFetch } from './api.js'
  * - ยกเลิก request อัตโนมัติเมื่อ component unmount (AbortController)
  * - refreshMs > 0: poll เงียบ ๆ — ถ้ารีเฟรชล้มเหลว "คงข้อมูลเดิมไว้" ไม่เด้ง error ทับจอ
  *   (จอที่มีข้อมูลอยู่แล้วห้ามกระพริบเป็น error เพราะ network สะดุดหนึ่งจังหวะ)
- * - retry(): ลองใหม่ด้วยมือ — ปุ่ม Retry ของ ErrorState เรียกอันนี้
+ * - retry(): ลองใหม่ด้วยมือ — ปุ่ม Retry ของ ErrorState เรียกอันนี้ (กลับไป loading)
+ * - refresh(): reconcile เงียบ ๆ หลัง mutation สำเร็จ — "คงข้อมูลเดิมบนจอไว้"
+ *   ระหว่างรอคำตอบ ต่างจาก retry() ที่ตั้งใจล้างจอกลับไป skeleton
+ *   จอที่มีข้อมูลถูกต้องอยู่แล้ว (เช่น Private Vault ที่เพิ่งอัปโหลดสำเร็จ) ต้องไม่
+ *   กระพริบกลับไปเป็น "ยังไม่ได้ตั้งค่า/ว่างเปล่า" เพียงเพราะกำลัง verify กับ server
  *
  * @param {string|null} path  null = ยังไม่พร้อมยิง (จอจะอยู่สถานะ loading)
  * @param {{ refreshMs?: number }} opts
@@ -17,13 +21,16 @@ export function useApi(path, { refreshMs = 0 } = {}) {
   const [state, setState] = useState({ loading: true, data: null, error: null })
   const [nonce, setNonce] = useState(0)
   const hasDataRef = useRef(false)
+  // ชี้ไปที่ loader ของ effect รอบปัจจุบันเสมอ — refresh() ที่ถูกเรียกหลัง unmount
+  // หรือหลังเปลี่ยน path จึงไม่ยิง request ของรอบที่ตายไปแล้ว
+  const refreshRef = useRef(null)
 
   useEffect(() => {
     if (!path) return
     const ctrl = new AbortController()
     let timer = 0
 
-    const load = async (isRefresh) => {
+    const load = async (isRefresh, schedulePoll = true) => {
       if (!isRefresh) {
         hasDataRef.current = false
         setState({ loading: true, data: null, error: null })
@@ -36,18 +43,23 @@ export function useApi(path, { refreshMs = 0 } = {}) {
       } else if (!isRefresh || !hasDataRef.current) {
         setState({ loading: false, data: null, error: res.errorKind ?? 'server' })
       }
-      if (refreshMs > 0) timer = setTimeout(() => load(true), refreshMs)
+      // เฉพาะสายของ poll เท่านั้นที่ตั้งนัดครั้งถัดไป — refresh() ที่ผู้ใช้กระตุ้น
+      // ต้องไม่แตกตัวเป็น poll คู่ขนานอีกสาย
+      if (schedulePoll && refreshMs > 0) timer = setTimeout(() => load(true), refreshMs)
     }
 
+    refreshRef.current = () => { load(true, false) }
     load(false)
     return () => {
+      refreshRef.current = null
       ctrl.abort()
       clearTimeout(timer)
     }
   }, [path, nonce, refreshMs])
 
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  return { ...state, retry }
+  const refresh = useCallback(() => { refreshRef.current?.() }, [])
+  return { ...state, retry, refresh }
 }
 
 /** True when the OS asks for reduced motion. Every animation must honor it. */

@@ -7,7 +7,8 @@ export function useApi(path) {
     error: null,
   }
   const retry = useCallback(() => {}, [])
-  return { ...state, retry }
+  const refresh = useCallback(() => {}, [])
+  return { ...state, retry, refresh }
 }
 
 export function useNow() {
