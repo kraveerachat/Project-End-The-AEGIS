@@ -3,7 +3,7 @@ title: Outstanding Items — Consolidated
 tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-16
+updated: 2026-08-28
 sources: ["[[log]]", "[[core/system-overview]]"]
 owner: kla
 edit_policy: owner-writable
@@ -31,6 +31,7 @@ edit_policy: owner-writable
 |---|---|---|
 | No real face-recognition model | IDEA2 | `PlaceholderRecognizer` only finds Haar boxes → everything is `Unknown`. Seam is fully wired (`matched_name`, confidence, DB columns); the model itself is the only missing piece. Largest tracked gap in the whole project. |
 | `confirmDelete()` swallows 403 | IDEA1 (`Files.jsx:353-365`) | A denied delete fails silently instead of surfacing the error to the user; re-verified open across two later sessions, still outside the scope of every pass that touched the area. |
+| `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` | IDEA1 | Confirmed as an **application transfer architecture** defect, not a VLAN/LAN/Twingate bandwidth defect: the old path sent one logical file in one HTTP request and required the whole file in browser RAM (Vault ~64 MiB ciphertext, Files backend 1 GiB, HUB `/drive` 512 MiB). Stage **LFT-V2-A** (Normal Files: resumable bounded-chunk upload, durable session state, incremental hashing, server-side final SHA-256 verification, configurable logical limit and free-space reserve) is **source-complete and locally verified, not yet accepted in production**. **LFT-V2-B** (Private Vault chunked zero-knowledge transfer), **LFT-V2-C** (nginx retuned to chunk-sized semantics) and **LFT-V2-D** (production acceptance matrix) are **not started**. See [[concepts/Large_File_Transfer_V2]]. |
 | No encryption at rest for Data Lake uploads | IDEA1 | Only the Private Vault path (Argon2id + envelope AES-256-GCM) is encrypted; regular file uploads remain plaintext. The UI overclaim is closed: Uploads now labels this limitation explicitly and no longer uses an encryption-success badge for ordinary files. Implementing encryption at rest remains a separate architecture task. |
 | No off-site backup | IDEA1 | Storage is a single ext4 volume; P5 of the mock-removal pass explicitly reported this as infra-blocked rather than built a fake backup UI. |
 | No per-user share defaults / snapshot schedule | IDEA1 | Design decision not yet made, not a bug. |
@@ -74,6 +75,7 @@ edit_policy: owner-writable
 - **IDEA1 `npm test` glob requires the verified Node 24 runner.** The package script passes the quoted argument `"tests/**/*.test.js"`; Linux Node 20.20.2 treated it as a literal path and stopped before test discovery, while Node 24.14.0 expanded it and completed 119/119. No application/test code was changed during the run-and-report pass. If Node 20 CI support is required later, adjust the runner/script only after explicit approval.
 - **Demo credentials rotate on isolated test runs.** IDEA1's seeded accounts are single-use per disposable test database once the force-reset gate is real; IDEA2's demo passwords were similarly rotated during the 2026-07-27 verification pass. Never use `docker compose down -v` on the Beelink production workload: it destroys volumes/state. Recreating disposable volumes applies only to an explicitly isolated local test environment.
 - **Ethics documentation discrepancy** in `AEGIS_System_Design.docx` (§5.5–5.7 BOM renumbering, §2.3.4 "Terminal Account" naming, a duplicated §2.1) blocked full syllabus-alignment work pending a decision from the report's own source — see [[summaries/07_Ethics_and_Compliance]].
+- **Private Vault large-file transfer stays `IN PROGRESS`.** `LFT-V2-A` changed nothing in the Vault: `MAX_VAULT_CIPHERTEXT_BYTES` is still 64 MiB, encryption is still whole-file AES-GCM in the browser, and the KEK/DEK format, metadata encryption, ownership semantics and Preview policy are untouched. Raising that constant or splitting the existing ciphertext ad hoc are both explicitly rejected; the per-chunk AEAD design belongs to `LFT-V2-B`. Do not read the Normal Files improvement as a Vault improvement.
 - **`.env` must exist, not just `.env.example`**, or `DETECTION_ENGINE_API_KEY` silently ends up empty inside the container and the internal-route endpoint fails secure (503) rather than open — this bit a live session on 2026-08-01.
 
 ---

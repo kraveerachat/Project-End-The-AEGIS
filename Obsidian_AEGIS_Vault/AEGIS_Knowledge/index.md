@@ -66,6 +66,7 @@ edit_policy: owner-only
 * [[concepts/Schema_Ownership_Map]] — **[NEW 2026-08-06]** Which module owns which table, in which database — the bridge between Identity Decoupling and the Data Lake
 * [[concepts/Terminal_Verification_Protocol]] — **[NEW 2026-08-06]** The `curl`-based server-side proof suite (`docs/auth-test.md`) and the verification discipline established across sessions
 * [[concepts/Client_Render_State_Verification]] — **[NEW 2026-08-07]** **Reachable ≠ wired**: a green `/healthz` does not mean there is data behind it. The client-side counterpart to the `curl` suite — a jsdom render harness that proves what the screen actually shows, in both directions
+* [[concepts/Large_File_Transfer_V2]] — **[NEW 2026-08-28]** Bounded-chunk resumable transport with durable session state and server-side verification. Why the large-file failures were an **application transfer architecture** defect and not a bandwidth defect, and why a mapped SMB drive is not an equivalent transport
 
 ---
 

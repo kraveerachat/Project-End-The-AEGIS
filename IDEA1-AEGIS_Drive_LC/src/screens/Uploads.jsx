@@ -1,44 +1,69 @@
-import { useRef, useState } from 'react'
-import { UploadCloud, FileText, File as FileIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { UploadCloud, FileText, File as FileIcon, RotateCcw } from 'lucide-react'
 import { Card, CardTitle, Chip, ScrambleHash, ErrorState, InlineEmptyState } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
-import { apiUpload } from '../lib/api.js'
+import { cancelUploadSession, fetchTransferLimits, uploadFileResumable } from '../lib/chunkedUpload.js'
 import { fmtBytes, fmtRelative } from '../lib/format.js'
 
 /* ไม่มีการจำลองในจอนี้เลย —
-   - แฮชคำนวณจริงจากไบต์ของไฟล์ที่ผู้ใช้เลือก ด้วย window.crypto.subtle.digest('SHA-256')
-     (checksum นี้ถูกส่งไปให้เซิร์ฟเวอร์ "เทียบ" กับไบต์ที่ได้รับจริง — ดู POST
-     /api/files/upload: ไม่ตรงกัน = ปฏิเสธทั้งคำขอ ไม่เก็บของที่รู้ว่าไม่ครบ)
-   - "transferring" = POST /api/files/upload จริง และ **ตัว binary เดินทางไปกับคำขอนี้ด้วย**
-     (multipart → เขียนลงดิสก์ผ่าน multer diskStorage)
-     ⚠️ คอมเมนต์เดิมเขียนว่า "Phase นี้ส่ง metadata; ตัว binary ผ่าน multipart →
-     Storage Layer ใน Phase 3" ซึ่งไม่จริงแล้ว — ไบต์ถูกเขียนลง Storage Layer จริงมาตั้งแต่
-     งาน upload/download รอบก่อน (ชุดทดสอบดาวน์โหลดกลับมาเทียบทีละไบต์อยู่)
+   - ทุกไฟล์เดินทางผ่านเส้นทาง V2 แบบ chunk ที่ทำต่อจากที่ค้างได้ (LFT-V2-A):
+       POST   /api/files/uploads                       เปิด session ที่ทนต่อ restart
+       PUT    /api/files/uploads/:id/chunks/:index     ส่งทีละก้อนที่มีขอบเขต
+       GET    /api/files/uploads/:id                   ถามว่าเซิร์ฟเวอร์ยังขาดก้อนไหน
+       POST   /api/files/uploads/:id/commit            เซิร์ฟเวอร์ตรวจไบต์+SHA-256 เอง
+   - แฮชคำนวณจริงจากไบต์ของไฟล์ ด้วย hash-wasm แบบ "อ่านทีละ slice"
+     ⚠️ **จอนี้ไม่เรียก file.arrayBuffer() อีกต่อไป** — โค้ดเดิมดึงทั้งไฟล์เข้า RAM ของ
+     แท็บก่อนอัปโหลด ทำให้เพดานที่แท้จริงของขนาดไฟล์เป็นหน่วยความจำของเบราว์เซอร์
+     (ดู src/lib/chunkedUpload.js ซึ่งเป็นที่เดียวที่อ่านไบต์ของไฟล์)
+   - เปอร์เซ็นต์และจำนวนไบต์มาจาก byte event ของเบราว์เซอร์ + สถานะ chunk ที่เซิร์ฟเวอร์
+     รายงานกลับมาเท่านั้น ไม่มี timer และไม่มีเปอร์เซ็นต์ที่แต่งขึ้นตามสถานะ
+   - เพดานขนาดไฟล์และพื้นที่ว่างที่แสดง มาจาก GET /api/files/uploads/limits ของ
+     deployment จริง ไม่ใช่ค่าคงที่ใน bundle (เดิมคือ 1 GiB ที่ hard-code ไว้สองที่)
    - ประวัติการอัปโหลดมาจาก GET /api/files — ไม่มีลิสต์แต่งขึ้น
    - อัปโหลดชื่อเดิมทับของตัวเอง = สร้างเวอร์ชันใหม่ ไบต์ชุดเก่าถูกเก็บไว้ (ดูจอ File history) */
 
-const STAGE_KEY = { staged: 'stStaged', hashing: 'stHashing', transferring: 'stTransferring', indexed: 'stIndexed', failed: 'stFailed' }
+const STAGE_KEY = {
+  preparing: 'upStagePreparing',
+  hashing: 'upStageHashing',
+  uploading: 'upStageUploading',
+  paused: 'upStagePaused',
+  committing: 'upStageCommitting',
+  complete: 'upStageComplete',
+  failed: 'upStageFailed',
+  cancelled: 'upStageCancelled',
+}
 
-// ต้องตรงกับ MAX_UPLOAD_BYTES ใน server/storage/fileStore.js — เช็คฝั่ง client เป็นแค่
-// ความสะดวก (บอกผู้ใช้ทันทีโดยไม่ต้องอัปโหลดขึ้นไปให้ถูกปฏิเสธ) การบังคับจริงอยู่ที่เซิร์ฟเวอร์
-const MAX_UPLOAD_BYTES = 1_073_741_824 // 1 GiB
+// เหตุผลที่แสดงใต้ชื่อไฟล์เมื่อหยุด/ล้มเหลว — ต้องบอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
+const REASON_KEY = {
+  tooLarge: 'uploadTooLarge',
+  noSpace: 'uploadNoSpace',
+  checksum: 'uploadChecksumFailed',
+  expired: 'uploadSessionExpired',
+  network: 'uploadPausedNetwork',
+  incomplete: 'uploadPausedNetwork',
+}
 
-/** SHA-256 ของไฟล์จริงในเบราว์เซอร์ — คืนค่า hex 64 ตัว */
-async function sha256OfFile(file) {
-  const buf = await file.arrayBuffer()
-  const digest = await window.crypto.subtle.digest('SHA-256', buf)
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+const TERMINAL_STAGES = new Set(['complete', 'failed', 'cancelled'])
+
+const stageTone = (stage) => {
+  if (stage === 'complete') return 'ok'
+  if (stage === 'failed') return 'danger'
+  if (stage === 'paused') return 'warn'
+  if (stage === 'cancelled') return 'neutral'
+  return 'accent'
 }
 
 /* One upload row — สถานะเดินตาม "งานจริง" ไม่ใช่ timer */
-function UploadRow({ t, item }) {
-  const chipTone = item.stage === 'indexed' ? 'ok' : item.stage === 'failed' ? 'danger' : item.stage === 'staged' ? 'neutral' : 'accent'
+function UploadRow({ t, item, onResume, onCancel }) {
+  const reasonKey = REASON_KEY[item.reason]
+  const resumable = item.stage === 'paused' && Boolean(item.session)
+  const active = !TERMINAL_STAGES.has(item.stage)
 
   return (
     <div
       className="relative overflow-hidden rounded-[var(--r-tile)] border border-line transition-colors duration-[var(--dur-base)]"
-      style={{ background: item.stage === 'indexed' ? 'var(--ok-soft)' : item.stage === 'failed' ? 'var(--danger-soft)' : 'var(--card)' }}
+      style={{ background: item.stage === 'complete' ? 'var(--ok-soft)' : item.stage === 'failed' ? 'var(--danger-soft)' : 'var(--card)' }}
     >
       <div className="relative flex items-center gap-3 px-4 py-3">
         <div className="size-8 rounded-[9px] bg-sunken flex items-center justify-center shrink-0">
@@ -46,43 +71,69 @@ function UploadRow({ t, item }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[13.5px] font-medium text-ink truncate">{item.name}</p>
+          {/* ไบต์ที่ส่งไปแล้ว / ทั้งหมด และก้อนที่เท่าไรจากทั้งหมด — ตัวเลขที่วัดได้จริงทั้งคู่ */}
           <p className="text-[11.5px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {fmtBytes(item.size)}
+            {t('uploadBytesCounter', { done: fmtBytes(item.transferredBytes), total: fmtBytes(item.size) })}
+            {item.chunkCount > 0 && (
+              <> · {t('uploadChunkCounter', { done: Math.min(item.chunkIndex + 1, item.chunkCount), total: item.chunkCount })}</>
+            )}
           </p>
-          {/* บอกเหตุผลที่ล้มเหลว ไม่ใช่แค่ชิป "Failed" — ผู้ใช้ต้องรู้ว่าต้องทำอะไรต่อ */}
-          {item.reason === 'tooLarge' && (
-            <p role="alert" className="text-[11.5px] font-medium mt-0.5" style={{ color: 'var(--danger)' }}>
-              {t('uploadTooLarge')}
+          {reasonKey && (
+            <p role="alert" className="text-[11.5px] font-medium mt-0.5" style={{ color: item.stage === 'paused' ? 'var(--warn)' : 'var(--danger)' }}>
+              {t(reasonKey)}
             </p>
           )}
         </div>
-        {item.stage === 'indexed' && (
+        {item.stage === 'complete' && (
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
             <path d="M3 8.5l3.2 3.2L13 4.5" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="draw-check" />
           </svg>
         )}
-        <Chip tone={chipTone}>{t(STAGE_KEY[item.stage])}</Chip>
+        <Chip tone={stageTone(item.stage)}>{t(STAGE_KEY[item.stage])}</Chip>
       </div>
 
-      {(item.stage === 'transferring' || item.stage === 'indexed') && item.sha256 && (
+      {(resumable || active) && (
+        <div className="relative px-4 pb-2.5 -mt-1 flex justify-end gap-3">
+          {resumable && (
+            <button
+              type="button"
+              onClick={() => onResume(item.id)}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <RotateCcw size={12} aria-hidden />{t('uploadResume')}
+            </button>
+          )}
+          {(active || resumable) && (
+            <button
+              type="button"
+              onClick={() => onCancel(item.id)}
+              className="text-[12px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {t('cancel')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {item.sha256 && (item.stage === 'uploading' || item.stage === 'committing' || item.stage === 'complete') && (
         <div className="relative px-4 pb-3 -mt-1">
           <ScrambleHash hash={item.sha256} playing={false} duration={1} groupClass="text-ink-3 !text-[10.5px]" />
         </div>
       )}
 
-      {/* เปอร์เซ็นต์ระหว่าง transferring มาจาก byte event ของ browser เท่านั้น */}
+      {/* เปอร์เซ็นต์ระหว่างส่งมาจาก byte event ของ browser + สถานะ chunk ของเซิร์ฟเวอร์เท่านั้น */}
       <div
         className="relative h-0.5 bg-transparent"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={item.stage === 'indexed' ? 100 : item.progress}
+        aria-valuenow={item.stage === 'complete' ? 100 : item.progress}
       >
         <div
           className="h-full transition-[width] duration-300"
           style={{
-            width: `${item.stage === 'indexed' ? 100 : item.progress}%`,
-            background: item.stage === 'indexed' ? 'var(--ok)' : item.stage === 'failed' ? 'var(--danger)' : 'var(--accent)',
+            width: `${item.stage === 'complete' ? 100 : item.progress}%`,
+            background: item.stage === 'complete' ? 'var(--ok)' : item.stage === 'failed' ? 'var(--danger)' : 'var(--accent)',
           }}
         />
       </div>
@@ -90,7 +141,7 @@ function UploadRow({ t, item }) {
   )
 }
 
-export function Uploads({ t, placeholderMode = false }) {
+export function Uploads({ t, placeholderMode = false, runUpload = uploadFileResumable, loadLimits = fetchTransferLimits }) {
   const now = useNow(30_000)
   const filesApi = useApi('/api/files', { refreshMs: 30_000 })
   const recent = placeholderMode ? [] : (filesApi.data?.files ?? []).filter((f) => f.type !== 'Folder').slice(0, 6)
@@ -98,54 +149,98 @@ export function Uploads({ t, placeholderMode = false }) {
 
   const [dragOver, setDragOver] = useState(false)
   const [queue, setQueue] = useState([])
+  // เพดานจริงของ deployment นี้ — null = ยังอ่านไม่ได้ (จอบอกตามนั้น ไม่เดาตัวเลขให้)
+  const [limits, setLimits] = useState(null)
   const inputRef = useRef(null)
   const idRef = useRef(0)
+  const controllers = useRef(new Map())
+  const itemsRef = useRef(new Map())
 
-  const setStage = (id, patch) =>
-    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)))
+  useEffect(() => {
+    if (placeholderMode) return undefined
+    const controller = new AbortController()
+    loadLimits({ signal: controller.signal })
+      .then((value) => { if (!controller.signal.aborted) setLimits(value) })
+      .catch(() => { /* อ่านไม่ได้ = ยังไม่รู้ ไม่ใช่ศูนย์ และไม่ใช่ค่าที่แต่งขึ้น */ })
+    return () => controller.abort()
+  }, [loadLimits, placeholderMode])
 
-  /** ประมวลผลไฟล์จริง: hash (WebCrypto) → POST ตัวไฟล์จริง (multipart) → indexed/failed
-   *  sha256 ที่ส่งไปเป็นแค่ "ค่าที่ client อ้าง" — เซิร์ฟเวอร์คำนวณเองจาก bytes ที่ได้รับ
-   *  แล้วเทียบ ถ้าไม่ตรง = ไฟล์เพี้ยนระหว่างทาง เซิร์ฟเวอร์ปฏิเสธ (422) ไม่เก็บของที่ไม่ครบ */
-  const processFile = async (file, id) => {
+  // ยกเลิกงานที่ยังค้างเมื่อออกจากจอ — request ที่ยังวิ่งต่อหลัง unmount คือ state ที่หลุดมือ
+  useEffect(() => () => {
+    for (const controller of controllers.current.values()) controller.abort()
+  }, [])
+
+  const patch = useCallback((id, changes) => {
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...changes } : q)))
+  }, [])
+
+  /** เดินหนึ่งรอบของงานอัปโหลด — ใช้ทั้งการเริ่มครั้งแรกและการกด "ทำต่อ" */
+  const run = useCallback(async (id, file, resumeFrom) => {
+    const controller = new AbortController()
+    controllers.current.set(id, controller)
     try {
-      setStage(id, { stage: 'hashing', progress: 0 })
-      const sha256 = await sha256OfFile(file)
-      setStage(id, { stage: 'transferring', sha256, progress: 0 })
-      const form = new FormData()
-      form.append('sha256', sha256)
-      form.append('file', file, file.name) // ต้องต่อท้ายสุด — multer อ่าน field ตามลำดับ stream
-      const res = await apiUpload('/api/files/upload', {
-        method: 'POST',
-        body: form,
-        onProgress: ({ percent }) => setStage(id, { progress: percent }),
-        timeoutMs: 10 * 60_000, // ไฟล์ใหญ่ใช้เวลานานกว่า request ปกติมาก
+      const result = await runUpload({
+        file,
+        upload: resumeFrom?.session ?? null,
+        sha256: resumeFrom?.sha256 ?? null,
+        signal: controller.signal,
+        onStage: (stage) => patch(id, { stage, reason: null }),
+        onHashProgress: ({ hashedBytes, totalBytes }) => patch(id, {
+          progress: totalBytes === 0 ? 0 : Math.round((hashedBytes / totalBytes) * 1000) / 10,
+        }),
+        onProgress: ({ transferredBytes, totalBytes, percent, chunkIndex, chunkCount }) => patch(id, {
+          transferredBytes, size: totalBytes, progress: percent, chunkIndex, chunkCount,
+        }),
       })
-      setStage(id, { stage: res.ok ? 'indexed' : 'failed', ...(res.ok ? { progress: 100 } : {}) })
-      if (res.ok) filesApi.retry()
-    } catch {
-      setStage(id, { stage: 'failed' })
-    }
-  }
 
-  // ⚠️ เดิมบรรทัดนี้ .filter() ไฟล์ที่ใหญ่กว่า 1 GiB "ออกจากคิวไปเงียบ ๆ" พร้อมคอมเมนต์
-  //    ว่าเป็นงานของ Phase 3 — ผู้ใช้ลากไฟล์ 2 GB มาวางแล้ว **ไม่มีอะไรเกิดขึ้นเลย**
-  //    ไม่มีแถว ไม่มีข้อความ ไม่มีสัญญาณว่าระบบเห็นไฟล์นั้นไหม ซึ่งแยกไม่ออกจาก
-  //    "แอปพัง" การทิ้งงานของผู้ใช้โดยไม่บอกแย่กว่าการปฏิเสธอย่างชัดเจน
-  //    เพดาน 1 GiB คือของจริงที่เซิร์ฟเวอร์บังคับ (MAX_UPLOAD_BYTES ใน fileStore.js)
-  //    ไม่ใช่ข้อจำกัดชั่วคราวที่รอ phase ถัดไป — จอจึงต้องบอกตามนั้น
+      patch(id, {
+        stage: result.stage,
+        reason: result.reason ?? null,
+        sha256: result.sha256 ?? null,
+        session: result.upload ?? null,
+        ...(result.ok ? { progress: 100, transferredBytes: file.size } : {}),
+      })
+      itemsRef.current.set(id, { file, session: result.upload ?? null, sha256: result.sha256 ?? null })
+      if (result.ok) filesApi.retry()
+    } catch {
+      patch(id, { stage: 'failed', reason: 'server' })
+    } finally {
+      controllers.current.delete(id)
+    }
+  }, [filesApi, patch, runUpload])
+
+  const resume = useCallback((id) => {
+    const held = itemsRef.current.get(id)
+    if (!held?.file) return
+    patch(id, { stage: 'preparing', reason: null })
+    run(id, held.file, held)
+  }, [patch, run])
+
+  const cancel = useCallback((id) => {
+    controllers.current.get(id)?.abort()
+    const held = itemsRef.current.get(id)
+    // คืนพื้นที่พักฝั่งเซิร์ฟเวอร์ทันที แทนที่จะปล่อยให้ค้างจนหมดอายุ
+    if (held?.session?.uploadId) cancelUploadSession(held.session.uploadId).catch(() => {})
+    patch(id, { stage: 'cancelled', reason: null, session: null })
+  }, [patch])
+
+  // ⚠️ เพดานฝั่ง client เป็นแค่ความสะดวก (บอกผู้ใช้ทันทีโดยไม่ต้องส่งไฟล์ขึ้นไปให้ถูกปฏิเสธ)
+  //    การบังคับจริงอยู่ที่เซิร์ฟเวอร์เสมอ และค่าที่ใช้เทียบมาจากเซิร์ฟเวอร์ ไม่ใช่ค่าคงที่
+  //    ที่ต้องคอยแก้ให้ตรงกันสองที่ — ถ้ายังอ่านค่าไม่ได้ ก็ส่งขึ้นไปให้เซิร์ฟเวอร์ตัดสิน
   const enqueue = (fileList) => {
-    for (const f of [...fileList]) {
+    for (const file of [...fileList]) {
       const id = `up-${idRef.current++}`
-      if (f.size > MAX_UPLOAD_BYTES) {
-        setQueue((prev) => [
-          { id, name: f.name, size: f.size, sha256: null, stage: 'failed', reason: 'tooLarge', progress: 0 },
-          ...prev,
-        ])
+      const base = {
+        id, name: file.name, size: file.size, sha256: null, progress: 0,
+        transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null,
+      }
+      if (limits && file.size > limits.maxLogicalFileBytes) {
+        setQueue((prev) => [{ ...base, stage: 'failed', reason: 'tooLarge' }, ...prev])
         continue
       }
-      setQueue((prev) => [{ id, name: f.name, size: f.size, sha256: null, stage: 'staged', progress: 0 }, ...prev])
-      processFile(f, id)
+      itemsRef.current.set(id, { file, session: null, sha256: null })
+      setQueue((prev) => [{ ...base, stage: 'preparing' }, ...prev])
+      run(id, file, null)
     }
   }
 
@@ -155,6 +250,8 @@ export function Uploads({ t, placeholderMode = false }) {
     const dropped = e.dataTransfer?.files
     if (dropped?.length) enqueue(dropped)
   }
+
+  const capacity = limits?.capacity ?? null
 
   return (
     <div className="grid grid-cols-12 gap-6 max-lg:gap-5">
@@ -182,6 +279,19 @@ export function Uploads({ t, placeholderMode = false }) {
           {/* ⚠️ สองเส้นทางมีการปกป้องคนละแบบ: หน้านี้คือ Data Lake ปกติซึ่งยังเก็บ
               plaintext; คำว่าเข้ารหัสก่อนส่งใช้ได้เฉพาะหน้า Private Vault เท่านั้น */}
           <p className="text-[12.5px] text-ink-3">{t('dropSub')}</p>
+          {/* เพดานและพื้นที่ว่างของ deployment จริง — ไม่มีคำว่า "ไม่จำกัด" ที่ใดในจอนี้ */}
+          <p className="text-[11.5px] text-ink-3 max-w-[46ch]">
+            {limits
+              ? t('uploadLimitNotice', { size: fmtBytes(limits.maxLogicalFileBytes), chunk: fmtBytes(limits.chunkSizeBytes) })
+              : t('uploadLimitUnknown')}
+          </p>
+          {capacity && (
+            <p className="text-[11.5px] text-ink-3 max-w-[46ch]">
+              {capacity.measured
+                ? t('uploadCapacityNotice', { free: fmtBytes(capacity.usableBytes), reserve: fmtBytes(capacity.reserveBytes) })
+                : t('uploadCapacityUnknown')}
+            </p>
+          )}
           <input
             ref={inputRef}
             type="file"
@@ -200,7 +310,7 @@ export function Uploads({ t, placeholderMode = false }) {
       {queue.length > 0 && (
         <div className="col-span-12 flex flex-col gap-2.5">
           {queue.map((item) => (
-            <UploadRow key={item.id} t={t} item={item} />
+            <UploadRow key={item.id} t={t} item={item} onResume={resume} onCancel={cancel} />
           ))}
         </div>
       )}

@@ -2,43 +2,59 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, ChevronDown, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
 
-import { apiUpload } from '../lib/api.js'
+import { cancelUploadSession, fetchTransferLimits, uploadFileResumable } from '../lib/chunkedUpload.js'
 import { fmtBytes } from '../lib/format.js'
 import { Btn, Chip, IconBtn, InlineEmptyState } from './ui.jsx'
 
-const MAX_UPLOAD_BYTES = 1_073_741_824
-const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'processing', 'uploading'])
+// ⚠️ เดิมที่นี่มีค่าคงที่ 1 GiB ซ้ำกับ fileStore.js และ Uploads.jsx สามที่ต้องแก้ให้ตรงกัน
+//    เอง — ตอนนี้เพดานมาจาก GET /api/files/uploads/limits ของ deployment จริง
+//    null = ยังอ่านไม่ได้ ซึ่งแปลว่า "ปล่อยให้เซิร์ฟเวอร์เป็นคนตัดสิน" ไม่ใช่เดาค่าให้
+const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'preparing', 'hashing', 'processing', 'uploading', 'committing'])
 
 export const activeUploadCount = (queue = []) => queue.filter((item) => ACTIVE_UPLOAD_STAGES.has(item.stage)).length
 export const failedUploadCount = (queue = []) => queue.filter((item) => item.stage === 'failed').length
 export const shouldShowQueueLauncher = (queue = []) => activeUploadCount(queue) > 0 || failedUploadCount(queue) > 0
 
+// สถานะที่ผู้ใช้เห็น เดินตามขั้นจริงของโปรโตคอล V2 (ดู src/lib/chunkedUpload.js)
+// waiting/processing ยังอยู่เพื่อรองรับคิวที่ถูกส่งเข้ามาจากภายนอกก่อนงานจะเริ่มเดิน
 const STAGE_LABEL = {
   waiting: 'uploadWaiting',
   processing: 'uploadProcessing',
-  uploading: 'stTransferring',
+  preparing: 'upStagePreparing',
+  hashing: 'upStageHashing',
+  uploading: 'upStageUploading',
+  paused: 'upStagePaused',
+  committing: 'upStageCommitting',
   complete: 'uploadComplete',
   failed: 'uploadFailed',
   cancelled: 'uploadCancelled',
 }
 
+// เหตุผลที่แสดงใต้ชื่อไฟล์ — บอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
+const REASON_LABEL = {
+  tooLarge: 'uploadTooLarge',
+  noSpace: 'uploadNoSpace',
+  checksum: 'uploadChecksumFailed',
+  expired: 'uploadSessionExpired',
+  network: 'uploadPausedNetwork',
+  incomplete: 'uploadPausedNetwork',
+}
+
 const stageTone = (stage) => {
   if (stage === 'complete') return 'ok'
   if (stage === 'failed') return 'danger'
+  if (stage === 'paused') return 'warn'
   if (stage === 'cancelled') return 'neutral'
   return 'accent'
 }
 
-export async function sha256OfFile(file) {
-  const bytes = await file.arrayBuffer()
-  const digest = await window.crypto.subtle.digest('SHA-256', bytes)
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
 function QueueRow({ t, item, onCancel, onRetry, onDismiss }) {
-  const cancellable = ['waiting', 'processing', 'uploading'].includes(item.stage)
+  const cancellable = ACTIVE_UPLOAD_STAGES.has(item.stage)
   const dismissible = ['complete', 'failed', 'cancelled'].includes(item.stage)
   const progress = item.stage === 'complete' ? 100 : item.progress
+  // หยุดชั่วคราวแล้วยังมี session อยู่ = ทำต่อได้ ไม่ต้องเริ่มไฟล์ใหม่ทั้งก้อน
+  const resumable = item.stage === 'paused' && Boolean(item.session)
+  const reasonLabel = REASON_LABEL[item.reason]
 
   return (
     <div className="rounded-[var(--r-tile)] border border-line bg-card px-3.5 py-3">
@@ -53,8 +69,17 @@ function QueueRow({ t, item, onCancel, onRetry, onDismiss }) {
         <Chip tone={stageTone(item.stage)}>{t(STAGE_LABEL[item.stage])}</Chip>
       </div>
 
-      {item.reason === 'tooLarge' && (
-        <p role="alert" className="mt-2 text-[11.5px] font-medium" style={{ color: 'var(--danger)' }}>{t('uploadTooLarge')}</p>
+      {reasonLabel && (
+        <p role="alert" className="mt-2 text-[11.5px] font-medium" style={{ color: item.stage === 'paused' ? 'var(--warn)' : 'var(--danger)' }}>{t(reasonLabel)}</p>
+      )}
+
+      {/* ไบต์ที่ส่งไปแล้ว / ทั้งหมด และก้อนที่เท่าไรจากทั้งหมด — ตัวเลขที่วัดได้จริงทั้งคู่ */}
+      {item.chunkCount > 0 && (
+        <p className="mt-1.5 text-[11px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {t('uploadBytesCounter', { done: fmtBytes(item.transferredBytes ?? 0), total: fmtBytes(item.size) })}
+          {' · '}
+          {t('uploadChunkCounter', { done: Math.min((item.chunkIndex ?? 0) + 1, item.chunkCount), total: item.chunkCount })}
+        </p>
       )}
 
       {typeof progress === 'number' && (
@@ -65,7 +90,7 @@ function QueueRow({ t, item, onCancel, onRetry, onDismiss }) {
 
       <div className="mt-2 flex justify-end gap-2">
         {cancellable && <button type="button" onClick={() => onCancel(item.id)} className="text-[12px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('cancel')}</button>}
-        {item.stage === 'failed' && item.file && <button type="button" onClick={() => onRetry(item.id)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><RotateCcw size={12} aria-hidden />{t('retry')}</button>}
+        {(item.stage === 'failed' || resumable) && item.file && <button type="button" onClick={() => onRetry(item.id)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><RotateCcw size={12} aria-hidden />{t(resumable ? 'uploadResume' : 'retry')}</button>}
         {dismissible && <button type="button" onClick={() => onDismiss(item.id)} className="text-[12px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('dismiss')}</button>}
       </div>
     </div>
@@ -102,11 +127,12 @@ export function UploadDrawer({
   requestId = 0,
   initialQueue = [],
   onUploaded,
-  uploadFile = apiUpload,
-  hashFile = sha256OfFile,
+  runUpload = uploadFileResumable,
+  loadLimits = fetchTransferLimits,
 }) {
   const [queue, setQueue] = useState(initialQueue)
   const [successToasts, setSuccessToasts] = useState([])
+  const [limits, setLimits] = useState(null)
   const inputRef = useRef(null)
   const drawerRef = useRef(null)
   const idRef = useRef(0)
@@ -116,36 +142,47 @@ export function UploadDrawer({
 
   const patchItem = (id, patch) => setQueue((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
 
-  const processFile = async (file, id) => {
+  // ⚠️ ไฟล์เดินทางผ่านเส้นทาง V2 แบบ chunk เท่านั้น — ไม่มีจุดใดในลิ้นชักนี้อ่านทั้งไฟล์
+  //    เข้าหน่วยความจำอีกต่อไป (เดิม sha256OfFile() เรียก file.arrayBuffer() ทั้งก้อน)
+  //    resumeFrom = สถานะจากรอบก่อน ทำให้ปุ่ม "ทำต่อ" ส่งเฉพาะ chunk ที่ยังขาด
+  const processFile = async (file, id, resumeFrom = null) => {
     const controller = new AbortController()
     controllers.current.set(id, controller)
     try {
-      patchItem(id, { stage: 'processing', progress: null })
-      const sha256 = await hashFile(file)
-      if (controller.signal.aborted) {
+      const result = await runUpload({
+        file,
+        upload: resumeFrom?.session ?? null,
+        sha256: resumeFrom?.sha256 ?? null,
+        signal: controller.signal,
+        onStage: (stage) => patchItem(id, { stage, reason: null }),
+        onHashProgress: ({ hashedBytes, totalBytes }) => patchItem(id, {
+          progress: totalBytes === 0 ? 0 : Math.round((hashedBytes / totalBytes) * 1000) / 10,
+        }),
+        onProgress: ({ transferredBytes, totalBytes, percent, chunkIndex, chunkCount }) => patchItem(id, {
+          transferredBytes, size: totalBytes, progress: percent, chunkIndex, chunkCount,
+        }),
+      })
+
+      if (controller.signal.aborted || result.stage === 'cancelled') {
         patchItem(id, { stage: 'cancelled', progress: null })
         return
       }
-      patchItem(id, { stage: 'uploading', progress: 0, sha256 })
-      const form = new FormData()
-      form.append('sha256', sha256)
-      form.append('file', file, file.name)
-      const response = await uploadFile('/api/files/upload', {
-        method: 'POST',
-        body: form,
-        signal: controller.signal,
-        onProgress: ({ percent }) => patchItem(id, { progress: percent }),
-        timeoutMs: 10 * 60_000,
+
+      patchItem(id, {
+        stage: result.stage,
+        reason: result.reason ?? null,
+        sha256: result.sha256 ?? null,
+        session: result.upload ?? null,
+        ...(result.ok ? { progress: 100, transferredBytes: file.size } : {}),
       })
-      if (controller.signal.aborted) patchItem(id, { stage: 'cancelled', progress: null })
-      else if (response.ok) {
-        patchItem(id, { stage: 'complete', progress: 100 })
+
+      if (result.ok) {
         if (!notifiedCompletions.current.has(id)) {
           notifiedCompletions.current.add(id)
           setSuccessToasts((current) => [...current, { id, name: file.name }])
         }
         onUploaded?.()
-      } else patchItem(id, { stage: 'failed', progress: null })
+      }
     } catch {
       patchItem(id, { stage: controller.signal.aborted ? 'cancelled' : 'failed', progress: null })
     } finally {
@@ -156,8 +193,13 @@ export function UploadDrawer({
   const enqueue = (fileList) => {
     for (const file of [...fileList]) {
       const id = `upload-${Date.now()}-${idRef.current++}`
-      const item = { id, file, name: file.name, size: file.size, stage: 'waiting', progress: null }
-      if (file.size > MAX_UPLOAD_BYTES) {
+      const item = {
+        id, file, name: file.name, size: file.size, stage: 'waiting', progress: null,
+        transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null,
+      }
+      // เพดานฝั่ง client เป็นแค่ความสะดวก การบังคับจริงอยู่ที่เซิร์ฟเวอร์เสมอ —
+      // ยังอ่านเพดานไม่ได้ = ส่งขึ้นไปให้เซิร์ฟเวอร์ตัดสิน ไม่ใช่ปฏิเสธด้วยค่าที่เดาเอง
+      if (limits && file.size > limits.maxLogicalFileBytes) {
         setQueue((current) => [{ ...item, stage: 'failed', reason: 'tooLarge' }, ...current])
       } else {
         setQueue((current) => [item, ...current])
@@ -179,6 +221,14 @@ export function UploadDrawer({
     const timer = window.setTimeout(() => setSuccessToasts((current) => current.slice(1)), 4500)
     return () => window.clearTimeout(timer)
   }, [successToasts])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    loadLimits({ signal: controller.signal })
+      .then((value) => { if (!controller.signal.aborted) setLimits(value) })
+      .catch(() => { /* อ่านไม่ได้ = ยังไม่รู้ ไม่ใช่ศูนย์ และไม่ใช่ค่าที่แต่งขึ้น */ })
+    return () => controller.abort()
+  }, [loadLimits])
 
   useEffect(() => () => {
     for (const controller of controllers.current.values()) controller.abort()
@@ -208,17 +258,21 @@ export function UploadDrawer({
 
   const cancel = (id) => {
     controllers.current.get(id)?.abort()
-    patchItem(id, { stage: 'cancelled', progress: null })
+    const item = queue.find((candidate) => candidate.id === id)
+    // คืนพื้นที่พักฝั่งเซิร์ฟเวอร์ทันที แทนที่จะปล่อยให้ค้างจนหมดอายุ
+    if (item?.session?.uploadId) cancelUploadSession(item.session.uploadId).catch(() => {})
+    patchItem(id, { stage: 'cancelled', progress: null, session: null })
   }
+  // ทำต่อจาก session เดิมถ้ายังมีอยู่ (ส่งเฉพาะ chunk ที่ขาด) ไม่งั้นเริ่มใหม่ทั้งไฟล์
   const retry = (id) => {
     const item = queue.find((candidate) => candidate.id === id)
     if (!item?.file) return
     patchItem(id, { stage: 'waiting', reason: null, progress: null })
-    processFile(item.file, id)
+    processFile(item.file, id, item.session ? { session: item.session, sha256: item.sha256 } : null)
   }
   const dismiss = (id) => setQueue((current) => current.filter((item) => item.id !== id))
   const cancelAll = () => {
-    for (const item of queue) if (['waiting', 'processing', 'uploading'].includes(item.stage)) cancel(item.id)
+    for (const item of queue) if (ACTIVE_UPLOAD_STAGES.has(item.stage)) cancel(item.id)
   }
   const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
   const activeCount = activeUploadCount(queue)
@@ -272,7 +326,7 @@ export function UploadDrawer({
           <section aria-labelledby="queue-title">
             <div className="flex items-center justify-between gap-3 mb-2.5">
               <h3 id="queue-title" className="text-[12px] uppercase tracking-[0.12em] font-bold text-ink-3">{t('uploadQueue')}</h3>
-              {queue.some((item) => ['waiting', 'processing', 'uploading'].includes(item.stage)) && <button type="button" onClick={cancelAll} className="text-[12px] font-semibold text-ink-2 hover:text-ink">{t('cancelAll')}</button>}
+              {queue.some((item) => ACTIVE_UPLOAD_STAGES.has(item.stage)) && <button type="button" onClick={cancelAll} className="text-[12px] font-semibold text-ink-2 hover:text-ink">{t('cancelAll')}</button>}
             </div>
             {queue.length === 0 ? <InlineEmptyState>{t('emptyNoUploads')}</InlineEmptyState> : <div className="space-y-2.5">{queue.map((item) => <QueueRow key={item.id} t={t} item={item} onCancel={cancel} onRetry={retry} onDismiss={dismiss} />)}</div>}
           </section>

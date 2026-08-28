@@ -38,13 +38,15 @@ let onUnauthorized = null
 export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 
 /**
- * อัปโหลด multipart ด้วย XHR เพราะ fetch ไม่มี upload-progress event ที่ใช้ได้ข้าม browser
+ * อัปโหลดด้วย XHR เพราะ fetch ไม่มี upload-progress event ที่ใช้ได้ข้าม browser
+ * ใช้ทั้งกับ multipart ของเส้นทางเดิม และกับ Blob ของ chunk หนึ่งก้อนในเส้นทาง V2
  * ⚠️ จำนวนที่ส่งให้ UI มาจาก event.loaded/event.total เท่านั้น ถ้า browser ไม่บอก total
  * จะไม่เดาเปอร์เซ็นต์ และ CSRF/session ยังคงเป็น header + HttpOnly cookie เหมือน apiFetch
  */
 export function apiUpload(path, {
   method = 'POST',
   body,
+  headers,
   signal,
   onProgress,
   suppressAuthHandler = false,
@@ -65,6 +67,10 @@ export function apiUpload(path, {
     xhr.withCredentials = true
     xhr.timeout = timeoutMs
     if (method !== 'GET' && csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken)
+    // headers เพิ่มเติมของผู้เรียก — ใช้โดยเส้นทางอัปโหลดแบบ chunk ที่ส่ง Blob ดิบ
+    // (Content-Type: application/octet-stream) ⚠️ ห้ามตั้ง Content-Type เองกับ FormData
+    // เพราะ boundary ถูกสร้างโดยเบราว์เซอร์ — ดูเหตุผลเต็มใน apiFetch ด้านล่าง
+    for (const [name, value] of Object.entries(headers ?? {})) xhr.setRequestHeader(name, value)
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || event.total <= 0) return

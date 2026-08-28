@@ -12,6 +12,8 @@ import { createApp } from './app.js'
 import { usingPostgres } from './db/connection.js'
 import { bootstrapAdminIfNeeded } from './db/bootstrapAdmin.js'
 import { initStorage, STORAGE_ROOT } from './storage/fileStore.js'
+import { initUploadStaging } from './storage/uploadStaging.js'
+import { cleanupAbandonedUploads, scheduleUploadCleanup } from './storage/uploadCleanup.js'
 import { initVaultStorage } from './storage/vaultStore.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
 
@@ -28,8 +30,24 @@ const app = createApp()
 // vault/ ถูกเตรียมแยกจาก uploads/ — ถ้าเขียนไม่ได้ ผู้ใช้จะอัปโหลดเข้า vault ไม่ได้เลย
 // avatars/ ก็เช่นกัน — แยกโฟลเดอร์เพราะเป็นที่เดียวที่ไบต์ของผู้ใช้ถูกส่งกลับให้
 // เบราว์เซอร์ render เอง (ไม่ใช่ attachment) ดูกฎของมันใน storage/avatarStore.js
-Promise.all([bootstrapAdminIfNeeded(), initStorage(), initVaultStorage(), initAvatarStorage()])
+// .staging/uploads/ ต้องพร้อมก่อนเปิดพอร์ตเช่นกัน — ถ้าเขียนไม่ได้ การอัปโหลดไฟล์ใหญ่
+// (เส้นทาง V2 แบบ chunk) จะล้มตอน runtime แทนที่จะดังตั้งแต่บูต
+Promise.all([
+  bootstrapAdminIfNeeded(), initStorage(), initUploadStaging(), initVaultStorage(), initAvatarStorage(),
+])
   .then(() => {
+    // เก็บกวาดรอบแรกตอนบูต แล้วจึงตั้งรอบประจำ — session ที่ค้างจากการรันครั้งก่อนต้อง
+    // ถูกเก็บกวาดโดยไม่ต้องรอครบหนึ่งชั่วโมง (ล้มเหลวไม่กันการเปิดพอร์ต: มันคือการเก็บ
+    // กวาดพื้นที่ ไม่ใช่ด่านความปลอดภัย และ scheduleUploadCleanup จะลองใหม่เอง)
+    cleanupAbandonedUploads()
+      .then(({ expired, orphans }) => {
+        if (expired || orphans) {
+          console.log(`[aegis-drive] upload cleanup removed ${expired} expired session(s), ${orphans} orphan(s)`)
+        }
+      })
+      .catch((err) => console.error('[aegis-drive] initial upload cleanup failed:', err.message))
+    scheduleUploadCleanup()
+
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'
       console.log(`[aegis-drive] server on :${PORT} (auth store: ${mode})`)

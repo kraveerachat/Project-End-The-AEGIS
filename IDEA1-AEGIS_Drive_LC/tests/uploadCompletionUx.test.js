@@ -96,8 +96,12 @@ test('successful upload announces the localized filename exactly once across rer
     onClose() {},
     initialFiles: [file],
     requestId: 17,
-    hashFile: async () => 'abc123',
-    uploadFile: async () => ({ ok: true }),
+    // เส้นทาง V2: หนึ่งงาน = uploadFileResumable หนึ่งครั้ง (hash+session+chunk+commit)
+    runUpload: async ({ onStage }) => {
+      onStage?.('uploading')
+      return { ok: true, stage: 'complete', sha256: 'abc123', upload: null, file: { id: 'f1' } }
+    },
+    loadLimits: async () => null,
   }
   const root = createRoot(document.getElementById('root'))
   try {
@@ -139,7 +143,8 @@ test('failed upload never emits a success notification', async () => {
       root.render(React.createElement(UploadDrawer, {
         t: makeT('en'), open: false, onOpen() {}, onClose() {},
         initialFiles: [new dom.window.File(['bad'], 'bad.pdf')], requestId: 18,
-        hashFile: async () => 'abc123', uploadFile: async () => ({ ok: false }),
+        runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+        loadLimits: async () => null,
       }))
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
