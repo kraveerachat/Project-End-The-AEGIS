@@ -41,7 +41,7 @@ import {
 import { filesystemCapacity, removeKey, moveToVersions } from '../storage/fileStore.js'
 import {
   newUploadId, isValidUploadId, createStagedPart, writeStagedChunk,
-  stagedPartSize, stagedPartSha256, publishStagedPart, removeStagedSession,
+  stagedPartSize, stagedPartSha256, publishStagedPart, restoreStagedPart, removeStagedSession,
 } from '../storage/uploadStaging.js'
 
 export const uploadsRouter = Router({ mergeParams: true })
@@ -305,9 +305,26 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
       })
     }
 
+    // ── จองสิทธิ์ commit (open → committing) ก่อนแตะไบต์ใด ๆ ──────────────────
+    // ⚠️ นี่คือจุดที่กัน "commit ซ้อนกันสองใบเผยแพร่สองแถว" และมันต้องเป็นเงื่อนไขใน
+    //    SQL (UPDATE ... WHERE status = 'open') ไม่ใช่การอ่านสถานะมาเช็คใน JS
+    //    การอ่านแล้วค่อยเขียนมีช่องให้คำขออีกใบอ่านค่าเดียวกันไปก่อน
+    // ⚠️ ตรวจ chunk ครบ "ก่อน" จอง เพื่อไม่ให้คำขอที่ยังส่งไม่ครบไปเปลี่ยนสถานะของ
+    //    session ทิ้งไว้ — สถานะ committing ต้องหมายถึง "กำลัง commit จริง" เท่านั้น
+    const claimed = await store.claimUploadSessionForCommit(session.uploadId, req.user.id)
+    if (!claimed) {
+      // มีคำขออีกใบจองไปแล้ว (หรือ session เปลี่ยนสถานะไประหว่างทาง) — ผู้แพ้ต้องไม่
+      // เผยแพร่อะไรทั้งสิ้น และต้องได้คำตอบที่อธิบายได้ ไม่ใช่ 500 จาก rename ที่ล้ม
+      return res.status(409).json({ error: 'Upload session is not open', code: 'SESSION_NOT_OPEN' })
+    }
+
+    // คืนสถานะกลับเป็น open เมื่อ commit รอบนี้ไปต่อไม่ได้ แต่ยังแก้ไข/ลองใหม่ได้
+    const release = () => store.setUploadSessionStatus(session.uploadId, req.user.id, 'open')
+
     // (ข) ขนาดจริงของไบต์ที่ประกอบได้บนดิสก์
     const actualSize = await stagedPartSize(session.uploadId)
     if (actualSize !== session.logicalSize) {
+      await release()
       await auditAct(req, 'FILE_UPLOAD', session.name, 'DENIED')
       return res.status(409).json({
         error: 'Size mismatch',
@@ -356,7 +373,22 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
         })
       }
     } catch (dbErr) {
-      await removeKey(storageKey) // metadata ไม่ผ่าน = ต้องไม่เหลือไบต์กำพร้าที่ไม่มีใครอ้างถึง
+      // ⚠️ metadata ไม่ผ่าน = ต้องไม่เหลือไบต์กำพร้าที่ไม่มีแถวใดอ้างถึง **และ** ต้องไม่
+      //    เหลือ session ที่โกหก ไบต์ถูก rename ออกจากพื้นที่พักไปแล้วตอน publish
+      //    ถ้าเพียงลบมันทิ้งแล้วปลดสถานะกลับเป็น open จะได้ session ที่แถว chunk บอกว่า
+      //    "รับครบแล้ว" (missing: []) แต่ไบต์หายไปจริง → commit ซ้ำได้ SIZE_MISMATCH
+      //    ตลอดไปโดยไม่มีทางแก้ จึงย้ายไบต์ "กลับ" มาเป็น part ก่อนเสมอ
+      const restored = await restoreStagedPart(session.uploadId, storageKey).catch(() => false)
+      if (restored) {
+        // ทำต่อได้จริง: ไบต์ยังครบ ผู้ใช้กด commit ซ้ำได้โดยไม่ต้องอัปโหลดใหม่ทั้งไฟล์
+        await release().catch(() => {})
+      } else {
+        // ย้ายกลับไม่ได้ = ไบต์ชุดนั้นเชื่อถือไม่ได้แล้ว ปิด session อย่างซื่อสัตย์
+        // แทนที่จะทิ้งไว้ให้ commit ซ้ำไม่รู้จบ (แบบแผนเดียวกับ checksum mismatch)
+        await removeKey(storageKey).catch(() => {})
+        await removeStagedSession(session.uploadId)
+        await store.setUploadSessionStatus(session.uploadId, req.user.id, 'aborted').catch(() => {})
+      }
       throw dbErr
     }
 
@@ -371,14 +403,23 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
 })
 
 // ── ยกเลิก session ที่ยังไม่ commit ──────────────────────────────────────────
-// ⚠️ session ที่ commit ไปแล้วยกเลิกไม่ได้: ไบต์ของมันกลายเป็นไฟล์ของผู้ใช้ในตาราง
-//    files ไปแล้ว การลบไฟล์เป็นงานของ DELETE /api/files/:id ซึ่งมีด่านของตัวเอง
+// ⚠️ ยกเลิกได้เฉพาะสถานะ open และ aborted เท่านั้น — allow-list เดียวกับงานเก็บกวาด
+//    (ดู CLEANABLE_STATUSES ใน db/store.js) สองสถานะที่เหลือมีเหตุผลคนละข้อ:
+//    committed = ไบต์กลายเป็นไฟล์ของผู้ใช้ในตาราง files ไปแล้ว การลบไฟล์เป็นงานของ
+//    DELETE /api/files/:id ซึ่งมีด่านของตัวเอง; committing = commit กำลังอ่านไบต์ชุด
+//    นั้นอยู่ ณ วินาทีนี้
 uploadsRouter.delete('/:uploadId', requireAuth, async (req, res, next) => {
   try {
     const session = await loadOwnSession(req, res)
     if (!session) return undefined
     if (session.status === 'committed') {
       return res.status(409).json({ error: 'Upload already committed', code: 'SESSION_COMMITTED' })
+    }
+    // ⚠️ ยกเลิกระหว่างที่ commit กำลังทำงานอยู่ไม่ได้ — การลบพื้นที่พักตอนนั้นจะดึงไบต์
+    //    ออกจากใต้ commit ที่กำลังอ่าน/rename อยู่พอดี (เหตุผลเดียวกับที่งานเก็บกวาด
+    //    ไม่แตะสถานะ committing) ผู้ใช้กดยกเลิกซ้ำได้หลัง commit จบและปลดสถานะแล้ว
+    if (session.status === 'committing') {
+      return res.status(409).json({ error: 'Upload is committing', code: 'SESSION_COMMITTING' })
     }
     await removeStagedSession(session.uploadId)
     await store.deleteUploadSession(session.uploadId, req.user.id)

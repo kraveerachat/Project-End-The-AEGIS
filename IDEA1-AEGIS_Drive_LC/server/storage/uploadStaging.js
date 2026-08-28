@@ -136,6 +136,32 @@ export async function publishStagedPart(uploadId) {
   return key
 }
 
+/**
+ * ย้ายไบต์ที่เผยแพร่ไปแล้ว "กลับ" มาเป็นไฟล์ part ของ session — ใช้เมื่อ commit ผ่าน
+ * ด่านตรวจครบทุกชั้นแล้ว แต่การเขียน metadata ล้มเหลวหลังจากนั้น
+ *
+ * ⚠️ ทำไมต้องย้ายกลับ ไม่ใช่แค่ลบทิ้ง: publish คือ rename ที่ย้ายไฟล์ part ออกไปแล้ว
+ *    ถ้าลบไบต์ทิ้งอย่างเดียวแล้วปลดสถานะกลับเป็น open จะได้ session ที่ "โกหก" —
+ *    แถว chunk ยังบอกว่ารับครบแล้ว (missing: []) แต่ไบต์ไม่มีอยู่จริง ผู้ใช้จึงเห็นว่า
+ *    พร้อม commit ตลอดไป แล้วได้ SIZE_MISMATCH ทุกครั้งโดยไม่มีทางแก้
+ *    การย้ายกลับทำให้ commit ซ้ำได้จริงโดยไม่ต้องอัปโหลดใหม่ทั้งไฟล์
+ * ⚠️ rename บน volume เดียวกันจึง atomic และไม่ใช้พื้นที่เพิ่ม เหมือนขากลับของ publish
+ * @returns {Promise<boolean>} false = ย้ายกลับไม่ได้ (ผู้เรียกต้องยกเลิก session แทน)
+ */
+export async function restoreStagedPart(uploadId, key) {
+  if (!isValidUploadId(uploadId)) return false
+  const from = path.resolve(STORAGE_ROOT, String(key).replace(/^[/\\]+/, ''))
+  const root = STORAGE_ROOT.endsWith(path.sep) ? STORAGE_ROOT : STORAGE_ROOT + path.sep
+  if (!from.startsWith(root)) return false
+  try {
+    await fsp.mkdir(sessionDir(uploadId), { recursive: true })
+    await fsp.rename(from, partPath(uploadId))
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** ลบพื้นที่พักของ session นี้ทิ้ง — เงียบถ้าไม่มีอยู่แล้ว (ยกเลิก/หมดอายุ/commit สำเร็จ) */
 export async function removeStagedSession(uploadId) {
   if (!isValidUploadId(uploadId)) return false

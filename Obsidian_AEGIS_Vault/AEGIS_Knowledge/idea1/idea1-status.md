@@ -1213,11 +1213,49 @@ a real server read stream with no range-request support added; and the legacy
 no longer uses it. Existing stored files were not migrated or rewritten and
 remain readable, downloadable and verifiable.
 
-**Verification status:** local only — 436 tests across the IDEA1 suite (417 pass,
-0 fail, 19 skipped Postgres-gated), including 14 new resumable-upload API tests
-and 8 new browser-transport tests, plus a clean production build. **No part of
-this has been deployed or accepted in production**, and the acceptance matrix in
-[[concepts/Large_File_Transfer_V2]] is a plan, not a result.
+**PostgreSQL integration gate (2026-08-28) — PASS.** The original evidence gap is
+closed: every suite now runs against a real, isolated PostgreSQL 15.18 instance
+provisioned by `IDEA1-AEGIS_Drive_LC/scripts/pg-integration-env.sh`, and the full
+IDEA1 suite is **454/454 with zero skips** (the 19 previously-skipped Vault
+Postgres tests included). Both database lifecycles are proven: a fresh database
+from `schema.sql` + `seed.sql`, and a pre-V2 database migrated by
+`003_upload_sessions.sql` — applied twice to prove idempotence, with the
+pre-existing rows and column shape verified byte-identical afterwards. The
+application connects as a non-superuser `drive_app` with DML only; `CREATE`,
+`ALTER`, `DROP` and `TRUNCATE` are all refused, and `drive_app` cannot apply the
+migration at all.
+
+**The gate found and fixed two real defects.**
+
+1. **The migration granted `drive_app` nothing when a different superuser applied
+   it.** `003_upload_sessions.sql` relied on the `ALTER DEFAULT PRIVILEGES`
+   statements in `postgres/init/02-app-roles.sh`. Measured against PostgreSQL 15,
+   those only apply to tables created by *the same role that executed them*
+   (`pg_default_acl.defaclrole`). A DBA migrating with any other superuser account
+   would have got a migration reporting success and a Drive failing at runtime with
+   `permission denied for table upload_sessions` on every upload. The migration now
+   issues its own explicit, idempotent, role-guarded DML grant. **This rule applies
+   to every future IDEA1/IDEA2 migration** — see the receipt's Integration requests.
+2. **A failed metadata write left a session that lied about being ready.** Publish
+   is a `rename`, so removing the published bytes after a metadata failure left the
+   session `open` with its bytes gone while its chunk rows still reported
+   `missing: []` — permanently uncommittable. The bytes are now moved back into
+   staging so the commit can genuinely be retried, or the session is aborted
+   honestly if that move fails.
+
+Commit was additionally hardened: `upload_sessions.status` gains a short-lived
+`committing` claim taken with a conditional `UPDATE … WHERE status = 'open'`, so
+two concurrent commits of one session produce exactly `[201, 409]` and one `files`
+row rather than relying on a `rename` failure. Cleanup's status filter became an
+allow-list (`open`, `aborted`) so it can never delete staged bytes out from under
+a running commit, and cancel refuses a session that is committing.
+
+**Verification status:** source-complete and verified locally against real
+PostgreSQL. **No part of this has been deployed, the migration has NOT been applied
+to production `aegis_drive`, and no production acceptance has been performed.** The
+matrix in [[concepts/Large_File_Transfer_V2]] is still a plan, not a result. The
+largest file actually moved through the protocol in any test is ~16.8 MiB, so
+multi-gigabyte behaviour remains argued from bounded memory rather than measured.
 
 ---
 

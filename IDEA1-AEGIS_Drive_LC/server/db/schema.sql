@@ -235,7 +235,13 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   chunk_size      INTEGER NOT NULL CHECK (chunk_size > 0),
   chunk_count     INTEGER NOT NULL CHECK (chunk_count >= 0),
   expected_sha256 CHAR(64),                       -- ค่าที่ client อ้าง — ไม่ใช่แหล่งความจริง
-  status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'committed', 'aborted')),
+  -- ⚠️ 'committing' is a short-lived CLAIM state, not a cosmetic label. Commit
+  --    takes it with a conditional UPDATE (open -> committing) so that two
+  --    concurrent commits of the same session cannot both proceed to publish.
+  --    The loser sees the row is no longer 'open' and is refused. Cleanup also
+  --    refuses to touch a session in this state — see listExpiredUploadSessions.
+  status          TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open', 'committing', 'committed', 'aborted')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at      TIMESTAMPTZ NOT NULL

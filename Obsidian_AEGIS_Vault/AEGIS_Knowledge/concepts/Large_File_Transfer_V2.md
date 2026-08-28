@@ -146,6 +146,19 @@ flight concurrently, and concurrent read-modify-write on one array loses updates
 silently. `INSERT … ON CONFLICT DO UPDATE` per row is correct under any amount of
 resending.
 
+> [!warning] A migration must grant the application role explicitly
+> `003_upload_sessions.sql` issues its own
+> `GRANT SELECT, INSERT, UPDATE, DELETE … TO drive_app`, guarded on the role
+> existing. It does **not** rely on the `ALTER DEFAULT PRIVILEGES` statements in
+> `postgres/init/02-app-roles.sh`. Measured against PostgreSQL 15.18, those
+> statements only cover tables created by **the same role that executed them** —
+> default privileges are recorded per creating role in `pg_default_acl.defaclrole`,
+> not per database. Applying the migration with a different superuser account
+> produced **zero** grants on both tables and a Drive that failed at runtime with
+> `permission denied for table upload_sessions`, after a migration that reported
+> nothing but success. **This applies to every future migration that creates a
+> table, in IDEA1 and IDEA2 alike.**
+
 ### 4.5 Integrity — the server is the only source of truth
 
 Three gates at commit, all read from the bytes on disk:
@@ -163,6 +176,40 @@ A checksum mismatch aborts the session and discards the staged bytes. The
 alternative — keeping a session whose bytes are known to be wrong so it can be
 committed again — is an invitation to publish a corrupt file. Re-uploading costs
 the user time; a silently wrong file costs them the data.
+
+### 4.5.1 Commit happens exactly once, and nothing can pull the bytes away
+
+`upload_sessions.status` carries a short-lived **`committing`** claim state.
+Commit takes it with a conditional update —
+`UPDATE … SET status = 'committing' WHERE upload_id = $1 AND user_id = $2 AND status = 'open'`
+— and proceeds only when that affects one row. The mutual exclusion is **in SQL**;
+a read in application code followed by a write has a window in which two requests
+observe the same value. Two concurrent commits of one session therefore return
+exactly `201` and `409`, and produce one `files` row. The completeness check runs
+*before* the claim, so an incomplete commit never parks the session mid-state, and
+every failure path releases the claim.
+
+Two consequences follow, and both are enforced:
+
+- **Cleanup uses an allow-list, not a deny-list.** It touches only `open` and
+  `aborted` sessions. A deny-list (`<> 'committed'`) would have swept up a session
+  that is being committed at that instant and deleted its staged bytes from under a
+  running commit. An allow-list also excludes any status added later by default.
+- **Cancel refuses a session that is committing**, for the same reason.
+
+**If the metadata write fails after publication**, the bytes are moved *back* into
+staging rather than merely deleted. Publish is a `rename`, so deleting the
+published bytes and returning the session to `open` would leave a session whose
+chunk rows still report `missing: []` while the bytes are gone — permanently
+uncommittable, and lying to the client about being ready. If the move back itself
+fails, the bytes are removed and the session is aborted honestly. Neither branch
+leaves an orphan.
+
+**Known gap:** if the process dies between taking the claim and writing the final
+status, the session stays `committing` forever — cleanup will not touch it by
+design, and the user cannot retry it. No reaper for stale `committing` sessions
+exists yet. The window is narrow (a size read, a hash read and one rename), it
+publishes nothing and leaks nothing, but it is real and belongs to a follow-up.
 
 ### 4.6 Logical size limit and the free-space rule
 
@@ -252,7 +299,7 @@ whether they are encrypted on disk.
 
 | Stage | Scope | Status |
 | :--- | :--- | :--- |
-| **LFT-V2-A** | Normal Files: resumable chunked upload foundation — session/chunk/status/commit/cancel, durable session state, incremental browser hashing, server-side final verification, staged storage, cleanup, configurable limits, truthful UI states | **This work.** Source complete and locally verified; **not yet accepted in production** |
+| **LFT-V2-A** | Normal Files: resumable chunked upload foundation — session/chunk/status/commit/cancel, durable session state, incremental browser hashing, server-side final verification, staged storage, cleanup, configurable limits, truthful UI states | **Source complete.** Verified against a real isolated PostgreSQL 15.18 (full IDEA1 suite 454/454, zero skips; both database lifecycles and the migration proven). **The migration has NOT been applied to production and nothing has been accepted in production.** |
 | **LFT-V2-B** | Private Vault: chunked zero-knowledge transfer (design in §7) | Not started |
 | **LFT-V2-C** | Edge tuning: `client_max_body_size`, `proxy_request_buffering`, timeouts retuned to chunk-sized semantics at the HUB and gateway | Not started — deliberately after the application protocol is deployed |
 | **LFT-V2-D** | Production acceptance against the matrix in §9, for both Normal Files and Private Vault | Not started |

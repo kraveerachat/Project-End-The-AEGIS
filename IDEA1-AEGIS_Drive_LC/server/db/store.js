@@ -1126,6 +1126,9 @@ export async function __resetVaultForTests() {
 // ⚠️ ทุกฟังก์ชันที่ค้น session รับ userId เป็นพารามิเตอร์ "บังคับ" และกรองในชั้น SQL
 //    เสมอ — แบบแผนเดียวกับ listFiles(userId) ที่เคยเป็นบั๊ก IDOR จริงมาก่อน
 //    session ของผู้ใช้อื่นต้องคืน null (ผู้เรียกแปลเป็น 404) ไม่ใช่ 403 ที่ยืนยันว่ามีอยู่
+// สถานะที่งานเก็บกวาดแตะได้ — allow-list เดียวกับที่ใช้ในชั้น SQL (ดูด้านล่าง)
+const CLEANABLE_STATUSES = new Set(['open', 'aborted'])
+
 const memUploadSessions = new Map()   // uploadId → row (dev fallback)
 const memUploadChunks = new Map()     // uploadId → Map<index, { size, sha256, receivedAt }>
 
@@ -1233,6 +1236,38 @@ export async function listUploadChunks(uploadId) {
     .sort((a, b) => a.index - b.index)
 }
 
+/**
+ * "จอง" session นี้เพื่อ commit — เปลี่ยน open → committing แบบมีเงื่อนไขในคำสั่งเดียว
+ *
+ * ⚠️ นี่คือจุดกันชนกันของการ commit ซ้อน และมันต้องเป็น **เงื่อนไขใน SQL** ไม่ใช่
+ *    การอ่านสถานะมาเช็คใน JS แล้วค่อยเขียน — ระหว่างอ่านกับเขียนมีช่องให้คำขออีกใบ
+ *    อ่านค่าเดียวกันได้ (read-modify-write race) UPDATE ... WHERE status = 'open'
+ *    ให้ผู้ชนะเพียงรายเดียวเสมอเพราะ PostgreSQL ล็อกแถวระหว่างอัปเดต ผู้แพ้ได้ rowCount = 0
+ *
+ * ⚠️ ทำไมต้องมีสถานะกลาง ไม่ตั้ง 'committed' ไปเลย: ถ้า commit ล้มระหว่างทาง
+ *    (ไบต์ไม่ครบ/แฮชไม่ตรง/ดิสก์พัง) session ที่ถูกทำเครื่องหมายว่า committed แล้ว
+ *    จะกลายเป็น session ที่ทำอะไรต่อไม่ได้และไม่มีไฟล์ — ผู้เรียกต้องคืนสถานะเองได้
+ *
+ * @returns {Promise<object|null>} แถวที่จองได้ หรือ null เมื่อมีคนอื่นจองไปแล้ว/ไม่ใช่ของผู้เรียก
+ */
+export async function claimUploadSessionForCommit(uploadId, userId) {
+  if (userId == null) throw new Error('claimUploadSessionForCommit requires a userId')
+  if (usingPostgres) {
+    const { rows } = await query(
+      `UPDATE upload_sessions SET status = 'committing', updated_at = now()
+        WHERE upload_id = $1 AND user_id = $2 AND status = 'open'
+        RETURNING *`,
+      [uploadId, userId],
+    )
+    return rows.length ? mapUploadSessionRow(rows[0]) : null
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId) || row.status !== 'open') return null
+  row.status = 'committing'
+  row.updatedAt = Date.now()
+  return cloneUploadSession(row)
+}
+
 /** เปลี่ยนสถานะปลายทางของ session (committed/aborted) */
 export async function setUploadSessionStatus(uploadId, userId, status) {
   if (userId == null) throw new Error('setUploadSessionStatus requires a userId')
@@ -1268,21 +1303,26 @@ export async function deleteUploadSession(uploadId, userId) {
 }
 
 /**
- * session ที่ "ยังไม่ commit และหมดอายุแล้ว" — งานเก็บกวาดอ่านรายการนี้เท่านั้น
- * ⚠️ เงื่อนไข status <> 'committed' สำคัญ: ไฟล์ที่ commit สำเร็จไปแล้วเป็นข้อมูลของ
- *    ผู้ใช้จริงในตาราง files การเก็บกวาดต้องไม่มีทางแตะมัน (ดูชุดทดสอบ cleanup)
+ * session ที่ "เก็บกวาดได้และหมดอายุแล้ว" — งานเก็บกวาดอ่านรายการนี้เท่านั้น
+ *
+ * ⚠️ รายชื่อสถานะเป็น allow-list ('open', 'aborted') ไม่ใช่ deny-list (<> 'committed')
+ *    โดยเจตนา: deny-list จะกวาด 'committing' ไปด้วย ซึ่งคือ session ที่ "กำลังถูก
+ *    commit อยู่ ณ วินาทีนี้" — การลบไบต์ที่พักไว้ระหว่างนั้นทำให้ commit ที่กำลัง
+ *    ทำงานอยู่ล้มกลางคัน สถานะใหม่ที่เพิ่มเข้ามาในอนาคตจะถูกกันออกโดยปริยาย ซึ่งเป็น
+ *    ฝั่งที่ปลอดภัยของ default-deny
+ * ⚠️ ไฟล์ที่ commit สำเร็จแล้วเป็นข้อมูลจริงของผู้ใช้ในตาราง files — เก็บกวาดต้องไม่แตะ
  */
 export async function listExpiredUploadSessions(now = Date.now()) {
   if (usingPostgres) {
     const { rows } = await query(
       `SELECT * FROM upload_sessions
-        WHERE status <> 'committed' AND expires_at < to_timestamp($1 / 1000.0)`,
+        WHERE status IN ('open', 'aborted') AND expires_at < to_timestamp($1 / 1000.0)`,
       [now],
     )
     return rows.map(mapUploadSessionRow)
   }
   return [...memUploadSessions.values()]
-    .filter((row) => row.status !== 'committed' && row.expiresAt < now)
+    .filter((row) => CLEANABLE_STATUSES.has(row.status) && row.expiresAt < now)
     .map(cloneUploadSession)
 }
 
@@ -1297,18 +1337,19 @@ export async function listAllUploadSessionIds() {
 
 /**
  * ลบแถว session โดยไม่ต้องมี userId — เฉพาะงานเก็บกวาดของระบบที่ไม่มี request ผูกอยู่
- * ⚠️ เงื่อนไข status <> 'committed' อยู่ใน SQL เอง ไม่ใช่ในผู้เรียก — งานเก็บกวาด
- *    ต้องลบ session ที่ commit แล้วไม่ได้แม้ผู้เรียกจะส่ง id ของมันมาโดยพลาด
+ * ⚠️ allow-list ของสถานะอยู่ใน SQL เอง ไม่ใช่ในผู้เรียก — งานเก็บกวาดต้องลบ session
+ *    ที่ commit แล้ว หรือที่กำลัง commit อยู่ ไม่ได้ แม้ผู้เรียกจะส่ง id ของมันมาโดยพลาด
  */
 export async function deleteUploadSessionUnscoped(uploadId) {
   if (usingPostgres) {
     const { rowCount } = await query(
-      `DELETE FROM upload_sessions WHERE upload_id = $1 AND status <> 'committed'`, [uploadId],
+      `DELETE FROM upload_sessions WHERE upload_id = $1 AND status IN ('open', 'aborted')`,
+      [uploadId],
     )
     return rowCount > 0
   }
   const row = memUploadSessions.get(uploadId)
-  if (!row || row.status === 'committed') return false
+  if (!row || !CLEANABLE_STATUSES.has(row.status)) return false
   memUploadSessions.delete(uploadId)
   memUploadChunks.delete(uploadId)
   return true
