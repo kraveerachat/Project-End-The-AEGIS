@@ -75,9 +75,15 @@ test('apiUpload reports browser upload progress from real loaded/total byte even
 })
 
 test('Uploads renders only measured byte progress and contains no stage percentages', async () => {
-  const source = await fs.readFile(new URL('../src/screens/Uploads.jsx', import.meta.url), 'utf8')
-  assert.match(source, /apiUpload/)
-  assert.match(source, /onProgress/)
-  assert.match(source, /item\.progress/)
-  assert.doesNotMatch(source, /stage === 'staged' \? '5%'|stage === 'hashing' \? '40%'|stage === 'transferring' \? '75%'/)
+  // ⚠️ เดิมยืนยันว่าจอเรียก apiUpload ตรง ๆ — เส้นทาง V2 ย้ายการเรียกนั้นไปที่
+  //    src/lib/chunkedUpload.js (หนึ่ง apiUpload ต่อหนึ่ง chunk) สัญญาที่ต้องคงไว้จึงเป็น
+  //    "เปอร์เซ็นต์มาจาก byte event ที่วัดได้จริง" ไม่ใช่ชื่อของฟังก์ชันที่จอเรียก
+  const [screen, uploader] = await Promise.all([
+    fs.readFile(new URL('../src/screens/Uploads.jsx', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../src/lib/chunkedUpload.js', import.meta.url), 'utf8'),
+  ])
+  assert.match(uploader, /apiUpload/)
+  assert.match(screen, /onProgress/)
+  assert.match(screen, /item\.progress/)
+  assert.doesNotMatch(screen, /stage === 'staged' \? '5%'|stage === 'hashing' \? '40%'|stage === 'transferring' \? '75%'/)
 })

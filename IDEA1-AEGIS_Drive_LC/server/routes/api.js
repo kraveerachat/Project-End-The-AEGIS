@@ -22,6 +22,9 @@ import {
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
+// Resumable chunked upload (LFT-V2-A) — เส้นทาง V2 ของการโอนไฟล์ใหญ่ แยกไฟล์เพราะเป็น
+// โปรโตคอลของตัวเอง (session → chunk → status → commit) ไม่ใช่ endpoint เดี่ยว ๆ
+import { uploadsRouter } from './uploads.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
 import { buildTelemetry } from '../telemetry/index.js'
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
@@ -256,12 +259,24 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
   }
 })
 
+// ── Upload V2 — resumable chunked transfer (LFT-V2-A) ────────────────────────
+// ⚠️ ต้องถูก mount "ก่อน" เส้นทาง '/files/:id/...' ด้านล่างเสมอ — Express จับคู่ตาม
+//    ลำดับที่ประกาศ ถ้าอยู่หลัง '/files/:id' จะกิน '/files/uploads' ไปเป็น id เสียก่อน
+apiRouter.use('/files/uploads', uploadsRouter)
+
 // ── Upload — Storage Layer (bytes) + Metadata Layer (แถวใน files) ────────────
 // ⚠️ ลำดับสำคัญ: เขียน bytes ลงดิสก์ให้เสร็จก่อน แล้วค่อย INSERT metadata — ถ้าสลับกัน
 //    แล้วดิสก์ล้มเหลว จะเหลือแถวที่ชี้ไปยังไฟล์ที่ไม่มีอยู่จริง (metadata โกหก)
 //    ถ้า INSERT ล้มเหลวทีหลัง เราลบ bytes ทิ้ง (discardUploaded) — ไม่เหลือไฟล์กำพร้า
 // ⚠️ size และ sha256 มาจาก "ไฟล์บนดิสก์จริง" ที่เซิร์ฟเวอร์อ่านเอง ไม่ใช่ค่าที่ client แจ้ง
 //    client แจ้ง sha256 มาได้ แต่ใช้แค่ "เทียบ" เพื่อจับ corruption ระหว่างทางเท่านั้น
+//
+// ⚠️ **LEGACY (V1) — ยังเปิดอยู่เพื่อความเข้ากันได้ ไม่ใช่เส้นทางของ UI อีกต่อไป**
+//    จอ Uploads ใช้เส้นทาง V2 (/api/files/uploads/*) แล้ว endpoint นี้คงไว้เพื่อ
+//    (1) ไคลเอนต์/สคริปต์ที่ยังเรียกอยู่ (2) ไฟล์เล็กที่ไม่ต้องการ session สามขั้น
+//    ข้อจำกัดที่ยังเป็นจริงของมันและเป็นเหตุผลที่ V2 มีอยู่: หนึ่งคำขอ = ทั้งไฟล์
+//    (เพดาน multer 1 GiB + client_max_body_size ของ nginx) และหลุดกลางทาง = เริ่มใหม่
+//    การถอด endpoint นี้ออกเป็นงานแยกหลัง V2 ผ่านการยอมรับใน production แล้ว
 apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
   uploadMiddleware(req, res, async (uploadErr) => {
     if (uploadErr) {

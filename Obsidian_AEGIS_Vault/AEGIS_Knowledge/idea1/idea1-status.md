@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-27
+updated: 2026-08-28
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1149,6 +1149,116 @@ Latest result after adding the client reset-gate regressions: **122 tests, 122 p
 * `src/screens/FileHistory.jsx` — replaces the removed `Snapshots.jsx`
 * `src/lib/vaultCrypto.js` · `src/screens/Vault.jsx` — zero-knowledge vault
 
+### Large-file transfer V2 — resumable chunked foundation (2026-08-28)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage A source complete, **production acceptance not started**
+> The confirmed defect is **application transfer architecture**, not VLAN/LAN/Twingate bandwidth. Full analysis, the staged plan and the future acceptance matrix are in [[concepts/Large_File_Transfer_V2]].
+
+The limits that were actually enforced before this change, measured in source:
+`MAX_VAULT_CIPHERTEXT_BYTES` = 64 MiB (Private Vault, per request);
+`MAX_UPLOAD_BYTES` = 1 GiB (Normal Files backend, which conflated *one request*
+with *one file*); and `client_max_body_size 512m` at the HUB `/drive` location,
+the tightest of the three. Both browser paths additionally called
+`file.arrayBuffer()` before sending, so the practical ceiling was the smaller of
+a per-request limit and the tab's RAM.
+
+**Stage A (this change) — Normal Files only:**
+
+* A resumable chunked upload protocol: `POST /api/files/uploads` →
+  `PUT /api/files/uploads/:id/chunks/:index` → `GET /api/files/uploads/:id` →
+  `POST /api/files/uploads/:id/commit`, plus `DELETE` to cancel and
+  `GET /api/files/uploads/limits` for the ceilings the deployment enforces. Every
+  route is behind `requireAuth` and CSRF, scoped to `req.user.id`; a session
+  belonging to another user answers `404`, and no route accepts a `userId` from a
+  request. There is no Admin exception.
+* Chunks land in an opaque staging area (`STORAGE_ROOT/.staging/uploads/<id>/part`)
+  as positional writes into one sparse file, so commit is an atomic `rename`
+  rather than a copy, and a resent chunk is idempotent by construction. No row in
+  `files` points at staged bytes at any point before commit, so a partial upload
+  cannot appear in `GET /api/files`.
+* Session state is durable in PostgreSQL (`upload_sessions`,
+  `upload_session_chunks`; new databases via `schema.sql`, existing ones via the
+  idempotent `server/db/migrations/003_upload_sessions.sql`). It survives browser
+  retry, network interruption, failed requests and application restart.
+* The browser no longer buffers whole files. Hashing is incremental over
+  `file.slice()` ranges using `hash-wasm`'s streaming SHA-256 — an existing
+  dependency, so no new package and no CSP change. **The server recomputes
+  SHA-256 and the byte count from the stored bytes and refuses to publish on any
+  mismatch**; the client checksum is only ever compared.
+* The 1 GiB constant is no longer an architectural ceiling. `UPLOAD_CHUNK_SIZE_BYTES`
+  (default 16 MiB, range 8–64 MiB) and `MAX_LOGICAL_FILE_BYTES` (default 5 GiB,
+  a safe value for the current volume rather than a maximum) are deployment
+  configuration. A session also opens only when
+  `freeBytes − logicalSize ≥ max(2 GiB, 5% of the filesystem)`, so one upload
+  cannot fill the volume and stop PostgreSQL, the audit log and the session store
+  from writing. Where free space cannot be measured, the check is skipped **and
+  declared skipped** rather than faked.
+* The Uploads screen and the Files upload drawer both use the V2 path and report
+  Preparing / Hashing / Uploading / Paused / Committing / Complete / Failed with
+  bytes transferred, total, percentage and current chunk of total. A dropped
+  connection pauses and offers Resume, which re-sends only the missing chunks.
+  The screen shows the configured limit and the measured free space read from the
+  server instead of a constant compiled into the bundle.
+* Expired, uncommitted sessions and orphaned staging directories are reclaimed at
+  boot and hourly. The cleanup can never touch a committed session or anything
+  under `uploads/`/`versions/`.
+
+**Deliberately unchanged in Stage A:** the Private Vault (no constant, format,
+ownership rule or Preview policy was touched — its chunked zero-knowledge design
+is specified for `LFT-V2-B` but not implemented); production nginx (`LFT-V2-C`
+retunes `client_max_body_size`, `proxy_request_buffering` and timeouts to
+chunk-sized semantics *after* the protocol is deployed); download, which remains
+a real server read stream with no range-request support added; and the legacy
+`POST /api/files/upload`, which stays available for existing clients while the UI
+no longer uses it. Existing stored files were not migrated or rewritten and
+remain readable, downloadable and verifiable.
+
+**PostgreSQL integration gate (2026-08-28) — PASS.** The original evidence gap is
+closed: every suite now runs against a real, isolated PostgreSQL 15.18 instance
+provisioned by `IDEA1-AEGIS_Drive_LC/scripts/pg-integration-env.sh`, and the full
+IDEA1 suite is **454/454 with zero skips** (the 19 previously-skipped Vault
+Postgres tests included). Both database lifecycles are proven: a fresh database
+from `schema.sql` + `seed.sql`, and a pre-V2 database migrated by
+`003_upload_sessions.sql` — applied twice to prove idempotence, with the
+pre-existing rows and column shape verified byte-identical afterwards. The
+application connects as a non-superuser `drive_app` with DML only; `CREATE`,
+`ALTER`, `DROP` and `TRUNCATE` are all refused, and `drive_app` cannot apply the
+migration at all.
+
+**The gate found and fixed two real defects.**
+
+1. **The migration granted `drive_app` nothing when a different superuser applied
+   it.** `003_upload_sessions.sql` relied on the `ALTER DEFAULT PRIVILEGES`
+   statements in `postgres/init/02-app-roles.sh`. Measured against PostgreSQL 15,
+   those only apply to tables created by *the same role that executed them*
+   (`pg_default_acl.defaclrole`). A DBA migrating with any other superuser account
+   would have got a migration reporting success and a Drive failing at runtime with
+   `permission denied for table upload_sessions` on every upload. The migration now
+   issues its own explicit, idempotent, role-guarded DML grant. **This rule applies
+   to every future IDEA1/IDEA2 migration** — see the receipt's Integration requests.
+2. **A failed metadata write left a session that lied about being ready.** Publish
+   is a `rename`, so removing the published bytes after a metadata failure left the
+   session `open` with its bytes gone while its chunk rows still reported
+   `missing: []` — permanently uncommittable. The bytes are now moved back into
+   staging so the commit can genuinely be retried, or the session is aborted
+   honestly if that move fails.
+
+Commit was additionally hardened: `upload_sessions.status` gains a short-lived
+`committing` claim taken with a conditional `UPDATE … WHERE status = 'open'`, so
+two concurrent commits of one session produce exactly `[201, 409]` and one `files`
+row rather than relying on a `rename` failure. Cleanup's status filter became an
+allow-list (`open`, `aborted`) so it can never delete staged bytes out from under
+a running commit, and cancel refuses a session that is committing.
+
+**Verification status:** source-complete and verified locally against real
+PostgreSQL. **No part of this has been deployed, the migration has NOT been applied
+to production `aegis_drive`, and no production acceptance has been performed.** The
+matrix in [[concepts/Large_File_Transfer_V2]] is still a plan, not a result. The
+largest file actually moved through the protocol in any test is ~16.8 MiB, so
+multi-gigabyte behaviour remains argued from bounded memory rather than measured.
+
+---
+
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
@@ -1165,3 +1275,4 @@ Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `t
 * [[concepts/OWASP_Security_Defense]]
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]
 * [[concepts/Identity_Decoupling]]
+* [[concepts/Large_File_Transfer_V2]]

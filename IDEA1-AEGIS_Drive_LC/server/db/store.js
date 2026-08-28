@@ -1116,5 +1116,255 @@ export async function __resetVaultForTests() {
   memVaultBlobs.length = 0
 }
 
+// ── Resumable upload sessions (LFT-V2-A) ─────────────────────────────────────
+//
+// ⚠️ นี่คือ Metadata Layer ของการโอนที่ "ยังไม่เสร็จ" — ไบต์อยู่ใน Storage Layer
+//    ใต้ .staging/uploads/<upload_id>/part (ดู storage/uploadStaging.js)
+//    ตราบใดที่ยังไม่ commit จะไม่มีแถวใดใน `files` ชี้มาที่ไบต์ชุดนี้เลย ดังนั้น
+//    GET /api/files จึงเห็นไฟล์ที่อัปโหลดค้างไม่ได้โดยโครงสร้าง ไม่ใช่ด้วยการกรอง
+//
+// ⚠️ ทุกฟังก์ชันที่ค้น session รับ userId เป็นพารามิเตอร์ "บังคับ" และกรองในชั้น SQL
+//    เสมอ — แบบแผนเดียวกับ listFiles(userId) ที่เคยเป็นบั๊ก IDOR จริงมาก่อน
+//    session ของผู้ใช้อื่นต้องคืน null (ผู้เรียกแปลเป็น 404) ไม่ใช่ 403 ที่ยืนยันว่ามีอยู่
+// สถานะที่งานเก็บกวาดแตะได้ — allow-list เดียวกับที่ใช้ในชั้น SQL (ดูด้านล่าง)
+const CLEANABLE_STATUSES = new Set(['open', 'aborted'])
+
+const memUploadSessions = new Map()   // uploadId → row (dev fallback)
+const memUploadChunks = new Map()     // uploadId → Map<index, { size, sha256, receivedAt }>
+
+function mapUploadSessionRow(r) {
+  return {
+    uploadId: r.upload_id,
+    userId: String(r.user_id),
+    name: r.name,
+    logicalSize: Number(r.logical_size),
+    chunkSize: Number(r.chunk_size),
+    chunkCount: Number(r.chunk_count),
+    expectedSha256: r.expected_sha256 ?? null,
+    status: r.status,
+    createdAt: new Date(r.created_at).getTime(),
+    updatedAt: new Date(r.updated_at).getTime(),
+    expiresAt: new Date(r.expires_at).getTime(),
+  }
+}
+
+const cloneUploadSession = (row) => ({ ...row })
+
+/** สร้าง session ใหม่ — uploadId ถูกสร้างโดยผู้เรียก (id ทึบจาก uploadStaging.js) */
+export async function createUploadSession({
+  uploadId, userId, name, logicalSize, chunkSize, chunkCount, expectedSha256, expiresAt,
+}) {
+  if (userId == null) throw new Error('createUploadSession requires a userId')
+  if (usingPostgres) {
+    const { rows } = await query(
+      `INSERT INTO upload_sessions
+         (upload_id, user_id, name, logical_size, chunk_size, chunk_count, expected_sha256, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0)) RETURNING *`,
+      [uploadId, userId, String(name).slice(0, 200), logicalSize, chunkSize, chunkCount,
+        expectedSha256 ?? null, expiresAt],
+    )
+    return mapUploadSessionRow(rows[0])
+  }
+  const now = Date.now()
+  const row = {
+    uploadId, userId: String(userId), name: String(name).slice(0, 200),
+    logicalSize: Number(logicalSize), chunkSize: Number(chunkSize), chunkCount: Number(chunkCount),
+    expectedSha256: expectedSha256 ?? null, status: 'open',
+    createdAt: now, updatedAt: now, expiresAt: Number(expiresAt),
+  }
+  memUploadSessions.set(uploadId, row)
+  memUploadChunks.set(uploadId, new Map())
+  return cloneUploadSession(row)
+}
+
+/**
+ * session ของ "ผู้ใช้คนนี้เท่านั้น" — ด่าน ownership อยู่ที่นี่จุดเดียว
+ * ⚠️ ไม่มีข้อยกเว้นให้ Admin โดยเจตนา ตรงกับด่านของ files (ดู DELETE /api/files/:id)
+ */
+export async function findUploadSession(uploadId, userId) {
+  if (userId == null) throw new Error('findUploadSession requires a userId — do not call it unscoped')
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT * FROM upload_sessions WHERE upload_id = $1 AND user_id = $2`, [uploadId, userId],
+    )
+    return rows.length ? mapUploadSessionRow(rows[0]) : null
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId)) return null
+  return cloneUploadSession(row)
+}
+
+/**
+ * บันทึกว่า chunk ก้อนนี้มาถึงครบแล้ว — ส่งซ้ำแล้วต้องได้ผลเหมือนเดิม (idempotent)
+ * ⚠️ ON CONFLICT DO UPDATE ไม่ใช่ DO NOTHING: การส่งซ้ำที่สำเร็จคือไบต์ชุดล่าสุดที่
+ *    เขียนทับตำแหน่งเดิมไปแล้วจริง สถานะจึงต้องสะท้อนก้อนล่าสุด ไม่ใช่ก้อนแรก
+ */
+export async function recordUploadChunk(uploadId, { index, size, sha256 }) {
+  if (usingPostgres) {
+    await query(
+      `INSERT INTO upload_session_chunks (upload_id, chunk_index, size_bytes, sha256)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (upload_id, chunk_index)
+       DO UPDATE SET size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, received_at = now()`,
+      [uploadId, index, size, sha256],
+    )
+    await query(`UPDATE upload_sessions SET updated_at = now() WHERE upload_id = $1`, [uploadId])
+    return true
+  }
+  const chunks = memUploadChunks.get(uploadId)
+  if (!chunks) return false
+  chunks.set(Number(index), { size: Number(size), sha256, receivedAt: Date.now() })
+  const row = memUploadSessions.get(uploadId)
+  if (row) row.updatedAt = Date.now()
+  return true
+}
+
+/** ดัชนีของ chunk ที่มาถึงแล้ว เรียงจากน้อยไปมาก พร้อมขนาดที่รับไว้จริง */
+export async function listUploadChunks(uploadId) {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT chunk_index, size_bytes FROM upload_session_chunks
+        WHERE upload_id = $1 ORDER BY chunk_index ASC`,
+      [uploadId],
+    )
+    return rows.map((r) => ({ index: Number(r.chunk_index), size: Number(r.size_bytes) }))
+  }
+  const chunks = memUploadChunks.get(uploadId)
+  if (!chunks) return []
+  return [...chunks.entries()]
+    .map(([index, value]) => ({ index, size: value.size }))
+    .sort((a, b) => a.index - b.index)
+}
+
+/**
+ * "จอง" session นี้เพื่อ commit — เปลี่ยน open → committing แบบมีเงื่อนไขในคำสั่งเดียว
+ *
+ * ⚠️ นี่คือจุดกันชนกันของการ commit ซ้อน และมันต้องเป็น **เงื่อนไขใน SQL** ไม่ใช่
+ *    การอ่านสถานะมาเช็คใน JS แล้วค่อยเขียน — ระหว่างอ่านกับเขียนมีช่องให้คำขออีกใบ
+ *    อ่านค่าเดียวกันได้ (read-modify-write race) UPDATE ... WHERE status = 'open'
+ *    ให้ผู้ชนะเพียงรายเดียวเสมอเพราะ PostgreSQL ล็อกแถวระหว่างอัปเดต ผู้แพ้ได้ rowCount = 0
+ *
+ * ⚠️ ทำไมต้องมีสถานะกลาง ไม่ตั้ง 'committed' ไปเลย: ถ้า commit ล้มระหว่างทาง
+ *    (ไบต์ไม่ครบ/แฮชไม่ตรง/ดิสก์พัง) session ที่ถูกทำเครื่องหมายว่า committed แล้ว
+ *    จะกลายเป็น session ที่ทำอะไรต่อไม่ได้และไม่มีไฟล์ — ผู้เรียกต้องคืนสถานะเองได้
+ *
+ * @returns {Promise<object|null>} แถวที่จองได้ หรือ null เมื่อมีคนอื่นจองไปแล้ว/ไม่ใช่ของผู้เรียก
+ */
+export async function claimUploadSessionForCommit(uploadId, userId) {
+  if (userId == null) throw new Error('claimUploadSessionForCommit requires a userId')
+  if (usingPostgres) {
+    const { rows } = await query(
+      `UPDATE upload_sessions SET status = 'committing', updated_at = now()
+        WHERE upload_id = $1 AND user_id = $2 AND status = 'open'
+        RETURNING *`,
+      [uploadId, userId],
+    )
+    return rows.length ? mapUploadSessionRow(rows[0]) : null
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId) || row.status !== 'open') return null
+  row.status = 'committing'
+  row.updatedAt = Date.now()
+  return cloneUploadSession(row)
+}
+
+/** เปลี่ยนสถานะปลายทางของ session (committed/aborted) */
+export async function setUploadSessionStatus(uploadId, userId, status) {
+  if (userId == null) throw new Error('setUploadSessionStatus requires a userId')
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `UPDATE upload_sessions SET status = $3, updated_at = now()
+        WHERE upload_id = $1 AND user_id = $2`,
+      [uploadId, userId, status],
+    )
+    return rowCount > 0
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId)) return false
+  row.status = status
+  row.updatedAt = Date.now()
+  return true
+}
+
+/** ลบแถว session + แถว chunk ของมัน (CASCADE ในโหมด Postgres) */
+export async function deleteUploadSession(uploadId, userId) {
+  if (userId == null) throw new Error('deleteUploadSession requires a userId')
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `DELETE FROM upload_sessions WHERE upload_id = $1 AND user_id = $2`, [uploadId, userId],
+    )
+    return rowCount > 0
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId)) return false
+  memUploadSessions.delete(uploadId)
+  memUploadChunks.delete(uploadId)
+  return true
+}
+
+/**
+ * session ที่ "เก็บกวาดได้และหมดอายุแล้ว" — งานเก็บกวาดอ่านรายการนี้เท่านั้น
+ *
+ * ⚠️ รายชื่อสถานะเป็น allow-list ('open', 'aborted') ไม่ใช่ deny-list (<> 'committed')
+ *    โดยเจตนา: deny-list จะกวาด 'committing' ไปด้วย ซึ่งคือ session ที่ "กำลังถูก
+ *    commit อยู่ ณ วินาทีนี้" — การลบไบต์ที่พักไว้ระหว่างนั้นทำให้ commit ที่กำลัง
+ *    ทำงานอยู่ล้มกลางคัน สถานะใหม่ที่เพิ่มเข้ามาในอนาคตจะถูกกันออกโดยปริยาย ซึ่งเป็น
+ *    ฝั่งที่ปลอดภัยของ default-deny
+ * ⚠️ ไฟล์ที่ commit สำเร็จแล้วเป็นข้อมูลจริงของผู้ใช้ในตาราง files — เก็บกวาดต้องไม่แตะ
+ */
+export async function listExpiredUploadSessions(now = Date.now()) {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT * FROM upload_sessions
+        WHERE status IN ('open', 'aborted') AND expires_at < to_timestamp($1 / 1000.0)`,
+      [now],
+    )
+    return rows.map(mapUploadSessionRow)
+  }
+  return [...memUploadSessions.values()]
+    .filter((row) => CLEANABLE_STATUSES.has(row.status) && row.expiresAt < now)
+    .map(cloneUploadSession)
+}
+
+/** id ของทุก session ที่ยังมีแถวอยู่ — ใช้ระบุโฟลเดอร์พักที่กำพร้าจริง ๆ */
+export async function listAllUploadSessionIds() {
+  if (usingPostgres) {
+    const { rows } = await query(`SELECT upload_id FROM upload_sessions`)
+    return rows.map((r) => r.upload_id)
+  }
+  return [...memUploadSessions.keys()]
+}
+
+/**
+ * ลบแถว session โดยไม่ต้องมี userId — เฉพาะงานเก็บกวาดของระบบที่ไม่มี request ผูกอยู่
+ * ⚠️ allow-list ของสถานะอยู่ใน SQL เอง ไม่ใช่ในผู้เรียก — งานเก็บกวาดต้องลบ session
+ *    ที่ commit แล้ว หรือที่กำลัง commit อยู่ ไม่ได้ แม้ผู้เรียกจะส่ง id ของมันมาโดยพลาด
+ */
+export async function deleteUploadSessionUnscoped(uploadId) {
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `DELETE FROM upload_sessions WHERE upload_id = $1 AND status IN ('open', 'aborted')`,
+      [uploadId],
+    )
+    return rowCount > 0
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || !CLEANABLE_STATUSES.has(row.status)) return false
+  memUploadSessions.delete(uploadId)
+  memUploadChunks.delete(uploadId)
+  return true
+}
+
+/** ล้าง state ของ upload session ทั้งหมด — ใช้โดยชุดทดสอบเท่านั้น (แบบแผนเดียวกับ vault) */
+export async function __resetUploadSessionsForTests() {
+  if (usingPostgres) {
+    await query('DELETE FROM upload_session_chunks')
+    await query('DELETE FROM upload_sessions')
+    return
+  }
+  memUploadSessions.clear()
+  memUploadChunks.clear()
+}
+
 // ── Uploads — สถานะเข้ารหัส-at-rest ระหว่างนำเข้า NAS ─────────────────
 export { sha256Hex }

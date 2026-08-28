@@ -210,3 +210,55 @@ CREATE TABLE IF NOT EXISTS vault_blobs (
 );
 
 CREATE INDEX IF NOT EXISTS vault_blobs_user_idx ON vault_blobs (user_id, created_at DESC);
+
+-- ── Resumable upload sessions (LFT-V2-A) ────────────────────────────────────
+--
+-- ⚠️ ตารางนี้เก็บ "สถานะของการโอนที่ยังไม่เสร็จ" ไม่ใช่ไบต์ของไฟล์ — ไบต์อยู่ใน
+--    Storage Layer ใต้ STORAGE_ROOT/.staging/uploads/<upload_id>/part เสมอ
+--    (เหตุผลเดียวกับที่ vault_blobs ไม่เก็บ base64 ใน TEXT: ฐานข้อมูลไม่ใช่ที่เก็บไฟล์)
+--
+-- ⚠️ ทำไมต้องอยู่ในฐานข้อมูล ไม่ใช่ในหน่วยความจำของ React หรือของโปรเซส Express:
+--    การ "ทำต่อจากที่ค้าง" ต้องอยู่รอดทั้งการ retry ของเบราว์เซอร์ เน็ตหลุดชั่วคราว
+--    และคำขอที่ล้มเหลว — สถานะที่หายไปพร้อม tab หรือพร้อม restart ไม่ใช่ resume จริง
+--
+-- ⚠️ `name` เป็นชื่อไฟล์ที่ผู้ใช้ตั้ง (plaintext) — ถูกต้องเฉพาะกับ Normal Files ซึ่ง
+--    ตาราง files ก็เก็บชื่อจริงอยู่แล้ว **ห้ามนำตารางนี้ไปใช้กับ Private Vault**
+--    เส้นทาง Vault ต้องไม่มีคอลัมน์ที่เก็บชื่อไฟล์เป็น plaintext ได้เลย (ดู LFT-V2-B)
+--
+-- ⚠️ ownership อยู่ที่ user_id เท่านั้น และทุก query ที่ค้น session ต้องกรองด้วยมันเสมอ
+--    session ของผู้ใช้อื่นต้อง "ไม่มีอยู่" ในสายตาผู้เรียก (404 ไม่ใช่ 403)
+CREATE TABLE IF NOT EXISTS upload_sessions (
+  upload_id       TEXT PRIMARY KEY,               -- id ทึบ 24 ไบต์สุ่ม (hex) — ไม่ใช่ลำดับที่เดาต่อได้
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  logical_size    BIGINT NOT NULL CHECK (logical_size >= 0),
+  chunk_size      INTEGER NOT NULL CHECK (chunk_size > 0),
+  chunk_count     INTEGER NOT NULL CHECK (chunk_count >= 0),
+  expected_sha256 CHAR(64),                       -- ค่าที่ client อ้าง — ไม่ใช่แหล่งความจริง
+  -- ⚠️ 'committing' is a short-lived CLAIM state, not a cosmetic label. Commit
+  --    takes it with a conditional UPDATE (open -> committing) so that two
+  --    concurrent commits of the same session cannot both proceed to publish.
+  --    The loser sees the row is no longer 'open' and is refused. Cleanup also
+  --    refuses to touch a session in this state — see listExpiredUploadSessions.
+  status          TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open', 'committing', 'committed', 'aborted')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at      TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS upload_sessions_user_idx ON upload_sessions (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS upload_sessions_expiry_idx ON upload_sessions (status, expires_at);
+
+-- ⚠️ หนึ่งแถวต่อ chunk ที่ "ถึงเซิร์ฟเวอร์ครบและถูกเขียนลงดิสก์แล้ว" — ไม่ใช่อาเรย์ใน
+--    แถวเดียวของ upload_sessions โดยเจตนา: chunk หลายก้อนอัปโหลดขนานกันได้ และการ
+--    อ่าน-แก้-เขียนอาเรย์เดียวกันพร้อมกันจะทำให้สถานะ "หาย" แบบเงียบ ๆ (lost update)
+--    ส่วน INSERT ... ON CONFLICT DO UPDATE ต่อแถวนั้นถูกต้องภายใต้การส่งซ้ำเสมอ
+CREATE TABLE IF NOT EXISTS upload_session_chunks (
+  upload_id    TEXT NOT NULL REFERENCES upload_sessions(upload_id) ON DELETE CASCADE,
+  chunk_index  INTEGER NOT NULL CHECK (chunk_index >= 0),
+  size_bytes   INTEGER NOT NULL CHECK (size_bytes > 0),
+  sha256       CHAR(64) NOT NULL,                 -- ของ chunk ก้อนนี้ (วินิจฉัย ไม่ใช่ด่านสุดท้าย)
+  received_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_id, chunk_index)
+);
