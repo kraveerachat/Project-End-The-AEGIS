@@ -438,6 +438,81 @@ test('SAME_NAME_VERSION_CRASH_SAFE · ทุกแถวใน files และ f
   assert.equal(new Set(keys).size, keys.length, 'ทุก key ต้องไม่ซ้ำกัน')
 })
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// รายละเอียดการจัดเก็บ: เวอร์ชันที่ V2 สร้าง "ไม่ถูกย้าย" ไบต์ จึงยังอยู่ใต้ uploads/
+//
+// ⚠️ นี่คือผลข้างเคียงโดยตรงของการปิดช่องโหว่ same-name — และเป็นสิ่งที่ต้องตรึงไว้
+//    ด้วยเทสต์ ไม่ใช่ปล่อยให้เป็นความรู้ที่อยู่ในหัวคน: ถ้าวันหนึ่งมีใครเขียนโค้ดที่
+//    "สันนิษฐานว่า key ของทุกเวอร์ชันขึ้นต้นด้วย versions/" เทสต์ชุดนี้ต้องแดงทันที
+//    ผู้บริโภคทุกตัวต้อง resolve จาก key ที่ "เก็บไว้จริง" เท่านั้น ไม่ใช่จาก prefix
+// ═════════════════════════════════════════════════════════════════════════════
+test('V2_VERSION_KEY_RESOLVED_NOT_ASSUMED · เวอร์ชันที่ยังอยู่ใต้ uploads/ ดาวน์โหลดและกู้คืนได้ครบ', { skip }, async () => {
+  const owner = await login()
+  const name = `version-key-shape-${Date.now()}.bin`
+  const v1 = makeContent(SMALL)
+  const v2 = makeContent(SMALL + 128)
+
+  const first = await uploadReadyToCommit(owner, name, v1)
+  assert.equal((await owner.req(`/api/files/uploads/${first.uploadId}/commit`, { method: 'POST' })).status, 201)
+  const original = (await rows('SELECT * FROM files WHERE name = $1', [name]))[0]
+
+  const second = await uploadReadyToCommit(owner, name, v2)
+  const commit2 = await owner.req(`/api/files/uploads/${second.uploadId}/commit`, { method: 'POST' })
+  assert.equal(commit2.status, 201, JSON.stringify(commit2.data))
+  assert.equal(commit2.data.newVersion, true)
+
+  const file = (await rows('SELECT * FROM files WHERE name = $1', [name]))[0]
+  const [version] = await rows('SELECT * FROM file_versions WHERE file_id = $1', [file.id])
+
+  // ── รูปร่างของ key ที่ตรึงไว้ ────────────────────────────────────────────────
+  // เส้นทาง V2 ไม่ย้ายไบต์เลย เวอร์ชันเก่าจึงยังถือ key เดิมของมันซึ่งอยู่ใต้ uploads/
+  assert.equal(version.storage_key, original.path)
+  assert.ok(version.storage_key.startsWith('uploads/'),
+    'เวอร์ชันที่ V2 สร้างยังอยู่ใต้ uploads/ โดยเจตนา (ไม่มีการ rename)')
+  assert.ok(!version.storage_key.startsWith('versions/'),
+    'ถ้าข้อนี้แดง แปลว่าพฤติกรรมเปลี่ยน — ต้องทบทวนบันทึกการออกแบบก่อนแก้เทสต์')
+
+  // ── ผู้บริโภคที่ 1: ดาวน์โหลดไฟล์ปัจจุบัน ต้องได้ไบต์ชุดใหม่ ────────────────
+  const cur = await fetch(`${baseUrl}/api/files/${file.id}/download`, { headers: { cookie: owner.cookie } })
+  assert.equal(cur.status, 200)
+  assert.ok(Buffer.from(await cur.arrayBuffer()).equals(v2))
+
+  // ── ผู้บริโภคที่ 2: รายการเวอร์ชัน + ดาวน์โหลดเวอร์ชันเก่าผ่าน API จริง ─────
+  const listed = await owner.req(`/api/files/${file.id}/versions`)
+  assert.equal(listed.status, 200)
+  assert.equal(listed.data.versions.length, 1)
+  const versionId = listed.data.versions[0].id
+
+  const old = await fetch(`${baseUrl}/api/files/${file.id}/versions/${versionId}/download`,
+    { headers: { cookie: owner.cookie } })
+  assert.equal(old.status, 200, 'ดาวน์โหลดเวอร์ชันต้องทำงานกับ key ใต้ uploads/ ได้เหมือนกัน')
+  assert.ok(Buffer.from(await old.arrayBuffer()).equals(v1))
+
+  // ── ผู้บริโภคที่ 3: restore เวอร์ชันที่อยู่ใต้ uploads/ ──────────────────────
+  const restored = await owner.req(`/api/files/${file.id}/versions/${versionId}/restore`, { method: 'POST' })
+  assert.equal(restored.status, 200, JSON.stringify(restored.data))
+
+  const afterCur = await fetch(`${baseUrl}/api/files/${file.id}/download`, { headers: { cookie: owner.cookie } })
+  assert.equal(afterCur.status, 200)
+  assert.ok(Buffer.from(await afterCur.arrayBuffer()).equals(v1), 'ไบต์ที่กู้คืนมาต้องเป็นเวอร์ชันเก่าจริง')
+
+  // ไบต์ชุดที่เพิ่งถูกแทนที่กลายเป็นเวอร์ชันใหม่ และดาวน์โหลดได้ (คราวนี้ key อยู่ใต้ versions/)
+  const after = await owner.req(`/api/files/${file.id}/versions`)
+  assert.equal(after.data.versions.length, 1)
+  const archivedId = after.data.versions[0].id
+  const archived = await fetch(`${baseUrl}/api/files/${file.id}/versions/${archivedId}/download`,
+    { headers: { cookie: owner.cookie } })
+  assert.equal(archived.status, 200)
+  assert.ok(Buffer.from(await archived.arrayBuffer()).equals(v2))
+
+  // ── NO_METADATA_TO_MISSING_BYTES ยังจริงหลังจบทุกขั้น ───────────────────────
+  const [finalFile] = await rows('SELECT * FROM files WHERE name = $1', [name])
+  const finalVersions = await rows('SELECT * FROM file_versions WHERE file_id = $1', [finalFile.id])
+  for (const key of [finalFile.path, ...finalVersions.map((v) => v.storage_key)]) {
+    await fs.access(resolveKey(key))
+  }
+})
 // ═════════════════════════════════════════════════════════════════════════════
 // การกู้คืนต้องไม่แตะ session ของงานเก็บกวาด และกลับกัน
 // ═════════════════════════════════════════════════════════════════════════════
