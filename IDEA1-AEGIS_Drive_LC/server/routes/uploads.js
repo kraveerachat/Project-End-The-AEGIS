@@ -38,10 +38,11 @@ import * as store from '../db/store.js'
 import {
   TRANSFER_LIMITS, chunkCountFor, expectedChunkSize, reserveBytesFor,
 } from '../config/transferLimits.js'
-import { filesystemCapacity, removeKey, moveToVersions } from '../storage/fileStore.js'
+import { filesystemCapacity, removeKey } from '../storage/fileStore.js'
 import {
   newUploadId, isValidUploadId, createStagedPart, writeStagedChunk,
-  stagedPartSize, stagedPartSha256, publishStagedPart, restoreStagedPart, removeStagedSession,
+  stagedPartSize, stagedPartSha256, newFinalStorageKey, publishStagedPartTo,
+  restoreStagedPart, removeStagedSession,
 } from '../storage/uploadStaging.js'
 
 export const uploadsRouter = Router({ mergeParams: true })
@@ -305,21 +306,22 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
       })
     }
 
-    // ── จองสิทธิ์ commit (open → committing) ก่อนแตะไบต์ใด ๆ ──────────────────
-    // ⚠️ นี่คือจุดที่กัน "commit ซ้อนกันสองใบเผยแพร่สองแถว" และมันต้องเป็นเงื่อนไขใน
-    //    SQL (UPDATE ... WHERE status = 'open') ไม่ใช่การอ่านสถานะมาเช็คใน JS
-    //    การอ่านแล้วค่อยเขียนมีช่องให้คำขออีกใบอ่านค่าเดียวกันไปก่อน
-    // ⚠️ ตรวจ chunk ครบ "ก่อน" จอง เพื่อไม่ให้คำขอที่ยังส่งไม่ครบไปเปลี่ยนสถานะของ
-    //    session ทิ้งไว้ — สถานะ committing ต้องหมายถึง "กำลัง commit จริง" เท่านั้น
-    const claimed = await store.claimUploadSessionForCommit(session.uploadId, req.user.id)
+    // ── จองสิทธิ์ commit พร้อม "เจตนาที่ทนต่อการตายของโปรเซส" ────────────────
+    // ⚠️ key ปลายทางถูกเลือก "ก่อน" แล้วบันทึกลง commit_storage_key ในคำสั่งจองเดียวกัน
+    //    เหตุผล: publish คือการ rename ไปยัง key นั้น ถ้า key มีตัวตนอยู่แค่ในตัวแปรของ
+    //    โปรเซส แล้วโปรเซสตายหลัง rename ไบต์ที่ย้ายไปแล้วจะไม่มีใครรู้ว่าอยู่ที่ไหน
+    //    = ของกำพร้าถาวรที่กู้ไม่ได้ ตอนนี้งานกู้คืนอ่าน key นั้นได้เสมอหลังบูตใหม่
+    // ⚠️ การจองเป็นเงื่อนไขใน SQL (WHERE status = 'open') ไม่ใช่การอ่านมาเช็คใน JS
+    //    จึงกัน commit สองใบพร้อมกันได้จริง และผู้แพ้ได้ 409 ที่อธิบายได้
+    // ⚠️ ตรวจ chunk ครบ "ก่อน" จอง เพื่อไม่ให้คำขอที่ยังส่งไม่ครบเปลี่ยนสถานะทิ้งไว้
+    const finalKey = newFinalStorageKey()
+    const claimed = await store.claimUploadSessionForCommit(session.uploadId, req.user.id, finalKey)
     if (!claimed) {
-      // มีคำขออีกใบจองไปแล้ว (หรือ session เปลี่ยนสถานะไประหว่างทาง) — ผู้แพ้ต้องไม่
-      // เผยแพร่อะไรทั้งสิ้น และต้องได้คำตอบที่อธิบายได้ ไม่ใช่ 500 จาก rename ที่ล้ม
       return res.status(409).json({ error: 'Upload session is not open', code: 'SESSION_NOT_OPEN' })
     }
 
     // คืนสถานะกลับเป็น open เมื่อ commit รอบนี้ไปต่อไม่ได้ แต่ยังแก้ไข/ลองใหม่ได้
-    const release = () => store.setUploadSessionStatus(session.uploadId, req.user.id, 'open')
+    const release = () => store.releaseUploadSessionClaim(session.uploadId, req.user.id)
 
     // (ข) ขนาดจริงของไบต์ที่ประกอบได้บนดิสก์
     const actualSize = await stagedPartSize(session.uploadId)
@@ -348,55 +350,48 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
       })
     }
 
-    // เผยแพร่: rename เข้า uploads/ (atomic บน volume เดียวกัน) แล้วจึงเขียน metadata
-    const storageKey = await publishStagedPart(session.uploadId)
+    // ── เผยแพร่: rename ไปยัง key ที่บันทึกไว้แล้ว (atomic บน volume เดียวกัน) ──
+    await publishStagedPartTo(session.uploadId, finalKey)
 
-    // อัปโหลดชื่อเดิมทับของตัวเอง = เวอร์ชันใหม่ — แบบแผนและด่าน ownership เดียวกับ
-    // POST /api/files/upload เป๊ะ ๆ (findOwnFileByName ผูกกับ uploaded_by เสมอ)
-    const existing = await store.findOwnFileByName(session.name, req.user.id)
-    let row
+    // ── เขียน metadata + ปิด session ใน transaction เดียว ────────────────────
+    // ⚠️ แถว files, committed_file_id และ status='committed' ถูกเขียนพร้อมกันทั้งหมด
+    //    ทำให้ "แถวที่ยัง committing" แปลว่า metadata ยังไม่ถูกเขียนแน่นอน — งานกู้คืน
+    //    จึงไม่ต้องเดาว่าโปรเซสตายก่อนหรือหลังเขียน metadata
+    // ⚠️ เส้นทางชื่อซ้ำ (เวอร์ชันใหม่) ไม่ย้ายไบต์ของไฟล์เดิมอีกต่อไป — แถว file_versions
+    //    ชี้ไปยัง key เดิมตรง ๆ เดิมโค้ดเรียก moveToVersions() ก่อนเขียน metadata ซึ่ง
+    //    ถ้าโปรเซสตายตรงกลาง files.path จะชี้ไปยัง key ที่ไม่มีไฟล์อยู่แล้ว = **ไฟล์เดิม
+    //    ของผู้ใช้อ่านไม่ได้** ตอนนี้ช่องนั้นหายไปทั้งช่วง ไม่ใช่แค่แคบลง
+    let result
     try {
-      if (existing) {
-        const archivedKey = await moveToVersions(existing.path)
-        row = await store.replaceFileContents({
-          file: existing,
-          storageKey, size: actualSize, sha256: actualSha256,
-          previous: archivedKey
-            ? { key: archivedKey, size: existing.size, sha256: existing.sha256 }
-            : null,
-          user: req.user,
-        })
-        if (!row) throw new Error('file row vanished mid-commit')
-      } else {
-        row = await store.recordUpload({
-          name: session.name, storageKey, size: actualSize, sha256: actualSha256, user: req.user,
-        })
-      }
+      result = await store.finishUploadCommit({
+        uploadId: session.uploadId,
+        userId: req.user.id,
+        user: req.user,
+        name: session.name,
+        storageKey: finalKey,
+        size: actualSize,
+        sha256: actualSha256,
+      })
     } catch (dbErr) {
-      // ⚠️ metadata ไม่ผ่าน = ต้องไม่เหลือไบต์กำพร้าที่ไม่มีแถวใดอ้างถึง **และ** ต้องไม่
-      //    เหลือ session ที่โกหก ไบต์ถูก rename ออกจากพื้นที่พักไปแล้วตอน publish
-      //    ถ้าเพียงลบมันทิ้งแล้วปลดสถานะกลับเป็น open จะได้ session ที่แถว chunk บอกว่า
-      //    "รับครบแล้ว" (missing: []) แต่ไบต์หายไปจริง → commit ซ้ำได้ SIZE_MISMATCH
-      //    ตลอดไปโดยไม่มีทางแก้ จึงย้ายไบต์ "กลับ" มาเป็น part ก่อนเสมอ
-      const restored = await restoreStagedPart(session.uploadId, storageKey).catch(() => false)
+      // ⚠️ transaction ถูก ROLLBACK ไปแล้ว จึงไม่มีแถว files และ session ยังเป็น
+      //    committing — เก็บกวาดในคำขอนี้ให้เรียบร้อยเพื่อไม่ต้องรองานกู้คืน แต่ถ้า
+      //    โปรเซสตายตรงนี้พอดี งานกู้คืนก็ทำสิ่งเดียวกันนี้ได้เองหลังหมดสัญญาเช่า
+      const restored = await restoreStagedPart(session.uploadId, finalKey).catch(() => false)
       if (restored) {
-        // ทำต่อได้จริง: ไบต์ยังครบ ผู้ใช้กด commit ซ้ำได้โดยไม่ต้องอัปโหลดใหม่ทั้งไฟล์
         await release().catch(() => {})
       } else {
-        // ย้ายกลับไม่ได้ = ไบต์ชุดนั้นเชื่อถือไม่ได้แล้ว ปิด session อย่างซื่อสัตย์
-        // แทนที่จะทิ้งไว้ให้ commit ซ้ำไม่รู้จบ (แบบแผนเดียวกับ checksum mismatch)
-        await removeKey(storageKey).catch(() => {})
+        await removeKey(finalKey).catch(() => {})
         await removeStagedSession(session.uploadId)
         await store.setUploadSessionStatus(session.uploadId, req.user.id, 'aborted').catch(() => {})
       }
       throw dbErr
     }
 
-    await store.setUploadSessionStatus(session.uploadId, req.user.id, 'committed')
     await removeStagedSession(session.uploadId)
-
-    await auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', session.name)
-    return res.status(201).json({ file: row, newVersion: Boolean(existing), sha256: actualSha256 })
+    await auditAct(req, result.newVersion ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', session.name)
+    return res.status(201).json({
+      file: result.file, newVersion: result.newVersion, sha256: actualSha256,
+    })
   } catch (err) {
     return next(err)
   }

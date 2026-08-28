@@ -869,3 +869,241 @@ closed.**
 - **PostgreSQL 15.18 only.** The production server version was not read as part of
   this gate, so "the same behaviour on the exact production minor version" is an
   inference from the major version, not a measurement.
+
+---
+
+## Commit crash recovery — 2026-08-28T21:44:10+07:00
+
+> [!info] Same unmerged task, same single receipt
+> Third dated section on PR #43, appended under AGENTS.md §9 ("update the receipt
+> only if it is still part of the same unmerged task") because the
+> collaboration-policy check enforces one receipt per Pull Request. Nothing above
+> this line was altered.
+
+`SCOPE = LFT-V2-A COMMIT CRASH RECOVERY`
+
+`STALE_COMMIT_RECOVERY = PASS`
+
+`COMMIT_LEASE = PASS`
+
+`DURABLE_COMMIT_INTENT = PASS`
+
+`CRASH_AFTER_CLAIM = PASS`
+
+`CRASH_AFTER_VERIFY = PASS`
+
+`CRASH_AFTER_PUBLISH = PASS`
+
+`CRASH_AFTER_METADATA = PASS`
+
+`NO_DUPLICATE_FILE_ROW = PASS`
+
+`NO_ORPHAN_FINAL_BYTES = PASS`
+
+`NO_METADATA_TO_MISSING_BYTES = PASS`
+
+`RECOVERY_IDEMPOTENT = PASS`
+
+`RECOVERY_RACE_SAFE = PASS`
+
+`SAME_NAME_VERSION_CRASH_SAFE = PASS`
+
+`SOURCE_DEFECT_FOUND = YES (1, pre-existing in the same-name version path)`
+
+`PRODUCTION_CHANGED = NO`
+
+### The blocker this closes
+
+The commit claim introduced in the PostgreSQL gate deliberately put `committing`
+out of reach of **both** expiry cleanup and the user's cancel button — correct
+while a commit is running, wrong the moment the process owning it dies. There was
+no lease and no recovery, so a crash mid-commit stranded the session forever: the
+user could not commit (status is not `open`), could not cancel, and cleanup would
+not touch it. That directly contradicted the durable/resumable goal of LFT-V2-A.
+
+### Durable commit intent
+
+The final storage key is now **chosen and persisted before any filesystem action**.
+`upload_sessions` gains three columns, added to `schema.sql` for new databases and
+to `003_upload_sessions.sql` as idempotent `ALTER … ADD COLUMN IF NOT EXISTS` for
+databases that already took Stage-A:
+
+| Column | Purpose |
+| --- | --- |
+| `commit_started_at` | start of the lease; recovery may only inspect rows older than `UPLOAD_COMMIT_LEASE_MS` |
+| `commit_storage_key` | the destination key, written in the same statement that takes the claim — **before** the rename |
+| `committed_file_id` | the `files` row this session produced, written in the same transaction that sets `status='committed'` |
+
+Previously the key was generated inside `publishStagedPart()` and existed only in
+a local variable. A process dying after the rename left bytes that **nothing could
+ever identify** — a permanent orphan. `newFinalStorageKey()` and
+`publishStagedPartTo()` are now separate for exactly this reason.
+
+### One transaction removes a whole class of crash
+
+`finishUploadCommit()` writes the `files` row, `committed_file_id`, and
+`status='committed'` in **one** transaction. A row that is still `committing`
+therefore means the metadata was definitely not written — recovery never has to
+guess whether the crash landed before or after the metadata write. The "crash
+after metadata, before status" case is eliminated by construction rather than
+handled by recovery code. Recovery still checks for it defensively (a wrong
+decision on that branch would publish a duplicate file, which is far more
+expensive than the check).
+
+### The lease, and why it is not a new status
+
+`recoverStaleCommits()` selects `status='committing' AND commit_started_at < now() - lease`
+with **`FOR UPDATE SKIP LOCKED`**, one row per transaction. A second worker skips
+a row the first holds, so one row has exactly one recoverer. No `recovering`
+status was introduced on purpose: a new intermediate state would recreate the
+original problem one level up (a row stuck in a state nobody recovers). With a row
+lock, a recoverer that dies simply drops the lock and the next pass retries.
+
+Default lease is **15 minutes** (`UPLOAD_COMMIT_LEASE_MS`, min 1 min). It must
+exceed a real commit's duration; the slow part inside `committing` is hashing the
+staged file, which for 5 GiB on an edge-box HDD is minutes, not seconds.
+
+### Recovery converges to exactly one truthful state
+
+Decisions are made from what is actually on disk and in the tables, never from
+elapsed time or assumed ordering:
+
+| Observed | Outcome |
+| --- | --- |
+| a `files` row already references the key, and the bytes exist | **COMMITTED** — bind the session to the existing row, never create a second |
+| a `files` row references the key but the bytes are gone | **ABORTED** — never claim success; the `files` row is not touched, that is not recovery's job |
+| bytes are at the final key, no metadata references them | move them **back** to staging → **OPEN** (retry needs no re-upload) |
+| bytes still in staging and complete | **OPEN** |
+| required bytes missing everywhere | **ABORTED** |
+
+### The pre-existing defect this found: same-name versioning could destroy the user's existing file
+
+`moveToVersions()` renamed the previous file's bytes out of `uploads/` **before**
+the metadata write. A crash in that window left `files.path` pointing at a key
+that no longer existed — **the user's existing file became unreadable**, and the
+new one was not saved either.
+
+Reproduced concretely against the isolated PostgreSQL instance, by recreating that
+exact intermediate state:
+
+```text
+v1 files.path = uploads/965b8339-….bin      readable = true
+OLD ordering also moved the existing bytes -> versions/7ee7d018-….bin
+after simulated crash:
+  files.path     = uploads/965b8339-….bin
+  bytes readable = false
+  GET /download  = 404
+RESULT: USER FILE UNREADABLE
+```
+
+**Fix:** the V2 commit no longer moves the previous file's bytes at all. The
+`file_versions` row references the old key **in place**, inside the same
+transaction that repoints `files.path`. The window does not get narrower — it
+ceases to exist, because nothing is renamed. The committed test asserts the
+opposite of the trace above: at the same instant, the original file is still
+readable and `GET /download` still returns its bytes.
+
+The legacy V1 endpoint still uses `moveToVersions()` and still has this window; it
+is recorded under Known limitations rather than changed, since V1 is out of scope.
+
+### Cleanup and recovery stay separate
+
+`uploadCleanup.js` handles sessions **the user abandoned** (`open`/`aborted`, past
+`expires_at`). `commitRecovery.js` handles commits **whose process died**
+(`committing`, past the lease). Their status conditions do not overlap, so neither
+can touch the other's rows. No recursive deletion path was broadened; recovery
+only moves bytes back or leaves them alone.
+
+### Source files changed
+
+- `IDEA1-AEGIS_Drive_LC/server/storage/commitRecovery.js` — **new**, the recovery
+  worker and its scheduler.
+- `IDEA1-AEGIS_Drive_LC/server/db/connection.js` — `withTransaction()`, which
+  checks out one client (the existing `query()` takes an arbitrary connection per
+  call, so `BEGIN`/`COMMIT` through it would not be a transaction at all).
+- `IDEA1-AEGIS_Drive_LC/server/db/store.js` — the claim now persists commit intent;
+  `releaseUploadSessionClaim()`; `finishUploadCommit()` (single transaction, and
+  the version row now keeps the old key in place); `withStaleCommitLease()`.
+- `IDEA1-AEGIS_Drive_LC/server/storage/uploadStaging.js` — `newFinalStorageKey()`
+  split from `publishStagedPartTo()`; `finalKeyExists()`; shared path-containment
+  resolver.
+- `IDEA1-AEGIS_Drive_LC/server/routes/uploads.js` — commit persists intent before
+  publishing and finishes through the single transaction.
+- `IDEA1-AEGIS_Drive_LC/server/db/schema.sql`,
+  `IDEA1-AEGIS_Drive_LC/server/db/migrations/003_upload_sessions.sql` — the three
+  columns, the FK, and `upload_sessions_commit_idx`, all idempotent.
+- `IDEA1-AEGIS_Drive_LC/server/config/transferLimits.js` — `UPLOAD_COMMIT_LEASE_MS`.
+- `IDEA1-AEGIS_Drive_LC/server/index.js` — recovery at boot and on an interval,
+  before cleanup.
+- `IDEA1-AEGIS_Drive_LC/tests/commitCrashRecoveryPostgres.test.js` — **new**, 11
+  crash-recovery tests.
+- `IDEA1-AEGIS_Drive_LC/tests/resumableUploadPostgres.test.js` — adds the Stage-A →
+  crash-safe migration upgrade test.
+- `IDEA1-AEGIS_Drive_LC/.env.example` — documents `UPLOAD_COMMIT_LEASE_MS`.
+
+### Verification evidence
+
+- **`npm test` (IDEA1) against real PostgreSQL 15.18 — pass: 466 tests, 466 passed,
+  0 failed, 0 skipped.**
+- `npm test` (IDEA1) in in-memory fallback mode — pass: 466 tests, 417 passed,
+  0 failed, 49 skipped (the Postgres-gated suites).
+- `node --test --test-concurrency=1 tests/commitCrashRecoveryPostgres.test.js` —
+  pass: 11/11. **Failure injection does not use in-process `try`/`catch`**: each
+  test drives a real session to a phase over HTTP, then writes the exact state a
+  dead process would leave (the same row values `claimUploadSessionForCommit()`
+  writes, and for the publish phase the same `rename`), then invokes recovery as a
+  freshly booted process would. The original request's catch block never runs.
+- `node --test --test-concurrency=1 tests/resumableUploadPostgres.test.js` —
+  pass: 19/19 (18 previous + the Stage-A upgrade test), unchanged by the new
+  commit flow.
+- **Stage-A → crash-safe migration:** a database built with the historical Stage-A
+  table shape, seeded with a session and a chunk row, upgraded by re-running the
+  current `003`. All three columns appear, the FK appears exactly once, the
+  recovery index appears, the pre-existing row fingerprint is unchanged, the new
+  columns are `NULL`, and a second run adds no duplicate FK.
+- **PATH B re-proof with the new migration:** applied by a different superuser than
+  the one that set default privileges — 2 tables, 5 indexes, `drive_app` granted
+  `DELETE,INSERT,SELECT,UPDATE` on both and able to query them; second run clean;
+  pre-existing rows and pre-V2 column shape unchanged.
+- **The same-name test is not vacuous** — the old ordering was reproduced against
+  the live isolated database and produced `bytes readable = false` /
+  `GET /download = 404` for the user's existing file, as quoted above.
+- `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/collaborationPolicy.test.mjs tests/dockerBootstrap.test.mjs tests/endpointOnboarding.test.mjs`
+  — pass: 53/53.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` —
+  pass, same two pre-existing Canvas warnings.
+- `node scripts/validate-collaboration-policy.mjs --event <pr-event.json> --changed-files <delta>`
+  — pass.
+- `npm run build` (IDEA1) — pass: built in 3.97s; `dist/` restored to its committed
+  state.
+- `git diff --check` — pass. Targeted secret scan over the delta — pass.
+- **No production database, container, image, volume or configuration was touched,
+  and the migration was NOT applied to production.**
+
+### Known limitations
+
+Everything previously recorded stays open and is **not** claimed fixed:
+
+- **2 GiB / 5 GiB production transfer remains unmeasured** (largest tested through
+  the protocol is ~16.8 MiB).
+- **Browser-refresh automatic resume is still unavailable.**
+- **Range download is still unavailable.**
+- **Global free-space reservation is still unavailable** — the check stays
+  point-in-time at session open.
+- **Concurrent same-name upload serialisation is still unresolved.** Crash safety
+  and commit-exactly-once are now guaranteed *per session*; two different sessions
+  for one filename still version in commit order. `finishUploadCommit()` does take
+  `FOR UPDATE` on the existing `files` row, which serialises the two transactions
+  at the database, but the resulting order is still whichever commits first.
+- **Private Vault remains V1 whole-file crypto**, unchanged.
+- **The legacy V1 upload endpoint still calls `moveToVersions()`** and still has
+  the same-name crash window this section closes for V2. It is unreachable from
+  the UI but reachable by any authenticated client.
+- **Recovery is not instantaneous.** A stranded commit is repaired at the next boot
+  or within the recovery interval (5 minutes) after the lease (15 minutes) expires,
+  so a user can wait up to ~20 minutes before that session becomes retryable.
+- **A crash between the lease expiring and recovery running is not distinguishable
+  from a slow commit.** If a genuine commit ever exceeds the lease, recovery may
+  reopen a session whose commit is still running; the publish then fails on a
+  missing staged file and no data is lost, but the user sees an error. The lease
+  default is set well above the expected worst case rather than proven against it.
