@@ -58,7 +58,7 @@ private-key payload, secret assignment, or disabled host-key checking.
 > reboot recovery, and real webcam flow must be verified per machine. Each
 > laptop needs its own authorized SSH key and machine-specific secrets outside
 > Git. The current task is stacked on the unmerged canonical modular-runtime
-> branch and has not been pushed by operator request.
+> branch; keep its Pull Request stacked on that dependency until the dependency merges.
 
 ## Current-state audit (2026-08-13)
 
