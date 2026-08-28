@@ -532,6 +532,67 @@ test('a details dialog open when the vault locks does not keep the filename on s
   }
 })
 
+/* ── the scheme the preview mints must be the scheme the CSP allows ── */
+
+// jsdom does not enforce CSP and never fetches an object URL, so every test
+// above passes whether or not the browser would actually load the picture.
+// That gap is exactly how PR #40 reached production with a working preview
+// pipeline and a broken-image icon on screen. This test closes it by reading
+// the scheme off the element the screen really rendered and checking it against
+// the policy the real middleware really emits — the two halves that have to
+// agree, asserted together.
+test('the object-URL scheme the preview renders is permitted by the served CSP', async () => {
+  const { securityHeaders } = await import('../server/middleware/securityHeaders.js')
+  const sourcesFor = (directive) => {
+    let policy
+    securityHeaders({}, { setHeader: (name, value) => {
+      if (String(name).toLowerCase() === 'content-security-policy') policy = value
+    } }, () => {})
+    const found = policy.split(';')
+      .map((part) => part.trim().split(/\s+/).filter(Boolean))
+      .find((parts) => parts[0]?.toLowerCase() === directive)
+    // A missing directive falls back to default-src, which is how <video> was
+    // being blocked before media-src existed at all.
+    return found ? found.slice(1) : policy.split(';')
+      .map((part) => part.trim().split(/\s+/).filter(Boolean))
+      .find((parts) => parts[0]?.toLowerCase() === 'default-src').slice(1)
+  }
+
+  backend.state['/api/vault'].data = {
+    configured: true,
+    blobs: [
+      serverBlob({ id: 'blob-a', name: 'holiday.png', type: 'image/png' }),
+      serverBlob({ id: 'blob-b', name: 'clip.mp4', type: 'video/mp4' }),
+    ],
+  }
+  const h = env.mount()
+  try {
+    await openMenu(h, 'blob-a')
+    await click(dom, menuItem(t('preview')))
+    await settle()
+    const imgScheme = new URL(doc().querySelector('[data-vault-preview-stage] img').getAttribute('src')).protocol
+    assert.equal(imgScheme, 'blob:', 'the image really is rendered from an object URL')
+    assert.ok(sourcesFor('img-src').includes(imgScheme),
+      `img-src must permit ${imgScheme} or the browser shows a broken-image icon`)
+
+    await click(dom, byText(dom, 'button', t('close')))
+    await click(dom, menuButton('blob-b'))
+    await click(dom, menuItem(t('preview')))
+    await settle()
+    const videoScheme = new URL(doc().querySelector('[data-vault-preview-stage] video').getAttribute('src')).protocol
+    assert.equal(videoScheme, 'blob:')
+    assert.ok(sourcesFor('media-src').includes(videoScheme),
+      `media-src must permit ${videoScheme} or the player never loads`)
+
+    // The same scheme must remain unusable for execution. Display and execute
+    // are different grants and this suite depends on them staying different.
+    assert.equal(sourcesFor('script-src').includes('blob:'), false,
+      'a previewable blob URL must never also be an executable one')
+  } finally {
+    await h.unmount()
+  }
+})
+
 /* ── the tile shortcut ────────────────────────────────────────────── */
 
 test('clicking a previewable tile opens Preview without disturbing the overflow menu', async () => {
