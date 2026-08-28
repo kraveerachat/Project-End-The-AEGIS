@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-13
+updated: 2026-08-29
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -18,6 +18,47 @@ edit_policy: owner-writable
 ### 🧪 Local run check (2026-08-06)
 
 For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. As of Task 2 on 2026-08-13, root Compose builds the canonical modular runtime from `IDEA2-AEGIS_CCTV-Operator/detection-engine/`; the same runtime remains directly runnable with `python run.py` after dependencies and environment are configured.
+
+## Windows Detection Laptop auto-start and portable bootstrap (2026-08-29)
+
+The real Windows Detection Laptop completed an operator-observed reboot and
+Live Canvas verification on 2026-08-28. Its final architecture is:
+
+```text
+Windows boot -> SYSTEM tunnel task -> reconnect wrapper -> SSH :18002/:18077
+User login   -> HKCU Run -> Engine supervisor -> Detection Engine :8077/webcam
+```
+
+The observed machine recovered without a manual `Start-ScheduledTask` or
+`Start-Process`. The SYSTEM tunnel, local Monitor forward `127.0.0.1:18002`,
+Engine API `:8077`, authenticated Live Canvas, real webcam capture/detection,
+and viewer-disconnect camera release all passed. Idle health before/after a
+viewer correctly reported `camera_connected=false` and
+`camera_demanded=false`; an active viewer changed both to `true` with non-zero
+capture/detection FPS.
+
+The durable implementation has now been migrated into
+`IDEA2-AEGIS_CCTV-Operator/detection-engine/windows/`. The installer copies
+source into a configurable `%LOCALAPPDATA%` runtime, creates a runtime-local
+`.venv`, preserves machine-local `.env`/recordings, installs the Engine through
+HKCU Run, registers the tunnel as a delayed SYSTEM startup task, applies the
+service-key ACL only to a runtime key copy, and requires strict verified
+`known_hosts`. Status, repair, and non-destructive uninstall scripts are
+included. No username/profile path, private key, secret value, recording, or
+local environment is part of the source migration.
+
+Source verification passed: all seven PowerShell scripts parse, the complete
+Detection Engine suite passes 24/24, installer `-WhatIf` succeeds without
+mutation, and a forbidden-content scan found no operator-specific path,
+private-key payload, secret assignment, or disabled host-key checking.
+
+> [!warning] Portability is still partial, not a universal deployment claim.
+> The new installer itself has not yet been run elevated from a fresh clone on
+> a second Detection Laptop, and its task registration, ACL, dependency install,
+> reboot recovery, and real webcam flow must be verified per machine. Each
+> laptop needs its own authorized SSH key and machine-specific secrets outside
+> Git. The current task is stacked on the unmerged canonical modular-runtime
+> branch and has not been pushed by operator request.
 
 ## Current-state audit (2026-08-13)
 
