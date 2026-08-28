@@ -10,10 +10,18 @@
 #    It creates its own container, its own network, and its own databases, all
 #    prefixed `aegis-lftv2pg-` / `aegis_drive_*_test`. It reads no .env file and
 #    generates its own throwaway credentials. It never runs `docker compose
-#    down`, `docker system prune`, or `docker volume prune`, and it creates no
-#    named volume at all — the data lives in the container's own writable layer
-#    and disappears with the container. Point it at a production endpoint and it
-#    will not work, because it only ever talks to the container it just started.
+#    down`, `docker system prune`, or `docker volume prune`.
+#
+#    ⚠️ It declares NO named volume — but the `postgres` image itself declares
+#    `VOLUME /var/lib/postgresql/data`, so every `docker run` still creates an
+#    ANONYMOUS volume. `docker rm -f` alone would leave those dangling and they
+#    would accumulate one per run. Both the start and the `down` path therefore
+#    use `docker rm -fv`, which removes the anonymous volumes attached to this
+#    container and nothing else. No named volume, and no other volume, is ever
+#    touched.
+#
+#    Point it at a production endpoint and it will not work, because it only ever
+#    talks to the container it just started.
 #
 # ⚠️ WHY THE ROLES LOOK LIKE THIS
 #    The point of the exercise is that the application must NOT be a superuser.
@@ -46,9 +54,11 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 case "${1:-up}" in
   down)
-    docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+    # -v removes the anonymous data volume the postgres image declares; without it
+    # one dangling volume is left behind per run.
+    docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
-    echo "[pg-integration-env] removed $CONTAINER and $NETWORK (no volume was ever created)"
+    echo "[pg-integration-env] removed $CONTAINER, its anonymous data volume and $NETWORK"
     exit 0
     ;;
   up) ;;
@@ -59,10 +69,11 @@ esac
 SUPER_PW=$(node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))")
 APP_PW=$(node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))")
 
-docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true
 docker network create "$NETWORK" >/dev/null 2>&1 || true
 
-# No -v / --mount: nothing outside the container is written, and nothing survives it.
+# No -v / --mount of our own: nothing outside the container is written. The image's
+# own anonymous data volume is reclaimed by the `docker rm -fv` above and in `down`.
 docker run -d --name "$CONTAINER" --network "$NETWORK" \
   -e POSTGRES_PASSWORD="$SUPER_PW" -e POSTGRES_USER="$ADMIN_ROLE" -e POSTGRES_DB=postgres \
   -p "127.0.0.1:$HOST_PORT:5432" "$IMAGE" >/dev/null
