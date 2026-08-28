@@ -1257,6 +1257,66 @@ matrix in [[concepts/Large_File_Transfer_V2]] is still a plan, not a result. The
 largest file actually moved through the protocol in any test is ~16.8 MiB, so
 multi-gigabyte behaviour remains argued from bounded memory rather than measured.
 
+#### Commit crash recovery follow-up (2026-08-29) — PR #43 merged without the fix
+
+**PR #43 merged as `5145770` and does not contain the crash-recovery work.** That
+work was written and verified on the same branch as commit `a16a962`, whose parent
+`13d408e` is the branch tip the merge actually took; the fix was authored after
+the merge commit was formed and was left behind. Merged `main` therefore ships
+Stage-A with **two correctness defects still open**, both closed by the follow-up
+branch `fix/idea1-lft-v2-a-commit-crash-recovery`.
+
+1. **Stranded `committing` sessions.** The commit claim puts a session in a status
+   that expiry cleanup and the cancel button are both told never to touch — right
+   while a commit runs, wrong the moment the owning process dies. With no lease and
+   no recovery worker the row stayed `committing` forever: the user could not
+   commit (status is not `open`), could not cancel, and cleanup would not reclaim
+   it. The fix persists commit intent (`commit_started_at`, `commit_storage_key`,
+   `committed_file_id`) before any filesystem action, writes the `files` row and
+   the terminal status in **one** transaction, and adds `recoverStaleCommits()`,
+   which takes rows past a bounded lease with `FOR UPDATE SKIP LOCKED`, one row per
+   transaction, converging to `open`, `committed` or `aborted` from what is
+   actually on disk and in the tables. No `recovering` status was added on purpose:
+   a row lock is released when a dying worker's connection drops, whereas a new
+   intermediate status would recreate the stuck-state problem one level up.
+2. **Same-name versioning could destroy the user's existing file.** The V2 commit
+   called `moveToVersions()` — a `rename` out of `uploads/` — *before* the metadata
+   write. Reproduced against a live database, a crash in that window left
+   `files.path` pointing at a key that no longer existed: the existing file
+   returned `404` from `GET /api/files/:id/download` while the new upload was not
+   committed either. The V2 path no longer moves those bytes at all; the
+   `file_versions` row references the old key **in place** inside the same
+   transaction that repoints `files.path`, so the window ceases to exist rather
+   than narrowing.
+
+**Re-verified on the follow-up branch, not carried over:** full IDEA1 suite
+**467/467 with zero skips** against isolated PostgreSQL 15.18;
+`commitCrashRecoveryPostgres` **12/12**; `resumableUploadPostgres` **19/19**; root
+policy suites 53/53; IDEA1 build pass. Migration from the **merged Stage-A schema**
+to the crash-safe schema was applied twice — columns added, FK present exactly
+once, recovery index present, pre-existing row fingerprint byte-identical, new
+columns `NULL`. `drive_app` remains non-superuser with DML sufficient and
+`ALTER`/`CREATE`/`DROP`/`TRUNCATE` all refused. The lease was proven to survive a
+`SIGKILL` and be picked up by a separate `node` process only after expiry.
+
+**Consequence to know:** versions created by the V2 path keep a key under
+`uploads/` rather than `versions/`, because nothing is renamed. Every consumer
+resolves the stored key rather than a directory prefix, and the version list,
+version download, current-file download and version restore are all covered
+end-to-end against an `uploads/`-keyed version.
+
+**Still open:** `LEGACY_V1_VERSIONING_CRASH_WINDOW = OPEN` — the legacy
+`POST /api/files/upload` endpoint still calls `moveToVersions()` and still has this
+window. It is unreachable from the UI but reachable by any authenticated client,
+and is recorded rather than changed. Recovery is also **not instantaneous**: a
+stranded commit becomes actionable up to roughly **15–20 minutes** after the crash
+(15-minute lease plus a 5-minute recovery interval), which is accepted for this
+follow-up.
+
+`LARGE_FILE_TRANSFER_V2` remains **`IN_PROGRESS`**. Production is unchanged, the
+migration has **not** been applied to production `aegis_drive`, and production
+stays blocked until this follow-up merges.
+
 ---
 
 ### Local Docker bootstrap guard (2026-08-07)
