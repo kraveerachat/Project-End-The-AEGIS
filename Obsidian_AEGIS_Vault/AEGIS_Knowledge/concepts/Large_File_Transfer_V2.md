@@ -205,11 +205,55 @@ uncommittable, and lying to the client about being ready. If the move back itsel
 fails, the bytes are removed and the session is aborted honestly. Neither branch
 leaves an orphan.
 
-**Known gap:** if the process dies between taking the claim and writing the final
-status, the session stays `committing` forever — cleanup will not touch it by
-design, and the user cannot retry it. No reaper for stale `committing` sessions
-exists yet. The window is narrow (a size read, a hash read and one rename), it
-publishes nothing and leaks nothing, but it is real and belongs to a follow-up.
+### 4.5.2 Surviving a process crash mid-commit
+
+A claim that cleanup and cancel must not touch is only safe while the process
+holding it is alive. Three mechanisms make a crash recoverable rather than
+permanent.
+
+**Durable commit intent.** The final storage key is chosen and written to
+`upload_sessions.commit_storage_key` *in the same statement that takes the claim*,
+before any rename. Previously the key existed only in a local variable, so a
+process dying after the rename left bytes nothing could ever identify.
+`commit_started_at` records the start of the lease and `committed_file_id` records
+which `files` row the session produced.
+
+**One transaction.** The `files` row, `committed_file_id` and `status='committed'`
+are written together. A row still marked `committing` therefore means the metadata
+was definitely not written — recovery never guesses which side of the metadata
+write a crash landed on.
+
+**A lease, not a new status.** `recoverStaleCommits()` takes rows where
+`status='committing' AND commit_started_at < now() - lease` using
+`FOR UPDATE SKIP LOCKED`, one row per transaction, so concurrent workers cannot
+both recover the same row. No `recovering` status was added on purpose: it would
+recreate the same "stuck in a state nobody recovers" problem one level up, whereas
+a row lock is released automatically when a dying worker's connection drops.
+Default lease `UPLOAD_COMMIT_LEASE_MS` = 15 minutes, which must stay well above a
+real commit's duration — the slow step inside `committing` is hashing the staged
+file.
+
+Recovery converges to **OPEN**, **COMMITTED** or **ABORTED**, deciding only from
+what is on disk and in the tables: bytes at the final key with no metadata are
+moved *back* to staging and the session reopens; a `files` row that already
+references the key with its bytes present is bound to the session and marked
+committed without creating a second file; missing bytes abort truthfully rather
+than claim success.
+
+### 4.5.3 Same-name versioning must not move the previous file's bytes
+
+The V2 commit records the previous version's `storage_key` **in place** and never
+renames it. The earlier ordering called `moveToVersions()` before the metadata
+write, so a crash in between left `files.path` pointing at a key that no longer
+existed — measured against a live database, the user's existing file returned
+`404` from `GET /api/files/:id/download` while the new one was not saved either.
+Recording the old key as the version row inside the same transaction that repoints
+`files.path` removes that window entirely rather than narrowing it.
+
+The consequence to know: versions created by the V2 path live under `uploads/`
+rather than `versions/`. That is a cosmetic on-disk difference; every consumer
+resolves a version by its stored key, not by its directory. **The legacy V1
+endpoint still uses `moveToVersions()` and still has this window.**
 
 ### 4.6 Logical size limit and the free-space rule
 

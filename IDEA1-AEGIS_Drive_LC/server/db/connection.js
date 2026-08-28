@@ -53,6 +53,34 @@ export async function query(text, params) {
   return pool.query(text, params)
 }
 
+/**
+ * รันหลายคำสั่งใน transaction เดียว — ทุกคำสั่งสำเร็จพร้อมกัน หรือไม่เกิดขึ้นเลย
+ *
+ * ⚠️ ต้องจอง client ตัวเดียวจาก pool แล้วใช้ตัวนั้นตลอด: `query()` ด้านบนหยิบ
+ *    connection ไหนก็ได้ต่อหนึ่งคำสั่ง ดังนั้นการยิง BEGIN/COMMIT ผ่านมันจะกระจายไป
+ *    คนละ connection และ "ไม่ใช่ transaction" เลยแม้จะดูเหมือน
+ * ⚠️ ROLLBACK ถูกเรียกในทุกเส้นทางที่ล้มเหลว และ client ถูกคืน pool เสมอใน finally —
+ *    connection ที่ค้างอยู่ใน transaction จะถือ lock ของแถวไว้จนกว่าจะหลุด
+ *
+ * @param {(client: import('pg').PoolClient) => Promise<T>} fn
+ * @returns {Promise<T>}
+ * @template T
+ */
+export async function withTransaction(fn) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (err) {
+    try { await client.query('ROLLBACK') } catch { /* connection may already be broken */ }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 // ── โหมด dev fallback: in-memory ──────────────────────────────────────
 // ใช้เฉพาะตอนไม่ได้ตั้ง DATABASE_URL — security model เหมือนโหมดจริงทุกอย่าง:
 // รหัสผ่านถูกแฮชด้วย bcrypt ตอนบูต และ role มาจาก record ฝั่งเซิร์ฟเวอร์เท่านั้น

@@ -31,7 +31,7 @@
 //    เรียกตรงโดยไม่ผ่าน middleware ตรวจสิทธิ์ (ดู routes/api.js)
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import { sha256Hex, usingPostgres, query, readAudit } from './connection.js'
+import { sha256Hex, usingPostgres, query, withTransaction, readAudit } from './connection.js'
 // ความจุจริงของ mount ที่ Data Lake อยู่ — statfs ของ OS ไม่ใช่ค่าคงที่ในโค้ด
 import { filesystemCapacity } from '../storage/fileStore.js'
 
@@ -1127,6 +1127,9 @@ export async function __resetVaultForTests() {
 //    เสมอ — แบบแผนเดียวกับ listFiles(userId) ที่เคยเป็นบั๊ก IDOR จริงมาก่อน
 //    session ของผู้ใช้อื่นต้องคืน null (ผู้เรียกแปลเป็น 404) ไม่ใช่ 403 ที่ยืนยันว่ามีอยู่
 // สถานะที่งานเก็บกวาดแตะได้ — allow-list เดียวกับที่ใช้ในชั้น SQL (ดูด้านล่าง)
+// ⚠️ 'committing' ไม่อยู่ในนี้โดยเจตนา และงานเก็บกวาดกับงานกู้คืนเป็นคนละเรื่องกัน:
+//    เก็บกวาด = session ที่ผู้ใช้ทิ้งไว้จนหมดอายุ; กู้คืน = commit ที่โปรเซสของมันตายไป
+//    ดู storage/uploadCleanup.js กับ storage/commitRecovery.js ซึ่งแยกไฟล์กันชัดเจน
 const CLEANABLE_STATUSES = new Set(['open', 'aborted'])
 
 const memUploadSessions = new Map()   // uploadId → row (dev fallback)
@@ -1142,6 +1145,9 @@ function mapUploadSessionRow(r) {
     chunkCount: Number(r.chunk_count),
     expectedSha256: r.expected_sha256 ?? null,
     status: r.status,
+    commitStartedAt: r.commit_started_at ? new Date(r.commit_started_at).getTime() : null,
+    commitStorageKey: r.commit_storage_key ?? null,
+    committedFileId: r.committed_file_id == null ? null : String(r.committed_file_id),
     createdAt: new Date(r.created_at).getTime(),
     updatedAt: new Date(r.updated_at).getTime(),
     expiresAt: new Date(r.expires_at).getTime(),
@@ -1170,6 +1176,7 @@ export async function createUploadSession({
     uploadId, userId: String(userId), name: String(name).slice(0, 200),
     logicalSize: Number(logicalSize), chunkSize: Number(chunkSize), chunkCount: Number(chunkCount),
     expectedSha256: expectedSha256 ?? null, status: 'open',
+    commitStartedAt: null, commitStorageKey: null, committedFileId: null,
     createdAt: now, updatedAt: now, expiresAt: Number(expiresAt),
   }
   memUploadSessions.set(uploadId, row)
@@ -1248,24 +1255,63 @@ export async function listUploadChunks(uploadId) {
  *    (ไบต์ไม่ครบ/แฮชไม่ตรง/ดิสก์พัง) session ที่ถูกทำเครื่องหมายว่า committed แล้ว
  *    จะกลายเป็น session ที่ทำอะไรต่อไม่ได้และไม่มีไฟล์ — ผู้เรียกต้องคืนสถานะเองได้
  *
+ * ⚠️ storageKey ถูกบันทึกลง commit_storage_key "ในคำสั่งเดียวกับการจอง" คือก่อนที่
+ *    ไบต์จะถูก rename ไปไหนทั้งสิ้น ถ้าโปรเซสตายหลัง rename แต่ก่อนเขียน metadata
+ *    นี่คือสิ่งเดียวที่บอกได้ว่าไบต์ชุดสุดท้ายไปอยู่ที่ไหน — ไม่มีมัน ไบต์นั้นกลายเป็น
+ *    ของกำพร้าที่ไม่มีใครรู้จักตลอดกาล (ดู storage/commitRecovery.js)
+ * ⚠️ commit_started_at คือจุดเริ่มของสัญญาเช่า งานกู้คืนแตะแถวนี้ไม่ได้จนกว่าจะเลย
+ *    UPLOAD_COMMIT_LEASE_MS — commit ที่ยังทำงานอยู่จึงไม่ถูกดึงพรมออกจากใต้เท้า
+ *
  * @returns {Promise<object|null>} แถวที่จองได้ หรือ null เมื่อมีคนอื่นจองไปแล้ว/ไม่ใช่ของผู้เรียก
  */
-export async function claimUploadSessionForCommit(uploadId, userId) {
+export async function claimUploadSessionForCommit(uploadId, userId, storageKey) {
   if (userId == null) throw new Error('claimUploadSessionForCommit requires a userId')
+  if (!storageKey) throw new Error('claimUploadSessionForCommit requires the final storage key')
   if (usingPostgres) {
     const { rows } = await query(
-      `UPDATE upload_sessions SET status = 'committing', updated_at = now()
+      `UPDATE upload_sessions
+          SET status = 'committing',
+              commit_started_at = now(),
+              commit_storage_key = $3,
+              committed_file_id = NULL,
+              updated_at = now()
         WHERE upload_id = $1 AND user_id = $2 AND status = 'open'
         RETURNING *`,
-      [uploadId, userId],
+      [uploadId, userId, storageKey],
     )
     return rows.length ? mapUploadSessionRow(rows[0]) : null
   }
   const row = memUploadSessions.get(uploadId)
   if (!row || row.userId !== String(userId) || row.status !== 'open') return null
   row.status = 'committing'
+  row.commitStartedAt = Date.now()
+  row.commitStorageKey = storageKey
+  row.committedFileId = null
   row.updatedAt = Date.now()
   return cloneUploadSession(row)
+}
+
+/** ปลดการจอง committing กลับเป็น open พร้อมล้าง commit intent ทิ้ง */
+export async function releaseUploadSessionClaim(uploadId, userId) {
+  if (userId == null) throw new Error('releaseUploadSessionClaim requires a userId')
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `UPDATE upload_sessions
+          SET status = 'open', commit_started_at = NULL, commit_storage_key = NULL,
+              committed_file_id = NULL, updated_at = now()
+        WHERE upload_id = $1 AND user_id = $2 AND status = 'committing'`,
+      [uploadId, userId],
+    )
+    return rowCount > 0
+  }
+  const row = memUploadSessions.get(uploadId)
+  if (!row || row.userId !== String(userId) || row.status !== 'committing') return false
+  row.status = 'open'
+  row.commitStartedAt = null
+  row.commitStorageKey = null
+  row.committedFileId = null
+  row.updatedAt = Date.now()
+  return true
 }
 
 /** เปลี่ยนสถานะปลายทางของ session (committed/aborted) */
@@ -1354,6 +1400,221 @@ export async function deleteUploadSessionUnscoped(uploadId) {
   memUploadChunks.delete(uploadId)
   return true
 }
+
+/**
+ * จบ commit ให้เสร็จใน **transaction เดียว**: เขียน metadata ของไฟล์ + บันทึกว่า
+ * session นี้ผลิตแถวไหน + เปลี่ยนสถานะเป็น 'committed' พร้อมกันทั้งหมด
+ *
+ * ⚠️ นี่คือหัวใจของความปลอดภัยหลังโปรเซสตาย และเหตุผลที่ทั้งสามอย่างต้องอยู่ใน
+ *    transaction เดียว: ถ้าแยกกัน จะมีช่วงเวลาที่ "แถวใน files ถูกสร้างแล้ว แต่ session
+ *    ยังเป็น committing" ซึ่งงานกู้คืนแยกไม่ออกจาก "ยังไม่ได้สร้างแถวเลย" โดยไม่ต้อง
+ *    เดา เมื่อรวมเป็นหนึ่ง transaction แถวที่ยัง committing จึงแปลว่า **metadata ยังไม่
+ *    ถูกเขียนแน่นอน** — เคสที่ 4 ของรายการกู้คืนจึงหายไปโดยโครงสร้าง ไม่ใช่ด้วยโค้ดกู้
+ *
+ * ⚠️ เส้นทาง "ชื่อซ้ำ = เวอร์ชันใหม่" **ไม่ย้ายไบต์ของไฟล์เดิม** อีกต่อไป: แถว
+ *    file_versions ชี้ไปยัง key เดิมของมันตรง ๆ เดิมโค้ดเรียก moveToVersions() ก่อน
+ *    เขียน metadata ซึ่งเปิดช่องว่าง — ถ้าโปรเซสตายหลัง rename แต่ก่อน UPDATE
+ *    files.path จะยังชี้ไปยัง key เดิมที่ "ไม่มีไฟล์อยู่แล้ว" = ไฟล์เดิมของผู้ใช้อ่านไม่ได้
+ *    การไม่ย้ายไบต์เลยทำให้ช่วงเวลานั้นหายไปทั้งช่วง ไม่ใช่แค่แคบลง
+ *
+ * @returns {Promise<{ file: object, newVersion: boolean }>}
+ */
+export async function finishUploadCommit({
+  uploadId, userId, user, name, storageKey, size, sha256,
+}) {
+  if (userId == null) throw new Error('finishUploadCommit requires a userId')
+
+  if (usingPostgres) {
+    return withTransaction(async (client) => {
+      // ⚠️ ล็อกแถว session ไว้ก่อน แล้วยืนยันว่ายังเป็นของเราจริง — กันงานกู้คืนหรือ
+      //    คำขออื่นเข้ามาแทรกระหว่างที่ transaction นี้กำลังทำงาน
+      const claim = await client.query(
+        `SELECT * FROM upload_sessions
+           WHERE upload_id = $1 AND user_id = $2 AND status = 'committing'
+           FOR UPDATE`,
+        [uploadId, userId],
+      )
+      if (claim.rowCount === 0) throw Object.assign(new Error('commit claim lost'), { code: 'CLAIM_LOST' })
+
+      const existingRes = await client.query(
+        `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
+           FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
+          WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false
+          ORDER BY f.modified_at DESC LIMIT 1
+            FOR UPDATE OF f`,
+        [String(name), userId],
+      )
+      const existing = existingRes.rows[0] ?? null
+
+      let row
+      if (existing) {
+        // ไบต์ชุดเดิมกลายเป็น "เวอร์ชัน" โดยยังอยู่ที่ key เดิมของมัน — ไม่มีการ rename
+        await client.query(
+          `INSERT INTO file_versions (file_id, storage_key, size_bytes, sha256, superseded_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [existing.id, existing.path, Number(existing.size_bytes) || 0, existing.sha256 ?? null, userId],
+        )
+        const updated = await client.query(
+          `UPDATE files SET path = $1, size_bytes = $2, sha256 = $3, modified_at = now(), uploaded_by = $4
+            WHERE id = $5 RETURNING *`,
+          [storageKey, Number(size) || 0, sha256 ?? null, userId, existing.id],
+        )
+        row = mapFileRow({ ...updated.rows[0], uploader_name: user.displayName })
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by)
+           VALUES ($1, $2, $3, $4, false, true, $5) RETURNING *`,
+          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId],
+        )
+        row = mapFileRow({ ...inserted.rows[0], uploader_name: user.displayName })
+      }
+
+      await client.query(
+        `UPDATE upload_sessions
+            SET status = 'committed', committed_file_id = $2, updated_at = now()
+          WHERE upload_id = $1`,
+        [uploadId, row.id],
+      )
+      return { file: row, newVersion: Boolean(existing) }
+    })
+  }
+
+  // dev fallback — ทำตามลำดับเดียวกันเพื่อให้ทั้งสองโหมดมีพฤติกรรมเดียวกัน
+  const session = memUploadSessions.get(uploadId)
+  if (!session || session.userId !== String(userId) || session.status !== 'committing') {
+    throw Object.assign(new Error('commit claim lost'), { code: 'CLAIM_LOST' })
+  }
+  const existing = files.find(
+    (f) => f.name === String(name) && !f.vault && String(f.ownerId) === String(userId),
+  ) ?? null
+
+  let row
+  if (existing) {
+    memFileVersions.push({
+      id: nextId('fv'), fileId: existing.id, storageKey: existing.path,
+      size: existing.size ?? 0, sha256: existing.sha256 ?? null,
+      supersededBy: String(userId), createdAt: Date.now(),
+    })
+    existing.path = storageKey
+    existing.size = Number(size) || 0
+    existing.sha256 = sha256 ?? null
+    existing.modified = Date.now()
+    existing.uploader = user.displayName
+    existing.ownerId = String(userId)
+    row = { ...existing }
+  } else {
+    row = {
+      id: nextId('f'), name: String(name).slice(0, 200), type: 'File',
+      ext: String(name).split('.').pop() ?? '', size: Number(size) || 0,
+      modified: Date.now(), uploader: user.displayName, ownerId: String(userId),
+      vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
+    }
+    files.unshift(row)
+  }
+  session.status = 'committed'
+  session.committedFileId = String(row.id)
+  session.updatedAt = Date.now()
+  return { file: row, newVersion: Boolean(existing) }
+}
+
+// ── งานกู้คืน commit ที่โปรเซสของมันตายไป ────────────────────────────────────
+//
+// ⚠️ แยกจากงานเก็บกวาดโดยสิ้นเชิง ทั้งเงื่อนไขและเจตนา:
+//    เก็บกวาด  = session ที่ผู้ใช้ทิ้ง (open/aborted) และ "หมดอายุ" ตาม expires_at
+//    กู้คืน    = session ที่ค้างในสถานะ committing เกิน "สัญญาเช่า" commit_started_at
+//    ไม่มีทางที่งานหนึ่งจะแตะแถวของอีกงานหนึ่ง เพราะเงื่อนไข status ไม่ทับกันเลย
+
+/**
+ * จอง session ที่ค้าง committing มานานเกินสัญญาเช่า เพื่อกู้คืน — ครั้งละหนึ่งแถว
+ *
+ * ⚠️ ใช้ FOR UPDATE SKIP LOCKED ไม่ใช่การ UPDATE สถานะเป็น 'recovering':
+ *    ถ้าตัวงานกู้คืนเองตายกลางคัน ล็อกจะหลุดไปพร้อม connection แล้วรอบถัดไปหยิบต่อได้เอง
+ *    ขณะที่สถานะกลางอันใหม่จะสร้างปัญหาเดิมซ้ำอีกชั้น (แถวค้างในสถานะที่ไม่มีใครกู้)
+ * ⚠️ SKIP LOCKED ทำให้ worker ตัวที่สองข้ามแถวที่ตัวแรกถืออยู่ แทนที่จะรอ — ผลคือ
+ *    "หนึ่งแถว หนึ่งผู้กู้" เสมอ แม้จะมีหลาย worker วิ่งพร้อมกัน
+ * ⚠️ ผู้เรียกต้องทำงานทั้งหมดให้จบ "ภายใน" callback นี้ เพราะล็อกอยู่ได้แค่ใน transaction
+ *
+ * @param {number} leaseMs อายุสัญญาเช่า
+ * @param {(session: object, ctx: { markCommitted: Function, reopen: Function, abort: Function }) => Promise<any>} fn
+ * @returns {Promise<any|null>} null = ไม่มีแถวที่ต้องกู้
+ */
+export async function withStaleCommitLease(leaseMs, fn) {
+  if (usingPostgres) {
+    return withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM upload_sessions
+           WHERE status = 'committing'
+             AND commit_started_at IS NOT NULL
+             AND commit_started_at < now() - ($1::bigint * interval '1 millisecond')
+           ORDER BY commit_started_at ASC
+           FOR UPDATE SKIP LOCKED
+           LIMIT 1`,
+        [Math.trunc(leaseMs)],
+      )
+      if (rows.length === 0) return null
+      const session = mapUploadSessionRow(rows[0])
+      return fn(session, {
+        markCommitted: (fileId) => client.query(
+          `UPDATE upload_sessions SET status = 'committed', committed_file_id = $2, updated_at = now()
+            WHERE upload_id = $1`,
+          [session.uploadId, fileId],
+        ),
+        reopen: () => client.query(
+          `UPDATE upload_sessions
+              SET status = 'open', commit_started_at = NULL, commit_storage_key = NULL,
+                  committed_file_id = NULL, updated_at = now()
+            WHERE upload_id = $1`,
+          [session.uploadId],
+        ),
+        abort: () => client.query(
+          `UPDATE upload_sessions
+              SET status = 'aborted', commit_started_at = NULL, updated_at = now()
+            WHERE upload_id = $1`,
+          [session.uploadId],
+        ),
+        findFileByStorageKey: async (key) => {
+          const res = await client.query('SELECT * FROM files WHERE path = $1 LIMIT 1', [key])
+          return res.rows[0] ?? null
+        },
+      })
+    })
+  }
+
+  // dev fallback — โปรเซสเดียว จึงไม่มีการแย่งกัน แต่รูปแบบการเรียกต้องเหมือนกัน
+  const now = Date.now()
+  const session = [...memUploadSessions.values()].find(
+    (r) => r.status === 'committing' && r.commitStartedAt != null && r.commitStartedAt < now - leaseMs,
+  )
+  if (!session) return null
+  if (memRecoveryLocks.has(session.uploadId)) return null
+  memRecoveryLocks.add(session.uploadId)
+  try {
+    return await fn(cloneUploadSession(session), {
+      markCommitted: async (fileId) => {
+        session.status = 'committed'
+        session.committedFileId = fileId == null ? null : String(fileId)
+        session.updatedAt = Date.now()
+      },
+      reopen: async () => {
+        session.status = 'open'
+        session.commitStartedAt = null
+        session.commitStorageKey = null
+        session.committedFileId = null
+        session.updatedAt = Date.now()
+      },
+      abort: async () => {
+        session.status = 'aborted'
+        session.commitStartedAt = null
+        session.updatedAt = Date.now()
+      },
+      findFileByStorageKey: async (key) => files.find((f) => f.path === key) ?? null,
+    })
+  } finally {
+    memRecoveryLocks.delete(session.uploadId)
+  }
+}
+
+const memRecoveryLocks = new Set()
 
 /** ล้าง state ของ upload session ทั้งหมด — ใช้โดยชุดทดสอบเท่านั้น (แบบแผนเดียวกับ vault) */
 export async function __resetUploadSessionsForTests() {

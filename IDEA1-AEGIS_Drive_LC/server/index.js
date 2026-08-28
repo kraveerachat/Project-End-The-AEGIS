@@ -14,6 +14,7 @@ import { bootstrapAdminIfNeeded } from './db/bootstrapAdmin.js'
 import { initStorage, STORAGE_ROOT } from './storage/fileStore.js'
 import { initUploadStaging } from './storage/uploadStaging.js'
 import { cleanupAbandonedUploads, scheduleUploadCleanup } from './storage/uploadCleanup.js'
+import { recoverStaleCommits, scheduleCommitRecovery } from './storage/commitRecovery.js'
 import { initVaultStorage } from './storage/vaultStore.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
 
@@ -39,6 +40,18 @@ Promise.all([
     // เก็บกวาดรอบแรกตอนบูต แล้วจึงตั้งรอบประจำ — session ที่ค้างจากการรันครั้งก่อนต้อง
     // ถูกเก็บกวาดโดยไม่ต้องรอครบหนึ่งชั่วโมง (ล้มเหลวไม่กันการเปิดพอร์ต: มันคือการเก็บ
     // กวาดพื้นที่ ไม่ใช่ด่านความปลอดภัย และ scheduleUploadCleanup จะลองใหม่เอง)
+    // ⚠️ กู้คืนก่อนเก็บกวาด และเป็นคนละงานกัน: commit ที่โปรเซสก่อนหน้าตายคาไว้ต้องถูก
+    //    พากลับสู่สถานะที่ทำต่อได้ (open/committed/aborted) ก่อน ไม่งั้นมันจะค้างถาวร
+    //    เพราะทั้งงานเก็บกวาดและปุ่มยกเลิกต่างก็ห้ามแตะสถานะ committing โดยเจตนา
+    recoverStaleCommits()
+      .then(({ reopened, committed, aborted }) => {
+        if (reopened || committed || aborted) {
+          console.log(`[aegis-drive] commit recovery: ${reopened} reopened, ${committed} committed, ${aborted} aborted`)
+        }
+      })
+      .catch((err) => console.error('[aegis-drive] initial commit recovery failed:', err.message))
+    scheduleCommitRecovery()
+
     cleanupAbandonedUploads()
       .then(({ expired, orphans }) => {
         if (expired || orphans) {
