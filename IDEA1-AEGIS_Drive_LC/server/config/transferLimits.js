@@ -32,6 +32,18 @@ const DEFAULT_MAX_LOGICAL_FILE_BYTES = 5 * GIB
 // อายุของ upload session ที่ยังไม่ commit — หมดอายุแล้วถือว่าถูกทิ้ง เก็บกวาดได้
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000
 
+// ── สัญญาเช่าของการ commit (commit lease) ──────────────────────────────────
+// session ที่อยู่ในสถานะ 'committing' นานเกินค่านี้ = โปรเซสที่ถืองานอยู่ "ตายไปแล้ว"
+// และงานกู้คืนจึงเข้าไปตรวจได้ (ดู storage/commitRecovery.js)
+//
+// ⚠️ ต้องยาวกว่า "เวลาที่ commit ปกติใช้จริง" อย่างมีนัยสำคัญ ไม่งั้นงานกู้คืนจะไปแย่ง
+//    งานของ commit ที่ยังทำงานอยู่ ตัวที่กินเวลาที่สุดในช่วง committing คือการอ่านไฟล์
+//    ทั้งก้อนเพื่อคำนวณ SHA-256 — ไฟล์ 5 GiB บน HDD ของ edge box ใช้เวลาระดับนาที
+//    15 นาทีจึงเป็นค่าที่ห่างจากกรณีแย่สุดที่คาดได้พอสมควร
+// ⚠️ การตั้งค่านี้ให้สั้นเกินไปไม่ทำให้ข้อมูลเสียหาย (งานกู้คืนตรวจสถานะจริงบนดิสก์เสมอ)
+//    แต่จะทำให้ commit ที่ยังทำงานอยู่ถูกดึงพรมออกจากใต้เท้า แล้วผู้ใช้ต้องกด commit ใหม่
+const DEFAULT_COMMIT_LEASE_MS = 15 * 60 * 1000
+
 // ── กฎพื้นที่ว่าง (บันทึกไว้ให้ผู้ตรวจอ่านตรงนี้จุดเดียว) ──────────────────────
 // เซิร์ฟเวอร์รับ session ใหม่ก็ต่อเมื่อ:
 //
@@ -72,8 +84,8 @@ function readFraction(env, name, fallback) {
  * อ่านเพดานทั้งชุดจาก environment — โยน error ทันทีเมื่อค่าไม่ถูกต้อง
  * @param {Record<string, string|undefined>} [env]
  * @returns {Readonly<{ chunkSizeBytes: number, maxLogicalFileBytes: number,
- *                      sessionTtlMs: number, freeReserveBytes: number,
- *                      freeReserveFraction: number }>}
+ *                      sessionTtlMs: number, commitLeaseMs: number,
+ *                      freeReserveBytes: number, freeReserveFraction: number }>}
  */
 export function transferLimitsFromEnv(env = process.env) {
   const chunkSizeBytes = readInteger(env, 'UPLOAD_CHUNK_SIZE_BYTES', DEFAULT_CHUNK_SIZE_BYTES, {
@@ -88,6 +100,10 @@ export function transferLimitsFromEnv(env = process.env) {
     min: 60_000,           // สั้นกว่าหนึ่งนาที = resume ใช้ไม่ได้จริง
     max: 30 * 24 * 60 * 60 * 1000,
   })
+  const commitLeaseMs = readInteger(env, 'UPLOAD_COMMIT_LEASE_MS', DEFAULT_COMMIT_LEASE_MS, {
+    min: 60_000,               // สั้นกว่าหนึ่งนาที = แย่งงาน commit ที่ยังทำงานอยู่แน่นอน
+    max: 24 * 60 * 60 * 1000,
+  })
   const freeReserveBytes = readInteger(env, 'STORAGE_FREE_RESERVE_BYTES', DEFAULT_FREE_RESERVE_BYTES, {
     min: 0,
     max: Number.MAX_SAFE_INTEGER,
@@ -98,6 +114,7 @@ export function transferLimitsFromEnv(env = process.env) {
     chunkSizeBytes,
     maxLogicalFileBytes,
     sessionTtlMs,
+    commitLeaseMs,
     freeReserveBytes,
     freeReserveFraction,
   })

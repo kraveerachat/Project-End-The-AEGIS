@@ -121,19 +121,49 @@ export function stagedPartSha256(uploadId) {
 }
 
 /**
- * เผยแพร่ไบต์ที่ครบแล้วเข้าสู่ Storage Layer ปกติ — rename บน volume เดียวกัน
- * ⚠️ rename เป็น atomic บน POSIX: ไม่มีช่วงเวลาที่ key ปลายทางมีอยู่แต่ไบต์ยังไม่ครบ
- *    key ที่คืนออกไปมีความหมายเดียวกับ keyForUploaded() ของเส้นทางเดิมทุกประการ
- * @returns {Promise<string>} storage key (relative ต่อ STORAGE_ROOT)
+ * เลือก key ปลายทางของไฟล์ — "ก่อน" การแตะดิสก์ใด ๆ เพื่อให้บันทึกลงฐานข้อมูลได้ก่อน
+ *
+ * ⚠️ แยกออกจาก publishStagedPartTo() โดยเจตนา: เดิมการสุ่มชื่อกับการ rename อยู่ใน
+ *    ฟังก์ชันเดียว ทำให้ key มีตัวตนอยู่แค่ในตัวแปรของโปรเซส ถ้าโปรเซสตายหลัง rename
+ *    ไบต์ที่ย้ายไปแล้วจะไม่มีใครรู้ว่าอยู่ที่ไหน = ของกำพร้าถาวรที่กู้ไม่ได้
+ *    ตอนนี้ผู้เรียกต้องบันทึก key ลง upload_sessions.commit_storage_key ก่อนเสมอ
  */
-export async function publishStagedPart(uploadId) {
+export function newFinalStorageKey() {
   // ชื่อบนดิสก์ = UUID ล้วน แบบเดียวกับ multer diskStorage ของเส้นทางเดิม —
   // ไม่มีเศษของชื่อที่ผู้ใช้ตั้งปนอยู่เลยแม้แต่นามสกุล
-  const name = `${randomUUID()}.bin`
-  const key = `${storageConfig.UPLOAD_DIR}/${name}`
-  const destination = path.join(STORAGE_ROOT, storageConfig.UPLOAD_DIR, name)
+  return `${storageConfig.UPLOAD_DIR}/${randomUUID()}.bin`
+}
+
+/** absolute path ของ key ถ้ามันอยู่ใต้ STORAGE_ROOT จริง — ไม่งั้น null (กัน traversal) */
+function resolveInsideRoot(key) {
+  if (typeof key !== 'string' || key.length === 0 || key.includes('\0')) return null
+  const abs = path.resolve(STORAGE_ROOT, key.replace(/^[/\\]+/, ''))
+  const root = STORAGE_ROOT.endsWith(path.sep) ? STORAGE_ROOT : STORAGE_ROOT + path.sep
+  return abs.startsWith(root) ? abs : null
+}
+
+/**
+ * ย้ายไบต์ที่ครบแล้วไปยัง key ที่บันทึกไว้ล่วงหน้า — rename บน volume เดียวกัน (atomic)
+ * @param {string} uploadId
+ * @param {string} key key ที่ผู้เรียกบันทึกไว้ใน commit_storage_key แล้ว
+ */
+export async function publishStagedPartTo(uploadId, key) {
+  const destination = resolveInsideRoot(key)
+  if (!destination) throw new Error('refusing to publish outside STORAGE_ROOT')
   await fsp.rename(partPath(uploadId), destination)
   return key
+}
+
+/** ไบต์ของ key นี้มีอยู่จริงบนดิสก์ไหม — งานกู้คืนใช้ตัดสินว่า rename เกิดขึ้นไปแล้วหรือยัง */
+export async function finalKeyExists(key) {
+  const abs = resolveInsideRoot(key)
+  if (!abs) return false
+  try {
+    const st = await fsp.stat(abs)
+    return st.isFile()
+  } catch {
+    return false
+  }
 }
 
 /**

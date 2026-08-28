@@ -42,13 +42,47 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   --    refuses to touch a session in this state — see listExpiredUploadSessions.
   status          TEXT NOT NULL DEFAULT 'open'
                   CHECK (status IN ('open', 'committing', 'committed', 'aborted')),
+  -- ── Durable commit intent (LFT-V2-A crash recovery) ───────────────────────
+  -- ⚠️ ทั้งสามคอลัมน์นี้มีไว้เพื่อให้ "การกู้คืนหลังโปรเซสตาย" ทำได้จริง ไม่ใช่เพื่อรายงาน
+  --    ถ้าโปรเซสตายระหว่าง commit สิ่งที่ต้องรู้ให้ได้หลังบูตใหม่คือ "ไบต์ชุดสุดท้าย
+  --    ถูกตั้งใจให้ไปอยู่ที่ key ไหน" — ถ้า key นั้นถูกสุ่มไว้ในตัวแปรของโปรเซสที่ตายไป
+  --    ไบต์ที่ถูก rename ไปแล้วจะกลายเป็นของกำพร้าที่ไม่มีใครรู้จักตลอดกาล
+  -- commit_started_at = จุดเริ่มของสัญญาเช่า (lease) งานกู้คืนแตะได้เฉพาะแถวที่เก่ากว่า
+  --    UPLOAD_COMMIT_LEASE_MS เท่านั้น เพื่อไม่ดึงพรมออกจากใต้ commit ที่ยังทำงานอยู่
+  -- commit_storage_key = key ปลายทางที่ถูกเลือกและบันทึก "ก่อน" การ rename ใด ๆ
+  -- committed_file_id = แถวใน files ที่ commit นี้สร้าง/อัปเดต ถูกเขียนใน transaction
+  --    เดียวกับที่เปลี่ยน status เป็น 'committed' จึงไม่มีวันมีค่าในแถวที่ยัง committing
+  commit_started_at   TIMESTAMPTZ,
+  commit_storage_key  TEXT,
+  committed_file_id   BIGINT REFERENCES files(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at      TIMESTAMPTZ NOT NULL
 );
 
+-- ⚠️ อัปเกรดฐานข้อมูลที่รับ Stage-A ของ migration นี้ไปแล้ว (ตารางมีอยู่แล้วแต่ยังไม่มี
+--    คอลัมน์ commit intent) — CREATE TABLE IF NOT EXISTS ด้านบนจะข้ามไปเฉย ๆ จึงต้องมี
+--    ALTER แยกไว้ตรงนี้ ทั้งสามคำสั่งเป็น IF NOT EXISTS จึงรันซ้ำได้ไม่จำกัดครั้ง
+ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS commit_started_at  TIMESTAMPTZ;
+ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS commit_storage_key TEXT;
+ALTER TABLE upload_sessions ADD COLUMN IF NOT EXISTS committed_file_id  BIGINT;
+
+-- FK ของคอลัมน์ที่เพิ่มด้วย ALTER ต้องเพิ่มแยกและต้องไม่พังเมื่อรันซ้ำ
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'upload_sessions_committed_file_id_fkey'
+  ) THEN
+    ALTER TABLE upload_sessions
+      ADD CONSTRAINT upload_sessions_committed_file_id_fkey
+      FOREIGN KEY (committed_file_id) REFERENCES files(id) ON DELETE SET NULL;
+  END IF;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS upload_sessions_user_idx ON upload_sessions (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS upload_sessions_expiry_idx ON upload_sessions (status, expires_at);
+CREATE INDEX IF NOT EXISTS upload_sessions_commit_idx ON upload_sessions (status, commit_started_at);
 
 CREATE TABLE IF NOT EXISTS upload_session_chunks (
   upload_id    TEXT NOT NULL REFERENCES upload_sessions(upload_id) ON DELETE CASCADE,

@@ -689,6 +689,133 @@ test('migration 003 ให้สิทธิ์ drive_app ได้แม้ถ�
   }
 })
 
+// ⚠️ Stage-A คือรูปตารางที่ migration 003 เคยสร้างก่อนรอบ crash-recovery — ยังไม่มี
+//    คอลัมน์ commit intent ฐานข้อมูลของใครที่รับ Stage-A ไปแล้วต้องอัปเกรดได้ด้วยการ
+//    รัน 003 ซ้ำ ไม่ใช่ต้องสร้างใหม่ รูปนี้เป็นประวัติศาสตร์ที่ตายตัวแล้วจึงเขียนตรงนี้ได้
+const STAGE_A_UPLOAD_TABLES = `
+CREATE TABLE upload_sessions (
+  upload_id       TEXT PRIMARY KEY,
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  logical_size    BIGINT NOT NULL CHECK (logical_size >= 0),
+  chunk_size      INTEGER NOT NULL CHECK (chunk_size > 0),
+  chunk_count     INTEGER NOT NULL CHECK (chunk_count >= 0),
+  expected_sha256 CHAR(64),
+  status          TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open', 'committing', 'committed', 'aborted')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at      TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE upload_session_chunks (
+  upload_id    TEXT NOT NULL REFERENCES upload_sessions(upload_id) ON DELETE CASCADE,
+  chunk_index  INTEGER NOT NULL CHECK (chunk_index >= 0),
+  size_bytes   INTEGER NOT NULL CHECK (size_bytes > 0),
+  sha256       CHAR(64) NOT NULL,
+  received_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_id, chunk_index)
+);`
+
+test('migration 003 อัปเกรดฐานข้อมูลที่รับ Stage-A ไปแล้วให้มีคอลัมน์ commit intent โดยไม่แตะแถวเดิม', { skip: superSkip }, async () => {
+  const admin = new pg.Client({ connectionString: SUPER_URL })
+  await admin.connect()
+  const dbName = `aegis_drive_stagea_${Date.now()}`
+  const migrationSql = await fs.readFile(
+    new URL('../server/db/migrations/003_upload_sessions.sql', import.meta.url), 'utf8',
+  )
+  const schemaSql = await fs.readFile(new URL('../server/db/schema.sql', import.meta.url), 'utf8')
+  const preV2 = schemaSql.slice(0, schemaSql.indexOf('-- ── Resumable upload sessions (LFT-V2-A)'))
+
+  let probe
+  try {
+    await admin.query(`CREATE DATABASE ${dbName}`)
+    probe = new pg.Client({ connectionString: SUPER_URL.replace(/\/[^/]*$/, `/${dbName}`) })
+    await probe.connect()
+    await probe.query(preV2)
+    await probe.query(STAGE_A_UPLOAD_TABLES)
+
+    // ข้อมูลจริงที่ค้างอยู่ในฐานข้อมูล Stage-A ก่อนอัปเกรด
+    const { rows: [u] } = await probe.query(
+      `INSERT INTO users (username, password_hash, display_name)
+       VALUES ('stagea_owner', '\$2a\$10\$notarealhash', 'Stage A Owner') RETURNING id`,
+    )
+    const sessionId = 'd'.repeat(48)
+    await probe.query(
+      `INSERT INTO upload_sessions (upload_id, user_id, name, logical_size, chunk_size, chunk_count, expires_at)
+       VALUES ($1, $2, 'stagea.bin', 100, 16, 7, now() + interval '1 day')`, [sessionId, u.id],
+    )
+    await probe.query(
+      `INSERT INTO upload_session_chunks (upload_id, chunk_index, size_bytes, sha256)
+       VALUES ($1, 0, 16, repeat('a', 64))`, [sessionId],
+    )
+
+    const before = await probe.query(
+      `SELECT md5(string_agg(upload_id||name||logical_size::text||status, '|' ORDER BY upload_id)) AS f
+         FROM upload_sessions`,
+    )
+    const columnsBefore = await probe.query(
+      `SELECT count(*) AS n FROM information_schema.columns
+        WHERE table_name = 'upload_sessions'
+          AND column_name IN ('commit_started_at','commit_storage_key','committed_file_id')`,
+    )
+    assert.equal(Number(columnsBefore.rows[0].n), 0, 'Stage-A ต้องยังไม่มีคอลัมน์ commit intent')
+
+    // ── อัปเกรดด้วยการรัน 003 ตัวปัจจุบันซ้ำ ─────────────────────────────────
+    await probe.query(migrationSql)
+
+    const columnsAfter = await probe.query(
+      `SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_name = 'upload_sessions'
+          AND column_name IN ('commit_started_at','commit_storage_key','committed_file_id')
+        ORDER BY column_name`,
+    )
+    assert.deepEqual(
+      columnsAfter.rows.map((r) => r.column_name),
+      ['commit_started_at', 'commit_storage_key', 'committed_file_id'],
+      'ทั้งสามคอลัมน์ต้องถูกเพิ่มให้ฐานข้อมูล Stage-A',
+    )
+
+    // FK ของ committed_file_id ต้องถูกเพิ่มด้วย และเพิ่มเพียงครั้งเดียว
+    const fk = await probe.query(
+      `SELECT count(*) AS n FROM pg_constraint
+        WHERE conname = 'upload_sessions_committed_file_id_fkey'`,
+    )
+    assert.equal(Number(fk.rows[0].n), 1, 'FK ของ committed_file_id ต้องมีหนึ่งอัน')
+
+    const idx = await probe.query(
+      `SELECT count(*) AS n FROM pg_indexes WHERE indexname = 'upload_sessions_commit_idx'`,
+    )
+    assert.equal(Number(idx.rows[0].n), 1, 'index สำหรับงานกู้คืนต้องถูกสร้าง')
+
+    // แถวเดิมต้องไม่ถูกแตะ และคอลัมน์ใหม่ต้องเป็น NULL
+    const after = await probe.query(
+      `SELECT md5(string_agg(upload_id||name||logical_size::text||status, '|' ORDER BY upload_id)) AS f
+         FROM upload_sessions`,
+    )
+    assert.equal(after.rows[0].f, before.rows[0].f, 'แถวเดิมต้องไม่ถูกเขียนทับ')
+    const { rows: [kept] } = await probe.query(
+      'SELECT commit_started_at, commit_storage_key, committed_file_id FROM upload_sessions WHERE upload_id = $1',
+      [sessionId],
+    )
+    assert.equal(kept.commit_started_at, null)
+    assert.equal(kept.commit_storage_key, null)
+    assert.equal(kept.committed_file_id, null)
+    const chunks = await probe.query('SELECT count(*) AS n FROM upload_session_chunks WHERE upload_id = $1', [sessionId])
+    assert.equal(Number(chunks.rows[0].n), 1, 'แถว chunk เดิมต้องยังอยู่')
+
+    // รันซ้ำอีกครั้งต้องไม่พังและไม่เพิ่ม FK/index ซ้ำ
+    await probe.query(migrationSql)
+    const fkAgain = await probe.query(
+      `SELECT count(*) AS n FROM pg_constraint WHERE conname = 'upload_sessions_committed_file_id_fkey'`,
+    )
+    assert.equal(Number(fkAgain.rows[0].n), 1, 'รันซ้ำต้องไม่เพิ่ม FK ซ้ำ')
+  } finally {
+    await probe?.end().catch(() => {})
+    await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
+    await admin.end()
+  }
+})
+
 test('migration 003 ประกาศ GRANT ของตัวเองอย่างชัดเจน ไม่พึ่ง ALTER DEFAULT PRIVILEGES', { skip }, async () => {
   const migration = await fs.readFile(
     new URL('../server/db/migrations/003_upload_sessions.sql', import.meta.url), 'utf8',
