@@ -88,6 +88,37 @@ flowchart TD
 - Recognition remains intentionally fail-unknown: the repository does not contain a real identity model and does not convert generic object detections into authorization.
 - This reconciliation is source-level integration from current `main`; real camera, production NAS, Telegram delivery, and production deployment evidence are still required before those outcomes can be claimed.
 
+### Windows Detection Laptop portable auto-start (2026-08-29)
+
+The portable Windows source now follows the architecture previously observed
+on the operator's working Detection Laptop:
+
+```text
+Windows boot -> SYSTEM tunnel task -> reconnect wrapper -> SSH :18002/:18077
+User login   -> HKCU Run -> Engine supervisor -> Detection Engine :8077/webcam
+```
+
+`detection-engine/windows/` contains an installer plus status, repair,
+non-destructive uninstall, Engine-supervisor, and strict two-way SSH tunnel
+scripts. Installation copies durable source to a configurable Local AppData
+runtime, creates a runtime-local `.venv`, requires a machine-specific `.env`,
+a unique per-laptop SSH key and a fingerprint-verified `known_hosts`, and keeps
+all of those machine artifacts outside Git. The Engine starts in the logged-in
+user session for webcam access; the tunnel starts as SYSTEM and reconnects
+after SSH exits. The runtime key uses a protected, verified ACL that allows only
+SYSTEM and `BUILTIN\Administrators` FullControl: SYSTEM serves the boot task,
+while Administrators remain solely for elevated repair/key rotation. Any failed
+ACL mutation, wrong owner, enabled inheritance, missing required grant, or
+unexpected sensitive Allow entry aborts installation.
+
+Source verification after merging current `main` passed all 30 Detection Engine tests,
+parsed all seven PowerShell scripts, and completed installer `-WhatIf` without
+mutation. Earlier operator-supplied evidence proved the architecture could
+recover the Engine/tunnel and serve a real camera after reboot, but this newly
+reconciled installer has not yet been run elevated from a fresh clone. Each
+laptop still requires its own installation, reboot, port/health, and real-camera
+acceptance before that laptop is called verified.
+
 **Camera source is config, not code.** `AEGIS_CAMERA_SOURCE` is passed straight to `cv2.VideoCapture`: an integer string opens a local device, anything else is treated as a URL. Moving to a real IP camera is a `.env` edit:
 
 ```bash

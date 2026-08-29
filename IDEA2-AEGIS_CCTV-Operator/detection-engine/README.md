@@ -33,6 +33,7 @@ docker compose
 | Live MJPEG stream | Implemented; Monitor proxy integration remains environment-dependent |
 | Telegram | Dry-run when token/chat are absent; credential rotation required before real testing |
 | NAS | Disabled by default; production transfer/integrity verification pending |
+| Windows auto-start | Portable installer, Engine supervisor, SYSTEM tunnel reconnect, status/repair/uninstall scripts implemented; every laptop still needs machine-specific provisioning and reboot proof |
 
 Object detection is not identity. The modular runtime does not import the
 legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
@@ -59,6 +60,15 @@ The default development configuration has:
 
 The runtime API can start while the camera is unavailable; `VideoCatcher`
 reports disconnected state and retries with bounded exponential backoff.
+
+## Windows Detection Laptop installation
+
+Use [`windows/README.md`](windows/README.md) for the Windows bootstrap. It
+installs a machine-local copy under `%LOCALAPPDATA%`, creates a runtime-local
+Python environment, starts the webcam Engine after user login, and maintains
+the SSH tunnel as a SYSTEM startup task. The installer requires a
+machine-specific `.env`, a unique per-laptop SSH identity, and a verified
+`known_hosts` file; none of those files are committed.
 
 ## Docker development stack
 
@@ -160,4 +170,5 @@ operator-readable startup failures.
 - Real Monitor heartbeat integration
 - Telegram routing/delivery after credential rotation
 - Production NAS transfer verification
-- Production deployment and operating-system auto-start
+- Elevated installer execution, reboot recovery, and real-camera verification
+  on every newly provisioned Detection Laptop
