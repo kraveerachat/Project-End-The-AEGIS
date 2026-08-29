@@ -9,13 +9,24 @@
 //    - ไม่แตะ Cache API เลยแม้แต่บรรทัดเดียว (plaintext ห้ามถูกเก็บนอกหน่วยความจำ)
 //    - ไม่เขียนอะไรลง IndexedDB / storage ใด ๆ
 //    - ไม่ดักคำขออื่นนอกจาก path เสมือนของ preview — คำขอปกติทุกใบผ่านไปตามเดิม
-//    - ไม่เก็บเซสชันข้ามการรีสตาร์ตของ worker: กุญแจอยู่ใน Map ในหน่วยความจำเท่านั้น
-//      ถ้า worker ถูกปลุกใหม่ เซสชันหายไปพร้อมกัน และหน้าเว็บต้องเปิดใหม่ ซึ่งถูกต้อง
+//    - ไม่เก็บเซสชันข้ามการรีสตาร์ตของ worker: ถ้า worker ถูกปลุกใหม่ มันขอสำเนา
+//      CryptoKey จากหน้าเว็บที่ยังปลดล็อกและยังถือ token ใบนั้นอยู่ใน memory เท่านั้น
 import { previewTokenFromPath } from './lib/vaultPreviewRange.js'
-import { createPreviewStream, planPreviewResponse } from './lib/vaultPreviewResponder.js'
+import { createPreviewStream, planPreviewResponse, readPlainChunk } from './lib/vaultPreviewResponder.js'
+import { createPreviewWorkerState } from './lib/vaultPreviewWorkerState.js'
+import { PREVIEW_FAILURE_REASON, previewFailureGroup } from './lib/vaultPreviewErrors.js'
+import { createPreviewDiagnostics, previewDiagnosticsEnabled } from './lib/vaultPreviewDiagnostics.js'
 
-/** token → { dek, blob, contentType, plainSize } — หน่วยความจำล้วน ไม่มีที่เก็บถาวร */
-const sessions = new Map()
+let diagnosticsEnabled = previewDiagnosticsEnabled(self)
+const diagnostics = createPreviewDiagnostics({
+  enabled: () => diagnosticsEnabled,
+  emit: (record) => console.debug('[AEGIS vault preview]', record),
+})
+const state = createPreviewWorkerState({
+  maxPlaintextChunks: 2,
+  onCacheEvent: (kind) => diagnostics.record('cache', kind === 'hit' ? { cacheHits: 1 } : { cacheMisses: 1 }),
+})
+let requestNumber = 0
 
 const scopeBase = () => new URL('./', self.registration?.scope ?? self.location.href).pathname
 
@@ -37,7 +48,8 @@ self.addEventListener('message', (event) => {
   switch (msg.type) {
     case 'vault-preview-open':
       if (!msg.token || !msg.dek || !msg.blob?.id) { reply({ ok: false }); return }
-      sessions.set(msg.token, {
+      diagnosticsEnabled = diagnosticsEnabled || msg.diagnostics === true
+      state.open(msg.token, {
         dek: msg.dek,
         blob: msg.blob,
         contentType: msg.contentType,
@@ -48,18 +60,20 @@ self.addEventListener('message', (event) => {
 
     case 'vault-preview-close':
       // ★ ลบกุญแจออกจากหน่วยความจำของ worker — นี่คือสิ่งเดียวที่ "ปิด preview" หมายถึง
-      sessions.delete(msg.token)
+      state.close(msg.token)
+      if (state.sessionCount() === 0) diagnosticsEnabled = false
       reply({ ok: true })
       return
 
     case 'vault-preview-close-all':
       // ใช้ตอนล็อกตู้/ล็อกอัตโนมัติ: ไม่มีเซสชันใดรอดจากการล็อก
-      sessions.clear()
+      state.closeAll()
+      diagnosticsEnabled = false
       reply({ ok: true })
       return
 
     case 'vault-preview-status':
-      reply({ ok: true, open: sessions.size, has: sessions.has(msg.token) })
+      reply({ ok: true, open: state.sessionCount(), has: Boolean(state.get(msg.token)) })
       return
 
     default:
@@ -69,10 +83,59 @@ self.addEventListener('message', (event) => {
 
 /** บอกหน้าเว็บว่าสตรีมหยุดเพราะอะไร — UI ต้องรายงานตามจริง ไม่ใช่ค้างที่ spinner */
 async function announceFailure(token, reason) {
+  diagnostics.record('failure', { failureCategory: previewFailureGroup(reason) })
   const all = await self.clients.matchAll({ includeUncontrolled: false })
   for (const client of all) {
     client.postMessage({ type: 'vault-preview-failed', token, reason })
   }
+}
+
+/** Ask controlled pages once, in parallel, for the exact active token only. */
+async function requestSessionFromPage(token, timeoutMs = 2_000) {
+  const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: false })
+  if (!pages.length) return null
+  return new Promise((resolve) => {
+    let settled = false
+    let remaining = pages.length
+    const ports = []
+    const finish = (value) => {
+      if (settled) return
+      if (value) settled = true
+      remaining -= 1
+      if (value || remaining <= 0) {
+        settled = true
+        clearTimeout(timer)
+        for (const port of ports) { try { port.close() } catch { /* already closed */ } }
+        resolve(value)
+      }
+    }
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      for (const port of ports) { try { port.close() } catch { /* already closed */ } }
+      resolve(null)
+    }, timeoutMs)
+
+    for (const page of pages) {
+      const channel = new MessageChannel()
+      ports.push(channel.port1)
+      channel.port1.onmessage = (event) => {
+        const reply = event.data
+        try { channel.port1.close() } catch { /* already closed */ }
+        finish(reply?.ok && reply.token === token && reply.session
+          ? { token, session: reply.session }
+          : null)
+      }
+      // No blob id, key, filename, or metadata leaves this request. The token
+      // is sufficient for the page to find its exact active in-memory entry.
+      try {
+        page.postMessage({ type: 'vault-preview-session-needed', token }, [channel.port2])
+      } catch {
+        try { channel.port1.close() } catch { /* already closed */ }
+        finish(null)
+      }
+    }
+  })
 }
 
 self.addEventListener('fetch', (event) => {
@@ -83,11 +146,15 @@ self.addEventListener('fetch', (event) => {
   if (!token) return
 
   event.respondWith((async () => {
-    const session = sessions.get(token)
-    if (!session) {
-      // เซสชันถูกปิด/ล็อกไปแล้ว — 410 บอกตรง ๆ ว่า "เคยมี ตอนนี้ไม่มีแล้ว"
+    const number = ++requestNumber
+    const startedAt = Date.now()
+    const recovered = await state.getOrRecover(token, requestSessionFromPage)
+    if (!recovered.ok) {
+      await announceFailure(token, recovered.reason)
       return new Response(null, { status: 410, headers: { 'Cache-Control': 'no-store' } })
     }
+    const session = recovered.session
+    if (recovered.rehydrated) diagnostics.record('session-rehydrated', { rehydrationCount: 1 })
 
     const plan = planPreviewResponse(session, {
       method: event.request.method,
@@ -95,13 +162,31 @@ self.addEventListener('fetch', (event) => {
     })
 
     if (!plan.streamable) {
+      if (plan.status === 416) await announceFailure(token, PREVIEW_FAILURE_REASON.RANGE_INVALID)
       return new Response(null, { status: plan.status, headers: plan.headers })
     }
+
+    const contentRange = plan.headers['Content-Range']
+    const rangeMatch = /^bytes (\d+)-(\d+)\//.exec(contentRange ?? '')
+    const requestedRange = /^bytes=(\d*)-(\d*)$/i.exec(event.request.headers.get('Range') ?? '')
+    diagnostics.record('range', {
+      requestNumber: number,
+      requestStart: requestedRange?.[1] ? Number(requestedRange[1]) : 0,
+      requestEnd: requestedRange?.[2] ? Number(requestedRange[2]) : Number(session.plainSize) - 1,
+      responseStart: rangeMatch ? Number(rangeMatch[1]) : 0,
+      responseEnd: rangeMatch ? Number(rangeMatch[2]) : Number(session.plainSize) - 1,
+      chunkIndexes: plan.plan.map((step) => step.index),
+      responseDurationMs: Date.now() - startedAt,
+    })
 
     const body = createPreviewStream(session, plan.plan, {
       fetchImpl: (input, init) => fetch(input, init),
       base: scopeBase(),
       onFailure: (reason) => { announceFailure(token, reason) },
+      onDiagnostic: (eventName, fields) => diagnostics.record(eventName, fields),
+      readChunk: (_session, index, options) => state.readChunk(token, index, async () => {
+        return readPlainChunk(session, index, options)
+      }),
     })
 
     return new Response(body, { status: plan.status, headers: plan.headers })

@@ -865,7 +865,7 @@ test('บรรทัดความเร็วมีคำแปลจริ�
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Service Worker container ปลอมที่บันทึกทุกข้อความและตอบกลับเหมือนของจริง */
-function fakeServiceWorker() {
+function fakeServiceWorker({ openOk = true } = {}) {
   const posted = []
   const listeners = new Set()
 
@@ -874,7 +874,8 @@ function fakeServiceWorker() {
       posted.push(message)
       const port = transfer?.[0]
       // worker จริงตอบผ่าน port ที่ถูกโอนไป — ตอบทันทีแบบเดียวกัน
-      queueMicrotask(() => { try { port?.postMessage({ ok: true }) } catch { /* ปิดไปแล้ว */ } })
+      const ok = message.type === 'vault-preview-open' ? openOk : true
+      queueMicrotask(() => { try { port?.postMessage({ ok }) } catch { /* ปิดไปแล้ว */ } })
     },
   }
 
@@ -889,7 +890,7 @@ function fakeServiceWorker() {
     container,
     posted: () => [...posted],
     ofType: (type) => posted.filter((m) => m.type === type),
-    emit: (data) => { for (const fn of listeners) fn({ data }) },
+    emit: (data, ports = []) => { for (const fn of listeners) fn({ data, ports }) },
     install() {
       Object.defineProperty(globalThis.navigator, 'serviceWorker', { value: container, configurable: true })
     },
@@ -1036,6 +1037,103 @@ test('worker แจ้งว่า tag ไม่ผ่าน = จอพูด�
   }
 })
 
+test('network, temporary worker, invalid range และ media playback failures แสดงข้อความคนละกลุ่มอย่างตรงไปตรงมา', async () => {
+  const cases = [
+    ['chunk-fetch-failed', 'vaultPreviewNetworkFailure'],
+    ['worker-session-lost', 'vaultPreviewTemporaryFailure'],
+    ['range-invalid', 'vaultPreviewRangeFailure'],
+  ]
+  for (const [reason, copyKey] of cases) {
+    seedBlobs([bigVideo()])
+    const sw = fakeServiceWorker()
+    sw.install()
+    const h = env.mount()
+    try {
+      await openBigVideoPreview(h)
+      const token = sw.ofType('vault-preview-open')[0].token
+      await act(async () => { sw.emit({ type: 'vault-preview-failed', token, reason }) })
+      await tick(2)
+      const alert = doc().querySelector(`[data-vault-preview-failure="${reason}"]`)
+      assert.ok(alert)
+      assert.equal(alert.textContent.trim(), t(copyKey))
+    } finally {
+      sw.uninstall()
+      await h.unmount()
+    }
+  }
+
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const video = doc().querySelector('video')
+    await act(async () => { video.dispatchEvent(new dom.window.Event('error')) })
+    await tick(2)
+    const alert = doc().querySelector('[data-vault-preview-failure="media-playback-failed"]')
+    assert.ok(alert)
+    assert.equal(alert.textContent.trim(), t('vaultPreviewPlaybackFailure'))
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('worker restart asks for only the active token; page rehydrates while unlocked and denies after lock', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const opened = sw.ofType('vault-preview-open')[0]
+    const replies = []
+    await act(async () => {
+      sw.emit(
+        { type: 'vault-preview-session-needed', token: opened.token },
+        [{ postMessage: (message) => replies.push(message) }],
+      )
+    })
+    assert.equal(replies.length, 1)
+    assert.equal(replies[0].ok, true)
+    assert.equal(replies[0].token, opened.token)
+    assert.equal(replies[0].session.dek, opened.dek)
+    assert.equal(replies[0].session.blob.id, 'v2-stream')
+    assert.equal(replies[0].session.blob.name, undefined)
+
+    await lockVault(dom, t)
+    const denied = []
+    await act(async () => {
+      sw.emit(
+        { type: 'vault-preview-session-needed', token: opened.token },
+        [{ postMessage: (message) => denied.push(message) }],
+      )
+    })
+    assert.deepEqual(denied, [{ ok: false, token: opened.token }])
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('worker session-open failure is temporary infrastructure failure, not browser unsupported', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker({ openOk: false })
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const alert = doc().querySelector('[data-vault-preview-failure="worker-session-open-failed"]')
+    assert.ok(alert)
+    assert.equal(alert.textContent.trim(), t('vaultPreviewTemporaryFailure'))
+    assert.equal(doc().querySelector('[data-vault-preview-unsupported="1"]'), null)
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
 test('ความล้มเหลวของเซสชันอื่นไม่ทำให้ preview ใบที่เปิดอยู่พัง', async () => {
   seedBlobs([bigVideo()])
   const sw = fakeServiceWorker()
@@ -1104,7 +1202,7 @@ test('ภาพนิ่ง V2 ที่ใหญ่เกินเพดาน�
     assert.ok(notice)
     assert.equal(notice.getAttribute('data-vault-preview-unsupported'), '0')
     assert.equal(notice.textContent.trim(), t('vaultPreviewTooLarge'),
-      'ภาพนิ่งยังใช้ข้อความเดิม — <img> ขอทั้งไฟล์อยู่ดี การสตรีมตามช่วงจึงไม่ช่วยอะไร')
+      'ภาพนิ่งยังใช้ข้อความเดิม — image element ขอทั้งไฟล์อยู่ดี การสตรีมตามช่วงจึงไม่ช่วยอะไร')
     assert.deepEqual(sw.ofType('vault-preview-open'), [])
   } finally {
     sw.uninstall()
