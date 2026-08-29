@@ -1398,9 +1398,10 @@ after metadata each converge; two concurrent recovery workers produce one outcom
 **Recorded limitations, not softened:**
 `VAULT_BROWSER_REFRESH_RESUME = NOT_IMPLEMENTED` (the session is durable but the
 KEK is never persisted, by design);
-`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; the
-large streamed path exists but the ~1.1 GB production acceptance failed and the
-E3.1 reliability fix is local/source-only pending deploy and browser acceptance);
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; E3.1 is
+deployed and proved the streaming path in production — 206 media ranges, 200
+ciphertext chunks, first frame rendered — but ~1.1 GB acceptance still fails, and
+the E3.2 cancellation/claim fix is local/source-only pending browser acceptance);
 `VAULT_V1_LEGACY_READ = SUPPORTED`;
 `VAULT_V1_NEW_UPLOAD = SUPPORTED_BUT_UNUSED_BY_UI` — `POST /api/vault/blobs`
 still works with its original 64 MiB ceiling and is **not** large-file capable.
@@ -1596,7 +1597,7 @@ on the real link belongs to `LFT-V2-D` acceptance.
 
 ### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
 
-> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3 reached production, but the real ~1.1 GB preview is unreliable; E3.1 is **implemented and verified locally only, not deployed or production accepted**
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3.1 is deployed and the streaming path itself is proven in production, but the real ~1.1 GB preview is still not accepted; E3.2 is **implemented and verified locally only, not production accepted**
 > No server route, schema, CSP directive or cryptographic rule changed. The
 > 64 MiB buffered ceiling was **not** raised.
 
@@ -1684,6 +1685,55 @@ focused CSP/Vault crypto/V2 regression set **117 pass, 0 fail**; full IDEA1 suit
 build passed. Edge/Chrome on Windows is the blocking browser target, Firefox is
 secondary compatibility, and Safari/WebKit acceptance is deferred. No real
 browser acceptance was run on this branch and nothing was deployed.
+
+**LFT-V2-E3.2 local/source fix (2026-08-30):** with PR #55 deployed, production
+evidence changed. The browser is capable (secure context, Service Worker,
+`ReadableStream`), the E3.1 worker is active, virtual media requests return
+**HTTP 206**, Vault ciphertext chunk requests return **HTTP 200**, and the first
+video frame renders — Range mapping and client-side decrypt work. Two defects sat
+on top of that working path, plus one lifecycle bug.
+
+*Cancellation was being classified as failure.* Chromium opens overlapping media
+ranges, keeps one and cancels the rest. Each cancelled response aborted its own
+controller, the `AbortError` reached the generic chunk handler, and the UI
+announced *"Video data could not be retrieved from the server"* while playback was
+healthy. Cancellation now carries an attributable kind — this response was
+superseded, or the session was deliberately torn down — and only those are silent.
+A transport fault on a live response still emits `chunk-fetch-failed`, an
+`AbortError` with no cancellation context is still a real failure, and an
+integrity failure stays fatal even on a cancelled response.
+
+*One cancelled range could poison another.* The shared chunk cache can hold an
+in-flight Promise. While that load carried the `AbortSignal` of whichever range
+started it, cancelling that range rejected the shared Promise and destroyed a
+second, still-playing range awaiting the same chunk. Ownership moved to the
+preview session: a bounded chunk may finish after one range is cancelled, but
+close, Vault lock, close-all and session replacement abort every session-owned
+load and no plaintext is delivered across those boundaries.
+
+*An activated worker did not always control the page.* `registration.active` was
+activated while `navigator.serviceWorker.controller` was `null`, so `<video>`
+requests bypassed the worker entirely and the preview reported
+`worker-controller-timeout`; only a manual reload recovered it. The page now sends
+one `vault-preview-claim` message to the active worker, which calls
+`clients.claim()`, and waits for `controllerchange` under a deadline. An
+already-controlled page keeps its fast path and sends nothing; a failed or timed
+out claim still reports `worker-controller-timeout` truthfully; a Vault locked
+during the wait receives no session, key or virtual URL. **Nothing on this path
+reloads the page** — the same uncontrolled state can reproduce on the next load,
+and every reload destroys the in-memory DEK and the unlocked Vault.
+
+The 64 MiB retained-plaintext ceiling, the two-chunk limit, the absence of Cache
+API/IndexedDB/web storage, the non-extractable DEK and the Zero-Knowledge boundary
+are unchanged, and no CSP, nginx, compose, Postgres or IDEA2 file was touched.
+
+**E3.2 source verification:** focused preview/Vault screen set **144 pass, 0
+fail**; full IDEA1 suite **747 discovered, 680 pass, 0 fail, 67 PostgreSQL-gated
+skips**; production Vite build passed and emitted `dist/vault-preview-sw.js`. The
+pre-fix wiring was reproduced separately and does emit `chunk-fetch-failed` on a
+cancelled range and poison a second range, so the new regressions are not
+vacuous. `LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production acceptance is NOT RUN
+until the real ~1.1 GB MP4 passes on Windows Edge/Chrome.
 
 ---
 

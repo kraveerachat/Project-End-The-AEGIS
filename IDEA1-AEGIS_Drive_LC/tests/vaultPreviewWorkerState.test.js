@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import {
   createPreviewWorkerState, MAX_PREVIEW_PLAINTEXT_CACHE_BYTES,
 } from '../src/lib/vaultPreviewWorkerState.js'
+import {
+  PREVIEW_CANCELLATION, previewCancellationKind, isBenignPreviewCancellation,
+} from '../src/lib/vaultPreviewErrors.js'
 
 const session = (id = 'blob-a') => ({ dek: {}, blob: { id }, plainSize: 10, contentType: 'video/mp4' })
 
@@ -165,4 +168,90 @@ test('missing session rehydrates once, rejects a mismatched token, and denies re
   release({ token, session: session() })
   assert.deepEqual(await pending, { ok: false, reason: 'worker-session-lost' })
   assert.equal(duringLock.get(token), null)
+})
+
+// ── LFT-V2-E3.2 · in-flight loads belong to the session, not to one request ──
+//
+// ⚠️ The race this pins: Range A starts chunk N, Range B reuses the same pending
+//    Promise, Chromium cancels A. If that shared load carried A's AbortSignal,
+//    A's cancellation would reject the shared Promise and B — a perfectly valid,
+//    still-playing range — would lose its bytes too.
+
+test('every chunk load is handed the session signal, and the same one for both requests', async () => {
+  const state = createPreviewWorkerState()
+  const token = 'a'.repeat(32)
+  state.open(token, session())
+  const signal = state.sessionSignal(token)
+  assert.ok(signal, 'an open session owns exactly one abort signal')
+  assert.equal(signal.aborted, false)
+
+  const seen = []
+  const load = async (_index, options = {}) => { seen.push(options.signal); return new Uint8Array([1]) }
+  await state.readChunk(token, 0, load)
+  await state.readChunk(token, 1, load)
+  assert.deepEqual(seen, [signal, signal])
+})
+
+test('close, close-all and replacement each abort the loads the session owned', async () => {
+  const closing = createPreviewWorkerState()
+  const token = 'a'.repeat(32)
+  closing.open(token, session())
+  const first = closing.sessionSignal(token)
+  closing.close(token)
+  assert.equal(first.aborted, true)
+  assert.equal(closing.sessionSignal(token), null, 'a closed session owns nothing')
+
+  const replacing = createPreviewWorkerState()
+  replacing.open(token, session())
+  const before = replacing.sessionSignal(token)
+  replacing.open(token, session('blob-replaced'))
+  assert.equal(before.aborted, true, 'the replaced session must not keep loading into the new one')
+  assert.equal(replacing.sessionSignal(token).aborted, false)
+
+  const locking = createPreviewWorkerState()
+  locking.open(token, session())
+  locking.open('b'.repeat(32), session('blob-b'))
+  const a = locking.sessionSignal(token)
+  const b = locking.sessionSignal('b'.repeat(32))
+  locking.closeAll()
+  assert.equal(a.aborted, true)
+  assert.equal(b.aborted, true, 'lock leaves no session-owned work anywhere')
+})
+
+test('the abort reason marks deliberate teardown so it is never read as a network fault', async () => {
+  const state = createPreviewWorkerState()
+  const token = 'a'.repeat(32)
+  state.open(token, session())
+  const signal = state.sessionSignal(token)
+  state.closeAll()
+
+  assert.equal(previewCancellationKind(signal.reason), PREVIEW_CANCELLATION.SESSION)
+  assert.equal(isBenignPreviewCancellation(signal.reason), true)
+})
+
+test('a late-arriving chunk from a canceled request stays usable while the session lives', async () => {
+  // ⚠️ Bounded work is allowed to finish. What must never happen is a load
+  //    surviving *past* the session it belongs to — that is the previous test.
+  const state = createPreviewWorkerState()
+  const token = 'a'.repeat(32)
+  state.open(token, session())
+  let release
+  const first = state.readChunk(token, 0, () => new Promise((resolve) => { release = resolve }))
+  const second = state.readChunk(token, 0, () => { assert.fail('the second reader must reuse the shared load') })
+  release(new Uint8Array([7]))
+  assert.equal((await first)[0], 7)
+  assert.equal((await second)[0], 7)
+  assert.deepEqual(state.cachedChunkIndexes(token), [0])
+})
+
+test('reading a token with no session reports deliberate teardown, not a fetch failure', async () => {
+  const state = createPreviewWorkerState()
+  await assert.rejects(
+    state.readChunk('a'.repeat(32), 0, async () => new Uint8Array([1])),
+    (err) => {
+      assert.equal(previewCancellationKind(err), PREVIEW_CANCELLATION.SESSION)
+      assert.equal(isBenignPreviewCancellation(err), true)
+      return true
+    },
+  )
 })

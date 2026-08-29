@@ -16,6 +16,7 @@ import { createPreviewStream, planPreviewResponse, readPlainChunk } from './lib/
 import { createPreviewWorkerState } from './lib/vaultPreviewWorkerState.js'
 import { PREVIEW_FAILURE_REASON, previewFailureGroup } from './lib/vaultPreviewErrors.js'
 import { createPreviewDiagnostics, previewDiagnosticsEnabled } from './lib/vaultPreviewDiagnostics.js'
+import { PREVIEW_CLAIM_MESSAGE, handlePreviewClaimRequest } from './lib/vaultPreviewClaim.js'
 
 let diagnosticsEnabled = previewDiagnosticsEnabled(self)
 const diagnostics = createPreviewDiagnostics({
@@ -70,6 +71,16 @@ self.addEventListener('message', (event) => {
       state.closeAll()
       diagnosticsEnabled = false
       reply({ ok: true })
+      return
+
+    case PREVIEW_CLAIM_MESSAGE:
+      // The page asks once, on demand, when it sees an activated worker that is
+      // not controlling it. Logic and tests live in lib/vaultPreviewClaim.js.
+      handlePreviewClaimRequest({
+        clients: self.clients,
+        reply,
+        waitUntil: (promise) => { try { event.waitUntil?.(promise) } catch { /* not extendable */ } },
+      })
       return
 
     case 'vault-preview-status':
@@ -184,9 +195,17 @@ self.addEventListener('fetch', (event) => {
       base: scopeBase(),
       onFailure: (reason) => { announceFailure(token, reason) },
       onDiagnostic: (eventName, fields) => diagnostics.record(eventName, fields),
-      readChunk: (_session, index, options) => state.readChunk(token, index, async () => {
-        return readPlainChunk(session, index, options)
-      }),
+      // ★ Ownership boundary: the ciphertext fetch is bound to the *session's*
+      //   AbortSignal supplied by the worker state, never to the signal of
+      //   whichever Range response happened to trigger this load. Two Chromium
+      //   ranges commonly wait on one shared chunk Promise, so cancelling one
+      //   response must leave the other's bytes intact. Close, lock, closeAll
+      //   and session replacement abort that shared signal instead.
+      readChunk: (_session, index, options) => state.readChunk(token, index,
+        async (loadIndex, load = {}) => readPlainChunk(session, loadIndex, {
+          ...options,
+          signal: load.signal ?? null,
+        })),
     })
 
     return new Response(body, { status: plan.status, headers: plan.headers })

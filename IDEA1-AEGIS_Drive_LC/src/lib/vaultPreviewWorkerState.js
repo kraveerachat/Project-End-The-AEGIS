@@ -1,4 +1,6 @@
-import { PREVIEW_FAILURE_REASON } from './vaultPreviewErrors.js'
+import {
+  PREVIEW_FAILURE_REASON, previewSessionInvalidatedError,
+} from './vaultPreviewErrors.js'
 
 const cacheKey = (token, index) => `${token}:${index}`
 
@@ -22,6 +24,13 @@ export function createPreviewWorkerState({
   const cache = new Map()
   const recoveries = new Map()
   const tokenEpochs = new Map()
+  // ⚠️ Ownership of an in-flight ciphertext load belongs to the *session*, never
+  //    to whichever Range response happened to trigger it. Two overlapping
+  //    Chromium ranges routinely wait on one shared chunk Promise; if that load
+  //    carried request A's AbortSignal, Chromium cancelling A would reject the
+  //    shared Promise and destroy request B's perfectly valid range too.
+  //    Only deliberate teardown — close, lock, closeAll, replacement — aborts.
+  const sessionAborters = new Map()
   const loadWaiters = []
   let globalEpoch = 0
   let activeLoads = 0
@@ -47,6 +56,21 @@ export function createPreviewWorkerState({
     }
   }
 
+  /** The AbortSignal every load for this token is bound to, or null. */
+  const sessionSignal = (token) => sessionAborters.get(token)?.signal ?? null
+
+  /**
+   * Make every session-owned in-flight load for this token unusable.
+   * ⚠️ Called by close, closeAll and session replacement — after any of these,
+   *    no late plaintext may be delivered even if bytes were already on the way.
+   */
+  const abortSession = (token) => {
+    const aborter = sessionAborters.get(token)
+    sessionAborters.delete(token)
+    if (!aborter || aborter.signal?.aborted) return
+    try { aborter.abort(previewSessionInvalidatedError()) } catch { /* already aborted */ }
+  }
+
   const clearTokenCache = (token) => {
     const prefix = `${token}:`
     for (const key of [...cache.keys()]) {
@@ -56,19 +80,26 @@ export function createPreviewWorkerState({
 
   const open = (token, session) => {
     bumpToken(token)
+    // Replacing a session cancels the work the replaced one owned; the new
+    // session starts with its own controller and shares nothing with the old.
+    abortSession(token)
     clearTokenCache(token)
+    sessionAborters.set(token, new AbortController())
     sessions.set(token, session)
   }
 
   const close = (token) => {
     bumpToken(token)
     sessions.delete(token)
+    abortSession(token)
     clearTokenCache(token)
   }
 
   const closeAll = () => {
     globalEpoch += 1
     sessions.clear()
+    for (const token of [...sessionAborters.keys()]) abortSession(token)
+    sessionAborters.clear()
     cache.clear()
     tokenEpochs.clear()
   }
@@ -98,7 +129,7 @@ export function createPreviewWorkerState({
 
   const readChunk = async (token, index, load) => {
     const activeSession = sessions.get(token)
-    if (!activeSession) throw new Error('preview session unavailable')
+    if (!activeSession) throw previewSessionInvalidatedError('preview session unavailable')
     const startedTokenEpoch = tokenEpoch(token)
     const startedGlobalEpoch = globalEpoch
     const key = cacheKey(token, index)
@@ -109,7 +140,7 @@ export function createPreviewWorkerState({
       onCacheEvent?.('hit')
       const value = await existing.promise
       if (!lifecycleMatches(token, activeSession, startedTokenEpoch, startedGlobalEpoch)) {
-        throw new Error('preview session closed')
+        throw previewSessionInvalidatedError()
       }
       return value
     }
@@ -118,9 +149,11 @@ export function createPreviewWorkerState({
     while (cache.size >= limit) cache.delete(cache.keys().next().value)
     const pending = withLoadSlot(async () => {
       if (!lifecycleMatches(token, activeSession, startedTokenEpoch, startedGlobalEpoch)) {
-        throw new Error('preview session closed')
+        throw previewSessionInvalidatedError()
       }
-      return load(index)
+      // ★ The session's signal, not the caller's: this Promise is shared with
+      //   every other Range response that wants the same chunk.
+      return load(index, { signal: sessionSignal(token) })
     })
     const entry = { promise: pending, size: 0 }
     cache.set(key, entry)
@@ -128,7 +161,7 @@ export function createPreviewWorkerState({
       const value = await pending
       if (!lifecycleMatches(token, activeSession, startedTokenEpoch, startedGlobalEpoch)) {
         if (cache.get(key) === entry) cache.delete(key)
-        throw new Error('preview session closed')
+        throw previewSessionInvalidatedError()
       }
       entry.size = Math.max(0, Number(value?.byteLength) || 0)
       if (entry.size > byteLimit) {
@@ -154,6 +187,7 @@ export function createPreviewWorkerState({
     get: (token) => sessions.get(token) ?? null,
     getOrRecover,
     readChunk,
+    sessionSignal,
     cacheSize: () => cache.size,
     cacheBytes: () => [...cache.values()].reduce((sum, item) => sum + item.size, 0),
     sessionCount: () => sessions.size,

@@ -16,6 +16,7 @@
 import { PREVIEW_PATH_SEGMENT } from './vaultPreviewRange.js'
 import { PREVIEW_FAILURE_REASON } from './vaultPreviewErrors.js'
 import { previewDiagnosticsEnabled } from './vaultPreviewDiagnostics.js'
+import { PREVIEW_CLAIM_MESSAGE } from './vaultPreviewClaim.js'
 
 // Page-memory recovery registry. It is intentionally a module Map: a reload or
 // tab close destroys it, and no browser storage API is involved.
@@ -64,20 +65,67 @@ export async function ensurePreviewWorkerResult({
   scope = globalThis,
   scriptUrl = previewWorkerUrl(),
   timeoutMs = 10_000,
+  claimTimeoutMs = 5_000,
+  isUnlocked = () => true,
 } = {}) {
   if (!supportsLargeVideoPreview(scope)) {
     return { ok: false, reason: PREVIEW_FAILURE_REASON.UNSUPPORTED_BROWSER }
   }
   const container = scope.navigator.serviceWorker
 
+  let registration = null
   try {
-    await container.register(scriptUrl, { type: 'module' })
+    registration = await container.register(scriptUrl, { type: 'module' })
   } catch {
     return { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_REGISTRATION_FAILED }
   }
+
+  // ── Fast path: this page is already controlled ──────────────────────────
+  // Nothing is sent and nothing is awaited. An existing controller *is* the
+  // whole contract, and a claim request here would be pure noise on the path
+  // that every second and subsequent preview takes.
   if (container.controller) return { ok: true, controller: container.controller }
 
-  // worker ตัวใหม่ต้องรอ activate + claim — มีเพดานเวลาเสมอ ไม่รอไม่มีที่สิ้นสุด
+  // ── Bounded claim-on-demand recovery (LFT-V2-E3.2) ─────────────────────
+  //
+  // Production shape being repaired: registration.active is activated, yet
+  // navigator.serviceWorker.controller is null, so <video> requests bypass the
+  // worker entirely and the preview reports worker-controller-timeout. The
+  // page previously recovered only when the user reloaded by hand.
+  //
+  // ⚠️ Recovery is a single message, never a reload. An automatic reload here
+  //    would be a reload loop waiting to happen: the same uncontrolled state
+  //    reproduces on the next load and reloads again, and every in-memory DEK
+  //    and unlocked-Vault state is destroyed on each pass.
+  //
+  // The listener is attached *before* the claim is requested: a controllerchange
+  // that landed in between would otherwise be missed and read as a false timeout.
+  const controlled = waitForController(container, scope, timeoutMs)
+
+  const active = registration?.active ?? null
+  if (active?.postMessage) {
+    askWorker(active, { type: PREVIEW_CLAIM_MESSAGE }, { scope, timeoutMs: claimTimeoutMs })
+      ?.catch?.(() => { /* the controllerchange deadline is the real answer */ })
+  }
+
+  const controller = await controlled
+  // A claim that never produced a controller is still truthfully a timeout —
+  // this path must not invent a healthier-sounding reason than it earned.
+  if (!controller) return { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT }
+  // ⚠️ The Vault can be locked while the claim is in flight. Opening a session
+  //    with a key from a now-locked page would resurrect exactly what the lock
+  //    was for, so a lock always wins the race.
+  if (!isUnlocked()) return { ok: false, reason: PREVIEW_FAILURE_REASON.VAULT_LOCKED }
+  return { ok: true, controller }
+}
+
+/**
+ * Resolve with the controller that takes over this page, or null at the deadline.
+ * ⚠️ A controllerchange whose controller is still null is not the takeover being
+ *    waited for; keep listening until the deadline instead of reporting an early,
+ *    untrue timeout.
+ */
+function waitForController(container, scope, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false
     let timer = null
@@ -88,13 +136,12 @@ export async function ensurePreviewWorkerResult({
       //    ทำให้โปรเซส/แท็บถือทรัพยากรค้างไว้โดยไม่มีใครรอผลของมัน
       if (timer !== null) scope.clearTimeout?.(timer)
       container.removeEventListener?.('controllerchange', onChange)
-      resolve(controller
-        ? { ok: true, controller }
-        : { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT })
+      resolve(controller)
     }
-    const onChange = () => finish(container.controller ?? null)
+    const onChange = () => { if (container.controller) finish(container.controller) }
     container.addEventListener?.('controllerchange', onChange)
     timer = scope.setTimeout(() => finish(container.controller ?? null), timeoutMs)
+    if (container.controller) finish(container.controller)
   })
 }
 
@@ -138,11 +185,15 @@ export async function openPreviewSession({
   scope = globalThis,
   base = import.meta.env?.BASE_URL ?? '/',
   controller: providedController,
+  isUnlocked = () => true,
 }) {
   const worker = providedController
     ? { ok: true, controller: providedController }
-    : await ensurePreviewWorkerResult({ scope })
+    : await ensurePreviewWorkerResult({ scope, isUnlocked })
   if (!worker.ok) return worker
+  // ⚠️ Re-checked after every await on this path: claim recovery can take
+  //    seconds, and a Vault locked in that window must not receive a DEK.
+  if (!isUnlocked()) return { ok: false, reason: PREVIEW_FAILURE_REASON.VAULT_LOCKED }
   const controller = worker.controller
 
   const token = newPreviewToken(scope)
