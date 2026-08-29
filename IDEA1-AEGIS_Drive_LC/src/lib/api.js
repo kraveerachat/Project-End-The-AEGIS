@@ -125,7 +125,11 @@ export function apiUpload(path, {
  * (ถ้าปล่อยให้ browser ดาวน์โหลดเอง ผู้ใช้จะได้ .aegisenc ที่เปิดไม่ได้)
  *
  * ⚠️ timeout ยาวกว่าปกติเพราะไฟล์อาจใหญ่ — แต่ยังมีเพดาน ไม่ปล่อยค้างถาวร
+ * ⚠️ `headers` ถูกคืนกลับไปด้วยเพราะเส้นทาง Vault V2 ต้องอ่าน IV ของ chunk จาก
+ *    response header (IV ไม่ใช่ความลับ แต่จำเป็นต่อการถอด และไม่ควรปนอยู่ในไบต์ของ
+ *    ciphertext เพราะจะทำให้ตำแหน่งบนดิสก์ฝั่งเซิร์ฟเวอร์คลาดไป)
  * @returns {Promise<{ ok: boolean, status: number, bytes: Uint8Array|null,
+ *                     headers: Headers|null,
  *                     errorKind: null|'timeout'|'network'|'unauthorized'|'forbidden'|'server' }>}
  */
 export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) {
@@ -142,21 +146,21 @@ export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) 
   } catch {
     clearTimeout(timer)
     const kind = ctrl.signal.reason === 'timeout' ? 'timeout' : 'network'
-    return { ok: false, status: 0, bytes: null, errorKind: kind }
+    return { ok: false, status: 0, bytes: null, headers: null, errorKind: kind }
   }
   clearTimeout(timer)
 
   if (!res.ok) {
     if (res.status === 401) {
       onUnauthorized?.()
-      return { ok: false, status: 401, bytes: null, errorKind: 'unauthorized' }
+      return { ok: false, status: 401, bytes: null, headers: res.headers, errorKind: 'unauthorized' }
     }
-    if (res.status === 403) return { ok: false, status: 403, bytes: null, errorKind: 'forbidden' }
-    return { ok: false, status: res.status, bytes: null, errorKind: 'server' }
+    if (res.status === 403) return { ok: false, status: 403, bytes: null, headers: res.headers, errorKind: 'forbidden' }
+    return { ok: false, status: res.status, bytes: null, headers: res.headers, errorKind: 'server' }
   }
 
   const buf = await res.arrayBuffer()
-  return { ok: true, status: res.status, bytes: new Uint8Array(buf), errorKind: null }
+  return { ok: true, status: res.status, bytes: new Uint8Array(buf), headers: res.headers, errorKind: null }
 }
 
 /**

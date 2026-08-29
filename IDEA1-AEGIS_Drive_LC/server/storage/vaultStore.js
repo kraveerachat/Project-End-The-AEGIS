@@ -82,6 +82,24 @@ export function openVaultCiphertext(storageKey) {
   return fs.createReadStream(abs)
 }
 
+/**
+ * เปิด read stream ของ "ช่วงหนึ่งช่วง" ใน .aegisenc — เส้นทางดาวน์โหลด chunk ของ V2
+ *
+ * ⚠️ นี่คือสิ่งที่ทำให้ดาวน์โหลด V2 ใช้หน่วยความจำเป็น O(ขนาด chunk) ทั้งสองฝั่ง:
+ *    เซิร์ฟเวอร์ไม่เคยอ่านไฟล์ทั้งก้อนเข้า RAM และเบราว์เซอร์ก็ขอทีละก้อน
+ * ⚠️ ช่วงถูกกำหนดโดย "แถวใน DB" (chunk_size/ciphertext_size ที่บันทึกไว้ตอน commit)
+ *    ไม่ใช่โดยค่าที่ client ส่งมา — client ระบุได้แค่ index เท่านั้น
+ * @param {string} storageKey
+ * @param {{ start: number, end: number }} range end เป็นตำแหน่งสุดท้ายที่รวมด้วย (inclusive)
+ */
+export function openVaultCiphertextRange(storageKey, { start, end }) {
+  if (typeof storageKey !== 'string' || !storageKey.startsWith(`${VAULT_DIR}/`)) return null
+  const abs = resolveKey(storageKey)
+  if (!abs) return null
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) return null
+  return fs.createReadStream(abs, { start, end })
+}
+
 /** ขนาด ciphertext บนดิสก์จริง — แหล่งความจริงของ size_bytes (ไม่เชื่อค่าที่ client แจ้ง) */
 export async function vaultCiphertextSize(storageKey) {
   const abs = resolveKey(storageKey)

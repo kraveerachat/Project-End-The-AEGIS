@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-28
+updated: 2026-08-29
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1316,6 +1316,107 @@ follow-up.
 `LARGE_FILE_TRANSFER_V2` remains **`IN_PROGRESS`**. Production is unchanged, the
 migration has **not** been applied to production `aegis_drive`, and production
 stays blocked until this follow-up merges.
+
+---
+
+### Private Vault chunked zero-knowledge transfer — LFT-V2-B (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage B source complete and locally + PostgreSQL verified, **production acceptance not started**
+> Private Vault large-file support stays **IN PROGRESS** until `LFT-V2-D`. Format, protocol, integrity language and recorded limitations are in [[concepts/Large_File_Transfer_V2]] §7.
+
+`ROOT_CAUSE = WHOLE_FILE_ZERO_KNOWLEDGE_TRANSFER_ARCHITECTURE`. Vault V1 read the
+whole file with `file.arrayBuffer()`, encrypted it as **one** AES-256-GCM message,
+held the complete ciphertext, and sent it in a single multipart request; download
+and preview mirrored that. `MAX_VAULT_CIPHERTEXT_BYTES` = 64 MiB was the
+*consequence* of that shape, not the cause, so raising it was never a valid fix
+and the constant is **unchanged**.
+
+**What Stage B adds:**
+
+* An explicitly versioned second format, `formatVersion = 2`, in its own tables
+  (`vault_v2_blobs`, `vault_v2_blob_chunks`, `vault_v2_upload_sessions`,
+  `vault_v2_upload_chunks`). No sentinel value, no `NOT NULL` dropped from V1, no
+  existing ciphertext rewritten or moved.
+* One random 256-bit DEK per logical file, wrapped by the KEK exactly as before,
+  then **N independently authenticated AES-256-GCM chunks** (16 MiB plaintext
+  default, 8–64 MiB configurable). A fresh random 96-bit IV per encryption, with
+  no API for a caller to supply one. AAD is a canonical 34-byte binary layout
+  binding format magic, a random 16-byte content id, chunk index and chunk count,
+  pinned byte for byte by test; encrypted metadata has its own 33-byte AAD.
+* Upload protocol under `/api/vault/uploads` (create / status / chunk PUT /
+  commit / cancel) and bounded reads at
+  `GET /api/vault/blobs/:id/chunks/:index`. Every route is behind `requireAuth`
+  and CSRF, scoped to `req.user.id`, and another owner's resource is `404`.
+* Chunk-write consistency across processes: a PostgreSQL **advisory lock** for
+  the duration of the write plus a **writer token** compared on the finalising
+  `UPDATE`, so a slow writer that was overtaken cannot attach its metadata to
+  another writer's bytes. An in-process `Map` was rejected — production may run
+  more than one process.
+* Commit-exactly-once reuses the LFT-V2-A lease and recovery design from the
+  start: the final storage key is recorded before any rename, the session is
+  claimed conditionally, staged bytes are re-verified, and blob plus chunk
+  metadata are written in one transaction. `recoverStaleVaultCommits()` takes
+  stale rows with `FOR UPDATE SKIP LOCKED`. No `recovering` state exists.
+* Bounded memory in both directions. The V2 upload path never calls
+  `file.arrayBuffer()` on a whole file, proven by a regression test whose `File`
+  **throws** from `arrayBuffer()`. Download fetches one chunk, rebuilds the AAD
+  locally, decrypts, writes to the sink and releases it, with peak memory
+  measured rather than asserted. Output uses `showSaveFilePicker()` →
+  `createWritable()` inside the user's own click; browsers without it get a
+  bounded 64 MiB RAM fallback and a truthful message above that.
+* Truthful transfer UI: Preparing / Encrypting part X of N / Uploading part X of
+  N / Paused / Committing / Complete / Failed, with bytes processed, total and
+  chunk index all derived from real work. There is no timer-driven progress, and
+  a test holds the transfer still and asserts the numbers do not move. A
+  transient failure retries only the failing chunk and offers Resume, which
+  sends only the missing indices.
+
+**Two integrity claims, deliberately kept apart.**
+`SERVER_CIPHERTEXT_INTEGRITY` — at commit the server re-reads staged bytes and
+compares each chunk against the SHA-256 **it** computed on receipt; a
+client-reported hash is never trusted. `CLIENT_AEAD_PLAINTEXT_AUTHENTICATION` —
+the per-chunk GCM tag checked in the browser. `SERVER_PLAINTEXT_SHA256_VERIFY` is
+**not** claimed for the Vault and never will be: the server holds no key.
+
+**Stated honestly:** the server can derive the plaintext size arithmetically as
+`ciphertext_size − 16 × chunk_count`. That is the same class of disclosure V1
+already makes, and it is why no `plainSize` field is accepted from the client.
+
+**PostgreSQL integration gate — PASS.** Full IDEA1 suite **586/586 with zero
+skips** against an isolated PostgreSQL 15 provisioned by
+`IDEA1-AEGIS_Drive_LC/scripts/pg-integration-env.sh`, and 519/586 with 67
+PostgreSQL-gated skips in in-memory mode. `004_vault_v2.sql` was applied to a
+pre-V2 database by a **different** superuser than the one holding the
+`ALTER DEFAULT PRIVILEGES`, and the explicit role-guarded grant still delivered
+all four DML privileges — the PR #43 rule carried forward rather than rediscovered.
+Applied three times to prove idempotence; V1 rows verified byte-identical
+afterwards and `vault_blobs.iv_b64` still `NOT NULL`. `drive_app` remains
+non-superuser: DML on all four tables succeeds, `CREATE`/`ALTER`/`DROP`/`TRUNCATE`
+are all refused. Crash points after claim, after verification, after publish and
+after metadata each converge; two concurrent recovery workers produce one outcome.
+
+**Recorded limitations, not softened:**
+`VAULT_BROWSER_REFRESH_RESUME = NOT_IMPLEMENTED` (the session is durable but the
+KEK is never persisted, by design);
+`LARGE_V2_VIDEO_PREVIEW = LIMITED` (above 64 MiB the screen says preview is
+unavailable rather than assembling gigabytes in RAM);
+`VAULT_V1_LEGACY_READ = SUPPORTED`;
+`VAULT_V1_NEW_UPLOAD = SUPPORTED_BUT_UNUSED_BY_UI` — `POST /api/vault/blobs`
+still works with its original 64 MiB ceiling and is **not** large-file capable.
+
+**Defect found by the new tests and fixed here:** the V2 download progress
+callback reports `bytesWritten` while the transfer panel reads `transferredBytes`,
+so the byte counter would have sat at zero for the whole download while the
+percentage advanced — two numbers on one bar contradicting each other. The screen
+now translates between the two.
+
+**Verification status:** source-complete, verified locally and against real
+PostgreSQL. **Nothing has been deployed, `004_vault_v2.sql` has NOT been applied
+to production `aegis_drive`, and no production acceptance has been performed.**
+The largest file actually moved through the Vault protocol in any test is ~16 MiB;
+multi-gigabyte behaviour remains argued from bounded memory rather than measured,
+and the acceptance matrix in [[concepts/Large_File_Transfer_V2]] §9 is still a
+plan. Next: `LFT-V2-C` edge tuning, then `LFT-V2-D` production acceptance.
 
 ---
 

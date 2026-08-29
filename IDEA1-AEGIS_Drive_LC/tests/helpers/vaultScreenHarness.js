@@ -15,7 +15,13 @@ const backendStub = normalizePath(path.join(rootDir, 'tests/fixtures/vaultScreen
 
 // Every module the Vault screen (and the shared ui.jsx it renders) reaches the
 // network or the crypto engine through. All three resolve to one fixture.
-const STUBBED = new Set(['../lib/hooks.js', '../lib/api.js', '../lib/vaultCrypto.js'])
+// ⚠️ V2 (LFT-V2-B) เพิ่มสามโมดูล — ทั้งสามต้องอยู่ในรายการนี้ ไม่งั้นชุด UI จะยิง
+//    เครือข่ายจริงและรัน WebCrypto จริงโดยไม่ตั้งใจ แล้วล้มด้วยเหตุผลที่ไม่เกี่ยวกับ
+//    สิ่งที่กำลังทดสอบ (โมดูลตัวจริงถูกพิสูจน์ในชุดของมันเองแยกต่างหาก)
+const STUBBED = new Set([
+  '../lib/hooks.js', '../lib/api.js', '../lib/vaultCrypto.js',
+  '../lib/vaultChunkCrypto.js', '../lib/vaultChunkedUpload.js', '../lib/vaultChunkedDownload.js',
+])
 
 export async function startVaultScreenEnv() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {

@@ -74,6 +74,12 @@ after(async () => {
 
 beforeEach(async () => {
   if (!DB_URL) return
+  // ⚠️ ลำดับสำคัญ: session ของ V2 อ้างถึงแถว blob ของ V2 (committed_blob_id)
+  //    และบัญชีรายการที่ชุดนี้ตรวจคือ "ทั้งห้อง" คือทั้งสองรูปแบบรวมกัน (LFT-V2-B)
+  await sql.query('DELETE FROM vault_v2_upload_chunks')
+  await sql.query('DELETE FROM vault_v2_upload_sessions')
+  await sql.query('DELETE FROM vault_v2_blob_chunks')
+  await sql.query('DELETE FROM vault_v2_blobs')
   await sql.query('DELETE FROM vault_blobs')
   await sql.query('DELETE FROM vault_meta')
   const dir = path.join(STORAGE_ROOT, 'vault')

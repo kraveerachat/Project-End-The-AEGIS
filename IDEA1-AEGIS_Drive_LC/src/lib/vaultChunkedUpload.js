@@ -1,0 +1,264 @@
+// src/lib/vaultChunkedUpload.js — AEGIS Drive (IDEA1) · อัปโหลด Private Vault V2
+//
+// ⚠️ กติกาของไฟล์นี้ (มีชุดทดสอบตรึงไว้ทุกข้อ):
+//    1. **ห้ามเรียก `file.arrayBuffer()` กับทั้งไฟล์ในที่ใดทั้งสิ้น** ทุกการอ่านต้องผ่าน
+//       `file.slice(start, end)` ที่มีขอบเขต — และ V2 ต้องไม่เรียก `fileToBytes()`
+//       ของ V1 ด้วย (ฟังก์ชันนั้นยังอยู่เพื่อเส้นทาง V1 เท่านั้น)
+//    2. หน่วยความจำสูงสุดที่ถือพร้อมกันคือ O(ขนาด chunk) ไม่ใช่ O(ขนาดไฟล์) —
+//       plaintext ของก้อนหนึ่ง + ciphertext ของก้อนเดียวกัน แล้วปล่อยทั้งคู่ก่อนก้อนถัดไป
+//    3. IV ใหม่ทุกครั้งที่เข้ารหัส รวมถึงตอน retry (ดู vaultChunkCrypto.js)
+//
+// ⚠️ ลำดับที่ห้ามสลับ และเหตุผล:
+//      สร้างซอง (DEK + metadata ที่เข้ารหัสแล้ว) → เปิด session → ส่ง chunk → commit
+//    ซองถูกส่งไปพร้อมคำขอเปิด session เพราะเซิร์ฟเวอร์ต้องมี "ทุกอย่างที่ไม่ใช่เนื้อไฟล์"
+//    ครบตั้งแต่ก่อนไบต์แรกเดินทาง ถ้าซองมาทีหลัง (ตอน commit) การล่มกลางคันจะทิ้ง
+//    ciphertext ที่ไม่มีกุญแจห่อไว้เลย = ไบต์ที่ไม่มีทางถอดได้ของจริง
+//
+// ⚠️ ทุกอย่างในไฟล์นี้ทำงานได้เฉพาะตอนปลดล็อกอยู่ — KEK มาจาก React state ของจอ Vault
+//    และงานจะถูกยกเลิกทันทีที่ผู้ใช้กดล็อก (ผ่าน AbortSignal) ดู Vault.jsx
+import { apiFetch, apiUpload } from './api.js'
+import {
+  VAULT_FORMAT_V2, planVaultChunks, plaintextRangeFor,
+  createVaultV2Envelope, encryptVaultChunk,
+} from './vaultChunkCrypto.js'
+
+/** จำนวนครั้งที่ลองส่ง chunk เดิมซ้ำก่อนหยุดและเปิดให้ผู้ใช้กด Resume */
+const CHUNK_ATTEMPTS = 3
+
+/** ระยะหน่วงก่อนลองใหม่ — เพิ่มขึ้นตามครั้งที่ลอง */
+const retryDelayMs = (attempt) => 500 * 2 ** (attempt - 1)
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  const timer = setTimeout(resolve, ms)
+  signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
+})
+
+/**
+ * เพดานของ Vault V2 ที่ deployment นี้บังคับอยู่จริง
+ * ⚠️ ล้มเหลว = คืน null ไม่ใช่ค่าที่เดาขึ้นมา จอต้องบอกว่ายังไม่รู้ ไม่ใช่โชว์ตัวเลขปลอม
+ */
+export async function fetchVaultTransferLimits({ signal, fetchJson = apiFetch } = {}) {
+  const res = await fetchJson('/api/vault/uploads/limits', { signal })
+  return res.ok ? res.data : null
+}
+
+/** แปลผลลัพธ์ของ API ให้เป็นเหตุผลที่จอแสดงได้ตรง ไม่ใช่ 'failed' ก้อนเดียว */
+function failureReason(res) {
+  const code = res?.data?.code
+  if (code === 'LOGICAL_LIMIT_EXCEEDED') return 'tooLarge'
+  if (code === 'INSUFFICIENT_STORAGE') return 'noSpace'
+  if (code === 'CIPHERTEXT_INTEGRITY_FAILED') return 'integrity'
+  if (code === 'SESSION_EXPIRED') return 'expired'
+  if (code === 'CHUNK_WRITE_IN_PROGRESS' || code === 'CHUNK_SUPERSEDED') return 'conflict'
+  if (res?.status === 409 && res?.data?.error === 'Vault not configured') return 'notConfigured'
+  if (res?.errorKind === 'network' || res?.errorKind === 'timeout') return 'network'
+  return 'server'
+}
+
+/**
+ * อัปโหลดไฟล์หนึ่งไฟล์เข้า Private Vault ด้วยรูปแบบ V2
+ *
+ * เรียกครั้งแรก: ส่ง { kek, file } → สร้างซอง → เปิด session → เข้ารหัส+ส่งทีละก้อน → commit
+ * เรียกซ้ำเพื่อ Resume: ส่ง { kek, file, resume } ที่ได้จากผลลัพธ์ครั้งก่อน → ถามสถานะจาก
+ *   เซิร์ฟเวอร์ แล้วเข้ารหัส+ส่ง "เฉพาะก้อนที่ยังขาด" ด้วย IV ใหม่ทุกก้อน
+ *
+ * ⚠️ ไม่ throw ในเส้นทางปกติ — คืน { ok, stage, reason, resume } เสมอ เพื่อให้จอแสดง
+ *    สถานะได้ตรงและตัดสินใจได้ว่ายัง Resume ได้ไหม
+ * ⚠️ `resume` ที่คืนกลับมามี DEK เป็น CryptoKey แบบ non-extractable อยู่ในนั้น —
+ *    มันอยู่ได้เฉพาะใน memory ของแท็บที่ปลดล็อกอยู่ ห้ามนำไป serialize ลง storage ใด ๆ
+ *
+ * @param {{ kek: CryptoKey, file: File, plaintextChunkBytes?: number,
+ *           resume?: object|null,
+ *           onStage?: (stage: string) => void,
+ *           onProgress?: (p: object) => void,
+ *           signal?: AbortSignal, fetchJson?: Function, sendUpload?: Function }} options
+ */
+export async function uploadVaultFileChunked({
+  kek,
+  file,
+  plaintextChunkBytes,
+  resume = null,
+  onStage,
+  onProgress,
+  signal,
+  fetchJson = apiFetch,
+  sendUpload = apiUpload,
+}) {
+  const stage = (name) => { onStage?.(name) }
+  const aborted = () => Boolean(signal?.aborted)
+
+  let state = resume
+  const cancelled = () => ({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: state })
+
+  try {
+    // ── เตรียม: แผนการแบ่ง + ซอง + session ───────────────────────────────────
+    if (!state) {
+      stage('preparing')
+
+      let chunkBytes = plaintextChunkBytes
+      if (!chunkBytes) {
+        const limits = await fetchVaultTransferLimits({ signal, fetchJson })
+        if (!limits) return { ok: false, stage: 'failed', reason: 'server', resume: null }
+        chunkBytes = limits.plaintextChunkBytes
+      }
+
+      const plan = planVaultChunks(file.size, chunkBytes)
+      // ★ ทุกอย่างที่เป็นความลับถูกปิดผนึกตรงนี้ — บรรทัดถัดไปคือ network call แรก
+      const envelope = await createVaultV2Envelope(kek, {
+        name: file.name, type: file.type, size: file.size, chunkCount: plan.chunkCount,
+      })
+      if (aborted()) return cancelled()
+
+      const created = await fetchJson('/api/vault/uploads', {
+        method: 'POST',
+        body: {
+          formatVersion: VAULT_FORMAT_V2,
+          contentIdB64: envelope.contentIdB64,
+          ciphertextSize: plan.ciphertextSize,
+          chunkSize: plan.chunkSize,
+          chunkCount: plan.chunkCount,
+          wrappedDekB64: envelope.wrappedDekB64,
+          wrapIvB64: envelope.wrapIvB64,
+          metaIvB64: envelope.metaIvB64,
+          metaB64: envelope.metaB64,
+        },
+        signal,
+        timeoutMs: 30_000,
+      })
+      if (!created.ok) {
+        return { ok: false, stage: 'failed', reason: failureReason(created), resume: null, response: created }
+      }
+      state = {
+        upload: created.data.upload,
+        dek: envelope.dek,
+        contentId: envelope.contentId,
+        plan,
+      }
+    } else {
+      // Resume — สถานะที่เชื่อถือได้มาจากเซิร์ฟเวอร์เท่านั้น ไม่ใช่จากที่จำไว้ในแท็บ
+      stage('preparing')
+      const status = await fetchJson(
+        `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}`, { signal },
+      )
+      if (!status.ok) {
+        return { ok: false, stage: 'failed', reason: failureReason(status), resume: state, response: status }
+      }
+      state = { ...state, upload: status.data.upload }
+    }
+
+    // ── เข้ารหัสและส่งทีละก้อน ───────────────────────────────────────────────
+    const { plan, dek, contentId } = state
+    const totalBytes = file.size
+    const doneChunks = new Set(state.upload.received)
+
+    const report = (phase, chunkIndex, bytesInChunk) => {
+      // ⚠️ ความคืบหน้าคำนวณจาก "ก้อนที่เซิร์ฟเวอร์ยืนยันแล้ว + ไบต์ที่กำลังส่งอยู่จริง"
+      //    ไม่มี timer ไม่มีค่าประมาณ ไม่มีแถบที่ขยับเองตอนเน็ตหยุด
+      const settled = [...doneChunks].reduce((sum, i) => {
+        const r = plaintextRangeFor(i, totalBytes, plan.plaintextChunkBytes)
+        return sum + (r.end - r.start)
+      }, 0)
+      const done = Math.min(totalBytes, settled + (bytesInChunk ?? 0))
+      onProgress?.({
+        phase,
+        transferredBytes: done,
+        totalBytes,
+        percent: totalBytes === 0 ? 100 : Math.min(100, Math.round((done / totalBytes) * 1000) / 10),
+        chunkIndex,
+        chunkCount: plan.chunkCount,
+      })
+    }
+    report('uploading', doneChunks.size, 0)
+
+    for (const index of [...state.upload.missing]) {
+      if (aborted()) return cancelled()
+
+      const range = plaintextRangeFor(index, totalBytes, plan.plaintextChunkBytes)
+      let sent = null
+
+      for (let attempt = 1; attempt <= CHUNK_ATTEMPTS; attempt += 1) {
+        if (aborted()) return cancelled()
+
+        // ── เข้ารหัสก้อนนี้ (IV ใหม่ทุกครั้ง รวมถึงทุกครั้งที่ retry) ─────────
+        stage('encrypting')
+        report('encrypting', index, 0)
+        // ⚠️ slice() คืน Blob ที่ยังไม่ถูกอ่าน — arrayBuffer() ตรงนี้อ่านเฉพาะช่วงนี้
+        //    ไม่ใช่ทั้งไฟล์ และตัวแปรถูกปล่อยก่อนอ่านก้อนถัดไปเสมอ
+        let plaintext = new Uint8Array(await file.slice(range.start, range.end).arrayBuffer())
+        const encrypted = await encryptVaultChunk(dek, {
+          contentId, chunkIndex: index, chunkCount: plan.chunkCount, plaintext,
+        })
+        plaintext = null // ปล่อย plaintext ทันทีที่ปิดผนึกเสร็จ ไม่ถือค้างระหว่างส่ง
+        if (aborted()) return cancelled()
+
+        stage('uploading')
+        sent = await sendUpload(
+          `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}/chunks/${index}`,
+          {
+            method: 'PUT',
+            body: new Blob([encrypted.ciphertext], { type: 'application/octet-stream' }),
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-Vault-Chunk-IV': encrypted.ivB64,
+            },
+            onProgress: ({ loadedBytes, totalBytes: chunkTotal }) => {
+              // ไบต์ที่ส่งไปเป็น ciphertext — เทียบสัดส่วนกลับเป็น plaintext เพื่อให้
+              // ตัวเลขบนจอเป็นหน่วยเดียวกับขนาดไฟล์ที่ผู้ใช้เห็น
+              const plainInChunk = range.end - range.start
+              const ratio = chunkTotal > 0 ? Math.min(1, loadedBytes / chunkTotal) : 0
+              report('uploading', index, Math.round(plainInChunk * ratio))
+            },
+            signal,
+            timeoutMs: 10 * 60_000,
+          },
+        )
+        if (sent.ok) break
+        // 4xx ที่ไม่ใช่ปัญหาเครือข่าย/ชนกัน = ส่งซ้ำก็ได้ผลเดิม
+        if (sent.status >= 400 && sent.status < 500 && sent.status !== 408 && sent.status !== 409) break
+        if (aborted()) return cancelled()
+        if (attempt < CHUNK_ATTEMPTS) await sleep(retryDelayMs(attempt), signal)
+      }
+
+      if (!sent?.ok) {
+        if (aborted()) return cancelled()
+        // ⚠️ session ยังอยู่ฝั่งเซิร์ฟเวอร์ — คืน resume กลับไปเพื่อให้จอเสนอ "ทำต่อ"
+        //    ไม่ใช่ให้เข้ารหัสและอัปโหลดใหม่ทั้งไฟล์ นั่นคือทั้งหมดที่ resume มีไว้เพื่อ
+        return { ok: false, stage: 'paused', reason: failureReason(sent), resume: state, response: sent }
+      }
+      doneChunks.add(index)
+      state = { ...state, upload: sent.data.upload }
+      report('uploading', index, 0)
+    }
+
+    if (aborted()) return cancelled()
+
+    // ── commit ───────────────────────────────────────────────────────────────
+    stage('committing')
+    const committed = await fetchJson(
+      `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}/commit`,
+      { method: 'POST', signal, timeoutMs: 10 * 60_000 },
+    )
+    if (!committed.ok) {
+      if (committed.data?.code === 'UPLOAD_INCOMPLETE') {
+        return {
+          ok: false, stage: 'paused', reason: 'incomplete',
+          resume: { ...state, upload: committed.data.upload },
+        }
+      }
+      return { ok: false, stage: 'failed', reason: failureReason(committed), resume: state, response: committed }
+    }
+
+    stage('complete')
+    return { ok: true, stage: 'complete', blob: committed.data.blob, resume: null }
+  } catch (err) {
+    if (err?.name === 'AbortError' || aborted()) return cancelled()
+    return { ok: false, stage: 'failed', reason: 'server', resume: state }
+  }
+}
+
+/** ยกเลิก session ฝั่งเซิร์ฟเวอร์ — คืนพื้นที่พักทันทีแทนที่จะรอให้หมดอายุ */
+export async function cancelVaultUploadSession(uploadId, { fetchJson = apiFetch } = {}) {
+  if (!uploadId) return false
+  const res = await fetchJson(`/api/vault/uploads/${encodeURIComponent(uploadId)}`, { method: 'DELETE' })
+  return res.ok
+}
