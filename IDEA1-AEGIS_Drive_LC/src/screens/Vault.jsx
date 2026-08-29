@@ -896,8 +896,12 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         const dek = await unwrapVaultV2Dek(kek, entry.blob)
         if (token !== previewToken.current) return
 
+        // ⚠️ isUnlocked is read live, not captured: claim recovery can take
+        //    seconds and a Vault locked inside that window must never receive a
+        //    preview session, key or virtual URL.
         const session = await openPreviewSession({
           dek, blob: entry.blob, contentType: entry.type || 'video/mp4', plainSize,
+          isUnlocked: () => unlockedRef.current,
         })
         if (token !== previewToken.current) {
           if (session) closePreviewSession(session.token)

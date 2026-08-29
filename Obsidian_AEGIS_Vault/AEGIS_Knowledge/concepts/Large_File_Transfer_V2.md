@@ -515,7 +515,7 @@ incomplete is ever handed over as if it were complete.
 | Marker | Value | Meaning |
 | :--- | :--- | :--- |
 | `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
-| `LARGE_V2_VIDEO_PREVIEW` | `IN_PROGRESS` (large video) / `LIMITED` (images) | **Video** above 64 MiB streams through a same-origin Service Worker, but the real ~1.1 GB production preview was unreliable. E3.1 bounds open-ended responses, recovers ephemeral sessions and caches at most two chunks in memory; it is source-verified but not deployed or browser-accepted. **Still-image** preview remains limited above 64 MiB. The buffered ceiling was **not** raised. |
+| `LARGE_V2_VIDEO_PREVIEW` | `IN_PROGRESS` (large video) / `LIMITED` (images) | **Video** above 64 MiB streams through a same-origin Service Worker. After E3.1 deployed, production proved the streaming path itself — 206 media ranges, 200 ciphertext chunks, first frame rendered — while superseded Chromium range cancellations were still being reported as network failures and an activated worker did not always control the page. E3.2 makes attributable cancellation silent, moves in-flight chunk ownership to the preview session, and adds bounded claim-on-demand recovery with no reload. Source-verified only; not browser-accepted. **Still-image** preview remains limited above 64 MiB. The buffered ceiling was **not** raised. |
 | `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
 | `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
 
@@ -982,6 +982,23 @@ trailing partial chunk — rather than comparing against the function under test
 9. **Plaintext reuse is bounded twice.** The worker retains at most two LRU chunks
    and at most 64 MiB of resolved plaintext across all preview tokens. Integrity
    failures are never cached; close, lock, replacement and worker death clear it.
+10. **Cancellation is not failure.** A media Range response the browser
+    supersedes and cancels reports nothing: no failure callback, no
+    chunk-fetch-failed, no UI network error. A genuine transport fault on a live
+    response still reports `chunk-fetch-failed`, an `AbortError` with no
+    cancellation context is still a real failure, and an integrity failure stays
+    fatal whether or not the response was canceled.
+11. **An in-flight chunk load belongs to the session, not to one request.** Two
+    overlapping ranges routinely await one shared chunk Promise, so that load
+    carries the session's `AbortSignal`. Cancelling one range never aborts work
+    another range is consuming; only close, Vault lock, close-all and session
+    replacement abort it, and after any of those no late plaintext is delivered.
+12. **An activated worker that does not control the page is recovered, not
+    reloaded.** The page sends one `vault-preview-claim` message, waits for
+    `controllerchange` under a deadline, and otherwise reports
+    `worker-controller-timeout` truthfully. It never reloads: the same
+    uncontrolled state can reproduce on the next load, and every reload destroys
+    the in-memory DEK and the unlocked Vault.
 
 ### 13.5 CSP is unchanged, and that is the point
 
@@ -1028,6 +1045,45 @@ Safari/WebKit production acceptance is deferred. The existing ~1.1 GB MP4 must b
 retested after merge/deploy for first frame, sustained play, middle/end seeks,
 close/reopen, worker restart and lock invalidation. Until that passes,
 `LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`.
+
+### 13.8 E3.2 — cancellation, shared-load ownership and controller recovery
+
+Deploying E3.1 proved the streaming path itself: the real ~1.1 GB MP4 returns
+HTTP 206 for virtual media ranges, HTTP 200 for Vault ciphertext chunks, and the
+first video frame renders. Range mapping and client-side decrypt work. Two
+defects sat on top of that working path.
+
+**Chromium's routine cancellations were being read as network failures.** The
+player opens several overlapping ranges, keeps the one it wants and cancels the
+rest; each cancelled response aborted its own controller, the resulting
+`AbortError` was caught by the generic chunk handler, and the preview announced
+*"Video data could not be retrieved from the server"* while playback was healthy.
+Cancellation now carries an explicit, attributable kind — the media element
+superseded this response, or the session was deliberately torn down — and only
+those are silent. Everything else, and every integrity failure, still reports.
+
+**One cancelled range could poison another.** The shared chunk cache can hold an
+in-flight Promise; when that load carried the `AbortSignal` of whichever range
+started it, cancelling that range rejected the shared Promise and destroyed a
+second, still-playing range waiting on the same chunk. Ownership now sits with
+the preview session. A bounded chunk may finish loading after one range is
+cancelled — the work is bounded and the Vault is still unlocked — but close,
+lock, close-all and session replacement abort every session-owned load, and no
+plaintext crosses those boundaries afterwards.
+
+**An activated worker did not always control the page.** In production
+`registration.active` was activated while `navigator.serviceWorker.controller`
+was `null`, so `<video>` requests never reached the worker at all and the preview
+reported `worker-controller-timeout`; only a manual reload recovered it. The page
+now asks the active worker to `clients.claim()` once and waits for
+`controllerchange` under a deadline. An already-controlled page keeps its fast
+path and sends nothing. There is no automatic reload anywhere on this path.
+
+E3.2 is source acceptance only. The 64 MiB retained-plaintext ceiling, the
+two-chunk limit, the absence of Cache API, IndexedDB and web storage, the
+non-extractable DEK and the Zero-Knowledge boundary are all unchanged.
+`LARGE_V2_VIDEO_PREVIEW` remains `IN_PROGRESS` until the real ~1.1 GB MP4 passes
+Windows Edge/Chrome acceptance.
 
 ---
 

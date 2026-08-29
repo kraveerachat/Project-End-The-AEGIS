@@ -23,7 +23,9 @@ import {
   plaintextChunkSizeFor, buildPreviewHeaders, contentRangeValue,
   PREVIEW_RANGE_WINDOW_BYTES,
 } from './vaultPreviewRange.js'
-import { PREVIEW_FAILURE_REASON } from './vaultPreviewErrors.js'
+import {
+  PREVIEW_FAILURE_REASON, isBenignPreviewCancellation, previewRequestCanceledError,
+} from './vaultPreviewErrors.js'
 
 /** เหตุผลที่ทำให้ต้องหยุดกลางสตรีม — ส่งกลับไปให้หน้าเว็บแสดงผลตามจริง */
 export const PREVIEW_FAILURE = Object.freeze({
@@ -99,7 +101,12 @@ export function createPreviewStream(session, plan, {
   StreamCtor = globalThis.ReadableStream,
 }) {
   let cursor = 0
-  const controllerAbort = new AbortController()
+  // ⚠️ "This response was canceled" is request-local state, and it must be read
+  //    *after* the await below, not before: a pull() already in flight when the
+  //    media element supersedes this response is exactly the case that used to
+  //    surface as a fatal chunk-fetch failure for the whole preview.
+  let canceled = false
+  const requestAbort = new AbortController()
   const streamStartedAt = Date.now()
 
   return new StreamCtor({
@@ -111,22 +118,50 @@ export function createPreviewStream(session, plan, {
       }
       const step = plan[cursor]
       cursor += 1
+
+      let plain
       try {
-        const plain = await readChunk(session, step.index, {
-          fetchImpl, base, signal: controllerAbort.signal, onDiagnostic,
+        plain = await readChunk(session, step.index, {
+          fetchImpl, base, signal: requestAbort.signal, onDiagnostic,
         })
-        controller.enqueue(plain.subarray(step.sliceStart, step.sliceEnd))
       } catch (err) {
         // ★ หยุดที่นี่ ไม่มีทางอื่น — ผู้เล่นจะเห็นสตรีมขาด และหน้าเว็บได้รับเหตุผลจริง
         cursor = plan.length
+        if (isBenignPreviewCancellation(err, { requestCanceled: canceled })) {
+          // ⚠️ Deliberate cancellation: no onFailure, no chunk-fetch-failed, no
+          //    UI network error. A stale Range the player already replaced must
+          //    never mark the live preview broken. Integrity failures are
+          //    excluded from this branch by contract and stay fatal below.
+          try { controller.error(err) } catch { /* already canceled by the consumer */ }
+          return
+        }
         onFailure?.(err?.previewFailure ?? PREVIEW_FAILURE.FETCH)
         controller.error(err)
+        return
+      }
+
+      // Bytes decrypted for a response the browser has already dropped are
+      // simply not enqueued. The work was bounded and is now discarded.
+      if (canceled) {
+        cursor = plan.length
+        return
+      }
+      try {
+        controller.enqueue(plain.subarray(step.sliceStart, step.sliceEnd))
+      } catch {
+        cursor = plan.length
       }
     },
     cancel() {
       // ผู้เล่นกระโดดไปตำแหน่งอื่นหรือปิดวิดีโอ — เลิกดึงก้อนที่เหลือทันที
+      // ⚠️ This aborts only this request's own signal. Whether that signal
+      //    reaches a network fetch is the loader's decision: a shared,
+      //    session-owned chunk load must survive one response being canceled
+      //    (see vaultPreviewWorkerState.js), or cancelling Range A would poison
+      //    Range B that is waiting on the very same chunk.
+      canceled = true
       cursor = plan.length
-      controllerAbort.abort()
+      requestAbort.abort(previewRequestCanceledError())
     },
   })
 }

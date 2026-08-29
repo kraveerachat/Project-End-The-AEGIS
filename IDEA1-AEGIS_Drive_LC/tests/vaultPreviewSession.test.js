@@ -254,3 +254,189 @@ test('การเก็บกวาดต้องไม่โยน error แ�
   assert.equal(await closeAllPreviewSessions({ scope: { navigator: {} } }), false)
   assert.equal(await closePreviewSession(null, { scope: scopeWith({ controller: {} }) }), false)
 })
+
+// ── LFT-V2-E3.2 · claim-on-demand controller recovery ───────────────────────
+//
+// ⚠️ Production shape being repaired: registration.active existed and was
+//    activated, navigator.serviceWorker.controller was null, so the <video>
+//    element's requests never reached the worker and the preview reported
+//    worker-controller-timeout. Only a manual page reload recovered it.
+//
+//    The recovery must stay bounded and must never reload: an automatic reload
+//    reproduces the same uncontrolled state on the next load — a reload loop —
+//    and it destroys the in-memory DEK and the unlocked Vault on every pass.
+
+/** A container that is registered and activated but does not control the page. */
+function uncontrolledContainer({ claims = true, claimReplies = true } = {}) {
+  const listeners = new Set()
+  const claimMessages = []
+  const controllerMessages = []
+  let controller = null
+  const activeWorker = {
+    postMessage(message, transfer) {
+      claimMessages.push(message)
+      if (!claimReplies) return
+      queueMicrotask(() => { try { transfer?.[0]?.postMessage({ ok: claims }) } catch { /* closed */ } })
+      if (!claims) return
+      // A real clients.claim() takes control and then fires controllerchange.
+      queueMicrotask(() => {
+        controller = {
+          postMessage(message, transfer) {
+            controllerMessages.push(message)
+            queueMicrotask(() => { try { transfer?.[0]?.postMessage({ ok: true }) } catch { /* closed */ } })
+          },
+        }
+        for (const fn of listeners) fn({ type: 'controllerchange' })
+      })
+    },
+  }
+  return {
+    container: {
+      get controller() { return controller },
+      async register() { return { active: activeWorker, waiting: null, installing: null } },
+      addEventListener(type, fn) { if (type === 'controllerchange') listeners.add(fn) },
+      removeEventListener(type, fn) { listeners.delete(fn) },
+    },
+    claimMessages: () => [...claimMessages],
+    controllerMessages: () => [...controllerMessages],
+    controller: () => controller,
+  }
+}
+
+test('active worker with a null controller is recovered by one claim request, not a reload', async () => {
+  const c = uncontrolledContainer()
+  let reloads = 0
+  const scope = { ...scopeWith(c.container), location: { reload: () => { reloads += 1 } } }
+
+  const result = await ensurePreviewWorkerResult({ scope, timeoutMs: 500 })
+
+  assert.equal(result.ok, true, 'an activated worker must take control without user action')
+  assert.equal(result.controller, c.controller())
+  assert.deepEqual(c.claimMessages(), [{ type: 'vault-preview-claim' }],
+    'exactly one claim request — never a stream of them')
+  assert.equal(reloads, 0, 'recovery must never reload: that is how a reload loop starts')
+})
+
+test('an already-controlled page takes the fast path and sends no claim at all', async () => {
+  const w = fakeWorker()
+  const claims = []
+  const scope = scopeWith({
+    controller: w.controller,
+    async register() { return { active: { postMessage: (m) => claims.push(m) } } },
+    addEventListener() { assert.fail('a controlled page must not wait for controllerchange') },
+    removeEventListener() {},
+  })
+
+  const result = await ensurePreviewWorkerResult({ scope })
+  assert.deepEqual(result, { ok: true, controller: w.controller })
+  assert.deepEqual(claims, [], 'no claim message on the path every later preview takes')
+})
+
+test('a claim that never yields a controller stays a truthful worker-controller-timeout', async () => {
+  const c = uncontrolledContainer({ claims: false })
+  let reloads = 0
+  const scope = { ...scopeWith(c.container), location: { reload: () => { reloads += 1 } } }
+
+  const result = await ensurePreviewWorkerResult({ scope, timeoutMs: 40, claimTimeoutMs: 20 })
+
+  // ⚠️ The reason must not be softened into something healthier-sounding than
+  //    it earned. The page genuinely never got controlled.
+  assert.deepEqual(result, { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT })
+  assert.deepEqual(c.claimMessages(), [{ type: 'vault-preview-claim' }])
+  assert.equal(reloads, 0)
+})
+
+test('a silent worker still times out truthfully instead of hanging on the claim reply', async () => {
+  const c = uncontrolledContainer({ claims: false, claimReplies: false })
+  const result = await ensurePreviewWorkerResult({ scope: scopeWith(c.container), timeoutMs: 40, claimTimeoutMs: 20 })
+  assert.deepEqual(result, { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT })
+})
+
+test('a controllerchange that arrives with no controller is not mistaken for a takeover', async () => {
+  // Some Chromium builds fire controllerchange before the controller is
+  // readable. Settling on the first event would report a false timeout while
+  // control was in fact one turn away.
+  const listeners = new Set()
+  let controller = null
+  const container = {
+    get controller() { return controller },
+    async register() {
+      return {
+        active: {
+          postMessage(_m, transfer) {
+            queueMicrotask(() => { try { transfer?.[0]?.postMessage({ ok: true }) } catch { /* closed */ } })
+            queueMicrotask(() => { for (const fn of listeners) fn({}) })            // null controller
+            queueMicrotask(() => {
+              controller = { postMessage() {} }
+              for (const fn of listeners) fn({})                                    // real takeover
+            })
+          },
+        },
+      }
+    },
+    addEventListener(type, fn) { if (type === 'controllerchange') listeners.add(fn) },
+    removeEventListener(_type, fn) { listeners.delete(fn) },
+  }
+
+  const result = await ensurePreviewWorkerResult({ scope: scopeWith(container), timeoutMs: 500 })
+  assert.equal(result.ok, true)
+  assert.equal(result.controller, controller)
+})
+
+test('a Vault locked while the claim is in flight never receives a session or a key', async () => {
+  const c = uncontrolledContainer()
+  let locked = false
+  const scope = scopeWith(c.container)
+
+  const result = await ensurePreviewWorkerResult({
+    scope,
+    timeoutMs: 500,
+    isUnlocked: () => !locked,
+  })
+  assert.equal(result.ok, true, 'sanity: this container does recover when unlocked')
+
+  const c2 = uncontrolledContainer()
+  locked = true
+  const denied = await ensurePreviewWorkerResult({
+    scope: scopeWith(c2.container),
+    timeoutMs: 500,
+    isUnlocked: () => !locked,
+  })
+  assert.deepEqual(denied, { ok: false, reason: PREVIEW_FAILURE_REASON.VAULT_LOCKED })
+})
+
+test('openPreviewSession refuses to hand a DEK to a Vault that locked during recovery', async () => {
+  const c = uncontrolledContainer()
+  const scope = scopeWith(c.container)
+  let unlocked = true
+
+  const session = await openPreviewSession({
+    dek: { fake: 'CryptoKey' },
+    blob,
+    contentType: 'video/mp4',
+    plainSize: 4096,
+    scope,
+    isUnlocked: () => {
+      // The Vault locks exactly once the controller is available — the window
+      // this guard exists for.
+      const now = unlocked
+      unlocked = false
+      return now
+    },
+  })
+
+  assert.deepEqual(session, { ok: false, reason: PREVIEW_FAILURE_REASON.VAULT_LOCKED })
+  assert.deepEqual(c.controllerMessages(), [],
+    'no vault-preview-open — and therefore no DEK — may be sent after the lock')
+
+  // Sanity: the very same container does deliver a session while unlocked, so
+  // the assertion above is proving the lock guard rather than a dead container.
+  const c2 = uncontrolledContainer()
+  const opened = await openPreviewSession({
+    dek: { fake: 'CryptoKey' }, blob, contentType: 'video/mp4', plainSize: 4096,
+    scope: scopeWith(c2.container),
+  })
+  assert.equal(opened.ok, true)
+  assert.deepEqual(c2.controllerMessages().map((m) => m.type), ['vault-preview-open'])
+  await closePreviewSession(opened.token, { scope: scopeWith(c2.container), controller: c2.controller() })
+})
