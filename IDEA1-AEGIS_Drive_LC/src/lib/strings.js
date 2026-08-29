@@ -352,6 +352,11 @@ export const STRINGS = {
     vaultXferReasonAuth: 'A downloaded part failed its authentication check, so the file was not saved.',
     vaultXferUnsupported: 'This browser cannot write large files directly to disk, so large encrypted downloads are unavailable here. Use a Chromium-based desktop browser, or download smaller files.',
     vaultPreviewTooLarge: 'Preview unavailable for large encrypted files — download to view.',
+    // ── LFT-V2-E3 · สองสถานะที่ต้องไม่ถูกยุบรวมกับ vaultPreviewUnavailable
+    //    "เบราว์เซอร์นี้ทำไม่ได้" = ข้อเท็จจริงถาวรของเบราว์เซอร์ตัวนั้น ทางออกคือดาวน์โหลด
+    //    "พิสูจน์ความถูกต้องไม่ผ่าน" = ไบต์ที่เก็บไว้ไม่ตรงกับที่ปิดผนึกไว้ ซึ่งร้ายแรงกว่ามาก
+    vaultPreviewUnsupportedBrowser: 'This browser cannot stream large encrypted video. Download the file to watch it.',
+    vaultPreviewIntegrityFailed: 'Playback stopped: a part of this video failed its authentication check, so no further bytes were shown. The stored file may have been altered.',
     // Vault preview + details. ⚠️ locked copy may never name a plaintext file.
     preview: 'Preview',
     vaultPlaintextSize: 'Plaintext size',
@@ -971,6 +976,8 @@ export const STRINGS = {
     vaultXferReasonAuth: 'ส่วนที่ดาวน์โหลดมาตรวจสอบความถูกต้องไม่ผ่าน ไฟล์จึงไม่ถูกบันทึก',
     vaultXferUnsupported: 'เบราว์เซอร์นี้เขียนไฟล์ขนาดใหญ่ลงดิสก์โดยตรงไม่ได้ การดาวน์โหลดไฟล์เข้ารหัสขนาดใหญ่จึงยังทำที่นี่ไม่ได้ กรุณาใช้เบราว์เซอร์ตระกูล Chromium บนเดสก์ท็อป หรือดาวน์โหลดไฟล์ที่เล็กกว่านี้',
     vaultPreviewTooLarge: 'ดูตัวอย่างไฟล์เข้ารหัสขนาดใหญ่ไม่ได้ — ดาวน์โหลดไปเปิดดูแทน',
+    vaultPreviewUnsupportedBrowser: 'เบราว์เซอร์นี้สตรีมวิดีโอเข้ารหัสขนาดใหญ่ไม่ได้ กรุณาดาวน์โหลดไฟล์ไปเปิดดู',
+    vaultPreviewIntegrityFailed: 'หยุดเล่นแล้ว: บางส่วนของวิดีโอนี้ตรวจสอบความถูกต้องไม่ผ่าน จึงไม่มีการแสดงไบต์ต่อจากนั้น ไฟล์ที่เก็บไว้อาจถูกแก้ไข',
     preview: 'ดูตัวอย่าง',
     vaultPlaintextSize: 'ขนาด plaintext',
     vaultEncryptedDetails: 'รายละเอียดรายการที่เข้ารหัส',
@@ -1579,6 +1586,8 @@ export const STRINGS = {
     vaultXferReasonAuth: '下载的某一分段未通过认证校验，因此文件未被保存。',
     vaultXferUnsupported: '此浏览器无法直接将大文件写入磁盘，因此无法在此下载大型加密文件。请使用基于 Chromium 的桌面浏览器，或下载较小的文件。',
     vaultPreviewTooLarge: '大型加密文件无法预览——请下载后查看。',
+    vaultPreviewUnsupportedBrowser: '此浏览器无法流式播放大型加密视频。请下载文件后观看。',
+    vaultPreviewIntegrityFailed: '播放已停止：该视频的某一部分未通过完整性校验，因此不再显示后续字节。存储的文件可能已被篡改。',
     preview: '预览',
     vaultPlaintextSize: '明文大小',
     vaultEncryptedDetails: '加密条目详情',
