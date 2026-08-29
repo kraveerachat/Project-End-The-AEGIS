@@ -24,9 +24,29 @@ export const MIN_VAULT_PLAINTEXT_CHUNK_BYTES = 8 * MIB
 export const MAX_VAULT_PLAINTEXT_CHUNK_BYTES = 64 * MIB
 
 /** ค่าเริ่มต้นที่แนะนำ — ใหญ่พอให้ throughput ดี เล็กพอให้ encrypt+retry หนึ่งก้อนไม่แพง
- *  ⚠️ ค่านี้ยังเป็น "เพดานหน่วยความจำของแท็บ" ด้วย: เบราว์เซอร์ถือ plaintext หนึ่งก้อน
- *     + ciphertext หนึ่งก้อนพร้อมกันสูงสุด ≈ 2 × ค่านี้ ระหว่างเข้ารหัส */
-export const DEFAULT_VAULT_PLAINTEXT_CHUNK_BYTES = 16 * MIB
+ *
+ *  ⚠️ ค่านี้คือ "เพดานหน่วยความจำของแท็บ" ร่วมกับ VAULT_UPLOAD_CONCURRENCY ด้านล่าง
+ *     ระหว่างอัปโหลด เบราว์เซอร์ถือ plaintext หนึ่งก้อน + ciphertext หนึ่งก้อนต่อหนึ่ง
+ *     งานที่วิ่งอยู่ ดังนั้นจุดสูงสุดที่คาดได้คือ:
+ *
+ *         ≈ 2 × plaintextChunkBytes × uploadConcurrency
+ *
+ *     ที่ค่าเริ่มต้น (32 MiB × 2) = ประมาณ 128 MiB — สูงกว่าเดิม (16 MiB serial ≈ 32 MiB)
+ *     อย่างมีนัยสำคัญ และเป็นการแลกที่ตั้งใจ: เป็นค่าคงที่ที่ไม่ขึ้นกับขนาดไฟล์เลย
+ *     deployment ที่ต้องรองรับเครื่องหน่วยความจำน้อยลด VAULT_CHUNK_PLAINTEXT_BYTES
+ *     หรือ VAULT_UPLOAD_CONCURRENCY ได้โดยไม่ต้องแก้โค้ด
+ *  ⚠️ 32 MiB + tag ยังอยู่ใต้เพดาน 65m ของ nginx สำหรับ chunk ของ Vault (LFT-V2-C)
+ */
+export const DEFAULT_VAULT_PLAINTEXT_CHUNK_BYTES = 32 * MIB
+
+/** จำนวนก้อนที่ client ส่งพร้อมกันได้ — ช่วงที่ยอมรับคือ 1–4
+ *  ⚠️ ทำไมมีเพดานที่ 4 ไม่ใช่ "ยิ่งมากยิ่งเร็ว": แต่ละงานที่วิ่งอยู่กินหน่วยความจำของแท็บ
+ *     เต็มก้อน และเปิด PUT ที่ค้างอยู่กับ edge หนึ่งใบ การเพิ่มโดยไม่มีขอบเขตแปลว่า
+ *     ผู้ใช้คนเดียวเปิดคำขอค้างได้ไม่จำกัดกับ nginx ที่มี worker จำกัด
+ *  ⚠️ 1 = พฤติกรรมเดิมทุกประการ (ส่งทีละก้อนตามลำดับ) และยังต้องใช้ได้เสมอ */
+export const MIN_VAULT_UPLOAD_CONCURRENCY = 1
+export const MAX_VAULT_UPLOAD_CONCURRENCY = 4
+const DEFAULT_VAULT_UPLOAD_CONCURRENCY = 2
 
 /**
  * เพดานสูงสุดที่ตั้งได้ของ Vault V2 — ตรงกับ Normal Files โดยเจตนา (LFT-V2-E)
@@ -73,9 +93,17 @@ export function vaultTransferLimitsFromEnv(env = process.env) {
   const commitLeaseMs = readInteger(env, 'VAULT_COMMIT_LEASE_MS', DEFAULT_VAULT_COMMIT_LEASE_MS, {
     min: 60_000, max: 24 * 60 * 60 * 1000,
   })
+  // ⚠️ เซิร์ฟเวอร์ไม่ได้ "บังคับ" ค่านี้กับ client ได้จริง — client เปิดคำขอกี่ใบก็ได้
+  //    ค่านี้คือ **คำแนะนำที่ deployment เป็นผู้ตั้ง** เพื่อให้ UI ทุกตัวใช้เลขเดียวกัน
+  //    แทนที่จะฝังค่าไว้ใน bundle การป้องกันจริงจากคำขอพร้อมกันมากเกินไปอยู่ที่ edge
+  //    และที่การล็อกช่องเขียนรายก้อน (CHUNK_WRITE_IN_PROGRESS) ไม่ใช่ที่ตัวเลขนี้
+  const uploadConcurrency = readInteger(env, 'VAULT_UPLOAD_CONCURRENCY', DEFAULT_VAULT_UPLOAD_CONCURRENCY, {
+    min: MIN_VAULT_UPLOAD_CONCURRENCY, max: MAX_VAULT_UPLOAD_CONCURRENCY,
+  })
 
   return Object.freeze({
     plaintextChunkBytes,
+    uploadConcurrency,
     // ขนาด ciphertext ของ chunk ที่ "เต็มก้อน" — ค่านี้คือหน่วยที่เซิร์ฟเวอร์ใช้จริง
     // ทั้งการตรวจขนาดและการคำนวณตำแหน่งเขียน (index × ciphertextChunkBytes)
     ciphertextChunkBytes: plaintextChunkBytes + GCM_TAG_BYTES,
