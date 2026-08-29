@@ -7,6 +7,7 @@ param(
     [string]$IdentityFile = '',
     [string]$KnownHostsFile = '',
     [string]$TunnelTaskName = 'AEGIS Detection Tunnel',
+    [string]$KeyMigrationTaskName = 'AEGIS Detection Key Migration',
     [string]$LegacyEngineTaskName = 'AEGIS Detection Engine',
     [string]$MonitorTargetHost = '172.18.0.2',
     [ValidateRange(1, 65535)]
@@ -59,135 +60,96 @@ function Copy-MachineFile {
     Copy-Item -LiteralPath $resolvedSource -Destination $resolvedDestination -Force
 }
 
-function Invoke-IcaclsMutation {
+function Resolve-SystemFilePath {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Operation
+        [Parameter(Mandatory = $true)][string]$Label
     )
 
-    & icacls.exe $Path @Arguments | Out-Null
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "Private-key ACL mutation failed during $Operation (icacls exit $exitCode)."
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "$Label is required."
     }
+    # Deliberately perform no existence/read probe here. An elevated
+    # Administrator cannot read a correctly hardened SYSTEM-only key.
+    return [IO.Path]::GetFullPath($Path)
 }
 
-function Assert-RuntimePrivateKeyAcl {
-    param([Parameter(Mandatory = $true)][string]$Path)
+function Invoke-SystemKeyPreparation {
+    param(
+        [Parameter(Mandatory = $true)][string]$HelperPath,
+        [Parameter(Mandatory = $true)][string]$SourceIdentity,
+        [Parameter(Mandatory = $true)][string]$RuntimeIdentity,
+        [Parameter(Mandatory = $true)][string]$KnownHosts,
+        [Parameter(Mandatory = $true)][string]$ResultPath,
+        [Parameter(Mandatory = $true)][string]$PowerShellPath
+    )
 
-    $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
-    $administratorsSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
-    $allowedSids = @($systemSid.Value, $administratorsSid.Value)
-    $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
-    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $helperArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass ' +
+        "-File `"$HelperPath`" -SourceIdentityFile `"$SourceIdentity`" " +
+        "-RuntimeIdentityFile `"$RuntimeIdentity`" -KnownHostsFile `"$KnownHosts`" " +
+        "-TunnelHost `"$TunnelHost`" -ResultFile `"$ResultPath`" " +
+        "-RuntimeRoot `"$resolvedRuntimeRoot`" -MonitorTargetHost `"$MonitorTargetHost`" " +
+        "-MonitorTargetPort $MonitorTargetPort -LocalForwardPort $LocalForwardPort"
+    $helperAction = New-ScheduledTaskAction -Execute $PowerShellPath `
+        -Argument $helperArguments -WorkingDirectory $runtimeApp
+    $helperPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' `
+        -LogonType ServiceAccount -RunLevel Highest
+    $helperSettings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
+        -MultipleInstances IgnoreNew
+    $helperTask = New-ScheduledTask -Action $helperAction `
+        -Principal $helperPrincipal -Settings $helperSettings `
+        -Description 'One-time SYSTEM-only AEGIS tunnel key migration and SSH verification.'
 
-    $verifiedAcl = Get-Acl -LiteralPath $Path
-    $ownerSid = $verifiedAcl.GetOwner(
-        [Security.Principal.SecurityIdentifier]
-    ).Value
-    if ($ownerSid -ne $systemSid.Value) {
-        throw "Private-key ACL verification failed: owner is $ownerSid, expected SYSTEM."
+    $staleTask = Get-ScheduledTask -TaskName $KeyMigrationTaskName -ErrorAction SilentlyContinue
+    if ($null -ne $staleTask) {
+        if ($staleTask.State -eq 'Running') {
+            Stop-ScheduledTask -TaskName $KeyMigrationTaskName
+        }
+        Unregister-ScheduledTask -TaskName $KeyMigrationTaskName -Confirm:$false
     }
-    if (-not $verifiedAcl.AreAccessRulesProtected) {
-        throw 'Private-key ACL verification failed: inheritance is still enabled.'
-    }
+    Remove-Item -LiteralPath $ResultPath -Force -ErrorAction SilentlyContinue
 
-    $verifiedRules = @($verifiedAcl.GetAccessRules(
-            $true,
-            $true,
-            [Security.Principal.SecurityIdentifier]
-        ))
-    foreach ($requiredSid in $allowedSids) {
-        $hasFullControl = @($verifiedRules | Where-Object {
-                $_.IdentityReference.Value -eq $requiredSid -and
-                $_.AccessControlType -eq $allow -and
-                -not $_.IsInherited -and
-                ($_.FileSystemRights -band $fullControl) -eq $fullControl
-            }).Count -gt 0
-        if (-not $hasFullControl) {
-            throw "Private-key ACL verification failed: $requiredSid lacks explicit FullControl."
+    try {
+        Register-ScheduledTask -TaskName $KeyMigrationTaskName `
+            -InputObject $helperTask -Force | Out-Null
+        Start-ScheduledTask -TaskName $KeyMigrationTaskName
+
+        $deadline = (Get-Date).AddMinutes(2)
+        while ((Get-Date) -lt $deadline -and
+            -not (Test-Path -LiteralPath $ResultPath -PathType Leaf)) {
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf)) {
+            throw 'SYSTEM key helper timed out without a result.'
+        }
+
+        $helperResult = Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json
+        if ($helperResult.succeeded -ne $true -or
+            $helperResult.systemIdentity -ne $true -or
+            $helperResult.keyAclSystemOnly -ne $true -or
+            $helperResult.sshAuthenticated -ne $true -or
+            $helperResult.localForwardListening -ne $true -or
+            $helperResult.monitorHealth -ne $true -or
+            $helperResult.unprotectedPrivateKey -ne $false -or
+            $helperResult.badPermissions -ne $false -or
+            $helperResult.publicKeyDenied -ne $false) {
+            throw "SYSTEM key preparation failed: $($helperResult.errorCode)"
         }
     }
-
-    $sensitiveRights = [Security.AccessControl.FileSystemRights]::Read -bor
-        [Security.AccessControl.FileSystemRights]::Write -bor
-        [Security.AccessControl.FileSystemRights]::Modify -bor
-        [Security.AccessControl.FileSystemRights]::FullControl
-    $unexpectedAllows = @($verifiedRules | Where-Object {
-            $_.AccessControlType -eq $allow -and
-            $allowedSids -notcontains $_.IdentityReference.Value -and
-            ($_.FileSystemRights -band $sensitiveRights) -ne 0
-        })
-    if ($unexpectedAllows.Count -gt 0) {
-        $unexpectedSids = @($unexpectedAllows | ForEach-Object {
-                $_.IdentityReference.Value
-            }) -join ', '
-        throw "Private-key ACL verification failed: unexpected Allow identity $unexpectedSids."
+    finally {
+        $registeredHelper = Get-ScheduledTask -TaskName $KeyMigrationTaskName `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $registeredHelper) {
+            if ($registeredHelper.State -eq 'Running') {
+                Stop-ScheduledTask -TaskName $KeyMigrationTaskName
+            }
+            Unregister-ScheduledTask -TaskName $KeyMigrationTaskName -Confirm:$false
+        }
+        Remove-Item -LiteralPath $ResultPath -Force -ErrorAction SilentlyContinue
     }
-
-    $nonContractRules = @($verifiedRules | Where-Object {
-            $allowedSids -notcontains $_.IdentityReference.Value -or
-            $_.AccessControlType -ne $allow -or
-            $_.IsInherited -or
-            ($_.FileSystemRights -band $fullControl) -ne $fullControl
-        })
-    if ($nonContractRules.Count -gt 0 -or $verifiedRules.Count -ne $allowedSids.Count) {
-        throw 'Private-key ACL verification failed: DACL contains a non-contract access rule.'
-    }
-}
-
-function Set-RuntimePrivateKeyAcl {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
-    $administratorsSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
-    $allowedSids = @($systemSid.Value, $administratorsSid.Value)
-    $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
-    $allow = [Security.AccessControl.AccessControlType]::Allow
-
-    # Build an exact protected DACL. SYSTEM runs the boot tunnel, while the
-    # local Administrators group must retain FullControl so an elevated repair
-    # can rotate/re-harden the runtime key. No interactive Users, Authenticated
-    # Users, Everyone, or source-file identity is retained.
-    $acl = Get-Acl -LiteralPath $Path
-    $acl.SetAccessRuleProtection($true, $false)
-    $existingRules = @($acl.GetAccessRules(
-            $true,
-            $true,
-            [Security.Principal.SecurityIdentifier]
-        ))
-    foreach ($rule in $existingRules) {
-        [void]$acl.RemoveAccessRuleSpecific($rule)
-    }
-    $acl.SetOwner($systemSid)
-    [void]$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
-                $systemSid,
-                $fullControl,
-                $allow
-            )))
-    [void]$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
-                $administratorsSid,
-                $fullControl,
-                $allow
-            )))
-    Set-Acl -LiteralPath $Path -AclObject $acl
-
-    # Keep every native mutation independently fail-closed. A later successful
-    # icacls command must never hide an earlier failure.
-    Invoke-IcaclsMutation -Path $Path -Arguments @('/inheritance:r') `
-        -Operation 'disabling inheritance'
-    Invoke-IcaclsMutation -Path $Path -Arguments @(
-        '/grant:r',
-        '*S-1-5-18:(F)',
-        '*S-1-5-32-544:(F)'
-    ) -Operation 'granting SYSTEM and Administrators FullControl'
-    Invoke-IcaclsMutation -Path $Path -Arguments @('/setowner', '*S-1-5-18') `
-        -Operation 'setting the owner to SYSTEM'
-
-    # Verify the effective contract with PowerShell ACL APIs instead of
-    # trusting command exit codes alone.
-    Assert-RuntimePrivateKeyAcl -Path $Path
 }
 
 function Get-DotEnvKeys {
@@ -214,7 +176,9 @@ $runtimePython = Join-Path $runtimeVenv 'Scripts\python.exe'
 $runtimeSsh = Join-Path $resolvedRuntimeRoot 'ssh'
 $runtimeLogs = Join-Path $resolvedRuntimeRoot 'logs'
 $runtimeEnv = Join-Path $runtimeApp '.env'
-$runtimeIdentity = Join-Path $runtimeSsh 'idea2_tunnel_ed25519'
+$defaultRuntimeIdentity = Join-Path $runtimeSsh 'idea2_tunnel_ed25519'
+$legacyRuntimeIdentity = Join-Path $runtimeSsh 'idea2_tunnel_autostart_ed25519'
+$runtimeIdentity = $defaultRuntimeIdentity
 $runtimeKnownHosts = Join-Path $runtimeSsh 'known_hosts'
 $settingsPath = Join-Path $resolvedRuntimeRoot 'install.json'
 
@@ -232,13 +196,16 @@ if ([string]::IsNullOrWhiteSpace($TunnelHost) -and $null -ne $previousSettings) 
 }
 if ($null -ne $previousSettings -and
     $previousSettings.PSObject.Properties.Name -contains 'identityFileName') {
-    $runtimeIdentity = Join-Path $runtimeSsh ([string]$previousSettings.identityFileName)
-}
-elseif (-not (Test-Path -LiteralPath $runtimeIdentity -PathType Leaf)) {
-    $legacyRuntimeIdentity = Join-Path $runtimeSsh 'idea2_tunnel_autostart_ed25519'
-    if (Test-Path -LiteralPath $legacyRuntimeIdentity -PathType Leaf) {
-        $runtimeIdentity = $legacyRuntimeIdentity
+    $identityFileName = [string]$previousSettings.identityFileName
+    if ([IO.Path]::GetFileName($identityFileName) -ne $identityFileName) {
+        throw 'Existing installer identityFileName must be a filename without a directory.'
     }
+    $runtimeIdentity = Join-Path $runtimeSsh $identityFileName
+}
+elseif ([string]::IsNullOrWhiteSpace($IdentityFile)) {
+    # The previously verified operator runtime uses this exact filename. Do not
+    # probe/read candidate private keys as Administrator or guess another key.
+    $runtimeIdentity = $legacyRuntimeIdentity
 }
 if ($TunnelHost -notmatch '^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$') {
     throw 'TunnelHost is required and must use user@host without spaces or shell characters.'
@@ -252,7 +219,12 @@ if (-not [Net.IPAddress]::TryParse($RemoteBindAddress, [ref]$parsedRemoteAddress
 }
 
 $resolvedConfiguration = Resolve-OptionalFile -Path $ConfigurationFile -Label 'Configuration file'
-$resolvedIdentitySource = Resolve-OptionalFile -Path $IdentityFile -Label 'SSH identity file'
+$resolvedIdentitySource = if ([string]::IsNullOrWhiteSpace($IdentityFile)) {
+    $runtimeIdentity
+}
+else {
+    Resolve-SystemFilePath -Path $IdentityFile -Label 'SSH identity file'
+}
 $resolvedKnownHostsSource = Resolve-OptionalFile -Path $KnownHostsFile -Label 'known_hosts file'
 
 if (-not $PSCmdlet.ShouldProcess($resolvedRuntimeRoot, 'Install portable IDEA2 Detection Laptop runtime and auto-start')) {
@@ -305,13 +277,6 @@ $missingIntegrationKeys = @($requiredIntegrationKeys | Where-Object {
 })
 if ($missingIntegrationKeys.Count -gt 0) {
     throw 'Runtime .env is missing one or more required Monitor integration settings. Values were not printed.'
-}
-
-if (-not [string]::IsNullOrWhiteSpace($resolvedIdentitySource)) {
-    Copy-MachineFile -Source $resolvedIdentitySource -Destination $runtimeIdentity
-}
-elseif (-not (Test-Path -LiteralPath $runtimeIdentity -PathType Leaf)) {
-    throw 'Provide a unique per-machine -IdentityFile. The key is copied into the runtime and is never committed.'
 }
 
 if (-not [string]::IsNullOrWhiteSpace($resolvedKnownHostsSource)) {
@@ -368,11 +333,38 @@ finally {
     Pop-Location
 }
 
-# Harden and verify only the runtime copy. The source key passed through
-# -IdentityFile is never given to the ACL function.
-Set-RuntimePrivateKeyAcl -Path $runtimeIdentity
-
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$keyHelper = Join-Path $runtimeApp 'windows\prepare_tunnel_key.ps1'
+$keyHelperResult = Join-Path $runtimeLogs 'key-migration-result.json'
+
+# A correctly hardened service key cannot be read by the elevated installer.
+# Stop an existing forward, then delegate copy/hardening/authentication to a
+# short-lived SYSTEM task. Persistent tunnel registration is forbidden until
+# that helper proves exact SYSTEM-only ACL, SSH authentication, :18002, and
+# Monitor /healthz. The helper task is removed in a finally block.
+$existingTunnelTask = Get-ScheduledTask -TaskName $TunnelTaskName -ErrorAction SilentlyContinue
+$existingTunnelWasRunning = $null -ne $existingTunnelTask -and
+    $existingTunnelTask.State -eq 'Running'
+if ($existingTunnelWasRunning) {
+    Stop-ScheduledTask -TaskName $TunnelTaskName
+    Start-Sleep -Seconds 2
+}
+try {
+    Invoke-SystemKeyPreparation `
+        -HelperPath $keyHelper `
+        -SourceIdentity $resolvedIdentitySource `
+        -RuntimeIdentity $runtimeIdentity `
+        -KnownHosts $runtimeKnownHosts `
+        -ResultPath $keyHelperResult `
+        -PowerShellPath $windowsPowerShell
+}
+catch {
+    if ($existingTunnelWasRunning) {
+        Start-ScheduledTask -TaskName $TunnelTaskName -ErrorAction SilentlyContinue
+    }
+    throw
+}
+
 $engineSupervisor = Join-Path $runtimeApp 'windows\run_engine_supervisor.ps1'
 $engineCommand = "`"$windowsPowerShell`" -NoProfile -NonInteractive -WindowStyle Hidden " +
     "-ExecutionPolicy Bypass -File `"$engineSupervisor`" " +
@@ -396,6 +388,7 @@ $tunnelRunner = Join-Path $runtimeApp 'windows\run_detection_tunnel.ps1'
 $tunnelArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass ' +
     "-File `"$tunnelRunner`" -TunnelHost `"$TunnelHost`" " +
     "-IdentityFile `"$runtimeIdentity`" -KnownHostsFile `"$runtimeKnownHosts`" " +
+    "-RuntimeRoot `"$resolvedRuntimeRoot`" " +
     "-MonitorTargetHost `"$MonitorTargetHost`" -MonitorTargetPort $MonitorTargetPort " +
     "-LocalForwardPort $LocalForwardPort -RemoteBindAddress `"$RemoteBindAddress`" " +
     "-RemotePort $RemotePort -EnginePort $EnginePort"
@@ -419,9 +412,14 @@ $tunnelTask = New-ScheduledTask -Action $tunnelAction -Trigger $tunnelTrigger `
 Register-ScheduledTask -TaskName $TunnelTaskName -InputObject $tunnelTask -Force | Out-Null
 
 $settings = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
+    installedAt = (Get-Date).ToString('o')
+    installerVersion = 'system-only-key-acl-v1'
     runtimeRoot = $resolvedRuntimeRoot
+    engineStartupType = 'HKCU Run'
+    tunnelStartupType = 'SYSTEM Scheduled Task AtStartup'
     tunnelTaskName = $TunnelTaskName
+    keyMigrationTaskName = $KeyMigrationTaskName
     legacyEngineTaskName = $LegacyEngineTaskName
     tunnelHost = $TunnelHost
     identityFileName = [IO.Path]::GetFileName($runtimeIdentity)
