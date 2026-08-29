@@ -260,10 +260,25 @@ endpoint still uses `moveToVersions()` and still has this window.**
 The 1 GiB constant is **not** the new architectural ceiling. Two separate,
 configurable values replace it:
 
-| Setting | Default | Meaning |
-| :--- | :--- | :--- |
-| `UPLOAD_CHUNK_SIZE_BYTES` | 16 MiB | Size of one HTTP request |
-| `MAX_LOGICAL_FILE_BYTES` | 5 GiB | Size of one file this deployment will accept |
+| Setting | Default | Range a deployment may set | Meaning |
+| :--- | :--- | :--- | :--- |
+| `UPLOAD_CHUNK_SIZE_BYTES` | 16 MiB | 8–64 MiB | Size of one HTTP request |
+| `MAX_LOGICAL_FILE_BYTES` | 5 GiB | one chunk – **32 GiB** | Size of one file this deployment will accept |
+
+The upper bound of that range is `MAX_SUPPORTED_LOGICAL_FILE_BYTES` =
+`34_359_738_368` (32 GiB), exported from `server/config/transferLimits.js` and
+mirrored for the Vault as `MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES`. It is the
+**largest value the environment is allowed to name**, not a value any deployment
+receives. A deployment that does not set the variable keeps 5 GiB. Setting it
+above 32 GiB fails at boot rather than being clamped silently, for the same
+reason every other malformed value in this file does: a deployment must never run
+at a ceiling that no file records.
+
+Why bound it at all, rather than leaving the previous `Number.MAX_SAFE_INTEGER`?
+An unbounded setting is a claim that files of *any* size work, made by nobody who
+measured it. 32 GiB is the size at which the commit budget, the commit lease and
+the edge timeout can still be explained — see §11.2. Beyond that somebody has to
+measure first.
 
 5 GiB is *a safe value for the current hardware*, not a maximum the design
 implies. **Do not assume the present 56.9 GB filesystem is the final storage
@@ -500,7 +515,7 @@ incomplete is ever handed over as if it were complete.
 | Marker | Value | Meaning |
 | :--- | :--- | :--- |
 | `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
-| `LARGE_V2_VIDEO_PREVIEW` | `LIMITED` | Preview needs a whole plaintext object URL. Above 64 MiB the screen says "Preview unavailable for large encrypted files — download to view" instead of assembling gigabytes in RAM. Real streaming playback needs MediaSource plus on-demand decryption and is not built. |
+| `LARGE_V2_VIDEO_PREVIEW` | `LIMITED` | Preview needs a whole plaintext object URL. Above 64 MiB the screen says "Preview unavailable for large encrypted files — download to view" instead of assembling gigabytes in RAM. Real streaming playback needs a Service Worker plus on-demand range decryption; that is scoped as **LFT-V2-E3** and is not built yet. The 64 MiB buffered fallback stays as it is and must not be raised. |
 | `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
 | `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
 
@@ -658,6 +673,108 @@ the server proves `SERVER_CIPHERTEXT_INTEGRITY` — that the ciphertext it store
 is the ciphertext it received — while only the browser can prove
 `CLIENT_AEAD_PLAINTEXT_AUTHENTICATION`. The server holds no key, so no claim of
 server-side plaintext verification is made for the Vault.
+
+---
+
+## 11. LFT-V2-E — Truthful transfer rate, and a 32 GiB deployment ceiling
+
+### 11.1 Speed and time-remaining come from bytes, or they are not shown
+
+The transfer panel used to state bytes and percent only. Both are true, and both
+are useless for the question a user actually asks during a multi-gigabyte
+transfer: *how long is this going to take?* The answer now comes from
+`src/lib/transferRate.js`, and the module is built around one rule:
+
+> **Every number on that line is derived from real transferred bytes. When there
+> is not enough real evidence, nothing is shown — a placeholder is never
+> invented, and no timer ever advances the count.**
+
+| Property | Behaviour | Why it is that way |
+| :--- | :--- | :--- |
+| Smoothing | Rolling window, 5 s | A cumulative average makes the estimate "remember" a slow patch for the rest of the transfer, so a user whose link recovered still sees minutes that will not happen. The window reflects *now*, which is the only thing an ETA should predict from. |
+| First sample | Reference point only, never a measurement | Resume starts from a non-zero byte count. Counting those bytes as freshly transferred produces an impossible GB/s reading on the first sample. |
+| Evidence floor | ≥3 real advances **and** ≥750 ms of span | Three progress events 20 ms apart are not evidence of a rate. |
+| Stall | No byte growth for 4 s → `stalled`, rate and ETA both `null` | Leaving the last known speed on screen while nothing moves is the most convincing lie this panel can tell. |
+| Byte regression | Re-baseline, do not report a negative rate | Progress legitimately moves backwards when an in-flight chunk fails and the count falls back to what the server confirmed. |
+| Unknown total | Rate shown, ETA withheld | A remaining-time figure with no denominator is fiction. |
+
+The estimator takes `(transferredBytes, performance.now())` and returns
+`{ bytesPerSecond, etaSeconds, stalled }`. It knows nothing about React or the
+DOM and never reads a clock itself, so its behaviour is pinned deterministically
+by `tests/transferRate.test.js` rather than by waiting on wall-clock time.
+
+`transferRateLine(t, rate)` lives in the same module rather than in
+`Vault.jsx` **on purpose**: Normal Files (`UploadDrawer` / `Uploads`) must say
+the same sentence as the Vault. Duplicated formatting is how two screens start
+lying in two different dialects.
+
+The rendered line, in the three shipped languages:
+
+```text
+en   58.4 MB/s · about 12s remaining
+th   58.4 MB/s · เหลือประมาณ 12 วินาที
+zh   58.4 MB/s · 约剩 12 秒
+```
+
+Speed uses the same 1024-based units as the byte counter directly above it, so
+the two lines divide into each other. During `committing` no rate is shown at
+all: the server is hashing its own bytes and nothing is on the wire, so a
+"waiting for the network" warning there would be a false alarm that invites the
+user to cancel a healthy commit.
+
+**Not yet wired:** Normal Files still renders its own progress line. The helper
+is generic and importable; that UI integration is recorded as outstanding.
+
+### 11.2 What a 32 GiB file costs at commit time
+
+`committing` is dominated by reading the whole staged file to verify SHA-256, so
+its duration is linear in file size, not constant:
+
+| Logical size | Read at ~60 MB/s (edge-box HDD) | Edge `proxy_read_timeout` required |
+| :--- | :--- | :--- |
+| 5 GiB | ~90 s | 600 s — the value in `gateway/nginx.conf` today |
+| 16 GiB | ~290 s | 600 s, still sufficient |
+| 32 GiB | ~570 s | **insufficient** — needs ~1800 s |
+
+The server-side commit lease is already environment-controlled
+(`UPLOAD_COMMIT_LEASE_MS`, `VAULT_COMMIT_LEASE_MS`, default 15 min, settable up
+to 24 h), so it needs no code change to follow the ceiling upward. The **edge**
+timeout is static nginx configuration and cannot read the environment.
+
+> **Deployment rule:** raising `MAX_LOGICAL_FILE_BYTES` or
+> `MAX_VAULT_LOGICAL_FILE_BYTES` above roughly 8 GiB requires also raising
+> `proxy_read_timeout` on the **two commit routes only** in `gateway/nginx.conf`
+> and at the HUB edge, and raising the commit lease. Without it a healthy commit
+> is cut at 600 s and surfaces to the user as an unexplained failure.
+
+That gateway change is deliberately **not** made in this PR: no deployment has
+opted into a ceiling above 5 GiB yet, and broadening a shared edge timeout for a
+ceiling nobody has enabled is a change with downside and no benefit. It is
+recorded as an integration request against `gateway/nginx.conf` for Kla.
+
+### 11.3 Environment variables, collected
+
+| Variable | Default | Bounds | Owner file |
+| :--- | :--- | :--- | :--- |
+| `UPLOAD_CHUNK_SIZE_BYTES` | 16 MiB | 8–64 MiB | `server/config/transferLimits.js` |
+| `MAX_LOGICAL_FILE_BYTES` | 5 GiB | one chunk – 32 GiB | `server/config/transferLimits.js` |
+| `UPLOAD_COMMIT_LEASE_MS` | 15 min | 1 min – 24 h | `server/config/transferLimits.js` |
+| `STORAGE_FREE_RESERVE_BYTES` | 2 GiB | ≥ 0 | `server/config/transferLimits.js` |
+| `STORAGE_FREE_RESERVE_FRACTION` | 0.05 | [0, 1) | `server/config/transferLimits.js` |
+| `VAULT_CHUNK_PLAINTEXT_BYTES` | 16 MiB | 8–64 MiB | `server/config/vaultTransferLimits.js` |
+| `MAX_VAULT_LOGICAL_FILE_BYTES` | 5 GiB | 0 – 32 GiB | `server/config/vaultTransferLimits.js` |
+| `VAULT_COMMIT_LEASE_MS` | 15 min | 1 min – 24 h | `server/config/vaultTransferLimits.js` |
+
+`VAULT_UPLOAD_CONCURRENCY` is **not** in this table because it does not exist
+yet — it belongs to the bounded-concurrency upload work (LFT-V2-E2) and will be
+added by the change that reads it. A documented variable that no code reads is
+worse than an undocumented one.
+
+Both `/limits` endpoints now return `maxSupportedLogicalFileBytes` alongside
+`maxLogicalFileBytes`. The two answer different questions — *what will this
+server accept today* versus *what could an administrator configure* — and a UI
+that shows the second as the user's ceiling is promising a size the server will
+refuse.
 
 ---
 

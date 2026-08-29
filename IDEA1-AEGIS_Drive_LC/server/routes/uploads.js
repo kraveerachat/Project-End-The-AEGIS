@@ -36,6 +36,7 @@ import { recordAudit, sha256Hex } from '../db/connection.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import * as store from '../db/store.js'
 import {
+  MAX_SUPPORTED_LOGICAL_FILE_BYTES,
   TRANSFER_LIMITS, chunkCountFor, expectedChunkSize, reserveBytesFor,
 } from '../config/transferLimits.js'
 import { filesystemCapacity, removeKey } from '../storage/fileStore.js'
@@ -117,7 +118,12 @@ uploadsRouter.get('/limits', requireAuth, async (req, res, next) => {
   try {
     res.json({
       chunkSizeBytes: TRANSFER_LIMITS.chunkSizeBytes,
+      // ⚠️ สองค่านี้ต่างกันโดยเจตนาและจอต้องไม่สลับกัน:
+      //    maxLogicalFileBytes = เพดานที่ "deployment นี้บังคับอยู่จริง" ณ วินาทีนี้
+      //    maxSupportedLogicalFileBytes = เพดานสูงสุดที่ "ตั้งได้" ถ้าผู้ดูแลเลือกจะตั้ง
+      //    การแสดงค่าที่สองเป็นเพดานของผู้ใช้คือการสัญญาสิ่งที่เซิร์ฟเวอร์จะปฏิเสธจริง
       maxLogicalFileBytes: TRANSFER_LIMITS.maxLogicalFileBytes,
+      maxSupportedLogicalFileBytes: MAX_SUPPORTED_LOGICAL_FILE_BYTES,
       sessionTtlMs: TRANSFER_LIMITS.sessionTtlMs,
       capacity: await capacitySnapshot(),
     })

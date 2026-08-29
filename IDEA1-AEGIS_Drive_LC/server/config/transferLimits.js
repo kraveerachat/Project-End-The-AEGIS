@@ -24,6 +24,32 @@ export const MAX_CHUNK_SIZE_BYTES = 64 * MIB
 /** ค่าเริ่มต้นที่แนะนำ — ใหญ่พอให้ throughput ดี เล็กพอให้ retry หนึ่ง chunk ไม่แพง */
 export const DEFAULT_CHUNK_SIZE_BYTES = 16 * MIB
 
+// ── เพดานสูงสุดที่สถาปัตยกรรมนี้ "รองรับจริง" (LFT-V2-E) ────────────────────
+// ⚠️ นี่ไม่ใช่ค่าเริ่มต้น และไม่ใช่ค่าที่ deployment ใดได้รับโดยอัตโนมัติ — มันคือเพดาน
+//    ของ "ค่าที่ตั้งได้" การตั้ง MAX_LOGICAL_FILE_BYTES เกินค่านี้ทำให้บูตไม่ขึ้น
+// ⚠️ ทำไมต้องมีเพดานแทนที่จะปล่อยถึง Number.MAX_SAFE_INTEGER เหมือนเดิม:
+//    ค่าที่ตั้งได้ไม่จำกัดคือการอ้างว่า "รองรับไฟล์ทุกขนาด" โดยไม่มีใครเคยทดสอบ —
+//    32 GiB คือขนาดที่งบเวลาของ commit, อายุสัญญาเช่า และ nginx ยังอธิบายได้จริง
+//    (ดูตาราง "งบเวลาของ commit" ด้านล่าง) เกินกว่านั้นต้องมีคนวัดก่อน ไม่ใช่เดา
+// ⚠️ ห้ามเขียนที่ใดว่า "ไม่จำกัดขนาดไฟล์" — ประโยคที่ถูกต้องคือ ไฟล์ถูกส่งเป็น chunk
+//    ที่มีขอบเขต และเพดานเชิงตรรกะมาจากความจุ/โควตา/การตั้งค่าของ deployment นั้น
+export const MAX_SUPPORTED_LOGICAL_FILE_BYTES = 32 * GIB // 34,359,738,368
+
+// ── งบเวลาของ commit เมื่อไฟล์ใหญ่ขึ้น ───────────────────────────────────────
+// ช่วง 'committing' ถูกครองด้วยการอ่านไฟล์ staged ทั้งก้อนเพื่อตรวจ SHA-256 เวลาที่ใช้
+// จึงเป็นเชิงเส้นกับขนาดไฟล์ ไม่ใช่ค่าคงที่:
+//
+//   ขนาดไฟล์   อ่านที่ ~60 MB/s (HDD ของ edge box)   nginx proxy_read_timeout ที่ต้องมี
+//   5 GiB      ~90 วินาที                            600s  ← ค่าปัจจุบันใน gateway/nginx.conf
+//   16 GiB     ~290 วินาที                           600s  (ยังพอ)
+//   32 GiB     ~570 วินาที                           ไม่พอ — ต้องขยายเป็น 1800s
+//
+// ⚠️ deployment ที่ตั้ง MAX_LOGICAL_FILE_BYTES เกิน ~8 GiB ต้องขยาย proxy_read_timeout
+//    ของ "สอง route ของ commit เท่านั้น" ใน gateway/nginx.conf ด้วย มิฉะนั้น commit
+//    ที่ทำงานปกติจะถูก edge ตัดที่ 600s แล้วผู้ใช้เห็นเป็นความล้มเหลวที่ไม่มีสาเหตุ
+//    (สัญญาเช่าฝั่งเซิร์ฟเวอร์ปรับได้อยู่แล้วผ่าน UPLOAD_COMMIT_LEASE_MS ด้านล่าง)
+// ⚠️ ไฟล์นี้ตั้งค่า nginx ไม่ได้ — นี่คือข้อกำหนดของการติดตั้ง ไม่ใช่ค่าที่โค้ดบังคับได้
+
 // เพดานไฟล์เชิงตรรกะเริ่มต้น — "ค่าที่ปลอดภัยกับฮาร์ดแวร์ชุดปัจจุบัน" ไม่ใช่ค่าตายตัวของ
 // สถาปัตยกรรม ตรงกับขนาดสูงสุดในตารางทดสอบการยอมรับ (5 GiB) และยังห่างจากความจุของ
 // volume ปัจจุบันมาก ปรับด้วย MAX_LOGICAL_FILE_BYTES เมื่อฮาร์ดแวร์เปลี่ยน
@@ -94,7 +120,7 @@ export function transferLimitsFromEnv(env = process.env) {
   })
   const maxLogicalFileBytes = readInteger(env, 'MAX_LOGICAL_FILE_BYTES', DEFAULT_MAX_LOGICAL_FILE_BYTES, {
     min: chunkSizeBytes, // ไฟล์ที่เล็กกว่าหนึ่ง chunk ยังต้องอัปโหลดได้เสมอ
-    max: Number.MAX_SAFE_INTEGER,
+    max: MAX_SUPPORTED_LOGICAL_FILE_BYTES,
   })
   const sessionTtlMs = readInteger(env, 'UPLOAD_SESSION_TTL_MS', DEFAULT_SESSION_TTL_MS, {
     min: 60_000,           // สั้นกว่าหนึ่งนาที = resume ใช้ไม่ได้จริง
