@@ -619,7 +619,7 @@ test('a freshly uploaded image is previewable before any refetch lands', async (
   const fresh = serverBlob({ id: 'blob-new', name: 'FRESH.png', type: 'image/png' })
   backend.state['/api/vault'].data = { configured: true, blobs: [] }
   backend.respond = async ({ path, method }) => {
-    if (method === 'POST' && path === '/api/vault/blobs') {
+    if (method === 'POST' && path === '/api/vault/uploads') {
       return { ok: true, status: 201, data: { blob: fresh }, errorKind: null }
     }
     return { ok: true, status: 204, data: null, errorKind: null }

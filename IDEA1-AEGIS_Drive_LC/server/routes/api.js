@@ -25,6 +25,11 @@ import * as store from '../db/store.js'
 // Resumable chunked upload (LFT-V2-A) — เส้นทาง V2 ของการโอนไฟล์ใหญ่ แยกไฟล์เพราะเป็น
 // โปรโตคอลของตัวเอง (session → chunk → status → commit) ไม่ใช่ endpoint เดี่ยว ๆ
 import { uploadsRouter } from './uploads.js'
+// Private Vault V2 (LFT-V2-B) — โปรโตคอลของตัวเองเช่นกัน และ "ไม่ใช้ตารางร่วม" กับ
+// เส้นทางด้านบน เพราะ upload_sessions มีคอลัมน์ name เป็น plaintext ซึ่ง Vault ห้ามมี
+import { vaultUploadsRouter, publicVaultV2Blob } from './vaultUploads.js'
+import * as vaultV2 from '../db/vaultV2Store.js'
+import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
 import { buildTelemetry } from '../telemetry/index.js'
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
@@ -36,7 +41,7 @@ import {
 // Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
 import {
   vaultUploadMiddleware, keyForUploadedVaultBlob,
-  openVaultCiphertext, vaultCiphertextSize, removeVaultCiphertext,
+  openVaultCiphertext, openVaultCiphertextRange, vaultCiphertextSize, removeVaultCiphertext,
 } from '../storage/vaultStore.js'
 // Storage Layer ของรูปโปรไฟล์ — โฟลเดอร์แยก + ตรวจชนิดจากไบต์จริง + ถอด EXIF ก่อนเขียน
 import {
@@ -961,7 +966,21 @@ apiRouter.delete('/sessions/:ref', requireAuth, async (req, res, next) => {
 //       ตั้งเอง — ห้ามบันทึกชื่อไฟล์ (เซิร์ฟเวอร์ไม่รู้อยู่แล้ว) และห้ามบันทึกกุญแจ
 //    5. ไม่มี console.log ของ req.body ในหมวดนี้ — body มี wrapped DEK อยู่
 
-/** สถานะ vault + รายการ blob (metadata ciphertext) ของผู้ใช้ที่ล็อกอินอยู่ */
+// ── Vault V2 — chunked zero-knowledge upload (LFT-V2-B) ──────────────────────
+// ⚠️ ต้อง mount "ก่อน" '/vault/blobs/:id' ด้านล่าง ด้วยเหตุผลเดียวกับ '/files/uploads'
+apiRouter.use('/vault/uploads', vaultUploadsRouter)
+
+/**
+ * สถานะ vault + บัญชีรายการ blob "ทั้ง V1 และ V2" ในรายการเดียว
+ *
+ * ⚠️ รายการเดียวโดยเจตนา: ผู้ใช้มีห้องนิรภัยห้องเดียว ไม่ใช่สองห้อง รูปแบบของ blob
+ *    เป็นรายละเอียดของการเข้ารหัส ไม่ใช่หมวดหมู่ของผลิตภัณฑ์ — client แยกด้วย
+ *    formatVersion เพื่อเลือกเส้นทางถอดรหัส/ดาวน์โหลดที่ถูกต้องเท่านั้น
+ * ⚠️ V1 ได้ formatVersion: 1 อย่างชัดแจ้ง ไม่ปล่อยให้ client เดาจากการมี/ไม่มี ivB64
+ *    ("ไม่มีฟิลด์" ตีความได้ทั้ง 'ไม่มี' และ 'ลืมส่ง' — ตัวเลขตีความได้อย่างเดียว)
+ * ⚠️ ไม่มีรายการใดคืน storageKey / ชื่อไฟล์ / MIME — ขณะล็อกจอมีข้อมูลแค่ id ทึบ
+ *    ขนาด ciphertext และเวลาที่แถวถูกบันทึก ซึ่งเป็นสิ่งที่เซิร์ฟเวอร์รู้อยู่แล้วทั้งหมด
+ */
 apiRouter.get('/vault', requireAuth, async (req, res, next) => {
   try {
     const meta = await store.getVaultMeta(req.user.id)
@@ -969,22 +988,30 @@ apiRouter.get('/vault', requireAuth, async (req, res, next) => {
       // ยังไม่เคยตั้งค่า — client เข้าสู่ setup flow (ไม่ใช่ error)
       return res.json({ configured: false, blobs: [] })
     }
-    const blobs = await store.listVaultBlobs(req.user.id)
-    res.json({
+    const [v1Blobs, v2Blobs] = await Promise.all([
+      store.listVaultBlobs(req.user.id),
+      vaultV2.listVaultV2Blobs(req.user.id),
+    ])
+    // ส่ง envelope ครบเพื่อให้ client แกะ "ชื่อไฟล์" เองได้หลังปลดล็อก
+    // storageKey ไม่ถูกส่งออกไป — เป็นรายละเอียดภายในของ Storage Layer
+    const blobs = [
+      ...v1Blobs.map((b) => ({
+        id: b.id, formatVersion: 1, size: b.size, createdAt: b.createdAt,
+        ivB64: b.ivB64, wrappedDekB64: b.wrappedDekB64, wrapIvB64: b.wrapIvB64,
+        metaIvB64: b.metaIvB64, metaB64: b.metaB64,
+      })),
+      ...v2Blobs.map(publicVaultV2Blob),
+    ].sort((a, b) => b.createdAt - a.createdAt)
+
+    return res.json({
       configured: true,
       saltB64: meta.saltB64,
       params: meta.params,
       verifier: meta.verifier,
-      // ส่ง envelope ครบเพื่อให้ client แกะ "ชื่อไฟล์" เองได้หลังปลดล็อก
-      // storageKey ไม่ถูกส่งออกไป — เป็นรายละเอียดภายในของ Storage Layer
-      blobs: blobs.map((b) => ({
-        id: b.id, size: b.size, createdAt: b.createdAt,
-        ivB64: b.ivB64, wrappedDekB64: b.wrappedDekB64, wrapIvB64: b.wrapIvB64,
-        metaIvB64: b.metaIvB64, metaB64: b.metaB64,
-      })),
+      blobs,
     })
   } catch (err) {
-    next(err)
+    return next(err)
   }
 })
 
@@ -1113,9 +1140,88 @@ apiRouter.post('/vault/blobs', requireAuth, (req, res, next) => {
  *    เกิดฝั่งเบราว์เซอร์ทั้งหมด Content-Type จึงเป็น octet-stream เสมอ (เซิร์ฟเวอร์
  *    ไม่รู้ชนิดไฟล์จริง) และชื่อไฟล์ที่แนบไปเป็น id ทึบ ไม่ใช่ชื่อที่ผู้ใช้ตั้ง
  * ⚠️ path บนดิสก์มาจากคอลัมน์ storage_key ใน DB เท่านั้น ไม่เคยมาจาก input ของ client
+ *
+ * ── V1 (ทั้งไฟล์) กับ V2 (ทีละ chunk) อยู่ในหมวดนี้ด้วยกัน ────────────────────
+ * V1 คือเส้นทางเดิมที่ blob ที่มีอยู่แล้วยังใช้อยู่ และมันจะไม่ถูกถอดออก
+ * V2 มีเส้นทางของตัวเองด้านล่างเพราะไฟล์เดียวมีหลายข้อความ AEAD ที่ต้องขอแยกกัน
  */
+
+/**
+ * ดาวน์โหลด ciphertext ของ "หนึ่ง chunk" ของ blob V2 — หัวใจของการถอดรหัสแบบมีขอบเขต
+ *
+ * ⚠️ นี่คือสิ่งที่ทำให้หน่วยความจำของทั้งสองฝั่งเป็น O(ขนาด chunk) ไม่ใช่ O(ขนาดไฟล์):
+ *    เซิร์ฟเวอร์อ่านเฉพาะช่วง [index × chunkSize, +ขนาดของก้อนนี้) จากไฟล์เดียวบนดิสก์
+ *    ด้วย read stream ที่มีขอบเขต และเบราว์เซอร์ถอดทีละก้อนแล้วเขียนลง sink ทันที
+ * ⚠️ ช่วงที่อ่านมาจาก "แถวใน DB" ทั้งหมด (chunk_size / ciphertext_size ที่แช่แข็งไว้ตอน
+ *    commit) client ระบุได้แค่ index — และ index ที่เกินขอบเขตคือ 404 ไม่ใช่ช่วงที่ตัดให้
+ * ⚠️ IV ของก้อนนี้ถูกส่งกลับทาง header เพราะมันคือ "ข้อมูลที่จำเป็นต่อการถอดและไม่ใช่
+ *    ความลับ" ส่วน AAD **ไม่** ถูกส่ง — เบราว์เซอร์ประกอบขึ้นเองจาก (formatVersion,
+ *    contentId, index, chunkCount) ที่มันถืออยู่แล้ว ถ้าเซิร์ฟเวอร์เป็นคนบอก AAD
+ *    เซิร์ฟเวอร์ที่ถูกยึดจะสั่งให้เบราว์เซอร์ยอมรับ chunk ที่สลับตำแหน่งได้
+ * ⚠️ ไม่มี plaintext metadata ใด ๆ ใน response นี้ — ไม่มีแม้แต่ชื่อไฟล์ทึบ
+ */
+apiRouter.get('/vault/blobs/:id/chunks/:index', requireAuth, async (req, res, next) => {
+  try {
+    const id = String(req.params.id ?? '')
+    // id ผิดรูปแบบ / ไม่ใช่ของผู้เรียก / ไม่มีจริง → 404 เหมือนกันหมด
+    if (!isValidVaultBlobId(id)) return res.status(404).json({ error: 'Not found' })
+    const blob = await vaultV2.findVaultV2Blob(req.user.id, id)
+    if (!blob) return res.status(404).json({ error: 'Not found' })
+
+    const rawIndex = String(req.params.index ?? '')
+    if (!/^\d{1,9}$/.test(rawIndex)) return res.status(404).json({ error: 'Not found' })
+    const index = Number(rawIndex)
+    if (index >= blob.chunkCount) return res.status(404).json({ error: 'Not found' })
+
+    const chunk = await vaultV2.findVaultV2BlobChunk(blob.id, index)
+    if (!chunk) return res.status(404).json({ error: 'Not found' })
+
+    const start = index * blob.chunkSize
+    const stream = openVaultCiphertextRange(blob.storageKey, { start, end: start + chunk.size - 1 })
+    if (!stream) {
+      await auditAct(req, 'VAULT_V2_READ', blob.id, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(404).json({ error: 'Not found' })
+      else res.destroy()
+    })
+
+    // ⚠️ บันทึก audit เฉพาะ chunk แรกของการอ่านหนึ่งครั้ง ไม่ใช่ทุกก้อน: ไฟล์ 5 GiB
+    //    ที่ chunk ละ 16 MiB คือ 320 แถวต่อการดาวน์โหลดหนึ่งครั้ง ซึ่งจะกลบเหตุการณ์
+    //    อื่นทั้งหมดใน audit จนใช้สืบสวนไม่ได้ — สัญญาณที่ต้องการคือ "ใครเปิดอ่าน blob
+    //    ไหนเมื่อไร" ซึ่งหนึ่งแถวตอบได้ครบแล้ว (นโยบายนี้ถูกบันทึกไว้ตามจริง: การอ่าน
+    //    ที่เริ่มแล้วไม่จบ กับการอ่านที่จบครบ มีหน้าตาเหมือนกันใน audit)
+    if (index === 0) await auditAct(req, 'VAULT_V2_READ', blob.id)
+
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Content-Length', String(chunk.size))
+    res.setHeader('X-Vault-Chunk-IV', chunk.ivB64)
+    res.setHeader('X-Vault-Chunk-Index', String(index))
+    // ⚠️ ต้องประกาศให้ browser อ่าน header สองตัวนี้ได้ — same-origin ก็จริง แต่ถ้า
+    //    วันหนึ่งมี proxy/CORS คั่น การขาดบรรทัดนี้จะทำให้ IV หายไปเงียบ ๆ แล้วการถอด
+    //    ล้มเหลวโดยดูเหมือน "ไฟล์เสีย" แทนที่จะเป็นปัญหาการตั้งค่า
+    res.setHeader('Access-Control-Expose-Headers', 'X-Vault-Chunk-IV, X-Vault-Chunk-Index')
+    res.setHeader('Cache-Control', 'no-store')
+    return stream.pipe(res)
+  } catch (err) {
+    return next(err)
+  }
+})
+
 apiRouter.get('/vault/blobs/:id', requireAuth, async (req, res, next) => {
   try {
+    // ⚠️ blob V2 ไม่มี "ทั้งไฟล์" ให้ดาวน์โหลดผ่านเส้นทางนี้โดยเจตนา: การเปิดช่องนั้น
+    //    ไว้เท่ากับเชิญให้ client กลับไปโหลดทั้งก้อนเข้า RAM ซึ่งคือปัญหาที่ V2 แก้อยู่
+    //    ตอบ 409 (ไม่ใช่ 404) เฉพาะเมื่อพิสูจน์แล้วว่า **เป็นของผู้เรียกจริง** — ของคน
+    //    อื่นยังคงเป็น 404 เหมือนเดิม จึงไม่มีการยืนยันการมีอยู่ให้ใครที่ไม่ใช่เจ้าของ
+    if (isValidVaultBlobId(String(req.params.id ?? ''))) {
+      const v2Blob = await vaultV2.findVaultV2Blob(req.user.id, String(req.params.id))
+      if (!v2Blob) return res.status(404).json({ error: 'Not found' })
+      return res.status(409).json({
+        error: 'Chunked blob', code: 'VAULT_V2_USE_CHUNK_ENDPOINT', chunkCount: v2Blob.chunkCount,
+      })
+    }
     const blob = await store.findVaultBlob(req.user.id, req.params.id)
     // ไม่ใช่เจ้าของ หรือไม่มีจริง → 404 เหมือนกัน (ไม่ให้เดาว่า id ไหนมีอยู่)
     if (!blob) return res.status(404).json({ error: 'Not found' })
@@ -1143,16 +1249,34 @@ apiRouter.get('/vault/blobs/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-/** ลบ blob — metadata ก่อน แล้วค่อยลบ bytes (ลำดับกลับกับตอนเขียน) */
+/**
+ * ลบ blob — metadata ก่อน แล้วค่อยลบ bytes (ลำดับกลับกับตอนเขียน)
+ *
+ * ⚠️ เส้นทางเดียวรับทั้งสองรูปแบบ เพราะผู้ใช้เห็น "ไฟล์ในห้องนิรภัย" ไม่ใช่ "blob V1/V2"
+ *    การแยกเป็นสอง endpoint จะบังคับให้ UI ต้องรู้รูปแบบก่อนจะลบได้ ซึ่งเป็นความรู้ที่
+ *    ไม่ควรจำเป็นต่อการลบของตัวเอง
+ * ⚠️ id ของสองรูปแบบชนกันไม่ได้โดยโครงสร้าง (V1 = ตัวเลขล้วน, V2 = hex 48 ตัว) การ
+ *    แยกจึงไม่ใช่การเดา และ id ที่ไม่ตรงรูปแบบไหนเลยจบที่ 404 เหมือนของคนอื่น
+ * ⚠️ แถว chunk ของ V2 หายไปพร้อมแถว blob ผ่าน ON DELETE CASCADE — ไม่มีขั้นตอนแยกที่
+ *    อาจถูกข้ามเมื่อคำขอถูกตัดกลางคัน และไม่มี blob อื่นถูกแตะเลย
+ */
 apiRouter.delete('/vault/blobs/:id', requireAuth, async (req, res, next) => {
   try {
+    if (isValidVaultBlobId(String(req.params.id ?? ''))) {
+      const v2Blob = await vaultV2.findVaultV2Blob(req.user.id, String(req.params.id))
+      if (!v2Blob) return res.status(404).json({ error: 'Not found' })
+      await vaultV2.deleteVaultV2Blob(req.user.id, v2Blob.id)
+      await removeVaultCiphertext(v2Blob.storageKey)
+      await auditAct(req, 'VAULT_V2_DELETE', v2Blob.id)
+      return res.status(204).end()
+    }
     const blob = await store.findVaultBlob(req.user.id, req.params.id)
     if (!blob) return res.status(404).json({ error: 'Not found' })
     await store.deleteVaultBlob(req.user.id, blob.id)
     await removeVaultCiphertext(blob.storageKey)
     await auditAct(req, 'VAULT_BLOB_DELETE', blob.id)
-    res.status(204).end()
+    return res.status(204).end()
   } catch (err) {
-    next(err)
+    return next(err)
   }
 })

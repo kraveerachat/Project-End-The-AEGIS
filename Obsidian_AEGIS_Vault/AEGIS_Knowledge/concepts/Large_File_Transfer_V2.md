@@ -3,7 +3,7 @@ title: Large File Transfer V2 — Resumable Chunked Transport
 tags: [aegis, concept, idea1, drive, upload, transfer, resumable, integrity, storage]
 type: concept
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 sources: ["[[idea1/idea1-status]]", "[[concepts/Three_Layer_Data_Lake]]"]
 owner: kla
 edit_policy: owner-writable
@@ -344,7 +344,7 @@ whether they are encrypted on disk.
 | Stage | Scope | Status |
 | :--- | :--- | :--- |
 | **LFT-V2-A** | Normal Files: resumable chunked upload foundation — session/chunk/status/commit/cancel, durable session state, incremental browser hashing, server-side final verification, staged storage, cleanup, configurable limits, truthful UI states | **Source complete.** Verified against a real isolated PostgreSQL 15.18 (full IDEA1 suite 454/454, zero skips; both database lifecycles and the migration proven). **The migration has NOT been applied to production and nothing has been accepted in production.** |
-| **LFT-V2-B** | Private Vault: chunked zero-knowledge transfer (design in §7) | Not started |
+| **LFT-V2-B** | Private Vault: chunked zero-knowledge transfer (format and protocol in §7) | **SOURCE COMPLETE / LOCAL+PG VERIFIED.** Full IDEA1 suite 586/586 against a real isolated PostgreSQL 15 with **zero skips**, and 519/586 with 67 PostgreSQL-gated skips in in-memory mode. Migration `004_vault_v2.sql` proven additive, idempotent and explicitly granting `drive_app` DML when applied by a different superuser. **The migration has NOT been applied to production and nothing has been accepted in production.** |
 | **LFT-V2-C** | Edge tuning: `client_max_body_size`, `proxy_request_buffering`, timeouts retuned to chunk-sized semantics at the HUB and gateway | Not started — deliberately after the application protocol is deployed |
 | **LFT-V2-D** | Production acceptance against the matrix in §9, for both Normal Files and Private Vault | Not started |
 
@@ -360,38 +360,156 @@ migrated or rewritten.**
 
 ---
 
-## 7. Next stage — Private Vault chunked zero-knowledge transfer (LFT-V2-B)
+## 7. Private Vault chunked zero-knowledge transfer (LFT-V2-B)
 
-**Not implemented here. Recorded so the next stage reuses the session and chunk
-concepts without weakening zero knowledge.**
+**Implemented in source and verified locally and against a real isolated
+PostgreSQL 15. Not deployed, not accepted in production.**
 
-Explicitly rejected approaches: raising `MAX_VAULT_CIPHERTEXT_BYTES`, and
-splitting the existing whole-file AES-GCM ciphertext into ad-hoc pieces. The
-first does not remove the whole-file RAM requirement; the second breaks
-authentication, because a GCM tag authenticates one message, not a fragment of
-one.
+`ROOT_CAUSE = WHOLE_FILE_ZERO_KNOWLEDGE_TRANSFER_ARCHITECTURE`
 
-The design to build:
+Explicitly rejected, and still rejected: raising `MAX_VAULT_CIPHERTEXT_BYTES`,
+and splitting one whole-file AES-GCM ciphertext into ad-hoc pieces. The first
+does not remove the whole-file RAM requirement; the second breaks authentication,
+because a GCM tag authenticates one message, not a fragment of one. The constant
+is therefore **unchanged at 64 MiB** and still governs V1 blobs, which is correct:
+a V1 blob really is one GCM message and really cannot be decrypted in parts.
 
-- **one DEK per logical file**, wrapped by the KEK exactly as today — the envelope
-  structure of [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] does not change;
-- plaintext split into **bounded chunks** of the same order as the transport chunk;
-- **AES-256-GCM independently authenticated per chunk**, so each chunk is a
-  complete authenticated message that can be verified and decrypted alone;
-- a **unique 96-bit IV per encrypted chunk** — never reused with the same key;
-- **AAD binds at minimum**: format version, logical file identifier, chunk index,
-  and total chunk count — so a chunk cannot be reordered, dropped, duplicated,
-  moved between files, or replayed from a different format version;
-- the **server stores ciphertext only**; encrypted metadata stays encrypted; the
-  wrapped DEK stays opaque to the server;
-- **retries must never cause IV reuse with different plaintext.** A resent chunk
-  must carry byte-identical ciphertext, or a fresh IV — the client, not the
-  server, owns this invariant, because the server cannot see either side of it;
-- **existing V1 vault blobs remain readable** — the format is versioned and the
-  old path is kept for blobs written before the change.
+### 7.1 What did not change
 
-Vault ownership semantics, KEK/DEK format, metadata encryption and the Preview
-policy are unchanged until that stage, and any change to them is its own review.
+The envelope of [[concepts/Mnemonic_Recovery_and_Zero_Knowledge]] is untouched.
+Passphrase → Argon2id(vault salt) → KEK, browser-side only. One randomly
+generated 256-bit DEK per logical file, wrapped by the KEK. No user-wide content
+key exists, and the KEK never encrypts file content. The server still never
+receives a passphrase, a KEK, an unwrapped DEK, a plaintext filename, a plaintext
+MIME type, or plaintext content, and still never decrypts, derives keys,
+thumbnails, transcodes or indexes Vault content.
+
+### 7.2 The V2 format
+
+`formatVersion = 2` is an explicit column, not a sentinel. A sentinel such as
+`iv_b64 = 'v2'` was rejected because it makes an invalid row representable; V2
+lives in its own tables so that every V1 `NOT NULL` survives untouched.
+
+One logical file becomes **N independently authenticated AES-256-GCM chunks**,
+16 MiB of plaintext per chunk by default and 8–64 MiB configurable through
+`VAULT_CHUNK_PLAINTEXT_BYTES`. An empty file is **one** chunk, not zero: a file
+with no authenticated message is a file anyone could replace without a key.
+
+Each chunk carries a **fresh random 96-bit IV**, generated inside
+`encryptVaultChunk()`, which exposes no parameter for a caller to supply one. A
+retry re-encrypts and therefore ships a different IV with different ciphertext;
+the pair (IV, bytes) recorded server-side always comes from a single request,
+enforced by a writer token on the finalising `UPDATE`.
+
+**AAD, pinned byte for byte by test:**
+
+```
+content chunk AAD (34 bytes)
+  "AEGIS-VLT2"      10 bytes, ASCII
+  contentId         16 bytes, random per file
+  chunkIndex         4 bytes, uint32 big-endian
+  chunkCount         4 bytes, uint32 big-endian
+
+encrypted metadata AAD (33 bytes)
+  "AEGIS-VLT2-MD"   13 bytes, ASCII
+  contentId         16 bytes
+  chunkCount         4 bytes, uint32 big-endian
+```
+
+A canonical binary layout, not JSON — property order in an arbitrary object is
+not a stable contract. Reordering a chunk, moving one between files, or changing
+the declared chunk count all fail decryption, and each of those is a test.
+
+Encrypted metadata holds `{ name, type, plainSize }` under the DEK. The browser
+rebuilds the AAD locally from values it already holds; the server never sends it.
+
+### 7.3 What the server can still see, stated honestly
+
+The server sees `ciphertext_size`, `chunk_size` and `chunk_count`, so the logical
+plaintext size is derivable as `ciphertext_size − 16 × chunk_count`. That is the
+same class of disclosure V1 already makes, and it is why **no `plainSize` field
+is accepted from the client** — the arithmetic is unavoidable, but the server
+must not additionally be handed the number as user-supplied data.
+
+### 7.4 Protocol
+
+`POST /api/vault/uploads` · `GET /api/vault/uploads/:id` ·
+`PUT /api/vault/uploads/:id/chunks/:index` · `POST /api/vault/uploads/:id/commit` ·
+`DELETE /api/vault/uploads/:id`, plus
+`GET /api/vault/blobs/:id/chunks/:index` for bounded reads.
+
+Every route is behind `requireAuth`, scoped to `req.user.id` — no route reads a
+user id from a request — and another owner's resource is **404, never 403**.
+
+One deliberate difference from LFT-V2-A: **the client proposes the chunk size**,
+because the ciphertext is sealed before the first request and the server cannot
+re-chunk it without a key. The server validates that the declared values are in
+range and internally consistent, then **freezes** them; every disk offset after
+that comes from the stored row, never from the request that carries the bytes.
+
+### 7.5 Integrity language
+
+- `SERVER_CIPHERTEXT_INTEGRITY` — at commit the server re-reads the staged bytes
+  and compares each chunk's SHA-256 against the hash **it computed itself** on
+  receipt. A client-reported hash is never trusted. This proves the stored
+  ciphertext is the ciphertext that arrived, and nothing more.
+- `CLIENT_AEAD_PLAINTEXT_AUTHENTICATION` — the GCM tag of each chunk, checked in
+  the browser at decryption, is what proves the plaintext.
+
+`SERVER_PLAINTEXT_SHA256_VERIFY` is **not** claimed and must never be: the server
+has no key, so the claim would be a lie.
+
+### 7.6 Commit exactly once
+
+The commit lease, durable commit intent and stale-commit recovery of LFT-V2-A are
+reused from the start rather than retrofitted. A commit records its chosen final
+storage key **before** any rename, claims the session with a conditional update,
+verifies, renames, then writes blob and chunk metadata in one transaction. The
+recovery worker takes rows with `FOR UPDATE SKIP LOCKED`, so two workers converge
+on one outcome. There is no `recovering` state, deliberately — it would recreate
+the "stuck row nobody can recover" problem one layer up.
+
+Invariants proven against real PostgreSQL: `NO_DUPLICATE_VAULT_BLOB`,
+`NO_ORPHAN_VAULT_CIPHERTEXT`, `NO_METADATA_TO_MISSING_CIPHERTEXT`,
+`RECOVERY_IDEMPOTENT`, `RECOVERY_RACE_SAFE`.
+
+### 7.7 Bounded memory, both directions
+
+Upload never calls `file.arrayBuffer()` on the whole file — it slices. The
+regression test uses a `File` whose whole-file `arrayBuffer()` **throws**, which
+is the only way to prove absence rather than assert it by reading the code. V1's
+`fileToBytes()` still exists for V1 and is never reached from the V2 path.
+
+Download requests one chunk, rebuilds the AAD, decrypts, writes it to the output
+sink, releases it, then moves on. Peak memory is O(chunk size), measured by a
+sink that counts retained bytes rather than by inspection.
+
+Browser output uses `showSaveFilePicker()` → `createWritable()` → sequential
+writes → `close()`, opened inside the user's own click. Browsers without the File
+System Access API get a **bounded** RAM fallback capped at 64 MiB — V1's old
+ceiling exactly, so they can do what they always could and no more — and a
+truthful message for anything larger. Tested browser family for the streaming
+path: **Chromium desktop**. Universal support is not claimed.
+
+Any chunk failure — network, wrong AAD, AEAD failure, missing IV, wrong size —
+stops the download, aborts the destination, and reports failure. No file that is
+incomplete is ever handed over as if it were complete.
+
+### 7.8 Recorded limitations
+
+| Marker | Value | Meaning |
+| :--- | :--- | :--- |
+| `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
+| `LARGE_V2_VIDEO_PREVIEW` | `LIMITED` | Preview needs a whole plaintext object URL. Above 64 MiB the screen says "Preview unavailable for large encrypted files — download to view" instead of assembling gigabytes in RAM. Real streaming playback needs MediaSource plus on-demand decryption and is not built. |
+| `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
+| `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
+
+Vault ownership semantics, the KEK/DEK envelope, metadata encryption and the
+Preview allowlist (image/jpeg, png, gif, webp; video/mp4, webm, ogg — no HTML,
+SVG, PDF, Office, executables or arbitrary `application/*`) are unchanged. The
+locked-vault policy of PR #40 is unchanged and re-tested for V2 cards: while
+locked a card is opaque, with no filename, extension, MIME, plaintext size or
+content metadata anywhere in the DOM, and no Preview, Download, Open or Delete.
 
 ---
 
@@ -451,7 +569,41 @@ the per-request ceilings no longer bound a logical file.
 - insufficient free-space rejection;
 - service restart behaviour, since sessions are durable.
 
-Private Vault has **no matrix here** — it is reserved for `LFT-V2-B`/`LFT-V2-D`.
+### Private Vault (LFT-V2-B) — per size
+
+**RECORD ONLY. Not executed. Multi-gigabyte Vault runs were deliberately not
+performed in this PR, and none of them has been performed in production.**
+
+Sizes: **2 MiB · 64 MiB · 256 MiB · 512 MiB · 1 GiB · 2 GiB · 5 GiB (if free
+storage permits)**.
+
+For each size record: `ENCRYPT` · `UPLOAD` · `COMMIT` · `DOWNLOAD` ·
+`DECRYPT` · `BYTE MATCH` · `PEAK TAB MEMORY`.
+
+The 64 MiB row is the direct evidence that the old `MAX_VAULT_CIPHERTEXT_BYTES`
+ceiling no longer bounds a Vault file, and the 512 MiB row that the HUB request
+ceiling no longer does either.
+
+### Private Vault — behaviour
+
+- disconnect during a middle chunk, reconnect, resume **without** re-sending the
+  chunks the server already acknowledged;
+- retry one transient chunk failure and confirm the other chunks are not resent;
+- restart the application mid-upload and confirm the durable session still
+  resumes;
+- kill the process mid-commit at each phase (after claim, after verification,
+  after publish, after metadata) and confirm the recovery worker converges;
+- unlock with the wrong passphrase and confirm nothing decrypts;
+- tamper with one stored ciphertext byte and confirm the download fails and no
+  file is delivered;
+- request another owner's blob and chunk and confirm `404`;
+- lock the vault mid-transfer and confirm the transfer stops;
+- fill the volume to the reserve threshold and confirm `507` before any bytes
+  are staged;
+- cancel an upload and confirm the staged ciphertext is reclaimed;
+- delete a V2 blob and confirm both its metadata rows and its ciphertext file
+  are gone while no other blob is touched.
+
 
 ---
 
@@ -459,32 +611,53 @@ Private Vault has **no matrix here** — it is reserved for `LFT-V2-B`/`LFT-V2-D
 
 > To be used **after** production acceptance, when the formal report is updated.
 > The formal report was deliberately not edited at this stage.
+> `FORMAL_REPORT = NO UPDATE`
 
 **Problem.** The transfer path framed one logical file as one HTTP request and
 required the whole file to exist in browser memory before sending. The effective
 size ceiling was therefore the smaller of a per-request limit and the tab's RAM —
 not the capacity of the Data Lake — and any interruption discarded all progress.
+The Private Vault carried a second, sharper form of the same fault: the whole
+file was read into memory, encrypted as **one** AES-GCM message, held again as
+ciphertext, and sent in a single request, so its 64 MiB limit was a consequence
+of the architecture rather than a policy that could be raised.
 
 **Improvement.** A resumable, bounded-chunk transport with durable server-side
-session state and incremental integrity verification. Each request carries a
-bounded chunk; the browser hashes the file in slices instead of buffering it; the
-server verifies byte count and SHA-256 from the bytes it stored before publishing
-anything; an interrupted transfer resumes from the last acknowledged chunk.
+session state and incremental integrity verification, now covering both Normal
+Files and the Private Vault. Each request carries a bounded chunk; the browser
+hashes or encrypts the file in slices instead of buffering it; the server
+verifies byte count and SHA-256 from the bytes it stored before publishing
+anything; an interrupted transfer resumes from the last acknowledged chunk. For
+the Vault this required a second, explicitly versioned encryption format: one
+DEK per file as before, but N independently authenticated chunks instead of one
+whole-file message, so a file can be encrypted, transferred, verified and
+decrypted a bounded piece at a time. Existing V1 vault blobs are untouched and
+still readable through the path they always used.
 
 **Engineering value.** Reliability over both LAN and WAN paths, since a transient
 interruption costs one chunk instead of an entire file; bounded memory on the
-client and on the server regardless of file size; retry efficiency; storage
-safety through an explicit free-space reserve that prevents one upload from
-filling the volume; and measurable integrity, because the checksum that decides
-success is computed by the server from the stored bytes rather than reported by
-the client.
+client and on the server regardless of file size, in both directions; retry
+efficiency; storage safety through an explicit free-space reserve that prevents
+one upload from filling the volume; and measurable integrity, because the
+checksum that decides success is computed by the server from the stored bytes
+rather than reported by the client. Progress reported to the user is derived from
+bytes actually processed and chunks actually acknowledged, so a stalled transfer
+looks stalled instead of animating a bar that means nothing.
 
 **Security.** No control is bypassed: authentication, CSRF, server-side ownership
-and the audit trail apply to every step, and no partial upload is visible in the
-file list. The Private Vault remains zero-knowledge and unchanged at this stage;
-its chunked design is specified but not implemented, and it preserves per-file
-DEKs, per-chunk authentication, unique IVs, and AAD binding of file identity and
-chunk position.
+and the audit trail apply to every step, another owner's resource is a `404`
+rather than a `403`, and no partial upload is visible in the file list. The
+Private Vault **remains genuinely zero-knowledge**: the server still never
+receives a passphrase, a key-encryption key, an unwrapped data key, a plaintext
+filename, a plaintext MIME type or plaintext content, and still never decrypts,
+derives keys, thumbnails, transcodes or indexes vault content. Per-file DEKs,
+per-chunk AES-256-GCM authentication, a unique 96-bit IV per encryption, and AAD
+binding of format version, file identity, chunk index and chunk count are all
+enforced and pinned by test. Two integrity claims are kept separate and named:
+the server proves `SERVER_CIPHERTEXT_INTEGRITY` — that the ciphertext it stored
+is the ciphertext it received — while only the browser can prove
+`CLIENT_AEAD_PLAINTEXT_AUTHENTICATION`. The server holds no key, so no claim of
+server-side plaintext verification is made for the Vault.
 
 ---
 

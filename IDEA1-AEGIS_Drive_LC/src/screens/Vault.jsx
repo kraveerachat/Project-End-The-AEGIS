@@ -9,9 +9,19 @@ import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiFetchBytes } from '../lib/api.js'
 import { fmtBytes, fmtDateTime } from '../lib/format.js'
 import {
-  createVaultSetup, unlockVault, encryptFileEnvelope, decryptBlobMeta,
-  decryptFileContent, fileToBytes, ARGON2_DEFAULTS,
+  createVaultSetup, unlockVault, decryptBlobMeta,
+  decryptFileContent, ARGON2_DEFAULTS,
 } from '../lib/vaultCrypto.js'
+/* ⚠️ V2 (chunk) กับ V1 (whole-file) อยู่คนละโมดูลโดยเจตนา และจอนี้เลือกเส้นทางจาก
+   `formatVersion` ของ blob เท่านั้น — ไม่ใช่จากขนาด ไม่ใช่จากการเดา
+   ⚠️ encryptFileEnvelope/fileToBytes ของ V1 **ไม่ถูก import แล้ว** เพราะการอัปโหลดใหม่
+      ทุกครั้งเป็น V2 ทั้งหมด ทั้งสองยังอยู่ในโมดูลเดิมเพื่อรองรับ blob ที่มีอยู่ */
+import { decryptVaultV2Meta } from '../lib/vaultChunkCrypto.js'
+import { uploadVaultFileChunked } from '../lib/vaultChunkedUpload.js'
+import {
+  downloadVaultV2, createFileSystemSink, createBufferedSink,
+  supportsStreamingFileSink, MAX_BUFFERED_PLAINTEXT_BYTES,
+} from '../lib/vaultChunkedDownload.js'
 import {
   reconcileVaultInventory, addLocalVaultBlob, removeLocalVaultBlob,
   tombstoneVaultBlob, vaultBlobId, lockedVaultEntry,
@@ -214,6 +224,103 @@ function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload
   )
 }
 
+/* ── แถบสถานะการโอนของ Vault V2 ──────────────────────────────────────
+   ⚠️ กติกาข้อเดียวที่คอมโพเนนต์นี้มีไว้รักษา: **ทุกตัวเลขบนแถบนี้ต้องมาจากงานจริง**
+      เปอร์เซ็นต์คำนวณจากไบต์ที่ผ่านไปแล้ว และ "ส่วนที่ X จาก N" คือดัชนี chunk จริง
+      ไม่มี setInterval ที่ขยับแถบเอง — แถบที่เดินต่อขณะเน็ตหยุดคือการโกหกผู้ใช้ว่างาน
+      ยังคืบหน้า แล้วเขาจะรอต่อไปแทนที่จะกดทำต่อหรือแก้ปัญหาเครือข่าย
+   ⚠️ สถานะ 'unsupported' ไม่ใช่ความล้มเหลวและไม่มีปุ่มลองใหม่ — มันคือความจริงเกี่ยวกับ
+      เบราว์เซอร์ที่ใช้อยู่ ปุ่ม "ลองใหม่" ตรงนั้นจะทำให้ผู้ใช้กดวนไปเรื่อย ๆ โดยไม่มีทางสำเร็จ */
+function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
+  if (!transfer) return null
+
+  const { kind, stage, chunkIndex = 0, chunkCount = 0, transferredBytes = 0, totalBytes = 0, percent = 0 } = transfer
+  const humanIndex = Math.min(chunkCount, chunkIndex + 1)
+  const vars = { index: humanIndex, count: chunkCount }
+
+  const label = stage === 'preparing' ? t('vaultXferPreparing')
+    : stage === 'encrypting' ? t('vaultXferEncrypting', vars)
+      : stage === 'uploading' ? t('vaultXferUploading', vars)
+        : stage === 'committing' ? t('vaultXferCommitting')
+          : stage === 'downloading' ? t('vaultXferDownloading', vars)
+            : stage === 'paused' ? t('vaultXferPaused')
+              : stage === 'unsupported' ? t('vaultXferUnsupported')
+                : t('vaultXferFailed')
+
+  const reasonKey = {
+    network: 'vaultXferReasonNetwork',
+    server: 'vaultXferReasonServer',
+    tooLarge: 'vaultXferReasonTooLarge',
+    noSpace: 'vaultXferReasonNoSpace',
+    integrity: 'vaultXferReasonIntegrity',
+    expired: 'vaultXferReasonExpired',
+    'auth-failed': 'vaultXferReasonAuth',
+  }[transfer.reason]
+
+  const active = stage === 'preparing' || stage === 'encrypting' || stage === 'uploading'
+    || stage === 'committing' || stage === 'downloading'
+  const stopped = stage === 'failed' || stage === 'paused' || stage === 'unsupported'
+  const tone = stage === 'failed' ? 'var(--danger)' : stage === 'paused' ? 'var(--warn)' : 'var(--ink-2)'
+
+  return (
+    <div
+      className="rounded-[var(--r-tile)] border border-line bg-sunken px-4 py-3 mb-4"
+      data-vault-transfer={kind}
+      data-vault-transfer-stage={stage}
+    >
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <p role="status" aria-live="polite" className="text-[12.5px] font-medium" style={{ color: tone }}>
+          {label}
+        </p>
+        <div className="flex-1" />
+        {/* ⚠️ ตัวเลขนี้เป็นหน่วยเดียวกับขนาดไฟล์ที่ผู้ใช้เห็นในการ์ด (plaintext)
+            ไม่ใช่ขนาด ciphertext ที่วิ่งบนสาย — ผู้ใช้ไม่ควรต้องแปลหน่วยเอง */}
+        {stage !== 'unsupported' && (
+          <p
+            className="text-[12px] text-ink-3 font-mono"
+            style={{ fontVariantNumeric: 'tabular-nums' }}
+            data-vault-transfer-bytes={String(transferredBytes)}
+            data-vault-transfer-total={String(totalBytes)}
+          >
+            {t('vaultXferProgress', {
+              done: fmtBytes(transferredBytes), total: fmtBytes(totalBytes), percent,
+            })}
+          </p>
+        )}
+      </div>
+
+      {stage !== 'unsupported' && (
+        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--line)' }}>
+          <div
+            className="h-full rounded-full transition-[width] duration-[var(--dur-fast)]"
+            style={{ width: `${Math.max(0, Math.min(100, percent))}%`, background: stage === 'failed' ? 'var(--danger)' : 'var(--accent)' }}
+            role="progressbar"
+            aria-valuenow={Math.round(percent)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          />
+        </div>
+      )}
+
+      {reasonKey && (
+        <p className="text-[12px] text-ink-3 mt-2">{t(reasonKey)}</p>
+      )}
+
+      <div className="flex gap-2 mt-3">
+        {stage === 'paused' && (
+          <Btn variant="primary" size="sm" onClick={onResume}>{t('vaultXferResume')}</Btn>
+        )}
+        {active && (
+          <Btn variant="outline" size="sm" onClick={onCancel}>{t('vaultXferCancel')}</Btn>
+        )}
+        {stopped && (
+          <Btn variant="outline" size="sm" onClick={onDismiss}>{t('vaultXferDismiss')}</Btn>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
@@ -230,6 +337,16 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const [addBusy, setAddBusy] = useState(false)
   const [actionError, setActionError] = useState(false)
   const [autoLocked, setAutoLocked] = useState(false)
+  /* ── สถานะการโอนที่ "อ่านจากงานจริง" เท่านั้น (LFT-V2-B) ─────────────────
+     ทุกตัวเลขในนี้มาจากไบต์ที่ผ่านไปจริงและจาก chunk ที่เซิร์ฟเวอร์ยืนยันแล้ว
+     ⚠️ ห้ามมี timer ที่ขยับแถบเอง: แถบที่เดินต่อขณะเน็ตหยุดคือการโกหกผู้ใช้ว่างาน
+        ยังคืบหน้า แล้วเขาจะรอต่อไปแทนที่จะกด Resume */
+  const [transfer, setTransfer] = useState(null)
+  /* งานที่ยังทำต่อได้หลังล้มเหลวชั่วคราว — ถือไว้ใน ref ไม่ใช่ state เพราะมันมี CryptoKey
+     (DEK) อยู่ข้างใน และต้องหายไปพร้อมการล็อกเสมอ ไม่ใช่ค้างอยู่ใน render tree */
+  const resumable = useRef(null)
+  /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
+  const transferAbort = useRef(null)
   /* บัญชี blob ทึบฝั่ง client — ดู src/lib/vaultInventory.js สำหรับเหตุผลเต็ม
      โดยย่อ: ผลของ POST ที่สำเร็จแล้วเป็นความจริงที่รู้แน่ทันที ไม่ควรต้องรอ GET
      รอบถัดไปมายืนยัน เพราะผู้ใช้กด Lock ชนะ refetch ได้เสมอ */
@@ -284,6 +401,15 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
      เพราะไม่เคยเขียนกุญแจลง storage ใดตั้งแต่ต้น */
   const lock = useCallback((auto = false) => {
+    /* ⚠️ ยกเลิก "งานที่กำลังเข้ารหัส/ถอดรหัสอยู่" ก่อนอย่างอื่นทั้งหมด
+       การล็อกที่ปล่อยให้การอัปโหลดเบื้องหลังเข้ารหัส chunk ต่อไปคือการล็อกในนามเท่านั้น:
+       DEK ยังถูกใช้งานอยู่ และ plaintext ของก้อนถัดไปยังถูกอ่านเข้าหน่วยความจำต่อ
+       ⚠️ ciphertext ที่ส่งไปแล้วยังค้างเป็น session ฝั่งเซิร์ฟเวอร์ได้ — นั่นไม่ใช่การรั่ว
+          (ciphertext ไม่ใช่ plaintext) และมันจะถูกเก็บกวาดเมื่อหมดอายุ */
+    transferAbort.current?.abort()
+    transferAbort.current = null
+    resumable.current = null
+    setTransfer(null)
     setKek(null)
     setEntries(null)
     setPass('')
@@ -327,8 +453,20 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     const out = []
     for (const b of list) {
       try {
-        const meta = await decryptBlobMeta(key, b)
-        out.push({ id: vaultBlobId(b), name: meta.name, type: meta.type ?? null, plainSize: meta.size, size: b.size, blob: b })
+        // ⚠️ เลือกเส้นทางจาก formatVersion ที่เซิร์ฟเวอร์ประกาศมาอย่างชัดแจ้ง ไม่ใช่จาก
+        //    การมี/ไม่มีฟิลด์ ("ไม่มีฟิลด์" แยกไม่ออกระหว่าง 'ไม่มี' กับ 'ลืมส่ง')
+        const meta = b.formatVersion === 2
+          ? await decryptVaultV2Meta(key, b)
+          : await decryptBlobMeta(key, b)
+        out.push({
+          id: vaultBlobId(b),
+          name: meta.name,
+          type: meta.type ?? null,
+          // V1 เก็บฟิลด์ชื่อ `size`, V2 เก็บ `plainSize` — ทั้งคู่คือขนาด plaintext จริง
+          plainSize: meta.plainSize ?? meta.size ?? null,
+          size: b.size,
+          blob: b,
+        })
       } catch {
         // blob เสียหาย/ถูกแก้ — แสดงตาม id แทน ไม่ทำให้ทั้งจอล้ม
         out.push({ id: vaultBlobId(b), name: null, type: null, plainSize: null, size: b.size, blob: b })
@@ -422,69 +560,88 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     apiFetch('/api/vault/unlock-attempt', { method: 'POST', body: { ok } }).catch(() => {})
   }
 
-  /* ── อัปโหลด: เข้ารหัสก่อน แล้วค่อยมี network call ─────────────────── */
-  const addFile = async (file) => {
+  /* ── อัปโหลด V2: เข้ารหัสทีละก้อน ส่งทีละก้อน ────────────────────────
+     ⚠️ ไม่มีจุดใดในเส้นทางนี้ที่อ่านไฟล์ทั้งก้อนเข้าหน่วยความจำ — ดู vaultChunkedUpload.js
+        (ทั้ง `file.arrayBuffer()` ทั้งไฟล์ และ `fileToBytes()` ของ V1 ถูกห้ามที่นั่น)
+     ⚠️ ทุกอย่างที่เป็นความลับถูกปิดผนึกก่อน network call แรกเสมอ เหมือน V1 ทุกประการ */
+  const addFile = async (file, resumeState = null) => {
     if (!file || !kek || addBusy) return
     setAddBusy(true)
     setActionError(false)
-    try {
-      const bytes = await fileToBytes(file)
-      // ★ ทุกอย่างถูกเข้ารหัสตรงนี้ — บรรทัดถัดไปคือ network call แรกที่เกิดขึ้น
-      const env = await encryptFileEnvelope(kek, {
-        name: file.name, type: file.type, size: file.size, bytes,
-      })
 
-      const form = new FormData()
-      // ชื่อไฟล์ใน multipart เป็นค่าทึบโดยเจตนา — ชื่อจริงอยู่ใน metaB64 ที่เข้ารหัสแล้ว
-      form.append('file', new Blob([env.ciphertext], { type: 'application/octet-stream' }), 'blob.aegisenc')
-      form.append('ivB64', env.ivB64)
-      form.append('wrappedDekB64', env.wrappedDekB64)
-      form.append('wrapIvB64', env.wrapIvB64)
-      form.append('metaIvB64', env.metaIvB64)
-      form.append('metaB64', env.metaB64)
+    const ctrl = new AbortController()
+    transferAbort.current = ctrl
+    setTransfer({
+      kind: 'upload', stage: 'preparing', phase: 'preparing', name: file.name,
+      transferredBytes: 0, totalBytes: file.size, percent: 0, chunkIndex: 0, chunkCount: 0,
+    })
 
-      const res = await apiFetch('/api/vault/blobs', { method: 'POST', body: form, timeoutMs: 120_000 })
-      const b = res.ok ? res.data?.blob : null
-      // ⚠️ อัปโหลดล้มเหลว = ไม่มีอะไรถูกเพิ่ม ทั้งในบัญชีทึบและใน entries ที่ถอดแล้ว
-      //    การ์ดผีที่หายไปเองตอน refetch คือการโกหกผู้ใช้ว่าไฟล์ถูกเก็บแล้ว
-      if (!b || b.id === undefined || b.id === null) {
-        setActionError(true)
-        setAddBusy(false)
-        return
-      }
+    const res = await uploadVaultFileChunked({
+      kek,
+      file,
+      resume: resumeState,
+      signal: ctrl.signal,
+      onStage: (stage) => setTransfer((prev) => (prev ? { ...prev, stage } : prev)),
+      onProgress: (p) => setTransfer((prev) => (prev ? { ...prev, ...p } : prev)),
+    })
+
+    transferAbort.current = null
+
+    if (res.ok) {
+      const b = res.blob
       const id = vaultBlobId(b)
       // ★ สองบรรทัดนี้ต้องเกิด "ก่อน" การ refetch ใด ๆ: ผู้ใช้กด Lock ได้ทันทีในจังหวะนี้
-      //   และ blob ที่เพิ่งอัปโหลดต้องยังอยู่บนจอในรูป ciphertext
+      //   และ blob ที่เพิ่งอัปโหลดต้องยังอยู่บนจอในรูป ciphertext (ดู vaultInventory.js)
       setLocalBlobs((prev) => addLocalVaultBlob(prev, b))
       setEntries((prev) => (prev ? [
         { id, name: file.name, type: file.type || null, plainSize: file.size, size: b.size, blob: b },
         ...prev.filter((e) => vaultBlobId(e) !== id),
       ] : prev))
-      // reconcile กับสถานะจริงของ server แบบเงียบ ๆ — dedupe ด้วย id ทำให้ไม่เกิดการ์ดซ้ำ
+      resumable.current = null
+      setTransfer(null)
       vaultApi.refresh()
-    } catch {
+    } else if (res.stage === 'cancelled') {
+      // ผู้ใช้กดล็อก/ยกเลิกเอง — ไม่ใช่ความล้มเหลว ไม่ต้องมี error บนจอ
+      resumable.current = null
+      setTransfer(null)
+    } else if (res.stage === 'paused') {
+      // ⚠️ ล้มเหลวชั่วคราวหนึ่งก้อน ≠ ต้องเริ่มไฟล์ใหม่ทั้งก้อน session ยังอยู่ฝั่งเซิร์ฟเวอร์
+      //    และก้อนที่ส่งไปแล้วยังนับอยู่ — จอจึงเสนอ "ทำต่อ" ไม่ใช่ "เริ่มใหม่"
+      resumable.current = { file, resume: res.resume }
+      setTransfer((prev) => (prev ? { ...prev, stage: 'paused', reason: res.reason } : prev))
+    } else {
+      resumable.current = null
       setActionError(true)
+      setTransfer((prev) => (prev ? { ...prev, stage: 'failed', reason: res.reason } : prev))
     }
     setAddBusy(false)
   }
 
-  /* ── ดาวน์โหลด: ดึง ciphertext → แกะ DEK → ถอด → ค่อยส่งให้เบราว์เซอร์เซฟ ──
-     ไม่ใช้ <a href> ตรงไปที่ endpoint เพราะผู้ใช้จะได้ .aegisenc ที่เปิดไม่ได้ */
-  const download = async (entry) => {
-    if (!kek || !unlocked || addBusy) return // ล็อกอยู่ = ไม่มีคำสั่งนี้ให้กด
-    setAddBusy(true)
-    setActionError(false)
+  /** กด "ทำต่อ" — ส่งเฉพาะก้อนที่ยังขาด ด้วย IV ใหม่ทุกก้อน (ดู vaultChunkCrypto.js) */
+  const resumeUpload = () => {
+    const pending = resumable.current
+    if (!pending || addBusy) return
+    addFile(pending.file, pending.resume)
+  }
+
+  /** ปิดแถบสถานะที่จบแล้ว (ล้มเหลว/หยุดค้าง) — ไม่แตะงานฝั่งเซิร์ฟเวอร์ */
+  const dismissTransfer = () => {
+    if (transfer?.stage === 'uploading' || transfer?.stage === 'encrypting') return
+    resumable.current = null
+    setTransfer(null)
+  }
+
+  /* ── ดาวน์โหลด V1: ดึง ciphertext ทั้งก้อน → แกะ DEK → ถอด → ส่งให้เบราว์เซอร์เซฟ ──
+     ⚠️ เส้นทางนี้ "ยังเป็น whole-file ตามนิยามของ V1" และจะเป็นอย่างนั้นตลอดไป — blob
+        ที่มีอยู่คือข้อความ GCM หนึ่งข้อความ ไม่มีทางถอดทีละส่วนได้ ไม่ว่าจะเขียนโค้ดอย่างไร
+        เพดาน 64 MiB ของ V1 จึงคุ้มครองเส้นทางนี้อยู่แล้ว */
+  const downloadV1 = async (entry) => {
     let url = null
     try {
       const res = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(entry.id)}`)
-      if (!res.ok) {
-        setActionError(true)
-        setAddBusy(false)
-        return
-      }
+      if (!res.ok) { setActionError(true); return }
       // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
       const plain = await decryptFileContent(kek, entry.blob, res.bytes)
-
       url = URL.createObjectURL(new Blob([plain]))
       const a = document.createElement('a')
       a.href = url
@@ -496,25 +653,115 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       setActionError(true)
     } finally {
       // ปล่อย blob URL ทันทีที่เบราว์เซอร์คว้าไปแล้ว — ไม่ทิ้ง plaintext ค้างใน memory
-      // ของแท็บนานกว่าที่จำเป็น
       if (url) setTimeout(() => URL.revokeObjectURL(url), 10_000)
-      setAddBusy(false)
     }
+  }
+
+  /* ── ดาวน์โหลด V2: ขอทีละก้อน ถอดทีละก้อน เขียนลงไฟล์ทีละก้อน ──────────
+     หน่วยความจำสูงสุด = O(ขนาด chunk) ไม่ใช่ O(ขนาดไฟล์) ดู vaultChunkedDownload.js
+
+     ⚠️ showSaveFilePicker() ต้องถูกเรียก "ก่อน await ตัวแรก" ของเส้นทางนี้เสมอ —
+        เบราว์เซอร์ยอมเปิดตัวเลือกไฟล์เฉพาะเมื่อมันสืบย้อนไปถึงการกดของผู้ใช้ได้จริง
+        ถ้าเราไปดึง metadata หรือ chunk แรกมาก่อน ตัวเลือกไฟล์จะถูกปฏิเสธทั้งที่ผู้ใช้กดเอง
+     ⚠️ เบราว์เซอร์ที่ไม่มี API นี้ **ไม่ถูกปล่อยให้บัฟเฟอร์ตามยถากรรม**: ไฟล์ที่เล็กพอ
+        ใช้ทางสำรองที่มีเพดานบังคับ ส่วนไฟล์ที่ใหญ่กว่านั้นได้ข้อความที่บอกความจริง
+        แทนที่จะได้แท็บที่ค้างแล้วตาย */
+  const downloadV2 = async (entry) => {
+    const blob = entry.blob
+    const plainSize = entry.plainSize ?? Math.max(0, blob.size - blob.chunkCount * 16)
+    const streaming = supportsStreamingFileSink()
+
+    let sink = null
+    if (streaming) {
+      try {
+        const handle = await globalThis.showSaveFilePicker({ suggestedName: entry.name ?? `${entry.id}.bin` })
+        sink = createFileSystemSink(await handle.createWritable())
+      } catch (err) {
+        // ผู้ใช้กดยกเลิกตัวเลือกไฟล์ = ไม่ใช่ความล้มเหลว เงียบแล้วจบ
+        if (err?.name === 'AbortError') return
+        setActionError(true)
+        return
+      }
+    } else if (plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
+      // บอกความจริง: เบราว์เซอร์นี้ทำไม่ได้ ไม่ใช่ "ลองใหม่แล้วจะได้"
+      setTransfer({
+        kind: 'download', stage: 'unsupported', name: entry.name ?? null,
+        totalBytes: plainSize, transferredBytes: 0, percent: 0,
+        chunkIndex: 0, chunkCount: blob.chunkCount,
+      })
+      return
+    } else {
+      sink = createBufferedSink()
+    }
+
+    const ctrl = new AbortController()
+    transferAbort.current = ctrl
+    setTransfer({
+      kind: 'download', stage: 'downloading', name: entry.name ?? null,
+      transferredBytes: 0, totalBytes: plainSize, percent: 0,
+      chunkIndex: 0, chunkCount: blob.chunkCount,
+    })
+
+    const res = await downloadVaultV2({
+      kek, blob, sink, signal: ctrl.signal,
+      // ⚠️ ดาวน์โหลดนับเป็น bytesWritten (ไบต์ที่ "เขียนออกไปแล้ว") ส่วนอัปโหลดนับ
+      //    transferredBytes — แปลให้เป็นคำเดียวกันตรงนี้ ไม่งั้นตัวนับไบต์จะค้างที่ศูนย์
+      //    ตลอดการดาวน์โหลด ทั้งที่เปอร์เซ็นต์เดิน (= แถบโกหกผู้ใช้สองตัวเลขที่ขัดกันเอง)
+      onProgress: (p) => setTransfer((prev) => (
+        prev ? { ...prev, ...p, transferredBytes: p.bytesWritten ?? prev.transferredBytes } : prev
+      )),
+    })
+    transferAbort.current = null
+
+    if (!res.ok) {
+      // ⚠️ ไม่มีการส่งมอบไฟล์ใด ๆ ในเส้นทางนี้ — sink ถูก abort() ไปแล้วใน downloadVaultV2
+      if (res.reason === 'cancelled') { setTransfer(null); return }
+      setActionError(true)
+      setTransfer((prev) => (prev ? { ...prev, stage: 'failed', reason: res.reason } : prev))
+      return
+    }
+
+    if (sink.kind === 'buffered') {
+      // ทางสำรองที่มีเพดาน — ประกอบเป็น Blob แล้วให้เบราว์เซอร์เซฟตามปกติ
+      const url = URL.createObjectURL(new Blob(res.result, { type: entry.type || 'application/octet-stream' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = entry.name ?? `${entry.id}.bin`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    }
+    setTransfer(null)
+  }
+
+  /** ปุ่ม Download ของการ์ด — เลือกเส้นทางจาก formatVersion เท่านั้น */
+  const download = async (entry) => {
+    if (!kek || !unlocked || addBusy) return // ล็อกอยู่ = ไม่มีคำสั่งนี้ให้กด
+    setActionError(false)
+    if (entry.blob?.formatVersion === 2) {
+      // ⚠️ ห้าม await อะไรก่อนถึงบรรทัดนี้ — downloadV2 ต้องเปิดตัวเลือกไฟล์ให้ทัน
+      //    ภายใน user gesture เดียวกับการกดปุ่ม
+      return downloadV2(entry)
+    }
+    setAddBusy(true)
+    await downloadV1(entry)
+    setAddBusy(false)
+    return undefined
   }
 
   /* ── Preview: ถอดรหัสในเบราว์เซอร์ แล้ว render จาก object URL ในเครื่อง ──
      เส้นทางเดียวกับ Download ทุกประการ ต่างกันแค่ปลายทางของ bytes:
 
-       GET /api/vault/blobs/:id → ciphertext
-         → decryptFileContent(kek, entry.blob, ciphertext)   ← ในเบราว์เซอร์เท่านั้น
-         → Blob/object URL ชั่วคราว
-         → <img> หรือ <video controls>
+       ciphertext → ถอดในเบราว์เซอร์เท่านั้น → Blob/object URL ชั่วคราว → <img>/<video>
 
      ⚠️ เซิร์ฟเวอร์ไม่เคยได้รับหรือสร้าง plaintext, thumbnail, ชื่อไฟล์, MIME, KEK
         หรือ DEK เลย ไม่มี endpoint ใหม่ ไม่มี transcode ฝั่งเซิร์ฟเวอร์
-     ⚠️ วิดีโอต้องโหลด ciphertext ทั้งก้อนมาถอดก่อนถึงจะเล่นได้ (GCM พิสูจน์
-        integrity ของทั้งก้อน — ไม่มี range request ที่ถอดทีละส่วนได้) สถานะ
-        "กำลังถอดรหัส" จึงเป็นความจริง ไม่ใช่ spinner ประดับ */
+     ⚠️ Preview ต้องมี plaintext ทั้งก้อนใน memory เพื่อสร้าง object URL — ทั้ง V1 และ V2
+        และนั่นคือเหตุผลที่ V2 **บังคับเพดาน** ตรงนี้ ไม่ใช่ "พยายามให้ได้"
+        ไฟล์วิดีโอหลายกิกะไบต์จะไม่ถูกประกอบใน RAM เพื่อให้ปุ่ม Preview ดูใช้งานได้
+        การเล่นสตรีมของจริงต้องใช้ MediaSource + การถอดแบบ on-demand ซึ่ง **ยังไม่ได้ทำ**
+        (บันทึกไว้ตามจริง: LARGE_V2_VIDEO_PREVIEW = LIMITED) */
   const openPreview = async (entry) => {
     if (!kek || !unlocked) return
     const kind = previewKindFor(entry.type)
@@ -523,18 +770,36 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     setDetails(null)
     releasePreview() // preview ใบก่อนถูกแทนที่ = ปล่อย URL ใบก่อนทันที
     const token = previewToken.current
-    setPreview({ entry, kind, url: null, loading: true, failed: false })
+
+    const isV2 = entry.blob?.formatVersion === 2
+    const plainSize = entry.plainSize ?? entry.size
+    if (isV2 && plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
+      // ⚠️ สถานะนี้เป็นความจริงเชิงสถาปัตยกรรม ไม่ใช่ error ชั่วคราว — ข้อความจึงต้อง
+      //    บอกทางออกที่ใช้ได้จริง (ดาวน์โหลดไปเปิด) ไม่ใช่ "ลองใหม่อีกครั้ง"
+      setPreview({ entry, kind, url: null, loading: false, failed: false, tooLarge: true })
+      return
+    }
+    setPreview({ entry, kind, url: null, loading: true, failed: false, tooLarge: false })
 
     try {
-      const res = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(entry.id)}`)
-      if (token !== previewToken.current) return
-      if (!res.ok) throw new Error('fetch-failed')
-      // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
-      const plain = await decryptFileContent(kek, entry.blob, res.bytes)
+      let plain
+      if (isV2) {
+        const sink = createBufferedSink()
+        const res = await downloadVaultV2({ kek, blob: entry.blob, sink })
+        if (!res.ok) throw new Error(res.reason)
+        plain = new Blob(res.result, { type: entry.type || 'application/octet-stream' })
+      } else {
+        const res = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(entry.id)}`)
+        if (token !== previewToken.current) return
+        if (!res.ok) throw new Error('fetch-failed')
+        // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
+        const bytes = await decryptFileContent(kek, entry.blob, res.bytes)
+        plain = new Blob([bytes], { type: entry.type || 'application/octet-stream' })
+      }
       // ⚠️ ตรวจอีกครั้งหลังถอดเสร็จ: ผู้ใช้อาจกดล็อกระหว่างที่ถอดอยู่ ถ้าสร้าง URL
       //    ตอนนี้จะได้ object URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน = plaintext ค้าง
       if (token !== previewToken.current) return
-      const url = URL.createObjectURL(new Blob([plain], { type: entry.type || 'application/octet-stream' }))
+      const url = URL.createObjectURL(plain)
       previewUrlRef.current = url
       setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, url, loading: false } : prev))
     } catch {
@@ -702,6 +967,18 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         </p>
       )}
 
+      {/* ⚠️ แถบนี้ปรากฏเฉพาะตอนปลดล็อกอยู่ — งานเข้ารหัส/ถอดรหัสมีอยู่ได้เฉพาะตอนนั้น
+          และมันถูกเคลียร์พร้อมกุญแจใน lock() ไม่ใช่ค้างไว้ให้ผู้ใช้เห็นชื่อไฟล์หลังล็อก */}
+      {unlocked && (
+        <VaultTransferPanel
+          t={t}
+          transfer={transfer}
+          onResume={resumeUpload}
+          onCancel={() => transferAbort.current?.abort()}
+          onDismiss={dismissTransfer}
+        />
+      )}
+
       {vaultApi.loading ? (
         <Card className="p-5"><SkeletonLoader type="files" /></Card>
       ) : fetchError ? (
@@ -801,7 +1078,15 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
           style={{ minHeight: 220 }}
           data-vault-preview-stage={preview?.kind ?? ''}
         >
-          {preview?.failed ? (
+          {preview?.tooLarge ? (
+            /* ⚠️ สถานะนี้ไม่ใช่ error และไม่ใช่สิ่งที่ "ลองใหม่แล้วจะหาย" — มันคือ
+               ข้อจำกัดที่ตั้งใจ: Preview ต้องมี plaintext ทั้งก้อนใน RAM เพื่อสร้าง
+               object URL การประกอบวิดีโอหลายกิกะไบต์ในแท็บเพื่อให้ปุ่มนี้ดูใช้งานได้
+               คือการนำปัญหาที่ V2 เพิ่งแก้ไปกลับเข้ามาทางประตูหลัง */
+            <p role="status" data-vault-preview-too-large="1" className="text-[13px] text-ink-2 px-6 py-10 text-center max-w-md">
+              {t('vaultPreviewTooLarge')}
+            </p>
+          ) : preview?.failed ? (
             <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center" style={{ color: 'var(--danger)' }}>
               {t('vaultPreviewUnavailable')}
             </p>

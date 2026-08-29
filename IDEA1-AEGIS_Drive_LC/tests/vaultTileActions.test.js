@@ -506,7 +506,7 @@ test('a just-uploaded blob gets a working menu before any refetch lands', async 
   const A = serverBlob({ id: 'blob-new', name: 'FRESH.gif' })
   backend.state['/api/vault'].data = { configured: true, blobs: [] }
   backend.respond = async ({ path, method }) => {
-    if (method === 'POST' && path === '/api/vault/blobs') {
+    if (method === 'POST' && path === '/api/vault/uploads') {
       return { ok: true, status: 201, data: { blob: A }, errorKind: null }
     }
     if (method === 'DELETE' && path === '/api/vault/blobs/blob-new') {

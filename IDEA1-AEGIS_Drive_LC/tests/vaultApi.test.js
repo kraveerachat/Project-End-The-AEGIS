@@ -37,6 +37,7 @@ const { createApp } = await import('../server/app.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 const { initVaultStorage } = await import('../server/storage/vaultStore.js')
 const store = await import('../server/db/store.js')
+const v2store = await import('../server/db/vaultV2Store.js')
 const { readAudit, usingPostgres, closePool, query } = await import('../server/db/connection.js')
 
 assert.equal(
@@ -94,6 +95,10 @@ after(async () => {
 // ล้างทั้งแถวข้อมูลและ ciphertext บนดิสก์ — ไม่งั้นเคสที่นับไฟล์ในโฟลเดอร์จะเห็นของเคสก่อน
 beforeEach(async () => {
   await store.__resetVaultForTests()
+  // ⚠️ GET /api/vault คืน "ห้องนิรภัยทั้งห้อง" คือทั้ง V1 และ V2 ในรายการเดียว (LFT-V2-B)
+  //    การล้างเฉพาะตาราง V1 จึงไม่พออีกต่อไป: ในโหมด Postgres ทุกไฟล์เทสต์ใช้ฐานข้อมูล
+  //    เดียวกัน แถว V2 ที่ค้างจากไฟล์อื่นจะโผล่มาในบัญชีรายการของชุดนี้แล้วนับเกิน
+  await v2store.__resetVaultV2ForTests()
   const dir = path.join(STORAGE_ROOT, 'vault')
   for (const f of await fs.readdir(dir)) await fs.rm(path.join(dir, f), { force: true })
 })

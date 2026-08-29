@@ -16,6 +16,9 @@ import { initUploadStaging } from './storage/uploadStaging.js'
 import { cleanupAbandonedUploads, scheduleUploadCleanup } from './storage/uploadCleanup.js'
 import { recoverStaleCommits, scheduleCommitRecovery } from './storage/commitRecovery.js'
 import { initVaultStorage } from './storage/vaultStore.js'
+import { initVaultStaging } from './storage/vaultStaging.js'
+import { cleanupAbandonedVaultUploads, scheduleVaultUploadCleanup } from './storage/vaultUploadCleanup.js'
+import { recoverStaleVaultCommits, scheduleVaultCommitRecovery } from './storage/vaultCommitRecovery.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
@@ -34,7 +37,8 @@ const app = createApp()
 // .staging/uploads/ ต้องพร้อมก่อนเปิดพอร์ตเช่นกัน — ถ้าเขียนไม่ได้ การอัปโหลดไฟล์ใหญ่
 // (เส้นทาง V2 แบบ chunk) จะล้มตอน runtime แทนที่จะดังตั้งแต่บูต
 Promise.all([
-  bootstrapAdminIfNeeded(), initStorage(), initUploadStaging(), initVaultStorage(), initAvatarStorage(),
+  bootstrapAdminIfNeeded(), initStorage(), initUploadStaging(), initVaultStorage(),
+  initVaultStaging(), initAvatarStorage(),
 ])
   .then(() => {
     // เก็บกวาดรอบแรกตอนบูต แล้วจึงตั้งรอบประจำ — session ที่ค้างจากการรันครั้งก่อนต้อง
@@ -60,6 +64,27 @@ Promise.all([
       })
       .catch((err) => console.error('[aegis-drive] initial upload cleanup failed:', err.message))
     scheduleUploadCleanup()
+
+    // ⚠️ Private Vault V2 มีงานกู้คืน/เก็บกวาดของตัวเอง แยกจาก Normal Files โดยเจตนา —
+    //    สองเส้นทางใช้คนละตาราง คนละโฟลเดอร์พัก และคนละสัญญาเช่า การใช้งานเดียวกัน
+    //    แปลว่างานของฝั่งหนึ่งเดินเข้าไปในไบต์ของอีกฝั่งได้ ซึ่งไม่ควรมีอยู่เลย
+    recoverStaleVaultCommits()
+      .then(({ reopened, committed, aborted }) => {
+        if (reopened || committed || aborted) {
+          console.log(`[aegis-drive] vault commit recovery: ${reopened} reopened, ${committed} committed, ${aborted} aborted`)
+        }
+      })
+      .catch((err) => console.error('[aegis-drive] initial vault commit recovery failed:', err.message))
+    scheduleVaultCommitRecovery()
+
+    cleanupAbandonedVaultUploads()
+      .then(({ expired, orphans }) => {
+        if (expired || orphans) {
+          console.log(`[aegis-drive] vault upload cleanup removed ${expired} expired session(s), ${orphans} orphan(s)`)
+        }
+      })
+      .catch((err) => console.error('[aegis-drive] initial vault upload cleanup failed:', err.message))
+    scheduleVaultUploadCleanup()
 
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'

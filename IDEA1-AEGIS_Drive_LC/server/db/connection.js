@@ -54,6 +54,45 @@ export async function query(text, params) {
 }
 
 /**
+ * รัน fn ขณะถือ advisory lock ของ PostgreSQL — กันสองคำขอที่แข่งกัน "ข้ามโปรเซส"
+ *
+ * ⚠️ ทำไมต้องมี ทั้งที่ transaction ก็ล็อกแถวได้: การเขียน chunk ของ Vault V2 คือการ
+ *    ไหลของไบต์จาก socket ลงดิสก์ ซึ่งใช้เวลาเป็นวินาที การเปิด transaction ค้างไว้
+ *    ตลอดช่วงนั้นเพื่อถือ row lock จะกิน connection ของ pool และทำให้ VACUUM/planner
+ *    เห็น transaction ยาวโดยไม่จำเป็น advisory lock ให้การกันชนแบบเดียวกันโดยไม่ต้อง
+ *    เปิด transaction ค้าง
+ * ⚠️ ทำไมไม่ใช้ Map ในหน่วยความจำ: production อาจรันมากกว่าหนึ่งโปรเซส (และ compose
+ *    ก็ scale ได้) lock ที่อยู่ใน heap ของโปรเซสเดียวจึงไม่กันอะไรเลยข้ามโปรเซส
+ * ⚠️ ถ้าโปรเซสตายขณะถือ lock อยู่ connection จะหลุด และ PostgreSQL ปลด lock ให้เอง —
+ *    ไม่มีสถานะค้างที่ต้องมีใครมาเก็บกวาด (ต่างจากการเขียน "ธง" ลงตาราง)
+ * ⚠️ pg_try_advisory_lock ผูกกับ "connection" ไม่ใช่ transaction จึงต้องจอง client
+ *    ตัวเดียวและ unlock ก่อนคืน pool เสมอ ไม่งั้น lock จะติดค้างไปกับ connection ที่
+ *    ถูกนำกลับไปใช้ใหม่
+ * ⚠️ key เป็น int32 คู่หนึ่ง — การชนกันของ key ข้าม session เป็นไปได้ในทางทฤษฎี
+ *    (~2⁻³²) ผลของมันคือคำขอหนึ่งได้ 409 แล้วลองใหม่ ไม่ใช่ข้อมูลเสียหาย
+ *
+ * @param {number} key1 int32
+ * @param {number} key2 int32
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<{ acquired: boolean, value?: T }>}
+ * @template T
+ */
+export async function withAdvisoryLock(key1, key2, fn) {
+  const client = await pool.connect()
+  try {
+    const { rows } = await client.query('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [key1, key2])
+    if (rows[0]?.ok !== true) return { acquired: false }
+    try {
+      return { acquired: true, value: await fn() }
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1::int, $2::int)', [key1, key2]).catch(() => {})
+    }
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * รันหลายคำสั่งใน transaction เดียว — ทุกคำสั่งสำเร็จพร้อมกัน หรือไม่เกิดขึ้นเลย
  *
  * ⚠️ ต้องจอง client ตัวเดียวจาก pool แล้วใช้ตัวนั้นตลอด: `query()` ด้านบนหยิบ

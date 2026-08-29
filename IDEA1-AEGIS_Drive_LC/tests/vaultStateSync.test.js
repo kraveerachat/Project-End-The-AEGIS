@@ -53,7 +53,7 @@ const setServerBlobs = (blobs) => { backend.state['/api/vault'].data = { configu
 /** POST /api/vault/blobs succeeds and returns `blob`; everything else 204s. */
 function acceptUpload(blob) {
   backend.respond = async ({ path, method }) => {
-    if (method === 'POST' && path === '/api/vault/blobs') {
+    if (method === 'POST' && path === '/api/vault/uploads') {
       return { ok: true, status: 201, data: { blob }, errorKind: null }
     }
     return { ok: true, status: 204, data: null, errorKind: null }
@@ -137,7 +137,7 @@ test('CASE 2: a pre-existing blob plus a new upload reconcile to exactly two car
 test('CASE 3: a failed upload leaves no ghost blob and no ghost plaintext entry', async () => {
   setServerBlobs([])
   backend.respond = async ({ path, method }) => {
-    if (method === 'POST' && path === '/api/vault/blobs') {
+    if (method === 'POST' && path === '/api/vault/uploads') {
       return { ok: false, status: 500, data: { error: 'Internal error' }, errorKind: 'server' }
     }
     return { ok: true, status: 204, data: null, errorKind: null }

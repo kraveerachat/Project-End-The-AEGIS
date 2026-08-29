@@ -277,3 +277,121 @@ CREATE TABLE IF NOT EXISTS upload_session_chunks (
   received_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (upload_id, chunk_index)
 );
+
+-- ── Private Vault V2 — chunked zero-knowledge transfer (LFT-V2-B) ───────────
+--
+-- ⚠️ ตารางชุดนี้ "เพิ่มเข้ามา" ไม่ได้แทนที่ vault_meta / vault_blobs ของ V1 ซึ่งยัง
+--    ทำงานเหมือนเดิมทุกประการและไม่มีคอลัมน์ใดถูกผ่อนคลาย blob V1 ที่มีอยู่ยังลิสต์ได้
+--    ปลดล็อกได้ พรีวิวได้ ดาวน์โหลดได้ และลบได้ผ่านเส้นทางเดิม ไม่มี ciphertext ใดถูกแปลง
+--
+-- ⚠️ ทำไมเป็นตารางแยก ไม่ใช่คอลัมน์ format_version ใน vault_blobs:
+--    V2 ไม่มี "IV ของทั้งไฟล์" (มี IV ต่อ chunk) การยัดลงตารางเดียวจึงต้อง DROP NOT NULL
+--    ออกจาก vault_blobs.iv_b64 ซึ่งเป็นคอลัมน์เดียวที่พิสูจน์ว่าแถว V1 เป็นข้อความ GCM
+--    ที่สมบูรณ์ — เท่ากับทำให้ "แถวที่ผิด" กลายเป็นสิ่งที่เขียนลงตารางได้ ส่วนการใส่ค่า
+--    หลอกอย่าง iv_b64='v2' ยิ่งแย่กว่า เพราะมันคือ constraint ที่ยังอยู่แต่ไม่ได้ตรวจอะไร
+--
+-- ⚠️ สิ่งที่เซิร์ฟเวอร์ "รู้" จากตารางชุดนี้ พูดตามตรง: ciphertext_size, chunk_size และ
+--    chunk_count ทำให้ derive ขนาด plaintext ได้ (plainSize = ciphertext_size −
+--    16 × chunk_count เพราะทุก chunk มี GCM tag 16 ไบต์) นี่คือการเปิดเผยชนิดเดียวกับ
+--    ที่ V1 มีอยู่แล้ว (V1 เก็บขนาด ciphertext ซึ่งคือ plaintext + 16) จึงบันทึกไว้ตรงนี้
+--    ตามจริง ไม่ใช่อ้างว่าซ่อนได้
+--
+-- ⚠️ ไม่มีคอลัมน์ชื่อไฟล์/MIME ที่ใดในชุดนี้ และห้ามเพิ่มเด็ดขาด — ต่างจาก
+--    upload_sessions ของ Normal Files ที่มีคอลัมน์ name เป็น plaintext ได้อย่างถูกต้อง
+--    เพราะที่นั่นตาราง files ก็เก็บชื่อจริงอยู่แล้ว
+--
+-- ⚠️ id ของ blob เป็น TEXT ทึบ ไม่ใช่ BIGSERIAL ด้วยเหตุผลสองข้อ: (1) inventory เดียว
+--    คืนทั้งแถว V1 (id ตัวเลข) และ V2 พร้อมกัน id สองชุดจึงต้องชนกันไม่ได้โดยโครงสร้าง
+--    (2) id ที่เดาต่อได้ทำให้ 404 ของ cross-owner ถูกยิงหาช่องว่างได้ ส่วน id ทึบ
+--    แยกไม่ออกจาก "ไม่เคยมีอยู่" — ผลพลอยได้ที่บันทึกไว้: ตารางชุดนี้ไม่มี sequence เลย
+CREATE TABLE IF NOT EXISTS vault_v2_blobs (
+  id              TEXT PRIMARY KEY,
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  format_version  SMALLINT NOT NULL DEFAULT 2 CHECK (format_version = 2),
+  storage_key     TEXT NOT NULL UNIQUE,           -- 'vault/<uuid>.aegisenc' — ทึบเสมอ
+  content_id_b64  TEXT NOT NULL,                  -- ตัวระบุเนื้อหาที่ถูกผูกไว้ใน AAD ของทุก chunk
+  ciphertext_size BIGINT NOT NULL CHECK (ciphertext_size > 0),
+  chunk_size      INTEGER NOT NULL CHECK (chunk_size > 0),   -- ciphertext ต่อ chunk เต็มก้อน
+  chunk_count     INTEGER NOT NULL CHECK (chunk_count > 0),  -- ไฟล์ว่าง = 1 chunk ไม่ใช่ 0
+  wrapped_dek_b64 TEXT NOT NULL,
+  wrap_iv_b64     TEXT NOT NULL,
+  meta_iv_b64     TEXT NOT NULL,                  -- {name,type,plainSize} เข้ารหัสด้วย DEK
+  meta_b64        TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS vault_v2_blobs_user_idx ON vault_v2_blobs (user_id, created_at DESC);
+
+-- ⚠️ iv_b64 อยู่ "ต่อ chunk" และ NOT NULL — นี่คือแก่นของรูปแบบ V2: หนึ่ง chunk = หนึ่ง
+--    ข้อความ AES-GCM ที่สมบูรณ์พร้อม IV 96 บิตของตัวเอง คอลัมน์ IV ระดับไฟล์เพียงตัวเดียว
+--    จะบังคับให้ IV ซ้ำข้าม chunk (ซึ่งทำลาย GCM ทั้งหมด) หรือบังคับกลับไปเป็น whole-file
+-- ⚠️ ciphertext_sha256 คือค่าที่ "เซิร์ฟเวอร์" แฮชจากไบต์ที่มันรับมาเอง มันพิสูจน์ว่า
+--    ciphertext ที่เก็บไว้คือ ciphertext ที่มาถึง — ไม่ได้พิสูจน์อะไรเกี่ยวกับ plaintext
+--    เลย (เซิร์ฟเวอร์ไม่มีกุญแจ) ดูการแยก SERVER_CIPHERTEXT_INTEGRITY กับ
+--    CLIENT_AEAD_PLAINTEXT_AUTHENTICATION
+CREATE TABLE IF NOT EXISTS vault_v2_blob_chunks (
+  blob_id           TEXT NOT NULL REFERENCES vault_v2_blobs(id) ON DELETE CASCADE,
+  chunk_index       INTEGER NOT NULL CHECK (chunk_index >= 0),
+  ciphertext_size   INTEGER NOT NULL CHECK (ciphertext_size > 0),
+  ciphertext_sha256 CHAR(64) NOT NULL,
+  iv_b64            TEXT NOT NULL,
+  PRIMARY KEY (blob_id, chunk_index)
+);
+
+-- ⚠️ envelope ถูกบันทึกตั้งแต่ตอนเปิด session ไม่ใช่ตอน commit — session ที่ไม่เคย
+--    commit จึงถือแค่ ciphertext กับกุญแจที่ถูกห่อไว้ และการล่มกลางคันไม่มีทางทิ้งไบต์ที่
+--    เผยแพร่แล้วโดยไม่มี envelope
+CREATE TABLE IF NOT EXISTS vault_v2_upload_sessions (
+  upload_id       TEXT PRIMARY KEY,               -- id ทึบ 24 ไบต์สุ่ม (hex)
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  format_version  SMALLINT NOT NULL DEFAULT 2 CHECK (format_version = 2),
+  content_id_b64  TEXT NOT NULL,
+  ciphertext_size BIGINT NOT NULL CHECK (ciphertext_size > 0),
+  chunk_size      INTEGER NOT NULL CHECK (chunk_size > 0),
+  chunk_count     INTEGER NOT NULL CHECK (chunk_count > 0),
+  wrapped_dek_b64 TEXT NOT NULL,
+  wrap_iv_b64     TEXT NOT NULL,
+  meta_iv_b64     TEXT NOT NULL,
+  meta_b64        TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open', 'committing', 'committed', 'aborted')),
+  commit_started_at  TIMESTAMPTZ,
+  commit_storage_key TEXT,                        -- เลือกและบันทึก "ก่อน" การ rename ใด ๆ
+  committed_blob_id  TEXT REFERENCES vault_v2_blobs(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at      TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS vault_v2_sessions_user_idx ON vault_v2_upload_sessions (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS vault_v2_sessions_expiry_idx ON vault_v2_upload_sessions (status, expires_at);
+CREATE INDEX IF NOT EXISTS vault_v2_sessions_commit_idx ON vault_v2_upload_sessions (status, commit_started_at);
+
+-- ⚠️ สองสถานะ และความต่างสำคัญต่อความปลอดภัยหลังโปรเซสตาย:
+--      'writing'  = มีคำขอจองช่องนี้ไว้และอาจกำลังส่งไบต์อยู่ หรือตายไปกลางทาง
+--                   ช่องนี้ "ไม่นับว่ารับแล้ว" commit จึงถูกบล็อก และการส่งซ้ำเขียนทับได้
+--                   ทั้งก้อน — โปรเซสที่ตายกลางการเขียนจึงทิ้งช่องที่กู้ได้ ไม่ใช่ช่องที่
+--                   อ้างว่ามีไบต์ทั้งที่ไม่มี
+--      'received' = ไบต์ครบและเซิร์ฟเวอร์แฮชไว้แล้ว
+-- ⚠️ writer_token คือครึ่งหลังของกติกาความสอดคล้องในการเขียน: คำสั่ง UPDATE ตอนปิดงาน
+--    ต้องตรงกับ token ผู้เขียนที่ช้ากว่าและถูกแซงไปแล้วจึงเอา metadata ของตัวเองไปแปะกับ
+--    ไบต์ของผู้เขียนคนหลังไม่ได้ ครึ่งแรกคือ advisory lock ของ PostgreSQL ที่ถือไว้ตลอด
+--    การเขียน ซึ่งกันผู้เขียนสองคนของช่องเดียวกัน "ข้ามโปรเซส" ได้จริง — Map ในโปรเซส
+--    เดียวทำไม่ได้ และ production อาจมีหลายโปรเซส
+-- ⚠️ สามคอลัมน์ล่างเป็น NULL ได้ "เฉพาะเพราะ" ช่องที่ยัง writing ยังไม่มีไบต์ CHECK
+--    ด้านล่างคือ constraint ชดเชย: แถวที่ received ต้องมีครบทั้งสามเสมอ
+CREATE TABLE IF NOT EXISTS vault_v2_upload_chunks (
+  upload_id         TEXT NOT NULL REFERENCES vault_v2_upload_sessions(upload_id) ON DELETE CASCADE,
+  chunk_index       INTEGER NOT NULL CHECK (chunk_index >= 0),
+  state             TEXT NOT NULL CHECK (state IN ('writing', 'received')),
+  writer_token      TEXT NOT NULL,
+  ciphertext_size   INTEGER CHECK (ciphertext_size > 0),
+  ciphertext_sha256 CHAR(64),
+  iv_b64            TEXT,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_id, chunk_index),
+  CONSTRAINT vault_v2_chunk_received_is_complete CHECK (
+    state <> 'received'
+    OR (ciphertext_size IS NOT NULL AND ciphertext_sha256 IS NOT NULL AND iv_b64 IS NOT NULL)
+  )
+);
