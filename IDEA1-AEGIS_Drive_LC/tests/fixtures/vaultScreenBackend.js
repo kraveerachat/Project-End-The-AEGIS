@@ -139,6 +139,16 @@ export async function decryptVaultV2Meta(kek, blob) {
   return { name: meta.name, type: meta.type, plainSize: meta.plainSize ?? meta.size }
 }
 
+/**
+ * แกะ DEK ออกจากซอง — จอเรียกใช้ก่อนเปิดเซสชันสตรีมของ preview วิดีโอใหญ่
+ * ⚠️ คืน "กุญแจปลอมชุดเดียวกับ V1" เพราะชุดนี้ทดสอบ state machine ของจอ ไม่ใช่ WebCrypto
+ *    (การถอดรหัสจริงถูกพิสูจน์ใน tests/vaultPreviewResponder.test.js ด้วยโมดูลตัวจริง)
+ */
+export async function unwrapVaultV2Dek(kek) {
+  if (!kek) throw new Error('no-key')
+  return FAKE_KEK
+}
+
 /* ── ../lib/vaultChunkedUpload.js ─────────────────────────────────────
    ตัวควบคุมของเทสต์ตอบที่ path เดียวกับที่โมดูลจริงยิงไป ('/api/vault/uploads')
    จอจึงถูกทดสอบด้วย "ผลลัพธ์ของการอัปโหลด V2" ตามจริง ไม่ใช่ผลของ endpoint V1 ที่เลิกใช้ */

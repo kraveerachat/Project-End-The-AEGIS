@@ -16,6 +16,7 @@ import {
 import {
   vaultTransferLimitsFromEnv, expectedVaultCiphertextSize, vaultChunkCountFor,
   MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES, GCM_TAG_BYTES,
+  MIN_VAULT_UPLOAD_CONCURRENCY, MAX_VAULT_UPLOAD_CONCURRENCY,
 } from '../server/config/vaultTransferLimits.js'
 
 const MIB = 1_048_576
@@ -55,8 +56,44 @@ test('deployment ที่ไม่ได้ตั้งค่าเอง ย�
 
   assert.equal(normal.maxLogicalFileBytes, 5 * GIB)
   assert.equal(vault.maxLogicalFileBytes, 5 * GIB)
-  assert.equal(normal.chunkSizeBytes, 16 * MIB)
-  assert.equal(vault.plaintextChunkBytes, 16 * MIB)
+  assert.equal(normal.chunkSizeBytes, 16 * MIB, 'Normal Files ยังเป็น 16 MiB — งานนี้ไม่แตะ')
+  // ⚠️ ค่าเริ่มต้นของ Vault ถูกยกเป็น 32 MiB ใน LFT-V2-E2 พร้อมกับความพร้อมกัน 2 —
+  //    เพดานหน่วยความจำของแท็บจึงเป็น ≈ 2 × 32 MiB × 2 = 128 MiB (เดิม ≈ 32 MiB)
+  //    นี่คือค่าคงที่ที่ไม่ขึ้นกับขนาดไฟล์ ไม่ใช่ค่าที่โตตามไฟล์
+  assert.equal(vault.plaintextChunkBytes, 32 * MIB)
+  assert.equal(vault.uploadConcurrency, 2)
+})
+
+test('ความพร้อมกันของการอัปโหลด Vault อยู่ในช่วง 1–4 และค่านอกช่วงทำให้บูตไม่ขึ้น', () => {
+  assert.equal(MIN_VAULT_UPLOAD_CONCURRENCY, 1)
+  assert.equal(MAX_VAULT_UPLOAD_CONCURRENCY, 4)
+
+  for (const n of [1, 2, 3, 4]) {
+    assert.equal(vaultTransferLimitsFromEnv({ VAULT_UPLOAD_CONCURRENCY: String(n) }).uploadConcurrency, n)
+  }
+
+  // ⚠️ ฝั่งเซิร์ฟเวอร์ต้อง "ไม่บูต" ไม่ใช่ clamp เงียบ ๆ — ต่างจากฝั่ง client ที่ clamp
+  //    เพราะแท็บของผู้ใช้ปฏิเสธที่จะทำงานเพราะค่าที่ผู้ดูแลตั้งผิดไม่ได้
+  assert.throws(() => vaultTransferLimitsFromEnv({ VAULT_UPLOAD_CONCURRENCY: '0' }), /must be between/)
+  assert.throws(() => vaultTransferLimitsFromEnv({ VAULT_UPLOAD_CONCURRENCY: '5' }), /must be between/)
+  assert.throws(() => vaultTransferLimitsFromEnv({ VAULT_UPLOAD_CONCURRENCY: 'two' }), /positive integer/)
+})
+
+test('เพดานหน่วยความจำของแท็บเป็นค่าคงที่ ไม่โตตามขนาดไฟล์', () => {
+  // สัญญาที่บันทึกไว้: ≈ 2 × plaintextChunkBytes × uploadConcurrency
+  const limits = vaultTransferLimitsFromEnv({})
+  const peak = 2 * limits.plaintextChunkBytes * limits.uploadConcurrency
+  assert.equal(peak, 128 * MIB)
+
+  // ★ ค่านี้ต้องไม่ขึ้นกับขนาดไฟล์เลย — พิสูจน์โดยเทียบกับเพดานไฟล์ที่ใหญ่ที่สุดที่ตั้งได้
+  assert.ok(peak < THIRTY_TWO_GIB / 100,
+    'เพดานหน่วยความจำต้องเล็กกว่าขนาดไฟล์สูงสุดอย่างมีนัยสำคัญ ไม่ใช่สัดส่วนของมัน')
+
+  // และ deployment ที่หน่วยความจำน้อยลดลงได้โดยไม่ต้องแก้โค้ด
+  const lean = vaultTransferLimitsFromEnv({
+    VAULT_CHUNK_PLAINTEXT_BYTES: String(8 * MIB), VAULT_UPLOAD_CONCURRENCY: '1',
+  })
+  assert.equal(2 * lean.plaintextChunkBytes * lean.uploadConcurrency, 16 * MIB)
 })
 
 test('ไม่มีจุดใดหลุดช่วงจำนวนเต็มที่ปลอดภัยของ JS ที่ 32 GiB', () => {

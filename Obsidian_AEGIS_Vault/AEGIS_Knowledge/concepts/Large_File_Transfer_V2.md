@@ -515,7 +515,7 @@ incomplete is ever handed over as if it were complete.
 | Marker | Value | Meaning |
 | :--- | :--- | :--- |
 | `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
-| `LARGE_V2_VIDEO_PREVIEW` | `LIMITED` | Preview needs a whole plaintext object URL. Above 64 MiB the screen says "Preview unavailable for large encrypted files — download to view" instead of assembling gigabytes in RAM. Real streaming playback needs a Service Worker plus on-demand range decryption; that is scoped as **LFT-V2-E3** and is not built yet. The 64 MiB buffered fallback stays as it is and must not be raised. |
+| `LARGE_V2_VIDEO_PREVIEW` | `STREAMED` (video) / `LIMITED` (images) | **Video** above 64 MiB now streams through a same-origin Service Worker that decrypts only the chunks a Range request actually needs — see §13. **Still-image** preview is unchanged and still refuses above 64 MiB: an `<img>` requests the whole file regardless, so range streaming buys it nothing. The 64 MiB buffered ceiling itself was **not** raised. |
 | `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
 | `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
 
@@ -761,20 +761,245 @@ recorded as an integration request against `gateway/nginx.conf` for Kla.
 | `UPLOAD_COMMIT_LEASE_MS` | 15 min | 1 min – 24 h | `server/config/transferLimits.js` |
 | `STORAGE_FREE_RESERVE_BYTES` | 2 GiB | ≥ 0 | `server/config/transferLimits.js` |
 | `STORAGE_FREE_RESERVE_FRACTION` | 0.05 | [0, 1) | `server/config/transferLimits.js` |
-| `VAULT_CHUNK_PLAINTEXT_BYTES` | 16 MiB | 8–64 MiB | `server/config/vaultTransferLimits.js` |
+| `VAULT_CHUNK_PLAINTEXT_BYTES` | **32 MiB** | 8–64 MiB | `server/config/vaultTransferLimits.js` |
+| `VAULT_UPLOAD_CONCURRENCY` | 2 | 1–4 | `server/config/vaultTransferLimits.js` |
 | `MAX_VAULT_LOGICAL_FILE_BYTES` | 5 GiB | 0 – 32 GiB | `server/config/vaultTransferLimits.js` |
 | `VAULT_COMMIT_LEASE_MS` | 15 min | 1 min – 24 h | `server/config/vaultTransferLimits.js` |
 
-`VAULT_UPLOAD_CONCURRENCY` is **not** in this table because it does not exist
-yet — it belongs to the bounded-concurrency upload work (LFT-V2-E2) and will be
-added by the change that reads it. A documented variable that no code reads is
-worse than an undocumented one.
+`VAULT_UPLOAD_CONCURRENCY` and the raised Vault chunk default arrived with
+LFT-V2-E2 — see §12, which also states the tab memory contract they jointly
+define.
 
 Both `/limits` endpoints now return `maxSupportedLogicalFileBytes` alongside
 `maxLogicalFileBytes`. The two answer different questions — *what will this
 server accept today* versus *what could an administrator configure* — and a UI
 that shows the second as the user's ceiling is promising a size the server will
 refuse.
+
+---
+
+## 12. LFT-V2-E2 — Bounded concurrency on the Vault upload path
+
+### 12.1 What changed, and what deliberately did not
+
+The Vault upload loop was strictly serial: encrypt one chunk, upload it, wait,
+advance. On a link with any meaningful round-trip time that leaves the pipe idle
+for the whole gap between "last byte of chunk N acknowledged" and "first byte of
+chunk N+1 sent" — and it does so once per chunk, for every chunk in the file.
+
+`src/lib/vaultChunkedUpload.js` now runs a **fixed pool of workers over one
+shared queue** of missing chunk indexes. Not batches: batching makes every batch
+wait for its slowest member before the next starts, which gives most of the
+saving back when chunk sizes differ (the final chunk is a remainder). Workers
+pulling from a single queue stay busy until the queue is empty.
+
+**The safety properties are unchanged, and each is pinned by a test:**
+
+| Property | How it is guaranteed |
+| :--- | :--- |
+| One index, one successful writer from this client | The queue hands out indexes with a synchronous `cursor += 1`, with no `await` between read and increment. Two workers cannot receive the same index — by structure, not by timing luck. |
+| A fresh IV on every encryption, including every retry | Unchanged from LFT-V2-B: `encryptVaultChunk()` generates a new 96-bit IV on every call, and a retry always re-encrypts rather than resending held ciphertext. Concurrency does not touch this path. |
+| Bounded memory | Each worker holds one plaintext slice plus one ciphertext at a time and releases the plaintext the moment sealing completes. Peak is `O(chunk × concurrency)` — a constant, independent of file size. |
+| No whole-file read | The regression test whose `File.arrayBuffer()` **throws** now also runs at concurrency 4, and additionally records every slice range to prove none is wider than one chunk. |
+| Exactly-once commit | Commit still happens once, after all workers drain and only when no terminal failure occurred. |
+| Resume authority | Unchanged: resume re-reads server status rather than trusting anything the client remembered. |
+
+### 12.2 Progress with several chunks in flight
+
+Two counters, and a chunk is in exactly one of them, never both:
+
+- `settledBytes` — plaintext bytes of chunks the server has confirmed.
+- `inflightBytes` — a map of index → plaintext-equivalent bytes currently on the wire.
+
+The move from one to the other happens in adjacent statements with no `await`
+between them, immediately before the progress callback fires. That adjacency is
+the entire defence against counting a chunk twice while several are in flight,
+and the test asserts that no reported `transferredBytes` ever exceeds the file
+size — the observable symptom of a double count.
+
+A retry resets that chunk's in-flight contribution to zero, because the bytes of
+a failed attempt never reached the server; carrying them forward would be
+counting bytes that do not exist.
+
+The chunk index shown to the user is the **lowest index still in flight**, not
+the one that reported most recently — otherwise "part X of N" would jump back and
+forth between two chunks racing each other. Likewise the stage label is derived
+once from whether any upload is active, rather than announced by each worker,
+which would make the label flicker between "encrypting" and "uploading" several
+times a second.
+
+### 12.3 Failure stops scheduling; it does not abandon work in flight
+
+The stop condition is checked **before a worker takes new work**, never in the
+middle of a request already sent. A request that is already travelling is allowed
+to settle: dropping it would discard bytes the server may already have accepted
+without the client knowing, which is precisely the state that makes a later
+resume compute the wrong missing set.
+
+This is a visible behavioural difference from the serial path, and it is correct:
+at concurrency 1, a permanent failure on chunk 1 means chunk 2 is never touched;
+at concurrency 2, chunk 2 may already have succeeded. Both are pinned by separate
+tests, and the serial expectations are kept under an explicit `concurrency: 1`.
+
+### 12.4 The memory contract, stated as a number
+
+> **Peak tab memory during a Vault upload ≈ 2 × `VAULT_CHUNK_PLAINTEXT_BYTES` ×
+> `VAULT_UPLOAD_CONCURRENCY`** — one plaintext plus one ciphertext per active
+> worker.
+
+At the new defaults (32 MiB × 2) that is **≈ 128 MiB**, up from ≈ 32 MiB under the
+old 16 MiB serial path. That increase is real and is the deliberate cost of this
+change. What matters is that it remains a **constant**: it does not grow with the
+file, so a 32 GiB upload has the same ceiling as a 200 MiB one. A deployment
+serving low-memory clients lowers either variable — `VAULT_CHUNK_PLAINTEXT_BYTES=8388608`
+with `VAULT_UPLOAD_CONCURRENCY=1` restores a ≈ 16 MiB peak — with no code change.
+
+Concurrency is capped at 4 rather than left open. Each additional worker consumes
+a full chunk of tab memory and holds one more request open against an edge with a
+finite worker pool; "more is faster" stops being true well before it stops being
+harmful.
+
+A 32 MiB plaintext chunk is 33,554,448 bytes of ciphertext with its GCM tag, which
+sits comfortably under the 65m Vault chunk cap set at the edge in LFT-V2-C.
+
+### 12.5 Where the concurrency value comes from
+
+The server publishes `uploadConcurrency` in `GET /api/vault/uploads/limits` so
+every client uses the deployment's number instead of one baked into the bundle.
+It is a **recommendation, not an enforced limit**: the server cannot stop a client
+from opening more connections, and pretending otherwise would be security theatre.
+Real protection against too many simultaneous writes lives at the edge and in the
+per-chunk write lock (`CHUNK_WRITE_IN_PROGRESS`), neither of which this value
+touches.
+
+Consequently the two sides validate differently, on purpose: the **server refuses
+to boot** on a value outside 1–4, while the **client clamps** it. A tab must not
+refuse to upload because an administrator typed a bad number into an advisory
+field — that punishes the user for someone else's mistake.
+
+**No throughput improvement is claimed here.** Concurrency removes a structural
+idle gap; whether that translates into measurable throughput on the real link is a
+question for LFT-V2-D acceptance, and nothing in this repository has measured it.
+
+## 13. LFT-V2-E3 — Streaming preview for large encrypted video
+
+### 13.1 The limitation being replaced
+
+Preview built a whole plaintext object URL, so a multi-gigabyte video could only
+be refused. That refusal was correct — assembling gigabytes of decrypted video in
+a tab to make a button look functional would reintroduce, through the back door,
+the exact problem V2 was built to remove.
+
+What was missing was not a bigger buffer. It was a way to answer *part* of the
+file. Video players do not want the whole file; they want `bytes=start-end`. V2
+already stores the file as independently authenticated chunks, so the mapping from
+a byte range to the minimum set of chunks is arithmetic — the only thing absent
+was somewhere to perform it.
+
+### 13.2 Shape of the path
+
+```text
+<video src="/drive/__vault_preview/<ephemeral-token>">
+        │
+        ▼  (never leaves the browser)
+   Service Worker, scope /drive/
+        │   token → { non-extractable DEK, blob metadata }  ← in memory only
+        ▼
+   GET /drive/api/vault/blobs/:id/chunks/:index      ← existing authenticated route
+        │   X-Vault-Chunk-IV
+        ▼
+   AAD rebuilt locally · AES-GCM decrypt · slice to the requested range
+        ▼
+   206 Partial Content, streamed chunk by chunk
+```
+
+**Nothing new is exposed server-side.** No plaintext endpoint, no transcode, no
+volume mounted anywhere else, no new route at all — the worker consumes the same
+authenticated chunk endpoint the download path already uses, with the page's own
+session cookie.
+
+### 13.3 Why the logic does not live in the Service Worker
+
+A Service Worker cannot be exercised by `node:test`: there is no `FetchEvent`, no
+registration, no scope. Logic placed inside one becomes code nobody tests — and
+here that code decides byte offsets and whether a failed authentication tag stops
+playback. So the worker file is a thin shell over two ordinary modules:
+
+| Module | Responsibility | Pinned by |
+| :--- | :--- | :--- |
+| `src/lib/vaultPreviewRange.js` | `Range` parsing, byte-range → chunk plan, response headers | `tests/vaultPreviewRange.test.js` (20 tests) |
+| `src/lib/vaultPreviewResponder.js` | Fetch, decrypt, slice, stream, fail closed | `tests/vaultPreviewResponder.test.js` (19 tests, real AES-GCM) |
+| `src/lib/vaultPreviewSession.js` | Register, hand over the key, revoke it | `tests/vaultPreviewSession.test.js` (16 tests) |
+| `src/vaultPreviewServiceWorker.js` | Event wiring only | — (deliberately nothing worth testing) |
+
+An off-by-one in the range mapping is the failure mode that matters most here: the
+video still plays, but seeks land in the wrong place and frames are subtly wrong,
+with no error anywhere. The range tests state expected offsets literally — first
+byte, mid-chunk, spanning two chunks, exact chunk boundary, final byte, the whole
+trailing partial chunk — rather than comparing against the function under test.
+
+### 13.4 The rules that must not be relaxed
+
+1. **Only the required chunks are fetched.** A 1 MiB request from the middle of a
+   4 GiB file touches one or two chunks. A test counts the URLs actually requested.
+2. **Opening a preview downloads nothing.** Building the response plan issues no
+   request at all; bytes move only when the player pulls them. Pinned by test, and
+   `<video preload="metadata">` keeps the browser from eagerly prefetching the
+   rest of a multi-gigabyte file just because the modal opened.
+3. **Nothing is ever fully assembled.** Both 206 and plain 200 responses stream one
+   chunk at a time; peak memory per request is one chunk, not one file. Even a
+   `Range`-less GET — which some browsers issue first — is served this way.
+4. **A failed tag stops the stream.** No skipping, no zero-fill, no "rest of the
+   file anyway". The stream errors, and the page is told *why*, so the UI can say
+   the file failed authentication rather than showing a generic error. Tampered
+   bytes, a reordered chunk and a chunk from another file all fail identically —
+   the AAD binds `contentId`, `chunkIndex` and `chunkCount`, exactly as the
+   download path does.
+5. **The key lives in memory and nowhere else.** The DEK crosses to the worker as a
+   non-extractable `CryptoKey` via structured clone. No `localStorage`, no
+   `sessionStorage`, no IndexedDB, **no Cache API**, and every response carries
+   `Cache-Control: no-store`. Only what a chunk decrypt needs is sent — id,
+   `contentIdB64`, chunk size and count. Not the filename, not the wrapped DEK,
+   not the encrypted metadata.
+6. **Closing means the key is gone.** Modal close, vault lock, auto-lock and
+   component unmount each revoke the session. Lock clears *every* session, not just
+   the visible one. Each is a separate test, because a preview URL whose key is
+   still resident is a file that can still be decrypted after the user believes
+   they locked the vault.
+
+### 13.5 CSP is unchanged, and that is the point
+
+The virtual URL is same-origin, so the existing `media-src 'self'` already
+permits it, and `worker-src` is deliberately left undeclared so it inherits
+`default-src 'self'` — which is precisely the grant a same-origin worker needs.
+Two tests assert that no directive was widened, that `connect-src` stays
+`'self'` (a worker holding a DEK must never be able to reach another origin), and
+that `worker-src`/`child-src` remain undeclared. If a future change "needs" a
+new CSP source to make preview work, that is the signal something is being fetched
+from somewhere it should not be.
+
+### 13.6 Where it does not work, said plainly
+
+Browsers without Service Worker support, without `ReadableStream`, or on an
+insecure context get a message saying **this browser cannot stream large encrypted
+video, download the file to watch it**, plus the Download button. There is no
+silent fallback to whole-file buffering — that would trade a clear message for a
+dead tab. The same message appears if registration succeeds but the worker never
+takes control, because the user-visible outcome is identical and pretending
+otherwise helps nobody.
+
+The worker is built as a separate Vite entry with a **fixed, unhashed filename at
+the root of `dist/`**: a Service Worker's scope is its own directory, so a file
+under `assets/` could never intercept `/drive/…`, and a hashed name would look
+like a different worker on every deploy.
+
+### 13.7 Not verified here
+
+No browser ran this. The modules are proven against real AES-GCM in Node, and the
+screen behaviour against a scripted Service Worker container, but **no video was
+actually played, no seek was performed, and no browser-compatibility matrix was
+produced**. Real playback, seek behaviour, Safari's range semantics and behaviour
+over the Twingate path all belong to `LFT-V2-D` acceptance.
 
 ---
 

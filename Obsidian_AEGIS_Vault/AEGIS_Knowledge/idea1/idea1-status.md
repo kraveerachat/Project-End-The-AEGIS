@@ -1523,6 +1523,141 @@ fake-clock tests, and throughput claims remain unmeasured.
 
 ---
 
+### Bounded-concurrency Vault upload — LFT-V2-E2 (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E2 source complete and locally verified, **not deployed, not accepted in production, and no throughput measured**
+> This stage changes the shape of the upload schedule and two configuration
+> defaults. It changes no cryptography, no wire format, no schema and no route.
+
+The Vault upload loop was strictly serial — encrypt, upload, wait, advance —
+leaving the pipe idle once per chunk for the whole acknowledgement round trip.
+`vaultChunkedUpload.js` now runs a fixed pool of workers over one shared queue of
+missing indexes. Not batches: a batch waits for its slowest member before the next
+starts, giving most of the saving back when the final chunk is a remainder.
+
+**Every safety property is unchanged and separately pinned by test.** One index
+can have only one successful writer from this client, because the queue hands out
+indexes with a synchronous increment and no `await` between read and increment —
+by structure, not by timing. Every encryption still draws a fresh 96-bit IV,
+retries included, because a retry re-encrypts rather than resending held
+ciphertext. The regression test whose `File.arrayBuffer()` **throws** now runs at
+concurrency 4 and additionally records every slice range to prove none exceeds one
+chunk. Commit still happens exactly once, after all workers drain, only when no
+terminal failure occurred. Resume still re-reads authoritative server status.
+
+**Progress cannot double-count.** Settled bytes and per-index in-flight bytes are
+two disjoint counters; a chunk moves between them in adjacent statements with no
+`await` in between, immediately before the progress callback. A retry resets that
+chunk's in-flight contribution to zero, since the bytes of a failed attempt never
+reached the server. The user-visible chunk index is the lowest still in flight, and
+the stage label is derived once from whether any upload is active — otherwise both
+would flicker between two racing chunks.
+
+**A failure stops scheduling, it does not abandon work already sent.** The stop
+condition is checked before a worker takes new work, never mid-request; dropping a
+request in flight would discard bytes the server may already hold, which is exactly
+what makes a later resume compute the wrong missing set. This produces a real,
+correct behavioural difference: at concurrency 1 a permanent failure on chunk 1
+means chunk 2 is never touched, while at concurrency 2 chunk 2 may already have
+succeeded. Both are pinned, and the serial expectations now sit under an explicit
+`concurrency: 1`.
+
+**Two defaults moved, and the cost is stated rather than hidden.**
+`VAULT_CHUNK_PLAINTEXT_BYTES` 16 MiB → **32 MiB**, and the new
+`VAULT_UPLOAD_CONCURRENCY` defaults to **2** (range 1–4, published by
+`GET /api/vault/uploads/limits` so no client bakes in its own number).
+
+> Peak tab memory ≈ 2 × chunk × concurrency = **≈ 128 MiB**, up from ≈ 32 MiB.
+
+That increase is real and deliberate. What matters is that it stays a **constant**:
+it does not grow with the file, so a 32 GiB upload has the same ceiling as a
+200 MiB one. A deployment serving low-memory clients sets
+`VAULT_CHUNK_PLAINTEXT_BYTES=8388608` and `VAULT_UPLOAD_CONCURRENCY=1` for a
+≈ 16 MiB peak, with no code change. 32 MiB of plaintext is 33,554,448 bytes of
+ciphertext with its tag, comfortably under the 65m edge cap from LFT-V2-C.
+
+The concurrency value is a **recommendation, not an enforced limit** — the server
+cannot stop a client from opening more connections, and claiming otherwise would be
+security theatre. Real protection lives at the edge and in the per-chunk write lock
+(`CHUNK_WRITE_IN_PROGRESS`). The two sides therefore validate differently on
+purpose: the server refuses to boot on a value outside 1–4, the client clamps it. A
+tab must not refuse to upload because an administrator typed a bad number into an
+advisory field.
+
+**Verification:** full IDEA1 suite **621 tests, 554 pass, 0 fail, 67
+PostgreSQL-gated skips**; `npm run build` passed; upload-client suite 20/20
+including four new concurrency tests that hold every PUT open to measure real
+simultaneity rather than infer it. **No throughput improvement is claimed and none
+was measured** — concurrency removes a structural idle gap; whether that shows up
+on the real link belongs to `LFT-V2-D` acceptance.
+
+---
+
+### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3 source complete and locally verified, **not deployed, not accepted, and never run in a real browser**
+> No server route, schema, CSP directive or cryptographic rule changed. The
+> 64 MiB buffered ceiling was **not** raised.
+
+Preview built a whole plaintext object URL, so a multi-gigabyte video could only be
+refused — correctly, since assembling gigabytes of decrypted video in a tab to make
+a button look functional would reintroduce the exact problem V2 removed. What was
+missing was not a bigger buffer but a way to answer *part* of the file. Players ask
+for `bytes=start-end`; V2 already stores independently authenticated chunks; the
+mapping is arithmetic.
+
+A same-origin Service Worker scoped to `/drive/` now serves
+`/drive/__vault_preview/<ephemeral-token>`. The page unwraps the DEK, hands it to
+the worker as a **non-extractable `CryptoKey`** by structured clone with only the
+metadata a chunk decrypt needs, and the worker maps each Range request to the
+minimum chunk set, fetches those chunks from the **existing authenticated
+endpoint**, rebuilds the AAD locally, decrypts, slices and streams. No plaintext
+endpoint, no transcode, no mounted volume, no new route.
+
+**The logic deliberately does not live in the worker.** A Service Worker cannot be
+exercised by `node:test`, and code placed there becomes code nobody tests — here
+that code decides byte offsets and whether a failed tag stops playback. The worker
+is a thin shell over `vaultPreviewRange.js`, `vaultPreviewResponder.js` and
+`vaultPreviewSession.js`, which carry 55 tests between them.
+
+**Rules pinned by test:** only the required chunks are fetched (a 1 MiB request
+into a 4 GiB file touches one or two); opening a preview issues no request at all,
+and `preload="metadata"` stops the browser prefetching the rest; both 206 and
+plain 200 responses stream one chunk at a time so peak memory is one chunk, never
+one file; a failed authentication tag stops the stream with no skipping or
+zero-fill and tells the page why, so the UI reports an integrity failure rather
+than a generic error — tampered bytes, a reordered chunk and a chunk from another
+file all fail identically; the key exists only in worker memory, with no
+storage of any kind, **no Cache API**, and `Cache-Control: no-store` on every
+response; and modal close, vault lock, auto-lock and unmount each revoke it, with
+lock clearing every session rather than only the visible one.
+
+**CSP is unchanged, and that is the point.** The virtual URL is same-origin so
+`media-src 'self'` already covers it, and `worker-src` stays undeclared so it
+inherits `default-src 'self'`. Two new tests assert nothing was widened and that
+`connect-src` remains `'self'` — a worker holding a DEK must never be able to
+reach another origin.
+
+**Browsers that cannot do it are told so.** No Service Worker, no `ReadableStream`,
+or an insecure context produces "this browser cannot stream large encrypted video,
+download the file to watch it" plus the Download button. There is no silent
+fallback to whole-file buffering, which would trade a clear message for a dead tab.
+Still-image preview is untouched and still refuses above 64 MiB — an `<img>` asks
+for the whole file regardless, so range streaming buys it nothing.
+
+**Verification:** full IDEA1 suite **649 tests, 582 pass, 0 fail, 67
+PostgreSQL-gated skips**; `npm run build` passed and emits
+`dist/vault-preview-sw.js` with a fixed unhashed name at the dist root (a worker's
+scope is its own directory, and a hashed name reads as a new worker every deploy);
+HUB `driveCspParity` 10/10 and IDEA1 `contentSecurityPolicy` 10/10.
+
+**Never run in a browser.** The modules are proven against real AES-GCM in Node and
+the screen against a scripted Service Worker container, but **no video was played,
+no seek performed, and no compatibility matrix produced.** Real playback, seek
+behaviour, Safari range semantics and the Twingate path belong to `LFT-V2-D`.
+
+---
+
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.

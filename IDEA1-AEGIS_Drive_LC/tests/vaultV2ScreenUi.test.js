@@ -385,7 +385,10 @@ test('ไฟล์ V2 ที่ใหญ่เกินเพดานบอก�
 
     const notice = doc().querySelector('[data-vault-preview-too-large="1"]')
     assert.ok(notice, 'ต้องมีข้อความอธิบายแทนตัวเล่นที่ว่างเปล่า')
-    assert.equal(notice.textContent.trim(), t('vaultPreviewTooLarge'))
+    // ⚠️ jsdom ไม่มี Service Worker — นี่คือกรณี "เบราว์เซอร์นี้ทำไม่ได้" ตามความจริง
+    //    ข้อความจึงต้องบอกเหตุผลนั้นและเสนอ Download ไม่ใช่พูดกว้าง ๆ ว่าไฟล์ใหญ่เกินไป
+    assert.equal(notice.getAttribute('data-vault-preview-unsupported'), '1')
+    assert.equal(notice.textContent.trim(), t('vaultPreviewUnsupportedBrowser'))
     assert.equal(downloadCalls, 0, 'ต้องไม่เริ่มดาวน์โหลดเพื่อประกอบวิดีโอทั้งก้อนใน RAM')
     assert.deepEqual(track.created(), [], 'ต้องไม่มี object URL ของ plaintext ถูกสร้างเลย')
     assert.equal(doc().querySelector('video'), null)
@@ -850,4 +853,261 @@ test('บรรทัดความเร็วมีคำแปลจริ�
   }
 
   assert.equal(transferRateLine(mk('en'), null), null, 'ยังไม่มีผลการวัด = ไม่มีบรรทัด')
+})
+// 63 · preview วิดีโอ V2 ขนาดใหญ่ผ่าน Service Worker (LFT-V2-E3)
+//
+// ⚠️ สิ่งที่ชุดนี้ตรึงไว้คือ "สัญญาเชิงความปลอดภัย" ของเส้นทางใหม่ ไม่ใช่การเล่นวิดีโอ
+//    (เล่นจริงต้องมีเบราว์เซอร์จริง) สามข้อที่สำคัญที่สุด:
+//      1. เปิด preview ต้องไม่กลายเป็นการดาวน์โหลดทั้งไฟล์ และต้องไม่มี object URL
+//         ของ plaintext เกิดขึ้นเลย
+//      2. ปิดกล่อง / ล็อกตู้ / auto-lock = กุญแจถูกถอนออกจาก worker จริง ๆ
+//      3. worker แจ้งว่า tag ไม่ผ่าน = จอต้องพูดเรื่องความถูกต้อง ไม่ใช่ "error"
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Service Worker container ปลอมที่บันทึกทุกข้อความและตอบกลับเหมือนของจริง */
+function fakeServiceWorker() {
+  const posted = []
+  const listeners = new Set()
+
+  const controller = {
+    postMessage(message, transfer) {
+      posted.push(message)
+      const port = transfer?.[0]
+      // worker จริงตอบผ่าน port ที่ถูกโอนไป — ตอบทันทีแบบเดียวกัน
+      queueMicrotask(() => { try { port?.postMessage({ ok: true }) } catch { /* ปิดไปแล้ว */ } })
+    },
+  }
+
+  const container = {
+    controller,
+    async register() { return { scope: 'http://localhost/drive/' } },
+    addEventListener(type, fn) { if (type === 'message') listeners.add(fn) },
+    removeEventListener(type, fn) { if (type === 'message') listeners.delete(fn) },
+  }
+
+  return {
+    container,
+    posted: () => [...posted],
+    ofType: (type) => posted.filter((m) => m.type === type),
+    emit: (data) => { for (const fn of listeners) fn({ data }) },
+    install() {
+      Object.defineProperty(globalThis.navigator, 'serviceWorker', { value: container, configurable: true })
+    },
+    uninstall() {
+      delete globalThis.navigator.serviceWorker
+    },
+  }
+}
+
+const bigVideo = () => serverBlobV2({
+  id: 'v2-stream', name: 'wedding-4k.mp4', type: 'video/mp4',
+  plainSize: BUFFER_LIMIT * 20, size: BUFFER_LIMIT * 20 + 4096, chunkCount: 40,
+})
+
+async function openBigVideoPreview(h) {
+  await unlocked(h)
+  await click(dom, menuButton('v2-stream'))
+  await click(dom, menuItem(t('preview')))
+  await tick(4)
+}
+
+test('วิดีโอ V2 ขนาดใหญ่เล่นผ่าน URL เสมือนของ worker — ไม่ดาวน์โหลด ไม่มี object URL ของทั้งไฟล์', async () => {
+  seedBlobs([bigVideo()])
+  let downloadCalls = 0
+  backend.downloadImpl = async () => { downloadCalls += 1; return { ok: true, result: [] } }
+
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    const track = env.trackObjectUrls()
+    await openBigVideoPreview(h)
+
+    const video = doc().querySelector('video')
+    assert.ok(video, 'ต้องมีตัวเล่นวิดีโอจริง ไม่ใช่ข้อความว่าเปิดไม่ได้')
+    assert.equal(video.getAttribute('data-vault-preview-streamed'), '1')
+    assert.match(video.getAttribute('src'), /__vault_preview\/[0-9a-f]{32}$/,
+      'ต้องชี้ไป path เสมือน same-origin ไม่ใช่ blob: ของทั้งไฟล์')
+    assert.equal(video.getAttribute('preload'), 'metadata',
+      'preload=auto จะทำให้เบราว์เซอร์ไล่ดึงทั้งไฟล์ทันทีที่เปิดดู')
+
+    // ★ ข้อพิสูจน์ที่สำคัญที่สุด: การเปิดกล่องไม่ได้ดึงไฟล์
+    assert.equal(downloadCalls, 0, 'การเปิด preview ต้องไม่เริ่มดาวน์โหลดทั้งไฟล์')
+    assert.deepEqual(track.created(), [],
+      'ต้องไม่มี object URL ใดถูกสร้าง — นั่นแปลว่าไม่มี plaintext ทั้งไฟล์ในหน่วยความจำ')
+
+    // กุญแจถูกส่งไปที่ worker พร้อม metadata ที่จำเป็นเท่านั้น
+    const opened = sw.ofType('vault-preview-open')
+    assert.equal(opened.length, 1)
+    assert.ok(opened[0].dek, 'ต้องส่ง DEK ไปให้ worker')
+    assert.equal(opened[0].blob.id, 'v2-stream')
+    assert.equal(opened[0].contentType, 'video/mp4')
+    assert.equal(opened[0].blob.name, undefined, 'worker ไม่มีเหตุต้องรู้ชื่อไฟล์ จึงต้องไม่ถูกส่งไป')
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('ปิดกล่อง preview ถอนกุญแจออกจาก worker ทันที', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const token = sw.ofType('vault-preview-open')[0].token
+    assert.ok(token)
+
+    await click(dom, byText(dom, 'button', t('close')))
+    await tick(3)
+
+    const closed = sw.ofType('vault-preview-close')
+    assert.equal(closed.length, 1, 'ต้องสั่งปิดเซสชันหนึ่งครั้ง')
+    assert.equal(closed[0].token, token, 'ต้องปิด token ใบเดียวกับที่เปิดไว้')
+    assert.equal(dialog(), null)
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('ล็อกตู้ระหว่างดู preview ล้างทุกเซสชันใน worker ไม่ใช่แค่ใบที่เปิดอยู่', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    assert.ok(doc().querySelector('video'))
+
+    await lockVault(dom, t)
+    await tick(3)
+
+    assert.equal(sw.ofType('vault-preview-close-all').length, 1,
+      'การล็อกต้องล้างทุกเซสชัน — กุญแจต้องไม่รอดจากการล็อกไม่ว่ากรณีใด')
+    assert.equal(doc().querySelector('video'), null, 'ตัวเล่นต้องหายไปพร้อมกุญแจ')
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('component ถูกถอดขณะ preview เปิดอยู่ ก็ยังถอนกุญแจออกจาก worker', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const token = sw.ofType('vault-preview-open')[0].token
+
+    await h.unmount()
+    await tick(3)
+
+    const closed = sw.ofType('vault-preview-close')
+    assert.ok(closed.some((m) => m.token === token),
+      'การถอด component ต้องไม่ทิ้งกุญแจค้างไว้ใน worker')
+  } finally {
+    sw.uninstall()
+  }
+})
+
+test('worker แจ้งว่า tag ไม่ผ่าน = จอพูดเรื่องความถูกต้อง ไม่ใช่ "เปิดไม่ได้"', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+    const token = sw.ofType('vault-preview-open')[0].token
+
+    await act(async () => { sw.emit({ type: 'vault-preview-failed', token, reason: 'integrity' }) })
+    await tick(3)
+
+    const alert = doc().querySelector('[role="alert"][data-vault-preview-integrity]')
+    assert.ok(alert, 'ต้องมีคำเตือนที่อ่านได้ ไม่ใช่ตัวเล่นที่เงียบไปเฉย ๆ')
+    assert.equal(alert.getAttribute('data-vault-preview-integrity'), '1')
+    assert.equal(alert.textContent.trim(), t('vaultPreviewIntegrityFailed'))
+    assert.equal(doc().querySelector('video'), null, 'ต้องไม่มีตัวเล่นค้างอยู่หลังพบว่าไบต์ไม่น่าเชื่อถือ')
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('ความล้มเหลวของเซสชันอื่นไม่ทำให้ preview ใบที่เปิดอยู่พัง', async () => {
+  seedBlobs([bigVideo()])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await openBigVideoPreview(h)
+
+    await act(async () => {
+      sw.emit({ type: 'vault-preview-failed', token: 'f'.repeat(32), reason: 'integrity' })
+    })
+    await tick(2)
+
+    assert.ok(doc().querySelector('video'), 'token ที่ไม่ใช่ของเราต้องถูกเพิกเฉย')
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('วิดีโอ V2 ที่เล็กพอยังใช้เส้นทางบัฟเฟอร์เดิม — ไม่มี worker เข้ามาเกี่ยวข้อง', async () => {
+  seedBlobs([serverBlobV2({
+    id: 'v2-small', name: 'clip.mp4', type: 'video/mp4',
+    plainSize: 2 * MIB, size: 2 * MIB + 96, chunkCount: 1,
+  })])
+  backend.downloadImpl = async () => ({ ok: true, result: [new Uint8Array([1, 2, 3])] })
+
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    const track = env.trackObjectUrls()
+    await unlocked(h)
+    await click(dom, menuButton('v2-small'))
+    await click(dom, menuItem(t('preview')))
+    await tick(4)
+
+    const video = doc().querySelector('video')
+    assert.ok(video, 'ไฟล์เล็กต้องยังดูตัวอย่างได้เหมือนเดิม')
+    assert.equal(video.getAttribute('data-vault-preview-streamed'), '0')
+    assert.match(video.getAttribute('src'), /^blob:/, 'เส้นทางเดิมยังใช้ object URL ตามเดิม')
+    assert.equal(track.created().length, 1)
+    assert.deepEqual(sw.ofType('vault-preview-open'), [],
+      'ไฟล์ที่เล็กพอต้องไม่แตะเส้นทางใหม่เลย — ไม่มีการเปลี่ยนพฤติกรรมของสิ่งที่เคยทำงานอยู่')
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
+})
+
+test('ภาพนิ่ง V2 ที่ใหญ่เกินเพดานยังบอกความจริงแบบเดิม — เส้นทางสตรีมเป็นของวิดีโอเท่านั้น', async () => {
+  seedBlobs([serverBlobV2({
+    id: 'v2-bigimg', name: 'scan.png', type: 'image/png',
+    plainSize: BUFFER_LIMIT + 1, size: BUFFER_LIMIT + 81, chunkCount: 5,
+  })])
+  const sw = fakeServiceWorker()
+  sw.install()
+  const h = env.mount()
+  try {
+    await unlocked(h)
+    await click(dom, menuButton('v2-bigimg'))
+    await click(dom, menuItem(t('preview')))
+    await tick(3)
+
+    const notice = doc().querySelector('[data-vault-preview-too-large="1"]')
+    assert.ok(notice)
+    assert.equal(notice.getAttribute('data-vault-preview-unsupported'), '0')
+    assert.equal(notice.textContent.trim(), t('vaultPreviewTooLarge'),
+      'ภาพนิ่งยังใช้ข้อความเดิม — <img> ขอทั้งไฟล์อยู่ดี การสตรีมตามช่วงจึงไม่ช่วยอะไร')
+    assert.deepEqual(sw.ofType('vault-preview-open'), [])
+  } finally {
+    sw.uninstall()
+    await h.unmount()
+  }
 })

@@ -127,6 +127,8 @@ vaultUploadsRouter.get('/limits', requireAuth, async (req, res, next) => {
       plaintextChunkBytes: VAULT_TRANSFER_LIMITS.plaintextChunkBytes,
       ciphertextChunkBytes: VAULT_TRANSFER_LIMITS.ciphertextChunkBytes,
       gcmTagBytes: GCM_TAG_BYTES,
+      // ⚠️ คำแนะนำของ deployment ไม่ใช่ข้อบังคับที่เซิร์ฟเวอร์ตรวจได้ — ดู vaultTransferLimits.js
+      uploadConcurrency: VAULT_TRANSFER_LIMITS.uploadConcurrency,
       minPlaintextChunkBytes: MIN_VAULT_PLAINTEXT_CHUNK_BYTES,
       maxPlaintextChunkBytes: MAX_VAULT_PLAINTEXT_CHUNK_BYTES,
       // ⚠️ เพดานที่บังคับอยู่จริง กับ เพดานสูงสุดที่ตั้งได้ — ดูเหตุผลใน routes/uploads.js

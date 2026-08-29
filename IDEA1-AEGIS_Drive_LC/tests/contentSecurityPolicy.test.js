@@ -237,3 +237,47 @@ test('no document-embedding element is given a CSP source it could use', () => {
   assert.equal(effectiveSources(directives, 'frame-src').includes('blob:'), false)
   assert.equal(effectiveSources(directives, 'frame-src').includes('data:'), false)
 })
+
+/* ── LFT-V2-E3 · การสตรีม preview ต้องไม่ทำให้ CSP กว้างขึ้นแม้แต่นิดเดียว ────────
+   The large-video preview path registers a same-origin Service Worker and points
+   <video> at a virtual same-origin URL. Both are already covered by the policy as
+   it stands, and this suite exists to keep it that way: the moment somebody adds
+   a directive "to make the preview work", that is the signal something is being
+   fetched from somewhere it should not be. */
+
+test('the streamed preview needs no new CSP source — it is all same-origin', () => {
+  const policy = parsePolicy(generatedPolicy())
+
+  // The virtual URL is same-origin, so 'self' in media-src already covers it.
+  // No blob:, no data:, and above all no remote origin is required for playback.
+  const media = policy.get('media-src')
+  assert.ok(media.includes("'self'"), 'the virtual preview URL is same-origin')
+  assert.deepEqual(media.filter((src) => src.includes('://')), [],
+    'a remote source in media-src would mean vault plaintext is being fetched off-origin')
+
+  // worker-src is deliberately NOT declared: it falls back to default-src 'self',
+  // which is exactly the grant a same-origin Service Worker needs. Declaring it
+  // would add a directive to maintain without changing what is permitted.
+  assert.equal(policy.has('worker-src'), false,
+    'worker-src must stay undeclared and inherit default-src — adding it changes nothing but the maintenance burden')
+  assert.equal(policy.has('child-src'), false, 'child-src likewise stays undeclared')
+  assert.deepEqual(policy.get('default-src'), ["'self'"],
+    'the Service Worker script is same-origin, so default-src must remain exactly \'self\'')
+})
+
+test('the preview Service Worker cannot become a route to off-origin bytes', () => {
+  const policy = parsePolicy(generatedPolicy())
+
+  // The worker fetches ciphertext with the page's own credentials. connect-src
+  // bounds where that can go, and it must stay same-origin only: a worker that
+  // could reach another origin is an exfiltration path with a key in its hand.
+  assert.deepEqual(policy.get('connect-src'), ["'self'"],
+    'the preview worker holds a DEK — connect-src must never leave this origin')
+
+  // And the worker script itself is still just a script: it gains no execution
+  // privilege the page does not already have.
+  const script = policy.get('script-src')
+  assert.equal(script.includes('blob:'), false, 'blob: must never become executable')
+  assert.deepEqual(script.filter((src) => src.includes('://')), [],
+    'no remote script origin may be introduced by the preview work')
+})
