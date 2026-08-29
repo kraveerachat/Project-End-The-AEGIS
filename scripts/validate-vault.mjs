@@ -5,6 +5,13 @@ import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const VALID_OWNERS = new Set(['kla', 'pub', 'music']);
+const AREA_OWNERS = new Map([
+  ['idea1', 'kla'],
+  ['idea2', 'pub'],
+  ['idea3', 'music'],
+  ['infrastructure', 'kla'],
+  ['shared', 'kla'],
+]);
 const VALID_POLICIES = new Set([
   'owner-only',
   'owner-writable',
@@ -329,13 +336,24 @@ export function validateVault({ vaultDir, changedFiles = [] }) {
   const inbound = new Map(notes.map((note) => [note.relativePath, 0]));
   for (const note of notes) {
     const isTemplate = note.relativePath === '90-Status/logs/_template.md';
+    const isReceipt = note.relativePath.startsWith('90-Status/logs/') && !isTemplate;
+    const receiptMatch = note.relativePath.match(/^90-Status\/logs\/(\d{4}-\d{2}-\d{2}_\d{6})_(kla|pub|music)_([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/);
     if (!isTemplate) {
       if (!VALID_OWNERS.has(note.metadata.owner)) {
         errors.push(`${note.relativePath}: missing or invalid owner metadata.`);
       } else {
-        const expectedOwner = ownerFor(note.relativePath);
-        if (note.metadata.owner !== expectedOwner) {
-          errors.push(`${note.relativePath}: owner must be ${expectedOwner}, received ${note.metadata.owner}.`);
+        if (isReceipt && !AREA_OWNERS.has(note.metadata.area)) {
+          errors.push(`${note.relativePath}: receipt area must be one of ${[...AREA_OWNERS.keys()].join(', ')}; received ${note.metadata.area || '(missing)'}.`);
+        } else if (isReceipt) {
+          const expectedOwner = AREA_OWNERS.get(note.metadata.area);
+          if (note.metadata.owner !== expectedOwner) {
+            errors.push(`${note.relativePath}: owner for area ${note.metadata.area} must be ${expectedOwner}, received ${note.metadata.owner}.`);
+          }
+        } else {
+          const expectedOwner = ownerFor(note.relativePath);
+          if (note.metadata.owner !== expectedOwner) {
+            errors.push(`${note.relativePath}: owner must be ${expectedOwner}, received ${note.metadata.owner}.`);
+          }
         }
       }
       if (!VALID_POLICIES.has(note.metadata.edit_policy)) {
@@ -348,7 +366,6 @@ export function validateVault({ vaultDir, changedFiles = [] }) {
       }
     }
 
-    const receiptMatch = note.relativePath.match(/^90-Status\/logs\/(\d{4}-\d{2}-\d{2}_\d{6})_(kla|pub|music)_([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/);
     if (note.relativePath.startsWith('90-Status/logs/') && !isTemplate && !receiptMatch) {
       errors.push(`${note.relativePath}: malformed task receipt filename.`);
     }

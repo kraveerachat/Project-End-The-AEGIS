@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-01
+updated: 2026-08-29
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -17,9 +17,9 @@ edit_policy: owner-writable
 
 ### 🧪 Local run check (2026-08-06)
 
-For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The repository's Monitor tests passed **6/6** on 2026-08-06. The local Docker daemon was unavailable during that check, and the standalone Vite build was blocked by the execution sandbox's directory access restriction; neither result was a code failure. The shipped detection engine remains a separate manual process under `IDEA2-AEGIS_CCTV-Operator/detection-engine` and uses `python run.py` after its own `.venv`, dependencies, and `.env` are configured.
+For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The canonical detection engine remains directly runnable with `python run.py` after its own environment and dependencies are configured, and root Compose now builds that same runtime from `IDEA2-AEGIS_CCTV-Operator/detection-engine/`.
 
-> **Codebase Status**: ✅ Built & Implemented — Backend Express `:8002` + unified React app `:5176` + database `aegis_monitor` + Python Detection Engine (in-repo, runs on the Laptop edge node, **not** in `docker-compose`).
+> **Codebase Status**: ✅ Monitor UI/API built; the modular Python Detection Engine is the canonical development runtime and is selected by root Compose. ⚠️ Real camera, production NAS, Telegram routing, and production deployment verification remain pending.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
@@ -77,7 +77,16 @@ flowchart TD
 
 ## 🎥 Detection Engine (Laptop, VLAN 20)
 
-**Where it lives**: `IDEA2-AEGIS_CCTV-Operator/detection-engine/` — in this repository (19 tracked files, ~2,700 lines of Python). The parent folder is marked deprecated but explicitly carves this out: *"`detection-engine/` is NOT deprecated — it remains the Laptop-side sensor layer."* It is **absent from `docker-compose.yml` by design** and is started manually with `python run.py` on the edge node.
+**Where it lives**: `IDEA2-AEGIS_CCTV-Operator/detection-engine/`. The parent folder is marked deprecated but explicitly carves this out: *"`detection-engine/` is NOT deprecated — it remains the Laptop-side sensor layer."* Root Compose selects this modular runtime while preserving the `aegis-camera` service name for compatibility; an edge laptop can still start it directly with `python run.py`.
+
+### Canonical modular runtime reconciliation (2026-08-29)
+
+- Root Compose builds the modular engine rather than the legacy `AEGIS_Camera` scanner. It preserves the current shared IDEA1 proxy/network topology and exposes the local development API only on `127.0.0.1:8005`.
+- NAS is disabled by default. Disabled or failed transfers retain local recordings, do not create a successful clip record, and do not claim that local volumes are production NAS.
+- Startup and shutdown use a cooperative lifecycle. A component startup failure rolls back components that already started.
+- The engine talks to Monitor through its authenticated HTTP API and does not receive a PostgreSQL credential. Secret values are redacted from startup logs.
+- Recognition remains intentionally fail-unknown: the repository does not contain a real identity model and does not convert generic object detections into authorization.
+- This reconciliation is source-level integration from current `main`; real camera, production NAS, Telegram delivery, and production deployment evidence are still required before those outcomes can be claimed.
 
 **Camera source is config, not code.** `AEGIS_CAMERA_SOURCE` is passed straight to `cv2.VideoCapture`: an integer string opens a local device, anything else is treated as a URL. Moving to a real IP camera is a `.env` edit:
 

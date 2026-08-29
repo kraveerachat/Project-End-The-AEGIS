@@ -141,12 +141,12 @@ services:
       ENFORCE_PASSWORD_RESET: "false"
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
       DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
-      # ⚠️ Phase 1 (ยังไม่มี NAS จริง) — ชี้ไปโฟลเดอร์ clips ของ Detection Engine
-      #    ที่ถูก bind-mount ไว้ด้านล่างแทน เมื่อมี NAS จริงค่อยเปลี่ยน mount source
-      #    เป็นตำแหน่งบน NAS แทน ไม่ต้องแก้โค้ด route เลย
+      # Development-only local recording volume. A file in this volume is not
+      # "stored on NAS"; Monitor serves only clip rows created after a verified
+      # NAS transfer. Production NAS mounting remains a separate deployment task.
       CLIPS_STORAGE_DIR: /nas/clips
     volumes:
-      - ./AEGIS_Camera/clips:/nas/clips:ro
+      - camera_segments:/nas/clips:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,21 +163,42 @@ services:
 
   aegis-camera:
     build:
-      context: ./AEGIS_Camera
-    container_name: aegis_python_cam
+      context: ./IDEA2-AEGIS_CCTV-Operator/detection-engine
+    container_name: aegis_modular_detection
     environment:
-      DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
-      MONITOR_INTERNAL_URL: http://monitor:8002
-      AEGIS_CAMERA_ID: CAM-02
+      AEGIS_NODE_ID: ${AEGIS_NODE_ID:-edge-node-01}
+      AEGIS_CAMERA_ID: ${AEGIS_CAMERA_ID:-CAM-02}
+      AEGIS_CAMERA_LABEL: ${AEGIS_CAMERA_LABEL:-Development Camera}
+      AEGIS_CAMERA_SOURCE: ${AEGIS_CAMERA_SOURCE:-0}
+      AEGIS_API_HOST: 0.0.0.0
+      AEGIS_API_PORT: 8077
+      AEGIS_STREAM_PUBLIC_URL: http://aegis-camera:8077/stream.mjpg
+      AEGIS_SEGMENT_DIR: /nas/clips
+      AEGIS_ALERT_SNAPSHOT_DIR: /data/snapshots
+      AEGIS_MONITOR_API_BASE: http://monitor:8002
+      AEGIS_DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
+      AEGIS_NAS_ENABLED: ${AEGIS_NAS_ENABLED:-false}
+      AEGIS_NAS_METHOD: ${AEGIS_NAS_METHOD:-rsync}
+      AEGIS_NAS_USER: ${AEGIS_NAS_USER:-}
+      AEGIS_NAS_HOST: ${AEGIS_NAS_HOST:-}
+      AEGIS_NAS_DEST_DIR: ${AEGIS_NAS_DEST_DIR:-/volume1/aegis/segments}
+      AEGIS_NAS_VERIFY: ${AEGIS_NAS_VERIFY:-checksum}
+      AEGIS_TELEGRAM_BOT_TOKEN: ${AEGIS_TELEGRAM_BOT_TOKEN:-}
+      AEGIS_TELEGRAM_CHAT_ID: ${AEGIS_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - camera_segments:/nas/clips
+      - camera_snapshots:/data/snapshots
     depends_on:
       - monitor
     ports:
-      - "8005:8000"
+      - "127.0.0.1:8005:8077"
     restart: unless-stopped
     networks:
       - aegis_internal
 
 volumes:
+  camera_segments: # IDEA2 local development recordings; not a production NAS claim
+  camera_snapshots:
   postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
   drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
 

@@ -1,57 +1,67 @@
-"""
-DetectionEngine — the orchestrator that wires every worker together.
+"""Canonical modular Detection Engine orchestrator.
 
-This module owns the Queues and the shared stop :class:`threading.Event`, builds
-each worker, connects them with callbacks, and manages start-up / graceful
-shutdown. It is the only place that knows the full topology; individual workers
-stay decoupled and independently testable.
-
-Data flow (see the package docstring for the diagram)::
-
-    VideoCatcher ─┬─(record_queue, drop-oldest)─▶ SegmentRecorder ─▶ NASSyncWorker
-                  └─(detect_queue, latest-only)─▶ FaceDetectorProcessor
-                                                        │ on_result(result, frame)
-                                                        ├─▶ LocalEventAPI.publish_event
-                                                        └─▶ AlertManager.submit
-
-Injecting a real face-recognition model::
-
-    from aegis_engine.engine import DetectionEngine
-    engine = DetectionEngine(recognizer=MyModel())   # <-- your model here
-    engine.run_forever()
+This module validates configuration, builds the capture/detection/recording
+components, and owns their transactional startup and clean shutdown. Heavy
+camera/API dependencies are imported only by the default component factory so
+configuration and lifecycle behavior can be tested with lightweight doubles.
 """
 
 from __future__ import annotations
 
-import queue
 import signal
 import threading
 import uuid
-from typing import Optional
+from dataclasses import dataclass
+from typing import Callable, Optional, Sequence, TYPE_CHECKING
 
-from .alert_manager import AlertManager
 from .config import EngineConfig
 from .event_hub import EventHub
-from .face_detector import FaceDetectorProcessor, FaceRecognizer
-from .heartbeat_worker import HeartbeatWorker
-from .local_api import LocalEventAPI
+from .lifecycle import RuntimeLifecycle
 from .logging_setup import configure as configure_logging, get_logger
 from .metrics import MetricsRegistry
 from .models import DetectionResult, DetectionStatus, Frame
-from .monitor_client import MonitorClient
-from .nas_sync import NASSyncWorker
-from .segment_recorder import SegmentRecorder
-from .stream_hub import StreamHub
-from .video_catcher import OverflowPolicy, Sink, VideoCatcher
+
+if TYPE_CHECKING:
+    from .face_detector import FaceRecognizer
 
 log = get_logger("Engine")
 
 
+@dataclass(frozen=True)
+class EngineContext:
+    """Dependency-light state supplied to a runtime component factory."""
+
+    config: EngineConfig
+    metrics: MetricsRegistry
+    event_hub: EventHub
+    stop_event: threading.Event
+    on_detection: Callable[[DetectionResult, Frame], None]
+
+
+@dataclass(frozen=True)
+class EngineComponents:
+    """Concrete components managed by :class:`DetectionEngine`."""
+
+    monitor: object
+    api: object
+    alerts: object
+    workers: Sequence[object]
+    shutdown_order: Sequence[object]
+
+
+ComponentFactory = Callable[
+    [EngineContext, Optional["FaceRecognizer"]], EngineComponents
+]
+
+
 class DetectionEngine:
+    """Wire and run one camera's canonical modular detection pipeline."""
+
     def __init__(
         self,
         config: Optional[EngineConfig] = None,
-        recognizer: Optional[FaceRecognizer] = None,
+        recognizer: Optional["FaceRecognizer"] = None,
+        component_factory: Optional[ComponentFactory] = None,
     ) -> None:
         self._cfg = (config or EngineConfig.from_env()).validate()
         configure_logging(self._cfg.log_level, self._cfg.log_json)
@@ -59,103 +69,121 @@ class DetectionEngine:
         self._stop = threading.Event()
         self._metrics = MetricsRegistry()
         self._hub = EventHub()
-
-        # One shared client to Monitor's backend — persists detections/clips/alerts
-        # to the shared DB over HTTP (never a direct Postgres connection). All calls
-        # fail soft: if Monitor is unreachable, the pipeline keeps running.
-        self._monitor = MonitorClient()
-
-        # Queues bridging the threads.
-        self._record_queue: "queue.Queue[Frame]" = queue.Queue(
-            maxsize=self._cfg.record_queue_size
+        context = EngineContext(
+            config=self._cfg,
+            metrics=self._metrics,
+            event_hub=self._hub,
+            stop_event=self._stop,
+            on_detection=self._on_detection,
         )
-        self._detect_queue: "queue.Queue[Frame]" = queue.Queue(
-            maxsize=self._cfg.detect_queue_size
+        components = (component_factory or self._build_default_components)(
+            context, recognizer
         )
-
-        # ── Live MJPEG ────────────────────────────────────────────────────
-        # A THIRD sink on the existing VideoCatcher fan-out. Deliberately not the
-        # detector's queue: items there are consumed once, so sharing it would
-        # split frames between inference and viewers instead of feeding both.
-        # This adds a consumer to the existing broadcast — no second capture.
-        self._stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
-        self._stream = (
-            StreamHub(self._cfg, self._stream_queue, stop_event=self._stop)
-            if self._cfg.stream_enabled else None
-        )
-
-        # Live API (owns the event hub so REST + WS + heartbeat share one bus).
-        self._api = LocalEventAPI(
-            self._cfg, self._metrics, event_hub=self._hub, stream_hub=self._stream,
-        )
-
-        # Alert manager publishes onto the same live stream.
-        self._alerts = AlertManager(
-            self._cfg, self._metrics, stop_event=self._stop,
-            publish=self._api.publish_event, monitor=self._monitor,
-        )
-
-        # NAS off-load worker; the recorder hands finalized segments to it.
-        self._nas = NASSyncWorker(
-            self._cfg, self._metrics, stop_event=self._stop, monitor=self._monitor,
-        )
-
-        # Continuous segment recorder.
-        self._recorder = SegmentRecorder(
-            self._cfg, self._metrics, self._record_queue,
-            on_segment=self._nas.submit, stop_event=self._stop,
-        )
-
-        # AI processor — the model injection point.
-        self._detector = FaceDetectorProcessor(
-            self._cfg, self._metrics, self._detect_queue,
-            on_result=self._on_detection, recognizer=recognizer,
+        self._monitor = components.monitor
+        self._api = components.api
+        self._alerts = components.alerts
+        self._threads = list(components.workers)
+        self._lifecycle = RuntimeLifecycle(
+            api=self._api,
+            workers=self._threads,
+            shutdown_order=components.shutdown_order,
             stop_event=self._stop,
         )
 
-        # Capture thread fans frames out to every consumer queue.
+    @staticmethod
+    def _build_default_components(
+        context: EngineContext,
+        recognizer: Optional["FaceRecognizer"],
+    ) -> EngineComponents:
+        """Build camera/API components after configuration has validated."""
+        import queue
+
+        from .alert_manager import AlertManager
+        from .face_detector import FaceDetectorProcessor
+        from .heartbeat_worker import HeartbeatWorker
+        from .local_api import LocalEventAPI
+        from .monitor_client import MonitorClient
+        from .nas_sync import NASSyncWorker
+        from .segment_recorder import SegmentRecorder
+        from .stream_hub import StreamHub
+        from .video_catcher import OverflowPolicy, Sink, VideoCatcher
+
+        cfg = context.config
+        metrics = context.metrics
+        stop_event = context.stop_event
+        record_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.record_queue_size)
+        detect_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.detect_queue_size)
+        stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
+
+        # Monitor owns persistence. The edge runtime never receives a DB credential.
+        monitor = MonitorClient(
+            base_url=cfg.monitor_api_base,
+            api_key=cfg.detection_engine_api_key,
+            timeout_s=cfg.monitor_http_timeout_s,
+        )
+        stream = (
+            StreamHub(cfg, stream_queue, stop_event=stop_event)
+            if cfg.stream_enabled else None
+        )
+        api = LocalEventAPI(
+            cfg, metrics, event_hub=context.event_hub, stream_hub=stream,
+        )
+        alerts = AlertManager(
+            cfg,
+            metrics,
+            stop_event=stop_event,
+            publish=api.publish_event,
+            monitor=monitor,
+        )
+        nas = NASSyncWorker(cfg, metrics, stop_event=stop_event, monitor=monitor)
+        recorder = SegmentRecorder(
+            cfg,
+            metrics,
+            record_queue,
+            on_segment=nas.submit,
+            stop_event=stop_event,
+        )
+        detector = FaceDetectorProcessor(
+            cfg,
+            metrics,
+            detect_queue,
+            on_result=context.on_detection,
+            recognizer=recognizer,
+            stop_event=stop_event,
+        )
         sinks = [
-            Sink("record", self._record_queue, OverflowPolicy.DROP_OLDEST),
-            Sink("detect", self._detect_queue, OverflowPolicy.LATEST_ONLY),
+            Sink("record", record_queue, OverflowPolicy.DROP_OLDEST),
+            Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY),
         ]
-        if self._stream is not None:
-            # LATEST_ONLY: a viewer that falls behind skips to the newest frame
-            # rather than draining a backlog. Live video has no value stale.
-            sinks.append(Sink("stream", self._stream_queue, OverflowPolicy.LATEST_ONLY))
-        self._catcher = VideoCatcher(
-            self._cfg, self._metrics, sinks=sinks, stop_event=self._stop,
+        if stream is not None:
+            sinks.append(Sink("stream", stream_queue, OverflowPolicy.LATEST_ONLY))
+        catcher = VideoCatcher(cfg, metrics, sinks=sinks, stop_event=stop_event)
+        heartbeat = HeartbeatWorker(cfg, metrics, monitor, stop_event=stop_event)
+
+        workers = [catcher, detector, recorder, alerts, nas, heartbeat]
+        # Stop liveness first, then the producer, flush the recorder, and finish
+        # consumers. Stream stops after its producer has stopped.
+        shutdown_order = [heartbeat, catcher, recorder, detector, alerts, nas]
+        if stream is not None:
+            workers.append(stream)
+            shutdown_order.append(stream)
+        return EngineComponents(
+            monitor=monitor,
+            api=api,
+            alerts=alerts,
+            workers=workers,
+            shutdown_order=shutdown_order,
         )
 
-        # Liveness publisher — the only source behind Monitor's /api/link.
-        # Started last, stopped first, so the final heartbeat reflects a
-        # running pipeline rather than one mid-teardown.
-        self._heartbeat = HeartbeatWorker(
-            self._cfg, self._metrics, self._monitor, stop_event=self._stop,
-        )
-
-        self._threads = [
-            self._catcher, self._detector, self._recorder, self._alerts, self._nas,
-            self._heartbeat,
-        ]
-        if self._stream is not None:
-            self._threads.append(self._stream)
-
-    # -- detection fan-out callback ---------------------------------------
     def _on_detection(self, result: DetectionResult, frame: Frame) -> None:
-        """Runs on the FaceDetector thread for every processed frame."""
-        # 1) Stream the detection JSON to the web app (live + ring buffer).
+        """Fan one processed frame out to live API, alerts, and Monitor."""
         self._api.publish_event(result.to_dict())
-        # 2) Consider it for alerting (AlertManager applies the cooldown).
         self._alerts.submit(result, frame)
-        # 3) Persist the recognition event to the shared DB via Monitor's backend.
-        #    One frame with several people → one event carrying several entities
-        #    (Monitor writes one `detections` row per person, sharing a frame_id).
-        #    Only frames that actually contain a face are persisted — an empty
-        #    frame (NO_FACE only) has nothing to record. Fails soft (see client).
         entities = [
-            {"status": e.status.value, "name": e.name, "confidence": e.confidence}
-            for e in result.entities
-            if e.status is not DetectionStatus.NO_FACE
+            {"status": entity.status.value, "name": entity.name,
+             "confidence": entity.confidence}
+            for entity in result.entities
+            if entity.status is not DetectionStatus.NO_FACE
         ]
         if entities:
             self._monitor.post_detection(
@@ -165,31 +193,16 @@ class DetectionEngine:
                 at=result.timestamp,
             )
 
-    # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
         log.info("AEGIS Detection Engine starting")
-        for k, v in self._cfg.redacted().items():
-            log.info("  config · %s = %s", k, v)
-        # Start the API first so its event loop is ready to accept publishes.
-        self._api.start()
-        for t in self._threads:
-            t.start()
+        for key, value in self._cfg.redacted().items():
+            log.info("  config · %s = %s", key, value)
+        self._lifecycle.start()
         log.info("all workers started")
 
     def stop(self) -> None:
         log.info("shutdown requested — stopping workers")
-        self._stop.set()
-        # Join in a sensible order: stop producing, flush recorder, then the rest.
-        stoppable = [self._heartbeat, self._catcher, self._recorder, self._detector,
-                     self._alerts, self._nas]
-        if self._stream is not None:
-            stoppable.append(self._stream)
-        for t in stoppable:
-            t.join(timeout=15.0)
-            if t.is_alive():
-                log.warning("worker %s did not stop within timeout", t.name)
-        self._api.stop()
-        self._api.join(timeout=10.0)
+        self._lifecycle.stop()
         log.info("engine stopped")
 
     def run_forever(self) -> None:
@@ -197,7 +210,6 @@ class DetectionEngine:
         self._install_signal_handlers()
         self.start()
         try:
-            # Wait on the stop event so Ctrl-C is handled promptly on all OSes.
             while not self._stop.is_set():
                 self._stop.wait(1.0)
         except KeyboardInterrupt:  # pragma: no cover
@@ -216,5 +228,4 @@ class DetectionEngine:
             try:
                 signal.signal(sig, _handler)
             except (ValueError, OSError):  # pragma: no cover
-                # Not in the main thread, or unsupported on this platform.
                 log.debug("could not install handler for signal %s", sig)

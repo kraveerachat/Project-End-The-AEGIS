@@ -13,8 +13,9 @@ from the environment only.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 try:  # optional convenience only — never a hard dependency
     from dotenv import load_dotenv
@@ -53,12 +54,33 @@ def _env_bool(key: str, default: bool) -> bool:
     raw = os.environ.get(key)
     if raw is None or raw == "":
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "n"}:
+        return False
+    raise ValueError(
+        f"Environment variable {key!r}={raw!r} is not a valid boolean"
+    )
 
 
 def _env_opt(key: str) -> Optional[str]:
     val = os.environ.get(key)
     return val if val else None
+
+
+def _redact_url_credentials(value: str) -> str:
+    """Mask URL userinfo while preserving a useful host/path for diagnostics."""
+    try:
+        parsed = urlsplit(value)
+        if not parsed.scheme or "@" not in parsed.netloc:
+            return value
+        host = parsed.netloc.rsplit("@", 1)[1]
+        return urlunsplit(
+            (parsed.scheme, f"***:***@{host}", parsed.path, parsed.query, parsed.fragment)
+        )
+    except ValueError:
+        return "***redacted-url***"
 
 
 @dataclass(frozen=True)
@@ -106,15 +128,24 @@ class EngineConfig:
     alert_snapshot_dir: str = "./snapshots"
     alert_http_timeout_s: float = 10.0
 
+    # --- Monitor integration --------------------------------------------
+    # Optional in development. When either URL or key is absent the client is
+    # explicitly disabled and the core capture/recording runtime continues.
+    monitor_api_base: Optional[str] = None
+    detection_engine_api_key: Optional[str] = None
+    monitor_http_timeout_s: float = 5.0
+
     # --- NAS sync (NASSyncWorker) ----------------------------------------
-    nas_enabled: bool = True
+    # Development must start without production NAS infrastructure. Enabling
+    # NAS opts into strict host/user/integrity validation below.
+    nas_enabled: bool = False
     nas_method: str = "rsync"  # "rsync" | "scp"
     nas_user: Optional[str] = None
     nas_host: Optional[str] = None
     nas_dest_dir: str = "/volume1/aegis/segments"
     nas_ssh_port: int = 22
     nas_ssh_key: Optional[str] = None  # path to private key, else agent/default
-    nas_verify: str = "checksum"  # "checksum" | "size" | "none"
+    nas_verify: str = "checksum"  # "checksum" | "size"; unverified success forbidden
     nas_delete_after_sync: bool = True
     nas_max_retries: int = 3
     nas_retry_backoff_s: float = 5.0
@@ -190,6 +221,11 @@ class EngineConfig:
             alert_http_timeout_s=_env_float(
                 "AEGIS_ALERT_HTTP_TIMEOUT_S", cls.alert_http_timeout_s
             ),
+            monitor_api_base=_env_opt("AEGIS_MONITOR_API_BASE"),
+            detection_engine_api_key=_env_opt("AEGIS_DETECTION_ENGINE_API_KEY"),
+            monitor_http_timeout_s=_env_float(
+                "AEGIS_MONITOR_HTTP_TIMEOUT_S", cls.monitor_http_timeout_s
+            ),
             nas_enabled=_env_bool("AEGIS_NAS_ENABLED", cls.nas_enabled),
             nas_method=_env_str("AEGIS_NAS_METHOD", cls.nas_method),
             nas_user=_env_opt("AEGIS_NAS_USER"),
@@ -234,14 +270,24 @@ class EngineConfig:
             raise ValueError("AEGIS_TARGET_FPS must be > 0")
         if self.segment_seconds <= 0:
             raise ValueError("AEGIS_SEGMENT_SECONDS must be > 0")
-        if self.nas_method not in {"rsync", "scp"}:
-            raise ValueError("AEGIS_NAS_METHOD must be 'rsync' or 'scp'")
-        if self.nas_verify not in {"checksum", "size", "none"}:
-            raise ValueError("AEGIS_NAS_VERIFY must be 'checksum', 'size' or 'none'")
-        if self.nas_enabled and (not self.nas_host or not self.nas_user):
-            raise ValueError(
-                "NAS sync is enabled but AEGIS_NAS_HOST / AEGIS_NAS_USER are unset"
-            )
+        if self.detect_every_n_frames <= 0:
+            raise ValueError("AEGIS_DETECT_EVERY_N_FRAMES must be > 0")
+        if self.record_queue_size <= 0 or self.detect_queue_size <= 0:
+            raise ValueError("AEGIS_RECORD_QUEUE_SIZE and AEGIS_DETECT_QUEUE_SIZE must be > 0")
+        if self.nas_enabled:
+            if self.nas_method not in {"rsync", "scp"}:
+                raise ValueError("AEGIS_NAS_METHOD must be 'rsync' or 'scp' when NAS is enabled")
+            if self.nas_verify not in {"checksum", "size"}:
+                raise ValueError(
+                    "AEGIS_NAS_VERIFY must be 'checksum' or 'size' when NAS is enabled; "
+                    "unverified transfers cannot be reported as successful"
+                )
+            if not self.nas_host or not self.nas_user:
+                raise ValueError(
+                    "NAS sync is enabled but AEGIS_NAS_HOST / AEGIS_NAS_USER are unset"
+                )
+            if self.nas_max_retries <= 0:
+                raise ValueError("AEGIS_NAS_MAX_RETRIES must be > 0 when NAS is enabled")
         if not (1 <= self.stream_jpeg_quality <= 100):
             raise ValueError("AEGIS_STREAM_JPEG_QUALITY must be between 1 and 100")
         return self
@@ -265,10 +311,15 @@ class EngineConfig:
     def redacted(self) -> dict:
         """Config as a dict with secrets masked — safe to log at startup."""
         out = {}
-        secret = {"telegram_bot_token", "nas_ssh_key"}
+        secret = {"telegram_bot_token", "detection_engine_api_key", "nas_ssh_key"}
         for f in fields(self):
             val = getattr(self, f.name)
             if f.name in secret and val:
                 val = "***set***"
+            elif (
+                f.name in {"camera_source", "monitor_api_base", "stream_public_url"}
+                and val
+            ):
+                val = _redact_url_credentials(str(val))
             out[f.name] = val
         return out

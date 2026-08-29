@@ -25,7 +25,7 @@ AEGIS_System/
 │                             #    DB aegis_monitor · owns camera_assignment · port 8002
 │
 ├── IDEA2-AEGIS_CCTV-Operator/ # ⚠️ web-app/ DEPRECATED (merged into IDEA2-AEGIS_Monitor)
-│   ├── detection-engine/     #    ✅ Laptop · face-recognition → writes DB · no UI
+│   ├── detection-engine/     #    ✅ Canonical modular edge runtime → Monitor HTTP API · no DB credential
 │   └── web-app/              #    kept as unmerged reference only — safe to delete
 │
 ├── IDEA3-AEGIS_Lockdown/     # 🚧 Scaffold: physical lockdown
