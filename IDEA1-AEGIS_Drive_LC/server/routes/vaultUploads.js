@@ -33,7 +33,8 @@ import * as store from '../db/store.js'
 import * as v2 from '../db/vaultV2Store.js'
 import {
   VAULT_TRANSFER_LIMITS, GCM_TAG_BYTES, MIN_VAULT_PLAINTEXT_CHUNK_BYTES,
-  MAX_VAULT_PLAINTEXT_CHUNK_BYTES, expectedVaultChunkSize, vaultReserveBytesFor,
+  MAX_VAULT_PLAINTEXT_CHUNK_BYTES, MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES,
+  expectedVaultChunkSize, vaultReserveBytesFor,
 } from '../config/vaultTransferLimits.js'
 import { filesystemCapacity } from '../storage/fileStore.js'
 import { removeVaultCiphertext } from '../storage/vaultStore.js'
@@ -128,7 +129,9 @@ vaultUploadsRouter.get('/limits', requireAuth, async (req, res, next) => {
       gcmTagBytes: GCM_TAG_BYTES,
       minPlaintextChunkBytes: MIN_VAULT_PLAINTEXT_CHUNK_BYTES,
       maxPlaintextChunkBytes: MAX_VAULT_PLAINTEXT_CHUNK_BYTES,
+      // ⚠️ เพดานที่บังคับอยู่จริง กับ เพดานสูงสุดที่ตั้งได้ — ดูเหตุผลใน routes/uploads.js
       maxLogicalFileBytes: VAULT_TRANSFER_LIMITS.maxLogicalFileBytes,
+      maxSupportedLogicalFileBytes: MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES,
       sessionTtlMs: VAULT_TRANSFER_LIMITS.sessionTtlMs,
       capacity: await capacitySnapshot(),
     })

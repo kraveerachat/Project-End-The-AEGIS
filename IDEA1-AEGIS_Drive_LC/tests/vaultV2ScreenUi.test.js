@@ -704,6 +704,156 @@ test('V1 และ V2 อยู่ในรายการเดียวกั�
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 62 · ความเร็วจริงและเวลาที่เหลือ (LFT-V2-E)
+//
+// ⚠️ สิ่งที่ตรึงไว้ตรงนี้คือ "ตัวเลขบนบรรทัดความเร็วมาจากไบต์จริงเท่านั้น" — นาฬิกาถูก
+//    ควบคุมโดยเทสต์ ไม่ใช่ปล่อยให้เวลาจริงเดิน เทสต์ที่รอเวลาจะสั่นแบบสุ่มบนเครื่องช้า
+// ─────────────────────────────────────────────────────────────────────────────
+const rateEl = () => doc().querySelector('[data-vault-transfer-rate]')
+
+/** นาฬิกาที่เทสต์เดินเอง — คืนฟังก์ชันเลื่อนเวลา และฟังก์ชันคืนค่าเดิม */
+function fakeClock() {
+  const real = globalThis.performance.now
+  let ms = 0
+  globalThis.performance.now = () => ms
+  return {
+    advance: (by) => { ms += by },
+    restore: () => { globalThis.performance.now = real },
+  }
+}
+
+test('บรรทัดความเร็วแสดงความเร็วจริงและเวลาที่เหลือจริง ไม่ใช่ค่าที่เดา', async () => {
+  const FILE_SIZE = 20_000_000
+  const clock = fakeClock()
+  const g1 = gate()
+  const g2 = gate()
+
+  backend.uploadImpl = async ({ onStage, onProgress }) => {
+    await g1.promise
+    onStage('uploading')
+    // 1 MB ทุก 500 ms = 2 MB/s — สี่ตัวอย่าง ตัวแรกคือจุดอ้างอิง
+    for (let i = 0; i <= 3; i += 1) {
+      if (i > 0) clock.advance(500)
+      onProgress({
+        phase: 'uploading', chunkIndex: i, chunkCount: 20,
+        transferredBytes: i * 1_000_000, totalBytes: FILE_SIZE,
+        percent: (i * 1_000_000 / FILE_SIZE) * 100,
+      })
+    }
+    await g2.promise
+    return { ok: true, stage: 'complete', blob: serverBlobV2({ id: 'v2-rate', name: 'clip.mp4', type: 'video/mp4' }) }
+  }
+
+  const h = env.mount()
+  try {
+    await unlocked(h)
+    await uploadFile(dom, { name: 'clip.mp4', type: 'video/mp4' })
+
+    // ก่อนมีตัวอย่างจริง: ไม่มีบรรทัดความเร็ว (stage ยังเป็น preparing)
+    assert.equal(rateEl(), null, 'ห้ามแสดงความเร็วก่อนที่จะมีไบต์วิ่งจริง')
+
+    await release(g1)
+
+    const el = rateEl()
+    assert.ok(el, 'ระหว่างอัปโหลดต้องมีบรรทัดความเร็ว')
+    assert.equal(el.getAttribute('data-vault-transfer-rate'), '2000000', '3 MB ใน 1.5 วินาที = 2 MB/s')
+    assert.equal(el.getAttribute('data-vault-transfer-stalled'), 'no')
+    // เหลือ 17 MB ที่ 2 MB/s = 8.5 วินาที → ปัดขึ้นเป็น 9
+    assert.equal(el.getAttribute('data-vault-transfer-eta'), '9')
+
+    // ★ ข้อความที่ผู้ใช้เห็นจริง — ไม่ใช่แค่ attribute ที่เทสต์อ่านได้เท่านั้น
+    assert.ok(el.textContent.includes('1.9 MB/s'), 'หน่วยเดียวกับตัวนับไบต์ด้านบน (ฐาน 1024)')
+    assert.ok(el.textContent.includes('about 9s remaining'), el.textContent)
+
+    await release(g2)
+    assert.equal(panel(), null)
+  } finally {
+    clock.restore()
+    h.unmount()
+  }
+})
+
+test('ไบต์หยุดนิ่ง = บอกว่ากำลังรอเครือข่าย ไม่ใช่ปล่อย ETA นับถอยหลังลวง', async () => {
+  const FILE_SIZE = 20_000_000
+  const clock = fakeClock()
+  const g1 = gate()
+  const g2 = gate()
+  const g3 = gate()
+
+  backend.uploadImpl = async ({ onStage, onProgress }) => {
+    await g1.promise
+    onStage('uploading')
+    for (let i = 0; i <= 3; i += 1) {
+      if (i > 0) clock.advance(500)
+      onProgress({
+        phase: 'uploading', chunkIndex: i, chunkCount: 20,
+        transferredBytes: i * 1_000_000, totalBytes: FILE_SIZE, percent: 5 * i,
+      })
+    }
+    await g2.promise
+    // เน็ตหยุด: เวลาเดินต่อ 5 วินาที แต่ไบต์เท่าเดิมเป๊ะ
+    clock.advance(5_000)
+    onProgress({
+      phase: 'uploading', chunkIndex: 3, chunkCount: 20,
+      transferredBytes: 3_000_000, totalBytes: FILE_SIZE, percent: 15,
+    })
+    await g3.promise
+    return { ok: true, stage: 'complete', blob: serverBlobV2({ id: 'v2-stall', name: 'clip.mp4', type: 'video/mp4' }) }
+  }
+
+  const h = env.mount()
+  try {
+    await unlocked(h)
+    await uploadFile(dom, { name: 'clip.mp4', type: 'video/mp4' })
+    await release(g1)
+    assert.equal(rateEl().getAttribute('data-vault-transfer-stalled'), 'no')
+
+    await release(g2)
+
+    const el = rateEl()
+    assert.equal(el.getAttribute('data-vault-transfer-stalled'), 'yes')
+    assert.equal(el.getAttribute('data-vault-transfer-rate'), '', 'ห้ามค้างความเร็วเก่าไว้ตอนไม่มีไบต์วิ่ง')
+    assert.equal(el.getAttribute('data-vault-transfer-eta'), '')
+    assert.ok(el.textContent.includes(t('vaultXferStalled')), el.textContent)
+
+    // ไบต์ที่ยืนยันแล้วยังต้องนิ่งสนิท — การหยุดนิ่งไม่ใช่การถอยหลัง
+    assert.equal(bytesEl().getAttribute('data-vault-transfer-bytes'), String(3_000_000))
+
+    await release(g3)
+  } finally {
+    clock.restore()
+    h.unmount()
+  }
+})
+
+test('บรรทัดความเร็วมีคำแปลจริงครบทั้ง en / th / zh — รวมตัวอย่างในข้อกำหนด', async () => {
+  const { transferRateLine } = await import('../src/lib/transferRate.js')
+  const { makeT: mk } = await import('../src/lib/strings.js')
+
+  const measured = { bytesPerSecond: 61_236_183, etaSeconds: 11.4, stalled: false }
+
+  // ★ ตัวอย่างที่ข้อกำหนดของงานนี้ระบุไว้ตรง ๆ
+  assert.equal(transferRateLine(mk('th'), measured), '58.4 MB/s · เหลือประมาณ 12 วินาที')
+  assert.equal(transferRateLine(mk('en'), measured), '58.4 MB/s · about 12s remaining')
+  assert.equal(transferRateLine(mk('zh'), measured), '58.4 MB/s · 约剩 12 秒')
+
+  for (const lang of ['en', 'th', 'zh']) {
+    const tt = mk(lang)
+    // ยังวัดไม่ได้ / หยุดนิ่ง / ไม่รู้ขนาดรวม — ทุกกรณีต้องเป็นประโยคจริง ไม่ใช่คีย์ดิบ
+    const cases = [
+      transferRateLine(tt, { bytesPerSecond: null, etaSeconds: null, stalled: false }),
+      transferRateLine(tt, { bytesPerSecond: null, etaSeconds: null, stalled: true }),
+      transferRateLine(tt, { bytesPerSecond: 2_000_000, etaSeconds: null, stalled: false }),
+    ]
+    for (const line of cases) {
+      assert.ok(line && line.length > 0, `${lang}: ต้องมีข้อความ`)
+      assert.ok(!line.includes('{') && !line.includes('}'), `${lang}: placeholder หลุด — ${line}`)
+      assert.ok(!/^vaultXfer/.test(line), `${lang}: คีย์ดิบหลุดถึงผู้ใช้ — ${line}`)
+    }
+  }
+
+  assert.equal(transferRateLine(mk('en'), null), null, 'ยังไม่มีผลการวัด = ไม่มีบรรทัด')
+})
 // 63 · preview วิดีโอ V2 ขนาดใหญ่ผ่าน Service Worker (LFT-V2-E3)
 //
 // ⚠️ สิ่งที่ชุดนี้ตรึงไว้คือ "สัญญาเชิงความปลอดภัย" ของเส้นทางใหม่ ไม่ใช่การเล่นวิดีโอ

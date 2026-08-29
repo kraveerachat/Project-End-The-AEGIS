@@ -27,6 +27,8 @@ import {
   tombstoneVaultBlob, vaultBlobId, lockedVaultEntry,
 } from '../lib/vaultInventory.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
+// ⚠️ ความเร็ว/เวลาที่เหลือมาจากไบต์จริงเท่านั้น — โมดูลนี้ไม่มี timer ที่เดินเอง
+import { createRateEstimator, transferRateLine } from '../lib/transferRate.js'
 // ⚠️ เส้นทาง preview วิดีโอใหญ่: ถอดรหัสตามช่วงไบต์ที่ผู้เล่นขอ ใน Service Worker
 //    ต้นทางเดียวกัน — ไม่มี plaintext ทั้งไฟล์อยู่ในหน่วยความจำ ณ เวลาใดเลย
 import {
@@ -264,6 +266,14 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
     'auth-failed': 'vaultXferReasonAuth',
   }[transfer.reason]
 
+  // ⚠️ ความเร็วมีความหมายเฉพาะช่วงที่ไบต์กำลังวิ่งจริง ระหว่าง 'committing' เซิร์ฟเวอร์
+  //    กำลังตรวจไบต์ของตัวเองอยู่ ไม่มีอะไรวิ่งบนสาย — การขึ้น "กำลังรอเครือข่าย" ตรงนั้น
+  //    จะเป็นคำเตือนปลอมที่ทำให้ผู้ใช้กดยกเลิก commit ที่กำลังทำงานปกติ
+  const measuring = stage === 'uploading' || stage === 'encrypting' || stage === 'downloading'
+  const rateLine = transferRateLine(t, transfer.rate)
+  const rateBps = transfer.rate?.bytesPerSecond ?? null
+  const etaSeconds = transfer.rate?.etaSeconds ?? null
+
   const active = stage === 'preparing' || stage === 'encrypting' || stage === 'uploading'
     || stage === 'committing' || stage === 'downloading'
   const stopped = stage === 'failed' || stage === 'paused' || stage === 'unsupported'
@@ -306,6 +316,22 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
             aria-valuemin={0}
             aria-valuemax={100}
           />
+        </div>
+      )}
+
+      {/* ⚠️ พื้นที่นี้ถูกจองความสูงไว้ตลอดช่วงที่กำลังโอน แม้ตอนที่ยังวัดความเร็วไม่ได้ —
+          ไม่งั้นแผงจะกระตุกขึ้นลงทุกครั้งที่ตัวเลขปรากฏหรือหายไป */}
+      {measuring && (
+        <div className="mt-1.5 flex justify-end min-h-[16px]">
+          <p
+            className="text-[12px] text-ink-3 font-mono"
+            style={{ fontVariantNumeric: 'tabular-nums' }}
+            data-vault-transfer-rate={rateBps === null ? '' : String(Math.round(rateBps))}
+            data-vault-transfer-eta={etaSeconds === null ? '' : String(Math.round(etaSeconds))}
+            data-vault-transfer-stalled={transfer.rate?.stalled ? 'yes' : 'no'}
+          >
+            {rateLine}
+          </p>
         </div>
       )}
 
@@ -354,6 +380,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const resumable = useRef(null)
   /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
   const transferAbort = useRef(null)
+  // ⚠️ ตัวประมาณความเร็วหนึ่งตัวต่อหนึ่งการโอน — สร้างใหม่ทุกครั้งที่เริ่ม/ทำต่อ เพื่อไม่ให้
+  //    ไบต์ของเซสชันก่อนถูกนับเป็นความเร็วของเซสชันนี้ (ดู transferRate.js)
+  const transferRate = useRef(null)
   /* บัญชี blob ทึบฝั่ง client — ดู src/lib/vaultInventory.js สำหรับเหตุผลเต็ม
      โดยย่อ: ผลของ POST ที่สำเร็จแล้วเป็นความจริงที่รู้แน่ทันที ไม่ควรต้องรอ GET
      รอบถัดไปมายืนยัน เพราะผู้ใช้กด Lock ชนะ refetch ได้เสมอ */
@@ -610,9 +639,13 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    // ⚠️ resume เริ่มจากไบต์ที่ไม่ใช่ศูนย์ — ตัวประมาณตัวใหม่ถือว่าไบต์ก้อนนั้นเป็น
+    //    "จุดอ้างอิง" ไม่ใช่ไบต์ที่เพิ่งวิ่งผ่านสาย ไม่งั้นตัวอย่างแรกจะได้ความเร็วลวง
+    transferRate.current = createRateEstimator()
     setTransfer({
       kind: 'upload', stage: 'preparing', phase: 'preparing', name: file.name,
       transferredBytes: 0, totalBytes: file.size, percent: 0, chunkIndex: 0, chunkCount: 0,
+      rate: null,
     })
 
     const res = await uploadVaultFileChunked({
@@ -621,7 +654,14 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       resume: resumeState,
       signal: ctrl.signal,
       onStage: (stage) => setTransfer((prev) => (prev ? { ...prev, stage } : prev)),
-      onProgress: (p) => setTransfer((prev) => (prev ? { ...prev, ...p } : prev)),
+      onProgress: (p) => {
+        // ⚠️ เก็บตัวอย่างนอก state updater โดยเจตนา — updater ถูกเรียกซ้ำได้ใน StrictMode
+        //    การเก็บซ้ำจะใส่จุดปลอมที่เวลาเดียวกันลงหน้าต่างเลื่อนแล้วความเร็วจะเพี้ยน
+        const rate = transferRate.current?.sample(
+          p.transferredBytes, performance.now(), { totalBytes: p.totalBytes },
+        ) ?? null
+        setTransfer((prev) => (prev ? { ...prev, ...p, rate } : prev))
+      },
     })
 
     transferAbort.current = null
@@ -735,10 +775,11 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    transferRate.current = createRateEstimator()
     setTransfer({
       kind: 'download', stage: 'downloading', name: entry.name ?? null,
       transferredBytes: 0, totalBytes: plainSize, percent: 0,
-      chunkIndex: 0, chunkCount: blob.chunkCount,
+      chunkIndex: 0, chunkCount: blob.chunkCount, rate: null,
     })
 
     const res = await downloadVaultV2({
@@ -746,9 +787,17 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       // ⚠️ ดาวน์โหลดนับเป็น bytesWritten (ไบต์ที่ "เขียนออกไปแล้ว") ส่วนอัปโหลดนับ
       //    transferredBytes — แปลให้เป็นคำเดียวกันตรงนี้ ไม่งั้นตัวนับไบต์จะค้างที่ศูนย์
       //    ตลอดการดาวน์โหลด ทั้งที่เปอร์เซ็นต์เดิน (= แถบโกหกผู้ใช้สองตัวเลขที่ขัดกันเอง)
-      onProgress: (p) => setTransfer((prev) => (
-        prev ? { ...prev, ...p, transferredBytes: p.bytesWritten ?? prev.transferredBytes } : prev
-      )),
+      onProgress: (p) => {
+        const done = p.bytesWritten ?? null
+        const rate = done === null ? null : (transferRate.current?.sample(
+          done, performance.now(), { totalBytes: plainSize },
+        ) ?? null)
+        setTransfer((prev) => (
+          // ⚠️ เหตุการณ์ที่ไม่มีไบต์ใหม่ (เช่นรายงานเฟส) ต้องไม่ล้างผลการวัดล่าสุดทิ้ง
+          //    ไม่งั้นบรรทัดความเร็วจะกะพริบหายทุกครั้งที่ไม่มีตัวอย่างใหม่
+          prev ? { ...prev, ...p, transferredBytes: done ?? prev.transferredBytes, rate: rate ?? prev.rate } : prev
+        ))
+      },
     })
     transferAbort.current = null
 
