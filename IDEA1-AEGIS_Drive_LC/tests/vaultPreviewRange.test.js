@@ -10,6 +10,7 @@ import {
   parseRangeHeader, planChunkReads, planWholeFileReads,
   plaintextChunkSizeFor, previewTokenFromPath,
   buildPreviewHeaders, contentRangeValue, PREVIEW_PATH_SEGMENT,
+  PREVIEW_RANGE_WINDOW_BYTES,
 } from '../src/lib/vaultPreviewRange.js'
 import { GCM_TAG_BYTES } from '../src/lib/vaultChunkCrypto.js'
 
@@ -41,9 +42,11 @@ test('bytes=X-Y ตีความตรงตัว และปลาย Y ถ
   assert.deepEqual(parseRangeHeader('bytes=999-999', 1000), { kind: 'range', start: 999, end: 999 })
 })
 
-test('bytes=X- คือ "จากตรงนี้ถึงท้ายไฟล์" — คำขอที่ผู้เล่นวิดีโอใช้บ่อยที่สุด', () => {
-  assert.deepEqual(parseRangeHeader('bytes=0-', 1000), { kind: 'range', start: 0, end: 999 })
-  assert.deepEqual(parseRangeHeader('bytes=750-', 1000), { kind: 'range', start: 750, end: 999 })
+test('bytes=X- ถูกระบุว่าเป็น open-ended เพื่อให้ชั้นตอบกลับจำกัดหน้าต่างได้', () => {
+  assert.deepEqual(parseRangeHeader('bytes=0-', 1000), { kind: 'range', start: 0, end: 999, openEnded: true })
+  assert.deepEqual(parseRangeHeader('bytes=750-', 1000), { kind: 'range', start: 750, end: 999, openEnded: true })
+  assert.equal(PREVIEW_RANGE_WINDOW_BYTES, 16 * MIB,
+    'หน้าต่าง 16 MiB ลดจำนวนรอบของ Chromium โดยยังเล็กกว่าก้อน Vault ปริยาย 32 MiB')
 })
 
 test('bytes=-N คือ N ไบต์สุดท้าย — MP4 ที่ moov อยู่ท้ายไฟล์พึ่งคำขอนี้', () => {

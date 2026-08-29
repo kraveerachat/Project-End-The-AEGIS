@@ -21,14 +21,17 @@ import { decryptVaultChunk } from './vaultChunkCrypto.js'
 import {
   parseRangeHeader, planChunkReads, planWholeFileReads,
   plaintextChunkSizeFor, buildPreviewHeaders, contentRangeValue,
+  PREVIEW_RANGE_WINDOW_BYTES,
 } from './vaultPreviewRange.js'
+import { PREVIEW_FAILURE_REASON } from './vaultPreviewErrors.js'
 
 /** เหตุผลที่ทำให้ต้องหยุดกลางสตรีม — ส่งกลับไปให้หน้าเว็บแสดงผลตามจริง */
 export const PREVIEW_FAILURE = Object.freeze({
-  INTEGRITY: 'integrity',
-  FETCH: 'fetch',
-  MISSING_IV: 'missing-iv',
-  SIZE_MISMATCH: 'size-mismatch',
+  INTEGRITY: PREVIEW_FAILURE_REASON.INTEGRITY_FAILED,
+  FETCH: PREVIEW_FAILURE_REASON.CHUNK_FETCH_FAILED,
+  MISSING_IV: PREVIEW_FAILURE_REASON.CHUNK_FETCH_FAILED,
+  SIZE_MISMATCH: PREVIEW_FAILURE_REASON.INTEGRITY_FAILED,
+  RANGE_INVALID: PREVIEW_FAILURE_REASON.RANGE_INVALID,
 })
 
 /** ที่อยู่ของก้อน ciphertext — สร้างจาก scope ของ worker ไม่ใช่ค่าที่ฝังไว้ */
@@ -41,7 +44,8 @@ export function chunkUrlFor(base, blobId, index) {
  * ⚠️ ตรวจขนาดหลังถอดด้วยเหตุผลเดียวกับ vaultChunkedDownload.js: GCM รับรอง "เนื้อของ
  *    ข้อความนี้" แต่ไม่ได้รับรองว่าผู้ส่งไม่ได้ส่งก้อนที่ถูกต้องแต่ผิดขนาดมาให้
  */
-export async function readPlainChunk(session, index, { fetchImpl, base, signal }) {
+export async function readPlainChunk(session, index, { fetchImpl, base, signal, onDiagnostic }) {
+  const fetchStarted = Date.now()
   const res = await fetchImpl(chunkUrlFor(base, session.blob.id, index), {
     credentials: 'same-origin',
     signal,
@@ -52,6 +56,7 @@ export async function readPlainChunk(session, index, { fetchImpl, base, signal }
   if (!ivB64) throw Object.assign(new Error('missing iv'), { previewFailure: PREVIEW_FAILURE.MISSING_IV })
 
   const ciphertext = new Uint8Array(await res.arrayBuffer())
+  const fetchedAt = Date.now()
 
   let plain
   try {
@@ -67,6 +72,12 @@ export async function readPlainChunk(session, index, { fetchImpl, base, signal }
     //    ทั้งสามกรณีทำให้ AAD หรือ tag ไม่ตรง และทั้งสามต้องจบเหมือนกันคือ "ไม่ส่งไบต์"
     throw Object.assign(new Error('chunk auth failed'), { previewFailure: PREVIEW_FAILURE.INTEGRITY })
   }
+  const decryptedAt = Date.now()
+  onDiagnostic?.('chunk-timing', {
+    ciphertextChunksFetched: 1,
+    fetchDurationMs: fetchedAt - fetchStarted,
+    decryptDurationMs: decryptedAt - fetchedAt,
+  })
 
   const chunkSize = plaintextChunkSizeFor(session.blob)
   const expected = Math.min(chunkSize, Math.max(0, session.plainSize - index * chunkSize))
@@ -83,22 +94,26 @@ export async function readPlainChunk(session, index, { fetchImpl, base, signal }
  *    นี่คือจุดที่ทำให้ "วิดีโอ 4 GiB" กับ "วิดีโอ 40 MiB" ใช้หน่วยความจำเท่ากัน
  */
 export function createPreviewStream(session, plan, {
-  fetchImpl, base, onFailure, StreamCtor = globalThis.ReadableStream,
+  fetchImpl, base, onFailure, onDiagnostic,
+  readChunk = readPlainChunk,
+  StreamCtor = globalThis.ReadableStream,
 }) {
   let cursor = 0
   const controllerAbort = new AbortController()
+  const streamStartedAt = Date.now()
 
   return new StreamCtor({
     async pull(controller) {
       if (cursor >= plan.length) {
+        onDiagnostic?.('response-complete', { responseDurationMs: Date.now() - streamStartedAt })
         controller.close()
         return
       }
       const step = plan[cursor]
       cursor += 1
       try {
-        const plain = await readPlainChunk(session, step.index, {
-          fetchImpl, base, signal: controllerAbort.signal,
+        const plain = await readChunk(session, step.index, {
+          fetchImpl, base, signal: controllerAbort.signal, onDiagnostic,
         })
         controller.enqueue(plain.subarray(step.sliceStart, step.sliceEnd))
       } catch (err) {
@@ -158,7 +173,10 @@ export function planPreviewResponse(session, { method = 'GET', rangeHeader = nul
     }
   }
 
-  const { start, end } = range
+  const start = range.start
+  const end = range.openEnded
+    ? Math.min(range.end, start + PREVIEW_RANGE_WINDOW_BYTES - 1)
+    : range.end
   return {
     status: 206,
     headers: buildPreviewHeaders({

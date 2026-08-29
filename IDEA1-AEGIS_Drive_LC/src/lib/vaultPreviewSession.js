@@ -6,13 +6,20 @@
 //
 // ⚠️ DEK ถูกส่งเป็น CryptoKey ที่ **non-extractable** ผ่าน structured clone — ตัว worker
 //    ใช้มันถอดรหัสได้ แต่ export ไบต์ของกุญแจออกมาไม่ได้ เหมือนกับในหน้าเว็บทุกประการ
-//    และมันอยู่ใน Map ในหน่วยความจำของ worker เท่านั้น: ไม่มี localStorage ไม่มี
-//    sessionStorage ไม่มี IndexedDB ไม่มี Cache API
+//    และมันอยู่ใน Map ของ page/worker memory เท่านั้น: ไม่มี localStorage ไม่มี
+//    sessionStorage ไม่มี IndexedDB ไม่มี Cache API; page copy มีไว้กู้ worker ที่ถูก
+//    browser ปิดทิ้ง และถูกลบพร้อม preview/การล็อก
 //
 // ⚠️ token ไม่ใช่ "ความลับที่ป้องกันผู้อื่น" — มันคือ **ชื่อของช่องในหน่วยความจำ** ที่มี
 //    อายุสั้น เพราะขอบเขตของ Service Worker คือ origin นี้อยู่แล้ว การสุ่มมันด้วย CSPRNG
 //    มีไว้กันการเดาชนกันเองและกันไม่ให้ URL ของ preview ใบก่อนใช้ซ้ำได้หลังปิด
 import { PREVIEW_PATH_SEGMENT } from './vaultPreviewRange.js'
+import { PREVIEW_FAILURE_REASON } from './vaultPreviewErrors.js'
+import { previewDiagnosticsEnabled } from './vaultPreviewDiagnostics.js'
+
+// Page-memory recovery registry. It is intentionally a module Map: a reload or
+// tab close destroys it, and no browser storage API is involved.
+const activePreviewSessions = new Map()
 
 /** ที่อยู่ของสคริปต์ worker — dev เสิร์ฟจาก source, production จาก entry ที่ build แล้ว */
 export function previewWorkerUrl(base = import.meta.env?.BASE_URL ?? '/', dev = Boolean(import.meta.env?.DEV)) {
@@ -53,34 +60,48 @@ export function previewUrlFor(token, base = import.meta.env?.BASE_URL ?? '/') {
  *    claim หน้านี้จะ **ไม่เห็น** คำขอของ <video> เลย ผลคือเบราว์เซอร์ยิงไปที่เซิร์ฟเวอร์
  *    จริงแล้วได้ 404 ซึ่งบนหน้าจอจะดูเหมือน "preview พัง" โดยไม่มีสาเหตุที่อธิบายได้
  */
-export async function ensurePreviewWorker({
+export async function ensurePreviewWorkerResult({
   scope = globalThis,
   scriptUrl = previewWorkerUrl(),
   timeoutMs = 10_000,
 } = {}) {
-  if (!supportsLargeVideoPreview(scope)) return null
+  if (!supportsLargeVideoPreview(scope)) {
+    return { ok: false, reason: PREVIEW_FAILURE_REASON.UNSUPPORTED_BROWSER }
+  }
   const container = scope.navigator.serviceWorker
 
-  await container.register(scriptUrl, { type: 'module' })
-  if (container.controller) return container.controller
+  try {
+    await container.register(scriptUrl, { type: 'module' })
+  } catch {
+    return { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_REGISTRATION_FAILED }
+  }
+  if (container.controller) return { ok: true, controller: container.controller }
 
   // worker ตัวใหม่ต้องรอ activate + claim — มีเพดานเวลาเสมอ ไม่รอไม่มีที่สิ้นสุด
   return new Promise((resolve) => {
     let settled = false
     let timer = null
-    const finish = (value) => {
+    const finish = (controller) => {
       if (settled) return
       settled = true
       // ⚠️ ต้องเก็บกวาดทั้ง listener และ timer — ตัวจับเวลาที่ยังเดินอยู่หลังงานจบแล้ว
       //    ทำให้โปรเซส/แท็บถือทรัพยากรค้างไว้โดยไม่มีใครรอผลของมัน
       if (timer !== null) scope.clearTimeout?.(timer)
       container.removeEventListener?.('controllerchange', onChange)
-      resolve(value)
+      resolve(controller
+        ? { ok: true, controller }
+        : { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT })
     }
     const onChange = () => finish(container.controller ?? null)
     container.addEventListener?.('controllerchange', onChange)
     timer = scope.setTimeout(() => finish(container.controller ?? null), timeoutMs)
   })
+}
+
+/** Backwards-compatible controller helper used by existing callers/tests. */
+export async function ensurePreviewWorker(options = {}) {
+  const result = await ensurePreviewWorkerResult(options)
+  return result.ok ? result.controller : null
 }
 
 /** ส่งข้อความแล้วรอคำตอบผ่าน MessageChannel — ไม่ใช่ "ส่งแล้วหวังว่าจะถึง" */
@@ -109,7 +130,8 @@ export function askWorker(controller, message, { scope = globalThis, timeoutMs =
  *
  * @param {{ dek: CryptoKey, blob: object, contentType: string, plainSize: number,
  *           scope?: object, base?: string }} options
- * @returns {Promise<{ token: string, url: string }|null>} null = เบราว์เซอร์นี้ทำไม่ได้
+ * @returns {Promise<{ ok: true, token: string, url: string }
+ *          | { ok: false, reason: string }>}
  */
 export async function openPreviewSession({
   dek, blob, contentType, plainSize,
@@ -117,28 +139,78 @@ export async function openPreviewSession({
   base = import.meta.env?.BASE_URL ?? '/',
   controller: providedController,
 }) {
-  const controller = providedController ?? await ensurePreviewWorker({ scope })
-  if (!controller) return null
+  const worker = providedController
+    ? { ok: true, controller: providedController }
+    : await ensurePreviewWorkerResult({ scope })
+  if (!worker.ok) return worker
+  const controller = worker.controller
 
   const token = newPreviewToken(scope)
-  // ★ ส่ง "เฉพาะสิ่งที่จำเป็นต่อการถอดหนึ่งก้อน" ไม่ใช่ทั้ง entry — ยิ่งส่งน้อย ยิ่งมี
-  //   ของให้ลืมลบน้อย และ worker ไม่มีเหตุต้องรู้ชื่อไฟล์เลย จึงไม่ถูกส่งไป
-  const ok = await askWorker(controller, {
-    type: 'vault-preview-open',
-    token,
+  const sessionPayload = {
     dek,
     contentType,
-    plainSize,
+    plainSize: Number(plainSize) || 0,
     blob: {
       id: blob.id,
       contentIdB64: blob.contentIdB64,
       chunkSize: blob.chunkSize,
       chunkCount: blob.chunkCount,
     },
-  }, { scope })
+  }
+  // ★ ส่ง "เฉพาะสิ่งที่จำเป็นต่อการถอดหนึ่งก้อน" ไม่ใช่ทั้ง entry — ยิ่งส่งน้อย ยิ่งมี
+  //   ของให้ลืมลบน้อย และ worker ไม่มีเหตุต้องรู้ชื่อไฟล์เลย จึงไม่ถูกส่งไป
+  let ok
+  try {
+    ok = await askWorker(controller, {
+      type: 'vault-preview-open',
+      token,
+      diagnostics: previewDiagnosticsEnabled(scope),
+      ...sessionPayload,
+    }, { scope })
+  } catch {
+    ok = null
+  }
 
-  if (!ok?.ok) return null
-  return { token, url: previewUrlFor(token, base) }
+  if (!ok?.ok) {
+    return { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_SESSION_OPEN_FAILED }
+  }
+  // Recovery becomes possible only after the worker confirms the open. Until
+  // then the screen cannot know/revoke this provisional token, so exposing it
+  // through the page registry would leave a close/replacement race.
+  activePreviewSessions.set(token, sessionPayload)
+  return { ok: true, token, url: previewUrlFor(token, base) }
+}
+
+/**
+ * Reply to a worker restart using only the exact active token. The caller
+ * supplies the live React unlock predicate; a stale or locked page cannot
+ * return a key even if a delayed message arrives.
+ */
+export function handlePreviewSessionNeeded(event, { isUnlocked = () => true } = {}) {
+  const msg = event?.data
+  if (msg?.type !== 'vault-preview-session-needed' || !msg.token) return false
+  const port = event.ports?.[0]
+  if (!port?.postMessage) return false
+  const session = activePreviewSessions.get(msg.token)
+  if (!session || !isUnlocked()) {
+    port.postMessage({ ok: false, token: msg.token })
+    return true
+  }
+  port.postMessage({
+    ok: true,
+    type: 'vault-preview-session-rehydrate',
+    token: msg.token,
+    session,
+  })
+  return true
+}
+
+export function installPreviewSessionRecovery({ scope = globalThis, isUnlocked = () => true } = {}) {
+  const container = scope?.navigator?.serviceWorker
+  if (!container?.addEventListener) return () => {}
+  const listener = (event) => { handlePreviewSessionNeeded(event, { isUnlocked }) }
+  container.addEventListener('message', listener)
+  return () => container.removeEventListener?.('message', listener)
 }
 
 /**
@@ -148,6 +220,7 @@ export async function openPreviewSession({
  */
 export async function closePreviewSession(token, { scope = globalThis, controller } = {}) {
   try {
+    if (token) activePreviewSessions.delete(token)
     const target = controller ?? scope?.navigator?.serviceWorker?.controller
     if (!target || !token) return false
     const res = await askWorker(target, { type: 'vault-preview-close', token }, { scope })
@@ -160,6 +233,7 @@ export async function closePreviewSession(token, { scope = globalThis, controlle
 /** ล้างทุกเซสชันใน worker — ใช้ตอนล็อกตู้ ไม่ใช่ตอนปิดกล่อง preview ใบเดียว */
 export async function closeAllPreviewSessions({ scope = globalThis, controller } = {}) {
   try {
+    activePreviewSessions.clear()
     const target = controller ?? scope?.navigator?.serviceWorker?.controller
     if (!target) return false
     const res = await askWorker(target, { type: 'vault-preview-close-all' }, { scope })

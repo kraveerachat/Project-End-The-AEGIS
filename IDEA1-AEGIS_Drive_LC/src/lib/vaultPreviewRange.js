@@ -19,6 +19,16 @@ import { GCM_TAG_BYTES } from './vaultChunkCrypto.js'
 export const PREVIEW_PATH_SEGMENT = '__vault_preview'
 
 /**
+ * Chromium commonly starts media playback with `Range: bytes=X-`. Serving that
+ * literally through EOF turns one metadata/play request into a multi-gigabyte
+ * decrypt. A 16 MiB response window keeps work independent of file size while
+ * avoiding the doubled request cadence of an 8 MiB window. The default Vault
+ * plaintext chunk is 32 MiB, so a window normally touches one chunk and at a
+ * boundary touches two.
+ */
+export const PREVIEW_RANGE_WINDOW_BYTES = 16 * 1024 * 1024
+
+/**
  * ขนาด plaintext ต่อหนึ่งก้อนของ blob นี้
  * ⚠️ ใช้สูตรเดียวกับ vaultChunkedDownload.js เป๊ะ ๆ — ถ้าสองที่คำนวณต่างกันแม้ไบต์เดียว
  *    การถอดจะผ่าน (tag ถูก) แต่ไฟล์ที่ประกอบได้จะเพี้ยน ซึ่งจับได้ยากกว่าการถอดไม่ผ่านมาก
@@ -51,7 +61,7 @@ export function previewTokenFromPath(pathname) {
  * @param {string|null} header ค่าดิบของ header 'Range'
  * @param {number} totalBytes ขนาด plaintext ทั้งไฟล์
  * @returns {{ kind: 'none' }
- *          | { kind: 'range', start: number, end: number }
+ *          | { kind: 'range', start: number, end: number, openEnded?: true }
  *          | { kind: 'unsatisfiable' }}
  */
 export function parseRangeHeader(header, totalBytes) {
@@ -79,11 +89,14 @@ export function parseRangeHeader(header, totalBytes) {
   const start = Number(rawStart)
   if (!Number.isFinite(start) || start >= total) return { kind: 'unsatisfiable' }
 
-  // 'bytes=X-' = ตั้งแต่ X ถึงท้ายไฟล์
-  const end = rawEnd === '' ? total - 1 : Math.min(Number(rawEnd), total - 1)
+  // 'bytes=X-' is marked so the preview responder can satisfy only a bounded
+  // subset. RFC 9110 permits a 206 response to contain a subset of a requested
+  // range; the player learns the actual end from Content-Range.
+  const openEnded = rawEnd === ''
+  const end = openEnded ? total - 1 : Math.min(Number(rawEnd), total - 1)
   if (!Number.isFinite(end) || end < start) return { kind: 'unsatisfiable' }
 
-  return { kind: 'range', start, end }
+  return openEnded ? { kind: 'range', start, end, openEnded: true } : { kind: 'range', start, end }
 }
 
 /**

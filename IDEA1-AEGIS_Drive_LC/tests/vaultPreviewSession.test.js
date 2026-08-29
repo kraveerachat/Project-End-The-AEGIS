@@ -11,8 +11,10 @@ import {
   supportsLargeVideoPreview, newPreviewToken, previewUrlFor, previewWorkerUrl,
   ensurePreviewWorker, askWorker, openPreviewSession,
   closePreviewSession, closeAllPreviewSessions,
+  ensurePreviewWorkerResult, handlePreviewSessionNeeded,
 } from '../src/lib/vaultPreviewSession.js'
 import { PREVIEW_PATH_SEGMENT } from '../src/lib/vaultPreviewRange.js'
+import { PREVIEW_FAILURE_REASON } from '../src/lib/vaultPreviewErrors.js'
 
 /** worker ปลอมที่บันทึกทุกข้อความ และเลือกได้ว่าจะตอบหรือเงียบ */
 function fakeWorker({ answer = true } = {}) {
@@ -105,6 +107,24 @@ test('มี controller อยู่แล้ว = ใช้เลย ไม่�
   assert.equal(await ensurePreviewWorker({ scope }), w.controller)
 })
 
+test('registration failure และ controller timeout ถูกจำแนก ไม่ถูกเรียกว่า browser unsupported', async () => {
+  const registration = await ensurePreviewWorkerResult({
+    scope: scopeWith({ register: async () => { throw new Error('registration denied') } }),
+  })
+  assert.deepEqual(registration, { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_REGISTRATION_FAILED })
+
+  const timeout = await ensurePreviewWorkerResult({
+    scope: scopeWith({
+      controller: null,
+      register: async () => ({}),
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+    timeoutMs: 5,
+  })
+  assert.deepEqual(timeout, { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_CONTROLLER_TIMEOUT })
+})
+
 // ── เปิด / ปิดเซสชัน ──────────────────────────────────────────────────────
 const blob = { id: 'b'.repeat(48), contentIdB64: 'Y29udGVudA==', chunkSize: 1040, chunkCount: 4 }
 
@@ -118,6 +138,7 @@ test('เปิดเซสชันส่ง DEK และ metadata ที่�
   })
 
   assert.ok(session)
+  assert.equal(session.ok, true)
   assert.match(session.token, /^[0-9a-f]{32}$/)
   assert.equal(session.url, `/drive/${PREVIEW_PATH_SEGMENT}/${session.token}`)
 
@@ -135,7 +156,7 @@ test('เปิดเซสชันส่ง DEK และ metadata ที่�
   }
 })
 
-test('worker ปฏิเสธการเปิด = ไม่คืน URL ที่ใช้ไม่ได้ให้จอเอาไปแสดง', async () => {
+test('worker ปฏิเสธการเปิด = เหตุผล session-open ชัดเจน ไม่คืน URL ที่ใช้ไม่ได้', async () => {
   const controller = {
     postMessage(_message, transfer) {
       queueMicrotask(() => transfer?.[0]?.postMessage({ ok: false }))
@@ -145,7 +166,71 @@ test('worker ปฏิเสธการเปิด = ไม่คืน URL �
   const session = await openPreviewSession({
     dek: {}, blob, contentType: 'video/mp4', plainSize: 10, scope,
   })
-  assert.equal(session, null)
+  assert.deepEqual(session, { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_SESSION_OPEN_FAILED })
+})
+
+test('session is not recoverable from page memory until the worker acknowledges open', async () => {
+  let posted
+  let replyPort
+  const controller = {
+    postMessage(message, transfer) {
+      if (message.type !== 'vault-preview-open') {
+        queueMicrotask(() => transfer?.[0]?.postMessage({ ok: true }))
+        return
+      }
+      posted = message
+      replyPort = transfer?.[0]
+    },
+  }
+  const scope = scopeWith({ controller, register: async () => ({}) })
+  const pending = openPreviewSession({
+    dek: { fake: 'CryptoKey' }, blob, contentType: 'video/mp4', plainSize: 4096, scope,
+  })
+  while (!posted) await Promise.resolve()
+
+  const replies = []
+  handlePreviewSessionNeeded({
+    data: { type: 'vault-preview-session-needed', token: posted.token },
+    ports: [{ postMessage: (message) => replies.push(message) }],
+  }, { isUnlocked: () => true })
+  assert.deepEqual(replies, [{ ok: false, token: posted.token }])
+
+  replyPort.postMessage({ ok: true })
+  const opened = await pending
+  assert.equal(opened.ok, true)
+  await closePreviewSession(opened.token, { scope })
+})
+
+test('หน้าเว็บ rehydrate ได้เฉพาะ token ที่ยัง active และ Vault ยังปลดล็อกอยู่', async () => {
+  const w = fakeWorker()
+  const dek = { fake: 'non-extractable CryptoKey' }
+  const scope = scopeWith({ controller: w.controller, register: async () => ({}) })
+  const opened = await openPreviewSession({
+    dek, blob, contentType: 'video/mp4', plainSize: 4096, scope, base: '/drive/',
+  })
+
+  const replies = []
+  const event = {
+    data: { type: 'vault-preview-session-needed', token: opened.token },
+    ports: [{ postMessage: (message) => replies.push(message) }],
+  }
+  assert.equal(handlePreviewSessionNeeded(event, { isUnlocked: () => true }), true)
+  assert.equal(replies[0].ok, true)
+  assert.equal(replies[0].token, opened.token)
+  assert.equal(replies[0].session.dek, dek)
+  assert.equal(replies[0].session.blob.id, blob.id)
+  assert.equal(JSON.stringify({ ...replies[0], session: { ...replies[0].session, dek: undefined } }).includes('name'), false)
+
+  const lockedReplies = []
+  handlePreviewSessionNeeded({ ...event, ports: [{ postMessage: (message) => lockedReplies.push(message) }] }, {
+    isUnlocked: () => false,
+  })
+  assert.deepEqual(lockedReplies, [{ ok: false, token: opened.token }])
+
+  await closePreviewSession(opened.token, { scope })
+  const closedReplies = []
+  handlePreviewSessionNeeded({ ...event, ports: [{ postMessage: (message) => closedReplies.push(message) }] })
+  assert.deepEqual(closedReplies, [{ ok: false, token: opened.token }])
 })
 
 test('ปิดเซสชันสั่ง worker ลบ token ใบนั้นโดยเฉพาะ', async () => {
