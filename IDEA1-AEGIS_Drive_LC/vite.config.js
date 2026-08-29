@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -30,9 +31,33 @@ const driveBackendProxy = () => ({
 // (mounted ที่ root, ไม่รู้จัก /drive) — proxy จึงต้อง rewrite ตัด /drive ออกก่อนส่งต่อ
 // เหมือนที่ nginx ทำใน production ทุกประการ
 // → session cookie (HttpOnly, SameSite=Strict) ไป-กลับได้ตามปกติ same-origin
+// ── Service Worker ของ preview วิดีโอ V2 (LFT-V2-E3) ────────────────────────
+// ⚠️ ต้องเป็น entry แยกที่มี **ชื่อไฟล์คงที่ ไม่มี hash** และวางที่ราก dist/ เพราะสองข้อ:
+//    1. ขอบเขต (scope) ของ Service Worker คือไดเรกทอรีของสคริปต์มันเอง ไฟล์ที่อยู่ใน
+//       dist/assets/ จะได้ scope '/drive/assets/' ซึ่งดักคำขอของ '/drive/…' ไม่ได้เลย
+//    2. การลงทะเบียนต้องอ้างถึง URL เดิมทุกครั้ง ชื่อที่มี hash จะเปลี่ยนทุก build แล้ว
+//       เบราว์เซอร์จะเห็นเป็น worker คนละตัวและทิ้งตัวเก่าค้างไว้
+// ⚠️ มันถูก build เป็น ES module (ลงทะเบียนด้วย { type: 'module' }) จึง import โมดูล
+//    เดียวกับที่แอปและชุดทดสอบใช้ได้ — กติกาการถอดรหัสจึงมีสำเนาเดียวในโครงการนี้
+const previewWorkerEntry = fileURLToPath(new URL('./src/vaultPreviewServiceWorker.js', import.meta.url))
+
 export default defineConfig({
   base: '/drive/',
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      input: {
+        // ⚠️ คีย์ต้องเป็น 'index' เพื่อให้ชื่อไฟล์ของ entry หลักยังเป็น assets/index-[hash].js
+        //    เหมือนเดิม การเปลี่ยนคีย์เปลี่ยนชื่อไฟล์ผลลัพธ์ไปด้วยโดยไม่มีเหตุผล
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        'vault-preview-sw': previewWorkerEntry,
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          (chunk.name === 'vault-preview-sw' ? 'vault-preview-sw.js' : 'assets/[name]-[hash].js'),
+      },
+    },
+  },
   server: {
     proxy: {
       '/drive/api': {

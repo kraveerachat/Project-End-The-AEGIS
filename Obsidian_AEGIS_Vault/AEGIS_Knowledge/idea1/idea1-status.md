@@ -1447,6 +1447,71 @@ restarted, and no production request was made. `LFT-V2-D` remains the next gate.
 
 ---
 
+### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3 source complete and locally verified, **not deployed, not accepted, and never run in a real browser**
+> No server route, schema, CSP directive or cryptographic rule changed. The
+> 64 MiB buffered ceiling was **not** raised.
+
+Preview built a whole plaintext object URL, so a multi-gigabyte video could only be
+refused — correctly, since assembling gigabytes of decrypted video in a tab to make
+a button look functional would reintroduce the exact problem V2 removed. What was
+missing was not a bigger buffer but a way to answer *part* of the file. Players ask
+for `bytes=start-end`; V2 already stores independently authenticated chunks; the
+mapping is arithmetic.
+
+A same-origin Service Worker scoped to `/drive/` now serves
+`/drive/__vault_preview/<ephemeral-token>`. The page unwraps the DEK, hands it to
+the worker as a **non-extractable `CryptoKey`** by structured clone with only the
+metadata a chunk decrypt needs, and the worker maps each Range request to the
+minimum chunk set, fetches those chunks from the **existing authenticated
+endpoint**, rebuilds the AAD locally, decrypts, slices and streams. No plaintext
+endpoint, no transcode, no mounted volume, no new route.
+
+**The logic deliberately does not live in the worker.** A Service Worker cannot be
+exercised by `node:test`, and code placed there becomes code nobody tests — here
+that code decides byte offsets and whether a failed tag stops playback. The worker
+is a thin shell over `vaultPreviewRange.js`, `vaultPreviewResponder.js` and
+`vaultPreviewSession.js`, which carry 55 tests between them.
+
+**Rules pinned by test:** only the required chunks are fetched (a 1 MiB request
+into a 4 GiB file touches one or two); opening a preview issues no request at all,
+and `preload="metadata"` stops the browser prefetching the rest; both 206 and
+plain 200 responses stream one chunk at a time so peak memory is one chunk, never
+one file; a failed authentication tag stops the stream with no skipping or
+zero-fill and tells the page why, so the UI reports an integrity failure rather
+than a generic error — tampered bytes, a reordered chunk and a chunk from another
+file all fail identically; the key exists only in worker memory, with no
+storage of any kind, **no Cache API**, and `Cache-Control: no-store` on every
+response; and modal close, vault lock, auto-lock and unmount each revoke it, with
+lock clearing every session rather than only the visible one.
+
+**CSP is unchanged, and that is the point.** The virtual URL is same-origin so
+`media-src 'self'` already covers it, and `worker-src` stays undeclared so it
+inherits `default-src 'self'`. Two new tests assert nothing was widened and that
+`connect-src` remains `'self'` — a worker holding a DEK must never be able to
+reach another origin.
+
+**Browsers that cannot do it are told so.** No Service Worker, no `ReadableStream`,
+or an insecure context produces "this browser cannot stream large encrypted video,
+download the file to watch it" plus the Download button. There is no silent
+fallback to whole-file buffering, which would trade a clear message for a dead tab.
+Still-image preview is untouched and still refuses above 64 MiB — an `<img>` asks
+for the whole file regardless, so range streaming buys it nothing.
+
+**Verification:** full IDEA1 suite **649 tests, 582 pass, 0 fail, 67
+PostgreSQL-gated skips**; `npm run build` passed and emits
+`dist/vault-preview-sw.js` with a fixed unhashed name at the dist root (a worker's
+scope is its own directory, and a hashed name reads as a new worker every deploy);
+HUB `driveCspParity` 10/10 and IDEA1 `contentSecurityPolicy` 10/10.
+
+**Never run in a browser.** The modules are proven against real AES-GCM in Node and
+the screen against a scripted Service Worker container, but **no video was played,
+no seek performed, and no compatibility matrix produced.** Real playback, seek
+behaviour, Safari range semantics and the Twingate path belong to `LFT-V2-D`.
+
+---
+
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.

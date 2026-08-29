@@ -27,6 +27,13 @@ import {
   tombstoneVaultBlob, vaultBlobId, lockedVaultEntry,
 } from '../lib/vaultInventory.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
+// ⚠️ เส้นทาง preview วิดีโอใหญ่: ถอดรหัสตามช่วงไบต์ที่ผู้เล่นขอ ใน Service Worker
+//    ต้นทางเดียวกัน — ไม่มี plaintext ทั้งไฟล์อยู่ในหน่วยความจำ ณ เวลาใดเลย
+import {
+  supportsLargeVideoPreview, openPreviewSession,
+  closePreviewSession, closeAllPreviewSessions,
+} from '../lib/vaultPreviewSession.js'
+import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 
 /* ⚠️ Zero-Knowledge จริง:
    - GET /api/vault ให้แค่ salt + พารามิเตอร์ KDF + verifier + envelope ของแต่ละ blob
@@ -364,6 +371,10 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
      จะเทียบ token ของตัวเองก่อนสร้าง object URL — ถ้าไม่ตรงแปลว่ามันถูกแทนที่หรือ
      ถูกล็อกไปแล้ว และ "ห้าม" สร้าง URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน */
   const previewToken = useRef(0)
+  /* token ของเซสชันสตรีมใน Service Worker — ต้องถูกเพิกถอนพร้อมกุญแจเสมอ
+     ⚠️ เก็บใน ref ไม่ใช่ state โดยเจตนา: มันถูกอ่านจากเส้นทางการล็อก ซึ่งต้องทำงาน
+        ได้แม้ในจังหวะที่ React ยังไม่ได้ render รอบใหม่ */
+  const previewStreamToken = useRef(null)
   const fileRef = useRef(null)
 
   const configured = vaultApi.data?.configured === true
@@ -383,6 +394,13 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
      ไฟล์ได้ การ revoke จึงไม่ใช่เรื่องความสะอาดของหน่วยความจำ แต่เป็นเรื่องความลับ */
   const releasePreview = useCallback(() => {
     previewToken.current += 1 // งานถอดรหัสที่ยังค้างอยู่จะกลายเป็นโมฆะทันที
+    // ★ เพิกถอนเซสชันสตรีมก่อนอย่างอื่น — ตราบใดที่ worker ยังถือ DEK อยู่ URL เสมือน
+    //   ใบนั้นยังถอดไฟล์ได้ การลบมันออกจาก Map ของ worker คือความหมายทั้งหมดของ "ปิด"
+    if (previewStreamToken.current) {
+      const token = previewStreamToken.current
+      previewStreamToken.current = null
+      closePreviewSession(token)
+    }
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current)
       previewUrlRef.current = null
@@ -396,6 +414,25 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
   // ปิดแท็บ / เปลี่ยนหน้าจอ = unmount — ต้องปล่อย URL เหมือนกดปิดเอง
   useEffect(() => releasePreview, [releasePreview])
+
+  /* ── worker แจ้งว่าสตรีมหยุดเพราะอะไร ────────────────────────────────────
+     ⚠️ ต้องมีเส้นทางนี้จริง ไม่ใช่ปล่อยให้ <video> ขึ้น error ของตัวเอง: ผู้ใช้ต้องรู้
+        ต่างกันระหว่าง "เน็ตหลุด" กับ "ก้อนนี้พิสูจน์ความถูกต้องไม่ผ่าน" — อย่างหลังคือ
+        สัญญาณว่ามีบางอย่างผิดปกติกับไบต์ที่เก็บไว้ ไม่ใช่เรื่องชั่วคราวที่ลองใหม่ได้ */
+  useEffect(() => {
+    const container = globalThis.navigator?.serviceWorker
+    if (!container?.addEventListener) return undefined
+    const onMessage = (event) => {
+      const data = event?.data
+      if (data?.type !== 'vault-preview-failed') return
+      if (!previewStreamToken.current || data.token !== previewStreamToken.current) return
+      setPreview((prev) => (prev
+        ? { ...prev, loading: false, failed: true, integrity: data.reason === 'integrity' }
+        : prev))
+    }
+    container.addEventListener('message', onMessage)
+    return () => container.removeEventListener('message', onMessage)
+  }, [])
 
   /* ── ล็อก: ทิ้งกุญแจ + plaintext ทั้งหมดจาก memory ─────────────────────
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
@@ -424,6 +461,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     //    ที่ถือชื่อไฟล์/MIME/ขนาดจริง ทั้งสองต้องหายไปพร้อมกุญแจในจังหวะเดียวกัน
     //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบ 10 นาที (ทางเดียวกันเป๊ะ)
     closePreview()
+    // ⚠️ ล็อก = ไม่มีเซสชันใดรอด แม้ใบที่หน้านี้ลืมไปแล้ว (เช่นหลังรีเฟรชบางกรณี)
+    closeAllPreviewSessions()
     setDetails(null)
   }, [closePreview])
 
@@ -773,6 +812,51 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const isV2 = entry.blob?.formatVersion === 2
     const plainSize = entry.plainSize ?? entry.size
+
+    // ── วิดีโอ V2 ที่ใหญ่เกินกว่าจะบัฟเฟอร์: สตรีมตามช่วงไบต์ผ่าน Service Worker ──
+    //
+    // ⚠️ เงื่อนไขต้องเป็น "วิดีโอ" เท่านั้น ภาพนิ่งไม่ได้ประโยชน์จากการสตรีมตามช่วง
+    //    (<img> ขอทั้งไฟล์อยู่ดี) และเพดาน 64 MiB ของเส้นทางบัฟเฟอร์ยังคงบังคับกับมัน
+    // ⚠️ ไม่มีการยกเพดาน MAX_BUFFERED_PLAINTEXT_BYTES ที่ใดเลย — เส้นทางนี้เป็นคนละ
+    //    เส้นทางกัน ไม่ใช่การผ่อนเพดานเดิม
+    if (isV2 && kind === 'video' && plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
+      if (!supportsLargeVideoPreview()) {
+        // บอกความจริงว่าเบราว์เซอร์นี้ทำไม่ได้ แล้วเสนอ Download —
+        // ไม่ถอยไปประกอบทั้งไฟล์ใน RAM เงียบ ๆ ซึ่งจะทำให้แท็บตาย
+        setPreview({ entry, kind, url: null, loading: false, failed: false, tooLarge: true, unsupported: true })
+        return
+      }
+      setPreview({ entry, kind, url: null, loading: true, failed: false, tooLarge: false })
+      try {
+        // ★ DEK ถูกแกะที่นี่ ในหน้าเว็บ แล้วส่งเป็น CryptoKey ที่ export ไม่ได้ ไปยัง
+        //   worker ต้นทางเดียวกัน ไม่มีไบต์ของกุญแจออกไปที่ใดทั้งสิ้น
+        const dek = await unwrapVaultV2Dek(kek, entry.blob)
+        if (token !== previewToken.current) return
+
+        const session = await openPreviewSession({
+          dek, blob: entry.blob, contentType: entry.type || 'video/mp4', plainSize,
+        })
+        if (token !== previewToken.current) {
+          if (session) closePreviewSession(session.token)
+          return
+        }
+        if (!session) {
+          // ลงทะเบียน worker ไม่สำเร็จ หรือมันไม่ได้เข้าควบคุมหน้านี้ — ผลลัพธ์ที่ผู้ใช้
+          // สัมผัสได้เหมือนกับเบราว์เซอร์ที่ไม่รองรับ จึงพูดแบบเดียวกันตามความจริง
+          setPreview({ entry, kind, url: null, loading: false, failed: false, tooLarge: true, unsupported: true })
+          return
+        }
+        previewStreamToken.current = session.token
+        setPreview((prev) => (prev?.entry.id === entry.id
+          ? { ...prev, url: session.url, loading: false, streamed: true }
+          : prev))
+      } catch {
+        if (token !== previewToken.current) return
+        setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, loading: false, failed: true } : prev))
+      }
+      return
+    }
+
     if (isV2 && plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
       // ⚠️ สถานะนี้เป็นความจริงเชิงสถาปัตยกรรม ไม่ใช่ error ชั่วคราว — ข้อความจึงต้อง
       //    บอกทางออกที่ใช้ได้จริง (ดาวน์โหลดไปเปิด) ไม่ใช่ "ลองใหม่อีกครั้ง"
@@ -1083,12 +1167,25 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
                ข้อจำกัดที่ตั้งใจ: Preview ต้องมี plaintext ทั้งก้อนใน RAM เพื่อสร้าง
                object URL การประกอบวิดีโอหลายกิกะไบต์ในแท็บเพื่อให้ปุ่มนี้ดูใช้งานได้
                คือการนำปัญหาที่ V2 เพิ่งแก้ไปกลับเข้ามาทางประตูหลัง */
-            <p role="status" data-vault-preview-too-large="1" className="text-[13px] text-ink-2 px-6 py-10 text-center max-w-md">
-              {t('vaultPreviewTooLarge')}
+            <p
+              role="status"
+              data-vault-preview-too-large="1"
+              data-vault-preview-unsupported={preview.unsupported ? '1' : '0'}
+              className="text-[13px] text-ink-2 px-6 py-10 text-center max-w-md"
+            >
+              {preview.unsupported ? t('vaultPreviewUnsupportedBrowser') : t('vaultPreviewTooLarge')}
             </p>
           ) : preview?.failed ? (
-            <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center" style={{ color: 'var(--danger)' }}>
-              {t('vaultPreviewUnavailable')}
+            /* ⚠️ สองข้อความนี้ต้องไม่ถูกยุบเป็นข้อความเดียว: "เปิดไม่ได้" คือเรื่องชั่วคราว
+               ส่วน "พิสูจน์ความถูกต้องไม่ผ่าน" แปลว่าไบต์ที่เก็บไว้ไม่ตรงกับที่ปิดผนึกไว้
+               ซึ่งผู้ใช้ต้องรู้ ไม่ใช่ถูกกลบด้วยคำว่า error */
+            <p
+              role="alert"
+              data-vault-preview-integrity={preview.integrity ? '1' : '0'}
+              className="text-[13px] font-medium px-6 py-10 text-center max-w-md"
+              style={{ color: 'var(--danger)' }}
+            >
+              {preview.integrity ? t('vaultPreviewIntegrityFailed') : t('vaultPreviewUnavailable')}
             </p>
           ) : preview?.url ? (
             preview.kind === 'video' ? (
@@ -1097,6 +1194,11 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
                  bytes ถูกถอดครบแล้วอยู่ในเครื่อง */
               <video
                 controls
+                /* ⚠️ preload="metadata" สำหรับเส้นทางสตรีม: ค่าปริยาย "auto" ชวนให้
+                   เบราว์เซอร์ไล่ดึงล่วงหน้าไปเรื่อย ๆ ซึ่งกับไฟล์หลายกิกะไบต์เท่ากับ
+                   ดาวน์โหลดทั้งไฟล์โดยที่ผู้ใช้แค่เปิดดู ค่านี้ทำให้มันขอเท่าที่ต้องเล่นจริง */
+                preload={preview.streamed ? 'metadata' : 'auto'}
+                data-vault-preview-streamed={preview.streamed ? '1' : '0'}
                 src={preview.url}
                 className="max-w-full"
                 style={{ maxHeight: '68vh' }}
