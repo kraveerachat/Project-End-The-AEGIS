@@ -58,3 +58,15 @@ export function fmtStamp(time) {
 export function fmtHashGroups(sha) {
   return sha.match(/.{1,8}/g) ?? [sha]
 }
+
+/**
+ * 61234567 → "58.4 MB/s" — ความเร็วจริงของการโอน
+ * ⚠️ ใช้หน่วยชุดเดียวกับ fmtBytes โดยเจตนา: ตัวเลข "ที่โอนไปแล้ว" กับ "ความเร็ว" อยู่
+ *    บรรทัดติดกันบนจอเดียวกัน ถ้าใช้คนละฐาน (1000 vs 1024) ผู้ใช้จะหารสองตัวนี้แล้ว
+ *    ไม่ได้เวลาที่เห็นอยู่ตรงหน้า
+ * ⚠️ null = "ยังไม่รู้" ไม่ใช่ "ศูนย์" — จอต้องไม่แสดง 0 B/s ตอนที่ยังไม่มีตัวอย่างพอ
+ */
+export function fmtRate(bytesPerSecond) {
+  if (bytesPerSecond == null || !Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return null
+  return `${fmtBytes(Math.round(bytesPerSecond))}/s`
+}

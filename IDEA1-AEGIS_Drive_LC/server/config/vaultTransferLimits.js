@@ -28,6 +28,15 @@ export const MAX_VAULT_PLAINTEXT_CHUNK_BYTES = 64 * MIB
  *     + ciphertext หนึ่งก้อนพร้อมกันสูงสุด ≈ 2 × ค่านี้ ระหว่างเข้ารหัส */
 export const DEFAULT_VAULT_PLAINTEXT_CHUNK_BYTES = 16 * MIB
 
+/**
+ * เพดานสูงสุดที่ตั้งได้ของ Vault V2 — ตรงกับ Normal Files โดยเจตนา (LFT-V2-E)
+ * ⚠️ นับเป็น plaintext เหมือน MAX_VAULT_LOGICAL_FILE_BYTES ส่วน ciphertext จริงบนดิสก์
+ *    จะใหญ่กว่านี้ด้วย GCM tag 16 ไบต์ต่อ chunk — ที่ 32 GiB / chunk 32 MiB คือ 1,024
+ *    chunk = 16 KiB ซึ่งเล็กมากแต่ต้องนับให้ถูกตอนตรวจพื้นที่ว่างอยู่ดี
+ * ⚠️ ไม่ใช่ค่าเริ่มต้น — deployment ต้องตั้ง MAX_VAULT_LOGICAL_FILE_BYTES เองจึงจะได้
+ */
+export const MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES = 32 * GIB // 34,359,738,368
+
 // เพดาน "ขนาด plaintext เชิงตรรกะ" ของไฟล์หนึ่งไฟล์ใน Vault — ตรงกับเพดานของ Normal
 // Files โดยเจตนา (ผู้ใช้ไม่ควรต้องจำสองตัวเลข) แต่ปรับแยกกันได้เมื่อฮาร์ดแวร์เปลี่ยน
 const DEFAULT_MAX_VAULT_LOGICAL_BYTES = 5 * GIB
@@ -56,7 +65,7 @@ export function vaultTransferLimitsFromEnv(env = process.env) {
   )
   const maxLogicalFileBytes = readInteger(
     env, 'MAX_VAULT_LOGICAL_FILE_BYTES', DEFAULT_MAX_VAULT_LOGICAL_BYTES,
-    { min: 0, max: Number.MAX_SAFE_INTEGER },
+    { min: 0, max: MAX_SUPPORTED_VAULT_LOGICAL_FILE_BYTES },
   )
   const sessionTtlMs = readInteger(env, 'VAULT_UPLOAD_SESSION_TTL_MS', DEFAULT_VAULT_SESSION_TTL_MS, {
     min: 60_000, max: 30 * 24 * 60 * 60 * 1000,

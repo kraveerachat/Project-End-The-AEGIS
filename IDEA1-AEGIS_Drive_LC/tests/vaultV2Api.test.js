@@ -215,6 +215,15 @@ test('GET /limits บอกค่าที่บังคับอยู่จ�
   assert.equal(res.data.ciphertextChunkBytes, 8 * 1024 * 1024 + 16)
   assert.equal(res.data.gcmTagBytes, 16)
   assert.ok(res.data.maxLogicalFileBytes > 64 * 1024 * 1024, 'V2 ต้องไม่ติดเพดาน 64 MiB ของ V1')
+
+  // ⚠️ LFT-V2-E · จอต้องแยก "เพดานที่บังคับอยู่ตอนนี้" ออกจาก "เพดานสูงสุดที่ตั้งได้"
+  //    การเอาค่าที่สองไปบอกผู้ใช้คือการสัญญาขนาดที่เซิร์ฟเวอร์นี้จะปฏิเสธจริง ๆ
+  assert.equal(res.data.maxSupportedLogicalFileBytes, 34_359_738_368, 'เพดานที่รองรับคือ 32 GiB')
+  assert.ok(res.data.maxLogicalFileBytes <= res.data.maxSupportedLogicalFileBytes,
+    'ค่าที่บังคับอยู่ต้องไม่เกินค่าที่ประกาศว่ารองรับ')
+  assert.equal(res.data.maxLogicalFileBytes, 5 * 1024 * 1024 * 1024,
+    'deployment ที่ไม่ได้ตั้งค่าเองต้องยังได้ 5 GiB เท่าเดิม — การรองรับ 32 GiB ต้องเป็นการเลือก')
+
   assert.ok(Object.hasOwn(res.data, 'capacity'))
   assert.ok(!JSON.stringify(res.data).includes('/'), 'ต้องไม่มี path ใด ๆ ในคำตอบ')
 })
@@ -478,10 +487,15 @@ test('ไบต์ที่ถูกแก้บนดิสก์หลัง�
   const { uploadId, ciphertextSize } = await openSmallSession(c, kek)
   assert.equal((await putChunk(c, uploadId, 0, randomBytes(ciphertextSize))).status, 200)
 
-  // จำลอง "ไบต์บนดิสก์เพี้ยนหลังจากเซิร์ฟเวอร์รับไว้แล้ว" — เขียนทับหนึ่งไบต์
+  // จำลอง "ไบต์บนดิสก์เพี้ยนหลังจากเซิร์ฟเวอร์รับไว้แล้ว" — พลิกหนึ่งไบต์
+  // ⚠️ ต้อง "พลิก" ไม่ใช่ "เขียนค่าคงที่ทับ": ไบต์ต้นทางมาจาก randomBytes() ดังนั้นการ
+  //    เขียน 0xff ทับจะไม่เปลี่ยนอะไรเลยเมื่อไบต์นั้นเป็น 0xff อยู่แล้ว (1 ใน 256 ครั้ง)
+  //    แล้ว commit ก็ผ่านอย่างถูกต้อง — เทสต์จะแดงแบบสุ่มโดยที่โค้ดโปรดักชันไม่ผิดอะไร
   const part = path.join(stagingVaultDir(), uploadId, 'part')
   const fh = await fs.open(part, 'r+')
-  await fh.write(Buffer.from([0xff]), 0, 1, 5)
+  const original = Buffer.alloc(1)
+  await fh.read(original, 0, 1, 5)
+  await fh.write(Buffer.from([original[0] ^ 0xff]), 0, 1, 5)
   await fh.close()
 
   const res = await c.req(`/api/vault/uploads/${uploadId}/commit`, { method: 'POST', body: {} })

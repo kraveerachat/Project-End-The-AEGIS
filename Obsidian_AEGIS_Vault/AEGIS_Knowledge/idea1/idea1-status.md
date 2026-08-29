@@ -1447,6 +1447,82 @@ restarted, and no production request was made. `LFT-V2-D` remains the next gate.
 
 ---
 
+### Truthful transfer rate and 32 GiB deployment ceiling — LFT-V2-E1 (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E1 source complete and locally verified, **not deployed and not accepted in production**
+> This stage changes what the transfer panel *says* and what a deployment is
+> *allowed to configure*. It does not change the transfer protocol, the crypto,
+> the schema or any route's behaviour, and no default changed for any deployment.
+
+**Speed and time-remaining, derived only from bytes.** `src/lib/transferRate.js`
+is a new dependency-free estimator: it takes `(transferredBytes, performance.now())`
+and returns `{ bytesPerSecond, etaSeconds, stalled }`. It uses a 5-second rolling
+window rather than a cumulative average, so a link that recovers stops being
+punished by a slow patch it already left behind. It refuses to report anything
+until it has at least three real byte advances spanning at least 750 ms; before
+that the panel says it is measuring rather than showing a number that means
+nothing. Four seconds without byte growth flips it to `stalled` and drops both
+the rate and the ETA — leaving a stale speed on screen while nothing moves is the
+most convincing lie this panel could tell. A byte count that moves *backwards*
+(legitimate when an in-flight chunk fails and the count falls back to what the
+server confirmed) re-baselines instead of reporting a negative rate.
+
+Resume is handled by construction: the first sample of every session is a
+reference point, never a measurement, so the bytes carried over from a previous
+session cannot be counted as bytes that just crossed the wire.
+
+The Vault transfer panel now renders a second line — `58.4 MB/s · about 12s
+remaining` — in all three shipped languages, with the same 1024-based units as
+the byte counter directly above it so the two lines divide into each other. No
+rate is shown during `committing`: the server is hashing its own bytes and
+nothing is on the wire, so a "waiting for the network" warning there would be a
+false alarm inviting the user to cancel a healthy commit.
+
+`transferRateLine(t, rate)` deliberately lives in the library, not in
+`Vault.jsx`, so Normal Files can adopt the identical sentence. **Normal Files is
+not yet wired to it** — that UI integration is outstanding, and the helper being
+generic is the whole reason it can be done without duplicating logic.
+
+**A 32 GiB ceiling that is a bound, not a gift.**
+`MAX_SUPPORTED_LOGICAL_FILE_BYTES` = `34_359_738_368` (and its Vault mirror) now
+bounds what `MAX_LOGICAL_FILE_BYTES` / `MAX_VAULT_LOGICAL_FILE_BYTES` may be set
+to. Previously the bound was `Number.MAX_SAFE_INTEGER`, which is an implicit
+claim that files of any size work made by nobody who measured it. **Defaults did
+not move: a deployment that sets nothing still gets 5 GiB.** Setting a value above
+32 GiB now fails at boot rather than being clamped silently, matching how every
+other malformed value in these files behaves.
+
+Both `/limits` endpoints now return `maxSupportedLogicalFileBytes` beside
+`maxLogicalFileBytes`. They answer different questions — what this server accepts
+today, versus what an administrator could configure — and a screen that shows the
+second as the user's ceiling promises a size the server will refuse.
+
+**Commit budget, stated rather than assumed.** `committing` is dominated by
+reading the whole staged file to verify SHA-256, so it is linear in file size:
+about 90 s for 5 GiB at ~60 MB/s, about 570 s for 32 GiB. The server-side lease is
+already environment-controlled and settable to 24 h, so it needs no code change.
+The **edge** timeout is static nginx config that cannot read the environment, and
+600 s is not enough for 32 GiB. That gateway change is deliberately **not** made
+here — no deployment has opted into a ceiling above 5 GiB, so broadening a shared
+edge timeout would be risk with no benefit. It is filed as an integration request
+against `gateway/nginx.conf` instead. See [[concepts/Large_File_Transfer_V2]] §11.
+
+**Pre-existing flaky test fixed in passing.** `tests/vaultV2Api.test.js` tampered
+with a staged file by writing `0xff` over one byte of a `randomBytes()` buffer.
+When that byte already *was* `0xff` — once in 256 runs — the tamper was a no-op,
+commit correctly succeeded, and the test failed with production code behaving
+perfectly. It now flips the byte instead. This was observed live: one full-suite
+run failed there before the cause was found.
+
+**Verification:** full IDEA1 suite **611 tests, 544 pass, 0 fail, 67
+PostgreSQL-gated skips** in in-memory mode; `npm run build` succeeded; root
+`vaultStructure` + `vaultMultiWriter` 25/25; vault validator passed. **Nothing
+was deployed and no production acceptance was performed.** No multi-gigabyte
+transfer was measured in this stage — the estimator is pinned by deterministic
+fake-clock tests, and throughput claims remain unmeasured.
+
+---
+
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
