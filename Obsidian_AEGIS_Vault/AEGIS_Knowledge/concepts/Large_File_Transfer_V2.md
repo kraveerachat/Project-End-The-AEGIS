@@ -515,7 +515,7 @@ incomplete is ever handed over as if it were complete.
 | Marker | Value | Meaning |
 | :--- | :--- | :--- |
 | `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
-| `LARGE_V2_VIDEO_PREVIEW` | `STREAMED` (video) / `LIMITED` (images) | **Video** above 64 MiB now streams through a same-origin Service Worker that decrypts only the chunks a Range request actually needs — see §13. **Still-image** preview is unchanged and still refuses above 64 MiB: an `<img>` requests the whole file regardless, so range streaming buys it nothing. The 64 MiB buffered ceiling itself was **not** raised. |
+| `LARGE_V2_VIDEO_PREVIEW` | `IN_PROGRESS` (large video) / `LIMITED` (images) | **Video** above 64 MiB streams through a same-origin Service Worker, but the real ~1.1 GB production preview was unreliable. E3.1 bounds open-ended responses, recovers ephemeral sessions and caches at most two chunks in memory; it is source-verified but not deployed or browser-accepted. **Still-image** preview remains limited above 64 MiB. The buffered ceiling was **not** raised. |
 | `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
 | `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
 
@@ -923,14 +923,17 @@ session cookie.
 A Service Worker cannot be exercised by `node:test`: there is no `FetchEvent`, no
 registration, no scope. Logic placed inside one becomes code nobody tests — and
 here that code decides byte offsets and whether a failed authentication tag stops
-playback. So the worker file is a thin shell over two ordinary modules:
+playback. So the worker file is a thin shell over ordinary, directly tested modules:
 
 | Module | Responsibility | Pinned by |
 | :--- | :--- | :--- |
 | `src/lib/vaultPreviewRange.js` | `Range` parsing, byte-range → chunk plan, response headers | `tests/vaultPreviewRange.test.js` (20 tests) |
 | `src/lib/vaultPreviewResponder.js` | Fetch, decrypt, slice, stream, fail closed | `tests/vaultPreviewResponder.test.js` (19 tests, real AES-GCM) |
-| `src/lib/vaultPreviewSession.js` | Register, hand over the key, revoke it | `tests/vaultPreviewSession.test.js` (16 tests) |
-| `src/vaultPreviewServiceWorker.js` | Event wiring only | — (deliberately nothing worth testing) |
+| `src/lib/vaultPreviewSession.js` | Register, hand over the key, revoke it, answer recovery requests | `tests/vaultPreviewSession.test.js` |
+| `src/lib/vaultPreviewWorkerState.js` | Ephemeral sessions, one-shot recovery, two-entry/64 MiB plaintext LRU | `tests/vaultPreviewWorkerState.test.js` |
+| `src/lib/vaultPreviewErrors.js` | Stable failure taxonomy and UI grouping | `tests/vaultPreviewErrors.test.js` |
+| `src/lib/vaultPreviewDiagnostics.js` | Opt-in allowlisted operational metrics | `tests/vaultPreviewDiagnostics.test.js` |
+| `src/vaultPreviewServiceWorker.js` | Event wiring over those tested contracts | production build + screen protocol tests |
 
 An off-by-one in the range mapping is the failure mode that matters most here: the
 video still plays, but seeks land in the wrong place and frames are subtly wrong,
@@ -947,8 +950,9 @@ trailing partial chunk — rather than comparing against the function under test
    `<video preload="metadata">` keeps the browser from eagerly prefetching the
    rest of a multi-gigabyte file just because the modal opened.
 3. **Nothing is ever fully assembled.** Both 206 and plain 200 responses stream one
-   chunk at a time; peak memory per request is one chunk, not one file. Even a
-   `Range`-less GET — which some browsers issue first — is served this way.
+   chunk at a time. E3.1 may retain at most two resolved chunks/64 MiB for reuse,
+   and transient fetch/decrypt work remains O(chunk size), not O(file size). Even
+   a `Range`-less GET — which some browsers issue first — is served this way.
 4. **A failed tag stops the stream.** No skipping, no zero-fill, no "rest of the
    file anyway". The stream errors, and the page is told *why*, so the UI can say
    the file failed authentication rather than showing a generic error. Tampered
@@ -966,6 +970,18 @@ trailing partial chunk — rather than comparing against the function under test
    the visible one. Each is a separate test, because a preview URL whose key is
    still resident is a file that can still be decrypted after the user believes
    they locked the vault.
+7. **An open-ended request is not an EOF request.** `bytes=X-` receives at most a
+   16 MiB 206 response window. Explicit finite and suffix ranges remain exact.
+   Logical files through 32 GiB prove the chunk plan depends on the response
+   window, not total file size.
+8. **Worker restart does not require persisted keys.** The worker asks controlled
+   pages for the exact active token. Only an unlocked page still holding that
+   preview's non-extractable DEK in memory may answer; one request makes at most
+   one recovery attempt. Lock/close/replacement deny recovery and invalidate work
+   already in flight.
+9. **Plaintext reuse is bounded twice.** The worker retains at most two LRU chunks
+   and at most 64 MiB of resolved plaintext across all preview tokens. Integrity
+   failures are never cached; close, lock, replacement and worker death clear it.
 
 ### 13.5 CSP is unchanged, and that is the point
 
@@ -984,22 +1000,34 @@ Browsers without Service Worker support, without `ReadableStream`, or on an
 insecure context get a message saying **this browser cannot stream large encrypted
 video, download the file to watch it**, plus the Download button. There is no
 silent fallback to whole-file buffering — that would trade a clear message for a
-dead tab. The same message appears if registration succeeds but the worker never
-takes control, because the user-visible outcome is identical and pretending
-otherwise helps nobody.
+dead tab. Registration failure, controller timeout, session-open/loss/rehydration
+failure, chunk-network failure, integrity failure, invalid range and media
+playback failure are separate machine-readable reasons. The UI groups them
+truthfully rather than describing temporary infrastructure or network failures as
+browser incompatibility, while still offering Download.
 
 The worker is built as a separate Vite entry with a **fixed, unhashed filename at
 the root of `dist/`**: a Service Worker's scope is its own directory, so a file
 under `assets/` could never intercept `/drive/…`, and a hashed name would look
 like a different worker on every deploy.
 
-### 13.7 Not verified here
+### 13.7 Production evidence and E3.1 acceptance boundary
 
-No browser ran this. The modules are proven against real AES-GCM in Node, and the
-screen behaviour against a scripted Service Worker container, but **no video was
-actually played, no seek was performed, and no browser-compatibility matrix was
-produced**. Real playback, seek behaviour, Safari's range semantics and behaviour
-over the Twingate path all belong to `LFT-V2-D` acceptance.
+Production proved the V2 upload path with a real ~1.1 GB MP4 and proved buffered
+preview with a ~5.4 MB MP4. The large streamed preview did **not** pass: it may
+start slowly or stall, stutter, and fail on a later attempt. E3.1 addresses the
+two demonstrated architectural causes — unbounded open-ended responses and the
+worker's ephemeral session — plus repeated decrypt work, failure truthfulness and
+safe diagnostics.
+
+E3.1 is source acceptance only: 101 focused preview/screen tests, 117 focused
+CSP/crypto regressions, 704 full-suite tests discovered with 637 pass, 0 fail and
+67 PostgreSQL-gated skips, plus a passing production build. Edge/Chrome desktop on
+Windows is the primary production target; Firefox compatibility is secondary;
+Safari/WebKit production acceptance is deferred. The existing ~1.1 GB MP4 must be
+retested after merge/deploy for first frame, sustained play, middle/end seeks,
+close/reopen, worker restart and lock invalidation. Until that passes,
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`.
 
 ---
 

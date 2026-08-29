@@ -1398,8 +1398,9 @@ after metadata each converge; two concurrent recovery workers produce one outcom
 **Recorded limitations, not softened:**
 `VAULT_BROWSER_REFRESH_RESUME = NOT_IMPLEMENTED` (the session is durable but the
 KEK is never persisted, by design);
-`LARGE_V2_VIDEO_PREVIEW = LIMITED` (above 64 MiB the screen says preview is
-unavailable rather than assembling gigabytes in RAM);
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; the
+large streamed path exists but the ~1.1 GB production acceptance failed and the
+E3.1 reliability fix is local/source-only pending deploy and browser acceptance);
 `VAULT_V1_LEGACY_READ = SUPPORTED`;
 `VAULT_V1_NEW_UPLOAD = SUPPORTED_BUT_UNUSED_BY_UI` — `POST /api/vault/blobs`
 still works with its original 64 MiB ceiling and is **not** large-file capable.
@@ -1595,7 +1596,7 @@ on the real link belongs to `LFT-V2-D` acceptance.
 
 ### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
 
-> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3 source complete and locally verified, **not deployed, not accepted, and never run in a real browser**
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3 reached production, but the real ~1.1 GB preview is unreliable; E3.1 is **implemented and verified locally only, not deployed or production accepted**
 > No server route, schema, CSP directive or cryptographic rule changed. The
 > 64 MiB buffered ceiling was **not** raised.
 
@@ -1623,12 +1624,13 @@ is a thin shell over `vaultPreviewRange.js`, `vaultPreviewResponder.js` and
 **Rules pinned by test:** only the required chunks are fetched (a 1 MiB request
 into a 4 GiB file touches one or two); opening a preview issues no request at all,
 and `preload="metadata"` stops the browser prefetching the rest; both 206 and
-plain 200 responses stream one chunk at a time so peak memory is one chunk, never
-one file; a failed authentication tag stops the stream with no skipping or
+plain 200 responses stream one chunk at a time, while E3.1 may retain at most two
+chunks/64 MiB for reuse, so memory remains O(chunk size), never O(file size); a
+failed authentication tag stops the stream with no skipping or
 zero-fill and tells the page why, so the UI reports an integrity failure rather
 than a generic error — tampered bytes, a reordered chunk and a chunk from another
-file all fail identically; the key exists only in worker memory, with no
-storage of any kind, **no Cache API**, and `Cache-Control: no-store` on every
+file all fail identically; the key exists only in page/worker memory, with no
+persistent storage of any kind, **no Cache API**, and `Cache-Control: no-store` on every
 response; and modal close, vault lock, auto-lock and unmount each revoke it, with
 lock clearing every session rather than only the visible one.
 
@@ -1651,10 +1653,37 @@ PostgreSQL-gated skips**; `npm run build` passed and emits
 scope is its own directory, and a hashed name reads as a new worker every deploy);
 HUB `driveCspParity` 10/10 and IDEA1 `contentSecurityPolicy` 10/10.
 
-**Never run in a browser.** The modules are proven against real AES-GCM in Node and
-the screen against a scripted Service Worker container, but **no video was played,
-no seek performed, and no compatibility matrix produced.** Real playback, seek
-behaviour, Safari range semantics and the Twingate path belong to `LFT-V2-D`.
+**Production evidence superseding the original source-only limitation:** a real
+~1.1 GB Vault V2 MP4 upload succeeds, and a ~5.4 MB V2 MP4 previews, plays and
+seeks correctly. The ~1.1 GB streamed preview is **not reliable**: it can open
+slowly or stall, stutter, and fail on a later attempt. Therefore
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; this is not a production closure.
+
+**LFT-V2-E3.1 local/source fix (2026-08-30):** open-ended Chromium media requests
+(`bytes=X-`) now return a 16 MiB 206 window instead of planning through EOF;
+finite and suffix ranges remain exact and 416 retains `bytes */total`. Logical
+100 MiB, 1.1 GiB, 5 GiB and 32 GiB cases prove that a request near the start
+touches one chunk regardless of total size. An unlocked page retains the exact
+active non-extractable DEK in memory and can rehydrate an ephemeral Service Worker
+once per request after restart; close, replacement, lock and unmount remove that
+recovery path, and a lock racing an in-flight decrypt prevents late plaintext
+delivery. The worker cache is memory-only, token+chunk scoped, LRU, at most two
+entries, and capped at 64 MiB of retained plaintext. No Cache API, IndexedDB,
+browser storage, server key handling or plaintext endpoint was added.
+
+The UI now distinguishes unsupported browser, temporary worker/session failure,
+network chunk failure, integrity failure, invalid range and media playback failure
+in EN/TH/ZH. Optional diagnostics are off by default and allowlist only range,
+chunk-count, timing, cache and failure-category metrics; they cannot emit tokens,
+keys, plaintext or filenames. Small video at or below 64 MiB remains on the
+existing buffered path.
+
+**E3.1 source verification:** focused preview/Vault screen set **101 pass, 0 fail**;
+focused CSP/Vault crypto/V2 regression set **117 pass, 0 fail**; full IDEA1 suite
+**704 discovered, 637 pass, 0 fail, 67 PostgreSQL-gated skips**; production Vite
+build passed. Edge/Chrome on Windows is the blocking browser target, Firefox is
+secondary compatibility, and Safari/WebKit acceptance is deferred. No real
+browser acceptance was run on this branch and nothing was deployed.
 
 ---
 

@@ -33,8 +33,9 @@ import { createRateEstimator, transferRateLine } from '../lib/transferRate.js'
 //    ต้นทางเดียวกัน — ไม่มี plaintext ทั้งไฟล์อยู่ในหน่วยความจำ ณ เวลาใดเลย
 import {
   supportsLargeVideoPreview, openPreviewSession,
-  closePreviewSession, closeAllPreviewSessions,
+  closePreviewSession, closeAllPreviewSessions, installPreviewSessionRecovery,
 } from '../lib/vaultPreviewSession.js'
+import { PREVIEW_FAILURE_REASON, previewFailureCopyKey } from '../lib/vaultPreviewErrors.js'
 import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 
 /* ⚠️ Zero-Knowledge จริง:
@@ -409,6 +410,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const configured = vaultApi.data?.configured === true
   const serverBlobs = vaultApi.data?.blobs ?? EMPTY_BLOBS
   const unlocked = Boolean(kek && entries)
+  const unlockedRef = useRef(unlocked)
+  unlockedRef.current = unlocked
 
   /* รายการ blob ทึบที่ "เป็นจริงตอนนี้" = server + POST ที่สำเร็จแล้ว − ที่ลบสำเร็จแล้ว
      dedupe ด้วย id เข้มงวด GET ที่ตามมาทีหลังจึงไม่สร้างการ์ดใบที่สอง */
@@ -455,13 +458,23 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       const data = event?.data
       if (data?.type !== 'vault-preview-failed') return
       if (!previewStreamToken.current || data.token !== previewStreamToken.current) return
+      const reason = data.reason === 'integrity'
+        ? PREVIEW_FAILURE_REASON.INTEGRITY_FAILED
+        : data.reason
       setPreview((prev) => (prev
-        ? { ...prev, loading: false, failed: true, integrity: data.reason === 'integrity' }
+        ? { ...prev, loading: false, failed: true, failureReason: reason }
         : prev))
     }
     container.addEventListener('message', onMessage)
     return () => container.removeEventListener('message', onMessage)
   }, [])
+
+  // The page retains the exact active non-extractable DEK in module memory so
+  // an ephemeral worker can recover while (and only while) this Vault remains
+  // unlocked. No storage API participates in this path.
+  useEffect(() => installPreviewSessionRecovery({
+    isUnlocked: () => unlockedRef.current,
+  }), [])
 
   /* ── ล็อก: ทิ้งกุญแจ + plaintext ทั้งหมดจาก memory ─────────────────────
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
@@ -841,15 +854,13 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   /* ── Preview: ถอดรหัสในเบราว์เซอร์ แล้ว render จาก object URL ในเครื่อง ──
      เส้นทางเดียวกับ Download ทุกประการ ต่างกันแค่ปลายทางของ bytes:
 
-       ciphertext → ถอดในเบราว์เซอร์เท่านั้น → Blob/object URL ชั่วคราว → <img>/<video>
+       ciphertext → ถอดในเบราว์เซอร์เท่านั้น → object URL หรือ media element ชั่วคราว
 
      ⚠️ เซิร์ฟเวอร์ไม่เคยได้รับหรือสร้าง plaintext, thumbnail, ชื่อไฟล์, MIME, KEK
         หรือ DEK เลย ไม่มี endpoint ใหม่ ไม่มี transcode ฝั่งเซิร์ฟเวอร์
-     ⚠️ Preview ต้องมี plaintext ทั้งก้อนใน memory เพื่อสร้าง object URL — ทั้ง V1 และ V2
-        และนั่นคือเหตุผลที่ V2 **บังคับเพดาน** ตรงนี้ ไม่ใช่ "พยายามให้ได้"
-        ไฟล์วิดีโอหลายกิกะไบต์จะไม่ถูกประกอบใน RAM เพื่อให้ปุ่ม Preview ดูใช้งานได้
-        การเล่นสตรีมของจริงต้องใช้ MediaSource + การถอดแบบ on-demand ซึ่ง **ยังไม่ได้ทำ**
-        (บันทึกไว้ตามจริง: LARGE_V2_VIDEO_PREVIEW = LIMITED) */
+     ⚠️ Preview แบบบัฟเฟอร์ต้องมี plaintext ทั้งก้อนใน memory จึงบังคับเพดาน 64 MiB
+        ส่วนวิดีโอ V2 ที่ใหญ่กว่านั้นใช้ Service Worker ถอดตาม Range แบบ on-demand และ
+        ห้ามถอยกลับไปประกอบทั้งไฟล์ใน RAM */
   const openPreview = async (entry) => {
     if (!kek || !unlocked) return
     const kind = previewKindFor(entry.type)
@@ -865,14 +876,17 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     // ── วิดีโอ V2 ที่ใหญ่เกินกว่าจะบัฟเฟอร์: สตรีมตามช่วงไบต์ผ่าน Service Worker ──
     //
     // ⚠️ เงื่อนไขต้องเป็น "วิดีโอ" เท่านั้น ภาพนิ่งไม่ได้ประโยชน์จากการสตรีมตามช่วง
-    //    (<img> ขอทั้งไฟล์อยู่ดี) และเพดาน 64 MiB ของเส้นทางบัฟเฟอร์ยังคงบังคับกับมัน
+    //    (image element ขอทั้งไฟล์อยู่ดี) และเพดาน 64 MiB ของเส้นทางบัฟเฟอร์ยังคงบังคับ
     // ⚠️ ไม่มีการยกเพดาน MAX_BUFFERED_PLAINTEXT_BYTES ที่ใดเลย — เส้นทางนี้เป็นคนละ
     //    เส้นทางกัน ไม่ใช่การผ่อนเพดานเดิม
     if (isV2 && kind === 'video' && plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
       if (!supportsLargeVideoPreview()) {
         // บอกความจริงว่าเบราว์เซอร์นี้ทำไม่ได้ แล้วเสนอ Download —
         // ไม่ถอยไปประกอบทั้งไฟล์ใน RAM เงียบ ๆ ซึ่งจะทำให้แท็บตาย
-        setPreview({ entry, kind, url: null, loading: false, failed: false, tooLarge: true, unsupported: true })
+        setPreview({
+          entry, kind, url: null, loading: false, failed: false, tooLarge: true, unsupported: true,
+          failureReason: PREVIEW_FAILURE_REASON.UNSUPPORTED_BROWSER,
+        })
         return
       }
       setPreview({ entry, kind, url: null, loading: true, failed: false, tooLarge: false })
@@ -889,10 +903,11 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
           if (session) closePreviewSession(session.token)
           return
         }
-        if (!session) {
-          // ลงทะเบียน worker ไม่สำเร็จ หรือมันไม่ได้เข้าควบคุมหน้านี้ — ผลลัพธ์ที่ผู้ใช้
-          // สัมผัสได้เหมือนกับเบราว์เซอร์ที่ไม่รองรับ จึงพูดแบบเดียวกันตามความจริง
-          setPreview({ entry, kind, url: null, loading: false, failed: false, tooLarge: true, unsupported: true })
+        if (!session.ok) {
+          setPreview({
+            entry, kind, url: null, loading: false, failed: true, tooLarge: false,
+            failureReason: session.reason,
+          })
           return
         }
         previewStreamToken.current = session.token
@@ -901,7 +916,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
           : prev))
       } catch {
         if (token !== previewToken.current) return
-        setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, loading: false, failed: true } : prev))
+        setPreview((prev) => (prev?.entry.id === entry.id
+          ? { ...prev, loading: false, failed: true, failureReason: PREVIEW_FAILURE_REASON.INTEGRITY_FAILED }
+          : prev))
       }
       return
     }
@@ -1230,11 +1247,14 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
                ซึ่งผู้ใช้ต้องรู้ ไม่ใช่ถูกกลบด้วยคำว่า error */
             <p
               role="alert"
-              data-vault-preview-integrity={preview.integrity ? '1' : '0'}
+              data-vault-preview-integrity={preview.failureReason === PREVIEW_FAILURE_REASON.INTEGRITY_FAILED ? '1' : '0'}
+              data-vault-preview-failure={preview.failureReason ?? ''}
               className="text-[13px] font-medium px-6 py-10 text-center max-w-md"
               style={{ color: 'var(--danger)' }}
             >
-              {preview.integrity ? t('vaultPreviewIntegrityFailed') : t('vaultPreviewUnavailable')}
+              {preview.failureReason
+                ? t(previewFailureCopyKey(preview.failureReason))
+                : t('vaultPreviewUnavailable')}
             </p>
           ) : preview?.url ? (
             preview.kind === 'video' ? (
@@ -1249,6 +1269,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
                 preload={preview.streamed ? 'metadata' : 'auto'}
                 data-vault-preview-streamed={preview.streamed ? '1' : '0'}
                 src={preview.url}
+                onError={() => setPreview((prev) => (prev?.streamed
+                  ? { ...prev, failed: true, failureReason: PREVIEW_FAILURE_REASON.MEDIA_PLAYBACK_FAILED }
+                  : prev))}
                 className="max-w-full"
                 style={{ maxHeight: '68vh' }}
               />
