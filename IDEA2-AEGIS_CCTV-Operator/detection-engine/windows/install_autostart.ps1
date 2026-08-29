@@ -59,6 +59,137 @@ function Copy-MachineFile {
     Copy-Item -LiteralPath $resolvedSource -Destination $resolvedDestination -Force
 }
 
+function Invoke-IcaclsMutation {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Operation
+    )
+
+    & icacls.exe $Path @Arguments | Out-Null
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Private-key ACL mutation failed during $Operation (icacls exit $exitCode)."
+    }
+}
+
+function Assert-RuntimePrivateKeyAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $administratorsSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $allowedSids = @($systemSid.Value, $administratorsSid.Value)
+    $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+
+    $verifiedAcl = Get-Acl -LiteralPath $Path
+    $ownerSid = $verifiedAcl.GetOwner(
+        [Security.Principal.SecurityIdentifier]
+    ).Value
+    if ($ownerSid -ne $systemSid.Value) {
+        throw "Private-key ACL verification failed: owner is $ownerSid, expected SYSTEM."
+    }
+    if (-not $verifiedAcl.AreAccessRulesProtected) {
+        throw 'Private-key ACL verification failed: inheritance is still enabled.'
+    }
+
+    $verifiedRules = @($verifiedAcl.GetAccessRules(
+            $true,
+            $true,
+            [Security.Principal.SecurityIdentifier]
+        ))
+    foreach ($requiredSid in $allowedSids) {
+        $hasFullControl = @($verifiedRules | Where-Object {
+                $_.IdentityReference.Value -eq $requiredSid -and
+                $_.AccessControlType -eq $allow -and
+                -not $_.IsInherited -and
+                ($_.FileSystemRights -band $fullControl) -eq $fullControl
+            }).Count -gt 0
+        if (-not $hasFullControl) {
+            throw "Private-key ACL verification failed: $requiredSid lacks explicit FullControl."
+        }
+    }
+
+    $sensitiveRights = [Security.AccessControl.FileSystemRights]::Read -bor
+        [Security.AccessControl.FileSystemRights]::Write -bor
+        [Security.AccessControl.FileSystemRights]::Modify -bor
+        [Security.AccessControl.FileSystemRights]::FullControl
+    $unexpectedAllows = @($verifiedRules | Where-Object {
+            $_.AccessControlType -eq $allow -and
+            $allowedSids -notcontains $_.IdentityReference.Value -and
+            ($_.FileSystemRights -band $sensitiveRights) -ne 0
+        })
+    if ($unexpectedAllows.Count -gt 0) {
+        $unexpectedSids = @($unexpectedAllows | ForEach-Object {
+                $_.IdentityReference.Value
+            }) -join ', '
+        throw "Private-key ACL verification failed: unexpected Allow identity $unexpectedSids."
+    }
+
+    $nonContractRules = @($verifiedRules | Where-Object {
+            $allowedSids -notcontains $_.IdentityReference.Value -or
+            $_.AccessControlType -ne $allow -or
+            $_.IsInherited -or
+            ($_.FileSystemRights -band $fullControl) -ne $fullControl
+        })
+    if ($nonContractRules.Count -gt 0 -or $verifiedRules.Count -ne $allowedSids.Count) {
+        throw 'Private-key ACL verification failed: DACL contains a non-contract access rule.'
+    }
+}
+
+function Set-RuntimePrivateKeyAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $administratorsSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $allowedSids = @($systemSid.Value, $administratorsSid.Value)
+    $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+
+    # Build an exact protected DACL. SYSTEM runs the boot tunnel, while the
+    # local Administrators group must retain FullControl so an elevated repair
+    # can rotate/re-harden the runtime key. No interactive Users, Authenticated
+    # Users, Everyone, or source-file identity is retained.
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    $existingRules = @($acl.GetAccessRules(
+            $true,
+            $true,
+            [Security.Principal.SecurityIdentifier]
+        ))
+    foreach ($rule in $existingRules) {
+        [void]$acl.RemoveAccessRuleSpecific($rule)
+    }
+    $acl.SetOwner($systemSid)
+    [void]$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+                $systemSid,
+                $fullControl,
+                $allow
+            )))
+    [void]$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+                $administratorsSid,
+                $fullControl,
+                $allow
+            )))
+    Set-Acl -LiteralPath $Path -AclObject $acl
+
+    # Keep every native mutation independently fail-closed. A later successful
+    # icacls command must never hide an earlier failure.
+    Invoke-IcaclsMutation -Path $Path -Arguments @('/inheritance:r') `
+        -Operation 'disabling inheritance'
+    Invoke-IcaclsMutation -Path $Path -Arguments @(
+        '/grant:r',
+        '*S-1-5-18:(F)',
+        '*S-1-5-32-544:(F)'
+    ) -Operation 'granting SYSTEM and Administrators FullControl'
+    Invoke-IcaclsMutation -Path $Path -Arguments @('/setowner', '*S-1-5-18') `
+        -Operation 'setting the owner to SYSTEM'
+
+    # Verify the effective contract with PowerShell ACL APIs instead of
+    # trusting command exit codes alone.
+    Assert-RuntimePrivateKeyAcl -Path $Path
+}
+
 function Get-DotEnvKeys {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -237,15 +368,9 @@ finally {
     Pop-Location
 }
 
-# OpenSSH running as SYSTEM rejects broadly readable private keys. Enforce the
-# ACL on the runtime copy even during repair/migration. This never changes the
-# source key passed to -IdentityFile when it lives outside RuntimeRoot.
-& icacls.exe $runtimeIdentity /inheritance:r | Out-Null
-& icacls.exe $runtimeIdentity /grant:r '*S-1-5-18:(F)' | Out-Null
-& icacls.exe $runtimeIdentity /setowner '*S-1-5-18' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to apply the SYSTEM-only ACL to the runtime SSH identity.'
-}
+# Harden and verify only the runtime copy. The source key passed through
+# -IdentityFile is never given to the ACL function.
+Set-RuntimePrivateKeyAcl -Path $runtimeIdentity
 
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $engineSupervisor = Join-Path $runtimeApp 'windows\run_engine_supervisor.ps1'

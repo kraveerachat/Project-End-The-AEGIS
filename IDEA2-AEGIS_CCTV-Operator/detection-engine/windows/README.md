@@ -64,12 +64,17 @@ $bootstrap = "$env:LOCALAPPDATA\AEGIS\bootstrap"
 The installer copies durable source to
 `%LOCALAPPDATA%\AEGIS\DetectionEngine\app`, creates
 `%LOCALAPPDATA%\AEGIS\DetectionEngine\.venv`, installs requirements, validates
-configuration/imports, applies a SYSTEM-only ACL to the runtime key copy,
-registers startup, and writes non-secret installation settings to
-`install.json`.
+configuration/imports, applies and verifies a protected ACL on the runtime key
+copy, registers startup, and writes non-secret installation settings to
+`install.json`. The key ACL permits only SYSTEM and the local
+`BUILTIN\Administrators` group, both with FullControl. SYSTEM needs the key for
+the boot tunnel; Administrators retain access only so an elevated repair can
+rotate and re-harden it. Users, Authenticated Users, and Everyone are removed.
 
 The source key passed to `-IdentityFile` is not modified. Only the runtime copy
-receives the SYSTEM-only ACL.
+receives the protected ACL. Installation aborts if any ACL mutation fails or if
+owner, inheritance, required rights, or unexpected Allow entries fail final
+verification.
 
 ## Status, repair, and uninstall
 

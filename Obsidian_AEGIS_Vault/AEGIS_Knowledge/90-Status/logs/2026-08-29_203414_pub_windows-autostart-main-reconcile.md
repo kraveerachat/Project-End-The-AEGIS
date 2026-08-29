@@ -15,7 +15,9 @@ edit_policy: append-by-new-file
 - Recreated the useful Windows Detection Laptop auto-start work from the obsolete PR #46 on current `main`, without merging its diverged history or restoring its stale receipt.
 - Added a portable installer that deploys durable Engine source and a runtime-local Python environment under Local AppData while keeping `.env`, SSH material, recordings, snapshots, logs, and virtual environments out of Git.
 - Replaced the unreliable interactive Scheduled Task design with an HKCU Engine supervisor after login and a SYSTEM tunnel task after boot. Both wrappers reconnect/restart, avoid duplicate Engine supervisors, and preserve strict SSH host-key checking.
-- Added status, repair, and non-destructive uninstall commands. Repair can reuse an existing runtime `.env`, key, `known_hosts`, and settings without copying a file onto itself, and it reapplies the required SYSTEM-only ACL to the runtime key.
+- Added status, repair, and non-destructive uninstall commands. Repair can reuse an existing runtime `.env`, key, `known_hosts`, and settings without copying a file onto itself, and it reapplies the protected runtime-key ACL.
+- Hardened the runtime-key ACL after review: every native mutation now fails independently, PowerShell rebuilds and verifies a protected DACL, and installation permits only SYSTEM plus `BUILTIN\Administrators` FullControl. SYSTEM runs the boot tunnel; Administrators are retained solely for elevated repair and key rotation.
+- Merged latest `origin/main` at `4505e37` normally into the PR branch, preserving the merged IDEA1 PR #54/#53 work without rebasing or force-pushing.
 
 ## Source files changed
 
@@ -34,7 +36,9 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `python -m unittest discover -s tests -v` from `IDEA2-AEGIS_CCTV-Operator/detection-engine` — pass: 26 tests.
+- `python -m unittest discover -s tests -v` from `IDEA2-AEGIS_CCTV-Operator/detection-engine` — pass: 30 tests, including immediate native-failure checks, owner/inheritance/FullControl verification, unexpected-Allow rejection, runtime-copy targeting, and repair routing.
+- `python -m unittest discover -s IDEA2-AEGIS_CCTV-Operator/detection-engine/tests -v` from repository root without `PYTHONPATH` — fail: five module-import errors because the Engine root was not on Python's import path; no functional test assertion ran in those five modules.
+- `$env:PYTHONPATH=<detection-engine>; python -m unittest discover -s IDEA2-AEGIS_CCTV-Operator/detection-engine/tests -v` from repository root — pass: all 30 tests after supplying the required import root.
 - PowerShell AST parser over `detection-engine/windows/*.ps1` — pass: all seven scripts parsed without errors.
 - `install_autostart.ps1 -TunnelHost 'test-user@127.0.0.1' -WhatIf` — pass: validated parameters and reached the mutation boundary without changing the machine.
 - `node --test --test-concurrency=1 tests/*.test.mjs` — pass: 56 repository governance and integration tests.
@@ -60,6 +64,7 @@ edit_policy: append-by-new-file
 
 - The reconciled installer has not yet been executed from an elevated fresh clone on the operator laptop; no machine registration was changed by this source task.
 - A post-install Windows reboot and real authorized Live Canvas session remain required to prove automatic Engine/tunnel recovery and webcam capture on each laptop.
+- A real SYSTEM SSH tunnel startup has not been exercised with the hardened ACL; source verification does not prove Windows boot acceptance.
 - Current machine read-only inspection found healthy local Engine and Monitor endpoints from older runtime processes, but the final runtime-local Python, HKCU registration, and install receipt were not all present; that existing state is not proof of this installer.
 - Scheduled Task and process enumeration from the non-elevated Codex process returned access restrictions, so task ownership/state must be confirmed from elevated PowerShell during acceptance.
 - Telegram credential rotation and real delivery remain required independently of this auto-start task.

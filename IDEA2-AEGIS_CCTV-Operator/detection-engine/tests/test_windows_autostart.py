@@ -80,9 +80,59 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("$runtimeItem = Join-Path $runtimeApp $item.Name", installer)
         self.assertNotIn("$identityWasCopied", installer)
         self.assertLess(
-            installer.index("& icacls.exe $runtimeIdentity /inheritance:r"),
+            installer.index("Set-RuntimePrivateKeyAcl -Path $runtimeIdentity"),
             installer.index("$windowsPowerShell ="),
         )
+
+    def test_each_icacls_mutation_is_immediately_fail_closed(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        helper = installer.split("function Invoke-IcaclsMutation", 1)[1].split(
+            "function Assert-RuntimePrivateKeyAcl", 1
+        )[0]
+        self.assertIn("& icacls.exe $Path @Arguments", helper)
+        self.assertIn("$exitCode = $LASTEXITCODE", helper)
+        self.assertIn("if ($exitCode -ne 0)", helper)
+        self.assertIn("throw", helper)
+        self.assertEqual(installer.count("& icacls.exe"), 1)
+        self.assertEqual(installer.count("Invoke-IcaclsMutation -Path $Path"), 3)
+
+    def test_private_key_acl_is_verified_with_an_explicit_identity_contract(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        acl = installer.split("function Assert-RuntimePrivateKeyAcl", 1)[1].split(
+            "function Set-RuntimePrivateKeyAcl", 1
+        )[0]
+        self.assertIn("S-1-5-18", acl)
+        self.assertIn("S-1-5-32-544", acl)
+        self.assertIn("GetOwner", acl)
+        self.assertIn("AreAccessRulesProtected", acl)
+        self.assertIn("FileSystemRights]::FullControl", acl)
+        self.assertIn("$unexpectedAllows", acl)
+        self.assertIn("unexpected Allow identity", acl)
+        self.assertIn("$nonContractRules", acl)
+        self.assertIn("$verifiedRules.Count -ne $allowedSids.Count", acl)
+        self.assertNotIn("S-1-5-32-545", acl)
+        self.assertNotIn("S-1-5-11", acl)
+        self.assertNotIn("S-1-1-0", acl)
+
+        mutation = installer.split("function Set-RuntimePrivateKeyAcl", 1)[1].split(
+            "function Get-DotEnvKeys", 1
+        )[0]
+        self.assertIn("SetAccessRuleProtection($true, $false)", mutation)
+        self.assertIn("RemoveAccessRuleSpecific", mutation)
+        self.assertIn("Assert-RuntimePrivateKeyAcl -Path $Path", mutation)
+
+    def test_acl_hardening_targets_only_the_runtime_identity(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        call = "Set-RuntimePrivateKeyAcl -Path $runtimeIdentity"
+        self.assertEqual(installer.count(call), 1)
+        self.assertNotIn("Set-RuntimePrivateKeyAcl -Path $resolvedIdentitySource", installer)
+        self.assertIn("Assert-RuntimePrivateKeyAcl -Path $Path", installer)
+
+    def test_repair_routes_through_the_hardened_installer(self) -> None:
+        repair = self.read("repair_autostart.ps1")
+        self.assertIn("install_autostart.ps1", repair)
+        self.assertIn("& $installer @arguments", repair)
+        self.assertNotIn("icacls.exe", repair)
 
     def test_install_receipt_contains_no_secret_values(self) -> None:
         installer = self.read("install_autostart.ps1")

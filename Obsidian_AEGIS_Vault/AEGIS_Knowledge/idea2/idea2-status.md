@@ -105,9 +105,13 @@ runtime, creates a runtime-local `.venv`, requires a machine-specific `.env`,
 a unique per-laptop SSH key and a fingerprint-verified `known_hosts`, and keeps
 all of those machine artifacts outside Git. The Engine starts in the logged-in
 user session for webcam access; the tunnel starts as SYSTEM and reconnects
-after SSH exits.
+after SSH exits. The runtime key uses a protected, verified ACL that allows only
+SYSTEM and `BUILTIN\Administrators` FullControl: SYSTEM serves the boot task,
+while Administrators remain solely for elevated repair/key rotation. Any failed
+ACL mutation, wrong owner, enabled inheritance, missing required grant, or
+unexpected sensitive Allow entry aborts installation.
 
-Source verification on the current `main` passed all 26 Detection Engine tests,
+Source verification after merging current `main` passed all 30 Detection Engine tests,
 parsed all seven PowerShell scripts, and completed installer `-WhatIf` without
 mutation. Earlier operator-supplied evidence proved the architecture could
 recover the Engine/tunnel and serve a real camera after reboot, but this newly
