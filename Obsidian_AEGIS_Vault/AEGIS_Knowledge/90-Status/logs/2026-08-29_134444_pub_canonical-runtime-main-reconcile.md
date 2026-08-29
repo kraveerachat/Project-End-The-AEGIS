@@ -58,6 +58,8 @@ edit_policy: append-by-new-file
 - `node scripts/validate-collaboration-policy.mjs --event <event> --changed-files <changed-files>` — pass: the simulated IDEA2 PR declares all six shared paths and exactly one new Pub receipt.
 - `Select-String docker-compose.yml` preservation check — pass: IDEA1 trusted proxy, `aegis_internal`, both `aegis_drive_proxy` addresses, and the canonical IDEA2 build/port wiring are present.
 - Changed-path credential and artifact scan — pass: no private key, Telegram/GitHub/AWS token pattern, real `.env`, model binary, recording, snapshot, or image is included.
+- `rg -n -i "verify.*none|none.*verify|trust(ing)? the transfer|trust.*exit" IDEA2-AEGIS_CCTV-Operator/detection-engine --glob '!**/tests/**'` — pass: canonical source and documentation contain no claim that `none` can succeed; the rejection test remains the only deliberate `nas_verify="none"` use.
+- Docker CLI discovery (`Get-Command docker` plus standard Docker Desktop paths) — blocked environment: no local Docker CLI/daemon is installed, so `docker compose config`, `docker compose build aegis-camera`, and disposable container smoke tests could not run.
 - `git diff --check` — pass: no whitespace errors; Windows checkout emitted only expected LF-to-CRLF notices.
 
 ## Canonical notes updated
@@ -79,7 +81,8 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Docker CLI/daemon is unavailable on this workstation, so `docker compose config`, image build, and container runtime checks were not executed; Compose wiring is covered only by source-level tests here.
+- Docker CLI/daemon is unavailable on this workstation: `DOCKER_COMPOSE_CONFIG=BLOCKED_ENVIRONMENT`, `DOCKER_IMAGE_BUILD=BLOCKED_ENVIRONMENT`, and `DOCKER_SMOKE=NOT_RUN`; Compose wiring is covered only by source-level tests here.
 - No real camera, Monitor heartbeat, Telegram delivery, production NAS, or production deployment was exercised by this reconciliation.
 - Recognition remains an explicit `Unknown`-only placeholder; no real identity model is committed.
+- Removing the previously committed Telegram credential from the current Git tree does not revoke it and does not erase it from Git history. Independent rotation/revocation has not been confirmed, so `TELEGRAM_CREDENTIAL_ROTATION=REQUIRED_BEFORE_REAL_TESTING`; the old value is intentionally not recorded here.
 - `npm ci` reported one moderate and one high dependency-audit finding in the existing Monitor dependency set; this task did not change those dependencies.
