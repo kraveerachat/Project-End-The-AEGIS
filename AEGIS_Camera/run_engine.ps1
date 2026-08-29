@@ -1,18 +1,26 @@
-# run_engine.ps1 — รัน Detection Engine นอก Docker พร้อม env ที่ต้องใช้ครบ
-# ใช้แทนการพิมพ์ $env:... ทีละบรรทัดทุกครั้งที่เปิด terminal ใหม่
-# วิธีใช้: เปิด PowerShell ในโฟลเดอร์ AEGIS_Camera แล้วรัน  .\run_engine.ps1
+# Legacy Detection Engine helper (retained for compatibility review only).
+# The canonical IDEA2 development runtime is now:
+#   IDEA2-AEGIS_CCTV-Operator/detection-engine/run.py
+#
+# This script never supplies or prints credentials. Set secrets in the current
+# process environment only when an explicitly approved legacy test requires it.
 
-$env:MONITOR_INTERNAL_URL   = "http://localhost:8002"
-$env:DETECTION_ENGINE_API_KEY = "dev-key-12345"
-$env:AEGIS_CAMERA_ID        = "CAM-05"
-$env:AEGIS_STREAM_URL       = "http://host.docker.internal:8005/video_feed"
-# ⚠️ ใส่ token ของ bot ใหม่ตรงนี้ (สร้างผ่าน @BotFather) — token เก่าหลุดเข้า git แล้ว
-$env:TELEGRAM_BOT_TOKEN     = "8973866991:AAGQ7PgE8YdOYm3m4A213V81ucPeCmtsMfs"
+if (-not $env:MONITOR_INTERNAL_URL) {
+    $env:MONITOR_INTERNAL_URL = "http://localhost:8002"
+}
+if (-not $env:AEGIS_CAMERA_ID) {
+    $env:AEGIS_CAMERA_ID = "CAM-05"
+}
+if (-not $env:AEGIS_STREAM_URL) {
+    $env:AEGIS_STREAM_URL = "http://host.docker.internal:8005/video_feed"
+}
 
-Write-Host "MONITOR_INTERNAL_URL   = $env:MONITOR_INTERNAL_URL"
-Write-Host "DETECTION_ENGINE_API_KEY = $env:DETECTION_ENGINE_API_KEY"
-Write-Host "AEGIS_CAMERA_ID        = $env:AEGIS_CAMERA_ID"
-Write-Host "AEGIS_STREAM_URL       = $env:AEGIS_STREAM_URL"
-Write-Host "--- starting aegis_scanner.py ---"
+Write-Warning "AEGIS_Camera is a legacy compatibility runtime, not the canonical IDEA2 engine."
+if (-not $env:DETECTION_ENGINE_API_KEY) {
+    Write-Warning "DETECTION_ENGINE_API_KEY is unset; Monitor ingest will fail secure."
+}
+if (-not $env:TELEGRAM_BOT_TOKEN) {
+    Write-Warning "Credential Rotation Required Before Telegram Real Testing"
+}
 
 python aegis_scanner.py

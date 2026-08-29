@@ -94,7 +94,7 @@ class MetricsRegistry:
         self._recorder: Dict[str, object] = {"active_segment": None, "segments_written": 0}
         self._nas: Dict[str, object] = {
             "last_sync_wall": None,
-            "last_status": "idle",  # idle | ok | failed
+            "last_status": "idle",  # idle | disabled | ok | failed
             "pending": 0,
             "synced_total": 0,
             "failed_total": 0,
@@ -153,6 +153,12 @@ class MetricsRegistry:
     def on_nas_pending(self, pending: int) -> None:
         with self._lock:
             self._nas["pending"] = pending
+
+    def on_nas_disabled(self) -> None:
+        """Expose an unavailable state without claiming a sync result."""
+        with self._lock:
+            self._nas["last_status"] = "disabled"
+            self._nas["pending"] = 0
 
     def on_nas_result(self, ok: bool, when_wall: str) -> None:
         with self._lock:

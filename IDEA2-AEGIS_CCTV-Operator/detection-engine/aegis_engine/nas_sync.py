@@ -7,8 +7,8 @@ For every ~10-minute segment the recorder finalizes, this worker:
 2. Ensures the remote directory exists, then transfers the file with
    ``rsync`` (default) or ``scp`` via :mod:`subprocess`.
 3. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
-   (``checksum``), comparing byte size (``size``), or trusting the transfer
-   exit code (``none``).
+   (``checksum``) or comparing byte size (``size``). Unverified success is
+   forbidden; a successful transfer exit code alone is never sufficient.
 4. Deletes the local file **only if** verification passed.
 
 Transfers are retried with exponential backoff. A segment that never verifies
@@ -62,6 +62,8 @@ class NASSyncWorker(threading.Thread):
         # Optional MonitorClient — persist a `clips` row ONLY after a verified
         # transfer (see _finish_ok), never optimistically. Fails soft.
         self._monitor = monitor
+        if not self._cfg.nas_enabled:
+            self._metrics.on_nas_disabled()
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -70,6 +72,7 @@ class NASSyncWorker(threading.Thread):
     def submit(self, info: SegmentInfo) -> None:
         """Queue a finalized segment for transfer. Thread-safe, non-blocking."""
         if not self._cfg.nas_enabled:
+            self._metrics.on_nas_disabled()
             log.info("NAS disabled — leaving segment on local disk: %s", info.path)
             return
         with self._pending_lock:
@@ -80,8 +83,9 @@ class NASSyncWorker(threading.Thread):
     # -- consumer thread ---------------------------------------------------
     def run(self) -> None:
         if not self._cfg.nas_enabled:
-            log.info("NAS sync disabled; worker idle")
-            # Still drain the queue so submit() callers don't leak, but do nothing.
+            self._metrics.on_nas_disabled()
+            log.info("NAS integration disabled; local recordings will be retained")
+            return
         log.info(
             "NAS worker started · %s → %s@%s:%s (verify=%s)",
             self._cfg.nas_method,
@@ -194,8 +198,6 @@ class NASSyncWorker(threading.Thread):
 
     def _verify(self, local_path: str, remote_path: str, local_hash: Optional[str]) -> bool:
         mode = self._cfg.nas_verify
-        if mode == "none":
-            return True
         if mode == "size":
             local_size = os.path.getsize(local_path)
             rc, out, _ = self._ssh_exec(f"stat -c %s {shlex.quote(remote_path)}")

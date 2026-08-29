@@ -1,121 +1,163 @@
-# AEGIS Monitor · Detection Engine
+# AEGIS IDEA2 — Canonical Modular Detection Runtime
 
-**Runs on: Laptop (GPU host). Headless background service — no UI.**
+This directory is the **primary development runtime for IDEA2 detection**.
+The legacy `../../AEGIS_Camera/` implementation remains in the repository for
+compatibility review, but root `docker-compose.yml` no longer starts it.
 
-The sensor layer of the AEGIS Cyber-Physical Security System. It reads the
-webcam, runs face recognition, records rolling ~10-minute segments, ships them
-to the NAS, raises Telegram alerts on unknown faces, and exposes a local API so
-the external Monitoring Web App can stream live detections / FPS / latency.
+The canonical entry point is:
 
-- AI face-recognition pipeline: capture → detect → recognize → results.
-- **No UI.** This is a headless worker/service. The Beelink `web-app/` reads
-  what this engine writes; the two never call each other directly.
-- Model files (`.pt`, `.h5`, weights) live **here**, in this folder, and are
-  **git-ignored** — never commit model binaries.
-- Writes to shared tables (e.g. `camera_assignment`, detection/event tables).
-  Read the central notes in `../../shared/db-schema/` before adding columns.
-
-## Architecture
-
-Six modules, each an independent, cooperatively-stoppable thread, glued by
-`aegis_engine/engine.py` with thread-safe Queues:
-
-```
-                       ┌────────────────────┐
-                       │    VideoCatcher     │  owns the camera (1 thread)
-                       └─────────┬──────────┘
-                        fan-out  │
-        record_queue  ◀──────────┼──────────▶  detect_queue (latest frame only)
-        (drop-oldest) │                        │
-        ┌─────────────▼─────────┐   ┌──────────▼───────────────┐
-        │   SegmentRecorder     │   │  FaceDetectorProcessor    │
-        │   ~10 min .mp4 files  │   │  << INJECT AI MODEL HERE  │
-        └─────────────┬─────────┘   └──────────┬───────────────┘
-                      │ finalized segment       │ DetectionResult
-              ┌───────▼──────┐        ┌─────────┼──────────┬───────────┐
-              │ NASSyncWorker │       │          │          │           │
-              │ rsync/scp     │  MetricsRegistry │   AlertManager   LocalEventAPI
-              │ verify+delete │  (FPS/latency)   │   (Telegram)   FastAPI + WS
-              └──────────────┘        └──────────┴───────────────────┘
-```
-
-| Module | File | Responsibility |
-| ------ | ---- | -------------- |
-| `VideoCatcher` | `video_catcher.py` | Dedicated capture thread; fans frames to record/detect queues with drop policies; reconnects with backoff. |
-| `FaceDetectorProcessor` | `face_detector.py` | **AI injection point.** Consumes the freshest frame, runs the model, emits `DetectedEntity` lists. Ships with a placeholder recognizer. |
-| `SegmentRecorder` | `segment_recorder.py` | Continuous recording; rolls a new file every ~10 min (interval-based, *not* detection-triggered). |
-| `AlertManager` | `alert_manager.py` | Debounces `Unknown` detections; async-sends snapshot + payload to a Telegram bot. |
-| `NASSyncWorker` | `nas_sync.py` | rsync/scp segments to the NAS, verify checksum/size, delete local **only** on verified success. |
-| `LocalEventAPI` | `local_api.py` | FastAPI + WebSocket; streams detection JSON, FPS and latency to the web app. |
-
-## Quick start
-
-```bash
-cd detection-engine
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env        # edit camera source, NAS host, Telegram token…
+```text
 python run.py
 ```
 
-Runs out of the box with a **placeholder** recognizer (Haar face boxes, all
-labelled `Unknown`), so the full pipeline — recording, alerts, NAS sync, API —
-is exercisable before the AI model exists.
+Root Compose now follows:
 
-### Consume the live API
+```text
+docker compose
+  -> service: aegis-camera
+  -> detection-engine/Dockerfile
+  -> python run.py
+  -> aegis_engine.engine.DetectionEngine
+```
+
+## Honest feature state
+
+| Subsystem | Current state |
+|---|---|
+| Configuration and logging | Implemented |
+| Camera capture/reconnect | Implemented; real camera verification pending |
+| Face detection | Haar-based development placeholder |
+| Face recognition | **Placeholder only**; every placeholder face is `Unknown` with no identity |
+| Recording | Implemented; local segments are retained when NAS is disabled |
+| Monitor client | Implemented, optional/fail-soft; real heartbeat integration pending |
+| Live MJPEG stream | Implemented; Monitor proxy integration remains environment-dependent |
+| Telegram | Dry-run when token/chat are absent; credential rotation required before real testing |
+| NAS | Disabled by default; production transfer/integrity verification pending |
+
+Object detection is not identity. The modular runtime does not import the
+legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
+authorization from an object class.
+
+## Development quick start
 
 ```bash
-curl http://localhost:8077/health
-curl http://localhost:8077/metrics
-curl http://localhost:8077/detections/recent
-# WebSocket stream of detections + metrics heartbeat:
-#   ws://localhost:8077/ws/events
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+copy .env.example .env      # Windows
+# cp .env.example .env      # Linux/macOS
+python run.py
 ```
 
-## Plugging in the real face-recognition model
+The default development configuration has:
 
-Implement one method — no import from this package required on the model side:
+- `AEGIS_NAS_ENABLED=false`
+- Monitor persistence disabled until both Monitor URL and service key are set
+- Telegram in dry-run until both token and chat ID are set
+- `PlaceholderRecognizer`, which can return only `Unknown` identities
 
-```python
-class ArcFaceRecognizer:
-    def __init__(self, weights="./model.pt"):
-        ...  # load weights (files live in this folder, git-ignored)
+The runtime API can start while the camera is unavailable; `VideoCatcher`
+reports disconnected state and retries with bounded exponential backoff.
 
-    def recognize(self, image_bgr):
-        # image_bgr: HxWx3 uint8 numpy array (OpenCV BGR)
-        # return a list[DetectedEntity], one per face
-        return [DetectedEntity(status=DetectionStatus.AUTHORIZED,
-                               name="M. REYES", confidence=98.2,
-                               bbox=(x, y, w, h))]
+## Docker development stack
+
+From the repository root:
+
+```bash
+docker compose up --build
 ```
 
-Then wire it in `run.py`:
+The service is named `aegis-camera` for compatibility with Monitor's internal
+stream URL, but it is built from this directory. Port `8077` is exposed to the
+Docker network and mapped to host loopback `127.0.0.1:8005`. Local development
+recordings use the `camera_segments` named volume. This volume is local storage,
+not a production NAS and not evidence of a successful NAS transfer.
 
-```python
-DetectionEngine(recognizer=ArcFaceRecognizer()).run_forever()
+Camera device pass-through varies by Docker host. A running/degraded container
+does not prove webcam capture; record that separately as
+`REAL CAMERA VERIFICATION PENDING` until tested on the target edge node.
+
+## Optional integrations
+
+### Monitor
+
+Set both values to enable event and heartbeat persistence:
+
+```dotenv
+AEGIS_MONITOR_API_BASE=http://monitor:8002
+AEGIS_DETECTION_ENGINE_API_KEY=<same value as Monitor DETECTION_ENGINE_API_KEY>
 ```
 
-Everything else keeps working unchanged. The `DetectedEntity` / `DetectionResult`
-shapes in `aegis_engine/models.py` are the single source of truth for the JSON
-the web app consumes.
+If either is absent, `MonitorClient` logs that it is disabled and the core
+runtime continues without claiming that rows were persisted. The engine never
+holds a PostgreSQL credential.
 
-## Threading & safety notes
+### NAS
 
-- Every worker is a `threading.Thread` honouring a shared stop `Event` for
-  graceful shutdown (SIGINT/SIGTERM handled in `run_forever`).
-- Frames pass between threads via `queue.Queue`. The **detect** queue is size-1
-  (always process the freshest frame); the **record** queue drops the oldest
-  frame under back-pressure to bound memory.
-- Frames are passed by reference — treat `Frame.image` as read-only downstream.
-- A model exception never kills the pipeline: it is logged and the frame skipped.
-- Segments are deleted locally **only** after a verified NAS transfer; a segment
-  that never verifies is kept on disk and logged loudly.
+Development keeps NAS disabled. To enable it, configuration validation requires
+at least:
 
-## Boundary
+```dotenv
+AEGIS_NAS_ENABLED=true
+AEGIS_NAS_METHOD=rsync
+AEGIS_NAS_USER=<service account>
+AEGIS_NAS_HOST=<reachable NAS host>
+AEGIS_NAS_VERIFY=checksum
+```
 
-Writes to the DB; it does **not** serve the web UI. The Beelink `web-app/` reads
-what this engine writes. The `../../shared/db-schema/` notes own the shared
-tables. Persisting `DetectionResult` to the DB is left as a marked seam in
-`engine.py` (`_on_detection`) — add a `DBWriter` worker there to keep the
-engine → DB → web-app boundary intact.
+The only valid success path is:
+
+```text
+transfer -> destination exists -> checksum/size verification -> success
+```
+
+Only that path may post `storedOnNas=true` or delete the local recording.
+Disabled, failed, interrupted, or unverified work keeps the local file and does
+not post a successful clip.
+
+### Telegram
+
+Leave `AEGIS_TELEGRAM_BOT_TOKEN` and `AEGIS_TELEGRAM_CHAT_ID` blank for dry-run.
+Never copy credentials from the legacy helper. The required security state is:
+
+```text
+Credential Rotation Required Before Telegram Real Testing
+```
+
+## Architecture
+
+`DetectionEngine` initializes and manages:
+
+1. configuration and logging;
+2. `VideoCatcher` camera abstraction;
+3. `FaceDetectorProcessor` recognition abstraction;
+4. `SegmentRecorder`;
+5. `MonitorClient`;
+6. `HeartbeatWorker`;
+7. `LocalEventAPI`, alerts, optional stream, and optional NAS worker.
+
+Startup is transactional. If a component fails to start, already-started
+components are stopped/joined and the entry point reports the component name.
+SIGINT/SIGTERM trigger cooperative shutdown through one shared stop event.
+
+## Tests
+
+The tests use camera/runtime doubles and do not require real hardware:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+They cover configuration loading, NAS-disabled startup, lifecycle rollback and
+shutdown, NAS success truthfulness, placeholder authorization safety, and
+operator-readable startup failures.
+
+## Deferred work
+
+- Real face recognition and enrollment
+- Real camera verification on the edge node
+- Real Monitor heartbeat integration
+- Telegram routing/delivery after credential rotation
+- Production NAS transfer verification
+- Production deployment and operating-system auto-start

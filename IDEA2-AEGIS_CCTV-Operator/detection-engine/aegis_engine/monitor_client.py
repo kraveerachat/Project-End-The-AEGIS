@@ -39,17 +39,26 @@ from .logging_setup import get_logger
 log = get_logger("MonitorClient")
 
 _HEADER = "X-Detection-Engine-Key"
+_UNSET = object()
 
 
 class MonitorClient:
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        base_url: object = _UNSET,
+        api_key: object = _UNSET,
         timeout_s: Optional[float] = None,
     ) -> None:
-        self._base = (base_url or os.environ.get("AEGIS_MONITOR_API_BASE", "")).rstrip("/")
-        self._key = api_key or os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
+        self._base = (
+            base_url if base_url is not _UNSET
+            else os.environ.get("AEGIS_MONITOR_API_BASE", "")
+        )
+        self._base = str(self._base or "").rstrip("/")
+        self._key = (
+            api_key if api_key is not _UNSET
+            else os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
+        )
+        self._key = str(self._key or "")
         try:
             self._timeout = float(timeout_s if timeout_s is not None
                                   else os.environ.get("AEGIS_MONITOR_HTTP_TIMEOUT_S", "5"))
