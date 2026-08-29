@@ -83,9 +83,8 @@ All other rules: rejected
 
 ## Verification evidence
 
-- `python -m unittest discover -s tests -v` from
-  `IDEA2-AEGIS_CCTV-Operator/detection-engine/` using the bundled Python runtime
-  — **pass: 35/35**, zero failures or skips.
+- `python -m unittest discover -s tests -v` — **pass: 35/35**, zero failures or
+  skips, from `IDEA2-AEGIS_CCTV-Operator/detection-engine/` using bundled Python.
 - PowerShell AST parse of every `detection-engine/windows/*.ps1` — **pass: 8/8**.
 - `./windows/install_autostart.ps1 -TunnelHost test-user@example.invalid -WhatIf`
   — **pass**: reached the mutation boundary and performed no runtime change.
