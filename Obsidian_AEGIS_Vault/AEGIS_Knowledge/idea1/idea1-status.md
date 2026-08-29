@@ -1416,7 +1416,34 @@ to production `aegis_drive`, and no production acceptance has been performed.**
 The largest file actually moved through the Vault protocol in any test is ~16 MiB;
 multi-gigabyte behaviour remains argued from bounded memory rather than measured,
 and the acceptance matrix in [[concepts/Large_File_Transfer_V2]] §9 is still a
-plan. Next: `LFT-V2-C` edge tuning, then `LFT-V2-D` production acceptance.
+plan. Next: `LFT-V2-D` production deployment and acceptance.
+
+### Edge chunk-sized tuning — LFT-V2-C (2026-08-29)
+
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage C source complete and edge config verified, **not deployed and not accepted in production**
+> Large-file transfer remains **IN PROGRESS** until `LFT-V2-D` completes the production deployment and acceptance matrix in [[concepts/Large_File_Transfer_V2]] §9.
+
+HUB and development-gateway route profiles now bound V2 work at the edge without
+weakening the legacy V1 contract. Normal V2 chunks use `client_max_body_size
+64m`; Vault V2 chunks use `65m` so a 64 MiB plaintext chunk plus its 16-byte
+AES-GCM tag is accepted. Both chunk routes disable request buffering and use
+120-second body/send/read inactivity windows. Normal and Vault commit routes use
+a route-scoped 600-second upstream read timeout. Normal downloads and Vault V2
+chunk downloads disable proxy response buffering. The parent `/drive/` remains
+`512m` with a 60-second read timeout, preserving legacy
+`POST /api/files/upload` clients.
+
+The nested route profiles deliberately repeat only the upstream selection,
+`/drive/` prefix rewrite and `proxy_pass` needed for nginx location execution.
+They do not redefine trusted forwarding headers, `Forwarded` removal, CSP,
+security headers, HTTP version or connect timeout. Structural tests pin those
+boundaries. A disposable Docker smoke ran the actual HUB and gateway configs
+through `nginx -t` and real requests, proving exact upstream paths for Normal and
+Vault chunks and commits, unchanged legacy upload routing, inherited trusted
+headers/CSP, and the existing `/monitor/internal/` block.
+
+**Production state:** no runtime configuration was changed, no container was
+restarted, and no production request was made. `LFT-V2-D` remains the next gate.
 
 ---
 

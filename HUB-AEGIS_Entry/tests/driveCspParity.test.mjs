@@ -35,77 +35,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { parseNginx } from './helpers/nginxConfig.mjs'
 
 const HUB_CONF_URL = new URL('../nginx.conf', import.meta.url)
 const DRIVE_MIDDLEWARE_URL = new URL(
   '../../IDEA1-AEGIS_Drive_LC/server/middleware/securityHeaders.js',
   import.meta.url,
 )
-
-/* ── a small nginx reader ───────────────────────────────────────────────
- *
- * Enough of the grammar to be honest about this file and no more: quoted
- * strings of both kinds (`return 200 '{"…"}'` contains braces and double quotes
- * that must not be read as syntax), `#` comments outside quotes, `;` directive
- * terminators, and `{ … }` blocks. Unbalanced braces throw, which doubles as a
- * structural validation of the edited config.
- */
-function parseNginx(source) {
-  let index = 0
-
-  function parseBlock(nested) {
-    const node = { directives: [], blocks: [] }
-    let token = ''
-
-    while (index < source.length) {
-      const char = source[index]
-
-      // A quoted string is consumed whole, so nothing inside it — a brace, a
-      // semicolon, a '#', or the single quotes of a CSP keyword — is syntax.
-      if (char === '"' || char === "'") {
-        let end = index + 1
-        while (end < source.length && source[end] !== char) {
-          if (source[end] === '\\') end += 1
-          end += 1
-        }
-        assert.ok(end < source.length, `unterminated ${char} string near offset ${index}`)
-        token += source.slice(index, end + 1)
-        index = end + 1
-        continue
-      }
-      if (char === '#') {
-        while (index < source.length && source[index] !== '\n') index += 1
-        continue
-      }
-      if (char === ';') {
-        const directive = token.trim().replace(/\s+/g, ' ')
-        if (directive) node.directives.push(directive)
-        token = ''
-        index += 1
-        continue
-      }
-      if (char === '{') {
-        index += 1
-        const child = parseBlock(true)
-        node.blocks.push({ header: token.trim().replace(/\s+/g, ' '), ...child })
-        token = ''
-        continue
-      }
-      if (char === '}') {
-        index += 1
-        assert.ok(nested, 'unbalanced closing brace in nginx.conf')
-        return node
-      }
-      token += char
-      index += 1
-    }
-
-    assert.equal(nested, false, 'unbalanced opening brace in nginx.conf')
-    return node
-  }
-
-  return parseBlock(false)
-}
 
 const hubConf = parseNginx(readFileSync(HUB_CONF_URL, 'utf8'))
 
