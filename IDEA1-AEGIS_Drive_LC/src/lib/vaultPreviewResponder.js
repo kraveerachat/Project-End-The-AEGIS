@@ -26,6 +26,7 @@ import {
 import {
   PREVIEW_FAILURE_REASON, isBenignPreviewCancellation, previewRequestCanceledError,
 } from './vaultPreviewErrors.js'
+import { mbPerSecond } from './vaultPreviewDiagnostics.js'
 
 /** เหตุผลที่ทำให้ต้องหยุดกลางสตรีม — ส่งกลับไปให้หน้าเว็บแสดงผลตามจริง */
 export const PREVIEW_FAILURE = Object.freeze({
@@ -75,10 +76,18 @@ export async function readPlainChunk(session, index, { fetchImpl, base, signal, 
     throw Object.assign(new Error('chunk auth failed'), { previewFailure: PREVIEW_FAILURE.INTEGRITY })
   }
   const decryptedAt = Date.now()
+  // ⚠️ LFT-V2-E3.3: ตัวเลขสองบรรทัดนี้คือสิ่งที่บอกได้ว่าคอขวดอยู่ที่ "ดึง" หรือ "ถอด"
+  //    ซึ่งเป็นคำถามที่หลักฐานจากระบบจริงตอบไม่ได้ (CPU ของคอนเทนเนอร์ 0–8% แต่ NET
+  //    ได้เพียง ~4 MB/s) การเดาผิดข้างหมายถึงการแก้ผิดที่ทั้งรอบ
+  const fetchDurationMs = fetchedAt - fetchStarted
+  const decryptDurationMs = decryptedAt - fetchedAt
   onDiagnostic?.('chunk-timing', {
     ciphertextChunksFetched: 1,
-    fetchDurationMs: fetchedAt - fetchStarted,
-    decryptDurationMs: decryptedAt - fetchedAt,
+    ciphertextBytesFetched: ciphertext.byteLength,
+    fetchDurationMs,
+    decryptDurationMs,
+    ciphertextMbPerSecond: mbPerSecond(ciphertext.byteLength, fetchDurationMs),
+    decryptMbPerSecond: mbPerSecond(ciphertext.byteLength, decryptDurationMs),
   })
 
   const chunkSize = plaintextChunkSizeFor(session.blob)

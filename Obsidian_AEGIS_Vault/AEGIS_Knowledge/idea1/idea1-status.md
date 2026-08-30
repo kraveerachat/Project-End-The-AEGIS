@@ -1398,10 +1398,12 @@ after metadata each converge; two concurrent recovery workers produce one outcom
 **Recorded limitations, not softened:**
 `VAULT_BROWSER_REFRESH_RESUME = NOT_IMPLEMENTED` (the session is durable but the
 KEK is never persisted, by design);
-`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; E3.1 is
-deployed and proved the streaming path in production — 206 media ranges, 200
-ciphertext chunks, first frame rendered — but ~1.1 GB acceptance still fails, and
-the E3.2 cancellation/claim fix is local/source-only pending browser acceptance);
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; E3.1 and
+E3.2 are deployed and proved the streaming path in production — 206 media ranges
+bounded at exactly 16 MiB, 200 ciphertext chunks, first frame rendered, routine
+Chromium range cancellation no longer fatal — but ~1.1 GB acceptance still fails
+on **throughput**: playback stalls from the start, and the E3.3 read-ahead fix is
+local/source-only pending browser acceptance);
 `VAULT_V1_LEGACY_READ = SUPPORTED`;
 `VAULT_V1_NEW_UPLOAD = SUPPORTED_BUT_UNUSED_BY_UI` — `POST /api/vault/blobs`
 still works with its original 64 MiB ceiling and is **not** large-file capable.
@@ -1597,7 +1599,7 @@ on the real link belongs to `LFT-V2-D` acceptance.
 
 ### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
 
-> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3.1 is deployed and the streaming path itself is proven in production, but the real ~1.1 GB preview is still not accepted; E3.2 is **implemented and verified locally only, not production accepted**
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stages E3.1 and E3.2 are deployed and the streaming path, its Range semantics and its cancellation handling are proven in production, but the real ~1.1 GB preview is still not accepted — it now fails on sustained throughput, not correctness; E3.3 is **implemented and verified locally only, not production accepted**
 > No server route, schema, CSP directive or cryptographic rule changed. The
 > 64 MiB buffered ceiling was **not** raised.
 
@@ -1734,6 +1736,97 @@ pre-fix wiring was reproduced separately and does emit `chunk-fetch-failed` on a
 cancelled range and poison a second range, so the new regressions are not
 vacuous. `LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production acceptance is NOT RUN
 until the real ~1.1 GB MP4 passes on Windows Edge/Chrome.
+
+**LFT-V2-E3.3 local/source fix (2026-08-30):** with PR #56 deployed, correctness
+stopped being the problem and throughput became it. Measured on the real
+`START_LIVE.mp4`: plaintext **1,206,241,622 B** over **~120 s**, so the media
+needs about **10 MB/s** sustained. The virtual Range response was exactly
+16 MiB (`bytes 83886080-100663295/1206241622`), the first frame rendered and
+playback started — then stalled from the beginning. One ~16 MiB ciphertext chunk
+took **5–8 s** to arrive; the Drive container moved **8.82 → 8.99 GB** of NET in
+~42 s (**~4 MB/s**) at **0–8 % CPU** and 25–47 MiB RSS. A 16 MiB plaintext chunk
+is only ~1.5–2 s of this video, so a pipeline that starts chunk N+1 only once the
+browser asks for it can never keep up. The defect was the **shape** of the
+pipeline — strictly demand-driven and strictly serial — not the bytes.
+
+*Read-ahead is now session-owned and byte-budgeted.* When foreground playback
+requests chunk N, the worker prioritises N and immediately begins loading N+1…N+k
+concurrently. `k` is derived, never hard-coded: `cacheSlots =
+floor(64 MiB / plaintextChunkSize)`, capped at 4. A 16 MiB profile therefore
+retains 4 chunks (current + 3 ahead), a 32 MiB profile 2 (current + 1), and a
+64 MiB profile 1 (no plaintext read-ahead) — all at the same unchanged **64 MiB**
+retained-plaintext ceiling. The window is a function of chunk size and memory
+budget only; 1.1 GiB, 5 GiB and 32 GiB files produce an identical window.
+
+*The three budgets are now separate.* Retained plaintext bytes, cache entry count
+and maximum in-flight ciphertext loads were previously one number, so the
+read-ahead window could not widen without the memory ceiling widening with it.
+Speculative loads are capped at `cacheSlots - 1` and one slot is reserved for
+foreground work, so a seek never queues behind speculation. Transient in-flight
+ciphertext is bounded at `(cacheSlots + 1) × (chunkSize + 16 B)` — about 80 MiB
+on the 16 MiB profile, and O(window), never O(file size).
+
+*Prefetched work is joined, not repeated.* A Range request for a chunk already
+being read ahead attaches to the existing session-owned Promise and issues no
+second ciphertext GET; if that prefetch is still queued it is promoted to
+foreground priority immediately.
+
+*Seeking reprioritises at once.* Jumping from chunk 10 to chunk 50 makes 50 the
+foreground chunk immediately, rebuilds the window as 51/52/53, and discards
+queued 11/12/13 before they ever reach the network. Work already in flight is
+allowed to finish — it is bounded and cannot hold the reserved foreground slot.
+
+*Eviction became playback-aware.* Plain LRU was actively wrong here: playback
+touches the current chunk, so N+1 — fetched but not yet read — looked stalest and
+was evicted about a second before it was needed, which would have made read-ahead
+re-fetch everything it had just fetched while every cache-size assertion still
+passed. Chunks behind the playhead are now evicted first.
+
+Diagnostics gained aggregate throughput fields (ciphertext bytes, fetch and
+decrypt durations and MB/s, foreground index, prefetch indexes, in-flight count,
+prefetch hits/misses, discarded speculative chunks, retained plaintext bytes)
+behind the same opt-in allow-list — still no key, passphrase, plaintext,
+filename, decrypted metadata, cookie or Authorization header. The 16 MiB
+`PREVIEW_RANGE_WINDOW_BYTES` was deliberately **not** enlarged: the fix is
+read-ahead and concurrency, not a bigger Range response. Source review of
+`GET /api/vault/blobs/:id/chunks/:index` found no server-side serialization — it
+is stateless per request and streams a bounded range through
+`openVaultCiphertextRange(...)` + `stream.pipe(res)` — so no server, nginx or API
+contract change was made.
+
+**E3.3 supersession of PR #57 (2026-08-30):** two competing E3.3 branches were
+cut from the same post-#56 base. PR #57 (`fix/idea1-lft-v2-e3-3-pipelined-preview`)
+used a fixed three-entry cache, fixed two concurrent loads and an N+1/N+2
+pipeline; PR #58 (`fix/idea1-lft-v2-e3-3-read-ahead`) derives every bound from
+the 64 MiB plaintext byte budget instead. **PR #58 is the canonical E3.3
+implementation; PR #57 was never deployed, is not in `main`, and is closed
+unmerged with no code cherry-picked from it.** Its regression suite was audited
+contract by contract: eleven contracts were already covered or superseded, and
+three hostile lifecycle/failure contracts that existed only in #57 were ported
+into #58 — session replacement against an abort-ignoring loader, a lazy pull
+from a replaced session, and a speculative integrity failure that must stay
+`INTEGRITY_FAILED` (never a generic network error) once the same chunk becomes
+foreground demand. Writing the first two against #58 exposed two real defects,
+both fixed: `releaseSlot()` resolved its scheduler by token, so a late load from
+a replaced session decremented the **live** session's in-flight counters and
+silently raised its real concurrency above the ceiling while every size
+assertion still passed; and `readChunk`/`readAhead` were keyed on the token
+alone, so a lazy pull arriving after replacement could start a load with the
+replaced session's DEK and cache the result under the new session. Both now
+bind to session identity, and replacement remains benign teardown rather than a
+reported preview failure. The #57 branch is retained until #58 is merged and its
+production browser acceptance is complete.
+
+**E3.3 source verification:** read-ahead suite **35 pass, 0 fail** (32
+read-ahead properties plus the 3 contracts ported from #57); all twelve preview
+suites together **205 pass, 0 fail**, covering E3.1 reliability/range/session,
+E3.2 cancellation and E3.2 Service Worker claim unmodified; full IDEA1 suite
+**782 discovered, 715 pass, 0 fail, 67 PostgreSQL-gated skips**; production Vite
+build passed and emitted `dist/vault-preview-sw.js` (the tracked `dist/` was
+restored afterwards, so no rebuilt bundle ships on this branch).
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production acceptance is NOT RUN until
+the real ~1.1 GB MP4 plays without repeated buffering, seeks mid-file and near
+the end, and survives close/reopen on Windows Edge/Chrome.
 
 ---
 
