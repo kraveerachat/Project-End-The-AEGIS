@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-29
+updated: 2026-08-30
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1398,10 +1398,10 @@ after metadata each converge; two concurrent recovery workers produce one outcom
 **Recorded limitations, not softened:**
 `VAULT_BROWSER_REFRESH_RESUME = NOT_IMPLEMENTED` (the session is durable but the
 KEK is never persisted, by design);
-`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; E3.1 is
-deployed and proved the streaming path in production — 206 media ranges, 200
-ciphertext chunks, first frame rendered — but ~1.1 GB acceptance still fails, and
-the E3.2 cancellation/claim fix is local/source-only pending browser acceptance);
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` (small buffered video is accepted; E3.1
+and E3.2 proved the streaming path and removed false cancellation failure, but
+continuous ~1.1 GB playback still starves; E3.3 demand-priority prefetch is
+local/source-only pending merge, deployment and browser acceptance);
 `VAULT_V1_LEGACY_READ = SUPPORTED`;
 `VAULT_V1_NEW_UPLOAD = SUPPORTED_BUT_UNUSED_BY_UI` — `POST /api/vault/blobs`
 still works with its original 64 MiB ceiling and is **not** large-file capable.
@@ -1597,7 +1597,7 @@ on the real link belongs to `LFT-V2-D` acceptance.
 
 ### Streaming preview for large encrypted video — LFT-V2-E3 (2026-08-29)
 
-> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · Stage E3.1 is deployed and the streaming path itself is proven in production, but the real ~1.1 GB preview is still not accepted; E3.2 is **implemented and verified locally only, not production accepted**
+> [!warning] `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS` · The streaming path is proven in production, but the real ~1.1 GB preview still starves; E3.3 pipelined prefetch is **implemented and verified locally only, not deployed or production accepted**
 > No server route, schema, CSP directive or cryptographic rule changed. The
 > 64 MiB buffered ceiling was **not** raised.
 
@@ -1723,7 +1723,7 @@ during the wait receives no session, key or virtual URL. **Nothing on this path
 reloads the page** — the same uncontrolled state can reproduce on the next load,
 and every reload destroys the in-memory DEK and the unlocked Vault.
 
-The 64 MiB retained-plaintext ceiling, the two-chunk limit, the absence of Cache
+At E3.2, the 64 MiB retained-plaintext ceiling, the then-current two-chunk limit, the absence of Cache
 API/IndexedDB/web storage, the non-extractable DEK and the Zero-Knowledge boundary
 are unchanged, and no CSP, nginx, compose, Postgres or IDEA2 file was touched.
 
@@ -1734,6 +1734,46 @@ pre-fix wiring was reproduced separately and does emit `chunk-fetch-failed` on a
 cancelled range and poison a second range, so the new regressions are not
 vacuous. `LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production acceptance is NOT RUN
 until the real ~1.1 GB MP4 passes on Windows Edge/Chrome.
+
+**LFT-V2-E3.3 local/source implementation (2026-08-30):** production now reaches
+the correct encrypted preview path without the false canceled-Range error, but
+continuous playback repeatedly starves. Observed ~16.8 MB virtual responses take
+about 3.1–3.9 seconds (~4.3–5.5 MB/s), below the source video's approximate
+9–10 MB/s consumption. This is recorded as a throughput/pipelining defect, not a
+browser capability, worker-control, Range-mapping or key-recovery defect.
+
+The worker now admits demand N before bounded N+1/N+2 look-ahead. Cache capacity
+and load concurrency are independent: at most three resolved plaintext entries,
+at most two active ciphertext-fetch/decrypt jobs, and an authoritative 64 MiB
+retained-plaintext ceiling. With 16 MiB runtime chunks three entries retain
+~48 MiB; with the source default 32 MiB chunks the byte ceiling reduces retention
+to two. The 16 MiB virtual Range-response window remains unchanged and independent
+of the logical file size.
+
+Demanded adjacent chunks are promoted ahead of queued speculation. A distant seek
+discards stale prefetch so it does not wait behind N+1/N+2. Prefetch transport
+failure is fail-soft and retried on later demand; if that real demand also fails,
+the existing network failure is reported. A prefetched authentication failure is
+never cached as plaintext and becomes the existing fatal integrity result when
+relevant. Close, lock, close-all and replacement abort/invalidate prefetch and no
+late plaintext crosses the session boundary. A lazy Range response is bound to
+the exact session that created it and is rejected before loading or caching if
+that session has since been replaced. Canceled Range responses still do not
+poison shared loads.
+
+Opt-in allowlisted diagnostics now distinguish ciphertext fetch time, decrypt
+time, queue wait, cache/prefetch hit and miss, active loads, demand/prefetch chunk
+indexes, delivered plaintext bytes and effective plaintext MB/s. Tokens, keys,
+filenames, plaintext, passphrases, cookies and authorization headers remain
+excluded. No Cache API, IndexedDB, browser key/plaintext storage, plaintext server
+endpoint, transcoding or CSP widening was added.
+
+**E3.3 source verification:** focused preview/Vault screen set **186 pass, 0
+fail**; full IDEA1 suite **763 discovered, 696 pass, 0 fail, 67 PostgreSQL-gated
+skips**; production Vite build passed and emitted `dist/vault-preview-sw.js`.
+Nothing was deployed and no browser playback acceptance was run.
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS` until the real ~1.1 GB MP4 passes sustained
+playback, middle/end seeks and lifecycle checks on Windows Edge/Chrome.
 
 ---
 

@@ -13,7 +13,11 @@
 //      CryptoKey จากหน้าเว็บที่ยังปลดล็อกและยังถือ token ใบนั้นอยู่ใน memory เท่านั้น
 import { previewTokenFromPath } from './lib/vaultPreviewRange.js'
 import { createPreviewStream, planPreviewResponse, readPlainChunk } from './lib/vaultPreviewResponder.js'
-import { createPreviewWorkerState } from './lib/vaultPreviewWorkerState.js'
+import {
+  createPreviewWorkerState,
+  MAX_PREVIEW_CACHED_CHUNKS,
+  MAX_PREVIEW_CONCURRENT_LOADS,
+} from './lib/vaultPreviewWorkerState.js'
 import { PREVIEW_FAILURE_REASON, previewFailureGroup } from './lib/vaultPreviewErrors.js'
 import { createPreviewDiagnostics, previewDiagnosticsEnabled } from './lib/vaultPreviewDiagnostics.js'
 import { PREVIEW_CLAIM_MESSAGE, handlePreviewClaimRequest } from './lib/vaultPreviewClaim.js'
@@ -24,8 +28,18 @@ const diagnostics = createPreviewDiagnostics({
   emit: (record) => console.debug('[AEGIS vault preview]', record),
 })
 const state = createPreviewWorkerState({
-  maxPlaintextChunks: 2,
-  onCacheEvent: (kind) => diagnostics.record('cache', kind === 'hit' ? { cacheHits: 1 } : { cacheMisses: 1 }),
+  maxCachedChunks: MAX_PREVIEW_CACHED_CHUNKS,
+  maxConcurrentLoads: MAX_PREVIEW_CONCURRENT_LOADS,
+  onCacheEvent: (kind) => {
+    const fields = {
+      hit: { cacheHits: 1 },
+      miss: { cacheMisses: 1 },
+      'prefetch-hit': { prefetchHits: 1 },
+      'prefetch-miss': { prefetchMisses: 1 },
+    }[kind]
+    if (fields) diagnostics.record('cache', fields)
+  },
+  onDiagnostic: (eventName, fields) => diagnostics.record(eventName, fields),
 })
 let requestNumber = 0
 
@@ -201,11 +215,24 @@ self.addEventListener('fetch', (event) => {
       //   ranges commonly wait on one shared chunk Promise, so cancelling one
       //   response must leave the other's bytes intact. Close, lock, closeAll
       //   and session replacement abort that shared signal instead.
-      readChunk: (_session, index, options) => state.readChunk(token, index,
+      readChunk: (_session, index, options) => state.readChunk(
+        token,
+        index,
         async (loadIndex, load = {}) => readPlainChunk(session, loadIndex, {
           ...options,
           signal: load.signal ?? null,
-        })),
+        }),
+        {
+          // Demand is admitted before these two speculative jobs. Worker state
+          // enforces the two-load/three-cache/64 MiB ceilings and discards stale
+          // look-ahead when a distant seek establishes a new demand.
+          prefetchIndexes: [index + 1, index + 2],
+          // A Response body is pulled lazily. Bind it to the exact session that
+          // created it so replacement cannot make an old Range response valid
+          // under the new token epoch or populate the new session's cache.
+          expectedSession: session,
+        },
+      ),
     })
 
     return new Response(body, { status: plan.status, headers: plan.headers })

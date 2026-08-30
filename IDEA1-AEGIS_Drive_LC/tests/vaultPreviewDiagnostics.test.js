@@ -21,7 +21,15 @@ test('diagnostics are disabled by default and emit only allowlisted operational 
     cacheMisses: 2,
     fetchDurationMs: 4,
     decryptDurationMs: 3,
+    queueWaitDurationMs: 2,
     responseDurationMs: 9,
+    plaintextBytes: 2_000_000,
+    effectivePlaintextMBps: 222.22,
+    prefetchHits: 1,
+    prefetchMisses: 2,
+    activeLoadCount: 2,
+    demandChunkIndex: 12,
+    prefetchedChunkIndex: 13,
     rehydrationCount: 1,
     failureCategory: 'network',
     token: 'secret-token',
@@ -38,4 +46,11 @@ test('diagnostics are disabled by default and emit only allowlisted operational 
   }
   assert.deepEqual(emitted[0].chunkIndexes, [0, 1])
   assert.equal(emitted[0].requestNumber, 7)
+  assert.equal(emitted[0].queueWaitDurationMs, 2)
+  assert.equal(emitted[0].effectivePlaintextMBps, 222.22)
+  assert.equal(emitted[0].prefetchHits, 1)
+  assert.equal(emitted[0].prefetchMisses, 2)
+  assert.equal(emitted[0].activeLoadCount, 2)
+  assert.equal(emitted[0].demandChunkIndex, 12)
+  assert.equal(emitted[0].prefetchedChunkIndex, 13)
 })

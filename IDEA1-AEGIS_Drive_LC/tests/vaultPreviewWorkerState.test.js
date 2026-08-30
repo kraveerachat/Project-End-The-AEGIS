@@ -11,7 +11,7 @@ import {
 const session = (id = 'blob-a') => ({ dek: {}, blob: { id }, plainSize: 10, contentType: 'video/mp4' })
 
 test('same plaintext chunk is reused and a third chunk deterministically evicts the LRU entry', async () => {
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const state = createPreviewWorkerState({ maxCachedChunks: 2 })
   state.open('a'.repeat(32), session())
   let loads = 0
   const load = async (index) => { loads += 1; return new Uint8Array([index]) }
@@ -29,7 +29,7 @@ test('same plaintext chunk is reused and a third chunk deterministically evicts 
 })
 
 test('cache is token-isolated and close/replacement/close-all remove plaintext', async () => {
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const state = createPreviewWorkerState({ maxCachedChunks: 2 })
   const a = 'a'.repeat(32)
   const b = 'b'.repeat(32)
   state.open(a, session('blob-a'))
@@ -49,7 +49,7 @@ test('cache is token-isolated and close/replacement/close-all remove plaintext',
 })
 
 test('failed integrity/decrypt work is never cached', async () => {
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const state = createPreviewWorkerState({ maxCachedChunks: 2 })
   const token = 'a'.repeat(32)
   state.open(token, session())
   let attempts = 0
@@ -61,17 +61,17 @@ test('failed integrity/decrypt work is never cached', async () => {
 })
 
 test('worker restart starts with no session, key, or plaintext cache', async () => {
-  const first = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const first = createPreviewWorkerState({ maxCachedChunks: 2 })
   const token = 'a'.repeat(32)
   first.open(token, session())
   await first.readChunk(token, 0, async () => new Uint8Array([1]))
-  const restarted = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const restarted = createPreviewWorkerState({ maxCachedChunks: 2 })
   assert.equal(restarted.get(token), null)
   assert.equal(restarted.cacheSize(), 0)
 })
 
-test('plaintext cache has both a two-entry ceiling and a hard byte ceiling', async () => {
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2, maxPlaintextBytes: 4 })
+test('plaintext cache accepts an independent entry ceiling and a hard byte ceiling', async () => {
+  const state = createPreviewWorkerState({ maxCachedChunks: 2, maxPlaintextBytes: 4 })
   const token = 'a'.repeat(32)
   state.open(token, session())
   await state.readChunk(token, 0, async () => new Uint8Array(3))
@@ -124,7 +124,7 @@ test('two different missing tokens can recover concurrently without invalidating
 })
 
 test('at most two plaintext decrypt loads run concurrently', async () => {
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const state = createPreviewWorkerState({ maxConcurrentLoads: 2 })
   const token = 'a'.repeat(32)
   state.open(token, session())
   const releases = []
@@ -146,7 +146,7 @@ test('at most two plaintext decrypt loads run concurrently', async () => {
 
 test('missing session rehydrates once, rejects a mismatched token, and denies recovery after lock', async () => {
   const token = 'a'.repeat(32)
-  const state = createPreviewWorkerState({ maxPlaintextChunks: 2 })
+  const state = createPreviewWorkerState({ maxCachedChunks: 2 })
   let calls = 0
   const recovered = await state.getOrRecover(token, async (requested) => {
     calls += 1

@@ -344,3 +344,25 @@ test('IV ของทุกก้อนต่างกัน — สมบัต
   assert.equal(new Set(ivs).size, ivs.length)
   assert.equal(bytesToB64(new Uint8Array(12)).length, ivs[0].length)
 })
+
+test('completed response diagnostics report delivered plaintext throughput without sensitive content', async () => {
+  const diagnostics = []
+  const times = [1_000, 2_000]
+  const stream = createPreviewStream(
+    { dek: {}, blob: {}, plainSize: 2_000_000, contentType: 'video/mp4' },
+    [{ index: 4, sliceStart: 0, sliceEnd: 2_000_000 }],
+    {
+      readChunk: async () => new Uint8Array(2_000_000),
+      onDiagnostic: (event, fields) => diagnostics.push({ event, ...fields }),
+      now: () => times.shift(),
+    },
+  )
+  await drain(stream)
+
+  assert.deepEqual(diagnostics, [{
+    event: 'response-complete',
+    responseDurationMs: 1_000,
+    plaintextBytes: 2_000_000,
+    effectivePlaintextMBps: 2,
+  }])
+})

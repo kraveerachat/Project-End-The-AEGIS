@@ -1,7 +1,10 @@
 const ALLOWED_FIELDS = new Set([
   'requestNumber', 'requestStart', 'requestEnd', 'responseStart', 'responseEnd',
   'chunkIndexes', 'ciphertextChunksFetched', 'cacheHits', 'cacheMisses',
-  'fetchDurationMs', 'decryptDurationMs', 'responseDurationMs',
+  'fetchDurationMs', 'decryptDurationMs', 'queueWaitDurationMs', 'responseDurationMs',
+  'plaintextBytes', 'effectivePlaintextMBps',
+  'prefetchHits', 'prefetchMisses', 'activeLoadCount',
+  'demandChunkIndex', 'prefetchedChunkIndex',
   'rehydrationCount', 'failureCategory',
 ])
 

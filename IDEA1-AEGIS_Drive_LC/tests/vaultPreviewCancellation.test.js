@@ -321,13 +321,12 @@ test('a canceled Range does not poison the shared chunk cache for later ranges',
   await settle()
   await readA.catch(() => {})
 
-  assert.deepEqual(state.cachedChunkIndexes(TOKEN), [0],
-    'the bounded load that outlived the canceled range stays usable while the session is open')
-
   const later = rangeResponse(fx, state, srv, 'bytes=10-19')
   const got = await later.reader.read()
   assert.deepEqual(got.value, fx.plain.subarray(10, 20))
   assert.deepEqual(srv.started(), [0], 'the cached chunk is reused rather than refetched')
+  assert.deepEqual(state.cachedChunkIndexes(TOKEN), [0],
+    'after the shared decrypt settles, its plaintext is retained while the session is open')
   assert.deepEqual(later.failures, [])
   await later.reader.cancel()
   state.closeAll()

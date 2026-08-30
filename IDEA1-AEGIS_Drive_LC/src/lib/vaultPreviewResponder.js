@@ -79,6 +79,7 @@ export async function readPlainChunk(session, index, { fetchImpl, base, signal, 
     ciphertextChunksFetched: 1,
     fetchDurationMs: fetchedAt - fetchStarted,
     decryptDurationMs: decryptedAt - fetchedAt,
+    plaintextBytes: plain.byteLength,
   })
 
   const chunkSize = plaintextChunkSizeFor(session.blob)
@@ -99,6 +100,7 @@ export function createPreviewStream(session, plan, {
   fetchImpl, base, onFailure, onDiagnostic,
   readChunk = readPlainChunk,
   StreamCtor = globalThis.ReadableStream,
+  now = Date.now,
 }) {
   let cursor = 0
   // ⚠️ "This response was canceled" is request-local state, and it must be read
@@ -107,12 +109,20 @@ export function createPreviewStream(session, plan, {
   //    surface as a fatal chunk-fetch failure for the whole preview.
   let canceled = false
   const requestAbort = new AbortController()
-  const streamStartedAt = Date.now()
+  const streamStartedAt = now()
+  let deliveredBytes = 0
 
   return new StreamCtor({
     async pull(controller) {
       if (cursor >= plan.length) {
-        onDiagnostic?.('response-complete', { responseDurationMs: Date.now() - streamStartedAt })
+        const responseDurationMs = Math.max(0, now() - streamStartedAt)
+        onDiagnostic?.('response-complete', {
+          responseDurationMs,
+          plaintextBytes: deliveredBytes,
+          effectivePlaintextMBps: responseDurationMs > 0
+            ? Number((deliveredBytes / 1_000_000 / (responseDurationMs / 1_000)).toFixed(3))
+            : 0,
+        })
         controller.close()
         return
       }
@@ -147,7 +157,9 @@ export function createPreviewStream(session, plan, {
         return
       }
       try {
-        controller.enqueue(plain.subarray(step.sliceStart, step.sliceEnd))
+        const delivered = plain.subarray(step.sliceStart, step.sliceEnd)
+        controller.enqueue(delivered)
+        deliveredBytes += delivered.byteLength
       } catch {
         cursor = plan.length
       }
