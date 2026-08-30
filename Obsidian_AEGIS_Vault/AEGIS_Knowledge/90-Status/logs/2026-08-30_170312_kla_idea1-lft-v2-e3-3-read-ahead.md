@@ -37,6 +37,70 @@ structurally too slow regardless of how fast any single step runs. The 0–8 % C
 confirms nothing was compute-bound: the pipe was never kept full. The defect was
 the *shape* of the pipeline — demand-driven and serial — not the bytes.
 
+## Supersession of PR #57
+
+PR #57 (`fix/idea1-lft-v2-e3-3-pipelined-preview`, head
+`e98417cf7edcd79a94e119bd773a64cd0cb46054`) was an **earlier, competing E3.3
+implementation** cut from the same post-#56 base. It used a fixed three-entry
+plaintext cache, a fixed two concurrent ciphertext/decrypt loads and an N+1/N+2
+pipeline. **It was never deployed, is not part of `main`, and is not merged.**
+This PR replaces that scheduler wholesale: every bound here is derived from the
+64 MiB plaintext byte budget instead of being a constant.
+
+No code was cherry-picked from #57. Its regression suite was audited
+contract-by-contract instead. Eleven of its contracts were already covered or
+superseded here (demand/foreground priority, prefetch Promise reuse, no
+duplicate ciphertext GET, seek reprioritisation, EOF bounds, fail-soft
+speculative transport failure, fatal foreground network failure,
+close/lock/replacement invalidation, 1.1/5/32 GiB constant bounded work, and
+secret-safe diagnostics). Three hostile lifecycle/failure contracts existed
+**only** in #57 and are ported below — they pin semantics that are independent
+of scheduler shape, so losing them with the branch would have been a real
+regression in coverage.
+
+`2026-08-30_072344_kla_idea1-lft-v2-e3-3-pipelined-preview.md`, the #57 receipt,
+is **not** copied or merged here. This branch carries exactly one E3.3 receipt.
+
+### Contracts ported from #57, and the two defects they exposed
+
+Both defects were found by writing the ported tests against this branch's
+implementation. Both were fixed here, and both tests were confirmed to fail
+against the unfixed source before the fix landed.
+
+1. **Session replacement with an abort-ignoring loader** — *a replaced session
+   gets nothing from an old loader that ignores its AbortSignal*. AbortSignal is
+   a request, not a guarantee: a proxy, a polyfilled `fetch`, or bytes already
+   on the wire can all resolve long after the session that asked for them is
+   gone. The session epoch/identity check already stopped that plaintext from
+   being cached or returned. **Defect found:** `releaseSlot()` looked its
+   scheduler up by *token*, so a late load belonging to a replaced session
+   decremented the **live** session's in-flight counters — silently raising the
+   new session's real concurrency above its ceiling while every cache-size and
+   byte-ceiling assertion still passed. A slot now releases against the
+   scheduler object it was queued on, and pumps that scheduler only if it is
+   still the live one for the token.
+2. **Lazy pull from a replaced session** — *a lazy pull from a replaced session
+   cannot load, cache or deliver plaintext*. `createPreviewStream` fills its
+   one-slot queue eagerly and then stops; step two of a boundary-straddling
+   Range is pulled only when the consumer drains step one, which for a media
+   element can be arbitrarily later. **Defect found:** `readChunk`/`readAhead`
+   were keyed on the token alone, so a pull arriving after replacement would
+   start a fresh load *using the replaced session's captured DEK and blob* and
+   put the result in the **new** session's cache, as well as re-aiming the live
+   read-ahead window from a dead session. `readChunk`, `prefetch` and
+   `readAhead` now take an `owner` session; the Service Worker binds every Range
+   response to the session that planned it, and an owner mismatch starts no
+   work, caches nothing and returns nothing. Replacement stays *benign*
+   teardown rather than a UI preview failure, matching E3.2.
+3. **Prefetch integrity failure, then foreground demand** — *a chunk whose
+   integrity failed speculatively is INTEGRITY_FAILED, never a network error, on
+   demand*. A speculative AES-GCM failure stays silent and is never retained,
+   and the same logical chunk requested as foreground is fatal and reports
+   `INTEGRITY_FAILED` — never a generic transport error, never unauthenticated
+   plaintext. **No defect found:** this branch already re-fetches safely rather
+   than remembering the failure, and the ported test now pins that the
+   foreground semantics stay fatal and truthful either way.
+
 ## What changed
 
 - **Bounded proactive read-ahead, session-owned.** When foreground playback
@@ -125,19 +189,31 @@ total file size: 1.1 GiB, 5 GiB and 32 GiB files produce an identical window.
   bytes and measured fetch/decrypt MB/s per chunk.
 - `IDEA1-AEGIS_Drive_LC/src/lib/vaultPreviewDiagnostics.js` — the new
   allow-listed throughput fields, bounded index arrays, and `mbPerSecond()`.
-- `IDEA1-AEGIS_Drive_LC/tests/vaultPreviewReadAhead.test.js` — **new**; 32
-  regressions covering all fourteen required properties.
+- `IDEA1-AEGIS_Drive_LC/src/lib/vaultPreviewWorkerState.js` (supersession pass)
+  — `releaseSlot()` binds to the scheduler the slot was queued on; `readChunk`,
+  `prefetch` and `readAhead` accept an `owner` session and refuse to start,
+  cache or return anything once that session has been replaced.
+- `IDEA1-AEGIS_Drive_LC/src/vaultPreviewServiceWorker.js` (supersession pass) —
+  passes `owner: session` to `readAhead` and `readChunk`, binding each lazy
+  Range response to the session that planned it.
+- `IDEA1-AEGIS_Drive_LC/tests/vaultPreviewReadAhead.test.js` — **new**; 35
+  regressions: 32 covering the fourteen required properties, plus the three
+  hostile lifecycle/failure contracts audited over from #57.
 
 ## Verification evidence
 
-- `npm test` (full IDEA1 suite) — PASS: 779 discovered, 712 pass, 0 fail, 67 PostgreSQL-gated skips (`TEST_DATABASE_URL` unset; those skips are pre-existing and unrelated).
-- `node --test --test-concurrency=1 tests/vaultPreviewReadAhead.test.js` — PASS: 32/32, 0 fail.
-- `node --test --test-concurrency=1 tests/vaultPreviewReadAhead.test.js tests/vaultPreviewWorkerState.test.js tests/vaultPreviewCancellation.test.js` — PASS: 61/61, 0 fail (E3.1/E3.2 state and cancellation regressions green).
-- `node --test --test-concurrency=1 "tests/vaultPreview*.test.js"` — PASS: every preview suite green.
+- `npm test` (full IDEA1 suite) — PASS: 782 discovered, 715 pass, 0 fail, 67 PostgreSQL-gated skips (`TEST_DATABASE_URL` unset; those skips are pre-existing and unrelated).
+- `node --test --test-concurrency=1 tests/vaultPreviewReadAhead.test.js` — PASS: 35/35, 0 fail (32 read-ahead properties plus the 3 contracts ported from #57).
+- All twelve preview suites together — `vaultPreviewReadAhead`, `vaultPreviewWorkerState`, `vaultPreviewCancellation`, `vaultPreviewClaim`, `vaultPreviewDiagnostics`, `vaultPreviewErrors`, `vaultPreviewRange`, `vaultPreviewReliability`, `vaultPreviewResponder`, `vaultPreviewSession`, `vaultMediaPreview`, `vaultV2ScreenUi` — PASS: 205/205, 0 fail. E3.1 reliability/range/session, E3.2 cancellation and E3.2 Service Worker claim regressions are all green and unmodified.
 - `npm run build` — PASS; Vite emitted `dist/vault-preview-sw.js` (12.78 kB) at
   the dist root with its fixed unhashed name. The tracked `dist/index.html` was
   restored to its committed state afterwards, so this branch ships no rebuilt
   bundle.
+- Two further defects found *by* the ported #57 contracts, both fixed and both
+  confirmed to fail against the unfixed source: cross-session slot-accounting
+  corruption from a late abort-ignoring load, and a lazy pull from a replaced
+  session that could start work and cache plaintext under the wrong session
+  identity. See **Supersession of PR #57** above.
 - Defect found *by* the new tests during implementation: the first eviction
   design retained ≤4 chunks and ≤64 MiB — every size assertion passed — while
   evicting chunk N+1 immediately after reading N, which would have made
@@ -177,6 +253,9 @@ All in `tests/vaultPreviewReadAhead.test.js` unless noted.
 12. network error fatal — *a real network error on the foreground chunk remains fatal*, *an HTTP error on the foreground chunk remains fatal*
 13. 1.1/5/32 GiB bounded without allocating — *1.1 GiB, 5 GiB and 32 GiB logical files stay bounded without allocating them*
 14. count depends on budget/chunk size, not file size — *the read-ahead count depends on the memory budget and chunk size, never on file size*, *the byte budget, not a hard-coded four, decides the window*
+15. session replacement holds even when the transport ignores abort — *a replaced session gets nothing from an old loader that ignores its AbortSignal* (ported from #57)
+16. a lazy pull from a replaced session starts and retains nothing — *a lazy pull from a replaced session cannot load, cache or deliver plaintext* (ported from #57)
+17. a speculative integrity failure stays fatal and truthful on demand — *a chunk whose integrity failed speculatively is INTEGRITY_FAILED, never a network error, on demand* (ported from #57)
 
 ## Canonical notes updated
 

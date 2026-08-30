@@ -1794,13 +1794,39 @@ is stateless per request and streams a bounded range through
 `openVaultCiphertextRange(...)` + `stream.pipe(res)` — so no server, nginx or API
 contract change was made.
 
-**E3.3 source verification:** new read-ahead suite **32 pass, 0 fail**; E3.1/E3.2
-regressions re-run green; full IDEA1 suite **779 discovered, 712 pass, 0 fail, 67
-PostgreSQL-gated skips**; production Vite build passed and emitted
-`dist/vault-preview-sw.js`. `LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production
-acceptance is NOT RUN until the real ~1.1 GB MP4 plays without repeated
-buffering, seeks mid-file and near the end, and survives close/reopen on Windows
-Edge/Chrome.
+**E3.3 supersession of PR #57 (2026-08-30):** two competing E3.3 branches were
+cut from the same post-#56 base. PR #57 (`fix/idea1-lft-v2-e3-3-pipelined-preview`)
+used a fixed three-entry cache, fixed two concurrent loads and an N+1/N+2
+pipeline; PR #58 (`fix/idea1-lft-v2-e3-3-read-ahead`) derives every bound from
+the 64 MiB plaintext byte budget instead. **PR #58 is the canonical E3.3
+implementation; PR #57 was never deployed, is not in `main`, and is closed
+unmerged with no code cherry-picked from it.** Its regression suite was audited
+contract by contract: eleven contracts were already covered or superseded, and
+three hostile lifecycle/failure contracts that existed only in #57 were ported
+into #58 — session replacement against an abort-ignoring loader, a lazy pull
+from a replaced session, and a speculative integrity failure that must stay
+`INTEGRITY_FAILED` (never a generic network error) once the same chunk becomes
+foreground demand. Writing the first two against #58 exposed two real defects,
+both fixed: `releaseSlot()` resolved its scheduler by token, so a late load from
+a replaced session decremented the **live** session's in-flight counters and
+silently raised its real concurrency above the ceiling while every size
+assertion still passed; and `readChunk`/`readAhead` were keyed on the token
+alone, so a lazy pull arriving after replacement could start a load with the
+replaced session's DEK and cache the result under the new session. Both now
+bind to session identity, and replacement remains benign teardown rather than a
+reported preview failure. The #57 branch is retained until #58 is merged and its
+production browser acceptance is complete.
+
+**E3.3 source verification:** read-ahead suite **35 pass, 0 fail** (32
+read-ahead properties plus the 3 contracts ported from #57); all twelve preview
+suites together **205 pass, 0 fail**, covering E3.1 reliability/range/session,
+E3.2 cancellation and E3.2 Service Worker claim unmodified; full IDEA1 suite
+**782 discovered, 715 pass, 0 fail, 67 PostgreSQL-gated skips**; production Vite
+build passed and emitted `dist/vault-preview-sw.js` (the tracked `dist/` was
+restored afterwards, so no rebuilt bundle ships on this branch).
+`LARGE_V2_VIDEO_PREVIEW = IN_PROGRESS`; production acceptance is NOT RUN until
+the real ~1.1 GB MP4 plays without repeated buffering, seeks mid-file and near
+the end, and survives close/reopen on Windows Edge/Chrome.
 
 ---
 

@@ -136,13 +136,20 @@ export function createPreviewWorkerState({
     }
   }
 
+  // ⚠️ A slot releases against **the scheduler it was queued on**, not against
+  //    whatever scheduler the token happens to own now. A load started by a
+  //    session that has since been replaced can resolve at any later moment —
+  //    a transport that ignores its AbortSignal guarantees it will — and if it
+  //    decremented the *new* session's counters it would silently raise that
+  //    session's real concurrency above its ceiling while every size assertion
+  //    still passed.
   const releaseSlot = (token, slot) => {
-    const s = schedulers.get(token)
+    const s = slot.owner
     if (!s || !slot.running) return
     slot.running = false
     s.active = Math.max(0, s.active - 1)
     if (slot.startedSpeculative) s.speculative = Math.max(0, s.speculative - 1)
-    pump(token)
+    if (schedulers.get(token) === s) pump(token)
   }
 
   /** Move a still-queued speculative load into the foreground class. */
@@ -334,9 +341,16 @@ export function createPreviewWorkerState({
    * ★ GOAL 3: ถ้าก้อนนี้ถูกอ่านล่วงหน้าไว้อยู่แล้ว คำขอ Range จริงจะ "เกาะ Promise เดิม"
    *   ไม่มีการยิง HTTP ซ้ำ และถ้ามันยังรอคิวอยู่ มันจะถูกเลื่อนขึ้นเป็น foreground ทันที
    */
-  const readChunk = async (token, index, load, { speculative = false } = {}) => {
+  const readChunk = async (token, index, load, { speculative = false, owner = null } = {}) => {
     const activeSession = sessions.get(token)
     if (!activeSession) throw previewSessionInvalidatedError('preview session unavailable')
+    // ★ LFT-V2-E3.3 (lifecycle) — a Range response belongs to the session that
+    //   was live when it was planned. createPreviewStream is lazy, so its first
+    //   pull() can arrive *after* that session was replaced. Such a pull must
+    //   not start a load, must not put plaintext in the new session's cache and
+    //   must not hand bytes back to the response that outlived its session:
+    //   its loader still closes over the replaced session's DEK and blob.
+    if (owner && owner !== activeSession) throw previewSessionInvalidatedError()
     const startedTokenEpoch = tokenEpoch(token)
     const startedGlobalEpoch = globalEpoch
     const key = cacheKey(token, index)
@@ -362,7 +376,7 @@ export function createPreviewWorkerState({
     onCacheEvent?.('miss')
     if (!speculative) onReadAheadEvent?.('prefetch-miss', { prefetchMisses: 1 })
 
-    const slot = { speculative, index, queued: true, running: false, startedSpeculative: false }
+    const slot = { speculative, index, queued: true, running: false, startedSpeculative: false, owner: null }
     const entry = { promise: null, size: 0, speculative, slot }
 
     let settle
@@ -398,7 +412,9 @@ export function createPreviewWorkerState({
 
     entry.promise = pending
     cache.set(key, entry)
-    scheduler(token).queue.push(slot)
+    const ownScheduler = scheduler(token)
+    slot.owner = ownScheduler
+    ownScheduler.queue.push(slot)
     pump(token)
 
     try {
@@ -427,12 +443,12 @@ export function createPreviewWorkerState({
    *    พังเพราะก้อนที่ไม่มีใครขอ คือบั๊กประเภทเดียวกับที่ E3.2 เพิ่งเอาออกไป
    *    ถ้าก้อนนั้นจำเป็นจริง คำขอ foreground จะดึงมันใหม่และรายงานตามจริงเอง
    */
-  const prefetch = (token, indexes, load) => {
+  const prefetch = (token, indexes, load, { owner = null } = {}) => {
     const started = []
     for (const index of indexes) {
       if (cache.has(cacheKey(token, index))) continue
       started.push(index)
-      readChunk(token, index, load, { speculative: true }).catch(() => { /* speculative */ })
+      readChunk(token, index, load, { speculative: true, owner }).catch(() => { /* speculative */ })
     }
     if (started.length) onReadAheadEvent?.('prefetch-start', { prefetchIndexes: started })
     return started
@@ -446,8 +462,13 @@ export function createPreviewWorkerState({
    *   งานที่ "เริ่มไปแล้ว" ปล่อยให้จบได้ (มันมีขอบเขตแน่นอนอยู่แล้ว) แต่มันยึดช่องได้
    *   ไม่ครบทุกช่อง จึงไม่มีทางกั้นก้อน 50 ไว้
    */
-  const readAhead = (token, foregroundIndex, load, { chunkCount } = {}) => {
-    if (!sessions.get(token)) return []
+  const readAhead = (token, foregroundIndex, load, { chunkCount, owner = null } = {}) => {
+    const activeSession = sessions.get(token)
+    if (!activeSession) return []
+    // ⚠️ Same ownership rule as readChunk, and it matters more here: re-aiming
+    //    the window from a replaced session would start speculative network
+    //    work nobody can ever use, on behalf of a session that no longer exists.
+    if (owner && owner !== activeSession) return []
     const head = Math.floor(Number(foregroundIndex))
     if (!Number.isFinite(head)) return []
     const w = windowOf(token)
@@ -455,7 +476,7 @@ export function createPreviewWorkerState({
     discardQueuedSpeculative(token, (index) => withinReadAheadWindow(index, head, w.prefetchAhead))
     if (w.prefetchAhead <= 0) return []
     const indexes = prefetchIndexesAfter(head, { prefetchAhead: w.prefetchAhead, chunkCount })
-    return prefetch(token, indexes, load)
+    return prefetch(token, indexes, load, { owner })
   }
 
   return {

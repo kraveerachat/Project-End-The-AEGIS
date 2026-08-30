@@ -690,10 +690,13 @@ function rangeResponse(fixture, state, srv, rangeHeader) {
     base: BASE,
     onFailure: (reason) => failures.push(reason),
     readChunk: (_session, index, options) => {
+      // ⚠️ owner mirrors src/vaultPreviewServiceWorker.js exactly: the response
+      //    is bound to the session that planned it, not merely to the token.
       state.readAhead(TOKEN, index, loaderFor(options), {
         chunkCount: fixture.session.blob.chunkCount,
+        owner: fixture.session,
       })
-      return state.readChunk(TOKEN, index, loaderFor(options))
+      return state.readChunk(TOKEN, index, loaderFor(options), { owner: fixture.session })
     },
   })
   return { plan, stream, reader: stream.getReader(), failures }
@@ -833,4 +836,141 @@ test('closing the preview mid-playback stops read-ahead and delivers no late pla
   assert.equal(state.queuedCount(TOKEN), 0)
   assert.deepEqual(res.failures, [], 'a deliberate close is not a preview failure')
   await res.reader.cancel()
+})
+
+// ══ GOAL 10 · hostile lifecycle contracts audited over from the superseded #57 ══
+//
+// ⚠️ PR #57 was a different E3.3 implementation (fixed three-entry cache, fixed
+//    two concurrent loads, N+1/N+2 pipeline) built from the same post-#56 base.
+//    Its scheduler is not what shipped here — this PR derives every bound from
+//    the 64 MiB plaintext budget instead — but three of its regressions pin
+//    failure and lifecycle semantics that are independent of the scheduler
+//    shape, and those are ported below rather than lost with the branch.
+//
+//    All three share one premise: **a session boundary must hold even when the
+//    layer below it does not cooperate.** AbortSignal is a request, not a
+//    guarantee, and a ReadableStream's first pull() can arrive arbitrarily late.
+
+test('a replaced session gets nothing from an old loader that ignores its AbortSignal', async () => {
+  const state = createPreviewWorkerState()
+  const replaced = logicalSession(16 * MIB, 4 * GIB)
+  state.open(TOKEN, replaced)
+
+  // ⚠️ A transport that never looks at the signal it was handed. Real ones do
+  //    this: a proxy, a polyfilled fetch, or simply a response whose bytes were
+  //    already in flight. Abort must therefore not be the *only* thing standing
+  //    between a dead session's plaintext and a live session's cache.
+  let handedSignal = null
+  const openGate = new Map()
+  const stubborn = (index, load = {}) => new Promise((resolve) => {
+    handedSignal = load.signal
+    openGate.set(index, () => resolve({ byteLength: 16 * MIB, from: 'replaced-session' }))
+  })
+
+  const stale = state.readChunk(TOKEN, 5, stubborn)
+  state.readAhead(TOKEN, 5, stubborn, { chunkCount: 256 })
+  await settle()
+  assert.equal(state.inFlightCount(TOKEN), 4, 'the replaced session really had work in flight')
+
+  state.open(TOKEN, logicalSession(16 * MIB, 4 * GIB))
+  assert.equal(handedSignal.aborted, true, 'replacement does abort the old session signal')
+
+  // The new session does its own bounded work, sharing nothing with the old.
+  const fresh = gatedLoader(16 * MIB)
+  const live = state.readChunk(TOKEN, 5, fresh.load)
+  state.readAhead(TOKEN, 5, fresh.load, { chunkCount: 256 })
+  await settle()
+  assert.deepEqual(fresh.started().sort((a, b) => a - b), [5, 6, 7, 8],
+    'the new session refetches chunk 5; no in-flight work is inherited')
+
+  // Only now do the old loads resolve — after replacement, ignoring the abort.
+  for (const release of openGate.values()) release()
+  await assert.rejects(stale, 'plaintext belonging to a replaced session is never returned')
+  await settle(16)
+
+  assert.equal(state.inFlightCount(TOKEN), 4,
+    'a late load from the replaced session must not decrement the live scheduler')
+  assert.equal(state.speculativeInFlightCount(TOKEN), 3)
+
+  fresh.releaseAll()
+  const value = await live
+  assert.equal(value.from, undefined, 'the served bytes came from the live session, not the replaced one')
+  await settle(16)
+  assert.deepEqual(state.cachedChunkIndexes(TOKEN), [5, 6, 7, 8])
+  assert.equal(state.cacheBytes(), 64 * MIB, 'the 64 MiB retained ceiling survived the hostile replacement')
+  state.closeAll()
+})
+
+test('a lazy pull from a replaced session cannot load, cache or deliver plaintext', async () => {
+  const fx = await makeVaultBlob()
+  const state = createPreviewWorkerState()
+  state.open(TOKEN, fx.session)
+  const srv = countingServer(fx)
+
+  // ⚠️ A Range that straddles a chunk boundary produces a two-step plan, and
+  //    createPreviewStream pulls one step per pull(). The stream fills its
+  //    one-slot queue eagerly and then *stops*: step two is fetched only when
+  //    the consumer drains step one, which for a media element can be an
+  //    arbitrarily long time later. That gap — plan under session A, pull under
+  //    session B — is the hazard this pins.
+  const stale = rangeResponse(fx, state, srv, `bytes=${CHUNK * 3 - 50}-${CHUNK * 3 + 49}`)
+  assert.equal(stale.plan.plan.length, 2, 'the fixture really produced a lazy second step')
+  await settle(16)
+  assert.ok(srv.gets().length > 0, 'session A really did start work before it was replaced')
+
+  // Session A is replaced while step two has not been pulled yet.
+  const successor = await makeVaultBlob({ id: 'c'.repeat(48) })
+  state.open(TOKEN, successor.session)
+  const networkBefore = srv.gets().length
+
+  // Step one was produced under the live session A and is already queued.
+  assert.deepEqual((await stale.reader.read()).value,
+    fx.plain.subarray(CHUNK * 2 + CHUNK - 50, CHUNK * 3))
+
+  // Draining it triggers the lazy second pull — now owned by a dead session.
+  await assert.rejects(stale.reader.read(), 'the lazy pull must not be served')
+  await settle(16)
+
+  assert.equal(srv.gets().length, networkBefore,
+    'the replaced session started no further network work — not foreground, not speculative')
+  assert.deepEqual(state.cachedChunkIndexes(TOKEN), [],
+    'no plaintext decrypted with the replaced session key is retained')
+  assert.equal(state.queuedCount(TOKEN), 0)
+  assert.equal(state.foregroundIndex(TOKEN), null,
+    'a replaced session cannot re-aim the live read-ahead window')
+  assert.deepEqual(stale.failures, [],
+    'deliberate replacement is teardown, not a preview failure (E3.2 semantics)')
+  state.closeAll()
+})
+
+test('a chunk whose integrity failed speculatively is INTEGRITY_FAILED, never a network error, on demand', async () => {
+  const fx = await makeVaultBlob()
+  const state = createPreviewWorkerState()
+  state.open(TOKEN, fx.session)
+  // Chunk 1 is corrupt. Chunk 0 plays first, so chunk 1 is discovered *only*
+  // by read-ahead — nobody asked for it yet.
+  const srv = countingServer(fx, { corrupt: 1 })
+
+  const playing = rangeResponse(fx, state, srv, 'bytes=0-99')
+  assert.deepEqual((await playing.reader.read()).value, fx.plain.subarray(0, 100))
+  await settle(16)
+  assert.ok(srv.gets().includes(1), 'read-ahead really reached the corrupt chunk')
+  assert.deepEqual(playing.failures, [],
+    'a speculative AES-GCM failure on a chunk nobody requested stays silent')
+  assert.deepEqual(state.cachedChunkIndexes(TOKEN).filter((i) => i === 1), [],
+    'an unauthenticated chunk is never retained, speculative or not')
+
+  // The very same logical chunk now becomes real foreground demand.
+  const demanded = rangeResponse(fx, state, srv, `bytes=${CHUNK}-${CHUNK + 99}`)
+  await assert.rejects(demanded.reader.read(), 'no byte of an unauthenticated chunk may be served')
+
+  assert.deepEqual(demanded.failures, [PREVIEW_FAILURE.INTEGRITY],
+    'foreground semantics stay fatal and truthful after a silent speculative failure')
+  assert.notDeepEqual(demanded.failures, [PREVIEW_FAILURE.FETCH],
+    'an integrity failure must never degrade into a generic network error')
+  assert.equal(PREVIEW_FAILURE.INTEGRITY, PREVIEW_FAILURE_REASON.INTEGRITY_FAILED)
+  assert.deepEqual(state.cachedChunkIndexes(TOKEN).filter((i) => i === 1), [])
+
+  await playing.reader.cancel()
+  state.closeAll()
 })

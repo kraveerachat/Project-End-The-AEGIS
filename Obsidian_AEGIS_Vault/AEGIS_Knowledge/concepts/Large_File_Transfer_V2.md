@@ -1031,6 +1031,19 @@ trailing partial chunk — rather than comparing against the function under test
     chunk read ahead moments before it is needed, since playback keeps touching
     the current chunk and never touches the next one until it plays.
 
+16. **A preview session owns its work by identity, not by token.** Every Range
+    response is bound to the session that planned it. A response is lazy — the
+    stream fills one slot and then waits for the consumer — so a pull can arrive
+    after the session was replaced; such a pull starts no load, caches no
+    plaintext, re-aims no read-ahead window and returns nothing, because its
+    loader still closes over the replaced session's DEK and blob. The same rule
+    holds downwards: a load that a replaced session started can still resolve
+    late if the transport ignores its `AbortSignal`, and that plaintext must
+    neither enter the live session's cache nor disturb its slot accounting.
+    Abort is a request to the transport; the session boundary is the guarantee.
+    Replacement is deliberate teardown, so it stays benign to the UI (E3.2),
+    never a reported preview failure.
+
 ### 13.5 CSP is unchanged, and that is the point
 
 The virtual URL is same-origin, so the existing `media-src 'self'` already
@@ -1151,6 +1164,11 @@ E3.3 changes the shape of the pipeline, not the bytes and not the contract:
   reaches the network.
 - **Playback-aware eviction.** Chunks behind the playhead go first, so read-ahead
   is not silently undone by LRU.
+- **Session-identity ownership.** Read-ahead widens the window in which a
+  session can be replaced while work is outstanding, so both directions of that
+  boundary are now explicit (invariant 16): a lazy pull from a replaced session
+  starts nothing, and a late load from a replaced session neither delivers
+  plaintext nor perturbs the live session's concurrency accounting.
 
 What deliberately did not change: `PREVIEW_RANGE_WINDOW_BYTES` is still 16 MiB
 (the fix is read-ahead and concurrency, not a larger Range response); no

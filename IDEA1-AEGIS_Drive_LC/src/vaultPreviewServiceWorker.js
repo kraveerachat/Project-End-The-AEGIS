@@ -221,8 +221,13 @@ self.addEventListener('fetch', (event) => {
         //      กลับไปเป็นแบบเดิมอย่างเงียบ ๆ เพราะงานล่วงหน้าจะเริ่มช้ากว่าที่ควรทั้งก้อน
         //   ⚠️ งานอ่านล่วงหน้าไม่มี onFailure: มันไม่ใช่คำขอของผู้ใช้ ความล้มเหลวของมัน
         //      ต้องไม่ประกาศว่า preview พัง — ก้อนที่จำเป็นจริงจะถูกขอซ้ำแบบ foreground
+        //   ⚠️ owner: this stream was planned while `session` was live, and
+        //      pull() is lazy. If the session was replaced in between, neither
+        //      the read-ahead nor the read below may run — the loader below
+        //      still closes over the replaced session's DEK and blob.
         const prefetched = state.readAhead(token, index, loaderFor(options), {
           chunkCount: session.blob?.chunkCount,
+          owner: session,
         })
         diagnostics.record('read-ahead', {
           foregroundChunkIndex: index,
@@ -231,7 +236,7 @@ self.addEventListener('fetch', (event) => {
           retainedPlaintextBytes: state.cacheBytes(),
           discardedSpeculativeChunks: state.discardedSpeculativeCount(),
         })
-        return state.readChunk(token, index, loaderFor(options))
+        return state.readChunk(token, index, loaderFor(options), { owner: session })
       },
     })
 
