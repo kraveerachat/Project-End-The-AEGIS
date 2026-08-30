@@ -515,7 +515,7 @@ incomplete is ever handed over as if it were complete.
 | Marker | Value | Meaning |
 | :--- | :--- | :--- |
 | `VAULT_BROWSER_REFRESH_RESUME` | `NOT_IMPLEMENTED` | The server-side session is durable and survives a restart, but the KEK lives only in tab memory and is never persisted. After a refresh the user must unlock again, and the resume affordance is not wired to a reloaded page. |
-| `LARGE_V2_VIDEO_PREVIEW` | `IN_PROGRESS` (large video) / `LIMITED` (images) | **Video** above 64 MiB streams through a same-origin Service Worker. After E3.1 deployed, production proved the streaming path itself — 206 media ranges, 200 ciphertext chunks, first frame rendered — while superseded Chromium range cancellations were still being reported as network failures and an activated worker did not always control the page. E3.2 makes attributable cancellation silent, moves in-flight chunk ownership to the preview session, and adds bounded claim-on-demand recovery with no reload. Source-verified only; not browser-accepted. **Still-image** preview remains limited above 64 MiB. The buffered ceiling was **not** raised. |
+| `LARGE_V2_VIDEO_PREVIEW` | `IN_PROGRESS` (large video) / `LIMITED` (images) | **Video** above 64 MiB streams through a same-origin Service Worker. E3.1 and E3.2 are deployed and production proved correctness — 206 media ranges bounded at exactly 16 MiB, 200 ciphertext chunks, first frame rendered, routine Chromium range cancellation no longer fatal. The remaining failure is **throughput**: on the real 1,206,241,622 B / ~120 s file the media needs ~10 MB/s while one ~16 MiB ciphertext chunk took 5–8 s and the container moved ~4 MB/s at 0–8 % CPU, because the pipeline was demand-driven and serial. E3.3 adds bounded proactive read-ahead (current + up to 3 ahead, derived from the 64 MiB budget), real concurrent chunk fetch with a reserved foreground slot, prefetch Promise reuse and seek reprioritisation. Source-verified only; not browser-accepted. **Still-image** preview remains limited above 64 MiB. The buffered ceiling was **not** raised and the 16 MiB Range window was **not** enlarged. |
 | `VAULT_V1_LEGACY_READ` | `SUPPORTED` | Every V1 blob stays listable, unlockable, previewable, downloadable and deletable through the code path it always used. No ciphertext was rewritten or migrated. |
 | `VAULT_V1_NEW_UPLOAD` | `SUPPORTED_BUT_UNUSED_BY_UI` | `POST /api/vault/blobs` still works and still has its 64 MiB ceiling. The Vault screen now uploads through V2 only. V1 is not large-file capable and is not described as such. |
 
@@ -950,9 +950,10 @@ trailing partial chunk — rather than comparing against the function under test
    `<video preload="metadata">` keeps the browser from eagerly prefetching the
    rest of a multi-gigabyte file just because the modal opened.
 3. **Nothing is ever fully assembled.** Both 206 and plain 200 responses stream one
-   chunk at a time. E3.1 may retain at most two resolved chunks/64 MiB for reuse,
-   and transient fetch/decrypt work remains O(chunk size), not O(file size). Even
-   a `Range`-less GET — which some browsers issue first — is served this way.
+   chunk at a time. The worker retains only a bounded window of resolved chunks
+   (≤64 MiB, see invariant 9), and transient fetch/decrypt work remains
+   O(chunk window), not O(file size). Even a `Range`-less GET — which some
+   browsers issue first — is served this way.
 4. **A failed tag stops the stream.** No skipping, no zero-fill, no "rest of the
    file anyway". The stream errors, and the page is told *why*, so the UI can say
    the file failed authentication rather than showing a generic error. Tampered
@@ -979,9 +980,13 @@ trailing partial chunk — rather than comparing against the function under test
    preview's non-extractable DEK in memory may answer; one request makes at most
    one recovery attempt. Lock/close/replacement deny recovery and invalidate work
    already in flight.
-9. **Plaintext reuse is bounded twice.** The worker retains at most two LRU chunks
-   and at most 64 MiB of resolved plaintext across all preview tokens. Integrity
-   failures are never cached; close, lock, replacement and worker death clear it.
+9. **Plaintext reuse is bounded by bytes, and the byte budget is the rule.** The
+   worker retains at most **64 MiB** of resolved plaintext across all preview
+   tokens. The chunk-count limit is derived from that budget, never assumed:
+   `cacheSlots = floor(64 MiB / plaintextChunkSize)`, capped at 4 — 4 chunks on a
+   16 MiB profile, 2 on 32 MiB, 1 on 64 MiB. A single chunk larger than the whole
+   budget is served but never retained. Integrity failures are never cached;
+   close, lock, replacement and worker death clear it.
 10. **Cancellation is not failure.** A media Range response the browser
     supersedes and cancels reports nothing: no failure callback, no
     chunk-fetch-failed, no UI network error. A genuine transport fault on a live
@@ -999,6 +1004,32 @@ trailing partial chunk — rather than comparing against the function under test
     `worker-controller-timeout` truthfully. It never reloads: the same
     uncontrolled state can reproduce on the next load, and every reload destroys
     the in-memory DEK and the unlocked Vault.
+13. **Read-ahead is proactive, bounded and session-owned.** When foreground
+    playback requests chunk N the worker prioritises N and immediately begins
+    loading N+1…N+k concurrently, where `k = cacheSlots - 1` from invariant 9.
+    Waiting for the browser to ask for N+1 is too late for any real bitrate: a
+    16 MiB plaintext chunk is only ~1.5–2 s of a 10 MB/s video while fetching it
+    takes several seconds. The window depends on chunk size and memory budget
+    only — never on total file size — and read-ahead runs forward only.
+14. **Speculative work can never delay the chunk the user is watching.** The
+    plaintext byte budget, the cache-entry count and the maximum in-flight
+    ciphertext loads are three separate limits, not one number. Speculative loads
+    are capped at `cacheSlots - 1` and one slot is reserved for foreground work,
+    so a seek starts immediately instead of queueing behind speculation. Seeking
+    rebuilds the window at the new position and discards queued read-ahead before
+    it reaches the network; work already in flight is allowed to finish because
+    it is bounded and holds no reserved slot. Transient in-flight ciphertext is
+    bounded at `(cacheSlots + 1) × (chunkSize + 16 B)` — O(window), never
+    O(file size).
+15. **A prefetched chunk is joined, never re-fetched.** A Range request for a
+    chunk already being read ahead attaches to the existing session-owned Promise
+    and issues no second ciphertext GET; a still-queued prefetch is promoted to
+    foreground priority instead of being duplicated. A speculative load that
+    fails announces nothing — nobody asked for it — while the same chunk
+    requested as foreground still reports integrity and transport faults in full.
+    Eviction drops chunks behind the playhead first: plain LRU would discard the
+    chunk read ahead moments before it is needed, since playback keeps touching
+    the current chunk and never touches the next one until it plays.
 
 ### 13.5 CSP is unchanged, and that is the point
 
@@ -1084,6 +1115,58 @@ two-chunk limit, the absence of Cache API, IndexedDB and web storage, the
 non-extractable DEK and the Zero-Knowledge boundary are all unchanged.
 `LARGE_V2_VIDEO_PREVIEW` remains `IN_PROGRESS` until the real ~1.1 GB MP4 passes
 Windows Edge/Chrome acceptance.
+
+### 13.9 E3.3 — high-throughput read-ahead
+
+With E3.2 deployed, the preview became *correct* and stayed *unwatchable*. The
+measurement that matters, from the real `START_LIVE.mp4`:
+
+| Quantity | Observed |
+|---|---|
+| Plaintext size / duration | 1,206,241,622 B / ~120 s |
+| Required media rate | ~10 MB/s (~80 Mbps before overhead) |
+| Virtual Range response | exactly 16 MiB, e.g. `bytes 83886080-100663295/1206241622` |
+| One ~16 MiB ciphertext chunk | 5–8 s |
+| Drive container NET | 8.82 → 8.99 GB in ~42 s (≈ 4 MB/s) |
+| Drive container CPU / RSS | 0–8 % / 25–47 MiB |
+
+Range semantics and the first frame were fine; throughput was not. A 16 MiB
+plaintext chunk is roughly 1.5–2 s of this video, so a strictly demand-driven
+pipeline — ask, fetch, decrypt, serve, *then* wait to be asked again — is
+structurally incapable of feeding it, regardless of how fast any single step is.
+The low container CPU is the tell: nothing was compute-bound, the pipe was simply
+never kept full.
+
+E3.3 changes the shape of the pipeline, not the bytes and not the contract:
+
+- **Proactive read-ahead.** Foreground chunk N is prioritised and N+1…N+k begin
+  loading at once. `k` comes from the byte budget, not a constant.
+- **Genuine concurrency.** Retained plaintext bytes, cache-entry count and
+  in-flight ciphertext loads became three separate limits. On the production
+  16 MiB profile that is four useful concurrent session-owned loads.
+- **Promise reuse.** The Range request for a chunk already being read ahead joins
+  the existing load; no chunk is fetched twice.
+- **Seek reprioritisation.** The new position becomes foreground immediately, the
+  window is rebuilt around it, and stale queued speculation is dropped before it
+  reaches the network.
+- **Playback-aware eviction.** Chunks behind the playhead go first, so read-ahead
+  is not silently undone by LRU.
+
+What deliberately did not change: `PREVIEW_RANGE_WINDOW_BYTES` is still 16 MiB
+(the fix is read-ahead and concurrency, not a larger Range response); no
+whole-file buffering; no plaintext server endpoint; no nginx, route or API
+contract change — source review of `GET /api/vault/blobs/:id/chunks/:index`
+found it stateless per request, already streaming a bounded range through
+`openVaultCiphertextRange(...)` + `stream.pipe(res)` with `proxy_buffering off`,
+so no server-side serialization bottleneck exists to fix. Encryption, the
+non-extractable DEK, the Zero-Knowledge boundary, the absence of Cache API,
+IndexedDB and web storage, and the 64 MiB retained-plaintext ceiling are all
+unchanged.
+
+E3.3 is source acceptance only. `LARGE_V2_VIDEO_PREVIEW` remains `IN_PROGRESS`
+until the real file opens, shows a first frame, plays without repeated
+buffering, seeks mid-file and near the end, and survives close/reopen on Windows
+Edge/Chrome.
 
 ---
 
