@@ -70,6 +70,11 @@ the SSH tunnel as a SYSTEM startup task. The installer requires a
 machine-specific `.env`, a unique per-laptop SSH identity, and a verified
 `known_hosts` file; none of those files are committed.
 
+The service private key is finalized with a SYSTEM-only protected ACL. A
+one-time SYSTEM task performs any key copy/migration, hardening, and strict SSH
+forward/Monitor health probe before persistent tunnel registration; elevated
+repair does not require or retain access to the service key.
+
 ## Docker development stack
 
 From the repository root:

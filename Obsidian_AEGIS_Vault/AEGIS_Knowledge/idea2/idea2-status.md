@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-29
+updated: 2026-08-30
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -105,19 +105,25 @@ runtime, creates a runtime-local `.venv`, requires a machine-specific `.env`,
 a unique per-laptop SSH key and a fingerprint-verified `known_hosts`, and keeps
 all of those machine artifacts outside Git. The Engine starts in the logged-in
 user session for webcam access; the tunnel starts as SYSTEM and reconnects
-after SSH exits. The runtime key uses a protected, verified ACL that allows only
-SYSTEM and `BUILTIN\Administrators` FullControl: SYSTEM serves the boot task,
-while Administrators remain solely for elevated repair/key rotation. Any failed
-ACL mutation, wrong owner, enabled inheritance, missing required grant, or
-unexpected sensitive Allow entry aborts installation.
+after SSH exits.
 
-Source verification after merging current `main` passed all 30 Detection Engine tests,
-parsed all seven PowerShell scripts, and completed installer `-WhatIf` without
-mutation. Earlier operator-supplied evidence proved the architecture could
-recover the Engine/tunnel and serve a real camera after reboot, but this newly
-reconciled installer has not yet been run elevated from a fresh clone. Each
-laptop still requires its own installation, reboot, port/health, and real-camera
-acceptance before that laptop is called verified.
+Real-machine evidence superseded the earlier key contract: Windows OpenSSH
+rejected the service key when its final ACL included both SYSTEM and
+`BUILTIN\Administrators`, then accepted the same authorized key after it was
+hardened to owner SYSTEM, inheritance disabled, and one explicit SYSTEM
+FullControl rule. The source installer and repair flow therefore delegate key
+copy/migration, exact SYSTEM-only hardening, and a strict SSH local-forward plus
+Monitor-health probe to a short-lived SYSTEM task. The persistent tunnel task
+cannot be registered until that probe passes, and the helper task is cleaned up
+on success or failure. Status reports the exact key ACL, SYSTEM/AtStartup task
+contract, supervisors, ports, health, and OpenSSH permission/public-key failure
+flags without printing secret material.
+
+This SYSTEM-only lifecycle is source-level remediation. Automated tests and
+PowerShell parsing verify the contract, but the revised installer has not been
+run on the Detection Laptop. Elevated installation, Windows reboot recovery,
+`:8077`, `:18002`, Monitor `/healthz`, and authorized real-camera Live Canvas
+acceptance remain explicitly not verified for this revision.
 
 **Camera source is config, not code.** `AEGIS_CAMERA_SOURCE` is passed straight to `cv2.VideoCapture`: an integer string opens a local device, anything else is treated as a URL. Moving to a real IP camera is a `.env` edit:
 

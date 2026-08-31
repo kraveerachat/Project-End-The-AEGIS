@@ -15,12 +15,19 @@ if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
 }
 $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
 $installer = Join-Path $PSScriptRoot 'install_autostart.ps1'
+$keyMigrationTaskName = if ($settings.PSObject.Properties.Name -contains 'keyMigrationTaskName') {
+    [string]$settings.keyMigrationTaskName
+}
+else {
+    'AEGIS Detection Key Migration'
+}
 
 $arguments = @{
     RuntimeRoot = $RuntimeRoot
     BasePythonPath = $BasePythonPath
     TunnelHost = [string]$settings.tunnelHost
     TunnelTaskName = [string]$settings.tunnelTaskName
+    KeyMigrationTaskName = $keyMigrationTaskName
     LegacyEngineTaskName = [string]$settings.legacyEngineTaskName
     MonitorTargetHost = [string]$settings.monitorTargetHost
     MonitorTargetPort = [int]$settings.monitorTargetPort

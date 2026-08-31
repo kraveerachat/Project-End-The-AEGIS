@@ -1,7 +1,8 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [string]$RuntimeRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AEGIS\DetectionEngine'),
-    [string]$TunnelTaskName = 'AEGIS Detection Tunnel'
+    [string]$TunnelTaskName = 'AEGIS Detection Tunnel',
+    [string]$KeyMigrationTaskName = 'AEGIS Detection Key Migration'
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +14,9 @@ if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
     if ($settings.PSObject.Properties.Name -contains 'tunnelTaskName') {
         $TunnelTaskName = [string]$settings.tunnelTaskName
     }
+    if ($settings.PSObject.Properties.Name -contains 'keyMigrationTaskName') {
+        $KeyMigrationTaskName = [string]$settings.keyMigrationTaskName
+    }
 }
 
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -22,7 +26,11 @@ if ($PSCmdlet.ShouldProcess('AEGIS Detection Engine', 'Remove HKCU auto-start en
 }
 
 $runtimeApp = Join-Path $RuntimeRoot 'app'
-$scriptNames = @('run_engine_supervisor.ps1', 'run_detection_tunnel.ps1')
+$scriptNames = @(
+    'run_engine_supervisor.ps1',
+    'run_detection_tunnel.ps1',
+    'prepare_tunnel_key.ps1'
+)
 $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" `
     -ErrorAction SilentlyContinue | Where-Object {
         $command = [string]$_.CommandLine
@@ -43,6 +51,15 @@ if ($null -ne $task -and $PSCmdlet.ShouldProcess($TunnelTaskName, 'Stop and unre
         Stop-ScheduledTask -TaskName $TunnelTaskName
     }
     Unregister-ScheduledTask -TaskName $TunnelTaskName -Confirm:$false
+}
+
+$migrationTask = Get-ScheduledTask -TaskName $KeyMigrationTaskName -ErrorAction SilentlyContinue
+if ($null -ne $migrationTask -and
+    $PSCmdlet.ShouldProcess($KeyMigrationTaskName, 'Remove stale one-time SYSTEM key helper task')) {
+    if ($migrationTask.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $KeyMigrationTaskName
+    }
+    Unregister-ScheduledTask -TaskName $KeyMigrationTaskName -Confirm:$false
 }
 
 if ($WhatIfPreference) {
