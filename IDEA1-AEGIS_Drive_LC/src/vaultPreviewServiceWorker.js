@@ -16,15 +16,21 @@ import { createPreviewStream, planPreviewResponse, readPlainChunk } from './lib/
 import { createPreviewWorkerState } from './lib/vaultPreviewWorkerState.js'
 import { PREVIEW_FAILURE_REASON, previewFailureGroup } from './lib/vaultPreviewErrors.js'
 import { createPreviewDiagnostics, previewDiagnosticsEnabled } from './lib/vaultPreviewDiagnostics.js'
+import { PREVIEW_CLAIM_MESSAGE, handlePreviewClaimRequest } from './lib/vaultPreviewClaim.js'
 
 let diagnosticsEnabled = previewDiagnosticsEnabled(self)
 const diagnostics = createPreviewDiagnostics({
   enabled: () => diagnosticsEnabled,
   emit: (record) => console.debug('[AEGIS vault preview]', record),
 })
+// ⚠️ LFT-V2-E3.3 — ไม่มี maxPlaintextChunks ตายตัวอีกต่อไปโดยเจตนา
+//    หน้าต่างงานถูกคำนวณจาก "ขนาดก้อน plaintext ของ blob ใบนี้" เทียบกับงบ 64 MiB
+//    ตอน open เซสชัน (ดู vaultPreviewReadAhead.js) ก้อน 16 MiB จึงได้ 4 ช่อง
+//    (ปัจจุบัน + อ่านล่วงหน้า 3) ส่วนก้อน 64 MiB ได้ 1 ช่องและไม่อ่านล่วงหน้าเลย
+//    เพดาน plaintext ที่ถือค้างไว้เท่ากันทุก profile คือ 64 MiB
 const state = createPreviewWorkerState({
-  maxPlaintextChunks: 2,
   onCacheEvent: (kind) => diagnostics.record('cache', kind === 'hit' ? { cacheHits: 1 } : { cacheMisses: 1 }),
+  onReadAheadEvent: (kind, fields) => diagnostics.record(`read-ahead-${kind}`, fields),
 })
 let requestNumber = 0
 
@@ -70,6 +76,16 @@ self.addEventListener('message', (event) => {
       state.closeAll()
       diagnosticsEnabled = false
       reply({ ok: true })
+      return
+
+    case PREVIEW_CLAIM_MESSAGE:
+      // The page asks once, on demand, when it sees an activated worker that is
+      // not controlling it. Logic and tests live in lib/vaultPreviewClaim.js.
+      handlePreviewClaimRequest({
+        clients: self.clients,
+        reply,
+        waitUntil: (promise) => { try { event.waitUntil?.(promise) } catch { /* not extendable */ } },
+      })
       return
 
     case 'vault-preview-status':
@@ -179,14 +195,49 @@ self.addEventListener('fetch', (event) => {
       responseDurationMs: Date.now() - startedAt,
     })
 
+    const loaderFor = (options) => async (loadIndex, load = {}) => readPlainChunk(session, loadIndex, {
+      ...options,
+      signal: load.signal ?? null,
+    })
+
     const body = createPreviewStream(session, plan.plan, {
       fetchImpl: (input, init) => fetch(input, init),
       base: scopeBase(),
       onFailure: (reason) => { announceFailure(token, reason) },
       onDiagnostic: (eventName, fields) => diagnostics.record(eventName, fields),
-      readChunk: (_session, index, options) => state.readChunk(token, index, async () => {
-        return readPlainChunk(session, index, options)
-      }),
+      // ★ Ownership boundary: the ciphertext fetch is bound to the *session's*
+      //   AbortSignal supplied by the worker state, never to the signal of
+      //   whichever Range response happened to trigger this load. Two Chromium
+      //   ranges commonly wait on one shared chunk Promise, so cancelling one
+      //   response must leave the other's bytes intact. Close, lock, closeAll
+      //   and session replacement abort that shared signal instead.
+      readChunk: (_session, index, options) => {
+        // ★ LFT-V2-E3.3 — จุดที่ทำให้ท่อเลิกเป็น demand-driven
+        //
+        //   ทุกครั้งที่ผู้เล่นขอก้อนจริง (foreground) หน้าต่างอ่านล่วงหน้าจะถูกตั้งใหม่ที่
+        //   ก้อนนั้นทันที: N+1..N+k เริ่มดึงขนานกันเลยโดยไม่รอให้เบราว์เซอร์ขอ
+        //   และงานเก็งของหน้าต่างเดิมที่ยังไม่ได้ช่องจะถูกทิ้งไปในจังหวะเดียวกัน
+        //   ⚠️ เรียกก่อน readChunk เสมอ: การตั้งหน้าต่าง *หลัง* จากรอก้อนนี้เสร็จ คือการ
+        //      กลับไปเป็นแบบเดิมอย่างเงียบ ๆ เพราะงานล่วงหน้าจะเริ่มช้ากว่าที่ควรทั้งก้อน
+        //   ⚠️ งานอ่านล่วงหน้าไม่มี onFailure: มันไม่ใช่คำขอของผู้ใช้ ความล้มเหลวของมัน
+        //      ต้องไม่ประกาศว่า preview พัง — ก้อนที่จำเป็นจริงจะถูกขอซ้ำแบบ foreground
+        //   ⚠️ owner: this stream was planned while `session` was live, and
+        //      pull() is lazy. If the session was replaced in between, neither
+        //      the read-ahead nor the read below may run — the loader below
+        //      still closes over the replaced session's DEK and blob.
+        const prefetched = state.readAhead(token, index, loaderFor(options), {
+          chunkCount: session.blob?.chunkCount,
+          owner: session,
+        })
+        diagnostics.record('read-ahead', {
+          foregroundChunkIndex: index,
+          prefetchIndexes: prefetched,
+          inFlightLoads: state.inFlightCount(token),
+          retainedPlaintextBytes: state.cacheBytes(),
+          discardedSpeculativeChunks: state.discardedSpeculativeCount(),
+        })
+        return state.readChunk(token, index, loaderFor(options), { owner: session })
+      },
     })
 
     return new Response(body, { status: plan.status, headers: plan.headers })
