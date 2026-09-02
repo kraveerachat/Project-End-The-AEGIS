@@ -14,6 +14,7 @@ import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
+import { readIdea3Status } from '../idea3/status.js'
 import {
   recordAudit, readAudit, sha256Hex,
   getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
@@ -188,6 +189,19 @@ apiRouter.get('/audit', requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
     const rows = await readAudit(200)
     res.json({ events: rows })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── IDEA3 Security status (Admin เท่านั้น, อ่านอย่างเดียว) ────────────────
+// เมนูจาก /me ทำให้ User ไม่ได้รับ navigation item แต่ไม่ใช่ security control:
+// endpoint นี้ตรวจ role ซ้ำทุก request และส่งเฉพาะ schema ที่ allow-list แล้ว
+// ไม่มี path, secret, HMAC, PIN, MQTT credential หรือคำสั่ง relay ไปถึง browser
+apiRouter.get('/security/status', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    res.json({ idea3: await readIdea3Status() })
   } catch (err) {
     next(err)
   }
