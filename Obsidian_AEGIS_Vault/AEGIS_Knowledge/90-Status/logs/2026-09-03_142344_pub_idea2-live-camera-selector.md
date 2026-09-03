@@ -22,6 +22,9 @@ edit_policy: append-by-new-file
   selection when there is no session/list.
 - Render assigned-camera ID/name/status/selected cards below the main player.
   Cards contain no image, fetch, polling interval or preview connection.
+  Follow-up layout clarification: three columns at desktop, reflowing by
+  container width to two/one columns; extra cameras wrap rather than disappear.
+  Two available cameras produce two buttons, never a fake third camera.
 - Main image/header/overlay, latest-detection access result and event list all
   use the same selected camera. Offline/empty states are explicit. New unknown
   detections do not inherit old clean authorizations.
@@ -61,17 +64,28 @@ edit_policy: append-by-new-file
 
 - `npm test` — **PASS 9/9**, from `IDEA2-AEGIS_Monitor/`.
 - `npx playwright install chromium`, then `npm run test:browser` —
-  **PASS 14/14**, Chromium 151, Playwright 1.62.1.
+  **PASS 17/17** on the final follow-up rerun, Chromium 151, Playwright 1.62.1.
 - Browser tests render actual App/Live/LiveFeed with TEST-ONLY server responses
   and real local multipart HTTP requests. Assert assigned cards only, first
   server camera, click/back/keyboard selection, stream URL/selected marker,
   main/right context, offline/empty states, idle availability, no extra preview
   demand, old viewer close, retry cancellation across the 2s deadline,
   availability loss, session expiry and browser-page close.
-- Responsive 360/768/1440px and light-theme browser screenshots inspected;
+- Responsive 360/768/1024/1440/1920px and light-theme browser screenshots inspected;
   all cards remain selectable and document width stays within the viewport.
   Visual QA caught an inherited tablet hero-height collapse; the selector
   stylesheet now preserves a 340px minimum and the browser suite asserts it.
+  Additional checks assert three cards on the first desktop row, a fourth on
+  the next row, placement below the main feed, and a two-camera SOC fixture.
+  The first follow-up run passed 16/17: the added SOC display-name assertion
+  exposed a fixture using `name` instead of public API `displayName`. The
+  fixture now uses `username`/`displayName`; production auth was not changed.
+  Visual inspection also caught inherited 901-1240px CSS squeezing the two
+  right panels into a narrow rail. At those widths the rail now gets its own
+  full-width row below the selector; the 1024px test verifies placement,
+  usable access-panel width and no internally clipped text. That assertion
+  initially caught a later legacy `.canvas` rule overriding the fix; the final
+  rule is scoped specifically to the canvas containing this selector.
 - `npm run build` — **PASS** (Vite production bundle).
 - Lint — **not configured** in Monitor package.json; no lint PASS claimed.
 - `npm audit --json` — **not clean**: six existing dependency advisories
@@ -110,10 +124,13 @@ existing cold-start backend behavior before any later deployment.
 
 ## Known limitations
 
-- This receipt records **source verification only**. No production deployment,
-  real login, real camera stream, reboot, key ACL, tunnel, database or network
-  action was performed. Source verification does not prove real RBAC/database
-  acceptance or camera hardware idle release.
+- This receipt records **source verification only**. A user-authorized read-only
+  browser inspection of the existing production SOC session confirmed username
+  `soc`, CAM-01/CAM-02 listed in Settings, the old CAM-02 main/CAM-01 right-panel
+  mismatch, and no new selector. This is pre-rollout observation, not acceptance
+  of the branch. No deployment, credential change, reboot, key ACL, tunnel,
+  database or network change was performed. Source verification does not prove
+  real RBAC/database acceptance or camera hardware idle release.
 - Main's existing `server/db/store.js` still gates `hasStream` on
   `camera_connected`; the existing `deploy/idea2-monitor-cold-start` branch
   uses heartbeat freshness/stream URL. The selector respects server-advertised

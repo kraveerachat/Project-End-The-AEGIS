@@ -13,7 +13,8 @@ test('Monitor presentation contract uses a feed-first two-column Live canvas', (
 
 test('Live canvas and camera cards reflow without hiding assigned cameras', () => {
   assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?\.canvas\s*\{[^}]*grid-template-columns:\s*1fr/s)
-  assert.match(selectorCss, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.camera-options\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)/s)
+  assert.match(selectorCss, /\.camera-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)/s)
+  assert.match(selectorCss, /@container\s*\(max-width:\s*640px\)[\s\S]*?\.camera-options\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)/s)
   assert.doesNotMatch(selectorCss, /display:\s*none|visibility:\s*hidden/)
 })
 
