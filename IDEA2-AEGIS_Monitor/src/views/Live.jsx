@@ -182,7 +182,7 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
               </div>
             )}
           </motion.div>
-          <CameraSelector cameras={cameras} selectedId={cam.id} link={link}
+          <CameraSelector cameras={cameras} selectedId={cam.id} link={link} sourceRef={heroRef}
             streamState={feedStatus?.cameraId === cam.id ? feedStatus.state : null}
             onSelect={(id) => {
               if (id === cam.id) return

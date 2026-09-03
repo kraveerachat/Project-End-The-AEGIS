@@ -10,7 +10,7 @@ export default defineConfig({
   outputDir: './node_modules/.cache/camera-selector-results',
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:15176',
+    baseURL: 'http://127.0.0.1:15177',
     browserName: 'chromium',
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     viewport: { width: 1440, height: 1000 },
@@ -19,7 +19,8 @@ export default defineConfig({
   },
   webServer: {
     command: 'node tests/browser/server.mjs',
-    url: 'http://127.0.0.1:15176/monitor/',
+    url: 'http://127.0.0.1:15177/monitor/',
+    env: { CAMERA_SELECTOR_FIXTURE_PORT: '15177' },
     reuseExistingServer: false,
   },
 })
