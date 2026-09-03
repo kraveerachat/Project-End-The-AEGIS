@@ -501,6 +501,11 @@ export const STRINGS = {
     exportCsv: 'Export CSV',
     filterAll: 'All',
     filterDenied: 'Denied only',
+    // Names the audit result filter, the same way filterActor / filterAction /
+    // filterRange name theirs. Its own key rather than reusing colResult:
+    // colResult is the table column head (and is declared twice in each
+    // locale, so what it resolves to is not obvious from the call site).
+    filterResult: 'Result',
     filterActor: 'Actor',
     filterAction: 'Action',
     filterRange: 'Date range',
@@ -1240,6 +1245,7 @@ export const STRINGS = {
     exportCsv: 'ส่งออก CSV',
     filterAll: 'ทั้งหมด',
     filterDenied: 'เฉพาะถูกปฏิเสธ',
+    filterResult: 'ผลลัพธ์',
     filterActor: 'ผู้กระทำ',
     filterAction: 'การกระทำ',
     filterRange: 'ช่วงเวลา',
@@ -1976,6 +1982,7 @@ export const STRINGS = {
     exportCsv: '导出 CSV',
     filterAll: '全部',
     filterDenied: '仅被拒绝',
+    filterResult: '结果',
     filterActor: '操作者',
     filterAction: '操作',
     filterRange: '时间范围',
