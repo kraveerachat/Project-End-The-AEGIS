@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-29
+updated: 2026-09-02
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1862,6 +1862,85 @@ read-only file mount and explicit deployment are completed.
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
+
+
+### IDEA1 file/share on-site acceptance — 2026-09-02
+
+> [!success] Field acceptance closure for file preview and restricted-share network scope
+> **DIRECT VLAN30 FILE PREVIEW = PASS. RESTRICTED SHARE VLAN30 ALLOW / OUTSIDE-ZONE DENY = PASS. VAULT 2 MiB ROUND-TRIP SHA-256 = PASS.**
+> The high-bitrate Vault preview limitation previously observed over the remote path is classified as a **remote delivery-environment/network-path limitation**, not a demonstrated Vault crypto, Service Worker, Beelink CPU/RAM/disk, or local-LAN defect. The current evidence does **not** isolate Twingate as the sole cause.
+
+#### A. Secure Share / network-scoped file sharing
+
+| Check | Evidence | Result |
+| :--- | :--- | :--- |
+| Restricted-share zone | `Management VLAN30 = 192.168.30.0/24` | ✅ PASS |
+| Allowed client path | Laptop `192.168.30.10` → Ethernet/VLAN30 → gateway `192.168.30.1` → AEGIS `192.168.10.10:443` | ✅ PASS |
+| Restricted share from VLAN30 | Existing restricted link opened and file downloaded successfully; redemption/hit counter incremented | ✅ PASS |
+| Outside-zone path | Local host override/route removed; `aegis.internal` resolved through Twingate to `100.96.97.113`, source `100.127.255.172` | ✅ PASS |
+| Restricted share outside allowed CIDR | Same link returned “This link is restricted … outside that range”; file download denied | ✅ PASS |
+| Remote/unrestricted share capability | Previously accepted in production/remote testing; not repeated as a new on-site requirement | ✅ PASS (existing evidence) |
+
+Application-layer CIDR enforcement is therefore demonstrated with a real positive/negative pair: **VLAN30 allow** and **Twingate/outside-zone deny**. This remains defense in depth and does not replace Twingate/device/firewall policy.
+
+#### B. Private Vault — encrypted-file integrity
+
+The deterministic 2 MiB Vault round-trip test is closed:
+
+- plaintext size before upload: **2,097,152 bytes**
+- expected/pre-upload SHA-256: `91d3beb88a9b2f778a6c44a1c53b63d3c79931845a9aef84b3fb414610bd1938`
+- Vault upload: **PASS**
+- browser-side download/decrypt: **PASS**
+- recovered size: **2,097,152 bytes**
+- recovered SHA-256: exact match
+- final: **`VAULT_2MIB_SHA256=PASS`**
+
+This proves byte-for-byte recovery through the client-side encrypt → ciphertext storage → client-side decrypt path for the deterministic acceptance file.
+
+#### C. Private Vault — large-video preview on direct VLAN30
+
+**High-bitrate stress file — `START_LIVE.mp4` (~1.1 GB, ~2 min):**
+
+| Measurement | On-site result |
+| :--- | :--- |
+| First frame | ~**8 s** |
+| Continuous playback | **>60 s PASS** |
+| Buffering/stutter during continuous play | **None observed** |
+| Read-ahead | Buffer visibly remained ahead of playhead |
+| Seek ~0:30 → 1:18 | ~**5 s** seek transition, ~**3 s** load before resumed playback |
+| Virtual media response | HTTP **206** |
+| Ciphertext chunk fetches | HTTP **200**, ~16.8 MiB chunks |
+
+**Large-normal video — ~323 MB / 17:48:**
+
+| Measurement | On-site result |
+| :--- | :--- |
+| First frame | ~**45–48 s** |
+| Continuous playback 60 s | ✅ PASS |
+| Buffering/stutter | None observed |
+| Seek 1:09 → 6:30 | ~**1–2 s**, then continuous playback |
+| Seek 8:40 → 15:30 | ~**6 s**, then continuous playback |
+| Repeated ~5 s seeks | ✅ PASS |
+
+The 323 MB first-frame latency remains a performance note; because sustained playback and seeks are healthy after startup, file/container metadata layout is a plausible contributor but is **not proven** and must not be stated as root cause.
+
+#### D. Direct-LAN ciphertext throughput
+
+Controlled browser fetch benchmark against Vault ciphertext chunks while using direct VLAN30:
+
+| Parallel fetches | Data | Time | Aggregate throughput |
+| :---: | ---: | ---: | ---: |
+| 1 | 16.00 MiB | 1.57 s | **10.17 MiB/s** |
+| 2 | 32.00 MiB | 3.04 s | **10.53 MiB/s** |
+| 4 | 64.00 MiB | 6.12 s | **10.46 MiB/s** |
+
+For comparison, the previous remote-path controlled benchmark was approximately **4.65 / 4.22 / 4.26 MiB/s** at 1/2/4 parallel fetches. The same ~1.1 GB high-bitrate file that stalled remotely plays continuously on direct VLAN30. Therefore the accepted conclusion is **remote delivery environment / network path limitation**; do not claim that Twingate alone was conclusively isolated.
+
+#### E. Normal-file status and remaining closure item
+
+Normal-file upload UI/regression and secure-share flows already have production PASS evidence in this note. The deterministic **1 MiB normal-file R2** acceptance created the known-good source successfully (`R2.1=PASS`, SHA-256 `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`), but its dedicated current-session upload → download → SHA-256 comparison has **not yet been completed**. Do not mark that specific R2 round trip PASS until direct evidence is collected.
+
+For final “large-file handling” closure, preview is not required for every file size. A file larger than 1 GiB may be accepted on the storage requirement when **upload + download + integrity/hash** pass; preview performance is a separate capability and the remote high-bitrate limitation must remain documented separately.
 
 ---
 
