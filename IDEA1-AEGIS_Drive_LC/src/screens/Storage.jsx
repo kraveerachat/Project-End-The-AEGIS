@@ -2,6 +2,7 @@ import { HardDrive, Database, Archive } from 'lucide-react'
 import {
   Card, CardTitle, Chip, Btn, ErrorState, InlineEmptyState, SkeletonLoader, NotYetImplemented,
 } from '../components/ui.jsx'
+import { CapacityCard } from '../components/CapacityRing.jsx'
 import { PROTECTION_LABEL, PROTECTION_TONE, labelFor } from '../components/BackupConfiguration.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
@@ -19,93 +20,16 @@ import { fmtBytes, fmtDateTime, fmtRelative } from '../lib/format.js'
    และผู้ที่เห็น "Nightly incremental · ok · 9 ชั่วโมงที่แล้ว" จะเชื่อว่ามีสำเนาข้อมูลอยู่จริง
    สองความเชื่อนั้นคือสิ่งที่ทำให้คนไม่ทำสำรองข้อมูลจนถึงวันที่ดิสก์เสีย
 
-   สิ่งที่แสดงตอนนี้ (ระยะ "ข้อมูลจริงก่อน ออกแบบทีหลัง" — การ์ดความจุยังเป็นแบบเดิมโดยเจตนา):
-   - ความจุ: statfs ของ mount ที่ Data Lake อยู่ + ผลรวมตามหมวดจากฐานข้อมูล (เหมือนเดิม)
+   สิ่งที่แสดงตอนนี้:
+   - ความจุ: statfs ของ mount ที่ Data Lake อยู่ + ผลรวมตามหมวดจากฐานข้อมูล — ตอนนี้อ่านเป็น
+     วงแหวนพร้อมตาราง legend แทนแท่งแนวนอน (ดู components/CapacityRing.jsx สำหรับกติกา
+     ของลายขวางและการจัดการหมวดที่เล็กเกินกว่าจะวาดได้) ตัวเลขและสัญญา API ไม่เปลี่ยน
    - สุขภาพดิสก์: หลักฐาน SMART จากตัวเก็บข้อมูลบนโฮสต์ (สิทธิ์จำกัดหนึ่งอุปกรณ์) ผ่าน
      telemetry agent → Drive ตรวจสอบสัญญาแล้วสรุปสถานะ — ไม่มีหลักฐาน = "ไม่ทราบ"
    - สำรองข้อมูล: สถานะ/ประวัติงาน/ความเสี่ยงจาก host backup agent ที่แยกสิทธิ์ —
      ตั้งค่าอย่างเดียวไม่มีวันเป็น "ปกติ" และปลายทางบนดิสก์ลูกเดียวกันคือ "ไม่ได้รับการป้องกัน"
    - RAID: ประกาศว่าไม่ได้ตั้งค่า เพราะไม่มี array ใน deployment นี้ ไม่มีการเดา
    คอนเทนเนอร์ Drive ยังไม่มีสิทธิ์ raw device ใด ๆ — ค่าทั้งหมดมาจาก agent ที่แยกออกไป */
-
-const SEG = [
-  { key: 'docs', color: 'var(--accent)' },
-  { key: 'archives', color: 'var(--ink-3)' },
-  { key: 'media', color: 'var(--violet)' },
-  { key: 'vaultSeg', color: 'var(--ink)' },
-  { key: 'versions', color: 'var(--warn)' },
-  { key: 'other', color: 'var(--accent-ink)' },
-]
-
-/* ── Capacity — ตัวเลขจาก statfs; ส่วนว่างเป็นลายขวาง = ไม่มีอะไรอยู่ตรงนั้น ── */
-function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
-  const total = capacityBytes?.totalBytes ?? 0
-  const segs = SEG
-    .map((s) => ({ ...s, bytes: usage?.[s.key] ?? 0 }))
-  const unaccounted = unaccountedBytes ?? 0
-  const free = capacityBytes?.freeBytes ?? 0
-  const pct = (b) => (total > 0 ? (b / total) * 100 : 0)
-  const amount = (bytes) => bytes === 0 ? t('storageZeroGb') : fmtBytes(bytes)
-
-  return (
-    <Card className="p-5">
-      <CardTitle sub={t('capacitySub')}>{t('capacity')}</CardTitle>
-
-      <div className="relative flex items-center gap-0.5 h-10 rounded-full border border-line bg-sunken hatch hatch-ink3 overflow-hidden" aria-hidden>
-        {segs.map((seg, i) => (
-          <div
-            key={seg.key}
-            className={`h-9 relative z-[1] ${i === 0 ? 'rounded-l-full' : ''}`}
-            style={{ width: `${pct(seg.bytes)}%`, backgroundColor: seg.color, minWidth: seg.bytes > 0 ? 2 : 0 }}
-          />
-        ))}
-        {unaccounted > 0 && (
-          <div className="h-9" style={{ width: `${pct(unaccounted)}%`, backgroundColor: 'var(--line)' }} />
-        )}
-        <div
-          className="h-9 relative z-[1] hatch hatch-ink3 rounded-r-full"
-          style={{ width: `${pct(free)}%`, backgroundColor: 'var(--card-sunken)' }}
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
-        {segs.map((seg) => (
-          <span key={seg.key} className="flex items-center gap-2 text-[13px]">
-            <span className="size-3 rounded-[4px]" style={{ backgroundColor: seg.color }} aria-hidden />
-            <span className="font-medium text-ink-2">{t(seg.key)}</span>
-            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {amount(seg.bytes)}
-            </span>
-          </span>
-        ))}
-        {unaccounted > 0 && (
-          // ⚠️ ไบต์ที่ statfs นับว่าใช้ไปแต่แอปไม่รู้จัก — แสดงแยกแทนที่จะยัดรวมกับหมวดใด
-          //    (ไฟล์ของระบบ, ข้อมูลของ container อื่นบน volume เดียวกัน, ไฟล์กำพร้า)
-          <span className="flex items-center gap-2 text-[13px]" title={t('unaccountedHint')}>
-            <span className="size-3 rounded-[4px]" style={{ backgroundColor: 'var(--line)' }} aria-hidden />
-            <span className="font-medium text-ink-2">{t('unaccounted')}</span>
-            <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(unaccounted)}</span>
-          </span>
-        )}
-        <span className="flex items-center gap-2 text-[13px]">
-          <span className="size-3 rounded-[4px] hatch hatch-ink3 border border-line" style={{ backgroundColor: 'var(--card-sunken)' }} aria-hidden />
-          <span className="font-medium text-ink-2">{t('free')}</span>
-          <span className="text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{amount(free)}</span>
-        </span>
-      </div>
-
-      <div className="mt-4 pt-3 border-t border-line flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-ink-2">
-        <span>{t('capacityTotal')}: <span className="font-mono text-ink">{amount(total)}</span></span>
-        <span>{t('capacityUsed')}: <span className="font-mono text-ink">{amount(capacityBytes?.usedBytes ?? 0)}</span></span>
-        <span>
-          {t('capacityUsedPct')}: <span className="font-mono text-ink">
-            {total > 0 ? Math.round(((capacityBytes?.usedBytes ?? 0) / total) * 100) : 0}%
-          </span>
-        </span>
-      </div>
-    </Card>
-  )
-}
 
 /* ── shared bits ─────────────────────────────────────────────────────── */
 const STATUS_TONE = { HEALTHY: 'ok', WARNING: 'warn', CRITICAL: 'danger', UNKNOWN: 'neutral', NOT_CONFIGURED: 'neutral' }
