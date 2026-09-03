@@ -20,6 +20,11 @@ import { initVaultStaging } from './storage/vaultStaging.js'
 import { cleanupAbandonedVaultUploads, scheduleVaultUploadCleanup } from './storage/vaultUploadCleanup.js'
 import { recoverStaleVaultCommits, scheduleVaultCommitRecovery } from './storage/vaultCommitRecovery.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
+// Backup write-freeze coordinator — polls the host backup agent's socket and
+// holds/acknowledges the bounded freeze that keeps the DB dump and the byte
+// snapshot consistent (server/backup/maintenance.js). Harmless without an
+// agent: every poll reports unreachable and nothing is ever frozen.
+import { backupMaintenance } from './backup/index.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
@@ -85,6 +90,12 @@ Promise.all([
       })
       .catch((err) => console.error('[aegis-drive] initial vault upload cleanup failed:', err.message))
     scheduleVaultUploadCleanup()
+
+    // Backup coordinator: polls the host backup agent (idle 30 s, 3 s during a
+    // job), refuses destructive mutations while the agent holds its lease, and
+    // acknowledges the freeze once in-flight mutations drain. Without an agent
+    // every poll is "unreachable" and the gate stays open.
+    backupMaintenance.start()
 
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'

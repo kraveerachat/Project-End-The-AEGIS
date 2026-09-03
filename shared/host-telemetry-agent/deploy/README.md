@@ -15,8 +15,12 @@ snapshot on a Unix socket:
 | Network | `/sys/class/net/enp1s0/statistics/{rx_bytes,tx_bytes}` |
 | Host uptime | `/proc/uptime` |
 
-It does **not** collect disk. Drive measures the Data Lake itself with `statfs`
-on the mount it already has, which needs no host access at all.
+It does **not** collect disk capacity. Drive measures the Data Lake itself with
+`statfs` on the mount it already has, which needs no host access at all.
+
+Physical disk health is collected by a **second, separate unit** —
+`aegis-disk-health.service`, fired by `aegis-disk-health.timer` — and only
+*read* by this agent as a file. See "Disk-health collector" below.
 
 There is no TCP listener, no shell execution, no Docker socket, no host PID
 namespace, and no capability of any kind. The agent's entire write surface is
@@ -149,6 +153,56 @@ cd shared/host-telemetry-agent && npm test
 
 They are: stale-socket reclamation, socket removal on stop, and the `0660` mode
 assertion. On Windows they are reported as skipped, never as passed.
+
+## Disk-health collector (prepared, not installed)
+
+| | |
+|---|---|
+| Unit | `aegis-disk-health.service` (`Type=oneshot`) + `aegis-disk-health.timer` (`OnUnitActiveSec=10min`) |
+| Identity | `aegis-disk-health` UID 29101, **primary group `aegis-telemetry`** (so the evidence file is readable by the agent and nobody else) |
+| Privilege | `CapabilityBoundingSet=CAP_SYS_RAWIO`, `AmbientCapabilities=CAP_SYS_RAWIO`, `SupplementaryGroups=disk` — nothing else |
+| Device | `DevicePolicy=closed`, `DeviceAllow=/dev/sda r` — one device, read-only, enforced by the cgroup filter as well as by the code's name pattern |
+| Command | `/usr/sbin/smartctl --json --info --health --attributes /dev/sda` — fixed binary, fixed flags, no self-test, no configuration change |
+| Output | `/var/lib/aegis-disk-health/disk-health.json`, `StateDirectory` 0750, file 0640, written atomically (tmp + rename) |
+| Network | `PrivateNetwork=true`, `IPAddressDeny=any` |
+
+Install (as root, after review), in addition to the agent steps above:
+
+```bash
+apt-get install smartmontools                       # provides /usr/sbin/smartctl
+install -m 0644 aegis-disk-health.sysusers.conf /usr/lib/sysusers.d/
+systemd-sysusers
+getent passwd aegis-disk-health                     # expect uid 29101
+cp -r ../collectors /opt/aegis/host-telemetry-agent/
+install -m 0644 aegis-disk-health.service aegis-disk-health.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now aegis-disk-health.timer
+systemctl start aegis-disk-health.service           # first reading now, not in 2 min
+```
+
+Verification on the host (REQUIRED; none of this has been run):
+
+```bash
+systemd-analyze verify /etc/systemd/system/aegis-disk-health.service
+systemd-analyze security aegis-disk-health.service
+journalctl -u aegis-disk-health.service -n 5        # expect: "sda: available (warnings: 0)" or an explicit reason
+stat -c '%U:%G %a' /var/lib/aegis-disk-health /var/lib/aegis-disk-health/disk-health.json
+# expect: aegis-disk-health:aegis-telemetry 750 / 640
+sudo -u aegis-telemetry cat /var/lib/aegis-disk-health/disk-health.json   # readable by the agent
+sudo -u nobody cat /var/lib/aegis-disk-health/disk-health.json            # expect: Permission denied
+curl --unix-socket /run/aegis-telemetry/telemetry.sock http://localhost/internal/disk-health
+grep -c serial /var/lib/aegis-disk-health/disk-health.json                # expect: 0
+```
+
+If `smartctl` cannot open the device under the unit (some SATA controllers
+need `CAP_SYS_ADMIN` for SG_IO), the evidence file will say
+`"reason": "device-open-failed"` and Drive will show *Unknown* with that
+reason. Do not add the capability without recording it in the unit, this
+README, and the receipt — a wider grant is a reviewed change, not a fix.
+
+Drive-side requirement: the agent unit gained one `Environment=` line
+(`AEGIS_TELEMETRY_DISK_HEALTH_FILE`). The Drive Compose delta is unchanged —
+the same socket serves both routes.
 
 ## Drive side (proposed, not applied)
 
