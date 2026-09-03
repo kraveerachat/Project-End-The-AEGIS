@@ -22,7 +22,11 @@ the normal Vite config and do not import these tests.
 Coverage includes API-assigned membership/order, both camera-context panels,
 offline/empty states, idle-but-streamable capture, switching back, cancellation
 on unmount/availability loss/session expiry/page close, retry cancellation,
-keyboard selection and 360/768/1440px layouts. Screenshots and failure output
+keyboard selection and 360/768/1024/1440px layouts. At 1920px the suite also
+verifies three columns below the main feed and wrapping of a fourth camera.
+Cards use container width to reflow to two or one column on narrower layouts.
+A two-camera SOC fixture verifies that no third camera is fabricated; it is
+not a real SOC login or production RBAC test. Screenshots and failure output
 are written below the ignored `node_modules/.cache/camera-selector-results/`.
 This is frontend/transport regression evidence, not production RBAC or
 real-camera acceptance. Server authorization remains unchanged:

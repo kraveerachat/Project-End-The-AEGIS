@@ -114,7 +114,39 @@ test('closing the browser page releases its multipart viewer', async ({ page, re
   await expect.poll(async () => (await stats(request)).active).toEqual([])
 })
 
-for (const width of [360, 768, 1440]) {
+test('desktop selector has three columns below the main feed and wraps extra cameras', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
+  await expect(card(page, first)).toContainText('Live')
+  const hero = await page.locator('.hero').boundingBox()
+  const selector = await page.locator('.camera-selector').boundingBox()
+  const boxes = await page.locator('.camera-option').evaluateAll(nodes => nodes.map(node => {
+    const { x, y, width } = node.getBoundingClientRect()
+    return { x, y, width }
+  }))
+  expect(selector.y).toBeGreaterThanOrEqual(hero.y + hero.height)
+  expect(boxes).toHaveLength(4)
+  expect(boxes[1].y).toBeCloseTo(boxes[0].y, 0)
+  expect(boxes[2].y).toBeCloseTo(boxes[0].y, 0)
+  expect(boxes[2].x).toBeGreaterThan(boxes[1].x)
+  expect(boxes[3].y).toBeGreaterThan(boxes[0].y)
+  expect(boxes[3].x).toBeCloseTo(boxes[0].x, 0)
+  await page.screenshot({ path: info.outputPath('selector-three-columns.png'), fullPage: true })
+})
+
+test('SOC with two server cameras gets two working choices, not a fabricated third camera', async ({ page, request }) => {
+  await request.post('/__fixture/reset?scenario=two-cameras')
+  await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('.camera-option')).toHaveCount(2)
+  await expect(page.getByText('Test SOC', { exact: true })).toBeVisible()
+  await card(page, second).click()
+  await expect(page.locator('.hero .hchip').first()).toContainText('CAM-02 · Test parking')
+  await expect(page.locator('.acpanel')).toContainText('Fixture Bob')
+  await expect(page.locator('.streampanel')).toContainText('Fixture Bob')
+  await expect.poll(async () => (await stats(request)).active).toEqual(['CAM-02'])
+})
+
+for (const width of [360, 768, 1024, 1440]) {
   test('all cards are selectable without viewport overflow at ' + width, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 })
     const errors = []
@@ -130,6 +162,13 @@ for (const width of [360, 768, 1440]) {
     await expect(card(page, first)).toContainText('Live')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     expect((await page.locator('.hero').boundingBox()).height).toBeGreaterThanOrEqual(340)
+    if (width === 1024) {
+      const selector = await page.locator('.camera-selector').boundingBox()
+      const access = await page.locator('.acpanel').boundingBox()
+      expect(access.y).toBeGreaterThanOrEqual(selector.y + selector.height)
+      expect(access.width).toBeGreaterThanOrEqual(250)
+      expect(await page.locator('.acpanel').evaluate(panel => panel.scrollWidth <= panel.clientWidth + 1)).toBe(true)
+    }
     expect(errors).toEqual([])
     await page.screenshot({ path: info.outputPath('selector-' + width + '.png'), fullPage: true })
   })

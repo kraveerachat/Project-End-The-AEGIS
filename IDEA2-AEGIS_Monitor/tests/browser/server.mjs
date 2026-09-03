@@ -18,7 +18,7 @@ let opened = []
 let closed = []
 const active = new Map()
 let counter = 0
-const assigned = () => scenario === 'empty' ? [] : allCameras.slice(0, 4)
+const assigned = () => scenario === 'empty' ? [] : allCameras.slice(0, scenario === 'two-cameras' ? 2 : 4)
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 function json(res, value, status = 200) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
@@ -41,7 +41,8 @@ function handler(req, res, next) {
   const path = url.pathname.slice('/monitor'.length)
   if (expired) return json(res, { error: 'Unauthenticated' }, 401)
   if (path === '/api/me') return json(res, {
-    user: { id: 'fixture-user', name: 'Test Operator', role: 'CCTV-Operator' },
+    user: { username: 'fixture-user', displayName: scenario === 'two-cameras' ? 'Test SOC' : 'Test Operator',
+      role: scenario === 'two-cameras' ? 'SOC-Responder' : 'CCTV-Operator' },
     menu: [{ id: 'live', group: 'navObservation' }, { id: 'settings', group: 'navPreferences' }],
   })
   if (path === '/api/cameras') return json(res, { cameras: assigned() })

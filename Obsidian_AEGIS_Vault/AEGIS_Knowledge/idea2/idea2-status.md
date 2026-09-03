@@ -202,12 +202,16 @@ image source/listeners and cancels retry/recovery timers.
 The main label, overlay, latest-detection Access Control result and Event Stream
 share the same selected-camera context. A newer unknown result cannot inherit
 an older authorization; missing detections show an explicit empty state.
-Responsive cards use the existing dark/light tokens and remain selectable at
-360/768/1440px. The earlier three-tile hardcoded priority/swap-order behavior is
+Responsive cards use the existing dark/light tokens, with three columns below
+the main feed and two/one columns when the container is narrower. They remain
+selectable at 360/768/1024/1440/1920px. Two server cameras produce two choices,
+not a fabricated third camera. The earlier three-tile hardcoded priority/swap-order behavior is
 superseded, not retained as a second selection architecture.
+At 901-1240px the right panels move below the feed/selector instead of being
+squeezed into the inherited narrow two-panel rail.
 
 Verification: Monitor unit tests **9/9**, isolated Chromium browser tests
-**14/14**, repository tests **56/56**, and production build pass. These are
+**17/17**, repository tests **56/56**, and production build pass. These are
 source/UI/HTTP-fixture results, **not real-machine acceptance**. Receipt:
 [[90-Status/logs/2026-09-03_142344_pub_idea2-live-camera-selector]].
 No Engine, installer, tunnel, key ACL, production database or deployment changed.
