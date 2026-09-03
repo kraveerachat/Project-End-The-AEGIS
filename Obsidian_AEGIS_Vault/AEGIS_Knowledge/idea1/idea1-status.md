@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-02
+updated: 2026-09-03
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1936,11 +1936,45 @@ Controlled browser fetch benchmark against Vault ciphertext chunks while using d
 
 For comparison, the previous remote-path controlled benchmark was approximately **4.65 / 4.22 / 4.26 MiB/s** at 1/2/4 parallel fetches. The same ~1.1 GB high-bitrate file that stalled remotely plays continuously on direct VLAN30. Therefore the accepted conclusion is **remote delivery environment / network path limitation**; do not claim that Twingate alone was conclusively isolated.
 
-#### E. Normal-file status and remaining closure item
+#### E. Normal-file R2 deterministic round-trip closure — 2026-09-03
 
-Normal-file upload UI/regression and secure-share flows already have production PASS evidence in this note. The deterministic **1 MiB normal-file R2** acceptance created the known-good source successfully (`R2.1=PASS`, SHA-256 `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`), but its dedicated current-session upload → download → SHA-256 comparison has **not yet been completed**. Do not mark that specific R2 round trip PASS until direct evidence is collected.
+The dedicated **1 MiB Normal File R2** acceptance is now fully closed with direct browser and Windows evidence:
 
-For final “large-file handling” closure, preview is not required for every file size. A file larger than 1 GiB may be accepted on the storage requirement when **upload + download + integrity/hash** pass; preview performance is a separate capability and the remote high-bitrate limitation must remain documented separately.
+- source file: `AEGIS_R2_NORMAL_1MiB.bin`
+- source size: **1,048,576 bytes**
+- expected/source SHA-256: `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`
+- upload through the real **Files** page: **PASS** — UI reported completion, the queue finished, and the file appeared in Files
+- download back to Windows: **PASS**
+- downloaded path: `C:\Users\User\Downloads\AEGIS_R2_NORMAL_1MiB.bin`
+- downloaded size: **1,048,576 bytes**
+- `SizeOK=True`
+- downloaded SHA-256: exact match with the source
+- `HashOK=True`
+- final: **`NORMAL_FILE_R2_ROUND_TRIP = PASS / CLOSED`**
+
+This closes the previously pending deterministic Normal File integrity proof. It demonstrates that the tested file survives the real **Files upload → server storage → download** round trip byte-for-byte. It does not imply that every future file size or format is automatically accepted without regression testing.
+
+For a separate formal “large-file storage” closure above 1 GiB, preview is not required for every file size. The storage criterion remains **upload + download + integrity/hash**; preview performance is a separate capability and the remote high-bitrate limitation remains documented separately.
+
+
+### IDEA1 Web Functional Acceptance checkpoint — 2026-09-03
+
+> [!info] Current page-level closure map
+> This matrix records only evidence already collected. `PASS / CLOSED` means the current acceptance scope is complete; `PARTIAL / PENDING` means implementation may exist but the remaining page-level workflow has not yet been directly accepted.
+
+| Primary screen | Current status | Closed evidence / remaining work |
+| :--- | :--- | :--- |
+| Dashboard | ✅ **PASS / CLOSED** | Production telemetry/authenticated visibility closure already recorded; no repeat required unless source/runtime changes affect the page. |
+| Files | ✅ **PASS / CLOSED** | Normal upload regression PASS; file authorization evidence exists; deterministic 1 MiB R2 upload → download → SHA-256 exact match is now PASS/CLOSED. |
+| Private Vault | ✅ **PASS / CLOSED (tested scope)** | 2 MiB encrypt/decrypt SHA-256 round trip, ~323 MB preview/seek and ~1.1 GB direct-VLAN30 high-bitrate preview passed. Remote high-bitrate limitation remains a delivery/network-path limitation. |
+| Secure Shares | ✅ **PASS / CLOSED (private/internal scope)** | Password/wrong-password/no-password/copy plus restricted-share VLAN30 allow and outside-zone deny passed. Public external share remains not implemented and is not counted as an internal-share failure. |
+| File History / Versions | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Next target: create/observe a real version, open history, restore an earlier version, then verify restored bytes/content. |
+| Storage & Backup | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Infrastructure backup/restore/persistence is PASS, but the Web page must still be checked for real `statfs` data, truthful unavailable states, refresh/error/empty behaviour, and only implemented controls. |
+| Audit Log | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Backend audit evidence exists; page list/filter/details/role visibility and only supported export/retention behaviour remain to be accepted. |
+| Access Control | 🟡 **PARTIAL PASS** | Server-side RBAC and provisioning are PASS; remaining Admin UI actions must be tested only where implemented. |
+| Settings | 🟡 **PARTIAL PASS** | Theme continuity and Network Zone workflow have real acceptance evidence; remaining Account/Security & Privacy/Storage & Data/Administrator controls require page-level verification. |
+
+**Recommended next acceptance order:** **File History / Versions → Storage & Backup → Audit Log → Access Control → Settings.** Dashboard, Files, Private Vault and Secure Shares should not be retested merely to reproduce an already closed state unless a later source/runtime change affects them.
 
 ---
 
