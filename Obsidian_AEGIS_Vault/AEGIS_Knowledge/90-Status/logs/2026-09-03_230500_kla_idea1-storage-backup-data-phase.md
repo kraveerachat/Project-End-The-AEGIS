@@ -106,6 +106,7 @@ deliberately unchanged; the Storage redesign is the next, separate phase.
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` — pass: 42 / 42.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass with 2 pre-existing canvas warnings.
 - `git diff --check` — pass.
+- `node scripts/validate-collaboration-policy.mjs --event <pr-event.json> --changed-files <origin/main...HEAD name-status>` — pass: "Collaboration policy passed" (run locally after listing every cross-scope path; the first CI run failed on directory globs, the `edited` run on the corrected body passed).
 - Not run: Linux socket-file tests (covered by the CI job), any real `smartctl`, `restic`, `pg_dump`, any host unit, any browser session. `PRODUCTION_ACCEPTANCE = NOT TESTED`.
 
 Tests added: telemetry agent 40 new tests in 4 new files (+2 updated); backup agent 51 new tests in 7 files; IDEA1 48 new tests in 6 new files (+1 updated).
