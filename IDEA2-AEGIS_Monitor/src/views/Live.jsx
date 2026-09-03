@@ -2,20 +2,20 @@ import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
-  bboxesFor, camShort, eventText,
+  bboxesFor, eventText,
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
-import { BBox, EmptyState, FeedChrome, Ping, StaleBadge, TBox } from '../components/ui.jsx'
+import { BBox, EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
-
-const SECONDARY_PRIORITY = ['CAM-01', 'CAM-05', 'CAM-04', 'CAM-06', 'CAM-02']
+import CameraSelector from '../components/CameraSelector.jsx'
+import { selectedCamera, cameraDetections, cameraHeartbeat } from '../lib/liveCamera.js'
 
 // ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
 // SOC-Responder ได้ทุกกล้อง; CCTV-Operator ได้เฉพาะกล้องที่มอบหมาย
 // วิวนี้ไม่กรองสิทธิ์เอง (และต้องไม่ทำ) — แค่ render ขอบเขตที่ได้รับ
-export default function Live({ now, link, detections, sysEvents, cameras, heroCam, setHeroCam }) {
+export default function Live({ now, link, detections, cameras, heroCam, setHeroCam }) {
   const heroRef = useRef(null)
-  const [swapOrder, setSwapOrder] = useState(SECONDARY_PRIORITY)
+  const [feedStatus, setFeedStatus] = useState(null)
 
   if (cameras === null) {
     return (
@@ -28,10 +28,10 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
     )
   }
 
-  const visibleIds = new Set((cameras ?? []).map((c) => c.id))
-  const cam = (cameras ?? []).find((c) => c.id === heroCam) ?? cameras?.[0] ?? null
-  const lost = link.status === 'lost'
-  const stale = link.status !== 'online'
+  const cam = selectedCamera(cameras, heroCam)
+  const camBeat = cameraHeartbeat(link, cam?.id)
+  const lost = !camBeat?.hasStream
+  const stale = lost || camBeat?.status !== 'online'
 
   if (!cam) {
     // บัญชีนี้ไม่มีกล้องที่มอบหมาย
@@ -44,55 +44,35 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
           </div>
         </div>
         <EmptyState
-          title="No cameras available to this account"
-          hint="Camera assignment is managed in AEGIS Monitor by a SOC-Responder. Contact your administrator."
+          title="No cameras assigned"
+          hint="Contact an administrator to assign a camera."
         />
       </>
     )
   }
 
-  const secondary = [...swapOrder, ...SECONDARY_PRIORITY]
-    .filter((id) => id !== cam.id && visibleIds.has(id))
-    .map((id) => cameras.find((c) => c.id === id))
-    .filter((c) => c && c.online)
-    .slice(0, 3)
-
-  const swapHeroCamera = (nextCamera) => {
-    if (nextCamera.id === cam.id) return
-    setSwapOrder((order) => [
-      cam.id,
-      ...order.filter((id) => id !== cam.id && id !== nextCamera.id),
-    ])
-    setHeroCam(nextCamera.id)
-  }
-
-  // เหตุการณ์ถูกจำกัดตามขอบเขตกล้องที่มองเห็น — operator ไม่เห็น event ของกล้องอื่น
-  const scoped = detections.filter((d) => visibleIds.has(d.cam))
+  // All camera-context panels derive from the same authorized selection.
+  const scoped = cameraDetections(detections, cam.id)
 
   // overlay = detection "ล่าสุดจริง" ของกล้องที่กำลังโฟกัส (ไม่มี = ไม่วาดอะไรเลย)
   // เดิมบรรทัดนี้คือ HERO_SCENES[cam.id] ซึ่งเป็นฉากที่แต่งไว้ตายตัวต่อ camera id
-  const heroFrame = scoped.find((d) => d.cam === cam.id) ?? null
+  const heroFrame = scoped[0] ?? null
   const heroBoxes = bboxesFor(heroFrame)
   const subjects = heroFrame?.people?.length ?? 0
   const hasUnknownNow = Boolean(heroFrame && hasUnk(heroFrame))
 
   // fps จริงจาก heartbeat ของกล้องนี้ (link.cameras[] ← ตาราง camera_heartbeat)
   // ไม่มี heartbeat = ไม่มีตัวเลข = ไม่แสดง (ห้ามเดา)
-  const camBeat = (link.cameras ?? []).find((h) => h.cam === cam.id)
   const fpsText = camBeat?.captureFps != null ? `${camBeat.captureFps.toFixed(1)}fps` : null
 
-  // Latest clean authorization feeds the access-control panel.
-  const grant = scoped.find((d) => !hasUnk(d))
-  const grantPerson = grant?.people[0]
+  // Never substitute a clean result from another camera or an older detection.
+  const grant = heroFrame && !hasUnk(heroFrame) ? heroFrame : null
+  const grantPerson = grant?.people?.[0]
 
   const rows = [
     ...scoped.map((d) => ({
-      id: d.id, at: d.at, cam: camShort(d.cam),
+      id: d.id, at: d.at,
       dot: hasUnk(d) ? 'warn' : 'ok', text: eventText(d),
-    })),
-    ...sysEvents.map((e) => ({
-      id: e.id, at: e.at, cam: '—',
-      dot: e.tone === 'warn' ? 'warn' : 'sys', text: e.text,
     })),
   ].sort((a, b) => b.at - a.at).slice(0, 12)
 
@@ -143,6 +123,7 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               hasStream={Boolean(camBeat?.hasStream)}
               lost={lost}
               hideStatus={lost}
+              onStateChange={setFeedStatus}
             />
             <FeedChrome /><div className="scanline" /><div className="vign" />
             <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
@@ -157,7 +138,7 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               <span className="hchip mono text-white font-mono text-xs font-semibold bg-black/40 px-2 py-1 rounded backdrop-blur-sm">{cam.id} · {cam.name}</span>
             </div>
             <div className="heroright absolute top-4 right-4 flex items-center gap-2 z-10">
-                {link.status === 'degraded' && <StaleBadge label="Link degraded" />}
+                {camBeat?.status === 'degraded' && <StaleBadge label="Link degraded" />}
                 {/* ⚠️ เดิมตรงนี้ hardcode "REC • 1080p • 24fps" — ความละเอียดมาจากตาราง
                     cameras จริง ส่วน fps จริงมาจาก heartbeat (capture_fps) ถ้ายังไม่มี
                     heartbeat ก็ไม่แสดงตัวเลข fps ปลอม */}
@@ -188,59 +169,22 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               </span>
             )}
             <span className="herots mono">
-              {lost ? `LAST FRAME ${fmtTime(link.lastFrameAt ?? now)}` : `${fmtDate(now)} ${fmtTime(now)}`}
+              {!lost && `${fmtDate(now)} ${fmtTime(now)}`}
             </span>
             {lost && (
               <div className="lostwrap flex flex-col items-center justify-center gap-3" role="alert">
                 <WifiOff aria-hidden="true" />
-                <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">CONNECTION LOST</span>
+                <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">Camera offline</span>
                 <span className="lost-state text-slate-300">NO LIVE STREAM</span>
-                <span className="lost-s mono text-slate-300">Last frame {fmtTime(link.lastFrameAt ?? now)}</span>
+                <span className="lost-s mono text-slate-300">Waiting for Detection Engine heartbeat...</span>
                 <span className="lost-detail mono text-white/80"> {cam.id}</span>
                 <span className="lost-r text-slate-300">Reconnecting</span>
               </div>
             )}
           </motion.div>
-          <div className="secondrow">
-            {/* ⚠️ เดิมทุก tile เป็น motion.button ที่ initial/animate ค่าเดียวกัน
-                (opacity:1, y:0 → opacity:1, y:0) = no-op ทั้งหมด ไม่มี whileHover/
-                whileTap อยู่ด้วยซ้ำ — hover/press feedback จริงมาจาก CSS ล้วน ๆ
-                (.sfeed--clickable:hover / :active ใน index.css) อยู่แล้ว ตัด
-                wrapper Framer Motion ที่ไม่ทำอะไรออก เหลือ <button> ธรรมดา:
-                เบากว่า, ไม่มี JS reflow ที่ไม่จำเป็นตอนโฟกัสกล้องบ่อย ๆ */}
-            {secondary.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className="sfeed sfeed--clickable"
-                onClick={() => swapHeroCamera(c)}
-                aria-label={`Focus ${c.id} — ${c.name}`}
-              >
-                <LiveFeed
-                  cameraId={c.id}
-                  cameraName={c.name}
-                  hasStream={Boolean((link.cameras ?? []).find((h) => h.cam === c.id)?.hasStream)}
-                  lost={lost}
-                  compact
-                />
-                <FeedChrome />
-                <div className="sfeed-overlay">
-                  <div className="sfeed-topline">
-                    <span className="sfid mono bg-white/95 border border-slate-300 text-slate-800 backdrop-blur-md px-2 py-1 rounded shadow-sm font-mono text-xs font-bold dark:bg-slate-900/90 dark:border-slate-700 dark:text-white">{c.id}</span>
-                    {lost
-                      ? <span className="sflive warn bg-amber-100 border border-amber-300 text-amber-700 px-2 py-1 rounded shadow-sm font-mono text-[10px] uppercase font-bold tracking-wider dark:bg-amber-900/50 dark:border-amber-500/50 dark:text-amber-400">STALE</span>
-                      : <span className="sflive"><span className="rec" />LIVE</span>}
-                  </div>
-                  <span className="sfloc bg-white/95 border border-slate-300 text-slate-700 backdrop-blur-md px-2 py-1 rounded shadow-sm text-xs dark:bg-slate-900/90 dark:border-slate-700 dark:text-slate-300">{c.name}</span>
-                </div>
-                {/* กล่องบน tile มาจาก detection ล่าสุดจริงของกล้องตัวนั้น (เดิมเป็น
-                    TILE_BOXES ที่ตั้งไว้ตายตัว) — ไม่มี detection = ไม่มีกล่อง */}
-                {!lost && bboxesFor(scoped.find((d) => d.cam === c.id)).map((b, i) => (
-                  <TBox key={i} kind={b.kind} top={b.top} left={b.left} width={b.width} height={b.height} />
-                ))}
-              </button>
-            ))}
-          </div>
+          <CameraSelector cameras={cameras} selectedId={cam.id} link={link}
+            streamState={feedStatus?.cameraId === cam.id ? feedStatus.state : null}
+            onSelect={setHeroCam} />
         </div>
         {/* ⚠️ เดิม canvasR เป็น motion.div ที่ fade+slide เข้ามาช้ากว่าฝั่งซ้าย
             150ms (delay: 0.15) โดยเจตนา — นี่คือ staggered page-load choreography
@@ -258,6 +202,7 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               </span>
               {stale ? <StaleBadge red={lost} label="Stale" /> : <span className="acdot" />}
             </div>
+            <p className="live-camera-context">{cam.id} · {cam.name} · Latest detection</p>
             {grantPerson ? (
               <div key={grant.id}>
                 <div className="acbig"><span className="accheck" aria-hidden="true">✓</span> Access authorized</div>
@@ -278,9 +223,11 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
                     <div className="acsval mono teal">{grantPerson.conf}%</div>
                   </div>
                 </div>
+                <p className="sub">{fmtDate(grant.at)} {fmtTime(grant.at)}</p>
               </div>
             ) : (
-              <p className="sub" style={{ margin: 0 }}>No authorization events yet this session.</p>
+              <p className="sub" style={{ margin: 0 }}>{heroFrame
+                ? 'No authorization in the latest detection.' : 'No recent detection'}</p>
             )}
           </section>
           <section className="panel glass streampanel">
@@ -291,17 +238,18 @@ export default function Live({ now, link, detections, sysEvents, cameras, heroCa
               </span>
               {lost && <StaleBadge red label="Frozen" />}
             </div>
+            <p className="live-camera-context">{cam.id} · {cam.name} · Selected camera only</p>
             <div className="streamlist">
+              {!rows.length && <p className="sub">No recent detection</p>}
               {rows.map((r, i) => (
                 <motion.div
                   key={r.id}
-                  className={i === 0 ? 'srow newflag' : 'srow'}
+                  className={i === 0 ? 'srow live-event-row newflag' : 'srow live-event-row'}
                   whileHover={{ x: 4, backgroundColor: 'rgba(255, 255, 255, 0.07)' }}
                   transition={{ duration: 0.15 }}
                 >
                   <span className="sts mono">{fmtTime(r.at)}</span>
                   <span className={`sdot ${r.dot}`} aria-hidden="true" />
-                  <span className="scam mono">{r.cam}</span>
                   <span className="stext">{r.text}</span>
                 </motion.div>
               ))}

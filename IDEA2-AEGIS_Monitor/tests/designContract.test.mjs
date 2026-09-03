@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+const selectorCss = await readFile(new URL('../src/components/CameraSelector.css', import.meta.url), 'utf8')
 
 test('Monitor presentation contract uses a feed-first two-column Live canvas', () => {
   assert.match(css, /\/\* IDEA2 CCTV presentation redesign v1 \*\//)
@@ -10,9 +11,10 @@ test('Monitor presentation contract uses a feed-first two-column Live canvas', (
   assert.match(css, /\.canvasR\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0/s)
 })
 
-test('Live canvas collapses structurally on narrow screens without hiding real feeds', () => {
+test('Live canvas and camera cards reflow without hiding assigned cameras', () => {
   assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?\.canvas\s*\{[^}]*grid-template-columns:\s*1fr/s)
-  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.secondrow\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)/s)
+  assert.match(selectorCss, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.camera-options\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)/s)
+  assert.doesNotMatch(selectorCss, /display:\s*none|visibility:\s*hidden/)
 })
 
 test('Presentation motion has a reduced-motion fallback', () => {

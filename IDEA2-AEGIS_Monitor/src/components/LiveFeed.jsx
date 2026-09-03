@@ -1,113 +1,86 @@
-// src/components/LiveFeed.jsx — AEGIS Monitor (IDEA2) · Phase B
-//
-// MJPEG ผ่าน image element คือวิธี "พื้นเมือง" ของเบราว์เซอร์: multipart/x-mixed-replace
-// ถูกถอดรหัสโดยตัวเบราว์เซอร์เอง ไม่ต้องมี player, ไม่ต้องมี JS ถอดเฟรม
-//
-// ⚠️ src ชี้ไปที่ origin ของ Monitor เสมอ (/monitor/api/cameras/:id/stream)
-//    ไม่เคยชี้ไปหา Detection Engine ตรง ๆ — เบราว์เซอร์ไม่รู้จัก และต้องไม่รู้จัก
-//    ที่อยู่ของ engine หรือ API key ของมัน
-//
-// ── ทำไมต้องจัดการ error เองทั้งหมด ─────────────────────────────────────────
-// image element บอกเราได้แค่ 'load' กับ 'error' — อ่าน HTTP status ไม่ได้เลย ดังนั้น
-// "สตรีมพัง" กับ "ไม่มีสิทธิ์" กับ "engine ตาย" หน้าตาเหมือนกันหมดในสายตา DOM
-// เราจึงแยกสามกรณีด้วยข้อมูลที่ "รู้ล่วงหน้าจาก /api/link" แทนที่จะเดาจาก event:
-//   - hasStream === false  → ไม่ต้องต่อเลย แสดง "ไม่มีสตรีม" ตรง ๆ (ไม่ค้าง ไม่ว่างเปล่า)
-//   - hasStream === true แต่ error → ลองใหม่แบบ backoff พร้อมบอกสถานะที่จอ
-//   - เซสชันหมด → apiFetch ตัวอื่น (poll /api/link ทุก 5 วิ) จะได้ 401 แล้วเด้ง
-//     กลับหน้า login ทั้งแอป — สตรีมถูก unmount ไปพร้อมกัน ไม่มีกรอบดำค้างจอ
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw, VideoOff, WifiOff } from 'lucide-react'
+// Native MJPEG, always through the authorized same-origin Monitor proxy.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { RefreshCw, WifiOff } from 'lucide-react'
 
-const RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000] // backoff, หยุดที่ 30 วิ
+const RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000]
 
-export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compact = false, hideStatus = false }) {
+function StreamImage({ src, alt, onLoad, onError }) {
+  const imageRef = useRef(null)
+  useLayoutEffect(() => {
+    const image = imageRef.current
+    image.addEventListener('load', onLoad)
+    image.addEventListener('error', onError)
+    image.src = src
+    return () => {
+      // Detaching an <img> alone can leave multipart requests alive.
+      // Cancel explicitly, without src="" (which requests the page).
+      image.removeEventListener('load', onLoad)
+      image.removeEventListener('error', onError)
+      image.removeAttribute('src')
+    }
+  }, [src, onLoad, onError])
+  return <img ref={imageRef} className="feedimg" alt={alt} draggable={false} />
+}
 
-  // 1. ปล่อยให้ React โหลด Hooks ตามกฎให้เสร็จก่อน
+function FeedSession({ cameraId, cameraName, lost, compact, hideStatus, onStateChange }) {
   const [nonce, setNonce] = useState(0)
-  const [state, setState] = useState('connecting') // connecting | live | error
+  const [state, setState] = useState('connecting')
+  const [justRecovered, setJustRecovered] = useState(false)
   const attempts = useRef(0)
   const timer = useRef(0)
-  // ⚠️ live-state feedback: กระพริบกรอบสั้น ๆ "เฉพาะตอนกู้คืนจาก error สำเร็จ"
-  // (attempts.current > 0 แปลว่าก่อนหน้านี้หลุดไปแล้วอย่างน้อยหนึ่งรอบ) — ไม่ทำ
-  // ตอนเชื่อมต่อสำเร็จครั้งแรกตอนโหลดหน้า เพราะนั่นจะกลายเป็น "page-load
-  // choreography" อีกแบบหนึ่ง สัญญาณนี้มีความหมายเฉพาะตอน "กลับมาออนไลน์" จริง ๆ
-  const [justRecovered, setJustRecovered] = useState(false)
+  const recoveryTimer = useRef(0)
+  const active = useRef(true)
 
-  const base = import.meta.env.BASE_URL
-  const src = `${base}api/cameras/${encodeURIComponent(cameraId)}/stream?t=${nonce}`
+  useLayoutEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+      clearTimeout(timer.current)
+      clearTimeout(recoveryTimer.current)
+    }
+  }, [])
+  useEffect(() => { onStateChange?.({ cameraId, state }) }, [cameraId, state, onStateChange])
 
   const retryNow = useCallback(() => {
+    if (!active.current) return
     clearTimeout(timer.current)
     attempts.current = 0
     setState('connecting')
     setNonce((n) => n + 1)
   }, [])
 
-  useEffect(() => {
-    clearTimeout(timer.current)
-    attempts.current = 0
-    setState('connecting')
-    setNonce((n) => n + 1)
-    return () => clearTimeout(timer.current)
-  }, [cameraId])
-
-  useEffect(() => {
-    if (!hasStream) {
-      clearTimeout(timer.current)
-      setState('nostream')
-    } else if (state === 'nostream') {
-      retryNow()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStream])
-
-  const onError = () => {
+  const onError = useCallback(() => {
+    if (!active.current) return
     setState('error')
-    const wait = RETRY_MS[Math.min(attempts.current, RETRY_MS.length - 1)]
-    attempts.current += 1
+    const wait = RETRY_MS[Math.min(attempts.current++, RETRY_MS.length - 1)]
     clearTimeout(timer.current)
     timer.current = setTimeout(() => {
+      if (!active.current) return
       setState('connecting')
       setNonce((n) => n + 1)
     }, wait)
-  }
+  }, [])
 
-  const onLoad = () => {
+  const onLoad = useCallback(() => {
+    if (!active.current) return
+    clearTimeout(timer.current)
     if (attempts.current > 0) {
-      // เพิ่งกู้คืนจาก error จริง ๆ (ไม่ใช่การเชื่อมต่อครั้งแรก) — ให้ feedback สั้น ๆ
       setJustRecovered(true)
-      setTimeout(() => setJustRecovered(false), 700)
+      clearTimeout(recoveryTimer.current)
+      recoveryTimer.current = setTimeout(() => {
+        if (active.current) setJustRecovered(false)
+      }, 700)
     }
     attempts.current = 0
     setState('live')
-  }
+  }, [])
 
-  useEffect(() => () => clearTimeout(timer.current), [])
-
-  if (!hasStream || state === 'nostream') {
-    if (compact || hideStatus) return <div className="hatch" />
-    return (
-      <>
-        <div className="hatch" />
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 999 }}>
-          <div className="hatch" />
-        </div>
-      </>
-    )
-  }
-
+  const src = `${import.meta.env.BASE_URL}api/cameras/${encodeURIComponent(cameraId)}/stream?t=${nonce}`
   return (
     <>
       <div className="hatch" />
-      <img
-        key={nonce}
-        className="feedimg"
-        src={src}
-        alt={`Live feed — ${cameraId} ${cameraName ?? ''}`.trim()}
-        onError={onError}
-        onLoad={onLoad}
-        draggable={false}
-      />
+      <StreamImage key={nonce} src={src} alt={`Live feed — ${cameraId} ${cameraName ?? ''}`.trim()}
+        onLoad={onLoad} onError={onError} />
       {justRecovered && <div className="feed-recovered" aria-hidden="true" />}
       {!compact && !hideStatus && state !== 'live' && (
         <div className="feedstate" role="status" aria-live="polite">
@@ -116,23 +89,33 @@ export default function LiveFeed({ cameraId, cameraName, hasStream, lost, compac
               <WifiOff aria-hidden="true" size={14} />
               <span>Stream interrupted — reconnecting…</span>
               <button type="button" className="ackbtn feedretry" onClick={retryNow}>
-                <RefreshCw aria-hidden="true" size={12} style={{ marginRight: 5 }} />Retry now
+                <RefreshCw aria-hidden="true" size={12} /> Retry now
               </button>
             </>
           ) : (
-            <>
-              <RefreshCw aria-hidden="true" size={14} className="spin" />
-              <span>Connecting to {cameraId}…</span>
-            </>
+            <><RefreshCw aria-hidden="true" size={14} className="spin" /><span>Connecting to {cameraId}…</span></>
           )}
         </div>
       )}
       {!compact && !hideStatus && lost && state === 'live' && (
-        <div className="feedstate" role="status">
-          <WifiOff aria-hidden="true" size={14} />
-          <span>Edge link lost — displayed frames may be stale</span>
-        </div>
+        <div className="feedstate" role="status"><WifiOff aria-hidden="true" size={14} /><span>Edge link lost — displayed frames may be stale</span></div>
       )}
     </>
   )
+}
+
+export default function LiveFeed(props) {
+  if (!props.hasStream) {
+    return (
+      <>
+        <div className="hatch" />
+        {!props.compact && !props.hideStatus && (
+          <div className="feedstate" role="status">No stream available for {props.cameraId}</div>
+        )}
+      </>
+    )
+  }
+  // Camera identity and availability both destroy the old session, including
+  // its image connection, listeners, backoff timer and recovery timer.
+  return <FeedSession key={props.cameraId} {...props} />
 }

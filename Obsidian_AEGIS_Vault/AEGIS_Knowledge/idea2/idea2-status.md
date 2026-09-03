@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-30
+updated: 2026-09-03
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -189,13 +189,40 @@ The final Monitor CSS contract now explicitly enforces `#07080B` dark canvas, `r
 
 The latest Monitor CSS build was deployed through the root `docker compose up -d --build` workflow. `monitor`, `gateway`, `drive`, and `postgres` all report `healthy`, and the gateway route `http://localhost/monitor/` returned HTTP 200. This is a local HTTP test stack; production deployment remains the separate HUB production compose/nginx configuration.
 
-### Live canvas feed HUD and click-to-swap (2026-07-28)
+### Live Canvas assigned-camera selector — source verification (2026-09-03)
 
-`src/views/Live.jsx` now keeps the active camera in the existing `heroCam` state while maintaining a local swap order so clicking a secondary camera promotes it to the main player and returns the previous main camera to the secondary grid. The main player remounts by camera id with a short opacity transition; the feed request lifecycle remains owned by `LiveFeed` and no API/data contract changed. Secondary tiles now use a structured HUD overlay for camera id, LIVE/STALE status, and location. `src/index.css` forces the main player/error copy to remain high-contrast on its always-dark surface in both themes, and gives light/dark tile labels their own glass treatment and readable status colors.
+`src/views/Live.jsx` retains the existing `heroCam` state, now defaulting to the
+first camera in the server response rather than a hardcoded ID. Metadata-only
+`CameraSelector` cards render every camera returned by `GET /api/cameras`,
+including offline cameras and the current selection. No card creates a preview
+connection. Only the selected camera mounts `LiveFeed`, through the existing
+authorized `/api/cameras/:id/stream` proxy. Switching/unmounting removes the old
+image source/listeners and cancels retry/recovery timers.
+
+The main label, overlay, latest-detection Access Control result and Event Stream
+share the same selected-camera context. A newer unknown result cannot inherit
+an older authorization; missing detections show an explicit empty state.
+Responsive cards use the existing dark/light tokens and remain selectable at
+360/768/1440px. The earlier three-tile hardcoded priority/swap-order behavior is
+superseded, not retained as a second selection architecture.
+
+Verification: Monitor unit tests **9/9**, isolated Chromium browser tests
+**14/14**, repository tests **56/56**, and production build pass. These are
+source/UI/HTTP-fixture results, **not real-machine acceptance**. Receipt:
+[[90-Status/logs/2026-09-03_142344_pub_idea2-live-camera-selector]].
+No Engine, installer, tunnel, key ACL, production database or deployment changed.
+
+Deployment prerequisite: the audited `main` baseline still derives
+`hasStream` from capture connection, while
+`deploy/idea2-monitor-cold-start` has the previously deployed freshness/URL
+availability policy. This UI honors server-advertised `hasStream` even when
+capture is idle, but does not merge that backend change. Reconcile the intended
+deployment revision before rollout and repeat real assigned-camera switching,
+idle cold start, and viewer-demand release acceptance.
 
 ### Presentation-only CCTV redesign (2026-07-28)
 
-The Live canvas and authenticated Monitor shell now use the confirmed IDEA1 visual language as a presentation skin over the existing real product: near-black canvas, quiet 24px grid, IDEA1-style compact topbar and sidebar, blue/violet active navigation, teal live state, restrained panels, and a balanced two-column Live workspace. The primary feed remains the visual anchor; camera thumbnails, access-control result, and event stream retain their existing real payloads and controls. At `≤900px` the rail stacks below the feed; at `≤640px` the thumbnail row collapses to two columns.
+The Live canvas and authenticated Monitor shell use the confirmed IDEA1 visual language as a presentation skin over the existing real product: near-black canvas, quiet 24px grid, IDEA1-style compact topbar and sidebar, blue/violet active navigation, teal live state, restrained panels, and a balanced two-column Live workspace. The primary feed remains the visual anchor. At `≤900px` the rail stacks below the feed. The old thumbnail row is superseded by the metadata-only responsive camera cards described above.
 
 This change is intentionally presentation-only. `IDEA2-AEGIS_Monitor/src/index.css` owns the redesign, `tests/designContract.test.mjs` protects the layout and reduced-motion contract, and `package.json` includes that test in `npm test`. A pre-existing malformed JSX newline/tag mismatch in `src/views/Live.jsx` was corrected only so the unchanged Live behavior can compile; no API, RBAC, camera assignment, MJPEG lifecycle, state machine, or event handling was changed. `npm test` passes 6/6 and `npm run build` succeeds.
 

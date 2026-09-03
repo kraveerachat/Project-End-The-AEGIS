@@ -1,0 +1,30 @@
+.canvasL > .hero { min-height: 340px; flex: 1 0 auto; aspect-ratio: 16 / 9; }
+.camera-selector { min-width: 0; flex: none; }
+.camera-selector-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 10px; color: var(--cctv-muted); font-size: 12px; }
+.camera-selector-heading h2 { margin: 0; font-size: 13px; font-weight: 650; color: var(--cctv-text); }
+.camera-selector-heading h2 span { color: var(--cctv-muted); font-weight: 400; }
+.camera-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; }
+.camera-option { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--cctv-line-strong); border-radius: 10px; background: var(--cctv-panel); color: var(--cctv-text); text-align: left; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
+.camera-option:hover { border-color: var(--teal); background: var(--cctv-panel-soft); }
+.camera-option:active { background: color-mix(in srgb, var(--teal) 14%, var(--cctv-panel)); }
+.camera-option[aria-pressed="true"] { border-color: var(--teal); background: color-mix(in srgb, var(--teal) 8%, var(--cctv-panel)); }
+.camera-option:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+.camera-option-top { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.camera-option-id { font-family: var(--mono); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.camera-option-name { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.camera-option-status { display: inline-flex; gap: 5px; align-items: center; color: var(--cctv-muted); font-size: 11px; }
+.camera-option-status > span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.camera-option-status--live, .camera-option-status--online { color: var(--cctv-teal); }
+.camera-option-selection { display: flex; align-items: center; gap: 4px; margin-top: auto; color: var(--cctv-muted); font-size: 11px; }
+.camera-option[aria-pressed="true"] .camera-option-selection { color: var(--teal); }
+.live-camera-context { margin: 0 0 14px; color: var(--cctv-muted); font-size: 12px; overflow-wrap: anywhere; }
+.streampanel .live-event-row { grid-template-columns: 64px 6px minmax(0, 1fr); }
+html.light .camera-option-status--live, html.light .camera-option-status--online { color: var(--teal); }
+@media (max-width: 640px) {
+  .camera-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .camera-option { padding: 12px; }
+}
+@media (max-width: 380px) {
+  .camera-options { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .camera-option { transition: none; } }
