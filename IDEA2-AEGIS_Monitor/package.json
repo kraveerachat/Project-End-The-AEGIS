@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --port 5176",
     "dev:server": "node --watch server/index.js",
-    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs",
+    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs tests/liveCamera.test.mjs",
+    "test:browser": "playwright test",
     "build": "vite build",
     "preview": "vite preview --port 5176",
     "start": "node server/index.js",
@@ -25,6 +26,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "^4.1.11",
     "@vitejs/plugin-react": "^4.6.0",
     "tailwindcss": "^4.1.11",

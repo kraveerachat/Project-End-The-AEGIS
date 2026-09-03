@@ -16,6 +16,7 @@ import { useMonitorEngine } from './engine.js'
 import { fmtDate, fmtTime } from './data.js'
 import { buildSections, viewOrderOf } from './nav.js'
 import { fetchMe, fetchCameras, logout as apiLogout } from './lib/auth.js'
+import { selectedCamera } from './lib/liveCamera.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
 
 export default function App() {
@@ -116,15 +117,12 @@ export default function App() {
 
   // หลังมีเซสชัน — ดึงรายการกล้องที่ตนมองเห็น (ขอบเขตมาจากเซิร์ฟเวอร์)
   useEffect(() => {
-    if (!session) { setCameras(null); return }
+    if (!session) { setCameras(null); setHeroCam(null); return }
     let alive = true
     fetchCameras().then((cams) => {
       if (!alive) return
       setCameras(cams)
-      // hero เริ่มที่กล้องแรกที่มองเห็น (SOC เห็นทุกตัว → CAM-02 ตามซีนเดิม)
-      if (cams?.length) {
-        setHeroCam((h) => (h && cams.some((c) => c.id === h) ? h : (cams.find((c) => c.id === 'CAM-02')?.id ?? cams[0].id)))
-      }
+        setHeroCam((current) => selectedCamera(cams, current)?.id ?? null)
     })
     return () => { alive = false }
   }, [session])
