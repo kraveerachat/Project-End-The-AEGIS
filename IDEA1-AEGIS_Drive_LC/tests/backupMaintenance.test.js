@@ -51,10 +51,32 @@ const runningStatus = (phase = 'QUIESCE_REQUESTED', { jobId = 'abcdef12-3456-789
 })
 
 test('MAINT-1 the destructive set is exactly the routes that move or remove referenced bytes', () => {
-  const yes = [['DELETE', '/files/42'], ['POST', '/files/upload'], ['POST', '/files/uploads/abc/commit'], ['POST', '/files/42/versions/7/restore'], ['DELETE', '/vault/blobs/9'], ['POST', '/vault/uploads/abc/commit']]
+  const yes = [['DELETE', '/files/42'], ['POST', '/files/upload'], ['POST', '/files/uploads/abc/commit'], ['POST', '/files/42/versions/7/restore'], ['DELETE', '/trash/42'], ['DELETE', '/trash'], ['DELETE', '/vault/blobs/9'], ['POST', '/vault/uploads/abc/commit']]
   const no = [['GET', '/files'], ['GET', '/files/42/download'], ['POST', '/shares'], ['DELETE', '/shares/1'], ['POST', '/files/uploads'], ['PUT', '/files/uploads/abc/chunks/3'], ['POST', '/files/42/verify'], ['POST', '/login'], ['DELETE', '/files/42/versions/7'], ['GET', '/storage']]
   for (const [method, path] of yes) assert.equal(isDestructiveRequest(method, path), true, `${method} ${path} must be gated`)
   for (const [method, path] of no) assert.equal(isDestructiveRequest(method, path), false, `${method} ${path} must not be gated`)
+})
+
+test('MAINT-8 background Trash purge participates in quiesce and cannot start during a freeze', async () => {
+  const h = harness({ statuses: [runningStatus(), runningStatus()] })
+  let finishPurge
+  const purge = h.m.runDestructive(() => new Promise((resolve) => { finishPurge = resolve }))
+  assert.equal(h.m.snapshot().inFlight, 1)
+
+  await h.m.tick()
+  assert.equal(h.m.snapshot().active, true)
+  assert.equal(h.m.snapshot().acknowledged, false)
+
+  finishPurge({ purged: 1 })
+  assert.deepEqual(await purge, { allowed: true, value: { purged: 1 } })
+  assert.equal(h.m.snapshot().inFlight, 0)
+  await h.m.tick()
+  assert.equal(h.m.snapshot().acknowledged, true)
+
+  let started = false
+  const blocked = await h.m.runDestructive(async () => { started = true })
+  assert.deepEqual(blocked, { allowed: false, value: null })
+  assert.equal(started, false)
 })
 
 test('MAINT-2 with no agent nothing is ever frozen and destructive requests pass through', async () => {

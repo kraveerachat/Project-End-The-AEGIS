@@ -60,10 +60,10 @@ export async function runTrashAutoPurge({ limit = DEFAULT_BATCH } = {}) {
 }
 
 let timer = null
-export function scheduleTrashAutoPurge() {
+export function scheduleTrashAutoPurge(run = runTrashAutoPurge) {
   if (timer) return timer
   timer = setInterval(() => {
-    runTrashAutoPurge().catch((error) => {
+    run().catch((error) => {
       console.error('[aegis-drive] trash auto-purge failed:', error.message)
     })
   }, HOUR_MS)
