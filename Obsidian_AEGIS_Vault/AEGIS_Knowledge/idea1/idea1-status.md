@@ -1830,35 +1830,6 @@ the end, and survives close/reopen on Windows Edge/Chrome.
 
 ---
 
-### IDEA3 Security status bridge (2026-09-02) — local source complete, not deployed
-
-IDEA1 now has a source-complete, read-only IDEA3 Security surface on branch
-`codex/idea1-idea3-security-status`. Only an authenticated `Admin` receives the
-`Security` navigation entry or `GET /api/security/status`; ordinary users do
-not see the entry and cannot open the route. The page uses the existing
-Precision Light design language and never exposes CUT, RESTORE, relay, MQTT or
-recovery controls.
-
-The server adapter reads only the operator-configured
-`AEGIS_IDEA3_STATUS_PATH`, rejects non-regular, empty, oversized, malformed,
-future-dated or out-of-contract status documents, and returns a small
-allow-listed schema with `Cache-Control: no-store`. Missing or stale evidence
-fails closed to `UNKNOWN`; no telemetry is guessed, and no raw supervisor
-details, component payloads, credentials or automatic-containment fields are
-returned to the browser.
-
-Verification on the canonical repository clone: the focused security suite
-passed **3/3**; the full IDEA1 suite passed **718**, failed **0**, with **67**
-pre-existing PostgreSQL-gated skips (**785 discovered**); the Vite production
-build passed; the Impeccable detector reported no findings; browser QA confirmed
-the Admin-only page, truthful hardware-unavailable state, hidden User menu and
-direct-route redirect. No ESP32, MQTT broker, relay, production network,
-deployment or PostgreSQL service was contacted. The status path remains unset
-by default, so the deployed product remains unchanged until an operator review,
-read-only file mount and explicit deployment are completed.
-
----
-
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
