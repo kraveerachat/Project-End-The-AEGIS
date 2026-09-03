@@ -20,11 +20,18 @@ edit_policy: append-by-new-file
 - Reuse App's `heroCam` state. Default to server order; retain a valid choice;
   reject missing/revoked IDs through the authorized-list fallback; clear
   selection when there is no session/list.
-- Render assigned-camera ID/name/status/selected cards below the main player.
-  Cards contain no image, fetch, polling interval or preview connection.
-  Follow-up layout clarification: three columns at desktop, reflowing by
-  container width to two/one columns; extra cameras wrap rather than disappear.
-  Two available cameras produce two buttons, never a fake third camera.
+- After explicit user approval, render live-preview ID/name/status/selected
+  cards below the main player. The earlier metadata-only requirement is
+  superseded: all streamable cameras in the current three-camera page demand
+  capture concurrently. Other pages do not open streams. Previous/Next selects
+  the first camera of the new page and closes the old page's viewers.
+  The selected card paints the main player's decoded image into a 320x180
+  in-memory canvas at up to 10 fps instead of opening a second MJPEG request.
+  Cleanup clears the pixels and interval. Unselected cards reuse compact
+  LiveFeed and its source/listener/retry teardown. Offline/reconnecting cards
+  cover stale images with an explicit state. No pixels are persisted/uploaded.
+  Three columns at desktop reflow by container width to two/one columns. Two
+  available cameras produce two choices, never a fake third camera.
 - Main image/header/overlay, latest-detection access result and event list all
   use the same selected camera. Offline/empty states are explicit. New unknown
   detections do not inherit old clean authorizations.
@@ -47,7 +54,7 @@ edit_policy: append-by-new-file
 - `IDEA2-AEGIS_Monitor/playwright.config.js` — isolated Chromium test configuration.
 - `IDEA2-AEGIS_Monitor/src/App.jsx` — server-order default and session reset.
 - `IDEA2-AEGIS_Monitor/src/lib/liveCamera.js` — authorized selection/context/status helpers.
-- `IDEA2-AEGIS_Monitor/src/components/CameraSelector.jsx` — metadata-only accessible buttons.
+- `IDEA2-AEGIS_Monitor/src/components/CameraSelector.jsx` — bounded live previews, selected-frame mirror and accessible paging/selection.
 - `IDEA2-AEGIS_Monitor/src/components/CameraSelector.css` — existing-theme responsive cards.
 - `IDEA2-AEGIS_Monitor/src/components/LiveFeed.jsx` — keyed session and stream/timer teardown.
 - `IDEA2-AEGIS_Monitor/src/views/Live.jsx` — selector and synchronized main/right contexts.
@@ -64,19 +71,21 @@ edit_policy: append-by-new-file
 
 - `npm test` — **PASS 9/9**, from `IDEA2-AEGIS_Monitor/`.
 - `npx playwright install chromium`, then `npm run test:browser` —
-  **PASS 17/17** on the final follow-up rerun, Chromium 151, Playwright 1.62.1.
+  **PASS 18/18** on the live-preview follow-up rerun, Chromium 151, Playwright 1.62.1.
 - Browser tests render actual App/Live/LiveFeed with TEST-ONLY server responses
   and real local multipart HTTP requests. Assert assigned cards only, first
   server camera, click/back/keyboard selection, stream URL/selected marker,
-  main/right context, offline/empty states, idle availability, no extra preview
-  demand, old viewer close, retry cancellation across the 2s deadline,
+  main/right context, offline/empty states, idle availability, bounded preview
+  demand (three settled connections maximum, no duplicate selected request),
+  moving mirrored pixels and canvas clearing, page-switch/old-viewer close,
+  retry cancellation across the 2s deadline,
   availability loss, session expiry and browser-page close.
 - Responsive 360/768/1024/1440/1920px and light-theme browser screenshots inspected;
   all cards remain selectable and document width stays within the viewport.
   Visual QA caught an inherited tablet hero-height collapse; the selector
   stylesheet now preserves a 340px minimum and the browser suite asserts it.
-  Additional checks assert three cards on the first desktop row, a fourth on
-  the next row, placement below the main feed, and a two-camera SOC fixture.
+  Additional checks assert three cards below the main feed, a fourth reachable
+  on the next page without background demand, and a two-camera SOC fixture.
   The first follow-up run passed 16/17: the added SOC display-name assertion
   exposed a fixture using `name` instead of public API `displayName`. The
   fixture now uses `username`/`displayName`; production auth was not changed.
@@ -86,6 +95,11 @@ edit_policy: append-by-new-file
   usable access-panel width and no internally clipped text. That assertion
   initially caught a later legacy `.canvas` rule overriding the fix; the final
   rule is scoped specifically to the canvas containing this selector.
+  The first live-preview run passed 17/18: a still-open interactive preview
+  reconnected to the shared fixture port and contaminated connection counts.
+  Automated tests now bind 15177 while interactive preview keeps 15176. The
+  isolated rerun passed 18/18. Generated moving PNG patterns replace the old
+  single white pixel to prove frame updates without using real camera footage.
 - `npm run build` — **PASS** (Vite production bundle).
 - Lint — **not configured** in Monitor package.json; no lint PASS claimed.
 - `npm audit --json` — **not clean**: six existing dependency advisories
@@ -109,7 +123,7 @@ From repository root:
 ## Canonical notes updated
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md` — server-driven
-  metadata cards replace hardcoded preview tiles; selected context and cleanup
+  bounded live-preview cards replace hardcoded tiles; selected context and cleanup
   verified in isolated browser tests; production acceptance still pending.
 
 ## Shared surfaces touched
@@ -141,8 +155,13 @@ existing cold-start backend behavior before any later deployment.
   before. Mid-session assignment revocation remains enforced by the existing
   server stream revalidation; refreshing the page retrieves updated cards.
 - Existing polling cadence and server proxy idle/session watchdogs are
-  unchanged. Cards are not independent health probes. Multi-hour stability,
+  unchanged. Thumbnail size does not lower upstream resolution or bitrate.
+  Up to three cameras may now capture/infer/record concurrently as approved;
+  CPU/network/recording impact requires actual-device measurement. Cards are
+  not independent health probes. Multi-hour stability,
   real-device responsiveness and other browser engines are not verified.
 - After merge/approved rollout: login as real Operator, verify assignments,
-  select A → B → A, confirm main/right identity, exit/close and verify idle
-  release, then re-enter from idle. No automatic merge/deployment in this task.
+  select A → B → A, confirm main/right identity and moving previews, change
+  preview page and verify the old page releases demand, then exit/close and
+  verify all viewers release. Re-enter from idle. No automatic merge/deployment
+  in this task.

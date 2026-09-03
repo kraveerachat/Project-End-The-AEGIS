@@ -192,12 +192,19 @@ The latest Monitor CSS build was deployed through the root `docker compose up -d
 ### Live Canvas assigned-camera selector — source verification (2026-09-03)
 
 `src/views/Live.jsx` retains the existing `heroCam` state, now defaulting to the
-first camera in the server response rather than a hardcoded ID. Metadata-only
-`CameraSelector` cards render every camera returned by `GET /api/cameras`,
-including offline cameras and the current selection. No card creates a preview
-connection. Only the selected camera mounts `LiveFeed`, through the existing
-authorized `/api/cameras/:id/stream` proxy. Switching/unmounting removes the old
-image source/listeners and cancels retry/recovery timers.
+first camera in the server response rather than a hardcoded ID. After explicit
+user approval, `CameraSelector` cards show live previews in pages of up to three
+authorized cameras from `GET /api/cameras`, including offline/selected cameras.
+Previous/Next exposes the rest of the list and selects the new page's first
+camera. Unselected cards use the existing authorized stream proxy; the selected
+thumbnail paints the main player's decoded pixels in memory at up to 10 fps,
+without another stream request. Changing page/unmounting removes image sources,
+listeners and retry timers, and clears/stops the selected thumbnail canvas.
+All streamable cameras in the current page now demand capture, not just the
+main camera; no off-page camera is started. This replaces the earlier
+metadata-only design. Full-resolution thumbnail streams add real network,
+capture/inference and potentially recording load; real-device measurement is
+still required.
 
 The main label, overlay, latest-detection Access Control result and Event Stream
 share the same selected-camera context. A newer unknown result cannot inherit
@@ -211,7 +218,7 @@ At 901-1240px the right panels move below the feed/selector instead of being
 squeezed into the inherited narrow two-panel rail.
 
 Verification: Monitor unit tests **9/9**, isolated Chromium browser tests
-**17/17**, repository tests **56/56**, and production build pass. These are
+**18/18**, repository tests **56/56**, and production build pass. These are
 source/UI/HTTP-fixture results, **not real-machine acceptance**. Receipt:
 [[90-Status/logs/2026-09-03_142344_pub_idea2-live-camera-selector]].
 No Engine, installer, tunnel, key ACL, production database or deployment changed.
@@ -226,7 +233,7 @@ idle cold start, and viewer-demand release acceptance.
 
 ### Presentation-only CCTV redesign (2026-07-28)
 
-The Live canvas and authenticated Monitor shell use the confirmed IDEA1 visual language as a presentation skin over the existing real product: near-black canvas, quiet 24px grid, IDEA1-style compact topbar and sidebar, blue/violet active navigation, teal live state, restrained panels, and a balanced two-column Live workspace. The primary feed remains the visual anchor. At `≤900px` the rail stacks below the feed. The old thumbnail row is superseded by the metadata-only responsive camera cards described above.
+The Live canvas and authenticated Monitor shell use the confirmed IDEA1 visual language as a presentation skin over the existing real product: near-black canvas, quiet 24px grid, IDEA1-style compact topbar and sidebar, blue/violet active navigation, teal live state, restrained panels, and a balanced two-column Live workspace. The primary feed remains the visual anchor. The old thumbnail row is superseded by the bounded live-preview camera selector described above.
 
 This change is intentionally presentation-only. `IDEA2-AEGIS_Monitor/src/index.css` owns the redesign, `tests/designContract.test.mjs` protects the layout and reduced-motion contract, and `package.json` includes that test in `npm test`. A pre-existing malformed JSX newline/tag mismatch in `src/views/Live.jsx` was corrected only so the unchanged Live behavior can compile; no API, RBAC, camera assignment, MJPEG lifecycle, state machine, or event handling was changed. `npm test` passes 6/6 and `npm run build` succeeds.
 
