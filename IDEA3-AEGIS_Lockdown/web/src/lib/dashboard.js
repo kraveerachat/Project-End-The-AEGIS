@@ -8,12 +8,12 @@ const statusPriority = Object.freeze({
   HEALTHY: -1,
 })
 
-const issueCopy = Object.freeze({
-  COMPONENT_FAILED: 'องค์ประกอบ runtime ยังไม่มีหลักฐานยืนยันที่เพียงพอ',
-  STATUS_STALE: 'หลักฐานล่าสุดเก่าเกินช่วงเวลาที่ระบบยอมรับ',
-  ADAPTER_UNAVAILABLE: 'ไม่สามารถอ่านหลักฐานจาก adapter ได้',
-  BROKER_DISCONNECTED: 'MQTT broker ไม่พร้อมรับส่งหลักฐาน',
-  DEVICE_OFFLINE: 'ไม่พบ heartbeat ล่าสุดจากอุปกรณ์',
+const runtimeIssueMessageKeys = Object.freeze({
+  COMPONENT_FAILED: 'issue.runtime.componentFailed',
+  STATUS_STALE: 'issue.runtime.statusStale',
+  ADAPTER_UNAVAILABLE: 'issue.runtime.adapterUnavailable',
+  BROKER_DISCONNECTED: 'issue.runtime.brokerDisconnected',
+  DEVICE_OFFLINE: 'issue.runtime.deviceOffline',
 })
 
 export function evidenceStatus(value = {}) {
@@ -32,11 +32,11 @@ export function engineStatus(value) {
 export function activeRuntimeModes(runtime = {}) {
   const modes = runtime.modes || {}
   return [
-    ['MONITOR ONLY', modes.monitorOnly],
-    ['DRY RUN', modes.dryRun],
+    ['MONITOR_ONLY', modes.monitorOnly],
+    ['DRY_RUN', modes.dryRun],
     ['ARMED', modes.armed],
-    ['AUTO CONTAIN', modes.autoContain],
-    ['RECOVERY AUTH', modes.recoveryAuthorized],
+    ['AUTO_CONTAIN', modes.autoContain],
+    ['RECOVERY_AUTHORIZED', modes.recoveryAuthorized],
   ].filter(([, enabled]) => enabled).map(([label]) => label)
 }
 
@@ -57,27 +57,27 @@ export function dashboardIssues(snapshot, { apiConnected = true } = {}) {
   if (!apiConnected) {
     addIssue(items, {
       key: 'api-disconnected', status: 'FAILED', component: 'Security Center API', route: 'settings',
-      title: 'API ขาดการเชื่อมต่อ', detail: 'กำลังแสดงหลักฐานล่าสุดที่เก็บไว้ ตรวจสอบบริการ API ก่อนดำเนินการ',
+      messageKey: 'issue.apiDisconnected.title', detailKey: 'issue.apiDisconnected.detail',
     })
   }
 
   if (incident?.severity === 'CRITICAL') {
     addIssue(items, {
       key: `incident-${incident.id}`, status: 'FAILED', component: incident.id, route: 'incidents',
-      title: 'มี Critical Incident ที่ต้องตรวจสอบ', detail: `เชื่อมโยงกับ ${incident.id}`,
+      messageKey: 'issue.criticalIncident.title', detailKey: 'issue.criticalIncident.detail', variables: { id: incident.id },
     })
   }
 
-  for (const [key, label, domain, route] of [
-    ['idea1', 'IDEA1 Access Security', snapshot.idea1, 'idea1'],
-    ['idea2', 'IDEA2 Detection', snapshot.idea2, 'idea2'],
+  for (const [key, label, componentKey, domain, route] of [
+    ['idea1', 'IDEA1 Access Security', 'idea1.component', snapshot.idea1, 'idea1'],
+    ['idea2', 'IDEA2 Detection', 'idea2.component', snapshot.idea2, 'idea2'],
   ]) {
     const status = evidenceStatus(domain)
     if (status !== 'HEALTHY') {
       addIssue(items, {
-        key, status, component: label, route,
-        title: status === 'STALE' ? `${label} มีหลักฐานเก่าเกินกำหนด` : `${label} ต้องตรวจสอบ`,
-        detail: 'เปิดหน้ารายละเอียดเพื่อตรวจแหล่งหลักฐานและสถานะ adapter',
+        key, status, component: label, componentKey, route,
+        messageKey: status === 'STALE' ? 'issue.domainStale.title' : 'issue.domainReview.title',
+        detailKey: 'issue.domain.detail',
       })
     }
   }
@@ -86,15 +86,14 @@ export function dashboardIssues(snapshot, { apiConnected = true } = {}) {
   if (!physicalRelayState || physicalRelayState === 'UNKNOWN' || relay.status === 'UNKNOWN') {
     addIssue(items, {
       key: 'relay-not-verified', status: 'UNKNOWN', component: 'IDEA3 relay evidence', route: 'lockdown',
-      title: 'IDEA3 relay evidence ยังไม่พร้อมตรวจสอบ',
-      detail: 'Requested state และ ACK ไม่ใช่หลักฐานยืนยันสถานะ Relay ทางกายภาพ',
+      messageKey: 'issue.relay.title', detailKey: 'issue.relay.detail',
     })
   }
 
   if (snapshot.auditIntegrity?.status !== 'HEALTHY') {
     addIssue(items, {
       key: 'audit-integrity', status: evidenceStatus(snapshot.auditIntegrity), component: 'Audit Store', route: 'audit',
-      title: 'Audit store ยังไม่เป็น durable verified storage', detail: snapshot.auditIntegrity?.detail || 'ยังไม่มีหลักฐานยืนยันความสมบูรณ์ของ Audit',
+      messageKey: 'issue.audit.title', detailKey: 'issue.audit.detail',
     })
   }
 
@@ -104,8 +103,8 @@ export function dashboardIssues(snapshot, { apiConnected = true } = {}) {
       status: issue.severity === 'CRITICAL' ? 'FAILED' : 'DEGRADED',
       component: issue.component,
       route: issue.component?.includes('relay') ? 'lockdown' : 'devices',
-      title: issueCopy[issue.code] || 'Runtime มีประเด็นที่ต้องตรวจสอบ',
-      detail: `${issue.code} · พบ ${issue.count ?? 1} ครั้ง`,
+      messageKey: runtimeIssueMessageKeys[issue.code] || 'issue.runtime.generic',
+      detailKey: 'issue.runtime.detail', variables: { code: issue.code, count: issue.count ?? 1 },
     })
   }
 
@@ -117,10 +116,11 @@ export function dashboardIssues(snapshot, { apiConnected = true } = {}) {
 export function recommendedActions(issues) {
   return issues.slice(0, 3).map((issue) => ({
     ...issue,
-    action: issue.route === 'incidents' ? `ตรวจสอบ Incident ${issue.component}`
-      : issue.route === 'lockdown' ? 'ตรวจสอบสถานะอุปกรณ์ IDEA3'
-        : issue.route === 'audit' ? 'ตรวจสอบ Audit configuration'
-          : issue.route === 'settings' ? 'ตรวจสอบการตั้งค่า Production'
-            : `เปิดรายละเอียด ${issue.component}`,
+    actionKey: issue.route === 'incidents' ? 'action.reviewIncident'
+      : issue.route === 'lockdown' ? 'action.reviewIdea3'
+        : issue.route === 'audit' ? 'action.reviewAudit'
+          : issue.route === 'settings' ? 'action.reviewProductionSettings'
+            : 'action.openDetails',
+    actionVariables: { component: issue.component },
   }))
 }

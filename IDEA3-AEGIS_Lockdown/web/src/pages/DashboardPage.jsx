@@ -12,6 +12,46 @@ import {
   recommendedActions, runtimeComponent,
 } from '../lib/dashboard.js'
 import { formatCount, formatDateTime, formatEvidenceAge } from '../lib/format.js'
+import { makeT, normalizeLanguage, statusLabel } from '../lib/i18n.js'
+
+const statusValues = new Set([
+  'HEALTHY', 'DEGRADED', 'FAILED', 'UNKNOWN', 'NOT_CONFIGURED', 'STALE',
+  'DISABLED', 'CONNECTED', 'DISCONNECTED', 'NOT_VERIFIED',
+])
+
+const valueKeys = Object.freeze({
+  OPEN: 'value.open',
+  CLOSED: 'value.closed',
+  AVAILABLE: 'value.available',
+  INVESTIGATING: 'value.investigating',
+  ACKED: 'value.acked',
+  ACKNOWLEDGED: 'value.acked',
+  NOT_ACKNOWLEDGED: 'value.notAcknowledged',
+  RUNNING: 'value.running',
+  STOPPED: 'value.stopped',
+})
+
+const runtimeModeKeys = Object.freeze({
+  MONITOR_ONLY: 'runtime.monitorOnly',
+  DRY_RUN: 'runtime.dryRun',
+  ARMED: 'runtime.armed',
+  AUTO_CONTAIN: 'runtime.autoContain',
+  RECOVERY_AUTHORIZED: 'runtime.recoveryAuthorized',
+})
+
+const severityKeys = Object.freeze({
+  INFO: 'severity.info',
+  WARNING: 'severity.warning',
+  HIGH: 'severity.high',
+  CRITICAL: 'severity.critical',
+})
+
+const resultKeys = Object.freeze({
+  DETECTED: 'result.detected',
+  DENIED: 'result.denied',
+  BLOCKED: 'result.blocked',
+  VERIFIED: 'result.verified',
+})
 
 function RouteLink({ route, onNavigate, children, ariaLabel, className = 'dashboard-link' }) {
   return (
@@ -31,61 +71,81 @@ function RouteLink({ route, onNavigate, children, ariaLabel, className = 'dashbo
   )
 }
 
-function ageAtSnapshot(timestamp, snapshotTimestamp) {
-  const evidenceTime = Date.parse(timestamp)
-  const snapshotTime = Date.parse(snapshotTimestamp)
-  if (!Number.isFinite(evidenceTime) || !Number.isFinite(snapshotTime)) return 'ไม่พบหลักฐานเวลา'
-  return formatEvidenceAge(Math.max(0, snapshotTime - evidenceTime))
+function localizedValue(value, language, t) {
+  const normalizedValue = String(value || 'UNKNOWN').replaceAll(' ', '_')
+  if (statusValues.has(normalizedValue)) return statusLabel(normalizedValue, language)
+  if (valueKeys[normalizedValue]) return t(valueKeys[normalizedValue])
+  return value || t('value.unavailable')
 }
 
-function SourceHealthTable({ snapshot }) {
+function badgeCopy(status, language, t) {
+  const label = statusLabel(status, language)
+  return { label, ariaLabel: t('status.aria', { status: label }) }
+}
+
+function ageAtSnapshot(timestamp, snapshotTimestamp, language, t) {
+  const evidenceTime = Date.parse(timestamp)
+  const snapshotTime = Date.parse(snapshotTimestamp)
+  if (!Number.isFinite(evidenceTime) || !Number.isFinite(snapshotTime)) return t('time.missing')
+  return formatEvidenceAge(Math.max(0, snapshotTime - evidenceTime), language)
+}
+
+function SourceHealthTable({ snapshot, language, t }) {
   const rows = snapshot.sources.map((source) => ({
     ...source,
     displayStatus: evidenceStatus(source),
-    age: ageAtSnapshot(source.generatedAt, snapshot.generatedAt),
+    age: ageAtSnapshot(source.generatedAt, snapshot.generatedAt, language, t),
   }))
   const columns = [
-    { key: 'name', label: 'Source', render: (value, row) => <div className="primary-cell"><span className={`source-glyph source-glyph--${row.displayStatus.toLowerCase()}`} /><strong>{value}</strong></div> },
-    { key: 'displayStatus', label: 'Status', render: (value) => <StatusBadge status={value} compact /> },
-    { key: 'detail', label: 'Mode / Contract' },
-    { key: 'generatedAt', label: 'Last Evidence', render: (value) => <span className="mono">{formatDateTime(value)}</span> },
-    { key: 'age', label: 'Freshness', render: (value, row) => <span className={row.displayStatus === 'STALE' ? 'freshness freshness--stale' : 'freshness'}>{row.displayStatus === 'STALE' ? `STALE — ${value}` : value}</span> },
-    { key: 'latencyMs', label: 'Latency', render: (value) => <span className="mono">{Number.isFinite(value) ? `${value.toFixed(1)} ms` : 'ไม่พร้อมใช้'}</span> },
+    { key: 'name', label: t('source.columnSource'), render: (value, row) => <div className="primary-cell"><span className={`source-glyph source-glyph--${row.displayStatus.toLowerCase()}`} /><strong>{value}</strong></div> },
+    { key: 'displayStatus', label: t('source.columnStatus'), render: (value) => <StatusBadge status={value} compact {...badgeCopy(value, language, t)} /> },
+    { key: 'detail', label: t('source.columnContract') },
+    { key: 'generatedAt', label: t('source.columnLastEvidence'), render: (value) => <span className="mono">{formatDateTime(value, language)}</span> },
+    {
+      key: 'age', label: t('source.columnFreshness'), render: (value, row) => (
+        <span className={row.displayStatus === 'STALE' ? 'freshness freshness--stale' : 'freshness'}>
+          {row.displayStatus === 'STALE' ? t('source.staleValue', { status: statusLabel('STALE', language), age: value }) : value}
+        </span>
+      ),
+    },
+    { key: 'latencyMs', label: t('source.columnLatency'), render: (value) => <span className="mono">{Number.isFinite(value) ? `${value.toFixed(1)} ms` : t('value.unavailable')}</span> },
   ]
 
-  return <DataTable columns={columns} rows={rows} emptyLabel="ยังไม่มีหลักฐานจากแหล่งข้อมูล" />
+  return <DataTable columns={columns} rows={rows} emptyLabel={t('source.empty')} />
 }
 
-const eventColumns = [
-  { key: 'timestamp', label: 'Time', render: (value) => <span className="mono">{formatDateTime(value)}</span> },
-  { key: 'source', label: 'Source', render: (value) => <span className="source-tag">{value}</span> },
-  { key: 'type', label: 'Type', render: (value) => <strong className="table-strong">{value}</strong> },
-  { key: 'sourceIp', label: 'Source IP', render: (value) => <span className="mono">{value || '—'}</span> },
-  { key: 'severity', label: 'Severity', render: (value = 'INFO') => <span className={`severity severity--${value.toLowerCase()}`}>{value}</span> },
-  { key: 'result', label: 'Result', render: (value) => value || '—' },
-]
+function eventColumns(language, t) {
+  return [
+    { key: 'timestamp', label: t('event.columnTime'), render: (value) => <span className="mono">{formatDateTime(value, language)}</span> },
+    { key: 'source', label: t('event.columnSource'), render: (value) => <span className="source-tag">{value}</span> },
+    { key: 'type', label: t('event.columnType'), render: (value) => <strong className="table-strong">{value}</strong> },
+    { key: 'sourceIp', label: t('event.columnSourceIp'), render: (value) => <span className="mono">{value || '—'}</span> },
+    { key: 'severity', label: t('event.columnSeverity'), render: (value = 'INFO') => <span className={`severity severity--${value.toLowerCase()}`}>{t(severityKeys[value] || severityKeys.INFO)}</span> },
+    { key: 'result', label: t('event.columnResult'), render: (value) => resultKeys[value] ? t(resultKeys[value]) : value || '—' },
+  ]
+}
 
-function GlobalFact({ label, value, status, detail }) {
+function GlobalFact({ label, value, status, detail, language, t }) {
   return (
     <div className="global-fact">
-      <div><span>{label}</span>{status && <StatusBadge status={status} compact />}</div>
+      <div><span>{label}</span>{status && <StatusBadge status={status} compact {...badgeCopy(status, language, t)} />}</div>
       <strong>{value}</strong>
       {detail && <small>{detail}</small>}
     </div>
   )
 }
 
-function IdeaCard({ testId, icon: Icon, title, mode, status, children, route, onNavigate }) {
+function IdeaCard({ testId, icon: Icon, title, mode, status, children, route, onNavigate, language, t }) {
   const ideaLabel = route === 'idea1' ? 'IDEA1' : route === 'idea2' ? 'IDEA2' : 'IDEA3'
   return (
     <article className="idea-status-card" data-testid={testId}>
       <header>
         <span className="idea-status-card__icon"><Icon size={19} aria-hidden="true" /></span>
         <div><h2>{title}</h2><p>{mode}</p></div>
-        <StatusBadge status={status} compact />
+        <StatusBadge status={status} compact {...badgeCopy(status, language, t)} />
       </header>
       <div className="idea-status-card__body">{children}</div>
-      <RouteLink route={route} onNavigate={onNavigate} ariaLabel={`ดูรายละเอียด ${ideaLabel}`}>ดูรายละเอียด</RouteLink>
+      <RouteLink route={route} onNavigate={onNavigate} ariaLabel={t('idea.viewDetailsAria', { idea: ideaLabel })}>{t('idea.viewDetails')}</RouteLink>
     </article>
   )
 }
@@ -94,37 +154,61 @@ function MiniFacts({ items }) {
   return <dl className="mini-facts">{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
 }
 
-function IncidentSpotlight({ incident, snapshotTimestamp, onNavigate }) {
-  if (!incident) return <div className="empty-state dashboard-empty"><span className="aegis-hatch" aria-hidden="true" /><p>ไม่มี Incident ที่กำลังดำเนินการ</p></div>
+function IncidentSpotlight({ incident, snapshotTimestamp, onNavigate, language, t }) {
+  if (!incident) return <div className="empty-state dashboard-empty"><span className="aegis-hatch" aria-hidden="true" /><p>{t('incident.empty')}</p></div>
 
-  const sources = [incident.idea1Count ? 'IDEA1' : null, incident.idea2Count ? 'IDEA2' : null].filter(Boolean).join(' + ') || 'UNKNOWN'
-  const acknowledged = String(incident.responseState).includes('ACK') ? 'ACKNOWLEDGED' : 'NOT ACKNOWLEDGED'
+  const sources = [incident.idea1Count ? 'IDEA1' : null, incident.idea2Count ? 'IDEA2' : null].filter(Boolean).join(' + ') || statusLabel('UNKNOWN', language)
+  const acknowledged = String(incident.responseState).includes('ACK') ? t('value.acked') : t('value.notAcknowledged')
+  const severity = incident.severity || 'INFO'
   return (
     <article className="incident-focus">
       <div className="incident-focus__top">
         <span className="mono">{incident.id}</span>
-        <span className={`severity severity--${incident.severity.toLowerCase()}`}>{incident.severity}</span>
+        <span className={`severity severity--${severity.toLowerCase()}`}>{t(severityKeys[severity] || severityKeys.INFO)}</span>
       </div>
       <h3>{incident.title}</h3>
       <p>{incident.summary}</p>
       <MiniFacts items={[
-        ['Source IP', incident.sourceIp || 'ไม่พร้อมใช้'],
-        ['Linked sources', sources],
-        ['Incident state', incident.state],
-        ['Response state', incident.responseState],
-        ['Started', formatDateTime(incident.firstSeen)],
-        ['Age', ageAtSnapshot(incident.firstSeen, snapshotTimestamp)],
-        ['Acknowledgement', acknowledged],
+        [t('incident.sourceIp'), incident.sourceIp || t('value.unavailable')],
+        [t('incident.linkedSources'), sources],
+        [t('incident.state'), localizedValue(incident.state, language, t)],
+        [t('incident.responseState'), localizedValue(incident.responseState, language, t)],
+        [t('incident.started'), formatDateTime(incident.firstSeen, language)],
+        [t('incident.age'), ageAtSnapshot(incident.firstSeen, snapshotTimestamp, language, t)],
+        [t('incident.acknowledgement'), acknowledged],
       ]} />
-      <RouteLink route="incidents" onNavigate={onNavigate} ariaLabel={`เปิด Incident ${incident.id}`} className="button button--primary dashboard-primary-action">เปิด Incident</RouteLink>
+      <RouteLink route="incidents" onNavigate={onNavigate} ariaLabel={t('incident.openAria', { id: incident.id })} className="button button--primary dashboard-primary-action">{t('incident.open')}</RouteLink>
     </article>
   )
 }
 
-export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRefresh }) {
+function localizedIssue(issue, language, t) {
+  const component = issue.componentKey ? t(issue.componentKey) : issue.component
+  const variables = {
+    ...issue.variables,
+    component,
+    count: formatCount(issue.variables?.count, language),
+  }
+  return {
+    ...issue,
+    component,
+    title: t(issue.messageKey, variables),
+    detail: t(issue.detailKey, variables),
+  }
+}
+
+function localizedAction(action, language, t) {
+  const component = action.componentKey ? t(action.componentKey) : action.component
+  return t(action.actionKey, { ...action.actionVariables, component, count: formatCount(action.variables?.count, language) })
+}
+
+export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRefresh, language = 'th' }) {
+  const activeLanguage = normalizeLanguage(language)
+  const t = makeT(activeLanguage)
   const incident = snapshot.incidents?.[0]
-  const issues = dashboardIssues(snapshot, { apiConnected })
-  const nextActions = recommendedActions(issues)
+  const rawIssues = dashboardIssues(snapshot, { apiConnected })
+  const issues = rawIssues.map((issue) => localizedIssue(issue, activeLanguage, t))
+  const nextActions = recommendedActions(rawIssues)
   const idea1Status = evidenceStatus(snapshot.idea1)
   const idea2Status = evidenceStatus(snapshot.idea2)
   const runtimeStatus = evidenceStatus(snapshot.runtime)
@@ -139,107 +223,112 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
   const heartbeat = runtimeComponent(snapshot.runtime, 'heartbeat')
   const ack = runtimeComponent(snapshot.runtime, 'ack')
   const relay = runtimeComponent(snapshot.runtime, 'relay')
-  const physicalRelay = device?.physicalRelayState && device.physicalRelayState !== 'UNKNOWN' ? device.physicalRelayState : 'NOT VERIFIED'
+  const physicalRelay = device?.physicalRelayState && device.physicalRelayState !== 'UNKNOWN' ? device.physicalRelayState : 'NOT_VERIFIED'
+  const overallLabel = statusLabel(snapshot.overall.status, activeLanguage)
 
   return (
     <div className="page-stack dashboard-page">
-      <section className="mission-control" aria-label="สถานะระบบส่วนกลาง">
+      <section className="mission-control" role="region" aria-label={t('dashboard.systemStatusAria')}>
         <header>
           <div>
-            <p>ภาพรวมการปฏิบัติการ</p>
-            <h2>AEGIS Mission Control</h2>
-            <span>แยกสถานะการเชื่อมต่อ ความสดของหลักฐาน และการควบคุมอุปกรณ์ออกจากกัน</span>
+            <p>{t('dashboard.kicker')}</p>
+            <h2>{t('dashboard.title')}</h2>
+            <span>{t('dashboard.summary')}</span>
           </div>
           <div className="mission-control__actions">
-            <StatusBadge status={snapshot.overall.status} />
-            {onRefresh && <button className="button button--secondary" type="button" onClick={onRefresh}><RefreshCw size={15} />รีเฟรชสถานะ</button>}
+            <StatusBadge status={snapshot.overall.status} {...badgeCopy(snapshot.overall.status, activeLanguage, t)} />
+            {onRefresh && <button className="button button--secondary" type="button" onClick={onRefresh}><RefreshCw size={15} />{t('dashboard.refresh')}</button>}
           </div>
         </header>
         <div className="global-status-grid">
-          <GlobalFact label="Environment" value={snapshot.mode} status={snapshot.mode === 'DEMO' ? 'DEGRADED' : 'HEALTHY'} detail={snapshot.mode === 'DEMO' ? 'ข้อมูลจำลอง ไม่ใช่ระบบจริง' : 'อ่านจาก Live provider'} />
-          <GlobalFact label="API" value={apiConnected ? 'CONNECTED' : 'DISCONNECTED'} status={apiConnected ? 'HEALTHY' : 'FAILED'} detail={apiConnected ? 'Snapshot ล่าสุดอ่านสำเร็จ' : 'แสดง cached evidence'} />
-          <GlobalFact label="Data freshness" value={formatEvidenceAge(snapshot.overall.evidenceAgeMs)} status={overallFreshness} detail="อายุหลักฐานโดยรวม" />
-          <GlobalFact label="Correlation engine" value={correlation} status={engineStatus(correlation)} detail={correlation === 'UNKNOWN' ? 'ไม่มี health field ใน snapshot' : 'รายงานโดย runtime'} />
-          <GlobalFact label="Incident engine" value={incidentEngine} status={engineStatus(incidentEngine)} detail={incidentEngine === 'UNKNOWN' ? 'ไม่มี health field ใน snapshot' : 'รายงานโดย runtime'} />
-          <GlobalFact label="Last system update" value={formatDateTime(snapshot.generatedAt)} detail="เวลาที่ server สร้าง snapshot" />
+          <GlobalFact label={t('global.environment')} value={snapshot.mode} status={snapshot.mode === 'DEMO' ? 'DEGRADED' : 'HEALTHY'} detail={t(snapshot.mode === 'DEMO' ? 'global.environmentDemo' : 'global.environmentLive')} language={activeLanguage} t={t} />
+          <GlobalFact label="API" value={statusLabel(apiConnected ? 'CONNECTED' : 'DISCONNECTED', activeLanguage)} status={apiConnected ? 'HEALTHY' : 'FAILED'} detail={apiConnected ? undefined : t('global.apiDisconnected')} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.freshness')} value={formatEvidenceAge(snapshot.overall.evidenceAgeMs, activeLanguage)} status={overallFreshness} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.correlation')} value={localizedValue(correlation, activeLanguage, t)} status={engineStatus(correlation)} detail={correlation === 'UNKNOWN' ? t('global.engineUnknown') : undefined} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.incidentEngine')} value={localizedValue(incidentEngine, activeLanguage, t)} status={engineStatus(incidentEngine)} detail={incidentEngine === 'UNKNOWN' ? t('global.engineUnknown') : undefined} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.lastUpdate')} value={formatDateTime(snapshot.generatedAt, activeLanguage)} language={activeLanguage} t={t} />
         </div>
       </section>
 
-      <section className="metric-grid metric-grid--four" aria-label="สรุปสถานะ">
-        <MetricCard icon={ShieldAlert} label="สถานะระบบโดยรวม" value={snapshot.overall.status} status={snapshot.overall.status} detail="สรุปจากหลักฐานที่ตรวจสอบได้" />
-        <MetricCard icon={Activity} label="Incident ที่กำลังดำเนินการ" value={formatCount(snapshot.overall.activeIncidents)} suffix="รายการ" status={snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY'} detail={incident ? `ล่าสุด ${incident.id}` : 'ไม่มี Incident เปิดอยู่'} />
-        <MetricCard icon={BellRing} label="การแจ้งเตือนระดับสูง" value={formatCount(snapshot.overall.highAlerts)} suffix="รายการ" status={snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY'} detail="HIGH และ CRITICAL ที่ต้องตรวจสอบ" />
-        <MetricCard icon={Database} label="หลักฐาน 24 ชั่วโมง" value={formatCount(snapshot.overall.eventCount)} status={overallFreshness} detail={formatEvidenceAge(snapshot.overall.evidenceAgeMs)} />
+      <section className="metric-grid metric-grid--four" aria-label={t('dashboard.summaryAria')}>
+        <MetricCard icon={ShieldAlert} label={t('metric.overall')} value={overallLabel} status={snapshot.overall.status} statusLabel={overallLabel} statusAriaLabel={t('status.aria', { status: overallLabel })} />
+        <MetricCard icon={Activity} label={t('metric.activeIncidents')} value={formatCount(snapshot.overall.activeIncidents, activeLanguage)} suffix={t('count.itemUnit')} status={snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY'} statusLabel={statusLabel(snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY', activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY', activeLanguage) })} detail={incident ? t('metric.latestIncident', { id: incident.id }) : t('metric.noIncident')} />
+        <MetricCard icon={BellRing} label={t('metric.highAlerts')} value={formatCount(snapshot.overall.highAlerts, activeLanguage)} suffix={t('count.itemUnit')} status={snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY'} statusLabel={statusLabel(snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY', activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY', activeLanguage) })} detail={t('metric.highAlertsDetail')} />
+        <MetricCard icon={Database} label={t('metric.dailyEvidence')} value={formatCount(snapshot.overall.eventCount, activeLanguage)} status={overallFreshness} statusLabel={statusLabel(overallFreshness, activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(overallFreshness, activeLanguage) })} detail={formatEvidenceAge(snapshot.overall.evidenceAgeMs, activeLanguage)} />
       </section>
 
-      <section className="idea-status-grid" aria-label="สถานะ IDEA">
-        <IdeaCard testId="idea1-status-card" icon={ShieldCheck} title="IDEA1 — Access Security" mode="Read-only evidence adapter" status={idea1Status} route="idea1" onNavigate={onNavigate}>
+      <section className="idea-status-grid" aria-label={t('idea.statusAria')}>
+        <IdeaCard testId="idea1-status-card" icon={ShieldCheck} title={t('idea1.title')} mode={t('idea1.mode')} status={idea1Status} route="idea1" onNavigate={onNavigate} language={activeLanguage} t={t}>
           <MiniFacts items={[
-            ['Denied', formatCount(snapshot.idea1.summary.denied)],
-            ['Blocked', formatCount(snapshot.idea1.summary.blocked)],
-            ['Repeated source IP', formatCount(snapshot.idea1.summary.repeated)],
-            ['Latest evidence', formatDateTime(snapshot.idea1.generatedAt)],
-            ['Freshness', ageAtSnapshot(snapshot.idea1.generatedAt, snapshot.generatedAt)],
+            [t('idea1.denied'), formatCount(snapshot.idea1.summary.denied, activeLanguage)],
+            [t('idea1.blocked'), formatCount(snapshot.idea1.summary.blocked, activeLanguage)],
+            [t('idea1.repeatedIp'), formatCount(snapshot.idea1.summary.repeated, activeLanguage)],
+            [t('idea1.latest'), formatDateTime(snapshot.idea1.generatedAt, activeLanguage)],
+            [t('idea1.freshness'), ageAtSnapshot(snapshot.idea1.generatedAt, snapshot.generatedAt, activeLanguage, t)],
           ]} />
         </IdeaCard>
 
-        <IdeaCard testId="idea2-status-card" icon={Radar} title="IDEA2 — Detection Evidence" mode="Privacy-preserving / Read-only evidence" status={idea2Status} route="idea2" onNavigate={onNavigate}>
+        <IdeaCard testId="idea2-status-card" icon={Radar} title={t('idea2.title')} mode={t('idea2.mode')} status={idea2Status} route="idea2" onNavigate={onNavigate} language={activeLanguage} t={t}>
           <MiniFacts items={[
-            ['Detections', formatCount(snapshot.idea2.summary.detections)],
-            ['HIGH / CRITICAL', `${formatCount(snapshot.idea2.summary.high)} / ${formatCount(snapshot.idea2.summary.critical)}`],
-            ['Camera / source', formatCount(snapshot.idea2.summary.cameras)],
-            ['Latest detection', formatDateTime(snapshot.idea2.generatedAt)],
-            ['Freshness', ageAtSnapshot(snapshot.idea2.generatedAt, snapshot.generatedAt)],
+            [t('idea2.detections'), formatCount(snapshot.idea2.summary.detections, activeLanguage)],
+            [t('idea2.highCritical'), `${formatCount(snapshot.idea2.summary.high, activeLanguage)} / ${formatCount(snapshot.idea2.summary.critical, activeLanguage)}`],
+            [t('idea2.cameras'), formatCount(snapshot.idea2.summary.cameras, activeLanguage)],
+            [t('idea2.latest'), formatDateTime(snapshot.idea2.generatedAt, activeLanguage)],
+            [t('idea2.freshness'), ageAtSnapshot(snapshot.idea2.generatedAt, snapshot.generatedAt, activeLanguage, t)],
           ]} />
         </IdeaCard>
 
-        <IdeaCard testId="idea3-status-card" icon={Network} title="IDEA3 — Network Isolation / Lockdown" mode="Runtime / control evidence" status={runtimeStatus} route="lockdown" onNavigate={onNavigate}>
-          <div className="mode-row" aria-label="IDEA3 runtime mode">{runtimeModes.length ? runtimeModes.map((mode) => <span key={mode}>{mode}</span>) : <span>UNKNOWN</span>}</div>
+        <IdeaCard testId="idea3-status-card" icon={Network} title={t('idea3.title')} mode={t('idea3.mode')} status={runtimeStatus} route="lockdown" onNavigate={onNavigate} language={activeLanguage} t={t}>
+          <div className="mode-row" aria-label={t('idea3.runtimeModeAria')}>{runtimeModes.length ? runtimeModes.map((mode) => <span key={mode}>{t(runtimeModeKeys[mode])}</span>) : <span>{statusLabel('UNKNOWN', activeLanguage)}</span>}</div>
           <MiniFacts items={[
-            ['Supervisor', supervisor.status],
-            ['MQTT', mqtt.status],
-            ['ESP32 heartbeat', heartbeat.status],
-            ['ACK', ack.status],
-            ['Requested', device?.requestedRelayState || 'UNKNOWN'],
-            ['Physical relay', physicalRelay],
-            ['Hardware', snapshot.recovery?.liveHardware ? 'AVAILABLE' : 'DISABLED'],
-            ['Last update', formatDateTime(snapshot.runtime.generatedAt)],
+            [t('idea3.supervisor'), localizedValue(supervisor.status, activeLanguage, t)],
+            ['MQTT', localizedValue(mqtt.status, activeLanguage, t)],
+            [t('idea3.heartbeat'), localizedValue(heartbeat.status, activeLanguage, t)],
+            ['ACK', localizedValue(ack.status, activeLanguage, t)],
+            [t('idea3.requested'), localizedValue(device?.requestedRelayState, activeLanguage, t)],
+            [t('idea3.physicalRelay'), localizedValue(physicalRelay, activeLanguage, t)],
+            [t('idea3.hardware'), localizedValue(snapshot.recovery?.liveHardware ? 'AVAILABLE' : 'DISABLED', activeLanguage, t)],
+            [t('idea3.lastUpdate'), formatDateTime(snapshot.runtime.generatedAt, activeLanguage)],
           ]} />
-          {relay.status === 'UNKNOWN' && <p className="not-verified-note">Physical relay: UNKNOWN / NOT VERIFIED — ACK ไม่ใช่หลักฐานทางกายภาพ</p>}
+          {relay.status === 'UNKNOWN' && <p className="not-verified-note">{t('idea3.relayUnknown')}</p>}
         </IdeaCard>
       </section>
 
       <section className="dashboard-operations">
-        <Panel title="เหตุการณ์ที่กำลังดำเนินการ" description="แสดงเฉพาะ Incident ที่สำคัญและล่าสุด">
-          <IncidentSpotlight incident={incident} snapshotTimestamp={snapshot.generatedAt} onNavigate={onNavigate} />
+        <Panel title={t('incident.title')}>
+          <IncidentSpotlight incident={incident} snapshotTimestamp={snapshot.generatedAt} onNavigate={onNavigate} language={activeLanguage} t={t} />
         </Panel>
-        <Panel title="สิ่งที่ต้องตรวจสอบ" description="สูงสุด 5 ประเด็น เรียงจากผลกระทบสูงสุด">
+        <Panel title={t('attention.title')}>
           {issues.length ? <div className="dashboard-issue-list">{issues.map((issue) => (
             <article key={issue.key} data-testid="attention-item">
-              <StatusBadge status={issue.status} compact />
+              <StatusBadge status={issue.status} compact {...badgeCopy(issue.status, activeLanguage, t)} />
               <div><strong>{issue.title}</strong><p>{issue.detail}</p><small>{issue.component}</small></div>
-              <RouteLink route={issue.route} onNavigate={onNavigate} ariaLabel={`ตรวจสอบ ${issue.component}`}><span className="sr-only">ตรวจสอบ</span></RouteLink>
+              <RouteLink route={issue.route} onNavigate={onNavigate} ariaLabel={t('attention.inspectAria', { component: issue.component })}><span className="sr-only">{t('idea.viewDetails')}</span></RouteLink>
             </article>
-          ))}</div> : <div className="empty-state dashboard-empty"><span className="aegis-hatch" aria-hidden="true" /><p>ไม่มีประเด็นเร่งด่วนจากหลักฐานปัจจุบัน</p></div>}
+          ))}</div> : <div className="empty-state dashboard-empty"><span className="aegis-hatch" aria-hidden="true" /><p>{t('attention.empty')}</p></div>}
         </Panel>
       </section>
 
-      <Panel title="สถานะแหล่งหลักฐาน" description="API reachable และ security evidence fresh เป็นคนละข้อเท็จจริง" action={<RouteLink route="settings" onNavigate={onNavigate}>ตรวจสอบ adapters</RouteLink>}>
-        <SourceHealthTable snapshot={snapshot} />
+      <Panel title={t('source.title')} description={t('source.safetyNote')} action={<RouteLink route="settings" onNavigate={onNavigate}>{t('source.reviewAdapters')}</RouteLink>}>
+        <SourceHealthTable snapshot={snapshot} language={activeLanguage} t={t} />
       </Panel>
 
       <section className="dashboard-operations dashboard-operations--evidence">
-        <Panel title="หลักฐานล่าสุด" description="สูงสุด 6 รายการที่ normalize และตัดข้อมูลต้องห้ามแล้ว" action={<RouteLink route="alerts" onNavigate={onNavigate}>เปิดการแจ้งเตือน</RouteLink>}>
-          <DataTable columns={eventColumns} rows={snapshot.events.slice(0, 6)} emptyLabel="ไม่มีหลักฐานในช่วงเวลานี้" />
+        <Panel title={t('event.title')} description={t('event.description')} action={<RouteLink route="alerts" onNavigate={onNavigate}>{t('event.openAlerts')}</RouteLink>}>
+          <DataTable columns={eventColumns(activeLanguage, t)} rows={snapshot.events.slice(0, 6)} emptyLabel={t('event.empty')} />
         </Panel>
-        <Panel title="สิ่งที่แนะนำให้ทำต่อ" description="เป็น navigation recommendation เท่านั้น ไม่มี automated remediation">
-          {nextActions.length ? <ol className="next-action-list">{nextActions.map((action, index) => (
-            <li key={action.key}>
-              <span>{index + 1}</span>
-              <div><strong>{action.action}</strong><p>{action.title}</p></div>
-              <RouteLink route={action.route} onNavigate={onNavigate} ariaLabel={action.action}><span className="sr-only">เปิด</span></RouteLink>
-            </li>
-          ))}</ol> : <div className="empty-state dashboard-empty"><p>ยังไม่มีคำแนะนำเพิ่มเติม</p></div>}
+        <Panel title={t('action.title')} description={t('action.description')}>
+          {nextActions.length ? <ol className="next-action-list">{nextActions.map((action, index) => {
+            const actionLabel = localizedAction(action, activeLanguage, t)
+            const component = action.componentKey ? t(action.componentKey) : action.component
+            return (
+              <li key={action.key}>
+                <span>{index + 1}</span>
+                <div><strong>{actionLabel}</strong><p>{t(action.messageKey, { ...action.variables, component })}</p></div>
+                <RouteLink route={action.route} onNavigate={onNavigate} ariaLabel={t('action.openAria', { action: actionLabel })}><span className="sr-only">{t('idea.viewDetails')}</span></RouteLink>
+              </li>
+            )
+          })}</ol> : <div className="empty-state dashboard-empty"><p>{t('action.empty')}</p></div>}
         </Panel>
       </section>
     </div>

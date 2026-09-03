@@ -47,6 +47,48 @@ describe('authenticated application shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ใช้ธีมมืด' }))
     expect(onThemeChange).toHaveBeenCalledWith('dark')
   })
+
+  it('shows the IDEA1 and IDEA2-style language control only on Dashboard', () => {
+    const onLanguageChange = vi.fn()
+    const { rerender } = render(
+      <AppShell identity={identity} mode="LIVE" currentRoute="dashboard" language="th" onLanguageChange={onLanguageChange}>
+        <p>Page</p>
+      </AppShell>,
+    )
+
+    expect(screen.getByRole('radiogroup', { name: 'ภาษา' })).toBeVisible()
+    expect(screen.getByRole('radio', { name: 'ไทย' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('radio', { name: 'EN' }))
+    expect(onLanguageChange).toHaveBeenCalledWith('en')
+    onLanguageChange.mockClear()
+    screen.getByRole('radio', { name: 'ไทย' }).focus()
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'ไทย' }), { key: 'ArrowRight' })
+    expect(onLanguageChange).toHaveBeenCalledWith('en')
+    expect(screen.getByRole('radio', { name: 'EN' })).toHaveFocus()
+
+    rerender(
+      <AppShell identity={identity} mode="LIVE" currentRoute="overview" language="en" onLanguageChange={onLanguageChange}>
+        <p>Page</p>
+      </AppShell>,
+    )
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['en', 'Language', 'API: Ready', 'Dashboard', 'Use dark theme'],
+    ['zh', '语言', 'API：可用', '安全仪表板', '使用深色主题'],
+  ])('localizes Dashboard shell copy for %s', (language, groupLabel, apiLabel, pageTitle, themeLabel) => {
+    render(
+      <AppShell identity={identity} mode="LIVE" currentRoute="dashboard" language={language}>
+        <p>Page</p>
+      </AppShell>,
+    )
+
+    expect(screen.getByRole('radiogroup', { name: groupLabel })).toBeVisible()
+    expect(screen.getByText(apiLabel)).toBeVisible()
+    expect(screen.getByRole('heading', { name: pageTitle, level: 1 })).toBeVisible()
+    expect(screen.getByRole('button', { name: themeLabel })).toBeVisible()
+  })
 })
 
 describe('shared state communication', () => {
