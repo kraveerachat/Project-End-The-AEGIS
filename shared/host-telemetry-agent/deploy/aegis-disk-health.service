@@ -1,0 +1,90 @@
+[Unit]
+# AEGIS host disk-health collector — runs smartctl once against ONE configured
+# whole block device and writes an allowlisted evidence file that the
+# unprivileged telemetry agent reads. Started by aegis-disk-health.timer.
+#
+# This unit is the only place in the AEGIS host tooling that touches a raw
+# device. It is a oneshot: it holds its privilege for well under a second,
+# ten times an hour, and is not running the rest of the time.
+Description=AEGIS host disk-health collector (smartctl, one device)
+Documentation=file:/opt/aegis/host-telemetry-agent/deploy/README.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+
+# ── identity ──────────────────────────────────────────────────────────
+# Dedicated user; group is the TELEMETRY agent's group so the evidence file
+# (0640) is readable by exactly one other process on the host: the agent.
+User=aegis-disk-health
+Group=aegis-telemetry
+
+ExecStart=/usr/bin/node /opt/aegis/host-telemetry-agent/collectors/run-disk-health.js
+WorkingDirectory=/opt/aegis/host-telemetry-agent
+TimeoutStartSec=60s
+
+# ── configuration ─────────────────────────────────────────────────────
+# Whole device only (sda, nvme0n1). Never a partition, never a path — the
+# collector prepends /dev/ itself and rejects anything else.
+Environment=AEGIS_DISK_HEALTH_DEVICE=sda
+Environment=AEGIS_DISK_HEALTH_SMARTCTL=/usr/sbin/smartctl
+Environment=AEGIS_DISK_HEALTH_OUTPUT=/var/lib/aegis-disk-health/disk-health.json
+Environment=NODE_ENV=production
+
+# ── evidence directory ────────────────────────────────────────────────
+# /var/lib/aegis-disk-health owned aegis-disk-health:aegis-telemetry 0750 —
+# the agent (in group aegis-telemetry) can traverse it and read the 0640 file;
+# nobody else on the host can.
+StateDirectory=aegis-disk-health
+StateDirectoryMode=0750
+UMask=0027
+
+# ── privileges: the minimum that lets smartctl talk to one device ─────
+# CAP_SYS_RAWIO is what SG_IO / ATA pass-through requires. Nothing else is
+# granted: no CAP_SYS_ADMIN, no CAP_DAC_OVERRIDE, no CAP_NET_*.
+CapabilityBoundingSet=CAP_SYS_RAWIO
+AmbientCapabilities=CAP_SYS_RAWIO
+NoNewPrivileges=true
+# The device node itself is 0660 root:disk; membership in `disk` is what opens
+# it. This is the only group grant in the unit.
+SupplementaryGroups=disk
+
+# ── device allowlist ──────────────────────────────────────────────────
+# The cgroup device filter is the enforcement behind the code's device
+# pattern: even with CAP_SYS_RAWIO, this unit can open only the device named
+# here, read-only. Keep it in sync with AEGIS_DISK_HEALTH_DEVICE.
+DevicePolicy=closed
+DeviceAllow=/dev/sda r
+
+# ── network: none ─────────────────────────────────────────────────────
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+PrivateNetwork=true
+
+# ── filesystem and kernel ─────────────────────────────────────────────
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ── deliberately NOT set ──────────────────────────────────────────────
+#   PrivateDevices=true    would replace /dev with a private one that has no
+#                          /dev/sda — the whole point of this unit is to open it.
+#   DynamicUser=true       the evidence file must be readable by the fixed
+#                          aegis-telemetry group; a dynamic identity cannot
+#                          guarantee that across runs.
+#   MemoryDenyWriteExecute=true   Node/V8 needs writable-executable pages.

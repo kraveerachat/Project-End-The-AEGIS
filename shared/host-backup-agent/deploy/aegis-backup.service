@@ -1,0 +1,99 @@
+[Unit]
+# AEGIS host backup agent — runs restic + pg_dump for AEGIS Drive under a
+# dedicated identity, coordinates a bounded write-freeze with Drive over one
+# Unix socket, and publishes sanitized job status. Separate from the telemetry
+# agent on purpose: different user, group, socket, capability and write set.
+Description=AEGIS host backup agent (restic + pg_dump)
+Documentation=file:/opt/aegis/host-backup-agent/deploy/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+
+# ── identity ──────────────────────────────────────────────────────────
+# Fixed UID/GID 29102. Drive joins GID 29102 via group_add to reach the
+# socket; the number is what the kernel checks, so it must never change.
+User=aegis-backup
+Group=aegis-backup
+
+ExecStart=/usr/bin/node /opt/aegis/host-backup-agent/src/index.js
+WorkingDirectory=/opt/aegis/host-backup-agent
+Restart=on-failure
+RestartSec=5s
+
+# ── configuration ─────────────────────────────────────────────────────
+# The static config names the allowlisted targets, the source, the database
+# connection and the credential FILES. Root-owned; the agent only reads it.
+Environment=AEGIS_BACKUP_CONFIG=/etc/aegis/backup-agent.json
+Environment=NODE_ENV=production
+
+# ── directories ───────────────────────────────────────────────────────
+# /run/aegis-backup       socket (0660, group aegis-backup; Drive joins it)
+# /var/lib/aegis-backup   policy.json, jobs.json, the pg_dump staging file,
+#                         and the isolated restore-verification directory
+# /var/cache/aegis-backup restic cache
+RuntimeDirectory=aegis-backup
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+StateDirectory=aegis-backup
+StateDirectoryMode=0750
+CacheDirectory=aegis-backup
+CacheDirectoryMode=0750
+UMask=0007
+
+# ── privileges ────────────────────────────────────────────────────────
+# CAP_DAC_READ_SEARCH: read every file under the Docker volume (owned by
+# uid 1000 inside dirs owned by root 0700) WITHOUT being able to write any
+# of them. This is the whole privilege of the agent, and it is read-only.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+NoNewPrivileges=true
+
+# ── write set ─────────────────────────────────────────────────────────
+# ProtectSystem=strict makes the whole filesystem read-only; the agent may
+# write ONLY to its own three directories above and to the allowlisted
+# external backup mount(s). The production Docker volume is never writable.
+ProtectSystem=strict
+ReadWritePaths=/mnt/aegis-backup
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ── network ───────────────────────────────────────────────────────────
+# AF_UNIX for its own socket; AF_INET/AF_INET6 because pg_dump reaches the
+# PostgreSQL container over the Docker bridge and an off-host target may be
+# an SFTP/REST endpoint. Restrict destinations to what the deployment needs:
+# the Docker bridge subnet for PostgreSQL plus the approved off-host target.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=172.16.0.0/12
+
+# ── deliberately NOT set ──────────────────────────────────────────────
+#   PrivateNetwork=true      pg_dump could not reach PostgreSQL.
+#   ProcSubset=pid           /proc/self/mountinfo is under /proc/self and
+#                            stays readable, but keep this explicit for review.
+#   DynamicUser=true         Drive joins the fixed GID 29102.
+#   PrivateMounts=true       would hide the RuntimeDirectory from the Drive bind.
+#   MemoryDenyWriteExecute   Node/V8 needs writable-executable pages.
+#   CAP_DAC_OVERRIDE         would make the agent able to WRITE production data.
+
+[Install]
+WantedBy=multi-user.target

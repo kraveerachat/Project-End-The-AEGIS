@@ -1,0 +1,20 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": { "version": [7, 4], "exit_status": 8, "messages": [{ "string": "SMART overall-health self-assessment test result: FAILED!", "severity": "warning" }] },
+  "device": { "name": "/dev/sda", "info_name": "/dev/sda [SAT]", "type": "sat", "protocol": "ATA" },
+  "model_name": "AEGIS-FIXTURE M.2 2280 128GB",
+  "serial_number": "FIXTURE-SERIAL-MUST-NOT-CROSS",
+  "user_capacity": { "blocks": 250069680, "bytes": 128035676160 },
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": false },
+  "power_on_time": { "hours": 41000 },
+  "temperature": { "current": 44 },
+  "ata_smart_attributes": {
+    "revision": 1,
+    "table": [
+      { "id": 5, "name": "Reallocated_Sector_Ct", "value": 5, "worst": 5, "thresh": 10, "when_failed": "now", "flags": { "value": 51, "string": "PO--CK " }, "raw": { "value": 1834, "string": "1834" } },
+      { "id": 197, "name": "Current_Pending_Sector", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 50, "string": "-O--CK " }, "raw": { "value": 12, "string": "12" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 48, "string": "----CK " }, "raw": { "value": 3, "string": "3" } }
+    ]
+  }
+}

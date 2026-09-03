@@ -10,6 +10,7 @@ import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtRelative } from '../lib/format.js'
 import { LANGS } from '../lib/strings.js'
+import { BackupConfiguration, BackupTargetList } from '../components/BackupConfiguration.jsx'
 
 // ⚠️ ถอด "คีย์กู้คืน 12 คำ" ออกทั้งฟีเจอร์ (2026-07-26) — ห้ามเอากลับมาในรูปนี้
 //
@@ -502,14 +503,27 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         )}
 
         {activeTab === 'storagedata' && (
-          <Card className="p-5 fade-in">
-            <CardTitle>{t('setStorageData')}</CardTitle>
-            {/* ตารางเวลา snapshot + นโยบาย retention เป็น <select> ที่ไม่ผูกกับอะไรเลย
-                เช่นเดียวกับ shareDefaults และลึกกว่านั้น: ยังไม่มีกลไก snapshot จริง
-                อยู่เบื้องหลังให้ตั้งเวลา (ดูจอ Snapshots) — การแสดงตัวเลือก "ทุก 6 ชม."
-                ทำให้เข้าใจว่ามีงานที่รันอยู่เป็นรอบ ทั้งที่ไม่มี */}
-            <NotYetImplemented label={t('notImplemented')}>{t('snapScheduleTodo')}</NotYetImplemented>
-          </Card>
+          <div className="flex flex-col gap-5 fade-in">
+            {/* ⚠️ ของเดิมเป็น <select> ตารางเวลา snapshot ที่ไม่ผูกกับอะไรเลย — ถูกถอดออก
+                ตอนนี้ตัวเลือกทุกอย่างในการ์ดนี้เป็น "รหัส" จากรายการที่ host backup agent
+                ประกาศ (ปลายทาง/ตาราง/การเก็บรักษา) และถูกส่งต่อให้ agent ตัดสินอีกชั้น —
+                ไม่มี path, host, หรือคำสั่งใดจากเบราว์เซอร์ และถ้า agent ไม่ได้เชื่อมต่อ
+                การ์ดจะบอกตรง ๆ แทนที่จะแสดงฟอร์มที่บันทึกไปไหนไม่ได้ (server/routes/api.js) */}
+            {canAdministrate(role)
+              ? <BackupConfiguration t={t} placeholderMode={placeholderMode} />
+              : (
+                <Card className="p-5">
+                  <CardTitle>{t('backupConfigTitle')}</CardTitle>
+                  <p className="text-[13px] text-ink-2 leading-relaxed max-w-[60ch]">{t('backupConfigUserNote')}</p>
+                </Card>
+              )}
+            <Card className="p-5">
+              <CardTitle>{t('setStorageData')}</CardTitle>
+              {/* snapshot ระดับระบบไฟล์ยังทำไม่ได้จริงใน deployment นี้ (ext4 ธรรมดา) —
+                  ประกาศไว้ตรง ๆ ต่อไป ส่วน "สำรองข้อมูล" ของจริงอยู่การ์ดด้านบน */}
+              <NotYetImplemented label={t('notImplemented')}>{t('snapScheduleTodo')}</NotYetImplemented>
+            </Card>
+          </div>
         )}
 
         {/* Administration — rendered only for admin; ไม่มี DOM trace สำหรับ role อื่น */}
@@ -584,8 +598,9 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               <CardTitle>{t('backupTargets')}</CardTitle>
               {/* เดิมเป็นสองบรรทัดที่ hard-code ไว้ ('edge-site-B /backup rsync+ssh',
                   'offsite-tape LTO-9') ซึ่งอ่านเหมือนรายการปลายทางสำรองข้อมูลที่ตั้งค่าไว้จริง
-                  — ไม่มี job สำรองข้อมูลใดถูกตั้งค่าหรือรันอยู่ในระบบนี้เลย */}
-              <NotYetImplemented label={t('notImplemented')}>{t('backupTargetsTodo')}</NotYetImplemented>
+                  ตอนนี้รายการมาจาก allowlist บนโฮสต์ผ่าน backup agent เท่านั้น พร้อมผลจำแนก
+                  failure domain ของแต่ละปลายทาง — ถ้า agent ไม่ได้เชื่อมต่อ ก็บอกว่าไม่ได้เชื่อมต่อ */}
+              <BackupTargetList t={t} placeholderMode={placeholderMode} />
             </Card>
           </div>
         )}

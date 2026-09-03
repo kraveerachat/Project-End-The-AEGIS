@@ -449,6 +449,101 @@ Historical implementation evidence is recorded in
 Current production closure is recorded in
 [[90-Status/logs/2026-08-27_201226_kla_idea1-dashboard-production-closure]].
 
+### Storage & Backup data phase (2026-09-03)
+
+`FUNCTION_DATA_PHASE = COMPLETE` (source). `PRODUCTION_CHANGED = NO`.
+`PRODUCTION_ACCEPTANCE = NOT TESTED`. The Capacity visualization is
+deliberately unchanged; the Storage page redesign is the next, separate phase.
+
+**Physical disk health (Goal A).** The Drive container still holds no raw
+device access. A new bounded oneshot, `aegis-disk-health.service` +
+`.timer` (dedicated user 29101, `CAP_SYS_RAWIO` only, `DevicePolicy=closed`,
+`DeviceAllow=/dev/sda r`, no network), runs
+`smartctl --json --info --health --attributes /dev/sda` every 10 minutes and
+writes an allowlisted evidence file (`shared/host-telemetry-agent/collectors/`).
+The unprivileged telemetry agent reads that one file — it remains a
+file-reads-only process with an empty capability set — and publishes it on a
+**new, separately versioned route** `GET /internal/disk-health`
+(`schemaVersion: 1`); the production-verified `/internal/telemetry` V1 body is
+byte-for-byte unchanged. Drive validates the document fail-closed
+(`server/telemetry/diskHealthSchema.js`, unknown key = rejection, `null` =
+not reported, never 0) and derives the status deterministically:
+explicit SMART failure or a critical warning code → `CRITICAL`; SMART passed
+with a measured warning → `WARNING`; SMART passed with none → `HEALTHY`;
+missing, stale (>30 min) or unreported evidence → `UNKNOWN`. UNKNOWN is never
+promoted. No serial number, raw attribute table, path or command output
+crosses either boundary.
+
+**Backup foundation (Goal B).** A third host identity,
+`shared/host-backup-agent/` (user `aegis-backup` 29102, own socket
+`/run/aegis-backup/backup.sock`, `CAP_DAC_READ_SEARCH` only, `ProtectSystem=strict`
+with `ReadWritePaths` limited to the external mount) executes backups; Drive
+never does. Engine: **restic** (encrypted, deduplicated, `check`, verified
+restore, `forget --prune`), with `pg_dump --format=custom` of `aegis_drive`
+proven readable by `pg_restore --list`. Backup set: `uploads/`, `versions/`,
+`vault/` (ciphertext only — no key exists to back up), `avatars/`, and the
+database dump; `.staging/` is excluded. **Failure-domain policy:** a target
+counts as protected only when `/proc/self/mountinfo` + `/sys/class/block`
+(partition → disk, device-mapper → slaves) resolve it to a physical disk not
+shared with the Data Lake, or it is off-host; otherwise the state is
+`SAME_FAILURE_DOMAIN` / `TARGET_UNAVAILABLE` and the UI says
+*Unprotected — same failure domain* rather than anything green.
+**Consistency model:** a bounded write-freeze lease with acknowledgement —
+the agent requests a freeze, Drive refuses destructive mutations (delete,
+same-name replace/commit, version restore, vault delete/commit) with
+`503 BACKUP_MAINTENANCE`, drains in-flight ones, acknowledges; only then
+`pg_dump` → `restic backup`; the freeze ends on completion or at the lease
+(enforced on Drive's own clock); a snapshot finishing after the lease is
+`FAILED / LEASE_EXPIRED`, and no acknowledgement within the deadline is
+`FAILED / QUIESCE_TIMEOUT`. Reads, downloads, shares and uncommitted uploads
+continue. **Restore verification** (`POST /internal/backup/verify`):
+`restic check --read-data-subset=10%`, expected content present in the latest
+snapshot, isolated restore of the dump into the agent's own state directory,
+`pg_restore --list` → `PASS` / `FAIL`; `NOT_TESTED` until run.
+
+**Contract and derivation.** `GET /api/storage` (all authenticated users) now
+returns `capacityBytes`/`usage`/`unaccountedBytes` (unchanged), `diskHealth`,
+`raid` (`NOT_CONFIGURED`, declared), `backup`, `maintenance`, and the
+`unavailable` map with current reasons. Backup facts are derived from agent
+job history only: `lastSuccessfulBackup`, `lastFailedBackup`,
+`backupAgeSeconds`, `bytesCovered`, `integrity`, `restoreVerification`,
+`successRate30d` = successful / all completed backup jobs in 30 days, **null
+when there are none** (not 0 %, not 100 %). Risk: `UNKNOWN` (no evidence);
+`NOT_CONFIGURED` (no protected target); `CRITICAL` (last backup failed with no
+newer success, no successful backup yet, older than `maxBackupAgeHours`, or
+restore verification failed); `WARNING` (past 75 % of max age, restore never
+verified, or verification older than `verifyIntervalDays`); `HEALTHY`
+otherwise. Configuration alone never yields HEALTHY. Admin-only:
+`GET /api/backup`, `PATCH /api/backup/policy` (four allowlisted IDs/booleans —
+no path, host or command ever leaves the browser), `POST /api/backup/run`,
+`POST /api/backup/verify`. Audit: `BACKUP_CONFIG_UPDATE`, `BACKUP_RUN_REQUEST`,
+`BACKUP_VERIFY_REQUEST` (actor = Admin), and `BACKUP_RUN_SUCCESS/FAILED`,
+`BACKUP_VERIFY_PASS/FAIL` recorded by Drive's coordinator with actor
+`SYSTEM:backup-agent` and `target_hash = sha256(jobId)`.
+
+**UI (data-driven, not redesigned).** Storage shows the disk evidence and the
+backup facts/risk/history with honest unavailable states in EN/TH/ZH; Settings
+→ Storage & Data gives Admin a form of allowlisted IDs (target with its
+protection classification, schedule preset, retention preset, enable) plus
+*Back up now* / *Verify restore*; a DataLake-User sees a read-only note.
+
+**Verification (local, Windows dev machine).** `shared/host-telemetry-agent`
+99 tests / 96 pass / 3 POSIX-only skips; `shared/host-backup-agent` 51/51;
+IDEA1 suite 826 tests / 759 pass / 0 fail / 67 PostgreSQL-gated skips (see the
+receipt for the post-UI-test count); `npm run build` PASS; repository policy
+suite 42/42; vault validator PASS.
+
+**Not done / limitations.** Nothing is deployed: no host unit installed, no
+`smartmontools`/`restic`/`postgresql-client` on the host, no `drive_backup`
+role, no external disk mounted, no Compose delta applied
+(`shared/host-backup-agent/deploy/production-delta.md`,
+`shared/host-telemetry-agent/deploy/README.md`). Whether `smartctl` can open
+`/dev/sda` with `CAP_SYS_RAWIO` alone on this controller is unverified on
+Linux. The Dashboard Server-Telemetry disk tile still reports `health:
+smart-not-observable` (unchanged; Storage is the surface that shows disk
+health). The dev `docker-compose.yml` needs no change. Receipt:
+[[90-Status/logs/2026-09-03_230500_kla_idea1-storage-backup-data-phase]].
+
 ### Data-honesty and empty-state behavior
 
 The current UI design distinguishes a usable but empty data source from a failed or unavailable dependency:
@@ -735,8 +830,9 @@ This module went through a pass (2026-07-27) whose whole purpose was removing da
 | Dashboard activity (7 days) | ✅ Real | counted from `audit_log` |
 | Network zones | 🟠 Real CIDR input for restricted shares; source-identity limit remains | `network_zones` snapshot into `shares.vlan_scope` + `req.ip` check |
 | Encryption at rest for Data Lake uploads | 🔴 **Not implemented** — files are plaintext on disk | — |
-| Disk health / SMART, RAID | 🔴 **Not measurable here** (needs host access) | declared via `storageStatus().unavailable` |
-| Off-site backup jobs | 🔴 **None configured anywhere** | declared via `storageStatus().unavailable` |
+| Disk health / SMART | 🟠 **Source-complete, not deployed** — evidence path exists (host collector → telemetry agent → Drive); Drive still has no device access and shows UNKNOWN until the collector runs | `/api/storage.diskHealth` via `server/telemetry/diskHealth.js`; see "Storage & Backup data phase (2026-09-03)" |
+| RAID | 🔴 **Not configured** — no array in this deployment; declared, never guessed | `/api/storage.raid.status = NOT_CONFIGURED` |
+| Off-site backup jobs | 🟠 **Source-complete, not deployed** — real restic + pg_dump host agent with failure-domain policy and write-freeze; nothing is being copied off the machine until it is installed | `/api/storage.backup` via `server/backup/*`; `shared/host-backup-agent/` |
 
 ### Features removed for claiming things that did not exist
 * **Snapshots + rollback** — eight hardcoded rows; rollback set a `destroyed` flag and restored **zero bytes** while the UI reported "restored" plus GB lost. Replaced by real [[#🕓 File history (replaces Snapshots)]].

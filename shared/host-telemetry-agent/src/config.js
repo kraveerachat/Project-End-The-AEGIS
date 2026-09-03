@@ -26,6 +26,14 @@ export const SOCKET_MODE = 0o660
  *  Drive's 15s stale threshold with room for one missed cycle. */
 export const DEFAULT_INTERVAL_MS = 5000
 
+/**
+ * The one file the agent reads for physical disk health. It is WRITTEN by the
+ * separate aegis-disk-health oneshot (collectors/disk-health.js) — the agent
+ * itself never runs smartctl and never opens a device. An empty value disables
+ * the read entirely and /internal/disk-health answers `not-configured`.
+ */
+export const DEFAULT_DISK_HEALTH_FILE = '/var/lib/aegis-disk-health/disk-health.json'
+
 const SYS_CLASS_NET = '/sys/class/net'
 const MAX_INTERFACE_LENGTH = 15 // Linux IFNAMSIZ is 16 including the NUL
 
@@ -91,17 +99,31 @@ export function loadAgentConfig(env = process.env) {
 
   const network = networkStatisticsPaths(interfaceName)
 
+  // Explicitly empty = disabled. Otherwise it must be absolute: a relative path
+  // would resolve against whatever WorkingDirectory the unit happens to set.
+  const rawDiskHealthFile = env.AEGIS_TELEMETRY_DISK_HEALTH_FILE
+  const diskHealthFile = rawDiskHealthFile === undefined
+    ? DEFAULT_DISK_HEALTH_FILE
+    : String(rawDiskHealthFile).trim()
+  if (diskHealthFile && !path.posix.isAbsolute(diskHealthFile)) {
+    throw new Error('AEGIS_TELEMETRY_DISK_HEALTH_FILE must be an absolute path or empty')
+  }
+
+  const sources = {
+    procStat: '/proc/stat',
+    memInfo: '/proc/meminfo',
+    uptime: '/proc/uptime',
+    networkRx: network.rx,
+    networkTx: network.tx,
+  }
+  if (diskHealthFile) sources.diskHealth = diskHealthFile
+
   return {
     interfaceName,
     socketPath,
     socketMode: SOCKET_MODE,
     intervalMs,
-    sources: {
-      procStat: '/proc/stat',
-      memInfo: '/proc/meminfo',
-      uptime: '/proc/uptime',
-      networkRx: network.rx,
-      networkTx: network.tx,
-    },
+    diskHealthFile: diskHealthFile || null,
+    sources,
   }
 }

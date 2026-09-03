@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - 'shared/host-telemetry-agent/**'
+      - 'shared/host-backup-agent/**'
       - '.github/workflows/idea1-server-telemetry-linux.yml'
   pull_request:
     paths:
       - 'shared/host-telemetry-agent/**'
+      - 'shared/host-backup-agent/**'
       - '.github/workflows/idea1-server-telemetry-linux.yml'
 
 permissions:
@@ -37,4 +39,26 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Run complete host-agent test suite
+        run: npm test
+
+  # The backup agent has its own identity, socket and privilege boundary, and
+  # three of its tests need a real AF_UNIX socket file — hence Linux here too.
+  host-backup-agent-linux:
+    name: host-backup-agent-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: shared/host-backup-agent
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run complete backup-agent test suite
         run: npm test

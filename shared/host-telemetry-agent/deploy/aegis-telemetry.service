@@ -1,6 +1,7 @@
 [Unit]
 # AEGIS host telemetry agent — publishes CPU, memory, network and host uptime
-# on a Unix socket for AEGIS Drive. Reads five allowlisted files; nothing else.
+# on a Unix socket for AEGIS Drive. Reads six allowlisted files; nothing else.
+# (The sixth is the disk-health evidence file — see aegis-disk-health.service.)
 Description=AEGIS host telemetry agent
 Documentation=file:/opt/aegis/host-telemetry-agent/deploy/README.md
 After=network.target
@@ -41,6 +42,12 @@ RestartSec=5s
 Environment=AEGIS_TELEMETRY_INTERFACE=enp1s0
 Environment=AEGIS_TELEMETRY_SOCKET=/run/aegis-telemetry/telemetry.sock
 Environment=AEGIS_TELEMETRY_INTERVAL_MS=5000
+# The sixth and only new read: an evidence FILE written by the separate
+# aegis-disk-health oneshot (which is the unit that holds the raw-device
+# capability, not this one). ProtectSystem=strict leaves /var/lib readable, and the file is
+# 0640 in a 0750 directory grouped aegis-telemetry, so this process can read
+# it and no other unprivileged account can. Set empty to disable the read.
+Environment=AEGIS_TELEMETRY_DISK_HEALTH_FILE=/var/lib/aegis-disk-health/disk-health.json
 Environment=NODE_ENV=production
 
 # ── socket directory ──────────────────────────────────────────────────
