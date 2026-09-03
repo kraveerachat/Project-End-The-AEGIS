@@ -76,6 +76,9 @@ function mapFileRow(r) {
     modified: new Date(r.modified_at).getTime(), uploader: r.uploader_name ?? 'system',
     ownerId: r.uploaded_by == null ? null : String(r.uploaded_by),
     vault: r.vault, verified: r.verified, sha256: r.sha256, path: r.path,
+    deletedAt: r.deleted_at == null ? null : new Date(r.deleted_at).getTime(),
+    purgeAt: r.purge_after == null ? null : new Date(r.purge_after).getTime(),
+    deletedBy: r.deleted_by == null ? null : String(r.deleted_by),
   }
 }
 
@@ -90,7 +93,7 @@ async function pgListFiles(userId) {
   const { rows } = await query(
     `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
-      WHERE f.vault = false AND f.uploaded_by = $1
+      WHERE f.vault = false AND f.uploaded_by = $1 AND f.deleted_at IS NULL
       ORDER BY f.modified_at DESC`,
     [userId],
   )
@@ -102,16 +105,10 @@ async function pgFindFile(id) {
   const { rows } = await query(
     `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
-      WHERE f.id = $1`,
+      WHERE f.id = $1 AND f.deleted_at IS NULL`,
     [id],
   )
   return rows.length ? mapFileRow(rows[0]) : null
-}
-
-async function pgDeleteFile(id) {
-  if (!/^\d+$/.test(String(id))) return false
-  const { rowCount } = await query(`DELETE FROM files WHERE id = $1`, [id])
-  return rowCount > 0
 }
 
 async function pgCreateFolder(name, user) {
@@ -166,7 +163,12 @@ const files = [
 //    = ไม่มีเจ้าของที่ยืนยันได้ จึงลบไม่ได้ ซึ่งตรงกับกรณี `ON DELETE SET NULL` ของ
 //    Postgres เป๊ะ ๆ (เจ้าของถูกลบบัญชี) — เป็นช่องว่างที่รู้อยู่ ไม่ใช่ความบังเอิญ
 const DEV_OWNER_BY_NAME = { 'Veerachat J.': '1', 'Kanya Srisuwan': '2' }
-for (const f of files) f.ownerId = DEV_OWNER_BY_NAME[f.uploader] ?? null
+for (const f of files) {
+  f.ownerId = DEV_OWNER_BY_NAME[f.uploader] ?? null
+  f.deletedAt = null
+  f.purgeAt = null
+  f.deletedBy = null
+}
 
 /**
  * ไฟล์ "ของผู้ใช้คนนี้เท่านั้น" ที่ไม่ใช่ vault — ด่าน ownership อยู่ที่นี่จุดเดียว
@@ -178,25 +180,201 @@ export async function listFiles(userId) {
   if (userId == null) throw new Error('listFiles requires a userId — do not call it unscoped')
   if (usingPostgres) return pgListFiles(userId)
   return files.filter(
-    (f) => !f.vault && f.ownerId != null && String(f.ownerId) === String(userId),
+    (f) => !f.vault && f.deletedAt == null && f.ownerId != null && String(f.ownerId) === String(userId),
   )
 }
 
 export async function findFile(id) {
   if (usingPostgres) return pgFindFile(id)
-  return files.find((f) => f.id === id) ?? null
+  return files.find((f) => f.id === id && f.deletedAt == null) ?? null
 }
 
-export async function deleteFile(id) {
-  if (usingPostgres) return pgDeleteFile(id) // file_versions หายตามผ่าน ON DELETE CASCADE
-  const i = files.findIndex((f) => f.id === id)
-  if (i === -1) return false
-  files.splice(i, 1)
-  // dev fallback ต้องเลียนแบบ CASCADE ด้วยมือ — ไม่งั้นสองโหมดจะมีพฤติกรรมต่างกัน
-  // และชุดทดสอบชุดเดียวกันจะพิสูจน์ได้แค่โหมดหนึ่ง
-  for (let k = memFileVersions.length - 1; k >= 0; k--) {
-    if (String(memFileVersions[k].fileId) === String(id)) memFileVersions.splice(k, 1)
+const TRASH_RETENTION_MS = 30 * DAY
+
+/** Atomic soft-delete + share revocation. Bytes and file_versions stay in place. */
+export async function trashFile(id, userId) {
+  if (!/^\d+$/.test(String(userId ?? ''))) return null
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return null
+    return withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `UPDATE files
+            SET deleted_at = now(), purge_after = now() + interval '30 days', deleted_by = $2
+          WHERE id = $1 AND uploaded_by = $2 AND vault = false AND deleted_at IS NULL
+        RETURNING *`,
+        [id, userId],
+      )
+      if (!rows.length) return null
+      await client.query(
+        `UPDATE shares SET revoked = true WHERE file_id = $1 AND revoked = false`,
+        [id],
+      )
+      return mapFileRow(rows[0])
+    })
   }
+  const row = files.find((candidate) => candidate.id === String(id)
+    && String(candidate.ownerId) === String(userId) && !candidate.vault && candidate.deletedAt == null)
+  if (!row) return null
+  const now = Date.now()
+  row.deletedAt = now
+  row.purgeAt = now + TRASH_RETENTION_MS
+  row.deletedBy = String(userId)
+  for (const share of shares) {
+    if (String(share.fileId) === String(id)) share.revoked = true
+  }
+  return { ...row }
+}
+
+export async function findTrashedFile(id, userId, { includeExpired = false } = {}) {
+  if (!/^\d+$/.test(String(userId ?? ''))) return null
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return null
+    const { rows } = await query(
+      `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
+         FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
+        WHERE f.id = $1 AND f.uploaded_by = $2 AND f.vault = false
+          AND f.deleted_at IS NOT NULL${includeExpired ? '' : ' AND f.purge_after > now()'}`,
+      [id, userId],
+    )
+    return rows.length ? mapFileRow(rows[0]) : null
+  }
+  const row = files.find((candidate) => candidate.id === String(id)
+    && String(candidate.ownerId) === String(userId) && !candidate.vault
+    && candidate.deletedAt != null && (includeExpired || candidate.purgeAt > Date.now()))
+  return row ? { ...row } : null
+}
+
+export async function listTrash(userId) {
+  if (!/^\d+$/.test(String(userId ?? ''))) return []
+  let rows
+  if (usingPostgres) {
+    const result = await query(
+      `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name,
+              count(v.id)::int AS version_count
+         FROM files f
+         LEFT JOIN users u ON u.id = f.uploaded_by
+         LEFT JOIN file_versions v ON v.file_id = f.id
+        WHERE f.uploaded_by = $1 AND f.vault = false
+          AND f.deleted_at IS NOT NULL AND f.purge_after > now()
+        GROUP BY f.id, u.profile_name, u.display_name
+        ORDER BY f.deleted_at DESC`,
+      [userId],
+    )
+    rows = result.rows.map((row) => ({ ...mapFileRow(row), versionCount: Number(row.version_count) }))
+  } else {
+    rows = files
+      .filter((row) => String(row.ownerId) === String(userId) && !row.vault
+        && row.deletedAt != null && row.purgeAt > Date.now())
+      .sort((a, b) => b.deletedAt - a.deletedAt)
+      .map((row) => ({ ...row, versionCount: memFileVersions.filter((v) => String(v.fileId) === String(row.id)).length }))
+  }
+  return rows
+}
+
+const restoredCopyName = (name, copy = 1) => {
+  const source = String(name).slice(0, 200)
+  const dot = source.lastIndexOf('.')
+  const stem = dot > 0 ? source.slice(0, dot) : source
+  const ext = dot > 0 ? source.slice(dot) : ''
+  const suffix = copy === 1 ? ' (restored)' : ` (restored ${copy})`
+  return `${stem.slice(0, Math.max(1, 200 - ext.length - suffix.length))}${suffix}${ext}`
+}
+
+async function availableRestoredName(name, userId) {
+  for (let copy = 1; copy <= 10_000; copy += 1) {
+    const candidate = restoredCopyName(name, copy)
+    if (!(await findOwnFileByName(candidate, userId))) return candidate
+  }
+  // A practically unreachable last resort that still avoids returning a known collision.
+  while (true) {
+    const candidate = restoredCopyName(`${name}-${randomBytes(6).toString('hex')}`)
+    if (!(await findOwnFileByName(candidate, userId))) return candidate
+  }
+}
+
+export async function restoreTrashedFile(id, userId, requestedName = null) {
+  const trashed = await findTrashedFile(id, userId)
+  if (!trashed) return null
+  const desired = requestedName == null ? trashed.name : String(requestedName).trim().slice(0, 200)
+  if (!desired) return { invalid: true }
+  const conflict = await findOwnFileByName(desired, userId)
+  if (conflict) return { conflict: true, suggestedName: await availableRestoredName(trashed.name, userId) }
+  if (usingPostgres) {
+    const { rows } = await query(
+      `UPDATE files SET name = $3, deleted_at = NULL, purge_after = NULL, deleted_by = NULL,
+                        modified_at = now()
+        WHERE id = $1 AND uploaded_by = $2 AND vault = false
+          AND deleted_at IS NOT NULL AND purge_after > now()
+      RETURNING *`,
+      [id, userId, desired],
+    )
+    return rows.length ? { file: mapFileRow(rows[0]) } : null
+  }
+  const row = files.find((candidate) => candidate.id === String(id))
+  if (!row || row.deletedAt == null) return null
+  row.name = desired
+  row.deletedAt = null
+  row.purgeAt = null
+  row.deletedBy = null
+  row.modified = Date.now()
+  return { file: { ...row } }
+}
+
+/** Final metadata delete. Call only after current/version bytes were removed. */
+export async function hardDeleteTrashedFile(id, userId = null) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id))) return false
+    const params = [id]
+    const ownerClause = userId == null ? '' : ' AND uploaded_by = $2'
+    if (userId != null) params.push(userId)
+    const { rowCount } = await query(
+      `DELETE FROM files WHERE id = $1 AND deleted_at IS NOT NULL${ownerClause}`,
+      params,
+    )
+    return rowCount > 0
+  }
+  const index = files.findIndex((row) => row.id === String(id) && row.deletedAt != null
+    && (userId == null || String(row.ownerId) === String(userId)))
+  if (index < 0) return false
+  files.splice(index, 1)
+  for (let i = memFileVersions.length - 1; i >= 0; i--) {
+    if (String(memFileVersions[i].fileId) === String(id)) memFileVersions.splice(i, 1)
+  }
+  return true
+}
+
+export async function listExpiredTrash(limit = 25) {
+  const bounded = Math.max(1, Math.min(100, Number(limit) || 25))
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT f.*, count(v.id)::int AS version_count
+         FROM files f LEFT JOIN file_versions v ON v.file_id = f.id
+        WHERE f.vault = false AND f.deleted_at IS NOT NULL AND f.purge_after <= now()
+        GROUP BY f.id ORDER BY f.purge_after ASC LIMIT $1`,
+      [bounded],
+    )
+    return rows.map((row) => ({ ...mapFileRow(row), versionCount: Number(row.version_count) }))
+  }
+  return files.filter((row) => !row.vault && row.deletedAt != null && row.purgeAt <= Date.now())
+    .sort((a, b) => a.purgeAt - b.purgeAt).slice(0, bounded).map((row) => ({ ...row }))
+}
+
+/** Controlled clock seam for parity tests; never called by runtime code. */
+export async function setTrashPurgeAtForTest(id, at) {
+  const purgeAt = new Date(at)
+  if (!Number.isFinite(purgeAt.getTime())) return false
+  const deletedAt = new Date(purgeAt.getTime() - TRASH_RETENTION_MS)
+  if (usingPostgres) {
+    const { rowCount } = await query(
+      `UPDATE files SET deleted_at = $2, purge_after = $3 WHERE id = $1 AND deleted_at IS NOT NULL`,
+      [id, deletedAt, purgeAt],
+    )
+    return rowCount > 0
+  }
+  const row = files.find((candidate) => candidate.id === String(id) && candidate.deletedAt != null)
+  if (!row) return false
+  row.deletedAt = deletedAt.getTime()
+  row.purgeAt = purgeAt.getTime()
   return true
 }
 
@@ -225,14 +403,14 @@ export async function findOwnFileByName(name, userId) {
     const { rows } = await query(
       `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
          FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
-        WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false
+        WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false AND f.deleted_at IS NULL
         ORDER BY f.modified_at DESC LIMIT 1`,
       [String(name), userId],
     )
     return rows.length ? mapFileRow(rows[0]) : null
   }
   return files.find(
-    (f) => f.name === String(name) && !f.vault && String(f.ownerId) === String(userId),
+    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId),
   ) ?? null
 }
 
@@ -351,6 +529,7 @@ async function pgListShares(userId) {
        JOIN files f ON f.id = s.file_id
        LEFT JOIN users u ON u.id = s.created_by
       WHERE s.created_by = $1
+        AND f.deleted_at IS NULL
         AND s.revoked = false
         AND s.expires_at > now()
       ORDER BY s.created_at DESC`,
@@ -402,7 +581,10 @@ export async function createShare({ fileId, expiry, authType, scope, password },
 
   if (usingPostgres) {
     if (!/^\d+$/.test(String(fileId))) return null
-    const { rows: fileRows } = await query(`SELECT id, name, vault, uploaded_by FROM files WHERE id = $1`, [fileId])
+    const { rows: fileRows } = await query(
+      `SELECT id, name, vault, uploaded_by FROM files WHERE id = $1 AND deleted_at IS NULL`,
+      [fileId],
+    )
     const file = fileRows[0]
     if (!file || file.vault) return null // แชร์ไฟล์ vault ไม่ได้ — server อ่าน ciphertext ไม่ออก
     // ⚠️ ต้องเป็นเจ้าของไฟล์ถึงจะสร้างลิงก์แชร์ได้ — ไม่งั้นผู้ใช้คนหนึ่งระบุ id ไฟล์ของ
@@ -418,7 +600,7 @@ export async function createShare({ fileId, expiry, authType, scope, password },
     return { share, token }
   }
 
-  const file = files.find((f) => f.id === fileId)
+  const file = files.find((f) => f.id === fileId && f.deletedAt == null)
   if (!file || file.vault) return null
   if (file.ownerId == null || String(file.ownerId) !== String(user.id)) return null
   const row = {
@@ -446,7 +628,8 @@ export async function findShareByToken(token) {
 
   if (usingPostgres) {
     const { rows } = await query(
-      `SELECT s.*, f.name AS file_name, f.path AS file_path, f.size_bytes AS file_size, f.vault AS file_vault
+      `SELECT s.*, f.name AS file_name, f.path AS file_path, f.size_bytes AS file_size,
+              f.vault AS file_vault, f.deleted_at AS file_deleted_at
          FROM shares s JOIN files f ON f.id = s.file_id
         WHERE s.token_hash = $1`,
       [tokenHash],
@@ -456,6 +639,7 @@ export async function findShareByToken(token) {
     return {
       id: String(r.id), fileId: String(r.file_id), fileName: r.file_name,
       filePath: r.file_path, fileSize: Number(r.file_size), fileVault: r.file_vault,
+      fileDeleted: r.file_deleted_at != null,
       authType: r.auth_type, passwordHash: r.password_hash,
       scopeCidrs: r.vlan_scope ?? [], revoked: r.revoked,
       expiresAt: new Date(r.expires_at).getTime(),
@@ -468,6 +652,7 @@ export async function findShareByToken(token) {
   return {
     id: s.id, fileId: s.fileId, fileName: s.fileName,
     filePath: file?.path ?? null, fileSize: file?.size ?? 0, fileVault: Boolean(file?.vault),
+    fileDeleted: file?.deletedAt != null,
     authType: s.authType, passwordHash: s.passwordHash ?? null,
     scopeCidrs: s.scopeCidrs ?? [], revoked: s.revoked, expiresAt: s.expiresAt,
   }
@@ -605,22 +790,29 @@ export async function deleteFileVersion(fileId, versionId) {
 }
 
 /** จำนวนไฟล์ที่มีประวัติ + จำนวนเวอร์ชันรวม — ใช้โดยจอ File history เพื่อบอกสถานะรวม */
-export async function fileVersionStats() {
+export async function fileVersionStats(userId = null) {
   if (usingPostgres) {
+    const ownerFilter = userId == null ? '' : ' AND f.uploaded_by = $1'
     const { rows } = await query(
       `SELECT count(*)::int AS versions,
-              count(DISTINCT file_id)::int AS files,
-              COALESCE(sum(size_bytes), 0)::bigint AS bytes
-         FROM file_versions`,
+              count(DISTINCT v.file_id)::int AS files,
+              COALESCE(sum(v.size_bytes), 0)::bigint AS bytes
+         FROM file_versions v JOIN files f ON f.id = v.file_id
+        WHERE f.deleted_at IS NULL${ownerFilter}`,
+      userId == null ? [] : [userId],
     )
     const r = rows[0]
     return { versions: r.versions, files: r.files, bytes: Number(r.bytes) }
   }
-  const ids = new Set(memFileVersions.map((v) => String(v.fileId)))
+  const activeIds = new Set(files
+    .filter((file) => file.deletedAt == null && (userId == null || String(file.ownerId) === String(userId)))
+    .map((file) => String(file.id)))
+  const activeVersions = memFileVersions.filter((version) => activeIds.has(String(version.fileId)))
+  const ids = new Set(activeVersions.map((v) => String(v.fileId)))
   return {
-    versions: memFileVersions.length,
+    versions: activeVersions.length,
     files: ids.size,
-    bytes: memFileVersions.reduce((n, v) => n + (v.size || 0), 0),
+    bytes: activeVersions.reduce((n, v) => n + (v.size || 0), 0),
   }
 }
 
@@ -662,7 +854,7 @@ async function usageByCategory() {
          COALESCE(sum(size_bytes) FILTER (WHERE lower(name) ~ '\\.(zip|gz|rar|7z|tar)$'), 0)::bigint AS archives,
          COALESCE(sum(size_bytes) FILTER (WHERE lower(name) ~ '\\.(mp4|mov|mkv|png|jpe?g|webp)$'), 0)::bigint AS media,
          COALESCE(sum(size_bytes) FILTER (WHERE lower(name) !~ '\\.(pdf|docx?|txt|pptx?|xlsx?|csv|zip|gz|rar|7z|tar|mp4|mov|mkv|png|jpe?g|webp)$'), 0)::bigint AS other
-       FROM files WHERE vault = false`,
+       FROM files WHERE vault = false AND deleted_at IS NULL`,
     )
     const { rows: vaultRows } = await query(
       `SELECT COALESCE(sum(size_bytes), 0)::bigint AS bytes FROM vault_blobs`,
@@ -684,7 +876,7 @@ async function usageByCategory() {
   }
   const totals = { docs: 0, archives: 0, media: 0, other: 0, vaultSeg: 0, versions: 0 }
   for (const f of files) {
-    if (f.vault) continue
+    if (f.vault || f.deletedAt != null) continue
     const key = Object.keys(CAT).find((k) => CAT[k].test(f.name)) ?? 'other'
     totals[key] += f.size || 0
   }
@@ -873,7 +1065,7 @@ async function activity7d() {
 //    ยังคงเป็นภาพรวมทั้งระบบโดยเจตนา (สถิติของเครื่อง/audit ไม่ใช่เนื้อไฟล์รายตัว)
 export async function dashboard(userId) {
   const [fileList, shareList, capacity, versionStats, activity] = await Promise.all([
-    listFiles(userId), listShares(userId), filesystemCapacity(), fileVersionStats(), activity7d(),
+    listFiles(userId), listShares(userId), filesystemCapacity(), fileVersionStats(userId), activity7d(),
   ])
   // ขนาดที่ "แอปนี้เป็นเจ้าของ" — แยกจากพื้นที่ที่ใช้ไปทั้ง volume ซึ่งรวมของอื่นด้วย
   const dataLakeBytes = fileList.reduce((s, f) => s + f.size, 0)
@@ -1439,7 +1631,7 @@ export async function finishUploadCommit({
       const existingRes = await client.query(
         `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
            FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
-          WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false
+          WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false AND f.deleted_at IS NULL
           ORDER BY f.modified_at DESC LIMIT 1
             FOR UPDATE OF f`,
         [String(name), userId],
@@ -1485,7 +1677,7 @@ export async function finishUploadCommit({
     throw Object.assign(new Error('commit claim lost'), { code: 'CLAIM_LOST' })
   }
   const existing = files.find(
-    (f) => f.name === String(name) && !f.vault && String(f.ownerId) === String(userId),
+    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId),
   ) ?? null
 
   let row

@@ -74,6 +74,15 @@ export function createApp({ env = process.env } = {}) {
   // This pre-gate is route-specific and grants no role or owner exception.
   app.delete('/api/shares/:id', requireAuth)
 
+  // Protected Trash mutations also promise an explicit 401 to callers without
+  // a session. Authenticated callers continue through the shared CSRF boundary;
+  // these pre-gates do not grant access or weaken owner checks in apiRouter.
+  app.post('/api/trash/unlock', requireAuth)
+  app.post('/api/trash/lock', requireAuth)
+  app.post('/api/trash/empty', requireAuth)
+  app.post('/api/trash/:id/restore', requireAuth)
+  app.delete('/api/trash/:id', requireAuth)
+
   // CSRF ครอบทุก /api ที่เปลี่ยนสถานะ — ต้องมาก่อน router
   app.use('/api', csrfProtection, apiRouter)
   app.use('/api', apiNotFound)

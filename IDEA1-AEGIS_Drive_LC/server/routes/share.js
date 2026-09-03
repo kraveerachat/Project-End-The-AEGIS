@@ -201,6 +201,12 @@ async function resolveShare(req, token) {
     await auditShare(req, 'SHARE_REDEEM_REVOKED', share.fileName, 'BLOCKED')
     return { ok: false, kind: 'gone' }
   }
+  // Defense in depth: trashing already revokes every live share atomically, but
+  // a stale/corrupt share row must still never make a trashed file redeemable.
+  if (share.fileDeleted) {
+    await auditShare(req, 'SHARE_REDEEM_TRASHED', share.fileName, 'BLOCKED')
+    return { ok: false, kind: 'gone' }
+  }
   if (share.expiresAt <= Date.now()) {
     await auditShare(req, 'SHARE_REDEEM_EXPIRED', share.fileName, 'DENIED')
     return { ok: false, kind: 'gone' }

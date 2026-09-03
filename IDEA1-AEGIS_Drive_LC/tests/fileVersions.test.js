@@ -7,7 +7,7 @@
 //   C. กู้คืนไม่ทำลายอะไร — ไบต์ที่เป็นปัจจุบันก่อนกู้ถูกเก็บเป็นเวอร์ชัน กู้กลับได้
 //   D. ประวัติเป็นของเจ้าของเท่านั้น (อ่าน/ดาวน์โหลด/กู้คืน) — ไม่มีข้อยกเว้นให้ Admin
 //   E. อัปโหลดชื่อซ้ำ "ของคนอื่น" ไม่ทับไฟล์เขา (ยังเป็นสองไฟล์แยกกัน)
-//   F. ลบไฟล์ → ไบต์ของทุกเวอร์ชันหายจากดิสก์ด้วย ไม่เหลือข้อมูลกำพร้าที่ลบไม่ได้
+//   F. ย้ายเข้าถังขยะ → เก็บทุกเวอร์ชัน; ลบถาวร → ไบต์ทุกเวอร์ชันหายจากดิสก์
 //   G. /api/storage คืนความจุจริงจาก statfs และประกาศสิ่งที่วัดไม่ได้ — ไม่มีดิสก์/
 //      backup job ที่แต่งขึ้นหลงเหลืออยู่
 import test, { before, after, beforeEach } from 'node:test'
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { loginClient, DEMO_USER, DEMO_ADMIN } from './helpers/testClient.mjs'
+import { loginClient, currentPasswordOf, DEMO_USER, DEMO_ADMIN } from './helpers/testClient.mjs'
 
 const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-versions-test-'))
 process.env.STORAGE_ROOT = STORAGE_ROOT
@@ -232,9 +232,9 @@ test('อัปโหลดชื่อซ้ำกับไฟล์ของ�
   assert.equal((await versionsOf(a, mine.file.id)).versions.length, 0, 'a ต้องไม่มีประวัติงอกขึ้นมา')
 })
 
-// ═══ F. ลบไฟล์ = ลบประวัติทั้งไบต์และแถว ═══════════════════════════════════════
+// ═══ F. ถังขยะเก็บประวัติ; permanent delete จึงลบไบต์และแถว ════════════════════
 
-test('ลบไฟล์ → ไบต์ของทุกเวอร์ชันหายจากดิสก์ด้วย (ไม่เหลือข้อมูลกำพร้าที่ลบไม่ได้)', async () => {
+test('ย้ายเข้าถังขยะเก็บทุกเวอร์ชัน และลบถาวรจึงลบไบต์ทั้งหมด', async () => {
   const c = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
   const name = uniqueName()
   const base = await versionFileCount()
@@ -246,10 +246,14 @@ test('ลบไฟล์ → ไบต์ของทุกเวอร์ชั
 
   assert.equal((await c.req(`/api/files/${file.id}`, { method: 'DELETE' })).status, 200)
 
-  // ⚠️ แถวหายผ่าน CASCADE แต่ไบต์บนดิสก์ไม่มีใครลบให้ ถ้าข้ามขั้นนี้ เนื้อหาเก่าของไฟล์ที่
-  //    ผู้ใช้ "ลบแล้ว" จะนอนอยู่บน volume ต่อไปโดยไม่มีแถวไหนอ้างถึง = ลบไม่ได้ หาไม่เจอ
+  assert.equal(await versionFileCount(), base + 2, 'soft delete ต้องเก็บไบต์ของเวอร์ชันไว้ให้กู้คืน')
+  assert.equal((await c.req(`/api/files/${file.id}/versions`)).status, 404, 'ไฟล์ในถังขยะต้องไม่โผล่ใน active history')
+
+  const purged = await c.req(`/api/trash/${file.id}`, {
+    method: 'DELETE', body: { password: currentPasswordOf(DEMO_USER.username) },
+  })
+  assert.equal(purged.status, 200)
   assert.equal(await versionFileCount(), base, 'ไบต์ของทุกเวอร์ชันต้องหายจากดิสก์')
-  assert.equal((await c.req(`/api/files/${file.id}/versions`)).status, 404, 'ไฟล์ที่ถูกลบต้องไม่มีประวัติ')
 })
 
 test('endpoint snapshot ที่เป็นของปลอมต้องไม่มีอยู่อีก (404 ไม่ใช่ 200)', async () => {

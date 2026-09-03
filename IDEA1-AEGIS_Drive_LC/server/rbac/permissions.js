@@ -30,6 +30,7 @@ const NAV_REGISTRY = [
   { id: 'uploads',   icon: 'upload',    labelKey: 'navUploads',   group: 'navGroupWorkspace',  roles: [ROLES.USER, ROLES.ADMIN] },
   { id: 'shares',    icon: 'link',      labelKey: 'navShares',    group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
   { id: 'versions',  icon: 'history',   labelKey: 'navVersions',  group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
+  { id: 'trash',     icon: 'trash',     labelKey: 'navTrash',     group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
   { id: 'storage',   icon: 'harddrive', labelKey: 'navStorage',   group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
   // Admin-only governance — role อื่นต้องไม่พบร่องรอยใน DOM เลยแม้แต่ตัวอักษรเดียว
   { id: 'audit',     icon: 'scroll',    labelKey: 'navAudit',     group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },

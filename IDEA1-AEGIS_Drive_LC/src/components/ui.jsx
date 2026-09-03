@@ -267,6 +267,7 @@ function initialFocusTarget(root) {
 
 export function Modal({ open, onClose, children, width = 480, labelledBy }) {
   const ref = useRef(null)
+  const returnFocusRef = useRef(null)
 
   /* onClose ที่หน้าจอส่งมามักเป็น inline arrow (`onClose={() => setModal(null)}`)
      ตัวตนของมันเปลี่ยนทุกครั้งที่ parent re-render — เก็บไว้ใน ref แล้วอ้างผ่าน ref
@@ -283,6 +284,19 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  /* Remember the element that launched the dialog and return keyboard focus
+     when the dialog closes. If a successful mutation removed that element,
+     fail quietly instead of focusing a stale/disconnected node. */
+  useEffect(() => {
+    if (!open) return undefined
+    returnFocusRef.current = document.activeElement
+    return () => {
+      const target = returnFocusRef.current
+      returnFocusRef.current = null
+      if (target?.isConnected && typeof target.focus === 'function') target.focus()
+    }
   }, [open])
 
   /* โฟกัสเริ่มต้นเกิดเฉพาะตอน "เพิ่งเปิด" เท่านั้น — พิมพ์ลงช่อง controlled แล้ว

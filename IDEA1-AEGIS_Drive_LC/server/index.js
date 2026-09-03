@@ -20,6 +20,7 @@ import { initVaultStaging } from './storage/vaultStaging.js'
 import { cleanupAbandonedVaultUploads, scheduleVaultUploadCleanup } from './storage/vaultUploadCleanup.js'
 import { recoverStaleVaultCommits, scheduleVaultCommitRecovery } from './storage/vaultCommitRecovery.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
+import { runTrashAutoPurge, scheduleTrashAutoPurge } from './storage/trashCleanup.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
@@ -85,6 +86,13 @@ Promise.all([
       })
       .catch((err) => console.error('[aegis-drive] initial vault upload cleanup failed:', err.message))
     scheduleVaultUploadCleanup()
+
+    runTrashAutoPurge()
+      .then(({ purged }) => {
+        if (purged) console.log(`[aegis-drive] protected trash auto-purged ${purged} file(s)`)
+      })
+      .catch((err) => console.error('[aegis-drive] initial trash auto-purge failed:', err.message))
+    scheduleTrashAutoPurge()
 
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'

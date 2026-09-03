@@ -30,13 +30,14 @@ Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, and file
 > change test results, production acceptance, Phase E, or the evidence status of
 > any backend/infrastructure source.
 
-The current primary navigation has **9 screens**:
+The current primary navigation has **11 screens** (the earlier nine-screen map
+predated both Security and Protected Trash):
 
 | Group | Primary screens |
 | :--- | :--- |
 | Workspace | Dashboard · Files · Private Vault |
-| Protection | Secure Shares · File History / Versions · Storage & Backup |
-| Administration | Audit Log · Access Control · Settings |
+| Protection | Secure Shares · File History / Versions · Trash · Storage & Backup |
+| Administration | Audit Log · Access Control · Security · Settings |
 
 Key mapping decisions:
 
@@ -47,6 +48,8 @@ Key mapping decisions:
   recovery, upload, and file-access flow; it is not an embedded Files subsection.
 - **File History / Versions** is file-level history and restore, not a claim of
   filesystem snapshots.
+- **Protected Trash** is the owner-only 30-day recovery workspace for normal
+  Data Lake files. Its metadata is password-gated; Private Vault is unchanged.
 - **Secure Shares** remains a separate lifecycle-management workspace; Files may
   link into it without replacing its creation, policy, tracking, revoke, and
   history responsibilities.

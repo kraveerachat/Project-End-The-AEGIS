@@ -133,7 +133,7 @@ test('ผลลัพธ์ใน audit ตรงกับสิ่งที่�
 
   const rows = await events(admin)
   const hash = sha256Hex(name)
-  const denied = rows.find((e) => targetOf(e) === hash && actionOf(e) === 'FILE_DELETE')
+  const denied = rows.find((e) => targetOf(e) === hash && actionOf(e) === 'FILE_TRASH')
   assert.ok(denied, 'ความพยายามลบต้องปรากฏใน audit')
   assert.equal(denied.result, 'DENIED', '⚠️ การถูกปฏิเสธต้องมองเห็นได้ ไม่ใช่หายไปเงียบ ๆ')
   assert.equal(labelOf(denied), DEMO_ADMIN.username, 'ต้องบันทึกว่าใครเป็นคนพยายาม')
