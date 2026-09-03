@@ -126,6 +126,7 @@ for (const width of [360, 768, 1440]) {
     await card(page, first).focus()
     await page.keyboard.press('Enter')
     await expect(card(page, first)).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => page.locator('.feedimg').evaluate(image => image.naturalWidth)).toBeGreaterThan(0)
     await expect(card(page, first)).toContainText('Live')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     expect((await page.locator('.hero').boundingBox()).height).toBeGreaterThanOrEqual(340)

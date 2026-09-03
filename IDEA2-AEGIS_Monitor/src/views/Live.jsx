@@ -184,7 +184,11 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
           </motion.div>
           <CameraSelector cameras={cameras} selectedId={cam.id} link={link}
             streamState={feedStatus?.cameraId === cam.id ? feedStatus.state : null}
-            onSelect={setHeroCam} />
+            onSelect={(id) => {
+              if (id === cam.id) return
+              setFeedStatus(null)
+              setHeroCam(id)
+            }} />
         </div>
         {/* ⚠️ เดิม canvasR เป็น motion.div ที่ fade+slide เข้ามาช้ากว่าฝั่งซ้าย
             150ms (delay: 0.15) โดยเจตนา — นี่คือ staggered page-load choreography

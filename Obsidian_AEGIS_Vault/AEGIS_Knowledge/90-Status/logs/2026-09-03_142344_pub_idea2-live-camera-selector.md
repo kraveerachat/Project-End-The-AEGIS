@@ -27,6 +27,8 @@ edit_policy: append-by-new-file
   detections do not inherit old clean authorizations.
 - LiveFeed has keyed camera sessions and explicit image-source/listener cleanup,
   plus retry and recovery-timer cancellation. There is no mount-time nonce bump.
+  Selection/availability changes clear the prior Live badge; visual tests wait
+  for the new image's decoded pixels rather than accepting a cached badge.
 - Preserve `GET /api/cameras` server membership, `GET /api/link` availability,
   `GET /api/detections` input and the same-origin stream proxy. No server/API/
   RBAC contract or real runtime changes. Existing server-side `getVisibleCameras`,

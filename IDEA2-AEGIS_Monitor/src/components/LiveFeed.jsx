@@ -105,6 +105,9 @@ function FeedSession({ cameraId, cameraName, lost, compact, hideStatus, onStateC
 }
 
 export default function LiveFeed(props) {
+  useEffect(() => {
+    if (!props.hasStream) props.onStateChange?.({ cameraId: props.cameraId, state: 'nostream' })
+  }, [props.cameraId, props.hasStream, props.onStateChange])
   if (!props.hasStream) {
     return (
       <>
