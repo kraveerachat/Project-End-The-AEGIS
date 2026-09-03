@@ -14,16 +14,10 @@ import { createFileReaders } from '../src/sources.js'
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
-test('the agent reads exactly the five approved sources and nothing else', async () => {
+test('the agent reads exactly the six approved sources and nothing else', async () => {
   const opened = []
   const readers = createFileReaders(
-    {
-      procStat: '/proc/stat',
-      memInfo: '/proc/meminfo',
-      uptime: '/proc/uptime',
-      networkRx: '/sys/class/net/enp1s0/statistics/rx_bytes',
-      networkTx: '/sys/class/net/enp1s0/statistics/tx_bytes',
-    },
+    createAgent({ env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' }, readFile: async () => '0' }).config.sources,
     { readFile: async (p) => { opened.push(p); return '0' } },
   )
 
@@ -35,7 +29,19 @@ test('the agent reads exactly the five approved sources and nothing else', async
     '/proc/uptime',
     '/sys/class/net/enp1s0/statistics/rx_bytes',
     '/sys/class/net/enp1s0/statistics/tx_bytes',
+    // The sixth source is a FILE written by the separate disk-health oneshot,
+    // never a device: the agent still holds no capability and opens no /dev.
+    '/var/lib/aegis-disk-health/disk-health.json',
   ])
+})
+
+test('an empty AEGIS_TELEMETRY_DISK_HEALTH_FILE disables the sixth read entirely', () => {
+  const agent = createAgent({
+    env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0', AEGIS_TELEMETRY_DISK_HEALTH_FILE: '' },
+    readFile: async () => '0',
+  })
+  assert.equal(agent.config.diskHealthFile, null)
+  assert.equal('diskHealth' in agent.config.sources, false)
 })
 
 test('a source read is never allowed to throw into the sampler', async () => {

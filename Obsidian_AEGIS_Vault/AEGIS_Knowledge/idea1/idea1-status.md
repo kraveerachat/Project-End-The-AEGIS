@@ -256,7 +256,7 @@ Public Share remains not implemented.
 > change any PASS/FAIL statement below, and does not assert that a UI capability
 > has a completed backend, host collector, or deployed data source.
 
-### Primary screen map — 11 screens
+### Primary screen map — 10 screens
 
 | Group | Primary screen | Intended responsibility |
 | :--- | :--- | :--- |
@@ -269,7 +269,6 @@ Public Share remains not implemented.
 | Protection | Storage & Backup | Storage/backup-oriented status and configuration surface |
 | Administration | Audit Log | Event, actor, IP and resource investigation surface |
 | Administration | Access Control | User and access-administration surface |
-| Administration | Security | Server-backed security-posture and control-status surface |
 | Administration | Settings | Application preferences and administrative configuration groups |
 
 ### Information-architecture decisions
@@ -452,6 +451,101 @@ Historical implementation evidence is recorded in
 [[90-Status/logs/2026-08-27_181500_kla_idea1-dashboard-telemetry-authenticated-visibility]].
 Current production closure is recorded in
 [[90-Status/logs/2026-08-27_201226_kla_idea1-dashboard-production-closure]].
+
+### Storage & Backup data phase (2026-09-03)
+
+`FUNCTION_DATA_PHASE = COMPLETE` (source). `PRODUCTION_CHANGED = NO`.
+`PRODUCTION_ACCEPTANCE = NOT TESTED`. The Capacity visualization is
+deliberately unchanged; the Storage page redesign is the next, separate phase.
+
+**Physical disk health (Goal A).** The Drive container still holds no raw
+device access. A new bounded oneshot, `aegis-disk-health.service` +
+`.timer` (dedicated user 29101, `CAP_SYS_RAWIO` only, `DevicePolicy=closed`,
+`DeviceAllow=/dev/sda r`, no network), runs
+`smartctl --json --info --health --attributes /dev/sda` every 10 minutes and
+writes an allowlisted evidence file (`shared/host-telemetry-agent/collectors/`).
+The unprivileged telemetry agent reads that one file — it remains a
+file-reads-only process with an empty capability set — and publishes it on a
+**new, separately versioned route** `GET /internal/disk-health`
+(`schemaVersion: 1`); the production-verified `/internal/telemetry` V1 body is
+byte-for-byte unchanged. Drive validates the document fail-closed
+(`server/telemetry/diskHealthSchema.js`, unknown key = rejection, `null` =
+not reported, never 0) and derives the status deterministically:
+explicit SMART failure or a critical warning code → `CRITICAL`; SMART passed
+with a measured warning → `WARNING`; SMART passed with none → `HEALTHY`;
+missing, stale (>30 min) or unreported evidence → `UNKNOWN`. UNKNOWN is never
+promoted. No serial number, raw attribute table, path or command output
+crosses either boundary.
+
+**Backup foundation (Goal B).** A third host identity,
+`shared/host-backup-agent/` (user `aegis-backup` 29102, own socket
+`/run/aegis-backup/backup.sock`, `CAP_DAC_READ_SEARCH` only, `ProtectSystem=strict`
+with `ReadWritePaths` limited to the external mount) executes backups; Drive
+never does. Engine: **restic** (encrypted, deduplicated, `check`, verified
+restore, `forget --prune`), with `pg_dump --format=custom` of `aegis_drive`
+proven readable by `pg_restore --list`. Backup set: `uploads/`, `versions/`,
+`vault/` (ciphertext only — no key exists to back up), `avatars/`, and the
+database dump; `.staging/` is excluded. **Failure-domain policy:** a target
+counts as protected only when `/proc/self/mountinfo` + `/sys/class/block`
+(partition → disk, device-mapper → slaves) resolve it to a physical disk not
+shared with the Data Lake, or it is off-host; otherwise the state is
+`SAME_FAILURE_DOMAIN` / `TARGET_UNAVAILABLE` and the UI says
+*Unprotected — same failure domain* rather than anything green.
+**Consistency model:** a bounded write-freeze lease with acknowledgement —
+the agent requests a freeze, Drive refuses destructive mutations (delete,
+same-name replace/commit, version restore, vault delete/commit) with
+`503 BACKUP_MAINTENANCE`, drains in-flight ones, acknowledges; only then
+`pg_dump` → `restic backup`; the freeze ends on completion or at the lease
+(enforced on Drive's own clock); a snapshot finishing after the lease is
+`FAILED / LEASE_EXPIRED`, and no acknowledgement within the deadline is
+`FAILED / QUIESCE_TIMEOUT`. Reads, downloads, shares and uncommitted uploads
+continue. **Restore verification** (`POST /internal/backup/verify`):
+`restic check --read-data-subset=10%`, expected content present in the latest
+snapshot, isolated restore of the dump into the agent's own state directory,
+`pg_restore --list` → `PASS` / `FAIL`; `NOT_TESTED` until run.
+
+**Contract and derivation.** `GET /api/storage` (all authenticated users) now
+returns `capacityBytes`/`usage`/`unaccountedBytes` (unchanged), `diskHealth`,
+`raid` (`NOT_CONFIGURED`, declared), `backup`, `maintenance`, and the
+`unavailable` map with current reasons. Backup facts are derived from agent
+job history only: `lastSuccessfulBackup`, `lastFailedBackup`,
+`backupAgeSeconds`, `bytesCovered`, `integrity`, `restoreVerification`,
+`successRate30d` = successful / all completed backup jobs in 30 days, **null
+when there are none** (not 0 %, not 100 %). Risk: `UNKNOWN` (no evidence);
+`NOT_CONFIGURED` (no protected target); `CRITICAL` (last backup failed with no
+newer success, no successful backup yet, older than `maxBackupAgeHours`, or
+restore verification failed); `WARNING` (past 75 % of max age, restore never
+verified, or verification older than `verifyIntervalDays`); `HEALTHY`
+otherwise. Configuration alone never yields HEALTHY. Admin-only:
+`GET /api/backup`, `PATCH /api/backup/policy` (four allowlisted IDs/booleans —
+no path, host or command ever leaves the browser), `POST /api/backup/run`,
+`POST /api/backup/verify`. Audit: `BACKUP_CONFIG_UPDATE`, `BACKUP_RUN_REQUEST`,
+`BACKUP_VERIFY_REQUEST` (actor = Admin), and `BACKUP_RUN_SUCCESS/FAILED`,
+`BACKUP_VERIFY_PASS/FAIL` recorded by Drive's coordinator with actor
+`SYSTEM:backup-agent` and `target_hash = sha256(jobId)`.
+
+**UI (data-driven, not redesigned).** Storage shows the disk evidence and the
+backup facts/risk/history with honest unavailable states in EN/TH/ZH; Settings
+→ Storage & Data gives Admin a form of allowlisted IDs (target with its
+protection classification, schedule preset, retention preset, enable) plus
+*Back up now* / *Verify restore*; a DataLake-User sees a read-only note.
+
+**Verification (local, Windows dev machine).** `shared/host-telemetry-agent`
+99 tests / 96 pass / 3 POSIX-only skips; `shared/host-backup-agent` 51/51;
+IDEA1 suite 826 tests / 759 pass / 0 fail / 67 PostgreSQL-gated skips (see the
+receipt for the post-UI-test count); `npm run build` PASS; repository policy
+suite 42/42; vault validator PASS.
+
+**Not done / limitations.** Nothing is deployed: no host unit installed, no
+`smartmontools`/`restic`/`postgresql-client` on the host, no `drive_backup`
+role, no external disk mounted, no Compose delta applied
+(`shared/host-backup-agent/deploy/production-delta.md`,
+`shared/host-telemetry-agent/deploy/README.md`). Whether `smartctl` can open
+`/dev/sda` with `CAP_SYS_RAWIO` alone on this controller is unverified on
+Linux. The Dashboard Server-Telemetry disk tile still reports `health:
+smart-not-observable` (unchanged; Storage is the surface that shows disk
+health). The dev `docker-compose.yml` needs no change. Receipt:
+[[90-Status/logs/2026-09-03_230500_kla_idea1-storage-backup-data-phase]].
 
 ### Data-honesty and empty-state behavior
 
@@ -739,8 +833,9 @@ This module went through a pass (2026-07-27) whose whole purpose was removing da
 | Dashboard activity (7 days) | ✅ Real | counted from `audit_log` |
 | Network zones | 🟠 Real CIDR input for restricted shares; source-identity limit remains | `network_zones` snapshot into `shares.vlan_scope` + `req.ip` check |
 | Encryption at rest for Data Lake uploads | 🔴 **Not implemented** — files are plaintext on disk | — |
-| Disk health / SMART, RAID | 🔴 **Not measurable here** (needs host access) | declared via `storageStatus().unavailable` |
-| Off-site backup jobs | 🔴 **None configured anywhere** | declared via `storageStatus().unavailable` |
+| Disk health / SMART | 🟠 **Source-complete, not deployed** — evidence path exists (host collector → telemetry agent → Drive); Drive still has no device access and shows UNKNOWN until the collector runs | `/api/storage.diskHealth` via `server/telemetry/diskHealth.js`; see "Storage & Backup data phase (2026-09-03)" |
+| RAID | 🔴 **Not configured** — no array in this deployment; declared, never guessed | `/api/storage.raid.status = NOT_CONFIGURED` |
+| Off-site backup jobs | 🟠 **Source-complete, not deployed** — real restic + pg_dump host agent with failure-domain policy and write-freeze; nothing is being copied off the machine until it is installed | `/api/storage.backup` via `server/backup/*`; `shared/host-backup-agent/` |
 
 ### Features removed for claiming things that did not exist
 * **Snapshots + rollback** — eight hardcoded rows; rollback set a `destroyed` flag and restored **zero bytes** while the UI reported "restored" plus GB lost. Replaced by real [[#🕓 File history (replaces Snapshots)]].
@@ -1838,35 +1933,6 @@ the end, and survives close/reopen on Windows Edge/Chrome.
 
 ---
 
-### IDEA3 Security status bridge (2026-09-02) — local source complete, not deployed
-
-IDEA1 now has a source-complete, read-only IDEA3 Security surface on branch
-`codex/idea1-idea3-security-status`. Only an authenticated `Admin` receives the
-`Security` navigation entry or `GET /api/security/status`; ordinary users do
-not see the entry and cannot open the route. The page uses the existing
-Precision Light design language and never exposes CUT, RESTORE, relay, MQTT or
-recovery controls.
-
-The server adapter reads only the operator-configured
-`AEGIS_IDEA3_STATUS_PATH`, rejects non-regular, empty, oversized, malformed,
-future-dated or out-of-contract status documents, and returns a small
-allow-listed schema with `Cache-Control: no-store`. Missing or stale evidence
-fails closed to `UNKNOWN`; no telemetry is guessed, and no raw supervisor
-details, component payloads, credentials or automatic-containment fields are
-returned to the browser.
-
-Verification on the canonical repository clone: the focused security suite
-passed **3/3**; the full IDEA1 suite passed **718**, failed **0**, with **67**
-pre-existing PostgreSQL-gated skips (**785 discovered**); the Vite production
-build passed; the Impeccable detector reported no findings; browser QA confirmed
-the Admin-only page, truthful hardware-unavailable state, hidden User menu and
-direct-route redirect. No ESP32, MQTT broker, relay, production network,
-deployment or PostgreSQL service was contacted. The status path remains unset
-by default, so the deployed product remains unchanged until an operator review,
-read-only file mount and explicit deployment are completed.
-
----
-
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
@@ -1944,11 +2010,45 @@ Controlled browser fetch benchmark against Vault ciphertext chunks while using d
 
 For comparison, the previous remote-path controlled benchmark was approximately **4.65 / 4.22 / 4.26 MiB/s** at 1/2/4 parallel fetches. The same ~1.1 GB high-bitrate file that stalled remotely plays continuously on direct VLAN30. Therefore the accepted conclusion is **remote delivery environment / network path limitation**; do not claim that Twingate alone was conclusively isolated.
 
-#### E. Normal-file status and remaining closure item
+#### E. Normal-file R2 deterministic round-trip closure — 2026-09-03
 
-Normal-file upload UI/regression and secure-share flows already have production PASS evidence in this note. The deterministic **1 MiB normal-file R2** acceptance created the known-good source successfully (`R2.1=PASS`, SHA-256 `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`), but its dedicated current-session upload → download → SHA-256 comparison has **not yet been completed**. Do not mark that specific R2 round trip PASS until direct evidence is collected.
+The dedicated **1 MiB Normal File R2** acceptance is now fully closed with direct browser and Windows evidence:
 
-For final “large-file handling” closure, preview is not required for every file size. A file larger than 1 GiB may be accepted on the storage requirement when **upload + download + integrity/hash** pass; preview performance is a separate capability and the remote high-bitrate limitation must remain documented separately.
+- source file: `AEGIS_R2_NORMAL_1MiB.bin`
+- source size: **1,048,576 bytes**
+- expected/source SHA-256: `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`
+- upload through the real **Files** page: **PASS** — UI reported completion, the queue finished, and the file appeared in Files
+- download back to Windows: **PASS**
+- downloaded path: `C:\Users\User\Downloads\AEGIS_R2_NORMAL_1MiB.bin`
+- downloaded size: **1,048,576 bytes**
+- `SizeOK=True`
+- downloaded SHA-256: exact match with the source
+- `HashOK=True`
+- final: **`NORMAL_FILE_R2_ROUND_TRIP = PASS / CLOSED`**
+
+This closes the previously pending deterministic Normal File integrity proof. It demonstrates that the tested file survives the real **Files upload → server storage → download** round trip byte-for-byte. It does not imply that every future file size or format is automatically accepted without regression testing.
+
+For a separate formal “large-file storage” closure above 1 GiB, preview is not required for every file size. The storage criterion remains **upload + download + integrity/hash**; preview performance is a separate capability and the remote high-bitrate limitation remains documented separately.
+
+
+### IDEA1 Web Functional Acceptance checkpoint — 2026-09-03
+
+> [!info] Current page-level closure map
+> This matrix records only evidence already collected. `PASS / CLOSED` means the current acceptance scope is complete; `PARTIAL / PENDING` means implementation may exist but the remaining page-level workflow has not yet been directly accepted.
+
+| Primary screen | Current status | Closed evidence / remaining work |
+| :--- | :--- | :--- |
+| Dashboard | ✅ **PASS / CLOSED** | Production telemetry/authenticated visibility closure already recorded; no repeat required unless source/runtime changes affect the page. |
+| Files | ✅ **PASS / CLOSED** | Normal upload regression PASS; file authorization evidence exists; deterministic 1 MiB R2 upload → download → SHA-256 exact match is now PASS/CLOSED. |
+| Private Vault | ✅ **PASS / CLOSED (tested scope)** | 2 MiB encrypt/decrypt SHA-256 round trip, ~323 MB preview/seek and ~1.1 GB direct-VLAN30 high-bitrate preview passed. Remote high-bitrate limitation remains a delivery/network-path limitation. |
+| Secure Shares | ✅ **PASS / CLOSED (private/internal scope)** | Password/wrong-password/no-password/copy plus restricted-share VLAN30 allow and outside-zone deny passed. Public external share remains not implemented and is not counted as an internal-share failure. |
+| File History / Versions | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Next target: create/observe a real version, open history, restore an earlier version, then verify restored bytes/content. |
+| Storage & Backup | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Infrastructure backup/restore/persistence is PASS, but the Web page must still be checked for real `statfs` data, truthful unavailable states, refresh/error/empty behaviour, and only implemented controls. |
+| Audit Log | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Backend audit evidence exists; page list/filter/details/role visibility and only supported export/retention behaviour remain to be accepted. |
+| Access Control | 🟡 **PARTIAL PASS** | Server-side RBAC and provisioning are PASS; remaining Admin UI actions must be tested only where implemented. |
+| Settings | 🟡 **PARTIAL PASS** | Theme continuity and Network Zone workflow have real acceptance evidence; remaining Account/Security & Privacy/Storage & Data/Administrator controls require page-level verification. |
+
+**Recommended next acceptance order:** **File History / Versions → Storage & Backup → Audit Log → Access Control → Settings.** Dashboard, Files, Private Vault and Secure Shares should not be retested merely to reproduce an already closed state unless a later source/runtime change affects them.
 
 ---
 

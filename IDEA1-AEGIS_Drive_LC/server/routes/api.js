@@ -15,7 +15,6 @@ import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
-import { readIdea3Status } from '../idea3/status.js'
 import {
   recordAudit, readAudit, sha256Hex,
   getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
@@ -34,6 +33,12 @@ import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
 import { buildTelemetry } from '../telemetry/index.js'
+// Storage & Backup — capacity (Drive), physical disk health (host agent, validated),
+// backup state/risk (backup agent, validated), RAID (declared not configured).
+import { buildStorageReport } from '../storage/storageReport.js'
+// Backup administration — Drive never runs a backup; it forwards allowlisted
+// commands to the host backup agent and holds the write-freeze it asks for.
+import { BACKUP_ROUTES, adminBackupView, backupCommand, backupMaintenance } from '../backup/index.js'
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
@@ -73,6 +78,16 @@ const publicUser = (u) => ({
 })
 
 export const apiRouter = Router()
+
+// ── Backup write-freeze gate ────────────────────────────────────────────
+// While the host backup agent holds a bounded lease, destructive mutations
+// (delete, same-name replace, version restore, vault delete/commit) answer
+// 503 BACKUP_MAINTENANCE so the metadata dump and the byte snapshot describe
+// the same state. Reads, downloads, shares and un-committed uploads continue.
+// Applied only to a request that already carries a session: an anonymous
+// caller keeps getting the route's own 401 and learns nothing about a job.
+// (Consistency model: shared/host-backup-agent/src/job.js · server/backup/maintenance.js)
+apiRouter.use((req, res, next) => (currentUser(req) ? backupMaintenance.middleware(req, res, next) : next()))
 
 apiRouter.post('/login', async (req, res) => {
   // รับเฉพาะ field ที่อนุญาต — ถ้า client แนบ role มา เราไม่เคยอ่านมัน
@@ -191,19 +206,6 @@ apiRouter.get('/audit', requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
     const rows = await readAudit(200)
     res.json({ events: rows })
-  } catch (err) {
-    next(err)
-  }
-})
-
-// ── IDEA3 Security status (Admin เท่านั้น, อ่านอย่างเดียว) ────────────────
-// เมนูจาก /me ทำให้ User ไม่ได้รับ navigation item แต่ไม่ใช่ security control:
-// endpoint นี้ตรวจ role ซ้ำทุก request และส่งเฉพาะ schema ที่ allow-list แล้ว
-// ไม่มี path, secret, HMAC, PIN, MQTT credential หรือคำสั่ง relay ไปถึง browser
-apiRouter.get('/security/status', requireRole(ROLES.ADMIN), async (req, res, next) => {
-  try {
-    res.set('Cache-Control', 'no-store')
-    res.json({ idea3: await readIdea3Status() })
   } catch (err) {
     next(err)
   }
@@ -806,15 +808,92 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
 })
 
 // ── Storage & backup ─────────────────────────────────────────────────
-// ⚠️ คืนเฉพาะสิ่งที่วัดได้จริง (ความจุจาก statfs + ผลรวมจากตาราง) และประกาศสิ่งที่
-//    วัดไม่ได้ผ่าน `unavailable` — ดูเหตุผลของแต่ละข้อที่หัวหมวด Storage ใน db/store.js
+// ⚠️ คืนเฉพาะสิ่งที่วัดได้จริง: ความจุจาก statfs + ผลรวมจากตาราง (เหมือนเดิมทุกประการ —
+//    ผ่านการยอมรับใน production แล้ว) และเพิ่มสองแหล่งที่ "วัดจริง" จากโฮสต์ผ่าน agent
+//    ที่แยกสิทธิ์: สุขภาพดิสก์ทางกายภาพ (SMART) กับสถานะสำรองข้อมูล — ทั้งสองถูก validate
+//    เป็น input ที่ไม่น่าเชื่อถือก่อน และ "ไม่มีหลักฐาน" ตอบ UNKNOWN/NOT_CONFIGURED เสมอ
+//    ไม่มีทางกลายเป็น HEALTHY (ดู storage/storageReport.js, telemetry/diskHealth.js,
+//    backup/derive.js) — RAID ยังประกาศ not-configured เพราะไม่มี array ใน deployment นี้
+// ⚠️ ไม่มีพารามิเตอร์ใดจาก client: socket path ของทั้งสอง agent เป็นค่าคอนฟิกฝั่งเซิร์ฟเวอร์
+// ⚠️ ไม่ลง audit ต่อ poll (จอนี้รีเฟรชทุก 60 วินาที)
 apiRouter.get('/storage', requireAuth, async (req, res, next) => {
   try {
-    res.json(await store.storageStatus())
+    res.set('Cache-Control', 'no-store')
+    res.json(await buildStorageReport({ maintenance: backupMaintenance.snapshot }))
   } catch (err) {
     next(err)
   }
 })
+
+// ── Backup administration (Admin only) ───────────────────────────────
+// Drive is a thin, authenticated front for the host backup agent. Every body
+// here is an ID from an allowlist the AGENT publishes (target / schedule /
+// retention) or a boolean; there is no path, host, command or credential in
+// any request. The agent validates again on its side. Audit records the
+// request and, separately, the agent's outcome (server/backup/maintenance.js).
+const BACKUP_TARGET_HASH = 'backup-configuration'
+
+apiRouter.get('/backup', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    res.json(await adminBackupView())
+  } catch (err) {
+    next(err)
+  }
+})
+
+const ID_LIKE = /^[a-z0-9][a-z0-9:-]{0,47}$/
+apiRouter.patch('/backup/policy', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const allowedKeys = ['activeTargetId', 'scheduleId', 'retentionId', 'enabled']
+    const unknown = Object.keys(body).filter((key) => !allowedKeys.includes(key))
+    const policy = {}
+    if ('activeTargetId' in body) policy.activeTargetId = body.activeTargetId
+    if ('scheduleId' in body) policy.scheduleId = body.scheduleId
+    if ('retentionId' in body) policy.retentionId = body.retentionId
+    if ('enabled' in body) policy.enabled = body.enabled
+    const shapeOk = unknown.length === 0
+      && (policy.activeTargetId === undefined || policy.activeTargetId === null || (typeof policy.activeTargetId === 'string' && ID_LIKE.test(policy.activeTargetId)))
+      && (policy.scheduleId === undefined || (typeof policy.scheduleId === 'string' && ID_LIKE.test(policy.scheduleId)))
+      && (policy.retentionId === undefined || (typeof policy.retentionId === 'string' && ID_LIKE.test(policy.retentionId)))
+      && (policy.enabled === undefined || typeof policy.enabled === 'boolean')
+    if (!shapeOk) {
+      await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH, 'DENIED')
+      return res.status(400).json({ error: 'Invalid backup policy' })
+    }
+
+    const result = await backupCommand(BACKUP_ROUTES.POLICY, policy)
+    if (!result.ok) {
+      await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH, 'DENIED')
+      if (result.status === 400) return res.status(400).json({ error: 'Invalid backup policy', reason: 'rejected-by-agent' })
+      return res.status(503).json({ error: 'Backup agent unavailable', reason: 'agent-unreachable' })
+    }
+    await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH)
+    res.json({ ok: true, policy: result.body?.policy ?? policy })
+  } catch (err) {
+    next(err)
+  }
+})
+
+const forwardBackupCommand = (route, action) => async (req, res, next) => {
+  try {
+    const result = await backupCommand(route, {})
+    if (!result.ok) {
+      await auditAct(req, action, BACKUP_TARGET_HASH, 'DENIED')
+      if (result.status === 409) {
+        return res.status(409).json({ error: 'Backup agent refused the request', reason: result.body?.reason ?? 'refused' })
+      }
+      return res.status(503).json({ error: 'Backup agent unavailable', reason: 'agent-unreachable' })
+    }
+    await auditAct(req, action, result.body?.jobId ?? BACKUP_TARGET_HASH)
+    res.status(202).json({ ok: true, jobId: result.body?.jobId ?? null })
+  } catch (err) {
+    next(err)
+  }
+}
+apiRouter.post('/backup/run', requireRole(ROLES.ADMIN), forwardBackupCommand(BACKUP_ROUTES.RUN, 'BACKUP_RUN_REQUEST'))
+apiRouter.post('/backup/verify', requireRole(ROLES.ADMIN), forwardBackupCommand(BACKUP_ROUTES.VERIFY, 'BACKUP_VERIFY_REQUEST'))
 
 // ── Server Telemetry ─────────────────────────────────────────────────
 // ⚠️ นโยบายการมองเห็น (ตัดสินใจเชิงผลิตภัณฑ์ 2026-08-27): ผู้ใช้ Drive ที่ล็อกอินแล้ว

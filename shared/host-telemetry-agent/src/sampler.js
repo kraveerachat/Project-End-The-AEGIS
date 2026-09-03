@@ -10,6 +10,7 @@
 // cannot be read or parsed becomes `{ available: false }` with no other keys.
 // It never becomes 0. A metric object carrying numbers is therefore always a
 // real measurement, which is what the Drive schema and the dashboard rely on.
+import { diskHealthFromFileText } from './diskHealth.js'
 import { cpuPercentFromDelta, networkRateFromDelta, parseMemInfo, parseNetworkCounter, parseProcStat, parseUptime } from './parsers.js'
 
 /** The single unavailable shape. Frozen so no caller can bolt a zero onto it. */
@@ -51,19 +52,29 @@ export function createSampler({
   if (!readers) throw new Error('readers are required')
 
   let latest = null       // last published snapshot (null until the first cycle)
+  let latestDisk = null   // last disk-health evidence document (separate contract)
   let previousCpu = null  // last usable /proc/stat counters
   let previousNet = null  // last usable interface counters + their timestamp
   let handle = null
 
+  // Disk health is a separate, versioned contract from the V1 telemetry
+  // snapshot. It is read on the same cycle for simplicity, but it is never
+  // merged into `latest`: adding a key there would break every Drive that
+  // validates the V1 allowlist, in production, on the next poll.
+  const diskConfigured = typeof readers.diskHealth === 'function'
+
   async function sampleOnce() {
     const atMs = now()
-    const [statText, memText, rxText, txText, uptimeText] = await Promise.all([
+    const [statText, memText, rxText, txText, uptimeText, diskText] = await Promise.all([
       readOrNull(readers.procStat),
       readOrNull(readers.memInfo),
       readOrNull(readers.networkRx),
       readOrNull(readers.networkTx),
       readOrNull(readers.uptime),
+      diskConfigured ? readOrNull(readers.diskHealth) : Promise.resolve(null),
     ])
+
+    latestDisk = diskHealthFromFileText(diskText, { now: () => atMs, configured: diskConfigured })
 
     // ── CPU ───────────────────────────────────────────────────────────
     // A window is only valid between two *usable* reads, so an unparseable
@@ -122,6 +133,8 @@ export function createSampler({
   return {
     /** Latest snapshot, or null before the first cycle completes. Synchronous. */
     snapshot: () => latest,
+    /** Latest disk-health evidence document, or null before the first cycle. */
+    diskHealth: () => latestDisk,
     sampleOnce,
     /** Idempotent: a second start while running must not stack timers. */
     start() {

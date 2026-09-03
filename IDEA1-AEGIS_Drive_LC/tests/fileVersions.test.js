@@ -288,9 +288,17 @@ test('GET /api/storage คืนความจุจริงจาก statfs �
   assert.notEqual(d.capacityBytes.totalBytes, 1024 * 1e9, 'ความจุรวมต้องไม่ใช่ค่าคงที่ 1024 GB เดิม')
 
   // ── สิ่งที่วัดไม่ได้ต้องถูกประกาศ ไม่ใช่เติมค่าให้
-  assert.equal(d.unavailable.diskHealth, 'needs-host-access')
+  //    (ในสภาพแวดล้อมของเทสต์ไม่มี host agent ทั้งสองตัว — เหตุผลจึงเป็น agent-unreachable
+  //     ไม่ใช่ needs-host-access เดิม เพราะตอนนี้มีเส้นทางวัดจริงผ่าน agent ที่แยกสิทธิ์แล้ว)
+  assert.equal(d.unavailable.diskHealth, 'agent-unreachable')
   assert.equal(d.unavailable.raid, 'not-configured')
-  assert.equal(d.unavailable.backups, 'not-configured')
+  assert.equal(d.unavailable.backups, 'agent-unreachable')
+  assert.equal(d.diskHealth.available, false)
+  assert.equal(d.diskHealth.status, 'UNKNOWN', 'no evidence is UNKNOWN, never HEALTHY')
+  assert.equal(d.raid.status, 'NOT_CONFIGURED')
+  assert.equal(d.backup.available, false)
+  assert.equal(d.backup.risk, 'UNKNOWN')
+  assert.equal(d.backup.successRate30d, null, 'no jobs = unavailable, not 0% and not 100%')
 
   // ── ฮาร์ดแวร์และ backup job ที่แต่งขึ้นต้องไม่กลับมา
   const dump = JSON.stringify(d)

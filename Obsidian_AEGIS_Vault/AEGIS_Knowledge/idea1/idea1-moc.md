@@ -30,14 +30,14 @@ Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, and file
 > change test results, production acceptance, Phase E, or the evidence status of
 > any backend/infrastructure source.
 
-The current primary navigation has **11 screens** (the earlier nine-screen map
-predated both Security and Protected Trash):
+The current primary navigation has **10 screens** (the earlier nine-screen map
+predated Protected Trash; the reverted Security screen is not part of current navigation):
 
 | Group | Primary screens |
 | :--- | :--- |
 | Workspace | Dashboard · Files · Private Vault |
 | Protection | Secure Shares · File History / Versions · Trash · Storage & Backup |
-| Administration | Audit Log · Access Control · Security · Settings |
+| Administration | Audit Log · Access Control · Settings |
 
 Key mapping decisions:
 

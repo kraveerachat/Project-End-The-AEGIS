@@ -28,13 +28,12 @@ const Trash = lazyNamed(() => import('./screens/Trash.jsx'), 'Trash')
 const Storage = lazyNamed(() => import('./screens/Storage.jsx'), 'Storage')
 const Audit = lazyNamed(() => import('./screens/Audit.jsx'), 'Audit')
 const Access = lazyNamed(() => import('./screens/Access.jsx'), 'Access')
-const Security = lazyNamed(() => import('./screens/Security.jsx'), 'Security')
 const Settings = lazyNamed(() => import('./screens/Settings.jsx'), 'Settings')
 
 const TITLE_KEYS = {
   dashboard: 'dashTitle', files: 'filesTitle', vault: 'vaultTitle',
   shares: 'sharesTitle', versions: 'versionsTitle', trash: 'trashTitle', storage: 'storageTitle',
-  audit: 'auditTitle', access: 'accessTitle', security: 'securityTitle', settings: 'settingsTitle',
+  audit: 'auditTitle', access: 'accessTitle', settings: 'settingsTitle',
 }
 
 /* ── Context search: ขอบเขตเปลี่ยนตามงานของจอ ─────────────────────────────
@@ -412,9 +411,6 @@ export default function App() {
     storage: <Storage t={t} go={go} placeholderMode={placeholderMode} />,
     audit: <Audit t={t} placeholderMode={placeholderMode} />,
     access: <Access t={t} user={session} placeholderMode={placeholderMode} />,
-    // Security is rendered only from the server-issued Admin navigation set.
-    // The API repeats requireRole(Admin), so this UI check is not the boundary.
-    security: nav.some((item) => item.id === 'security') ? <Security t={t} lang={lang} /> : null,
     settings: (
       <Settings
         t={t} lang={lang} setLang={(value) => updatePreference('language', value)}
