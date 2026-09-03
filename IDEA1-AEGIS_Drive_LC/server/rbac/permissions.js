@@ -34,6 +34,7 @@ const NAV_REGISTRY = [
   // Admin-only governance — role อื่นต้องไม่พบร่องรอยใน DOM เลยแม้แต่ตัวอักษรเดียว
   { id: 'audit',     icon: 'scroll',    labelKey: 'navAudit',     group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },
   { id: 'access',    icon: 'usercog',   labelKey: 'navAccess',    group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },
+  { id: 'security',  icon: 'shield',    labelKey: 'navSecurity',  group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },
 ]
 
 /**
