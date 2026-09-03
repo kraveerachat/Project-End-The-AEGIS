@@ -1,5 +1,5 @@
 import React from 'react'
-import { AlertCircle, CheckCircle2, CircleOff, CircleSlash2, HelpCircle, TriangleAlert } from 'lucide-react'
+import { AlertCircle, CheckCircle2, CircleOff, CircleSlash2, Clock3, HelpCircle, TriangleAlert } from 'lucide-react'
 
 const icons = {
   HEALTHY: CheckCircle2,
@@ -7,6 +7,7 @@ const icons = {
   FAILED: AlertCircle,
   UNKNOWN: HelpCircle,
   NOT_CONFIGURED: CircleSlash2,
+  STALE: Clock3,
   DISABLED: CircleOff,
 }
 

@@ -17,7 +17,7 @@ import { RecoveryPage } from './pages/RecoveryPage.jsx'
 import { SettingsPage } from './pages/SettingsPage.jsx'
 
 function renderPage(route, snapshot, actions) {
-  if (route === 'dashboard') return <DashboardPage snapshot={snapshot} />
+  if (route === 'dashboard') return <DashboardPage snapshot={snapshot} apiConnected={!actions.snapshotError} onNavigate={actions.navigate} onRefresh={actions.refresh} />
   if (route === 'overview') return <OverviewPage snapshot={snapshot} />
   if (route === 'idea1') return <Idea1SecurityPage snapshot={snapshot} />
   if (route === 'idea2') return <Idea2DetectionPage snapshot={snapshot} />
@@ -102,6 +102,9 @@ export default function App() {
   }
 
   const actions = {
+    navigate,
+    refresh: loadSnapshot,
+    snapshotError: Boolean(error),
     acknowledgeAlert: (id) => performAction(`/security/alerts/${id}/acknowledge`, { method: 'POST', body: '{}' }),
     addIncidentNote: (id, note) => performAction(`/security/incidents/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
     exportAudit: () => performAction('/security/audit/export', { method: 'POST', body: '{}' }),
@@ -115,7 +118,7 @@ export default function App() {
 
   return (
     <AppShell identity={session.identity} mode={snapshot?.mode || 'LIVE'} currentRoute={route} onNavigate={navigate} onLogout={logout} theme={theme} onThemeChange={changeTheme}>
-      <EvidenceState loading={!snapshot && !error} error={error} onRetry={loadSnapshot}>
+      <EvidenceState loading={!snapshot && !error} error={error} stale={Boolean(snapshot && error)} onRetry={loadSnapshot}>
         {snapshot && renderPage(route, snapshot, actions)}
       </EvidenceState>
     </AppShell>
