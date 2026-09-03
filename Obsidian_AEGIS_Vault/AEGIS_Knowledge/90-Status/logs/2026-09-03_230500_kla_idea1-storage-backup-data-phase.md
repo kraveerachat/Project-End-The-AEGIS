@@ -116,9 +116,56 @@ Tests added: telemetry agent 40 new tests in 4 new files (+2 updated); backup ag
 
 ## Shared surfaces touched
 
-- `.github/workflows/idea1-server-telemetry-linux.yml` — CI (shared): new `host-backup-agent-linux` job and `shared/host-backup-agent/**` path trigger so the agent's `AF_UNIX` tests run on Linux; existing job unchanged; no secrets.
-- `shared/host-telemetry-agent/**` — infrastructure (shared): collector added, one env line in the agent unit, sixth file read, new socket route; `/internal/telemetry` V1 contract unchanged.
-- `shared/host-backup-agent/**` — infrastructure (shared): new host component, not installed.
+- `.github/workflows/idea1-server-telemetry-linux.yml` — CI (shared): adds the host-backup-agent-linux job and path trigger; existing job unchanged; no secrets
+- `shared/host-backup-agent/README.md` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/deploy/README.md` — infrastructure (shared): new backup agent unit/identity/example config/deployment docs — not installed
+- `shared/host-backup-agent/deploy/aegis-backup.service` — infrastructure (shared): new backup agent unit/identity/example config/deployment docs — not installed
+- `shared/host-backup-agent/deploy/aegis-backup.sysusers.conf` — infrastructure (shared): new backup agent unit/identity/example config/deployment docs — not installed
+- `shared/host-backup-agent/deploy/backup-agent.example.json` — infrastructure (shared): new backup agent unit/identity/example config/deployment docs — not installed
+- `shared/host-backup-agent/deploy/production-delta.md` — infrastructure (shared): new backup agent unit/identity/example config/deployment docs — not installed
+- `shared/host-backup-agent/package.json` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/agent.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/config.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/exec.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/history.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/index.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/job.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/pgdump.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/policy.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/restic.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/schedule.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/server.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/src/targets.js` — infrastructure (shared): new least-privilege host backup runner (restic + pg_dump)
+- `shared/host-backup-agent/tests/config.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/deploy.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/helpers.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/history.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/job.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/server.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/targets.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-backup-agent/tests/tools.test.js` — infrastructure (shared): backup agent test coverage
+- `shared/host-telemetry-agent/README.md` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/collectors/disk-health.js` — infrastructure (shared): the only host module that executes smartctl; fixed binary, fixed args, one allowlisted device
+- `shared/host-telemetry-agent/collectors/run-disk-health.js` — infrastructure (shared): the only host module that executes smartctl; fixed binary, fixed args, one allowlisted device
+- `shared/host-telemetry-agent/collectors/smart.js` — infrastructure (shared): the only host module that executes smartctl; fixed binary, fixed args, one allowlisted device
+- `shared/host-telemetry-agent/deploy/README.md` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/deploy/aegis-disk-health.service` — infrastructure (shared): new bounded disk-health collector unit/timer/identity — not installed
+- `shared/host-telemetry-agent/deploy/aegis-disk-health.sysusers.conf` — infrastructure (shared): new bounded disk-health collector unit/timer/identity — not installed
+- `shared/host-telemetry-agent/deploy/aegis-disk-health.timer` — infrastructure (shared): new bounded disk-health collector unit/timer/identity — not installed
+- `shared/host-telemetry-agent/deploy/aegis-telemetry.service` — infrastructure (shared): one Environment= line naming the evidence file; capability set and device policy unchanged
+- `shared/host-telemetry-agent/src/config.js` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/src/diskHealth.js` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/src/sampler.js` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/src/server.js` — infrastructure (shared): sixth file read + /internal/disk-health route; /internal/telemetry V1 contract unchanged
+- `shared/host-telemetry-agent/tests/agent.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/config.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/diskHealthAgent.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/diskHealthCollector.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/diskHealthDeploy.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/fixtures/smartctl-nvme-no-temperature.json` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/fixtures/smartctl-sata-failing.json` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/fixtures/smartctl-sata-healthy.json` — infrastructure (shared): agent test coverage for the disk-health contract
+- `shared/host-telemetry-agent/tests/smartParser.test.js` — infrastructure (shared): agent test coverage for the disk-health contract
 
 ## Integration requests
 
