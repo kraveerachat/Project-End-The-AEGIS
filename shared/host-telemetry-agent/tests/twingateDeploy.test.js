@@ -129,14 +129,55 @@ test('TWDEPLOY-7 the timer polls about once a minute, not aggressively', () => {
   assert.equal(timerUnit('Install', 'WantedBy'), 'timers.target')
 })
 
-test('TWDEPLOY-8 a third pinned UID, distinct from the agent and the disk collector', () => {
+test('TWDEPLOY-8 a fourth pinned UID that collides with no identity already on the host', () => {
+  // A read-only production preflight found 29100 (aegis-telemetry), 29101
+  // (aegis-disk-health) and 29102 (aegis-backup) all in use, and 29103 free for
+  // both UID and GID. 29102 is the dangerous one: the backup agent is deployed
+  // and the DRIVE CONTAINER joins GID 29102 to reach /run/aegis-backup, so
+  // reusing it would entangle this collector's identity with a socket Drive
+  // already talks to.
+  //
   // Assert the `u` LINE, not the file: the explanatory header legitimately names
-  // the neighbouring UIDs, and a comment must not be able to fail this check.
+  // the neighbouring UIDs, and a comment must not be able to pass or fail a
+  // security check.
   const userLines = directives(sysusers).split('\n').filter((line) => line.startsWith('u'))
   assert.equal(userLines.length, 1, 'exactly one identity is defined here')
-  assert.match(userLines[0], /^u\s+aegis-twingate-health\s+29102\b/)
-  assert.ok(!userLines[0].includes('29100'), 'the agent UID must not be reused')
-  assert.ok(!userLines[0].includes('29101'), 'the disk collector UID must not be reused')
+  assert.match(userLines[0], /^u\s+aegis-twingate-health\s+29103\b/)
+
+  for (const [uid, owner] of [
+    ['29100', 'aegis-telemetry'],
+    ['29101', 'aegis-disk-health'],
+    ['29102', 'aegis-backup'],
+  ]) {
+    assert.ok(!userLines[0].includes(uid), `${uid} is already owned by ${owner} and must not be reused`)
+  }
+})
+
+test('TWDEPLOY-8b no other AEGIS sysusers file already claims this UID', async () => {
+  // Cross-checked against the other identity files in the repo rather than
+  // against a comment, so a future identity added anywhere under shared/ that
+  // takes 29103 fails this build instead of colliding on the host.
+  const sharedDir = path.resolve(HERE, '..', '..')
+  const otherFiles = [
+    path.join(sharedDir, 'host-telemetry-agent', 'deploy', 'aegis-telemetry.sysusers.conf'),
+    path.join(sharedDir, 'host-telemetry-agent', 'deploy', 'aegis-disk-health.sysusers.conf'),
+    path.join(sharedDir, 'host-backup-agent', 'deploy', 'aegis-backup.sysusers.conf'),
+  ]
+  let checked = 0
+  for (const file of otherFiles) {
+    const text = await fs.readFile(file, 'utf8').catch(() => null)
+    if (text === null) continue // that agent may not exist in every checkout
+    checked += 1
+    const claimed = directives(text)
+      .split('\n')
+      .filter((line) => line.startsWith('u'))
+      .map((line) => line.split(/\s+/)[2])
+    assert.ok(
+      !claimed.includes('29103'),
+      `${path.basename(file)} already claims 29103 — pick a different UID for aegis-twingate-health`,
+    )
+  }
+  assert.ok(checked > 0, 'expected at least one neighbouring identity file to cross-check against')
 })
 
 // ── The negative half: nothing else may gain Docker access ───────────────────

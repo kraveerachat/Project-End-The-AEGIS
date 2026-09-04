@@ -91,11 +91,11 @@ Docker daemon
 - `shared/host-telemetry-agent/src/server.js` — `GET /internal/twingate-connector`.
 - `shared/host-telemetry-agent/deploy/aegis-twingate-health.service` — **new.**
 - `shared/host-telemetry-agent/deploy/aegis-twingate-health.timer` — **new.**
-- `shared/host-telemetry-agent/deploy/aegis-twingate-health.sysusers.conf` — **new.**
+- `shared/host-telemetry-agent/deploy/aegis-twingate-health.sysusers.conf` — **new.** Pinned UID 29103 (see the UID correction below).
 - `shared/host-telemetry-agent/deploy/aegis-telemetry.service` — one Environment line.
 - `shared/host-telemetry-agent/tests/twingateCollector.test.js` — **new**, 19 tests.
 - `shared/host-telemetry-agent/tests/twingateAgent.test.js` — **new**, 9 tests.
-- `shared/host-telemetry-agent/tests/twingateDeploy.test.js` — **new**, 11 tests.
+- `shared/host-telemetry-agent/tests/twingateDeploy.test.js` — **new**, 12 tests (including the two UID-collision guards).
 - `shared/host-telemetry-agent/tests/agent.test.js` — the "exactly six approved
   sources" allowlist becomes seven; the seventh is a plain file, not a device.
 - `shared/host-telemetry-agent/tests/config.test.js` — same allowlist, config side.
@@ -146,7 +146,7 @@ Every path below is outside the `idea1` boundary and inside `infrastructure`
 - `shared/host-telemetry-agent/src/server.js` — adds `/internal/twingate-connector`; the two existing routes and their bodies are unchanged.
 - `shared/host-telemetry-agent/deploy/aegis-twingate-health.service` — new systemd unit that joins the `docker` group.
 - `shared/host-telemetry-agent/deploy/aegis-twingate-health.timer` — new 60 s timer.
-- `shared/host-telemetry-agent/deploy/aegis-twingate-health.sysusers.conf` — new pinned UID 29102.
+- `shared/host-telemetry-agent/deploy/aegis-twingate-health.sysusers.conf` — new pinned UID 29103.
 - `shared/host-telemetry-agent/deploy/aegis-telemetry.service` — one Environment line naming the evidence file the agent may read.
 - `shared/host-telemetry-agent/tests/agent.test.js` — approved-source allowlist extended from six to seven.
 - `shared/host-telemetry-agent/tests/config.test.js` — same allowlist on the config side.
@@ -160,7 +160,7 @@ Every path below is outside the `idea1` boundary and inside `infrastructure`
   `aegis-twingate-health.service` adds `SupplementaryGroups=docker`, and
   membership in `docker` is equivalent to root on the host. The mitigations are:
   a Type=oneshot that lives well under a second per minute; a dedicated UID
-  (29102) used by nothing else; an empty `CapabilityBoundingSet`;
+  (29103) used by nothing else; an empty `CapabilityBoundingSet`;
   `PrivateNetwork=true` + `IPAddressDeny=any` (so the unit provably cannot reach
   the Twingate API); `PrivateDevices=true`; and a Docker command whose verb,
   flags, and output template are constants in trusted source — only the container
@@ -181,6 +181,40 @@ Every path below is outside the `idea1` boundary and inside `infrastructure`
   that Settings reports measured LOCAL connector runtime health via
   `/api/remote-access`, and in the infrastructure MOC that the host agent now
   publishes a third route from a second collector.
+
+## Correction — pinned UID moved 29102 → 29103
+
+This branch originally pinned `aegis-twingate-health` to **UID 29102** and
+described it as the third host identity. Both were wrong, and a read-only
+production preflight caught it before any deployment:
+
+| UID | Owner | State |
+|---|---|---|
+| 29100 | `aegis-telemetry` | in use |
+| 29101 | `aegis-disk-health` | in use |
+| 29102 | **`aegis-backup`** | **in use — collision** |
+| 29103 | `aegis-twingate-health` | free (UID and GID) — now claimed here |
+
+29102 belongs to the host backup agent (`shared/host-backup-agent/deploy/aegis-backup.sysusers.conf`),
+which is the actual third identity. The collision was not a paper reservation:
+the backup agent is deployed, and the **Drive container joins GID 29102** via
+`group_add` to reach `/run/aegis-backup`. Reusing it would have entangled this
+collector's identity with a socket Drive already talks to, in both directions.
+
+The assignment is now 29103, the sysusers header carries the full identity map
+and states plainly that 29102 is taken, and two tests pin it: `TWDEPLOY-8`
+rejects reuse of 29100, 29101 **and** 29102, while `TWDEPLOY-8b` cross-checks the
+neighbouring sysusers files in the repo so a future identity that claims 29103
+fails the build rather than colliding on the host.
+
+Nothing about `aegis-backup`, UID/GID 29102, the production host, Docker, the
+Twingate credentials, the Drive Compose runtime, MikroTik/UFW, or the database
+was changed by this correction.
+
+⚠️ Process note for the next host identity: the collision was discoverable in the
+repository — `aegis-backup.sysusers.conf` has pinned 29102 since the storage and
+backup phase. Grep the existing sysusers files before choosing a UID; do not
+assume the next number after the one you last saw is free.
 
 ## Known limitations
 
