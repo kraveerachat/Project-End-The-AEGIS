@@ -50,7 +50,11 @@ const MEMBER_LABEL = {
   UNKNOWN: 'raidMemberUnknown',
 }
 
-const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : null)
+const finite = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
 
 const maybeBytes = (value) => {
   const n = finite(value)
@@ -120,7 +124,7 @@ function MemberSlot({ t, member, slot }) {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
         <Fact label={t('raidMemberDevice')} mono>{member.device ?? '—'}</Fact>
         <Fact label={t('raidMemberCapacity')} mono>{maybeBytes(member.capacityBytes) ?? '—'}</Fact>
-        <Fact label={t('raidMemberTransport')}>{member.transport ?? 'USB'}</Fact>
+        <Fact label={t('raidMemberTransport')}>{member.transport ?? t('raidNotMeasured')}</Fact>
         <Fact label={t('raidMemberTemperature')} mono>
           {finite(member.temperatureCelsius) === null ? t('raidNotMeasured') : `${finite(member.temperatureCelsius)} °C`}
         </Fact>
