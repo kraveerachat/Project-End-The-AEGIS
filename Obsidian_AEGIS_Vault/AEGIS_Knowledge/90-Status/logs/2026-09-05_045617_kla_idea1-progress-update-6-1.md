@@ -61,9 +61,7 @@ configuration, RAID device, firewall or production service was changed.
 
 ## Verification evidence
 
-- `git diff --name-status 46573ed8dd17631f9f746de3f9c7a5f71da1a03b docs/idea1-progress-update-6-1`
-  — **PASS** by GitHub compare: exactly four documentation paths changed, all
-  IDEA1-owned or the required new receipt.
+- `git diff --name-status 46573ed8dd17631f9f746de3f9c7a5f71da1a03b docs/idea1-progress-update-6-1` — **PASS** by GitHub compare: exactly four documentation paths changed, all IDEA1-owned or the required new receipt.
 - `git diff --stat 46573ed8dd17631f9f746de3f9c7a5f71da1a03b docs/idea1-progress-update-6-1`
   — **PASS** by GitHub compare: 4 files changed; no application/infrastructure
   source path is present.
