@@ -12,5 +12,6 @@ export async function fetchMe() {
 }
 
 export async function logout() {
+  backend().events.push('logout')
   backend().restoreSession = false
 }

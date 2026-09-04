@@ -67,7 +67,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const groups = ['navGroupWorkspace', 'navGroupProtection', 'navGroupAdmin']
 
   const body = (
-    <div className="flex flex-col h-full bg-card border-r border-line">
+    <div className="app-sidebar flex flex-col h-full bg-card border-r border-line" data-material="shell-glass">
       <div className={`flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
         {collapsed
           ? <AegisMark size={32} theme={resolvedTheme} />
@@ -168,7 +168,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
     <>
       {/* desktop */}
       <aside
-        className="hidden lg:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
+        className="app-sidebar-frame hidden lg:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
         style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
       >
         {body}

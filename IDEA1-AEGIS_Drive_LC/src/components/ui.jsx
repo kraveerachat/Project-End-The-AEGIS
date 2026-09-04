@@ -9,6 +9,7 @@ export function Card({ children, className = '', style, onClick, interactive = B
   return (
     <div
       onClick={onClick}
+      data-material="solid"
       className={`ui-card bg-card rounded-[var(--r-card)] ${interactive ? 'is-interactive' : ''} ${className}`}
       style={{ boxShadow: 'var(--elev-1)', ...style }}
     >
@@ -74,7 +75,7 @@ export function Btn({ variant = 'outline', size = 'md', className = '', children
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-full transition-[background-color,transform,opacity] duration-[var(--dur-fast)] cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed disabled:active:scale-100 ${sizes[size]} ${variants[variant]} ${className}`}
+      className={`ui-button inline-flex items-center justify-center gap-2 rounded-full transition-[background-color,transform,opacity] duration-[var(--dur-fast)] cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed disabled:active:scale-100 ${sizes[size]} ${variants[variant]} ${className}`}
       {...rest}
     >
       {children}
@@ -88,7 +89,7 @@ export function IconBtn({ label, className = '', children, ...rest }) {
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center size-9 rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer ${className}`}
+      className={`ui-icon-button inline-flex items-center justify-center size-9 rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer ${className}`}
       {...rest}
     >
       {children}
@@ -154,7 +155,7 @@ export function Toggle({ on, onChange, label }) {
 /* ── Segmented control (theme / language / density / view switch) ── */
 export function Segmented({ options, value, onChange, ariaLabel, disabled = false }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} data-material="shell-glass" className="ui-segmented inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
       {options.map((opt) => {
         const active = value === opt.value
         return (
@@ -165,7 +166,7 @@ export function Segmented({ options, value, onChange, ariaLabel, disabled = fals
             role="radio"
             aria-checked={active}
             onClick={() => onChange(opt.value)}
-            className={`h-7 px-3 rounded-full text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer disabled:cursor-wait disabled:opacity-60 whitespace-nowrap ${
+            className={`ui-segmented-option h-7 px-3 rounded-full text-[12.5px] font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] cursor-pointer disabled:cursor-wait disabled:opacity-60 whitespace-nowrap ${
               active ? 'bg-ink text-card' : 'text-ink-2 hover:text-ink'
             }`}
           >
@@ -306,7 +307,8 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="modal-card relative bg-card rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
+        data-material="shell-glass"
+        className="ui-modal modal-card relative bg-card rounded-[var(--r-card)] p-6 rise-in max-h-[85vh] overflow-y-auto w-full"
         style={{ maxWidth: width, boxShadow: 'var(--elev-2)' }}
       >
         {children}

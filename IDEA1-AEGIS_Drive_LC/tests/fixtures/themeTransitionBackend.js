@@ -12,7 +12,7 @@ export function backend() {
   return globalThis.__AEGIS_THEME_BACKEND__
 }
 
-export function resetBackend({ account, user, restoreSession = false, persistPreferences = true } = {}) {
+export function resetBackend({ account, user, restoreSession = false, persistPreferences = true, preferenceSaveOk = true } = {}) {
   globalThis.__AEGIS_THEME_BACKEND__ = {
     user: {
       id: '1',
@@ -22,14 +22,16 @@ export function resetBackend({ account, user, restoreSession = false, persistPre
       role: 'Admin',
       ...user,
     },
-    // users.ui_theme / ui_language / ui_density
-    account: { theme: 'light', language: 'th', density: 'comfortable', ...account },
+    // users.ui_theme / ui_language / ui_density / ui_interface_style
+    account: { theme: 'light', language: 'th', density: 'comfortable', interfaceStyle: 'classic', ...account },
     // true = a valid session cookie already exists (app reload / GET /api/me path)
     restoreSession,
     // every PATCH /api/preferences the client sends, in order — a duplicate or an
     // unnecessary write shows up here as an extra entry
     patches: [],
+    events: [],
     persistPreferences,
+    preferenceSaveOk,
   }
   return globalThis.__AEGIS_THEME_BACKEND__
 }

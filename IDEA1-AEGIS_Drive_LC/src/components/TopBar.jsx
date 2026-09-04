@@ -54,7 +54,8 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
 
   return (
     <header
-      className="h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
+      className="app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
+      data-material="shell-glass"
       style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
@@ -108,7 +109,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
             <div className="p-[2px] rounded-full bg-accent shadow-sm shrink-0">
-              <Avatar userId={user.id} name={user.displayName} size={36} className="bg-blue-600 text-white" />
+              <Avatar userId={user.id} name={user.displayName} size={36} className="avatar-accent bg-blue-600 text-white" />
             </div>
             <div className="flex flex-col text-left max-lg:hidden min-w-0 pr-1">
               <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>

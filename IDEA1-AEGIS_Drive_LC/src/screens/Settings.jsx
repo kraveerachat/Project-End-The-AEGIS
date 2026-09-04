@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, Trash2, ImagePlus } from 'lucide-react'
+import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, Trash2, ImagePlus, LayoutTemplate, Check } from 'lucide-react'
 import {
   Card, CardTitle, Chip, Btn, Segmented, Field, PillInput,
   ErrorState, EmptyState, SkeletonLoader, NotYetImplemented, Avatar,
+  Modal, ModalClose,
 } from '../components/ui.jsx'
 import { canAdministrate } from '../lib/authz.js'
 import { useApi, useNow } from '../lib/hooks.js'
@@ -299,9 +300,36 @@ function Row({ label, children, note }) {
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, role, user, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
+function InterfaceStylePreview({ value, label, description, active, onSelect, disabled }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onSelect}
+      disabled={disabled}
+      className={`interface-style-preview ${active ? 'is-active' : ''}`}
+    >
+      <span className={`interface-style-preview__canvas is-${value}`} aria-hidden>
+        <span className="interface-style-preview__sidebar" />
+        <span className="interface-style-preview__content">
+          <span className="interface-style-preview__bar" />
+          <span className="interface-style-preview__cards"><i /><i /><i /></span>
+        </span>
+        {active && <span className="interface-style-preview__check"><Check size={11} strokeWidth={2.5} /></span>}
+      </span>
+      <span className="min-w-0 text-left">
+        <span className="block text-[13px] font-semibold text-ink">{label}</span>
+        <span className="block text-[11.5px] text-ink-3 leading-snug mt-0.5">{description}</span>
+      </span>
+    </button>
+  )
+}
+
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, interfaceStyle = 'classic', onInterfaceStyleChange, role, user, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
   const now = useNow(30_000)
   const [tab, setTab] = useState(initialTab)
+  const [pendingInterfaceStyle, setPendingInterfaceStyle] = useState(null)
   useEffect(() => setTab(initialTab), [initialTab])
   // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จาก session store จริงฝั่งเซิร์ฟเวอร์
   const sessionsApi = useApi('/api/sessions')
@@ -345,8 +373,19 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
   ]
   const activeTab = groups.some((g) => g.id === tab) ? tab : 'appearance'
 
+  const closeStyleConfirmation = () => {
+    if (!preferenceSaving) setPendingInterfaceStyle(null)
+  }
+
+  const confirmStyleChange = async () => {
+    if (!pendingInterfaceStyle || preferenceSaving) return
+    const saved = await onInterfaceStyleChange?.(pendingInterfaceStyle)
+    if (saved) setPendingInterfaceStyle(null)
+  }
+
   return (
-    <div className="grid grid-cols-12 gap-6 max-lg:gap-5">
+    <>
+    <div className="settings-layout grid grid-cols-12 gap-6 max-lg:gap-5">
       {/* sub-nav */}
       <div className="col-span-3 max-lg:col-span-12">
         <nav className="flex flex-col gap-1 max-lg:flex-row max-lg:flex-wrap" aria-label={t('settingsTitle')}>
@@ -358,8 +397,8 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                 type="button"
                 onClick={() => setTab(id)}
                 aria-current={active ? 'page' : undefined}
-                className={`flex items-center gap-2.5 h-10 px-4 rounded-full text-[13.5px] font-medium transition-colors duration-[var(--dur-fast)] cursor-pointer ${
-                  active ? 'bg-ink text-card' : 'text-ink-2 hover:bg-card'
+                className={`settings-section-button flex items-center gap-2.5 h-10 px-4 rounded-full text-[13.5px] font-medium transition-[background-color,color,transform,box-shadow] duration-[var(--dur-fast)] cursor-pointer ${
+                  active ? 'is-active bg-ink text-card' : 'text-ink-2 hover:bg-card'
                 }`}
               >
                 <Icon size={15} strokeWidth={1.5} />
@@ -391,6 +430,29 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
             </Row>
             <Row label={t('language')}>
               <Segmented ariaLabel={t('language')} options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))} value={lang} onChange={setLang} disabled={preferenceSaving} />
+            </Row>
+            <Row label={t('interfaceStyle')} note={t('interfaceStyleDescription')}>
+              <div className="w-full sm:w-auto sm:max-w-[540px]">
+                <div role="radiogroup" aria-label={t('interfaceStyle')} className="interface-style-grid">
+                  <InterfaceStylePreview
+                    value="classic"
+                    label={t('interfaceStyleClassic')}
+                    description={t('interfaceStyleClassicDescription')}
+                    active={interfaceStyle === 'classic'}
+                    disabled={preferenceSaving}
+                    onSelect={() => interfaceStyle !== 'classic' && setPendingInterfaceStyle('classic')}
+                  />
+                  <InterfaceStylePreview
+                    value="neo"
+                    label={t('interfaceStyleNeo')}
+                    description={t('interfaceStyleNeoDescription')}
+                    active={interfaceStyle === 'neo'}
+                    disabled={preferenceSaving}
+                    onSelect={() => interfaceStyle !== 'neo' && setPendingInterfaceStyle('neo')}
+                  />
+                </div>
+                <p className="interface-style-warning mt-2 text-[11.5px] text-warn leading-relaxed">{t('interfaceStyleWarning')}</p>
+              </div>
             </Row>
             <Row label={t('density')}>
               <Segmented
@@ -606,5 +668,30 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         )}
       </div>
     </div>
+    <Modal
+      open={Boolean(pendingInterfaceStyle)}
+      onClose={closeStyleConfirmation}
+      labelledBy="interface-style-confirm-title"
+      width={500}
+    >
+      <ModalClose onClose={closeStyleConfirmation} label={t('close')} />
+      <div className="size-11 rounded-[var(--r-tile)] bg-accent-soft text-accent flex items-center justify-center mb-4">
+        <LayoutTemplate size={20} strokeWidth={1.7} />
+      </div>
+      <h2 id="interface-style-confirm-title" className="text-lg font-semibold text-ink pr-10">
+        {t('interfaceStyleConfirmTitle', { style: pendingInterfaceStyle === 'neo' ? t('interfaceStyleNeo') : t('interfaceStyleClassic') })}
+      </h2>
+      <p className="mt-2 text-[13.5px] leading-relaxed text-ink-2">{t('interfaceStyleConfirmBody')}</p>
+      {preferenceError && <p role="alert" className="mt-3 text-[12.5px] text-danger">{t('interfaceStyleSaveFailed')}</p>}
+      <div className="mt-6 flex justify-end gap-2 flex-wrap">
+        <Btn variant="ghost" onClick={closeStyleConfirmation} disabled={preferenceSaving} data-modal-autofocus>
+          {t('cancel')}
+        </Btn>
+        <Btn variant="primary" onClick={confirmStyleChange} disabled={preferenceSaving}>
+          {preferenceSaving ? t('preferencesSaving') : t('interfaceStyleConfirmAction')}
+        </Btn>
+      </div>
+    </Modal>
+    </>
   )
 }

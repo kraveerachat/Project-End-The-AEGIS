@@ -187,6 +187,7 @@ apiRouter.patch('/preferences', requireAuth, async (req, res, next) => {
       theme: req.body?.theme,
       language: req.body?.language,
       density: req.body?.density,
+      interfaceStyle: req.body?.interfaceStyle,
     })
     if (!preferences) return res.status(400).json({ error: 'Invalid input' })
 

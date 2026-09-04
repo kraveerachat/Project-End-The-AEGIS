@@ -144,6 +144,8 @@ async function loadApp({ shell = null, prefersDark = false } = {}) {
 
   return {
     get theme() { return document.documentElement.dataset.theme },
+    get interfaceStyle() { return document.documentElement.dataset.uiStyle },
+    get authenticatedShell() { return document.querySelector('.authenticated-shell') },
     get shellHint() { return globalThis.localStorage.getItem(SHELL_KEY) },
     get onLoginScreen() { return Boolean(document.getElementById('login-username')) },
     click: async (element) => {
@@ -186,13 +188,47 @@ test('light login carries into a light dashboard', async () => {
   try {
     assert.equal(app.onLoginScreen, true)
     assert.equal(app.theme, 'light')
+    assert.equal(app.interfaceStyle, undefined, 'Login must not receive an authenticated style marker')
 
     await app.signIn()
 
     assert.equal(app.onLoginScreen, false)
     assert.equal(app.theme, 'light')
+    assert.equal(app.interfaceStyle, 'classic')
+    assert.ok(app.authenticatedShell)
     assert.equal(backend().account.theme, 'light')
     assert.deepEqual(backend().patches, [], 'an unchanged theme must not write to the account')
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('a Neo account mounts the authenticated shell directly without a Classic frame', async () => {
+  resetBackend({ account: { interfaceStyle: 'neo', theme: 'dark', density: 'compact' } })
+  const app = await loadApp()
+  try {
+    assert.equal(app.onLoginScreen, true)
+    assert.equal(app.interfaceStyle, undefined)
+
+    const seen = []
+    const observer = new globalThis.window.MutationObserver(() => {
+      seen.push(document.documentElement.dataset.uiStyle)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ui-style'] })
+
+    await app.signIn()
+    observer.disconnect()
+
+    assert.equal(app.onLoginScreen, false)
+    assert.equal(app.interfaceStyle, 'neo')
+    assert.ok(app.authenticatedShell)
+    assert.deepEqual(seen.filter(Boolean), ['neo'])
+    assert.equal(globalThis.localStorage.getItem('aegis_interface_style'), null)
+
+    await app.signOut()
+    assert.equal(app.onLoginScreen, true)
+    assert.equal(app.interfaceStyle, undefined)
+    assert.equal(app.authenticatedShell, null)
   } finally {
     await app.cleanup()
   }

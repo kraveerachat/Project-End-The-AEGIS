@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-03
+updated: 2026-09-04
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,7 +15,7 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-> **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
+> **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + independent Classic/Neo interface style and Light/Dark/System theme preferences in the current feature branch)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
 > **Latest change verification**: Share Ownership Authorization Hardening is **VERIFIED IN PRODUCTION / PASS / CLOSED**. PR #30 source integration and PR #31 test normalization/verification are **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233/233** full-suite, **57/57** affected-regression, **9/9** ownership, and **17/17** share-redemption tests passing. Drive-only deployment of production source `9992557f123dbbbf05841c107d27ab285ea77ad4` completed on `aegis-system`; controlled production acceptance passed **10/10**, and post-deployment health passed. `POSTGRES_EXECUTION_GAP=CLOSED`; `READY_FOR_PRODUCTION=YES` for this authorization scope only.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
@@ -31,6 +31,14 @@ edit_policy: owner-writable
 * Protected screens are route-level lazy chunks. The production main JavaScript bundle reduced from approximately 970 kB to 471 kB before gzip and no longer triggers Vite's 500 kB chunk warning.
 * The module-local visual contract is recorded in `IDEA1-AEGIS_Drive_LC/DESIGN.md` and `.impeccable/design.json`. Decorative glow, glass, gradient text/CTA, and particle layers were removed from the revised shell in favor of the canonical Precision Light direction.
 * G-A trusted-proxy hardening was implemented and verified locally in Batch B2, then deployed and accepted in production through B4. Express requires explicit CIDR configuration in production, tracked nginx overwrites inbound forwarding attribution, and the deployment contract defines a dedicated HUB→Drive proxy network. B4 closes the application-layer Network Scope engine as **VERIFIED IN PRODUCTION / PASS / CLOSED** while preserving the documented topology limitation that Twingate does not expose the original endpoint IP to Drive.
+
+### Dual interface theme system (2026-09-04)
+
+* The current feature branch adds a server-owned `interfaceStyle` preference (`classic` or `neo`) alongside the independent `theme`, `language`, and `density` preferences. Existing rows and invalid/missing values fail closed to Classic; PostgreSQL receives the additive, idempotent `005_interface_style.sql` migration.
+* Classic preserves the existing authenticated Precision Ledger interface. Neo applies a shared semantic token and material adapter across Dashboard, Files, Private Vault, Secure Shares, File History, Storage & Backup, Audit Log, Access Control, and Settings. Neo Light uses cool-white shadow-led layers; Neo Dark uses stepped graphite/navy layers. Content cards remain solid, and static glass is limited to Sidebar, Topbar, Modal, and segmented housing.
+* Login is explicitly outside the interface-style system and remains visually and behaviorally unchanged. `data-ui-style` is absent before authentication and after logout. The saved account style is resolved synchronously before the authenticated shell mounts.
+* Settings → Appearance exposes accessible Classic/Neo preview radios. A style change is confirmed, persisted first, and only then ends the current session. Save failure preserves the current session and current shell. The live browser pass found and fixed a credential-mapping omission that had discarded saved preferences at fresh login; the regression suite now covers a separate new authenticated session.
+* Local visual QA covered all nine authenticated routes in Neo Light, Neo Dark, Comfortable, Compact, and a 390×844 viewport. No horizontal overflow was observed; mobile segmented controls meet a 44×44 CSS minimum, focus remains visible, and reduced-motion rules disable Neo transforms. This branch is not yet production-deployed or production-accepted.
 
 ### Upload completion and theme continuity follow-up (2026-08-22)
 
