@@ -448,6 +448,11 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
   // Storage + own-account security activity — both read-only, both real sources.
   const storageApi = useApi('/api/storage', { refreshMs: 60_000 })
   const activityApi = useApi('/api/audit/me')
+  /* Remote access posture: LOCAL connector runtime health (measured through the
+     host telemetry agent) plus a declared "the Twingate control plane is not
+     measured". Refreshed on a slow cycle because the collector behind it samples
+     once a minute — polling faster would only re-read the same evidence. */
+  const remoteAccessApi = useApi('/api/remote-access', { refreshMs: 60_000 })
 
   /* ⚠️ ทุก error ของจอนี้ต้องผ่าน visibleFetchError ก่อนเสมอ — placeholderMode แปลว่า
      "ยังไม่ได้ต่อ backend จริง" ไม่ใช่ "ต่อแล้วล้มเหลว" การโชว์ ErrorState ในโหมดนั้น
@@ -455,6 +460,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
   const securityError = visibleFetchError(securityApi.error, placeholderMode)
   const storageError = visibleFetchError(storageApi.error, placeholderMode)
   const activityError = visibleFetchError(activityApi.error, placeholderMode)
+  const remoteAccessError = visibleFetchError(remoteAccessApi.error, placeholderMode)
 
   // Zone removal is confirmed: a restricted share created afterwards will no
   // longer be offered this range (already-created shares keep their snapshot).
@@ -629,12 +635,20 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               sessions={sessionsApi.data?.sessions}
               sessionsLoading={sessionsApi.loading}
               settings={settings}
+              remoteAccess={remoteAccessApi.data}
               onRefresh={sessionsApi.refresh}
               onManageSessions={() => setTab('account')}
             />
 
             <ConnectionTestCard t={t} lang={lang} />
-            <RemoteAccessCard t={t} />
+            <RemoteAccessCard
+              t={t}
+              lang={lang}
+              data={remoteAccessApi.data}
+              loading={remoteAccessApi.loading}
+              error={remoteAccessError}
+              onRetry={remoteAccessApi.retry}
+            />
             <VaultProtectionCard t={t} />
             <VaultRecoveryPolicyCard t={t} />
             <SecurityActivityCard

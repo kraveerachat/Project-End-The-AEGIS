@@ -84,7 +84,7 @@ function claimedDevice(userAgent, unknown) {
    us or a fixed architectural fact; nothing here is derived by weighting one
    against another, because a single number would invite the user to treat
    "8/10" as a safety guarantee the system cannot make. */
-export function SecurityOverviewCard({ t, lang, sessions, sessionsLoading, settings, onRefresh, onManageSessions }) {
+export function SecurityOverviewCard({ t, lang, sessions, sessionsLoading, settings, remoteAccess, onRefresh, onManageSessions }) {
   const sessionCount = sessions?.length ?? null
   const shareDefaultsSet = Boolean(settings)
   const current = sessions?.find((session) => session.current) ?? null
@@ -142,9 +142,19 @@ export function SecurityOverviewCard({ t, lang, sessions, sessionsLoading, setti
           <GroupLabel>{t('secGroupRemote')}</GroupLabel>
           <FactList>
             <FactRow label={t('secRemoteChannel')} value="Twingate" />
-            {/* ⚠️ "Not measured" — never "Offline". Drive has no approved source
-                for connector health, and absence of a reading is not a reading. */}
-            <FactRow label={t('secRemoteTelemetry')} value={t('valNotMeasured')} />
+            {/* The LOCAL container is measured; it is labelled as local so this
+                row cannot be read as "Twingate says the connector is up". */}
+            <FactRow
+              label={t('secRemoteLocalConnector')}
+              value={connectorStatusLabel(t, remoteAccess?.localConnector?.status ?? 'UNKNOWN')}
+              tone={remoteAccess?.localConnector?.available === true
+                ? connectorStatusTone(remoteAccess.localConnector.status)
+                : null}
+            />
+            {/* ⚠️ "Not measured" — never "Offline". AEGIS has no approved source
+                for what the control plane believes, and absence of a reading is
+                not a reading. This row must not be derived from the one above. */}
+            <FactRow label={t('secRemoteControlTelemetry')} value={t('valNotMeasured')} />
           </FactList>
         </div>
       </div>
@@ -323,26 +333,150 @@ export function SecurityDefaultsCard({ t, value, onSave, saving, error }) {
   )
 }
 
+/* ── Local connector status vocabulary ──────────────────────────────────────
+   One place decides how a derived status is worded and coloured, so the Security
+   overview row and the Remote Access card can never disagree about the same
+   reading.
+
+   ⚠️ Only HEALTHY is green. NOT_CONFIGURED (the container is up but Docker was
+      never asked to check it) and UNKNOWN (no reading, or a stale one) are
+      deliberately neutral, not reassuring — "we did not look" must not wear the
+      same colour as "we looked and it was fine". */
+const CONNECTOR_STATUS_LABEL = {
+  HEALTHY: 'connStatusHealthy',
+  STARTING: 'connStatusStarting',
+  UNHEALTHY: 'connStatusUnhealthy',
+  STOPPED: 'connStatusStopped',
+  RESTARTING: 'connStatusRestarting',
+  NOT_CONFIGURED: 'valNotConfigured',
+  UNKNOWN: 'valNotMeasured',
+}
+const CONNECTOR_STATUS_TONE = {
+  HEALTHY: 'ok',
+  STARTING: 'warn',
+  UNHEALTHY: 'danger',
+  STOPPED: 'danger',
+  RESTARTING: 'warn',
+  NOT_CONFIGURED: null,
+  UNKNOWN: null,
+}
+const RUNTIME_STATE_LABEL = {
+  RUNNING: 'runtimeRunning',
+  STOPPED: 'runtimeStopped',
+  RESTARTING: 'runtimeRestarting',
+  UNKNOWN: 'valNotMeasured',
+}
+const DOCKER_HEALTH_LABEL = {
+  HEALTHY: 'dockerHealthHealthy',
+  UNHEALTHY: 'dockerHealthUnhealthy',
+  STARTING: 'dockerHealthStarting',
+  NOT_CONFIGURED: 'valNotConfigured',
+  UNKNOWN: 'valNotMeasured',
+}
+/** Every fixed reason the collector, the agent, or Drive may attach. */
+const CONNECTOR_REASON_LABEL = {
+  'connector-not-found': 'connReasonNotFound',
+  'docker-unavailable': 'connReasonDockerUnavailable',
+  'inspect-failed': 'connReasonInspectFailed',
+  'collector-not-run': 'connReasonCollectorNotRun',
+  'not-configured': 'connReasonNotConfigured',
+  'invalid-evidence': 'connReasonInvalid',
+  'agent-unreachable': 'connReasonAgentUnreachable',
+  stale: 'connReasonStale',
+}
+
+/** The one label for a derived local connector status. */
+export function connectorStatusLabel(t, status) {
+  return t(CONNECTOR_STATUS_LABEL[status] ?? 'valNotMeasured')
+}
+
+export function connectorStatusTone(status) {
+  return CONNECTOR_STATUS_TONE[status] ?? null
+}
+
 /* ── Remote access ──────────────────────────────────────────────────────────
-   ⚠️ The previous version showed a neutral "Inactive" chip in the connector
-      status row. "Inactive" is a measurement result, and Drive has never taken
-      that measurement — a reader could reasonably conclude remote access was
-      down when in fact nothing had been asked. Every row below either states a
-      configured fact or says explicitly that the value is not measured. */
-export function RemoteAccessCard({ t }) {
+   ⚠️ Two blocks, never merged, and the order matters. The LOCAL block is
+      measured evidence: a bounded host collector inspects the connector
+      container and the telemetry agent republishes what it found. The CONTROL
+      PLANE block is not measured at all — AEGIS holds no Twingate credential and
+      calls no Twingate API, so the only honest value there is "not measured".
+
+   ⚠️ A healthy local container does NOT mean the tunnel works. The token can be
+      expired, the resource revoked, or the path upstream broken, and Docker
+      would still report a healthy process. That is why the two blocks are
+      separated on screen and why the copy under the local block says so
+      explicitly. Do not add a combined "Twingate: Online" row.
+
+   The previous version of this card showed a neutral "Inactive" chip for the
+   connector, which was a measurement result Drive had never taken. */
+export function RemoteAccessCard({ t, lang, data, loading, error, onRetry }) {
+  const local = data?.localConnector ?? null
+  const status = local?.status ?? 'UNKNOWN'
+  const measured = local?.available === true
+  const reasonKey = local?.reason ? CONNECTOR_REASON_LABEL[local.reason] : null
+
   return (
     <Card className="p-5">
-      <CardTitle sub={t('remoteAccessDocNote')} right={<CategoryChip t={t} kind="system" />}>
+      <CardTitle
+        sub={t('remoteAccessDocNote')}
+        right={<CategoryChip t={t} kind="system" />}
+      >
         {t('remoteAccessTitle')}
       </CardTitle>
+
+      {/* Configuration facts about this deployment — stated, not measured. */}
       <FactList>
         <FactRow label={t('remoteChannelLabel')} value={t('remoteChannelValue')} />
         <FactRow label={t('remoteReachableResource')} value="AEGIS Drive · NAS :443" />
         <FactRow label={t('remoteAccessModel')} value={t('remoteLeastPrivilege')} mono={false} />
-        <FactRow label={t('remoteTelemetryLabel')} value={t('valNotMeasured')} />
-        <FactRow label={t('remoteLiveStateLabel')} value={t('valUnavailable')} />
       </FactList>
+      {/* Frames the two blocks below before either is read: one is measured here,
+          the other is a different question with no approved source. */}
       <p className="text-[11.5px] text-ink-3 leading-relaxed mt-3 max-w-[64ch]">{t('remoteTelemetryNote')}</p>
+
+      <GroupLabel>{t('remoteLocalSection')}</GroupLabel>
+      {loading ? (
+        <SkeletonLoader />
+      ) : error ? (
+        <ErrorState t={t} kind={error} onRetry={onRetry} />
+      ) : (
+        <>
+          <FactList>
+            <FactRow
+              label={t('remoteRuntimeState')}
+              value={measured ? t(RUNTIME_STATE_LABEL[local.runtimeState] ?? 'valNotMeasured') : t('valNotMeasured')}
+              tone={measured ? connectorStatusTone(status) : null}
+            />
+            <FactRow
+              label={t('remoteDockerHealth')}
+              value={measured ? t(DOCKER_HEALTH_LABEL[local.health] ?? 'valNotMeasured') : t('valNotMeasured')}
+            />
+            {/* Unknown is an em dash, never 0 — a fabricated zero would read as
+                "this connector has never restarted". */}
+            <FactRow
+              label={t('remoteRestartCount')}
+              value={measured && local.restartCount !== null ? local.restartCount : '—'}
+            />
+            <FactRow
+              label={t('remoteLastMeasured')}
+              value={local?.measuredAt ? fmtDateTime(Date.parse(local.measuredAt), lang) : '—'}
+            />
+          </FactList>
+          {reasonKey && (
+            <p className="text-[11.5px] text-ink-3 leading-relaxed mt-2 max-w-[64ch]">{t(reasonKey)}</p>
+          )}
+        </>
+      )}
+      <p className="text-[11.5px] text-ink-3 leading-relaxed mt-2 max-w-[64ch]">{t('remoteLocalScopeNote')}</p>
+
+      <GroupLabel>{t('remoteControlPlaneSection')}</GroupLabel>
+      <FactList>
+        {/* Constants. There is no code path that can turn either of these into a
+            positive claim, because nothing measures them. */}
+        <FactRow label={t('remoteControlTelemetryLabel')} value={t('valNotMeasured')} />
+        <FactRow label={t('remoteControlLiveState')} value={t('valUnavailable')} />
+      </FactList>
+      <p className="text-[11.5px] text-ink-3 leading-relaxed mt-2 max-w-[64ch]">{t('remoteControlPlaneNote')}</p>
     </Card>
   )
 }

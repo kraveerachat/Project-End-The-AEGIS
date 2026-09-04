@@ -14,6 +14,7 @@ import net from 'node:net'
 
 import { SOCKET_MODE } from './config.js'
 import { projectDiskHealth } from './diskHealth.js'
+import { projectTwingateHealth } from './twingateHealth.js'
 
 export const TELEMETRY_ROUTE = '/internal/telemetry'
 
@@ -24,6 +25,20 @@ export const TELEMETRY_ROUTE = '/internal/telemetry'
  * lets the agent and Drive be upgraded in either order.
  */
 export const DISK_HEALTH_ROUTE = '/internal/disk-health'
+
+/**
+ * LOCAL Twingate connector runtime health, as a THIRD versioned route.
+ *
+ * A new route rather than a field on either existing one, for the same reason
+ * disk health got its own: /internal/telemetry is validated against a strict V1
+ * allowlist by every deployed Drive, and an unexpected key there is rejected
+ * wholesale. Three routes let the agent and Drive be upgraded in either order.
+ *
+ * ⚠️ Local only. This route reports whether the connector CONTAINER is running
+ *    on this host. It is not, and must never be presented as, the Twingate
+ *    control plane view of that connector.
+ */
+export const TWINGATE_CONNECTOR_ROUTE = '/internal/twingate-connector'
 
 /** The complete set of top-level keys the agent may emit. */
 export const AGENT_TOP_LEVEL_KEYS = Object.freeze(['schemaVersion', 'measuredAt', 'metrics'])
@@ -142,7 +157,8 @@ export function createTelemetryServer({ sampler, socketPath, socketMode = SOCKET
     // Compare the path only — a query string must not open a second route, and
     // the URL is never turned into a filesystem path anywhere in this agent.
     const requestPath = (req.url ?? '').split('?')[0]
-    if (requestPath !== TELEMETRY_ROUTE && requestPath !== DISK_HEALTH_ROUTE) {
+    if (requestPath !== TELEMETRY_ROUTE && requestPath !== DISK_HEALTH_ROUTE
+      && requestPath !== TWINGATE_CONNECTOR_ROUTE) {
       return send(res, 404, { error: 'not-found' })
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' }, { Allow: 'GET' })
@@ -151,6 +167,12 @@ export function createTelemetryServer({ sampler, socketPath, socketMode = SOCKET
       const evidence = typeof sampler.diskHealth === 'function' ? sampler.diskHealth() : null
       if (!evidence) return send(res, 503, { error: 'no-sample-yet' })
       return send(res, 200, projectDiskHealth(evidence))
+    }
+
+    if (requestPath === TWINGATE_CONNECTOR_ROUTE) {
+      const evidence = typeof sampler.twingateHealth === 'function' ? sampler.twingateHealth() : null
+      if (!evidence) return send(res, 503, { error: 'no-sample-yet' })
+      return send(res, 200, projectTwingateHealth(evidence))
     }
 
     const snapshot = sampler.snapshot()

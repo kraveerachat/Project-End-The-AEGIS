@@ -95,10 +95,16 @@ ${panels}`
   assert.match(panels, /t\('vaultRecMethod'\)/)
   assert.match(panels, /t\('valNotSupported'\)/)
 
-  // "Inactive" was a measurement Drive never took. The replacement says so.
+  // "Inactive" was a measurement Drive never took. The replacement says so —
+  // and since TWIN-2 the card separates what IS measured here (the local
+  // connector container) from what is not (the Twingate control plane), so the
+  // unmeasured claim now lives on the control-plane rows specifically.
   assert.doesNotMatch(both, /t\('remoteInactive'\)/)
-  assert.match(panels, /t\('remoteTelemetryLabel'\)/)
+  assert.match(panels, /t\('remoteControlTelemetryLabel'\)/)
+  assert.match(panels, /t\('remoteControlLiveState'\)/)
   assert.match(panels, /t\('valNotMeasured'\)/)
+  // The local block must never be able to speak for the control plane.
+  assert.match(panels, /t\('remoteLocalScopeNote'\)/)
 
   // Twingate remains the only named remote channel.
   assert.match(panels, /t\('remoteChannelValue'\)/)

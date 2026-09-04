@@ -14,7 +14,7 @@ import { createFileReaders } from '../src/sources.js'
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
-test('the agent reads exactly the six approved sources and nothing else', async () => {
+test('the agent reads exactly the seven approved sources and nothing else', async () => {
   const opened = []
   const readers = createFileReaders(
     createAgent({ env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' }, readFile: async () => '0' }).config.sources,
@@ -32,6 +32,10 @@ test('the agent reads exactly the six approved sources and nothing else', async 
     // The sixth source is a FILE written by the separate disk-health oneshot,
     // never a device: the agent still holds no capability and opens no /dev.
     '/var/lib/aegis-disk-health/disk-health.json',
+    // The seventh is the same arrangement for the local Twingate connector: a
+    // plain file written by its own oneshot. The agent gains a read, not a
+    // Docker socket — that stays with the collector and is never held here.
+    '/var/lib/aegis-twingate-health/twingate-health.json',
   ])
 })
 

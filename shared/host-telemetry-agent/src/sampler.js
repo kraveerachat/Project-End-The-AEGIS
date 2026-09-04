@@ -11,6 +11,7 @@
 // It never becomes 0. A metric object carrying numbers is therefore always a
 // real measurement, which is what the Drive schema and the dashboard rely on.
 import { diskHealthFromFileText } from './diskHealth.js'
+import { twingateHealthFromFileText } from './twingateHealth.js'
 import { cpuPercentFromDelta, networkRateFromDelta, parseMemInfo, parseNetworkCounter, parseProcStat, parseUptime } from './parsers.js'
 
 /** The single unavailable shape. Frozen so no caller can bolt a zero onto it. */
@@ -53,6 +54,7 @@ export function createSampler({
 
   let latest = null       // last published snapshot (null until the first cycle)
   let latestDisk = null   // last disk-health evidence document (separate contract)
+  let latestTwingate = null // last local Twingate connector evidence (another contract)
   let previousCpu = null  // last usable /proc/stat counters
   let previousNet = null  // last usable interface counters + their timestamp
   let handle = null
@@ -62,19 +64,24 @@ export function createSampler({
   // merged into `latest`: adding a key there would break every Drive that
   // validates the V1 allowlist, in production, on the next poll.
   const diskConfigured = typeof readers.diskHealth === 'function'
+  // Local Twingate connector health is a third contract, read on the same cycle
+  // and merged into neither of the other two for exactly the same reason.
+  const twingateConfigured = typeof readers.twingateHealth === 'function'
 
   async function sampleOnce() {
     const atMs = now()
-    const [statText, memText, rxText, txText, uptimeText, diskText] = await Promise.all([
+    const [statText, memText, rxText, txText, uptimeText, diskText, twingateText] = await Promise.all([
       readOrNull(readers.procStat),
       readOrNull(readers.memInfo),
       readOrNull(readers.networkRx),
       readOrNull(readers.networkTx),
       readOrNull(readers.uptime),
       diskConfigured ? readOrNull(readers.diskHealth) : Promise.resolve(null),
+      twingateConfigured ? readOrNull(readers.twingateHealth) : Promise.resolve(null),
     ])
 
     latestDisk = diskHealthFromFileText(diskText, { now: () => atMs, configured: diskConfigured })
+    latestTwingate = twingateHealthFromFileText(twingateText, { now: () => atMs, configured: twingateConfigured })
 
     // ── CPU ───────────────────────────────────────────────────────────
     // A window is only valid between two *usable* reads, so an unparseable
@@ -135,6 +142,8 @@ export function createSampler({
     snapshot: () => latest,
     /** Latest disk-health evidence document, or null before the first cycle. */
     diskHealth: () => latestDisk,
+    /** Latest local Twingate connector evidence, or null before the first cycle. */
+    twingateHealth: () => latestTwingate,
     sampleOnce,
     /** Idempotent: a second start while running must not stack timers. */
     start() {

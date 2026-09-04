@@ -1,0 +1,20 @@
+[Unit]
+# Fires aegis-twingate-health.service every 60 seconds. A connector that stops
+# or starts crash-looping is something an operator wants to see promptly, so
+# this is far more frequent than the disk-health timer (10 min) — but it is
+# still one bounded `docker inspect` per minute, which is nothing to the daemon.
+#
+# Drive treats evidence older than 5 minutes as stale and stops reporting a
+# state from it. With AccuracySec=15s the worst-case gap between runs is about
+# 75 s, so staleness means roughly four consecutive missed runs, not one late one.
+Description=AEGIS local Twingate connector health collector timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+AccuracySec=15s
+Persistent=false
+Unit=aegis-twingate-health.service
+
+[Install]
+WantedBy=timers.target

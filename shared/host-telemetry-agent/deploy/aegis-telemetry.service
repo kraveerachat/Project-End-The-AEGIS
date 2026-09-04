@@ -48,6 +48,12 @@ Environment=AEGIS_TELEMETRY_INTERVAL_MS=5000
 # 0640 in a 0750 directory grouped aegis-telemetry, so this process can read
 # it and no other unprivileged account can. Set empty to disable the read.
 Environment=AEGIS_TELEMETRY_DISK_HEALTH_FILE=/var/lib/aegis-disk-health/disk-health.json
+# The seventh read: local Twingate connector evidence, written by the separate
+# aegis-twingate-health oneshot (which is the unit that holds the docker group,
+# not this one). Same arrangement as above — a 0640 file in a 0750 directory
+# grouped aegis-telemetry, readable here and by no other unprivileged account.
+# This agent never reaches the Docker daemon. Set empty to disable the read.
+Environment=AEGIS_TELEMETRY_TWINGATE_HEALTH_FILE=/var/lib/aegis-twingate-health/twingate-health.json
 Environment=NODE_ENV=production
 
 # ── socket directory ──────────────────────────────────────────────────

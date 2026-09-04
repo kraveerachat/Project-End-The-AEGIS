@@ -34,6 +34,18 @@ export const DEFAULT_INTERVAL_MS = 5000
  */
 export const DEFAULT_DISK_HEALTH_FILE = '/var/lib/aegis-disk-health/disk-health.json'
 
+/**
+ * The one file the agent reads for LOCAL Twingate connector health. It is
+ * WRITTEN by the separate aegis-twingate-health oneshot — the agent itself never
+ * reaches the Docker daemon and never holds its socket. An empty value disables
+ * the read entirely and /internal/twingate-connector answers `not-configured`.
+ *
+ * ⚠️ This file describes the container running on THIS host. It says nothing
+ *    about what the Twingate control plane believes; nothing in this agent ever
+ *    contacts Twingate.
+ */
+export const DEFAULT_TWINGATE_HEALTH_FILE = '/var/lib/aegis-twingate-health/twingate-health.json'
+
 const SYS_CLASS_NET = '/sys/class/net'
 const MAX_INTERFACE_LENGTH = 15 // Linux IFNAMSIZ is 16 including the NUL
 
@@ -109,6 +121,17 @@ export function loadAgentConfig(env = process.env) {
     throw new Error('AEGIS_TELEMETRY_DISK_HEALTH_FILE must be an absolute path or empty')
   }
 
+  // Same rule as disk health: explicitly empty disables the read, anything else
+  // must be absolute so it cannot resolve against the WorkingDirectory the unit
+  // happens to set.
+  const rawTwingateHealthFile = env.AEGIS_TELEMETRY_TWINGATE_HEALTH_FILE
+  const twingateHealthFile = rawTwingateHealthFile === undefined
+    ? DEFAULT_TWINGATE_HEALTH_FILE
+    : String(rawTwingateHealthFile).trim()
+  if (twingateHealthFile && !path.posix.isAbsolute(twingateHealthFile)) {
+    throw new Error('AEGIS_TELEMETRY_TWINGATE_HEALTH_FILE must be an absolute path or empty')
+  }
+
   const sources = {
     procStat: '/proc/stat',
     memInfo: '/proc/meminfo',
@@ -117,6 +140,7 @@ export function loadAgentConfig(env = process.env) {
     networkTx: network.tx,
   }
   if (diskHealthFile) sources.diskHealth = diskHealthFile
+  if (twingateHealthFile) sources.twingateHealth = twingateHealthFile
 
   return {
     interfaceName,
@@ -124,6 +148,7 @@ export function loadAgentConfig(env = process.env) {
     socketMode: SOCKET_MODE,
     intervalMs,
     diskHealthFile: diskHealthFile || null,
+    twingateHealthFile: twingateHealthFile || null,
     sources,
   }
 }
