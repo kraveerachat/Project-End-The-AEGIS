@@ -362,9 +362,11 @@ export function Storage({ t, go, placeholderMode = false }) {
         unaccountedBytes={d.unaccountedBytes}
       />
 
-      <DiskHealthCard t={t} disk={d.diskHealth} now={now} />
+      <div data-reveal>
+        <DiskHealthCard t={t} disk={d.diskHealth} now={now} />
+      </div>
 
-      <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1">
+      <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1" data-reveal>
         <Card className="p-5">
           <CardTitle>{t('raidStatus')}</CardTitle>
           <div className="flex items-start gap-3">

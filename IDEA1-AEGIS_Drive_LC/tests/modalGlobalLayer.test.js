@@ -322,15 +322,21 @@ test('Neo glass is static, stylesheet-owned, and limited to approved shell surfa
 
   assert.doesNotMatch(topbar, /backdrop-filter|backdropFilter/, 'the TopBar declares no blur of its own')
 
-  // Classic still has only the shared scrim. Neo may add one static declaration
+  // Classic still has only the shared scrims. Neo may add one static declaration
   // shared by Sidebar, Topbar, modal, and segmented housing — never content cards.
+  //
+  // .drawer-scrim joined this list when the off-canvas drawer stopped mixing its
+  // overlay colour out of --ink (which is near-white in dark themes, so it washed
+  // the shell instead of dimming it). It is the same category of surface as
+  // .modal-scrim — a scrim, static, stylesheet-owned, never a content card — and
+  // neoDrawerAndMotion.test.js pins its blur below the modal's.
   const blurring = [...css.matchAll(/(^|\n)([^\n{}]+)\{([^}]*backdrop-filter:[^}]*)\}/g)]
     .filter(([, , , decls]) => [...decls.matchAll(/backdrop-filter:\s*([^;]+)/g)]
       .some(([, value]) => value.trim() !== 'none'))
     .map(([, , selector]) => selector.trim())
   assert.deepEqual(
     [...new Set(blurring)],
-    ['.modal-scrim', ':root[data-ui-style="neo"] .ui-segmented'],
+    ['.drawer-scrim', '.modal-scrim', ':root[data-ui-style="neo"] .ui-segmented'],
     'only the global scrim and the approved Neo shell-glass group blur',
   )
   assert.match(css, /:root\[data-ui-style="neo"\] \.app-sidebar,[\s\S]*\.app-topbar,[\s\S]*\.ui-modal,[\s\S]*\.ui-segmented\s*\{/)

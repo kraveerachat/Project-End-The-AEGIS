@@ -7,6 +7,7 @@ import { isPlatformWired } from './lib/fetchState.js'
 import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, visiblePrimaryNav } from './lib/navigationIntent.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
+import { useScrollReveal } from './lib/useScrollReveal.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
@@ -216,6 +217,12 @@ export default function App() {
   const t = useMemo(() => makeT(lang), [lang])
   const reduced = useReducedMotion()
   const mainRef = useRef(null)
+
+  /* ⚠️ ต้องอยู่เหนือ early return ทุกอันของคอมโพเนนต์นี้ (ตรวจ auth / หน้า login /
+     บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
+     React เพี้ยนทั้งต้นไม้ ("Rendered more hooks than during the previous render")
+     ตัว hook เองไม่ทำอะไรเลยจนกว่าจะมี mainRef และ Neo เป็นสไตล์ที่ใช้อยู่ */
+  useScrollReveal(mainRef, screen, interfaceStyle === 'neo')
 
   // เมนูถูก filter ตาม role "ฝั่งเซิร์ฟเวอร์" มาแล้ว (server/rbac/permissions.js)
   // — client แค่ render สิ่งที่ได้รับ รายการที่ไม่มีสิทธิ์ไม่เคยมาถึง DOM เลย

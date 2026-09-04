@@ -176,8 +176,11 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       {/* mobile off-canvas */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0" style={{ zIndex: 'var(--z-drawer)' }}>
-          <div className="absolute inset-0 fade-in" style={{ background: 'color-mix(in srgb, var(--ink) 30%, transparent)' }} onClick={closeMobile} aria-hidden />
-          <div className="absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
+          {/* ⚠️ สกริมของลิ้นชักต้องเป็น token ต่อธีม ไม่ใช่สูตรผสมจาก --ink
+              --ink เป็นสีเกือบขาวในธีมมืด สูตรเดิมจึงปูสีขาว 30% ทับทั้งหน้า
+              ทำให้ทั้ง shell ดูขุ่นเป็นหมอก แทนที่จะหรี่ลง (ดู .drawer-scrim) */}
+          <div className="drawer-scrim fade-in" onClick={closeMobile} aria-hidden />
+          <div className="app-drawer-panel absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
             {body}
           </div>
         </div>
