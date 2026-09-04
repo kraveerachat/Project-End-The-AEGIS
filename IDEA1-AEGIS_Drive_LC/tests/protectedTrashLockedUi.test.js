@@ -100,7 +100,10 @@ async function mountTrash(lang = 'en') {
     /** Everything the user can see, dialog and page shell together. */
     text: () => doc.body.textContent,
     /** The inert page shell behind the dialog. */
-    shell: () => host.querySelector('[inert]'),
+    shell: () => host.querySelector('[data-trash-shell]'),
+    /** The status banner. It is present in both states, and inert only while
+        the dialog is open, so the page never jumps when Escape closes it. */
+    banner: () => host.querySelector('[role="status"]'),
     async type(value) {
       const input = doc.querySelector('#trash-password')
       const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
@@ -234,7 +237,7 @@ test('TRASH-LOCK-UI-6 a correct password closes the dialog and loads the real it
     await screen.submit()
 
     assert.equal(screen.dialog(), null, 'the dialog closes on success')
-    assert.equal(screen.host.querySelector('[inert]'), null, 'the shell is no longer inert')
+    assert.equal(screen.host.querySelector('[data-trash-shell]'), null, 'the placeholder shell is gone once unlocked')
     assert.equal(trashBackend.metadataRequests(), 1, 'metadata is requested exactly once, after the unlock')
     assert.ok(screen.text().includes('Q3-severance-list.xlsx'), 'the real items render on the same page')
     assert.ok(screen.text().includes(STRINGS.en.trashUnlocked), 'the unlock is confirmed to the user')
@@ -313,6 +316,30 @@ test('TRASH-LOCK-UI-9 focus starts in the password field and Tab stays inside th
     await act(async () => stops[0].focus())
     await screen.pressKey('Tab', { shiftKey: true })
     assert.equal(screen.doc.activeElement, stops[stops.length - 1], 'Shift+Tab wraps to the last control')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-LOCK-UI-11 the locked banner is always present, and inert only while the dialog is open', async () => {
+  const screen = await mountTrash()
+  try {
+    // Present with the dialog open: the user can see WHAT is locked behind it,
+    // and the page does not resize when the dialog closes.
+    const openBanner = screen.banner()
+    assert.ok(openBanner, 'the banner is rendered while the dialog is open')
+    assert.ok(openBanner.textContent.includes(STRINGS.en.trashLockedBadge))
+    assert.ok(openBanner.hasAttribute('inert'), 'while the dialog is open the banner is inert too')
+    assert.equal(
+      openBanner.getAttribute('aria-hidden'), 'true',
+      'so no focusable control sits outside the dialog',
+    )
+
+    await screen.pressKey('Escape')
+    const closedBanner = screen.banner()
+    assert.ok(closedBanner, 'the banner survives the dialog closing — no layout jump')
+    assert.equal(closedBanner.hasAttribute('inert'), false, 'and becomes operable again')
+    assertNoProtectedMetadata(screen, 'with the banner shown')
   } finally {
     await screen.unmount()
   }
