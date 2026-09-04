@@ -2,9 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Monitor, KeyRound, Database, ShieldCheck, Palette, LogOut, Plus, Trash2, ImagePlus, LayoutTemplate, Check } from 'lucide-react'
 import {
   Card, CardTitle, Chip, Btn, Segmented, Field, PillInput,
-  ErrorState, EmptyState, SkeletonLoader, NotYetImplemented, Avatar,
+  ErrorState, EmptyState, SkeletonLoader, Avatar,
   Modal, ModalClose,
 } from '../components/ui.jsx'
+import {
+  SecurityOverviewCard, VaultProtectionCard, VaultAutoLockCard, VaultRecoveryPolicyCard,
+  ShareDefaultsCard, RemoteAccessCard, ConnectionTestCard, SecurityActivityCard,
+  StorageOverviewCard, DataProtectionCard, BackupReadinessCard,
+  EncryptionPostureCard, AdminLinksCard, CategoryChip,
+} from '../components/SettingsPanels.jsx'
 import { canAdministrate } from '../lib/authz.js'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
@@ -226,11 +232,28 @@ function SessionsCard({ t, api, now, placeholderMode = false }) {
   const sessions = api.data?.sessions ?? []
   const fetchError = visibleFetchError(api.error, placeholderMode)
   const [revoking, setRevoking] = useState(null)
+  // ── Sign out every OTHER session ──────────────────────────────────────────
+  // ⚠️ Confirmed before it runs: it signs other people's devices out, and there
+  //    is no undo. `result` holds the number the server actually destroyed, not
+  //    a generic success — a revoke that found nothing says so.
+  const [confirmOthers, setConfirmOthers] = useState(false)
+  const [othersBusy, setOthersBusy] = useState(false)
+  const [othersResult, setOthersResult] = useState(null) // null | number | 'error'
+  const otherCount = sessions.filter((s) => !s.current).length
 
   const revoke = async (ref) => {
     setRevoking(ref)
     await apiFetch(`/api/sessions/${encodeURIComponent(ref)}`, { method: 'DELETE' })
     setRevoking(null)
+    api.retry()
+  }
+
+  const signOutOthers = async () => {
+    setOthersBusy(true)
+    const res = await apiFetch('/api/sessions/revoke-others', { method: 'POST' })
+    setOthersBusy(false)
+    setConfirmOthers(false)
+    setOthersResult(res.ok ? (res.data?.revoked ?? 0) : 'error')
     api.retry()
   }
 
@@ -270,6 +293,57 @@ function SessionsCard({ t, api, now, placeholderMode = false }) {
           ))}
         </div>
       )}
+
+      {sessions.length > 0 && (
+        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-line flex-wrap">
+          <Btn
+            variant="dangerSoft"
+            size="sm"
+            onClick={() => { setOthersResult(null); setConfirmOthers(true) }}
+            disabled={otherCount === 0 || othersBusy}
+          >
+            <LogOut size={13} strokeWidth={1.5} />
+            {t('signOutOthers')}
+          </Btn>
+          {othersResult !== null && (
+            <span
+              role={othersResult === 'error' ? 'alert' : 'status'}
+              className="text-[12.5px] font-medium"
+              style={{ color: othersResult === 'error' ? 'var(--danger)' : 'var(--ok)' }}
+            >
+              {othersResult === 'error'
+                ? t('actionFailed')
+                : othersResult === 0
+                  ? t('signOutOthersNone')
+                  : t('signOutOthersDone', { count: othersResult })}
+            </span>
+          )}
+        </div>
+      )}
+
+      <Modal
+        open={confirmOthers}
+        onClose={() => { if (!othersBusy) setConfirmOthers(false) }}
+        labelledBy="sign-out-others-title"
+        width={480}
+      >
+        <ModalClose onClose={() => { if (!othersBusy) setConfirmOthers(false) }} label={t('close')} />
+        <div className="size-11 rounded-[var(--r-tile)] bg-danger-soft text-danger flex items-center justify-center mb-4">
+          <LogOut size={20} strokeWidth={1.7} />
+        </div>
+        <h2 id="sign-out-others-title" className="text-lg font-semibold text-ink pr-10">
+          {t('signOutOthersConfirmTitle')}
+        </h2>
+        <p className="mt-2 text-[13.5px] leading-relaxed text-ink-2">{t('signOutOthersConfirmBody')}</p>
+        <div className="mt-6 flex justify-end gap-2 flex-wrap">
+          <Btn variant="ghost" onClick={() => setConfirmOthers(false)} disabled={othersBusy} data-modal-autofocus>
+            {t('cancel')}
+          </Btn>
+          <Btn variant="danger" onClick={signOutOthers} disabled={othersBusy}>
+            {othersBusy ? t('saving') : t('signOutOthersAction')}
+          </Btn>
+        </div>
+      </Modal>
     </Card>
   )
 }
@@ -326,13 +400,65 @@ function InterfaceStylePreview({ value, label, description, active, onSelect, di
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, interfaceStyle = 'classic', onInterfaceStyleChange, role, user, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, interfaceStyle = 'classic', onInterfaceStyleChange, role, user, go, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
   const now = useNow(30_000)
   const [tab, setTab] = useState(initialTab)
   const [pendingInterfaceStyle, setPendingInterfaceStyle] = useState(null)
   useEffect(() => setTab(initialTab), [initialTab])
   // เซสชันที่ยัง active ของ "ผู้ใช้ปัจจุบัน" — จาก session store จริงฝั่งเซิร์ฟเวอร์
   const sessionsApi = useApi('/api/sessions')
+
+  /* ── Per-account security settings (auto-lock + share defaults) ───────────
+     One contract, two panels. The server is authoritative: `settings` is
+     seeded from GET and replaced by whatever PATCH returns, so a value the
+     server normalised differently is what ends up on screen. */
+  const securityApi = useApi('/api/security/settings')
+  /* ⚠️ ค่าที่แสดงถูก "คำนวณ" จากคำตอบของเซิร์ฟเวอร์โดยตรง ไม่ได้คัดลอกเข้า state ผ่าน
+     useEffect: การคัดลอกทำให้ render แรกไม่มีข้อมูลเสมอ (effect ยังไม่ทำงาน) ซึ่งแปลว่า
+     จอจะโชว์โครงเปล่าหนึ่งเฟรมทุกครั้ง และบน server render จะไม่มีค่าเลย
+     `draft` ถือเฉพาะค่าที่ผู้ใช้เพิ่งเลือกและยังรอผลบันทึก — ปกติเป็น null */
+  const [draft, setDraft] = useState(null)
+  const settings = draft ?? securityApi.data?.settings ?? null
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsError, setSettingsError] = useState(false)
+
+  /** บันทึกค่า security settings — optimistic แล้วย้อนกลับถ้าเซิร์ฟเวอร์ไม่รับ
+   *  ⚠️ ย้อนกลับเป็นค่าเดิมจริง ๆ ไม่ใช่ค่า default: ผู้ใช้ต้องไม่เห็นค่าที่ตัวเอง
+   *     ไม่ได้เลือกค้างอยู่บนจอหลังการบันทึกล้มเหลว */
+  const saveSecuritySettings = async (next) => {
+    const previous = settings
+    setDraft(next)
+    setSettingsSaving(true)
+    setSettingsError(false)
+    const res = await apiFetch('/api/security/settings', { method: 'PATCH', body: next })
+    setSettingsSaving(false)
+    if (!res.ok) {
+      // ย้อนกลับเป็นค่าเดิมจริง ๆ ไม่ใช่ค่า default — ผู้ใช้ต้องไม่เห็นค่าที่ตัวเองไม่ได้
+      // เลือกค้างอยู่บนจอหลังการบันทึกล้มเหลว
+      setDraft(previous)
+      setSettingsError(true)
+      return false
+    }
+    // เก็บคำตอบของเซิร์ฟเวอร์ไว้เป็น draft ต่อ เพราะ useApi ยังไม่ได้ refetch —
+    // ค่าที่เห็นจึงเป็นค่าที่ "ถูกบันทึกจริง" ไม่ใช่ค่าที่ผู้ใช้กดไป
+    setDraft(res.data.settings)
+    return true
+  }
+
+  // Storage + own-account security activity — both read-only, both real sources.
+  const storageApi = useApi('/api/storage')
+  const activityApi = useApi('/api/audit/me')
+
+  /* ⚠️ ทุก error ของจอนี้ต้องผ่าน visibleFetchError ก่อนเสมอ — placeholderMode แปลว่า
+     "ยังไม่ได้ต่อ backend จริง" ไม่ใช่ "ต่อแล้วล้มเหลว" การโชว์ ErrorState ในโหมดนั้น
+     จะทำให้จอ fixture ดูเหมือนระบบพัง ทั้งที่ยังไม่เคยมีการเรียกจริงเกิดขึ้น */
+  const securityError = visibleFetchError(securityApi.error, placeholderMode)
+  const storageError = visibleFetchError(storageApi.error, placeholderMode)
+  const activityError = visibleFetchError(activityApi.error, placeholderMode)
+
+  // Zone removal is confirmed: a restricted share created afterwards will no
+  // longer be offered this range (already-created shares keep their snapshot).
+  const [zoneToDelete, setZoneToDelete] = useState(null)
 
   // Admin governance — Network zones (Admin เท่านั้น ดู server/rbac)
   // ⚠️ การ์ด "Encryption keys / rotate" ถูกถอดออกทั้งใบ พร้อม /api/keys ทั้งสอง endpoint:
@@ -359,6 +485,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
 
   const removeZone = async (id) => {
     const { ok } = await apiFetch(`/api/zones/${id}`, { method: 'DELETE' })
+    setZoneToDelete(null)
     if (ok) zonesApi.retry()
   }
 
@@ -479,130 +606,122 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
 
         {activeTab === 'security' && (
           <div className="flex flex-col gap-5 fade-in">
-            <Card className="p-5">
-              <CardTitle>{t('vaultKeyMgmt')}</CardTitle>
-              <p className="text-[13px] text-ink-2 leading-relaxed max-w-[56ch]">{t('vaultKeyMgmtNote')}</p>
-              <div className="mt-3 rounded-[var(--r-tile)] hatch hatch-ink3 bg-sunken border border-line px-4 py-3">
-                <p className="font-mono text-[11px] text-ink-3">{t('vaultCipherCaption')}</p>
-              </div>
-            </Card>
-            <Card className="p-5">
-              <CardTitle>{t('vaultRecoveryTitle')}</CardTitle>
-              <div className="rounded-[var(--r-tile)] border border-dashed border-line bg-sunken px-4 py-4 flex items-center gap-3 flex-wrap">
-                <div className="min-w-0 flex-1">
-                  <Chip tone="neutral">{t('notConnected')}</Chip>
-                  <p className="text-[12.5px] text-ink-3 mt-2 max-w-[58ch] leading-relaxed">{t('vaultRecoveryNotConnected')}</p>
-                </div>
-                <Btn variant="outline" size="sm" disabled title={t('vaultRecoveryUnavailable')}>
-                  <KeyRound size={13} strokeWidth={1.5} />
-                  {t('generateRecoveryPhrase')}
-                </Btn>
-              </div>
-            </Card>
-            <Card className="p-5">
-              <CardTitle>{t('shareDefaults')}</CardTitle>
-              {/* เดิมเป็น <select> สองอันที่ไม่ผูกกับ state ใดและไม่เคยถูกส่งไปที่ไหน —
-                  ผู้ใช้เลือกค่า กดออกจากหน้า แล้วค่าก็หายไปเงียบ ๆ ไม่มีผลต่อฟอร์มสร้าง
-                  ลิงก์แชร์เลย ตอนนี้บอกตรง ๆ ว่ายังไม่มี ดีกว่าปุ่มที่แกล้งทำงาน */}
-              <NotYetImplemented label={t('notImplemented')}>{t('shareDefaultsTodo')}</NotYetImplemented>
-            </Card>
+            {/* Ordered so the page reads outward from the account: what is true
+                now, then the vault, then what leaves the machine, then history. */}
+            <SecurityOverviewCard
+              t={t}
+              sessions={sessionsApi.data?.sessions}
+              sessionsLoading={sessionsApi.loading}
+              settings={settings}
+              onManageSessions={() => setTab('account')}
+            />
 
-            {/* Twingate is the only documented remote channel. There is no connector
-                health integration yet, so Inactive is the only honest default. */}
-            <Card className="p-5">
-              <CardTitle sub={t('remoteAccessDocNote')}>
-                {t('remoteAccessTitle')}
-              </CardTitle>
+            <VaultProtectionCard t={t} />
 
-              <div className="grid grid-cols-1 gap-4 mt-2">
-                <Card className="p-5 flex flex-col gap-4 bg-card-sunken border border-line">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-semibold text-ink text-[14.5px]">Zero Trust Access · Twingate</h3>
-                      <p className="text-[12px] text-ink-3 mt-0.5">{t('remoteLeastPrivilege')}</p>
-                    </div>
-                    <Chip tone="neutral">{t('remoteInactive')}</Chip>
-                  </div>
-                  <div className="flex flex-col gap-2 mt-2">
-                    <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                      <span className="text-ink-2">{t('remoteConnectorStatus')}</span>
-                      <span className="font-mono text-ink-3">{t('remoteInactive')}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-line text-[12.5px]">
-                      <span className="text-ink-2">{t('remoteReachableResource')}</span>
-                      <span className="font-mono text-ink">AEGIS Drive · NAS :443 only</span>
-                    </div>
-                  </div>
-                  <p className="text-[11.5px] text-ink-3 leading-relaxed mt-1">{t('remoteInactiveHint')}</p>
-                </Card>
-              </div>
+            {/* ⚠️ The two configurable panels wait for the server's own values
+                rather than rendering a guessed default first — a control that
+                shows 10 minutes before the account's real 30 has loaded would
+                misreport the current policy for as long as the fetch takes. */}
+            {settings ? (
+              <VaultAutoLockCard
+                t={t}
+                value={settings.vaultAutoLockMinutes}
+                onSave={(minutes) => saveSecuritySettings({ ...settings, vaultAutoLockMinutes: minutes })}
+                saving={settingsSaving}
+                error={settingsError}
+              />
+            ) : (
+              <Card className="p-5">
+                <CardTitle>{t('vaultAutoLockTitle')}</CardTitle>
+                {securityError ? <ErrorState t={t} kind={securityError} onRetry={securityApi.retry} /> : <SkeletonLoader />}
+              </Card>
+            )}
 
-              {canAdministrate(role) && (
-                <div className="mt-5">
-                  <p className="text-[13px] font-semibold text-ink mb-2.5">{lang === 'th' ? 'นโยบายการเข้าถึง (Access Policy)' : 'Access Policy'}</p>
-                  <div className="overflow-x-auto rounded-xl border border-line bg-card">
-                    <table className="w-full text-left text-[12.5px]">
-                      <thead>
-                        <tr className="bg-sunken border-b border-line">
-                          <th className="px-4 py-2 font-semibold text-ink-2">{lang === 'th' ? 'บทบาท (Role)' : 'Role'}</th>
-                          <th className="px-4 py-2 font-semibold text-ink-2">{lang === 'th' ? 'ช่องทางเชื่อมต่อ (Channel)' : 'Channel'}</th>
-                          <th className="px-4 py-2 font-semibold text-ink-2">{lang === 'th' ? 'รีซอร์สที่เข้าถึงได้ (Reachable)' : 'Reachable'}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-line last:border-b-0">
-                          <td className="px-4 py-2.5 font-medium text-ink">DataLake-User</td>
-                          <td className="px-4 py-2.5 font-mono text-ink">Twingate</td>
-                          <td className="px-4 py-2.5 font-mono text-ink">AEGIS Drive :443</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </Card>
+            <VaultRecoveryPolicyCard t={t} />
+
+            {settings ? (
+              <ShareDefaultsCard
+                t={t}
+                value={settings.shareDefaults}
+                onSave={(shareDefaults) => saveSecuritySettings({ ...settings, shareDefaults })}
+                saving={settingsSaving}
+                error={settingsError}
+              />
+            ) : (
+              <Card className="p-5">
+                <CardTitle>{t('shareDefaults')}</CardTitle>
+                {securityError ? <ErrorState t={t} kind={securityError} onRetry={securityApi.retry} /> : <SkeletonLoader />}
+              </Card>
+            )}
+
+            <RemoteAccessCard t={t} />
+            <ConnectionTestCard t={t} lang={lang} />
+            <SecurityActivityCard
+              t={t}
+              lang={lang}
+              activity={activityApi.data?.activity ?? null}
+              loading={activityApi.loading}
+              error={activityError}
+              onRetry={activityApi.retry}
+              canViewAudit={canAdministrate(role)}
+              onViewAudit={() => go?.('audit')}
+            />
           </div>
         )}
 
         {activeTab === 'storagedata' && (
           <div className="flex flex-col gap-5 fade-in">
-            {/* ⚠️ ของเดิมเป็น <select> ตารางเวลา snapshot ที่ไม่ผูกกับอะไรเลย — ถูกถอดออก
-                ตอนนี้ตัวเลือกทุกอย่างในการ์ดนี้เป็น "รหัส" จากรายการที่ host backup agent
-                ประกาศ (ปลายทาง/ตาราง/การเก็บรักษา) และถูกส่งต่อให้ agent ตัดสินอีกชั้น —
-                ไม่มี path, host, หรือคำสั่งใดจากเบราว์เซอร์ และถ้า agent ไม่ได้เชื่อมต่อ
-                การ์ดจะบอกตรง ๆ แทนที่จะแสดงฟอร์มที่บันทึกไปไหนไม่ได้ (server/routes/api.js) */}
-            {canAdministrate(role)
-              ? <BackupConfiguration t={t} placeholderMode={placeholderMode} />
-              : (
-                <Card className="p-5">
-                  <CardTitle>{t('backupConfigTitle')}</CardTitle>
-                  <p className="text-[13px] text-ink-2 leading-relaxed max-w-[60ch]">{t('backupConfigUserNote')}</p>
-                </Card>
-              )}
-            <Card className="p-5">
-              <CardTitle>{t('setStorageData')}</CardTitle>
-              {/* snapshot ระดับระบบไฟล์ยังทำไม่ได้จริงใน deployment นี้ (ext4 ธรรมดา) —
-                  ประกาศไว้ตรง ๆ ต่อไป ส่วน "สำรองข้อมูล" ของจริงอยู่การ์ดด้านบน */}
-              <NotYetImplemented label={t('notImplemented')}>{t('snapScheduleTodo')}</NotYetImplemented>
-            </Card>
+            {/* ⚠️ The "snapshot scheduling is not implemented" placeholder that used
+                to be the whole second half of this tab is gone. Filesystem snapshots
+                remain out of reach for this deployment, but that fact belongs in the
+                File history help text, not as the main content of a settings tab —
+                what replaced it is the protection that actually runs today. */}
+            <StorageOverviewCard
+              t={t}
+              data={storageApi.data}
+              loading={storageApi.loading}
+              error={storageError}
+              onRetry={storageApi.retry}
+              onViewStorage={() => go?.('storage')}
+            />
+            <DataProtectionCard t={t} />
+
+            {canAdministrate(role) ? (
+              <>
+                <BackupConfiguration t={t} placeholderMode={placeholderMode} />
+                {/* Readiness list appears only while the host agent is genuinely
+                    unreachable — it explains what is missing instead of leaving a
+                    disabled form with no explanation. */}
+                {storageApi.data && storageApi.data.backup?.available === false && (
+                  <BackupReadinessCard t={t} />
+                )}
+              </>
+            ) : (
+              <Card className="p-5">
+                <CardTitle>{t('backupConfigTitle')}</CardTitle>
+                <p className="text-[13px] text-ink-2 leading-relaxed max-w-[60ch]">{t('backupConfigUserNote')}</p>
+              </Card>
+            )}
           </div>
         )}
 
         {/* Administration — rendered only for admin; ไม่มี DOM trace สำหรับ role อื่น */}
         {activeTab === 'admin' && canAdministrate(role) && (
           <div className="flex flex-col gap-5 fade-in">
+            <EncryptionPostureCard t={t} />
+
             <Card className="p-5">
-              <CardTitle>{t('encAtRest')}</CardTitle>
-              {/* พูดถึงสิ่งที่มีอยู่จริงเท่านั้น: Vault เข้ารหัสฝั่งเบราว์เซอร์ (ของจริง
-                  ตรวจสอบได้ ดูจอ Vault) ส่วนไฟล์ Data Lake ยังเป็น plaintext บนดิสก์
-                  ไม่มีกุญแจ master ให้ rotate เพราะไม่มีกุญแจ master */}
-              <p className="text-[13px] text-ink-2 leading-relaxed max-w-[60ch]">{t('encAtRestVault')}</p>
-              <div className="mt-3">
-                <NotYetImplemented label={t('notImplemented')}>{t('encAtRestTodo')}</NotYetImplemented>
+              <CardTitle sub={t('zonesNote')} right={<CategoryChip t={t} kind="configurable" />}>
+                {t('networkZones')}
+              </CardTitle>
+
+              {/* Zones are share-policy metadata. Saying so on the screen keeps an
+                  operator from reading this list as a firewall they have just edited. */}
+              <div className="rounded-[var(--r-tile)] bg-sunken border border-line px-4 py-3 mb-4">
+                <p className="text-[12px] font-semibold text-ink-2">{t('zoneUsageTitle')}</p>
+                <p className="text-[12px] text-ink-3 leading-relaxed mt-1 max-w-[62ch]">{t('zoneUsageBody')}</p>
               </div>
-            </Card>
-            <Card className="p-5">
-              <CardTitle sub={t('zonesNote')}>{t('networkZones')}</CardTitle>
+
               {zonesApi.loading ? (
                 <SkeletonLoader />
               ) : zonesError ? (
@@ -610,27 +729,28 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               ) : zones.length === 0 ? (
                 <EmptyState icon={ShieldCheck} title={t('emptyNoZones')} />
               ) : (
-              <div className="flex flex-col gap-2">
-                {zones.map((z) => (
-                  <div key={z.id ?? z.cidr} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                    {/* ชื่อ zone เป็นข้อความที่ผู้ดูแลพิมพ์เอง — ไม่ใช่ key ของตารางแปลภาษา
-                        (เดิมเรียก t(z.name) ซึ่งทำให้ชื่อที่เพิ่มใหม่ทุกชื่อแสดงเป็น key ดิบ) */}
-                    <Chip tone="neutral">{z.name}</Chip>
-                    <span className="font-mono text-[12px] text-ink-2 flex-1">{z.cidr}</span>
-                    {z.id && (
-                      <button
-                        type="button"
-                        aria-label={t('removeZone')}
-                        className="text-ink-3 hover:text-danger transition-colors duration-[var(--dur-fast)]"
-                        onClick={() => removeZone(z.id)}
-                      >
-                        <Trash2 size={14} strokeWidth={1.5} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+                <div className="flex flex-col gap-2">
+                  {zones.map((z) => (
+                    <div key={z.id ?? z.cidr} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+                      {/* ชื่อ zone เป็นข้อความที่ผู้ดูแลพิมพ์เอง — ไม่ใช่ key ของตารางแปลภาษา
+                          (เดิมเรียก t(z.name) ซึ่งทำให้ชื่อที่เพิ่มใหม่ทุกชื่อแสดงเป็น key ดิบ) */}
+                      <Chip tone="neutral">{z.name}</Chip>
+                      <span className="font-mono text-[12px] text-ink-2 flex-1">{z.cidr}</span>
+                      {z.id && (
+                        <button
+                          type="button"
+                          aria-label={t('removeZone')}
+                          className="text-ink-3 hover:text-danger transition-colors duration-[var(--dur-fast)] cursor-pointer"
+                          onClick={() => setZoneToDelete(z)}
+                        >
+                          <Trash2 size={14} strokeWidth={1.5} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
+
               <form onSubmit={addZone} className="grid grid-cols-[1fr_1fr_auto] gap-2 mt-3 max-md:grid-cols-1">
                 <PillInput
                   aria-label={t('zoneName')}
@@ -650,20 +770,25 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                 </Btn>
               </form>
               {zoneErr && (
-                <p className="text-[12px] mt-2" style={{ color: 'var(--danger)' }}>{t('invalidZone')}</p>
+                <p role="alert" className="text-[12px] mt-2" style={{ color: 'var(--danger)' }}>{t('invalidZone')}</p>
               )}
+
+              <p className="text-[11.5px] text-ink-3 leading-relaxed mt-3 max-w-[62ch]">{t('zoneSnapshotNote')}</p>
               <p className="text-[12px] mt-3 rounded-[10px] px-3 py-2 leading-relaxed" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                 {t('firewallNote')}
               </p>
             </Card>
+
             <Card className="p-5">
-              <CardTitle>{t('backupTargets')}</CardTitle>
+              <CardTitle right={<CategoryChip t={t} kind="system" />}>{t('backupTargets')}</CardTitle>
               {/* เดิมเป็นสองบรรทัดที่ hard-code ไว้ ('edge-site-B /backup rsync+ssh',
                   'offsite-tape LTO-9') ซึ่งอ่านเหมือนรายการปลายทางสำรองข้อมูลที่ตั้งค่าไว้จริง
                   ตอนนี้รายการมาจาก allowlist บนโฮสต์ผ่าน backup agent เท่านั้น พร้อมผลจำแนก
                   failure domain ของแต่ละปลายทาง — ถ้า agent ไม่ได้เชื่อมต่อ ก็บอกว่าไม่ได้เชื่อมต่อ */}
               <BackupTargetList t={t} placeholderMode={placeholderMode} />
             </Card>
+
+            <AdminLinksCard t={t} go={go} />
           </div>
         )}
       </div>
@@ -690,6 +815,31 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
         <Btn variant="primary" onClick={confirmStyleChange} disabled={preferenceSaving}>
           {preferenceSaving ? t('preferencesSaving') : t('interfaceStyleConfirmAction')}
         </Btn>
+      </div>
+    </Modal>
+
+    {/* Removing a zone is confirmed because it silently narrows what future
+        restricted shares can be scoped to. It does NOT widen shares that already
+        snapshotted this range — the body says so, so nobody deletes a zone
+        expecting existing links to be revoked with it. */}
+    <Modal
+      open={Boolean(zoneToDelete)}
+      onClose={() => setZoneToDelete(null)}
+      labelledBy="zone-delete-title"
+      width={480}
+    >
+      <ModalClose onClose={() => setZoneToDelete(null)} label={t('close')} />
+      <div className="size-11 rounded-[var(--r-tile)] bg-danger-soft text-danger flex items-center justify-center mb-4">
+        <Trash2 size={20} strokeWidth={1.7} />
+      </div>
+      <h2 id="zone-delete-title" className="text-lg font-semibold text-ink pr-10">{t('zoneDeleteTitle')}</h2>
+      <p className="mt-2 text-[13.5px] leading-relaxed text-ink-2">
+        {t('zoneDeleteBody', { name: zoneToDelete?.name ?? '', cidr: zoneToDelete?.cidr ?? '' })}
+      </p>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-3">{t('zoneSnapshotNote')}</p>
+      <div className="mt-6 flex justify-end gap-2 flex-wrap">
+        <Btn variant="ghost" onClick={() => setZoneToDelete(null)} data-modal-autofocus>{t('cancel')}</Btn>
+        <Btn variant="danger" onClick={() => removeZone(zoneToDelete.id)}>{t('zoneDeleteAction')}</Btn>
       </div>
     </Modal>
     </>

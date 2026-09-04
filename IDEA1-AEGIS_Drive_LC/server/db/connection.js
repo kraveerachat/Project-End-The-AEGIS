@@ -52,6 +52,77 @@ export function normalizeUserPreferences(value) {
   return next
 }
 
+// ── Per-account security settings ────────────────────────────────────────────
+//
+// Kept in a contract of their own rather than folded into the appearance
+// preferences above, for two reasons: they are written by a different screen
+// with a different audit action, and appearance is a fail-closed all-or-nothing
+// object (normalizeUserPreferences rejects a partial write). A theme change must
+// never be able to carry a Vault auto-lock change along with it.
+//
+// ⚠️ `shareDefaults` describes how the Create Share FORM is initialised. It is not
+//    an enforcement layer: server-side share validation stays exactly where it was
+//    (store.createShare re-checks expiry/authType/scope on every request), so a
+//    tampered default cannot widen a share beyond what the share contract allows.
+// ⚠️ requirePassword is a boolean, never a password. No default share password is
+//    stored anywhere — see migrations/007_security_settings.sql.
+export const DEFAULT_SECURITY_SETTINGS = Object.freeze({
+  // 10 = the value Vault.jsx used as a hard-coded constant before this column existed.
+  vaultAutoLockMinutes: 10,
+  shareDefaults: Object.freeze({
+    expiry: '24h',
+    scope: 'zones',
+    requirePassword: true,
+  }),
+})
+
+// Mirrors of the CHECK constraints in schema.sql — the database is the last line,
+// this is the one that produces a 400 instead of a 500.
+const VAULT_AUTOLOCK_MINUTES = Object.freeze(new Set([5, 10, 15, 30, 60]))
+// ⚠️ These two must stay in step with EXPIRY_MS / SCOPES in db/store.js. A default
+//    the share contract cannot honour would be a setting that silently does nothing.
+const SHARE_DEFAULT_EXPIRIES = Object.freeze(new Set(['1h', '24h', '7d', '30d']))
+const SHARE_DEFAULT_SCOPES = Object.freeze(new Set(['any', 'zones']))
+
+/** ตรวจ security settings แบบ fail-closed — คืน null ถ้ามีค่าใดไม่อยู่ในช่วงที่อนุญาต */
+export function normalizeSecuritySettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const share = value.shareDefaults
+  if (!share || typeof share !== 'object' || Array.isArray(share)) return null
+
+  // Number() ไม่ถูกใช้ตรงนี้โดยเจตนา: '15' กับ 15 ต้องแยกกันได้ และ true/[] ต้องไม่
+  // ถูกแปลงเป็นตัวเลขเงียบ ๆ — client ที่ส่งชนิดผิดควรได้ 400 ไม่ใช่ค่าที่ถูกเดาให้
+  if (typeof value.vaultAutoLockMinutes !== 'number'
+    || !VAULT_AUTOLOCK_MINUTES.has(value.vaultAutoLockMinutes)) return null
+  if (!SHARE_DEFAULT_EXPIRIES.has(share.expiry)) return null
+  if (!SHARE_DEFAULT_SCOPES.has(share.scope)) return null
+  if (typeof share.requirePassword !== 'boolean') return null
+
+  return {
+    vaultAutoLockMinutes: value.vaultAutoLockMinutes,
+    shareDefaults: {
+      expiry: share.expiry,
+      scope: share.scope,
+      requirePassword: share.requirePassword,
+    },
+  }
+}
+
+/** แถว users → security settings (fail-safe: แถวที่ผิดรูปได้ค่า default ไม่ใช่ throw) */
+function mapSecuritySettingsRow(r) {
+  return normalizeSecuritySettings({
+    vaultAutoLockMinutes: r.vault_autolock_minutes,
+    shareDefaults: {
+      expiry: r.share_default_expiry,
+      scope: r.share_default_scope,
+      requirePassword: r.share_default_require_password,
+    },
+  }) ?? {
+    vaultAutoLockMinutes: DEFAULT_SECURITY_SETTINGS.vaultAutoLockMinutes,
+    shareDefaults: { ...DEFAULT_SECURITY_SETTINGS.shareDefaults },
+  }
+}
+
 /** query ทั่วไปสำหรับ store.js — เรียกได้เฉพาะเมื่อ usingPostgres === true */
 export async function query(text, params) {
   return pool.query(text, params)
@@ -141,6 +212,10 @@ const DEV_SEED = DATABASE_URL
       avatarKey: null,
       avatarMime: null,
       preferences: { ...DEFAULT_USER_PREFERENCES },
+      securitySettings: {
+        vaultAutoLockMinutes: DEFAULT_SECURITY_SETTINGS.vaultAutoLockMinutes,
+        shareDefaults: { ...DEFAULT_SECURITY_SETTINGS.shareDefaults },
+      },
       role: u.role,
       passwordHash: bcrypt.hashSync(u.password, 10), // ไม่มี plaintext ค้างในหน่วยความจำ
       mustResetPassword: false, // บัญชีเดโม่ล็อกอินได้ทันที ไม่ผ่าน force-reset
@@ -163,6 +238,8 @@ export async function getUserByUsername(username) {
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
               ui_theme, ui_language, ui_density, ui_interface_style,
+              vault_autolock_minutes, share_default_expiry, share_default_scope,
+              share_default_require_password,
               role, password_hash, must_reset_password
          FROM users
         WHERE lower(username) = $1
@@ -191,6 +268,7 @@ function mapUserRow(r) {
       density: r.ui_density,
       interfaceStyle: r.ui_interface_style,
     }) ?? { ...DEFAULT_USER_PREFERENCES },
+    securitySettings: mapSecuritySettingsRow(r),
     role: r.role,
     passwordHash: r.password_hash,
     mustResetPassword: r.must_reset_password,
@@ -212,6 +290,8 @@ export async function getUserById(id) {
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
               ui_theme, ui_language, ui_density, ui_interface_style,
+              vault_autolock_minutes, share_default_expiry, share_default_scope,
+              share_default_require_password,
               role, password_hash, must_reset_password
          FROM users WHERE id = $1 LIMIT 1`,
       [id],
@@ -276,6 +356,57 @@ export async function updateUserPreferences(userId, value) {
   if (!user) return null
   user.preferences = { ...next }
   return { ...next }
+}
+
+/**
+ * บันทึก security settings ของบัญชีปัจจุบันเท่านั้น — userId ต้องมาจาก session
+ * ⚠️ fail-closed: ค่าที่ไม่ผ่าน normalizeSecuritySettings คืน null → route ตอบ 400
+ *    ไม่มีการ clamp ค่าที่เกินช่วงให้เงียบ ๆ (ผู้ใช้ต้องรู้ว่าค่าที่ส่งไปไม่ถูกบันทึก)
+ * ⚠️ ไม่มี field ใดในนี้เป็นความลับ — ไม่มีรหัสผ่าน ไม่มีกุญแจ ไม่มี path
+ */
+export async function updateSecuritySettings(userId, value) {
+  const next = normalizeSecuritySettings(value)
+  if (!next) return null
+
+  if (pool) {
+    const { rows } = await pool.query(
+      `UPDATE users
+          SET vault_autolock_minutes = $1, share_default_expiry = $2,
+              share_default_scope = $3, share_default_require_password = $4
+        WHERE id = $5
+      RETURNING vault_autolock_minutes, share_default_expiry, share_default_scope,
+                share_default_require_password`,
+      [next.vaultAutoLockMinutes, next.shareDefaults.expiry, next.shareDefaults.scope,
+        next.shareDefaults.requirePassword, userId],
+    )
+    if (rows.length === 0) return null
+    return mapSecuritySettingsRow(rows[0])
+  }
+
+  const user = DEV_SEED.find((candidate) => String(candidate.id) === String(userId))
+  if (!user) return null
+  user.securitySettings = { ...next, shareDefaults: { ...next.shareDefaults } }
+  return { ...next, shareDefaults: { ...next.shareDefaults } }
+}
+
+/** อ่าน security settings ปัจจุบัน — คืน default ถ้าไม่พบบัญชี (ไม่ throw) */
+export async function readSecuritySettings(userId) {
+  if (pool) {
+    const { rows } = await pool.query(
+      `SELECT vault_autolock_minutes, share_default_expiry, share_default_scope,
+              share_default_require_password
+         FROM users WHERE id = $1 LIMIT 1`,
+      [userId],
+    )
+    if (rows.length === 0) return null
+    return mapSecuritySettingsRow(rows[0])
+  }
+  const user = DEV_SEED.find((candidate) => String(candidate.id) === String(userId))
+  if (!user) return null
+  return {
+    vaultAutoLockMinutes: user.securitySettings.vaultAutoLockMinutes,
+    shareDefaults: { ...user.securitySettings.shareDefaults },
+  }
 }
 
 /**
@@ -496,6 +627,63 @@ export async function readAudit(limit = 100) {
     return rows
   }
   return memAudit.slice(0, limit)
+}
+
+/**
+ * สรุปกิจกรรมความปลอดภัยของ "เจ้าของบัญชีเอง" — ใช้โดย GET /api/audit/me
+ *
+ * ⚠️ ฟังก์ชันนี้คืน "ตัวเลขสรุป" ไม่ใช่แถว audit ดิบ โดยเจตนา: จอ Audit เต็ม
+ *    (requireRole Admin) คือที่เดียวที่แสดง source_ip / target_hash / actor ของคนอื่น
+ *    การเปิดแถวดิบให้ทุกบัญชีอ่านของตัวเองยังเท่ากับเพิ่มพื้นผิวที่ต้องกันข้อมูลรั่ว
+ *    ทีละ field ตลอดไป — สรุปเป็นตัวเลขไม่มีอะไรให้รั่ว
+ * ⚠️ actorId ต้องมาจาก session เสมอ (req.user.id) — ไม่มี route ใดรับค่านี้จาก client
+ * ⚠️ dev fallback (memAudit) เก็บแค่ 500 แถวล่าสุด ตัวนับจึงเป็น "เท่าที่บันทึกไว้"
+ *    ไม่ใช่ยอดตลอดกาล — route ประกาศเพดานนี้กลับไปให้ client แสดงตามจริง
+ */
+export async function readActorSecurityActivity(actorId, { windowDays = 30 } = {}) {
+  if (actorId == null) return null
+  const since = new Date(Date.now() - windowDays * 86_400_000)
+
+  if (pool) {
+    const { rows } = await pool.query(
+      `SELECT
+         max(at) FILTER (WHERE action = 'LOGIN' AND result = 'OK')            AS last_login_at,
+         max(at) FILTER (WHERE action = 'PASSWORD_RESET' AND result = 'OK')   AS last_password_change_at,
+         max(at) FILTER (WHERE action = 'VAULT_UNLOCK' AND result = 'OK')     AS last_vault_unlock_at,
+         count(*) FILTER (WHERE action = 'LOGIN' AND result <> 'OK' AND at >= $2) AS denied_logins,
+         count(*) FILTER (WHERE action <> 'LOGIN' AND result <> 'OK' AND at >= $2) AS blocked_actions
+       FROM audit_log
+      WHERE actor_id = $1`,
+      [actorId, since],
+    )
+    const r = rows[0] ?? {}
+    return {
+      windowDays,
+      lastLoginAt: r.last_login_at ? new Date(r.last_login_at).toISOString() : null,
+      lastPasswordChangeAt: r.last_password_change_at ? new Date(r.last_password_change_at).toISOString() : null,
+      lastVaultUnlockAt: r.last_vault_unlock_at ? new Date(r.last_vault_unlock_at).toISOString() : null,
+      deniedLoginCount: Number(r.denied_logins ?? 0),
+      blockedActionCount: Number(r.blocked_actions ?? 0),
+      truncated: false,
+    }
+  }
+
+  const mine = memAudit.filter((row) => String(row.actorId) === String(actorId))
+  const latest = (action) => {
+    const hit = mine.find((row) => row.action === action && row.result === 'OK')
+    return hit ? new Date(hit.at).toISOString() : null
+  }
+  const inWindow = mine.filter((row) => new Date(row.at) >= since)
+  return {
+    windowDays,
+    lastLoginAt: latest('LOGIN'),
+    lastPasswordChangeAt: latest('PASSWORD_RESET'),
+    lastVaultUnlockAt: latest('VAULT_UNLOCK'),
+    deniedLoginCount: inWindow.filter((r) => r.action === 'LOGIN' && r.result !== 'OK').length,
+    blockedActionCount: inWindow.filter((r) => r.action !== 'LOGIN' && r.result !== 'OK').length,
+    // หน่วยความจำเก็บได้ 500 แถว — ถ้าเต็มพอดี ตัวเลขข้างบนอาจต่ำกว่าความจริง
+    truncated: memAudit.length >= 500,
+  }
 }
 
 /** ตรวจว่า DB ติดต่อได้ — ใช้โดย /healthz (docker healthcheck + deploy.sh) */
