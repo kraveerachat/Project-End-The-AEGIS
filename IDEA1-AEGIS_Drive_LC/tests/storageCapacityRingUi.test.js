@@ -140,7 +140,7 @@ test('CAPACITY-RING-5 unreadable capacity says so instead of drawing a ring arou
   const html = renderStorage({ storage: { capacityBytes: null, usage: null, unaccountedBytes: null } })
   assert.ok(html.includes(STRINGS.en.capacity), 'the card stays so the page keeps its section')
   assert.ok(html.includes(STRINGS.en.capacityUnreadable))
-  assert.equal(html.includes('<circle'), false, 'no ring without a denominator')
+  assert.equal(html.includes('data-capacity-ring'), false, 'no capacity ring segment without a denominator')
   assert.equal(html.includes('0.0%'), false, 'and no percentage invented to fill it')
 })
 
