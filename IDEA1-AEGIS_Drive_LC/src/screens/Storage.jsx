@@ -1,8 +1,9 @@
-import { HardDrive, Database, Archive } from 'lucide-react'
+import { HardDrive, Archive } from 'lucide-react'
 import {
   Card, CardTitle, Chip, Btn, ErrorState, InlineEmptyState, SkeletonLoader, NotYetImplemented,
 } from '../components/ui.jsx'
 import { CapacityCard } from '../components/CapacityRing.jsx'
+import { RaidStatusCard } from '../components/RaidStatusCard.jsx'
 import { PROTECTION_LABEL, PROTECTION_TONE, labelFor } from '../components/BackupConfiguration.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
@@ -367,20 +368,7 @@ export function Storage({ t, go, placeholderMode = false }) {
       </div>
 
       <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1" data-reveal>
-        <Card className="p-5">
-          <CardTitle>{t('raidStatus')}</CardTitle>
-          <div className="flex items-start gap-3">
-            <Database size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
-            <div className="min-w-0 flex-1">
-              {/* RAID ยังไม่ได้ตั้งค่า — ไม่มี array ใน deployment นี้ ไม่มีการเดาเปอร์เซ็นต์
-                  ไม่มีสถานะ degraded ไม่มีความคืบหน้าการ rebuild และไม่มีรายชื่อดิสก์สมาชิก
-                  "ยังไม่เชื่อมต่อ" เป็นคำที่ผิด — มันสื่อว่ามีอุปกรณ์รออยู่ปลายสาย ทั้งที่
-                  ความจริงคือไม่เคยมี array ถูกตั้งค่าไว้เลย */}
-              <NotYetImplemented label={t('notConfigured')}>{t('raidWhy')}</NotYetImplemented>
-              <p className="text-[12.5px] text-ink-2 leading-relaxed mt-3 max-w-[64ch]">{t('raidRequirement')}</p>
-            </div>
-          </div>
-        </Card>
+        <RaidStatusCard t={t} raid={d.raid} now={now} />
 
         <BackupCard t={t} backup={d.backup} historyState={historyState} go={go} canManage={canManage} now={now} />
       </div>

@@ -47,6 +47,22 @@ const unavailableDisk = { available: false, status: 'UNKNOWN', reason: 'agent-un
 const healthyDisk = { available: true, status: 'HEALTHY', reason: null, stale: false, device: 'sda', model: 'AEGIS-FIXTURE M.2 2280 128GB', smart: { supported: true, enabled: true, passed: true }, temperatureCelsius: 41, powerOnHours: 3210, capacityBytes: 128035676160, warnings: [], measuredAt: '2026-08-07T08:58:00.000Z', ageSeconds: 120, maxAgeSeconds: 1800 }
 const unavailableBackup = { available: false, reason: 'agent-unreachable', engine: null, state: 'UNKNOWN', target: null, policy: null, job: null, nextRun: null, lastSuccessfulBackup: null, lastFailedBackup: null, backupAgeSeconds: null, maxBackupAgeSeconds: null, bytesCovered: null, lastSnapshotId: null, integrity: 'NOT_RUN', restoreVerification: { at: null, status: 'NOT_TESTED' }, successRate30d: null, completedJobs30d: 0, risk: 'UNKNOWN', riskReasons: ['agent-unreachable'] }
 const healthyBackup = { ...unavailableBackup, available: true, reason: null, engine: 'restic', state: 'READY', target: { id: 'usb-external-1', label: 'External USB SSD', type: 'external-mount', protection: 'DIFFERENT_DEVICE' }, policy: { activeTargetId: 'usb-external-1', scheduleId: 'daily-02:00', retentionId: 'keep-7d-4w', enabled: true }, nextRun: '2026-08-08T02:00:00.000Z', lastSuccessfulBackup: '2026-08-07T02:05:00.000Z', backupAgeSeconds: 25_000, maxBackupAgeSeconds: 129_600, bytesCovered: 18_300_000_000, lastSnapshotId: 'abc123', integrity: 'PASS', restoreVerification: { at: '2026-08-06T03:00:00.000Z', status: 'PASS' }, successRate30d: 100, completedJobs30d: 3, risk: 'HEALTHY', riskReasons: [] }
+const healthyRaid = {
+  available: true,
+  status: 'HEALTHY',
+  level: 'raid1',
+  device: '/dev/md0',
+  arrayState: 'clean',
+  usableBytes: 62_000_000_000,
+  mountPoint: '/mnt/aegis-backup',
+  totalMembers: 2,
+  activeMembers: 2,
+  measuredAt: '2026-08-07T08:59:00.000Z',
+  members: [
+    { id: 'usb-a', label: 'USB Backup A', model: 'AEGIS-FIXTURE USB 64GB', device: '/dev/sdb', capacityBytes: 64_000_000_000, transport: 'USB 3', state: 'ACTIVE', role: 'member 0', readLatencyMs: 3.42, writeLatencyMs: 6.18, ioErrors: 0, temperatureCelsius: null },
+    { id: 'usb-b', label: 'USB Backup B', model: 'AEGIS-FIXTURE USB 64GB', device: '/dev/sdc', capacityBytes: 64_000_000_000, transport: 'USB 3', state: 'ACTIVE', role: 'member 1', readLatencyMs: 3.71, writeLatencyMs: 6.44, ioErrors: 0, temperatureCelsius: null },
+  ],
+}
 
 function renderStorage({ storage, backupView = { data: null, error: 'forbidden', loading: false }, lang = 'en', error = null, loading = false }) {
   globalThis.__AEGIS_API_FIXTURES__ = {
@@ -176,4 +192,50 @@ test('STORAGE-UI-7 every language renders the unavailable state without a raw i1
       assert.equal(html.includes(`>${key}<`), false, `${lang}: raw key ${key} must not leak`)
     }
   }
+})
+
+test('STORAGE-UI-8 RAID standby is an implemented hardware surface without inventing an array', () => {
+  const html = renderStorage({ storage: {
+    ...capacity,
+    diskHealth: healthyDisk,
+    raid: { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' },
+    backup: unavailableBackup,
+    maintenance: { active: false },
+    unavailable: { raid: 'not-configured', backups: 'agent-unreachable' },
+  } })
+
+  assert.ok(html.includes(STRINGS.en.raidTelemetryStandby))
+  assert.ok(html.includes(STRINGS.en.raidMemberWaiting))
+  assert.ok(html.includes(STRINGS.en.raidMemberSlot.replace('{n}', '1')))
+  assert.ok(html.includes(STRINGS.en.raidMemberSlot.replace('{n}', '2')))
+  assert.ok(html.includes(STRINGS.en.raidStatusNotConfigured))
+  assert.equal(html.includes('/dev/md0'), false, 'no array device may be invented before telemetry exists')
+  assert.equal(html.includes('RAID1'), false, 'no RAID level may be invented before telemetry exists')
+  assert.equal(html.includes('64 GB'), false, 'no USB capacity may be invented before telemetry exists')
+})
+
+test('STORAGE-UI-9 validated future RAID telemetry fills the same surface with members and measured probes', () => {
+  const html = renderStorage({ storage: {
+    ...capacity,
+    diskHealth: healthyDisk,
+    raid: healthyRaid,
+    backup: healthyBackup,
+    maintenance: { active: false },
+    unavailable: {},
+  } })
+
+  assert.ok(html.includes('/dev/md0'))
+  assert.ok(html.includes('/mnt/aegis-backup'))
+  assert.ok(html.includes('RAID1'))
+  assert.ok(html.includes('USB Backup A'))
+  assert.ok(html.includes('USB Backup B'))
+  assert.ok(html.includes('/dev/sdb'))
+  assert.ok(html.includes('/dev/sdc'))
+  assert.ok(html.includes('3.42 ms'))
+  assert.ok(html.includes('6.44 ms'))
+  assert.ok(html.includes(STRINGS.en.raidNotMeasured), 'null temperature remains explicitly unmeasured')
+  assert.equal(html.includes('0 °C'), false, 'null RAID-member temperature must never become zero')
+  assert.ok(html.includes(STRINGS.en.raidStatusHealthy))
+  assert.ok(html.includes(STRINGS.en.raidMemberActive))
+  assert.equal(html.toLowerCase().includes('serial'), false, 'stable member identity stays server-side; serials are not exposed')
 })
