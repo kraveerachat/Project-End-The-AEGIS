@@ -3,8 +3,8 @@
 // The screen renders the real /api/storage and /api/backup contracts. The rule
 // under test is the one that shaped the whole feature: a source that could not
 // be read says so, in words, and never renders as a number or a green chip.
-// The Capacity card is deliberately not redesigned in this phase and is only
-// asserted to still be there.
+// The Capacity card is a ring now; storageCapacityRingUi.test.js covers it, and
+// this file only asserts that it still mounts beside the other three.
 import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -68,10 +68,15 @@ test('STORAGE-UI-1 both agents absent: every new section says unavailable in wor
   assert.equal(html.includes(STRINGS.en.diskStatusHealthy), false)
   assert.equal(html.includes(STRINGS.en.backupRiskHealthy), false)
   assert.equal(html.includes('°C'), false, 'no temperature is shown when none was measured')
-  // The capacity card and the backup-table chrome are unchanged in this phase.
+  // The capacity card and the backup-table chrome keep rendering beside them.
   assert.ok(html.includes(STRINGS.en.capacity))
-  assert.ok(html.includes(STRINGS.en.backupScheduleEmpty))
-  assert.ok(html.includes(STRINGS.en.setupNow))
+  // This fixture's /api/backup answer is a 403, so the client does not know the
+  // schedule either way. It used to claim "no automatic backup schedule has been
+  // configured" and offer an admin "Set up now" to a user who cannot perform it;
+  // both were invented from an unreadable response. See storageBackupTruthUi.
+  assert.ok(html.includes(STRINGS.en.backupHistoryForbidden))
+  assert.equal(html.includes(STRINGS.en.backupScheduleEmpty), false, 'a 403 is not evidence that no schedule exists')
+  assert.equal(html.includes(STRINGS.en.setupNow), false, 'no admin action is offered to a non-admin')
   assert.ok(html.includes(STRINGS.en.raidWhy))
   for (const fake of FABRICATED) assert.equal(html.includes(fake), false, `${fake} must never come back`)
 })

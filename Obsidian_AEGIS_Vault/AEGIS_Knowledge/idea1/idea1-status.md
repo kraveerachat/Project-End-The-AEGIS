@@ -18,6 +18,7 @@ edit_policy: owner-writable
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + independent Classic/Neo interface style and Light/Dark/System theme preferences in the current feature branch)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
 > **Latest change verification**: Share Ownership Authorization Hardening is **VERIFIED IN PRODUCTION / PASS / CLOSED**. PR #30 source integration and PR #31 test normalization/verification are **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233/233** full-suite, **57/57** affected-regression, **9/9** ownership, and **17/17** share-redemption tests passing. Drive-only deployment of production source `9992557f123dbbbf05841c107d27ab285ea77ad4` completed on `aegis-system`; controlled production acceptance passed **10/10**, and post-deployment health passed. `POSTGRES_EXECUTION_GAP=CLOSED`; `READY_FOR_PRODUCTION=YES` for this authorization scope only.
+> **Protected Trash implementation (local branch)**: normal Data Lake delete is now a 30-day soft-delete with owner-only password step-up, restore, explicit permanent deletion, bounded hourly auto-purge, share invalidation, and preserved file-version bytes. Permanent deletion, empty-trash, and background purge participate in the backup write-freeze so no Trash bytes are removed across an acknowledged snapshot boundary. Private Vault is unchanged. This source has **not been deployed or production-accepted**; migration `005_protected_trash.sql` is required before a future Drive redeployment.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -263,7 +264,7 @@ Public Share remains not implemented.
 > change any PASS/FAIL statement below, and does not assert that a UI capability
 > has a completed backend, host collector, or deployed data source.
 
-### Primary screen map — 9 screens
+### Primary screen map — 10 screens
 
 | Group | Primary screen | Intended responsibility |
 | :--- | :--- | :--- |
@@ -272,6 +273,7 @@ Public Share remains not implemented.
 | Workspace | Private Vault | Dedicated encrypted-file workspace and Vault lifecycle |
 | Protection | Secure Shares | Secure-share creation, policy, lifecycle, tracking and revoke |
 | Protection | File History / Versions | Per-file version history, historical access and restore workflow |
+| Protection | Trash | Password-gated, owner-only 30-day recovery and permanent-deletion workflow for normal Data Lake files |
 | Protection | Storage & Backup | Storage/backup-oriented status and configuration surface |
 | Administration | Audit Log | Event, actor, IP and resource investigation surface |
 | Administration | Access Control | User and access-administration surface |
@@ -280,9 +282,10 @@ Public Share remains not implemented.
 ### Information-architecture decisions
 
 - **Files + Upload consolidated:** Upload is no longer a standalone primary navigation screen. It is an action/workflow within **Files**, alongside file/folder exploration, contextual file/folder search, sort/filter, grid/list choice, folder navigation, folder creation, drag-and-drop, upload queue/status, and recent-upload context where useful. The capability was moved, not removed.
-- **Legacy route compatibility:** current frontend navigation normalizes `/upload` and `/uploads` to the Files upload workflow (`Files` with upload open). This is a compatibility detail, not a tenth screen.
+- **Legacy route compatibility:** current frontend navigation normalizes `/upload` and `/uploads` to the Files upload workflow (`Files` with upload open). This is a compatibility detail, not an additional primary screen.
 - **Private Vault remains independent:** it is not a subsection inside Files. Its intended lifecycle is setup, unlock, lock, recovery, Vault-specific upload, and Vault file access. This section does not add a new cryptographic or production-verification claim.
 - **File History / Versions replaces the old snapshot-oriented concept:** it represents file-level version/recovery behavior. It must not be described as a filesystem-level snapshot facility merely because an older design used that term.
+- **Protected Trash is a separate recovery workspace:** Files moves normal Data Lake rows into a 30-day recoverable state without moving bytes; the Trash screen hides deleted-file metadata until current-account password step-up. It never includes Private Vault.
 - **Secure Shares remains separate:** Files may launch a share action, but share selection, expiration, password/policy options, access tracking, revoke, and share history/status remain part of the Secure Shares workspace.
 
 ### Dashboard functional model
@@ -971,9 +974,9 @@ restore a version     →  current bytes become a version first (non-destructive
 * **Rename, not copy** — same volume, so it is a metadata operation; copying gigabytes on an edge HDD would cost time and double the space. *A test asserts the file count under `versions/` does not grow across a restore.*
 * **Same-name upload only versions your *own* file.** Matching on name alone would let anyone overwrite someone else's file by naming theirs to match — write access to another user's data with no ownership check.
 * **Owner-only for read, download and restore, with no Admin exception** (matching `DELETE /api/files/:id`). Past versions *are* the file's contents: reading them is reading their file; restoring them is writing to it.
-* **Deleting a file removes every version's bytes.** `ON DELETE CASCADE` takes the rows, but the bytes would otherwise sit unreferenced and unreachable — content the user believes is gone.
+* **Moving a file to Protected Trash preserves every version's bytes.** Permanent deletion or the 30-day auto-purge removes current and historical bytes before `ON DELETE CASCADE` removes metadata; a retry safely finishes a partial purge.
 
-> ⚠️ **Scope, stated on the screen itself**: this is per-file history, **not** a point-in-time image of the Data Lake. Deleted files keep no history, and versions live on the same disk as the data, so they do not survive a drive failure. That is what off-site backup is for, and none is configured.
+> ⚠️ **Scope, stated on the screen itself**: this is per-file history, **not** a point-in-time image of the Data Lake. Protected Trash retains deleted-file history for 30 days, but versions live on the same disk as the data, so they do not survive a drive failure. That is what off-site backup is for, and none is configured.
 
 ---
 
@@ -1176,6 +1179,28 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 
 > ⚠️ **`recordAudit` is now awaited before responding** on every path. It used to be fire-and-forget, so under PostgreSQL a **denied** request answered `403` before its `DENIED` row committed: if the process died in that window, the rejected attempt vanished from the forensic record — the row you least want to lose. Secondary effect: the Audit screen and the activity chart both read one event stale. In a system that claims an audit trail, "the action succeeded" must include "it was recorded". The in-memory path writes synchronously, which is why this only surfaced against a real database.
 
+### Filter labelling convention (2026-09-04)
+
+The four filters above the ledger follow one rule: **a filter's resting option
+states the filter's own name** — `Date range · All`, `Result · All`,
+`Actor · All`, `Action · All`. A native `<select>` displays its selected
+option, so that text is the only label the control has; a filter resting on a
+bare "All" is anonymous to the auditor reading the row. The result filter used
+to be exactly that and was fixed
+([[2026-09-04_021500_kla_idea1-audit-result-filter-label]]).
+
+The result filter's own name is `filterResult` (`Result` / `ผลลัพธ์` / `结果`),
+a sibling of `filterActor` / `filterAction` / `filterRange`. It deliberately
+does **not** reuse `colResult`: that is the table column head, and it is
+declared twice in every locale, so the value it resolves to is not obvious at
+the call site.
+
+Its value domain is unchanged and intentionally coarse — `all` and `denied`
+only, where `denied` means *any result that is not `OK`*. That is what keeps a
+`BLOCKED` row visible under the same option as `DENIED` rather than dropping it
+silently; splitting `OK` / `DENIED` / `BLOCKED` into separate options is not a
+pending fix.
+
 ---
 
 ## 📡 API surface (IDEA1)
@@ -1188,7 +1213,10 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` + **owner-scoped listing** | listing filters `uploaded_by` in SQL (2026-08-21 fix); same-name upload ⇒ new version |
 | `POST /api/files/:id/verify` | `requireAuth` + **owner only** | fresh SHA-256 over current Storage Layer bytes; cross-owner → 404, audited DENIED (2026-08-21 fix) |
 | `GET /api/files/:id/download` | `requireAuth` + **owner only** | octet-stream + attachment + nosniff; cross-owner → 404, audited DENIED (2026-08-21 fix) |
-| `DELETE /api/files/:id` | `requireAuth` + **owner only** | no Admin exception; also deletes version bytes |
+| `DELETE /api/files/:id` | `requireAuth` + **owner only** | soft-delete to Protected Trash; atomically revokes shares; bytes and versions remain for 30 days |
+| `GET /api/trash/status` · `POST /api/trash/unlock` · `/lock` | `requireAuth` + current-account password step-up | metadata stays hidden while locked; server-session window is 5 minutes; failures are rate-limited and audited |
+| `GET /api/trash` · `POST /api/trash/:id/restore` | `requireAuth` + unlocked Trash + **owner only** | no Admin override; restore verifies retained bytes; name conflict → 409 with safe suggestion; revoked shares stay revoked |
+| `DELETE /api/trash/:id` · `POST /api/trash/empty` | `requireAuth` + **owner only** + destructive re-verification | removes current + version bytes; empty requires exact `DELETE`; system auto-purge runs bounded hourly after 30 days |
 | `GET /api/file-versions` | `requireAuth` + **owner-scoped listing** | own files + version counts |
 | `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
 | `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
@@ -1219,6 +1247,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `dashboardAggregates` | activity counts move with real use; capacity is real; no `projected` flag |
 | `auditViewer` | Admin-only; sha256 targets; DENIED recorded; no secrets in the log |
 | `filesOwnership` | cross-user delete refused, bytes survive |
+| `protectedTrash` · `protectedTrashUi` | password step-up, soft-delete, active-query hiding, restore/collision handling, version retention, share invalidation, permanent/auto purge, owner isolation, schema and real UI contract |
 | `vaultApi` · `vaultPostgres` · `vaultCrypto` | zero-knowledge properties, incl. raw-SQL inspection |
 | `passwordResetGate` | first-class 403 classification; reset-only shell; zero protected calls before reset; natural hook startup after success; normal-session bypass |
 

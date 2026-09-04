@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
   Gauge, Folder, Vault as VaultIcon, Upload, Link2, History, HardDrive,
-  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen,
+  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, Trash2,
 } from 'lucide-react'
 import { AegisLockup, AegisMark } from './AegisMark.jsx'
 import { Progress } from './ui.jsx'
 import { useCountUp } from '../lib/hooks.js'
 import { fmtBytes } from '../lib/format.js'
 
-const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
+const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, trash: Trash2, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
 
 /* Height+fade collapse used when the preview role gains/loses the admin
    group. While closed the children are UNMOUNTED — no DOM trace. The exit

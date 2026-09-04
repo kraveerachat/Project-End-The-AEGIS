@@ -28,6 +28,7 @@ const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
 const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
 const Shares = lazyNamed(() => import('./screens/Shares.jsx'), 'Shares')
 const FileHistory = lazyNamed(() => import('./screens/FileHistory.jsx'), 'FileHistory')
+const Trash = lazyNamed(() => import('./screens/Trash.jsx'), 'Trash')
 const Storage = lazyNamed(() => import('./screens/Storage.jsx'), 'Storage')
 const Audit = lazyNamed(() => import('./screens/Audit.jsx'), 'Audit')
 const Access = lazyNamed(() => import('./screens/Access.jsx'), 'Access')
@@ -35,7 +36,7 @@ const Settings = lazyNamed(() => import('./screens/Settings.jsx'), 'Settings')
 
 const TITLE_KEYS = {
   dashboard: 'dashTitle', files: 'filesTitle', vault: 'vaultTitle',
-  shares: 'sharesTitle', versions: 'versionsTitle', storage: 'storageTitle',
+  shares: 'sharesTitle', versions: 'versionsTitle', trash: 'trashTitle', storage: 'storageTitle',
   audit: 'auditTitle', access: 'accessTitle', settings: 'settingsTitle',
 }
 
@@ -320,7 +321,7 @@ export default function App() {
   const getSkeletonType = (scr) => {
     if (scr === 'dashboard') return 'dashboard'
     if (scr === 'files') return 'files'
-    if (['shares', 'versions', 'storage', 'audit', 'access'].includes(scr)) return 'table'
+    if (['shares', 'versions', 'trash', 'storage', 'audit', 'access'].includes(scr)) return 'table'
     return 'generic'
   }
 
@@ -448,6 +449,7 @@ export default function App() {
     vault: <Vault t={t} lang={lang} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
+    trash: <Trash t={t} lang={lang} />,
     storage: <Storage t={t} go={go} placeholderMode={placeholderMode} />,
     audit: <Audit t={t} placeholderMode={placeholderMode} />,
     access: <Access t={t} user={session} placeholderMode={placeholderMode} />,
