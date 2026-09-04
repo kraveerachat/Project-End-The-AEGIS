@@ -26,12 +26,14 @@ export const DEFAULT_USER_PREFERENCES = Object.freeze({
   theme: 'light',
   language: 'th',
   density: 'comfortable',
+  interfaceStyle: 'classic',
 })
 
 const PREFERENCE_VALUES = Object.freeze({
   theme: new Set(['light', 'dark', 'system']),
   language: new Set(['th', 'en', 'zh']),
   density: new Set(['comfortable', 'compact']),
+  interfaceStyle: new Set(['classic', 'neo']),
 })
 
 /** ตรวจ preference แบบ fail-closed — ไม่ clamp ค่าที่ client ส่งมาเงียบ ๆ */
@@ -41,10 +43,12 @@ export function normalizeUserPreferences(value) {
     theme: value.theme,
     language: value.language,
     density: value.density,
+    interfaceStyle: value.interfaceStyle,
   }
   if (!PREFERENCE_VALUES.theme.has(next.theme)) return null
   if (!PREFERENCE_VALUES.language.has(next.language)) return null
   if (!PREFERENCE_VALUES.density.has(next.density)) return null
+  if (!PREFERENCE_VALUES.interfaceStyle.has(next.interfaceStyle)) return null
   return next
 }
 
@@ -158,7 +162,7 @@ export async function getUserByUsername(username) {
     // parameterized query เท่านั้น — กัน SQL injection (ห้าม string-concat)
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
-              ui_theme, ui_language, ui_density,
+              ui_theme, ui_language, ui_density, ui_interface_style,
               role, password_hash, must_reset_password
          FROM users
         WHERE lower(username) = $1
@@ -185,6 +189,7 @@ function mapUserRow(r) {
       theme: r.ui_theme,
       language: r.ui_language,
       density: r.ui_density,
+      interfaceStyle: r.ui_interface_style,
     }) ?? { ...DEFAULT_USER_PREFERENCES },
     role: r.role,
     passwordHash: r.password_hash,
@@ -206,7 +211,7 @@ export async function getUserById(id) {
   if (pool) {
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
-              ui_theme, ui_language, ui_density,
+              ui_theme, ui_language, ui_density, ui_interface_style,
               role, password_hash, must_reset_password
          FROM users WHERE id = $1 LIMIT 1`,
       [id],
@@ -253,16 +258,17 @@ export async function updateUserPreferences(userId, value) {
   if (pool) {
     const { rows } = await pool.query(
       `UPDATE users
-          SET ui_theme = $1, ui_language = $2, ui_density = $3
-        WHERE id = $4
-      RETURNING ui_theme, ui_language, ui_density`,
-      [next.theme, next.language, next.density, userId],
+          SET ui_theme = $1, ui_language = $2, ui_density = $3, ui_interface_style = $4
+        WHERE id = $5
+      RETURNING ui_theme, ui_language, ui_density, ui_interface_style`,
+      [next.theme, next.language, next.density, next.interfaceStyle, userId],
     )
     if (rows.length === 0) return null
     return {
       theme: rows[0].ui_theme,
       language: rows[0].ui_language,
       density: rows[0].ui_density,
+      interfaceStyle: rows[0].ui_interface_style,
     }
   }
 

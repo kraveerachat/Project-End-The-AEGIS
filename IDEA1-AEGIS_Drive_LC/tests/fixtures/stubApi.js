@@ -8,6 +8,10 @@ export async function apiFetch(path, options = {}) {
   if (path === '/api/preferences' && options.method === 'PATCH') {
     const state = backend()
     state.patches.push({ ...options.body })
+    state.events.push(`preferences:${options.body.interfaceStyle}`)
+    if (!state.preferenceSaveOk) {
+      return { ok: false, status: 503, data: null }
+    }
     if (state.persistPreferences) state.account = { ...state.account, ...options.body }
     return { ok: true, status: 200, data: { preferences: { ...state.account } } }
   }

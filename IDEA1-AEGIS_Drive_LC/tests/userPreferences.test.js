@@ -29,6 +29,16 @@ test('existing PostgreSQL installations have an idempotent preferences migration
     assert.match(migration, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}`))
   }
   assert.match(migration, /COMMIT;/)
+
+  const interfaceStyleMigration = await fs.readFile(
+    path.join(moduleRoot, 'server/db/migrations/006_interface_style.sql'),
+    'utf8',
+  )
+  assert.match(interfaceStyleMigration, /BEGIN;/)
+  assert.match(interfaceStyleMigration, /ADD COLUMN IF NOT EXISTS ui_interface_style/)
+  assert.match(interfaceStyleMigration, /DEFAULT 'classic'/)
+  assert.match(interfaceStyleMigration, /IN \('classic', 'neo'\)/)
+  assert.match(interfaceStyleMigration, /COMMIT;/)
 })
 
 before(async () => {
@@ -43,7 +53,7 @@ after(async () => {
   await fs.rm(storageRoot, { recursive: true, force: true })
 })
 
-test('new accounts receive light, Thai, comfortable preferences from the server', async () => {
+test('new accounts receive light, Thai, comfortable, Classic preferences from the server', async () => {
   const client = new Client(baseUrl)
   const login = await performLogin(client, DEMO_ADMIN.username, DEMO_ADMIN.password)
 
@@ -51,6 +61,7 @@ test('new accounts receive light, Thai, comfortable preferences from the server'
     theme: 'light',
     language: 'th',
     density: 'comfortable',
+    interfaceStyle: 'classic',
   })
 })
 
@@ -60,18 +71,27 @@ test('appearance preferences persist for the authenticated user and ignore a sup
 
   const saved = await admin.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'dark', language: 'en', density: 'compact', userId: '2' },
+    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo', userId: '2' },
   })
   assert.equal(saved.status, 200)
   assert.deepEqual(saved.data.preferences, {
     theme: 'dark',
     language: 'en',
     density: 'compact',
+    interfaceStyle: 'neo',
   })
 
   const me = await admin.req('/api/me')
   assert.equal(me.status, 200)
   assert.deepEqual(me.data.user.preferences, saved.data.preferences)
+
+  const freshAdminSession = new Client(baseUrl)
+  const freshAdminLogin = await performLogin(
+    freshAdminSession,
+    DEMO_ADMIN.username,
+    DEMO_ADMIN.password,
+  )
+  assert.deepEqual(freshAdminLogin.user.preferences, saved.data.preferences)
 
   const ordinaryUser = new Client(baseUrl)
   const ordinaryLogin = await performLogin(ordinaryUser, DEMO_USER.username, DEMO_USER.password)
@@ -79,6 +99,7 @@ test('appearance preferences persist for the authenticated user and ignore a sup
     theme: 'light',
     language: 'th',
     density: 'comfortable',
+    interfaceStyle: 'classic',
   })
 })
 
@@ -88,13 +109,13 @@ test('invalid preference values are rejected without changing the current values
 
   const baseline = await client.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'dark', language: 'en', density: 'compact' },
+    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo' },
   })
   assert.equal(baseline.status, 200)
 
   const rejected = await client.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'purple', language: 'th', density: 'comfortable' },
+    body: { theme: 'light', language: 'th', density: 'comfortable', interfaceStyle: 'cyberpunk' },
   })
   assert.equal(rejected.status, 400)
 
@@ -103,5 +124,6 @@ test('invalid preference values are rejected without changing the current values
     theme: 'dark',
     language: 'en',
     density: 'compact',
+    interfaceStyle: 'neo',
   })
 })

@@ -316,21 +316,26 @@ test('the blur stays restrained (2–4px) and both themes define a readable dim'
   assert.ok(/--modal-scrim:/.test(darkRoot[1]), 'the dark theme overrides --modal-scrim so the shell dims rather than washes out')
 })
 
-test('nothing blurs the TopBar on its own — the coherent layer is the whole point', () => {
+test('Neo glass is static, stylesheet-owned, and limited to approved shell surfaces', () => {
   const css = fs.readFileSync(path.join(rootDir, 'src/index.css'), 'utf8')
   const topbar = fs.readFileSync(path.join(rootDir, 'src/components/TopBar.jsx'), 'utf8')
 
   assert.doesNotMatch(topbar, /backdrop-filter|backdropFilter/, 'the TopBar declares no blur of its own')
 
-  // The only backdrop-filter that actually blurs is the shared scrim; the modal
-  // card explicitly opts out so the dialog stays crisp.
+  // Classic still has only the shared scrim. Neo may add one static declaration
+  // shared by Sidebar, Topbar, modal, and segmented housing — never content cards.
   const blurring = [...css.matchAll(/(^|\n)([^\n{}]+)\{([^}]*backdrop-filter:[^}]*)\}/g)]
     .filter(([, , , decls]) => [...decls.matchAll(/backdrop-filter:\s*([^;]+)/g)]
       .some(([, value]) => value.trim() !== 'none'))
     .map(([, , selector]) => selector.trim())
-  assert.deepEqual([...new Set(blurring)], ['.modal-scrim'], 'exactly one blurring rule in the stylesheet')
-
-  assert.match(css, /\.modal-card\s*\{[^}]*backdrop-filter:\s*none/s, 'the dialog card itself is never frosted')
+  assert.deepEqual(
+    [...new Set(blurring)],
+    ['.modal-scrim', ':root[data-ui-style="neo"] .ui-segmented'],
+    'only the global scrim and the approved Neo shell-glass group blur',
+  )
+  assert.match(css, /:root\[data-ui-style="neo"\] \.app-sidebar,[\s\S]*\.app-topbar,[\s\S]*\.ui-modal,[\s\S]*\.ui-segmented\s*\{/)
+  assert.doesNotMatch(css, /\.ui-card[^{}]*\{[^}]*backdrop-filter/s, 'data/content cards stay solid')
+  assert.doesNotMatch(css, /transition[^;}]*backdrop-filter/, 'blur is static, never animated')
 })
 
 test('reduced motion keeps the dim and blur and only drops the entrance animation', () => {

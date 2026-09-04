@@ -15,6 +15,15 @@ colors:
   success: "#10b981"
   warning: "#f59e0b"
   danger: "#ef4444"
+  slate-dark: "#334155"
+  danger-light: "#fca5a5"
+  neo-light-warning: "#945600"
+  neo-blue-step: "#4267e7"
+  neo-violet: "#7c3aed"
+  neo-violet-light: "#a78bfa"
+  neo-focus-blue: "#60a5fa"
+  neo-pink: "#be5a93"
+  neo-pink-dark: "#b8558e"
 typography:
   headline:
     fontFamily: "Inter Variable, IBM Plex Sans Thai, system-ui, sans-serif"
@@ -41,8 +50,12 @@ typography:
 rounded:
   focus: "4px"
   skeleton: "6px"
+  compact: "8px"
+  preview: "9px"
   ledger: "10px"
+  control: "12px"
   tile: "16px"
+  shell: "18px"
   card: "24px"
   pill: "999px"
 spacing:
@@ -81,16 +94,20 @@ components:
 
 ## 1. Overview
 
-**Creative North Star: "The Precision Ledger"**
+**Creative North Stars: "The Precision Ledger" (Classic) and "The Layered Instrument" (Neo)**
 
-AEGIS Drive_LC should feel like a trustworthy instrument for files, access, and system state: crisp, calm, and exact. The default is Thai, light, and comfortable-density. White paper-like surfaces sit on a cool gray canvas; near-black ink does the work; one restrained blue identifies action and selection.
+AEGIS Drive_LC should feel like a trustworthy instrument for files, access, and system state: crisp, calm, and exact. New and existing accounts default to Classic, Thai, Light, and Comfortable density. Interface style, theme, language, and density are independent server-owned preferences.
 
-Security is visible through behavior, not theatre. The interface reports only measured server state, never invented telemetry. Motion is brief and functional (120–400 ms), and every transition collapses under reduced-motion preferences. Glow, bloom, glassmorphism, backdrop blur, dark aurora gradients, particle fields, orbs, and generic SaaS hero-metric styling are prohibited.
+Classic preserves the established Precision Ledger: paper-like solid surfaces, cool gray canvas, precise borders, and restrained blue action. Neo is an authenticated-shell-only alternative: cool-white shadow-led layers in Light and stepped graphite/navy layers in Dark, with rounded capsule navigation. Static glass is permitted only on the Sidebar, Topbar, Modal, and segmented-control housing. Data and content cards remain solid.
+
+Security is visible through behavior, not theatre. The interface reports only measured server state, never invented telemetry. Motion is brief and functional (120–400 ms), uses transform/opacity for active feedback, and collapses under reduced-motion preferences. Neon overload, animated blur, pervasive gradients, particle fields, orbs, and generic SaaS hero-metric styling remain prohibited.
+
+The Login screen is outside the interface-style system. It never receives `data-ui-style`, is not restyled by Neo, and keeps its established theme and authentication behavior.
 
 **Key Characteristics:**
 
 - Thai-first information architecture with English and Chinese parity.
-- Solid surfaces, precise alignment, tabular numerals, and restrained color.
+- Solid data surfaces, precise alignment, tabular numerals, and restrained color in both interface styles.
 - Diagonal hatch has one semantic meaning: the system cannot see or verify the content.
 - Server-decided identity and role are displayed; never simulated in the client.
 
@@ -100,7 +117,8 @@ The palette is cool, high-contrast, and mostly neutral; color always communicate
 
 ### Primary
 
-- **Instrument Blue:** The only interaction accent, used for primary actions, active navigation, focus, and one key chart series.
+- **Instrument Blue:** The dominant interaction accent, used for primary actions, active navigation, focus, and one key chart series.
+- **Neo Violet / Muted Pink:** Subordinate selection endpoints only. They may reinforce selected, active, and focus emphasis, but never compete as brand colors or become pervasive gradients.
 
 ### Neutral
 
@@ -111,7 +129,7 @@ The palette is cool, high-contrast, and mostly neutral; color always communicate
 
 ### Named Rules
 
-**The One Blue Rule.** Blue identifies action or selection. It must never become ambient decoration.
+**The Dominant Blue Rule.** `#2563EB` identifies action or selection. Neo may blend briefly toward violet and muted pink inside selected-state fills; the blend must remain blue-led and may not become ambient decoration.
 
 **The Measured State Rule.** Green, amber, and red appear only when the server provides a corresponding measured state.
 
@@ -138,7 +156,7 @@ The palette is cool, high-contrast, and mostly neutral; color always communicate
 
 ## 4. Elevation
 
-The system uses solid tonal layering plus two diffuse neutral shadows. Borders define structure; shadows separate temporary overlays or important surfaces without producing glow.
+Classic uses solid tonal layering plus two diffuse neutral shadows. Neo Light uses shadow-led cool-white layers; Neo Dark uses stepped graphite/navy layers. Borders define structure and selected-state shadows stay small and blue-led.
 
 ### Shadow Vocabulary
 
@@ -147,7 +165,7 @@ The system uses solid tonal layering plus two diffuse neutral shadows. Borders d
 
 ### Named Rules
 
-**The Neutral Shadow Rule.** Shadows are neutral and low-contrast. Colored shadows, bloom, and glass effects are forbidden.
+**The Bounded Material Rule.** Content-card shadows are neutral and low-contrast. Neo selection may use a restrained blue active shadow. Static backdrop glass is bounded to Sidebar, Topbar, Modal, and segmented housing; it is never animated and never applied to data cards.
 
 ## 5. Components
 
@@ -179,7 +197,15 @@ The system uses solid tonal layering plus two diffuse neutral shadows. Borders d
 
 ### Navigation
 
-Sidebar groups use compact labels, real server-filtered destinations, and a single blue active state. On mobile, the sidebar becomes a drawer; unavailable capabilities do not remain as teaser items.
+Sidebar groups use compact labels and real server-filtered destinations. Classic uses its existing active state. Neo uses rounded capsule rows and a blue-led selected fill with subordinate violet/pink endpoints. On mobile, the sidebar becomes a drawer; unavailable capabilities do not remain as teaser items.
+
+### Interface Style Selection
+
+- Settings → Appearance presents labelled Classic and Neo preview radios.
+- Changing style requires an accessible confirmation dialog with focus management and Escape handling.
+- The server preference is saved first. Only a successful save ends the UI session and returns to the unchanged Login screen.
+- A failed save leaves the current session and style intact and reports the failure truthfully.
+- After authentication, the saved style is resolved before the authenticated shell mounts so no half-Classic/half-Neo frame is shown.
 
 ### Hatch Surface
 
@@ -189,15 +215,19 @@ The 45-degree one-pixel hatch is the product signature. It marks ciphertext, loa
 
 ### Do:
 
-- **Do** default to Thai, Light, and Comfortable density for a new account.
-- **Do** use solid white cards on the cool gray canvas and reserve Instrument Blue for action.
+- **Do** default new and existing accounts to Classic, Thai, Light, and Comfortable density.
+- **Do** keep interface style independent from theme, language, and density.
+- **Do** keep Login visually and behaviorally outside the Classic/Neo system.
+- **Do** use solid data cards and reserve Instrument Blue as the dominant action/selection color.
 - **Do** keep focus visible, keyboard paths complete, and touch targets at least 44px where practical.
 - **Do** label unimplemented or unmeasured states honestly with hatch and explanatory copy.
 - **Do** use server-owned preferences, identity, RBAC, health, and telemetry.
 
 ### Don't:
 
-- **Don't** use glow, bloom, glassmorphism, backdrop-blur, dark aurora gradients, particle fields, orbs, or colored shadows.
+- **Don't** apply Neo styling, shell attributes, preview hints, or ambient effects to Login.
+- **Don't** apply glass or backdrop blur outside Neo Sidebar, Topbar, Modal, and segmented-control housing.
+- **Don't** use neon glow, bloom, animated blur, dark aurora gradients, particle fields, orbs, or pervasive violet/pink gradients.
 - **Don't** use generic SaaS dashboards: cream themes, gradient CTAs, or hero-metric templates.
 - **Don't** use consumer-playful onboarding voice, emoji, or exclamation marks.
 - **Don't** surface security mechanics as role pickers, “admin only” teasers, or verbose authentication errors.

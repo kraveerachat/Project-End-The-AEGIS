@@ -15,6 +15,10 @@ import {
   applyThemeToDocument, readShellTheme, readStoredShellTheme,
   resolveAuthenticatedTheme, resolveTheme, writeShellTheme,
 } from './lib/theme.js'
+import {
+  applyAuthenticatedInterfaceStyle,
+  clearAuthenticatedInterfaceStyle,
+} from './lib/interfaceStyle.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
@@ -61,7 +65,10 @@ export default function App() {
 
   // เซสชันหมดอายุกลางคัน (401 จาก endpoint ใดก็ตาม) → กลับประตูทันที ไม่ค้างจอ
   useEffect(() => {
-    registerUnauthorizedHandler(() => setSession(null))
+    registerUnauthorizedHandler(() => {
+      clearAuthenticatedInterfaceStyle()
+      setSession(null)
+    })
   }, [])
 
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
@@ -71,6 +78,7 @@ export default function App() {
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches,
   ))
   const [density, setDensity] = useState('comfortable')
+  const [interfaceStyle, setInterfaceStyle] = useState('classic')
   const [preferenceSaving, setPreferenceSaving] = useState(false)
   const [preferenceError, setPreferenceError] = useState(false)
   const [settingsTab, setSettingsTab] = useState('appearance')
@@ -131,6 +139,7 @@ export default function App() {
         theme: nextTheme,
         language: preferences?.language ?? 'th',
         density: preferences?.density ?? 'comfortable',
+        interfaceStyle: preferences?.interfaceStyle ?? 'classic',
       },
     })
     // บันทึกไม่ผ่าน = ธีมที่ตาเห็นยังถูกต้องสำหรับเบราว์เซอร์นี้ (shell hint เขียนไปแล้ว)
@@ -156,6 +165,8 @@ export default function App() {
     })
     loginThemeSelection.current = null // เจตนาถูกใช้ไปแล้ว — ไม่ค้างไปถึงการล็อกอินครั้งหน้า
 
+    const nextInterfaceStyle = applyAuthenticatedInterfaceStyle(user.preferences?.interfaceStyle)
+    setInterfaceStyle(nextInterfaceStyle)
     setSession({ ...user, menu })
     setLang(user.preferences?.language ?? 'th')
     setDensity(user.preferences?.density ?? 'comfortable')
@@ -344,6 +355,7 @@ export default function App() {
       : { userId: session.id, theme }
     // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
     apiLogout()
+    clearAuthenticatedInterfaceStyle()
     setSession(null)
     // ⚠️ ธีมไม่ถูกรีเซ็ตตอนออกจากระบบโดยเจตนา — จอ Login ต้องรับช่วงธีมของแอปต่อทันที
     //    (App Dark → Logout → Login Dark) shell hint ถูกเขียนไว้แล้วตั้งแต่ตอนเลือกธีม
@@ -367,7 +379,7 @@ export default function App() {
   }
 
   const updatePreference = async (key, value) => {
-    const previous = { theme, language: lang, density }
+    const previous = { theme, language: lang, density, interfaceStyle }
     // ธีมเดินผ่าน adoptTheme() เสมอ (เขียน DOM + shell hint ทันที) — จอ Settings/TopBar
     // จึงใช้เส้นทางเดียวกับด่านล็อกอิน ไม่มีเส้นทางที่สองที่เขียนธีมด้วยกฎของตัวเอง
     const setValue = {
@@ -389,6 +401,36 @@ export default function App() {
       return
     }
     setSession((current) => current ? { ...current, preferences: result.data.preferences } : current)
+  }
+
+  const switchInterfaceStyle = async (value) => {
+    if (value === interfaceStyle) return true
+    setPreferenceSaving(true)
+    setPreferenceError(false)
+    const next = { theme, language: lang, density, interfaceStyle: value }
+    const result = await apiFetch('/api/preferences', { method: 'PATCH', body: next })
+    if (!result.ok) {
+      setPreferenceSaving(false)
+      setPreferenceError(true)
+      return false
+    }
+
+    // The active shell deliberately keeps its current style until it is unmounted.
+    // This avoids a half-Classic/half-Neo frame between persistence and logout.
+    setSession((current) => current ? { ...current, preferences: result.data.preferences } : current)
+    await apiLogout()
+    clearAuthenticatedInterfaceStyle()
+    setSession(null)
+    setPreferenceSaving(false)
+    setPreferenceError(false)
+    setSettingsTab('appearance')
+    setNavigationParams({})
+    setCollapsed(false)
+    setMobileNav(false)
+    setScrolled(false)
+    loginThemeSelection.current = null
+    go('dashboard', {}, { replace: true })
+    return true
   }
 
   const screenEl = {
@@ -416,6 +458,8 @@ export default function App() {
         t={t} lang={lang} setLang={(value) => updatePreference('language', value)}
         theme={theme} setTheme={(value) => updatePreference('theme', value)}
         density={density} setDensity={(value) => updatePreference('density', value)}
+        interfaceStyle={interfaceStyle}
+        onInterfaceStyleChange={switchInterfaceStyle}
         role={effectiveRole} user={session}
         initialTab={settingsTab}
         preferenceSaving={preferenceSaving}
@@ -429,7 +473,7 @@ export default function App() {
   }[screen]
 
   return (
-    <div className="h-full flex bg-canvas">
+    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle}>
       <HatchDefs />
       <Sidebar
         t={t}

@@ -9,7 +9,7 @@ const DUMMY_HASH = bcrypt.hashSync('aegis-drive-timing-equalizer', 10)
 
 /**
  * ยืนยันตัวตนจาก { username, password } เท่านั้น
- * สำเร็จ → { id, username, displayName, role }  (role มาจาก DB)
+ * สำเร็จ → public session fields + server-owned appearance preferences
  * ล้มเหลว → null  (ไม่แยกว่า user ผิดหรือรหัสผิด — กัน enumeration)
  */
 export async function verifyCredentials(username, password) {
@@ -37,5 +37,9 @@ export async function verifyCredentials(username, password) {
     accountName: user.displayName,
     role: user.role,
     mustResetPassword: Boolean(user.mustResetPassword),
+    // Preferences are read from the same server-owned account row as role.
+    // Omitting them here makes a new session silently fall back to defaults,
+    // so a successful style-switch save is lost at the next login boundary.
+    preferences: user.preferences,
   }
 }

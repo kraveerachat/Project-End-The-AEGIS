@@ -905,6 +905,335 @@ textarea:focus-visible {
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   Neo authenticated interface
+
+   Login never receives data-ui-style, and every Neo rule below is rooted at
+   that authenticated marker. Classic therefore keeps the established token
+   values and geometry above without a parallel component tree.
+   ───────────────────────────────────────────────────────────────── */
+:root[data-ui-style="neo"] {
+  --canvas: #f3f6fb;
+  --card: #ffffff;
+  --card-sunken: #edf2f8;
+  --ink: #111827;
+  --ink-2: #475569;
+  --ink-3: #64748b;
+  --line: #dce4ef;
+  --accent: #2563eb;
+  --accent-soft: #eaf1ff;
+  --accent-ink: #1d4ed8;
+  --warn: #945600;
+  --warn-soft: #fff7df;
+  --violet: #7c3aed;
+  --violet-soft: #f1edff;
+  --neo-pink: #be5a93;
+  --neo-shell: rgba(255, 255, 255, 0.82);
+  --neo-shell-line: rgba(148, 163, 184, 0.26);
+  --neo-selection: linear-gradient(112deg, #2563eb 0%, #4267e7 68%, #7c3aed 88%, #be5a93 100%);
+  --neo-focus: color-mix(in srgb, #2563eb 78%, #7c3aed);
+  --elev-1: 0 12px 32px -24px rgba(15, 23, 42, 0.34), 0 2px 8px -5px rgba(15, 23, 42, 0.14);
+  --elev-2: 0 24px 60px -34px rgba(15, 23, 42, 0.38), 0 8px 20px -14px rgba(15, 23, 42, 0.2);
+  --active-glow: 0 8px 22px -14px rgba(37, 99, 235, 0.72);
+  --r-card: 16px;
+  --r-tile: 14px;
+  --modal-scrim: rgba(15, 23, 42, 0.34);
+  --modal-blur: 4px;
+  color-scheme: light;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] {
+  --canvas: #07101f;
+  --card: #111b2e;
+  --card-sunken: #0b1527;
+  --ink: #f8fafc;
+  --ink-2: #cbd5e1;
+  --ink-3: #94a3b8;
+  --line: #283750;
+  --accent: #3b82f6;
+  --accent-soft: rgba(37, 99, 235, 0.17);
+  --accent-ink: #93c5fd;
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.13);
+  --violet: #a78bfa;
+  --violet-soft: rgba(124, 58, 237, 0.16);
+  --neo-pink: #d787b5;
+  --neo-shell: rgba(8, 17, 33, 0.84);
+  --neo-shell-line: rgba(148, 163, 184, 0.2);
+  --neo-selection: linear-gradient(112deg, #2563eb 0%, #4267e7 68%, #7c3aed 88%, #b8558e 100%);
+  --neo-focus: color-mix(in srgb, #60a5fa 78%, #a78bfa);
+  --elev-1: 0 16px 38px -26px rgba(0, 0, 0, 0.9), 0 2px 10px -6px rgba(0, 0, 0, 0.82);
+  --elev-2: 0 28px 70px -34px rgba(0, 0, 0, 0.94), 0 8px 24px -14px rgba(0, 0, 0, 0.84);
+  --active-glow: 0 10px 28px -17px rgba(59, 130, 246, 0.8);
+  --modal-scrim: rgba(2, 6, 23, 0.68);
+  color-scheme: dark;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell {
+  background:
+    radial-gradient(circle at 52% -18%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 38%),
+    var(--canvas);
+}
+
+:root[data-ui-style="neo"] .ui-card {
+  background: var(--card) !important;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  box-shadow: var(--elev-1) !important;
+}
+
+:root[data-ui-style="neo"] .ui-card.is-interactive:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  transform: translateY(-2px);
+}
+
+:root[data-ui-style="neo"] .app-sidebar-frame {
+  padding: 10px 0 10px 10px;
+  background: transparent;
+}
+
+:root[data-ui-style="neo"] .app-sidebar,
+:root[data-ui-style="neo"] .app-topbar,
+:root[data-ui-style="neo"] .ui-modal,
+:root[data-ui-style="neo"] .ui-segmented {
+  background: var(--neo-shell) !important;
+  border: 1px solid var(--neo-shell-line);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
+  backdrop-filter: blur(16px) saturate(118%);
+}
+
+:root[data-ui-style="neo"] .app-sidebar {
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--elev-2) !important;
+}
+
+:root[data-ui-style="neo"] .app-topbar {
+  height: 58px;
+  margin: 10px 12px 0;
+  border-radius: 16px;
+  box-shadow: var(--elev-1) !important;
+}
+
+:root[data-ui-style="neo"] .sidebar-nav-item {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+}
+
+:root[data-ui-style="neo"] .sidebar-nav-item:hover:not(.is-active) {
+  border-color: color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--card) 76%, transparent);
+}
+
+:root[data-ui-style="neo"] .sidebar-nav-item.is-active {
+  color: #ffffff !important;
+  background: var(--neo-selection) !important;
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  box-shadow: var(--active-glow);
+}
+
+:root[data-ui-style="neo"] .ui-segmented {
+  padding: 3px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+:root[data-ui-style="neo"] .ui-segmented-option[aria-checked="true"] {
+  color: #ffffff;
+  background: var(--neo-selection);
+  box-shadow: var(--active-glow);
+}
+
+:root[data-ui-style="neo"] .ui-modal {
+  border-radius: 18px;
+  box-shadow: var(--elev-2) !important;
+}
+
+:root[data-ui-style="neo"] .avatar-accent {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+:root[data-ui-style="neo"] .settings-section-button {
+  min-height: 42px;
+}
+
+:root[data-ui-style="neo"] .settings-section-button.is-active {
+  color: #ffffff !important;
+  background: var(--neo-selection) !important;
+  box-shadow: var(--active-glow);
+}
+
+:root[data-ui-style="neo"] .settings-section-button:active {
+  transform: scale(0.985);
+}
+
+:root[data-ui-style="neo"] .ui-button.bg-accent {
+  background: var(--accent);
+}
+
+:root[data-ui-style="neo"] .dashboard-page-header.rise-in,
+:root[data-ui-style="neo"] .sidebar-nav-item.rise-in {
+  animation: none;
+}
+
+:root[data-ui-style="neo"] button:focus-visible,
+:root[data-ui-style="neo"] [role="button"]:focus-visible,
+:root[data-ui-style="neo"] [role="radio"]:focus-visible,
+:root[data-ui-style="neo"] a:focus-visible {
+  outline: 2px solid var(--neo-focus);
+  outline-offset: 3px;
+}
+
+.interface-style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.interface-style-preview {
+  min-width: 176px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: var(--card-sunken);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.interface-style-preview:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  transform: translateY(-1px);
+}
+
+.interface-style-preview.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.interface-style-preview__canvas {
+  position: relative;
+  display: flex;
+  width: 84px;
+  height: 54px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow: 0 6px 18px -14px rgba(15, 23, 42, 0.5);
+}
+
+.interface-style-preview__canvas.is-neo {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 7%, var(--card)), var(--card));
+}
+
+.interface-style-preview__sidebar {
+  width: 22px;
+  margin: 4px;
+  border-radius: 6px;
+  background: var(--card-sunken);
+}
+
+.interface-style-preview__content {
+  flex: 1;
+  padding: 6px 5px 5px 0;
+}
+
+.interface-style-preview__bar {
+  display: block;
+  width: 70%;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+}
+
+.interface-style-preview__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.interface-style-preview__cards i {
+  display: block;
+  height: 13px;
+  border-radius: 4px;
+  background: var(--card-sunken);
+}
+
+.interface-style-preview__cards i:first-child {
+  grid-row: span 2;
+  height: 29px;
+  background: color-mix(in srgb, var(--accent) 76%, var(--violet));
+}
+
+.interface-style-preview__canvas.is-neo .interface-style-preview__cards i:nth-child(2) {
+  background: color-mix(in srgb, var(--accent) 52%, var(--violet));
+}
+
+.interface-style-preview__canvas.is-neo .interface-style-preview__cards i:nth-child(3) {
+  background: color-mix(in srgb, var(--violet) 76%, var(--neo-pink, #be5a93));
+}
+
+.interface-style-preview__check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--accent);
+}
+
+:root[data-density="compact"][data-ui-style="neo"] .ui-card {
+  --neo-card-gap: 16px;
+}
+
+@media (max-width: 767px) {
+  .interface-style-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .interface-style-preview {
+    min-width: 0;
+    min-height: 64px;
+  }
+
+  :root[data-ui-style="neo"] .app-topbar {
+    min-height: 56px;
+    height: 56px;
+    margin: 8px 8px 0;
+  }
+
+  :root[data-ui-style="neo"] .sidebar-nav-item,
+  :root[data-ui-style="neo"] .ui-button,
+  :root[data-ui-style="neo"] .ui-icon-button,
+  :root[data-ui-style="neo"] .settings-section-button,
+  :root[data-ui-style="neo"] .ui-segmented-option {
+    min-height: 44px;
+  }
+
+  :root[data-ui-style="neo"] .ui-segmented-option {
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"] .interface-style-preview,
+  :root[data-ui-style="neo"] .ui-card,
+  :root[data-ui-style="neo"] .ui-segmented-option,
+  :root[data-ui-style="neo"] .sidebar-nav-item {
+    transform: none !important;
+  }
+}
+
 /* ── Tile hover controls (Private Vault overflow menu) ────────────
    Hover-reveal is a pointer affordance, not an access requirement.
    Touch and coarse pointers never produce hover, so the control stays
