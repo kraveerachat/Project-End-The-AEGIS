@@ -11,20 +11,31 @@
 // must degrade the dashboard, not a Drive request. Every failure comes back as
 // { ok: false, reason } and the API turns it into a truthful `unavailable`.
 //
-// Two routes, two contracts, one socket — /internal/telemetry (V1, the
-// production-verified host counters) and /internal/disk-health (its own
-// versioned schema, added later). They are fetched and validated separately
-// so neither can break the other.
+// Three routes, three contracts, one socket — /internal/telemetry (V1, the
+// production-verified host counters), /internal/disk-health, and
+// /internal/twingate-connector (each with its own versioned schema, added
+// later). They are fetched and validated separately so none can break another,
+// and so the agent and Drive can be upgraded in either order.
 import http from 'node:http'
 
 import { validateDiskHealthResponse } from './diskHealthSchema.js'
 import { validateAgentSnapshot } from './schema.js'
+import { validateTwingateResponse } from './twingateHealthSchema.js'
 
 /** The agent's telemetry route. */
 export const AGENT_ROUTE = '/internal/telemetry'
 
 /** The agent's disk-health route (separate versioned contract). */
 export const DISK_HEALTH_ROUTE = '/internal/disk-health'
+
+/**
+ * The agent's LOCAL Twingate connector route (a third versioned contract).
+ *
+ * ⚠️ Local runtime evidence only — whether the connector container is running on
+ *    this host. It is not the Twingate control plane's view, and no code path
+ *    reachable from this module contacts Twingate.
+ */
+export const TWINGATE_CONNECTOR_ROUTE = '/internal/twingate-connector'
 
 /**
  * Hard ceiling on how long a Drive request may wait for the host agent.
@@ -167,5 +178,23 @@ export function fetchHostDiskHealth({ socketPath, timeoutMs = DEFAULT_TIMEOUT_MS
     route: DISK_HEALTH_ROUTE,
     timeoutMs,
     validate: (raw) => validateDiskHealthResponse(raw, { now }),
+  }).then((result) => (result.ok ? { ok: true, document: result.document } : { ok: false, reason: result.reason }))
+}
+
+/**
+ * Fetch and validate the host's LOCAL Twingate connector document.
+ *
+ * @param {object} options
+ * @param {string} options.socketPath the agent's Unix socket
+ * @param {number} [options.timeoutMs]
+ * @param {number} [options.now]
+ * @returns {Promise<{ ok: true, document: object } | { ok: false, reason: string }>}
+ */
+export function fetchHostTwingateConnector({ socketPath, timeoutMs = DEFAULT_TIMEOUT_MS, now = Date.now() }) {
+  return fetchAgentJson({
+    socketPath,
+    route: TWINGATE_CONNECTOR_ROUTE,
+    timeoutMs,
+    validate: (raw) => validateTwingateResponse(raw, { now }),
   }).then((result) => (result.ok ? { ok: true, document: result.document } : { ok: false, reason: result.reason }))
 }

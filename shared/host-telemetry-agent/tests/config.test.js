@@ -69,8 +69,13 @@ test('loadAgentConfig defaults to the approved production boundary', () => {
     // The disk-health evidence file is a plain file under /var/lib, written by
     // the separate collector oneshot. It is a read, never a device.
     diskHealth: '/var/lib/aegis-disk-health/disk-health.json',
+    // Same arrangement for the local Twingate connector evidence: a plain file
+    // under /var/lib written by its own collector oneshot. Reading it gives the
+    // agent no Docker access of any kind.
+    twingateHealth: '/var/lib/aegis-twingate-health/twingate-health.json',
   })
   assert.equal(config.diskHealthFile, '/var/lib/aegis-disk-health/disk-health.json')
+  assert.equal(config.twingateHealthFile, '/var/lib/aegis-twingate-health/twingate-health.json')
 })
 
 test('loadAgentConfig rejects a relative disk-health file and accepts an empty one as disabled', () => {

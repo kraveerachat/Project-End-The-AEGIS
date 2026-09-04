@@ -719,7 +719,7 @@ export const STRINGS = {
     encAtRestTodo: 'Ordinary Data Lake uploads are stored unencrypted on disk. There is no server-side master key in this system, so there is nothing to rotate. Implementing this needs encryption in the storage layer plus a decision on where key material lives.',
     notImplemented: 'Not yet implemented',
     designIntent: 'DESIGN INTENT',
-    remoteAccessDocNote: 'Twingate design reference only — connector telemetry is not connected yet.',
+    remoteAccessDocNote: 'Local connector runtime is measured on this host; Twingate control-plane status is not.',
     zonesNote: 'Restricted shares compare the source address visible to AEGIS. Twingate recipients may appear as the connector-visible address. Application CIDR is defense in depth, not a substitute for Twingate access or device policy.',
     shareDefaultsTodo: 'Per-user share defaults are not stored yet, so the new-link form always starts from the same values.',
     snapScheduleTodo: 'Scheduling needs a snapshot mechanism that this deployment cannot provide — see File history for what is available instead.',
@@ -828,9 +828,50 @@ export const STRINGS = {
     remoteChannelLabel: 'Channel',
     remoteChannelValue: 'Twingate · Zero Trust',
     remoteAccessModel: 'Access model',
-    remoteTelemetryLabel: 'Connector telemetry',
-    remoteLiveStateLabel: 'Live connector state',
-    remoteTelemetryNote: 'Twingate is the configured remote channel for this deployment. Drive has no approved source for live connector health, so it reports that the measurement is unavailable rather than claiming the connector is up or down.',
+    remoteTelemetryNote: 'Twingate is the configured remote channel for this deployment. The connector container on this host is measured directly; what the Twingate control plane believes is a separate question Drive has no approved source for, and it is reported separately below.',
+
+    // ── Remote access · LOCAL connector vs Twingate CONTROL PLANE ───────────
+    // These two groups must never be merged in copy. The first is measured on
+    // this host; the second is not measured at all.
+    remoteLocalSection: 'Local connector',
+    remoteControlPlaneSection: 'Twingate control plane',
+    remoteRuntimeState: 'Runtime state',
+    remoteDockerHealth: 'Docker health',
+    remoteRestartCount: 'Restart count',
+    remoteLastMeasured: 'Last measured',
+    remoteControlTelemetryLabel: 'Telemetry',
+    remoteControlLiveState: 'Live control-plane state',
+    remoteLocalScopeNote: 'Local connector health is measured from the connector running on this AEGIS host. It does not prove that the Twingate control plane currently reports the connector as online.',
+    remoteControlPlaneNote: 'AEGIS has no approved source for the Twingate control plane, so it is reported as not measured rather than guessed from the local container.',
+
+    // Derived local connector status
+    connStatusHealthy: 'Healthy',
+    connStatusStarting: 'Starting',
+    connStatusUnhealthy: 'Unhealthy',
+    connStatusStopped: 'Stopped',
+    connStatusRestarting: 'Restarting',
+
+    // Docker runtime and healthcheck values, shown as measured
+    runtimeRunning: 'Running',
+    runtimeStopped: 'Stopped',
+    runtimeRestarting: 'Restarting',
+    dockerHealthHealthy: 'Healthy',
+    dockerHealthUnhealthy: 'Unhealthy',
+    dockerHealthStarting: 'Starting',
+
+    // Why there is no local reading — one fixed phrase per collector reason
+    connReasonNotFound: 'The connector container was not found on this host.',
+    connReasonDockerUnavailable: 'Docker did not answer on this host.',
+    connReasonInspectFailed: 'The connector could not be inspected.',
+    connReasonCollectorNotRun: 'The collector has not written a reading yet.',
+    connReasonNotConfigured: 'Connector collection is not configured on this host.',
+    connReasonInvalid: 'The last reading was not usable.',
+    connReasonAgentUnreachable: 'The host telemetry agent is not connected.',
+    connReasonStale: 'The last reading is too old to be current.',
+
+    // Security overview rows
+    secRemoteLocalConnector: 'Local connector',
+    secRemoteControlTelemetry: 'Control-plane telemetry',
 
     // ── Current connection test ─────────────────────────────────────────────
     connTestTitle: 'Current Drive reachability',
@@ -1787,7 +1828,7 @@ export const STRINGS = {
     encAtRestTodo: 'ไฟล์ทั่วไปใน Data Lake ถูกเก็บบนดิสก์แบบไม่เข้ารหัส ระบบนี้ไม่มีกุญแจ master ฝั่งเซิร์ฟเวอร์ จึงไม่มีอะไรให้หมุนเวียน การทำให้เป็นจริงต้องเข้ารหัสที่ชั้นเก็บไฟล์ พร้อมตัดสินใจว่าจะเก็บตัวกุญแจไว้ที่ไหน',
     notImplemented: 'ยังไม่ได้ทำ',
     designIntent: 'การออกแบบที่ตั้งใจไว้',
-    remoteAccessDocNote: 'เอกสารการออกแบบ Twingate เท่านั้น — ยังไม่ได้เชื่อมต่อข้อมูลสถานะคอนเนคเตอร์',
+    remoteAccessDocNote: 'วัดการทำงานของคอนเนคเตอร์บนเครื่องนี้ได้จริง ส่วนสถานะระบบควบคุมของ Twingate ยังวัดไม่ได้',
     zonesNote: 'แชร์แบบจำกัดจะเทียบที่อยู่ต้นทางที่ AEGIS มองเห็น ผู้รับผ่าน Twingate อาจปรากฏเป็นที่อยู่ที่ Connector มองเห็น การตรวจ CIDR ในแอปเป็นการป้องกันเสริม ไม่ใช้แทนนโยบายการเข้าถึงของ Twingate หรือนโยบายอุปกรณ์',
     shareDefaultsTodo: 'ยังไม่มีการเก็บค่าเริ่มต้นของลิงก์แชร์รายบุคคล ฟอร์มสร้างลิงก์จึงเริ่มจากค่าเดิมทุกครั้ง',
     snapScheduleTodo: 'การตั้งตารางเวลาต้องมีกลไก snapshot ซึ่ง deployment นี้ทำไม่ได้ — ดูจอประวัติไฟล์สำหรับสิ่งที่ทำได้จริง',
@@ -1894,9 +1935,44 @@ export const STRINGS = {
     remoteChannelLabel: 'ช่องทาง',
     remoteChannelValue: 'Twingate · Zero Trust',
     remoteAccessModel: 'รูปแบบการเข้าถึง',
-    remoteTelemetryLabel: 'ข้อมูลสถานะ Connector',
-    remoteLiveStateLabel: 'สถานะ Connector แบบสด',
-    remoteTelemetryNote: 'Twingate คือช่องทางเข้าถึงระยะไกลที่ตั้งไว้สำหรับ deployment นี้ Drive ยังไม่มีแหล่งข้อมูลที่อนุมัติให้อ่านสุขภาพของ Connector แบบสด จึงรายงานว่าวัดไม่ได้ แทนที่จะอ้างว่า Connector ทำงานอยู่หรือหยุดทำงาน',
+    remoteTelemetryNote: 'Twingate คือช่องทางเข้าถึงระยะไกลที่ตั้งไว้สำหรับ deployment นี้ คอนเทนเนอร์ของคอนเนคเตอร์บนเครื่องนี้ถูกวัดโดยตรง ส่วนสิ่งที่ระบบควบคุมของ Twingate เชื่อเป็นคนละคำถาม ซึ่ง Drive ยังไม่มีแหล่งข้อมูลที่อนุมัติ และถูกรายงานแยกไว้ด้านล่าง',
+
+    // ── Remote access · LOCAL connector vs Twingate CONTROL PLANE ───────────
+    remoteLocalSection: 'คอนเนคเตอร์บนเครื่องนี้',
+    remoteControlPlaneSection: 'ระบบควบคุมของ Twingate',
+    remoteRuntimeState: 'สถานะการทำงาน',
+    remoteDockerHealth: 'สุขภาพตามที่ Docker ตรวจ',
+    remoteRestartCount: 'จำนวนครั้งที่รีสตาร์ท',
+    remoteLastMeasured: 'วัดล่าสุดเมื่อ',
+    remoteControlTelemetryLabel: 'ข้อมูลสถานะ',
+    remoteControlLiveState: 'สถานะระบบควบคุมแบบสด',
+    remoteLocalScopeNote: 'สุขภาพของคอนเนคเตอร์นี้วัดจากคอนเทนเนอร์ที่ทำงานอยู่บนเครื่อง AEGIS เครื่องนี้ ไม่ได้พิสูจน์ว่าระบบควบคุมของ Twingate รายงานว่าคอนเนคเตอร์ออนไลน์อยู่ในขณะนี้',
+    remoteControlPlaneNote: 'AEGIS ยังไม่มีแหล่งข้อมูลที่อนุมัติสำหรับระบบควบคุมของ Twingate จึงรายงานว่ายังวัดไม่ได้ แทนที่จะเดาจากสถานะคอนเทนเนอร์บนเครื่องนี้',
+
+    connStatusHealthy: 'ปกติ',
+    connStatusStarting: 'กำลังเริ่มทำงาน',
+    connStatusUnhealthy: 'ผิดปกติ',
+    connStatusStopped: 'หยุดทำงาน',
+    connStatusRestarting: 'กำลังรีสตาร์ท',
+
+    runtimeRunning: 'กำลังทำงาน',
+    runtimeStopped: 'หยุดทำงาน',
+    runtimeRestarting: 'กำลังรีสตาร์ท',
+    dockerHealthHealthy: 'ปกติ',
+    dockerHealthUnhealthy: 'ผิดปกติ',
+    dockerHealthStarting: 'กำลังเริ่มทำงาน',
+
+    connReasonNotFound: 'ไม่พบคอนเทนเนอร์ของคอนเนคเตอร์บนเครื่องนี้',
+    connReasonDockerUnavailable: 'Docker บนเครื่องนี้ไม่ตอบสนอง',
+    connReasonInspectFailed: 'ตรวจสอบคอนเนคเตอร์ไม่สำเร็จ',
+    connReasonCollectorNotRun: 'ตัวเก็บข้อมูลยังไม่ได้เขียนค่าที่วัดได้',
+    connReasonNotConfigured: 'ยังไม่ได้ตั้งค่าการเก็บข้อมูลคอนเนคเตอร์บนเครื่องนี้',
+    connReasonInvalid: 'ค่าที่วัดได้ล่าสุดใช้งานไม่ได้',
+    connReasonAgentUnreachable: 'ยังไม่ได้เชื่อมต่อกับตัวแทนเก็บข้อมูลบนเครื่องแม่ข่าย',
+    connReasonStale: 'ค่าที่วัดได้ล่าสุดเก่าเกินกว่าจะถือว่าเป็นสถานะปัจจุบัน',
+
+    secRemoteLocalConnector: 'คอนเนคเตอร์บนเครื่องนี้',
+    secRemoteControlTelemetry: 'ข้อมูลสถานะระบบควบคุม',
 
     // ── Current connection test ─────────────────────────────────────────────
     connTestTitle: 'ความสามารถในการเข้าถึง Drive ตอนนี้',
@@ -2852,7 +2928,7 @@ export const STRINGS = {
     encAtRestTodo: '普通数据湖上传的文件以未加密方式存储在磁盘上。本系统没有服务器端主密钥，因此没有可轮换的内容。要实现此功能需要在存储层加密，并决定密钥材料的存放位置。',
     notImplemented: '尚未实现',
     designIntent: '设计意图',
-    remoteAccessDocNote: '仅作为 Twingate 设计参考——尚未连接连接器遥测。',
+    remoteAccessDocNote: '本机连接器运行状况在这台主机上被实测；Twingate 控制平面状态则未被测量。',
     zonesNote: '受限共享会比较 AEGIS 可见的来源地址。Twingate 接收者可能显示为连接器可见地址。应用层 CIDR 仅用于纵深防御，不能替代 Twingate 访问策略或设备策略。',
     shareDefaultsTodo: '尚未保存每位用户的共享默认值，因此新建链接表单每次都从相同的值开始。',
     snapScheduleTodo: '计划任务需要快照机制，而本部署无法提供——请参阅“文件历史”了解可用的替代方案。',
@@ -2959,9 +3035,44 @@ export const STRINGS = {
     remoteChannelLabel: '通道',
     remoteChannelValue: 'Twingate · Zero Trust',
     remoteAccessModel: '访问模型',
-    remoteTelemetryLabel: '连接器遥测',
-    remoteLiveStateLabel: '连接器实时状态',
-    remoteTelemetryNote: 'Twingate 是本部署已配置的远程通道。Drive 尚无经批准的连接器健康数据来源，因此它报告该测量不可用，而不是声称连接器在线或离线。',
+    remoteTelemetryNote: 'Twingate 是本部署已配置的远程通道。这台主机上的连接器容器被直接测量；而 Twingate 控制平面如何判断是另一个问题，AEGIS 尚无经批准的数据来源，因此在下方单独报告。',
+
+    // ── Remote access · LOCAL connector vs Twingate CONTROL PLANE ───────────
+    remoteLocalSection: '本机连接器',
+    remoteControlPlaneSection: 'Twingate 控制平面',
+    remoteRuntimeState: '运行状态',
+    remoteDockerHealth: 'Docker 健康检查',
+    remoteRestartCount: '重启次数',
+    remoteLastMeasured: '最近测量于',
+    remoteControlTelemetryLabel: '遥测',
+    remoteControlLiveState: '控制平面实时状态',
+    remoteLocalScopeNote: '本机连接器健康状况测量自运行在这台 AEGIS 主机上的连接器容器。它并不能证明 Twingate 控制平面当前将该连接器报告为在线。',
+    remoteControlPlaneNote: 'AEGIS 尚无经批准的 Twingate 控制平面数据来源，因此报告为未测量，而不是根据本机容器状态进行猜测。',
+
+    connStatusHealthy: '正常',
+    connStatusStarting: '正在启动',
+    connStatusUnhealthy: '异常',
+    connStatusStopped: '已停止',
+    connStatusRestarting: '正在重启',
+
+    runtimeRunning: '运行中',
+    runtimeStopped: '已停止',
+    runtimeRestarting: '正在重启',
+    dockerHealthHealthy: '正常',
+    dockerHealthUnhealthy: '异常',
+    dockerHealthStarting: '正在启动',
+
+    connReasonNotFound: '在这台主机上未找到连接器容器。',
+    connReasonDockerUnavailable: 'Docker 在这台主机上没有响应。',
+    connReasonInspectFailed: '无法检查该连接器。',
+    connReasonCollectorNotRun: '采集器尚未写入任何测量结果。',
+    connReasonNotConfigured: '这台主机尚未配置连接器采集。',
+    connReasonInvalid: '最近一次测量结果不可用。',
+    connReasonAgentUnreachable: '主机遥测代理尚未连接。',
+    connReasonStale: '最近一次测量结果过旧，无法作为当前状态。',
+
+    secRemoteLocalConnector: '本机连接器',
+    secRemoteControlTelemetry: '控制平面遥测',
 
     // ── Current connection test ─────────────────────────────────────────────
     connTestTitle: '当前 Drive 可达性',

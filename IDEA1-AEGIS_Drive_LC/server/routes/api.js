@@ -37,6 +37,9 @@ import { buildTelemetry } from '../telemetry/index.js'
 // Storage & Backup — capacity (Drive), physical disk health (host agent, validated),
 // backup state/risk (backup agent, validated), RAID (declared not configured).
 import { buildStorageReport } from '../storage/storageReport.js'
+// Remote access — LOCAL Twingate connector runtime health (measured via the host
+// agent) plus an explicit, declared "the control plane is not measured".
+import { buildRemoteAccessReport } from '../telemetry/twingateHealth.js'
 // Backup administration — Drive never runs a backup; it forwards allowlisted
 // commands to the host backup agent and holds the write-freeze it asks for.
 import { BACKUP_ROUTES, adminBackupView, backupCommand, backupMaintenance } from '../backup/index.js'
@@ -979,6 +982,28 @@ apiRouter.post('/backup/verify', requireRole(ROLES.ADMIN), forwardBackupCommand(
 //    เหตุการณ์ด้านความปลอดภัยจริงจะจมหายไปในกองบรรทัดสำเร็จรูปนี้
 // ⚠️ agent ล่มหรือตอบผิดรูป ไม่ใช่เหตุให้ request นี้ล้ม — คืน 200 พร้อมความจริงบางส่วน
 //    (disk และ service uptime ยังวัดได้เสมอ) แทนที่จะทำให้ทั้งจอพัง
+/**
+ * Remote access posture for Settings → Security & Privacy.
+ *
+ * ⚠️ Two blocks, deliberately not merged. `localConnector` is measured evidence
+ *    about the connector CONTAINER on this host, republished by the telemetry
+ *    agent from a bounded collector. `controlPlane` is a declared constant that
+ *    says Drive has no approved source for what Twingate itself believes.
+ *    Collapsing them into one "Online" would let a healthy local container imply
+ *    a working tunnel, which is exactly the claim this deployment cannot make.
+ * ⚠️ requireAuth, not requireRole: this reports the posture of the deployment the
+ *    caller is already using, and it exposes no address, credential, or
+ *    container identity. Nothing here is admin-only information.
+ */
+apiRouter.get('/remote-access', requireAuth, async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    res.json(await buildRemoteAccessReport())
+  } catch (err) {
+    next(err)
+  }
+})
+
 apiRouter.get('/telemetry', requireAuth, async (req, res, next) => {
   try {
     // no-store: telemetry คือค่า ณ วินาทีนั้น สำเนาที่ถูก cache คือค่าที่ไม่จริงแล้ว

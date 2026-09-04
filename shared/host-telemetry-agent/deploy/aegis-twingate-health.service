@@ -1,0 +1,114 @@
+[Unit]
+# AEGIS local Twingate connector collector — runs `docker inspect` once against
+# ONE named container and writes an allowlisted evidence file that the
+# unprivileged telemetry agent reads. Started by aegis-twingate-health.timer.
+#
+# This unit is the only place in the AEGIS host tooling that can reach the
+# Docker daemon. The Docker socket is root-equivalent — anything holding it can
+# start a privileged container and take the host — so it is held by a oneshot
+# that lives for a few hundred milliseconds a minute and is not running the rest
+# of the time. Neither the long-running telemetry agent nor the Drive container
+# is ever given this access.
+#
+# What it measures: whether the connector CONTAINER is running here, and what
+# Docker's own healthcheck says. It never contacts Twingate, reads no Twingate
+# credential, and says nothing about what the Twingate control plane believes.
+Description=AEGIS local Twingate connector health collector (docker inspect, one container)
+Documentation=file:/opt/aegis/host-telemetry-agent/deploy/README.md
+After=local-fs.target docker.service
+# Wants, not Requires: if Docker is down the collector should still run and
+# record `docker-unavailable` as evidence. Refusing to start would leave the
+# last good reading in place until it went stale, which reads as "still fine".
+Wants=docker.service
+
+[Service]
+Type=oneshot
+
+# ── identity ──────────────────────────────────────────────────────────
+# Dedicated user; group is the TELEMETRY agent's group so the evidence file
+# (0640) is readable by exactly one other process on the host: the agent.
+User=aegis-twingate-health
+Group=aegis-telemetry
+
+ExecStart=/usr/bin/node /opt/aegis/host-telemetry-agent/collectors/run-twingate-health.js
+WorkingDirectory=/opt/aegis/host-telemetry-agent
+TimeoutStartSec=30s
+
+# ── configuration ─────────────────────────────────────────────────────
+# The container name is the ONLY non-constant in the Docker command; the
+# collector pattern-checks it before it becomes an argument, and the command
+# itself (inspect, --type container, --format <fixed template>) is a constant in
+# collectors/twingate-health.js. Nothing here can start, stop, or exec anything.
+Environment=AEGIS_TWINGATE_CONTAINER=twingate-aegis-connector-02
+Environment=AEGIS_TWINGATE_DOCKER=/usr/bin/docker
+Environment=AEGIS_TWINGATE_OUTPUT=/var/lib/aegis-twingate-health/twingate-health.json
+# Explicit so a stray environment cannot point the CLI at a remote daemon.
+# IPAddressDeny=any below makes a TCP daemon unreachable regardless.
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+# The CLI looks for $HOME/.docker/config.json; point HOME at the state
+# directory so it finds nothing rather than probing a protected /root.
+Environment=HOME=/var/lib/aegis-twingate-health
+Environment=NODE_ENV=production
+
+# ── evidence directory ────────────────────────────────────────────────
+# /var/lib/aegis-twingate-health owned aegis-twingate-health:aegis-telemetry
+# 0750 — the agent (in group aegis-telemetry) can traverse it and read the 0640
+# file; nobody else on the host can.
+StateDirectory=aegis-twingate-health
+StateDirectoryMode=0750
+UMask=0027
+
+# ── privileges: none at all ───────────────────────────────────────────
+# Unlike the disk-health collector, this one needs NO capability. Access to the
+# daemon comes from one group membership and nothing else, so the empty bounding
+# set below is the whole privilege story for this unit.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+# The single grant: /var/run/docker.sock is root:docker 0660, and membership in
+# `docker` is what opens it. This is the reason this unit exists separately.
+SupplementaryGroups=docker
+
+# ── network: none ─────────────────────────────────────────────────────
+# The daemon is reached over a Unix socket, so the unit needs no IP networking
+# at all. Denying it is also what makes "this collector cannot call the Twingate
+# control plane" a property of the deployment rather than a promise in a comment.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+PrivateNetwork=true
+
+# ── devices: none ─────────────────────────────────────────────────────
+# Nothing here opens a device, so unlike the disk-health unit this one can take
+# a private /dev as well.
+PrivateDevices=true
+DevicePolicy=closed
+
+# ── filesystem and kernel ─────────────────────────────────────────────
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ── deliberately NOT set ──────────────────────────────────────────────
+#   DynamicUser=true       the evidence file must be readable by the fixed
+#                          aegis-telemetry group; a dynamic identity cannot
+#                          guarantee that across runs.
+#   ReadWritePaths=/var/run/docker.sock
+#                          not required: ProtectSystem=strict makes the tree
+#                          read-only for FILE modification, and connecting to an
+#                          existing socket inode does not modify the filesystem.
+#   MemoryDenyWriteExecute=true   Node/V8 needs writable-executable pages.
