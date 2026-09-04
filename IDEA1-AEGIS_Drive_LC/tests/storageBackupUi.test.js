@@ -233,6 +233,8 @@ test('STORAGE-UI-9 validated future RAID telemetry fills the same surface with m
   assert.ok(html.includes('/dev/sdc'))
   assert.ok(html.includes('3.42 ms'))
   assert.ok(html.includes('6.44 ms'))
+  assert.ok(html.includes(STRINGS.en.raidNotMeasured), 'null temperature remains explicitly unmeasured')
+  assert.equal(html.includes('0 °C'), false, 'null RAID-member temperature must never become zero')
   assert.ok(html.includes(STRINGS.en.raidStatusHealthy))
   assert.ok(html.includes(STRINGS.en.raidMemberActive))
   assert.equal(html.toLowerCase().includes('serial'), false, 'stable member identity stays server-side; serials are not exposed')
