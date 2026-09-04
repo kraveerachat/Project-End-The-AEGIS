@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "socketPath": "/run/aegis-backup/backup.sock",
+  "stateDir": "/var/lib/aegis-backup",
+  "source": {
+    "datalakePath": "/var/lib/docker/volumes/aegis_drive_storage/_data",
+    "include": ["uploads", "versions", "vault", "avatars"]
+  },
+  "postgres": {
+    "host": "172.18.0.2",
+    "port": 5432,
+    "database": "aegis_drive",
+    "user": "drive_backup",
+    "passwordFile": "/etc/aegis/backup-agent.pgpass"
+  },
+  "restic": {
+    "binary": "/usr/bin/restic",
+    "passwordFile": "/etc/aegis/backup-agent.restic-password"
+  },
+  "tools": {
+    "pgDump": "/usr/bin/pg_dump",
+    "pgRestore": "/usr/bin/pg_restore"
+  },
+  "targets": [
+    {
+      "id": "usb-external-1",
+      "label": "External USB SSD",
+      "type": "external-mount",
+      "mountPoint": "/mnt/aegis-backup",
+      "repositoryPath": "/mnt/aegis-backup/aegis-restic"
+    }
+  ],
+  "limits": {
+    "quiesceLeaseSeconds": 900,
+    "quiesceAckTimeoutSeconds": 120,
+    "maxBackupAgeHours": 36,
+    "verifyIntervalDays": 7
+  }
+}

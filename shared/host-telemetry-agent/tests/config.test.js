@@ -66,7 +66,18 @@ test('loadAgentConfig defaults to the approved production boundary', () => {
     uptime: '/proc/uptime',
     networkRx: '/sys/class/net/enp1s0/statistics/rx_bytes',
     networkTx: '/sys/class/net/enp1s0/statistics/tx_bytes',
+    // The disk-health evidence file is a plain file under /var/lib, written by
+    // the separate collector oneshot. It is a read, never a device.
+    diskHealth: '/var/lib/aegis-disk-health/disk-health.json',
   })
+  assert.equal(config.diskHealthFile, '/var/lib/aegis-disk-health/disk-health.json')
+})
+
+test('loadAgentConfig rejects a relative disk-health file and accepts an empty one as disabled', () => {
+  assert.throws(() => loadAgentConfig({ AEGIS_TELEMETRY_DISK_HEALTH_FILE: 'disk-health.json' }), /absolute/)
+  const disabled = loadAgentConfig({ AEGIS_TELEMETRY_DISK_HEALTH_FILE: '' })
+  assert.equal(disabled.diskHealthFile, null)
+  assert.equal('diskHealth' in disabled.sources, false)
 })
 
 test('loadAgentConfig honours explicit overrides and rejects unusable ones', () => {

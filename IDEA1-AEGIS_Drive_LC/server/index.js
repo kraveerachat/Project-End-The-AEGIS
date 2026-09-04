@@ -20,10 +20,21 @@ import { initVaultStaging } from './storage/vaultStaging.js'
 import { cleanupAbandonedVaultUploads, scheduleVaultUploadCleanup } from './storage/vaultUploadCleanup.js'
 import { recoverStaleVaultCommits, scheduleVaultCommitRecovery } from './storage/vaultCommitRecovery.js'
 import { initAvatarStorage } from './storage/avatarStore.js'
+import { runTrashAutoPurge, scheduleTrashAutoPurge } from './storage/trashCleanup.js'
+// Backup write-freeze coordinator — polls the host backup agent's socket and
+// holds/acknowledges the bounded freeze that keeps the DB dump and the byte
+// snapshot consistent (server/backup/maintenance.js). Harmless without an
+// agent: every poll reports unreachable and nothing is ever frozen.
+import { backupMaintenance } from './backup/index.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
 const app = createApp()
+
+async function runGuardedTrashAutoPurge() {
+  const result = await backupMaintenance.runDestructive(() => runTrashAutoPurge())
+  return result.allowed ? result.value : { examined: 0, purged: 0, deferred: true }
+}
 
 // Day-0 bootstrap ก่อนเปิดพอร์ตรับ request — ถ้า ADMIN_BOOTSTRAP_* ตั้งค่าผิดรูปแบบ
 // (เช่นใส่รหัสดิบแทน bcrypt hash) ต้อง crash ตั้งแต่ตรงนี้ ไม่ใช่เงียบแล้วรันต่อแบบไม่ปลอดภัย
@@ -40,7 +51,12 @@ Promise.all([
   bootstrapAdminIfNeeded(), initStorage(), initUploadStaging(), initVaultStorage(),
   initVaultStaging(), initAvatarStorage(),
 ])
-  .then(() => {
+  .then(async () => {
+    // Observe a pre-existing host backup lease before any Trash byte cleanup.
+    // The coordinator then tracks every scheduled purge as an in-flight
+    // destructive operation, so it cannot acknowledge a snapshot mid-purge.
+    await backupMaintenance.tick()
+    backupMaintenance.start()
     // เก็บกวาดรอบแรกตอนบูต แล้วจึงตั้งรอบประจำ — session ที่ค้างจากการรันครั้งก่อนต้อง
     // ถูกเก็บกวาดโดยไม่ต้องรอครบหนึ่งชั่วโมง (ล้มเหลวไม่กันการเปิดพอร์ต: มันคือการเก็บ
     // กวาดพื้นที่ ไม่ใช่ด่านความปลอดภัย และ scheduleUploadCleanup จะลองใหม่เอง)
@@ -85,6 +101,13 @@ Promise.all([
       })
       .catch((err) => console.error('[aegis-drive] initial vault upload cleanup failed:', err.message))
     scheduleVaultUploadCleanup()
+
+    runGuardedTrashAutoPurge()
+      .then(({ purged }) => {
+        if (purged) console.log(`[aegis-drive] protected trash auto-purged ${purged} file(s)`)
+      })
+      .catch((err) => console.error('[aegis-drive] initial trash auto-purge failed:', err.message))
+    scheduleTrashAutoPurge(runGuardedTrashAutoPurge)
 
     app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'
