@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link2, Plus, ShieldCheck, Globe, Copy } from 'lucide-react'
 import { Card, CardTitle, Chip, Btn, Modal, ModalClose, PillSelect, PillInput, Field, Segmented, ErrorState, InlineEmptyState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { useApi, useNow } from '../lib/hooks.js'
@@ -114,10 +114,28 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   useEffect(() => {
     if (initialFileId) setFileId(initialFileId)
   }, [initialFileId])
+  /* ── ค่าตั้งต้นของฟอร์ม — มาจากค่าที่บัญชีนี้บันทึกไว้ (จอ Settings) ──────────
+     ⚠️ ค่าเริ่มต้นใน useState ตรงนี้เท่ากับ DEFAULT ของคอลัมน์ในฐานข้อมูลทุกตัว
+        ฟอร์มจึงไม่กระพริบจากค่าหนึ่งไปอีกค่าหนึ่งสำหรับบัญชีที่ยังไม่เคยตั้งค่าเอง
+     ⚠️ ทิศทางเดียว: จอนี้ "อ่าน" ค่าเริ่มต้นเท่านั้น การแก้ฟอร์มเพื่อสร้างลิงก์หนึ่งใบ
+        ต้องไม่เขียนทับค่าเริ่มต้นของบัญชี ไม่งั้นการสร้างลิงก์ชั่วคราวที่เปิดกว้าง
+        หนึ่งครั้งจะกลายเป็นนโยบายถาวรของทุกลิงก์ถัดไปโดยที่ผู้ใช้ไม่รู้ตัว */
+  const shareDefaultsApi = useApi('/api/security/settings')
   const [expiry, setExpiry] = useState('24h')
   const [auth, setAuth] = useState('password')
   const [linkPassword, setLinkPassword] = useState('')
   const [scope, setScope] = useState('zones')
+  const defaultsAppliedRef = useRef(false)
+  useEffect(() => {
+    const defaults = shareDefaultsApi.data?.settings?.shareDefaults
+    // ใช้ครั้งเดียวต่อการเข้าจอ — ไม่งั้นการ refetch จะรีเซ็ตสิ่งที่ผู้ใช้เพิ่งเลือกไว้
+    if (!defaults || defaultsAppliedRef.current) return
+    defaultsAppliedRef.current = true
+    setExpiry(defaults.expiry)
+    setScope(defaults.scope)
+    // requirePassword เป็น boolean ไม่ใช่รหัสผ่าน — แปลงเป็น authType ที่สัญญาแชร์รู้จัก
+    setAuth(defaults.requirePassword ? 'password' : 'none')
+  }, [shareDefaultsApi.data])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(null) // null | 'input' | 'zones' | 'server'
   // ⚠️ URL ของลิงก์ถูกแสดง "ครั้งเดียว" ตรงนี้ — เซิร์ฟเวอร์เก็บแต่ sha256 ของ token

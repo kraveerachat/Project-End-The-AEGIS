@@ -49,7 +49,13 @@ import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
      ปิดแท็บ = หาย ไม่มีสำเนาใน localStorage/sessionStorage/IndexedDB ที่ใดเลย */
 
 // ล็อกอัตโนมัติเมื่อไม่มีการใช้งาน — จอที่ปลดล็อกค้างไว้คือกุญแจที่วางทิ้งไว้บนโต๊ะ
-const IDLE_LOCK_MS = 10 * 60_000
+//
+// ⚠️ ค่านี้เป็นแค่ "ค่าตั้งต้นเมื่อยังอ่านค่าของบัญชีไม่ได้" ไม่ใช่ค่าที่ใช้จริงเสมอไป —
+//    ค่าจริงมาจาก GET /api/security/settings (vaultAutoLockMinutes) ซึ่งผู้ใช้ตั้งเอง
+//    ได้ที่จอ Settings ตัวเลข 10 ตรงนี้เท่ากับ DEFAULT ของคอลัมน์ในฐานข้อมูล จึงไม่มี
+//    ช่วงเวลาใดที่จอนี้ล็อกเร็วหรือช้ากว่าที่บัญชีตั้งไว้ระหว่างรอ fetch
+const DEFAULT_IDLE_LOCK_MINUTES = 10
+const IDLE_LOCK_MS = DEFAULT_IDLE_LOCK_MINUTES * 60_000
 const MIN_PASSPHRASE = 12
 
 // อ้างอิงคงที่ — ป้องกัน useMemo ด้านล่างถูก invalidate ทุก render เพราะ `?? []` สร้าง array ใหม่
@@ -358,6 +364,12 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
 export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
+  // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
+  //    ที่เดียว และเซิร์ฟเวอร์ตรวจช่วงค่าซ้ำอีกชั้นเสมอ (server/db/connection.js)
+  const securitySettingsApi = useApi('/api/security/settings')
+  const idleLockMs = (
+    securitySettingsApi.data?.settings?.vaultAutoLockMinutes ?? DEFAULT_IDLE_LOCK_MINUTES
+  ) * 60_000
 
   const [kek, setKek] = useState(null)          // CryptoKey — memory เท่านั้น
   const [entries, setEntries] = useState(null)  // [{id, name, size, plainSize}] หลังถอดรหัส
@@ -513,10 +525,10 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
      (ใช้ passive listener + capture เพื่อจับ event ก่อนถึง component ใด ๆ) */
   useEffect(() => {
     if (!unlocked) return
-    let timer = setTimeout(() => lock(true), IDLE_LOCK_MS)
+    let timer = setTimeout(() => lock(true), idleLockMs)
     const bump = () => {
       clearTimeout(timer)
-      timer = setTimeout(() => lock(true), IDLE_LOCK_MS)
+      timer = setTimeout(() => lock(true), idleLockMs)
     }
     const events = ['pointerdown', 'keydown', 'wheel', 'touchstart']
     events.forEach((e) => window.addEventListener(e, bump, { passive: true, capture: true }))
@@ -524,7 +536,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       clearTimeout(timer)
       events.forEach((e) => window.removeEventListener(e, bump, { capture: true }))
     }
-  }, [unlocked, lock])
+    // ⚠️ idleLockMs อยู่ใน dependency ด้วย: ถ้าผู้ใช้เปลี่ยนค่าในอีกแท็บแล้วกลับมา
+    //    นาฬิกาต้องถูกตั้งใหม่ตามค่าใหม่ ไม่ใช่ค้างที่ค่าตอน mount
+  }, [unlocked, lock, idleLockMs])
 
   /** ถอด metadata ของทุก blob ด้วย KEK ที่เพิ่งได้ — เนื้อไฟล์ยังไม่ถูกดึงลงมา
    *  ⚠️ `type` ถูกเก็บไว้ด้วยตั้งแต่ตรงนี้: มันถูกเข้ารหัสมาพร้อมชื่อไฟล์อยู่แล้ว

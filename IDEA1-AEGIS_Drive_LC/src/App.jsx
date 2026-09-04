@@ -461,6 +461,7 @@ export default function App() {
         interfaceStyle={interfaceStyle}
         onInterfaceStyleChange={switchInterfaceStyle}
         role={effectiveRole} user={session}
+        go={go}
         initialTab={settingsTab}
         preferenceSaving={preferenceSaving}
         preferenceError={preferenceError}

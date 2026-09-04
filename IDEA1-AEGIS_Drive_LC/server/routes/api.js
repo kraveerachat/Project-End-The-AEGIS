@@ -8,7 +8,7 @@ import { verifyCredentials } from '../auth/login.js'
 import {
   establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
   setSessionDisplayName, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
-  setSessionPreferences,
+  setSessionPreferences, revokeOtherSessions,
   unlockTrashSession, lockTrashSession, trashAuthorization,
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
@@ -20,6 +20,7 @@ import {
   getUserById, createUserWithTempPassword, updatePasswordHash, listUsers,
   updateProfileName, updateAvatar, getAvatar, effectiveDisplayName,
   updateUserPreferences, DEFAULT_USER_PREFERENCES,
+  updateSecuritySettings, readSecuritySettings, readActorSecurityActivity,
 } from '../db/connection.js'
 import { ROLES } from '../rbac/permissions.js'
 import * as store from '../db/store.js'
@@ -197,6 +198,71 @@ apiRouter.patch('/preferences', requireAuth, async (req, res, next) => {
     await new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())))
     await auditAct(req, 'PREFERENCES_UPDATE', req.user.username)
     res.json({ preferences })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Per-account security settings ───────────────────────────────────────────
+//
+// Two settings with one contract, both bounded server-side (connection.js
+// normalizeSecuritySettings) and both harmless if a client lies about them:
+//
+//   vaultAutoLockMinutes  how long the Vault SCREEN may idle before the browser
+//                         throws away the KEK it derived. The server never holds
+//                         that key, so this value cannot weaken the Vault for
+//                         anyone but the account that set it, and it cannot make
+//                         the server keep plaintext it never had.
+//   shareDefaults         what the Create Share form is pre-filled with. Share
+//                         creation re-validates expiry/authType/scope on every
+//                         request (store.createShare) — a tampered default is
+//                         rejected there exactly like a tampered form field.
+//
+// ⚠️ userId มาจาก session เท่านั้น — ไม่มีทางตั้งค่าให้บัญชีอื่นผ่านเส้นนี้
+apiRouter.get('/security/settings', requireAuth, async (req, res, next) => {
+  try {
+    const settings = await readSecuritySettings(req.user.id)
+    if (!settings) return res.status(404).json({ error: 'Not found' })
+    res.json({ settings })
+  } catch (err) {
+    next(err)
+  }
+})
+
+apiRouter.patch('/security/settings', requireAuth, async (req, res, next) => {
+  try {
+    const settings = await updateSecuritySettings(req.user.id, {
+      vaultAutoLockMinutes: req.body?.vaultAutoLockMinutes,
+      shareDefaults: {
+        expiry: req.body?.shareDefaults?.expiry,
+        scope: req.body?.shareDefaults?.scope,
+        requirePassword: req.body?.shareDefaults?.requirePassword,
+      },
+    })
+    // ⚠️ 400 ครอบคลุมทั้ง "ค่าไม่อยู่ในช่วง" และ "ไม่พบบัญชี" — ผลลัพธ์เดียวกันสำหรับ
+    //    client และไม่เปิดช่องให้ probe ว่า id ไหนมีอยู่จริง (แบบเดียวกับ share revoke)
+    if (!settings) return res.status(400).json({ error: 'Invalid input' })
+    await auditAct(req, 'SECURITY_SETTINGS_UPDATE', req.user.username)
+    res.json({ settings })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * สรุปกิจกรรมความปลอดภัยของบัญชี "ตัวเอง" — จอ Settings → Security activity
+ *
+ * ⚠️ ต่างจาก GET /audit (Admin เท่านั้น) ตรงที่เส้นนี้ไม่คืนแถวดิบเลย: คืนแค่เวลา
+ *    ล่าสุดของเหตุการณ์ของตัวเอง + ตัวนับสองตัว ไม่มี source_ip, target_hash,
+ *    actor ของคนอื่น หรือ action ของคนอื่นหลุดออกไป (ดู readActorSecurityActivity)
+ * ⚠️ actorId มาจาก req.user.id เสมอ — client ระบุไม่ได้ จึงไม่มีทางอ่านของบัญชีอื่น
+ */
+apiRouter.get('/audit/me', requireAuth, async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    const activity = await readActorSecurityActivity(req.user.id)
+    if (!activity) return res.status(404).json({ error: 'Not found' })
+    res.json({ activity })
   } catch (err) {
     next(err)
   }
@@ -1175,6 +1241,22 @@ apiRouter.delete('/sessions/:ref', requireAuth, async (req, res, next) => {
     if (!ok) return res.status(404).json({ error: 'Not found' })
     await auditAct(req, 'SESSION_REVOKE', req.params.ref)
     res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * ออกจากระบบทุกอุปกรณ์อื่น — เก็บเซสชันปัจจุบันไว้
+ * ⚠️ ตัวเลข revoked เป็นจำนวนที่ถูกทำลาย "สำเร็จจริง" ไม่ใช่จำนวนที่พบ — จอ Settings
+ *    รายงานค่านี้ตรง ๆ ไม่แปลงเป็นข้อความ "สำเร็จ" เหมารวม
+ * ⚠️ ไม่มี body: ไม่มีอะไรให้ client เลือกได้ นอกจาก "ทุกอันที่ไม่ใช่อันนี้"
+ */
+apiRouter.post('/sessions/revoke-others', requireAuth, async (req, res, next) => {
+  try {
+    const revoked = await revokeOtherSessions(req)
+    await auditAct(req, 'SESSION_REVOKE_OTHERS', req.user.username)
+    res.json({ revoked })
   } catch (err) {
     next(err)
   }

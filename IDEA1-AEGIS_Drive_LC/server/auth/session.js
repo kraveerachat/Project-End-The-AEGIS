@@ -292,6 +292,53 @@ export function revokeSessionByRef(req, ref) {
   })
 }
 
+/**
+ * เพิกถอน "ทุกเซสชันอื่น" ของบัญชีนี้ — เก็บเซสชันปัจจุบันไว้เสมอ
+ *
+ * ⚠️ เงื่อนไขการข้ามมีสองชั้นและต้องมีครบทั้งคู่:
+ *      1. sid === req.sessionID           → เซสชันที่กำลังใช้อยู่ ห้ามทำลาย
+ *      2. data.user.id === userId ปัจจุบัน → เซสชันของบัญชีอื่น ห้ามแตะ
+ *    ชั้นที่ 2 คือด่านกันการเพิกถอนข้ามบัญชี: store.all() คืนเซสชันของ "ทุกคน"
+ *    บนเครื่องนี้ ไม่ใช่เฉพาะของผู้เรียก (แบบเดียวกับ revokeSessionByRef ด้านบน)
+ *
+ * คืนจำนวนที่ทำลายสำเร็จจริง — ไม่ใช่จำนวนที่ "ตั้งใจจะทำลาย" เพื่อให้ UI รายงานผลตามจริง
+ * ⚠️ session store เป็น MemoryStore: ผลของฟังก์ชันนี้หายไปพร้อมการรีสตาร์ทเซิร์ฟเวอร์
+ *    (ซึ่งตอนนั้นทุกเซสชันหายอยู่แล้ว) — จอ Settings ประกาศข้อจำกัดนี้ผ่าน `volatile`
+ */
+export function revokeOtherSessions(req) {
+  const store = req.sessionStore
+  const userId = req.session?.user?.id
+  if (!store?.all || !store?.destroy || userId == null) return Promise.resolve(0)
+
+  return new Promise((resolve) => {
+    store.all((err, sessions) => {
+      if (err || !sessions) return resolve(0)
+      const entries = Array.isArray(sessions)
+        ? sessions.map((s) => [s.id ?? null, s])
+        : Object.entries(sessions)
+
+      const targets = []
+      for (const [sid, s] of entries) {
+        if (!sid || sid === req.sessionID) continue
+        const data = typeof s === 'string' ? safeParse(s) : s
+        if (!data?.user || String(data.user.id) !== String(userId)) continue
+        targets.push(sid)
+      }
+      if (targets.length === 0) return resolve(0)
+
+      let done = 0
+      let revoked = 0
+      for (const sid of targets) {
+        store.destroy(sid, (destroyErr) => {
+          if (!destroyErr) revoked += 1
+          done += 1
+          if (done === targets.length) resolve(revoked)
+        })
+      }
+    })
+  })
+}
+
 /** ทำลายเซสชันฝั่งเซิร์ฟเวอร์ + ล้าง cookie ฝั่ง client */
 export function destroySession(req, res) {
   return new Promise((resolve) => {

@@ -73,12 +73,34 @@ test('Access receives the authenticated account and keeps an additional-account 
 })
 
 test('Settings is Twingate-only and does not offer a fake working mnemonic generator', async () => {
-  const source = await read('../src/screens/Settings.jsx')
-  assert.doesNotMatch(source, /VPN \+ VLAN|VPN \(0-A\)/)
-  assert.match(source, /t\('remoteInactive'\)/)
-  assert.match(source, /t\('vaultRecoveryNotConnected'\)/)
-  assert.match(source, /t\('generateRecoveryPhrase'\)/)
-  assert.match(source, /disabled/)
+  // The intent of this test is unchanged — no invented remote channel, and no
+  // control that implies a vault recovery path exists. What changed is that the
+  // recovery button is now GONE rather than present-and-disabled, and the
+  // connector row states that telemetry is unmeasured rather than showing a
+  // measured-looking "Inactive". Both are asserted here and in the panels file,
+  // because the copy those keys carried now lives in SettingsPanels.jsx.
+  const [source, panels] = await Promise.all([
+    read('../src/screens/Settings.jsx'),
+    read('../src/components/SettingsPanels.jsx'),
+  ])
+  const both = `${source}
+${panels}`
+  assert.doesNotMatch(both, /VPN \+ VLAN|VPN \(0-A\)/)
+
+  // A disabled "Generate 12-word recovery phrase" button is still a promise of
+  // recovery. It must not exist in any state, enabled or otherwise.
+  assert.doesNotMatch(both, /generateRecoveryPhrase/)
+  assert.doesNotMatch(both, /vaultRecoveryNotConnected/)
+  assert.match(panels, /t\('vaultRecMethod'\)/)
+  assert.match(panels, /t\('valNotSupported'\)/)
+
+  // "Inactive" was a measurement Drive never took. The replacement says so.
+  assert.doesNotMatch(both, /t\('remoteInactive'\)/)
+  assert.match(panels, /t\('remoteTelemetryLabel'\)/)
+  assert.match(panels, /t\('valNotMeasured'\)/)
+
+  // Twingate remains the only named remote channel.
+  assert.match(panels, /t\('remoteChannelValue'\)/)
 })
 
 test('a backend that is not wired yet is handled separately from a transport fetch error', () => {
