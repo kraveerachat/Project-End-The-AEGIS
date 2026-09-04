@@ -231,6 +231,24 @@ capture is idle, but does not merge that backend change. Reconcile the intended
 deployment revision before rollout and repeat real assigned-camera switching,
 idle cold start, and viewer-demand release acceptance.
 
+#### Follow-up: bounded previews can create multiple viewer demands (2026-09-04)
+
+Camera Selector previews currently may establish live viewer demand for up to
+three visible, authorized and streamable cameras simultaneously. The selected
+thumbnail reuses the main decoded frame, but the other visible preview cards can
+open their own authorized live streams. This behavior does **not** move camera
+capture, Detection Engine or YOLO/SFace inference to the Beelink server and does
+not invalidate the accepted runtime-placement architecture: those workloads
+remain on the Windows Detector; Beelink continues to host Monitor, PostgreSQL,
+HUB/Drive and the stream proxy/tunnel endpoint.
+
+Future review must compare the approved live-preview behavior with a bounded
+thumbnail/snapshot alternative or a selected-camera-only full-demand policy.
+Any change must verify cleanup when switching cameras, changing preview pages,
+leaving Live Canvas and closing all viewers. Until real multi-camera load and
+long-running cleanup are measured, concurrent preview CPU, network, inference
+and recording cost remains an explicit limitation rather than a stability claim.
+
 ### Presentation-only CCTV redesign (2026-07-28)
 
 The Live canvas and authenticated Monitor shell use the confirmed IDEA1 visual language as a presentation skin over the existing real product: near-black canvas, quiet 24px grid, IDEA1-style compact topbar and sidebar, blue/violet active navigation, teal live state, restrained panels, and a balanced two-column Live workspace. The primary feed remains the visual anchor. The old thumbnail row is superseded by the bounded live-preview camera selector described above.
