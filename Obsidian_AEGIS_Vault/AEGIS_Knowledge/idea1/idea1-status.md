@@ -2082,6 +2082,14 @@ For a separate formal “large-file storage” closure above 1 GiB, preview is n
 
 ---
 
+### Capacity and functional Settings acceptance follow-up — 2026-09-04
+
+- **Capacity visualization implemented:** the Storage & Backup capacity card now uses two concentric, exact-proportion rings. The outer ring uses the whole volume as its denominator (AEGIS data, other volume usage, free space); the inner ring uses AEGIS-managed bytes as its denominator (earlier versions, other files, vault, documents, archives, media). Tiny positive categories keep full band width and exact angle, with `<0.1%` text instead of a visually inflated tick.
+- **Security & Privacy implemented as a functional surface:** authenticated users can persist vault auto-lock and enforceable default-share expiry, password requirement, and scope in one atomic save. The same panel reports current session, browser/OS user-agent claim, IP, login time, Drive reachability, and explicitly unmeasured remote-connector state without inventing telemetry.
+- **Storage & Data implemented as a functional surface:** the application reports the measured storage root, total/used/free bytes, upload reserve, and usable capacity. Backup-agent connection and configuration are distinguished; Admin schedule/retention/target controls remain available only when a valid connected-agent contract exists, while absent or malformed integrations are labelled unavailable truthfully.
+- **Verification:** local browser QA covered Classic/Neo, light/dark, desktop and 390×844 responsive layouts, style-switch logout/re-login, persisted security defaults, and disconnected integration states. The complete IDEA1 suite passed **897/964** with **67 PostgreSQL-only skips** and **0 failures**; the production build passed with the existing >500 kB chunk warning.
+- **Acceptance boundary:** this is implemented and locally verified, but is not yet production-deployed or owner-accepted. Connected backup-agent browser behavior was contract/test verified because no connected agent was available locally.
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[core/hub-aegis-entry]]

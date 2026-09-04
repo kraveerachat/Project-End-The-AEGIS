@@ -18,6 +18,8 @@
 import * as store from '../db/store.js'
 import { hostDiskHealth } from '../telemetry/diskHealth.js'
 import { backupReport } from '../backup/index.js'
+import { STORAGE_ROOT } from './fileStore.js'
+import { TRANSFER_LIMITS, reserveBytesFor } from '../config/transferLimits.js'
 
 /** RAID: not configured. There is no array to read, and nothing is guessed. */
 export const RAID_NOT_CONFIGURED = Object.freeze({
@@ -32,12 +34,16 @@ export const RAID_NOT_CONFIGURED = Object.freeze({
  * @param {() => Promise<object>} [deps.diskHealth]
  * @param {() => Promise<object>} [deps.backup]
  * @param {() => object} [deps.maintenance] sanitized freeze snapshot
+ * @param {string} [deps.storageRoot] configured mount root (authenticated UI only)
+ * @param {(totalBytes: number) => number} [deps.reserveFor] upload reserve rule
  */
 export async function buildStorageReport({
   storageStatus = store.storageStatus,
   diskHealth = hostDiskHealth,
   backup = backupReport,
   maintenance = () => null,
+  storageRoot = STORAGE_ROOT,
+  reserveFor = (totalBytes) => reserveBytesFor(totalBytes, TRANSFER_LIMITS),
 } = {}) {
   const [base, disk, backupState] = await Promise.all([
     storageStatus(),
@@ -50,8 +56,15 @@ export async function buildStorageReport({
   if (!backupState.available) unavailable.backups = backupState.reason
   else if (backupState.state !== 'READY' && backupState.state !== 'RUNNING') unavailable.backups = 'not-configured'
 
+  const reserveBytes = base.capacityBytes ? reserveFor(base.capacityBytes.totalBytes) : null
+
   return {
     capacityBytes: base.capacityBytes,
+    storage: {
+      root: storageRoot,
+      reserveBytes,
+      usableBytes: base.capacityBytes ? Math.max(0, base.capacityBytes.freeBytes - reserveBytes) : null,
+    },
     usage: base.usage,
     unaccountedBytes: base.unaccountedBytes,
     diskHealth: disk,

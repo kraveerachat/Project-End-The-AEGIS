@@ -60,12 +60,28 @@ const SESSIONS = [
 
 const STORAGE = {
   capacityBytes: { totalBytes: 61_075_263_488, usedBytes: 18_300_000_000, freeBytes: 42_775_263_488 },
+  storage: { root: '/srv/aegis/datalake', reserveBytes: 3_053_763_175, usableBytes: 39_721_500_313 },
   usage: {}, unaccountedBytes: 0,
   diskHealth: { available: true, status: 'HEALTHY' },
   raid: { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' },
   backup: { available: false, state: 'UNKNOWN', reason: 'agent-unreachable' },
   maintenance: null,
   unavailable: { raid: 'not-configured', backups: 'agent-unreachable' },
+}
+
+const CONNECTED_BACKUP = {
+  report: {
+    available: true, reason: null, engine: 'restic', state: 'READY', risk: 'WARNING',
+    policy: { activeTargetId: 'usb-external-1', scheduleId: 'daily-02:00', retentionId: 'keep-7d-4w', enabled: true },
+    job: null, nextRun: '2026-09-05T02:00:00.000Z', lastSuccessfulBackup: '2026-09-04T02:00:00.000Z',
+    lastFailedBackup: null, backupAgeSeconds: 3600, maxBackupAgeSeconds: 86400, bytesCovered: 100,
+    lastSnapshotId: 'snapshot-1', integrity: 'PASS', restoreVerification: { at: null, status: 'NOT_TESTED' },
+    successRate30d: 1, completedJobs30d: 1, riskReasons: ['restore-never-verified'], target: { id: 'usb-external-1', label: 'External USB', type: 'external-mount', protection: 'DIFFERENT_DEVICE' },
+  },
+  targets: [{ id: 'usb-external-1', label: 'External USB', type: 'external-mount', protection: 'DIFFERENT_DEVICE' }],
+  allowed: { scheduleIds: ['disabled', 'daily-02:00'], retentionIds: ['keep-7d-4w'] },
+  tools: { resticPresent: true, pgDumpPresent: true },
+  history: [],
 }
 
 const ACTIVITY = {
@@ -81,6 +97,7 @@ const ACTIVITY = {
 function render({
   tab, role = 'Admin', lang = 'en', placeholderMode = false,
   settings = SAVED_SETTINGS, storage = STORAGE, activity = ACTIVITY,
+  backupView = null,
   zones = [{ id: 'z1', name: 'Edge LAN', cidr: '10.20.0.0/24' }],
   errors = {},
 } = {}) {
@@ -89,6 +106,7 @@ function render({
     '/api/sessions': fx({ sessions: SESSIONS, volatile: true }, 'sessions'),
     '/api/security/settings': fx(settings ? { settings } : null, 'settings'),
     '/api/storage': fx(storage, 'storage'),
+    '/api/backup': fx(backupView, 'backup'),
     '/api/audit/me': fx(activity ? { activity } : null, 'activity'),
     '/api/zones': fx({ zones }, 'zones'),
   }
@@ -118,6 +136,20 @@ test('the security overview reports the real session count and invents no score'
   assert.ok(/Active sessions[\s\S]{0,220}>2</.test(html), 'expected the measured session count')
   // No score, grade, or percentage-out-of-100 anywhere.
   assert.doesNotMatch(html, /Security score|\/\s*100\b|[0-9]+\s*\/\s*10\b/)
+})
+
+test('Security & Privacy leads with one explicit persisted-defaults form', () => {
+  const html = render({ tab: 'security' })
+  assert.match(html, /<form[^>]+aria-label="Protection defaults"/)
+  assert.ok(html.includes('Save security defaults'), 'the form has one explicit commit action')
+  assert.ok(html.indexOf('Protection defaults') < html.indexOf(STRINGS.en.secOverviewTitle), 'controls appear before status')
+})
+
+test('Security & Privacy identifies the current session from live session facts', () => {
+  const html = render({ tab: 'security' })
+  assert.ok(html.includes('10.20.0.11'), 'the current session IP comes from /api/sessions')
+  assert.ok(html.includes('Windows'), 'the device description is derived from the current session user agent')
+  assert.ok(html.includes(STRINGS.en.thisDevice))
 })
 
 // ── Private Vault ────────────────────────────────────────────────────────────
@@ -233,6 +265,43 @@ test('storage overview renders measured bytes and keeps RAID truthful', () => {
   assert.ok(/56\.9|61\.1/.test(html), 'expected the measured filesystem size to be rendered')
   assert.ok(html.includes(STRINGS.en.valNotConfigured), 'RAID must still say Not configured')
   assert.doesNotMatch(html, /RAID\s*(1|5|6|10)\b|Array healthy/i)
+})
+
+test('storage overview exposes root, reserved, and usable capacity from the storage report', () => {
+  const html = render({ tab: 'storagedata' })
+  assert.ok(html.includes('/srv/aegis/datalake'), 'configured root is shown exactly as reported')
+  assert.ok(html.includes('Upload reserve'))
+  assert.ok(html.includes('Usable for uploads'))
+  assert.match(html, /37\.0|39\.7/, 'usable bytes are formatted from the live report')
+})
+
+test('backup schedule and retention controls appear only with a connected agent contract', () => {
+  const disconnected = render({ tab: 'storagedata', backupView: null })
+  assert.doesNotMatch(disconnected, /id="backup-schedule"|id="backup-retention"/)
+
+  const connected = render({
+    tab: 'storagedata',
+    backupView: CONNECTED_BACKUP,
+    storage: { ...STORAGE, backup: CONNECTED_BACKUP.report, unavailable: { raid: 'not-configured' } },
+  })
+  assert.match(connected, /id="backup-schedule"/)
+  assert.match(connected, /id="backup-retention"/)
+  assert.ok(connected.includes(STRINGS.en.backupSave))
+})
+
+test('backup live state distinguishes agent connection from policy configuration', () => {
+  const disconnected = render({ tab: 'storagedata', backupView: null })
+  assert.ok(disconnected.includes(STRINGS.en.backupSettingsStatusTitle.replace('&', '&amp;')), 'React escapes the ampersand in static markup')
+  assert.ok(disconnected.includes(STRINGS.en.notConnected))
+
+  const connected = render({
+    tab: 'storagedata',
+    backupView: CONNECTED_BACKUP,
+    storage: { ...STORAGE, backup: CONNECTED_BACKUP.report, unavailable: { raid: 'not-configured' } },
+  })
+  assert.ok(connected.includes(STRINGS.en.backupAgentConnected))
+  assert.ok(connected.includes(STRINGS.en.scheduleDaily0200))
+  assert.ok(connected.includes(STRINGS.en.retentionKeep7d4w))
 })
 
 test('the unimplemented snapshot placeholder is gone and real protections are named', () => {

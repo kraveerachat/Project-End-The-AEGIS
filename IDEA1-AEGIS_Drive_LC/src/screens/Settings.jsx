@@ -6,9 +6,9 @@ import {
   Modal, ModalClose,
 } from '../components/ui.jsx'
 import {
-  SecurityOverviewCard, VaultProtectionCard, VaultAutoLockCard, VaultRecoveryPolicyCard,
-  ShareDefaultsCard, RemoteAccessCard, ConnectionTestCard, SecurityActivityCard,
-  StorageOverviewCard, DataProtectionCard, BackupReadinessCard,
+  SecurityOverviewCard, SecurityDefaultsCard, VaultProtectionCard, VaultRecoveryPolicyCard,
+  RemoteAccessCard, ConnectionTestCard, SecurityActivityCard,
+  StorageOverviewCard, BackupStatusCard, DataProtectionCard, BackupReadinessCard,
   EncryptionPostureCard, AdminLinksCard, CategoryChip,
 } from '../components/SettingsPanels.jsx'
 import { canAdministrate } from '../lib/authz.js'
@@ -446,7 +446,7 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
   }
 
   // Storage + own-account security activity — both read-only, both real sources.
-  const storageApi = useApi('/api/storage')
+  const storageApi = useApi('/api/storage', { refreshMs: 60_000 })
   const activityApi = useApi('/api/audit/me')
 
   /* ⚠️ ทุก error ของจอนี้ต้องผ่าน visibleFetchError ก่อนเสมอ — placeholderMode แปลว่า
@@ -606,56 +606,37 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
 
         {activeTab === 'security' && (
           <div className="flex flex-col gap-5 fade-in">
-            {/* Ordered so the page reads outward from the account: what is true
-                now, then the vault, then what leaves the machine, then history. */}
+            {/* Controls lead; live and architectural status follows. The form waits
+                for server values so it never flashes a guessed default. */}
+            {settings ? (
+              <SecurityDefaultsCard
+                t={t}
+                value={settings}
+                onSave={saveSecuritySettings}
+                saving={settingsSaving}
+                error={settingsError}
+              />
+            ) : (
+              <Card className="p-5">
+                <CardTitle>{t('securityDefaultsTitle')}</CardTitle>
+                {securityError ? <ErrorState t={t} kind={securityError} onRetry={securityApi.retry} /> : <SkeletonLoader />}
+              </Card>
+            )}
+
             <SecurityOverviewCard
               t={t}
+              lang={lang}
               sessions={sessionsApi.data?.sessions}
               sessionsLoading={sessionsApi.loading}
               settings={settings}
+              onRefresh={sessionsApi.refresh}
               onManageSessions={() => setTab('account')}
             />
 
-            <VaultProtectionCard t={t} />
-
-            {/* ⚠️ The two configurable panels wait for the server's own values
-                rather than rendering a guessed default first — a control that
-                shows 10 minutes before the account's real 30 has loaded would
-                misreport the current policy for as long as the fetch takes. */}
-            {settings ? (
-              <VaultAutoLockCard
-                t={t}
-                value={settings.vaultAutoLockMinutes}
-                onSave={(minutes) => saveSecuritySettings({ ...settings, vaultAutoLockMinutes: minutes })}
-                saving={settingsSaving}
-                error={settingsError}
-              />
-            ) : (
-              <Card className="p-5">
-                <CardTitle>{t('vaultAutoLockTitle')}</CardTitle>
-                {securityError ? <ErrorState t={t} kind={securityError} onRetry={securityApi.retry} /> : <SkeletonLoader />}
-              </Card>
-            )}
-
-            <VaultRecoveryPolicyCard t={t} />
-
-            {settings ? (
-              <ShareDefaultsCard
-                t={t}
-                value={settings.shareDefaults}
-                onSave={(shareDefaults) => saveSecuritySettings({ ...settings, shareDefaults })}
-                saving={settingsSaving}
-                error={settingsError}
-              />
-            ) : (
-              <Card className="p-5">
-                <CardTitle>{t('shareDefaults')}</CardTitle>
-                {securityError ? <ErrorState t={t} kind={securityError} onRetry={securityApi.retry} /> : <SkeletonLoader />}
-              </Card>
-            )}
-
-            <RemoteAccessCard t={t} />
             <ConnectionTestCard t={t} lang={lang} />
+            <RemoteAccessCard t={t} />
+            <VaultProtectionCard t={t} />
+            <VaultRecoveryPolicyCard t={t} />
             <SecurityActivityCard
               t={t}
               lang={lang}
@@ -682,7 +663,17 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
               loading={storageApi.loading}
               error={storageError}
               onRetry={storageApi.retry}
+              onRefresh={storageApi.refresh}
               onViewStorage={() => go?.('storage')}
+            />
+            <BackupStatusCard
+              t={t}
+              lang={lang}
+              backup={storageApi.data?.backup ?? null}
+              loading={storageApi.loading}
+              error={storageError}
+              onRetry={storageApi.retry}
+              onRefresh={storageApi.refresh}
             />
             <DataProtectionCard t={t} />
 

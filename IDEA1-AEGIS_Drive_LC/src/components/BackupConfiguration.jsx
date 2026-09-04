@@ -18,14 +18,14 @@ import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch } from '../lib/api.js'
 import { fmtDateTime } from '../lib/format.js'
 
-const SCHEDULE_LABEL = {
+export const SCHEDULE_LABEL = {
   'disabled': 'scheduleDisabled',
   'every-6h': 'scheduleEvery6h',
   'daily-02:00': 'scheduleDaily0200',
   'daily-03:30': 'scheduleDaily0330',
   'weekly-sun-03:00': 'scheduleWeeklySun0300',
 }
-const RETENTION_LABEL = {
+export const RETENTION_LABEL = {
   'keep-7d-4w': 'retentionKeep7d4w',
   'keep-14d-8w-6m': 'retentionKeep14d8w6m',
   'keep-30d-12w-12m': 'retentionKeep30d12w12m',

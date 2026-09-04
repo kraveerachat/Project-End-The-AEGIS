@@ -211,6 +211,21 @@ Sidebar groups use compact labels and real server-filtered destinations. Classic
 
 The 45-degree one-pixel hatch is the product signature. It marks ciphertext, loading skeletons, empty unavailable regions, or information the system cannot measure. It never means decoration.
 
+### Capacity Visualization
+
+- One accessible concentric chart answers two different questions with two declared denominators.
+- The outer ring uses the whole filesystem volume: AEGIS-accounted bytes, other used bytes on that volume, and measured free bytes.
+- The inner ring uses AEGIS-accounted bytes only: earlier versions, other files, vault ciphertext, documents, archives, and media.
+- Every positive segment uses the full band thickness and its exact angular share. There is no minimum-angle inflation, rounded-cap inflation, or thin-tick fallback; sub-pixel shares remain discoverable through exact byte values and a `<0.1%` legend label.
+- “Other on this volume” is a measured byte remainder with unknown ownership, so this chart gives it a solid neutral data color and explicit explanatory copy. Hatch remains reserved for surfaces whose state or content cannot be measured at all.
+
+### Functional Settings Surfaces
+
+- Security & Privacy leads with one persisted form for vault auto-lock and new-share defaults, then reports current session facts and architectural limits from their real sources.
+- Storage & Data reports the configured storage root, measured used/free capacity, the server's upload reserve, and currently usable upload capacity.
+- Backup connection and policy state are read live. Schedule, retention, target, and enablement controls appear only to authorized administrators when the backup agent supplies its contract; absent integrations say not connected, not configured, unavailable, or not implemented as appropriate.
+- User-agent-derived device names are recognition hints only, never device attestation or authorization signals. Connector health is never inferred from browser reachability.
+
 ## 6. Do's and Don'ts
 
 ### Do:
