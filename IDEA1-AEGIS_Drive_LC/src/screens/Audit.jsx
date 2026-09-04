@@ -79,10 +79,15 @@ export function Audit({ t, placeholderMode = false }) {
             <option value="30d">{t('days30')}</option>
           </PillSelect>
         </div>
-        <div className="w-40">
-          <PillSelect aria-label={t('colResult')} value={result} onChange={(e) => setResult(e.target.value)}>
-            <option value="all">{t('filterAll')}</option>
-            <option value="denied">{t('filterDenied')}</option>
+        {/* ⚠️ ตัวกรองนี้เคยแสดงแค่ "ทั้งหมด" ลอย ๆ ไม่มีคำนำหน้าเหมือนอีกสามตัว
+            ผู้ตรวจจึงไม่รู้ว่ามันกรอง "อะไร" — ทั้งที่ตัวอื่นบอกชัดว่ากรองช่วงเวลา/
+            ผู้กระทำ/การกระทำ ตอนนี้ทั้งสองตัวเลือกขึ้นต้นด้วย t('filterResult')
+            เพื่อให้ค่าที่ปรากฏบนปุ่ม (ซึ่งคือ option ที่เลือกอยู่) พูดชื่อตัวกรองเสมอ
+            พฤติกรรมการกรองไม่เปลี่ยน: ยังมีแค่ all กับ denied เหมือนเดิม */}
+        <div className="w-52">
+          <PillSelect aria-label={t('filterResult')} value={result} onChange={(e) => setResult(e.target.value)}>
+            <option value="all">{t('filterResult')} · {t('filterAll')}</option>
+            <option value="denied">{t('filterResult')} · {t('filterDenied')}</option>
           </PillSelect>
         </div>
         <div className="w-44">

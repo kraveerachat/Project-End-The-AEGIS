@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-03
+updated: 2026-09-04
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -1170,6 +1170,28 @@ These findings are recorded as awaiting a product decision in [[summaries/08_Out
 Privacy-preserving by design: target names are stored as `sha256`, so an auditor can tell that several events concern **the same** file without learning its name. *A test plants a filename, confirms the raw string appears nowhere, and confirms the events still correlate by hash.* No link token, link password or account password ever reaches the log — anyone who can read the audit could otherwise download other people's files.
 
 > ⚠️ **`recordAudit` is now awaited before responding** on every path. It used to be fire-and-forget, so under PostgreSQL a **denied** request answered `403` before its `DENIED` row committed: if the process died in that window, the rejected attempt vanished from the forensic record — the row you least want to lose. Secondary effect: the Audit screen and the activity chart both read one event stale. In a system that claims an audit trail, "the action succeeded" must include "it was recorded". The in-memory path writes synchronously, which is why this only surfaced against a real database.
+
+### Filter labelling convention (2026-09-04)
+
+The four filters above the ledger follow one rule: **a filter's resting option
+states the filter's own name** — `Date range · All`, `Result · All`,
+`Actor · All`, `Action · All`. A native `<select>` displays its selected
+option, so that text is the only label the control has; a filter resting on a
+bare "All" is anonymous to the auditor reading the row. The result filter used
+to be exactly that and was fixed
+([[2026-09-04_021500_kla_idea1-audit-result-filter-label]]).
+
+The result filter's own name is `filterResult` (`Result` / `ผลลัพธ์` / `结果`),
+a sibling of `filterActor` / `filterAction` / `filterRange`. It deliberately
+does **not** reuse `colResult`: that is the table column head, and it is
+declared twice in every locale, so the value it resolves to is not obvious at
+the call site.
+
+Its value domain is unchanged and intentionally coarse — `all` and `denied`
+only, where `denied` means *any result that is not `OK`*. That is what keeps a
+`BLOCKED` row visible under the same option as `DENIED` rather than dropping it
+silently; splitting `OK` / `DENIED` / `BLOCKED` into separate options is not a
+pending fix.
 
 ---
 
