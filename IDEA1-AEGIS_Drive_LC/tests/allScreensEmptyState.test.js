@@ -45,13 +45,20 @@ test('Upload Drawer, Shares, and Audit preserve list/table chrome around compact
 })
 
 test('Storage always renders zero categories, neutral RAID, and backup table chrome', async () => {
-  const source = await read('../src/screens/Storage.jsx')
-  assert.doesNotMatch(source, /\.filter\(\(s\) => s\.bytes > 0\)/)
+  const [source, ring] = await Promise.all([
+    read('../src/screens/Storage.jsx'),
+    read('../src/components/CapacityRing.jsx'),
+  ])
   assert.doesNotMatch(source, /if\s*\(api\.loading\)\s*return/)
   assert.doesNotMatch(source, /if\s*\(api\.error\)\s*return/)
-  assert.match(source, /t\('storageZeroGb'\)/)
   assert.match(source, /t\('backupScheduleEmpty'\)/)
   assert.match(source, /t\('setupNow'\)/)
+  // A category at zero has no arc to draw, so the ring filters it out — but it
+  // never drops out of the legend. Seeing "Archives · 0 GB" is how the reader
+  // learns the category exists at all; silently omitting it reads as "no data".
+  assert.match(ring, /t\('storageZeroGb'\)/)
+  assert.match(ring, /const absent = cats\.filter\(\(c\) => c\.bytes === 0\)/)
+  assert.match(ring, /\.\.\.absent\.map/)
 })
 
 test('Access receives the authenticated account and keeps an additional-account empty row', async () => {
