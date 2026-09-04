@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ShieldCheck, Activity, HardDrive, ExternalLink, Plug } from 'lucide-react'
+import { ShieldCheck, Activity, HardDrive, ExternalLink, Plug, RefreshCw } from 'lucide-react'
 import { Card, CardTitle, Chip, Btn, Segmented, Field, PillSelect, SkeletonLoader, ErrorState, EmptyState } from './ui.jsx'
 import { fmtBytes, fmtDateTime } from '../lib/format.js'
 import { apiFetch } from '../lib/api.js'
+import { labelFor, SCHEDULE_LABEL, RETENTION_LABEL } from './BackupConfiguration.jsx'
 
 /* ── The three kinds of Settings row ────────────────────────────────────────
    Every panel in Security & Privacy / Storage & Data / Administrator declares
@@ -33,7 +34,7 @@ export function CategoryChip({ t, kind }) {
    A definition list, not a table: these are name/value pairs, and screen readers
    announce them as such. `tone` colours only the values that carry a status;
    plain facts stay ink so the page does not turn into a colour chart. */
-export function FactRow({ label, value, tone = null, mono = true, hint = null }) {
+export function FactRow({ label, value, tone = null, mono = true, hint = null, breakWords = false }) {
   const color = tone ? `var(--${tone})` : undefined
   return (
     <div className="flex items-baseline justify-between gap-4 py-2 border-b border-line last:border-b-0 flex-wrap">
@@ -42,8 +43,9 @@ export function FactRow({ label, value, tone = null, mono = true, hint = null })
         {hint && <span className="block text-[11.5px] text-ink-3 leading-relaxed max-w-[52ch] mt-0.5">{hint}</span>}
       </dt>
       <dd
-        className={`text-[12.5px] text-ink text-right ${mono ? 'font-mono' : 'font-medium'}`}
+        className={`text-[12.5px] text-ink text-right ${mono ? 'font-mono' : 'font-medium'} ${breakWords ? 'break-all max-w-full' : ''}`}
         style={color ? { color } : undefined}
+        title={breakWords && typeof value === 'string' ? value : undefined}
       >
         {value}
       </dd>
@@ -64,14 +66,28 @@ function GroupLabel({ children }) {
   )
 }
 
+/* User-Agent is self-reported and used only as a recognition aid. It is never
+   treated as device attestation or an authorization signal. */
+function claimedDevice(userAgent, unknown) {
+  if (!userAgent) return unknown
+  const os = /Windows/.test(userAgent) ? 'Windows' : /Android/.test(userAgent) ? 'Android'
+    : /iPhone|iPad/.test(userAgent) ? 'iOS' : /Mac OS X/.test(userAgent) ? 'macOS'
+    : /Linux/.test(userAgent) ? 'Linux' : null
+  const browser = /Edg\//.test(userAgent) ? 'Edge' : /OPR\//.test(userAgent) ? 'Opera'
+    : /Chrome\//.test(userAgent) ? 'Chrome' : /Safari\//.test(userAgent) && !/Chrome/.test(userAgent) ? 'Safari'
+    : /Firefox\//.test(userAgent) ? 'Firefox' : null
+  return [browser, os].filter(Boolean).join(' · ') || userAgent.slice(0, 40)
+}
+
 /* ── Security overview ──────────────────────────────────────────────────────
    Deliberately NOT a score. Every line is either a value the server just told
    us or a fixed architectural fact; nothing here is derived by weighting one
    against another, because a single number would invite the user to treat
    "8/10" as a safety guarantee the system cannot make. */
-export function SecurityOverviewCard({ t, sessions, sessionsLoading, settings, onManageSessions }) {
+export function SecurityOverviewCard({ t, lang, sessions, sessionsLoading, settings, onRefresh, onManageSessions }) {
   const sessionCount = sessions?.length ?? null
   const shareDefaultsSet = Boolean(settings)
+  const current = sessions?.find((session) => session.current) ?? null
 
   return (
     <Card className="p-5">
@@ -88,11 +104,18 @@ export function SecurityOverviewCard({ t, sessions, sessionsLoading, settings, o
               label={t('secSessionsCount')}
               value={sessionsLoading ? '…' : (sessionCount ?? '—')}
             />
-            <FactRow label={t('secCurrentSession')} value={t('thisDevice')} />
+            <FactRow label={t('secCurrentSession')} value={current ? `${t('secSessionAuthenticated')} · ${t('thisDevice')}` : t('valUnavailable')} tone={current ? 'ok' : null} />
+            <FactRow label={t('secSessionDevice')} value={current ? claimedDevice(current.userAgent, t('deviceUnknown')) : '—'} mono={false} hint={t('secSessionDeviceHint')} />
+            <FactRow label={t('secSessionAddress')} value={current?.ip ?? '—'} />
+            <FactRow label={t('secSessionStarted')} value={current?.loginAt ? fmtDateTime(current.loginAt, lang) : '—'} />
           </FactList>
-          <Btn variant="outline" size="sm" className="mt-2.5" onClick={onManageSessions}>
-            {t('secManageSessions')}
-          </Btn>
+          <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+            <Btn variant="outline" size="sm" onClick={onRefresh} disabled={sessionsLoading}>
+              <RefreshCw size={14} strokeWidth={1.5} />
+              {t('refreshStatus')}
+            </Btn>
+            <Btn variant="outline" size="sm" onClick={onManageSessions}>{t('secManageSessions')}</Btn>
+          </div>
         </div>
 
         <div>
@@ -172,33 +195,6 @@ export function VaultProtectionCard({ t }) {
    cannot widen anything server-side, because the server never had the key. */
 const AUTO_LOCK_CHOICES = [5, 10, 15, 30, 60]
 
-export function VaultAutoLockCard({ t, value, onSave, saving, error }) {
-  return (
-    <Card className="p-5">
-      <CardTitle right={<CategoryChip t={t} kind="configurable" />}>{t('vaultAutoLockTitle')}</CardTitle>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-medium text-ink">{t('vaultAutoLockLabel')}</p>
-          <p className="text-[12px] text-ink-3 mt-1 max-w-[56ch] leading-relaxed">{t('vaultAutoLockNote')}</p>
-        </div>
-        <Segmented
-          ariaLabel={t('vaultAutoLockLabel')}
-          options={AUTO_LOCK_CHOICES.map((n) => ({ value: n, label: String(n) }))}
-          value={value}
-          onChange={onSave}
-          disabled={saving}
-        />
-      </div>
-      <p className="text-[11.5px] text-ink-3 mt-2">{t('vaultAutoLockUnit', { n: value })}</p>
-      {error && (
-        <p role="alert" className="text-[12.5px] font-medium mt-2" style={{ color: 'var(--danger)' }}>
-          {t('vaultAutoLockSaveFailed')}
-        </p>
-      )}
-    </Card>
-  )
-}
-
 /* ── Vault recovery policy ──────────────────────────────────────────────────
    ⚠️ This card replaces a permanently-disabled "Generate 12-word recovery
       phrase" button. Do not reintroduce that control in any form. The removed
@@ -236,66 +232,93 @@ const EXPIRY_CHOICES = [
   { value: '30d', key: 'days30' },
 ]
 
-export function ShareDefaultsCard({ t, value, onSave, saving, error }) {
+/* One commit boundary for the settings this account can actually persist.
+   Staging multiple related choices before saving prevents a half-updated policy
+   and makes the panel read as a settings form rather than a row of status chips. */
+export function SecurityDefaultsCard({ t, value, onSave, saving, error }) {
+  const [draft, setDraft] = useState(value)
+  const [saveState, setSaveState] = useState(null)
+  const source = JSON.stringify(value)
+
+  useEffect(() => {
+    setDraft(value)
+    setSaveState(null)
+    // `source` is the primitive contract fingerprint. Depending on `value` as
+    // well would reset the form when a parent recreates an equivalent object.
+  }, [source])
+
+  const dirty = JSON.stringify(draft) !== source
+  const submit = async (event) => {
+    event.preventDefault()
+    if (!dirty || saving) return
+    setSaveState(null)
+    const ok = await onSave(draft)
+    setSaveState(ok ? 'saved' : 'failed')
+  }
+
   return (
     <Card className="p-5">
-      <CardTitle sub={t('shareDefaultsSub')} right={<CategoryChip t={t} kind="configurable" />}>
-        {t('shareDefaults')}
+      <CardTitle sub={t('securityDefaultsSub')} right={<CategoryChip t={t} kind="configurable" />}>
+        {t('securityDefaultsTitle')}
       </CardTitle>
+      <form aria-label={t('securityDefaultsTitle')} onSubmit={submit} className="flex flex-col gap-5">
+        <fieldset disabled={saving} className="flex flex-col gap-4">
+          <legend className="text-[13.5px] font-semibold text-ink mb-1">{t('vaultAutoLockTitle')}</legend>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(180px,260px)] items-start gap-5 max-md:grid-cols-1">
+            <div>
+              <p className="text-[13px] font-medium text-ink-2">{t('vaultAutoLockLabel')}</p>
+              <p className="text-[12px] text-ink-3 mt-1 max-w-[56ch] leading-relaxed">{t('vaultAutoLockNote')}</p>
+              <p className="text-[11.5px] text-ink-3 mt-2">{t('vaultAutoLockUnit', { n: draft.vaultAutoLockMinutes })}</p>
+            </div>
+            <PillSelect
+              aria-label={t('vaultAutoLockLabel')}
+              value={draft.vaultAutoLockMinutes}
+              onChange={(event) => { setDraft((current) => ({ ...current, vaultAutoLockMinutes: Number(event.target.value) })); setSaveState(null) }}
+            >
+              {AUTO_LOCK_CHOICES.map((minutes) => <option key={minutes} value={minutes}>{minutes}</option>)}
+            </PillSelect>
+          </div>
+        </fieldset>
 
-      <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-        <Field id="share-default-expiry" label={t('shareDefaultExpiry')}>
-          <PillSelect
-            id="share-default-expiry"
-            value={value.expiry}
-            disabled={saving}
-            onChange={(e) => onSave({ ...value, expiry: e.target.value })}
-          >
-            {EXPIRY_CHOICES.map((o) => (
-              <option key={o.value} value={o.value}>{t(o.key)}</option>
-            ))}
-          </PillSelect>
-        </Field>
-        <Field id="share-default-scope" label={t('shareDefaultScope')}>
-          <PillSelect
-            id="share-default-scope"
-            value={value.scope}
-            disabled={saving}
-            onChange={(e) => onSave({ ...value, scope: e.target.value })}
-          >
-            <option value="zones">{t('scopeZones')}</option>
-            <option value="any">{t('scopeAny')}</option>
-          </PillSelect>
-        </Field>
-      </div>
+        <fieldset disabled={saving} className="pt-5 border-t border-line flex flex-col gap-4">
+          <legend className="text-[13.5px] font-semibold text-ink mb-1">{t('shareDefaults')}</legend>
+          <p className="text-[12px] text-ink-3 -mt-3 max-w-[60ch] leading-relaxed">{t('shareDefaultsSub')}</p>
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+            <Field id="share-default-expiry" label={t('shareDefaultExpiry')}>
+              <PillSelect id="share-default-expiry" value={draft.shareDefaults.expiry} onChange={(event) => { setDraft((current) => ({ ...current, shareDefaults: { ...current.shareDefaults, expiry: event.target.value } })); setSaveState(null) }}>
+                {EXPIRY_CHOICES.map((option) => <option key={option.value} value={option.value}>{t(option.key)}</option>)}
+              </PillSelect>
+            </Field>
+            <Field id="share-default-scope" label={t('shareDefaultScope')}>
+              <PillSelect id="share-default-scope" value={draft.shareDefaults.scope} onChange={(event) => { setDraft((current) => ({ ...current, shareDefaults: { ...current.shareDefaults, scope: event.target.value } })); setSaveState(null) }}>
+                <option value="zones">{t('scopeZones')}</option>
+                <option value="any">{t('scopeAny')}</option>
+              </PillSelect>
+            </Field>
+          </div>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-ink-2">{t('shareDefaultRequirePassword')}</p>
+              <p className="text-[12px] text-ink-3 mt-1 max-w-[54ch] leading-relaxed">{t('shareDefaultRequirePasswordNote')}</p>
+            </div>
+            <Segmented
+              ariaLabel={t('shareDefaultRequirePassword')}
+              options={[{ value: 'on', label: t('requireOn') }, { value: 'off', label: t('requireOff') }]}
+              value={draft.shareDefaults.requirePassword ? 'on' : 'off'}
+              onChange={(next) => { setDraft((current) => ({ ...current, shareDefaults: { ...current.shareDefaults, requirePassword: next === 'on' } })); setSaveState(null) }}
+            />
+          </div>
+          <p className="text-[11.5px] text-ink-3 leading-relaxed max-w-[62ch]">{t('shareDefaultsNoStoredPassword')}</p>
+        </fieldset>
 
-      <div className="flex items-start justify-between gap-4 mt-4 pt-4 border-t border-line flex-wrap">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-medium text-ink">{t('shareDefaultRequirePassword')}</p>
-          <p className="text-[12px] text-ink-3 mt-1 max-w-[54ch] leading-relaxed">
-            {t('shareDefaultRequirePasswordNote')}
-          </p>
+        <div className="flex items-center gap-3 pt-4 border-t border-line flex-wrap">
+          <Btn variant="primary" size="sm" type="submit" disabled={saving || !dirty}>
+            {saving ? t('saving') : t('saveSecurityDefaults')}
+          </Btn>
+          {saveState === 'saved' && <span role="status" className="text-[12.5px] font-medium text-ok">{t('securityDefaultsSaved')}</span>}
+          {(error || saveState === 'failed') && <span role="alert" className="text-[12.5px] font-medium text-danger">{t('securityDefaultsSaveFailed')}</span>}
         </div>
-        <Segmented
-          ariaLabel={t('shareDefaultRequirePassword')}
-          options={[
-            { value: 'on', label: t('requireOn') },
-            { value: 'off', label: t('requireOff') },
-          ]}
-          value={value.requirePassword ? 'on' : 'off'}
-          disabled={saving}
-          onChange={(v) => onSave({ ...value, requirePassword: v === 'on' })}
-        />
-      </div>
-
-      <p className="text-[11.5px] text-ink-3 leading-relaxed mt-3 max-w-[62ch]">
-        {t('shareDefaultsNoStoredPassword')}
-      </p>
-      {error && (
-        <p role="alert" className="text-[12.5px] font-medium mt-2" style={{ color: 'var(--danger)' }}>
-          {t('shareDefaultsSaveFailed')}
-        </p>
-      )}
+      </form>
     </Card>
   )
 }
@@ -446,8 +469,9 @@ export function SecurityActivityCard({ t, lang, activity, loading, error, onRetr
    Read from GET /api/storage, the same document the Storage screen renders.
    `capacityBytes` is null when statfs could not be read — that is "unknown", not
    zero, and it renders as an em dash rather than as 0 B. */
-export function StorageOverviewCard({ t, data, loading, error, onRetry, onViewStorage }) {
+export function StorageOverviewCard({ t, data, loading, error, onRetry, onRefresh, onViewStorage }) {
   const cap = data?.capacityBytes ?? null
+  const storage = data?.storage ?? null
   const diskStatus = data?.diskHealth?.available ? data.diskHealth.status : null
   const pct = cap && cap.totalBytes > 0 ? Math.round((cap.usedBytes / cap.totalBytes) * 100) : null
 
@@ -463,9 +487,12 @@ export function StorageOverviewCard({ t, data, loading, error, onRetry, onViewSt
         <ErrorState t={t} kind={error} onRetry={onRetry} />
       ) : (
         <FactList>
+          <FactRow label={t('storageRootLabel')} value={storage?.root ?? '—'} breakWords />
           <FactRow label={t('storageFilesystem')} value={cap ? fmtBytes(cap.totalBytes) : '—'} />
           <FactRow label={t('storageUsedLabel')} value={cap ? fmtBytes(cap.usedBytes) : '—'} />
           <FactRow label={t('storageFreeLabel')} value={cap ? fmtBytes(cap.freeBytes) : '—'} />
+          <FactRow label={t('storageReserveLabel')} value={storage?.reserveBytes == null ? '—' : fmtBytes(storage.reserveBytes)} hint={t('storageReserveHint')} />
+          <FactRow label={t('storageUsableLabel')} value={storage?.usableBytes == null ? '—' : fmtBytes(storage.usableBytes)} tone={storage?.usableBytes === 0 ? 'warn' : null} hint={t('storageUsableHint')} />
           <FactRow label={t('storageUsedPct')} value={pct === null ? '—' : `${pct}%`} />
           <FactRow
             label={t('diskHealth')}
@@ -477,9 +504,67 @@ export function StorageOverviewCard({ t, data, loading, error, onRetry, onViewSt
         </FactList>
       )}
 
-      <Btn variant="outline" size="sm" className="mt-3" onClick={onViewStorage}>
-        <HardDrive size={14} strokeWidth={1.5} />
-        {t('storageViewFull')}
+      <div className="flex items-center gap-2 mt-3 flex-wrap">
+        <Btn variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+          <RefreshCw size={14} strokeWidth={1.5} />
+          {t('refreshStatus')}
+        </Btn>
+        <Btn variant="outline" size="sm" onClick={onViewStorage}>
+          <HardDrive size={14} strokeWidth={1.5} />
+          {t('storageViewFull')}
+        </Btn>
+      </div>
+    </Card>
+  )
+}
+
+const BACKUP_STATE_KEY = {
+  NOT_CONFIGURED: 'backupStateNotConfigured',
+  SAME_FAILURE_DOMAIN: 'backupStateSameFailureDomain',
+  TARGET_UNAVAILABLE: 'backupStateTargetUnavailable',
+  READY: 'backupStateReady',
+  RUNNING: 'backupStateRunning',
+  UNKNOWN: 'backupStateUnknown',
+}
+
+/* Read-only live state available to every authenticated role. Mutation remains
+   in the Admin-only BackupConfiguration, but a regular user can still tell the
+   difference between connected, not configured, and unavailable. */
+export function BackupStatusCard({ t, lang, backup, loading, error, onRetry, onRefresh }) {
+  const connected = Boolean(backup?.available)
+  const invalid = String(backup?.reason ?? '').startsWith('agent-data-invalid')
+  const policy = connected ? backup.policy : null
+  return (
+    <Card className="p-5">
+      <CardTitle
+        sub={t('backupSettingsStatusSub')}
+        right={<Chip tone={connected ? 'accent' : 'neutral'}>{connected ? t('backupAgentConnected') : t('notConnected')}</Chip>}
+      >
+        {t('backupSettingsStatusTitle')}
+      </CardTitle>
+
+      {loading ? <SkeletonLoader /> : error ? <ErrorState t={t} kind={error} onRetry={onRetry} /> : (
+        <>
+          <FactList>
+            <FactRow label={t('backupAgentConnection')} value={connected ? t('backupAgentConnected') : t('notConnected')} tone={connected ? 'ok' : null} />
+            <FactRow label={t('backupConfigStateLabel')} value={connected ? t(BACKUP_STATE_KEY[backup.state] ?? 'backupStateUnknown') : t('valUnavailable')} />
+            <FactRow label={t('backupCurrentTarget')} value={backup?.target?.label ?? t('valNotConfigured')} mono={false} />
+            <FactRow label={t('backupPolicySchedule')} value={policy?.scheduleId ? labelFor(t, SCHEDULE_LABEL, policy.scheduleId) : t('valNotConfigured')} mono={false} />
+            <FactRow label={t('backupPolicyRetention')} value={policy?.retentionId ? labelFor(t, RETENTION_LABEL, policy.retentionId) : t('valNotConfigured')} mono={false} />
+            <FactRow label={t('backupPolicyEnabled')} value={policy ? (policy.enabled ? t('valEnabled') : t('valDisabled')) : t('valNotConfigured')} />
+            <FactRow label={t('backupNextRun')} value={backup?.nextRun ? fmtDateTime(Date.parse(backup.nextRun), lang) : t('backupNotScheduled')} />
+          </FactList>
+          {!connected && (
+            <p className="text-[11.5px] text-ink-3 leading-relaxed mt-3 max-w-[64ch]">
+              {invalid ? t('backupAgentInvalid') : t('backupAgentUnavailable')}
+            </p>
+          )}
+        </>
+      )}
+
+      <Btn variant="outline" size="sm" className="mt-3" onClick={onRefresh} disabled={loading}>
+        <RefreshCw size={14} strokeWidth={1.5} />
+        {t('refreshStatus')}
       </Btn>
     </Card>
   )

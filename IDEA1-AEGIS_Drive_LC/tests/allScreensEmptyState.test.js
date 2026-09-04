@@ -44,7 +44,7 @@ test('Upload Drawer, Shares, and Audit preserve list/table chrome around compact
   assert.match(audit, /t\('emptyNoAudit'\)/)
 })
 
-test('Storage always renders zero categories, neutral RAID, and backup table chrome', async () => {
+test('Storage keeps zero categories in the dual-ring legends and preserves backup table chrome', async () => {
   const [source, ring] = await Promise.all([
     read('../src/screens/Storage.jsx'),
     read('../src/components/CapacityRing.jsx'),
@@ -53,12 +53,13 @@ test('Storage always renders zero categories, neutral RAID, and backup table chr
   assert.doesNotMatch(source, /if\s*\(api\.error\)\s*return/)
   assert.match(source, /t\('backupScheduleEmpty'\)/)
   assert.match(source, /t\('setupNow'\)/)
-  // A category at zero has no arc to draw, so the ring filters it out — but it
-  // never drops out of the legend. Seeing "Archives · 0 GB" is how the reader
-  // learns the category exists at all; silently omitting it reads as "no data".
+  // A zero category has no truthful angular share, so Segment draws no arc. The
+  // complete model still flows into LegendRows, where zero values render as a
+  // disabled row. Seeing "Archives · 0 GB" keeps the empty state explicit.
   assert.match(ring, /t\('storageZeroGb'\)/)
-  assert.match(ring, /const absent = cats\.filter\(\(c\) => c\.bytes === 0\)/)
-  assert.match(ring, /\.\.\.absent\.map/)
+  assert.match(ring, /if \(row\.frac <= 0\) return null/)
+  assert.match(ring, /rows\.map\(\(row\) =>/)
+  assert.match(ring, /if \(empty\) return <li/)
 })
 
 test('Access receives the authenticated account and keeps an additional-account empty row', async () => {

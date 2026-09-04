@@ -2,8 +2,8 @@
 //
 // The ring is a picture; the legend is the record. Every assertion here exists
 // because the opposite would mislead somebody reading their own disk:
-//   - free space wearing the "AEGIS cannot identify this" hatch;
-//   - a 4 MB category drawn at a width it has not earned, with nothing saying so;
+//   - free and unaccounted used space being collapsed into one value;
+//   - a 4 MB category inflated with a minimum angle or demoted to a thin tick;
 //   - a real share rounded down to 0.0% until it reads as nothing;
 //   - a ring drawn around a denominator the filesystem never reported.
 // Nothing here checks pixels. It checks which of the numbers on screen are
@@ -49,8 +49,8 @@ const unavailableBackup = { available: false, reason: 'agent-unreachable', engin
 const raid = { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' }
 
 // A 476.8 GB volume with 149.0 GB used. Archives is 4 MB — 0.0008% of the volume,
-// far below what a 427 px circumference can draw. That is the case the minimum
-// arc width exists for, and the case the legend has to keep honest.
+// far below what a 427 px circumference can draw. The geometry remains exact,
+// and the legend is therefore responsible for keeping the category readable.
 const rich = {
   capacityBytes: { totalBytes: 512_000_000_000, usedBytes: 160_000_000_000, freeBytes: 352_000_000_000 },
   usage: { docs: 40_000_000_000, archives: 4_000_000, media: 90_000_000_000, other: 1_000_000_000, vaultSeg: 6_000_000_000, versions: 3_000_000_000 },
@@ -111,23 +111,21 @@ test('CAPACITY-RING-2 total, used, free and used share all survive the redesign 
   assert.ok(html.includes('Capacity ring:'))
 })
 
-test('CAPACITY-RING-3 hatch keeps its one meaning: unaccounted space is hatched, measured free space never is', () => {
+test('CAPACITY-RING-3 other-on-volume and free remain separate full-color segments', () => {
   const html = renderStorage({ storage: rich })
 
   const unaccounted = legendRow(html, STRINGS.en.unaccounted)
   const free = legendRow(html, STRINGS.en.free)
   assert.ok(unaccounted && free)
-  assert.ok(unaccounted.includes('hatch'), 'space the app cannot account for wears the hatch')
-  assert.equal(free.includes('hatch'), false, 'free space is measured, not unseen — it must not be hatched')
+  assert.ok(unaccounted.includes('var(--capacity-volume-other)'), 'unaccounted used bytes own the semantic other-on-volume color')
+  assert.ok(free.includes('var(--capacity-volume-free)'), 'measured free space owns a distinct semantic color')
   assert.ok(free.includes(fmtBytes(352_000_000_000)))
   assert.ok(unaccounted.includes(fmtBytes(19_996_000_000)), 'unaccounted bytes are reported, not folded into free')
 
-  // and the same split holds inside the ring, where the hatch has to be a pattern
-  assert.ok(html.includes('<pattern'))
-  assert.equal((html.match(/stroke="url\(#/g) ?? []).length, 1, 'exactly one arc is painted with the hatch')
+  assert.equal(html.includes('<pattern'), false, 'the accepted full-segment design no longer uses a patterned fallback')
 })
 
-test('CAPACITY-RING-4 a category too small to draw is disclosed, and its true share is never rounded to zero', () => {
+test('CAPACITY-RING-4 a tiny full-band category keeps its true share and is never rounded to zero', () => {
   const html = renderStorage({ storage: rich })
 
   const archives = legendRow(html, STRINGS.en.archives)
@@ -135,10 +133,7 @@ test('CAPACITY-RING-4 a category too small to draw is disclosed, and its true sh
   assert.ok(archives.includes(fmtBytes(4_000_000)), 'the exact size is in the legend')
   assert.ok(archives.includes(esc(STRINGS.en.capacityTinyShare)), 'a 0.0008% share reads as <0.1%')
   assert.equal(archives.includes('0.0%'), false, 'and never as a rounded 0.0%')
-  assert.ok(html.includes(STRINGS.en.capacityFloorNote), 'the minimum-width arc is disclosed, not silent')
-
-  // a volume with nothing sub-visible says nothing about a floor
-  assert.equal(renderStorage({ storage: sparse }).includes(STRINGS.en.capacityFloorNote), false)
+  assert.equal(html.includes(STRINGS.en.capacityFloorNote), false, 'there is no longer a visibility floor to disclose')
 })
 
 test('CAPACITY-RING-5 unreadable capacity says so instead of drawing a ring around zero', () => {
@@ -161,10 +156,11 @@ test('CAPACITY-RING-6 empty categories stay listed and stay inert rather than be
   const free = legendRow(html, STRINGS.en.free)
   assert.ok(free.includes('<button'))
   assert.ok(free.includes('aria-pressed'))
+  assert.ok(free.includes('min-h-11'), 'interactive legend rows keep a 44px mobile touch target')
 })
 
 test('CAPACITY-RING-7 the capacity card renders in every language with no raw i18n key', () => {
-  const keys = ['capacity', 'capacityLegendCategory', 'capacityLegendSize', 'capacityLegendShare', 'capacityFloorNote', 'capacityTotal', 'capacityUsed', 'capacityUsedPct', 'free', 'unaccounted']
+  const keys = ['capacity', 'capacityLegendCategory', 'capacityLegendSize', 'capacityLegendShare', 'capacityVolumeGroup', 'capacityAegisGroup', 'capacityTotal', 'capacityUsed', 'capacityUsedPct', 'free', 'unaccounted']
   for (const lang of LANGS) {
     const html = renderStorage({ lang, storage: rich })
     for (const key of keys) {

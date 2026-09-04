@@ -61,6 +61,20 @@
   --violet: #8b5cf6;
   --violet-soft: #f5f3ff;
 
+  /* Capacity visualization — semantic, data-only colors. AEGIS blue owns the
+     outer product segment; category hues stay restrained and never become UI
+     action colors. */
+  --capacity-rail: #edf2f7;
+  --capacity-aegis: #2563eb;
+  --capacity-volume-other: #94a3b8;
+  --capacity-volume-free: #dfe7f1;
+  --capacity-versions: #d97706;
+  --capacity-other-files: #64748b;
+  --capacity-vault: #0f766e;
+  --capacity-documents: #2563eb;
+  --capacity-archives: #0284c7;
+  --capacity-media: #4f46e5;
+
   /* Crisp paper depth: borders carry structure, short shadows carry elevation. */
   --elev-1: 0 2px 6px -4px rgba(15, 23, 42, 0.22);
   --elev-2: 0 4px 8px -4px rgba(15, 23, 42, 0.24);
@@ -122,6 +136,17 @@
   --danger-soft: rgba(239, 68, 68, 0.12);
   --violet: #8b5cf6;
   --violet-soft: rgba(139, 92, 246, 0.12);
+
+  --capacity-rail: #172033;
+  --capacity-aegis: #3b82f6;
+  --capacity-volume-other: #64748b;
+  --capacity-volume-free: #24324a;
+  --capacity-versions: #fbbf24;
+  --capacity-other-files: #94a3b8;
+  --capacity-vault: #2dd4bf;
+  --capacity-documents: #60a5fa;
+  --capacity-archives: #38bdf8;
+  --capacity-media: #818cf8;
 
   --elev-1: 0 2px 8px -4px rgba(0, 0, 0, 0.78);
   --elev-2: 0 4px 8px -4px rgba(0, 0, 0, 0.82);
