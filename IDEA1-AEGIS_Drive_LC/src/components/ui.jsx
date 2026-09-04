@@ -258,6 +258,17 @@ const MODAL_FORM_CONTROL = [
 ].join(', ')
 const MODAL_FALLBACK_CONTROL = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
+/* ลำดับ Tab ภายในกล่อง — ชุดเดียวกับด้านบนแต่เรียงตามตำแหน่งใน DOM ไม่ใช่ตามลำดับ
+   ความสำคัญ ใช้สำหรับ "ขัง" โฟกัสไว้ในกล่องเท่านั้น */
+const MODAL_TABBABLE = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
 function initialFocusTarget(root) {
   if (!root) return null
   return root.querySelector(MODAL_AUTOFOCUS_MARKER)
@@ -280,7 +291,19 @@ export function Modal({ open, onClose, children, width = 480, labelledBy }) {
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
-      if (e.key === 'Escape') onCloseRef.current?.()
+      if (e.key === 'Escape') { onCloseRef.current?.(); return }
+      if (e.key !== 'Tab') return
+      const root = ref.current
+      if (!root) return
+      const stops = [...root.querySelectorAll(MODAL_TABBABLE)]
+      if (stops.length === 0) { e.preventDefault(); return }
+      const first = stops[0]
+      const last = stops[stops.length - 1]
+      const active = document.activeElement
+      // โฟกัสหลุดออกไปนอกกล่องแล้ว (หรือยังไม่เคยเข้า) — ดึงกลับเข้ามา
+      if (!root.contains(active)) { e.preventDefault(); first.focus(); return }
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

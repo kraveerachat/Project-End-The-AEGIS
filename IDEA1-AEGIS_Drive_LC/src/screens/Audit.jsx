@@ -14,6 +14,17 @@ import { fmtStamp } from '../lib/format.js'
 
 const RES_LABEL = { OK: 'resOk', DENIED: 'resDenied', BLOCKED: 'resBlocked' }
 
+/* ตัวกรองภายใต้ t('filterResult') เสนอโดเมนของค่า result จริงใน ledger ทีละค่า
+   ไม่ใช่การจับกลุ่ม — value ของแต่ละ option "คือ" ค่า result ที่ถูกบันทึกไว้ตรง ๆ
+   (ยกเว้น 'all' ที่แปลว่าไม่กรอง) การเทียบจึงเป็นการเทียบเท่ากันแบบตรงตัว
+   ค่าที่เก็บในฐานข้อมูลและความหมายฝั่งเซิร์ฟเวอร์ไม่ถูกแตะ */
+const RESULT_FILTERS = [
+  { value: 'all', label: 'filterAll' },
+  { value: 'OK', label: 'filterSuccess' },
+  { value: 'DENIED', label: 'filterDenied' },
+  { value: 'BLOCKED', label: 'filterBlocked' },
+]
+
 /* ช่วงเวลาแบบ preset — สำหรับ ledger ที่เรียงตามเวลาอยู่แล้ว การเลือก "ย้อนหลังเท่าไร"
    ตรงกับคำถามที่ผู้ตรวจถามจริงมากกว่าการจิ้มปฏิทินสองครั้ง */
 const RANGE_MS = { '24h': 86_400_000, '7d': 604_800_000, '30d': 2_592_000_000 }
@@ -46,7 +57,7 @@ export function Audit({ t, placeholderMode = false }) {
   const actions = useMemo(() => [...new Set(events.map((e) => e.action))], [events])
 
   const visible = (e) =>
-    (result === 'all' || (result === 'denied' ? e.result !== 'OK' : e.result === result)) &&
+    (result === 'all' || e.result === result) &&
     (actor === 'all' || e.actor === actor) &&
     (action === 'all' || e.action === action) &&
     (range === 'all' || e.at >= nowTs - RANGE_MS[range])
@@ -79,15 +90,15 @@ export function Audit({ t, placeholderMode = false }) {
             <option value="30d">{t('days30')}</option>
           </PillSelect>
         </div>
-        {/* ⚠️ ตัวกรองนี้เคยแสดงแค่ "ทั้งหมด" ลอย ๆ ไม่มีคำนำหน้าเหมือนอีกสามตัว
-            ผู้ตรวจจึงไม่รู้ว่ามันกรอง "อะไร" — ทั้งที่ตัวอื่นบอกชัดว่ากรองช่วงเวลา/
-            ผู้กระทำ/การกระทำ ตอนนี้ทั้งสองตัวเลือกขึ้นต้นด้วย t('filterResult')
-            เพื่อให้ค่าที่ปรากฏบนปุ่ม (ซึ่งคือ option ที่เลือกอยู่) พูดชื่อตัวกรองเสมอ
-            พฤติกรรมการกรองไม่เปลี่ยน: ยังมีแค่ all กับ denied เหมือนเดิม */}
+        {/* ทุก option ขึ้นต้นด้วย t('filterResult') เพราะค่าที่ปรากฏบนปุ่มคือ option ที่
+            เลือกอยู่ — ตัวกรองจึงพูดชื่อตัวเองเสมอ เหมือนอีกสามตัวในแถวเดียวกัน
+            เดิมมีเพียง all กับ denied และ denied แปลว่า "ทุกค่าที่ไม่ใช่ OK" ทำให้
+            DENIED กับ BLOCKED ถูกยุบเป็นกลุ่มเดียว และเลือกดูเฉพาะรายการที่เป็น OK ไม่ได้เลย */}
         <div className="w-52">
           <PillSelect aria-label={t('filterResult')} value={result} onChange={(e) => setResult(e.target.value)}>
-            <option value="all">{t('filterResult')} · {t('filterAll')}</option>
-            <option value="denied">{t('filterResult')} · {t('filterDenied')}</option>
+            {RESULT_FILTERS.map((option) => (
+              <option key={option.value} value={option.value}>{t('filterResult')} · {t(option.label)}</option>
+            ))}
           </PillSelect>
         </div>
         <div className="w-44">
