@@ -206,18 +206,27 @@ export function Trash({ t }) {
     const closeUnlock = () => { setUnlockOpen(false); setPassword(''); setError(null) }
     return (
       <div>
-        {!unlockOpen && (
-          <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3" style={{ boxShadow: 'var(--elev-1)' }}>
-            <Chip tone="warn"><LockKeyhole size={12} />{t('trashLockedBadge')}</Chip>
-            <span className="text-[12.5px] text-ink-3">{t('trashLockedPlaceholder')}</span>
-            <div className="flex-1" />
-            <Btn variant="primary" size="sm" onClick={() => { setError(null); setUnlockOpen(true) }}>
-              <ShieldCheck size={14} />{t('trashLockedReopen')}
-            </Btn>
-          </div>
-        )}
+        {/* แถบสถานะอยู่ตลอด ไม่ผูกกับการเปิด/ปิดกล่อง — ถ้า mount/unmount ตามกล่อง
+            หน้าทั้งหน้าจะกระโดดขึ้นลงทุกครั้งที่กด Escape และตอนกล่องเปิดอยู่ผู้ใช้
+            ก็จะไม่เห็นเลยว่าหน้านี้คือถังขยะที่ถูกล็อกไว้ เห็นแต่กล่องลอย ๆ
+            ระหว่างกล่องเปิด แถบนี้กลายเป็น inert เหมือนเปลือกด้านหลัง จึงไม่มี
+            จุดโฟกัสใดหลุดออกไปนอก dialog */}
+        <div
+          role="status"
+          inert={unlockOpen || undefined}
+          aria-hidden={unlockOpen ? 'true' : undefined}
+          className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3"
+          style={{ boxShadow: 'var(--elev-1)' }}
+        >
+          <Chip tone="warn"><LockKeyhole size={12} />{t('trashLockedBadge')}</Chip>
+          <span className="text-[12.5px] text-ink-3">{t('trashLockedPlaceholder')}</span>
+          <div className="flex-1" />
+          <Btn variant="primary" size="sm" onClick={() => { setError(null); setUnlockOpen(true) }}>
+            <ShieldCheck size={14} />{t('trashLockedReopen')}
+          </Btn>
+        </div>
 
-        <div inert aria-hidden="true" className="select-none">
+        <div data-trash-shell inert aria-hidden="true" className="select-none">
           <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
             <div className="flex items-center gap-2.5">
               <Chip tone="warn"><Clock3 size={12} />{t('trashRetention')}</Chip>

@@ -1,17 +1,22 @@
 // tests/storageCapacityCalloutUi.test.js — AEGIS Drive (IDEA1)
-// The capacity ring's leader-line callouts.
+// The capacity card's two rings, and the honesty rule that forced them apart.
 //
-// On the production volume the AEGIS categories are tiny next to the
-// filesystem: almost the whole circumference is "other on this volume" plus
-// free space, and the real categories are slivers. The fix is to label them,
-// not to widen them. So the property under test is an honesty property:
+// On the production volume everything AEGIS stores is ~43 MB of a 119 GB
+// filesystem — about 0.03 %. No single ring can make Documents or Vault read as
+// a real arc of that volume without inflating their angle, which would be a lie
+// about how full the disk is. So the card asks two questions against two
+// declared bases:
 //
-//   a category too small to draw is drawn at the visibility floor and no
-//   larger, keeps its true bytes and true share in its callout, and the ring
-//   still closes at exactly 360° = the real filesystem total.
+//   outer ring, base = the whole volume : AEGIS data (one segment) /
+//                                         Other on this volume / Free
+//   inner ring, base = AEGIS data only  : the categories, at their true share
+//                                         of what AEGIS stores
 //
-// Angular share is the thing that can lie here. Text cannot, so the text
-// carries the precision and the geometry stays bounded.
+// Both percentages are true; they simply have different denominators, and each
+// denominator is printed next to its own ring and its own legend group. What
+// these tests defend is that neither base is ever silently swapped, that the
+// volume ring keeps AEGIS at the visibility floor rather than inflating it, and
+// that both rings still close at exactly 360°.
 import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -31,8 +36,8 @@ let createRoot
 let vite
 let CapacityCard
 
-// The visibility floor the component uses, restated here so the test fails if
-// the component quietly raises it: 2px on a radius-82 ring, as a fraction.
+// The visibility floor the component uses, restated so the test fails if the
+// component quietly raises it: 2px on a radius-82 ring, as a fraction.
 const MIN_FRAC = 2 / (2 * Math.PI * 82)
 
 before(async () => {
@@ -60,28 +65,24 @@ after(async () => {
   dom?.window.close()
 })
 
-/** jsdom has no matchMedia; the ring asks it whether there is room for callouts. */
 function stubMatchMedia(matches) {
-  dom.window.matchMedia = () => ({
-    matches,
-    addEventListener() {},
-    removeEventListener() {},
-  })
+  dom.window.matchMedia = () => ({ matches, addEventListener() {}, removeEventListener() {} })
 }
 
-// A deliberately production-shaped volume: a 128 GB filesystem where every
-// AEGIS category is a rounding error next to "other on this volume" and free.
+// A production-shaped volume: every AEGIS category is a rounding error against
+// the filesystem, but they are real, comparable sizes against each other.
 const TOTAL = 128_035_676_160
 const USAGE = {
-  docs: 2_400_000,      // ~0.0019 %  — far below the drawable floor
+  docs: 2_400_000,
   archives: 0,
-  media: 41_000_000,    // ~0.032 %   — still below the floor
-  vaultSeg: 950_000,    // ~0.0007 %
-  versions: 128_000,    // ~0.0001 %
+  media: 41_000_000,
+  vaultSeg: 950_000,
+  versions: 128_000,
   other: 0,
 }
+const AEGIS_TOTAL = Object.values(USAGE).reduce((a, b) => a + b, 0)
 const UNACCOUNTED = 18_300_000_000
-const USED = UNACCOUNTED + Object.values(USAGE).reduce((a, b) => a + b, 0)
+const USED = UNACCOUNTED + AEGIS_TOTAL
 const FREE = TOTAL - USED
 
 const PROPS = {
@@ -96,203 +97,197 @@ async function mount({ wide = true, lang = 'en', props = PROPS } = {}) {
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => root.render(React.createElement(CapacityCard, { t: makeT(lang), ...props })))
-  return {
-    host,
-    svg: () => host.querySelector('svg'),
-    /** Every drawn arc, as { start, drawn, width } fractions/pixels of the ring. */
-    arcs() {
-      const svg = host.querySelector('svg')
-      const r = Number(svg.querySelector('circle').getAttribute('r'))
-      const C = 2 * Math.PI * r
-      return [...svg.querySelectorAll('circle[stroke-dasharray]')].map((c) => {
+
+  /** Both rings expose role="img"; the hatch-pattern carrier does not. */
+  const rings = () => [...host.querySelectorAll('svg[role="img"]')]
+
+  const readRing = (svg) => {
+    const track = svg.querySelector('circle:not([stroke-dasharray])')
+    const r = Number(track.getAttribute('r'))
+    const C = 2 * Math.PI * r
+    return {
+      svg,
+      cx: Number(track.getAttribute('cx')),
+      cy: Number(track.getAttribute('cy')),
+      r,
+      band: Number(track.getAttribute('stroke-width')),
+      arcs: [...svg.querySelectorAll('circle[stroke-dasharray]')].map((c) => {
         const [drawn] = c.getAttribute('stroke-dasharray').split(' ').map(Number)
         return {
-          drawn,
           drawnFrac: drawn / C,
-          start: -Number(c.getAttribute('stroke-dashoffset')),
           startFrac: -Number(c.getAttribute('stroke-dashoffset')) / C,
           width: Number(c.getAttribute('stroke-width')),
-          C,
-          r,
         }
-      })
-    },
-    /** The full band width, read off the background track. */
-    bandWidth() {
-      const track = host.querySelector('svg circle:not([stroke-dasharray])')
-      return Number(track.getAttribute('stroke-width'))
-    },
+      }),
+    }
+  }
+
+  return {
+    host,
+    volume: () => readRing(rings()[0]),
+    aegis: () => readRing(rings()[1]),
+    ringCount: () => rings().length,
     text: () => host.textContent,
-    svgText: () => [...host.querySelectorAll('svg text')].map((n) => n.textContent),
     async unmount() { await act(async () => root.unmount()); host.remove() },
   }
 }
 
-/** The ring's own geometry, read off the background track circle. */
-function ringGeometry(svg) {
-  const track = svg.querySelector('circle:not([stroke-dasharray])')
-  return {
-    cx: Number(track.getAttribute('cx')),
-    cy: Number(track.getAttribute('cy')),
-    r: Number(track.getAttribute('r')),
-    band: Number(track.getAttribute('stroke-width')),
+/** The drawn arcs must tile the circle exactly once, in order, without overlap. */
+function assertClosesAtFullCircle(ring, name) {
+  assert.ok(ring.arcs.length > 0, `${name}: arcs are drawn`)
+  const sorted = [...ring.arcs].sort((a, b) => a.startFrac - b.startFrac)
+  const last = sorted[sorted.length - 1]
+  const end = last.startFrac + last.drawnFrac
+  assert.ok(Math.abs(1 - end) < 0.01, `${name}: segments must fill the circle exactly once (ended at ${end.toFixed(4)})`)
+  for (let i = 1; i < sorted.length; i += 1) {
+    assert.ok(
+      sorted[i].startFrac + 1e-9 >= sorted[i - 1].startFrac + sorted[i - 1].drawnFrac - 0.01,
+      `${name}: segments must not overlap`,
+    )
   }
 }
 
-/* ── the ring still describes the real filesystem ── */
+/* ── both rings describe something real ── */
 
-test('CAPACITY-CALLOUT-1 the ring still closes at exactly 360° = the real total', async () => {
+test('CAPACITY-2R-1 two rings render, and each closes at exactly 360° on its own base', async () => {
   const screen = await mount()
   try {
-    const arcs = screen.arcs()
-    assert.ok(arcs.length > 0, 'arcs are drawn')
-    const last = arcs.reduce((a, b) => (b.startFrac > a.startFrac ? b : a))
-    // The final segment ends at the top of the circle again, within the gap
-    // the design leaves between segments.
-    const end = last.startFrac + last.drawnFrac
+    assert.equal(screen.ringCount(), 2, 'the volume ring and the AEGIS breakdown ring both render')
+    assertClosesAtFullCircle(screen.volume(), 'volume ring')
+    assertClosesAtFullCircle(screen.aegis(), 'AEGIS ring')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('CAPACITY-2R-2 the volume ring carries AEGIS as ONE segment, not a fan of slivers', async () => {
+  const screen = await mount()
+  try {
+    // AEGIS data + Other on this volume + Free. Collapsing the categories into a
+    // single segment is what makes this ring readable at all.
+    assert.equal(screen.volume().arcs.length, 3, 'the volume ring has exactly three segments')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('CAPACITY-2R-3 the volume ring still refuses to inflate AEGIS', async () => {
+  const screen = await mount()
+  try {
+    const ring = screen.volume()
+    assert.ok(AEGIS_TOTAL / TOTAL < MIN_FRAC, 'the fixture really is below the floor, so this test is meaningful')
+
+    const ticks = ring.arcs.filter((a) => a.width < ring.band * 0.6)
+    assert.equal(ticks.length, 1, 'exactly the AEGIS segment is below the drawable floor')
     assert.ok(
-      Math.abs(1 - end) < 0.01,
-      `the drawn segments must fill the circle exactly once (ended at ${end.toFixed(4)})`,
+      ticks[0].drawnFrac <= MIN_FRAC * 1.05,
+      `AEGIS must be drawn at the floor, not widened to look meaningful (${ticks[0].drawnFrac} > ${MIN_FRAC})`,
     )
-    // Segments are laid end to end with no overlap and no reordering.
-    const sorted = [...arcs].sort((a, b) => a.startFrac - b.startFrac)
-    for (let i = 1; i < sorted.length; i += 1) {
-      assert.ok(
-        sorted[i].startFrac + 1e-9 >= sorted[i - 1].startFrac + sorted[i - 1].drawnFrac - 0.01,
-        'segments must not overlap one another',
-      )
-    }
+
+    // Free keeps its measured angle — the ring is still a picture of the disk.
+    const biggest = ring.arcs.reduce((a, b) => (b.drawnFrac > a.drawnFrac ? b : a))
+    assert.ok(Math.abs(biggest.drawnFrac - FREE / TOTAL) < 0.02, 'free is drawn at its measured share')
   } finally {
     await screen.unmount()
   }
 })
 
-test('CAPACITY-CALLOUT-2 a large measured segment keeps its true angular share', async () => {
+/* ── the second base is where categories become readable ── */
+
+test('CAPACITY-2R-4 against the AEGIS base the categories become real arcs, not ticks', async () => {
   const screen = await mount()
   try {
-    const arcs = screen.arcs()
-    const trueFree = FREE / TOTAL
-    // Free is the biggest segment; it is also the one the floor borrows from,
-    // so it may shrink very slightly — but it must still be its own share.
-    const freeArc = arcs.reduce((a, b) => (b.drawnFrac > a.drawnFrac ? b : a))
+    const ring = screen.aegis()
+    assert.equal(ring.arcs.length, 4, 'the four non-empty categories are drawn')
+
+    const fullBand = ring.arcs.filter((a) => a.width >= ring.band * 0.6)
+    assert.ok(fullBand.length >= 3, 'most categories now read as full-thickness arc sections')
+
+    // Media is 41 MB of 44.478 MB — a true 92 %, and visibly the dominant arc.
+    const biggest = ring.arcs.reduce((a, b) => (b.drawnFrac > a.drawnFrac ? b : a))
     assert.ok(
-      Math.abs(freeArc.drawnFrac - trueFree) < 0.02,
-      `free must be drawn at its measured share (${freeArc.drawnFrac.toFixed(4)} vs ${trueFree.toFixed(4)})`,
+      Math.abs(biggest.drawnFrac - USAGE.media / AEGIS_TOTAL) < 0.02,
+      'the dominant category is drawn at its true share of the AEGIS base',
     )
+    assert.ok(biggest.drawnFrac > 0.5, 'it is a real, readable section of the ring')
   } finally {
     await screen.unmount()
   }
 })
 
-/* ── the honesty property ── */
-
-test('CAPACITY-CALLOUT-3 a tiny category is never inflated — it is drawn at the floor, as a thin tick', async () => {
+test('CAPACITY-2R-5 a category still under the floor on the AEGIS base is still not inflated', async () => {
   const screen = await mount()
   try {
-    const arcs = screen.arcs()
-    const band = screen.bandWidth()
-    // A tick is dramatically thinner than the ring. (Free is drawn at band - 2,
-    // which is still a band segment, so the threshold has to be well below that.)
-    const ticks = arcs.filter((a) => a.width < band * 0.6)
-    assert.equal(ticks.length, 4, 'each of the four sub-floor categories is drawn as a tick, not as a band segment')
-
-    for (const tick of ticks) {
-      assert.ok(
-        tick.drawnFrac <= MIN_FRAC * 1.05,
-        `a sub-floor category must never be drawn wider than the visibility floor (${tick.drawnFrac} > ${MIN_FRAC})`,
-      )
-      assert.ok(
-        tick.width < band,
-        'a tick must be visibly thinner than the ring, so it reads as a marker rather than a share',
-      )
-    }
-
-    // The largest seeded category is 0.032 % of the volume. If the ring were
-    // inflating shares to make them legible, it would be drawn far larger.
-    const worst = Math.max(...ticks.map((t) => t.drawnFrac))
-    assert.ok(worst < 0.005, `no sub-floor category may approach a legible-looking wedge (was ${(worst * 100).toFixed(3)}%)`)
+    const ring = screen.aegis()
+    // Earlier versions is 128 KB of 44.478 MB ≈ 0.29 %, below the floor even here.
+    assert.ok(USAGE.versions / AEGIS_TOTAL < MIN_FRAC, 'the fixture keeps one sub-floor category')
+    const ticks = ring.arcs.filter((a) => a.width < ring.band * 0.6)
+    assert.equal(ticks.length, 1, 'it is drawn as a tick, at the floor')
+    assert.ok(ticks[0].drawnFrac <= MIN_FRAC * 1.05, 'and never wider than the floor')
+    assert.ok(screen.text().includes(STRINGS.en.capacityFloorNote), 'the tick treatment stays disclosed')
   } finally {
     await screen.unmount()
   }
 })
 
-test('CAPACITY-CALLOUT-4 the floor is disclosed in words, and true shares are never rounded to zero', async () => {
+/* ── the two bases are declared, never implied ── */
+
+test('CAPACITY-2R-6 each ring prints its own base, and the legend splits by base', async () => {
   const screen = await mount()
   try {
-    assert.ok(screen.text().includes(STRINGS.en.capacityFloorNote), 'the tick treatment is explained')
-    assert.ok(screen.text().includes(STRINGS.en.capacityTinyShare), 'a sub-0.1% share reads as <0.1%, never 0.0%')
-    assert.equal(screen.text().includes('0.0%'), false, 'no real category is rounded away to 0.0%')
+    const text = screen.text()
+    assert.ok(text.includes(STRINGS.en.capacityVolumeGroup), 'the volume group is named')
+    assert.ok(text.includes(STRINGS.en.capacityAegisGroup), 'the AEGIS group is named')
+    assert.ok(text.includes(STRINGS.en.capacityShareOfAegis), 'the AEGIS column says what it is a share OF')
+    assert.ok(text.includes(STRINGS.en.capacityLegendShare), 'the volume column keeps its own share label')
+
+    // The sentence that makes the second denominator explicit rather than implied.
+    const base = STRINGS.en.capacityAegisBase.split('{total}')
+    assert.ok(text.includes(base[0].trim()), 'the AEGIS base is stated in words, not left to inference')
+    assert.equal(text.includes('{total}'), false, 'the base sentence is interpolated, not raw')
   } finally {
     await screen.unmount()
   }
 })
 
-/* ── the callouts themselves ── */
-
-test('CAPACITY-CALLOUT-5 every drawn segment gets a callout carrying its name, exact size and exact share', async () => {
+test('CAPACITY-2R-7 AEGIS appears in both bases with different, individually true shares', async () => {
   const screen = await mount()
   try {
-    const labels = screen.svgText()
-    for (const key of ['docs', 'media', 'vaultSeg', 'versions']) {
-      assert.ok(labels.includes(STRINGS.en[key]), `${key} must be named in a callout`)
-    }
-    assert.ok(labels.includes(STRINGS.en.unaccounted), 'unattributed space is named')
-    assert.ok(labels.includes(STRINGS.en.free), 'free space is named')
-
-    // Each callout's second line is "<exact size> · <exact share>".
-    const figures = labels.filter((l) => l.includes(' · '))
-    assert.ok(figures.length >= 6, 'each callout states a size and a share')
-    assert.ok(
-      figures.some((f) => f.endsWith(STRINGS.en.capacityTinyShare)),
-      'a sub-0.1% category states <0.1% rather than a rounded 0%',
-    )
+    const text = screen.text()
+    // On the volume it is a sub-0.1 % sliver; inside itself it is the whole base.
+    assert.ok(text.includes(STRINGS.en.capacityTinyShare), 'the volume share of AEGIS reads as <0.1%')
+    assert.ok(text.includes(STRINGS.en.capacityAegisData), 'AEGIS data is a named row on the volume ring')
+    assert.equal(text.includes('0.0%'), false, 'nothing real is rounded away to 0.0%')
   } finally {
     await screen.unmount()
   }
 })
 
-test('CAPACITY-CALLOUT-6 a leader line starts at the true location of its own segment', async () => {
+/* ── callouts, responsive, interaction, i18n ── */
+
+test('CAPACITY-2R-8 leader lines belong to the volume ring only, and never cross the band', async () => {
   const screen = await mount()
   try {
-    const svg = screen.svg()
-    const lines = [...svg.querySelectorAll('polyline')]
-    assert.ok(lines.length >= 6, 'each drawn segment has a leader line')
+    const volume = screen.volume()
+    const aegis = screen.aegis()
+    const lines = [...volume.svg.querySelectorAll('polyline')]
+    assert.equal(lines.length, 3, 'each volume segment gets one leader')
+    assert.equal(aegis.svg.querySelectorAll('polyline').length, 0, 'the small ring maps to its legend instead')
 
-    // Read the ring's real geometry rather than restating it, so this stays
-    // true if the ring is resized.
-    const { cx, cy, r, band } = ringGeometry(svg)
+    const outer = volume.r + volume.band / 2
     for (const line of lines) {
-      const [ax, ay] = line.getAttribute('points').split(' ')[0].split(',').map(Number)
-      const radius = Math.hypot(ax - cx, ay - cy)
-      assert.ok(
-        Math.abs(radius - (r + band / 2)) < 1.5,
-        `a leader must begin on the ring's own edge, at the segment's real angle (r=${radius.toFixed(1)})`,
-      )
-    }
-  } finally {
-    await screen.unmount()
-  }
-})
-
-test('CAPACITY-CALLOUT-7 callouts do not overlap one another', async () => {
-  const screen = await mount()
-  try {
-    const svg = screen.svg()
-    const { cx } = ringGeometry(svg)
-    const byColumn = { left: [], right: [] }
-    for (const line of svg.querySelectorAll('polyline')) {
       const points = line.getAttribute('points').split(' ').map((p) => p.split(',').map(Number))
-      const [lx, ly] = points[points.length - 1]
-      byColumn[lx < cx ? 'left' : 'right'].push(ly)
-    }
-    for (const [side, ys] of Object.entries(byColumn)) {
-      const sorted = [...ys].sort((a, b) => a - b)
-      for (let i = 1; i < sorted.length; i += 1) {
-        // Each callout is two lines of type; they need more than a line-height
-        // between them or the size of one runs into the name of the next.
+      const [ax, ay] = points[0]
+      assert.ok(
+        Math.abs(Math.hypot(ax - volume.cx, ay - volume.cy) - outer) < 1.5,
+        'a leader begins on the ring edge at the segment’s real angle',
+      )
+      // Every point after the radial stub sits outside the ring's outer radius,
+      // so no leader can be drawn across the band.
+      for (const [x, y] of points.slice(2)) {
         assert.ok(
-          sorted[i] - sorted[i - 1] >= 40,
-          `[${side}] two callouts sit ${sorted[i] - sorted[i - 1]}px apart and would crowd`,
+          Math.hypot(x - volume.cx, y - volume.cy) >= outer,
+          'the leader routes around the ring, never across it',
         )
       }
     }
@@ -301,53 +296,75 @@ test('CAPACITY-CALLOUT-7 callouts do not overlap one another', async () => {
   }
 })
 
-/* ── responsive + interaction + i18n ── */
-
-test('CAPACITY-CALLOUT-8 narrow viewports drop the leader lines and keep the stacked legend', async () => {
+test('CAPACITY-2R-9 narrow viewports drop the leaders and keep both legends', async () => {
   const screen = await mount({ wide: false })
   try {
-    assert.equal(screen.svg().querySelectorAll('polyline').length, 0, 'no leader lines where they would overlap')
-    // The authoritative numbers are still fully present, in the legend.
-    assert.ok(screen.text().includes(STRINGS.en.capacityLegendCategory))
-    assert.ok(screen.text().includes(STRINGS.en.capacityLegendShare))
-    assert.ok(screen.text().includes(STRINGS.en.free))
-    assert.ok(screen.text().includes(STRINGS.en.capacityFloorNote))
+    assert.equal(screen.volume().svg.querySelectorAll('polyline').length, 0, 'no leaders where they would overlap')
+    assert.equal(screen.ringCount(), 2, 'both rings still render')
+    for (const copy of [STRINGS.en.capacityVolumeGroup, STRINGS.en.capacityAegisGroup, STRINGS.en.capacityLegendCategory, STRINGS.en.free]) {
+      assert.ok(screen.text().includes(copy), `"${copy}" survives the narrow layout`)
+    }
   } finally {
     await screen.unmount()
   }
 })
 
-test('CAPACITY-CALLOUT-9 the legend rows stay keyboard-operable pin controls', async () => {
+test('CAPACITY-2R-10 every legend row across both groups is a keyboard-operable pin control', async () => {
   const screen = await mount()
   try {
     const buttons = [...screen.host.querySelectorAll('button[aria-pressed]')]
-    assert.ok(buttons.length >= 6, 'every non-empty category is a pin control')
+    // 3 volume rows + 4 non-empty categories.
+    assert.equal(buttons.length, 7, 'each non-empty row in both groups is a pin control')
     for (const button of buttons) assert.equal(button.getAttribute('aria-pressed'), 'false')
 
     await act(async () => buttons[0].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })))
-    assert.equal(
-      screen.host.querySelectorAll('button[aria-pressed="true"]').length, 1,
-      'clicking pins exactly one category',
-    )
-
+    assert.equal(screen.host.querySelectorAll('button[aria-pressed="true"]').length, 1, 'clicking pins one row')
     await act(async () => screen.host.querySelector('button[aria-pressed="true"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })))
-    assert.equal(screen.host.querySelectorAll('button[aria-pressed="true"]').length, 0, 'clicking again unpins it')
+    assert.equal(screen.host.querySelectorAll('button[aria-pressed="true"]').length, 0, 'clicking again unpins')
+
+    // Empty categories are listed but inert — a button that does nothing lies.
+    for (const label of [STRINGS.en.archives, STRINGS.en.other]) {
+      assert.ok(screen.text().includes(label), `${label} stays listed so the category set is legible`)
+    }
   } finally {
     await screen.unmount()
   }
 })
 
-test('CAPACITY-CALLOUT-10 the ring keeps an accessible summary, in every locale', async () => {
+test('CAPACITY-2R-11 both rings keep an accessible summary in every locale', async () => {
   for (const lang of LANGS) {
     const screen = await mount({ lang })
     try {
-      const label = screen.svg().getAttribute('aria-label')
-      assert.ok(label && label.length > 0, `[${lang}] the ring has a text summary`)
-      assert.equal(label.includes('{'), false, `[${lang}] the summary has no unsubstituted placeholder`)
-      assert.equal(screen.svg().getAttribute('role'), 'img')
-      assert.equal(screen.text().includes('capacityFloorNote'), false, `[${lang}] no raw i18n key is rendered`)
+      for (const svg of [screen.volume().svg, screen.aegis().svg]) {
+        const label = svg.getAttribute('aria-label')
+        assert.ok(label && label.trim().length > 0, `[${lang}] each ring has a text summary`)
+        assert.equal(label.includes('{'), false, `[${lang}] no unsubstituted placeholder in "${label}"`)
+      }
+      for (const key of ['capacityVolumeGroup', 'capacityAegisGroup', 'capacityShareOfAegis', 'capacityAegisData']) {
+        assert.ok(screen.text().includes(STRINGS[lang][key]), `[${lang}] ${key} is translated and rendered`)
+        assert.equal(screen.text().includes(`>${key}<`), false, `[${lang}] ${key} leaked as a raw key`)
+      }
     } finally {
       await screen.unmount()
     }
+  }
+})
+
+test('CAPACITY-2R-12 a volume where AEGIS stores nothing still lists the category set', async () => {
+  const empty = {
+    capacityBytes: { totalBytes: TOTAL, usedBytes: UNACCOUNTED, freeBytes: TOTAL - UNACCOUNTED },
+    usage: { docs: 0, archives: 0, media: 0, vaultSeg: 0, versions: 0, other: 0 },
+    unaccountedBytes: UNACCOUNTED,
+  }
+  const screen = await mount({ props: empty })
+  try {
+    assert.equal(screen.ringCount(), 1, 'there is no AEGIS ring to draw when the base is zero')
+    assert.ok(screen.text().includes(STRINGS.en.capacityAegisEmpty), 'and the card says so plainly')
+    for (const key of ['docs', 'media', 'vaultSeg', 'versions', 'archives', 'other']) {
+      assert.ok(screen.text().includes(STRINGS.en[key]), `${key} stays listed even at zero`)
+    }
+    assert.equal(screen.host.querySelectorAll('button[aria-pressed]').length, 2, 'only the two real volume rows are pinnable')
+  } finally {
+    await screen.unmount()
   }
 })
