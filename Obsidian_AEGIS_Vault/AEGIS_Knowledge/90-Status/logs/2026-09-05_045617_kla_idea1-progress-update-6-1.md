@@ -21,6 +21,9 @@ The task audited the current GitHub baseline at
 `main@46573ed8dd17631f9f746de3f9c7a5f71da1a03b` and reconciled recent
 production/browser evidence into a new Progress Update 6.1 note.
 
+The PR is explicitly scoped as `area: idea1`, `owner: kla`, with no cross-scope
+integration review required because every canonical note changed is IDEA1-owned.
+
 The new snapshot records:
 - the current 10-screen navigation and PASS/PARTIAL matrix;
 - PR #70–#76 and the deployed Drive source baseline;
