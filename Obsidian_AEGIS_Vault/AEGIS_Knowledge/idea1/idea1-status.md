@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-04
+updated: 2026-09-05
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,10 +15,17 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-> **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + independent Classic/Neo interface style and Light/Dark/System theme preferences in the current feature branch)
-> **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
-> **Latest change verification**: Share Ownership Authorization Hardening is **VERIFIED IN PRODUCTION / PASS / CLOSED**. PR #30 source integration and PR #31 test normalization/verification are **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233/233** full-suite, **57/57** affected-regression, **9/9** ownership, and **17/17** share-redemption tests passing. Drive-only deployment of production source `9992557f123dbbbf05841c107d27ab285ea77ad4` completed on `aegis-system`; controlled production acceptance passed **10/10**, and post-deployment health passed. `POSTGRES_EXECUTION_GAP=CLOSED`; `READY_FOR_PRODUCTION=YES` for this authorization scope only.
-> **Protected Trash implementation (local branch)**: normal Data Lake delete is now a 30-day soft-delete with owner-only password step-up, restore, explicit permanent deletion, bounded hourly auto-purge, share invalidation, and preserved file-version bytes. Permanent deletion, empty-trash, and background purge participate in the backup write-freeze so no Trash bytes are removed across an acknowledged snapshot boundary. Private Vault is unchanged. This source has **not been deployed or production-accepted**; migration `005_protected_trash.sql` is required before a future Drive redeployment.
+> [!important] Progress Update 6.1 — current handoff
+> The detailed current-state checkpoint is [[idea1/IDEA1-Progress-Update-6.1]].
+> Use that note first when resuming from a new chat/session: it contains the 10-screen
+> acceptance matrix, Settings sub-gates, Dual Interface Style, RAID/Backup pipeline,
+> Twingate TWIN-0/TWIN-1 evidence, production runtime deltas, known limitations and
+> the ordered continuation queue as of 2026-09-05.
+
+> **Current production application source**: ✅ Production Drive remains on application baseline `46573ed8dd17631f9f746de3f9c7a5f71da1a03b` after merged runtime PRs #70–#76. Documentation-only PR #77 advances repository `main` without changing IDEA1 runtime code, so a later `main` SHA does not by itself mean production application drift. The current production Drive includes Protected Trash, Classic/Neo Dual Interface Style, functional Settings, truthful capacity/disk-health surfaces, and the RAID telemetry-ready UI.
+> **Latest full-suite evidence**: **966 discovered / 899 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #76, with Vite production build and collaboration guardrails passing. Older test totals below remain historical evidence for their own scopes and must not be read as the current suite size.
+> **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Audit Log and Access Control are **PASS / CLOSED**. Storage & Backup and Settings are **PARTIAL** because real RAID/Backup end-to-end work, SECURITY-2 auto-lock copy/1-minute option, Twingate local telemetry integration, and Administrator page acceptance remain.
+> **Current infrastructure additions outside the original Drive image**: Host Backup Agent is now active and reachable through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. The agent is connected but still `NOT_CONFIGURED`: restic/pg_dump are absent and no backup target is allowlisted. Twingate read-only discovery/preflight proved the local connector is running/healthy, but Drive still truthfully reports connector telemetry as unmeasured until TWIN-2 is implemented.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
