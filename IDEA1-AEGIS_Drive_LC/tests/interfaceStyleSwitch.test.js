@@ -82,13 +82,21 @@ const buttonByText = (text) => [...document.querySelectorAll('button')]
 const radioByLabel = (text) => [...document.querySelectorAll('button[role="radio"]')]
   .find((button) => button.querySelector('.text-ink')?.textContent.trim() === text)
 
+async function waitFor(predicate, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate() && Date.now() < deadline) {
+    await act(async () => { await settle() })
+  }
+  assert.ok(predicate(), 'authenticated Settings did not become ready before timeout')
+}
+
 async function loadAuthenticatedSettings() {
   const env = installDom()
   backend().restoreSession = true
   const { createRoot } = await import('react-dom/client')
   const root = createRoot(document.getElementById('root'))
   await act(async () => { root.render(React.createElement(App)); await settle() })
-  await act(async () => { await settle() })
+  await waitFor(() => radioByLabel('Neo'))
   return {
     click: async (element) => {
       assert.ok(element, 'element to click must exist')
