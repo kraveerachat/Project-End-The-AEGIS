@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-08-21
+updated: 2026-09-05
 owner: kla
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea1/idea1-status]] for the current, owner-maintained Drive state, then [[summaries/04_IDEA1_Drive_Build_Out]] for historical implementation context.
+Read [[idea1/IDEA1-Progress-Update-6.1]] first for the current 2026-09-05 handoff, then [[idea1/idea1-status]] for the owner-maintained canonical history, and [[summaries/04_IDEA1_Drive_Build_Out]] for older implementation context.
 
 ## Owned source and canonical notes
 
@@ -20,7 +20,19 @@ Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical op
 
 ## Current state and open work
 
-Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, and file-versioning surface. Open gaps and verified limitations are tracked in [[idea1/idea1-status]] and [[summaries/08_Outstanding_Items_Consolidated]].
+Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-versioning, Protected Trash, Storage/Backup status surfaces and the Classic/Neo Dual Interface Style.
+
+For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
+- the current production SHA and PR #70–#76 chain;
+- the 10-screen PASS/PARTIAL matrix;
+- Settings sub-gates and the remaining SECURITY-2 defect;
+- RAID UI vs real RAID-hardware boundary;
+- the connected Host Backup Agent and still-missing tools/target;
+- STORAGE-AUTO-1 persistence PASS and STORAGE-AUTO-2 dependency;
+- Twingate TWIN-0/TWIN-1 discovery/preflight PASS and TWIN-2 pending;
+- the ordered RAID → Backup and Twingate continuation pipelines.
+
+Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] and the shared [[summaries/08_Outstanding_Items_Consolidated]].
 
 ## Current functional design baseline
 
