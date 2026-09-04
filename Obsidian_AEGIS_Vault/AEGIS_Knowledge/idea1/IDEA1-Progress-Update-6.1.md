@@ -7,8 +7,9 @@ created: 2026-09-05
 updated: 2026-09-05
 owner: kla
 edit_policy: owner-writable
-source_main_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
+application_source_baseline_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
 production_drive_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
+progress_update_merge_pr: 77
 ---
 
 # IDEA1 — Progress Update 6.1
@@ -40,8 +41,9 @@ production_drive_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
 
 ## 1.1 Git / Drive deployment
 
-- GitHub `main`: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
-- Production source on `aegis-system`: SHA เดียวกัน
+- Application/runtime source baseline merged by PR #76: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
+- Production source on `aegis-system`: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
+- PR #77 is documentation-only and advances repository `main` without changing IDEA1 runtime code; therefore repository `main` may be ahead of the deployed application SHA by documentation commits and this is not deployment drift.
 - Drive production image after PR #75/#76 deploy:
   `sha256:78b84a53f3a1b74254601ebd6cae472c765092e4bf607f83f94fa911d197adff`
 - Previous Drive image preserved as rollback tag:
@@ -1008,8 +1010,8 @@ Do **not** call these finished yet:
 
 Use the following compact statement when opening a new session:
 
-> IDEA1 Update 6.1 is the current handoff. Production Drive is on
-> `main@46573ed8dd17631f9f746de3f9c7a5f71da1a03b`.
+> IDEA1 Update 6.1 is the current handoff. The deployed IDEA1 application baseline is
+> `46573ed8dd17631f9f746de3f9c7a5f71da1a03b` (PR #76); documentation-only PR #77 may place repository `main` ahead of that SHA without requiring a Drive redeploy.
 > Ten-screen acceptance is largely closed; Storage & Backup and Settings retain
 > open integration work. Backup Agent is already connected over
 > `/run/aegis-backup/backup.sock`, but restic/pg_dump and target are absent.
