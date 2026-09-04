@@ -42,6 +42,8 @@ const DESTRUCTIVE = [
   { method: 'POST', pattern: /^\/files\/uploads\/[^/]+\/commit\/?$/ },          // same as above, V2 path
   { method: 'DELETE', pattern: /^\/files\/[^/]+\/?$/ },                         // removes current + version bytes
   { method: 'POST', pattern: /^\/files\/[^/]+\/versions\/[^/]+\/restore\/?$/ }, // swaps current <-> version keys
+  { method: 'DELETE', pattern: /^\/trash\/?$/ },                              // empties retained current + version bytes
+  { method: 'DELETE', pattern: /^\/trash\/[^/]+\/?$/ },                       // permanently removes retained bytes
   { method: 'DELETE', pattern: /^\/vault\/blobs\/[^/]+\/?$/ },                  // removes ciphertext
   { method: 'POST', pattern: /^\/vault\/uploads\/[^/]+\/commit\/?$/ },          // publishes into vault/ (conservative)
 ]
@@ -74,20 +76,36 @@ export function createBackupMaintenance({
 
   const freezeActive = () => freeze !== null && now() < freeze.leaseUntil
 
+  function beginDestructive() {
+    if (freezeActive()) return null
+    inFlight += 1
+    let released = false
+    return () => { if (!released) { released = true; inFlight -= 1 } }
+  }
+
   /** Express middleware: refuse destructive mutations during a freeze; count the rest. */
   function middleware(req, res, next) {
     if (!isDestructiveRequest(req.method, req.path)) return next()
-    if (freezeActive()) {
+    const release = beginDestructive()
+    if (!release) {
       const retryAfterSeconds = Math.max(1, Math.ceil((freeze.leaseUntil - now()) / 1000))
       res.set('Retry-After', String(retryAfterSeconds))
       return res.status(503).json({ error: MAINTENANCE_CODE, code: MAINTENANCE_CODE, retryAfterSeconds })
     }
-    inFlight += 1
-    let released = false
-    const release = () => { if (!released) { released = true; inFlight -= 1 } }
     res.on('finish', release)
     res.on('close', release)
     return next()
+  }
+
+  /** Run a process-owned destructive job under the same quiesce accounting. */
+  async function runDestructive(work) {
+    const release = beginDestructive()
+    if (!release) return { allowed: false, value: null }
+    try {
+      return { allowed: true, value: await work() }
+    } finally {
+      release()
+    }
   }
 
   async function auditCompleted(history) {
@@ -157,6 +175,7 @@ export function createBackupMaintenance({
 
   return {
     middleware,
+    runDestructive,
     tick,
     start() {
       if (!stopped) return

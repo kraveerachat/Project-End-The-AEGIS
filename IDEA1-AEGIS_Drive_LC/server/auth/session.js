@@ -13,6 +13,8 @@ export const SESSION_COOKIE = 'aegis.drive.sid'
 const IDLE_MS = 30 * 60 * 1000            // idle timeout — cookie ต่ออายุเมื่อยัง active (rolling)
 const REMEMBER_MS = 30 * 24 * 60 * 60 * 1000
 const ABSOLUTE_MS = 12 * 60 * 60 * 1000   // absolute timeout — เกิน 12 ชม. ต้อง login ใหม่เสมอ
+const TRASH_UNLOCK_MS = 5 * 60 * 1000
+const TRASH_DESTRUCTIVE_REAUTH_MS = 60 * 1000
 
 export function sessionMiddleware() {
   const secret = process.env.SESSION_SECRET
@@ -107,6 +109,41 @@ export function currentCsrfToken(req) {
   return req.session?.csrfToken ?? null
 }
 
+/** Protected Trash step-up lives only in the server-side session. */
+export function unlockTrashSession(req, now = Date.now()) {
+  if (!req.session?.user) return false
+  req.session.trashAuthorization = {
+    userId: String(req.session.user.id),
+    verifiedAt: now,
+    unlockedUntil: now + TRASH_UNLOCK_MS,
+  }
+  return true
+}
+
+export function lockTrashSession(req) {
+  if (!req.session) return false
+  delete req.session.trashAuthorization
+  return true
+}
+
+export function trashAuthorization(req, now = Date.now()) {
+  const value = req.session?.trashAuthorization
+  const userId = req.session?.user?.id
+  if (!value || userId == null || value.userId !== String(userId) || value.unlockedUntil <= now) {
+    if (req.session) delete req.session.trashAuthorization
+    return { unlocked: false, destructiveReauth: false }
+  }
+  return {
+    unlocked: true,
+    destructiveReauth: now - value.verifiedAt <= TRASH_DESTRUCTIVE_REAUTH_MS,
+  }
+}
+
+export const trashSessionConfig = Object.freeze({
+  TRASH_UNLOCK_MS,
+  TRASH_DESTRUCTIVE_REAUTH_MS,
+})
+
 /** อัปเดตสำเนา preference ในเซสชันหลังเขียน DB สำเร็จ เพื่อให้ /me ตรงทันที */
 export function setSessionPreferences(req, preferences) {
   if (!req.session?.user) return false
@@ -120,7 +157,10 @@ export function setSessionPreferences(req, preferences) {
  *    ทั้งที่ DB สะอาดแล้ว ผู้ใช้จะโดนบล็อกทุก endpoint ต่อไปทั้งที่เพิ่งเปลี่ยนรหัสสำเร็จ
  */
 export function markPasswordReset(req) {
-  if (req.session?.user) req.session.user.mustResetPassword = false
+  if (req.session?.user) {
+    req.session.user.mustResetPassword = false
+    delete req.session.trashAuthorization
+  }
 }
 
 /** อัปเดตชื่อแสดงผลในเซสชันปัจจุบันหลังผู้ใช้แก้ชื่อโปรไฟล์ (DB ถูกอัปเดตแล้วโดยผู้เรียก) */
