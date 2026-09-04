@@ -7,6 +7,24 @@ import {
 import { apiFetch } from '../lib/api.js'
 import { fmtBytes } from '../lib/format.js'
 
+/* แถวตัวอย่างของเปลือกหน้าจอตอนล็อก — เป็น "รูปทรง" ล้วน ๆ ไม่ใช่ข้อมูลที่ถูกเบลอ
+   ตั้งใจไม่ใช้ .skeleton ที่มีอนิเมชัน เพราะ skeleton แปลว่า "ข้อมูลกำลังมา"
+   แต่สถานะนี้คือ "ข้อมูลถูกกันไว้" จนกว่าจะยืนยันรหัสผ่าน */
+function LockedRow() {
+  return (
+    <Card className="px-5 py-4">
+      <div className="flex items-center gap-4">
+        <span className="size-10 shrink-0 rounded-xl bg-sunken" />
+        <div className="min-w-0 flex-1">
+          <div className="h-3.5 w-[42%] rounded-full bg-sunken" />
+          <div className="mt-2 h-2.5 w-[26%] rounded-full bg-sunken" />
+        </div>
+        <span className="h-6 w-24 rounded-full bg-sunken max-md:hidden" />
+      </div>
+    </Card>
+  )
+}
+
 const remainingLabel = (t, purgeAt, now) => {
   const remaining = Math.max(0, new Date(purgeAt).getTime() - now)
   const days = Math.ceil(remaining / 86_400_000)
@@ -31,6 +49,12 @@ export function Trash({ t }) {
   const [destructivePassword, setDestructivePassword] = useState('')
   const [modalError, setModalError] = useState(false)
   const [now, setNow] = useState(Date.now())
+  const [unlockOpen, setUnlockOpen] = useState(false)
+
+  /* เปิดกล่องปลดล็อกทุกครั้งที่จอ "เปลี่ยนเป็น" ล็อก — ครอบคลุมทั้งตอนเข้าหน้าแรก
+     และตอนที่ step-up ฝั่งเซิร์ฟเวอร์หมดอายุแล้วจอถูกล็อกกลับ (ตัวจับเวลา 5 วินาที)
+     ผู้ใช้ที่กด Escape ปิดกล่องไปเองจะไม่ถูกเปิดซ้ำ เพราะ phase ยังเป็น 'locked' เท่าเดิม */
+  useEffect(() => { if (phase === 'locked') setUnlockOpen(true) }, [phase])
 
   const loadItems = async () => {
     setError(null)
@@ -93,6 +117,7 @@ export function Trash({ t }) {
       return
     }
     setPassword('')
+    setUnlockOpen(false)
     setFeedback(t('trashUnlocked'))
     await loadItems()
   }
@@ -164,37 +189,94 @@ export function Trash({ t }) {
 
   if (phase === 'loading') return <SkeletonLoader type="table" />
 
+  /* ── สถานะล็อก ────────────────────────────────────────────────────────────
+     ของเดิมแทนที่ทั้งหน้าด้วยแผงลายขวางใบใหญ่ ทำให้ดูเหมือน "อีกหน้าหนึ่ง" ไม่ใช่
+     ถังขยะที่ถูกล็อกอยู่ ตอนนี้เปลือกของหน้าถังขยะยังอยู่ที่เดิม และกล่องปลดล็อก
+     ลอยอยู่เหนือมัน (scrim ของ Modal เป็นตัวหรี่+เบลอพื้นหลังให้เอง)
+
+     ⚠️ ขอบเขตความปลอดภัย: เปลือกนี้ "ไม่มีข้อมูลจริงให้เบลอ" — ตอนล็อก จอไม่เคยยิง
+     /api/trash เลย (loadItems ถูกเรียกหลังปลดล็อกสำเร็จเท่านั้น) items จึงเป็น []
+     ชื่อไฟล์ ขนาด เวลาที่ลบ และเวลาที่จะถูกล้างถาวรไม่เคยลงมาถึงเบราว์เซอร์
+     สิ่งที่วาดคือรูปทรงเปล่า ไม่ใช่ metadata ที่ถูก CSS บังไว้
+
+     inert ทำให้ทั้งเปลือกไม่รับโฟกัส ไม่รับคลิก และหลุดจาก accessibility tree
+     ปุ่มเดียวที่กดได้ตอนล็อกคือปุ่มปลดล็อก ซึ่งอยู่ "นอก" เปลือก — คนที่กด Escape
+     ปิดกล่องไปจึงยังมีทางกลับเข้ามาเสมอ ไม่ถูกขังอยู่กับหน้าที่กดอะไรไม่ได้ */
   if (phase === 'locked') {
+    const closeUnlock = () => { setUnlockOpen(false); setPassword(''); setError(null) }
     return (
-      <Card className="max-w-[720px] mx-auto overflow-hidden">
-        <div className="hatch hatch-ink3 px-8 py-10 max-md:px-5">
-          <div className="max-w-[440px] mx-auto rounded-[var(--r-card)] border border-line bg-card p-7 text-center" style={{ boxShadow: 'var(--elev-1)' }}>
-            <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-accent-soft text-accent-ink">
-              <LockKeyhole size={22} strokeWidth={1.5} aria-hidden />
-            </span>
-            <h2 className="mt-4 text-[18px] font-semibold text-ink">{t('trashLockedTitle')}</h2>
-            <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashLockedBody')}</p>
-            <form onSubmit={unlock} className="mt-6 text-left">
-              <Field id="trash-password" label={t('trashCurrentPassword')}>
-                <PillInput
-                  id="trash-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  data-modal-autofocus
-                />
-              </Field>
-              {error && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{error === 'locked' ? t('trashRateLimited') : t('trashUnlockFailed')}</p>}
-              <Btn type="submit" variant="primary" className="mt-5 w-full" disabled={busy || !password}>
-                <ShieldCheck size={16} strokeWidth={1.5} />
-                {busy ? t('trashUnlocking') : t('trashUnlock')}
-              </Btn>
-            </form>
+      <div>
+        {!unlockOpen && (
+          <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3" style={{ boxShadow: 'var(--elev-1)' }}>
+            <Chip tone="warn"><LockKeyhole size={12} />{t('trashLockedBadge')}</Chip>
+            <span className="text-[12.5px] text-ink-3">{t('trashLockedPlaceholder')}</span>
+            <div className="flex-1" />
+            <Btn variant="primary" size="sm" onClick={() => { setError(null); setUnlockOpen(true) }}>
+              <ShieldCheck size={14} />{t('trashLockedReopen')}
+            </Btn>
+          </div>
+        )}
+
+        <div inert aria-hidden="true" className="select-none">
+          <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <Chip tone="warn"><Clock3 size={12} />{t('trashRetention')}</Chip>
+              <span className="text-[12.5px] text-ink-3">{t('trashRetentionBody')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Btn variant="ghost" size="sm" disabled><LockKeyhole size={14} />{t('trashLock')}</Btn>
+              <Btn variant="dangerSoft" size="sm" disabled><Trash2 size={14} />{t('trashEmpty')}</Btn>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+            <label className="relative flex-1 min-w-[220px] max-w-md">
+              <span className="sr-only">{t('trashSearch')}</span>
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
+              <input type="search" value="" readOnly disabled tabIndex={-1} placeholder={t('trashSearch')} className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none" />
+            </label>
+            <div className="w-48 max-md:flex-1">
+              <PillSelect value="deleted" disabled tabIndex={-1} onChange={() => {}} aria-label={t('sortBy')}>
+                <option value="deleted">{t('trashSortDeleted')}</option>
+              </PillSelect>
+            </div>
+          </div>
+
+          {/* จำนวนแถวคงที่ ไม่ได้มาจากจำนวนไฟล์จริง — จำนวนไฟล์ในถังขยะก็เป็น metadata */}
+          <div className="grid gap-3">
+            <LockedRow />
+            <LockedRow />
+            <LockedRow />
           </div>
         </div>
-      </Card>
+
+        <Modal open={unlockOpen} onClose={closeUnlock} width={440} labelledBy="trash-unlock-title">
+          <ModalClose onClose={closeUnlock} label={t('cancel')} />
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-accent-soft text-accent-ink">
+            <LockKeyhole size={22} strokeWidth={1.5} aria-hidden />
+          </span>
+          <h2 id="trash-unlock-title" className="mt-4 text-[18px] font-semibold text-ink">{t('trashLockedTitle')}</h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashLockedBody')}</p>
+          <form onSubmit={unlock} className="mt-5">
+            <Field id="trash-password" label={t('trashCurrentPassword')}>
+              <PillInput
+                id="trash-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                data-modal-autofocus
+              />
+            </Field>
+            {error && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{error === 'locked' ? t('trashRateLimited') : t('trashUnlockFailed')}</p>}
+            <Btn type="submit" variant="primary" className="mt-5 w-full" disabled={busy || !password}>
+              <ShieldCheck size={16} strokeWidth={1.5} />
+              {busy ? t('trashUnlocking') : t('trashUnlock')}
+            </Btn>
+          </form>
+        </Modal>
+      </div>
     )
   }
 

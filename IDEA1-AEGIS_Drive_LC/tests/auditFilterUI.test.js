@@ -1,25 +1,29 @@
-// tests/auditFilterUI.test.js — AEGIS Drive (IDEA1) · Audit log filter labelling
+// tests/auditFilterUI.test.js — AEGIS Drive (IDEA1) · Audit log result filter
 //
-// The Audit ledger has four filters in one row. Three of them name themselves
-// in the option that is showing — "Date range · All", "Actor · All",
+// The Audit ledger has four filters in one row, and each names itself in the
+// option that is showing — "Date range · All", "Result · All", "Actor · All",
 // "Action · All" — because a native <select> displays its selected option, and
 // that text is the only label the control has.
 //
-// The result filter did not. It rendered a bare "All", so an auditor looking at
-// the row saw three named filters and one unlabelled one, with no way to tell
-// what it filtered without opening it.
+// The result filter used to offer two options, `all` and `denied`, where
+// `denied` meant "every result that is not OK". The ledger stores three
+// results, so that one option collapsed DENIED and BLOCKED together and left
+// no way at all to ask for the successful events. It now offers the real
+// result domain, one option per stored value.
 //
-// What is under test is the labelling, and the fact that fixing the labelling
-// did not change the filtering: the control still offers exactly `all` and
-// `denied`, and `denied` still means "every result that is not OK" (which is
-// how DENIED and BLOCKED both stay visible under one option).
+// What is under test: the four options exist and are labelled in every locale,
+// each one selects exactly its own stored result *in the real component*
+// (driven through the actual <select>, not through a copy of the predicate),
+// and none of the surrounding contracts — CSV export, RBAC, the stored result
+// values — moved.
 import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import React from 'react'
+import { JSDOM } from 'jsdom'
+import React, { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer, normalizePath } from 'vite'
 import reactPlugin from '@vitejs/plugin-react'
@@ -29,10 +33,22 @@ import { LANGS, STRINGS, makeT } from '../src/lib/strings.js'
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const mockHooksPath = normalizePath(path.join(rootDir, 'tests/fixtures/mockHooks.js'))
 
+let dom
+let createRoot
 let vite
 let Audit
 
 before(async () => {
+  // react-dom captures `canUseDOM` at import time and falls back to a legacy
+  // change-event path when it is false, which silently swallows simulated
+  // input. The jsdom globals therefore have to exist before it is loaded.
+  dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true })
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true })
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  ;({ createRoot } = await import('react-dom/client'))
+
   vite = await createServer({
     configFile: false,
     root: rootDir,
@@ -47,19 +63,26 @@ before(async () => {
 
 after(async () => {
   await vite?.close()
+  delete globalThis.IS_REACT_ACT_ENVIRONMENT
   delete globalThis.__AEGIS_API_FIXTURES__
+  dom?.window.close()
 })
 
-// Three results so the "denied" option has both a DENIED and a BLOCKED row to
-// keep — the reason that option is not called "DENIED only" in the data sense.
+// One event per stored result, each with its own action name so a row can be
+// identified without matching on the result word itself.
 const EVENTS = [
   { at: '2026-08-07T08:00:00.000Z', actorLabel: 'admin', role: 'Admin', action: 'FILE_DOWNLOAD', targetHash: 'a'.repeat(64), result: 'OK', sourceIp: '10.0.0.2' },
   { at: '2026-08-07T08:01:00.000Z', actorLabel: 'kanya', role: 'DataLake-User', action: 'SHARE_REDEEM', targetHash: 'b'.repeat(64), result: 'DENIED', sourceIp: '10.0.0.3' },
   { at: '2026-08-07T08:02:00.000Z', actorLabel: 'kanya', role: 'DataLake-User', action: 'FILE_DELETE', targetHash: 'c'.repeat(64), result: 'BLOCKED', sourceIp: '10.0.0.3' },
 ]
+const ACTION_OF = { OK: 'FILE_DOWNLOAD', DENIED: 'SHARE_REDEEM', BLOCKED: 'FILE_DELETE' }
+
+function setFixture(events = EVENTS) {
+  globalThis.__AEGIS_API_FIXTURES__ = { '/api/audit': { loading: false, data: { events }, error: null } }
+}
 
 function renderAudit({ lang = 'en', events = EVENTS } = {}) {
-  globalThis.__AEGIS_API_FIXTURES__ = { '/api/audit': { loading: false, data: { events }, error: null } }
+  setFixture(events)
   return renderToStaticMarkup(React.createElement(Audit, { t: makeT(lang) }))
 }
 
@@ -71,14 +94,54 @@ function optionsOfSelect(html, label) {
     .map(([, value, text]) => ({ value, text }))
 }
 
-test('AUDIT-FILTER-1 the result filter names itself, in every option, in every locale', () => {
+/* ── harness — the real screen, driven through its real control ───── */
+
+async function mountAudit(lang = 'en') {
+  setFixture()
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => root.render(React.createElement(Audit, { t: makeT(lang) })))
+
+  const select = host.querySelector(`select[aria-label="${STRINGS[lang].filterResult}"]`)
+  assert.ok(select, 'the result filter must be rendered as a real <select>')
+
+  return {
+    host,
+    select,
+    /** Choose a filter option the way a user does: set the value, fire change. */
+    async choose(value) {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+      await act(async () => {
+        setter.call(select, value)
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+    },
+    /**
+     * The actions of the rows the screen is actually showing. A filtered-out
+     * row stays mounted but collapses to `max-height: 0`, which is what the
+     * user sees, so that — not mere presence in the DOM — is what is read.
+     */
+    visibleActions() {
+      return [...host.querySelectorAll('div[style*="max-height"]')]
+        .filter((row) => row.style.maxHeight !== '0px' && row.style.opacity !== '0')
+        .map((row) => Object.values(ACTION_OF).find((action) => row.textContent.includes(action)))
+        .filter(Boolean)
+    },
+    async unmount() { await act(async () => root.unmount()); host.remove() },
+  }
+}
+
+/* ── the option domain ────────────────────────────────────────────── */
+
+test('AUDIT-FILTER-1 the result filter offers the real result domain, named, in every locale', () => {
   for (const lang of LANGS) {
     const s = STRINGS[lang]
     const options = optionsOfSelect(renderAudit({ lang }), s.filterResult)
 
     assert.deepEqual(
-      options.map((o) => o.value), ['all', 'denied'],
-      `[${lang}] the result filter must still offer exactly all + denied`,
+      options.map((o) => o.value), ['all', 'OK', 'DENIED', 'BLOCKED'],
+      `[${lang}] the result filter must offer All + the three stored results`,
     )
     for (const option of options) {
       assert.ok(
@@ -87,9 +150,11 @@ test('AUDIT-FILTER-1 the result filter names itself, in every option, in every l
       )
     }
     assert.equal(options[0].text, `${s.filterResult} · ${s.filterAll}`)
-    assert.equal(options[1].text, `${s.filterResult} · ${s.filterDenied}`)
+    assert.equal(options[1].text, `${s.filterResult} · ${s.filterSuccess}`)
+    assert.equal(options[2].text, `${s.filterResult} · ${s.filterDenied}`)
+    assert.equal(options[3].text, `${s.filterResult} · ${s.filterBlocked}`)
 
-    // The regression itself: the resting state must never be a bare "All".
+    // The original regression: the resting state must never be a bare "All".
     assert.notEqual(options[0].text, s.filterAll, `[${lang}] the default option must not be an unlabelled "${s.filterAll}"`)
   }
 })
@@ -97,7 +162,6 @@ test('AUDIT-FILTER-1 the result filter names itself, in every option, in every l
 test('AUDIT-FILTER-2 all four filters in the row follow one labelling convention', () => {
   const html = renderAudit()
   const s = STRINGS.en
-  // Each filter's resting option leads with that filter's own name.
   for (const name of [s.filterRange, s.filterResult, s.filterActor, s.filterAction]) {
     const first = optionsOfSelect(html, name)[0]
     assert.equal(
@@ -107,43 +171,117 @@ test('AUDIT-FILTER-2 all four filters in the row follow one labelling convention
   }
 })
 
-test('AUDIT-FILTER-3 every locale defines filterResult, and it is not left in English', () => {
-  for (const lang of LANGS) {
-    const value = STRINGS[lang].filterResult
-    assert.ok(typeof value === 'string' && value.trim().length > 0, `[${lang}] filterResult is missing`)
+test('AUDIT-FILTER-3 every locale translates all four result options', () => {
+  for (const key of ['filterResult', 'filterAll', 'filterSuccess', 'filterDenied', 'filterBlocked']) {
+    for (const lang of LANGS) {
+      const value = STRINGS[lang][key]
+      assert.ok(typeof value === 'string' && value.trim().length > 0, `[${lang}] ${key} is missing`)
+    }
+    for (const lang of ['th', 'zh']) {
+      assert.notEqual(STRINGS[lang][key], STRINGS.en[key], `[${lang}] ${key} must be translated, not the English fallback`)
+    }
   }
-  assert.notEqual(STRINGS.th.filterResult, STRINGS.en.filterResult, 'Thai must be translated, not the English fallback')
-  assert.notEqual(STRINGS.zh.filterResult, STRINGS.en.filterResult, 'Chinese must be translated, not the English fallback')
-})
-
-test('AUDIT-FILTER-4 filtering behaviour is unchanged — denied keeps DENIED and BLOCKED, drops OK', () => {
-  // Rendered with the default filter, every row is present.
-  const all = renderAudit()
-  assert.ok(all.includes(STRINGS.en.resOk), 'an OK row is visible before filtering')
-  assert.ok(all.includes(STRINGS.en.resDenied))
-  assert.ok(all.includes(STRINGS.en.resBlocked))
-  // 3 / 3 visible, straight from the screen's own counter.
-  assert.ok(all.includes('3 / 3'), 'the counter reports every row as visible under the default filter')
-
-  // The screen keeps its filter in local state, so exercise the predicate the
-  // option values feed rather than simulating a change event: `denied` is
-  // "not OK", which is what keeps BLOCKED from disappearing silently.
-  const isVisible = (value, result) => (value === 'all' || (value === 'denied' ? result !== 'OK' : result === value))
-  assert.deepEqual(
-    ['OK', 'DENIED', 'BLOCKED'].filter((r) => isVisible('denied', r)),
-    ['DENIED', 'BLOCKED'],
-    'the denied option must keep every non-OK result, not only literal DENIED',
-  )
-  assert.deepEqual(['OK', 'DENIED', 'BLOCKED'].filter((r) => isVisible('all', r)), ['OK', 'DENIED', 'BLOCKED'])
-})
-
-test('AUDIT-FILTER-5 the label is a real translation lookup, not a hardcoded string', () => {
-  const source = fs.readFileSync(path.join(rootDir, 'src/screens/Audit.jsx'), 'utf8')
-  for (const literal of ['>Result', 'Result ·', 'ผลลัพธ์', '结果']) {
-    assert.ok(
-      !source.includes(literal),
-      `Audit.jsx must not hardcode "${literal}" — the label comes from t('filterResult')`,
+  // The four option words stay distinct, or two options would read alike.
+  for (const lang of LANGS) {
+    const s = STRINGS[lang]
+    assert.equal(
+      new Set([s.filterAll, s.filterSuccess, s.filterDenied, s.filterBlocked]).size, 4,
+      `[${lang}] the four result options must read differently from one another`,
     )
   }
-  assert.ok(source.includes("t('filterResult')"), 'Audit.jsx must read the label through the i18n system')
+})
+
+/* ── the filtering itself, through the real control ───────────────── */
+
+test('AUDIT-FILTER-4 each option selects exactly its own stored result', async () => {
+  const screen = await mountAudit()
+  try {
+    // All — every stored result is visible.
+    assert.deepEqual(screen.visibleActions().sort(), ['FILE_DELETE', 'FILE_DOWNLOAD', 'SHARE_REDEEM'])
+    assert.ok(screen.host.textContent.includes('3 / 3'), 'the counter reports every row as visible under All')
+
+    for (const [result, action] of Object.entries(ACTION_OF)) {
+      await screen.choose(result)
+      assert.deepEqual(
+        screen.visibleActions(), [action],
+        `"${result}" must show exactly the ${result} row and nothing else`,
+      )
+      assert.ok(screen.host.textContent.includes('1 / 3'), `"${result}" must report 1 of 3 rows visible`)
+    }
+
+    // Back to All — the filter is a view, it never drops events.
+    await screen.choose('all')
+    assert.equal(screen.visibleActions().length, 3, 'returning to All restores every row')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('AUDIT-FILTER-5 Denied and Blocked are no longer collapsed into one option', async () => {
+  const screen = await mountAudit()
+  try {
+    await screen.choose('DENIED')
+    assert.ok(!screen.visibleActions().includes(ACTION_OF.BLOCKED), 'Denied must not keep BLOCKED rows')
+    await screen.choose('BLOCKED')
+    assert.ok(!screen.visibleActions().includes(ACTION_OF.DENIED), 'Blocked must not keep DENIED rows')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+/* ── contracts that must not have moved ───────────────────────────── */
+
+test('AUDIT-FILTER-6 the labels are translation lookups, not hardcoded strings', () => {
+  const source = fs.readFileSync(path.join(rootDir, 'src/screens/Audit.jsx'), 'utf8')
+
+  // The rendered text of every result option, in the two locales whose script
+  // cannot collide with an identifier. (Matching English words would flag the
+  // i18n *keys* themselves — `filterSuccess` contains "Success".)
+  for (const lang of ['th', 'zh']) {
+    // filterAll is excluded on purpose: Thai "ทั้งหมด" is ordinary prose and
+    // occurs inside the file's existing comments, so it cannot discriminate.
+    for (const key of ['filterResult', 'filterSuccess', 'filterDenied', 'filterBlocked']) {
+      const literal = STRINGS[lang][key]
+      assert.ok(
+        !source.includes(literal),
+        `Audit.jsx must not hardcode "${literal}" (${lang}.${key}) — every label comes from the i18n system`,
+      )
+    }
+  }
+  // ...and the English tell: a rendered "Result ·" prefix written by hand.
+  assert.ok(!source.includes('>Result'), 'Audit.jsx must not hardcode the English filter name')
+  assert.ok(source.includes("t('filterResult')"), 'Audit.jsx must read the filter name through the i18n system')
+  for (const key of ['filterAll', 'filterSuccess', 'filterDenied', 'filterBlocked']) {
+    assert.ok(source.includes(`'${key}'`), `Audit.jsx must offer the ${key} option`)
+  }
+})
+
+test('AUDIT-FILTER-7 the stored result values and the CSV contract are untouched', () => {
+  const source = fs.readFileSync(path.join(rootDir, 'src/screens/Audit.jsx'), 'utf8')
+
+  // The option values ARE the stored results; nothing renames or re-buckets them.
+  assert.match(source, /\{ value: 'OK', label: 'filterSuccess' \}/)
+  assert.match(source, /\{ value: 'DENIED', label: 'filterDenied' \}/)
+  assert.match(source, /\{ value: 'BLOCKED', label: 'filterBlocked' \}/)
+  // The coarse bucket is gone from the *predicate*. `e.result !== 'OK'` still
+  // exists a few lines down as the row's danger tone, which is correct for
+  // DENIED and BLOCKED alike and is not a filtering decision.
+  assert.ok(!source.includes("result === 'denied'"), 'the coarse "not OK" bucket must be gone from the filter')
+  assert.match(
+    source, /\(result === 'all' \|\| e\.result === result\)/,
+    'the predicate must compare the selected option against the stored result exactly',
+  )
+
+  // CSV exports the whole ledger, unfiltered, with the same header and columns.
+  assert.match(source, /const head = 'timestamp,actor,role,action,target_sha256,result,source_ip'/)
+  assert.match(source, /const rows = events\.map\(/, 'CSV must still export every event, not the filtered view')
+  assert.match(source, /a\.download = 'aegis-audit-log\.csv'/)
+})
+
+test('AUDIT-FILTER-8 the audit endpoint is still Admin-only on the server', () => {
+  const routes = fs.readFileSync(path.join(rootDir, 'server/routes/api.js'), 'utf8')
+  assert.match(
+    routes, /apiRouter\.get\('\/audit', requireRole\(ROLES\.ADMIN\)/,
+    'GET /api/audit must remain behind requireRole(ROLES.ADMIN)',
+  )
 })
