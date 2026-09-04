@@ -13,8 +13,17 @@ import http from 'node:http'
 import net from 'node:net'
 
 import { SOCKET_MODE } from './config.js'
+import { projectDiskHealth } from './diskHealth.js'
 
 export const TELEMETRY_ROUTE = '/internal/telemetry'
+
+/**
+ * Physical disk health, as a SEPARATE versioned route. /internal/telemetry is
+ * production-verified against a strict V1 allowlist on the Drive side; a new
+ * metric group there would be rejected by every deployed Drive. A second route
+ * lets the agent and Drive be upgraded in either order.
+ */
+export const DISK_HEALTH_ROUTE = '/internal/disk-health'
 
 /** The complete set of top-level keys the agent may emit. */
 export const AGENT_TOP_LEVEL_KEYS = Object.freeze(['schemaVersion', 'measuredAt', 'metrics'])
@@ -133,8 +142,16 @@ export function createTelemetryServer({ sampler, socketPath, socketMode = SOCKET
     // Compare the path only — a query string must not open a second route, and
     // the URL is never turned into a filesystem path anywhere in this agent.
     const requestPath = (req.url ?? '').split('?')[0]
-    if (requestPath !== TELEMETRY_ROUTE) return send(res, 404, { error: 'not-found' })
+    if (requestPath !== TELEMETRY_ROUTE && requestPath !== DISK_HEALTH_ROUTE) {
+      return send(res, 404, { error: 'not-found' })
+    }
     if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' }, { Allow: 'GET' })
+
+    if (requestPath === DISK_HEALTH_ROUTE) {
+      const evidence = typeof sampler.diskHealth === 'function' ? sampler.diskHealth() : null
+      if (!evidence) return send(res, 503, { error: 'no-sample-yet' })
+      return send(res, 200, projectDiskHealth(evidence))
+    }
 
     const snapshot = sampler.snapshot()
     // No sample yet means the first window has not closed. Saying so is honest;

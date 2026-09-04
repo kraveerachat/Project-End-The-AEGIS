@@ -240,6 +240,37 @@ test('Escape stops closing once the modal is closed', async () => {
   }
 })
 
+test('closing a modal restores focus to the control that opened it', async () => {
+  const h = mount()
+  function Host() {
+    const [open, setOpen] = React.useState(false)
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement('button', { id: 'trash-restore-trigger', onClick: () => setOpen(true) }, 'Restore'),
+      React.createElement(
+        Modal,
+        { open, onClose: () => setOpen(false), labelledBy: 'restore-title' },
+        React.createElement('h2', { id: 'restore-title' }, 'Restore file'),
+        React.createElement('input', { id: 'restore-name', readOnly: true, defaultValue: 'report.txt' }),
+      ),
+    )
+  }
+  try {
+    await h.render(React.createElement(Host))
+    const trigger = dom.window.document.getElementById('trash-restore-trigger')
+    trigger.focus()
+    await act(async () => trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })))
+    assert.equal(focused(), 'input#restore-name@-')
+
+    await pressEscape()
+    assert.equal(dom.window.document.querySelector('[role="dialog"]'), null)
+    assert.equal(focused(), 'button#trash-restore-trigger@-', 'focus returns to the still-connected opener')
+  } finally {
+    await h.unmount()
+  }
+})
+
 test('the close button still closes the modal and stays keyboard reachable', async () => {
   const h = mount()
   try {

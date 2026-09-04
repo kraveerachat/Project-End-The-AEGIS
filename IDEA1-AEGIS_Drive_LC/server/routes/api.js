@@ -9,6 +9,7 @@ import {
   establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
   setSessionDisplayName, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
   setSessionPreferences,
+  unlockTrashSession, lockTrashSession, trashAuthorization,
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
@@ -32,10 +33,16 @@ import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
 import { buildTelemetry } from '../telemetry/index.js'
+// Storage & Backup — capacity (Drive), physical disk health (host agent, validated),
+// backup state/risk (backup agent, validated), RAID (declared not configured).
+import { buildStorageReport } from '../storage/storageReport.js'
+// Backup administration — Drive never runs a backup; it forwards allowlisted
+// commands to the host backup agent and holds the write-freeze it asks for.
+import { BACKUP_ROUTES, adminBackupView, backupCommand, backupMaintenance } from '../backup/index.js'
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
-  keyExists, openReadStream, removeKey, discardUploaded,
+  keyExists, openReadStream, discardUploaded,
   moveToVersions, restoreFromVersions,
 } from '../storage/fileStore.js'
 // Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
@@ -48,6 +55,7 @@ import {
   avatarUploadMiddleware, sanitizeAvatar, writeAvatar,
   openAvatar, avatarSize, removeAvatar,
 } from '../storage/avatarStore.js'
+import { purgeTrashRecord, withTrashFileLock } from '../storage/trashCleanup.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -70,6 +78,16 @@ const publicUser = (u) => ({
 })
 
 export const apiRouter = Router()
+
+// ── Backup write-freeze gate ────────────────────────────────────────────
+// While the host backup agent holds a bounded lease, destructive mutations
+// (delete, same-name replace, version restore, vault delete/commit) answer
+// 503 BACKUP_MAINTENANCE so the metadata dump and the byte snapshot describe
+// the same state. Reads, downloads, shares and un-committed uploads continue.
+// Applied only to a request that already carries a session: an anonymous
+// caller keeps getting the route's own 401 and learns nothing about a job.
+// (Consistency model: shared/host-backup-agent/src/job.js · server/backup/maintenance.js)
+apiRouter.use((req, res, next) => (currentUser(req) ? backupMaintenance.middleware(req, res, next) : next()))
 
 apiRouter.post('/login', async (req, res) => {
   // รับเฉพาะ field ที่อนุญาต — ถ้า client แนบ role มา เราไม่เคยอ่านมัน
@@ -429,7 +447,7 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
 
 // ⚠️ ด่าน ownership — requireAuth บอกได้แค่ "เป็นใครคนหนึ่งที่ล็อกอินแล้ว" ไม่ได้บอกว่า
 //    ไฟล์นี้เป็นของเขา เดิมขาดด่านนี้ไป ผลคือ **ผู้ใช้ที่ล็อกอินคนไหนก็ลบไฟล์ของคนอื่นได้
-//    ทั้งแถว metadata และ bytes บนดิสก์** (ลบแล้วกู้ไม่ได้ ไม่มี trash)
+//    ทั้งแถว metadata และ bytes บนดิสก์** ก่อน Protected Trash ถูกนำมาใช้
 //
 //    เทียบด้วย ownerId (id ของบัญชี) เท่านั้น ห้ามเทียบด้วย uploader/display name
 //    เพราะชื่อซ้ำกันได้และเปลี่ยนได้ — ดู mapFileRow ใน db/store.js
@@ -450,27 +468,158 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
     if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
       // ลง audit เป็น DENIED เสมอ — ความพยายามลบไฟล์ของคนอื่นต้องมองเห็นได้ในจอ Audit
       // (แบบแผนเดียวกับ FILE_DOWNLOAD ที่ metadata มีแต่ bytes หาย ด้านบน)
-      await auditAct(req, 'FILE_DELETE', file.name, 'DENIED')
+      await auditAct(req, 'FILE_TRASH', file.name, 'DENIED')
       return res.status(403).json({ error: 'Forbidden' })
     }
-
-    // ⚠️ ไบต์ของ "ทุกเวอร์ชัน" ต้องถูกลบด้วย ไม่ใช่แค่ไบต์ของไฟล์ปัจจุบัน — แถวใน
-    //    file_versions หายเองผ่าน ON DELETE CASCADE แต่ไฟล์บนดิสก์ไม่มีใครลบให้
-    //    ถ้าข้ามขั้นนี้ เนื้อหาเก่าของไฟล์ที่ผู้ใช้ "ลบแล้ว" จะยังนอนอยู่บน volume ต่อไป
-    //    โดยไม่มีแถวไหนอ้างถึงอีก = ลบไม่ได้ ตรวจไม่เจอ และเป็นข้อมูลที่ผู้ใช้คิดว่าหายไปแล้ว
-    //    ต้องอ่านรายการ "ก่อน" ลบแถว ไม่งั้น CASCADE ทำให้ไม่เหลืออะไรให้อ่าน
-    const versions = file.type === 'Folder' ? [] : await store.listFileVersions(file.id)
-
-    await store.deleteFile(req.params.id)
-    // ลบ metadata แล้วต้องลบ bytes ตามด้วยเสมอ — ไม่งั้นไฟล์ที่ผู้ใช้ "ลบแล้ว" ยังนอน
-    // อยู่บนดิสก์ต่อไปโดยไม่มีใครเห็นและไม่มีใครลบได้อีก (ทั้ง privacy และพื้นที่)
-    if (file.type !== 'Folder') await removeKey(file.path)
-    for (const v of versions) await removeKey(v.storageKey).catch(() => {})
-    await auditAct(req, 'FILE_DELETE', file.name)
-    res.json({ ok: true })
+    const trashed = await store.trashFile(file.id, req.user.id)
+    if (!trashed) return res.status(404).json({ error: 'Not found' })
+    await auditAct(req, 'FILE_TRASH', file.name)
+    res.json({ ok: true, purgeAt: new Date(trashed.purgeAt).toISOString() })
   } catch (err) {
     next(err)
   }
+})
+
+// ── Protected Trash — owner-only, password step-up, normal Data Lake only ────
+const trashPublicItem = (file) => ({
+  id: file.id,
+  name: file.name,
+  type: file.type,
+  ext: file.ext,
+  size: file.size,
+  sha256Prefix: file.sha256 ? String(file.sha256).slice(0, 12) : null,
+  deletedAt: new Date(file.deletedAt).toISOString(),
+  purgeAt: new Date(file.purgeAt).toISOString(),
+  versionCount: file.versionCount ?? 0,
+})
+
+async function verifyTrashPassword(req, password) {
+  const key = `user:${req.user.id}`
+  const lock = checkLock(req, key, 'trash-step-up')
+  if (lock.locked) return { ok: false, locked: true, retryAfterMs: lock.retryAfterMs }
+  const account = await getUserById(req.user.id)
+  const ok = Boolean(account?.passwordHash && password && await bcrypt.compare(String(password), account.passwordHash))
+  if (!ok) {
+    recordFailure(req, key, 'trash-step-up')
+    return { ok: false, locked: false }
+  }
+  recordSuccess(req, key, 'trash-step-up')
+  return { ok: true }
+}
+
+apiRouter.get('/trash/status', requireAuth, (req, res) => {
+  res.json({ unlocked: trashAuthorization(req).unlocked })
+})
+
+apiRouter.post('/trash/unlock', requireAuth, async (req, res, next) => {
+  try {
+    const result = await verifyTrashPassword(req, req.body?.password)
+    if (!result.ok) {
+      await auditAct(req, 'TRASH_UNLOCK', String(req.user.id), result.locked ? 'BLOCKED' : 'DENIED')
+      if (result.locked) {
+        res.set('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)))
+        return res.status(429).json({ error: INVALID_CREDENTIALS })
+      }
+      return res.status(401).json({ error: INVALID_CREDENTIALS })
+    }
+    unlockTrashSession(req)
+    await auditAct(req, 'TRASH_UNLOCK', String(req.user.id))
+    res.json({ unlocked: true, expiresInSeconds: 300 })
+  } catch (error) { next(error) }
+})
+
+apiRouter.post('/trash/lock', requireAuth, async (req, res, next) => {
+  try {
+    lockTrashSession(req)
+    await auditAct(req, 'TRASH_LOCK', String(req.user.id))
+    res.status(204).end()
+  } catch (error) { next(error) }
+})
+
+apiRouter.get('/trash', requireAuth, async (req, res, next) => {
+  try {
+    if (!trashAuthorization(req).unlocked) return res.status(423).json({ error: 'Trash locked' })
+    const items = await store.listTrash(req.user.id)
+    res.json({ items: items.map(trashPublicItem) })
+  } catch (error) { next(error) }
+})
+
+apiRouter.post('/trash/:id/restore', requireAuth, async (req, res, next) => {
+  try {
+    if (!trashAuthorization(req).unlocked) return res.status(423).json({ error: 'Trash locked' })
+    const lock = await withTrashFileLock(req.params.id, async () => {
+      const file = await store.findTrashedFile(req.params.id, req.user.id)
+      if (!file) return { status: 404, auditTarget: req.params.id, auditResult: 'DENIED', body: { error: 'Not found' } }
+      const versions = file.type === 'Folder' ? [] : await store.listFileVersions(file.id)
+      if ((file.type !== 'Folder' && !(await keyExists(file.path)))
+        || (await Promise.all(versions.map((version) => keyExists(version.storageKey)))).some((exists) => !exists)) {
+        return {
+          status: 409, auditTarget: file.name, auditResult: 'BLOCKED',
+          body: { error: 'Stored bytes unavailable', code: 'STORAGE_INCOMPLETE' },
+        }
+      }
+      const restored = await store.restoreTrashedFile(file.id, req.user.id, req.body?.name ?? null)
+      if (restored?.conflict) {
+        return {
+          status: 409,
+          body: { error: 'Name conflict', code: 'NAME_CONFLICT', suggestedName: restored.suggestedName },
+        }
+      }
+      if (!restored?.file) return { status: 404, auditTarget: req.params.id, auditResult: 'DENIED', body: { error: 'Not found' } }
+      return { status: 200, auditTarget: restored.file.name, auditResult: 'OK', body: { file: restored.file } }
+    })
+    if (!lock.acquired) return res.status(409).json({ error: 'Trash item is busy', code: 'TRASH_ITEM_BUSY' })
+    const outcome = lock.value
+    if (outcome.auditTarget) {
+      await auditAct(req, 'FILE_TRASH_RESTORE', outcome.auditTarget, outcome.auditResult)
+    }
+    if (outcome.status !== 200) {
+      return res.status(outcome.status).json(outcome.body)
+    }
+    res.json(outcome.body)
+  } catch (error) { next(error) }
+})
+
+apiRouter.delete('/trash/:id', requireAuth, async (req, res, next) => {
+  try {
+    let authorized = trashAuthorization(req).destructiveReauth
+    if (!authorized && req.body?.password) {
+      const verified = await verifyTrashPassword(req, req.body.password)
+      if (!verified.ok) {
+        await auditAct(req, 'FILE_TRASH_PURGE', req.params.id, verified.locked ? 'BLOCKED' : 'DENIED')
+        if (verified.locked) return res.status(429).json({ error: INVALID_CREDENTIALS })
+        return res.status(401).json({ error: INVALID_CREDENTIALS })
+      }
+      authorized = true
+    }
+    if (!authorized) return res.status(403).json({ error: 'Recent password verification required' })
+    const file = await store.findTrashedFile(req.params.id, req.user.id)
+    if (!file) {
+      await auditAct(req, 'FILE_TRASH_PURGE', req.params.id, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (!(await purgeTrashRecord(file, req.user.id))) return res.status(404).json({ error: 'Not found' })
+    await auditAct(req, 'FILE_TRASH_PURGE', file.name)
+    res.json({ ok: true })
+  } catch (error) { next(error) }
+})
+
+apiRouter.post('/trash/empty', requireAuth, async (req, res, next) => {
+  try {
+    if (req.body?.confirmation !== 'DELETE') return res.status(400).json({ error: 'Confirmation required' })
+    const verified = await verifyTrashPassword(req, req.body?.password)
+    if (!verified.ok) {
+      await auditAct(req, 'TRASH_EMPTY', String(req.user.id), verified.locked ? 'BLOCKED' : 'DENIED')
+      if (verified.locked) return res.status(429).json({ error: INVALID_CREDENTIALS })
+      return res.status(401).json({ error: INVALID_CREDENTIALS })
+    }
+    const files = await store.listTrash(req.user.id)
+    let deletedCount = 0
+    for (const file of files) if (await purgeTrashRecord(file, req.user.id)) deletedCount += 1
+    lockTrashSession(req)
+    await auditAct(req, 'TRASH_EMPTY', String(req.user.id))
+    res.json({ ok: true, deletedCount })
+  } catch (error) { next(error) }
 })
 
 // ── Shares — VLAN-aware secure links ─────────────────────────────────
@@ -545,7 +694,7 @@ apiRouter.get('/file-versions', requireAuth, async (req, res, next) => {
         latestVersionAt: versions[0]?.createdAt ?? null,
       }
     }))
-    res.json({ files: withCounts, stats: await store.fileVersionStats() })
+    res.json({ files: withCounts, stats: await store.fileVersionStats(req.user.id) })
   } catch (err) {
     next(err)
   }
@@ -659,15 +808,92 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
 })
 
 // ── Storage & backup ─────────────────────────────────────────────────
-// ⚠️ คืนเฉพาะสิ่งที่วัดได้จริง (ความจุจาก statfs + ผลรวมจากตาราง) และประกาศสิ่งที่
-//    วัดไม่ได้ผ่าน `unavailable` — ดูเหตุผลของแต่ละข้อที่หัวหมวด Storage ใน db/store.js
+// ⚠️ คืนเฉพาะสิ่งที่วัดได้จริง: ความจุจาก statfs + ผลรวมจากตาราง (เหมือนเดิมทุกประการ —
+//    ผ่านการยอมรับใน production แล้ว) และเพิ่มสองแหล่งที่ "วัดจริง" จากโฮสต์ผ่าน agent
+//    ที่แยกสิทธิ์: สุขภาพดิสก์ทางกายภาพ (SMART) กับสถานะสำรองข้อมูล — ทั้งสองถูก validate
+//    เป็น input ที่ไม่น่าเชื่อถือก่อน และ "ไม่มีหลักฐาน" ตอบ UNKNOWN/NOT_CONFIGURED เสมอ
+//    ไม่มีทางกลายเป็น HEALTHY (ดู storage/storageReport.js, telemetry/diskHealth.js,
+//    backup/derive.js) — RAID ยังประกาศ not-configured เพราะไม่มี array ใน deployment นี้
+// ⚠️ ไม่มีพารามิเตอร์ใดจาก client: socket path ของทั้งสอง agent เป็นค่าคอนฟิกฝั่งเซิร์ฟเวอร์
+// ⚠️ ไม่ลง audit ต่อ poll (จอนี้รีเฟรชทุก 60 วินาที)
 apiRouter.get('/storage', requireAuth, async (req, res, next) => {
   try {
-    res.json(await store.storageStatus())
+    res.set('Cache-Control', 'no-store')
+    res.json(await buildStorageReport({ maintenance: backupMaintenance.snapshot }))
   } catch (err) {
     next(err)
   }
 })
+
+// ── Backup administration (Admin only) ───────────────────────────────
+// Drive is a thin, authenticated front for the host backup agent. Every body
+// here is an ID from an allowlist the AGENT publishes (target / schedule /
+// retention) or a boolean; there is no path, host, command or credential in
+// any request. The agent validates again on its side. Audit records the
+// request and, separately, the agent's outcome (server/backup/maintenance.js).
+const BACKUP_TARGET_HASH = 'backup-configuration'
+
+apiRouter.get('/backup', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    res.json(await adminBackupView())
+  } catch (err) {
+    next(err)
+  }
+})
+
+const ID_LIKE = /^[a-z0-9][a-z0-9:-]{0,47}$/
+apiRouter.patch('/backup/policy', requireRole(ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const allowedKeys = ['activeTargetId', 'scheduleId', 'retentionId', 'enabled']
+    const unknown = Object.keys(body).filter((key) => !allowedKeys.includes(key))
+    const policy = {}
+    if ('activeTargetId' in body) policy.activeTargetId = body.activeTargetId
+    if ('scheduleId' in body) policy.scheduleId = body.scheduleId
+    if ('retentionId' in body) policy.retentionId = body.retentionId
+    if ('enabled' in body) policy.enabled = body.enabled
+    const shapeOk = unknown.length === 0
+      && (policy.activeTargetId === undefined || policy.activeTargetId === null || (typeof policy.activeTargetId === 'string' && ID_LIKE.test(policy.activeTargetId)))
+      && (policy.scheduleId === undefined || (typeof policy.scheduleId === 'string' && ID_LIKE.test(policy.scheduleId)))
+      && (policy.retentionId === undefined || (typeof policy.retentionId === 'string' && ID_LIKE.test(policy.retentionId)))
+      && (policy.enabled === undefined || typeof policy.enabled === 'boolean')
+    if (!shapeOk) {
+      await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH, 'DENIED')
+      return res.status(400).json({ error: 'Invalid backup policy' })
+    }
+
+    const result = await backupCommand(BACKUP_ROUTES.POLICY, policy)
+    if (!result.ok) {
+      await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH, 'DENIED')
+      if (result.status === 400) return res.status(400).json({ error: 'Invalid backup policy', reason: 'rejected-by-agent' })
+      return res.status(503).json({ error: 'Backup agent unavailable', reason: 'agent-unreachable' })
+    }
+    await auditAct(req, 'BACKUP_CONFIG_UPDATE', BACKUP_TARGET_HASH)
+    res.json({ ok: true, policy: result.body?.policy ?? policy })
+  } catch (err) {
+    next(err)
+  }
+})
+
+const forwardBackupCommand = (route, action) => async (req, res, next) => {
+  try {
+    const result = await backupCommand(route, {})
+    if (!result.ok) {
+      await auditAct(req, action, BACKUP_TARGET_HASH, 'DENIED')
+      if (result.status === 409) {
+        return res.status(409).json({ error: 'Backup agent refused the request', reason: result.body?.reason ?? 'refused' })
+      }
+      return res.status(503).json({ error: 'Backup agent unavailable', reason: 'agent-unreachable' })
+    }
+    await auditAct(req, action, result.body?.jobId ?? BACKUP_TARGET_HASH)
+    res.status(202).json({ ok: true, jobId: result.body?.jobId ?? null })
+  } catch (err) {
+    next(err)
+  }
+}
+apiRouter.post('/backup/run', requireRole(ROLES.ADMIN), forwardBackupCommand(BACKUP_ROUTES.RUN, 'BACKUP_RUN_REQUEST'))
+apiRouter.post('/backup/verify', requireRole(ROLES.ADMIN), forwardBackupCommand(BACKUP_ROUTES.VERIFY, 'BACKUP_VERIFY_REQUEST'))
 
 // ── Server Telemetry ─────────────────────────────────────────────────
 // ⚠️ นโยบายการมองเห็น (ตัดสินใจเชิงผลิตภัณฑ์ 2026-08-27): ผู้ใช้ Drive ที่ล็อกอินแล้ว

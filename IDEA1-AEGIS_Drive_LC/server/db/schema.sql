@@ -66,9 +66,23 @@ CREATE TABLE IF NOT EXISTS files (
   vault        BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE = ciphertext จาก client (Zero-Knowledge)
   verified     BOOLEAN NOT NULL DEFAULT FALSE,
   uploaded_by  BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  -- Protected Trash applies only to normal Data Lake rows. Active rows keep both
+  -- timestamps NULL; trashed rows always carry both timestamps together.
+  deleted_at   TIMESTAMPTZ,
+  purge_after  TIMESTAMPTZ,
+  deleted_by   BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  modified_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  modified_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT files_trash_state_check CHECK (
+    (deleted_at IS NULL AND purge_after IS NULL)
+    OR (deleted_at IS NOT NULL AND purge_after IS NOT NULL AND purge_after >= deleted_at)
+  )
 );
+
+CREATE INDEX IF NOT EXISTS files_trash_owner_idx
+  ON files (uploaded_by, deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS files_trash_expiry_idx
+  ON files (purge_after) WHERE purge_after IS NOT NULL;
 
 -- ── Secure Shares — ลิงก์แชร์ที่ล็อกขอบเขตเครือข่ายได้ (VLAN-Aware) ─────────────
 CREATE TABLE IF NOT EXISTS shares (
@@ -118,7 +132,7 @@ CREATE TABLE IF NOT EXISTS network_zones (
 --
 -- ⚠️ ขอบเขตที่ต่างจาก snapshot จริง และต้องบอกผู้ใช้ตรง ๆ:
 --    - เป็นประวัติ "ต่อไฟล์" ไม่ใช่ภาพของทั้งคลังที่จุดเวลาหนึ่ง
---    - ไฟล์ที่ถูกลบไปแล้วไม่มีประวัติให้กู้ (แถวหาย → CASCADE ลบ version ตามไปด้วย)
+--    - ไฟล์ใน Protected Trash เก็บประวัติไว้ 30 วัน; permanent/auto purge จึง CASCADE
 --    - ไม่ช่วยอะไรถ้าดิสก์เสียทั้งลูก (version อยู่บน volume เดียวกับตัวไฟล์)
 --      นั่นคืองานของการสำรองข้อมูลนอกเครื่อง ซึ่ง deployment นี้ยังไม่มี
 CREATE TABLE IF NOT EXISTS file_versions (

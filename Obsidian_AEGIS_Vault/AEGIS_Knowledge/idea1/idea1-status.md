@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-29
+updated: 2026-09-04
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -18,6 +18,7 @@ edit_policy: owner-writable
 > **Codebase Status**: ✅ Built & Implemented (Backend Express `:8001` + Frontend React/Vite `:5174` + Database `aegis_drive` + Dual Theme Light/Dark)
 > **Test Status**: **132/132 pass against isolated PostgreSQL**, 0 fail, 0 skip (2026-08-07). PostgreSQL-only coverage must continue to use an isolated `aegis_drive_test`; the suite performs destructive writes and has no suite-wide rollback.
 > **Latest change verification**: Share Ownership Authorization Hardening is **VERIFIED IN PRODUCTION / PASS / CLOSED**. PR #30 source integration and PR #31 test normalization/verification are **PASS / CLOSED**. Isolated PostgreSQL verification completed with **233/233** full-suite, **57/57** affected-regression, **9/9** ownership, and **17/17** share-redemption tests passing. Drive-only deployment of production source `9992557f123dbbbf05841c107d27ab285ea77ad4` completed on `aegis-system`; controlled production acceptance passed **10/10**, and post-deployment health passed. `POSTGRES_EXECUTION_GAP=CLOSED`; `READY_FOR_PRODUCTION=YES` for this authorization scope only.
+> **Protected Trash implementation (local branch)**: normal Data Lake delete is now a 30-day soft-delete with owner-only password step-up, restore, explicit permanent deletion, bounded hourly auto-purge, share invalidation, and preserved file-version bytes. Permanent deletion, empty-trash, and background purge participate in the backup write-freeze so no Trash bytes are removed across an acknowledged snapshot boundary. Private Vault is unchanged. This source has **not been deployed or production-accepted**; migration `005_protected_trash.sql` is required before a future Drive redeployment.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
 ### Repository-wide tactical surface pass (2026-07-28)
@@ -255,7 +256,7 @@ Public Share remains not implemented.
 > change any PASS/FAIL statement below, and does not assert that a UI capability
 > has a completed backend, host collector, or deployed data source.
 
-### Primary screen map — 9 screens
+### Primary screen map — 10 screens
 
 | Group | Primary screen | Intended responsibility |
 | :--- | :--- | :--- |
@@ -264,6 +265,7 @@ Public Share remains not implemented.
 | Workspace | Private Vault | Dedicated encrypted-file workspace and Vault lifecycle |
 | Protection | Secure Shares | Secure-share creation, policy, lifecycle, tracking and revoke |
 | Protection | File History / Versions | Per-file version history, historical access and restore workflow |
+| Protection | Trash | Password-gated, owner-only 30-day recovery and permanent-deletion workflow for normal Data Lake files |
 | Protection | Storage & Backup | Storage/backup-oriented status and configuration surface |
 | Administration | Audit Log | Event, actor, IP and resource investigation surface |
 | Administration | Access Control | User and access-administration surface |
@@ -272,9 +274,10 @@ Public Share remains not implemented.
 ### Information-architecture decisions
 
 - **Files + Upload consolidated:** Upload is no longer a standalone primary navigation screen. It is an action/workflow within **Files**, alongside file/folder exploration, contextual file/folder search, sort/filter, grid/list choice, folder navigation, folder creation, drag-and-drop, upload queue/status, and recent-upload context where useful. The capability was moved, not removed.
-- **Legacy route compatibility:** current frontend navigation normalizes `/upload` and `/uploads` to the Files upload workflow (`Files` with upload open). This is a compatibility detail, not a tenth screen.
+- **Legacy route compatibility:** current frontend navigation normalizes `/upload` and `/uploads` to the Files upload workflow (`Files` with upload open). This is a compatibility detail, not an additional primary screen.
 - **Private Vault remains independent:** it is not a subsection inside Files. Its intended lifecycle is setup, unlock, lock, recovery, Vault-specific upload, and Vault file access. This section does not add a new cryptographic or production-verification claim.
 - **File History / Versions replaces the old snapshot-oriented concept:** it represents file-level version/recovery behavior. It must not be described as a filesystem-level snapshot facility merely because an older design used that term.
+- **Protected Trash is a separate recovery workspace:** Files moves normal Data Lake rows into a 30-day recoverable state without moving bytes; the Trash screen hides deleted-file metadata until current-account password step-up. It never includes Private Vault.
 - **Secure Shares remains separate:** Files may launch a share action, but share selection, expiration, password/policy options, access tracking, revoke, and share history/status remain part of the Secure Shares workspace.
 
 ### Dashboard functional model
@@ -448,6 +451,101 @@ Historical implementation evidence is recorded in
 [[90-Status/logs/2026-08-27_181500_kla_idea1-dashboard-telemetry-authenticated-visibility]].
 Current production closure is recorded in
 [[90-Status/logs/2026-08-27_201226_kla_idea1-dashboard-production-closure]].
+
+### Storage & Backup data phase (2026-09-03)
+
+`FUNCTION_DATA_PHASE = COMPLETE` (source). `PRODUCTION_CHANGED = NO`.
+`PRODUCTION_ACCEPTANCE = NOT TESTED`. The Capacity visualization is
+deliberately unchanged; the Storage page redesign is the next, separate phase.
+
+**Physical disk health (Goal A).** The Drive container still holds no raw
+device access. A new bounded oneshot, `aegis-disk-health.service` +
+`.timer` (dedicated user 29101, `CAP_SYS_RAWIO` only, `DevicePolicy=closed`,
+`DeviceAllow=/dev/sda r`, no network), runs
+`smartctl --json --info --health --attributes /dev/sda` every 10 minutes and
+writes an allowlisted evidence file (`shared/host-telemetry-agent/collectors/`).
+The unprivileged telemetry agent reads that one file — it remains a
+file-reads-only process with an empty capability set — and publishes it on a
+**new, separately versioned route** `GET /internal/disk-health`
+(`schemaVersion: 1`); the production-verified `/internal/telemetry` V1 body is
+byte-for-byte unchanged. Drive validates the document fail-closed
+(`server/telemetry/diskHealthSchema.js`, unknown key = rejection, `null` =
+not reported, never 0) and derives the status deterministically:
+explicit SMART failure or a critical warning code → `CRITICAL`; SMART passed
+with a measured warning → `WARNING`; SMART passed with none → `HEALTHY`;
+missing, stale (>30 min) or unreported evidence → `UNKNOWN`. UNKNOWN is never
+promoted. No serial number, raw attribute table, path or command output
+crosses either boundary.
+
+**Backup foundation (Goal B).** A third host identity,
+`shared/host-backup-agent/` (user `aegis-backup` 29102, own socket
+`/run/aegis-backup/backup.sock`, `CAP_DAC_READ_SEARCH` only, `ProtectSystem=strict`
+with `ReadWritePaths` limited to the external mount) executes backups; Drive
+never does. Engine: **restic** (encrypted, deduplicated, `check`, verified
+restore, `forget --prune`), with `pg_dump --format=custom` of `aegis_drive`
+proven readable by `pg_restore --list`. Backup set: `uploads/`, `versions/`,
+`vault/` (ciphertext only — no key exists to back up), `avatars/`, and the
+database dump; `.staging/` is excluded. **Failure-domain policy:** a target
+counts as protected only when `/proc/self/mountinfo` + `/sys/class/block`
+(partition → disk, device-mapper → slaves) resolve it to a physical disk not
+shared with the Data Lake, or it is off-host; otherwise the state is
+`SAME_FAILURE_DOMAIN` / `TARGET_UNAVAILABLE` and the UI says
+*Unprotected — same failure domain* rather than anything green.
+**Consistency model:** a bounded write-freeze lease with acknowledgement —
+the agent requests a freeze, Drive refuses destructive mutations (delete,
+same-name replace/commit, version restore, vault delete/commit) with
+`503 BACKUP_MAINTENANCE`, drains in-flight ones, acknowledges; only then
+`pg_dump` → `restic backup`; the freeze ends on completion or at the lease
+(enforced on Drive's own clock); a snapshot finishing after the lease is
+`FAILED / LEASE_EXPIRED`, and no acknowledgement within the deadline is
+`FAILED / QUIESCE_TIMEOUT`. Reads, downloads, shares and uncommitted uploads
+continue. **Restore verification** (`POST /internal/backup/verify`):
+`restic check --read-data-subset=10%`, expected content present in the latest
+snapshot, isolated restore of the dump into the agent's own state directory,
+`pg_restore --list` → `PASS` / `FAIL`; `NOT_TESTED` until run.
+
+**Contract and derivation.** `GET /api/storage` (all authenticated users) now
+returns `capacityBytes`/`usage`/`unaccountedBytes` (unchanged), `diskHealth`,
+`raid` (`NOT_CONFIGURED`, declared), `backup`, `maintenance`, and the
+`unavailable` map with current reasons. Backup facts are derived from agent
+job history only: `lastSuccessfulBackup`, `lastFailedBackup`,
+`backupAgeSeconds`, `bytesCovered`, `integrity`, `restoreVerification`,
+`successRate30d` = successful / all completed backup jobs in 30 days, **null
+when there are none** (not 0 %, not 100 %). Risk: `UNKNOWN` (no evidence);
+`NOT_CONFIGURED` (no protected target); `CRITICAL` (last backup failed with no
+newer success, no successful backup yet, older than `maxBackupAgeHours`, or
+restore verification failed); `WARNING` (past 75 % of max age, restore never
+verified, or verification older than `verifyIntervalDays`); `HEALTHY`
+otherwise. Configuration alone never yields HEALTHY. Admin-only:
+`GET /api/backup`, `PATCH /api/backup/policy` (four allowlisted IDs/booleans —
+no path, host or command ever leaves the browser), `POST /api/backup/run`,
+`POST /api/backup/verify`. Audit: `BACKUP_CONFIG_UPDATE`, `BACKUP_RUN_REQUEST`,
+`BACKUP_VERIFY_REQUEST` (actor = Admin), and `BACKUP_RUN_SUCCESS/FAILED`,
+`BACKUP_VERIFY_PASS/FAIL` recorded by Drive's coordinator with actor
+`SYSTEM:backup-agent` and `target_hash = sha256(jobId)`.
+
+**UI (data-driven, not redesigned).** Storage shows the disk evidence and the
+backup facts/risk/history with honest unavailable states in EN/TH/ZH; Settings
+→ Storage & Data gives Admin a form of allowlisted IDs (target with its
+protection classification, schedule preset, retention preset, enable) plus
+*Back up now* / *Verify restore*; a DataLake-User sees a read-only note.
+
+**Verification (local, Windows dev machine).** `shared/host-telemetry-agent`
+99 tests / 96 pass / 3 POSIX-only skips; `shared/host-backup-agent` 51/51;
+IDEA1 suite 826 tests / 759 pass / 0 fail / 67 PostgreSQL-gated skips (see the
+receipt for the post-UI-test count); `npm run build` PASS; repository policy
+suite 42/42; vault validator PASS.
+
+**Not done / limitations.** Nothing is deployed: no host unit installed, no
+`smartmontools`/`restic`/`postgresql-client` on the host, no `drive_backup`
+role, no external disk mounted, no Compose delta applied
+(`shared/host-backup-agent/deploy/production-delta.md`,
+`shared/host-telemetry-agent/deploy/README.md`). Whether `smartctl` can open
+`/dev/sda` with `CAP_SYS_RAWIO` alone on this controller is unverified on
+Linux. The Dashboard Server-Telemetry disk tile still reports `health:
+smart-not-observable` (unchanged; Storage is the surface that shows disk
+health). The dev `docker-compose.yml` needs no change. Receipt:
+[[90-Status/logs/2026-09-03_230500_kla_idea1-storage-backup-data-phase]].
 
 ### Data-honesty and empty-state behavior
 
@@ -735,8 +833,9 @@ This module went through a pass (2026-07-27) whose whole purpose was removing da
 | Dashboard activity (7 days) | ✅ Real | counted from `audit_log` |
 | Network zones | 🟠 Real CIDR input for restricted shares; source-identity limit remains | `network_zones` snapshot into `shares.vlan_scope` + `req.ip` check |
 | Encryption at rest for Data Lake uploads | 🔴 **Not implemented** — files are plaintext on disk | — |
-| Disk health / SMART, RAID | 🔴 **Not measurable here** (needs host access) | declared via `storageStatus().unavailable` |
-| Off-site backup jobs | 🔴 **None configured anywhere** | declared via `storageStatus().unavailable` |
+| Disk health / SMART | 🟠 **Source-complete, not deployed** — evidence path exists (host collector → telemetry agent → Drive); Drive still has no device access and shows UNKNOWN until the collector runs | `/api/storage.diskHealth` via `server/telemetry/diskHealth.js`; see "Storage & Backup data phase (2026-09-03)" |
+| RAID | 🔴 **Not configured** — no array in this deployment; declared, never guessed | `/api/storage.raid.status = NOT_CONFIGURED` |
+| Off-site backup jobs | 🟠 **Source-complete, not deployed** — real restic + pg_dump host agent with failure-domain policy and write-freeze; nothing is being copied off the machine until it is installed | `/api/storage.backup` via `server/backup/*`; `shared/host-backup-agent/` |
 
 ### Features removed for claiming things that did not exist
 * **Snapshots + rollback** — eight hardcoded rows; rollback set a `destroyed` flag and restored **zero bytes** while the UI reported "restored" plus GB lost. Replaced by real [[#🕓 File history (replaces Snapshots)]].
@@ -867,9 +966,9 @@ restore a version     →  current bytes become a version first (non-destructive
 * **Rename, not copy** — same volume, so it is a metadata operation; copying gigabytes on an edge HDD would cost time and double the space. *A test asserts the file count under `versions/` does not grow across a restore.*
 * **Same-name upload only versions your *own* file.** Matching on name alone would let anyone overwrite someone else's file by naming theirs to match — write access to another user's data with no ownership check.
 * **Owner-only for read, download and restore, with no Admin exception** (matching `DELETE /api/files/:id`). Past versions *are* the file's contents: reading them is reading their file; restoring them is writing to it.
-* **Deleting a file removes every version's bytes.** `ON DELETE CASCADE` takes the rows, but the bytes would otherwise sit unreferenced and unreachable — content the user believes is gone.
+* **Moving a file to Protected Trash preserves every version's bytes.** Permanent deletion or the 30-day auto-purge removes current and historical bytes before `ON DELETE CASCADE` removes metadata; a retry safely finishes a partial purge.
 
-> ⚠️ **Scope, stated on the screen itself**: this is per-file history, **not** a point-in-time image of the Data Lake. Deleted files keep no history, and versions live on the same disk as the data, so they do not survive a drive failure. That is what off-site backup is for, and none is configured.
+> ⚠️ **Scope, stated on the screen itself**: this is per-file history, **not** a point-in-time image of the Data Lake. Protected Trash retains deleted-file history for 30 days, but versions live on the same disk as the data, so they do not survive a drive failure. That is what off-site backup is for, and none is configured.
 
 ---
 
@@ -1072,6 +1171,28 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 
 > ⚠️ **`recordAudit` is now awaited before responding** on every path. It used to be fire-and-forget, so under PostgreSQL a **denied** request answered `403` before its `DENIED` row committed: if the process died in that window, the rejected attempt vanished from the forensic record — the row you least want to lose. Secondary effect: the Audit screen and the activity chart both read one event stale. In a system that claims an audit trail, "the action succeeded" must include "it was recorded". The in-memory path writes synchronously, which is why this only surfaced against a real database.
 
+### Filter labelling convention (2026-09-04)
+
+The four filters above the ledger follow one rule: **a filter's resting option
+states the filter's own name** — `Date range · All`, `Result · All`,
+`Actor · All`, `Action · All`. A native `<select>` displays its selected
+option, so that text is the only label the control has; a filter resting on a
+bare "All" is anonymous to the auditor reading the row. The result filter used
+to be exactly that and was fixed
+([[2026-09-04_021500_kla_idea1-audit-result-filter-label]]).
+
+The result filter's own name is `filterResult` (`Result` / `ผลลัพธ์` / `结果`),
+a sibling of `filterActor` / `filterAction` / `filterRange`. It deliberately
+does **not** reuse `colResult`: that is the table column head, and it is
+declared twice in every locale, so the value it resolves to is not obvious at
+the call site.
+
+Its value domain is unchanged and intentionally coarse — `all` and `denied`
+only, where `denied` means *any result that is not `OK`*. That is what keeps a
+`BLOCKED` row visible under the same option as `DENIED` rather than dropping it
+silently; splitting `OK` / `DENIED` / `BLOCKED` into separate options is not a
+pending fix.
+
 ---
 
 ## 📡 API surface (IDEA1)
@@ -1084,7 +1205,10 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `GET /api/files` · `POST /api/files/upload` · `folder` | `requireAuth` + **owner-scoped listing** | listing filters `uploaded_by` in SQL (2026-08-21 fix); same-name upload ⇒ new version |
 | `POST /api/files/:id/verify` | `requireAuth` + **owner only** | fresh SHA-256 over current Storage Layer bytes; cross-owner → 404, audited DENIED (2026-08-21 fix) |
 | `GET /api/files/:id/download` | `requireAuth` + **owner only** | octet-stream + attachment + nosniff; cross-owner → 404, audited DENIED (2026-08-21 fix) |
-| `DELETE /api/files/:id` | `requireAuth` + **owner only** | no Admin exception; also deletes version bytes |
+| `DELETE /api/files/:id` | `requireAuth` + **owner only** | soft-delete to Protected Trash; atomically revokes shares; bytes and versions remain for 30 days |
+| `GET /api/trash/status` · `POST /api/trash/unlock` · `/lock` | `requireAuth` + current-account password step-up | metadata stays hidden while locked; server-session window is 5 minutes; failures are rate-limited and audited |
+| `GET /api/trash` · `POST /api/trash/:id/restore` | `requireAuth` + unlocked Trash + **owner only** | no Admin override; restore verifies retained bytes; name conflict → 409 with safe suggestion; revoked shares stay revoked |
+| `DELETE /api/trash/:id` · `POST /api/trash/empty` | `requireAuth` + **owner only** + destructive re-verification | removes current + version bytes; empty requires exact `DELETE`; system auto-purge runs bounded hourly after 30 days |
 | `GET /api/file-versions` | `requireAuth` + **owner-scoped listing** | own files + version counts |
 | `GET /api/files/:id/versions[/:vid/download]` | **owner only** | 404 (not 403) for non-owners |
 | `POST /api/files/:id/versions/:vid/restore` | **owner only** | non-destructive |
@@ -1115,6 +1239,7 @@ Privacy-preserving by design: target names are stored as `sha256`, so an auditor
 | `dashboardAggregates` | activity counts move with real use; capacity is real; no `projected` flag |
 | `auditViewer` | Admin-only; sha256 targets; DENIED recorded; no secrets in the log |
 | `filesOwnership` | cross-user delete refused, bytes survive |
+| `protectedTrash` · `protectedTrashUi` | password step-up, soft-delete, active-query hiding, restore/collision handling, version retention, share invalidation, permanent/auto purge, owner isolation, schema and real UI contract |
 | `vaultApi` · `vaultPostgres` · `vaultCrypto` | zero-knowledge properties, incl. raw-SQL inspection |
 | `passwordResetGate` | first-class 403 classification; reset-only shell; zero protected calls before reset; natural hook startup after success; normal-session bypass |
 
@@ -1833,6 +1958,119 @@ the end, and survives close/reopen on Windows Edge/Chrome.
 ### Local Docker bootstrap guard (2026-08-07)
 
 Root `.gitattributes` now forces every shell script to `eol=lf`, protected by `tests/dockerBootstrap.test.mjs`. This prevents Windows checkouts from turning the Postgres init shebang into `/bin/sh^M`, which previously aborted schema/role initialization and left Drive in a restart loop (`drive_app` absent) behind an NGINX 502. The affected local volume was repaired in place by running the existing schema/seed and scoped-role scripts; Drive subsequently reported PostgreSQL health through the gateway.
+
+
+### IDEA1 file/share on-site acceptance — 2026-09-02
+
+> [!success] Field acceptance closure for file preview and restricted-share network scope
+> **DIRECT VLAN30 FILE PREVIEW = PASS. RESTRICTED SHARE VLAN30 ALLOW / OUTSIDE-ZONE DENY = PASS. VAULT 2 MiB ROUND-TRIP SHA-256 = PASS.**
+> The high-bitrate Vault preview limitation previously observed over the remote path is classified as a **remote delivery-environment/network-path limitation**, not a demonstrated Vault crypto, Service Worker, Beelink CPU/RAM/disk, or local-LAN defect. The current evidence does **not** isolate Twingate as the sole cause.
+
+#### A. Secure Share / network-scoped file sharing
+
+| Check | Evidence | Result |
+| :--- | :--- | :--- |
+| Restricted-share zone | `Management VLAN30 = 192.168.30.0/24` | ✅ PASS |
+| Allowed client path | Laptop `192.168.30.10` → Ethernet/VLAN30 → gateway `192.168.30.1` → AEGIS `192.168.10.10:443` | ✅ PASS |
+| Restricted share from VLAN30 | Existing restricted link opened and file downloaded successfully; redemption/hit counter incremented | ✅ PASS |
+| Outside-zone path | Local host override/route removed; `aegis.internal` resolved through Twingate to `100.96.97.113`, source `100.127.255.172` | ✅ PASS |
+| Restricted share outside allowed CIDR | Same link returned “This link is restricted … outside that range”; file download denied | ✅ PASS |
+| Remote/unrestricted share capability | Previously accepted in production/remote testing; not repeated as a new on-site requirement | ✅ PASS (existing evidence) |
+
+Application-layer CIDR enforcement is therefore demonstrated with a real positive/negative pair: **VLAN30 allow** and **Twingate/outside-zone deny**. This remains defense in depth and does not replace Twingate/device/firewall policy.
+
+#### B. Private Vault — encrypted-file integrity
+
+The deterministic 2 MiB Vault round-trip test is closed:
+
+- plaintext size before upload: **2,097,152 bytes**
+- expected/pre-upload SHA-256: `91d3beb88a9b2f778a6c44a1c53b63d3c79931845a9aef84b3fb414610bd1938`
+- Vault upload: **PASS**
+- browser-side download/decrypt: **PASS**
+- recovered size: **2,097,152 bytes**
+- recovered SHA-256: exact match
+- final: **`VAULT_2MIB_SHA256=PASS`**
+
+This proves byte-for-byte recovery through the client-side encrypt → ciphertext storage → client-side decrypt path for the deterministic acceptance file.
+
+#### C. Private Vault — large-video preview on direct VLAN30
+
+**High-bitrate stress file — `START_LIVE.mp4` (~1.1 GB, ~2 min):**
+
+| Measurement | On-site result |
+| :--- | :--- |
+| First frame | ~**8 s** |
+| Continuous playback | **>60 s PASS** |
+| Buffering/stutter during continuous play | **None observed** |
+| Read-ahead | Buffer visibly remained ahead of playhead |
+| Seek ~0:30 → 1:18 | ~**5 s** seek transition, ~**3 s** load before resumed playback |
+| Virtual media response | HTTP **206** |
+| Ciphertext chunk fetches | HTTP **200**, ~16.8 MiB chunks |
+
+**Large-normal video — ~323 MB / 17:48:**
+
+| Measurement | On-site result |
+| :--- | :--- |
+| First frame | ~**45–48 s** |
+| Continuous playback 60 s | ✅ PASS |
+| Buffering/stutter | None observed |
+| Seek 1:09 → 6:30 | ~**1–2 s**, then continuous playback |
+| Seek 8:40 → 15:30 | ~**6 s**, then continuous playback |
+| Repeated ~5 s seeks | ✅ PASS |
+
+The 323 MB first-frame latency remains a performance note; because sustained playback and seeks are healthy after startup, file/container metadata layout is a plausible contributor but is **not proven** and must not be stated as root cause.
+
+#### D. Direct-LAN ciphertext throughput
+
+Controlled browser fetch benchmark against Vault ciphertext chunks while using direct VLAN30:
+
+| Parallel fetches | Data | Time | Aggregate throughput |
+| :---: | ---: | ---: | ---: |
+| 1 | 16.00 MiB | 1.57 s | **10.17 MiB/s** |
+| 2 | 32.00 MiB | 3.04 s | **10.53 MiB/s** |
+| 4 | 64.00 MiB | 6.12 s | **10.46 MiB/s** |
+
+For comparison, the previous remote-path controlled benchmark was approximately **4.65 / 4.22 / 4.26 MiB/s** at 1/2/4 parallel fetches. The same ~1.1 GB high-bitrate file that stalled remotely plays continuously on direct VLAN30. Therefore the accepted conclusion is **remote delivery environment / network path limitation**; do not claim that Twingate alone was conclusively isolated.
+
+#### E. Normal-file R2 deterministic round-trip closure — 2026-09-03
+
+The dedicated **1 MiB Normal File R2** acceptance is now fully closed with direct browser and Windows evidence:
+
+- source file: `AEGIS_R2_NORMAL_1MiB.bin`
+- source size: **1,048,576 bytes**
+- expected/source SHA-256: `fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83`
+- upload through the real **Files** page: **PASS** — UI reported completion, the queue finished, and the file appeared in Files
+- download back to Windows: **PASS**
+- downloaded path: `C:\Users\User\Downloads\AEGIS_R2_NORMAL_1MiB.bin`
+- downloaded size: **1,048,576 bytes**
+- `SizeOK=True`
+- downloaded SHA-256: exact match with the source
+- `HashOK=True`
+- final: **`NORMAL_FILE_R2_ROUND_TRIP = PASS / CLOSED`**
+
+This closes the previously pending deterministic Normal File integrity proof. It demonstrates that the tested file survives the real **Files upload → server storage → download** round trip byte-for-byte. It does not imply that every future file size or format is automatically accepted without regression testing.
+
+For a separate formal “large-file storage” closure above 1 GiB, preview is not required for every file size. The storage criterion remains **upload + download + integrity/hash**; preview performance is a separate capability and the remote high-bitrate limitation remains documented separately.
+
+
+### IDEA1 Web Functional Acceptance checkpoint — 2026-09-03
+
+> [!info] Current page-level closure map
+> This matrix records only evidence already collected. `PASS / CLOSED` means the current acceptance scope is complete; `PARTIAL / PENDING` means implementation may exist but the remaining page-level workflow has not yet been directly accepted.
+
+| Primary screen | Current status | Closed evidence / remaining work |
+| :--- | :--- | :--- |
+| Dashboard | ✅ **PASS / CLOSED** | Production telemetry/authenticated visibility closure already recorded; no repeat required unless source/runtime changes affect the page. |
+| Files | ✅ **PASS / CLOSED** | Normal upload regression PASS; file authorization evidence exists; deterministic 1 MiB R2 upload → download → SHA-256 exact match is now PASS/CLOSED. |
+| Private Vault | ✅ **PASS / CLOSED (tested scope)** | 2 MiB encrypt/decrypt SHA-256 round trip, ~323 MB preview/seek and ~1.1 GB direct-VLAN30 high-bitrate preview passed. Remote high-bitrate limitation remains a delivery/network-path limitation. |
+| Secure Shares | ✅ **PASS / CLOSED (private/internal scope)** | Password/wrong-password/no-password/copy plus restricted-share VLAN30 allow and outside-zone deny passed. Public external share remains not implemented and is not counted as an internal-share failure. |
+| File History / Versions | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Next target: create/observe a real version, open history, restore an earlier version, then verify restored bytes/content. |
+| Storage & Backup | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Infrastructure backup/restore/persistence is PASS, but the Web page must still be checked for real `statfs` data, truthful unavailable states, refresh/error/empty behaviour, and only implemented controls. |
+| Audit Log | 🟡 **PARTIAL / PAGE ACCEPTANCE PENDING** | Backend audit evidence exists; page list/filter/details/role visibility and only supported export/retention behaviour remain to be accepted. |
+| Access Control | 🟡 **PARTIAL PASS** | Server-side RBAC and provisioning are PASS; remaining Admin UI actions must be tested only where implemented. |
+| Settings | 🟡 **PARTIAL PASS** | Theme continuity and Network Zone workflow have real acceptance evidence; remaining Account/Security & Privacy/Storage & Data/Administrator controls require page-level verification. |
+
+**Recommended next acceptance order:** **File History / Versions → Storage & Backup → Audit Log → Access Control → Settings.** Dashboard, Files, Private Vault and Secure Shares should not be retested merely to reproduce an already closed state unless a later source/runtime change affects them.
 
 ---
 

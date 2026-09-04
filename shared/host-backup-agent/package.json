@@ -1,0 +1,12 @@
+{
+  "name": "aegis-host-backup-agent",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Least-privilege host backup runner for AEGIS Drive (IDEA1). Executes restic + pg_dump from a fixed configuration under its own identity, coordinates a bounded write-freeze with Drive over one Unix socket, and publishes sanitized job status.",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1"
+  }
+}

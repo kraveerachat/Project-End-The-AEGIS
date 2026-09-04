@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { performLogin } from './helpers/testClient.mjs'
+import { performLogin, currentPasswordOf } from './helpers/testClient.mjs'
 
 // STORAGE_ROOT ต้องถูกตั้ง "ก่อน" import โมดูลที่อ่านค่านี้ตอน module-load
 const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-files-test-'))
@@ -133,10 +133,16 @@ test('ผู้ใช้อื่นลบไฟล์ของเจ้าข�
   // เจ้าของตัวจริงยังลบได้ปกติ — ด่านใหม่ต้องไม่พังฟีเจอร์
   const ownDel = await alice.req(`/api/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' })
   assert.equal(ownDel.status, 200, 'เจ้าของต้องลบไฟล์ตัวเองได้')
-  assert.equal(await bytesExistOnDisk(file.path), false, 'ลบสำเร็จแล้ว bytes ต้องหายไปจากดิสก์ด้วย')
+  assert.equal(await bytesExistOnDisk(file.path), true, 'soft delete ต้องเก็บ bytes ไว้ให้กู้คืนได้')
 
   const finalList = await alice.req('/api/files')
-  assert.equal(findById(finalList.data.files, file.id), null, 'แถว metadata ต้องหายไปหลังเจ้าของลบ')
+  assert.equal(findById(finalList.data.files, file.id), null, 'แถว metadata ต้องไม่อยู่ใน active list หลังเจ้าของลบ')
+
+  const purged = await alice.req(`/api/trash/${encodeURIComponent(file.id)}`, {
+    method: 'DELETE', body: { password: currentPasswordOf(USER_A.username) },
+  })
+  assert.equal(purged.status, 200, 'เจ้าของต้องลบถาวรด้วยรหัสผ่านปัจจุบันได้')
+  assert.equal(await bytesExistOnDisk(file.path), false, 'ลบถาวรแล้ว bytes ต้องหายจากดิสก์')
 })
 
 // ═══ ทิศทางกลับกัน: Admin ก็ไม่มีสิทธิ์เหนือไฟล์ของผู้อื่น ══════════════════════
@@ -203,9 +209,9 @@ test('ความพยายามลบข้ามเจ้าของถ�
   const events = await readAudit(50)
   const label = (e) => e.actor_label ?? e.actorLabel
   const denied = events.find(
-    (e) => e.action === 'FILE_DELETE' && e.result === 'DENIED' && label(e) === USER_B.username,
+    (e) => e.action === 'FILE_TRASH' && e.result === 'DENIED' && label(e) === USER_B.username,
   )
-  assert.ok(denied, 'audit ต้องมีแถว FILE_DELETE / DENIED ของผู้ที่พยายามลบ')
+  assert.ok(denied, 'audit ต้องมีแถว FILE_TRASH / DENIED ของผู้ที่พยายามลบ')
 
   await alice.req(`/api/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' })
 })

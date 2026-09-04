@@ -58,7 +58,8 @@ even by a compromised process.
 }
 ```
 
-Response keys are strictly allowlisted. The agent publishes no hostname, no
+Response keys are strictly allowlisted (this V1 contract is unchanged by the
+disk-health addition below). The agent publishes no hostname, no
 usernames, no process list, no container or Docker data, no MAC or IP address,
 no filesystem paths, and no raw `/proc` or `/sys` content.
 
@@ -77,17 +78,72 @@ one snapshot in memory; the socket handler answers from it synchronously.
 Drive caps its client at 1500 ms and marks any measurement older than 15 s as
 stale — enough for two missed agent cycles before the dashboard says so.
 
-## Disk is not here
+## Disk capacity is not here; physical disk health is
 
-Deliberately. Drive already has the Data Lake mounted, so it measures capacity
-itself with `statfs`, reusing the same `filesystemCapacity()` that `/api/storage`
-and `/api/dashboard` have always used. Collecting it here would need a host
-mount and would risk two implementations disagreeing.
+Capacity is deliberately not collected: Drive already has the Data Lake
+mounted, so it measures capacity itself with `statfs` (the same
+`filesystemCapacity()` behind `/api/storage` and `/api/dashboard`). Collecting
+it here would need a host mount and would risk two implementations disagreeing.
 
-Physical drive health (SMART, RAID) is reported as `available: false` with
-reason `smart-not-observable`: it needs raw device access that nothing in this
-design has, and a green "Healthy" nothing measured is worse than an honest
-"unknown".
+Physical drive health (SMART) **is** published, on a second, separately
+versioned route, without giving this agent any device access:
+
+```
+  aegis-disk-health.timer  (every 10 min)
+     -> aegis-disk-health.service   oneshot · User=aegis-disk-health
+        CAP_SYS_RAWIO only · DevicePolicy=closed · DeviceAllow=/dev/sda r
+        runs  /usr/sbin/smartctl --json --info --health --attributes /dev/sda
+        writes /var/lib/aegis-disk-health/disk-health.json   (0640, group aegis-telemetry)
+                                  |
+        telemetry agent (this process, no capability, PrivateDevices=true)
+        reads that ONE file on its 5 s cycle, validates it, and answers
+                                  v
+        GET /internal/disk-health
+```
+
+The split is the point: the process that touches a raw device is a oneshot
+that holds one capability for under a second, ten times an hour; the
+long-running agent stays a file-reads-only process. See
+`collectors/disk-health.js` and `deploy/aegis-disk-health.service`.
+
+### Disk-health contract
+
+`GET /internal/disk-health`, `schemaVersion: 1`, independent of the telemetry
+contract above (so Drive and the agent can be upgraded in either order):
+
+```json
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-03T02:00:00.000Z",
+  "device": "sda",
+  "disk": {
+    "available": true,
+    "model": "KINGSTON ...",
+    "smart": { "supported": true, "enabled": true, "passed": true },
+    "temperatureCelsius": 38,
+    "powerOnHours": 3210,
+    "capacityBytes": 128035676160,
+    "warnings": []
+  }
+}
+```
+
+Rules, all pinned by tests:
+
+- **Evidence, not verdict.** The agent publishes what the device reported and
+  which allowlisted warning conditions were measured (`collectors/smart.js`,
+  `DISK_WARNING_CODES`). Drive derives HEALTHY / WARNING / CRITICAL / UNKNOWN.
+- **`null` means not reported, never 0.** A drive that does not expose a
+  temperature publishes `"temperatureCelsius": null`.
+- **Unavailable is `{ "available": false, "reason": "..." }` and nothing else.**
+  Reasons include `smartctl-absent`, `device-open-failed`, `smart-unsupported`,
+  `collector-not-run` (no evidence file yet), `not-configured`, `invalid-evidence`.
+- **No serial number, no raw attribute table, no paths, no command output**
+  cross the socket. `model` is the only free-text field, bounded to 64
+  printable characters.
+
+The V1 `/internal/telemetry` body is byte-for-byte unchanged; no `disk` metric
+group was added to it.
 
 ## Configuration
 
@@ -96,6 +152,7 @@ design has, and a green "Healthy" nothing measured is worse than an honest
 | `AEGIS_TELEMETRY_INTERFACE` | `enp1s0` | Explicit. Never auto-selected. |
 | `AEGIS_TELEMETRY_SOCKET` | `/run/aegis-telemetry/telemetry.sock` | |
 | `AEGIS_TELEMETRY_INTERVAL_MS` | `5000` | Must be 1000–15000. |
+| `AEGIS_TELEMETRY_DISK_HEALTH_FILE` | `/var/lib/aegis-disk-health/disk-health.json` | Absolute path or empty (disables `/internal/disk-health`). Written by the separate collector, never by this agent. |
 
 Anything unusable makes the agent refuse to start. A telemetry agent running
 with a wrong interface is worse than one that is down, because its output still

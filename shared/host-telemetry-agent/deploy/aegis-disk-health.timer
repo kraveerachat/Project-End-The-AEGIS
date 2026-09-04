@@ -1,0 +1,16 @@
+[Unit]
+# Fires aegis-disk-health.service every ten minutes. SMART attributes change
+# on the scale of hours; ten minutes keeps the Storage screen within one
+# sampling window of any temperature excursion without polling the device
+# constantly. Drive treats evidence older than 30 minutes as stale.
+Description=AEGIS host disk-health collector timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Persistent=false
+Unit=aegis-disk-health.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,31 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": { "version": [7, 4], "svn_revision": "5530", "platform_info": "x86_64-linux", "exit_status": 0 },
+  "local_time": { "time_t": 1788350000, "asctime": "Thu Sep  3 09:00:00 2026 +07" },
+  "device": { "name": "/dev/sda", "info_name": "/dev/sda [SAT]", "type": "sat", "protocol": "ATA" },
+  "model_name": "AEGIS-FIXTURE M.2 2280 128GB",
+  "serial_number": "FIXTURE-SERIAL-MUST-NOT-CROSS",
+  "firmware_version": "S1234567",
+  "user_capacity": { "blocks": 250069680, "bytes": 128035676160 },
+  "logical_block_size": 512,
+  "physical_block_size": 512,
+  "rotation_rate": 0,
+  "form_factor": { "ata_value": 6, "name": "M.2" },
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": true },
+  "power_on_time": { "hours": 3210 },
+  "power_cycle_count": 412,
+  "temperature": { "current": 38 },
+  "ata_smart_attributes": {
+    "revision": 1,
+    "table": [
+      { "id": 1, "name": "Raw_Read_Error_Rate", "value": 100, "worst": 100, "thresh": 50, "when_failed": "", "flags": { "value": 15, "string": "POSR-- " }, "raw": { "value": 0, "string": "0" } },
+      { "id": 5, "name": "Reallocated_Sector_Ct", "value": 100, "worst": 100, "thresh": 10, "when_failed": "", "flags": { "value": 51, "string": "PO--CK " }, "raw": { "value": 0, "string": "0" } },
+      { "id": 9, "name": "Power_On_Hours", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 50, "string": "-O--CK " }, "raw": { "value": 3210, "string": "3210" } },
+      { "id": 187, "name": "Reported_Uncorrect", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 50, "string": "-O--CK " }, "raw": { "value": 0, "string": "0" } },
+      { "id": 194, "name": "Temperature_Celsius", "value": 62, "worst": 45, "thresh": 0, "when_failed": "", "flags": { "value": 34, "string": "-O---K " }, "raw": { "value": 38, "string": "38" } },
+      { "id": 197, "name": "Current_Pending_Sector", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 50, "string": "-O--CK " }, "raw": { "value": 0, "string": "0" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": { "value": 48, "string": "----CK " }, "raw": { "value": 0, "string": "0" } }
+    ]
+  }
+}
