@@ -10,132 +10,110 @@ edit_policy: append-by-new-file
 
 # Task Receipt — IDEA1 Progress Update 6.1
 
-## Goal
+## What changed
 
-Create a durable, detailed IDEA1 handoff so work can resume safely from a new
-chat/session without losing the acceptance history, recent UI changes, host-agent
-integration state, RAID/Backup plan, Settings sub-gates, or Twingate telemetry plan.
+Created a durable IDEA1 handoff snapshot so work can resume from a new
+chat/session without losing acceptance history, recent UI changes, host-agent
+integration state, RAID/Backup dependencies, Settings sub-gates, or the Twingate
+telemetry plan.
 
-## Repository baseline audited
+The task audited the current GitHub baseline at
+`main@46573ed8dd17631f9f746de3f9c7a5f71da1a03b` and reconciled recent
+production/browser evidence into a new Progress Update 6.1 note.
 
-- GitHub main: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
-- PR #70 merged — truthful Audit / Trash / Capacity / RAID / Backup
-- PR #71 merged — Classic/Neo Dual Interface Style
-- PR #72 merged — Neo/capacity refinement
-- PR #73 merged — functional Security/Storage/Administrator Settings
-- PR #74 merged — capacity/settings acceptance follow-up
-- PR #75 merged — RAID telemetry-ready UI
-- PR #76 merged — CapacityRing regression-test fix
-
-## Documentation changes
-
-### New canonical handoff snapshot
-
-Created:
-
-`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/IDEA1-Progress-Update-6.1.md`
-
-The snapshot contains:
-
-- production source/image baseline;
-- current 10-screen navigation map;
-- page-by-page PASS/PARTIAL matrix;
-- accepted Files/Vault/Shares/History/Trash/Audit/Access evidence;
-- Classic/Neo Dual Interface status;
-- Settings breakdown by Appearance / Account / Security & Privacy / Storage & Data / Administrator;
-- SECURITY-1 through SECURITY-5 acceptance status;
-- the remaining SECURITY-2 dynamic auto-lock-copy defect and requested 1-minute option;
+The new snapshot records:
+- the current 10-screen navigation and PASS/PARTIAL matrix;
+- PR #70–#76 and the deployed Drive source baseline;
+- Classic/Neo Dual Interface Style status;
+- Files/Vault/Shares/History/Trash/Audit/Access closure evidence;
+- Settings breakdown for Appearance, Account, Security & Privacy, Storage & Data,
+  and Administrator;
+- SECURITY-1 through SECURITY-5 status, including the remaining SECURITY-2
+  hard-coded auto-lock message and requested 1-minute option;
 - Storage capacity and Disk Health acceptance;
-- RAID telemetry-ready UI vs not-yet-created real array;
-- Host Backup Agent production connection state;
+- RAID telemetry-ready UI versus the not-yet-created real RAID array;
+- Host Backup Agent production connection and the still-missing tools/target;
 - STORAGE-AUTO-1 persistence PASS and STORAGE-AUTO-2 dependency;
-- the last observed enabled/every-6h test policy safety warning;
-- TWIN-0 and TWIN-1 PASS evidence;
-- TWIN-2 local-connector telemetry architecture and truth boundary;
-- full RAID → Backup pipeline;
-- production paths, service names and Unix sockets;
-- known limitations;
-- safety invariants;
-- ordered continuation queue;
-- compact resume statement for a future conversation.
+- the last observed enabled/every-6h test policy warning;
+- TWIN-0/TWIN-1 production preflight evidence and TWIN-2 pending architecture;
+- the ordered RAID → Backup continuation pipeline;
+- safety/truthfulness invariants and a compact future-chat resume statement.
 
-### Canonical IDEA1 status refreshed
+## Source files changed
 
-Updated:
+Documentation only:
 
-`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/IDEA1-Progress-Update-6.1.md`
+  — new detailed 6.1 handoff snapshot.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
+  — refreshed current-state headline and linked the 6.1 checkpoint while keeping
+  historical evidence below.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+  — points future resume work to 6.1 first.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-05_045617_kla_idea1-progress-update-6-1.md`
+  — this immutable task receipt.
 
-Changes:
-- frontmatter updated to 2026-09-05;
-- added a prominent link to Progress Update 6.1;
-- replaced stale top-level current-state lines with the current production SHA,
-  PR #70–#76 state, latest 966-test suite evidence and current partial/open areas;
-- recorded the connected Host Backup Agent and Twingate telemetry boundary at
-  the current-state level;
-- preserved historical sections below rather than rewriting historical evidence.
+No application source, runtime Compose, systemd unit, database migration, Twingate
+configuration, RAID device, firewall or production service was changed.
 
-### IDEA1 MOC refreshed
+## Verification evidence
 
-Updated:
+- `git diff --name-status 46573ed8dd17631f9f746de3f9c7a5f71da1a03b docs/idea1-progress-update-6-1`
+  — **PASS** by GitHub compare: exactly four documentation paths changed, all
+  IDEA1-owned or the required new receipt.
+- `git diff --stat 46573ed8dd17631f9f746de3f9c7a5f71da1a03b docs/idea1-progress-update-6-1`
+  — **PASS** by GitHub compare: 4 files changed; no application/infrastructure
+  source path is present.
+- GitHub PR metadata for #70–#76 was re-read — **PASS**: all seven PRs are merged;
+  #76 merge SHA is the current `main` SHA.
+- The 6.1 note cross-checks the latest full-suite evidence from #76:
+  **966 total / 899 pass / 0 fail / 67 PostgreSQL-gated skips**.
+- Production/browser facts included in 6.1 are explicitly labelled as acceptance
+  evidence rather than repository-source facts where appropriate.
 
-`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+## Canonical notes updated
 
-Changes:
-- updated date to 2026-09-05;
-- made Progress Update 6.1 the first resume document;
-- added current coverage for Protected Trash, Dual Interface, RAID/Backup and
-  Twingate continuation state.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
+  — current production SHA, latest suite headline, page-acceptance headline,
+  Host Backup Agent state, Twingate measurement boundary, and 6.1 handoff link.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+  — 6.1 is now the first resume document and current open-work map.
 
-## Current operational facts captured from production acceptance
+Historical sections in `idea1-status.md` were intentionally preserved for
+traceability instead of being rewritten as if older evidence never existed.
 
-The documentation records the current session evidence that is not fully
-represented by the repository source alone:
+## Shared surfaces touched
 
-- production Drive is deployed at main SHA `46573ed8...`;
-- Host Backup Agent is active over
-  `/run/aegis-backup/backup.sock`;
-- Drive has supplementary GID 29102 and a read-only backup socket bind;
-- Backup Agent is connected but restic/pg_dump/target are not ready;
-- Schedule/Retention/Automatic Schedule persistence was accepted;
-- last observed policy during the test was Enabled / Every 6 hours / no target;
-- Twingate connector `twingate-aegis-connector-02` was observed running and
-  Docker-healthy with restart count 0;
-- current Drive UI does not yet ingest local connector evidence and must keep
-  control-plane status explicitly unmeasured;
-- RAID UI is deployed but no real md array exists.
+None. All non-receipt changed paths are under
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/`, which is owned by IDEA1/Kla.
+The required immutable receipt is permitted for every task by the collaboration
+policy.
 
-## Important unresolved work carried forward
+## Integration requests
 
-1. SECURITY-2:
-   dynamic Vault auto-lock text + requested 1-minute option + new migration.
-2. Verify/reset backup policy safe baseline before attaching a target.
-3. Administrator Settings production acceptance.
-4. TWIN-2 implementation and later production acceptance.
-5. Two-device RAID1 field discovery/create/failure/resync acceptance.
-6. RAID telemetry integration.
-7. Install restic and PostgreSQL client tools.
-8. Dedicated DB backup identity and allowlisted external target.
-9. Manual backup → integrity PASS → isolated restore verification PASS.
-10. Real scheduled backup acceptance.
+None. No cross-scope source or canonical note is modified by this task.
 
-## Production impact
+A later reconciliation may update the shared outstanding-items summary if the
+team wants the new 6.1 queue duplicated there, but that is deliberately not part
+of this IDEA1-only documentation task.
 
-**None.**
+## Known limitations
 
-This task changes Obsidian documentation only. It does not:
-- restart a service;
-- edit production Compose;
-- change Twingate;
-- change MikroTik/UFW;
-- touch RAID devices;
-- install backup tools;
-- alter PostgreSQL;
-- recreate Drive/HUB/Monitor/Postgres.
-
-## Verification
-
-- New snapshot is linked from both IDEA1 canonical status and IDEA1 MOC.
-- Historical evidence was retained instead of being silently rewritten.
-- Current vs historical test totals are explicitly distinguished.
-- Current limitations are labelled rather than converted to implied PASS.
-- Destructive RAID and privileged Docker/Twingate anti-patterns are explicitly prohibited.
+- This is a documentation reconciliation, not a new production acceptance run.
+- The connected Host Backup Agent and TWIN-0/TWIN-1 facts come from the current
+  production acceptance session; the repository itself does not encode every
+  runtime fact.
+- Production runtime Compose contains the manually applied Backup Agent socket
+  group/bind delta; future runtime-compose regeneration must preserve or
+  deliberately reapply it.
+- The last observed Backup policy during persistence testing was Enabled /
+  Every 6 hours / no active target. The 6.1 note explicitly requires verifying
+  or resetting this before a real target is attached.
+- SECURITY-2 remains open: the Vault auto-lock result copy still hard-codes
+  10 minutes and the requested 1-minute option is not implemented.
+- RAID hardware, real RAID telemetry, restic/pg_dump, backup target, manual
+  backup, integrity verification, restore verification and real scheduler
+  execution remain open.
+- Twingate local connector runtime telemetry is not yet ingested by Drive;
+  Twingate control-plane state remains intentionally unmeasured.
+- Administrator Settings still needs its dedicated production acceptance pass.
