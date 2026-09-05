@@ -1,13 +1,15 @@
 import React from 'react'
 import { FlaskConical } from 'lucide-react'
+import { makeT } from '../lib/i18n.js'
 
-export function DemoBanner({ mode }) {
+export function DemoBanner({ mode, language = 'th' }) {
   if (mode !== 'DEMO') return null
+  const t = makeT(language)
   return (
     <div className="demo-banner" role="status">
       <FlaskConical size={17} aria-hidden="true" />
       <strong>DEMO</strong>
-      <span>ข้อมูลจำลองเพื่อสาธิต UI — ไม่ใช่สถานะระบบจริง</span>
+      <span>{t('demo.message')}</span>
     </div>
   )
 }
