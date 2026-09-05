@@ -22,11 +22,47 @@ edit_policy: owner-writable
 > Twingate TWIN-0/TWIN-1 evidence, production runtime deltas, known limitations and
 > the ordered continuation queue as of 2026-09-05.
 
-> **Current production application source**: ✅ Production Drive remains on application baseline `46573ed8dd17631f9f746de3f9c7a5f71da1a03b` after merged runtime PRs #70–#76. Documentation-only PR #77 advances repository `main` without changing IDEA1 runtime code, so a later `main` SHA does not by itself mean production application drift. The current production Drive includes Protected Trash, Classic/Neo Dual Interface Style, functional Settings, truthful capacity/disk-health surfaces, and the RAID telemetry-ready UI.
-> **Latest full-suite evidence**: **966 discovered / 899 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #76, with Vite production build and collaboration guardrails passing. Older test totals below remain historical evidence for their own scopes and must not be read as the current suite size.
-> **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Audit Log and Access Control are **PASS / CLOSED**. Storage & Backup and Settings are **PARTIAL** because real RAID/Backup end-to-end work, SECURITY-2 auto-lock copy/1-minute option, Twingate local telemetry integration, and Administrator page acceptance remain.
-> **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active and reachable through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. The HGST 1 TB target `hgst-usb-1` is mounted at `/mnt/aegis-backup` and registered, but Production still reports `UNKNOWN / physical-device-unresolved` because `PrivateDevices=true` hides host `/dev` nodes from the currently deployed classifier. Commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` fixes classification through mountinfo `major:minor` → `/sys/dev/block`, with 9/9 focused and 52/52 full host-agent tests passing; PR review/merge, controlled deployment, and real Production `DIFFERENT_DEVICE` acceptance remain pending. `restic`/`pg_dump`/`pg_restore` and backup credentials still require verification before any real job. Policy remains fail-safe: `activeTargetId=null`, schedule disabled, `enabled=false`. Twingate read-only discovery/preflight proved the local connector is running/healthy, but Drive still truthfully reports connector telemetry as unmeasured until TWIN-2 is implemented.
+> **Current production application source**: ✅ Production Drive is on `2806373bb300728a0babb953a63f98bcd714ffef` after merged/deployed PR #79 (local Twingate connector runtime telemetry) and PR #80 (Vault auto-lock duration truthfulness + 1-minute option). Migration `008_vault_autolock_1_minute.sql` was applied before the PR #80 Drive image was activated. The accepted Drive image is `sha256:f604cc985db1f69b79773e8973b3bb8e63f84d28730710c0ebf3174d4156f098`; HUB, Monitor and PostgreSQL were not recreated for that Drive-only deployment.
+> **Latest full-suite evidence**: **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #80, plus focused Vault auto-lock suites **9/9 + 9/9 PASS**. PR #79 separately recorded Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.
+> **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Audit Log and Access Control are **PASS / CLOSED**. Settings remains **PARTIAL** only because Storage & Data / Administrator still depend on Backup Target + Backup Job completion and the latest profile/avatar sweep is optional/not re-tested; **Security & Privacy is PASS / CLOSED**, including SECURITY-2. Storage & Backup remains **PARTIAL** because the Backup Target classifier still needs PR/merge/Production `DIFFERENT_DEVICE` acceptance, the real Backup Job is not yet run, and real RAID1 is **DEFERRED / FUTURE HARDWARE**.
+> **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and registered, but Production still reports `UNKNOWN / physical-device-unresolved` until classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` is reviewed, merged and deployed; focused target tests are **9/9 PASS** and the full host-backup-agent suite is **52/52 PASS**. Policy remains fail-safe: `activeTargetId=null`, schedule disabled, `enabled=false`. Local Twingate connector runtime telemetry is now **measured and accepted in Production** through PR #79; the **Twingate control plane remains NOT MEASURED** by design/current architecture. `restic` / `pg_dump` / `pg_restore` and the dedicated PostgreSQL backup credential path still require safe runtime verification before any real backup job.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
+
+### Current acceptance reconciliation — 2026-09-06
+
+> [!important] Authoritative current-state override
+> Historical sections below are retained for traceability. When an older section conflicts with this block, this 2026-09-06 reconciliation is the current state.
+
+| Area / gate | Current state |
+| :--- | :--- |
+| Dashboard | ✅ PASS / CLOSED |
+| Files | ✅ PASS / CLOSED |
+| Private Vault | ✅ PASS / CLOSED for tested scope |
+| Secure Shares | ✅ PASS / CLOSED for private/internal scope; public external gateway remains NOT IMPLEMENTED |
+| File History | ✅ PASS / CLOSED |
+| Protected Trash | ✅ PASS / CLOSED for functional/manual workflow |
+| Audit Log | ✅ PASS / CLOSED |
+| Access Control | ✅ PASS / CLOSED |
+| Settings → Appearance | ✅ PASS / CLOSED |
+| Settings → Account | ✅ Change Password PASS / CLOSED; profile/avatar latest exhaustive sweep NOT TESTED |
+| Settings → Security & Privacy | ✅ PASS / CLOSED; SECURITY-1..5 accepted, including SECURITY-2 |
+| Twingate local connector telemetry | ✅ PASS / CLOSED in Production; control-plane telemetry remains NOT MEASURED |
+| Storage Capacity | ✅ PASS / CLOSED |
+| Disk Health | ✅ PASS / CLOSED |
+| RAID UI | ✅ PASS; real RAID1 = DEFERRED / FUTURE HARDWARE |
+| Backup Agent connection | ✅ PASS / CLOSED |
+| STORAGE-AUTO-1 policy persistence | ✅ PASS / CLOSED; current safe baseline is disabled/no active target |
+| Administrator → Encryption at Rest | ✅ ADMIN-ENC-1 PASS / CLOSED; actual host filesystem/device encryption is NOT CONFIGURED and UI truthfully does not fabricate it |
+| Administrator → Network Zones | ✅ PASS / CLOSED |
+| Administrator → Backup Targets | 🟡 IN PROGRESS with HGST target registered; Production `DIFFERENT_DEVICE` acceptance pending |
+| Backup Job E2E | ⏳ NOT TESTED |
+| STORAGE-AUTO-2 real scheduled execution | ⏳ WAITING |
+| Real RAID1 | ⏳ DEFERRED / FUTURE HARDWARE |
+
+**Encryption-at-rest evidence boundary:** browser-side Vault encryption is active, the server owns no Vault plaintext key, and read-only host inspection found no `TYPE=crypt`, no `crypto_LUKS`, an empty `/etc/crypttab`, no active crypt mappings, and an LVM/ext4 Data Lake. This closes the truthfulness/measurement acceptance; it does **not** claim disk encryption exists.
+
+**Backup-media boundary:** the HGST 1 TB disk and Lexar 32 GB device are existing/shared equipment. Do not erase, reformat, repartition, resize, move or delete their existing data. Only new files inside the designated HGST `AEGIS_BACKUP` directory are allowed; Lexar remains disconnected/unused.
+
 
 ### Repository-wide tactical surface pass (2026-07-28)
 

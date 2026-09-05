@@ -12,23 +12,15 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Reconciled the IDEA1 handoff and canonical status with the current Backup
-  Target session: the hardened host agent is deployed, the existing/shared HGST
-  1 TB target is mounted and registered, but Production classification remains
-  `UNKNOWN / physical-device-unresolved` until the source fix is merged and
-  deployed.
-- Recorded the confirmed root cause: `PrivateDevices=true` hides host `/dev`
-  block nodes in the service namespace while mountinfo `major:minor` and
-  `/sys/dev/block/<major:minor>` remain available.
-- Recorded commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff`,
-  its exact three changed implementation/test files, focused 9/9 and full 52/52
-  test results, closed investigation/source gates, and pending PR/Production
-  acceptance gates.
-- Preserved the safe policy (`activeTargetId=null`, schedule disabled,
-  `enabled=false`), HGST data-preservation boundary, disconnected/unused Lexar
-  boundary, deferred RAID status, and untested real Backup Job status.
-- This receipt marks the documentation reconciliation complete; it does not
-  mark the overall Backup Target, Backup Job, or RAID work complete.
+- Reconciled the IDEA1 canonical status/handoff against the latest Production acceptance evidence instead of leaving superseded 2026-09-05 states as current truth.
+- Recorded current Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80) and the accepted Drive-only deployment boundary.
+- Closed stale documentation states for SECURITY-2 Vault auto-lock (**PASS / CLOSED**), Twingate local connector runtime telemetry (**PASS / CLOSED**), Administrator Encryption-at-Rest truthfulness (**ADMIN-ENC-1 PASS / CLOSED**) and Administrator Network Zones (**PASS / CLOSED**).
+- Preserved Twingate control-plane telemetry as **NOT MEASURED**; local Docker/runtime health is not a control-plane claim.
+- Preserved Settings as **PARTIAL** because Backup Targets / Backup Job remain open and profile/avatar has not been re-tested in the latest exhaustive sweep.
+- Reconciled RAID from an immediate field-work plan to **DEFERRED / FUTURE HARDWARE**, because the discovered HGST/Lexar devices are existing/shared equipment that must not be erased.
+- Preserved the current Backup Target truth: HGST `hgst-usb-1` is safely mounted/registered, Production classification remains `UNKNOWN / physical-device-unresolved`, source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` passes 9/9 focused and 52/52 full tests, and PR/merge/deployment/real `DIFFERENT_DEVICE` acceptance remain.
+- Preserved the safe policy: `activeTargetId=null`, schedule disabled, retention `keep-7d-4w`, `enabled=false`.
+- This receipt closes the documentation reconciliation only. It does not close Backup Target overall, Backup Job E2E, STORAGE-AUTO-2, or real RAID1.
 
 ## Source files changed
 
@@ -55,27 +47,24 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `git rev-parse origin/main` — **PASS**:
-  `2806373bb300728a0babb953a63f98bcd714ffef`.
-- `git rev-parse origin/fix/backup-target-private-dev-classification` —
-  **PASS** before documentation commit:
-  `a68de6f145d7e0f6935f2a2a0609ca4be432cdff`.
-- `git rev-list --left-right --count origin/main...origin/fix/backup-target-private-dev-classification`
-  — **PASS** before documentation commit: `0 1` (behind 0, ahead 1).
-- `git diff --name-status origin/main...origin/fix/backup-target-private-dev-classification`
-  — **PASS** before documentation commit: exactly the three host backup-agent
-  source/test paths recorded above.
-- `node --test tests/targets.test.js` from `shared/host-backup-agent` —
-  **PASS: 9/9**, including fail-closed `TARGET-8` and PrivateDevices regression
-  `TARGET-9`.
-- `npm test` from `shared/host-backup-agent` — **PASS: 52/52**, 0 failed,
-  0 skipped.
-- `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs`
-  — **PASS: 43/43**, 0 failed.
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`
-  — **PASS with 2 existing owner-review warnings** for
-  `AEGIS_Architecture_Canvas.canvas` and `AEGIS_Knowledge_Network.canvas`.
-- `git diff --check` — **PASS**: no whitespace errors.
+Repository / PR evidence cross-checked during reconciliation:
+- PR #79 is merged and records Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.
+- PR #80 is merged at `2806373bb300728a0babb953a63f98bcd714ffef`; it records Drive **1012 total / 945 pass / 0 fail / 67 skips**, with focused auto-lock suites **9/9 + 9/9 PASS**.
+- Current classifier source commit: `a68de6f145d7e0f6935f2a2a0609ca4be432cdff`.
+- Backup target focused tests previously recorded on this branch: **9/9 PASS**, including fail-closed TARGET-8 and PrivateDevices TARGET-9.
+- Full host-backup-agent suite previously recorded on this branch: **52/52 PASS**, 0 failed, 0 skipped.
+- Previous branch documentation validation recorded collaboration/vault structure tests **43/43 PASS**, vault validation PASS with only the two existing canvas owner-review warnings, and `git diff --check` PASS.
+
+Production acceptance facts reconciled from the active 2026-09-05/06 acceptance session:
+- Production Drive source = `2806373...`.
+- migration 008 applied before the PR #80 Drive image.
+- SECURITY-2 measured 1-minute acceptance = PASS / CLOSED.
+- local Twingate connector runtime telemetry = PASS / CLOSED.
+- Administrator Encryption-at-Rest truthfulness = ADMIN-ENC-1 PASS / CLOSED.
+- Administrator Network Zones = PASS / CLOSED.
+- Backup Target Production classification remains `UNKNOWN / physical-device-unresolved`; therefore it is not closed.
+
+No new application/runtime test is claimed by this documentation-only reconciliation. Historical receipts remain historical; stale current-state claims were corrected in the owner-maintained canonical notes and this still-unmerged task receipt.
 
 ## Canonical notes updated
 
@@ -109,13 +98,11 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- The classifier fix has not been reviewed, merged, or deployed to Production;
-  Production still reports `UNKNOWN / physical-device-unresolved`.
-- No real backup job, repository integrity check, or isolated restore
-  verification was performed.
-- `restic`, `pg_dump`, `pg_restore`, and the dedicated PostgreSQL backup
-  credential path still require safe runtime verification.
-- RAID remains `DEFERRED / FUTURE HARDWARE`; the UI remains truthfully
-  `NOT CONFIGURED`.
-- No Production source/configuration/service was changed by this documentation
-  update, and no existing HGST or Lexar data was modified.
+- The classifier fix has not yet been reviewed/merged/deployed to Production; Production still reports `UNKNOWN / physical-device-unresolved`.
+- No real backup job, repository integrity check, or isolated restore verification has been performed.
+- `restic`, `pg_dump`, `pg_restore`, and the dedicated PostgreSQL backup credential path still require safe runtime verification/configuration.
+- Real RAID1 remains `DEFERRED / FUTURE HARDWARE`; the UI truthfully remains `NOT CONFIGURED`.
+- Twingate **control-plane** telemetry remains `NOT MEASURED`; only local connector runtime health is measured.
+- Account profile/avatar has not been re-accepted in the latest exhaustive Settings sweep.
+- No Production source/configuration/service was changed by this documentation reconciliation, and no existing HGST or Lexar data was modified.
+
