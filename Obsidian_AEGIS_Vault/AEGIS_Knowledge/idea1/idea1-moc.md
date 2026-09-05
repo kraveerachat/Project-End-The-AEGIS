@@ -23,7 +23,7 @@ Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical op
 Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-versioning, Protected Trash, Storage/Backup status surfaces and the Classic/Neo Dual Interface Style.
 
 For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
-- Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80 and repository `main@07ad78efdf1561f2a49a1ecc81440359b766b3bd` through PR #81;
+- Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80, plus PR #81's Backup Target classifier merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`; the live repository head must be resolved from Git;
 - the current 10-screen PASS/PARTIAL matrix;
 - Private Vault tested scope **PASS / CLOSED**, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
 - SECURITY-2 Vault auto-lock **PASS / CLOSED** after PR #80 + migration 008 + measured 1-minute Production acceptance;
