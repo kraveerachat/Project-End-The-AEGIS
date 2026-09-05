@@ -3,7 +3,7 @@ title: Large File Transfer V2 — Resumable Chunked Transport
 tags: [aegis, concept, idea1, drive, upload, transfer, resumable, integrity, storage]
 type: concept
 created: 2026-08-28
-updated: 2026-08-29
+updated: 2026-09-06
 sources: ["[[idea1/idea1-status]]", "[[concepts/Three_Layer_Data_Lake]]"]
 owner: kla
 edit_policy: owner-writable
@@ -18,6 +18,34 @@ edit_policy: owner-writable
 >
 > **The claim it does not support, and which must never be made anywhere:**
 > "unlimited file size".
+
+---
+
+## 0. Current acceptance reconciliation — 2026-09-06
+
+> [!important] Current state versus historical stage notes
+> Sections E3.1/E3.2/E3.3 below record what was true when those changes were authored. Later deployment and on-site acceptance supersede their stage-local `IN_PROGRESS` wording for the direct-VLAN tested scope; the immutable receipts themselves remain historical and are not rewritten.
+
+| Item | Current project state |
+| :--- | :--- |
+| PR #55 / E3.1 | MERGED; Drive-only Production deployment and 206/chunk/first-frame path evidence recorded |
+| PR #56 / E3.2 | MERGED; later project evidence explicitly confirms PR #56 was deployed before E3.3 throughput work |
+| PR #58 / E3.3 | MERGED; canonical bounded read-ahead implementation. PR #57 was superseded and never merged/deployed |
+| 1.1 GB V2 upload | PASS in the earlier test session; speed/ETA UI observed |
+| Small buffered video (~5.4 MB) | PASS |
+| `START_LIVE.mp4` ~1.1 GB direct VLAN30 preview | **PASS / CLOSED for tested scope**: first frame ~8 s, >60 s continuous playback, no observed buffering/stutter, seek ~0:30 → ~1:18 resumed, HTTP 206 media + HTTP 200 ciphertext chunks |
+| Remote high-bitrate preview | LIMITED by remote delivery environment / network path; Twingate alone not isolated as root cause |
+| Close/reopen + worker-restart + lock/unlock field lifecycle sequence | NOT separately evidenced in the 2026-09-02 field receipt; source/regression coverage exists, so do not invent measured field acceptance |
+| High-throughput upload tuning beyond the tested profile | OPEN / benchmark work not accepted as a separate E2.1 closure |
+| 2–5 GB real transfer acceptance | NOT ESTABLISHED by the evidence reviewed here |
+| 20–30 GB real transfer acceptance | NOT RUN / NOT ACCEPTED |
+| Production 32 GiB logical ceiling | NOT ACCEPTED; source boundedness/configurable maximum is not equivalent to Production enablement |
+
+`LARGE_V2_VIDEO_PREVIEW = PASS / CLOSED FOR DIRECT-VLAN TESTED SCOPE`
+
+This does **not** mean every browser/lifecycle/path combination is closed. Windows Edge/Chrome remain the primary production browser target; Firefox is secondary compatibility and Safari/WebKit remains deferred unless separately accepted.
+
+
 
 ---
 

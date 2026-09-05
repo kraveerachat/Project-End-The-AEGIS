@@ -7,9 +7,11 @@ created: 2026-09-05
 updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
-application_source_baseline_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
-production_drive_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
+application_source_baseline_sha: 2806373bb300728a0babb953a63f98bcd714ffef
+production_drive_sha: 2806373bb300728a0babb953a63f98bcd714ffef
 progress_update_merge_pr: 77
+repository_main_sha_at_reconciliation: 07ad78efdf1561f2a49a1ecc81440359b766b3bd
+reconciled_through_pr: 81
 ---
 
 # IDEA1 — Progress Update 6.1
@@ -23,6 +25,25 @@ progress_update_merge_pr: 77
 >
 > Canonical status หลักยังเป็น [[idea1/idea1-status]] ส่วนเอกสารนี้เป็น snapshot รุ่น **6.1**
 > ที่ละเอียดกว่าและตั้งใจใช้เป็น checkpoint สำหรับงานต่อจาก 2026-09-05
+
+## 0A. 2026-09-06 reconciliation — current override
+
+> [!important]
+> Update 6.1 began as a 2026-09-05 snapshot. This block reconciles later Production/field evidence. Where a later section still describes SECURITY-2, TWIN-2, Administrator acceptance, LFT-V2 E3 stages, RAID field work, or Backup Target PR review as pending, use this block and [[idea1/idea1-status]] as current truth.
+
+- Production Drive application/runtime source: `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Repository `main`: `07ad78efdf1561f2a49a1ecc81440359b766b3bd` after PR #81. PR #81 source is merged but its host backup-agent classifier still needs controlled Production deployment/acceptance.
+- SECURITY-2 Vault auto-lock = **PASS / CLOSED** after PR #80 + migration 008 + measured 1-minute acceptance.
+- Twingate local connector runtime telemetry = **PASS / CLOSED** after PR #79; Twingate control-plane status = **NOT MEASURED**.
+- Administrator Encryption-at-Rest truthfulness = **ADMIN-ENC-1 PASS / CLOSED**; actual host filesystem/device encryption is **NOT CONFIGURED**.
+- Administrator Network Zones = **PASS / CLOSED** for application share-policy scope.
+- Private Vault large encrypted video = **PASS / CLOSED for direct-VLAN tested scope**. `START_LIVE.mp4` (~1.1 GB) rendered first frame ~8 s, played >60 s without observed buffering, and resumed after a mid-file seek on direct VLAN30. Remote high-bitrate performance remains a network/delivery-path limitation, not a proven Twingate-only defect.
+- PR #56 E3.2 is no longer “deployment evidence missing” in project-level truth: later E3.3 evidence explicitly starts from PR #56 deployed. PR #58 is the canonical merged E3.3 read-ahead implementation.
+- Real 20–30 GB transfer acceptance / Production 32 GiB ceiling = **NOT TESTED / NOT ACCEPTED**.
+- Real RAID1 = **DEFERRED / FUTURE HARDWARE**. Current HGST/Lexar devices must not be erased or used as RAID members.
+- Backup Target source classifier = merged via PR #81; Production deployment + `DIFFERENT_DEVICE` acceptance remain next. Backup Job E2E remains **NOT TESTED**.
+
+
 
 ## 0. Status legend
 
@@ -100,10 +121,10 @@ Upload remains a **Files workflow**, not a standalone sidebar screen.
 | Secure Shares | ✅ **PASS / CLOSED (private/internal)** | Password, wrong-password denial, no-password, copy, restricted VLAN30 allow and outside-zone deny passed. Public external share remains ⚪ not implemented. |
 | File History | ✅ **PASS / CLOSED** | Multiple real per-file versions retained; history and non-destructive restore accepted. This is not filesystem snapshotting. |
 | Trash | ✅ **PASS / CLOSED** | Soft delete, protected unlock, 30-day UI policy, restore and permanent delete passed. Auto-purge worker exists but a literal 30-day wait was not time-waited. |
-| Storage & Backup | 🟡 **PARTIAL** | Capacity + Disk Health + RAID standby UI + Backup Agent connection + policy persistence passed. HGST target mount/registration and classifier source fix passed; PR/deployment/Production `DIFFERENT_DEVICE`, real RAID, backup tools, real backup, integrity and restore verification remain. |
+| Storage & Backup | 🟡 **PARTIAL** | Capacity + Disk Health + RAID standby UI + Backup Agent connection + policy persistence passed. HGST target mount/registration passed and classifier source is merged via PR #81; controlled Production deployment + `DIFFERENT_DEVICE`, backup tools/job, integrity and restore remain. Real RAID1 is deferred to future dedicated hardware. |
 | Audit Log | ✅ **PASS / CLOSED** | Production list/filter behavior accepted; result filter defect closed. Result values are All / Success / Denied / Blocked. |
 | Access Control | ✅ **PASS / CLOSED** | RBAC/provisioning and page workflow accepted for current scope. |
-| Settings | 🟡 **PARTIAL** | Appearance and major Security/Storage subflows pass. SECURITY-2 small defect, Administrator production acceptance and full Backup/RAID integration remain. |
+| Settings | 🟡 **PARTIAL** | Appearance, Change Password, and Security & Privacy (including SECURITY-2) are closed. Administrator Encryption-at-Rest + Network Zones are closed; Backup Targets / Backup Job and optional profile-avatar current-sweep acceptance remain. |
 
 ---
 

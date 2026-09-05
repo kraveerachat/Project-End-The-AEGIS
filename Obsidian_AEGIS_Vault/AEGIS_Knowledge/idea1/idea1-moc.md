@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea1/IDEA1-Progress-Update-6.1]] first for the current 2026-09-05 handoff, then [[idea1/idea1-status]] for the owner-maintained canonical history, and [[summaries/04_IDEA1_Drive_Build_Out]] for older implementation context.
+Read [[idea1/IDEA1-Progress-Update-6.1]] first for the reconciled 2026-09-06 handoff, then [[idea1/idea1-status]] for the owner-maintained canonical history, and [[summaries/04_IDEA1_Drive_Build_Out]] for older implementation context.
 
 ## Owned source and canonical notes
 
@@ -23,24 +23,21 @@ Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical op
 Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-versioning, Protected Trash, Storage/Backup status surfaces and the Classic/Neo Dual Interface Style.
 
 For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
-- the current production SHA and PR #70–#76 chain;
-- the 10-screen PASS/PARTIAL matrix;
-- Settings sub-gates and the remaining SECURITY-2 defect;
-- RAID UI vs real RAID-hardware boundary;
-- the connected Host Backup Agent, mounted/registered HGST target, and the
-  `PrivateDevices` classifier fix whose PR/deployment/Production acceptance is
-  still pending;
-- STORAGE-AUTO-1 persistence PASS and STORAGE-AUTO-2 dependency;
-- Twingate TWIN-0/TWIN-1 discovery/preflight PASS and TWIN-2 pending;
-- the ordered RAID → Backup and Twingate continuation pipelines.
+- Production Drive application source `2806373bb300728a0babb953a63f98bcd714ffef`, while repository `main` is newer after PR #81;
+- the current 10-screen PASS/PARTIAL matrix;
+- Private Vault tested scope PASS/CLOSED, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
+- SECURITY-2 Vault auto-lock PASS/CLOSED;
+- local Twingate connector runtime telemetry PASS/CLOSED; control-plane status NOT MEASURED;
+- Administrator Encryption-at-Rest truthfulness and Network Zones PASS/CLOSED;
+- RAID telemetry-ready UI versus real RAID1 DEFERRED / FUTURE HARDWARE;
+- Host Backup Agent connected; HGST target safely mounted/registered;
+- Backup classifier merged via PR #81, with Production `DIFFERENT_DEVICE` acceptance still pending;
+- Backup Job / integrity / isolated restore still NOT TESTED;
+- real 20–30 GB / Production 32 GiB transfer scale NOT ACCEPTED.
 
-Current Backup Target checkpoint: branch
-`fix/backup-target-private-dev-classification` at `a68de6f...` resolves local
-devices through mountinfo `major:minor` → `/sys/dev/block` while preserving
-`PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused
-and 52/52 full. Overall Backup Target remains **IN PROGRESS** until Production
-reports `hgst-usb-1 → DIFFERENT_DEVICE`; Backup Job remains **NOT TESTED**, and
-RAID remains **DEFERRED / FUTURE HARDWARE**.
+Current Backup Target checkpoint: PR #81 is merged into repository `main`, and the classifier source remains verified by 9/9 focused and 52/52 full host-agent tests. Overall Backup Target remains **IN PROGRESS** until the host agent is deployed and Production reports `hgst-usb-1 → DIFFERENT_DEVICE` with `PrivateDevices=true` preserved. Backup Job remains **NOT TESTED**.
+
+Current removable-media boundary: HGST 1 TB and Lexar 32 GB are existing/shared equipment. Never erase, format, repartition, resize, move or delete their existing data. Only new files under HGST `AEGIS_BACKUP` are allowed; Lexar remains disconnected/unused.
 
 Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] and the shared [[summaries/08_Outstanding_Items_Consolidated]].
 
