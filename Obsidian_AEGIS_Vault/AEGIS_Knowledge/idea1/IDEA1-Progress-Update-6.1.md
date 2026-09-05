@@ -910,7 +910,6 @@ Do **not** call these finished yet:
 > project files.
 
 ## Related
-## Related
 
 - [[idea1/idea1-status]]
 - [[idea1/idea1-moc]]
