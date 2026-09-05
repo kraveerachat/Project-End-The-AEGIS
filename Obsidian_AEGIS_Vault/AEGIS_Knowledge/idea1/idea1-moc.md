@@ -25,6 +25,7 @@ Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-ver
 For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
 - Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80 and repository `main@07ad78efdf1561f2a49a1ecc81440359b766b3bd` through PR #81;
 - the current 10-screen PASS/PARTIAL matrix;
+- Private Vault tested scope **PASS / CLOSED**, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
 - SECURITY-2 Vault auto-lock **PASS / CLOSED** after PR #80 + migration 008 + measured 1-minute Production acceptance;
 - local Twingate connector runtime telemetry **PASS / CLOSED** after PR #79, while control-plane telemetry remains **NOT MEASURED**;
 - Administrator Encryption-at-Rest truthfulness and Network Zones **PASS / CLOSED**;
@@ -32,6 +33,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
 - the connected Host Backup Agent, safely mounted/registered shared HGST target, and the `PrivateDevices` classifier source/PR gate **CLOSED via PR #81**, with Production deployment / `DIFFERENT_DEVICE` acceptance still pending;
 - STORAGE-AUTO-1 persistence PASS with the current safe baseline disabled/no active target;
 - Backup Job / integrity / isolated restore still **NOT TESTED**;
+- real 20–30 GB / Production 32 GiB transfer scale **NOT TESTED / NOT ACCEPTED**;
 - the current Backup Target → Backup Job continuation sequence.
 
 Current Backup Target checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier to repository main; overall Backup Target remains **IN PROGRESS** until Production reports `hgst-usb-1 → DIFFERENT_DEVICE`; Backup Job remains **NOT TESTED**, and real RAID1 remains **DEFERRED / FUTURE HARDWARE**.

@@ -26,6 +26,21 @@ reconciled_through_pr: 81
 > Canonical status หลักยังเป็น [[idea1/idea1-status]] ส่วนเอกสารนี้เป็น snapshot รุ่น **6.1**
 > ที่ละเอียดกว่าและตั้งใจใช้เป็น checkpoint สำหรับงานต่อจาก 2026-09-05
 
+## 0A. 2026-09-06 LFT reconciliation — current override
+
+> [!important]
+> Update 6.1 began as a 2026-09-05 snapshot. For older LFT-V2 E3.1/E3.2/E3.3 sections that still read as pending, use this block together with [[idea1/idea1-status]] as current truth.
+
+- Private Vault large encrypted video = **PASS / CLOSED for direct-VLAN tested scope**. `START_LIVE.mp4` (~1.1 GB / ~2 min) rendered first frame in ~8 s, played continuously for >60 s without observed buffering/stutter, and resumed after a mid-file seek on VLAN30.
+- The accepted media path showed HTTP 206 for the virtual media response and HTTP 200 for ciphertext chunks.
+- PR #56 E3.2 is no longer a project-level “deployment evidence missing” state: later E3.3 evidence explicitly starts from PR #56 deployed. PR #58 is the canonical merged E3.3 bounded read-ahead implementation; PR #57 was superseded/unmerged.
+- Remote high-bitrate performance remains a **remote delivery/network-path limitation**. Current evidence does not prove Twingate alone is the root cause.
+- Exact field subcases `close → reopen`, worker restart recovery, and `lock while playing → unlock → reopen` were not separately measured in the 2026-09-02 field acceptance and must not be claimed as field-accepted without new evidence.
+- The earlier test session observed 1.1 GB V2 upload and speed/ETA UI PASS; the later field work focused on preview/throughput.
+- Real 20–30 GB transfer acceptance and the Production 32 GiB deployment ceiling remain **NOT TESTED / NOT ACCEPTED**. Source boundedness is not equivalent to a real Production transfer at those sizes.
+
+All non-LFT current gates (SECURITY-2, local Twingate telemetry, Administrator truthfulness, Backup Target PR #81 state, Backup Job and RAID) are governed by the reconciled current sections already present in this note.
+
 ## 0. Status legend
 
 | Symbol | Meaning |
