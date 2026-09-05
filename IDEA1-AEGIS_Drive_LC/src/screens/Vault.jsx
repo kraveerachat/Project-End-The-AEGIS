@@ -8,6 +8,7 @@ import { useApi, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiFetchBytes } from '../lib/api.js'
 import { fmtBytes, fmtDateTime } from '../lib/format.js'
+import { autoLockedMessageKey } from '../lib/strings.js'
 import {
   createVaultSetup, unlockVault, decryptBlobMeta,
   decryptFileContent, ARGON2_DEFAULTS,
@@ -55,7 +56,6 @@ import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 //    ได้ที่จอ Settings ตัวเลข 10 ตรงนี้เท่ากับ DEFAULT ของคอลัมน์ในฐานข้อมูล จึงไม่มี
 //    ช่วงเวลาใดที่จอนี้ล็อกเร็วหรือช้ากว่าที่บัญชีตั้งไว้ระหว่างรอ fetch
 const DEFAULT_IDLE_LOCK_MINUTES = 10
-const IDLE_LOCK_MS = DEFAULT_IDLE_LOCK_MINUTES * 60_000
 const MIN_PASSPHRASE = 12
 
 // อ้างอิงคงที่ — ป้องกัน useMemo ด้านล่างถูก invalidate ทุก render เพราะ `?? []` สร้าง array ใหม่
@@ -367,9 +367,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
   //    ที่เดียว และเซิร์ฟเวอร์ตรวจช่วงค่าซ้ำอีกชั้นเสมอ (server/db/connection.js)
   const securitySettingsApi = useApi('/api/security/settings')
-  const idleLockMs = (
+  const idleLockMinutes =
     securitySettingsApi.data?.settings?.vaultAutoLockMinutes ?? DEFAULT_IDLE_LOCK_MINUTES
-  ) * 60_000
+  const idleLockMs = idleLockMinutes * 60_000
 
   const [kek, setKek] = useState(null)          // CryptoKey — memory เท่านั้น
   const [entries, setEntries] = useState(null)  // [{id, name, size, plainSize}] หลังถอดรหัส
@@ -382,7 +382,12 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const [shake, setShake] = useState(false)
   const [addBusy, setAddBusy] = useState(false)
   const [actionError, setActionError] = useState(false)
-  const [autoLocked, setAutoLocked] = useState(false)
+  /* null while no automatic lock has happened; otherwise the number of idle
+     MINUTES that armed the timer which fired. Holding the duration (rather than a
+     boolean) is what lets the message name the policy that actually applied —
+     see the note on `lock` below. Every allowed value is >= 1, so this stays
+     truthy and the existing `{autoLocked && ...}` render test is unchanged. */
+  const [autoLocked, setAutoLocked] = useState(null)
   /* ── สถานะการโอนที่ "อ่านจากงานจริง" เท่านั้น (LFT-V2-B) ─────────────────
      ทุกตัวเลขในนี้มาจากไบต์ที่ผ่านไปจริงและจาก chunk ที่เซิร์ฟเวอร์ยืนยันแล้ว
      ⚠️ ห้ามมี timer ที่ขยับแถบเอง: แถบที่เดินต่อขณะเน็ตหยุดคือการโกหกผู้ใช้ว่างาน
@@ -491,7 +496,17 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   /* ── ล็อก: ทิ้งกุญแจ + plaintext ทั้งหมดจาก memory ─────────────────────
      ตั้ง state กลับเป็น null ตรง ๆ — ไม่มี "สำเนาสำรอง" ที่ไหนให้ต้องตามล้าง
      เพราะไม่เคยเขียนกุญแจลง storage ใดตั้งแต่ต้น */
-  const lock = useCallback((auto = false) => {
+  /* @param {boolean} auto        true when the idle timer fired, false for the
+   *                              Lock button — a manual lock must never render
+   *                              the "re-locked after N minutes" message.
+   * @param {number|null} afterMinutes  the idle budget that armed the timer which
+   *                              fired. Passed IN rather than read from settings
+   *                              here on purpose: by the time a lock happens the
+   *                              account value may already have changed (another
+   *                              tab, a slow refetch), and the message must
+   *                              describe the timer that actually expired, not
+   *                              whatever the setting says afterwards. */
+  const lock = useCallback((auto = false, afterMinutes = null) => {
     /* ⚠️ ยกเลิก "งานที่กำลังเข้ารหัส/ถอดรหัสอยู่" ก่อนอย่างอื่นทั้งหมด
        การล็อกที่ปล่อยให้การอัปโหลดเบื้องหลังเข้ารหัส chunk ต่อไปคือการล็อกในนามเท่านั้น:
        DEK ยังถูกใช้งานอยู่ และ plaintext ของก้อนถัดไปยังถูกอ่านเข้าหน่วยความจำต่อ
@@ -506,14 +521,14 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     setPass('')
     setPass2('')
     setActionError(false)
-    setAutoLocked(auto)
+    setAutoLocked(auto ? afterMinutes : null)
     // ⚠️ กล่องยืนยันลบขณะปลดล็อกถือ "ชื่อไฟล์ plaintext" อยู่ในมือ ปล่อยค้างไว้หลังล็อก
     //    = ชื่อไฟล์ยังอยู่บนจอทั้งที่ระบบประกาศว่าล็อกแล้ว ต้องปิดไปพร้อมกุญแจ
     setAskDelete(null)
     setDeleteError(false)
     // ⚠️ เช่นเดียวกับ Preview (ถือทั้งชื่อไฟล์และ "เนื้อไฟล์" ที่ถอดแล้ว) และ Details
     //    ที่ถือชื่อไฟล์/MIME/ขนาดจริง ทั้งสองต้องหายไปพร้อมกุญแจในจังหวะเดียวกัน
-    //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบ 10 นาที (ทางเดียวกันเป๊ะ)
+    //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบเวลาที่บัญชีตั้งไว้ (ทางเดียวกันเป๊ะ)
     closePreview()
     // ⚠️ ล็อก = ไม่มีเซสชันใดรอด แม้ใบที่หน้านี้ลืมไปแล้ว (เช่นหลังรีเฟรชบางกรณี)
     closeAllPreviewSessions()
@@ -521,14 +536,18 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   }, [closePreview])
 
   /* ── idle auto-lock ────────────────────────────────────────────────
-     นับเฉพาะตอนปลดล็อกอยู่ — ทุก interaction รีเซ็ตนาฬิกา ครบ 10 นาทีเงียบ = ล็อก
+     นับเฉพาะตอนปลดล็อกอยู่ — ทุก interaction รีเซ็ตนาฬิกา เงียบครบตามเวลาที่บัญชีตั้งไว้ = ล็อก
+     (1/5/10/15/30/60 นาที — ค่าจาก /api/security/settings ไม่ใช่ค่าคงที่ในไฟล์นี้)
      (ใช้ passive listener + capture เพื่อจับ event ก่อนถึง component ใด ๆ) */
   useEffect(() => {
     if (!unlocked) return
-    let timer = setTimeout(() => lock(true), idleLockMs)
+    // Captured once per effect run. The effect re-runs whenever the budget
+    // changes, so this constant always describes the timer currently armed.
+    const armedMinutes = idleLockMinutes
+    let timer = setTimeout(() => lock(true, armedMinutes), idleLockMs)
     const bump = () => {
       clearTimeout(timer)
-      timer = setTimeout(() => lock(true), idleLockMs)
+      timer = setTimeout(() => lock(true, armedMinutes), idleLockMs)
     }
     const events = ['pointerdown', 'keydown', 'wheel', 'touchstart']
     events.forEach((e) => window.addEventListener(e, bump, { passive: true, capture: true }))
@@ -538,7 +557,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     }
     // ⚠️ idleLockMs อยู่ใน dependency ด้วย: ถ้าผู้ใช้เปลี่ยนค่าในอีกแท็บแล้วกลับมา
     //    นาฬิกาต้องถูกตั้งใหม่ตามค่าใหม่ ไม่ใช่ค้างที่ค่าตอน mount
-  }, [unlocked, lock, idleLockMs])
+  }, [unlocked, lock, idleLockMs, idleLockMinutes])
 
   /** ถอด metadata ของทุก blob ด้วย KEK ที่เพิ่งได้ — เนื้อไฟล์ยังไม่ถูกดึงลงมา
    *  ⚠️ `type` ถูกเก็บไว้ด้วยตั้งแต่ตรงนี้: มันถูกเข้ารหัสมาพร้อมชื่อไฟล์อยู่แล้ว
@@ -612,7 +631,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     if (busy || !pass) return
     setBusy(true)
     setFormError(null)
-    setAutoLocked(false)
+    setAutoLocked(null)
     try {
       const key = await unlockVault(pass, {
         saltB64: vaultApi.data.saltB64,
@@ -1057,7 +1076,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     setPass('')
     setPass2('')
     setAck(false)
-    setAutoLocked(false)
+    setAutoLocked(null)
   }
 
   /* ปลดล็อก = รายการที่ถอดแล้ว (กรอง tombstone ซ้ำอีกชั้นกันการ์ดผี)
@@ -1127,7 +1146,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       </div>
 
       {autoLocked && (
-        <p role="status" className="text-[12.5px] text-ink-3 mb-4">{t('vaultAutoLocked')}</p>
+        <p role="status" className="text-[12.5px] text-ink-3 mb-4">
+          {t(autoLockedMessageKey(autoLocked), { n: autoLocked })}
+        </p>
       )}
       {actionError && (
         <p role="alert" className="text-[12.5px] font-medium mb-4" style={{ color: 'var(--danger)' }}>

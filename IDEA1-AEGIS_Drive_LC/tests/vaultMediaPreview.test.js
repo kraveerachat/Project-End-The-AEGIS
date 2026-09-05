@@ -41,9 +41,12 @@ import {
 } from './helpers/vaultScreenHarness.js'
 
 const t = makeT('en')
-// Kept in step with IDLE_LOCK_MS in src/screens/Vault.jsx on purpose: the test
-// intercepts that exact delay, so a change to the product's idle window has to
-// be a deliberate edit here too rather than a silently unarmed timer.
+// The idle window is per-account (1/5/10/15/30/60 minutes, from
+// /api/security/settings). These fixtures supply no security settings, so Vault
+// falls back to DEFAULT_IDLE_LOCK_MINUTES = 10 — which is the delay intercepted
+// below. Kept explicit on purpose: the test intercepts that exact delay, so a
+// change to the FALLBACK has to be a deliberate edit here too rather than a
+// silently unarmed timer.
 const IDLE_LOCK_MS = 10 * 60_000
 
 let env
@@ -308,7 +311,10 @@ test('the 10-minute idle auto-lock cleans up an open preview exactly like a manu
   }
 
   try {
-    assert.match(html(), new RegExp(t('vaultAutoLocked')), 'the vault re-locked itself')
+    // Since SECURITY-2 this copy is a template: the duration that armed the timer
+    // is interpolated in. These fixtures supply no account settings, so the
+    // 10-minute fallback is what fired and what the message must name.
+    assert.ok(html().includes(t('vaultAutoLocked', { n: 10 })), 'the vault re-locked itself')
     assert.equal(stage(), null, 'the preview is gone')
     assert.equal(dialog(), null, 'no dialog outlived the auto-lock')
     assert.ok(env.revokedUrls.includes(url), 'and its object URL was revoked')

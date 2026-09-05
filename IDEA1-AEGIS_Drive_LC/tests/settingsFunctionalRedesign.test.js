@@ -173,10 +173,21 @@ test('vault protection states the zero-knowledge properties and never shows key 
 test('auto-lock renders the value saved on the account, not the built-in default', () => {
   const html = render({ tab: 'security' })
   assert.ok(html.includes(STRINGS.en.vaultAutoLockTitle))
-  // 30 is this account's saved choice; 10 is the column default. Showing 10 here
-  // would mean the screen reports a policy the account is not actually using.
+  // 30 is this account's saved choice; 10 is the column default. Showing 10 as
+  // the CURRENT policy would mean the screen reports something the account is not
+  // using.
+  //
+  // ⚠️ Since SECURITY-2 the control lists every allowed duration by name
+  //    ("1 minute" … "60 minutes"), so "10 minutes" legitimately appears as an
+  //    unselected option. The assertion is therefore about which option is
+  //    SELECTED, not about the string being absent from the document.
   assert.ok(html.includes('30 minutes'), 'expected the account value of 30 minutes')
-  assert.equal(html.includes('10 minutes'), false)
+  assert.match(html, /<option[^>]*value="30"[^>]*selected/, 'the saved value must be the selected one')
+  assert.equal(
+    /<option[^>]*value="10"[^>]*selected/.test(html),
+    false,
+    'the column default must not be selected over the account value',
+  )
 })
 
 test('the dead recovery-phrase generator is gone and the policy is stated instead', () => {
@@ -396,10 +407,16 @@ test('Vault takes its idle budget from the account setting, not from a fixed con
   assert.match(source, /useApi\('\/api\/security\/settings'\)/)
   assert.match(source, /vaultAutoLockMinutes/)
   // The timer must be armed from the resolved value and re-armed when it changes.
-  assert.match(source, /setTimeout\(\(\) => lock\(true\), idleLockMs\)/)
-  assert.match(source, /\}, \[unlocked, lock, idleLockMs\]\)/)
-  // The old hard-coded constant may survive only as the documented fallback.
+  //
+  // ⚠️ Since SECURITY-2 the callback also carries the duration that armed it, so
+  //    the post-lock message can name the timer that actually fired instead of a
+  //    hard-coded "10 minutes". The armed value is captured per effect run.
+  assert.match(source, /const armedMinutes = idleLockMinutes/)
+  assert.match(source, /setTimeout\(\(\) => lock\(true, armedMinutes\), idleLockMs\)/)
+  assert.match(source, /\}, \[unlocked, lock, idleLockMs, idleLockMinutes\]\)/)
+  // The old fixed-timeout form must not come back in any shape.
   assert.doesNotMatch(source, /setTimeout\(\(\) => lock\(true\), IDLE_LOCK_MS\)/)
+  assert.doesNotMatch(source, /const IDLE_LOCK_MS =/)
 })
 
 test('Create share initialises from the saved defaults and never writes them back', async () => {

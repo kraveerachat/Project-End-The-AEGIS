@@ -58,12 +58,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_interface_style TEXT NOT NULL DEFA
   CHECK (ui_interface_style IN ('classic', 'neo'));
 
 -- ── Per-account security settings (see migrations/007_security_settings.sql) ──
--- vault_autolock_minutes is the idle budget for an UNLOCKED Vault screen; the
--- default reproduces the constant it replaced so existing accounts are unchanged.
+-- vault_autolock_minutes is the idle budget for an UNLOCKED Vault screen. The
+-- allowed set includes 1 (SECURITY-2); the DEFAULT stays 10, so 1 minute is an
+-- option a user opts into, never what a new account starts on. Existing
+-- databases are widened by migrations/008_vault_autolock_1_minute.sql.
 -- ⚠️ No default share password is stored here, by design — share_default_require_password
 --    only decides whether the Create Share form demands one from the user.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vault_autolock_minutes INTEGER NOT NULL DEFAULT 10
-  CHECK (vault_autolock_minutes IN (5, 10, 15, 30, 60));
+  CHECK (vault_autolock_minutes IN (1, 5, 10, 15, 30, 60));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS share_default_expiry TEXT NOT NULL DEFAULT '24h'
   CHECK (share_default_expiry IN ('1h', '24h', '7d', '30d'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS share_default_scope TEXT NOT NULL DEFAULT 'zones'
