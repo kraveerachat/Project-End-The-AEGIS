@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ShieldCheck, Activity, HardDrive, ExternalLink, Plug, RefreshCw } from 'lucide-react'
 import { Card, CardTitle, Chip, Btn, Segmented, Field, PillSelect, SkeletonLoader, ErrorState, EmptyState } from './ui.jsx'
 import { fmtBytes, fmtDateTime } from '../lib/format.js'
+import { autoLockUnitKey } from '../lib/strings.js'
 import { apiFetch } from '../lib/api.js'
 import { labelFor, SCHEDULE_LABEL, RETENTION_LABEL } from './BackupConfiguration.jsx'
 
@@ -202,8 +203,16 @@ export function VaultProtectionCard({ t }) {
 /* ── Vault auto-lock — the one genuinely new configurable security value ────
    The number is enforced where it matters (the browser holding the key) and
    bounded where it is stored (CHECK constraint + server validation). Changing it
-   cannot widen anything server-side, because the server never had the key. */
-const AUTO_LOCK_CHOICES = [5, 10, 15, 30, 60]
+   cannot widen anything server-side, because the server never had the key.
+
+   ⚠️ This list must stay in step with THREE other places or a value the user can
+      pick here is rejected on save: VAULT_AUTOLOCK_MINUTES in
+      server/db/connection.js, the CHECK in server/db/schema.sql, and — for
+      databases that already exist — the CHECK replaced by
+      migrations/008_vault_autolock_1_minute.sql.
+   ⚠️ 1 minute is deliberately offered (SECURITY-2) and is deliberately NOT the
+      default; the column still defaults to 10. */
+const AUTO_LOCK_CHOICES = [1, 5, 10, 15, 30, 60]
 
 /* ── Vault recovery policy ──────────────────────────────────────────────────
    ⚠️ This card replaces a permanently-disabled "Generate 12-word recovery
@@ -278,14 +287,18 @@ export function SecurityDefaultsCard({ t, value, onSave, saving, error }) {
             <div>
               <p className="text-[13px] font-medium text-ink-2">{t('vaultAutoLockLabel')}</p>
               <p className="text-[12px] text-ink-3 mt-1 max-w-[56ch] leading-relaxed">{t('vaultAutoLockNote')}</p>
-              <p className="text-[11.5px] text-ink-3 mt-2">{t('vaultAutoLockUnit', { n: draft.vaultAutoLockMinutes })}</p>
+              <p className="text-[11.5px] text-ink-3 mt-2">{t(autoLockUnitKey(draft.vaultAutoLockMinutes), { n: draft.vaultAutoLockMinutes })}</p>
             </div>
             <PillSelect
               aria-label={t('vaultAutoLockLabel')}
               value={draft.vaultAutoLockMinutes}
               onChange={(event) => { setDraft((current) => ({ ...current, vaultAutoLockMinutes: Number(event.target.value) })); setSaveState(null) }}
             >
-              {AUTO_LOCK_CHOICES.map((minutes) => <option key={minutes} value={minutes}>{minutes}</option>)}
+              {/* The option text carries its unit and is singular at 1, so the
+                  control reads "1 minute" / "5 minutes" rather than a bare number. */}
+              {AUTO_LOCK_CHOICES.map((minutes) => (
+                <option key={minutes} value={minutes}>{t(autoLockUnitKey(minutes), { n: minutes })}</option>
+              ))}
             </PillSelect>
           </div>
         </fieldset>

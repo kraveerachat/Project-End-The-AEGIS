@@ -24,7 +24,9 @@ import {
 
 const t = makeT('en')
 
-// Mirrors IDLE_LOCK_MS in src/screens/Vault.jsx — the 10-minute idle auto-lock.
+// The idle window is per-account. This fixture supplies no security settings, so
+// Vault falls back to DEFAULT_IDLE_LOCK_MINUTES = 10 in src/screens/Vault.jsx —
+// that fallback, not a fixed product-wide timeout, is what this delay mirrors.
 const IDLE_LOCK_MS = 10 * 60_000
 
 let env
@@ -215,7 +217,10 @@ test('CASE 4: the 10-minute idle auto-lock keeps a newly uploaded blob as a ciph
 
   try {
     assert.equal(byText(dom, 'button', t('lockVault')), undefined, 'the idle timer locked the vault')
-    assert.match(html(), new RegExp(t('vaultAutoLocked')), 'the auto-lock is announced, not silent')
+    // Since SECURITY-2 this copy is a template: the duration that armed the timer
+    // is interpolated in. These fixtures supply no account settings, so the
+    // 10-minute fallback is what fired and what the message must name.
+    assert.ok(html().includes(t('vaultAutoLocked', { n: 10 })), 'the auto-lock is announced, not silent')
     assert.deepEqual(tileIds(dom), ['blob-a'], 'the newly uploaded blob survives the auto-lock')
     assert.doesNotMatch(html(), /DSC09870\.gif/, 'with no plaintext filename left on screen')
     assert.match(html(), /blob-a\.aegisenc/, 'it renders as an opaque ciphertext card')

@@ -418,7 +418,8 @@ export const STRINGS = {
     vaultDeriving: 'Deriving key…',
     vaultDecrypting: 'Decrypting…',
     vaultDownload: 'Download',
-    vaultAutoLocked: 'Vault re-locked after 10 minutes of inactivity.',
+    vaultAutoLocked: 'Vault re-locked after {n} minutes of inactivity.',
+    vaultAutoLockedOne: 'Vault re-locked after 1 minute of inactivity.',
     vaultUnnamed: 'Unreadable entry',
     // Vault tile actions + delete. ⚠️ locked copy may never name a plaintext file.
     vaultDeleteTitle: 'Delete “{name}”?',
@@ -801,6 +802,7 @@ export const STRINGS = {
     vaultAutoLockLabel: 'Lock after idle',
     vaultAutoLockNote: 'While the Vault screen is open and unlocked, this is how long it may sit idle before the browser discards the key and re-locks. Any click, key press or scroll restarts the timer.',
     vaultAutoLockUnit: '{n} minutes',
+    vaultAutoLockUnitOne: '1 minute',
     vaultAutoLockSaveFailed: 'The auto-lock setting was not saved.',
 
     // ── Vault recovery policy ───────────────────────────────────────────────
@@ -1550,7 +1552,8 @@ export const STRINGS = {
     vaultDeriving: 'กำลังสร้างกุญแจ…',
     vaultDecrypting: 'กำลังถอดรหัส…',
     vaultDownload: 'ดาวน์โหลด',
-    vaultAutoLocked: 'ล็อกห้องนิรภัยอัตโนมัติ หลังไม่มีการใช้งาน 10 นาที',
+    vaultAutoLocked: 'ล็อกห้องนิรภัยอัตโนมัติ หลังไม่มีการใช้งาน {n} นาที',
+    vaultAutoLockedOne: 'ล็อกห้องนิรภัยอัตโนมัติ หลังไม่มีการใช้งาน 1 นาที',
     vaultUnnamed: 'รายการที่อ่านไม่ออก',
     vaultDeleteTitle: 'ลบ “{name}” หรือไม่?',
     vaultDeleteBody: 'การลบนี้จะนำไฟล์ที่เข้ารหัสออกจากห้องนิรภัยส่วนตัวอย่างถาวร และกู้คืนไม่ได้',
@@ -1908,6 +1911,7 @@ export const STRINGS = {
     vaultAutoLockLabel: 'ล็อกเมื่อไม่มีการใช้งานนาน',
     vaultAutoLockNote: 'ขณะที่จอห้องนิรภัยเปิดและปลดล็อกอยู่ นี่คือระยะเวลาที่ปล่อยว่างได้ก่อนเบราว์เซอร์จะทิ้งกุญแจแล้วล็อกใหม่ ทุกการคลิก กดปุ่ม หรือเลื่อนจอ จะเริ่มนับเวลาใหม่',
     vaultAutoLockUnit: '{n} นาที',
+    vaultAutoLockUnitOne: '1 นาที',
     vaultAutoLockSaveFailed: 'บันทึกค่าล็อกอัตโนมัติไม่สำเร็จ',
 
     // ── Vault recovery policy ───────────────────────────────────────────────
@@ -2650,7 +2654,8 @@ export const STRINGS = {
     vaultDeriving: '正在派生密钥…',
     vaultDecrypting: '正在解密…',
     vaultDownload: '下载',
-    vaultAutoLocked: '闲置 10 分钟后保险库已自动重新锁定。',
+    vaultAutoLocked: '闲置 {n} 分钟后保险库已自动重新锁定。',
+    vaultAutoLockedOne: '闲置 1 分钟后保险库已自动重新锁定。',
     vaultUnnamed: '无法读取的条目',
     vaultDeleteTitle: '删除“{name}”？',
     vaultDeleteBody: '此操作将从您的私人保险库中永久删除该加密文件，且无法撤销。',
@@ -3008,6 +3013,7 @@ export const STRINGS = {
     vaultAutoLockLabel: '闲置多久后锁定',
     vaultAutoLockNote: '当保险库页面处于打开且已解锁状态时，这是它可以闲置的时长，超时后浏览器会丢弃密钥并重新锁定。任何点击、按键或滚动都会重新计时。',
     vaultAutoLockUnit: '{n} 分钟',
+    vaultAutoLockUnitOne: '1 分钟',
     vaultAutoLockSaveFailed: '自动锁定设置未能保存。',
 
     // ── Vault recovery policy ───────────────────────────────────────────────
@@ -3346,6 +3352,26 @@ export const STRINGS = {
 }
 
 /** Simple template fill: t('revokeBody', { name }) */
+/* ── Vault auto-lock duration wording ───────────────────────────────────────
+   Two tiny helpers rather than an inline ternary at each call site, because the
+   Settings control and the Vault post-lock message must never disagree about
+   how the same number is worded.
+
+   ⚠️ `1` is a real option (SECURITY-2), so "1 minutes" is reachable copy unless
+      the singular is chosen deliberately. Thai and Chinese do not inflect for
+      number — their singular entries exist so this decision is made once for
+      every locale instead of only for English. */
+
+/** Key for a duration label such as "5 minutes" / "1 minute". */
+export function autoLockUnitKey(minutes) {
+  return minutes === 1 ? 'vaultAutoLockUnitOne' : 'vaultAutoLockUnit'
+}
+
+/** Key for the post-lock message, worded for the duration that actually fired. */
+export function autoLockedMessageKey(minutes) {
+  return minutes === 1 ? 'vaultAutoLockedOne' : 'vaultAutoLocked'
+}
+
 export function makeT(lang) {
   const table = STRINGS[lang] ?? STRINGS.en
   return (key, vars) => {

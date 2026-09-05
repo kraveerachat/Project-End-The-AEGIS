@@ -78,7 +78,7 @@ export const DEFAULT_SECURITY_SETTINGS = Object.freeze({
 
 // Mirrors of the CHECK constraints in schema.sql — the database is the last line,
 // this is the one that produces a 400 instead of a 500.
-const VAULT_AUTOLOCK_MINUTES = Object.freeze(new Set([5, 10, 15, 30, 60]))
+const VAULT_AUTOLOCK_MINUTES = Object.freeze(new Set([1, 5, 10, 15, 30, 60]))
 // ⚠️ These two must stay in step with EXPIRY_MS / SCOPES in db/store.js. A default
 //    the share contract cannot honour would be a setting that silently does nothing.
 const SHARE_DEFAULT_EXPIRIES = Object.freeze(new Set(['1h', '24h', '7d', '30d']))

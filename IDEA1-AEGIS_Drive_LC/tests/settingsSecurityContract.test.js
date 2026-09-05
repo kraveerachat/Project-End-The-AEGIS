@@ -64,6 +64,8 @@ test('migration 007 is additive, idempotent, and constrains every new column', a
   assert.match(sql, /share_default_scope TEXT NOT NULL DEFAULT 'zones'/)
   assert.match(sql, /share_default_require_password BOOLEAN NOT NULL DEFAULT true/)
   // Range is enforced by the database too, not only by the route.
+  // 007 is deployed and immutable: it still declares the ORIGINAL set. The widened
+  // set arrives through 008 (see tests/vaultAutoLockDuration.test.js AUTOLOCK-5).
   assert.match(sql, /CHECK \(vault_autolock_minutes IN \(5, 10, 15, 30, 60\)\)/)
   assert.match(sql, /CHECK \(share_default_expiry IN \('1h', '24h', '7d', '30d'\)\)/)
   assert.match(sql, /CHECK \(share_default_scope IN \('any', 'zones'\)\)/)
@@ -139,7 +141,12 @@ test('one account cannot change another account settings', async () => {
 // ── Bounded values ───────────────────────────────────────────────────────────
 
 const REJECTED = [
-  ['auto-lock out of range', { vaultAutoLockMinutes: 1, shareDefaults: DEFAULTS.shareDefaults }],
+  // ⚠️ 1 is now ACCEPTED (SECURITY-2) and has moved to the accepted list in
+  //    tests/vaultAutoLockDuration.test.js. 2 stands in for it here: still not a
+  //    member of the allowed set, so the fail-closed path is unchanged.
+  ['auto-lock out of range', { vaultAutoLockMinutes: 2, shareDefaults: DEFAULTS.shareDefaults }],
+  ['auto-lock zero', { vaultAutoLockMinutes: 0, shareDefaults: DEFAULTS.shareDefaults }],
+  ['auto-lock negative', { vaultAutoLockMinutes: -1, shareDefaults: DEFAULTS.shareDefaults }],
   ['auto-lock absurdly large', { vaultAutoLockMinutes: 100_000, shareDefaults: DEFAULTS.shareDefaults }],
   ['auto-lock as string', { vaultAutoLockMinutes: '15', shareDefaults: DEFAULTS.shareDefaults }],
   ['auto-lock as boolean', { vaultAutoLockMinutes: true, shareDefaults: DEFAULTS.shareDefaults }],
