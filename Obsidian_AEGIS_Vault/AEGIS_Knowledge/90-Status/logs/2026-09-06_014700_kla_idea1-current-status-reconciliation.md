@@ -30,6 +30,9 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
+- `cd shared/host-backup-agent && npm test` — **PASS** in PR #82 GitHub Actions; 52/52 host backup-agent tests passed.
+- `git diff --name-status 07ad78efdf1561f2a49a1ecc81440359b766b3bd 178db4b6b711539a193cb45ad3ea7e212d67ea17` — **PASS** at the first PR revision: exactly the five documentation paths declared by this task changed.
+
 - GitHub PR #79: merged; local Twingate runtime telemetry source evidence recorded.
 - GitHub PR #80: merged at `2806373bb300728a0babb953a63f98bcd714ffef`; Vault auto-lock source evidence recorded.
 - GitHub PR #81: merged at `07ad78efdf1561f2a49a1ecc81440359b766b3bd` with parents `2806373...` and the feature branch documentation/source head.
