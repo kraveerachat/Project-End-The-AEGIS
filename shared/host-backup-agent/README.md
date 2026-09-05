@@ -4,7 +4,14 @@ A dedicated, least-privilege host service that performs **real backups** of
 AEGIS Drive (IDEA1) — the Data Lake bytes and the PostgreSQL metadata — with
 restic, and publishes sanitized status to Drive over one Unix socket.
 
-**Not deployed.** See [`deploy/README.md`](./deploy/README.md).
+**Production status (2026-09-06):** the hardened host service is deployed and
+reachable through `/run/aegis-backup/backup.sock` with `PrivateDevices=true`.
+The HGST target `hgst-usb-1` is mounted and registered, but the deployed
+classifier still reports `UNKNOWN / physical-device-unresolved`. Commit
+`a68de6f145d7e0f6935f2a2a0609ca4be432cdff` contains the source fix; it has
+not yet been reviewed, merged, or deployed. No real backup job has run, and
+the safe policy remains `activeTargetId=null`, schedule disabled, and
+`enabled=false`. See [`deploy/README.md`](./deploy/README.md).
 
 ## Why a separate agent
 
@@ -55,6 +62,13 @@ a restore anyway.
 A target only counts as protected when kernel evidence says it is on
 **different hardware**:
 
+Local block targets are resolved from `/proc/self/mountinfo`'s `major:minor`
+identity through `/sys/dev/block/<major:minor>`, then through partitions,
+device-mapper slaves, and parent disks. This path remains visible when systemd
+uses `PrivateDevices=true`; the `/dev/...` source path is retained only as a
+fallback. Unreadable or incomplete kernel evidence still fails closed as
+`UNKNOWN`.
+
 | Classification | How it is decided | Protected? |
 |---|---|---|
 | `OFF_HOST` | remote repository (`sftp:`/`rest:`) or a network filesystem mount | yes |
@@ -66,6 +80,16 @@ A target only counts as protected when kernel evidence says it is on
 Backup state is then `NOT_CONFIGURED`, `SAME_FAILURE_DOMAIN`,
 `TARGET_UNAVAILABLE`, `READY` or `RUNNING`. `READY` means "could run"; it is
 never presented as healthy. See `src/targets.js`.
+
+### Current removable-media preservation boundary
+
+- The existing/shared HGST 1 TB disk is mounted at `/mnt/aegis-backup`.
+- AEGIS may create files only under `/mnt/aegis-backup/AEGIS_BACKUP`; the
+  configured repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`.
+- Existing partitions, filesystem content, and files outside `AEGIS_BACKUP`
+  must not be erased, reformatted, repartitioned, resized, moved, or modified.
+- The Lexar 32 GB USB drive remains disconnected and must not be used for this
+  backup target.
 
 ## Consistency model
 
