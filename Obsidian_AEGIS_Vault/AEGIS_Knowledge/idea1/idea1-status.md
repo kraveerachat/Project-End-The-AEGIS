@@ -17,10 +17,10 @@ edit_policy: owner-writable
 
 > [!important] Progress Update 6.1 — current handoff
 > The detailed current-state checkpoint is [[idea1/IDEA1-Progress-Update-6.1]].
-> Use that note first when resuming from a new chat/session: it contains the 10-screen
-> acceptance matrix, Settings sub-gates, Dual Interface Style, RAID/Backup pipeline,
-> Twingate TWIN-0/TWIN-1 evidence, production runtime deltas, known limitations and
-> the ordered continuation queue as of 2026-09-05.
+> Use that note first when resuming from a new chat/session: it contains the reconciled 10-screen
+> acceptance matrix, Settings sub-gates, Dual Interface Style, Storage/Backup continuation,
+> current Twingate local-telemetry closure, production/runtime distinctions, known limitations and
+> the ordered continuation queue through 2026-09-06.
 
 > **Current production application source**: ✅ Production Drive application/runtime remains on `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80). Repository `main` is newer at `07ad78efdf1561f2a49a1ecc81440359b766b3bd` after PR #81, but that Backup Target classifier merge has not yet been deployed to the host backup agent; repository advancement alone is not production application evidence.
 > **Latest full-suite evidence**: Drive PR #80 recorded **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips**, with focused Vault auto-lock suites **9/9 + 9/9 PASS**. PR #79 separately recorded Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.

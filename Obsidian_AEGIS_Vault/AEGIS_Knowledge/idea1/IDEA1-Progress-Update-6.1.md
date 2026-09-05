@@ -62,38 +62,45 @@ reconciled_through_pr: 81
 
 ## 1.1 Git / Drive deployment
 
-- Application/runtime source baseline merged by PR #76: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
-- Production source on `aegis-system`: `46573ed8dd17631f9f746de3f9c7a5f71da1a03b`
-- PR #77 is documentation-only and advances repository `main` without changing IDEA1 runtime code; therefore repository `main` may be ahead of the deployed application SHA by documentation commits and this is not deployment drift.
-- Drive production image after PR #75/#76 deploy:
-  `sha256:78b84a53f3a1b74254601ebd6cae472c765092e4bf607f83f94fa911d197adff`
-- Previous Drive image preserved as rollback tag:
-  `aegis-prod-drive:rollback-pre-46573ed-20260904-191542`
-- Drive, HUB, Monitor และ PostgreSQL health checks passed after Drive-only recreate.
-- HTTPS production probe passed with real AEGIS CA:
-  `HTTP 200`, `TLS_VERIFY=0`.
-- Production repository was clean before deployment and was fast-forwarded only; no rebase/force/pull workflow was used.
+- Current accepted Production Drive application/runtime source: `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Current accepted Drive image: `sha256:f604cc985db1f69b79773e8973b3bb8e63f84d28730710c0ebf3174d4156f098`.
+- Migration `008_vault_autolock_1_minute.sql` was applied before the PR #80 Drive image was activated.
+- PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock changes are deployed and production-accepted.
+- Repository `main` is newer at `07ad78efdf1561f2a49a1ecc81440359b766b3bd` after PR #81. PR #81 merges the Backup Target classifier source but does **not** by itself prove the host backup agent has been updated in Production.
+- HUB, Monitor and PostgreSQL were not recreated during the PR #80 Drive-only deployment.
+- HTTPS production probes use the real AEGIS CA; `curl -k` is not accepted evidence.
+- Production Git updates remain fetch + fast-forward-only; no force push or shared-history rebase.
 
 ## 1.2 Important merged PR chain
 
-| PR | Purpose | Merge SHA | State |
-| :--- | :--- | :--- | :--- |
-| #70 | truthful Audit / Trash / Capacity / RAID / Backup states | `0030121...` | ✅ merged |
-| #71 | Dual Interface Style: Classic / Neo | `b652e384...` | ✅ merged |
-| #72 | Neo drawer/capacity follow-up | `9c37ac1e...` | ✅ merged |
-| #73 | functional Settings: Security, Storage, Administrator | `d06b9436...` | ✅ merged |
-| #74 | capacity + Settings acceptance follow-up | `4c1fe76e...` | ✅ merged / deployed |
-| #75 | RAID telemetry-ready hardware UI | `d08a5a57...` | ✅ merged / deployed |
-| #76 | CapacityRing regression-test false positive fix | `46573ed8...` | ✅ merged / deployed |
+| PR | Purpose | Current state |
+| :--- | :--- | :--- |
+| #70 | truthful Audit / Trash / Capacity / RAID / Backup states | ✅ merged |
+| #71 | Dual Interface Style: Classic / Neo | ✅ merged |
+| #72 | Neo drawer/capacity follow-up | ✅ merged |
+| #73 | functional Settings: Security, Storage, Administrator | ✅ merged |
+| #74 | capacity + Settings acceptance follow-up | ✅ merged / deployed |
+| #75 | RAID telemetry-ready hardware UI | ✅ merged / deployed |
+| #76 | CapacityRing regression-test false-positive fix | ✅ merged / deployed |
+| #77 / #78 | IDEA1 handoff / provenance documentation | ✅ merged; documentation-only |
+| #79 | local Twingate connector runtime telemetry | ✅ merged / deployed / production accepted |
+| #80 | truthful Vault auto-lock duration + 1-minute option | ✅ merged / deployed / production accepted |
+| #81 | Backup Target `PrivateDevices` classifier + Backup Target documentation | ✅ merged to repository `main`; Production host-agent deployment/acceptance still pending |
 
-Latest complete test evidence associated with #76:
-- **966 total**
-- **899 pass**
-- **0 fail**
-- **67 PostgreSQL-gated skips**
-- Vite production build PASS
-- governance checks PASS
-- no `npm audit fix` was applied automatically
+Latest complete Drive test evidence from PR #80:
+- **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips**
+- focused `vaultAutoLockDuration`: **9/9 PASS**
+- focused `vaultAutoLockTimer`: **9/9 PASS**
+- production build PASS
+
+PR #79 also recorded:
+- Drive: **992 total / 925 pass / 0 fail / 67 skips**
+- host telemetry: **139 total / 136 pass / 0 fail / 3 platform-gated skips**
+
+PR #81 host backup-agent classifier evidence:
+- focused target suite: **9/9 PASS**
+- full host backup-agent suite: **52/52 PASS**
+- source merged, Production `DIFFERENT_DEVICE` acceptance still pending
 
 ---
 
