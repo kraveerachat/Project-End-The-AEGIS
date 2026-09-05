@@ -8,11 +8,20 @@ import { PRODUCTION_MOUNTINFO, fixtureConfig, productionSys, productionTargetDep
 const DATALAKE = '/var/lib/docker/volumes/aegis_drive_storage/_data'
 const targetById = (id) => fixtureConfig().targets.find((t) => t.id === id)
 
-test('TARGET-1 mountinfo parses into mount point, fstype and source', () => {
+test('TARGET-1 mountinfo parses major:minor, mount point, fstype and source', () => {
   const entries = parseMountInfo(PRODUCTION_MOUNTINFO)
   assert.equal(entries.length, 5)
-  assert.deepEqual(entries[0], { mountPoint: '/', fstype: 'ext4', source: '/dev/mapper/ubuntu--vg-ubuntu--lv' })
-  assert.deepEqual(entries[3], { mountPoint: '/mnt/aegis-backup', fstype: 'ext4', source: '/dev/sdb1' })
+
+  assert.equal(entries[0].mountPoint, '/')
+  assert.equal(entries[0].fstype, 'ext4')
+  assert.equal(entries[0].source, '/dev/mapper/ubuntu--vg-ubuntu--lv')
+  assert.match(entries[0].majorMinor, /^\d+:\d+$/)
+
+  assert.equal(entries[3].mountPoint, '/mnt/aegis-backup')
+  assert.equal(entries[3].fstype, 'ext4')
+  assert.equal(entries[3].source, '/dev/sdb1')
+  assert.match(entries[3].majorMinor, /^\d+:\d+$/)
+
   assert.equal(parseMountInfo('garbage without separator').length, 0)
 })
 
@@ -50,7 +59,17 @@ test('TARGET-6 a second filesystem on the SAME physical disk is SAME_FAILURE_DOM
   const mountinfo = PRODUCTION_MOUNTINFO + '130 25 8:4 / /srv/backup rw,relatime - ext4 /dev/sda4 rw\n'
   const sys = productionSys()
   const original = sys.realpath
-  sys.realpath = async (p) => (p === '/sys/class/block/sda4' ? '/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/sda/sda4' : original(p))
+  const sda4Path = '/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/sda/sda4'
+
+  sys.realpath = async (p) => {
+    // The classifier now prefers mountinfo major:minor → /sys/dev/block.
+    // Make the synthetic 8:4 filesystem resolve to sda4 on the same
+    // physical disk as the Data Lake.
+    if (p === '/sys/dev/block/8:4') return sda4Path
+    if (p === '/sys/class/block/sda4') return sda4Path
+    return original(p)
+  }
+
   const result = await classifyTarget(targetById('same-disk-dir'), { datalakePath: DATALAKE, readMountInfo: async () => mountinfo, sys })
   assert.equal(result.protection, PROTECTION.SAME_FAILURE_DOMAIN)
   assert.equal(result.detail, 'shares-physical-disk:sda')
@@ -75,4 +94,40 @@ test('TARGET-8 unreadable mountinfo or an unresolvable device is UNKNOWN, never 
   const unresolved = await classifyTarget(targetById('usb-external-1'), { datalakePath: DATALAKE, readMountInfo: async () => PRODUCTION_MOUNTINFO, sys })
   assert.equal(unresolved.protection, PROTECTION.UNKNOWN)
   assert.equal(isProtected(PROTECTION.UNKNOWN), false)
+})
+
+
+test('TARGET-9 PrivateDevices-style hidden /dev resolves through mountinfo major:minor and sysfs', async () => {
+  const entries = parseMountInfo(PRODUCTION_MOUNTINFO)
+  const targetMount = mountEntryFor('/mnt/aegis-backup', entries)
+  const sourceMount = mountEntryFor(DATALAKE, entries)
+
+  assert.ok(targetMount?.majorMinor)
+  assert.ok(sourceMount?.majorMinor)
+
+  const sys = productionSys()
+  const hostRealpath = sys.realpath
+
+  sys.realpath = async (p) => {
+    // Reproduce systemd PrivateDevices=yes: host block nodes under /dev are
+    // absent, while /sys/dev/block remains available.
+    if (p.startsWith('/dev/')) {
+      throw new Error('ENOENT')
+    }
+
+    return hostRealpath(p)
+  }
+
+  const result = await classifyTarget(
+    targetById('usb-external-1'),
+    {
+      datalakePath: DATALAKE,
+      readMountInfo: async () => PRODUCTION_MOUNTINFO,
+      sys,
+    },
+  )
+
+  assert.equal(result.protection, PROTECTION.DIFFERENT_DEVICE)
+  assert.equal(result.detail, 'separate-physical-disk')
+  assert.equal(isProtected(result.protection), true)
 })

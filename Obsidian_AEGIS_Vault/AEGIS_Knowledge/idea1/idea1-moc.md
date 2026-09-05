@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-05
+updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
 ---
@@ -27,10 +27,20 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
 - the 10-screen PASS/PARTIAL matrix;
 - Settings sub-gates and the remaining SECURITY-2 defect;
 - RAID UI vs real RAID-hardware boundary;
-- the connected Host Backup Agent and still-missing tools/target;
+- the connected Host Backup Agent, mounted/registered HGST target, and the
+  `PrivateDevices` classifier fix whose PR/deployment/Production acceptance is
+  still pending;
 - STORAGE-AUTO-1 persistence PASS and STORAGE-AUTO-2 dependency;
 - Twingate TWIN-0/TWIN-1 discovery/preflight PASS and TWIN-2 pending;
 - the ordered RAID → Backup and Twingate continuation pipelines.
+
+Current Backup Target checkpoint: branch
+`fix/backup-target-private-dev-classification` at `a68de6f...` resolves local
+devices through mountinfo `major:minor` → `/sys/dev/block` while preserving
+`PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused
+and 52/52 full. Overall Backup Target remains **IN PROGRESS** until Production
+reports `hgst-usb-1 → DIFFERENT_DEVICE`; Backup Job remains **NOT TESTED**, and
+RAID remains **DEFERRED / FUTURE HARDWARE**.
 
 Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] and the shared [[summaries/08_Outstanding_Items_Consolidated]].
 

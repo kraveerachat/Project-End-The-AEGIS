@@ -4,7 +4,7 @@ aliases: ["IDEA1 6.1", "AEGIS Drive LC Progress 6.1"]
 tags: [aegis, idea1, progress, production, acceptance, storage, backup, raid, settings, twingate]
 type: status-snapshot
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
 application_source_baseline_sha: 46573ed8dd17631f9f746de3f9c7a5f71da1a03b
@@ -100,7 +100,7 @@ Upload remains a **Files workflow**, not a standalone sidebar screen.
 | Secure Shares | ✅ **PASS / CLOSED (private/internal)** | Password, wrong-password denial, no-password, copy, restricted VLAN30 allow and outside-zone deny passed. Public external share remains ⚪ not implemented. |
 | File History | ✅ **PASS / CLOSED** | Multiple real per-file versions retained; history and non-destructive restore accepted. This is not filesystem snapshotting. |
 | Trash | ✅ **PASS / CLOSED** | Soft delete, protected unlock, 30-day UI policy, restore and permanent delete passed. Auto-purge worker exists but a literal 30-day wait was not time-waited. |
-| Storage & Backup | 🟡 **PARTIAL** | Capacity + Disk Health + RAID standby UI + Backup Agent connection + policy persistence passed. Real RAID array, backup target, restic/pg_dump, real backup, integrity and restore verification remain. |
+| Storage & Backup | 🟡 **PARTIAL** | Capacity + Disk Health + RAID standby UI + Backup Agent connection + policy persistence passed. HGST target mount/registration and classifier source fix passed; PR/deployment/Production `DIFFERENT_DEVICE`, real RAID, backup tools, real backup, integrity and restore verification remain. |
 | Audit Log | ✅ **PASS / CLOSED** | Production list/filter behavior accepted; result filter defect closed. Result values are All / Success / Denied / Blocked. |
 | Access Control | ✅ **PASS / CLOSED** | RBAC/provisioning and page workflow accepted for current scope. |
 | Settings | 🟡 **PARTIAL** | Appearance and major Security/Storage subflows pass. SECURITY-2 small defect, Administrator production acceptance and full Backup/RAID integration remain. |
@@ -390,15 +390,25 @@ This runtime integration should be treated as a **production configuration fact 
 
 ## 10.5 Backup tools and target
 
-### Status: ⏳ NOT READY
+### Status: 🟡 IN PROGRESS
 
-Current agent evidence:
-- `resticPresent=false`
-- `pgDumpPresent=false`
-- allowlisted targets = 0
-- backup target = none
+Current session evidence:
+- Host Backup Agent remains active with `PrivateDevices=true`.
+- HGST target `hgst-usb-1` is mounted at `/mnt/aegis-backup` and registered.
+- AEGIS repository path is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`.
+- the deployed classifier reports `UNKNOWN / physical-device-unresolved`.
+- `restic`, `pg_dump`, and `pg_restore` runtime availability still requires verification before a real job.
 - last successful backup = never
 - restore verification = not tested
+
+Root cause is confirmed: the deployed classifier starts from host `/dev` paths,
+but `PrivateDevices=true` hides those nodes inside the service namespace while
+mountinfo `major:minor` and `/sys/dev/block/<major:minor>` remain available.
+Commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` implements the sysfs-first
+resolution path and keeps unresolved evidence fail-closed. Focused target tests
+pass 9/9 and the full host backup-agent suite passes 52/52. Pull Request
+review/merge, deployment, and real Production `DIFFERENT_DEVICE` acceptance are
+still pending.
 
 Therefore:
 - `Back up now` is correctly disabled
@@ -416,22 +426,18 @@ Browser persistence test passed:
 - Refresh preserved the values
 - `Next run = Not scheduled` remained truthful because no active target exists
 
-### Safety note — verify/reset before adding target
+### Safety note — current baseline confirmed
 
-The **last observed test state** was:
-- Schedule: Every 6 hours
-- Retention: Keep 14 daily + 8 weekly + 6 monthly
-- Automatic schedule: Enabled
-- active target: none
-- Next run: Not scheduled
-
-Before an actual backup target is attached, explicitly verify whether this test policy was reset.
-If not intentionally desired, return to safe baseline:
+The earlier persistence acceptance temporarily observed `Every 6 hours` with
+automatic scheduling enabled and no active target. The current Backup Target
+session confirms the fail-safe policy is now:
+- `activeTargetId = null`
 - Schedule = Disabled
-- Automatic schedule = OFF
-- Retention = Keep 7 daily + 4 weekly
+- Automatic schedule = OFF (`enabled=false`)
 
-Reason: agent scheduler does nothing while `activeTargetId` is absent, but after a target is selected an enabled policy becomes actionable.
+Keep this baseline until the classifier is merged, deployed, and Production
+proves `hgst-usb-1 → DIFFERENT_DEVICE`. Selecting the target is a later,
+deliberate gate.
 
 ### STORAGE-AUTO-2: ⏳ WAITING
 
@@ -652,7 +658,9 @@ Accepted:
 
 Waiting:
 - actual RAID hardware/telemetry
-- backup target
+- Backup Target classifier PR review/merge
+- controlled classifier deployment with `PrivateDevices=true` preserved
+- Production `hgst-usb-1 → DIFFERENT_DEVICE` acceptance
 - backup tools
 - manual backup
 - integrity
@@ -711,7 +719,8 @@ Inactive oneshot status between runs is normal and is not a failure.
   `/run/aegis-backup/backup.sock`
 - no TCP listener
 - connected to Drive through read-only socket bind
-- state: NOT_CONFIGURED until target exists
+- state: `NOT_CONFIGURED`; HGST target is registered but not active, and the
+  deployed classifier remains `UNKNOWN / physical-device-unresolved`
 
 ## 14.4 Twingate connector
 
@@ -796,13 +805,16 @@ Install/verify:
 Use dedicated least-privilege backup role and root-owned credential material.
 Do not depend permanently on a transient container IP without a stable connection design.
 
-## BACKUP-5 — Register allowlisted target
+## BACKUP-5 — Register and accept an allowlisted target
 
-Register the real external/RAID target in the root-owned Backup Agent config.
+HGST target `hgst-usb-1` is registered in the root-owned Backup Agent config.
+Its source classifier fix is verified but not yet merged or deployed, so this
+gate remains open until Production reports `DIFFERENT_DEVICE` with
+`PrivateDevices=true` still enabled.
 
-Expected classification:
-- DIFFERENT_DEVICE or OFF_HOST = acceptable
-- SAME_FAILURE_DOMAIN = not acceptable as protected backup
+Accepted classification:
+- `DIFFERENT_DEVICE` or `OFF_HOST` = acceptable
+- `SAME_FAILURE_DOMAIN`, `UNKNOWN`, or `NOT_MOUNTED` = not acceptable as protected backup
 
 ## BACKUP-6 — Browser configuration
 
@@ -843,7 +855,7 @@ Only then close:
 | 1-minute Vault auto-lock option | ⏳ requested; requires frontend + server + new DB migration |
 | RAID hardware | ⏳ not configured |
 | RAID host telemetry | ⏳ not implemented/deployed yet |
-| Backup target | ⏳ none allowlisted |
+| Backup target | 🟡 HGST `hgst-usb-1` mounted and registered; source fix PASS, PR/deployment/Production `DIFFERENT_DEVICE` acceptance pending |
 | restic | ⏳ missing |
 | pg_dump / pg_restore | ⏳ missing |
 | Real Backup Job | ⏳ not tested |
@@ -868,9 +880,13 @@ If resuming from a new chat/session, use this order unless hardware availability
    - new migration after 007
    - tests + PR + deploy + measured 1-minute acceptance
 
-2. **Verify Backup policy safe baseline**
-   - especially before attaching a target
-   - last observed test policy was Enabled / Every 6 hours / no target
+2. **Finish Backup Target classifier gate**
+   - create/review/merge `fix/backup-target-private-dev-classification`
+   - fast-forward Production main only
+   - preserve config, credentials and `PrivateDevices=true`
+   - restart only `aegis-backup.service`
+   - require `hgst-usb-1 → DIFFERENT_DEVICE`
+   - keep `activeTargetId=null`, schedule disabled and `enabled=false` until accepted
 
 3. **Administrator Settings production acceptance**
    - encryption posture truth
@@ -1014,7 +1030,13 @@ Use the following compact statement when opening a new session:
 > `46573ed8dd17631f9f746de3f9c7a5f71da1a03b` (PR #76); documentation-only PR #77 may place repository `main` ahead of that SHA without requiring a Drive redeploy.
 > Ten-screen acceptance is largely closed; Storage & Backup and Settings retain
 > open integration work. Backup Agent is already connected over
-> `/run/aegis-backup/backup.sock`, but restic/pg_dump and target are absent.
+> `/run/aegis-backup/backup.sock`. HGST target `hgst-usb-1` is mounted and
+> registered, but Production still reports `UNKNOWN / physical-device-unresolved`
+> under `PrivateDevices=true`. Source commit `a68de6f...` fixes resolution through
+> mountinfo `major:minor` and `/sys/dev/block`; tests pass 9/9 focused and 52/52
+> full, while PR review/merge, Production deployment, and real
+> `DIFFERENT_DEVICE` acceptance remain pending. Backup tools/credentials and the
+> first real backup/integrity/restore run remain unverified.
 > RAID UI is deployed but no real array exists. TWIN-0/TWIN-1 proved the local
 > Twingate connector is running/healthy and the host telemetry architecture is
 > ready; TWIN-2 implementation is pending. SECURITY-2 still needs dynamic
