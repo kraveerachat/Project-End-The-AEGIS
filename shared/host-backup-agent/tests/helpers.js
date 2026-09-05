@@ -40,15 +40,50 @@ export const PRODUCTION_MOUNTINFO = [
 export function productionSys() {
   const slaves = { 'dm-0': ['sda3'] }
   const partitionParent = { sda1: 'sda', sda2: 'sda', sda3: 'sda', sdb1: 'sdb' }
+
+  // major:minor values in PRODUCTION_MOUNTINFO. /sys/dev/block/<major:minor>
+  // is the kernel interface available even when systemd PrivateDevices=yes
+  // hides the corresponding host block nodes under /dev.
+  const majorMinorDevice = {
+    '253:0': 'dm-0',
+    '8:2': 'sda2',
+    '8:17': 'sdb1',
+  }
+
+  const sysfsPathFor = (name) => {
+    if (partitionParent[name]) {
+      return `/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/${partitionParent[name]}/${name}`
+    }
+
+    if (name === 'dm-0') {
+      return '/sys/devices/virtual/block/dm-0'
+    }
+
+    return `/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/${name}`
+  }
+
   return {
     realpath: async (p) => {
       if (p === '/dev/mapper/ubuntu--vg-ubuntu--lv') return '/dev/dm-0'
       if (p.startsWith('/dev/')) return p
-      const name = p.replace('/sys/class/block/', '')
-      if (partitionParent[name]) return `/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/${partitionParent[name]}/${name}`
-      if (name === 'dm-0') return '/sys/devices/virtual/block/dm-0'
-      return `/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/${name}`
+
+      const devBlock = /^\/sys\/dev\/block\/(\d+:\d+)$/.exec(p)
+      if (devBlock) {
+        const name = majorMinorDevice[devBlock[1]]
+        if (!name) {
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        }
+        return sysfsPathFor(name)
+      }
+
+      const classBlock = /^\/sys\/class\/block\/([^/]+)$/.exec(p)
+      if (classBlock) {
+        return sysfsPathFor(classBlock[1])
+      }
+
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     },
+
     readdir: async (p) => {
       const match = /^\/sys\/class\/block\/([^/]+)\/slaves$/.exec(p)
       if (match && slaves[match[1]]) return slaves[match[1]]

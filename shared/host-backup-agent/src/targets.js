@@ -47,6 +47,7 @@ export function parseMountInfo(text) {
     const tail = line.slice(separator + 3).split(' ')
     if (head.length < 6 || tail.length < 2) continue
     entries.push({
+      majorMinor: head[2],
       mountPoint: unescapeMount(head[4]),
       fstype: tail[0],
       source: unescapeMount(tail[1]),
@@ -76,16 +77,34 @@ export function mountEntryFor(target, entries) {
  * @param {(p: string) => Promise<string[]>} sys.readdir rejects when absent
  * @returns {Promise<Set<string>>}
  */
-export async function physicalDisksOf(source, sys) {
+export async function physicalDisksOf(source, sys, majorMinor = null) {
   const disks = new Set()
-  if (typeof source !== 'string' || !source.startsWith('/dev/')) return disks
 
-  let node
-  try {
-    node = await sys.realpath(source)
-  } catch {
-    return disks
+  // systemd PrivateDevices=yes intentionally hides the host block-device
+  // nodes under /dev from the service. mountinfo still exposes the kernel
+  // major:minor identity, and /sys/dev/block remains sufficient to resolve
+  // the real backing device without weakening the service sandbox.
+  let node = null
+
+  if (typeof majorMinor === 'string' && /^\d+:\d+$/.test(majorMinor)) {
+    try {
+      node = await sys.realpath(`/sys/dev/block/${majorMinor}`)
+    } catch {
+      node = null
+    }
   }
+
+  // Backward-compatible fallback for environments where /dev is visible or
+  // where /sys/dev/block is unavailable.
+  if (!node) {
+    if (typeof source !== 'string' || !source.startsWith('/dev/')) return disks
+    try {
+      node = await sys.realpath(source)
+    } catch {
+      return disks
+    }
+  }
+
   const start = path.posix.basename(node)
   const seen = new Set()
   const queue = [start]
@@ -160,8 +179,10 @@ export async function classifyTarget(target, { datalakePath, readMountInfo, sys 
   }
 
   const sourceMount = mountEntryFor(datalakePath, entries)
-  const targetDisks = await physicalDisksOf(mount.source, sys)
-  const sourceDisks = sourceMount ? await physicalDisksOf(sourceMount.source, sys) : new Set()
+  const targetDisks = await physicalDisksOf(mount.source, sys, mount.majorMinor)
+  const sourceDisks = sourceMount
+    ? await physicalDisksOf(sourceMount.source, sys, sourceMount.majorMinor)
+    : new Set()
   if (targetDisks.size === 0 || sourceDisks.size === 0) {
     return { protection: PROTECTION.UNKNOWN, fstype: mount.fstype, detail: 'physical-device-unresolved' }
   }
