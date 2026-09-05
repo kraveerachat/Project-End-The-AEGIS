@@ -6,12 +6,13 @@ restic, and publishes sanitized status to Drive over one Unix socket.
 
 **Production status (2026-09-06):** the hardened host service is deployed and
 reachable through `/run/aegis-backup/backup.sock` with `PrivateDevices=true`.
-The HGST target `hgst-usb-1` is mounted and registered, but the deployed
-classifier still reports `UNKNOWN / physical-device-unresolved`. Commit
-`a68de6f145d7e0f6935f2a2a0609ca4be432cdff` contains the source fix; it has
-not yet been reviewed, merged, or deployed. No real backup job has run, and
-the safe policy remains `activeTargetId=null`, schedule disabled, and
-`enabled=false`. See [`deploy/README.md`](./deploy/README.md).
+The HGST target `hgst-usb-1` is mounted and registered. The classifier source
+fix (`a68de6f145d7e0f6935f2a2a0609ca4be432cdff`) is merged through PR #81 into
+repository `main@07ad78efdf1561f2a49a1ecc81440359b766b3bd`, but the running
+Production service has not yet been updated and still reports
+`UNKNOWN / physical-device-unresolved`. No real backup job has run, and the
+safe policy remains `activeTargetId=null`, schedule disabled, retention
+`keep-7d-4w`, and `enabled=false`. See [`deploy/README.md`](./deploy/README.md).
 
 ## Why a separate agent
 

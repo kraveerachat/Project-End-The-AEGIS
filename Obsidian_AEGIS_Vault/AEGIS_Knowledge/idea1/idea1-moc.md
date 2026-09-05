@@ -23,21 +23,22 @@ Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical op
 Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-versioning, Protected Trash, Storage/Backup status surfaces and the Classic/Neo Dual Interface Style.
 
 For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
-- Production Drive application source `2806373bb300728a0babb953a63f98bcd714ffef`, while repository `main` is newer after PR #81;
+- Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80 and repository `main@07ad78efdf1561f2a49a1ecc81440359b766b3bd` through PR #81;
 - the current 10-screen PASS/PARTIAL matrix;
-- Private Vault tested scope PASS/CLOSED, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
-- SECURITY-2 Vault auto-lock PASS/CLOSED;
-- local Twingate connector runtime telemetry PASS/CLOSED; control-plane status NOT MEASURED;
-- Administrator Encryption-at-Rest truthfulness and Network Zones PASS/CLOSED;
-- RAID telemetry-ready UI versus real RAID1 DEFERRED / FUTURE HARDWARE;
-- Host Backup Agent connected; HGST target safely mounted/registered;
-- Backup classifier merged via PR #81, with Production `DIFFERENT_DEVICE` acceptance still pending;
-- Backup Job / integrity / isolated restore still NOT TESTED;
-- real 20–30 GB / Production 32 GiB transfer scale NOT ACCEPTED.
+- Private Vault tested scope **PASS / CLOSED**, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
+- SECURITY-2 Vault auto-lock **PASS / CLOSED** after PR #80 + migration 008 + measured 1-minute Production acceptance;
+- local Twingate connector runtime telemetry **PASS / CLOSED** after PR #79, while control-plane telemetry remains **NOT MEASURED**;
+- Administrator Encryption-at-Rest truthfulness and Network Zones **PASS / CLOSED**;
+- RAID telemetry-ready UI versus real RAID1 **DEFERRED / FUTURE HARDWARE**;
+- the connected Host Backup Agent, safely mounted/registered shared HGST target, and the `PrivateDevices` classifier source/PR gate **CLOSED via PR #81**, with Production deployment / `DIFFERENT_DEVICE` acceptance still pending;
+- STORAGE-AUTO-1 persistence PASS with the current safe baseline disabled/no active target;
+- Backup Job / integrity / isolated restore still **NOT TESTED**;
+- real 20–30 GB / Production 32 GiB transfer scale **NOT TESTED / NOT ACCEPTED**;
+- the current Backup Target → Backup Job continuation sequence.
 
-Current Backup Target checkpoint: PR #81 is merged into repository `main`, and the classifier source remains verified by 9/9 focused and 52/52 full host-agent tests. Overall Backup Target remains **IN PROGRESS** until the host agent is deployed and Production reports `hgst-usb-1 → DIFFERENT_DEVICE` with `PrivateDevices=true` preserved. Backup Job remains **NOT TESTED**.
+Current Backup Target checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier to repository main; overall Backup Target remains **IN PROGRESS** until Production reports `hgst-usb-1 → DIFFERENT_DEVICE`; Backup Job remains **NOT TESTED**, and real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
-Current removable-media boundary: HGST 1 TB and Lexar 32 GB are existing/shared equipment. Never erase, format, repartition, resize, move or delete their existing data. Only new files under HGST `AEGIS_BACKUP` are allowed; Lexar remains disconnected/unused.
+The current HGST 1 TB and Lexar 32 GB devices are existing/shared equipment: never erase, format, repartition, resize, move or delete their existing data. Only new AEGIS files inside the HGST `AEGIS_BACKUP` directory are allowed; Lexar remains disconnected/unused.
 
 Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] and the shared [[summaries/08_Outstanding_Items_Consolidated]].
 
