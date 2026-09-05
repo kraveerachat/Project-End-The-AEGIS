@@ -31,6 +31,9 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
+- `git diff --name-status origin/main...HEAD` — **PASS by equivalent GitHub compare evidence**: exactly five documentation paths changed; no application/runtime/source path changed.
+- `git rev-list --left-right --count origin/main...HEAD` — **PASS by equivalent GitHub compare evidence**: branch was created from current `main` and was ahead only by this documentation task when opened.
+
 - GitHub PR #55: merged E3.1; PR body/receipt records source scope and subsequent Drive-only production deployment evidence is present in canonical history.
 - GitHub PR #56: merged at `543fb082eb717bf583ab415df2282da8f36b6c18`; its immutable receipt correctly says that branch itself had no Production acceptance.
 - Later E3.3 evidence explicitly states `with PR #56 deployed`, resolving the project-level question of whether E3.2 reached Production.
