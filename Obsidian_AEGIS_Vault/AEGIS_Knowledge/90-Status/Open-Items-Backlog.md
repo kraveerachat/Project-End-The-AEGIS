@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-26
+updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
 ---
@@ -13,6 +13,29 @@ edit_policy: owner-writable
 
 > รายการ DONE ด้านล่างถูกเก็บเพื่อป้องกันการเปิดงานเดิมซ้ำ
 > กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
+
+> [!important] IDEA1 reconciliation boundary — 2026-09-06
+> This infrastructure backlog retains the original Formal Audit and Phase C
+> chronology. Its later “Phase C / Web Functional Testing = NOT STARTED” wording
+> is historical for IDEA1 and must not be used to reopen accepted IDEA1 pages.
+> The authoritative current IDEA1 state is
+> [[idea1/idea1-status#Current acceptance reconciliation — 2026-09-06]]:
+> Dashboard, Files, Private Vault tested scope, Secure Shares private/internal
+> scope, File History, Protected Trash functional/manual scope, Audit Log,
+> Access Control, SECURITY-2, local Twingate connector telemetry, Administrator
+> Encryption-at-Rest truthfulness, Administrator Network Zones, Backup Agent
+> connection, and STORAGE-AUTO-1 are **PASS / CLOSED** for their accepted scope.
+>
+> Storage & Backup and Settings remain **PARTIAL**. PR #81 is merged in the
+> repository, but its Backup Target classifier is not yet deployed to the
+> Production host agent; Production remains `UNKNOWN / physical-device-unresolved`
+> until it proves `hgst-usb-1 → DIFFERENT_DEVICE` with `PrivateDevices=true`.
+> Backup Job E2E, repository integrity, isolated restore, and STORAGE-AUTO-2 are
+> open. Twingate control-plane telemetry remains **NOT MEASURED**, public external
+> sharing remains **NOT IMPLEMENTED**, the optional current profile/avatar sweep
+> remains **NOT TESTED**, and real RAID1 is **DEFERRED / FUTURE HARDWARE**. Current
+> HGST/Lexar media must not be erased, reformatted, repartitioned, resized, or used
+> as RAID members.
 
 ## ✅ CLOSED / PASS — Server infrastructure readiness
 
