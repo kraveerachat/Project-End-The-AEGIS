@@ -30,7 +30,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Production pre-deploy baseline: live classifier blob `fff9ad85671a291d50681e1c6f5cd6581a084dbd`; Production checkout `main@2806373bb300728a0babb953a63f98bcd714ffef`; `aegis-backup.service` active/running with `PrivateDevices=yes`; target `hgst-usb-1` reported `UNKNOWN`.
+- `git hash-object /opt/aegis/host-backup-agent/src/targets.js` + service/status preflight — **PASS**: pre-deploy live classifier blob `fff9ad85671a291d50681e1c6f5cd6581a084dbd`; Production checkout `main@2806373bb300728a0babb953a63f98bcd714ffef`; `aegis-backup.service` active/running with `PrivateDevices=yes`; target `hgst-usb-1` reported `UNKNOWN`.
 - Controlled classifier deployment: reviewed PR #81 classifier blob `2a9dc27fbdb812dbb50a84d10f364343fc09d967` installed only to `/opt/aegis/host-backup-agent/src/targets.js`; rollback copy `/opt/aegis/host-backup-agent/src/targets.js.pre-pr81-20260906T085339` retained; only `aegis-backup.service` restarted; post-restart service active/running with `PrivateDevices=yes`; target reported `DIFFERENT_DEVICE`.
 - Runtime tools: `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` installed and detected by the agent; PostgreSQL server is 15.19.
 - Dedicated database identity: `drive_backup|t|f|f|f|f|f`; public table read coverage `14|14|0`; sequence read coverage `7|7`; `aegis_drive|t`; `aegis_monitor|f`; credential auth returned `drive_backup|aegis_drive|15.19`.
