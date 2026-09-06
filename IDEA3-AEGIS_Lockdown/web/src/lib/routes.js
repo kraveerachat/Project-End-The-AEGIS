@@ -5,7 +5,14 @@ import {
 
 export const APP_ROUTES = Object.freeze([
   { id: 'dashboard', label: 'แดชบอร์ด', eyebrow: 'Workspace', group: 'พื้นที่ทำงาน', icon: Gauge },
-  { id: 'overview', label: 'ภาพรวมระบบ', eyebrow: 'Workspace', group: 'พื้นที่ทำงาน', icon: ChartNoAxesCombined },
+  {
+    id: 'overview',
+    label: 'ภาพรวมระบบ',
+    description: 'สถาปัตยกรรมการเชื่อมต่อ หลักฐาน และความพร้อมของ AEGIS',
+    eyebrow: 'Workspace',
+    group: 'พื้นที่ทำงาน',
+    icon: ChartNoAxesCombined,
+  },
   { id: 'idea1', label: 'IDEA1 Security', eyebrow: 'Evidence', group: 'หลักฐาน', icon: ShieldCheck },
   { id: 'idea2', label: 'IDEA2 Detection', eyebrow: 'Evidence', group: 'หลักฐาน', icon: Radar },
   { id: 'lockdown', label: 'IDEA3 Lockdown', eyebrow: 'Evidence', group: 'หลักฐาน', icon: Network },
