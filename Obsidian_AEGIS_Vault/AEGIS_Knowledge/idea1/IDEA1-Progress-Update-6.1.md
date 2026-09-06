@@ -8,7 +8,8 @@ updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
 application_source_baseline_sha: 2806373bb300728a0babb953a63f98bcd714ffef
-production_drive_sha: 2806373bb300728a0babb953a63f98bcd714ffef
+production_git_checkout_sha: 2806373bb300728a0babb953a63f98bcd714ffef
+production_drive_image_source_sha: 64807e963359c6a85bc5d9ded7b6ff1b05226694
 backup_classifier_merge_sha: 07ad78efdf1561f2a49a1ecc81440359b766b3bd
 progress_update_merge_pr: 77
 runtime_evidence_reconciled_through_pr: 81
@@ -76,7 +77,13 @@ Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-med
 
 ## 1.1 Git / Drive deployment
 
-- Production Drive application source remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Production **Git checkout** remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Production **Drive image source basis** is PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694` since
+  2026-09-06; PR #92 merged as `d4b8e921...`. Later repository history may
+  advance `main`, so resolve current `main` from Git rather than treating that
+  merge SHA as a permanent `main` pointer. The merge added no file changes, so
+  head and merge commit have identical trees, but they are different commits —
+  do not collapse the three SHAs.
 - PR #81 merged the Backup Target PrivateDevices classifier at merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. Later documentation-only commits may advance repository history; resolve the live `main` head from Git.
 - PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock duration/1-minute support are deployed and production-accepted.
 - Migration `008_vault_autolock_1_minute.sql` is applied in Production.
@@ -499,8 +506,15 @@ Accepted:
 - account page reachable
 - Change Password functional flow passed previously
 
+Closed since this sweep was written:
+- avatar **Remove** was re-accepted in Production on 2026-09-06 (PR #92) — the
+  fix stopped a deleted picture reappearing from the browser cache on the
+  Account card and in the TopBar, and the removal now survives refresh and
+  logout/login
+
 Not fully closed by the latest page-level evidence:
-- profile/avatar upload/remove has not been re-accepted in the current 6.1 sweep
+- avatar **upload/replace** has not been re-accepted in the current 6.1 sweep;
+  only Remove was exercised in the PR #92 acceptance
 - if formal full Settings closure is required, perform one small profile/avatar acceptance pass
 
 Do not confuse this with authentication/password reset flows already verified elsewhere.
@@ -724,7 +738,7 @@ Current HGST/Lexar must not be used as RAID members.
 | Real automatic scheduled backup | ⚪ STORAGE-AUTO-2 NOT TESTED / optional |
 | RAID hardware | ⏳ DEFERRED / FUTURE HARDWARE |
 | RAID host telemetry | ⏳ waits for future real RAID hardware |
-| Account profile/avatar latest exhaustive sweep | 🟡 NOT TESTED / optional remaining page-level acceptance |
+| Account profile/avatar latest exhaustive sweep | 🟡 NOT TESTED / optional remaining page-level acceptance (avatar **Remove** is separately PASS / CLOSED via PR #92, 2026-09-06; upload/replace is not) |
 | Real 20–30 GB / Production 32 GiB transfer scale | ⚪ NOT TESTED / NOT ACCEPTED |
 | Protected Trash 30-day wall-clock auto-purge | ⚪ implementation exists; literal 30-day wait not time-waited |
 
@@ -866,8 +880,9 @@ Do **not** call these finished yet:
 
 # 21. Resume statement for a future chat
 
-> IDEA1 current reconciliation is 2026-09-06. Production Drive application source
-> remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80). PR #81 merged the
+> IDEA1 current reconciliation is 2026-09-06. The Production **Git checkout**
+> remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80); the running Drive
+> image is built from PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694`. PR #81 merged the
 > PrivateDevices-compatible Backup Target classifier; the reviewed classifier is
 > now deployed to the **live Host Backup Agent copy**, while the Production Git
 > checkout itself remains `2806373...`. Preserve that distinction during any

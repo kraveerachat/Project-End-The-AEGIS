@@ -23,7 +23,7 @@ Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical op
 Drive provides the secure NAS, Data Lake, Private Vault, shares, audit, file-versioning, Protected Trash, Storage/Backup status surfaces and the Classic/Neo Dual Interface Style.
 
 For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. It records:
-- Production Drive source `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80, plus PR #81's Backup Target classifier merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`; the live repository head must be resolved from Git;
+- Production **Git checkout** `2806373bb300728a0babb953a63f98bcd714ffef` through PR #80 — no longer the source basis of the running Drive application, which is built from PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694` — plus PR #81's Backup Target classifier merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`; the live repository head must be resolved from Git;
 - the current 10-screen PASS/PARTIAL matrix;
 - Private Vault tested scope **PASS / CLOSED**, including direct-VLAN ~1.1 GB encrypted-video sustained playback + seek/resume acceptance;
 - SECURITY-2 Vault auto-lock **PASS / CLOSED** after PR #80 + migration 008 + measured 1-minute Production acceptance;
@@ -34,6 +34,10 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
 - STORAGE-AUTO-1 persistence PASS; current accepted policy selects `hgst-usb-1` while keeping schedule disabled and `enabled=false`;
 - Backup Job manual E2E, repository integrity and isolated restore **PASS / CLOSED** for the accepted removable-media scope;
 - real 20–30 GB / Production 32 GiB transfer scale **NOT TESTED / NOT ACCEPTED**;
+- PR #92 UI regression fixes are merged (`d4b8e921...`) and **accepted in
+  Production**, deployed from PR head `64807e963...` (identical tree, different
+  commit): Settings Account avatar Remove, Files responsive tile/menu and
+  Private Vault responsive menu are all **PASS / CLOSED**;
 - remaining optional/future work: profile/avatar exhaustive Settings sweep, STORAGE-AUTO-2 scheduled execution if desired, real RAID1 future hardware, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. Automatic scheduled execution remains NOT TESTED / optional; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
