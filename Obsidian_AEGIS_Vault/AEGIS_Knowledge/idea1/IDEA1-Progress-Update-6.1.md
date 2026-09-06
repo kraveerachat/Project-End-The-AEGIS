@@ -499,8 +499,15 @@ Accepted:
 - account page reachable
 - Change Password functional flow passed previously
 
+Closed since this sweep was written:
+- avatar **Remove** was re-accepted in Production on 2026-09-06 (PR #92) — the
+  fix stopped a deleted picture reappearing from the browser cache on the
+  Account card and in the TopBar, and the removal now survives refresh and
+  logout/login
+
 Not fully closed by the latest page-level evidence:
-- profile/avatar upload/remove has not been re-accepted in the current 6.1 sweep
+- avatar **upload/replace** has not been re-accepted in the current 6.1 sweep;
+  only Remove was exercised in the PR #92 acceptance
 - if formal full Settings closure is required, perform one small profile/avatar acceptance pass
 
 Do not confuse this with authentication/password reset flows already verified elsewhere.
@@ -724,7 +731,7 @@ Current HGST/Lexar must not be used as RAID members.
 | Real automatic scheduled backup | ⚪ STORAGE-AUTO-2 NOT TESTED / optional |
 | RAID hardware | ⏳ DEFERRED / FUTURE HARDWARE |
 | RAID host telemetry | ⏳ waits for future real RAID hardware |
-| Account profile/avatar latest exhaustive sweep | 🟡 NOT TESTED / optional remaining page-level acceptance |
+| Account profile/avatar latest exhaustive sweep | 🟡 NOT TESTED / optional remaining page-level acceptance (avatar **Remove** is separately PASS / CLOSED via PR #92, 2026-09-06; upload/replace is not) |
 | Real 20–30 GB / Production 32 GiB transfer scale | ⚪ NOT TESTED / NOT ACCEPTED |
 | Protected Trash 30-day wall-clock auto-purge | ⚪ implementation exists; literal 30-day wait not time-waited |
 

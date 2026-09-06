@@ -23,6 +23,19 @@ edit_policy: owner-writable
 > the ordered continuation queue as of 2026-09-05.
 
 > **Current production application source**: ✅ Production Drive remains on `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80) with PR #79 local Twingate runtime telemetry and PR #80 Vault auto-lock fixes deployed and accepted. PR #81 merged the Backup Target classifier source fix at merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. On 2026-09-06 the reviewed classifier was deployed **only** to the live Host Backup Agent copy at `/opt/aegis/host-backup-agent/src/targets.js`; the Production Git checkout itself remained `2806373...`. The live classifier blob is `2a9dc27fbdb812dbb50a84d10f364343fc09d967`, `PrivateDevices=yes` was preserved, and Production accepted `hgst-usb-1 → DIFFERENT_DEVICE`.
+> **PR #92 UI regression fixes — deployed and accepted (2026-09-06)**: PR #92
+> merged at `d4b8e92134c569f77b98bfc7c229f4e164e18129`, which is also the current
+> repository `main`. ⚠️ **Production was built from the PR head**
+> `64807e963359c6a85bc5d9ded7b6ff1b05226694`, **not from the merge commit** — the
+> merge added no file changes, so the two trees are byte-identical, but the
+> deployed source SHA and the `main` SHA are different commits and must not be
+> written as one. Drive image
+> `sha256:55162c2f950607df3470e54319dc65b60e074562de86a40aab3482fc744059ca`;
+> Drive running/healthy with `group_add` 29100 + 29102 preserved, `/datalake` RW,
+> `/run/aegis-backup` RO, backup socket PASS; PostgreSQL, HUB and Monitor
+> unchanged; `healthz` ok=true, db=postgres. Owner manual Production acceptance:
+> Settings Account **Avatar Remove PASS / CLOSED**, Files **responsive tile/menu
+> PASS / CLOSED**, Private Vault **responsive menu PASS / CLOSED**.
 > **Backup classifier integration milestone**: PR #81 merged at `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. This closes the classifier source/PR integration gate but does not itself change the running Production host Backup Agent. Resolve the live repository head from Git rather than treating this milestone SHA as a permanent `main` pointer.
 > **Latest full-suite evidence**: **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #80, plus focused Vault auto-lock suites **9/9 + 9/9 PASS**. PR #79 separately recorded Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.
 > **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Storage & Backup accepted manual/removable-media scope, Audit Log and Access Control are **PASS / CLOSED**. Private Vault includes the accepted direct-VLAN30 high-bitrate preview scope for `START_LIVE.mp4` (~1.1 GB): first frame ~8 s, >60 s continuous playback without observed buffering, and successful seek/resume. Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media scope** after Production `DIFFERENT_DEVICE`, two successful manual backups, repository integrity checks, two successful isolated restore verifications, healthy final UI regression, and matching Backup audit events. Settings remains **PARTIAL** only because the latest exhaustive profile/avatar sweep is still optional/not re-tested; **Security & Privacy is PASS / CLOSED**, including SECURITY-2. Real RAID1 remains **DEFERRED / FUTURE HARDWARE**, and automatic scheduled execution (`STORAGE-AUTO-2`) remains **NOT TESTED / optional for the borrowed-HGST acceptance scope**.
@@ -45,7 +58,7 @@ edit_policy: owner-writable
 | Audit Log | ✅ PASS / CLOSED |
 | Access Control | ✅ PASS / CLOSED |
 | Settings → Appearance | ✅ PASS / CLOSED |
-| Settings → Account | ✅ Change Password PASS / CLOSED; profile/avatar latest exhaustive sweep NOT TESTED |
+| Settings → Account | ✅ Change Password PASS / CLOSED; avatar **Remove** PASS / CLOSED in Production (PR #92, 2026-09-06). The broader profile/avatar *exhaustive* sweep remains NOT TESTED / optional — accepting Remove does not close it |
 | Settings → Security & Privacy | ✅ PASS / CLOSED; SECURITY-1..5 accepted, including SECURITY-2 |
 | Twingate local connector telemetry | ✅ PASS / CLOSED in Production; control-plane telemetry remains NOT MEASURED |
 | Storage Capacity | ✅ PASS / CLOSED |
