@@ -9,9 +9,9 @@ owner: kla
 edit_policy: owner-writable
 application_source_baseline_sha: 2806373bb300728a0babb953a63f98bcd714ffef
 production_drive_sha: 2806373bb300728a0babb953a63f98bcd714ffef
-repository_main_sha: 07ad78efdf1561f2a49a1ecc81440359b766b3bd
+backup_classifier_merge_sha: 07ad78efdf1561f2a49a1ecc81440359b766b3bd
 progress_update_merge_pr: 77
-reconciled_through_pr: 81
+runtime_evidence_reconciled_through_pr: 81
 ---
 
 # IDEA1 — Progress Update 6.1
@@ -59,7 +59,7 @@ All non-LFT current gates (SECURITY-2, local Twingate telemetry, Administrator t
 ## 1.1 Git / Drive deployment
 
 - Production Drive application source remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
-- Repository `main` is now `07ad78efdf1561f2a49a1ecc81440359b766b3bd` after PR #81 merged the Backup Target PrivateDevices classifier.
+- PR #81 merged the Backup Target PrivateDevices classifier at merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. Later documentation-only commits may advance repository history; resolve the live `main` head from Git.
 - PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock duration/1-minute support are deployed and production-accepted.
 - Migration `008_vault_autolock_1_minute.sql` is applied in Production.
 - Current accepted Drive image remains `sha256:f604cc985db1f69b79773e8973b3bb8e63f84d28730710c0ebf3174d4156f098`.
@@ -880,9 +880,10 @@ Do **not** call these finished yet:
 # 21. Resume statement for a future chat
 
 > IDEA1 current reconciliation is 2026-09-06. Production Drive source remains
-> `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80). Repository `main` is
-> `07ad78efdf1561f2a49a1ecc81440359b766b3bd` after PR #81 merged the
-> PrivateDevices-compatible Backup Target classifier. PR #79 local Twingate
+> `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80). PR #81 merged the
+> PrivateDevices-compatible Backup Target classifier at milestone
+> `07ad78efdf1561f2a49a1ecc81440359b766b3bd`; resolve the live repository head
+> from Git because later documentation-only commits may advance `main`. PR #79 local Twingate
 > runtime telemetry and PR #80 Vault auto-lock are deployed/accepted; SECURITY-2,
 > local Twingate telemetry, Administrator Encryption-at-Rest truthfulness and
 > Network Zones are PASS/CLOSED. Twingate control-plane telemetry remains NOT MEASURED.

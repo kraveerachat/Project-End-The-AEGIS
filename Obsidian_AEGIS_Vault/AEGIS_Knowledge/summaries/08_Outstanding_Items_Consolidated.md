@@ -3,7 +3,7 @@ title: Outstanding Items — Consolidated
 tags: [aegis, summary, outstanding, open-items, tracking]
 type: summary
 created: 2026-08-06
-updated: 2026-08-29
+updated: 2026-09-06
 sources: ["[[log]]", "[[core/system-overview]]"]
 owner: kla
 edit_policy: owner-writable
@@ -22,6 +22,33 @@ edit_policy: owner-writable
 > and waits for human final review. See [[infrastructure/deployment/Docker-Stack-Plan]].
 >
 > Items marked **Awaiting go-ahead** were found by an audit and reported with a specific fix, but deliberately left unapplied pending the user's confirmation — they are open by decision, not by oversight.
+
+> [!important] IDEA1 current-state reconciliation — 2026-09-06
+> The IDEA1 entries collected below preserve the evidence available through
+> 2026-08-29 and are a historical inventory, not the active IDEA1 continuation
+> queue. When they conflict with this block, use
+> [[idea1/idea1-status#Current acceptance reconciliation — 2026-09-06]] and
+> [[idea1/IDEA1-Progress-Update-6.1#16. Current known limitations / open work]].
+>
+> Dashboard, Files, Private Vault tested scope, Secure Shares private/internal
+> scope, File History, Protected Trash functional/manual scope, Audit Log,
+> Access Control, SECURITY-2, local Twingate connector telemetry, Administrator
+> Encryption-at-Rest truthfulness, Administrator Network Zones, Backup Agent
+> connection, and STORAGE-AUTO-1 are **PASS / CLOSED** for their accepted scope.
+> Twingate control-plane telemetry remains **NOT MEASURED**. Storage & Backup and
+> Settings remain **PARTIAL**: the Backup Target classifier is merged through
+> PR #81 but is not deployed to the Production host agent, which still reports
+> `UNKNOWN / physical-device-unresolved`; `DIFFERENT_DEVICE`, the real Backup Job,
+> repository integrity, isolated restore, and STORAGE-AUTO-2 remain open. Real
+> RAID1 is **DEFERRED / FUTURE HARDWARE**, and current HGST/Lexar media must not
+> be erased, reformatted, repartitioned, resized, or used as RAID members.
+>
+> The older `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS`, “nothing deployed”, and
+> “Phase C / Web Functional Testing is NOT STARTED” statements below are also
+> superseded for IDEA1 current-state use. The direct-VLAN tested large-preview
+> scope and later IDEA1 page acceptance are recorded in the canonical notes;
+> unmeasured 20–30 GB transfers, the Production 32 GiB ceiling, and remote-path
+> performance limitations remain explicitly open.
 
 ---
 
