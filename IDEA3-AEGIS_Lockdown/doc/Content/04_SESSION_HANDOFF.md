@@ -1186,7 +1186,7 @@ receipt was imported; this task creates one new Music/IDEA3 receipt.
 
 ```text
 PYTHONDONTWRITEBYTECODE=1 <venv>/python -m pytest -p no:cacheprovider -q
-  -> PASS: 62 passed in 0.35s
+  -> PASS: 62 passed (final pre-review rerun: 0.38s)
 
 <venv>/ruff check aegis_soc detector.py sim_auto_detector.py tests --no-cache
   -> PASS: All checks passed
@@ -1200,8 +1200,23 @@ PYTHONPYCACHEPREFIX=/tmp/aegis-pr4-pycache <venv>/python -m compileall -q \
   -> RAM 46,572/327,680 bytes (14.2%)
   -> Flash 789,309/1,310,720 bytes (60.2%)
 
-git diff --check
-  -> PASS before documentation reconciliation
+node --test --test-concurrency=1 tests/*.test.mjs
+  -> PASS: 56 passed, 0 failed
+
+validate-collaboration-policy.mjs
+  -> PASS: Collaboration policy passed
+
+validate-vault.mjs
+  -> PASS with two pre-existing owner-data canvas warnings; neither changed
+
+secret/path scan
+  -> PASS: no real secret, environment file, recording, or build output in diff
+
+gh pr checks 91 --repo kraveerachat/Project-End-The-AEGIS
+  -> PASS: collaboration-guardrails
+
+git diff --check origin/main...HEAD
+  -> PASS after documentation reconciliation
 ```
 
 The PlatformIO run used a temporary local `firmware/src/secrets.h` copied from
@@ -1218,3 +1233,13 @@ STATUS remain protocol evidence, not direct electrical relay proof.
 PR #91 is open and Ready for owner review. Its GitHub-assigned number, URL, and
 review state are synchronized into this handoff and the Music-owned receipt.
 Wait for owner review; do not merge or deploy automatically.
+
+### Follow-up evidence audit
+
+The review found and corrected four documentation gaps without changing runtime
+source: the actual PR #91 state was missing from the canonical status note;
+repository/policy/vault/secret/GitHub-check evidence was incomplete there; the
+architecture diagram called an HMAC-signed command "encrypted" and used a stale
+topic; and historical standalone hardware PASS tables could be mistaken for
+fresh PR4 proof. Historical claims are now labelled as archival/not rerun, while
+the PR4 hardware and production boundary remains explicitly unproven.

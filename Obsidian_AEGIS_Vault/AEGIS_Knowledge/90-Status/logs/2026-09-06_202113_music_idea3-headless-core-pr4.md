@@ -25,6 +25,7 @@ Historical source branch/head: `feat/idea3-headless-core@cfb6efe2`.
 - Closed the order-independent ACK/STATUS lifecycle, CUT/RESTORE expected-state checks, wrong-state rejection, distinct 8-second physical-confirm timeout, LOCKDOWN truth precedence, and late-confirmation history retention.
 - Implemented Task 2D6: only command-triggered STATUS carries `command_nonce`; any valid STATUS may update physical truth, while only a matching command nonce and expected state can confirm the active command lifecycle.
 - Reconciled repository README/progress, live handoff, and Music-owned Obsidian MOC/status with fresh evidence and explicit hardware limitations.
+- Follow-up evidence audit recorded actual PR #91 state, repository/policy/vault/secret/GitHub-check evidence, corrected HMAC signing terminology, and removed ambiguity between current PR4 evidence and historical standalone hardware claims.
 - Avoided the stale-branch merge hazard: the original branch would have reintroduced a superseded Web implementation and old receipts. The publication branch imports no Web file, old receipt, WAV/recording, real secret, environment file, or build output.
 
 ## Source files changed
@@ -93,7 +94,9 @@ Historical source branch/head: `feat/idea3-headless-core@cfb6efe2`.
 - `node --test --test-concurrency=1 tests/*.test.mjs` — pass: **56 passed, 0 failed**. The two child-process/Git-fixture test files require execution outside the restricted sandbox.
 - `node scripts/validate-collaboration-policy.mjs --event /tmp/aegis-idea3-pr4-event.json --changed-files /tmp/aegis-idea3-pr4-changed-files.txt` — pass: **Collaboration policy passed**.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge --changed-files /tmp/aegis-idea3-pr4-changed-files.txt` — pass with **2 pre-existing owner-review canvas warnings**; neither canvas is changed by this task.
-- `git diff --cached --check` — pass after documentation reconciliation.
+- `git grep -n -I -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_|ghp_|AKIA' HEAD -- IDEA3-AEGIS_Lockdown Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3` plus forbidden-path review — pass: **no real secret/token/key, `.env`, `secrets.h`, recording, or generated firmware output in the PR diff**.
+- `gh pr checks 91 --repo kraveerachat/Project-End-The-AEGIS` — pass: **collaboration-guardrails**.
+- `git diff --check origin/main...HEAD` — pass after documentation reconciliation.
 
 ## Canonical notes updated
 

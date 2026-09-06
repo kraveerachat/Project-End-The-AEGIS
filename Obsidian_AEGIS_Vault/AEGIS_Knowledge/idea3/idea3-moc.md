@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core now have repository implementations and local automated evidence; live MQTT, ESP32, relay, physical isolation, and production deployment still require separate evidence.
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center is on shared `main`; the Headless Core implementation and local automated evidence are proposed in open [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) and are not merged yet. Live MQTT, ESP32, relay, physical isolation, and production deployment still require separate evidence.
 
 ## Owned source and canonical notes
 
@@ -20,7 +20,7 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The repository now contains the Admin-only Web Security Center plus the Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions. Hardware proof remains open: protocol-correlated STATUS is not direct electrical relay evidence and does not prove WAN isolation. See [[idea3/idea3-status]] for the exact closed/open matrix.
+The open PR #91 branch contains the Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions while preserving the Admin-only Web Security Center from `main`. Hardware proof remains open: protocol-correlated STATUS is not direct electrical relay evidence and does not prove WAN isolation. See [[idea3/idea3-status]] for the exact closed/open matrix.
 
 ## Shared dependencies
 

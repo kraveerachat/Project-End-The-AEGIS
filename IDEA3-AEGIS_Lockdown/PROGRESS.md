@@ -181,6 +181,9 @@ Explicit Recovery
 
 ## 3.1 Hardware Control
 
+> Historical standalone checklist only. These hardware results were not rerun
+> for PR4 and are not current proof of relay actuation or WAN isolation.
+
 - [x] Build + Upload ผ่าน PlatformIO
 - [x] ESP32 เชื่อม Wi-Fi ได้จริง
 - [x] ESP32 Sync เวลาจาก NTP ได้จริง
@@ -1090,9 +1093,9 @@ one task
 
 ---
 
-# 24. Automated Test / Code Quality
+# 24. Historical Standalone Automated Test / Code Quality
 
-สถานะล่าสุด:
+สถานะที่บันทึกใน historical standalone snapshot; fresh PR4 evidence อยู่ใน section 0:
 
 ```text
 pytest = 14/14 PASS
@@ -1121,9 +1124,9 @@ SYN Flood trigger threshold
 
 ---
 
-# 25. Firmware Resource Usage
+# 25. Historical Standalone Firmware Resource Usage
 
-PlatformIO Build ล่าสุด:
+PlatformIO result ของ historical standalone snapshot:
 
 ```text
 RAM:
@@ -1143,9 +1146,9 @@ Firmware Build = SUCCESS
 
 ---
 
-# 26. Git / Version History
+# 26. Historical Standalone Git / Version History
 
-Current canonical:
+Historical standalone canonical:
 
 ```text
 main = a6d5630
@@ -1386,31 +1389,31 @@ PENDING — Production Integration Phase
 
 ---
 
-# 33. Current Standalone Closure Status
+# 33. Historical Standalone Closure Status — not current PR4 evidence
 
-สถานะ ณ `v1.5-audit-race-fix`:
+สถานะที่เคยบันทึก ณ `v1.5-audit-race-fix`; hardware ไม่ได้ rerun ใน PR4:
 
 ```text
 Core Protocol Security         PASS
-ESP32 Firmware                 PASS
-Physical Relay Control         PASS
-Dead Man's Switch              PASS
-Explicit Recovery              PASS
-Secure Boot Grace Period       PASS
+ESP32 Firmware                 HISTORICAL / NOT RERUN IN PR4
+Physical Relay Control         HISTORICAL / NOT PROVEN BY PR4
+Dead Man's Switch              HISTORICAL / NOT RERUN IN PR4
+Explicit Recovery              SOURCE-TESTED; HARDWARE NOT RERUN
+Secure Boot Grace Period       HISTORICAL / NOT RERUN IN PR4
 SSH Brute-force Detector       PASS
 Port Scan Detector             PASS
 SYN Flood Detector             PASS
-Automatic Lockdown             PASS
-MQTT Standalone                PASS
+Automatic Lockdown             SOURCE-TESTED; HARDWARE NOT RERUN
+MQTT Standalone                HISTORICAL / LIVE E2E NOT RERUN
 Telegram Control/Alert         PASS
 Incident / Recovery            PASS
 Software Response Latency      PASS
 Tamper-Evident Audit Fix       PASS
 Audit Concurrency Regression   PASS
 New Ledger Runtime Integrity   PASS
-Automated Tests                14/14 PASS
+Automated Tests                HISTORICAL 14/14; PR4 CURRENT 62/62
 Ruff                           PASS
-Firmware Build                 PASS
+Firmware Build                 PR4 COMPILE-ONLY PASS
 
 Power Measurement              PENDING
 Production Integration         PENDING
@@ -1418,9 +1421,10 @@ Production Integration         PENDING
 
 ---
 
-# 34. Current Standalone Result
+# 34. Historical Standalone Result — not current PR4 evidence
 
-สามารถสรุปได้ว่า:
+ข้อความต่อไปนี้เป็น historical standalone claim ที่เก็บเพื่อ traceability เท่านั้น
+และไม่ใช่หลักฐาน hardware/production ของ PR4:
 
 > AEGIS IDEA 3 ในระดับ Standalone/Lab มีองค์ประกอบหลักของระบบ Cyber-Physical Active Defense ทำงานครบแล้ว ได้แก่ การตรวจจับภัย การส่ง attacker event ผ่าน MQTT การออกคำสั่งที่ป้องกันด้วย HMAC/Nonce/Timestamp การตัดวงจรกายภาพผ่าน ESP32/Relay ระบบ Dead Man's Switch ระบบ Secure Boot Grace Period การ Recovery แบบ Explicit การบันทึก Audit แบบ Tamper-Evident และการแจ้งเตือน/กู้คืนเหตุการณ์
 
@@ -1470,16 +1474,17 @@ duplicate hash groups = 0
 
 ---
 
-# สรุปสั้น ๆ
+# Historical standalone summary — not current PR4 evidence
 
-AEGIS IDEA 3 ปัจจุบันอยู่ที่ milestone:
+บล็อกนี้สรุป milestone ของ standalone snapshot ในอดีต ไม่ใช่สถานะปัจจุบันของ
+PR4; authoritative PR4 result อยู่ใน section 0:
 
 ```text
 v1.5-audit-race-fix
-main = a6d5630
+historical standalone main = a6d5630
 ```
 
-ระบบ Standalone ผ่านการทดสอบหลักแล้ว ได้แก่:
+ระบบ Standalone เคยถูกบันทึกว่าผ่านหัวข้อต่อไปนี้ แต่ hardware ไม่ได้ rerun ใน PR4:
 
 ```text
 Secure Command Protocol
@@ -1497,7 +1502,7 @@ Tamper-Evident Audit Log
 Concurrent Audit Write Protection
 ```
 
-ผล Validation ล่าสุด:
+ผล validation ของ historical standalone snapshot (ไม่ใช่ fresh PR4 evidence):
 
 ```text
 pytest            = 14/14 PASS

@@ -837,7 +837,8 @@ git diff --check
 git status
 ```
 
-Expected current baseline:
+Historical standalone baseline (archival; current PR4 evidence is at the top of
+this file):
 
 ```text
 pytest      14/14 PASS
@@ -875,7 +876,7 @@ git add <specific-files>
 
 ---
 
-## Current Git Milestones
+## Historical Standalone Git Milestones
 
 ```text
 v1.0-standalone
@@ -886,7 +887,7 @@ v1.4-secure-boot
 v1.5-audit-race-fix
 ```
 
-Current canonical baseline:
+Historical standalone baseline:
 
 ```text
 main = a6d5630
@@ -989,31 +990,32 @@ Wh/day = Power (W) × 24
 
 ---
 
-## Current Result
+## Historical Standalone Result — archival, not PR4 evidence
 
-สถานะ `v1.5-audit-race-fix`:
+ตารางนี้คงไว้เป็นประวัติที่เคยบันทึกใน `v1.5-audit-race-fix` เท่านั้น ไม่ได้ rerun
+บน hardware ใน PR4 และห้ามใช้ยืนยัน relay/WAN/production ปัจจุบัน:
 
 ```text
 Core Protocol Security         PASS
-ESP32 Firmware                 PASS
-Physical Relay Control         PASS
-Dead Man's Switch              PASS
-Explicit Recovery              PASS
-Secure Boot Grace Period       PASS
+ESP32 Firmware                 HISTORICAL / NOT RERUN IN PR4
+Physical Relay Control         HISTORICAL / NOT PROVEN BY PR4
+Dead Man's Switch              HISTORICAL / NOT RERUN IN PR4
+Explicit Recovery              SOURCE-TESTED; HARDWARE NOT RERUN
+Secure Boot Grace Period       HISTORICAL / NOT RERUN IN PR4
 SSH Brute-force Detector       PASS
 Port Scan Detector             PASS
 SYN Flood Detector             PASS
-Automatic Lockdown             PASS
-MQTT Standalone                PASS
+Automatic Lockdown             SOURCE-TESTED; HARDWARE NOT RERUN
+MQTT Standalone                HISTORICAL / LIVE E2E NOT RERUN
 Telegram Control/Alert         PASS
 Incident / Recovery            PASS
 Software Response Latency      PASS
 Tamper-Evident Audit Fix       PASS
 Audit Concurrency Regression   PASS
 New Ledger Runtime Integrity   PASS
-Automated Tests                14/14 PASS
+Automated Tests                HISTORICAL 14/14; PR4 CURRENT 62/62
 Ruff                           PASS
-Firmware Build                 PASS
+Firmware Build                 PR4 COMPILE-ONLY PASS
 
 Power Measurement              PENDING
 Production Integration         PENDING

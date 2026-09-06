@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core now have repository implementations and local automated evidence. Live adapters, durable storage, ESP32 flash, MQTT hardware E2E, relay actuation, physical WAN isolation, and production deployment remain unproven. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center is on shared `main`; the Headless Core implementation and local automated evidence are in open PR #91 and are not merged yet. Live adapters, durable storage, ESP32 flash, MQTT hardware E2E, relay actuation, physical WAN isolation, and production deployment remain unproven. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -31,12 +31,12 @@ sequenceDiagram
 
     SOC->>Backend: 1. Trigger Physical Lockdown Command
     Backend->>Backend: 2. Generate Nonce & Calculate HMAC-SHA256 Signature
-    Backend->>Broker: 3. Publish Encrypted Signal to topic 'aegis/lockdown'
+    Backend->>Broker: 3. Publish HMAC-signed payload to 'aegis/lockdown/cmd'
     Broker->>ESP32: 4. Forward MQTT Payload (Message + Nonce + HMAC)
     ESP32->>ESP32: 5. Verify HMAC Signature & Check Nonce replay attack
     alt Verification Success
-        ESP32->>Relay: 6. Trigger Relay (Engage Physical Lock)
-        ESP32-->>Broker: 7. Nonce-correlated ACK + STATUS
+        ESP32->>Relay: 6. Drive configured GPIO path (hardware result unverified)
+        ESP32-->>Broker: 7. Device-reported nonce-correlated ACK + STATUS
     else Verification Failed / Replay Attack
         ESP32->>ESP32: 8. Ignore Command & Log Security Alert
     end
@@ -56,8 +56,12 @@ sequenceDiagram
 
 Personal planning label: **IDEA3 PR4**. Git publication branch:
 `feat/idea3-headless-core-pr4`. The historical source checkpoints were audited
-from `feat/idea3-headless-core`; GitHub assigns the actual repository PR number
-only when the publication branch is opened.
+from `feat/idea3-headless-core`. Actual publication is open as
+[GitHub PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91):
+`OPEN / READY_FOR_REVIEW / MERGEABLE / REVIEW_REQUIRED`, not merged. This
+follow-up evidence audit started from base
+`9ade0dab6361f2bb1212fd67dc7469122463c989` and head
+`24d152d0f734ccaed2036f22a1cd89e61547fd88`.
 
 ### Operational mode ownership — CLOSED
 
@@ -109,12 +113,24 @@ Requested != Published != ACK != Executed != Physical Evidence
 
 ### Fresh verification — 2026-09-06
 
-- Python: `pytest -p no:cacheprovider -q` — **62 passed in 0.35s**.
+- Python: `pytest -p no:cacheprovider -q` — **62 passed**; final pre-review rerun completed in 0.38s.
 - Ruff: scoped check of `aegis_soc`, detector entry points, and tests — **All checks passed**.
 - Python compileall — **PASS**.
 - Firmware: `platformio run -d firmware` — **compile-only SUCCESS**, RAM 46,572/327,680 bytes (14.2%), Flash 789,309/1,310,720 bytes (60.2%).
-- `git diff --check` — **PASS** before documentation reconciliation.
+- Repository tests: `node --test --test-concurrency=1 tests/*.test.mjs` — **56 passed, 0 failed**.
+- Collaboration policy — **PASS**.
+- Vault validation — **PASS** with two pre-existing owner-data canvas warnings; neither canvas is changed by PR #91.
+- Secret/path scan — **PASS**; no real `.env`, `secrets.h`, private-key/token signature, recording, or generated firmware output is included.
+- GitHub `collaboration-guardrails` — **PASS** on PR #91.
+- `git diff --check origin/main...HEAD` — **PASS** after documentation reconciliation.
 - No firmware upload, flash, serial write, MQTT connection, command publication, GPIO/relay action, network change, or deployment occurred.
+
+### Follow-up evidence audit — CLOSED
+
+- Filled the previously missing actual PR #91 state and repository/policy/vault/secret/GitHub-check results.
+- Corrected the architecture description from encrypted traffic to the implemented HMAC-signed payload and the actual `aegis/lockdown/cmd` topic.
+- Relabelled historical standalone hardware tables so they cannot be mistaken for fresh PR4 evidence.
+- `MISSING_FROM_OBSIDIAN=NONE` after this reconciliation for the requested PR4 checklist.
 
 ### Still open
 
