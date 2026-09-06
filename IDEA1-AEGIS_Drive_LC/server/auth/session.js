@@ -68,6 +68,12 @@ export function establishSession(req, user, remember) {
         accountName: user.accountName ?? user.displayName,
         role: user.role,
         mustResetPassword: Boolean(user.mustResetPassword),
+        // ⚠️ ต้องพกมาด้วยตั้งแต่ตอนสร้างเซสชัน — publicUser() คำนวณ hasAvatar/
+        //    avatarVersion จากค่านี้ และ /api/me ทำ serialize จาก "ผู้ใช้ในเซสชัน"
+        //    ไม่ใช่จากแถวใน DB ถ้าไม่เก็บไว้ ผู้ใช้ที่มีรูปอยู่แล้วจะล็อกอินได้คำตอบ
+        //    ว่ามีรูป (ตอบจากแถว DB) แล้ว /api/me ครั้งถัดไปกลับบอกว่าไม่มี
+        //    เก็บเฉพาะฝั่งเซิร์ฟเวอร์ — คีย์นี้ไม่เคยถูกส่งออกไปให้ client
+        avatarKey: user.avatarKey ?? null,
         preferences: user.preferences,
       }
       // ── ข้อมูลของ "เซสชันนี้" สำหรับจอ Settings → Active sessions ──────────────
@@ -166,6 +172,15 @@ export function markPasswordReset(req) {
 /** อัปเดตชื่อแสดงผลในเซสชันปัจจุบันหลังผู้ใช้แก้ชื่อโปรไฟล์ (DB ถูกอัปเดตแล้วโดยผู้เรียก) */
 export function setSessionDisplayName(req, displayName) {
   if (req.session?.user) req.session.user.displayName = displayName
+}
+
+/**
+ * เซสชันถือ avatarKey ไว้เพื่อไม่ต้องยิง DB ทุก request เหมือนที่ทำกับชื่อ —
+ * จึงต้องอัปเดตคู่กันทุกครั้งที่รูปเปลี่ยน ไม่งั้น /api/me จะยังตอบว่า "มีรูป"
+ * ทั้งที่เพิ่งลบไป และจอจะกลับไปแสดงรูปเดิมทันทีที่รีเฟรช
+ */
+export function setSessionAvatarKey(req, avatarKey) {
+  if (req.session?.user) req.session.user.avatarKey = avatarKey ?? null
 }
 
 /** ประทับเวลาที่เซสชันนี้ถูกใช้ครั้งล่าสุด — จอ Active sessions อ่านค่านี้ */

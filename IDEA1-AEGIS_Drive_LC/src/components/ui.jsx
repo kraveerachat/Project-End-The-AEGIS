@@ -363,6 +363,136 @@ export function ModalClose({ onClose, label = 'Close' }) {
   )
 }
 
+/* ── AnchoredMenu — เมนูของการ์ด/ไทล์ที่ "ออกไปนอกกล่อง" ได้จริง ─────────────
+
+   ทำไมต้อง portal ไม่ใช่แค่ absolute:
+
+   1. ไทล์ของ Private Vault คือ `overflow-hidden` เพราะม่านลายขวาง (ciphertext
+      veil) เป็นชั้น absolute inset-0 ที่เคลื่อนด้วย clip-path — ถ้าเอา
+      overflow-hidden ออก ม่านจะล้นออกนอกไทล์ ผลคือเมนูที่วางแบบ absolute
+      ข้างในไทล์ถูก "ตัด" ด้วยกล่องของไทล์เอง ยิ่งจอแคบไทล์ยิ่งเล็ก เมนูยิ่งโดนตัด
+
+   2. ไทล์ของ Files ยกตัวขึ้นตอน hover ด้วย transform ซึ่ง "สร้าง stacking context"
+      ไทล์ถัดไปที่ถูก hover จึงทับเมนูของไทล์ก่อนหน้าได้ ต่อให้ z-index สูงกว่าก็ตาม
+      และตัวห่อเมนูของ Vault เองก็ตั้ง z-index: 2 ไว้ ทำให้ค่า --z-dropdown (10)
+      ของลูกถูกขังอยู่ในระดับ 2 เทียบกับทั้งหน้า
+
+   ทั้งสองข้อแก้ที่ "ตำแหน่ง" ไม่ได้ ต้องย้ายชั้นการวาดออกไปที่ราก overlay แล้ววาง
+   ด้วย position: fixed จากพิกัดจริงของปุ่ม — วิธีเดียวกับที่ Modal ใช้อยู่แล้ว
+
+   ⚠️ คอมโพเนนต์นี้ย้ายแค่ "ที่วาด" ไม่ได้แตะ "สิ่งที่วาด" — เนื้อหาเมนูยังมาจาก
+   ผู้เรียกทั้งหมด กติกาความเป็นส่วนตัวของ Vault (ตอนล็อกห้ามมีชื่อไฟล์จริง)
+   จึงยังอยู่ที่เดิมและไม่ถูกเปลี่ยนโดยไฟล์นี้ */
+
+const MENU_MARGIN = 8   // ระยะขั้นต่ำจากขอบ viewport
+const MENU_GAP = 6      // ระยะจากปุ่มถึงเมนู
+
+/** วางเมนูจากกรอบจริงของปุ่ม แล้วหนีบไม่ให้ล้น viewport (พลิกขึ้นบนถ้าล่างไม่พอ) */
+function placeMenu(anchor, menu, align) {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const w = menu.offsetWidth
+  const h = menu.offsetHeight
+
+  // แนวนอน: ชิดขอบเดียวกับปุ่ม แล้วหนีบเข้ามาให้อยู่ในจอเสมอ
+  let left = align === 'start' ? anchor.left : anchor.right - w
+  left = Math.min(Math.max(MENU_MARGIN, left), Math.max(MENU_MARGIN, vw - w - MENU_MARGIN))
+
+  // แนวตั้ง: ใต้ปุ่มก่อน ถ้าไม่พอและด้านบนมีที่มากกว่าก็พลิกขึ้น
+  const below = vh - anchor.bottom - MENU_GAP - MENU_MARGIN
+  const above = anchor.top - MENU_GAP - MENU_MARGIN
+  const flip = h > below && above > below
+  let top = flip ? anchor.top - MENU_GAP - h : anchor.bottom + MENU_GAP
+  top = Math.min(Math.max(MENU_MARGIN, top), Math.max(MENU_MARGIN, vh - h - MENU_MARGIN))
+
+  return { left, top, maxHeight: Math.max(120, vh - 2 * MENU_MARGIN) }
+}
+
+/**
+ * @param {object}  props
+ * @param {boolean} props.open
+ * @param {{ current: HTMLElement|null }} props.anchorRef ปุ่มที่เปิดเมนู
+ * @param {() => void} props.onClose
+ * @param {'start'|'end'} [props.align] ชิดขอบซ้ายหรือขวาของปุ่ม (ค่าเริ่มต้น end)
+ */
+export function AnchoredMenu({ open, anchorRef, onClose, children, align = 'end', label }) {
+  const ref = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  // วางตำแหน่งหลัง render แรก (ต้องรู้ขนาดจริงของเมนูก่อนจึงจะหนีบขอบได้)
+  // แล้วตามการ scroll/resize ต่อ — scroll ใช้ capture เพราะคอนเทนเนอร์ที่เลื่อนจริง
+  // คือ <main> ไม่ใช่ window และ scroll ไม่ bubble
+  useEffect(() => {
+    if (!open) { setPos(null); return undefined }
+    const sync = () => {
+      const anchor = anchorRef?.current
+      const menu = ref.current
+      if (!anchor || !menu) return
+      setPos(placeMenu(anchor.getBoundingClientRect(), menu, align))
+    }
+    sync()
+    window.addEventListener('scroll', sync, true)
+    window.addEventListener('resize', sync)
+    return () => {
+      window.removeEventListener('scroll', sync, true)
+      window.removeEventListener('resize', sync)
+    }
+  }, [open, anchorRef, align])
+
+  // ปิดเมื่อคลิกนอกเมนู (ไม่นับปุ่มเอง — ปุ่มสลับสถานะของมันเอง) หรือกด Escape
+  useEffect(() => {
+    if (!open) return undefined
+    // ⚠️ ต้องเป็น click ไม่ใช่ mousedown — เมนูเดิมปิดด้วย click และอุปกรณ์สัมผัส
+    // สังเคราะห์ click ให้เสมอแต่ไม่ได้ให้ mousedown เสมอ การเปลี่ยนไปใช้ mousedown
+    // ทำให้เมนู "ปิดไม่ลง" บนเส้นทางที่มีแต่ click
+    const onOutsideClick = (e) => {
+      if (ref.current?.contains(e.target)) return
+      if (anchorRef?.current?.contains(e.target)) return
+      onCloseRef.current?.()
+    }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onCloseRef.current?.()
+      anchorRef?.current?.focus?.()
+    }
+    window.addEventListener('click', onOutsideClick, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('click', onOutsideClick, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open, anchorRef])
+
+  if (!open) return null
+  const root = modalPortalRoot()
+  if (!root) return null
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={label}
+      className="anchored-menu fixed bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-44 max-w-[calc(100vw-16px)] overflow-y-auto fade-in"
+      style={{
+        zIndex: 'var(--z-dropdown)',
+        boxShadow: 'var(--elev-2)',
+        left: pos ? `${pos.left}px` : 0,
+        top: pos ? `${pos.top}px` : 0,
+        maxHeight: pos ? `${pos.maxHeight}px` : undefined,
+        // ก่อนวัดขนาดเสร็จให้ซ่อนไว้ก่อน — ไม่งั้นเมนูจะกระพริบที่มุมซ้ายบนหนึ่งเฟรม
+        visibility: pos ? 'visible' : 'hidden',
+      }}
+    >
+      {children}
+    </div>,
+    root,
+  )
+}
+
 /* ── Sparkline — hand-rolled, 2px line, no chart chrome ──────────── */
 export function Sparkline({ data, color = 'var(--accent)', width = 120, height = 32, strokeWidth = 2, fill = false, className = '' }) {
   if (!data?.length) return null
@@ -665,7 +795,13 @@ export function NotYetImplemented({ label, children }) {
    ก็ตกลงมาที่อักษรย่อเอง — ประหยัดหนึ่ง round trip ต่อการ render ทุกครั้ง และ
    self-correcting (รูปถูกลบทีหลังก็ตกกลับมาเองโดยไม่ต้องมีใคร invalidate cache)
    ⚠️ userId ใช้ประกอบ URL อย่างเดียว ไม่ใช่ credential — endpoint ยังต้องล็อกอินอยู่ดี */
-export function Avatar({ userId, name, size = 40, className = '' }) {
+/**
+ * @param {boolean} [props.hasAvatar] เซิร์ฟเวอร์ยืนยันว่า "มีรูปไหม"
+ *   undefined = ไม่รู้ (รูปของผู้ใช้คนอื่นในจอ Access/Files) → ใช้เส้นทางเดิม
+ *   คือยิงไปก่อนแล้วตกกลับมาที่อักษรย่อเมื่อ 404
+ * @param {string|null} [props.version] โทเคนทึบที่เปลี่ยนเมื่อรูปเปลี่ยน
+ */
+export function Avatar({ userId, name, size = 40, className = '', hasAvatar, version }) {
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const initials = String(name ?? '')
@@ -689,9 +825,21 @@ export function Avatar({ userId, name, size = 40, className = '' }) {
       className={`relative rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 overflow-hidden ${className}`}
     >
       {initials}
-      {!failed && userId != null && (
+      {/* ⚠️ hasAvatar === false = "เซิร์ฟเวอร์บอกแล้วว่าไม่มีรูป" จึงต้องไม่ render
+          <img> เลย ไม่ใช่ยิงแล้วรอ 404
+
+          เหตุผลคือ HTTP cache: URL ของรูปคงที่ตลอด และ GET /api/users/:id/avatar
+          ตอบ `Cache-Control: private, max-age=60` ดังนั้นหลังลบรูป เบราว์เซอร์จะ
+          ยังเสิร์ฟรูปเดิมจากแคชอีก 60 วินาที — remount ก็ไม่ช่วย เพราะ URL เท่าเดิม
+          ผลคือรูปที่ "ลบแล้ว" ยังอยู่ทั้งบน Settings และ TopBar ข้ามการรีเฟรช และ
+          ข้าม logout/login ด้วย การไม่ขอรูปเลยตัดปัญหานี้ทิ้งทั้งหมดโดยไม่ต้อง
+          พึ่งพฤติกรรมแคชของเบราว์เซอร์
+
+          version ต่อท้าย URL เพื่อให้ "เปลี่ยนรูป" เห็นผลทันทีเช่นกัน (URL ใหม่ =
+          รายการแคชใหม่) โดยไม่ต้องปิดแคชซึ่งจะทำให้ทุกจอโหลดรูปซ้ำทุกครั้ง */}
+      {!failed && userId != null && hasAvatar !== false && (
         <img
-          src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar`)}
+          src={apiUrl(`/api/users/${encodeURIComponent(userId)}/avatar${version ? `?v=${encodeURIComponent(version)}` : ''}`)}
           alt=""
           width={size}
           height={size}

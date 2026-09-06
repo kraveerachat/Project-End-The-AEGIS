@@ -3,7 +3,7 @@ import {
   TriangleAlert, Lock, LockOpen, FileText, FileImage, FileVideo, File as FileIcon, Plus, Download,
   KeyRound, MoreHorizontal, Trash2, Eye, Info,
 } from 'lucide-react'
-import { Btn, Chip, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader, Card } from '../components/ui.jsx'
+import { Btn, Chip, Modal, ModalClose, ErrorState, EmptyState, SkeletonLoader, Card, AnchoredMenu } from '../components/ui.jsx'
 import { useApi, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiFetchBytes } from '../lib/api.js'
@@ -98,13 +98,11 @@ function VaultTileMenu({ t, unlocked, previewable, onAction }) {
         { id: 'locked-hint', icon: Lock, label: t('vaultLockedManageHint'), disabled: true },
       ]
 
+  // ⚠️ รายการคำสั่งด้านบนไม่ถูกแตะเลย — ชุดคำสั่งตอนล็อก/ปลดล็อกยังเป็นชุดเดิม
+  //    ไฟล์นี้เปลี่ยนแค่ "ที่วาด" ไม่ใช่ "สิ่งที่วาด" role="menu" ย้ายไปอยู่บน
+  //    AnchoredMenu ซึ่งเป็นตัวห่อ (ดู components/ui.jsx)
   return (
-    <div
-      role="menu"
-      aria-label={t('moreActions')}
-      className="absolute right-0 top-9 bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-48 fade-in"
-      style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
-    >
+    <div>
       {items.map(({ id, icon: Icon, label, danger, disabled }) => (
         <button
           key={id}
@@ -131,7 +129,7 @@ function VaultTileMenu({ t, unlocked, previewable, onAction }) {
 function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload, onDelete, busy }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hover, setHover] = useState(false)
-  const menuRef = useRef(null)
+  const menuBtnRef = useRef(null)
   const named = unlocked && Boolean(entry.name)
   const Icon = named ? tileIconFor(entry) : FileIcon
   const delay = `${index * 40}ms`
@@ -139,24 +137,11 @@ function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload
   //    ไม่ใช่เพราะบังเอิญไม่มี type ใน entry
   const previewable = unlocked && previewKindFor(entry.type) !== null
 
-  /* click-away + Escape. การตรวจ `contains` คือสิ่งที่ทำให้คลิกที่เปิดเมนูไม่ปิดเมนู
-     ตัวเองทันที — ไม่ต้องพึ่งจังหวะการ flush effect ของ React ซึ่งไม่ใช่สัญญาที่
-     เชื่อถือได้ และเป็นเหตุผลเดียวกับที่ mobile/touch ใช้เมนูนี้ได้จริง */
-  useEffect(() => {
-    if (!menuOpen) return
-    const onDocClick = (e) => {
-      if (!menuRef.current?.contains(e.target)) setMenuOpen(false)
-    }
-    const onKey = (e) => {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-    window.addEventListener('click', onDocClick)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('click', onDocClick)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [menuOpen])
+  /* ⚠️ click-away + Escape ย้ายไปอยู่ใน AnchoredMenu แล้ว — ของเดิมตรวจด้วย
+     `menuRef.contains(e.target)` ซึ่งใช้ไม่ได้อีกเมื่อเมนูถูก portal ออกไปนอก
+     subtree ของไทล์: ทุกปุ่มในเมนูจะกลายเป็น "คลิกข้างนอก" และเมนูจะปิดตัวเอง
+     ก่อนที่คำสั่งจะทำงาน AnchoredMenu ยกเว้นทั้ง subtree ของตัวเองและปุ่ม anchor
+     ซึ่งเป็นเหตุผลเดียวกับที่การกดปุ่มเปิดไม่ปิดเมนูที่เพิ่งเปิด */
 
   const runAction = (action) => {
     setMenuOpen(false)
@@ -220,13 +205,14 @@ function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload
       {/* ⚠️ วางไว้ "หลัง" ชั้น hatch ใน DOM และยก z-index ขึ้น 1 ชั้น เพื่อให้ปุ่มยัง
           กดได้และมองเห็นตอนล็อก — hatch เป็น pointer-events-none อยู่แล้ว
           aria-label ผูกชื่อไฟล์เฉพาะตอนปลดล็อกเท่านั้น ตอนล็อกเป็นคำกลางล้วน */}
-      <div ref={menuRef} className="absolute top-2 right-2" style={{ zIndex: 2 }}>
+      <div className="absolute top-2 right-2" style={{ zIndex: 2 }}>
         <button
           type="button"
           aria-label={named ? `${t('moreActions')} — ${entry.name}` : t('moreActions')}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           disabled={busy}
+          ref={menuBtnRef}
           data-vault-tile-menu={entry.id}
           data-visible={hover || menuOpen ? 'true' : 'false'}
           onClick={() => setMenuOpen((v) => !v)}
@@ -234,7 +220,19 @@ function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload
         >
           <MoreHorizontal size={14} strokeWidth={1.5} />
         </button>
-        {menuOpen && <VaultTileMenu t={t} unlocked={unlocked} previewable={previewable} onAction={runAction} />}
+        {/* ⚠️ ไทล์เป็น overflow-hidden เพราะม่าน ciphertext เป็นชั้น absolute ที่
+            เคลื่อนด้วย clip-path — เมนูที่วางแบบ absolute ข้างในจึงถูกไทล์ตัดทิ้ง
+            (ยิ่งจอแคบ ไทล์ยิ่งเล็ก ยิ่งโดนตัด) และตัวห่อนี้ตั้ง zIndex: 2 ไว้ ทำให้
+            --z-dropdown ของเมนูถูกขังอยู่ในระดับ 2 เทียบกับทั้งหน้า
+            AnchoredMenu ย้ายเมนูออกไปวาดที่ราก overlay จึงพ้นทั้งสองข้อ */}
+        <AnchoredMenu
+          open={menuOpen}
+          anchorRef={menuBtnRef}
+          onClose={() => setMenuOpen(false)}
+          label={t('moreActions')}
+        >
+          <VaultTileMenu t={t} unlocked={unlocked} previewable={previewable} onAction={runAction} />
+        </AnchoredMenu>
       </div>
     </div>
   )

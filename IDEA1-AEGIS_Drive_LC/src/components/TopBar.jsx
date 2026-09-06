@@ -109,7 +109,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
             <div className="p-[2px] rounded-full bg-accent shadow-sm shrink-0">
-              <Avatar userId={user.id} name={user.displayName} size={36} className="avatar-accent bg-blue-600 text-white" />
+              <Avatar userId={user.id} name={user.displayName} hasAvatar={user.hasAvatar} version={user.avatarVersion} size={36} className="avatar-accent bg-blue-600 text-white" />
             </div>
             <div className="flex flex-col text-left max-lg:hidden min-w-0 pr-1">
               <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
