@@ -8,6 +8,7 @@ import { PROTECTION_LABEL, PROTECTION_TONE, labelFor } from '../components/Backu
 import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { fmtBytes, fmtDateTime, fmtRelative } from '../lib/format.js'
+import { localConnectorSummary } from '../lib/remoteAccess.js'
 
 /* ── จอนี้เคยเป็นแหล่งข้อมูลปลอมที่อันตรายที่สุดในแอป ────────────────────────────────
    ของเดิมแสดง: ดิสก์สองลูก 'WD Red Pro 4TB' พร้อม serial (WD-WX32DA8L7K4N /
@@ -85,18 +86,23 @@ const JOB_STATUS_TONE = { SUCCESS: 'ok', FAILED: 'danger', RUNNING: 'accent' }
 const ms = (iso) => (iso ? Date.parse(iso) : null)
 const stamp = (iso) => (iso ? fmtDateTime(ms(iso)) : null)
 
-function Fact({ label, children, mono = false }) {
+function Fact({ label, children, mono = false, tone = null }) {
   return (
     <div className="flex flex-col gap-0.5 min-w-0">
       <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">{label}</dt>
-      <dd className={`text-[13px] text-ink truncate ${mono ? 'font-mono' : ''}`}>{children}</dd>
+      <dd className={`text-[13px] text-ink truncate ${mono ? 'font-mono' : ''}`} style={tone ? { color: `var(--${tone})` } : undefined}>{children}</dd>
     </div>
   )
 }
 
 /* ── Disk health — evidence from the host collector, status derived by Drive ── */
-function DiskHealthCard({ t, disk, now }) {
+function DiskHealthCard({ t, disk, now, remoteAccess, remoteLoading = false, remoteError = null }) {
   const status = disk?.status ?? 'UNKNOWN'
+  const diskAvailable = Boolean(disk?.available)
+  const connector = localConnectorSummary(t, remoteAccess?.localConnector ?? null, {
+    loading: remoteLoading,
+    error: remoteError,
+  })
   return (
     <Card className="p-5">
       <CardTitle sub={t('diskHealthSource')} right={<Chip tone={STATUS_TONE[status] ?? 'neutral'}>{t(DISK_STATUS_LABEL[status] ?? 'diskStatusUnknown')}</Chip>}>
@@ -105,47 +111,45 @@ function DiskHealthCard({ t, disk, now }) {
       <div className="flex items-start gap-3">
         <HardDrive size={16} strokeWidth={1.5} className="text-ink-3 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          {!disk?.available ? (
+          {!diskAvailable && (
             <NotYetImplemented label={t('diskUnavailable')}>
               {DISK_REASON_LABEL[disk?.reason] ? t(DISK_REASON_LABEL[disk.reason]) : t('diskReasonOther', { reason: disk?.reason ?? 'unknown' })}
             </NotYetImplemented>
-          ) : (
-            <>
-              {disk.stale && (
-                <p role="status" className="text-[12.5px] rounded-[10px] px-3 py-2 mb-3 leading-relaxed" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
-                  {t('diskStale', { minutes: Math.round((disk.maxAgeSeconds ?? 1800) / 60) })}
-                </p>
-              )}
-              <dl className="grid grid-cols-3 gap-x-6 gap-y-3 max-md:grid-cols-2">
-                <Fact label={t('diskModel')}>{disk.model ?? '—'}</Fact>
-                <Fact label={t('diskDevice')} mono>{disk.device ?? '—'}</Fact>
-                <Fact label={t('diskSmart')}>
-                  {disk.smart?.passed === true ? t('diskSmartPassed') : disk.smart?.passed === false ? t('diskSmartFailed') : t('diskSmartNotReported')}
-                </Fact>
-                {/* null = ไม่ได้รายงาน — แสดง "—" ไม่ใช่ 0 */}
-                <Fact label={t('diskTemperature')} mono>{disk.temperatureCelsius === null ? '—' : `${disk.temperatureCelsius} °C`}</Fact>
-                <Fact label={t('diskPowerOnHours')} mono>{disk.powerOnHours === null ? '—' : disk.powerOnHours.toLocaleString()}</Fact>
-                <Fact label={t('diskCapacity')} mono>{disk.capacityBytes === null ? '—' : fmtBytes(disk.capacityBytes)}</Fact>
-              </dl>
-              <div className="mt-3 pt-3 border-t border-line">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 mb-1">{t('diskWarnings')}</p>
-                {disk.warnings.length === 0
-                  ? <p className="text-[12.5px] text-ink-2">{t('diskNoWarnings')}</p>
-                  : (
-                    <ul className="flex flex-col gap-1">
-                      {disk.warnings.map((code) => (
-                        <li key={code} className="text-[12.5px] text-ink flex items-center gap-2">
-                          <span className="size-1.5 rounded-full shrink-0" style={{ background: 'var(--warn)' }} aria-hidden />
-                          {DISK_WARNING_LABEL[code] ? t(DISK_WARNING_LABEL[code]) : code}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                {disk.measuredAt && (
-                  <p className="text-[11.5px] text-ink-3 mt-2">{t('diskMeasured', { ago: fmtRelative(t, ms(disk.measuredAt), now) })}</p>
+          )}
+          {diskAvailable && disk.stale && (
+            <p role="status" className="text-[12.5px] rounded-[10px] px-3 py-2 mb-3 leading-relaxed" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+              {t('diskStale', { minutes: Math.round((disk.maxAgeSeconds ?? 1800) / 60) })}
+            </p>
+          )}
+          <dl className={`grid grid-cols-3 gap-x-6 gap-y-3 max-md:grid-cols-2 ${diskAvailable ? '' : 'mt-3'}`}>
+            <Fact label={t('diskModel')}>{diskAvailable ? (disk.model ?? '—') : '—'}</Fact>
+            <Fact label={t('diskDevice')} mono>{diskAvailable ? (disk.device ?? '—') : '—'}</Fact>
+            <Fact label={t('diskSmart')}>
+              {diskAvailable && disk.smart?.passed === true ? t('diskSmartPassed') : diskAvailable && disk.smart?.passed === false ? t('diskSmartFailed') : t('diskSmartNotReported')}
+            </Fact>
+            <Fact label={t('diskTwingateConnector')} tone={connector.tone}>{connector.label}</Fact>
+            <Fact label={t('diskPowerOnHours')} mono>{diskAvailable && disk.powerOnHours != null ? disk.powerOnHours.toLocaleString() : '—'}</Fact>
+            <Fact label={t('diskCapacity')} mono>{diskAvailable && disk.capacityBytes != null ? fmtBytes(disk.capacityBytes) : '—'}</Fact>
+          </dl>
+          {diskAvailable && (
+            <div className="mt-3 pt-3 border-t border-line">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 mb-1">{t('diskWarnings')}</p>
+              {disk.warnings.length === 0
+                ? <p className="text-[12.5px] text-ink-2">{t('diskNoWarnings')}</p>
+                : (
+                  <ul className="flex flex-col gap-1">
+                    {disk.warnings.map((code) => (
+                      <li key={code} className="text-[12.5px] text-ink flex items-center gap-2">
+                        <span className="size-1.5 rounded-full shrink-0" style={{ background: 'var(--warn)' }} aria-hidden />
+                        {DISK_WARNING_LABEL[code] ? t(DISK_WARNING_LABEL[code]) : code}
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </div>
-            </>
+              {disk.measuredAt && (
+                <p className="text-[11.5px] text-ink-3 mt-2">{t('diskMeasured', { ago: fmtRelative(t, ms(disk.measuredAt), now) })}</p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -325,6 +329,7 @@ export function Storage({ t, go, placeholderMode = false }) {
   // Admin sees job history through /api/backup; a DataLake-User gets 403 there,
   // which is the correct answer and simply leaves the table empty.
   const backupApi = useApi('/api/backup', { refreshMs: 60_000 })
+  const remoteAccessApi = useApi('/api/remote-access', { refreshMs: 60_000 })
   const now = useNow(30_000)
   const d = placeholderMode ? {} : (api.data ?? {})
   const fetchError = visibleFetchError(api.error, placeholderMode)
@@ -364,7 +369,14 @@ export function Storage({ t, go, placeholderMode = false }) {
       />
 
       <div data-reveal>
-        <DiskHealthCard t={t} disk={d.diskHealth} now={now} />
+        <DiskHealthCard
+          t={t}
+          disk={d.diskHealth}
+          now={now}
+          remoteAccess={placeholderMode ? null : remoteAccessApi.data}
+          remoteLoading={!placeholderMode && remoteAccessApi.loading}
+          remoteError={visibleFetchError(remoteAccessApi.error, placeholderMode)}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1" data-reveal>

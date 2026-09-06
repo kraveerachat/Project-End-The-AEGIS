@@ -4,7 +4,13 @@ import { Card, CardTitle, Chip, Btn, Segmented, Field, PillSelect, SkeletonLoade
 import { fmtBytes, fmtDateTime } from '../lib/format.js'
 import { autoLockUnitKey } from '../lib/strings.js'
 import { apiFetch } from '../lib/api.js'
+import {
+  connectorHealthLabel, connectorReasonKey, connectorRuntimeLabel,
+  connectorStatusLabel, connectorStatusTone,
+} from '../lib/remoteAccess.js'
 import { labelFor, SCHEDULE_LABEL, RETENTION_LABEL } from './BackupConfiguration.jsx'
+
+export { connectorStatusLabel, connectorStatusTone }
 
 /* ── The three kinds of Settings row ────────────────────────────────────────
    Every panel in Security & Privacy / Storage & Data / Administrator declares
@@ -355,58 +361,6 @@ export function SecurityDefaultsCard({ t, value, onSave, saving, error }) {
       never asked to check it) and UNKNOWN (no reading, or a stale one) are
       deliberately neutral, not reassuring — "we did not look" must not wear the
       same colour as "we looked and it was fine". */
-const CONNECTOR_STATUS_LABEL = {
-  HEALTHY: 'connStatusHealthy',
-  STARTING: 'connStatusStarting',
-  UNHEALTHY: 'connStatusUnhealthy',
-  STOPPED: 'connStatusStopped',
-  RESTARTING: 'connStatusRestarting',
-  NOT_CONFIGURED: 'valNotConfigured',
-  UNKNOWN: 'valNotMeasured',
-}
-const CONNECTOR_STATUS_TONE = {
-  HEALTHY: 'ok',
-  STARTING: 'warn',
-  UNHEALTHY: 'danger',
-  STOPPED: 'danger',
-  RESTARTING: 'warn',
-  NOT_CONFIGURED: null,
-  UNKNOWN: null,
-}
-const RUNTIME_STATE_LABEL = {
-  RUNNING: 'runtimeRunning',
-  STOPPED: 'runtimeStopped',
-  RESTARTING: 'runtimeRestarting',
-  UNKNOWN: 'valNotMeasured',
-}
-const DOCKER_HEALTH_LABEL = {
-  HEALTHY: 'dockerHealthHealthy',
-  UNHEALTHY: 'dockerHealthUnhealthy',
-  STARTING: 'dockerHealthStarting',
-  NOT_CONFIGURED: 'valNotConfigured',
-  UNKNOWN: 'valNotMeasured',
-}
-/** Every fixed reason the collector, the agent, or Drive may attach. */
-const CONNECTOR_REASON_LABEL = {
-  'connector-not-found': 'connReasonNotFound',
-  'docker-unavailable': 'connReasonDockerUnavailable',
-  'inspect-failed': 'connReasonInspectFailed',
-  'collector-not-run': 'connReasonCollectorNotRun',
-  'not-configured': 'connReasonNotConfigured',
-  'invalid-evidence': 'connReasonInvalid',
-  'agent-unreachable': 'connReasonAgentUnreachable',
-  stale: 'connReasonStale',
-}
-
-/** The one label for a derived local connector status. */
-export function connectorStatusLabel(t, status) {
-  return t(CONNECTOR_STATUS_LABEL[status] ?? 'valNotMeasured')
-}
-
-export function connectorStatusTone(status) {
-  return CONNECTOR_STATUS_TONE[status] ?? null
-}
-
 /* ── Remote access ──────────────────────────────────────────────────────────
    ⚠️ Two blocks, never merged, and the order matters. The LOCAL block is
       measured evidence: a bounded host collector inspects the connector
@@ -426,7 +380,7 @@ export function RemoteAccessCard({ t, lang, data, loading, error, onRetry }) {
   const local = data?.localConnector ?? null
   const status = local?.status ?? 'UNKNOWN'
   const measured = local?.available === true
-  const reasonKey = local?.reason ? CONNECTOR_REASON_LABEL[local.reason] : null
+  const reasonKey = connectorReasonKey(local?.reason)
 
   return (
     <Card className="p-5">
@@ -457,12 +411,12 @@ export function RemoteAccessCard({ t, lang, data, loading, error, onRetry }) {
           <FactList>
             <FactRow
               label={t('remoteRuntimeState')}
-              value={measured ? t(RUNTIME_STATE_LABEL[local.runtimeState] ?? 'valNotMeasured') : t('valNotMeasured')}
+              value={measured ? connectorRuntimeLabel(t, local.runtimeState) : t('valNotMeasured')}
               tone={measured ? connectorStatusTone(status) : null}
             />
             <FactRow
               label={t('remoteDockerHealth')}
-              value={measured ? t(DOCKER_HEALTH_LABEL[local.health] ?? 'valNotMeasured') : t('valNotMeasured')}
+              value={measured ? connectorHealthLabel(t, local.health) : t('valNotMeasured')}
             />
             {/* Unknown is an em dash, never 0 — a fabricated zero would read as
                 "this connector has never restarted". */}

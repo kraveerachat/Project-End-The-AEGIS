@@ -4,7 +4,7 @@ aliases: ["IDEA1 6.1", "AEGIS Drive LC Progress 6.1"]
 tags: [aegis, idea1, progress, production, acceptance, storage, backup, raid, settings, twingate]
 type: status-snapshot
 created: 2026-09-05
-updated: 2026-09-06
+updated: 2026-09-07
 owner: kla
 edit_policy: owner-writable
 application_source_baseline_sha: 2806373bb300728a0babb953a63f98bcd714ffef
@@ -58,7 +58,19 @@ All non-LFT current gates (SECURITY-2, local Twingate telemetry, Administrator t
 - Audit Log records request + success/pass events for both rounds with no Backup failure event in the acceptance sequence.
 - Current policy remains `activeTargetId=hgst-usb-1`, `scheduleId=disabled`, `retentionId=keep-7d-4w`, `enabled=false`, `nextRun=null`.
 
-Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-media scope.** `STORAGE-AUTO-2` remains NOT TESTED / optional; real RAID1 remains DEFERRED / FUTURE HARDWARE.
+Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-media scope.** `STORAGE-AUTO-2` remains OPEN / UNPROVEN pending an explicitly approved scheduler-triggered Production run; real RAID1 remains DEFERRED / FUTURE HARDWARE.
+
+## 0C. 2026-09-07 final core UI source pass — pre-Production checkpoint
+
+> [!warning]
+> The source and local QA described here have not been deployed to Production. Existing Production evidence remains valid only for the previously deployed build; the changed Dashboard, Storage, and Secure Share views still require controlled deployment and owner visual acceptance.
+
+- Dashboard source now renders `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature reuses `diskHealth.temperatureCelsius` from `/api/storage`; null/unavailable/stale/warning states follow disk-health evidence, and the obsolete Dashboard Twingate tile is removed.
+- Storage Disk Health source now renders `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains in backend health evidence but is not repeated in this fact grid. Local connector state comes from `/api/remote-access.localConnector`; Twingate control-plane state remains NOT MEASURED.
+- Secure Shares keeps only `scope=zones` and `scope=any`. `scope=any` adds no Share-layer CIDR rule but still requires a pre-existing route to AEGIS. Public External Internet Share is a read-only `NOT AVAILABLE` fact and remains NOT IMPLEMENTED / FUTURE ARCHITECTURE.
+- An off-site client was observed successfully reaching an unrestricted `scope=any` link while Twingate was disabled. The exact alternate network path was not independently established in that test, so this is evidence of AEGIS reachability, not evidence of a public Internet gateway. A second remote user in Chonburi without an established AEGIS path could not download the link.
+- Historical source/receipt audit found no observed scheduler-triggered Production backup. `STORAGE-AUTO-2` therefore remains OPEN / UNPROVEN. No schedule was enabled and no Production action was performed in this task.
+- Existing owner-observed Production acceptance already covered Account/Profile/Avatar upload, Account and TopBar rendering, refresh, logout/login, removal with immediate fallback, persistence after refresh/logout-login, and re-upload. Settings Account/Profile/Avatar and the parent Settings page are therefore PASS / CLOSED; no redundant retest is required.
 
 ## 0. Status legend
 
@@ -128,20 +140,20 @@ Upload remains a **Files workflow**, not a standalone sidebar screen.
 
 ---
 
-# 3. Master page acceptance matrix — reconciled 2026-09-06
+# 3. Master page acceptance matrix — reconciled 2026-09-07
 
 | Screen | Current status | Evidence / remaining boundary |
 | :--- | :--- | :--- |
-| Dashboard | ✅ **PASS / CLOSED** | Production dashboard and real telemetry accepted. |
+| Dashboard | ✅ **PASS / CLOSED for deployed baseline; changed layout pending Production acceptance** | Existing Production telemetry is accepted. The six-tile Temperature redesign is locally verified but not yet deployed. |
 | Files | ✅ **PASS / CLOSED** | Deterministic 1 MiB upload → download SHA-256 exact match passed. |
 | Private Vault | ✅ **PASS / CLOSED (tested scope)** | 2 MiB zero-knowledge exact-hash round trip and direct-VLAN large preview/playback accepted; remote high-bitrate path remains a documented delivery limitation. |
-| Secure Shares | ✅ **PASS / CLOSED (private/internal)** | Password/no-password/copy/network-scope enforcement accepted; public internet gateway remains NOT IMPLEMENTED. |
+| Secure Shares | ✅ **PASS / CLOSED (private/internal)** | `zones` and `any` are implemented and Production verified. `any` still requires AEGIS reachability; the clarification UI awaits deployment. Public External Internet Share remains NOT IMPLEMENTED. |
 | File History | ✅ **PASS / CLOSED** | Real per-file versions and non-destructive restore accepted. |
 | Trash | ✅ **PASS / CLOSED** | Soft delete, protected unlock, restore and permanent delete accepted; literal 30-day wall-clock wait not performed. |
-| Storage & Backup | ✅ **PASS / CLOSED (accepted manual/removable-media scope)** | Production `DIFFERENT_DEVICE`, manual Backup E2E, integrity, isolated restore, final UI regression and audit evidence passed. Schedule remains disabled; STORAGE-AUTO-2 is NOT TESTED/optional for this borrowed-HGST scope. Real RAID1 is deferred. |
+| Storage & Backup | ✅ **PASS / CLOSED (accepted manual/removable-media scope)** | Production `DIFFERENT_DEVICE`, manual Backup E2E, integrity, isolated restore, final UI regression and audit evidence passed. Schedule remains disabled; STORAGE-AUTO-2 is OPEN/UNPROVEN. Real RAID1 is deferred. |
 | Audit Log | ✅ **PASS / CLOSED** | Production list/filter behavior and result filter accepted. |
 | Access Control | ✅ **PASS / CLOSED** | Current RBAC/provisioning workflow accepted. |
-| Settings | 🟡 **PARTIAL** | Appearance, Change Password, Security & Privacy, Administrator Encryption-at-Rest, Network Zones and Backup Targets are closed. The only remaining page-level acceptance is the optional latest exhaustive profile/avatar sweep. |
+| Settings | ✅ **PASS / CLOSED** | Existing owner-observed Production acceptance closes Account/Profile/Avatar; Appearance, Security & Privacy, Storage & Data, and Administrator were already accepted. |
 
 ---
 
@@ -154,6 +166,8 @@ Current accepted boundaries:
 - Drive/PostgreSQL state is real rather than mocked
 - host telemetry path exists through the bounded telemetry agent
 - no need to repeat basic dashboard acceptance unless telemetry contracts or deployment are changed
+
+The current source layout is `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature is derived from smartctl-backed disk-health evidence already projected through `/api/storage`; browser code does not duplicate the warning threshold. This changed layout is locally verified and still awaits Production deployment/owner acceptance.
 
 Host telemetry production path:
 
@@ -248,9 +262,13 @@ Accepted:
 - same restricted share deny outside configured zone
 - trusted-proxy hardening / canonical source behavior
 
+The two implemented choices are:
+- `scope=zones` — approved networks, with administrator-defined Share-layer CIDR enforcement; Production verified.
+- `scope=any` — no additional Share-layer CIDR restriction, while the recipient still needs a valid pre-existing route to AEGIS through Twingate, an internal network, or another permitted path; Production verified.
+
 ### Known limitation
 
-⚪ **Public external share is NOT IMPLEMENTED.**
+⚪ **Public External Internet Share is NOT IMPLEMENTED / FUTURE ARCHITECTURE.**
 
 Current `aegis.internal` delivery remains private/Twingate-reachable. Do not claim a public internet share gateway exists.
 
@@ -335,6 +353,8 @@ Production evidence:
 - temperature observed ~40 °C in accepted browser evidence
 - physical device capacity ~119 GB
 - bounded disk-health collector + telemetry agent architecture is active
+
+The current source fact grid is `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains backend health evidence for the Dashboard and `temperature-high` warning derivation, but is no longer duplicated in the visible Storage grid. The connector fact uses only `/api/remote-access.localConnector`; Twingate control-plane status remains NOT MEASURED. This changed grid still awaits Production deployment/owner acceptance.
 
 Current production collector pattern:
 - `aegis-disk-health.timer` active
@@ -430,9 +450,9 @@ Configuration persistence remains accepted.
 
 The removable/shared HGST is intentionally not scheduled automatically.
 
-### STORAGE-AUTO-2: ⚪ NOT TESTED / OPTIONAL
+### STORAGE-AUTO-2: ⚪ OPEN / UNPROVEN
 
-All prerequisites for a manual verified backup now pass, but real scheduled execution has not been tested. It is **not required** for the accepted borrowed-HGST/manual scope. If deliberately tested later, keep the media attached, define the acceptance window, and verify scheduler-triggered backup + integrity/restore without changing the current closure retroactively.
+All prerequisites for a manual verified backup now pass, but historical source and receipt evidence does not prove a real scheduler-triggered Production job. Keep this gate open until an explicitly approved controlled run proves an automatic trigger, SUCCESS, snapshot/integrity/history/audit evidence, and `nextRun` advancement without using `Back up now`. The current accepted schedule remains disabled.
 
 # 11. Audit Log
 
@@ -482,6 +502,10 @@ Settings has five categories:
 4. Storage & Data
 5. Administrator
 
+## Overall status: ✅ PASS / CLOSED
+
+All five Settings categories are accepted for their stated, implemented scope. Truthful unavailable/not-measured states remain deliberate boundaries rather than unfinished controls.
+
 ## 13.1 Appearance
 
 ### Status: ✅ PASS / CLOSED
@@ -500,22 +524,14 @@ PR #71 introduced the system; later PRs #72/#74 refined and accepted it.
 
 ## 13.2 Account
 
-### Status: 🟢 CORE PASS / SOME PROFILE ACCEPTANCE STILL OPTIONAL
+### Status: ✅ PASS / CLOSED
 
 Accepted:
-- account page reachable
-- Change Password functional flow passed previously
+- account page reachable and Change Password functional flow passed
+- owner-observed Production acceptance covered avatar upload, Account and TopBar image display, refresh, logout/login, removal with immediate Account/TopBar fallback, persistence after refresh/logout-login, and upload again
+- PR #92 removed the stale browser-cache resurrection path
 
-Closed since this sweep was written:
-- avatar **Remove** was re-accepted in Production on 2026-09-06 (PR #92) — the
-  fix stopped a deleted picture reappearing from the browser cache on the
-  Account card and in the TopBar, and the removal now survives refresh and
-  logout/login
-
-Not fully closed by the latest page-level evidence:
-- avatar **upload/replace** has not been re-accepted in the current 6.1 sweep;
-  only Remove was exercised in the PR #92 acceptance
-- if formal full Settings closure is required, perform one small profile/avatar acceptance pass
+This existing evidence closes Account/Profile/Avatar. Do not schedule a redundant sweep solely because older wording remained conservative.
 
 Do not confuse this with authentication/password reset flows already verified elsewhere.
 
@@ -592,7 +608,7 @@ Current accepted Backup policy:
 - `nextRun = null`
 
 Not claimed by this closure:
-- automatic scheduled execution (STORAGE-AUTO-2) — NOT TESTED / optional
+- automatic scheduled execution (STORAGE-AUTO-2) — OPEN / UNPROVEN pending an explicitly approved scheduler-triggered Production run
 - real RAID1 — DEFERRED / FUTURE HARDWARE
 
 ## 13.6 Administrator
@@ -735,10 +751,10 @@ Current HGST/Lexar must not be used as RAID members.
 | Manual Backup Job | ✅ PASS / CLOSED |
 | Integrity check | ✅ PASS / CLOSED |
 | Restore verification | ✅ PASS / CLOSED |
-| Real automatic scheduled backup | ⚪ STORAGE-AUTO-2 NOT TESTED / optional |
+| Real automatic scheduled backup | ⚪ STORAGE-AUTO-2 OPEN / UNPROVEN |
 | RAID hardware | ⏳ DEFERRED / FUTURE HARDWARE |
 | RAID host telemetry | ⏳ waits for future real RAID hardware |
-| Account profile/avatar latest exhaustive sweep | 🟡 NOT TESTED / optional remaining page-level acceptance (avatar **Remove** is separately PASS / CLOSED via PR #92, 2026-09-06; upload/replace is not) |
+| Account profile/avatar | ✅ PASS / CLOSED from the existing owner-observed Production acceptance sequence |
 | Real 20–30 GB / Production 32 GiB transfer scale | ⚪ NOT TESTED / NOT ACCEPTED |
 | Protected Trash 30-day wall-clock auto-purge | ⚪ implementation exists; literal 30-day wait not time-waited |
 
@@ -746,12 +762,12 @@ Current HGST/Lexar must not be used as RAID members.
 
 # 17. Highest-priority continuation queue
 
-1. **Optional Settings exhaustive sweep**
-   - profile/avatar upload/remove only if formal all-Settings page closure is required
+1. **Changed core UI Production acceptance**
+   - deploy only after explicit owner approval, then collect Dashboard, Storage and Secure Share screenshots/acceptance
 
-2. **Optional STORAGE-AUTO-2**
-   - only if automatic scheduled backup on the removable HGST is deliberately required
-   - preserve schedule disabled by default otherwise
+2. **STORAGE-AUTO-2 — open/unproven**
+   - run only after explicit Production scheduler-test approval
+   - preserve schedule disabled unless executing that controlled acceptance
 
 3. **Production repository/runtime alignment**
    - treat as a separate controlled task
@@ -869,8 +885,8 @@ Safe to call completed for the recorded acceptance scope:
 - Administrator → Network Zones
 
 Do **not** call these finished yet:
-- complete Settings page as one whole — only the optional latest exhaustive profile/avatar sweep remains
-- automatic scheduled backup end-to-end (STORAGE-AUTO-2) — NOT TESTED / optional for the borrowed-HGST scope
+- changed Dashboard/Storage/Secure Share source in Production — deployment and owner visual acceptance are pending
+- automatic scheduled backup end-to-end (STORAGE-AUTO-2) — OPEN / UNPROVEN
 - real RAID1 — DEFERRED / FUTURE HARDWARE
 - real 20–30 GB / Production 32 GiB transfer-scale acceptance
 - Twingate control-plane monitoring
@@ -880,7 +896,7 @@ Do **not** call these finished yet:
 
 # 21. Resume statement for a future chat
 
-> IDEA1 current reconciliation is 2026-09-06. The Production **Git checkout**
+> IDEA1 current reconciliation is 2026-09-07. The Production **Git checkout**
 > remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80); the running Drive
 > image is built from PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694`. PR #81 merged the
 > PrivateDevices-compatible Backup Target classifier; the reviewed classifier is
@@ -896,11 +912,13 @@ Do **not** call these finished yet:
 > matching request + success/pass events. Current policy keeps schedule disabled
 > and automatic scheduling OFF.
 >
-> Remaining IDEA1 work is optional/future: profile/avatar exhaustive Settings
-> sweep if full parent closure is required, STORAGE-AUTO-2 if automatic scheduling
-> is deliberately required, future real RAID1 hardware, public external sharing,
-> Twingate control-plane telemetry, and real 20–30 GB / Production 32 GiB transfer
-> scale acceptance.
+> Settings Account/Profile/Avatar and the parent Settings page are PASS/CLOSED
+> from existing owner-observed Production evidence. The changed core UI branch
+> still needs Production deployment and owner visual acceptance. STORAGE-AUTO-2
+> remains OPEN/UNPROVEN until an explicitly approved scheduler-triggered run is
+> observed; future real RAID1 hardware, Public External Internet Share,
+> Twingate control-plane telemetry, and real 20–30 GB / Production 32 GiB
+> transfer scale acceptance remain open/future boundaries.
 
 ## Related
 

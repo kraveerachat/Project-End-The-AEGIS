@@ -68,8 +68,23 @@ const telemetry = (overrides = {}) => ({
   },
 })
 
+const healthyDiskHealth = (overrides = {}) => ({
+  available: true,
+  status: 'HEALTHY',
+  reason: null,
+  stale: false,
+  temperatureCelsius: 40,
+  warnings: [],
+  ...overrides,
+})
+
 const render = (data, lang = 'en', extra = {}) =>
-  renderToStaticMarkup(React.createElement(ServerTelemetry, { t: makeT(lang), data, ...extra }))
+  renderToStaticMarkup(React.createElement(ServerTelemetry, {
+    t: makeT(lang),
+    data,
+    diskHealth: healthyDiskHealth(),
+    ...extra,
+  }))
 
 // ── TELEM-UI-11 · the first paint ──────────────────────────────────────
 // "Not yet measured" and "could not be measured" are different facts, and the
@@ -77,7 +92,7 @@ const render = (data, lang = 'en', extra = {}) =>
 // the first response lands there is nothing to report either way, so the tiles
 // must not accuse a source that has not been asked yet.
 test('TELEM-UI-11 tiles say loading, not unavailable, before the first response', () => {
-  const html = render(null, 'en', { loading: true })
+  const html = render(null, 'en', { loading: true, diskHealth: null, diskHealthLoading: true })
   assert.equal((html.match(/aria-label="[^"]+ · Loading"/g) ?? []).length, 6)
   assert.doesNotMatch(html, /· Unavailable"/)
   assert.doesNotMatch(
@@ -90,7 +105,7 @@ test('TELEM-UI-11 tiles say loading, not unavailable, before the first response'
 
 test('TELEM-UI-11 a finished load with no data still reports unavailable', () => {
   // loading:false + data:null is a real failure, and must keep saying so.
-  const html = render(null, 'en', { loading: false })
+  const html = render(null, 'en', { loading: false, diskHealth: null })
   assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
 })
 
@@ -157,10 +172,11 @@ test('TELEM-UI-12 a withheld metric would still be distinguished from an unmeasu
 
 // ── the pre-existing contract, unchanged ──────────────────────────────
 test('Server Telemetry renders six truthful unavailable metric cards', () => {
-  const html = render(null)
-  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'Twingate', 'System uptime']) {
+  const html = render(null, 'en', { diskHealth: null })
+  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'System uptime', 'Temperature']) {
     assert.match(html, new RegExp(`>${label}<`), `${label} card must be visible`)
   }
+  assert.doesNotMatch(html, />Twingate</, 'the V1 placeholder must not remain on Dashboard')
   assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
   assert.doesNotMatch(html, /0(?:\.0+)?\s*(?:%|°C|ms|Mbps|Kbps|GB)/)
 })
@@ -227,11 +243,41 @@ test('TELEM-UI-5 Drive service uptime survives a dead host agent', () => {
   assert.match(html, /No data/, 'the host half must say so rather than borrow the service value')
 })
 
-// ── TELEM-UI-6 · Twingate ─────────────────────────────────────────────
-test('TELEM-UI-6 Twingate is truthfully unavailable, never implied online', () => {
+// ── TELEM-UI-6 · Temperature ──────────────────────────────────────────
+test('TELEM-UI-6 Dashboard renders the real disk-health temperature and no Twingate tile', () => {
   const html = render(telemetry())
-  assert.match(html, /Twingate · Unavailable/)
-  assert.doesNotMatch(html, /Connected|Online|Reachable/)
+  assert.match(html, /Temperature · Normal/)
+  assert.match(html, /40 °C/)
+  assert.doesNotMatch(html, />Twingate</)
+})
+
+test('TELEM-UI-6 null and unavailable disk-health temperatures never become 0 °C', () => {
+  for (const diskHealth of [
+    healthyDiskHealth({ temperatureCelsius: null }),
+    { available: false, status: 'UNKNOWN', reason: 'agent-unreachable', temperatureCelsius: null, warnings: [] },
+  ]) {
+    const html = render(telemetry(), 'en', { diskHealth })
+    assert.match(html, /Temperature · Unavailable/)
+    assert.doesNotMatch(html, /0 °C/)
+  }
+})
+
+test('TELEM-UI-6 temperature state follows stale and backend warning evidence', () => {
+  const stale = render(telemetry(), 'en', { diskHealth: healthyDiskHealth({ stale: true }) })
+  assert.match(stale, /Temperature · Stale/)
+  assert.match(stale, /40 °C/)
+
+  const warning = render(telemetry(), 'en', {
+    diskHealth: healthyDiskHealth({ warnings: ['temperature-high'] }),
+  })
+  assert.match(warning, /Temperature · Warning/)
+  assert.match(warning, /40 °C/)
+})
+
+test('TELEM-UI-6 temperature has an independent loading state', () => {
+  const html = render(telemetry(), 'en', { diskHealth: null, diskHealthLoading: true })
+  assert.match(html, /Temperature · Loading/)
+  assert.doesNotMatch(html, /Temperature · Unavailable/)
 })
 
 // ── TELEM-UI-7 · partial failure ──────────────────────────────────────
@@ -259,7 +305,7 @@ test('TELEM-UI-8 an unavailable metric never renders a fabricated zero', () => {
     },
     network: { available: false },
     uptime: { available: true, host: { available: false }, service: { available: true, seconds: 7_200 } },
-  }))
+  }), 'en', { diskHealth: null })
   // Nothing may render as a zero measurement of any unit.
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*(?:%|B|KB|MB|GB|TB)\b/)
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*[KMGT]?B\/s/)
@@ -292,16 +338,15 @@ test('TELEM-UI-9 stale host metrics are visibly distinguishable from fresh ones'
   assert.equal((stale.match(/>Stale</g) ?? []).length, 2, 'only the stale metrics are labelled')
 })
 
-// ── TELEM-UI-13 · Twingate stays truthful ─────────────────────────────
-// Widening host-metric visibility did not connect a Twingate source. The tile
-// must never read Online, Connected, or Reachable while none exists.
-test('TELEM-UI-13 the Twingate tile claims no connection for any authenticated user', () => {
+// ── TELEM-UI-13 · final desktop order ─────────────────────────────────
+test('TELEM-UI-13 telemetry cards keep the approved two-row desktop order', () => {
   const html = render(telemetry())
-
-  assert.match(html, /Twingate · Unavailable/)
-  assert.match(html, /No telemetry source connected/)
-  for (const claim of [/>Online</, />Connected</, />Reachable</]) {
-    assert.doesNotMatch(html, claim, 'no approved connector source exists')
+  const labels = ['CPU', 'RAM', 'Disk', 'Network', 'System uptime', 'Temperature']
+  for (let index = 1; index < labels.length; index += 1) {
+    assert.ok(
+      html.indexOf(`>${labels[index - 1]}<`) < html.indexOf(`>${labels[index]}<`),
+      `${labels[index - 1]} must precede ${labels[index]}`,
+    )
   }
 })
 

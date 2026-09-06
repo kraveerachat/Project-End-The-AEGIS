@@ -2232,6 +2232,19 @@ The source change does not disable or weaken `PrivateDevices=true`; unresolved e
 
 **RAID remains `DEFERRED / FUTURE HARDWARE`.** The truthful UI remains `NOT CONFIGURED`; current HGST/Lexar are not RAID members.
 
+### Final core UI truthfulness source reconciliation — 2026-09-07 (pre-Production)
+
+This source pass starts from `d3ea65934c898571694fb722fcc6db105861c775` and remains **not deployed**. Existing Production acceptance is not reused as evidence for the changed Dashboard, Storage, or Secure Share presentation; those three views still need controlled deployment and owner visual acceptance.
+
+- **Secure Shares:** `scope=zones` (approved networks with administrator-defined CIDR enforcement) and `scope=any` are the only selectable modes and remain Production-verified PASS/CLOSED. `scope=any` means no additional Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS. Public External Internet Share is NOT IMPLEMENTED / FUTURE ARCHITECTURE and appears only as a read-only unavailable fact. An off-site client once reached a `scope=any` link with Twingate disabled, but the alternate route was not established; this proves AEGIS reachability, not a public gateway. A second Chonburi client without an established AEGIS path could not download.
+- **Dashboard:** the locally verified source order is `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature reuses smartctl-derived disk-health evidence from `/api/storage`; null, unavailable, stale, and backend `temperature-high` states remain explicit. No browser threshold or hardcoded reading was added. The old Dashboard Twingate placeholder is removed.
+- **Storage:** Disk Health now presents `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains in backend health evidence. Connector state uses only `/api/remote-access.localConnector`; Twingate control-plane state remains NOT MEASURED. Connector evidence stays visible even when disk-health evidence is unavailable.
+- **Backup:** manual Backup Job, configuration, integrity, restore verification, and HGST `DIFFERENT_DEVICE` target remain PASS/CLOSED for the accepted scope. Historical source/receipt audit found no real scheduler-triggered Production execution, so `STORAGE-AUTO-2` remains OPEN / UNPROVEN. Current schedule remains disabled; this task performed no Production action.
+- **RAID:** UI is PASS; no real array is configured. Real validation remains DEFERRED / HARDWARE LIMITATION because there is no dedicated erasable disk pair. HGST 1 TB is the accepted Backup Target, never a RAID member or “RAID0”.
+- **Settings:** existing owner-observed Production acceptance already covered Account/Profile/Avatar upload, Account/TopBar rendering, refresh, logout/login, removal and immediate fallback, persistence after refresh/logout-login, and re-upload. Account/Profile/Avatar and the parent Settings page are PASS/CLOSED; the former conservative re-test item is retired.
+
+Local verification for this pass: focused regressions **140 total / 137 pass / 3 PostgreSQL-only skips / 0 fail**; full suite **1,042 total / 974 pass / 67 PostgreSQL-only skips / 1 pre-existing AUTOLOCK-5 false-positive failure**; production build PASS with the existing >500 kB chunk warning. Production telemetry-chain verification and visual acceptance remain pending.
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[core/hub-aegis-entry]]

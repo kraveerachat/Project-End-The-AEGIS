@@ -153,9 +153,9 @@ export function Toggle({ on, onChange, label }) {
 }
 
 /* ── Segmented control (theme / language / density / view switch) ── */
-export function Segmented({ options, value, onChange, ariaLabel, disabled = false }) {
+export function Segmented({ options, value, onChange, ariaLabel, disabled = false, className = '' }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} data-material="shell-glass" className="ui-segmented inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} data-material="shell-glass" className={`ui-segmented inline-flex items-center gap-0.5 bg-sunken border border-line rounded-full p-0.5 ${className}`}>
       {options.map((opt) => {
         const active = value === opt.value
         return (

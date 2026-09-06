@@ -214,6 +214,8 @@ test('Dashboard keeps Data Lake Health and Server Telemetry without a full-width
   try {
     assert.match(view.document.body.textContent, /Data Lake Health/)
     assert.match(view.document.body.textContent, /Server Telemetry/)
+    assert.match(view.document.body.textContent, /Temperature/)
+    assert.doesNotMatch(view.document.body.textContent, /Twingate/)
     assert.equal(view.document.querySelector('.quick-action-rail'), null)
   } finally {
     delete globalThis.__AEGIS_API_FIXTURES__

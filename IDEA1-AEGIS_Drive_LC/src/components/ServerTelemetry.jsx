@@ -1,5 +1,5 @@
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, RadioTower,
+  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
@@ -21,8 +21,8 @@ const METRICS = [
   { id: 'memory', labelKey: 'telemetryRam', icon: MemoryStick },
   { id: 'disk', labelKey: 'telemetryDisk', icon: HardDrive },
   { id: 'network', labelKey: 'telemetryNetwork', icon: Network },
-  { id: 'twingate', labelKey: 'telemetryTwingate', icon: RadioTower },
   { id: 'uptime', labelKey: 'telemetryUptime', icon: Activity },
+  { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
 ]
 
 const STATE_META = {
@@ -79,6 +79,12 @@ const duration = (seconds) => (number(seconds) ? fmtCountdown(seconds * 1000) : 
  */
 function metricState(id, metric, loading = false) {
   if (!metric) return loading ? 'loading' : 'unavailable'
+  if (id === 'temperature') {
+    if (metric.available !== true || !number(metric.temperatureCelsius)) return 'unavailable'
+    if (metric.stale === true) return 'stale'
+    if (Array.isArray(metric.warnings) && metric.warnings.includes('temperature-high')) return 'warning'
+    return 'available'
+  }
   if (metric.available !== true) {
     // Reason-driven, not role-driven: this component never asks who is looking.
     // It reports what the response reported. See EMPTY_COPY on why the
@@ -166,11 +172,12 @@ function MetricRows({ t, id, metric }) {
     )
   }
 
-  if (id === 'twingate') {
-    // Never reached in V1: Twingate has no approved source, so it always takes
-    // the unavailable branch. Kept explicit so a future source cannot land here
-    // with nothing to display.
-    return <span>{t('telemetryValueUnavailable')}</span>
+  if (id === 'temperature') {
+    return (
+      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {metric.temperatureCelsius} °C
+      </strong>
+    )
   }
 
   // Uptime carries two independent facts. The host may be unknown while Drive
@@ -198,7 +205,9 @@ function TelemetryTile({ t, definition, value, loading }) {
   const Icon = definition.icon
   // A tile with no reading to render. The hatch marks a source that failed;
   // loading and restricted are not failures and are not hatched.
-  const emptyKey = EMPTY_COPY[state]
+  const emptyKey = definition.id === 'temperature' && state === 'unavailable'
+    ? 'telemetryTemperatureNotReported'
+    : EMPTY_COPY[state]
   const isEmpty = state in EMPTY_COPY
 
   return (
@@ -234,13 +243,15 @@ function TelemetryTile({ t, definition, value, loading }) {
  * @param {object} props
  * @param {object|null} props.data a full /api/telemetry response, or null when
  *   there is nothing to show.
+ * @param {object|null} props.diskHealth the /api/storage diskHealth evidence
+ *   used only for the Temperature tile. It remains separate from V1 telemetry.
  * @param {boolean} [props.loading] true while the first request for this screen
  *   is still in flight. It only changes tiles that have no value yet: "not
  *   asked" and "asked and failed" are different facts, and a tile must not
  *   accuse a source that has not been queried. A refresh over data already on
  *   screen leaves that data visible.
  */
-export function ServerTelemetry({ t, data, loading = false }) {
+export function ServerTelemetry({ t, data, loading = false, diskHealth = null, diskHealthLoading = false }) {
   const metrics = data?.metrics ?? null
   return (
     <Card className="p-5">
@@ -251,8 +262,8 @@ export function ServerTelemetry({ t, data, loading = false }) {
             key={definition.id}
             t={t}
             definition={definition}
-            value={metrics?.[definition.id]}
-            loading={loading}
+            value={definition.id === 'temperature' ? diskHealth : metrics?.[definition.id]}
+            loading={definition.id === 'temperature' ? diskHealthLoading : loading}
           />
         ))}
       </div>
