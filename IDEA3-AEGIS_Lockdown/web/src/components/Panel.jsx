@@ -1,8 +1,8 @@
 import React from 'react'
 
-export function Panel({ title, description, action, className = '', children }) {
+export function Panel({ title, description, action, className = '', ariaLabel, children }) {
   return (
-    <section className={`panel ${className}`.trim()}>
+    <section className={`panel ${className}`.trim()} aria-label={ariaLabel}>
       {(title || action) && (
         <header className="panel__header">
           <div>
