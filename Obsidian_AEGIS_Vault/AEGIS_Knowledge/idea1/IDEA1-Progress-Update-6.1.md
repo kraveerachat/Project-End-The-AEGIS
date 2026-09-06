@@ -8,7 +8,8 @@ updated: 2026-09-06
 owner: kla
 edit_policy: owner-writable
 application_source_baseline_sha: 2806373bb300728a0babb953a63f98bcd714ffef
-production_drive_sha: 2806373bb300728a0babb953a63f98bcd714ffef
+production_git_checkout_sha: 2806373bb300728a0babb953a63f98bcd714ffef
+production_drive_image_source_sha: 64807e963359c6a85bc5d9ded7b6ff1b05226694
 backup_classifier_merge_sha: 07ad78efdf1561f2a49a1ecc81440359b766b3bd
 progress_update_merge_pr: 77
 runtime_evidence_reconciled_through_pr: 81
@@ -76,7 +77,11 @@ Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-med
 
 ## 1.1 Git / Drive deployment
 
-- Production Drive application source remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Production **Git checkout** remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
+- Production **Drive image source basis** is PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694` since
+  2026-09-06; GitHub `main` is the PR #92 merge commit `d4b8e921...`. The merge
+  added no file changes, so head and merge commit have identical trees, but
+  they are different commits — do not collapse the three SHAs.
 - PR #81 merged the Backup Target PrivateDevices classifier at merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. Later documentation-only commits may advance repository history; resolve the live `main` head from Git.
 - PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock duration/1-minute support are deployed and production-accepted.
 - Migration `008_vault_autolock_1_minute.sql` is applied in Production.
@@ -873,8 +878,9 @@ Do **not** call these finished yet:
 
 # 21. Resume statement for a future chat
 
-> IDEA1 current reconciliation is 2026-09-06. Production Drive application source
-> remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80). PR #81 merged the
+> IDEA1 current reconciliation is 2026-09-06. The Production **Git checkout**
+> remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80); the running Drive
+> image is built from PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694`. PR #81 merged the
 > PrivateDevices-compatible Backup Target classifier; the reviewed classifier is
 > now deployed to the **live Host Backup Agent copy**, while the Production Git
 > checkout itself remains `2806373...`. Preserve that distinction during any

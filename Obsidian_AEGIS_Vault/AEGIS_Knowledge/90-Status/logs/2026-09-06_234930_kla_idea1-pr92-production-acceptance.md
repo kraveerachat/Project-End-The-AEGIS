@@ -62,6 +62,19 @@ therefore immutable; it was not edited.
   remains **PARTIAL**, unchanged by this task. Accepting one behaviour is not
   page-level closure, and writing it as such would have been the easy error here.
 
+- **Stale production-source wording corrected (PR #93 review).** The canonical
+  notes still said the Production *Drive* "remains on" the checkout SHA
+  `2806373...`, which contradicted the PR #92 entry recorded immediately after it.
+  Those statements now read **Production Git checkout**, and each one names the
+  running Drive image source basis (PR #92 head) alongside it. Statements that
+  were already framed as "Git checkout" were left alone, and the Host Backup
+  Agent runtime-drift statement is preserved verbatim — the classifier is still
+  recorded as deployed only to the live agent copy while the checkout did not
+  advance. `IDEA1-Progress-Update-6.1.md` frontmatter key `production_drive_sha`
+  was ambiguous for the same reason and is now `production_git_checkout_sha` plus
+  `production_drive_image_source_sha`; no script or test reads either key
+  (verified by grep over `scripts/`, `tests/` and `.github/`).
+
 ## Source files changed
 
 - `None` — no runtime code, configuration or deployment file was touched. This
