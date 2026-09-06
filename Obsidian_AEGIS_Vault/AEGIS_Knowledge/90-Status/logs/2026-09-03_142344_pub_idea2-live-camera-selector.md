@@ -76,8 +76,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Current-main reconciliation rerun after PR #87/#89 merged:
-  `npm test` — **PASS 14/14**;
+- `npm test` after current-main reconciliation with PR #87/#89 — **PASS 14/14**;
   `PLAYWRIGHT_CHANNEL=msedge npm run test:browser` — **PASS 18/18**;
   `npm run build` — **PASS**, Vite 7.3.6 transformed 2,075 modules.
   The authoritative browser/build runs were performed outside the restricted
