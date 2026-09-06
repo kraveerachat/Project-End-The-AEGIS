@@ -142,8 +142,6 @@ integration coverage through the actual app, sessions and cookies.
 
 ## Verification evidence
 
-Re-verified after the round-2 fixes, on the branch synced to `main@a8ea876`:
-
 - `npm test` (IDEA1) — **1032 tests, 964 pass, 1 fail, 67 skipped**. The single
   failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the
   column`, still **pre-existing on the updated unmodified `main`**: re-running
@@ -159,6 +157,8 @@ Re-verified after the round-2 fixes, on the branch synced to `main@a8ea876`:
   `vaultV2ScreenUi`, `vaultMediaPreview`, `userPreferences`,
   `modalGlobalLayer` — pass **131/131**.
 - `npm run build` — pass, built in 5.00s.
+
+All of the above were re-run after the round-2 fixes, on the branch synced to `main@a8ea876`.
 - `node --test tests/avatarRemovalAndTileMenus.test.js` — pass 12/12.
 - `node --test tests/vaultTileActions.test.js` — pass 22/22.
 - `node --test tests/filesUnifiedWorkflow.test.js tests/profileIdentity.test.js
