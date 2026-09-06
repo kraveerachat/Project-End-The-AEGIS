@@ -13,8 +13,13 @@ edit_policy: append-by-new-file
 ## What changed
 
 - Source-only feature originally based on main
-  `d3e240239936577875965165f5c32111fe5e6568`, then reconciled without conflict
-  onto current `origin/main` `73daa3e` on 2026-09-06.
+  `d3e240239936577875965165f5c32111fe5e6568`, first reconciled without conflict
+  onto `origin/main` `73daa3e`, then merged with current `origin/main`
+  `9ade0da` after PR #87 and PR #89 landed on 2026-09-06. The second
+  reconciliation had only two conflicts: `IDEA2-AEGIS_Monitor/package.json`
+  now retains both the selector and viewer-demand/stream-lifecycle tests, while
+  `idea2-status.md` retains both the selector facts and Detector B acceptance.
+  No rebase or force-push was used.
   Root cause: the old secondary-camera list used a fixed ID priority, filtered
   out offline cameras, excluded the selected camera, and capped the list at
   three. App additionally preferred CAM-02. Right panels combined detections
@@ -71,10 +76,17 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
+- Current-main reconciliation rerun after PR #87/#89 merged:
+  `npm test` — **PASS 14/14**;
+  `PLAYWRIGHT_CHANNEL=msedge npm run test:browser` — **PASS 18/18**;
+  `npm run build` — **PASS**, Vite 7.3.6 transformed 2,075 modules.
+  The authoritative browser/build runs were performed outside the restricted
+  sandbox after sandbox-only process/file-access failures; no failed source
+  result is represented as a pass.
 - Command: `npm test`; result: PASS (9/9).
 - `git cherry-pick 7af2952 a8502cf d5f38b1 b2764c4` onto `73daa3e` —
   **PASS**, no conflicts.
-- 2026-09-06 current-main rerun: `npm test` — **PASS 9/9**;
+- 2026-09-06 first current-main rerun on `73daa3e`: `npm test` — **PASS 9/9**;
   `PLAYWRIGHT_CHANNEL=msedge npm run test:browser` — **PASS 18/18**;
   `npm run build` — **PASS**, Vite transformed 2,075 modules.
 - `npm test` — **PASS 9/9**, from `IDEA2-AEGIS_Monitor/`.
@@ -117,7 +129,7 @@ edit_policy: append-by-new-file
 
 From repository root:
 
-- `node --test --test-concurrency=1 tests/collaborationPolicy.test.mjs tests/dockerBootstrap.test.mjs tests/endpointOnboarding.test.mjs tests/vaultMultiWriter.test.mjs tests/vaultStructure.test.mjs`
+- `node --test --test-concurrency=1 tests/*.test.mjs`
   — **PASS 56/56**.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`
   — **PASS**, two unchanged owner-review Canvas warnings.
@@ -132,7 +144,8 @@ From repository root:
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md` — server-driven
   bounded live-preview cards replace hardcoded tiles; selected context and cleanup
-  verified in isolated browser tests; production acceptance still pending.
+  verified in isolated browser tests; current-main reconciliation also preserves
+  the merged Detector B and viewer-demand lifecycle facts.
 
 ## Shared surfaces touched
 
@@ -153,12 +166,11 @@ existing cold-start backend behavior before any later deployment.
   of the branch. No deployment, credential change, reboot, key ACL, tunnel,
   database or network change was performed. Source verification does not prove
   real RBAC/database acceptance or camera hardware idle release.
-- Main's existing `server/db/store.js` still gates `hasStream` on
-  `camera_connected`; the existing `deploy/idea2-monitor-cold-start` branch
-  uses heartbeat freshness/stream URL. The selector respects server-advertised
-  availability, including idle capture, but this PR deliberately does not
-  import that backend patch. Do not blindly replace the working deployed
-  cold-start backend with a main-only build.
+- Current `origin/main` now includes PR #89's cold-start availability and
+  viewer-demand/upstream-cleanup corrections. This reconciliation preserves
+  those server files unchanged and combines their unit tests with the selector
+  suite. The integrated source is verified locally, but its final approved
+  production rollout remains a separate owner action.
 - The authorized camera list still refreshes on session initialization as
   before. Mid-session assignment revocation remains enforced by the existing
   server stream revalidation; refreshing the page retrieves updated cards.

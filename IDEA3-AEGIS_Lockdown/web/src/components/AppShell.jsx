@@ -104,6 +104,9 @@ export function AppShell({ identity, mode, currentRoute, onNavigate = () => {}, 
           <header className="page-heading">
             <p>AEGIS <span>/</span> {dashboardRoute ? t('shell.dashboardEyebrow') : route.eyebrow}</p>
             <h1>{dashboardRoute ? t('shell.dashboardTitle') : route.label}</h1>
+            {!dashboardRoute && route.description && (
+              <p className="page-heading__description">{route.description}</p>
+            )}
           </header>
           {children}
         </main>
