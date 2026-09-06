@@ -140,21 +140,26 @@ test('AVATAR-5 the session payload carries hasAvatar and an opaque version', () 
   assert.doesNotMatch(api, /avatarKey: u\.avatarKey/, 'the raw storage key never leaves the server')
 })
 
-test('AVATAR-6 both avatar mutations refresh the session, or /api/me would keep lying', () => {
-  const api = fs.readFileSync(path.join(rootDir, 'server/routes/api.js'), 'utf8')
-  const session = fs.readFileSync(path.join(rootDir, 'server/auth/session.js'), 'utf8')
-
-  assert.match(session, /export function setSessionAvatarKey/, 'the session exposes an avatar setter')
-
-  // /api/me reads the session snapshot, so a DB-only update would still report
-  // the deleted picture until the next login.
-  const del = api.slice(api.indexOf("apiRouter.delete('/profile/avatar'"))
-  assert.match(del.slice(0, 900), /setSessionAvatarKey\(req, null\)/, 'DELETE clears it from the session')
-
-  const post = api.slice(api.indexOf("apiRouter.post('/profile/avatar'"))
-  assert.match(post.slice(0, 2600), /setSessionAvatarKey\(req, key\)/, 'POST records the new key on the session')
-  assert.match(post.slice(0, 2600), /avatarVersion: avatarVersionOf\(key\)/, 'and returns the new version to the client')
-})
+// AVATAR-6 used to assert, by regex, that each avatar route called a
+// specifically-named session setter. That is the wrong altitude: it pinned an
+// internal helper name rather than the behaviour, so refactoring the two call
+// sites into one shared helper broke the test while the product was correct —
+// and, worse, it would still have passed while /api/me returned the wrong
+// answer, because it never called /api/me.
+//
+// The behaviour it was reaching for is now covered end to end, through the
+// real app, real sessions and real cookies, in
+// tests/avatarSessionPersistence.test.js:
+//
+//   AVATAR-SESSION-A  a fresh login keeps an avatar that exists in the DB
+//   AVATAR-SESSION-B  the login response and /api/me agree
+//   AVATAR-SESSION-C  upload is visible on /api/me and stays visible
+//   AVATAR-SESSION-D  delete clears it on /api/me
+//   AVATAR-SESSION-E  a repeat delete still leaves the session reconciled
+//   AVATAR-SESSION-F  a stale second session is corrected, not left asserting
+//   AVATAR-SESSION-G  removal survives a real logout/login round trip
+//   AVATAR-SESSION-H  no storage key or filename reaches the client
+//   AVATAR-SESSION-I  replacing the picture changes the version
 
 test('AVATAR-7 Settings publishes the change to the session, not just to its own card', () => {
   const settings = fs.readFileSync(path.join(rootDir, 'src/screens/Settings.jsx'), 'utf8')

@@ -68,6 +68,12 @@ export function establishSession(req, user, remember) {
         accountName: user.accountName ?? user.displayName,
         role: user.role,
         mustResetPassword: Boolean(user.mustResetPassword),
+        // ⚠️ ต้องพกมาด้วยตั้งแต่ตอนสร้างเซสชัน — publicUser() คำนวณ hasAvatar/
+        //    avatarVersion จากค่านี้ และ /api/me ทำ serialize จาก "ผู้ใช้ในเซสชัน"
+        //    ไม่ใช่จากแถวใน DB ถ้าไม่เก็บไว้ ผู้ใช้ที่มีรูปอยู่แล้วจะล็อกอินได้คำตอบ
+        //    ว่ามีรูป (ตอบจากแถว DB) แล้ว /api/me ครั้งถัดไปกลับบอกว่าไม่มี
+        //    เก็บเฉพาะฝั่งเซิร์ฟเวอร์ — คีย์นี้ไม่เคยถูกส่งออกไปให้ client
+        avatarKey: user.avatarKey ?? null,
         preferences: user.preferences,
       }
       // ── ข้อมูลของ "เซสชันนี้" สำหรับจอ Settings → Active sessions ──────────────

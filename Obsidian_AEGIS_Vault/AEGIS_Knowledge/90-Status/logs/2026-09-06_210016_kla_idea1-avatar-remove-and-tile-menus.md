@@ -11,8 +11,15 @@ edit_policy: append-by-new-file
 
 # Task Receipt — IDEA1 avatar removal and responsive tile-menu regressions
 
-Three UI regression fixes. Base `origin/main` =
-`9ade0dab6361f2bb1212fd67dc7469122463c989`.
+Three UI regression fixes. Base `origin/main` was
+`9ade0dab6361f2bb1212fd67dc7469122463c989`; the branch was later synced to
+`a8ea876` (PR #88, #90, #91) by merge — no rebase, no force-push, and no edit
+to PR #90's documentation.
+
+**Amended after PR #92 review** (this receipt is still part of the same
+unmerged task, which AGENTS.md §9 permits and §7's one-receipt rule requires
+rather than a second file). Review found one blocking regression; see
+"Review round 2" below.
 
 `PRODUCTION_CHANGED = NO`. `PRODUCTION_ACCEPTANCE = NOT TESTED`.
 No authorization, RBAC, vault cryptography, share, audit or retention semantics
@@ -70,6 +77,42 @@ deciding what the user saw.**
   neutral entries, the button's accessible name still avoids the real filename
   until unlocked, and `previewable` is still structurally false while locked.
 
+## Review round 2 — the fresh-session avatar regression
+
+PR #92 review found a real defect **introduced by the first round of this
+task**, and it was the mirror image of the bug being fixed.
+
+`publicUser()` derives `hasAvatar` / `avatarVersion` from `u.avatarKey`, and
+`/api/me` serialises the **session** user. But the session user is assembled
+field by field in two places, and neither carried `avatarKey`:
+
+- `verifyCredentials()` returns an explicit whitelist of fields, and
+- `establishSession()` builds `req.session.user` from that return value.
+
+So an account that genuinely had a picture got `hasAvatar: true` from
+POST /api/login (which serialises the DB row) and hasAvatar: false from the
+very next `GET /api/me`. Before this task nothing read `avatarKey` off the
+session, so the omission was harmless; adding the derivation is what gave it
+teeth. `login.js` already carried the identical warning for `preferences` —
+"omitting them here makes a new session silently fall back to defaults" — so
+the fix follows that established precedent in both files.
+
+Second defect: `DELETE /profile/avatar` returned 404 early when there was
+nothing to delete, which could leave a stale `avatarKey` on the session. A
+repeat delete, or one racing another device, left `/api/me` still asserting a
+picture the database no longer had. Session reconciliation now happens on that
+path too; the HTTP contract is unchanged (nothing to delete is still 404).
+
+The raw `avatar_key` still never leaves the server — it is held server-side
+only, and `publicUser()` publishes just the boolean and a 12-char hash.
+
+**Test-quality correction.** `AVATAR-6` had asserted, by regex, that each
+route called a specifically-named session setter. That was the wrong altitude
+twice over: refactoring the two call sites into one helper broke it while the
+product was correct, and it would have passed happily while `/api/me` returned
+the wrong answer, because it never called `/api/me`. It is replaced by real
+integration coverage through the actual app, sessions and cookies.
+
 ## Source files changed
 
 - `IDEA1-AEGIS_Drive_LC/src/components/ui.jsx` — new `AnchoredMenu`; `Avatar`
@@ -87,20 +130,35 @@ deciding what the user saw.**
   ran).
 - `IDEA1-AEGIS_Drive_LC/server/routes/api.js` — `publicUser` exposes
   `hasAvatar` + `avatarVersion`; both avatar mutations refresh the session.
-- `IDEA1-AEGIS_Drive_LC/server/auth/session.js` — `setSessionAvatarKey`.
+- `IDEA1-AEGIS_Drive_LC/server/auth/session.js` — `setSessionAvatarKey`; and
+  `establishSession()` now persists `avatarKey` onto the new session.
+- `IDEA1-AEGIS_Drive_LC/server/auth/login.js` — `verifyCredentials()` carries
+  `avatarKey` through, for the same reason it already carries `preferences`.
+- `IDEA1-AEGIS_Drive_LC/tests/avatarSessionPersistence.test.js` — new;
+  9 integration tests against the real app.
 - `IDEA1-AEGIS_Drive_LC/tests/avatarRemovalAndTileMenus.test.js` — new.
 
 `dist/` was rebuilt only to verify the build and restored before staging.
 
 ## Verification evidence
 
-- `npm test` (IDEA1) — 1024 tests, 956 pass, **1 fail**, 67 skipped. The single
+Re-verified after the round-2 fixes, on the branch synced to `main@a8ea876`:
+
+- `npm test` (IDEA1) — **1032 tests, 964 pass, 1 fail, 67 skipped**. The single
   failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the
-  column`, which is **pre-existing on unmodified `main`**: re-running it with
-  this branch's `src/` and `server/` changes stashed reproduces the same failure
-  (8/9 pass). It concerns vault auto-lock migration 008 and touches nothing in
-  this task's scope, so it is reported rather than silently fixed here.
-- `npm run build` — pass, built in 4.41s.
+  column`, still **pre-existing on the updated unmodified `main`**: re-running
+  it with this branch's `src/` and `server/` changes stashed reproduces it
+  (8/9 pass). It concerns vault auto-lock migration 008, touches nothing in
+  this task's scope, and is reported rather than silently fixed here.
+- `node --test tests/avatarSessionPersistence.test.js` — pass **9/9**
+  (integration: real Express app, real session store, real cookies).
+  Verified to actually catch the defect: reverting the one-line `login.js`
+  change makes `AVATAR-SESSION-A` fail, and restoring it makes it pass.
+- `node --test` on `avatarSessionPersistence`, `avatarRemovalAndTileMenus`,
+  `vaultTileActions`, `filesUnifiedWorkflow`, `profileIdentity`,
+  `vaultV2ScreenUi`, `vaultMediaPreview`, `userPreferences`,
+  `modalGlobalLayer` — pass **131/131**.
+- `npm run build` — pass, built in 5.00s.
 - `node --test tests/avatarRemovalAndTileMenus.test.js` — pass 12/12.
 - `node --test tests/vaultTileActions.test.js` — pass 22/22.
 - `node --test tests/filesUnifiedWorkflow.test.js tests/profileIdentity.test.js
@@ -137,6 +195,12 @@ deciding what the user saw.**
 
 ## Known limitations
 
+- **The fresh-session regression escaped the first round because that round
+  had no integration coverage of `/api/me`.** Every avatar assertion was either
+  a component-level render test or a source regex, and neither can observe a
+  session round trip. That gap is now closed by
+  `avatarSessionPersistence.test.js`; the lesson is recorded here because the
+  same shape would recur for any other field `publicUser()` learns to derive.
 - **The avatar fix was verified by tests and code inspection, not by pixels.**
   The QA harness stubs `window.fetch`, but `<img>` loads bypass `fetch`
   entirely, so the harness could never display a real avatar to photograph a

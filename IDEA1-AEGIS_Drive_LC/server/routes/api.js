@@ -82,6 +82,12 @@ const INVALID_CREDENTIALS = 'Invalid credentials'
 const avatarVersionOf = (key) =>
   (key ? createHash('sha256').update(String(key)).digest('hex').slice(0, 12) : null)
 
+/** เขียนค่า avatar ลงเซสชันแล้วรอให้ session store บันทึกจริงก่อนตอบกลับ */
+const reconcileSessionAvatar = async (req, key) => {
+  setSessionAvatarKey(req, key)
+  await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+}
+
 const publicUser = (u) => ({
   id: String(u.id),
   username: u.username,
@@ -1213,8 +1219,7 @@ apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
       // รูปเดิมไม่มีใครอ้างถึงอีกแล้ว — ลบทิ้งเสมอ ไม่ปล่อยให้ค้างบนดิสก์ต่อไปเงียบ ๆ
       if (oldKey && oldKey !== key) await removeAvatar(oldKey).catch(() => {})
 
-      setSessionAvatarKey(req, key)
-      await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+      await reconcileSessionAvatar(req, key)
 
       await auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id))
       res.status(201).json({
@@ -1232,15 +1237,21 @@ apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
 apiRouter.delete('/profile/avatar', requireAuth, async (req, res, next) => {
   try {
     const current = await getAvatar(req.user.id)
-    if (!current) return res.status(404).json({ error: 'Not found' })
+    if (!current) {
+      // ⚠️ ไม่มีรูปให้ลบ ≠ ไม่ต้องทำอะไร: เซสชันอาจยังถือ avatarKey ค้างอยู่
+      //    (ลบซ้ำ หรือถูกลบจากอุปกรณ์อื่น) ถ้า return ทันทีโดยไม่ล้าง /api/me
+      //    จะยังยืนยันว่ามีรูปทั้งที่ DB ไม่มีแล้ว — สถานะปลายทางต้องเหมือนกัน
+      //    ไม่ว่าจะเรียกกี่ครั้ง สัญญา HTTP ยังเท่าเดิม: ไม่มีอะไรให้ลบ = 404
+      await reconcileSessionAvatar(req, null)
+      return res.status(404).json({ error: 'Not found' })
+    }
     await updateAvatar(req.user.id, { key: null, mime: null })
     await removeAvatar(current.key).catch(() => {})
 
     // ⚠️ ต้องล้างใน session ด้วย ไม่ใช่แค่ใน DB — /api/me อ่านจาก session
     // ถ้าไม่ล้าง ผู้ใช้รีเฟรชแล้วจะได้ hasAvatar: true กลับมา และรูปที่ลบไปแล้ว
     // จะโผล่อีกครั้งจนกว่าจะ login ใหม่
-    setSessionAvatarKey(req, null)
-    await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+    await reconcileSessionAvatar(req, null)
 
     await auditAct(req, 'PROFILE_AVATAR_CLEAR', String(req.user.id))
     res.status(204).end()

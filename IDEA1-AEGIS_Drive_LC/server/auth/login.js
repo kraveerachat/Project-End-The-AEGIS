@@ -41,5 +41,10 @@ export async function verifyCredentials(username, password) {
     // Omitting them here makes a new session silently fall back to defaults,
     // so a successful style-switch save is lost at the next login boundary.
     preferences: user.preferences,
+    // ⚠️ เหตุผลเดียวกับ preferences ด้านบน: publicUser() คำนวณ hasAvatar/avatarVersion
+    //    จากค่านี้ และเซสชันใหม่ถูกสร้างจาก "สิ่งที่ฟังก์ชันนี้คืน" ไม่ใช่จากแถว DB
+    //    ถ้าไม่คืนมาด้วย บัญชีที่มีรูปอยู่แล้วจะล็อกอินแล้ว /api/me บอกว่าไม่มีรูป
+    //    คีย์นี้อยู่ฝั่งเซิร์ฟเวอร์เท่านั้น — publicUser() ไม่เคยส่งมันออกไป
+    avatarKey: user.avatarKey ?? null,
   }
 }
