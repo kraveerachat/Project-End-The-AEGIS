@@ -168,6 +168,15 @@ export function setSessionDisplayName(req, displayName) {
   if (req.session?.user) req.session.user.displayName = displayName
 }
 
+/**
+ * เซสชันถือ avatarKey ไว้เพื่อไม่ต้องยิง DB ทุก request เหมือนที่ทำกับชื่อ —
+ * จึงต้องอัปเดตคู่กันทุกครั้งที่รูปเปลี่ยน ไม่งั้น /api/me จะยังตอบว่า "มีรูป"
+ * ทั้งที่เพิ่งลบไป และจอจะกลับไปแสดงรูปเดิมทันทีที่รีเฟรช
+ */
+export function setSessionAvatarKey(req, avatarKey) {
+  if (req.session?.user) req.session.user.avatarKey = avatarKey ?? null
+}
+
 /** ประทับเวลาที่เซสชันนี้ถูกใช้ครั้งล่าสุด — จอ Active sessions อ่านค่านี้ */
 export function touchSession(req) {
   if (req.session?.meta) req.session.meta.lastSeenAt = Date.now()

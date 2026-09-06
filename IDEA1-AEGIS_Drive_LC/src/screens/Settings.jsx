@@ -52,7 +52,7 @@ function ProfileCard({ t, user, role, onSaved }) {
   const [name, setName] = useState(user.displayName ?? '')
   const [saving, setSaving] = useState(false)
   const [state, setState] = useState(null) // null | 'saved' | 'error'
-  const [avatarBust, setAvatarBust] = useState(0)
+
   const [avatarErr, setAvatarErr] = useState(null) // null | 'size' | 'type' | 'failed'
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
@@ -89,7 +89,9 @@ function ProfileCard({ t, user, role, onSaved }) {
       setAvatarErr(res.status === 413 ? 'size' : res.status === 415 ? 'type' : 'failed')
       return
     }
-    setAvatarBust((n) => n + 1) // บังคับ Avatar โหลดใหม่ (URL เดิม เนื้อหาใหม่)
+    // ⚠️ ต้องอัปเดต session ไม่ใช่แค่ state ในการ์ดนี้ — TopBar อ่าน user จาก session
+    // ถ้าอัปเดตแค่ที่นี่ รูปบน TopBar จะเป็นรูปเก่าไปจนกว่าแคชจะหมดอายุ
+    onSaved?.({ ...user, hasAvatar: true, avatarVersion: res.data?.avatarVersion ?? null })
   }
 
   const removeAvatar = async () => {
@@ -98,7 +100,8 @@ function ProfileCard({ t, user, role, onSaved }) {
     setAvatarErr(null)
     const res = await apiFetch('/api/profile/avatar', { method: 'DELETE' })
     setBusy(false)
-    if (res.ok || res.status === 404) setAvatarBust((n) => n + 1)
+    // 404 = ไม่มีรูปอยู่แล้ว ซึ่งคือผลลัพธ์เดียวกับลบสำเร็จ
+    if (res.ok || res.status === 404) onSaved?.({ ...user, hasAvatar: false, avatarVersion: null })
     else setAvatarErr('failed')
   }
 
@@ -107,7 +110,7 @@ function ProfileCard({ t, user, role, onSaved }) {
       <CardTitle>{t('profile')}</CardTitle>
 
       <div className="flex items-start gap-4 flex-wrap">
-        <Avatar key={avatarBust} userId={user.id} name={user.displayName} size={56} />
+        <Avatar userId={user.id} name={user.displayName} hasAvatar={user.hasAvatar} version={user.avatarVersion} size={56} />
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold text-ink">{user.displayName}</p>
           <p className="font-mono text-[12px] text-ink-3">

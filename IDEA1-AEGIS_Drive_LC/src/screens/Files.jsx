@@ -4,7 +4,7 @@ import {
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
   Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check, Search, History,
 } from 'lucide-react'
-import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput } from '../components/ui.jsx'
+import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
@@ -40,21 +40,16 @@ export function FileMenu({ t, onAction, onClose }) {
     { id: 'meta', icon: Info, label: t('viewMetadata') },
     { id: 'delete', icon: Trash2, label: t('delete'), danger: true },
   ]
-  useEffect(() => {
-    const close = () => onClose()
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
-  }, [onClose])
+  // ⚠️ ไม่ต้องมี listener ปิดเมนูที่นี่ และไม่ต้องจัดตำแหน่งเอง — AnchoredMenu
+  //    เป็นเจ้าของทั้งการวางตำแหน่ง การปิด และชั้นการวาด (ดู components/ui.jsx)
+  //    คอมโพเนนต์นี้เหลือหน้าที่เดียวคือ "รายการคำสั่ง"
   return (
-    <div
-      className="absolute right-2 top-10 bg-card border border-line rounded-[var(--r-tile)] py-1.5 min-w-44 fade-in"
-      style={{ boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div onClick={(e) => e.stopPropagation()}>
       {items.map(({ id, icon: Icon, label, danger, disabled }) => (
         <button
           key={id}
           type="button"
+          role="menuitem"
           disabled={disabled}
           onClick={() => { if (!disabled) onAction(id); onClose() }}
           className="w-full flex items-center gap-2.5 px-3.5 h-8 text-[13px] font-medium hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -256,6 +251,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
 /* ── Grid tile ───────────────────────────────────────────────────── */
 function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuBtnRef = useRef(null)
   const [hover, setHover] = useState(false)
   const Icon = iconFor(file)
   const showControls = hover || selected || anySelected || menuOpen
@@ -293,15 +289,28 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 
       {/* overflow */}
       <button
+        ref={menuBtnRef}
         type="button"
-                    aria-label={t('moreActions')}
+        aria-label={t('moreActions')}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
         onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
         className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
         style={{ opacity: showControls ? 1 : 0 }}
       >
         <MoreHorizontal size={14} strokeWidth={1.5} />
       </button>
-      {menuOpen && <FileMenu t={t} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />}
+      {/* ⚠️ เมนูถูก portal ออกไปนอกไทล์ — ไทล์ยกตัวด้วย transform ตอน hover ซึ่ง
+          สร้าง stacking context ทำให้ไทล์ถัดไปทับเมนูของไทล์ก่อนหน้าได้ และเมนู
+          ที่ชิดขอบขวายังล้นออกนอกจอบนหน้าจอแคบ AnchoredMenu แก้ทั้งสองอย่าง */}
+      <AnchoredMenu
+        open={menuOpen}
+        anchorRef={menuBtnRef}
+        onClose={() => setMenuOpen(false)}
+        label={t('moreActions')}
+      >
+        <FileMenu t={t} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
+      </AnchoredMenu>
 
       {/* thumbnail */}
       <div className={`h-24 rounded-[9px] flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>

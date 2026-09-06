@@ -2,12 +2,13 @@
 // /api/login · /api/logout · /api/me · /api/audit (Admin)
 // ⚠️ login รับแค่ { username, password, remember } — ห้ามรับค่า role จาก client
 //    server ต้องค้นจาก DB เองเท่านั้น (OWASP A01)
+import { createHash } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
 import {
   establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset,
-  setSessionDisplayName, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
+  setSessionDisplayName, setSessionAvatarKey, listSessionsForUser, countSessionsByUser, revokeSessionByRef, sessionRef,
   setSessionPreferences, revokeOtherSessions,
   unlockTrashSession, lockTrashSession, trashAuthorization,
 } from '../auth/session.js'
@@ -71,6 +72,16 @@ const INVALID_CREDENTIALS = 'Invalid credentials'
 // มันไม่ใช่ความลับ (audit เห็นอยู่แล้ว) และ "ไม่ใช่" credential: ทุก endpoint ยังตัดสิน
 // สิทธิ์จาก req.user.id ที่มาจาก session เสมอ ไม่เคยจาก id ที่ client ส่งกลับมา
 // accountName = ชื่อที่ Admin ตั้ง (display_name) แสดงคู่กับชื่อโปรไฟล์เมื่อไม่ตรงกัน
+/**
+ * โทเคนรุ่นของรูปโปรไฟล์ — hash สั้นของ avatar_key
+ *
+ * ⚠️ ห้ามส่ง avatar_key ดิบออกไป: มันคือตำแหน่งไฟล์จริงใน Storage Layer
+ * ('avatars/<uuid>.<ext>') hash จึงทำหน้าที่แค่ "เปลี่ยนเมื่อรูปเปลี่ยน" พอให้
+ * เบราว์เซอร์ถือเป็น URL คนละรายการ โดยไม่บอกอะไรเกี่ยวกับที่เก็บไฟล์เลย
+ */
+const avatarVersionOf = (key) =>
+  (key ? createHash('sha256').update(String(key)).digest('hex').slice(0, 12) : null)
+
 const publicUser = (u) => ({
   id: String(u.id),
   username: u.username,
@@ -79,6 +90,11 @@ const publicUser = (u) => ({
   role: u.role,
   mustResetPassword: Boolean(u.mustResetPassword),
   preferences: u.preferences ?? { ...DEFAULT_USER_PREFERENCES },
+  // การมีอยู่ของรูปไม่ใช่ความลับ (รูปถูกเสิร์ฟให้ผู้ใช้ที่ล็อกอินแล้วทุกคนอยู่แล้ว
+  // และ /api/users ก็ส่ง hasAvatar ออกไปแล้ว) แต่การรู้ล่วงหน้าทำให้จอไม่ต้องเดา
+  // จาก 404 ซึ่งเป็นเส้นทางที่ HTTP cache ทำให้ผิดได้
+  hasAvatar: Boolean(u.avatarKey),
+  avatarVersion: avatarVersionOf(u.avatarKey),
 })
 
 export const apiRouter = Router()
@@ -1197,8 +1213,16 @@ apiRouter.post('/profile/avatar', requireAuth, (req, res, next) => {
       // รูปเดิมไม่มีใครอ้างถึงอีกแล้ว — ลบทิ้งเสมอ ไม่ปล่อยให้ค้างบนดิสก์ต่อไปเงียบ ๆ
       if (oldKey && oldKey !== key) await removeAvatar(oldKey).catch(() => {})
 
+      setSessionAvatarKey(req, key)
+      await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+
       await auditAct(req, 'PROFILE_AVATAR_SET', String(req.user.id))
-      res.status(201).json({ hasAvatar: true, mime: clean.mime, bytes: clean.bytes.length })
+      res.status(201).json({
+        hasAvatar: true,
+        avatarVersion: avatarVersionOf(key),
+        mime: clean.mime,
+        bytes: clean.bytes.length,
+      })
     } catch (err) {
       next(err)
     }
@@ -1211,6 +1235,13 @@ apiRouter.delete('/profile/avatar', requireAuth, async (req, res, next) => {
     if (!current) return res.status(404).json({ error: 'Not found' })
     await updateAvatar(req.user.id, { key: null, mime: null })
     await removeAvatar(current.key).catch(() => {})
+
+    // ⚠️ ต้องล้างใน session ด้วย ไม่ใช่แค่ใน DB — /api/me อ่านจาก session
+    // ถ้าไม่ล้าง ผู้ใช้รีเฟรชแล้วจะได้ hasAvatar: true กลับมา และรูปที่ลบไปแล้ว
+    // จะโผล่อีกครั้งจนกว่าจะ login ใหม่
+    setSessionAvatarKey(req, null)
+    await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())))
+
     await auditAct(req, 'PROFILE_AVATAR_CLEAR', String(req.user.id))
     res.status(204).end()
   } catch (err) {
