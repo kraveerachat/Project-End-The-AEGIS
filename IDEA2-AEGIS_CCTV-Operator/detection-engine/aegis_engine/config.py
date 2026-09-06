@@ -106,6 +106,9 @@ class EngineConfig:
     target_fps: int = 24
     capture_reconnect_delay_s: float = 2.0
     capture_max_reconnect_delay_s: float = 30.0
+    # Keep the API/heartbeat process available while releasing the physical
+    # camera whenever no authenticated Monitor stream is being consumed.
+    capture_on_demand: bool = False
 
     # --- Queues -----------------------------------------------------------
     record_queue_size: int = 240  # ~10s of headroom @ 24fps before dropping
@@ -114,6 +117,21 @@ class EngineConfig:
     # --- Detection (FaceDetectorProcessor) -------------------------------
     detect_every_n_frames: int = 1  # throttle inference (e.g. 2 = every other)
     detect_min_confidence: float = 60.0
+    # Placeholder is deliberately the safe default. The production candidate
+    # keeps the trained YOLO model, but requires SFace identity verification;
+    # a one-class object detector is never sufficient to authorize a person.
+    recognizer_backend: str = "placeholder"  # placeholder | yolo-sface-admin
+    admin_model_path: Optional[str] = None
+    admin_class_name: str = "Admin-Face-Scan"
+    admin_display_name: str = "Admin"
+    admin_min_confidence: float = 50.0
+    face_detector_model_path: Optional[str] = None
+    face_recognizer_model_path: Optional[str] = None
+    admin_embeddings_path: Optional[str] = None
+    face_match_cosine_threshold: float = 0.50
+    face_detector_score_threshold: float = 0.60
+    face_detector_max_side: int = 640
+    yolo_gate_ttl_s: float = 2.0
 
     # --- Recording (SegmentRecorder) -------------------------------------
     segment_seconds: int = 600  # ~10 minutes per file
@@ -169,6 +187,11 @@ class EngineConfig:
     # from. Blank -> derived from api_host/api_port (localhost is rewritten to
     # 127.0.0.1 since 0.0.0.0 is not dialable).
     stream_public_url: Optional[str] = None
+    # A cold YOLO+SFace worker can take materially longer than a normal frame
+    # interval to load models and publish its first annotated JPEG. Keep this
+    # separate from the steady-state idle timeout so startup is patient while
+    # an already-running stream still fails fast when frames stop.
+    stream_first_frame_timeout_s: int = 45
     # Close a stream that has produced no frames for this long (capture died,
     # camera unplugged). Without it a viewer holds an open socket forever.
     stream_idle_timeout_s: int = 15
@@ -202,6 +225,9 @@ class EngineConfig:
                 "AEGIS_CAPTURE_MAX_RECONNECT_DELAY_S",
                 cls.capture_max_reconnect_delay_s,
             ),
+            capture_on_demand=_env_bool(
+                "AEGIS_CAPTURE_ON_DEMAND", cls.capture_on_demand
+            ),
             record_queue_size=_env_int("AEGIS_RECORD_QUEUE_SIZE", cls.record_queue_size),
             detect_queue_size=_env_int("AEGIS_DETECT_QUEUE_SIZE", cls.detect_queue_size),
             detect_every_n_frames=_env_int(
@@ -209,6 +235,36 @@ class EngineConfig:
             ),
             detect_min_confidence=_env_float(
                 "AEGIS_DETECT_MIN_CONFIDENCE", cls.detect_min_confidence
+            ),
+            recognizer_backend=_env_str(
+                "AEGIS_RECOGNIZER_BACKEND", cls.recognizer_backend
+            ).strip().lower(),
+            admin_model_path=_env_opt("AEGIS_ADMIN_MODEL_PATH"),
+            admin_class_name=_env_str(
+                "AEGIS_ADMIN_CLASS_NAME", cls.admin_class_name
+            ),
+            admin_display_name=_env_str(
+                "AEGIS_ADMIN_DISPLAY_NAME", cls.admin_display_name
+            ),
+            admin_min_confidence=_env_float(
+                "AEGIS_ADMIN_MIN_CONFIDENCE", cls.admin_min_confidence
+            ),
+            face_detector_model_path=_env_opt("AEGIS_FACE_DETECTOR_MODEL_PATH"),
+            face_recognizer_model_path=_env_opt("AEGIS_FACE_RECOGNIZER_MODEL_PATH"),
+            admin_embeddings_path=_env_opt("AEGIS_ADMIN_EMBEDDINGS_PATH"),
+            face_match_cosine_threshold=_env_float(
+                "AEGIS_FACE_MATCH_COSINE_THRESHOLD",
+                cls.face_match_cosine_threshold,
+            ),
+            face_detector_score_threshold=_env_float(
+                "AEGIS_FACE_DETECTOR_SCORE_THRESHOLD",
+                cls.face_detector_score_threshold,
+            ),
+            face_detector_max_side=_env_int(
+                "AEGIS_FACE_DETECTOR_MAX_SIDE", cls.face_detector_max_side
+            ),
+            yolo_gate_ttl_s=_env_float(
+                "AEGIS_YOLO_GATE_TTL_S", cls.yolo_gate_ttl_s
             ),
             segment_seconds=_env_int("AEGIS_SEGMENT_SECONDS", cls.segment_seconds),
             segment_dir=_env_str("AEGIS_SEGMENT_DIR", cls.segment_dir),
@@ -254,6 +310,10 @@ class EngineConfig:
             stream_jpeg_quality=_env_int("AEGIS_STREAM_JPEG_QUALITY", cls.stream_jpeg_quality),
             stream_max_fps=_env_float("AEGIS_STREAM_MAX_FPS", cls.stream_max_fps),
             stream_public_url=_env_opt("AEGIS_STREAM_PUBLIC_URL"),
+            stream_first_frame_timeout_s=_env_int(
+                "AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S",
+                cls.stream_first_frame_timeout_s,
+            ),
             stream_idle_timeout_s=_env_int(
                 "AEGIS_STREAM_IDLE_TIMEOUT_S", cls.stream_idle_timeout_s
             ),
@@ -272,6 +332,49 @@ class EngineConfig:
             raise ValueError("AEGIS_SEGMENT_SECONDS must be > 0")
         if self.detect_every_n_frames <= 0:
             raise ValueError("AEGIS_DETECT_EVERY_N_FRAMES must be > 0")
+        if not 0 < self.detect_min_confidence <= 100:
+            raise ValueError("AEGIS_DETECT_MIN_CONFIDENCE must be between 0 and 100")
+        if self.recognizer_backend not in {"placeholder", "yolo-sface-admin"}:
+            raise ValueError(
+                "AEGIS_RECOGNIZER_BACKEND must be placeholder or "
+                "yolo-sface-admin; yolo-admin alone cannot prove identity"
+            )
+        if self.recognizer_backend == "yolo-sface-admin":
+            if not self.admin_model_path:
+                raise ValueError(
+                    "AEGIS_ADMIN_MODEL_PATH is required when "
+                    "AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin"
+                )
+            required_identity_paths = {
+                "AEGIS_FACE_DETECTOR_MODEL_PATH": self.face_detector_model_path,
+                "AEGIS_FACE_RECOGNIZER_MODEL_PATH": self.face_recognizer_model_path,
+                "AEGIS_ADMIN_EMBEDDINGS_PATH": self.admin_embeddings_path,
+            }
+            missing = [name for name, value in required_identity_paths.items() if not value]
+            if missing:
+                raise ValueError(
+                    "Identity verification requires: " + ", ".join(missing)
+                )
+            if not self.admin_class_name.strip() or not self.admin_display_name.strip():
+                raise ValueError(
+                    "AEGIS_ADMIN_CLASS_NAME and AEGIS_ADMIN_DISPLAY_NAME must not be empty"
+                )
+            if not 0 < self.admin_min_confidence <= 100:
+                raise ValueError(
+                    "AEGIS_ADMIN_MIN_CONFIDENCE must be between 0 and 100"
+                )
+            if not 0 < self.face_match_cosine_threshold <= 1:
+                raise ValueError(
+                    "AEGIS_FACE_MATCH_COSINE_THRESHOLD must be between 0 and 1"
+                )
+            if not 0 < self.face_detector_score_threshold <= 1:
+                raise ValueError(
+                    "AEGIS_FACE_DETECTOR_SCORE_THRESHOLD must be between 0 and 1"
+                )
+            if self.face_detector_max_side < 320:
+                raise ValueError("AEGIS_FACE_DETECTOR_MAX_SIDE must be >= 320")
+            if not 0 <= self.yolo_gate_ttl_s <= 10:
+                raise ValueError("AEGIS_YOLO_GATE_TTL_S must be between 0 and 10")
         if self.record_queue_size <= 0 or self.detect_queue_size <= 0:
             raise ValueError("AEGIS_RECORD_QUEUE_SIZE and AEGIS_DETECT_QUEUE_SIZE must be > 0")
         if self.nas_enabled:
@@ -290,6 +393,19 @@ class EngineConfig:
                 raise ValueError("AEGIS_NAS_MAX_RETRIES must be > 0 when NAS is enabled")
         if not (1 <= self.stream_jpeg_quality <= 100):
             raise ValueError("AEGIS_STREAM_JPEG_QUALITY must be between 1 and 100")
+        if self.capture_on_demand and not self.stream_enabled:
+            raise ValueError(
+                "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_STREAM_ENABLED=true"
+            )
+        if self.capture_on_demand and not self.detection_engine_api_key:
+            raise ValueError(
+                "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_DETECTION_ENGINE_API_KEY; "
+                "an unauthenticated viewer must never activate the camera"
+            )
+        if self.stream_first_frame_timeout_s <= 0:
+            raise ValueError("AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S must be > 0")
+        if self.stream_idle_timeout_s <= 0:
+            raise ValueError("AEGIS_STREAM_IDLE_TIMEOUT_S must be > 0")
         return self
 
     def resolved_stream_url(self) -> Optional[str]:
@@ -321,5 +437,13 @@ class EngineConfig:
                 and val
             ):
                 val = _redact_url_credentials(str(val))
+            elif f.name in {
+                "admin_model_path",
+                "face_detector_model_path",
+                "face_recognizer_model_path",
+                "admin_embeddings_path",
+            } and val:
+                # Logs need the selected filename, not a user's absolute path.
+                val = os.path.basename(str(val))
             out[f.name] = val
         return out

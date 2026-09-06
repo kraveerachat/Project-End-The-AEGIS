@@ -27,10 +27,10 @@ docker compose
 | Configuration and logging | Implemented |
 | Camera capture/reconnect | Implemented; real camera verification pending |
 | Face detection | Haar-based development placeholder |
-| Face recognition | **Placeholder only**; every placeholder face is `Unknown` with no identity |
+| Face recognition | Identity-free placeholder by default; explicit local YOLO + YuNet + SFace enrollment backend available, never YOLO-only authorization |
 | Recording | Implemented; local segments are retained when NAS is disabled |
 | Monitor client | Implemented, optional/fail-soft; real heartbeat integration pending |
-| Live MJPEG stream | Implemented; Monitor proxy integration remains environment-dependent |
+| Live MJPEG stream | Detection-aligned boxes/labels on copied frames; authenticated viewer-demand mode releases the camera when the last stream closes |
 | Telegram | Dry-run when token/chat are absent; credential rotation required before real testing |
 | NAS | Disabled by default; production transfer/integrity verification pending |
 | Windows auto-start | Portable installer, Engine supervisor, SYSTEM tunnel reconnect, status/repair/uninstall scripts implemented; every laptop still needs machine-specific provisioning and reboot proof |
@@ -38,6 +38,39 @@ docker compose
 Object detection is not identity. The modular runtime does not import the
 legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
 authorization from an object class.
+
+### Viewer-demand capture and locally enrolled recognition
+
+`AEGIS_CAPTURE_ON_DEMAND=true` keeps API/heartbeat alive while the webcam is
+released with no authenticated MJPEG viewers. Health reports `idle`,
+`camera_demanded=false`, `camera_connected=false` and `stream_viewers=0`.
+The first authorized stream opens the camera; the last disconnect releases it
+and finalizes its recording segment. Multiple browser tabs count separately.
+Always-on capture remains the default for compatibility. On-demand capture
+means there is **no recording or detection while nobody is viewing**.
+
+Live frames now come from the detector's exact frame/result pair. Bounding
+boxes and names are burned into a copy, leaving recordings unmodified. Live FPS
+is limited by inference throughput; an empty detection still sends its frame.
+Frames from a closed viewer session cannot be replayed to a new session.
+
+For an already enrolled node, install `pip install -r requirements-ai.txt` and
+set `AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin` plus the four local asset paths
+in `.env.example`. This reuses existing YOLO weights, YuNet/SFace models and the
+matching Admin `.npz` enrollment; it does not enroll or distribute a person.
+Missing assets or dependencies fail startup, never silently select placeholder.
+An Authorized result requires both a spatially overlapping YOLO candidate and
+an SFace template match. This is a model verdict, **not liveness detection or
+a replacement for Monitor's session/RBAC authorization**.
+
+The optional [official headless Ultralytics distribution](https://docs.ultralytics.com/quickstart/#headless-server-installation)
+preserves the existing headless OpenCV provider. Do not install both Ultralytics
+distributions into one environment. Model weights, private images, enrollment,
+credentials and virtual environments stay outside Git.
+
+Cold first-frame timeout defaults to 45 seconds, separate from the 15-second
+steady-state idle timeout. Actual device-open time still depends on the camera
+driver; acceptance must measure real open, close, and reopen on the target node.
 
 ## Development quick start
 
@@ -164,13 +197,27 @@ The tests use camera/runtime doubles and do not require real hardware:
 python -m unittest discover -s tests -v
 ```
 
+## Persistent edge-node installation
+
+- Windows nodes use the scripts and runbook in `windows/`.
+- Arch Linux and other systemd nodes use `linux/install_systemd.sh` plus the
+  status, repair and non-destructive uninstall helpers documented in
+  `linux/README.md`.
+
+Both installers keep `.env`, SSH private keys, models, biometric enrollment,
+recordings and local virtual environments outside Git. Every additional node
+must have a unique camera/node identity, its own SSH key and a server-approved
+unique reverse-forward port; local ports `8077` and `18002` may be reused on
+different machines.
+
 They cover configuration loading, NAS-disabled startup, lifecycle rollback and
-shutdown, NAS success truthfulness, placeholder authorization safety, and
-operator-readable startup failures.
+shutdown, NAS success truthfulness, placeholder/hybrid authorization safety,
+viewer acquisition/release, send-error/cancellation cleanup, frame alignment,
+old-session exclusion and operator-readable startup failures.
 
 ## Deferred work
 
-- Real face recognition and enrollment
+- Enrollment provisioning and measured real-person accuracy/liveness evaluation
 - Real camera verification on the edge node
 - Real Monitor heartbeat integration
 - Telegram routing/delivery after credential rotation

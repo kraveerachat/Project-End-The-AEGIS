@@ -1,0 +1,9 @@
+# Optional trained-model backend for IDEA2 camera nodes.
+# Install the core runtime first, then this file on nodes configured with
+# AEGIS_RECOGNIZER_BACKEND=yolo-sface-admin. YOLO supplies candidate regions;
+# YuNet and SFace still have to verify identity. Models and biometric templates
+# remain local and ignored.
+-r requirements.txt
+# Official headless distribution avoids installing two providers of cv2.
+# https://docs.ultralytics.com/quickstart/#headless-server-installation
+ultralytics-opencv-headless==8.4.120
