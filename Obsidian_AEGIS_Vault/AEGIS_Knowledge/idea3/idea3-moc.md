@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-09-06
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. This workstream remains design/report-level until hardware evidence is attached.
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core now have repository implementations and local automated evidence; live MQTT, ESP32, relay, physical isolation, and production deployment still require separate evidence.
 
 ## Owned source and canonical notes
 
@@ -20,7 +20,7 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The intended system uses an ESP32 relay and MQTT with HMAC to perform fail-secure network isolation. Implementation and hardware proof remain open; see [[idea3/idea3-status]] for the current maturity boundary.
+The repository now contains the Admin-only Web Security Center plus the Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions. Hardware proof remains open: protocol-correlated STATUS is not direct electrical relay evidence and does not prove WAN isolation. See [[idea3/idea3-status]] for the exact closed/open matrix.
 
 ## Shared dependencies
 

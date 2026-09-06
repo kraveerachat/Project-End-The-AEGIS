@@ -1,0 +1,190 @@
+"""
+AEGIS IDEA 3 — Attack Detector
+เฝ้า /var/log/auth.log จับ SSH brute-force แล้ว publish IP ผู้โจมตีเข้า MQTT
+รัน: sudo python3 detector.py   (ต้อง sudo เพราะอ่าน auth.log)
+"""
+import os
+import re
+import subprocess
+import time
+from collections import defaultdict, deque
+
+import paho.mqtt.client as mqtt
+
+FAIL_THRESHOLD = 5                 # ล้มเหลวกี่ครั้ง
+TIME_WINDOW = 30                   # ภายในกี่วินาที
+
+# ===== MQTT (ยังไม่เชื่อม — เชื่อมตอนรันจริงใน main) =====
+client = None
+
+def connect_mqtt():
+    """สร้าง + เชื่อม MQTT client (เรียกเฉพาะตอนรันจริง)"""
+    global client
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    except AttributeError:
+        client = mqtt.Client()
+    client.username_pw_set(MQTT_USER, MQTT_PASS)
+    client.connect(BROKER, PORT, 60)
+    client.loop_start()
+
+# ===== ตัวนับแบบ sliding window =====
+fail_times = defaultdict(lambda: deque())   # ip -> เวลาที่ล้มเหลว
+already_reported = set()                     # กัน publish ซ้ำ
+
+scan_ports = defaultdict(lambda: deque())   # ip -> deque ของ (เวลา, พอร์ต)
+SCAN_PORT_THRESHOLD = 10                     # แตะกี่พอร์ตต่างกัน
+SCAN_TIME_WINDOW = 10                        # ภายในกี่วินาที
+
+syn_times = defaultdict(lambda: deque())     # ip -> เวลา TCP SYN ใหม่
+SYN_FLOOD_THRESHOLD = 20                    # Lab threshold
+SYN_FLOOD_WINDOW = 2                        # วินาที
+
+
+# ===== Auto-reset สถานะทุก N วินาที (เพื่อทดสอบซ้ำสะดวก) =====
+import threading
+
+AUTO_RESET_SEC = 60   # ล้างสถานะทุก 60 วิ
+
+def _auto_reset_loop():
+    """ล้างตัวนับ + already_reported เป็นระยะ เพื่อให้ยิงทดสอบซ้ำได้โดยไม่ต้องรีสตาร์ท"""
+    while True:
+        time.sleep(AUTO_RESET_SEC)
+        fail_times.clear()
+        scan_ports.clear()
+        syn_times.clear()
+        already_reported.clear()
+        print("[DETECTOR] 🔄 auto-reset สถานะแล้ว (พร้อมทดสอบรอบใหม่)")
+
+def _load_dotenv(path=".env"):
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
+BROKER = os.getenv("AEGIS_BROKER_IP", "127.0.0.1")
+PORT = int(os.getenv("AEGIS_BROKER_PORT", "1883"))
+MQTT_USER = os.getenv("AEGIS_MQTT_USER", "aegis")
+MQTT_PASS = os.getenv("AEGIS_MQTT_PASS", "")
+
+TOPIC_ATTACKER = "aegis/attacker_ip"
+
+
+def report_attacker(ip):
+    if ip in already_reported:
+        return
+
+    already_reported.add(ip)
+
+    if client is not None:
+        t0_ms = time.time_ns() // 1_000_000
+        client.publish(TOPIC_ATTACKER, ip)
+        print(f"[LATENCY] T0 publish {ip} at {t0_ms} ms")
+
+    print(f"[DETECTOR] 🚨 พบการโจมตีจาก {ip} → publish เข้า {TOPIC_ATTACKER}")
+
+def process_line(line):
+    # หา "Failed password ... from <IP>"
+    m = re.search(r"Failed password.*from (\d+\.\d+\.\d+\.\d+)", line)
+    if not m:
+        return
+    ip = m.group(1)
+    now = time.time()
+    dq = fail_times[ip]
+    dq.append(now)
+    # เอาเวลาที่เก่ากว่า window ออก
+    while dq and now - dq[0] > TIME_WINDOW:
+        dq.popleft()
+    print(f"[DETECTOR] Failed login จาก {ip} ({len(dq)}/{FAIL_THRESHOLD})")
+    if len(dq) >= FAIL_THRESHOLD:
+        report_attacker(ip)
+
+
+def process_portscan(line):
+    """จับ port scan จาก log iptables (AEGIS_NEWCONN)"""
+    if "AEGIS_NEWCONN" not in line:
+        return
+    m_ip = re.search(r"SRC=(\d+\.\d+\.\d+\.\d+)", line)
+    m_port = re.search(r"DPT=(\d+)", line)
+    if not m_ip or not m_port:
+        return
+    ip = m_ip.group(1)
+    port = m_port.group(1)
+    #if ip.startswith("127."):      # ข้าม localhost (กัน false alarm ตอนทดสอบ)
+     #   return
+    now = time.time()
+    dq = scan_ports[ip]
+    dq.append((now, port))
+    while dq and now - dq[0][0] > SCAN_TIME_WINDOW:
+        dq.popleft()
+    unique_ports = {p for _, p in dq}         # นับพอร์ตไม่ซ้ำ
+    print(f"[DETECTOR] Port scan? {ip} แตะ {len(unique_ports)} พอร์ต")
+    if len(unique_ports) >= SCAN_PORT_THRESHOLD:
+        report_attacker(ip)
+
+
+def process_synflood(line):
+    """Detect a high rate of new TCP SYN events from one source IP."""
+    if "AEGIS_NEWCONN" not in line:
+        return
+
+    m_ip = re.search(r"SRC=(\d+\.\d+\.\d+\.\d+)", line)
+    if not m_ip:
+        return
+
+    ip = m_ip.group(1)
+
+    if ip.startswith("127."):
+        return
+
+    now = time.time()
+    dq = syn_times[ip]
+    dq.append(now)
+
+    while dq and now - dq[0] > SYN_FLOOD_WINDOW:
+        dq.popleft()
+
+    print(
+        f"[DETECTOR] SYN rate {ip}: "
+        f"{len(dq)}/{SYN_FLOOD_THRESHOLD} "
+        f"within {SYN_FLOOD_WINDOW}s"
+    )
+
+    if len(dq) >= SYN_FLOOD_THRESHOLD:
+        report_attacker(ip)
+
+
+def tail_journal():
+    """อ่าน journal แล้วส่ง log เข้า detector แต่ละประเภท"""
+    proc = subprocess.Popen(
+        ["journalctl", "-f", "-n", "0", "-o", "cat"],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+
+    for line in proc.stdout:
+        process_line(line)
+        process_portscan(line)
+        process_synflood(line)  # SYN flood / DoS
+
+if __name__ == "__main__":
+    connect_mqtt()
+    # สตาร์ท auto-reset thread (daemon = ปิดตามโปรแกรมหลัก)
+    threading.Thread(target=_auto_reset_loop, daemon=True).start()
+    print(f"[DETECTOR] เริ่มเฝ้า systemd journal (auth/sshd) ... (auto-reset ทุก {AUTO_RESET_SEC}s)")
+    tail_journal()

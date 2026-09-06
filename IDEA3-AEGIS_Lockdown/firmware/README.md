@@ -1,10 +1,10 @@
 # AEGIS Lockdown · Firmware
 
-**Target: ESP32 + Relay. Scaffold only — no code yet.**
+**Target: ESP32 + Relay. Firmware source migrated from the verified IDEA3 standalone core.**
 
 Physical lockdown actuator. Receives commands over the network and drives a relay.
 
-## Security model (to implement)
+## Security model
 - **Transport:** MQTT.
 - **Authenticity:** every command is signed with **HMAC-SHA256** — the device rejects any
   message whose MAC does not verify against the shared key.
@@ -13,6 +13,11 @@ Physical lockdown actuator. Receives commands over the network and drives a rela
 - **Dead Man's Switch:** if the device stops receiving valid heartbeats within the timeout, it
   fails to its **safe state** on its own — no command needed to trigger the safe outcome.
 
+`src/main.cpp` preserves timestamp validation, nonce replay protection, HMAC verification,
+ACK/status publication, secure boot grace, explicit RESTORE handling, and the Dead Man's
+Switch. `src/secrets.h` is deliberately absent and ignored; create it locally from
+`src/secrets.h.example` without committing its values.
+
 ## Do NOT put here
 - Camera / detection logic → **IDEA 2 (AEGIS Monitor)**.
-- Dashboards / web UI → the relevant web app, not the firmware.
+- Dashboard / Web UI → `../web/`; the browser never talks to this firmware directly.

@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center web application is now implemented and locally verified, but live adapters, durable storage, hardware control, and production deployment remain unproven. Do not promote those runtime claims until a Music-owned receipt records concrete integration evidence.
+> Owner: **Music**. The Security Center and Headless Core now have repository implementations and local automated evidence. Live adapters, durable storage, ESP32 flash, MQTT hardware E2E, relay actuation, physical WAN isolation, and production deployment remain unproven. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -24,7 +24,7 @@ edit_policy: owner-writable
 sequenceDiagram
     autonumber
     actor SOC as SOC Responder / System Rule
-    participant Backend as AEGIS Monitor Server
+    participant Backend as AEGIS Headless Core
     participant Broker as Secure MQTT Broker
     participant ESP32 as ESP32 Microcontroller
     participant Relay as Physical Door Lock / Power Relay
@@ -36,7 +36,7 @@ sequenceDiagram
     ESP32->>ESP32: 5. Verify HMAC Signature & Check Nonce replay attack
     alt Verification Success
         ESP32->>Relay: 6. Trigger Relay (Engage Physical Lock)
-        ESP32-->>Broker: 7. Status ACK (Locked)
+        ESP32-->>Broker: 7. Nonce-correlated ACK + STATUS
     else Verification Failed / Replay Attack
         ESP32->>ESP32: 8. Ignore Command & Log Security Alert
     end
@@ -46,9 +46,87 @@ sequenceDiagram
 
 ## 🛠️ Physical Security Features
 
-* **HMAC-SHA256 Validation**: The ESP32 board rejects any commands lacking valid HMAC signatures.
-* **Anti-Replay Attack (Nonce)**: Random nonces prevent command interception and replay attacks.
-* **Dead Man's Switch**: If heartbeat communication from the central server drops beyond the threshold, the system automatically triggers fail-secure isolation.
+* **HMAC-SHA256 Validation**: Firmware source rejects commands whose signature does not match; this branch verifies the contract through tests and compile-only evidence.
+* **Anti-Replay Attack (Nonce)**: Firmware source tracks single-use nonces and now echoes command correlation through ACK/command-triggered STATUS.
+* **Dead Man's Switch**: Firmware source retains fail-secure heartbeat-loss behavior; this revision has not rerun the behavior on real hardware.
+
+---
+
+## ⚙️ Headless Core / Command & Physical Evidence track
+
+Personal planning label: **IDEA3 PR4**. Git publication branch:
+`feat/idea3-headless-core-pr4`. The historical source checkpoints were audited
+from `feat/idea3-headless-core`; GitHub assigns the actual repository PR number
+only when the publication branch is opened.
+
+### Operational mode ownership — CLOSED
+
+- Core owns the operational safety gate `ARMED` / `DISARMED` independently from the `auto_contain` policy.
+- Default Core operational mode is `ARMED`.
+- `set_armed(armed, origin)` persists the mode and audits the previous/current value plus origin.
+- While `DISARMED`, detector events remain observable/auditable but automatic containment cannot publish `CUT_UPLINK`.
+- Historical source checkpoint: `e2aa6acd`.
+
+### Command ownership — CLOSED
+
+- `AegisSupervisor.issue_command()` is the public Core command-lifecycle entry point and delegates signing/publication to the existing controller.
+- A sent command creates Core-owned pending state containing `action`, `sent_at`, and `nonce`.
+- Automatic detector containment uses the same `issue_command()` path rather than a second command implementation.
+- Historical source checkpoint: `1ab38dfc`.
+
+### ACK nonce correlation — CLOSED
+
+- Firmware ACK includes the parsed command nonce for valid/rejected command paths where a nonce exists; malformed JSON uses an empty nonce.
+- MQTTManager forwards `(ack, detail, nonce)` to Core.
+- Missing or mismatched ACK nonce is ignored and audited fail-closed; only the matching pending command can be acknowledged.
+- The legacy GUI callback accepts the nonce and duplicate ACK callback binding was removed.
+- Historical source checkpoint: `1ab38dfc`.
+
+### ACK versus physical evidence — CLOSED at protocol lifecycle level
+
+```text
+Requested != Published != ACK != Executed != Physical Evidence
+```
+
+- ACK success alone never proves relay or network isolation.
+- CUT expects `LOCKDOWN`; RESTORE expects `NORMAL`; the opposite state cannot confirm the command.
+- `ACK → STATUS` and `STATUS → ACK` are both retained without later evidence overwriting earlier evidence.
+- ACK timeout and physical-confirmation timeout are separate; physical confirmation waits `8` seconds after ACK.
+- A CUT physical timeout degrades runtime when no LOCKDOWN truth exists.
+- A RESTORE timeout cannot hide current `LOCKDOWN` physical truth.
+- Late matching physical evidence is accepted while the original `physical_timeout_at` history remains recorded.
+- Historical source checkpoint: `1ab38dfc`.
+
+### Task 2D6 Physical STATUS correlation — IMPLEMENTED / CLOSED
+
+- Approved design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-04-idea3-physical-status-correlation-design.md` (`ad0c3d37`).
+- Command-triggered CUT/RESTORE STATUS includes `command_nonce` (`12f207f1`).
+- Boot, periodic heartbeat, Deadman, and Secure Boot STATUS remains uncorrelated.
+- MQTTManager forwards optional `command_nonce`; the legacy GUI accepts the expanded callback signature.
+- Every valid STATUS may update device/uplink physical truth, including uncorrelated fail-secure STATUS.
+- Active command evidence changes only when `STATUS.command_nonce` matches the tracked command nonce; confirmation additionally requires the expected physical state.
+- Missing/mismatched correlation is ignored for command completion and audited without false confirmation (`cfb6efe2`).
+
+### Fresh verification — 2026-09-06
+
+- Python: `pytest -p no:cacheprovider -q` — **62 passed in 0.35s**.
+- Ruff: scoped check of `aegis_soc`, detector entry points, and tests — **All checks passed**.
+- Python compileall — **PASS**.
+- Firmware: `platformio run -d firmware` — **compile-only SUCCESS**, RAM 46,572/327,680 bytes (14.2%), Flash 789,309/1,310,720 bytes (60.2%).
+- `git diff --check` — **PASS** before documentation reconciliation.
+- No firmware upload, flash, serial write, MQTT connection, command publication, GPIO/relay action, network change, or deployment occurred.
+
+### Still open
+
+- ESP32 flash/upload and real MQTT/HMAC end-to-end acceptance.
+- Physical CUT/RESTORE relay observation and actual WAN isolation verification.
+- Deadman and recovery hardware acceptance for this revision.
+- Production Web → Core → MQTT integration and durable production/audit persistence.
+- Full migration of remaining GUI-owned operational state/heartbeat behavior into the Core/API boundary where duplication still exists.
+
+Protocol-correlated STATUS remains device-reported evidence, not direct electrical
+measurement of relay contacts. Hardware E2E is **NOT_COMPLETED** and physical
+isolation is **NOT_PROVEN**.
 
 ---
 
