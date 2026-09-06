@@ -2174,11 +2174,11 @@ For a separate formal “large-file storage” closure above 1 GiB, preview is n
 
 ### Backup Target / `PrivateDevices` classification update — 2026-09-06
 
-**Overall state: `BACKUP TARGET = IN PROGRESS`.** Hardware discovery, preservation audit, safe HGST mount, target registration, root-cause analysis, source fix, regression tests, commit/push, PR review and merge are complete. Only controlled Production deployment and real Production classification remain before the Backup Target gate can close.
+**Overall state: `BACKUP TARGET = PASS / CLOSED` for the accepted Production scope.** Hardware discovery, preservation audit, safe HGST mount, target registration, root-cause analysis, source fix, regression tests, PR #81 integration, controlled live-agent deployment, and real Production classification are complete.
 
-**Repository integration is closed.** PR #81 (`fix(backup): classify targets with PrivateDevices`) merged the classifier fix into `main@07ad78efdf1561f2a49a1ecc81440359b766b3bd`. The source commit remains `a68de6f145d7e0f6935f2a2a0609ca4be432cdff`. Focused target tests pass **9/9** and the complete host backup-agent suite passes **52/52**.
+**Repository integration is closed.** PR #81 (`fix(backup): classify targets with PrivateDevices`) merged the classifier fix at milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. The source commit remains `a68de6f145d7e0f6935f2a2a0609ca4be432cdff`. Focused target tests pass **9/9** and the complete host backup-agent suite passes **52/52**.
 
-**Production is intentionally still fail-closed.** The running `aegis-backup.service` has not yet received the merged classifier. It keeps `PrivateDevices=true` and still reports the registered HGST target as `UNKNOWN / physical-device-unresolved`. Do not select the target or enable scheduling until deployment acceptance proves a separate physical disk.
+**Production deployment is accepted.** The reviewed classifier blob `2a9dc27fbdb812dbb50a84d10f364343fc09d967` is deployed to the live `/opt/aegis/host-backup-agent/src/targets.js` copy. `PrivateDevices=yes` remains enabled, `aegis-backup.service` is active/running, and `hgst-usb-1` reports `DIFFERENT_DEVICE`. The Production Git checkout remains `2806373...`; do not collapse repository checkout and live host-agent deployment into one SHA claim.
 
 Correct resolution architecture:
 
@@ -2190,7 +2190,7 @@ Correct resolution architecture:
   → physical parent disk
 ```
 
-The source change does not disable or weaken `PrivateDevices=true`; unresolved evidence remains `UNKNOWN`.
+The source change does not disable or weaken `PrivateDevices=true`; unresolved evidence remains fail-closed `UNKNOWN` by design.
 
 | Gate | State | Evidence / remaining boundary |
 | :--- | :--- | :--- |
@@ -2205,15 +2205,15 @@ The source change does not disable or weaken `PrivateDevices=true`; unresolved e
 | `BACKUP-TARGET-2F2E` | **PASS / CLOSED** | PrivateDevices-compatible classifier + regression coverage implemented. |
 | `BACKUP-TARGET-2F3B` | **PASS / CLOSED** | Commit created and feature branch pushed. |
 | `BACKUP-TARGET-2F3C` | **PASS / CLOSED** | Local remote-tracking repaired and verified. |
-| `BACKUP-TARGET-2F4` | **PASS / CLOSED** | PR #81 reviewed and merged to `main@07ad78ef...`. |
-| Production classifier deployment | **PENDING / NOT TESTED** | Fast-forward Production repository, deploy only host Backup Agent code, preserve config/credentials, restart only `aegis-backup.service`. |
-| Production target acceptance | **PENDING / NOT TESTED** | Must observe `hgst-usb-1 → DIFFERENT_DEVICE` while `PrivateDevices=true` remains enabled. |
+| `BACKUP-TARGET-2F4` | **PASS / CLOSED** | PR #81 reviewed and merged. |
+| Production classifier deployment | **PASS / CLOSED** | Reviewed classifier deployed only to live Host Backup Agent copy; rollback copy retained. |
+| Production target acceptance | **PASS / CLOSED** | `hgst-usb-1 → DIFFERENT_DEVICE` with `PrivateDevices=yes`. |
 
-**Current safe Production policy:** `activeTargetId=null`, schedule disabled, retention `keep-7d-4w`, and `enabled=false`.
+**Current accepted Production policy:** `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`.
 
 **Data-preservation boundary:** HGST 1 TB and Lexar 32 GB are existing/shared equipment. Do not erase, reformat, repartition, resize, move or modify existing data. AEGIS may create new files only below `/mnt/aegis-backup/AEGIS_BACKUP`; Lexar remains disconnected/unused.
 
-**Backup Job remains `NOT TESTED`.** After Backup Target Production acceptance, verify/install `restic`, `pg_dump`, `pg_restore`, verify the dedicated PostgreSQL backup identity/credential path, then run manual backup → integrity → isolated restore verification.
+**Backup Job = PASS / CLOSED for accepted manual/removable-media scope.** `restic`, `pg_dump`, and `pg_restore` are installed; dedicated `drive_backup` least-privilege credentials are configured; manual backup, repository integrity, isolated restore verification, final UI regression, and Backup audit verification all passed. Automatic scheduled execution remains NOT TESTED / optional.
 
 **RAID remains `DEFERRED / FUTURE HARDWARE`.** The truthful UI remains `NOT CONFIGURED`; current HGST/Lexar are not RAID members.
 
