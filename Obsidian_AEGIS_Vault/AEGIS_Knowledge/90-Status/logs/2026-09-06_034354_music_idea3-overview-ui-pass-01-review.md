@@ -17,6 +17,7 @@ edit_policy: append-by-new-file
 - Preserved the final source state from historical checkpoint `d7f1c57e5405cd5a3c651895987b209e2ef089ab` while excluding its older immutable task receipt from this Pull Request.
 - Reframed Overview as an architecture, evidence-contract, and integration-readiness surface distinct from the operational Dashboard.
 - Kept environment, provider, persistence, freshness, requested mode, ACK, and physical evidence separate. Missing or stale evidence remains `UNKNOWN`, `NOT_CONFIGURED`, or `STALE` instead of being presented as `HEALTHY`.
+- Repaired the Overview evidence gate so a nominal `HEALTHY` result also requires `FRESH` evidence and a parseable validation timestamp; malformed timestamps now fail closed to `UNKNOWN`.
 - Added no backend, authentication, MQTT, ESP32, relay, CUT/RESTORE, hardware-protocol, IDEA1, or IDEA2 behavior.
 
 ## Source files changed
@@ -26,17 +27,17 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/web/src/components/AppShell.jsx` — supplies the Overview-specific purpose description in the shell.
 - `IDEA3-AEGIS_Lockdown/web/src/components/Panel.jsx` — supports accessible region labels used by the Overview hierarchy.
 - `IDEA3-AEGIS_Lockdown/web/src/lib/routes.js` — defines the Overview architecture/readiness route description.
-- `IDEA3-AEGIS_Lockdown/web/src/pages/OverviewPage.jsx` — renders conservative evidence boundary, flow, contract, matrix, provenance, and readiness states.
+- `IDEA3-AEGIS_Lockdown/web/src/pages/OverviewPage.jsx` — renders conservative evidence boundary, flow, contract, matrix, provenance, and readiness states, including validated timestamp gating for `HEALTHY`.
 - `IDEA3-AEGIS_Lockdown/web/src/styles/app.css` — supplies Overview-specific responsive layout and presentation.
-- `IDEA3-AEGIS_Lockdown/web/tests/client/corePages.test.jsx` — verifies Overview semantics, stale evidence, missing metadata, and physical uncertainty.
+- `IDEA3-AEGIS_Lockdown/web/tests/client/corePages.test.jsx` — verifies Overview semantics, stale evidence, missing or malformed validation timestamps, and physical uncertainty.
 - `IDEA3-AEGIS_Lockdown/web/tests/client/shell.test.jsx` — verifies the Overview route purpose in the shell.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — records the durable Overview capability and its evidence boundaries.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-06_034354_music_idea3-overview-ui-pass-01-review.md` — records this clean stacked publication task.
 
 ## Verification evidence
 
-- After merging current `origin/main` into the existing PR #87 branch with no conflicts, `cd IDEA3-AEGIS_Lockdown/web && npm test -- tests/client/appLanguage.test.jsx tests/client/dashboardPage.test.jsx tests/client/corePages.test.jsx tests/client/shell.test.jsx` — pass: 4 files, 30/30 affected client tests.
-- `cd IDEA3-AEGIS_Lockdown/web && npm test` — pass: 15 files, 101/101 tests on the synchronized candidate.
+- After merging current `origin/main` into the existing PR #87 branch with no conflicts, `cd IDEA3-AEGIS_Lockdown/web && npm test -- tests/client/appLanguage.test.jsx tests/client/dashboardPage.test.jsx tests/client/corePages.test.jsx tests/client/shell.test.jsx` — pass: 4 files, 31/31 affected client tests, including the malformed-timestamp fail-closed regression.
+- `cd IDEA3-AEGIS_Lockdown/web && npm test` — pass: 15 files, 102/102 tests on the synchronized candidate.
 - `cd IDEA3-AEGIS_Lockdown/web && npm run build` — pass: Vite 7.3.6 production build completed with 1,677 modules transformed; generated output remained ignored and unstaged.
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — pass: 43/43 tests (collaboration 18/18, vault structure 24/24, vault multi-writer 1/1).
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass with two existing owner-data canvas warnings; no validation error.
@@ -46,8 +47,8 @@ edit_policy: append-by-new-file
 - Local code/design review — pass: Critical 0, Important 0, Minor 0; the Overview preserves truthful Demo/Live/Stale semantics and does not fabricate `HEALTHY` without current evidence.
 - Fresh browser Live QA after synchronizing with `main` — pass: authenticated Overview loaded with the architecture/readiness purpose visible; unconfigured live sources remained `NOT_CONFIGURED` or `UNKNOWN`, physical evidence remained `UNKNOWN`, and no hardware command control appeared.
 - Fresh browser Demo QA — pass: the same authenticated session showed `DEMO`, `isolated-demo-provider`, `SESSION_AND_MEMORY_ONLY`, `NOT ALLOWED`, an explicit simulated-data warning, and physical evidence `UNKNOWN`.
-- Fresh Dashboard regression QA — pass: Thai, English, and Simplified Chinese rendered, the Chinese selection persisted after reload, and switching display language left the visible snapshot timestamp unchanged; the automated no-refetch regression also passed.
-- Fresh responsive browser QA at 1920×1080, 1440×900, 1366×768, and 390×844 — pass in both Light and Dark themes: no page-level horizontal overflow occurred. At the narrow preset, the integration matrix scrolled only inside its wrapper (241/567).
+- Fresh Dashboard regression QA — pass: Thai, English, and Simplified Chinese rendered; the automated language-selection and no-refetch regressions also passed.
+- Fresh responsive browser QA at desktop and the 390×844 mobile preset — pass in both Light and Dark themes: no page-level horizontal overflow occurred. At the narrow preset, the Live integration matrix scrolled only inside its wrapper (241/609), and the Demo matrix did the same (241/567).
 - Browser console review — pass: no warning or error entries were recorded.
 
 ## Canonical notes updated
@@ -64,8 +65,8 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Status is `partial`: this synchronized candidate is locally verified but has not yet passed the new remote CI run, owner review, merge, deployment, or production acceptance.
-- PR #85 is merged and the PR #87 dependency is resolved; PR #87 must still be changed to base `main`, pushed normally, and verified remotely before review readiness is claimed.
+- Status is `partial`: PR #87 is synchronized with `main` and locally/browser verified, but owner review, merge, deployment, production acceptance, and hardware E2E acceptance remain incomplete. Remote CI is tracked by PR #87 and must remain passing on its final pushed head.
+- PR #85 is merged, the dependency is resolved, and PR #87 already targets `main` as an Overview-only review candidate.
 - IDEA1, IDEA2, and IDEA3 production adapters, durable event/audit persistence, external identity, gateway deployment, live MQTT/HMAC exchange, ESP32 execution, relay actuation, and physical isolation remain unproven.
 - Demo `HEALTHY` values are isolated fixture evidence, not claims about live systems. Live missing or stale evidence stays fail-closed.
 - The browser surface remains monitoring, evidence, and administration only; ACK or a requested mode is not physical relay proof, and this task adds no hardware-command path.

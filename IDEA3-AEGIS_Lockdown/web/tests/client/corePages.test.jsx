@@ -85,6 +85,25 @@ describe('Overview', () => {
     expect(within(boundary).getByText('NOT_CONFIGURED')).toBeVisible()
     expect(screen.getByText('ยังไม่มีผลการตรวจสอบ integration')).toBeVisible()
   })
+
+  it('does not present HEALTHY when the validation timestamp is malformed', () => {
+    const malformedTimestampSnapshot = {
+      ...snapshot,
+      idea1: {
+        ...snapshot.idea1,
+        status: 'HEALTHY',
+        freshness: 'FRESH',
+        generatedAt: 'not-a-timestamp',
+      },
+    }
+    render(<OverviewPage snapshot={malformedTimestampSnapshot} />)
+
+    const idea1Card = screen.getByRole('article', { name: 'IDEA1 Access Security integration' })
+    const idea1Row = screen.getByRole('row', { name: /IDEA1 Access Security/ })
+
+    expect(within(idea1Card).getByLabelText('สถานะ UNKNOWN')).toBeVisible()
+    expect(within(idea1Row).getByLabelText('สถานะ UNKNOWN')).toBeVisible()
+  })
 })
 
 describe('IDEA3 Lockdown', () => {

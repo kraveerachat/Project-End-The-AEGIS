@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-04
+updated: 2026-09-06
 owner: music
 edit_policy: owner-writable
 ---
@@ -65,9 +65,10 @@ Implemented and locally verified:
 - clearly isolated Demo mode for UI review;
 - alert acknowledgement, incident notes, bounded audit export, settings validation, and recovery validation as audited server-side actions;
 - architecture-first Overview with an explicit environment/provider/persistence boundary, validated evidence flow, per-IDEA integration contracts, a freshness-aware matrix, and visible production-readiness gaps; runtime ACK and requested mode remain distinct from physical relay proof;
+- conservative `HEALTHY` evidence gating: evidence must be `FRESH` and include a parseable validation timestamp; missing or malformed timestamps fail closed to `UNKNOWN`;
 - desktop/tablet/mobile layouts, light/dark themes, and UI styling derived from IDEA1's design language without modifying IDEA1 source.
 
-Current Overview-pass evidence: affected client regressions pass 30/30; the full web suite passes 101/101 across 15 files when run outside the sandbox (the sandbox run reaches 87/101 because all 14 server failures are `listen EPERM`); `npm run build` succeeds with 1,677 modules transformed; repository UI detection returns `[]`; and browser QA at 1920×1080, 1440×900, 1366×768, and 390×844 finds no document-level horizontal overflow or console errors. At 390×844 the comparison table intentionally scrolls inside its wrapper (298/590) rather than overflowing the page.
+Current Overview-pass evidence: affected client regressions pass 31/31; the full web suite passes 102/102 across 15 files; `npm run build` succeeds with 1,677 modules transformed; repository UI detection returns `[]`; and fresh browser QA at desktop and the 390×844 mobile preset finds no document-level horizontal overflow or console errors in Light or Dark themes. At the narrow preset, the Live comparison table scrolls inside its wrapper (241/609) and the Demo table does the same (241/567) rather than overflowing the page.
 
 Known limitations:
 

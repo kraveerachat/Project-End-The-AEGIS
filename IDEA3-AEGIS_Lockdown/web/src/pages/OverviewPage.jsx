@@ -17,10 +17,14 @@ function safeText(value, fallback = 'UNKNOWN') {
   return typeof value === 'string' && value.trim() ? value : fallback
 }
 
+function hasValidTimestamp(value) {
+  return typeof value === 'string' && value.trim() && Number.isFinite(Date.parse(value))
+}
+
 function evidenceStatus({ status, freshness, generatedAt }) {
   const normalized = safeStatus(status)
   if (freshness === 'STALE') return 'STALE'
-  if (normalized === 'HEALTHY' && (freshness !== 'FRESH' || !generatedAt)) return 'UNKNOWN'
+  if (normalized === 'HEALTHY' && (freshness !== 'FRESH' || !hasValidTimestamp(generatedAt))) return 'UNKNOWN'
   return normalized
 }
 
