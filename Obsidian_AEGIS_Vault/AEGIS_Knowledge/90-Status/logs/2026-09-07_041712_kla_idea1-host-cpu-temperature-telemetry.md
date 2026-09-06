@@ -74,6 +74,29 @@ limitations, along with the deployment ordering constraint this change creates.
   Drive route comment in `api.js` that claimed not one new telemetry field had
   been opened.
 
+- **Dashboard layout corrected to the approved contract (PR #95 review).** The
+  first push rendered seven Server Telemetry tiles, adding CPU temperature
+  alongside the existing Twingate tile. The approved final layout is six tiles
+  in a fixed order:
+
+  | | | |
+  | :--- | :--- | :--- |
+  | CPU | RAM | Disk |
+  | Network | Uptime | CPU temperature |
+
+  `twingate` was removed from the `ServerTelemetry` presentation list and its
+  now-unreachable render branch deleted. In V1 that tile had no approved source
+  and could never display anything; a tile that can never say anything is not
+  more honest than no tile, only noisier.
+
+  **The backend contract is untouched.** `/api/telemetry` still carries
+  `metrics.twingate`, the V1 schema is unchanged, and every backend Twingate
+  test still passes — this is a presentation change only. Real connector health
+  was deliberately **not** substituted here: it belongs to the planned Storage &
+  Backup disk-health presentation via `/api/remote-access`, which reports local
+  container evidence rather than the control-plane status that the old
+  Dashboard label would have implied.
+
 ## Source files changed
 
 New:
@@ -112,11 +135,22 @@ Modified:
 - `IDEA1-AEGIS_Drive_LC/server/routes/api.js` — corrected the comment claiming
   no telemetry field had been added.
 - `IDEA1-AEGIS_Drive_LC/src/components/ServerTelemetry.jsx` — the tile, with
-  absolute °C thresholds (warn ≥ 80, critical ≥ 90) since it has no percentage.
+  absolute °C thresholds (warn ≥ 80, critical ≥ 90) since it has no percentage;
+  and (PR #95 review) the six-tile approved layout — `twingate` removed from the
+  presentation list, its dead render branch and the now-unused `RadioTower`
+  import deleted, order fixed to cpu → memory → disk → network → uptime →
+  temperature.
 - `IDEA1-AEGIS_Drive_LC/src/lib/strings.js` — `telemetryTemperature` in en/th/zh.
-- `IDEA1-AEGIS_Drive_LC/tests/serverTelemetryUi.test.js`,
-  `IDEA1-AEGIS_Drive_LC/tests/telemetryApi.test.js` — tile count six → seven and
-  the approved-key allowlist extended.
+- `IDEA1-AEGIS_Drive_LC/tests/telemetryApi.test.js` — approved-key allowlist
+  extended with the temperature group. Backend Twingate assertions unchanged.
+- `IDEA1-AEGIS_Drive_LC/tests/serverTelemetryUi.test.js` — the tile count stays
+  **six**; the set is now CPU/RAM/Disk/Network/Uptime/CPU temperature. New
+  `TELEM-UI-14` pins the exact six labels **and their order**, since a
+  count-only assertion would pass if two tiles swapped rows. `TELEM-UI-6` and
+  `TELEM-UI-13` now assert the Twingate tile is absent while keeping what they
+  always defended — that nothing reads Online/Connected/Reachable when no
+  approved source exists. `TELEM-UI-8`'s fabricated-zero sweep now includes
+  temperature, so `0 °C` is covered.
 
 `IDEA1-AEGIS_Drive_LC/dist/` was rebuilt only to verify the build and then
 restored; it is **not** part of this change.
@@ -126,15 +160,18 @@ restored; it is **not** part of this change.
 - `npm test` in `shared/host-telemetry-agent` — **pass: 157 tests, 154 pass,
   0 fail** (3 are suite wrappers).
 - `node --test tests/thermal.test.js` — **pass 17/17**.
-- `npm test` in `IDEA1-AEGIS_Drive_LC` — **1049 tests, 981 pass, 1 fail,
-  67 PostgreSQL-gated skips**. The single failure is `AUTOLOCK-5 migration 008
+- `npm test` in `IDEA1-AEGIS_Drive_LC` — **1050 tests, 982 pass, 1 fail,
+  67 PostgreSQL-gated skips** (re-run after the PR #95 layout correction). The single failure is `AUTOLOCK-5 migration 008
   replaces the CHECK without touching the column`, which is **pre-existing and
   unrelated**: it fails identically on a clean `origin/main` checkout of this
   worktree with every change stashed (verified, not assumed). It is not fixed
   here because it is outside this task's scope.
 - `node --test tests/hostTemperatureTelemetry.test.js` — **pass 17/17**.
-- `npm run build` (Drive) — **pass**, built in 11.26s; `dist/` restored to the
-  committed state afterwards and confirmed clean in `git status`.
+- `node --test tests/serverTelemetryUi.test.js` — **pass 21/21**, including the
+  new `TELEM-UI-14` exact-layout assertion.
+- `npm run build` (Drive) — **pass**, re-run after the layout correction (5.01s);
+  `dist/` restored to the committed state afterwards and confirmed clean in
+  `git status`.
 - `git diff -U0 -- shared/host-telemetry-agent/deploy/aegis-telemetry.service |
   grep -vE '^[+-]#'` — **zero non-comment lines**, confirming no sandbox change.
 - `git diff --check` — clean.

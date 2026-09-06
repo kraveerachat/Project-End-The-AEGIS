@@ -1,5 +1,5 @@
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, RadioTower, Thermometer,
+  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
@@ -16,14 +16,31 @@ import { fmtBytes, fmtCountdown } from '../lib/format.js'
 // host data is real but old, so it stays on screen with a label instead of
 // being blanked (which would lose information) or shown as current (a lie).
 
+/*
+ * The approved Dashboard layout: six tiles, in this exact order, which on a
+ * three-column desktop grid reads
+ *
+ *   CPU      | RAM      | Disk
+ *   Network  | Uptime   | CPU temperature
+ *
+ * Twingate is deliberately absent from this list. It is NOT removed from the
+ * backend: `/api/telemetry` still carries `metrics.twingate` and the V1
+ * contract is unchanged, so nothing that consumes the API breaks. What changed
+ * is only that the Dashboard no longer renders a permanently-unavailable tile
+ * for it — in V1 it has no approved source and could never show anything.
+ *
+ * Real connector health is not coming here either. It belongs to the planned
+ * Storage & Backup disk-health presentation, fed by `/api/remote-access`, which
+ * reports LOCAL container evidence. Putting that number on the Dashboard under
+ * the old "Twingate" label would imply a control-plane status nothing measures.
+ */
 const METRICS = [
   { id: 'cpu', labelKey: 'telemetryCpu', icon: Cpu },
   { id: 'memory', labelKey: 'telemetryRam', icon: MemoryStick },
   { id: 'disk', labelKey: 'telemetryDisk', icon: HardDrive },
   { id: 'network', labelKey: 'telemetryNetwork', icon: Network },
-  { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
-  { id: 'twingate', labelKey: 'telemetryTwingate', icon: RadioTower },
   { id: 'uptime', labelKey: 'telemetryUptime', icon: Activity },
+  { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
 ]
 
 const STATE_META = {
@@ -192,13 +209,6 @@ function MetricRows({ t, id, metric }) {
         <span>{metric.sensor || t('telemetryValueUnavailable')}</span>
       </>
     )
-  }
-
-  if (id === 'twingate') {
-    // Never reached in V1: Twingate has no approved source, so it always takes
-    // the unavailable branch. Kept explicit so a future source cannot land here
-    // with nothing to display.
-    return <span>{t('telemetryValueUnavailable')}</span>
   }
 
   // Uptime carries two independent facts. The host may be unknown while Drive

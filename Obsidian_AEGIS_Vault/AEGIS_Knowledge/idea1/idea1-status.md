@@ -43,7 +43,13 @@ edit_policy: owner-writable
 > host telemetry agent now publishes `metrics.temperature` inside the existing
 > `/internal/telemetry` V1 snapshot, discovered by listing `/sys/class/thermal`
 > and selecting the zone whose `type` is exactly `x86_pkg_temp`; the Dashboard
-> renders it as a CPU temperature tile naming its sensor. There is **no
+> renders it as a CPU temperature tile naming its sensor. The Dashboard Server
+> Telemetry card is now exactly six tiles — CPU / RAM / Disk on the first
+> desktop row, Network / Uptime / CPU temperature on the second. The Twingate
+> tile was dropped from that card because V1 has no approved connector source
+> and it could never display anything; `metrics.twingate` remains in the
+> `/api/telemetry` contract unchanged, and real connector health is planned for
+> the Storage & Backup disk-health view via `/api/remote-access`, not here. There is **no
 > fallback** — no `acpitz` (~27.8 °C chassis), no SSD SMART temperature
 > (~40 °C, a separate `/api/storage` contract), no other zone, no `0` — an
 > unusable sensor is `{ available: false }`. **No systemd privilege change was
