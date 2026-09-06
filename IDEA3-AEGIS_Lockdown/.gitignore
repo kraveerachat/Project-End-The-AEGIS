@@ -1,0 +1,9 @@
+.aegis-runtime/
+logs/
+*.db
+*.log
+.env
+firmware/src/secrets.h
+firmware/.pio/
+web/node_modules/
+web/dist/
