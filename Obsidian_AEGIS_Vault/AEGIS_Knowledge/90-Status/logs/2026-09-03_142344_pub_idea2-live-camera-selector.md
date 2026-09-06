@@ -3,7 +3,7 @@ title: Task Receipt — IDEA2 Live Canvas camera selector
 date: 2026-09-03T14:23:44+07:00
 owner: pub
 area: idea2
-branch: feat/idea2-live-camera-selector
+branch: codex/idea2-live-camera-selector-main
 status: complete
 edit_policy: append-by-new-file
 ---
@@ -12,7 +12,9 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Source-only feature based on main `d3e240239936577875965165f5c32111fe5e6568`.
+- Source-only feature originally based on main
+  `d3e240239936577875965165f5c32111fe5e6568`, then reconciled without conflict
+  onto current `origin/main` `73daa3e` on 2026-09-06.
   Root cause: the old secondary-camera list used a fixed ID priority, filtered
   out offline cameras, excluded the selected camera, and capped the list at
   three. App additionally preferred CAM-02. Right panels combined detections
@@ -69,6 +71,12 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
+- Command: `npm test`; result: PASS (9/9).
+- `git cherry-pick 7af2952 a8502cf d5f38b1 b2764c4` onto `73daa3e` —
+  **PASS**, no conflicts.
+- 2026-09-06 current-main rerun: `npm test` — **PASS 9/9**;
+  `PLAYWRIGHT_CHANNEL=msedge npm run test:browser` — **PASS 18/18**;
+  `npm run build` — **PASS**, Vite transformed 2,075 modules.
 - `npm test` — **PASS 9/9**, from `IDEA2-AEGIS_Monitor/`.
 - `npx playwright install chromium`, then `npm run test:browser` —
   **PASS 18/18** on the live-preview follow-up rerun, Chromium 151, Playwright 1.62.1.
