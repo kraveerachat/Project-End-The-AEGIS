@@ -41,6 +41,24 @@ runtime_evidence_reconciled_through_pr: 81
 
 All non-LFT current gates (SECURITY-2, local Twingate telemetry, Administrator truthfulness, Backup Target PR #81 state, Backup Job and RAID) are governed by the reconciled current sections already present in this note.
 
+## 0B. 2026-09-06 Storage & Backup Production acceptance — current override
+
+> [!success]
+> This block supersedes older sections in this 6.1 snapshot that still describe Backup Target, Backup Job, integrity or isolated restore as pending.
+
+- Live Host Backup Agent classifier: reviewed PR #81 blob `2a9dc27fbdb812dbb50a84d10f364343fc09d967`; `PrivateDevices=yes` preserved; `hgst-usb-1 → DIFFERENT_DEVICE` accepted in Production.
+- Production Git checkout remains `2806373bb300728a0babb953a63f98bcd714ffef`; only the live host-agent classifier copy was updated. Keep this operational drift explicit until a later controlled repository/runtime alignment.
+- Tools: `restic 0.18.1`, `pg_dump 18.6`, `pg_restore 18.6`; PostgreSQL server 15.19.
+- Dedicated `drive_backup`: LOGIN-only, least privilege, table SELECT `14/14`, writable tables `0/14`, sequence SELECT `7/7`, `aegis_monitor CONNECT=false`.
+- Restic repository: `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`, repository ID `651dad07638162c11bc3b7aed9f4abf11c6be029b64e2fbeac38d2b086616b15`.
+- First accepted backup job `9c1577f4-bd21-49ea-b9c4-1f052aa20fab`: SUCCESS, integrity PASS, snapshot `e4408aae195b9e07207aa080a248ea7d3328672f322a05aef0b05960ac1e6ec6`, 1,557,495,037 bytes scanned and 1,556,523,170 bytes backed up.
+- First accepted verify job `e7e19c89-959b-46f9-a9a5-88670015c431`: SUCCESS, integrity PASS, restore verification PASS.
+- A second manual backup and second restore verification also completed SUCCESS during final UI regression. Storage shows `Healthy / Ready / Pass / Pass / 100% (2)` and four successful job-history rows.
+- Audit Log records request + success/pass events for both rounds with no Backup failure event in the acceptance sequence.
+- Current policy remains `activeTargetId=hgst-usb-1`, `scheduleId=disabled`, `retentionId=keep-7d-4w`, `enabled=false`, `nextRun=null`.
+
+Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-media scope.** `STORAGE-AUTO-2` remains NOT TESTED / optional; real RAID1 remains DEFERRED / FUTURE HARDWARE.
+
 ## 0. Status legend
 
 | Symbol | Meaning |
@@ -63,7 +81,7 @@ All non-LFT current gates (SECURITY-2, local Twingate telemetry, Administrator t
 - PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock duration/1-minute support are deployed and production-accepted.
 - Migration `008_vault_autolock_1_minute.sql` is applied in Production.
 - Current accepted Drive image remains `sha256:f604cc985db1f69b79773e8973b3bb8e63f84d28730710c0ebf3174d4156f098`.
-- PR #81 changes the host Backup Agent source in Git; it has **not yet been deployed** to the running `aegis-backup.service`.
+- PR #81 changes the host Backup Agent source in Git. On 2026-09-06 the reviewed classifier was deployed only to the live Host Backup Agent copy, preserving `PrivateDevices=yes`; Production accepted `hgst-usb-1 → DIFFERENT_DEVICE`. The Production Git checkout itself remains at `2806373...`, so live host-agent deployment and repository checkout remain distinct evidence.
 - HUB, Monitor and PostgreSQL were not recreated for the PR #79/#80 Drive-only deployment.
 - Production Git updates remain fetch + fast-forward-only; no force/rebase/shared-history rewrite.
 
@@ -113,10 +131,10 @@ Upload remains a **Files workflow**, not a standalone sidebar screen.
 | Secure Shares | ✅ **PASS / CLOSED (private/internal)** | Password/no-password/copy/network-scope enforcement accepted; public internet gateway remains NOT IMPLEMENTED. |
 | File History | ✅ **PASS / CLOSED** | Real per-file versions and non-destructive restore accepted. |
 | Trash | ✅ **PASS / CLOSED** | Soft delete, protected unlock, restore and permanent delete accepted; literal 30-day wall-clock wait not performed. |
-| Storage & Backup | 🟡 **PARTIAL** | Capacity, Disk Health, RAID standby UI, Backup Agent connection and STORAGE-AUTO-1 are closed. Classifier source/PR gate is CLOSED by PR #81; Production deployment + `DIFFERENT_DEVICE`, Backup Job, integrity/restore and scheduled execution remain. Real RAID1 is deferred. |
+| Storage & Backup | ✅ **PASS / CLOSED (accepted manual/removable-media scope)** | Production `DIFFERENT_DEVICE`, manual Backup E2E, integrity, isolated restore, final UI regression and audit evidence passed. Schedule remains disabled; STORAGE-AUTO-2 is NOT TESTED/optional for this borrowed-HGST scope. Real RAID1 is deferred. |
 | Audit Log | ✅ **PASS / CLOSED** | Production list/filter behavior and result filter accepted. |
 | Access Control | ✅ **PASS / CLOSED** | Current RBAC/provisioning workflow accepted. |
-| Settings | 🟡 **PARTIAL** | Appearance, Change Password and Security & Privacy are closed. Administrator Encryption-at-Rest + Network Zones are closed; Backup Targets and optional profile/avatar current-sweep acceptance remain. |
+| Settings | 🟡 **PARTIAL** | Appearance, Change Password, Security & Privacy, Administrator Encryption-at-Rest, Network Zones and Backup Targets are closed. The only remaining page-level acceptance is the optional latest exhaustive profile/avatar sweep. |
 
 ---
 
@@ -866,11 +884,10 @@ Safe to call completed for the recorded acceptance scope:
 - Backup Target PR #81 review/merge into repository main
 
 Do **not** call these finished yet:
-- complete Settings page as one whole (Backup Targets + optional profile/avatar boundary remain)
-- Backup Target overall
-- Backup protection / Backup Job end-to-end
-- integrity / restore verification
-- automatic scheduled backup end-to-end
+- complete Settings page as one whole — only the optional latest exhaustive profile/avatar sweep remains
+- automatic scheduled backup end-to-end (STORAGE-AUTO-2) — NOT TESTED / optional for the borrowed-HGST acceptance scope
+- real RAID1 — DEFERRED / FUTURE HARDWARE
+- real 20–30 GB / Production 32 GiB transfer-scale acceptance
 - real RAID1
 - Twingate control-plane monitoring
 - public external sharing
