@@ -137,6 +137,13 @@ export async function buildTelemetry({
     stale,
   )
 
+  // CPU package temperature, from the host agent's bounded /sys/class/thermal
+  // discovery. `sensor` is projected alongside the number on purpose: the tile
+  // states which sensor it is showing, so a reader can tell at a glance that
+  // this is the CPU package and not the SSD's SMART temperature (a different
+  // number, from a different subsystem, that /api/storage reports separately).
+  const temperature = hostMetric(hostMetrics?.temperature, ['celsius', 'sensor'], stale)
+
   // Host uptime and Drive service uptime answer different questions — "has the
   // machine rebooted" versus "has this container restarted" — so they are kept
   // as two labelled facts rather than collapsed into one number.
@@ -148,6 +155,10 @@ export async function buildTelemetry({
   // `ok` answers "was everything measurable actually measured". It is now the
   // same question for every caller, because every caller is entitled to the
   // same set of metrics.
+  // Temperature is deliberately NOT part of `ok`. A host with no x86_pkg_temp
+  // zone — a VM, or different hardware — can never report it, and folding it in
+  // would pin `ok` to false forever on such a host and drain the flag of
+  // meaning. `ok` stays "everything this host can measure was measured".
   const ok = Boolean(
     diskMetric.available
     && hostOk && !stale
@@ -169,6 +180,7 @@ export async function buildTelemetry({
       memory,
       disk: diskMetric,
       network,
+      temperature,
       twingate: TWINGATE,
       uptime: {
         available: hostUptime.available || service.available,

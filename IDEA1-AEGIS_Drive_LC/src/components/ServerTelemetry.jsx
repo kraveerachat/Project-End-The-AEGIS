@@ -1,5 +1,5 @@
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, RadioTower,
+  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, RadioTower, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
@@ -21,6 +21,7 @@ const METRICS = [
   { id: 'memory', labelKey: 'telemetryRam', icon: MemoryStick },
   { id: 'disk', labelKey: 'telemetryDisk', icon: HardDrive },
   { id: 'network', labelKey: 'telemetryNetwork', icon: Network },
+  { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
   { id: 'twingate', labelKey: 'telemetryTwingate', icon: RadioTower },
   { id: 'uptime', labelKey: 'telemetryUptime', icon: Activity },
 ]
@@ -86,6 +87,18 @@ function metricState(id, metric, loading = false) {
     return metric.reason === 'requires-admin' ? 'restricted' : 'unavailable'
   }
   if (metric.stale === true) return 'stale'
+
+  // Temperature is the one metric with no percentage, so it gets its own
+  // thresholds in absolute degrees. They are CPU-package thresholds, not
+  // chassis or disk ones: x86 packages throttle near 100 °C, so 80 warns with
+  // real headroom and 90 is genuinely critical.
+  if (id === 'temperature') {
+    if (!number(metric.celsius)) return 'available'
+    if (metric.celsius >= 90) return 'critical'
+    if (metric.celsius >= 80) return 'warning'
+    return 'available'
+  }
+
   const value = id === 'uptime' ? null : metric.percent
   if (!number(value)) return 'available'
   if (value >= 90) return 'critical'
@@ -162,6 +175,21 @@ function MetricRows({ t, id, metric }) {
         <span>{`↓ ${rate(metric.rxBytesPerSec) ?? t('telemetryValueUnavailable')}`}</span>
         <span>{`↑ ${rate(metric.txBytesPerSec) ?? t('telemetryValueUnavailable')}`}</span>
         <span>{metric.interface || t('telemetryValueUnavailable')}</span>
+      </>
+    )
+  }
+
+  if (id === 'temperature') {
+    // The sensor name is shown next to the number rather than hidden in a
+    // tooltip: "56 °C" alone invites the reader to assume it is whichever
+    // temperature they were already thinking of. Naming x86_pkg_temp makes it
+    // unmistakably the CPU package and not the SSD's SMART reading.
+    return (
+      <>
+        <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {number(metric.celsius) ? `${metric.celsius} °C` : t('telemetryValueUnavailable')}
+        </strong>
+        <span>{metric.sensor || t('telemetryValueUnavailable')}</span>
       </>
     )
   }

@@ -45,14 +45,57 @@ const MAX_INTERFACE_LENGTH = 15 // Linux IFNAMSIZ minus the NUL
 const INTERFACE_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9_.:-]*[A-Za-z0-9])?$/
 
 const TOP_LEVEL_KEYS = ['schemaVersion', 'measuredAt', 'metrics']
+
+/** Metric groups every conforming agent must send. */
 const METRIC_NAMES = ['cpu', 'memory', 'network', 'uptime']
+
+/**
+ * Metric groups this Drive understands but does not require.
+ *
+ * `temperature` was added after the V1 contract shipped. Making it optional
+ * rather than mandatory is what lets a Drive carrying this change keep working
+ * against a host agent that predates it: the group is simply absent and the
+ * tile reads unavailable, which is true.
+ *
+ * The reverse order is NOT compatible, and that is a deployment constraint
+ * rather than an oversight — an agent that sends `temperature` to a Drive
+ * older than this change trips `unexpected-metric-group` and blanks the whole
+ * dashboard. Drive must be deployed before the agent. See the rollout note in
+ * shared/host-telemetry-agent/README.md.
+ */
+const OPTIONAL_METRIC_NAMES = ['temperature']
+
+const ALL_METRIC_NAMES = [...METRIC_NAMES, ...OPTIONAL_METRIC_NAMES]
 
 const METRIC_KEYS = {
   cpu: ['available', 'percent', 'windowSeconds'],
   memory: ['available', 'usedBytes', 'totalBytes', 'percent'],
   network: ['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds'],
   uptime: ['available', 'hostSeconds'],
+  temperature: ['available', 'celsius', 'sensor'],
 }
+
+/**
+ * The only sensor the Dashboard Temperature is allowed to represent.
+ *
+ * Enforced here, at Drive's own trust boundary, and not only in the agent that
+ * selects it. The agent picks `x86_pkg_temp` exactly; this check means that
+ * even a replaced or impersonated agent cannot get an `acpitz` chassis reading
+ * (~28 °C on this host) or an SSD SMART temperature (~40 °C) rendered as the
+ * CPU package. An unlisted sensor is a rejection, not a relabelling.
+ */
+export const APPROVED_TEMPERATURE_SENSORS = Object.freeze(['x86_pkg_temp'])
+
+/**
+ * Plausibility band, mirroring the agent's own bounds (src/thermal.js).
+ *
+ * Duplicated rather than imported: the agent is a separate process on its own
+ * release cycle, and a contract that trusts the sender to have validated is
+ * not a contract. 1 °C also rejects a negative reading and the degrees-for-
+ * millidegrees mix-up; 150 °C rejects malformed millidegree values.
+ */
+export const MIN_TEMPERATURE_CELSIUS = 1
+export const MAX_TEMPERATURE_CELSIUS = 150
 
 const fail = (reason) => ({ ok: false, reason })
 
@@ -123,6 +166,17 @@ function validateMetric(name, metric) {
     return null
   }
 
+  if (name === 'temperature') {
+    if (!isFiniteNumber(metric.celsius)) return 'metrics.temperature-celsius-invalid'
+    if (metric.celsius < MIN_TEMPERATURE_CELSIUS || metric.celsius > MAX_TEMPERATURE_CELSIUS) {
+      return 'metrics.temperature-celsius-out-of-range'
+    }
+    if (!APPROVED_TEMPERATURE_SENSORS.includes(metric.sensor)) {
+      return 'metrics.temperature-sensor-not-approved'
+    }
+    return null
+  }
+
   if (!isFiniteNumber(metric.hostSeconds) || metric.hostSeconds < 0) {
     return 'metrics.uptime-invalid'
   }
@@ -147,9 +201,16 @@ export function validateAgentSnapshot(raw, { now = Date.now(), clockToleranceMs 
 
   const metrics = raw.metrics
   if (!isPlainObject(metrics)) return fail('metrics-not-an-object')
-  if (!hasOnlyKeys(metrics, METRIC_NAMES)) return fail('unexpected-metric-group')
+  if (!hasOnlyKeys(metrics, ALL_METRIC_NAMES)) return fail('unexpected-metric-group')
   for (const name of METRIC_NAMES) {
     if (!(name in metrics)) return fail(`missing-metrics.${name}`)
+    const reason = validateMetric(name, metrics[name])
+    if (reason) return fail(reason)
+  }
+  // Optional groups are validated exactly as strictly as required ones when
+  // present. Optional means "may be absent", never "may be malformed".
+  for (const name of OPTIONAL_METRIC_NAMES) {
+    if (!(name in metrics)) continue
     const reason = validateMetric(name, metrics[name])
     if (reason) return fail(reason)
   }

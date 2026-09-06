@@ -58,6 +58,7 @@ const telemetry = (overrides = {}) => ({
       available: true, interface: 'enp1s0',
       rxBytesPerSec: 2_411_724, txBytesPerSec: 524_288, windowSeconds: 5, stale: false,
     },
+    temperature: { available: true, celsius: 55.8, sensor: 'x86_pkg_temp', stale: false },
     twingate: { available: false, scope: 'server-connector', status: 'unavailable', reason: 'no-approved-source' },
     uptime: {
       available: true,
@@ -78,7 +79,7 @@ const render = (data, lang = 'en', extra = {}) =>
 // must not accuse a source that has not been asked yet.
 test('TELEM-UI-11 tiles say loading, not unavailable, before the first response', () => {
   const html = render(null, 'en', { loading: true })
-  assert.equal((html.match(/aria-label="[^"]+ · Loading"/g) ?? []).length, 6)
+  assert.equal((html.match(/aria-label="[^"]+ · Loading"/g) ?? []).length, 7)
   assert.doesNotMatch(html, /· Unavailable"/)
   assert.doesNotMatch(
     html, /No telemetry source connected/,
@@ -91,7 +92,7 @@ test('TELEM-UI-11 tiles say loading, not unavailable, before the first response'
 test('TELEM-UI-11 a finished load with no data still reports unavailable', () => {
   // loading:false + data:null is a real failure, and must keep saying so.
   const html = render(null, 'en', { loading: false })
-  assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
+  assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 7)
 })
 
 test('TELEM-UI-11 loading never overrides a metric that already has a value', () => {
@@ -156,12 +157,15 @@ test('TELEM-UI-12 a withheld metric would still be distinguished from an unmeasu
 })
 
 // ── the pre-existing contract, unchanged ──────────────────────────────
-test('Server Telemetry renders six truthful unavailable metric cards', () => {
+test('Server Telemetry renders seven truthful unavailable metric cards', () => {
   const html = render(null)
-  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'Twingate', 'System uptime']) {
+  // CPU temperature joined the set on 2026-09-07 (host agent x86_pkg_temp).
+  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'CPU temperature', 'Twingate', 'System uptime']) {
     assert.match(html, new RegExp(`>${label}<`), `${label} card must be visible`)
   }
-  assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
+  assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 7)
+  // The `°C` alternative in this pattern is now load-bearing rather than
+  // hypothetical: there is a real temperature tile that must not invent a 0.
   assert.doesNotMatch(html, /0(?:\.0+)?\s*(?:%|°C|ms|Mbps|Kbps|GB)/)
 })
 
