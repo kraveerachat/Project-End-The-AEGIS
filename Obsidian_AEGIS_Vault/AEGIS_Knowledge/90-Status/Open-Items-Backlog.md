@@ -26,16 +26,18 @@ edit_policy: owner-writable
 > Encryption-at-Rest truthfulness, Administrator Network Zones, Backup Agent
 > connection, and STORAGE-AUTO-1 are **PASS / CLOSED** for their accepted scope.
 >
-> Storage & Backup and Settings remain **PARTIAL**. PR #81 is merged in the
-> repository, but its Backup Target classifier is not yet deployed to the
-> Production host agent; Production remains `UNKNOWN / physical-device-unresolved`
-> until it proves `hgst-usb-1 → DIFFERENT_DEVICE` with `PrivateDevices=true`.
-> Backup Job E2E, repository integrity, isolated restore, and STORAGE-AUTO-2 are
-> open. Twingate control-plane telemetry remains **NOT MEASURED**, public external
-> sharing remains **NOT IMPLEMENTED**, the optional current profile/avatar sweep
-> remains **NOT TESTED**, and real RAID1 is **DEFERRED / FUTURE HARDWARE**. Current
-> HGST/Lexar media must not be erased, reformatted, repartitioned, resized, or used
-> as RAID members.
+> Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media
+> scope**. The reviewed PR #81 classifier is deployed to the live Production Host
+> Backup Agent, `PrivateDevices=yes` is preserved, and
+> `hgst-usb-1 → DIFFERENT_DEVICE` is accepted. Manual Backup E2E, repository
+> integrity, isolated restore verification, final UI regression, and Backup audit
+> evidence all passed in Production. Settings remains **PARTIAL** only because the
+> optional latest exhaustive profile/avatar sweep remains **NOT TESTED**.
+> STORAGE-AUTO-2 real scheduled execution remains **NOT TESTED / optional** for the
+> borrowed-HGST scope. Twingate control-plane telemetry remains **NOT MEASURED**,
+> public external sharing remains **NOT IMPLEMENTED**, and real RAID1 remains
+> **DEFERRED / FUTURE HARDWARE**. Current HGST/Lexar media must not be erased,
+> reformatted, repartitioned, resized, or used as RAID members.
 
 ## ✅ CLOSED / PASS — Server infrastructure readiness
 
