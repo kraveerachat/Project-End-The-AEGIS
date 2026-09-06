@@ -12,7 +12,8 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Published the already implemented local Overview UI Pass 01 as a clean stacked delivery on `feat/idea3-dashboard-trilingual-consolidation`; this receipt does not claim that the implementation was recreated on this date.
+- Published the already implemented local Overview UI Pass 01 as the existing PR #87 delivery, now synchronized with current `origin/main`; this receipt does not claim that the implementation was recreated on this date.
+- PR #85 is merged. Its verified merge commit is `73daa3e59f5647375c6b0e027441552e1e23dd76`, so the Dashboard/trilingual prerequisite is now part of `main`, the PR #87 dependency is resolved, and the intended PR #87 base is `main`.
 - Preserved the final source state from historical checkpoint `d7f1c57e5405cd5a3c651895987b209e2ef089ab` while excluding its older immutable task receipt from this Pull Request.
 - Reframed Overview as an architecture, evidence-contract, and integration-readiness surface distinct from the operational Dashboard.
 - Kept environment, provider, persistence, freshness, requested mode, ACK, and physical evidence separate. Missing or stale evidence remains `UNKNOWN`, `NOT_CONFIGURED`, or `STALE` instead of being presented as `HEALTHY`.
@@ -34,18 +35,20 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `cd IDEA3-AEGIS_Lockdown/web && npm test -- tests/client/appLanguage.test.jsx tests/client/dashboardPage.test.jsx tests/client/corePages.test.jsx tests/client/shell.test.jsx` — pass: 4 files, 30/30 affected client tests.
-- `cd IDEA3-AEGIS_Lockdown/web && npm test` — pass: 15 files, 101/101 tests.
+- After merging current `origin/main` into the existing PR #87 branch with no conflicts, `cd IDEA3-AEGIS_Lockdown/web && npm test -- tests/client/appLanguage.test.jsx tests/client/dashboardPage.test.jsx tests/client/corePages.test.jsx tests/client/shell.test.jsx` — pass: 4 files, 30/30 affected client tests.
+- `cd IDEA3-AEGIS_Lockdown/web && npm test` — pass: 15 files, 101/101 tests on the synchronized candidate.
 - `cd IDEA3-AEGIS_Lockdown/web && npm run build` — pass: Vite 7.3.6 production build completed with 1,677 modules transformed; generated output remained ignored and unstaged.
-- `node --test tests/collaborationPolicy.test.mjs` — pass: 18/18 collaboration-policy tests.
+- `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — pass: 43/43 tests (collaboration 18/18, vault structure 24/24, vault multi-writer 1/1).
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass with two existing owner-data canvas warnings; no validation error.
 - `node .agents/skills/impeccable/scripts/detect.mjs --json IDEA3-AEGIS_Lockdown/web/src/pages/OverviewPage.jsx IDEA3-AEGIS_Lockdown/web/src/components/Panel.jsx IDEA3-AEGIS_Lockdown/web/src/components/AppShell.jsx IDEA3-AEGIS_Lockdown/web/src/styles/app.css` — pass: detector returned `[]`.
 - Exact source-parity comparison against historical checkpoint `d7f1c57e5405cd5a3c651895987b209e2ef089ab` — pass: all ten source, specification, test, and canonical-note paths match; the older immutable receipt remains excluded.
-- `git diff --cached --check` plus targeted staged-path and secret-signature review — pass: no whitespace errors, no IDEA1/IDEA2/shared/deployment paths, no `.env` or credential file, and no private-key, AWS-key, or GitHub-token signature detected.
+- `git diff --check` plus targeted tracked-path and secret-signature review — pass: no whitespace errors, no IDEA1/IDEA2/shared/deployment paths, no `.env` or credential file, and no private-key, AWS-key, GitHub-token, production-credential, MQTT/Wi-Fi, or HMAC-secret material detected.
 - Local code/design review — pass: Critical 0, Important 0, Minor 0; the Overview preserves truthful Demo/Live/Stale semantics and does not fabricate `HEALTHY` without current evidence.
-- Browser QA against a temporary read-only stale runtime fixture — pass: Live Overview showed `live-read-only-adapters`, IDEA3 `STALE`, and physical evidence `UNKNOWN` even though the transport returned a historical `HEALTHY` payload.
-- Browser Demo QA — pass: the same authenticated session showed `DEMO`, `isolated-demo-provider`, `SESSION_AND_MEMORY_ONLY`, `NOT ALLOWED`, an explicit simulated-data warning, and physical evidence `UNKNOWN`.
-- Responsive browser QA at requested presets 1920×1080, 1440×900, 1366×768, and 390×844 — pass: available content viewports were 1628×923, 1218×769, 1155×656, and 320×721; no page-level horizontal overflow occurred. At the narrow preset, evidence-flow items remained in reading order and the matrix scrolled only inside its wrapper (241/590).
-- Light/dark browser QA — pass: both themes rendered without page-level horizontal overflow; browser console contained no warning or error entries.
+- Fresh browser Live QA after synchronizing with `main` — pass: authenticated Overview loaded with the architecture/readiness purpose visible; unconfigured live sources remained `NOT_CONFIGURED` or `UNKNOWN`, physical evidence remained `UNKNOWN`, and no hardware command control appeared.
+- Fresh browser Demo QA — pass: the same authenticated session showed `DEMO`, `isolated-demo-provider`, `SESSION_AND_MEMORY_ONLY`, `NOT ALLOWED`, an explicit simulated-data warning, and physical evidence `UNKNOWN`.
+- Fresh Dashboard regression QA — pass: Thai, English, and Simplified Chinese rendered, the Chinese selection persisted after reload, and switching display language left the visible snapshot timestamp unchanged; the automated no-refetch regression also passed.
+- Fresh responsive browser QA at 1920×1080, 1440×900, 1366×768, and 390×844 — pass in both Light and Dark themes: no page-level horizontal overflow occurred. At the narrow preset, the integration matrix scrolled only inside its wrapper (241/567).
+- Browser console review — pass: no warning or error entries were recorded.
 
 ## Canonical notes updated
 
@@ -57,12 +60,12 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- None — no cross-scope or shared contract path changed. This Draft PR is stacked on the unmerged Dashboard/trilingual consolidation and must be reviewed after that dependency.
+- None — no cross-scope or shared contract path changed. PR #85 is merged, the dependency is resolved, and PR #87 is now intended for review as an Overview-only delta against `main`.
 
 ## Known limitations
 
-- Status is `partial`: this stacked candidate is locally verified but has not passed remote CI, owner review, merge, deployment, or production acceptance.
-- The Pull Request depends on Draft PR #85 and uses `feat/idea3-dashboard-trilingual-consolidation` as its base until that prerequisite is merged.
+- Status is `partial`: this synchronized candidate is locally verified but has not yet passed the new remote CI run, owner review, merge, deployment, or production acceptance.
+- PR #85 is merged and the PR #87 dependency is resolved; PR #87 must still be changed to base `main`, pushed normally, and verified remotely before review readiness is claimed.
 - IDEA1, IDEA2, and IDEA3 production adapters, durable event/audit persistence, external identity, gateway deployment, live MQTT/HMAC exchange, ESP32 execution, relay actuation, and physical isolation remain unproven.
 - Demo `HEALTHY` values are isolated fixture evidence, not claims about live systems. Live missing or stale evidence stays fail-closed.
 - The browser surface remains monitoring, evidence, and administration only; ACK or a requested mode is not physical relay proof, and this task adds no hardware-command path.
