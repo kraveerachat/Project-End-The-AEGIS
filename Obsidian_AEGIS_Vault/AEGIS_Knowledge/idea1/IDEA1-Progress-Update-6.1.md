@@ -79,9 +79,11 @@ Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-med
 
 - Production **Git checkout** remains `2806373bb300728a0babb953a63f98bcd714ffef` (PR #80).
 - Production **Drive image source basis** is PR #92 head `64807e963359c6a85bc5d9ded7b6ff1b05226694` since
-  2026-09-06; GitHub `main` is the PR #92 merge commit `d4b8e921...`. The merge
-  added no file changes, so head and merge commit have identical trees, but
-  they are different commits — do not collapse the three SHAs.
+  2026-09-06; PR #92 merged as `d4b8e921...`. Later repository history may
+  advance `main`, so resolve current `main` from Git rather than treating that
+  merge SHA as a permanent `main` pointer. The merge added no file changes, so
+  head and merge commit have identical trees, but they are different commits —
+  do not collapse the three SHAs.
 - PR #81 merged the Backup Target PrivateDevices classifier at merge milestone `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. Later documentation-only commits may advance repository history; resolve the live `main` head from Git.
 - PR #79 local Twingate connector runtime telemetry and PR #80 Vault auto-lock duration/1-minute support are deployed and production-accepted.
 - Migration `008_vault_autolock_1_minute.sql` is applied in Production.

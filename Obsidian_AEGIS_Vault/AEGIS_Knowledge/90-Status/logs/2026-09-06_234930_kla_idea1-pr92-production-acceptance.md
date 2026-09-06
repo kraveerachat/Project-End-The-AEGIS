@@ -12,7 +12,10 @@ edit_policy: append-by-new-file
 # Task Receipt — IDEA1 PR #92 production acceptance reconciliation
 
 Documentation-only reconciliation recording that PR #92 merged and was accepted
-in Production. Base `origin/main` = `d4b8e92134c569f77b98bfc7c229f4e164e18129`.
+in Production. Reconciliation base `main` — the `origin/main` observed when
+this task started — was `d4b8e92134c569f77b98bfc7c229f4e164e18129`, the PR #92
+merge commit. Later repository history may advance `main`, so resolve current
+`main` from Git rather than reading that SHA as a permanent `main` pointer.
 
 `PRODUCTION_CHANGED = NO` by this task — the deployment had already happened and
 is only being recorded here. No runtime code was modified and nothing was
@@ -24,8 +27,10 @@ therefore immutable; it was not edited.
 
 ## What changed
 
-- **PR #92 is merged.** Merge commit `d4b8e92134c569f77b98bfc7c229f4e164e18129`,
-  which is also the current repository `main`. PR head was
+- **PR #92 is merged.** PR #92 merge commit
+  `d4b8e92134c569f77b98bfc7c229f4e164e18129`, which was also the reconciliation
+  base `main` observed when this task started; later repository history may
+  advance `main`, so resolve current `main` from Git. PR head was
   `64807e963359c6a85bc5d9ded7b6ff1b05226694`. `collaboration-guardrails` passed.
 
 - **The deployed source basis is the PR head, not the merge commit.** This
@@ -33,15 +38,16 @@ therefore immutable; it was not edited.
 
   | | SHA |
   | :--- | :--- |
-  | Repository `main` / merge commit | `d4b8e92134c569f77b98bfc7c229f4e164e18129` |
+  | PR #92 merge commit (= reconciliation base `main` at task start) | `d4b8e92134c569f77b98bfc7c229f4e164e18129` |
   | Production Drive source basis (PR head) | `64807e963359c6a85bc5d9ded7b6ff1b05226694` |
   | Production Drive image | `sha256:55162c2f950607df3470e54319dc65b60e074562de86a40aab3482fc744059ca` |
 
   Verified independently rather than assumed: `git diff --name-only 64807e96
   d4b8e921` is **empty**, and the merge commit's parents are `a8ea876` +
   `64807e963`. So the two **trees are byte-identical** — Production is running
-  the same file content that is on `main` — but they are **different commits**,
-  and the documentation must not claim Production runs `d4b8e921...`.
+  the same file content that PR #92 merged — but they are **different
+  commits**, and the documentation must not claim Production runs
+  `d4b8e921...`.
 
 - **Production runtime evidence** (owner-supplied, recorded as reported):
   Drive running/healthy; `group_add` 29100 and 29102 preserved; `/datalake` RW;
@@ -74,6 +80,19 @@ therefore immutable; it was not edited.
   was ambiguous for the same reason and is now `production_git_checkout_sha` plus
   `production_drive_image_source_sha`; no script or test reads either key
   (verified by grep over `scripts/`, `tests/` and `.github/`).
+
+- **Temporal `main` claims removed (PR #93 review).** Several statements
+  identified `d4b8e921...` as the "current repository `main`" / "GitHub `main`".
+  That holds only while PR #93 is open: merging PR #93 advances `main` and would
+  make those newly-merged current-state documents immediately stale. Each such
+  phrase now names what the SHA durably is — the **PR #92 merge commit**, and
+  the **reconciliation base `main` observed when this task started** — and says
+  that current `main` must be resolved from Git at read time. The durable facts
+  were left untouched: the Production Drive image source basis `64807e963...`,
+  the Production Git checkout `2806373...`, the PR #92 merge SHA itself, the
+  tree-identical/different-commit distinction and the Host Backup Agent
+  runtime-drift statement. `idea1-moc.md` needed no edit — it records the merge
+  SHA only and never equated it with current `main`.
 
 ## Source files changed
 
