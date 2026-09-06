@@ -3,7 +3,7 @@ title: IDEA2 AEGIS Monitor MOC
 tags: [aegis, idea2, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-09-06
 owner: pub
 edit_policy: owner-writable
 ---
@@ -20,7 +20,14 @@ Owner: **Pub**. The owned code areas are `IDEA2-AEGIS_Monitor/`, `IDEA2-AEGIS_CC
 
 ## Current state and open work
 
-The workstream covers the SOC view, scoped CCTV Operator console, live video, clips, alert routing, and the headless [[entities/Detection_Engine_Service]]. Current gaps, including recognition-model and telemetry history work, are tracked in [[idea2/idea2-status]] and [[summaries/08_Outstanding_Items_Consolidated]].
+The workstream covers the SOC view, scoped CCTV Operator console, live video,
+clips, alert routing, and the headless [[entities/Detection_Engine_Service]].
+CAM-01 on Windows and CAM-02 on Arch Linux have completed scoped real-machine,
+viewer-release, reboot and alert-delivery acceptance. Current evidence and
+remaining scale/accuracy limitations are tracked in [[idea2/idea2-status]] and
+[[90-Status/logs/2026-09-06_154516_pub_idea2-detector-b-real-machine-acceptance]].
+The Kla-owned [[summaries/08_Outstanding_Items_Consolidated]] still requires
+owner reconciliation for shared milestone wording.
 
 ## Shared dependencies
 

@@ -13,6 +13,7 @@ import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getMenuForRole, ROLES } from '../rbac/permissions.js'
 import { requireAuth } from '../middleware/requireRole.js'
 import { getVisibleCameras, canSeeCamera, getUserById, updatePasswordHash } from '../db/connection.js'
+import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
@@ -163,9 +164,9 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     // ยกเลิก upstream ทันทีเมื่อ client ตัดการเชื่อมต่อ (ปิดแท็บ/เปลี่ยนกล้อง/logout)
     // — ถ้าไม่ทำ socket ไปหา engine จะค้างไว้ตลอดกาลและ engine จะนับ viewer ค้าง
     const ctrl = new AbortController()
-    let closed = false
-    const abort = () => { if (!closed) { closed = true; ctrl.abort() } }
-    res.on('close', abort)
+    const lifecycle = createUpstreamLifecycle(ctrl)
+    const abort = () => lifecycle.abort()
+    res.once('close', abort)
 
     let upstream
     try {
@@ -206,14 +207,14 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    (SOC ย้ายกล้องออกจาก operator ระหว่างที่เขาดูอยู่ = ต้องถูกตัดภายในรอบถัดไป)
     const revalidate = setInterval(() => {
       req.session?.reload((err) => {
-        if (closed) return
+        if (lifecycle.closed) return
         if (err || !req.session?.user) {
           console.warn(`[aegis-monitor] stream ${cameraId}: session ended — closing`)
           abort()
           return
         }
         canSeeCamera(req.session.user, cameraId).then((ok) => {
-          if (!ok && !closed) {
+          if (!ok && !lifecycle.closed) {
             console.warn(`[aegis-monitor] stream ${cameraId}: access revoked — closing`)
             abort()
           }
@@ -222,6 +223,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     }, STREAM_REVALIDATE_MS)
 
     const reader = upstream.body.getReader()
+    lifecycle.attachReader(reader)
     let idleTimer = null
     const armIdle = () => {
       clearTimeout(idleTimer)
@@ -236,11 +238,11 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       armIdle()
       for (;;) {
         const { value, done } = await reader.read()
-        if (done || closed) break
+        if (done || lifecycle.closed) break
         armIdle() // ได้ข้อมูลแล้ว — เริ่มจับเวลาใหม่
         // เขียนไม่ทัน (client ช้า) → รอ backpressure แทนที่จะกองใน memory
         if (!res.write(Buffer.from(value))) {
-          await new Promise((resolve) => res.once('drain', resolve))
+          await waitForDrainOrClose(res, lifecycle)
         }
       }
     } catch {
@@ -250,6 +252,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       clearTimeout(idleTimer)
       clearInterval(revalidate)
       abort()
+      res.off('close', abort)
       if (!res.writableEnded) res.end()
     }
   } catch (err) {

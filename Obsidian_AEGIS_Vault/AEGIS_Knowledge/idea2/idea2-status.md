@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-08-30
+updated: 2026-09-06
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,17 +15,55 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Detector B real-machine acceptance (2026-09-06)
+
+CAM-02 is now running on a second physical laptop using Arch Linux and
+`edge-node-02`. Detection and inference remain on that edge laptop; the Beelink
+continues to run Monitor, proxy, PostgreSQL, HUB and Drive only.
+
+| Gate | Result | Evidence boundary |
+|---|---|---|
+| INSTALL_MACHINE_B | PASS | Runtime installed under the operator account with boot-enabled systemd units |
+| ENGINE_8077_B | PASS | Local health restored after reboot with `yolo-sface-admin` selected |
+| TUNNEL_B | PASS | Dedicated SSH key; local Monitor forward `:18002`; unique server reverse endpoint `:18078` |
+| HEARTBEAT_B / LIVE_CAMERA_B | PASS | CAM-02 heartbeat and real video reached Monitor |
+| DETECTION_B | PASS | Real capture/inference ran at approximately 5 FPS; Unknown and user-confirmed Authorized application results observed |
+| TELEGRAM_B | PASS | AlertManager restored with `dry_run=False`; user confirmed a real post-reboot alert |
+| VIEWER_RELEASE_B | PASS | Closing all viewers returned zero viewers/demand/FPS and released the webcam |
+| REBOOT_B | PASS | Engine, tunnel, AI backend, Monitor forward and alert configuration recovered automatically |
+
+Local ports `:8077` and `:18002` are reusable because Detector A and B are
+different hosts. Their server reverse endpoints are unique: CAM-01 uses
+`:18077`; CAM-02 uses `:18078`. Models and biometric enrollment remain local
+runtime assets and are not tracked in Git. This acceptance proves application
+behavior, not biometric accuracy, fairness, anti-spoofing or liveness.
+
+Source reconciliation includes the Linux systemd installer/operator scripts,
+explicit YOLO + YuNet/SFace backend, viewer-demand lifecycle and the Monitor
+availability/upstream-cleanup corrections required by the two-detector path.
+Infrastructure runtime changes on the Beelink remain subject to Kla review.
+
+Detailed evidence and limitations:
+[[90-Status/logs/2026-09-06_154516_pub_idea2-detector-b-real-machine-acceptance]].
+
 ### 🧪 Local run check (2026-08-06)
 
 For a quick UI check, run `npm run dev:server` and `npm run dev` in separate terminals from `IDEA2-AEGIS_Monitor`; the UI is at `http://localhost:5176/monitor/` and the API at `http://localhost:8002`. For the full localhost integration stack, start Docker Desktop, ensure the repository-root `.env` exists, then run `docker compose up -d --build` from the repository root and open `http://localhost/` (or `http://localhost/monitor/`). The canonical detection engine remains directly runnable with `python run.py` after its own environment and dependencies are configured, and root Compose now builds that same runtime from `IDEA2-AEGIS_CCTV-Operator/detection-engine/`.
 
-> **Codebase Status**: ✅ Monitor UI/API built; the modular Python Detection Engine is the canonical development runtime and is selected by root Compose. ⚠️ Real camera, production NAS, Telegram routing, and production deployment verification remain pending.
+> **Codebase Status**: Monitor UI/API and the modular Python Detection Engine
+> are implemented. The optional YOLO + YuNet/SFace path, viewer-demand capture,
+> Linux systemd deployment and CAM-02 alert delivery passed scoped real-machine
+> acceptance. Repository models/enrollment remain intentionally absent;
+> production NAS and fleet-scale soak are still open.
 > **Primary Source Files**: `IDEA2-AEGIS_Monitor/server/`, `IDEA2-AEGIS_Monitor/src/`, `IDEA2-AEGIS_CCTV-Operator/detection-engine/`
 
 > **Folder boundary clarification (2026-07-28).** `IDEA2-AEGIS_Monitor/` is the single authenticated Monitor application: login, Monitor identity store, server-resolved `SOC-Responder` / `CCTV-Operator` menus, scoped views, API, and `camera_assignment` enforcement all live here. The old `IDEA2-AEGIS_CCTV-Operator/` folder is only partially deprecated: its former `web-app/` UI is merged and is no longer present, but `detection-engine/` remains the Laptop-side sensor layer that captures camera frames, writes telemetry to Monitor, and must not be deleted unless that edge pipeline is migrated first. Do not delete the entire old folder.
 
-> ⚠️ **Read this first — what is and is not real (audited 2026-07-27).**
-> A full mock-vs-real audit was run against this module, followed by two build-out phases. The subsystems below are now genuinely wired end to end: capture → detection → segment recording → NAS sync → metadata → live video. **The one thing that is still not real is identity recognition itself** — see [Detection Engine](#-detection-engine-laptop-vlan-20) — and there is still **no clip playback**. Everything else on this page has been verified against a running system, not inferred from code.
+> **Evidence boundary.** The repository default remains identity-free and
+> fail-safe. Real identity recognition requires explicit local YOLO, YuNet,
+> SFace and enrollment assets. That configured path passed application-level
+> checks on two edge laptops, but no independent accuracy, fairness, liveness or
+> anti-spoof benchmark is claimed. Production NAS remains separate work.
 
 ---
 
@@ -36,8 +74,8 @@ flowchart TD
     subgraph EdgeEngine ["Detection Engine — Laptop, VLAN 20 (headless, no UI)"]
         CamFeed["📷 Camera source<br/>webcam index OR rtsp:// URL"] --> Catcher["VideoCatcher<br/>(only thread touching the device)"]
         Catcher -->|record sink| Rec["SegmentRecorder<br/>~10-min .mp4 files"]
-        Catcher -->|detect sink, latest-only| Det["FaceDetectorProcessor<br/>⚠️ PlaceholderRecognizer"]
-        Catcher -->|stream sink, latest-only| Hub["StreamHub<br/>JPEG encode once, share to N viewers"]
+        Catcher -->|detect sink, latest-only| Det["FaceDetectorProcessor<br/>default Unknown OR explicit YOLO + SFace"]
+        Det -->|matched frame + result| Hub["StreamHub<br/>annotate once, share JPEG to N viewers"]
         Rec --> NASW["NASSyncWorker<br/>scp/rsync + sha256 verify"]
         NASW --> NAS[("Local NAS<br/>raw video bytes")]
         Det --> HB["HeartbeatWorker<br/>every 5s"]
@@ -420,7 +458,7 @@ This is a same-day continuation of the pass immediately above, this time run wit
 
 **Detection Engine (Laptop, VLAN 20)**
 * `aegis_engine/video_catcher.py` — the only thread touching the device
-* `aegis_engine/face_detector.py` — ⚠️ **model injection seam** (`PlaceholderRecognizer` today)
+* `aegis_engine/face_detector.py` — model injection seam; identity-free default or explicit hybrid recognizer selected by `run.py`
 * `aegis_engine/segment_recorder.py` · `nas_sync.py` — recording and verified off-load
 * `aegis_engine/heartbeat_worker.py` — **[NEW]** liveness publisher
 * `aegis_engine/stream_hub.py` — **[NEW]** JPEG encode-once, share-to-N
@@ -432,11 +470,11 @@ This is a same-day continuation of the pass immediately above, this time run wit
 
 | Item | Status | Notes |
 | :--- | :--- | :--- |
-| **Real face-recognition model** | 🔴 Open | The seam is ready; the model is not. Until injected, every detection is `Unknown` and identity-based UI has nothing to show. Deliberately out of scope for both build-out phases. |
+| **Real face-recognition model** | ✅ Accepted on two real edge runtimes; source review pending | Optional YOLO + YuNet/SFace uses private local assets on CAM-01 Windows and CAM-02 Arch Linux. CAM-02 model load, real inference, user-observed Authorized behavior, Unknown alerting, Telegram delivery, viewer release and reboot persistence passed. Accuracy/fairness/liveness benchmarking is not claimed. |
 | ~~**Clip playback**~~ | ✅ Resolved (2026-08-01) | `GET /api/clips/:id/video` + `getClipById()` in `store.js` + a real `<video>` element in `Archive.jsx` replaced the text-panel-only play button; a URL bug that dropped the `/monitor/` prefix was fixed in the same pass. **Independently re-verified live in the 2026-08-01 follow-up session** after briefly regressing to a 404 (see Bugs Found) — `grep` confirms the route is deployed and a real CAM-05 clip was confirmed playable end to end. |
 | **`gateway/nginx.conf` case-sensitivity gap** | 🔴 Open | `location /monitor/internal/` is a case-sensitive literal, but Express matches paths case-insensitively — `/monitor/Internal/...` bypasses the edge guard. The production HUB config already uses `location ~* ^/monitor/internal(/\|$)` and its comment records that the gateway has the same hole. Still guarded by the API key; the *edge* layer is what is bypassable. |
 | **Heartbeat history / uptime %** | 🔴 Open | `camera_heartbeat` keeps only the latest row per camera. Uptime %, 24h disconnects and a real latency sparkline all need a time-series table. Currently shown as `unavailable`. |
-| **Multi-camera engine deployment** | 🔴 Open | One process serves one camera; six cameras means six configured instances. No supervisor or compose service. Running two instances against two different cameras (e.g. CAM-02 + CAM-05) simultaneously was design-confirmed with the user 2026-08-01 (distinct `AEGIS_CAMERA_ID`/`AEGIS_STREAM_URL` per instance, shared `MONITOR_INTERNAL_URL`/`DETECTION_ENGINE_API_KEY`) but not yet implemented. |
+| **Multi-camera engine deployment** | 🟠 Two-node path accepted; fleet automation open | CAM-01 Windows and CAM-02 Arch Linux run one configured process per physical edge host with unique camera/node identity, SSH key and server reverse endpoint. Same-host multi-instance supervision, bulk provisioning and fleet-scale soak remain open. |
 | **Real bbox geometry** | 🟠 Design constraint | `detections` has no bbox column, so overlay boxes are evenly-spaced slots. `.feedimg` uses `object-fit: cover`, which crops within the box — **when real bbox telemetry arrives this must become `contain` or letterbox-aware**, or normalised coordinates will be wrong by the cropped margin. |
 | **Safari live video** | 🟠 Known limitation | `multipart/x-mixed-replace` in `<img>` works in Chrome/Edge/Firefox; **Safari does not support it** and will sit in the reconnect state. |
 | **Notification preferences (Settings)** | 🔴 Open | Sound / desktop push / snooze are `useState` only — never persisted — yet each toggle fires a "saved successfully" toast. |

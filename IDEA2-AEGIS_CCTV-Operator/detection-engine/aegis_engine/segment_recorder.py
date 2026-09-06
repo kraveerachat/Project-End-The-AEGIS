@@ -51,6 +51,7 @@ class SegmentRecorder(threading.Thread):
         record_queue: "queue.Queue[Frame]",
         on_segment: SegmentCallback,
         stop_event: Optional[threading.Event] = None,
+        capture_demand_event: Optional[threading.Event] = None,
     ) -> None:
         super().__init__(name="SegmentRecorder", daemon=True)
         self._cfg = config
@@ -58,6 +59,7 @@ class SegmentRecorder(threading.Thread):
         self._queue = record_queue
         self._on_segment = on_segment
         self._stop_event = stop_event or threading.Event()
+        self._capture_demand_event = capture_demand_event
 
         self._writer: "Optional[cv2.VideoWriter]" = None
         self._writer_size: Optional[tuple] = None  # (w, h) the writer was opened at
@@ -82,6 +84,14 @@ class SegmentRecorder(threading.Thread):
                 try:
                     frame = self._queue.get(timeout=0.5)
                 except queue.Empty:
+                    # Viewer-demand capture must close the active container when
+                    # the last authorized stream ends. A later login starts a
+                    # new segment instead of appending across a private gap.
+                    if (
+                        self._capture_demand_event is not None
+                        and not self._capture_demand_event.is_set()
+                    ):
+                        self._finalize_segment()
                     # No frames right now — still honour the rotation clock.
                     self._maybe_rotate()
                     continue

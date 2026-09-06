@@ -38,6 +38,26 @@ function statusFromAge(ageMs) {
   return 'lost'
 }
 
+/**
+ * แปลง heartbeat เป็นสถานะที่หน้าเว็บใช้ โดยแยก "engine ยังติดต่อได้" ออกจาก
+ * "อุปกรณ์กล้องกำลังเปิดอยู่" ให้ชัดเจน
+ *
+ * กล้องแบบ viewer-demand จะรายงาน cameraConnected=false ขณะ idle ตามปกติ และจะ
+ * เปิดอุปกรณ์ก็ต่อเมื่อ browser เริ่มขอ stream เท่านั้น ดังนั้นห้ามใช้ค่านี้เป็น
+ * เงื่อนไขก่อนสร้าง stream request มิฉะนั้นจะเกิด deadlock:
+ * browser รอกล้องเปิด ↔ engine รอ viewer
+ */
+export function heartbeatAvailability({ ageMs, streamUrl, cameraConnected }) {
+  const status = statusFromAge(ageMs)
+  return {
+    status,
+    cameraConnected: cameraConnected === true,
+    // Heartbeat ต้องยังไม่ lost และต้องประกาศ endpoint จริง จึงอนุญาตให้ client
+    // ขอผ่าน Monitor proxy ได้; proxy ยังคงตรวจ RBAC และ freshness ซ้ำฝั่ง server
+    hasStream: Boolean(streamUrl) && status !== 'lost',
+  }
+}
+
 // ── simulated outage — ยังมีอยู่ แต่ "ประกาศตัวว่าเป็นการซ้อม" ────────────────
 // SOC-Responder เท่านั้น (requireRole ใน routes/api.js) ใช้แทนการเดินไปดึงสาย LAN
 // ⚠️ ต่างจากของเดิมตรงที่ payload ติดธง simulated: true กลับไปด้วยเสมอ — จอที่แสดง
@@ -80,15 +100,20 @@ export async function listHeartbeats(visibleIds) {
   return rows.map((r) => {
     const lastSeenAt = Math.round(Number(r.last_seen_ms))
     const ageMs = now - lastSeenAt
+    const availability = heartbeatAvailability({
+      ageMs,
+      streamUrl: r.stream_url,
+      cameraConnected: r.camera_connected,
+    })
     return {
       cam: r.camera_id,
       camName: r.camera_name,
-      // กล้องที่ engine รายงานว่าเปิดไม่ได้ = offline ถึงแม้ heartbeat จะสด
-      status: r.camera_connected ? statusFromAge(ageMs) : 'lost',
+      // สถานะ link มาจากอายุ heartbeat; การเปิดอุปกรณ์กล้องเป็นคนละสถานะกัน
+      status: availability.status,
       lastSeenAt,
       ageMs,
       nodeId: r.node_id,
-      cameraConnected: r.camera_connected,
+      cameraConnected: availability.cameraConnected,
       cameraReconnects: r.camera_reconnects,
       captureFps: num(r.capture_fps),
       detectFps: num(r.detect_fps),
@@ -101,7 +126,7 @@ export async function listHeartbeats(visibleIds) {
       nasPending: r.nas_pending,
       // ⚠️ ไม่ส่ง stream_url ออกไปฝั่ง client — เป็นที่อยู่ภายในของ engine บน VLAN 20
       //    client รู้แค่ว่า "กล้องนี้สตรีมได้ไหม" แล้วขอผ่าน proxy ของ Monitor เท่านั้น
-      hasStream: Boolean(r.stream_url) && (r.camera_connected === true),
+      hasStream: availability.hasStream,
     }
   })
 }
