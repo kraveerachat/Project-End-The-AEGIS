@@ -1156,7 +1156,7 @@ Publication base:         origin/main@9ade0dab6361f2bb1212fd67dc7469122463c989
 Isolated worktree:        /tmp/aegis-idea3-headless-core-pr4
 GitHub PR:                #91
 PR URL:                   https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91
-PR state at checkpoint:   DRAFT / NOT MERGED
+PR state at checkpoint:   OPEN / READY_FOR_REVIEW / REVIEW_REQUIRED / NOT MERGED
 ```
 
 The historical source branch diverged from shared `main` before the current Web
@@ -1215,7 +1215,6 @@ GPIO/relay action, physical isolation, network/infrastructure change, service
 installation, or production deployment occurred. ACK and command-correlated
 STATUS remain protocol evidence, not direct electrical relay proof.
 
-PR #91 is open as Draft while its GitHub-assigned number and URL are synchronized
-into this handoff and the Music-owned receipt. After this documentation commit is
-pushed, rerun the scope/policy checks and mark the PR Ready for owner review.
-Do not merge or deploy automatically.
+PR #91 is open and Ready for owner review. Its GitHub-assigned number, URL, and
+review state are synchronized into this handoff and the Music-owned receipt.
+Wait for owner review; do not merge or deploy automatically.
