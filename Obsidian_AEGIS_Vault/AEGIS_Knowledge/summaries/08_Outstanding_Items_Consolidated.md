@@ -36,12 +36,18 @@ edit_policy: owner-writable
 > Encryption-at-Rest truthfulness, Administrator Network Zones, Backup Agent
 > connection, and STORAGE-AUTO-1 are **PASS / CLOSED** for their accepted scope.
 > Twingate control-plane telemetry remains **NOT MEASURED**. Storage & Backup and
-> Settings remain **PARTIAL**: the Backup Target classifier is merged through
-> PR #81 but is not deployed to the Production host agent, which still reports
-> `UNKNOWN / physical-device-unresolved`; `DIFFERENT_DEVICE`, the real Backup Job,
-> repository integrity, isolated restore, and STORAGE-AUTO-2 remain open. Real
-> RAID1 is **DEFERRED / FUTURE HARDWARE**, and current HGST/Lexar media must not
-> be erased, reformatted, repartitioned, resized, or used as RAID members.
+> Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media scope**.
+> The reviewed PR #81 classifier is deployed to the live Production Host Backup
+> Agent with `PrivateDevices=yes` preserved; `hgst-usb-1 → DIFFERENT_DEVICE`
+> is accepted. Two manual backup jobs completed SUCCESS, repository integrity
+> passed, and two isolated restore verifications completed PASS; the final UI
+> reports Healthy / Ready / Integrity Pass / Restore Pass / 100% (2), and the
+> Audit Log contains matching request + success/pass events. Settings remains
+> **PARTIAL** only because the optional latest exhaustive profile/avatar sweep
+> remains NOT TESTED. STORAGE-AUTO-2 automatic scheduled execution remains
+> **NOT TESTED / optional** for the borrowed-HGST scope. Real RAID1 is
+> **DEFERRED / FUTURE HARDWARE**, and current HGST/Lexar media must not be erased,
+> reformatted, repartitioned, resized, or used as RAID members.
 >
 > The older `LARGE_FILE_TRANSFER_V2 = IN_PROGRESS`, “nothing deployed”, and
 > “Phase C / Web Functional Testing is NOT STARTED” statements below are also

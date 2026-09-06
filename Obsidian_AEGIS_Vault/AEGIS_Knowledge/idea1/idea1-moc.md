@@ -30,17 +30,26 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
 - local Twingate connector runtime telemetry **PASS / CLOSED** after PR #79, while control-plane telemetry remains **NOT MEASURED**;
 - Administrator Encryption-at-Rest truthfulness and Network Zones **PASS / CLOSED**;
 - RAID telemetry-ready UI versus real RAID1 **DEFERRED / FUTURE HARDWARE**;
-- the connected Host Backup Agent, safely mounted/registered shared HGST target, and the `PrivateDevices` classifier source/PR gate **CLOSED via PR #81**, with Production deployment / `DIFFERENT_DEVICE` acceptance still pending;
-- STORAGE-AUTO-1 persistence PASS with the current safe baseline disabled/no active target;
-- Backup Job / integrity / isolated restore still **NOT TESTED**;
+- the connected Host Backup Agent, safely mounted/registered shared HGST target, and the `PrivateDevices` classifier source/PR gate **CLOSED via PR #81**, with Production `DIFFERENT_DEVICE` acceptance now **PASS / CLOSED**;
+- STORAGE-AUTO-1 persistence PASS; current accepted policy selects `hgst-usb-1` while keeping schedule disabled and `enabled=false`;
+- Backup Job manual E2E, repository integrity and isolated restore **PASS / CLOSED** for the accepted removable-media scope;
 - real 20–30 GB / Production 32 GiB transfer scale **NOT TESTED / NOT ACCEPTED**;
-- the current Backup Target → Backup Job continuation sequence.
+- remaining optional/future work: profile/avatar exhaustive Settings sweep, STORAGE-AUTO-2 scheduled execution if desired, real RAID1 future hardware, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
-Current Backup Target checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier to repository main; overall Backup Target remains **IN PROGRESS** until Production reports `hgst-usb-1 → DIFFERENT_DEVICE`; Backup Job remains **NOT TESTED**, and real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
+Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. Automatic scheduled execution remains NOT TESTED / optional; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
 The current HGST 1 TB and Lexar 32 GB devices are existing/shared equipment: never erase, format, repartition, resize, move or delete their existing data. Only new AEGIS files inside the HGST `AEGIS_BACKUP` directory are allowed; Lexar remains disconnected/unused.
 
 Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] and the shared [[summaries/08_Outstanding_Items_Consolidated]].
+
+### Remaining IDEA1 work after Storage & Backup closure
+
+- Settings overall remains **PARTIAL** only if the optional latest exhaustive profile/avatar sweep is required for full parent-page closure.
+- `STORAGE-AUTO-2` automatic scheduled execution is **NOT TESTED / optional** for the borrowed/removable HGST acceptance scope; current schedule remains disabled.
+- Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
+- Public external Secure Share remains **NOT IMPLEMENTED**.
+- Twingate control-plane telemetry remains **NOT MEASURED**.
+- Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.
 
 ## Current functional design baseline
 
