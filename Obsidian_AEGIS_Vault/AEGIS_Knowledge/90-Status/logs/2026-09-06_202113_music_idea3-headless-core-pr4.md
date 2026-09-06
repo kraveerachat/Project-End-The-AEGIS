@@ -11,8 +11,9 @@ edit_policy: append-by-new-file
 # Task Receipt — IDEA3 PR4 Headless Core and Physical Evidence
 
 Personal track label: `PR4` (IDEA3 sequence after the work associated with
-GitHub PR #87). Actual GitHub PR: pending assignment at the documentation
-checkpoint. Base: `origin/main@9ade0dab6361f2bb1212fd67dc7469122463c989`.
+GitHub PR #87). Actual GitHub PR: [#91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91).
+PR state at this documentation checkpoint: `DRAFT`; merge not performed.
+Base: `origin/main@9ade0dab6361f2bb1212fd67dc7469122463c989`.
 Historical source branch/head: `feat/idea3-headless-core@cfb6efe2`.
 
 ## What changed

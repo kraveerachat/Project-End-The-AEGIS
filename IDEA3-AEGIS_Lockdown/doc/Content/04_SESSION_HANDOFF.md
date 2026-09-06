@@ -1154,6 +1154,9 @@ Historical source HEAD:   cfb6efe2bda2149c3c897e26ec6e4a326f170d78
 Publication branch:       feat/idea3-headless-core-pr4
 Publication base:         origin/main@9ade0dab6361f2bb1212fd67dc7469122463c989
 Isolated worktree:        /tmp/aegis-idea3-headless-core-pr4
+GitHub PR:                #91
+PR URL:                   https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91
+PR state at checkpoint:   DRAFT / NOT MERGED
 ```
 
 The historical source branch diverged from shared `main` before the current Web
@@ -1212,8 +1215,7 @@ GPIO/relay action, physical isolation, network/infrastructure change, service
 installation, or production deployment occurred. ACK and command-correlated
 STATUS remain protocol evidence, not direct electrical relay proof.
 
-Next: finish the Music-owned Obsidian status/MOC and single task receipt, run
-repository policy/vault validation plus a final fresh test/build gate, commit,
-push the publication branch to the user's fork, open a PR to the canonical
-repository `main`, and record the GitHub-assigned PR number here and in the
-receipt. Do not merge or deploy automatically.
+PR #91 is open as Draft while its GitHub-assigned number and URL are synchronized
+into this handoff and the Music-owned receipt. After this documentation commit is
+pushed, rerun the scope/policy checks and mark the PR Ready for owner review.
+Do not merge or deploy automatically.
