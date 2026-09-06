@@ -74,6 +74,17 @@ describe('authenticated application shell', () => {
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
   })
 
+  it('describes Overview as architecture and integration readiness in the page heading', () => {
+    render(
+      <AppShell identity={identity} mode="DEMO" currentRoute="overview">
+        <p>Page</p>
+      </AppShell>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'ภาพรวมระบบ', level: 1 })).toBeVisible()
+    expect(screen.getByText('สถาปัตยกรรมการเชื่อมต่อ หลักฐาน และความพร้อมของ AEGIS')).toBeVisible()
+  })
+
   it.each([
     ['en', 'Language', 'API: Ready', 'Dashboard', 'Use dark theme'],
     ['zh', '语言', 'API：可用', '安全仪表板', '使用深色主题'],

@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { DashboardPage } from '../../src/pages/DashboardPage.jsx'
 import { OverviewPage } from '../../src/pages/OverviewPage.jsx'
@@ -29,12 +29,61 @@ describe('Dashboard', () => {
 })
 
 describe('Overview', () => {
-  it('explains the data path and Demo provenance without claiming Live integration', () => {
+  it('leads with the evidence boundary and architecture flow before integration details', () => {
     render(<OverviewPage snapshot={snapshot} />)
-    expect(screen.getByText('Upstream evidence')).toBeVisible()
+
+    const boundary = screen.getByRole('region', { name: 'ขอบเขตสภาพแวดล้อมและหลักฐาน' })
+    const flow = screen.getByRole('region', { name: 'เส้นทางของหลักฐาน' })
+    const contracts = screen.getByRole('region', { name: 'สัญญาการเชื่อมต่อ' })
+    const matrix = screen.getByRole('region', { name: 'Integration matrix' })
+
+    expect(within(boundary).getByText('DEMO')).toBeVisible()
+    expect(within(boundary).getByText('isolated-demo-provider')).toBeVisible()
+    expect(within(boundary).getByText('SESSION_AND_MEMORY_ONLY')).toBeVisible()
+    expect(within(boundary).getByText('NOT ALLOWED')).toBeVisible()
+    expect(flow.compareDocumentPosition(contracts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(contracts.compareDocumentPosition(matrix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(flow).getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === 'IDEA1 Evidence')).toBeVisible()
+    expect(within(flow).getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === 'IDEA2 Evidence')).toBeVisible()
+    expect(within(flow).getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === 'IDEA3 Runtime')).toBeVisible()
     expect(screen.getByText('Validate & normalize')).toBeVisible()
-    expect(screen.getByText('isolated-demo-provider')).toBeVisible()
     expect(screen.getByText('ไม่มีการรวม Demo กับ Live')).toBeVisible()
+  })
+
+  it('keeps stale evidence and physical evidence uncertainty visible instead of implying health', () => {
+    const staleSnapshot = {
+      ...snapshot,
+      idea1: { ...snapshot.idea1, status: 'HEALTHY', freshness: 'STALE' },
+    }
+    render(<OverviewPage snapshot={staleSnapshot} />)
+
+    const idea1Card = screen.getByRole('article', { name: 'IDEA1 Access Security integration' })
+    const idea3Card = screen.getByRole('article', { name: 'IDEA3 Runtime integration' })
+    const idea1Row = screen.getByRole('row', { name: /IDEA1 Access Security/ })
+    const contractReadiness = screen.getByText('Sanitized evidence contract').closest('.readiness-ledger > div')
+
+    expect(within(idea1Card).getByLabelText('สถานะ STALE')).toBeVisible()
+    expect(within(idea1Card).getAllByText('STALE')).toHaveLength(2)
+    expect(within(idea1Row).getAllByText('STALE')).toHaveLength(2)
+    expect(within(contractReadiness).getByText('STALE')).toBeVisible()
+    expect(within(idea3Card).getByText('MONITOR ONLY')).toBeVisible()
+    expect(within(idea3Card).getByText('DRY RUN')).toBeVisible()
+    expect(within(idea3Card).getByText('UNKNOWN')).toBeVisible()
+  })
+
+  it('uses honest fallback states when provider metadata or integrations are missing', () => {
+    const incompleteSnapshot = {
+      ...snapshot,
+      provenance: { liveMerged: false },
+      sources: [],
+      settings: { ...snapshot.settings, adapters: [] },
+    }
+    render(<OverviewPage snapshot={incompleteSnapshot} />)
+
+    const boundary = screen.getByRole('region', { name: 'ขอบเขตสภาพแวดล้อมและหลักฐาน' })
+    expect(within(boundary).getByText('UNKNOWN')).toBeVisible()
+    expect(within(boundary).getByText('NOT_CONFIGURED')).toBeVisible()
+    expect(screen.getByText('ยังไม่มีผลการตรวจสอบ integration')).toBeVisible()
   })
 })
 
