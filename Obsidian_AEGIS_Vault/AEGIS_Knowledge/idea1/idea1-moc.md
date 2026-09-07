@@ -53,7 +53,7 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - The final Dashboard/Storage/Secure Share source pass still needs controlled Production deployment and owner visual acceptance; existing Production closure is not evidence for the changed layout.
 - `STORAGE-AUTO-2` automatic scheduled execution is **OPEN / UNPROVEN**; current schedule remains disabled, and it closes only after an explicitly approved scheduler-triggered Production run is observed.
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
-- Public External Internet Share remains **NOT IMPLEMENTED / FUTURE ARCHITECTURE**. `scope=any` is not public sharing: it adds no Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS.
+- Public External Internet Share remains **NOT IMPLEMENTED / FUTURE ARCHITECTURE**. `scope=any` is not public sharing: it adds no Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS. The accepted design contract — dedicated share-only gateway, `scope=public` as a third explicit value, threat model, ingress decision matrix, and the PUBLIC-SHARE-2..7 sequence — is [[idea1/idea1-public-share-architecture]]; it is architecture only and nothing in it is built or deployed.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.
 

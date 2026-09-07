@@ -410,6 +410,48 @@ Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
 
 Public Share remains not implemented.
 
+### Public Share Gateway architecture accepted as a contract (2026-09-07)
+
+> [!info] PUBLIC-SHARE-1 is architecture and security-contract work only
+> **Public Internet Share remains NOT IMPLEMENTED and NOT DEPLOYED.** No source,
+> configuration, or infrastructure change accompanies it, and no port, DNS record,
+> NAT rule, tunnel, firewall, VLAN or Twingate policy was created or modified.
+
+The durable design for the future third share mode is now recorded in
+[[idea1/idea1-public-share-architecture]]: a dedicated share-only Public Share
+Gateway, default-denying every path except `GET /s/:token` and `POST /s/:token`,
+stateless, on its own two-member Docker network, holding no secret, no database
+handle and no Data Lake mount, with Drive keeping every authorization decision.
+It carries the route contract, the scope contract, the configuration contract, a
+28-entry threat model, the Option A / Option B ingress decision matrix, the
+security invariants, the PUBLIC-SHARE-2..7 sequence, the ordered rollback, and
+the production decision gates.
+
+Three durable facts established by that review of current source:
+
+- **`scope=public` must be a third explicit value, never an overload of
+  `scope=any`.** Collapsing them would retroactively make every existing `any`
+  share Internet-redeemable the moment a gateway was deployed, without its
+  creator ever agreeing to that. `zones` and `any` semantics are unchanged.
+- **`server/config/trustedProxy.js` is a hard, code-level blocker for any second
+  proxy.** In production it accepts exactly one CIDR and it must be the approved
+  HUB identity `172.19.255.2/32`; a public gateway added as a second peer makes
+  Drive **refuse to boot**. Widening the approved set to a second explicitly
+  pinned identity is a reviewed source change for PUBLIC-SHARE-2/3, not a config
+  tweak, and it modifies a control that B4.3 production acceptance depends on.
+- **The in-memory rate limiter creates a self-DoS risk specific to the public
+  path.** If recipient addresses are not correctly attributed at the gateway,
+  every public recipient collapses to one source IP and any five failures lock
+  public redemption for everyone — the same defect class already found once when
+  share guessing locked the login page for a whole NAT'd office. The public path
+  therefore needs its own limiter scope, and the gateway must overwrite rather
+  than append forwarding headers.
+
+HTTP Range remains unsupported on the redemption path, so an interrupted public
+download restarts from zero; the in-memory limiter and session store remain
+single-process; and 20–30 GB / Production 32 GiB transfer scale remains
+**NOT TESTED / NOT ACCEPTED**. None of that is changed by this task.
+
 ## 🧩 Current functional design baseline (2026-08-21)
 
 > [!info] Scope of this section

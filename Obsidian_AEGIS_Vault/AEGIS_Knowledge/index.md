@@ -3,7 +3,7 @@ title: AEGIS LLM Wiki Catalog Index
 tags: [aegis, wiki, index, catalog]
 type: catalog
 created: 2026-07-20
-updated: 2026-08-13
+updated: 2026-09-07
 owner: kla
 edit_policy: owner-only
 ---
@@ -27,6 +27,7 @@ edit_policy: owner-only
 ## 📦 Owned workstreams
 * [[core/hub-aegis-entry]] — Static app picker with no login/backend of its own (served at `/` via gateway)
 * [[idea1/idea1-moc]] → [[idea1/idea1-status]] — Kla-owned Secure NAS & Edge Data Lake workstream
+* [[idea1/idea1-public-share-architecture]] — **[NEW 2026-09-07]** Kla-owned design contract for the future share-only Public Share Gateway: route/scope/configuration contracts, 28-entry threat model, ingress decision matrix, security invariants, PUBLIC-SHARE-2..7 sequence and production gates. Architecture only — Public Internet Share is NOT IMPLEMENTED and NOT DEPLOYED
 * [[idea2/idea2-moc]] → [[idea2/idea2-status]] — Pub-owned Monitor, CCTV Operator and Detection Engine workstream
 * [[idea3/idea3-moc]] → [[idea3/idea3-status]] — Music-owned Lockdown workstream; design/report state until hardware proof
 * [[infrastructure/infrastructure-moc]] — Kla-owned operational network, server, remote-access and deployment truth
