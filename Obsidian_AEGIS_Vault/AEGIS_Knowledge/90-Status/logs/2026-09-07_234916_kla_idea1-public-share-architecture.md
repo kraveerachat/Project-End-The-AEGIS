@@ -50,9 +50,10 @@ are the substance of this task:
    second trusted peer makes Drive **refuse to boot**. This is not a config
    change to make in passing; it modifies a control that the B4.3 production
    acceptance of spoof resistance depends on. The note takes the position that
-   the approved *set* is widened to a second explicitly pinned /32 identity — the
-   "exactly N named identities" rule survives — and routes it to gate G2 for an
-   explicit owner decision.
+   production gains a second approved **state** — `{HUB}` or
+   `{HUB, one approved public-gateway /32}` — rather than a relaxed rule, keeps
+   HUB-only as the default so Drive still starts before any gateway exists, and
+   routes it to gate G2 for an explicit owner decision.
 
 2. **The in-memory rate limiter creates a public-path self-DoS.** If the gateway
    does not attribute real client addresses, every public recipient collapses to
@@ -69,6 +70,80 @@ are the substance of this task:
    also declines to widen `users.share_default_scope`: publishing to the Internet
    must be a per-share choice every time, never something a saved preference does
    on the sharer's behalf.
+
+## Review amendment — public-gateway provenance corrected (2026-09-08)
+
+Amended in place under `AGENTS.md` §9: same task, same branch, same PR, **same
+receipt**. No second receipt, branch, or PR was created. Previous head
+`038740e47b98583a497517e7b181849e187f4996`.
+
+**The review found a material design error, and it was correct.** The first draft
+of §7.4 said the `scope=public` ingress rule compares the *canonical source*
+(`requestSourceIp(req)` → `req.ip`) against the configured public-gateway
+identity. That is not implementable.
+
+Verified rather than argued, with `express` + `proxy-addr` configured exactly as
+`server/app.js` configures them — one trusted `/32` peer that overwrites
+`X-Forwarded-For` with a real client address:
+
+```text
+req.socket.remoteAddress = 127.0.0.1      (the trusted peer, standing in for the gateway)
+req.ip                   = 203.0.113.50   (the external recipient)
+req.ips                  = ['203.0.113.50']
+```
+
+So on every correct public request `req.ip` is the **recipient**, never the
+gateway. Implementing the original prose literally would have produced one of two
+failures: non-`public` shares would not be blocked on the public ingress, or the
+gateway would have had to stop forwarding the real client address — which breaks
+audit and rate-limit attribution and re-creates the T-05 self-DoS the threat model
+exists to prevent.
+
+A second detail the measurement surfaced: with the same trusted peer sending **no**
+`X-Forwarded-For`, `req.ip` falls back to the peer address. That is precisely why
+ingress provenance must be read from the socket peer — the socket peer is correct
+in both cases, whereas `req.ip` is the gateway in one and the recipient in the
+other.
+
+**The corrected contract separates two identities that must never be substituted
+for each other** (new §10.1):
+
+| | Client source identity | Ingress provenance |
+| :--- | :--- | :--- |
+| Accessor | `requestSourceIp(req)` → `req.ip`, unchanged | new central helper over `req.socket.remoteAddress` |
+| Used for | `zones` CIDR enforcement, rate-limit IP axis, audit source | the `scope=public` ingress rule, and nothing else |
+| For a public request | the external recipient | the public gateway |
+
+The helper must be central (no ad-hoc route parsing), normalise IPv4-mapped IPv6,
+never consult any client-supplied header, and compare only against pinned host
+identities. `requestSourceIp()` is not modified.
+
+**Trusted-proxy rollout compatibility was also tightened** (new §5.1.1). Rather
+than "widen the approved set", production now has exactly two legal states —
+`{HUB}` and `{HUB, approved public-gateway}` — with the gateway identity
+**optional until its rollout phase**, so Drive still starts safely before the
+gateway exists and after a gateway rollback. Everything previously rejected is
+still rejected: gateway-without-HUB, unapproved /32, any prefix shorter than /32,
+`FORBIDDEN_SHARED_RANGES` values, duplicates, and any third proxy.
+
+Sections amended: §5.1 (added §5.1.1), §7.4, §8.1 `PUBLIC_SHARE_GATEWAY_CIDR`,
+§10 (added §10.1), threat entries T-05, T-06, T-10 and T-27, §12 audit, §14
+security invariants (now 20, with ingress provenance as its own invariant), §15
+rollout table, §16.1 PUBLIC-SHARE-2 verification plan (five new test groups
+pinning the split), and §18 known limitations.
+
+Everything the review listed under "keep these PR #97 decisions" is unchanged:
+NOT IMPLEMENTED / NOT DEPLOYED status, the dedicated share-only gateway,
+`aegis.internal` staying private, default-deny public listener, `scope=public` as
+an explicit third value, no `scope=any` overload, no `zones`/`any` regression, no
+credentials on the gateway, no token or password in logs, Vault unshareable,
+owner-only lifecycle, trash/revoke/expiry behaviour, configuration-derived
+`PUBLIC_SHARE_BASE_URL`, header sanitation, streaming downloads, no production
+ingress, the unresolved Option A / Option B gate, and truthful UI.
+
+This amendment remains documentation-only and does not begin PUBLIC-SHARE-2.
+
+---
 
 The threat model covers all 28 required threats, each with Threat / Asset /
 Attack path / Existing control / Required additional control / Verification test
@@ -142,6 +217,15 @@ and `docker-compose.yml`.
   requires affected tests when a source or test path changes; no such path
   changed. Running the suite would prove nothing about a diff that contains no
   code, and reporting it would misrepresent the evidence this task actually has.
+- **Express provenance probe (review amendment)** — a throwaway script using the
+  repository's own `express` and `proxy-addr`, `trust proxy` compiled from one
+  `/32`, a request from that peer carrying `X-Forwarded-For: 203.0.113.50`:
+  **`req.ip = 203.0.113.50`, `req.socket.remoteAddress = 127.0.0.1`,
+  `req.ips = ['203.0.113.50']`**; and with no `X-Forwarded-For`,
+  `req.ip = 127.0.0.1`. This is the measurement that proves the original §7.4
+  mechanism was not implementable and that the corrected §10.1 split is
+  necessary. **The script was run outside this branch and is not committed** — no
+  test or source file is added by this task.
 - **No production access of any kind**: no SSH, no deployment, no container
   action, no `docker compose`, no network or firewall command, no DNS change, no
   certificate operation. None is claimed.
@@ -218,6 +302,19 @@ surface, and this receipt does not list paths that this branch does not modify.
 
 ## Known limitations
 
+- **The corrected ingress-provenance helper does not exist in source.** §10.1
+  specifies it; `server/request/sourceIp.js` has no counterpart for the socket
+  peer today and no route reads `req.socket.remoteAddress`. Naming and placement
+  are PUBLIC-SHARE-2 implementation detail; only the contract is fixed here.
+- **Ingress provenance is an address comparison, not authentication.** It is
+  sound only because `aegis_public_share` is specified with exactly two members
+  and Drive publishes no port. A third member on that network would weaken it
+  silently, which is why the Compose structural test in T-10 is mandatory.
+- **The provenance error existed in the first pushed head
+  (`038740e4`).** It was found in owner review, not by this task's own checks —
+  no local check would have caught a design statement about runtime behaviour.
+  The fix is verified by measurement, but the miss is recorded rather than
+  smoothed over.
 - **Nothing in this note is implemented, and Public Internet Share remains NOT
   IMPLEMENTED and NOT DEPLOYED.** Every "required additional control" in the
   threat model is unbuilt. The document is a contract to be honoured by later

@@ -3,7 +3,7 @@ title: IDEA1 Public Share Gateway — Architecture and Threat Model
 tags: [aegis, idea1, share-links, architecture, threat-model, public-gateway, security]
 type: concept
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 sources: ["[[idea1/idea1-status]]", "[[core/security-architecture]]"]
 owner: kla
 edit_policy: owner-writable
@@ -252,6 +252,33 @@ identity. `FORBIDDEN_SHARED_RANGES` and the "no broad CIDR" rules stay. The
 existing `tests/trustedProxy.test.js` TP-R1..R8 rejection cases must all still
 pass unchanged.
 
+#### 5.1.1 Two approved production modes, not one widened rule
+
+P1 must not become "production now requires two proxies". Drive has to keep
+starting safely in the window between PUBLIC-SHARE-2 (which lands the backend
+contract) and PUBLIC-SHARE-3/6 (which actually deploys a gateway), and it has to
+keep starting after a gateway rollback. The approved production configuration is
+therefore an **enumerated set of exactly two legal states**, not a relaxed rule:
+
+```text
+Legacy / private mode   (default, and the only state today)
+  trusted set = exactly { HUB /32 }
+
+Public-gateway-enabled mode
+  trusted set = exactly { HUB /32, one approved public-gateway /32 }
+```
+
+Everything else is refused at boot, exactly as today. In particular these all
+still fail: a public-gateway identity **without** HUB; an unapproved /32; any
+prefix shorter than /32; any `FORBIDDEN_SHARED_RANGES` value; duplicate or
+ambiguous entries; and a third proxy of any kind.
+
+The second identity is **optional until the rollout phase that needs it**. Absent
+⇒ legacy mode, `requestIngressKind()` can never return `public-gateway`, and the
+§7.4 rule is inert rather than broken. That is the same fail-closed shape as
+`PUBLIC_SHARE_BASE_URL` in §8.1: the feature is unavailable, not
+half-configured.
+
 ---
 
 ## 6. Public route contract
@@ -359,23 +386,54 @@ Yes, and it is the one genuinely new authorisation rule.
 
 A `zones` or `any` share must **not** become redeemable merely because a request
 arrives via the public gateway. Drive must therefore reject a non-`public` share
-whenever the request's canonical source is the public gateway identity.
+whenever the request **arrived through the public gateway**.
 
 The converse is not required: a `public` share redeemed on the *private* path is
 allowed, because `public` is strictly the more permissive scope and an internal
 recipient could have been given an `any` link anyway.
 
+> [!danger] Corrected during PR #97 review — do not implement this with `req.ip`
+> An earlier draft of this section said the check compares the *canonical source*
+> (`requestSourceIp(req)` → `req.ip`) against the public-gateway identity. **That
+> is not implementable, and PUBLIC-SHARE-2 must not attempt it.**
+>
+> Once the gateway is a trusted proxy and correctly overwrites `X-Forwarded-For`
+> with the real recipient, Express resolves `req.ip` **to the recipient**, not to
+> the gateway. Measured against `express@5` + `proxy-addr` with one trusted /32
+> peer that sets `X-Forwarded-For: 203.0.113.50`:
+>
+> ```text
+> req.socket.remoteAddress = 127.0.0.1      (the trusted peer, standing in for the gateway)
+> req.ip                   = 203.0.113.50   (the external recipient)
+> req.ips                  = ['203.0.113.50']
+> ```
+>
+> So `req.ip !== <gateway identity>` on every correct public request. Implementing
+> the old prose literally would leave exactly two bad outcomes: non-`public`
+> shares would **not** be blocked on the public ingress, or the gateway would have
+> to stop forwarding the real client address — which breaks audit and rate-limit
+> attribution and re-creates the T-05 self-DoS this design exists to avoid.
+>
+> The gateway's identity and the recipient's identity are two different facts.
+> The architecture keeps them separate; see §10.1.
+
 Concretely, in `resolveShare()`:
 
 ```text
-if (share.scope !== 'public' && requestArrivedViaPublicGateway(req)) → BLOCKED
+if (share.scope !== 'public' && requestIngressKind(req) === 'public-gateway') → BLOCKED
 ```
 
-where `requestArrivedViaPublicGateway` compares the canonical source against the
-single configured public-gateway identity — never against a client-supplied
-header. This is the check that makes §7.1's separation real rather than
-decorative, and it is the reason the gateway needs its own pinned proxy identity
-(§5.1) rather than sharing HUB's.
+`requestIngressKind()` is a **new central helper** derived from the immediate TCP
+peer (`req.socket.remoteAddress`), normalised for IPv4-mapped IPv6, compared only
+against explicitly pinned proxy host identities, and **never** derived from any
+client-supplied header. It answers "how did this request reach me", not "who
+sent it". `requestSourceIp()` is untouched and remains the sole client-source
+accessor.
+
+This is the check that makes §7.1's separation real rather than decorative, and
+it is why the gateway needs its own pinned peer identity (§5.1) rather than
+sharing HUB's — the pinning is what `requestIngressKind()` compares the socket
+peer to.
 
 ---
 
@@ -413,11 +471,27 @@ Rules:
   `scope === 'public'`.
 
 ```text
-PUBLIC_SHARE_GATEWAY_CIDR  # e.g. 172.19.254.2/32 — the gateway's pinned identity
+PUBLIC_SHARE_GATEWAY_CIDR  # e.g. 172.19.254.2/32 — the gateway's pinned PEER identity
 ```
 
-Added to the approved set in `trustedProxy.js` (§5.1) and used by the §7.4 check.
-Same rules: exactly one host address, no broad ranges, no shared bridge.
+This variable names **one thing used for two purposes**, and the distinction is
+the correction this contract turns on:
+
+1. it is the second entry of the approved trusted-proxy set in
+   `trustedProxy.js`, which is what lets Express derive `req.ip` from the
+   gateway's `X-Forwarded-For` at all (§5.1.1); and
+2. it is the value `requestIngressKind()` compares the **immediate socket peer**
+   against, to decide whether a request arrived through the public gateway
+   (§7.4, §10.1).
+
+It is **never** compared against `req.ip`. Same validation rules as the HUB
+identity: exactly one IPv4 host CIDR (`/32`), no broad prefix, no
+`FORBIDDEN_SHARED_RANGES` value, validated independently at boot.
+
+**Optional until the gateway rollout phase needs it.** Absent or empty ⇒ legacy
+private mode: the trusted set is HUB alone, `requestIngressKind()` can never
+return `public-gateway`, and Drive starts exactly as it does in production today.
+Drive must never be made to require a peer that has not been deployed yet.
 
 ### 8.2 What must never appear in configuration or source
 
@@ -498,11 +572,14 @@ regression risk**
   address-independent and still bounds per-link guessing. `X-Forwarded-For` is
   only honoured from a trusted peer.
 - *Required additional control*: the gateway must set `X-Forwarded-For` to the
-  real client address (§10), Drive must be configured to trust exactly that one
-  peer, **and** the limiter's IP axis must be scoped so that a public-path
+  real client address (§10), Drive must trust exactly that one peer so
+  `requestSourceIp()` resolves to the **recipient** and not to the gateway
+  (§10.1), **and** the limiter's IP axis must be scoped so that a public-path
   lockout cannot lock the private path — a distinct scope string such as
-  `share-public` rather than reusing `share`. Direction (b) is accepted:
-  the token axis is the real defence.
+  `share-public` rather than reusing `share`. The limiter key is built from
+  `requestSourceIp(req)`, never from the ingress peer; keying it on the gateway
+  address *is* failure mode (a). Direction (b) is accepted: the token axis is the
+  real defence.
 - *Verification test*: a test proving five failures on a public share do **not**
   lock private redemption or login; a test proving forged `X-Forwarded-For` from
   a non-trusted peer does not shift the limiter key (existing B2-T11 covers the
@@ -522,8 +599,14 @@ regression risk**
   clears `Forwarded` entirely. Proven by B4.3 and by `B2-T8`.
 - *Required additional control*: the public gateway must do exactly the same —
   overwrite, never append — and additionally clear `X-Real-IP` from the client.
-  See §10.
-- *Verification test*: existing `B2-T8`; new equivalent on the public path.
+  See §10. Separately, **ingress provenance must not be derivable from any header
+  at all** (§10.1): a forged header can at worst mis-state a client address to a
+  trusted-peer walk, but it must never be able to make
+  `requestIngressKind()` return `public-gateway`, because that helper reads the
+  socket peer only.
+- *Verification test*: existing `B2-T8`; new equivalent on the public path; plus
+  a direct test that a non-gateway peer sending arbitrary `X-Forwarded-For`,
+  `X-Real-IP` and `Forwarded` never yields `ingress = public-gateway`.
 - *Residual risk*: low, provided the gateway config is not later "improved" to
   `$proxy_add_x_forwarded_for`, which would append attacker-controlled values.
 
@@ -576,9 +659,13 @@ regression risk**
 - *Existing control*: Drive is `expose`-only, never `ports:`-published; only HUB
   shares its proxy network.
 - *Required additional control*: the `aegis_public_share` network has exactly two
-  members; Drive gains no published port; the §7.4 check keys on the pinned
-  gateway identity so a request from anywhere else cannot claim public
-  provenance.
+  members; Drive gains no published port; and the §7.4 check keys on the **socket
+  peer** against the pinned gateway identity (§10.1), so a caller that is not
+  physically the gateway cannot claim public provenance no matter what it sends.
+  Note the direction of this control: it prevents a non-gateway caller from
+  *gaining* public provenance. A direct internal caller is treated as private
+  ingress, which is the safe default — it can still redeem a `public` share, but
+  a `public` share is by definition the most permissive scope.
 - *Verification test*: Compose structural test asserting Drive publishes no port
   and the public network has exactly the two expected members.
 - *Residual risk*: low.
@@ -821,11 +908,16 @@ regression risk**
   attribution is currently unambiguous; the Twingate endpoint-IP limitation is
   already recorded honestly rather than papered over.
 - *Required additional control*: exactly two pinned identities, each on its own
-  network, each overwriting forwarding headers. Under Option B, the vendor edge
-  becomes a **third** hop whose `X-Forwarded-For` the gateway must decide to
-  trust or discard — an explicit decision, not a default.
-- *Verification test*: a matrix test asserting the canonical source for a request
-  arriving via HUB, via the gateway, and via a direct internal caller.
+  network, each overwriting forwarding headers — and the §10.1 split, which is
+  what actually removes the ambiguity: the *ingress* is read from the socket peer
+  and the *client* from the trusted-proxy walk, so the two facts can never be
+  mistaken for one another regardless of how many hops exist. Under Option B, the
+  vendor edge becomes a **third** hop whose `X-Forwarded-For` the gateway must
+  decide to trust or discard — an explicit decision, not a default. It does not
+  change ingress provenance, because the gateway remains Drive's socket peer.
+- *Verification test*: a matrix test asserting **both** identities — ingress kind
+  and client source — for a request arriving via HUB, via the public gateway, and
+  from a direct internal caller.
 - *Residual risk*: **elevated under Option B.** Attributing a real client address
   through a vendor edge is a trust decision this project has deliberately avoided
   making twice already.
@@ -870,10 +962,58 @@ The gateway's header handling, stated as requirements:
 | `X-Forwarded-Host` | Set to the configured public host | Never the raw client `Host` (T-09). |
 | `Host` | Normalised to the configured public host | The public origin is single-purpose; there is no virtual-host multiplexing to preserve. |
 
-Drive's side is unchanged in shape: `requestSourceIp()` stays the sole accessor,
-routes still never read forwarding headers, and `req.ip` remains the only
-canonical source. The only Drive change is *which* peers are trusted (§5.1) and
-the new §7.4 provenance check.
+### 10.1 Two identities, neither replacing the other
+
+This is the single most important implementation rule in this note, and the one
+PR #97's first draft got wrong.
+
+| | **Client source identity** | **Ingress provenance** |
+| :--- | :--- | :--- |
+| Question it answers | *Who sent this request?* | *How did this request reach me?* |
+| Accessor | `requestSourceIp(req)` → `req.ip` (unchanged) | new central helper, e.g. `requestIngressKind(req)` / `requestIngressPeerIp(req)` |
+| Derived from | the trusted-proxy walk over `X-Forwarded-For` | `req.socket.remoteAddress`, the immediate TCP peer |
+| Used for | `zones` CIDR enforcement, the rate-limit IP axis, the audit source address | the §7.4 `scope=public` ingress rule, and nothing else |
+| For a public request | the **external recipient** | the **public gateway** |
+
+Measured, not assumed — one trusted `/32` peer sending
+`X-Forwarded-For: 203.0.113.50`:
+
+```text
+socket peer   = 172.19.254.2     # the public gateway  → ingress = public-gateway
+req.ip        = 203.0.113.50     # the external client → client source
+```
+
+And with the same peer sending **no** `X-Forwarded-For`, `req.ip` falls back to
+the peer address. That fallback is exactly why ingress provenance must come from
+the socket peer rather than from `req.ip`: the socket peer is correct in both
+cases, whereas `req.ip` is the gateway in one and the recipient in the other.
+
+Requirements on the new helper:
+
+- **One central helper**, in the same spirit as `sourceIp.js`. No route parses
+  peer addresses ad hoc, and no route gains its own forwarding-header parsing.
+- **Normalise IPv4-mapped IPv6** (`::ffff:172.19.254.2` → `172.19.254.2`) with
+  the same care `share.js`'s `normalizeIp()` already applies.
+- **Never** consult `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, or any other
+  client-supplied header. Ingress provenance is a property of the connection.
+- **Compare only against explicitly pinned host identities** from configuration —
+  the same values the trusted-proxy set enumerates, never a range.
+- `ingress === 'public-gateway'` is true **only** when the real socket peer is
+  the configured public gateway. Unknown peers are not `public-gateway`.
+- `requestSourceIp()` stays the sole client-source accessor and is not modified.
+- Direct tests prove the split (§16.1).
+
+Consequences that follow, and must not be re-conflated:
+
+- The rate-limit IP axis and the audit source address for a public redemption are
+  the **recipient's** address from `requestSourceIp()` — never the gateway's
+  container address. Using the gateway address there is precisely the T-05
+  self-DoS.
+- The §7.4 rule uses **only** ingress provenance — never `req.ip`.
+
+Drive's side is otherwise unchanged in shape: routes still never read forwarding
+headers, and `req.ip` remains the only client-source value. The Drive changes are
+*which* peers are trusted (§5.1.1), the new ingress helper, and the §7.4 rule.
 
 > [!warning] The Twingate attribution limitation is not fixed by this
 > The recorded limitation — the Twingate/Docker ingress path collapses the
@@ -943,10 +1083,13 @@ Never logged, in the application or at the gateway: the raw token, the plaintext
 link password, any Vault key, the session secret, any private key.
 
 One addition specific to the public path: the audit row's source IP will be the
-recipient's real Internet address once §10 is in place. That is genuinely more
-personal data than the private path records, and the owner should decide
-deliberately whether to store it in full, truncate it, or hash it — a decision
-this note flags rather than makes.
+recipient's real Internet address once §10 is in place. It comes from
+`requestSourceIp(req)` and **never** from the ingress peer (§10.1) — an audit
+trail that recorded the gateway's container address for every public redemption
+would be worse than useless, because it would look like real attribution while
+identifying nobody. That address is genuinely more personal data than the private
+path records, and the owner should decide deliberately whether to store it in
+full, truncate it, or hash it — a decision this note flags rather than makes.
 
 ---
 
@@ -1009,17 +1152,24 @@ weakens one is a change to be rejected, not a trade-off to be negotiated.
 11. Audit never contains a raw token or a plaintext password.
 12. Brute-force protection is server-side and cannot be bypassed by rotating
     forged forwarding headers.
-13. `req.ip` via `requestSourceIp()` is the only source of client identity;
-    routes never parse forwarding headers.
-14. Trusted proxies are explicitly enumerated /32 identities; production refuses
-    to start otherwise.
-15. `zones` and `any` keep their exact current semantics and remain
+13. `req.ip` via `requestSourceIp()` is the only source of **client** identity;
+    routes never parse forwarding headers. It is used for `zones` CIDR
+    enforcement, the rate-limit IP axis, and the audit source address.
+14. **Ingress provenance is a separate fact from client identity**, read from the
+    immediate socket peer through one central helper, never from `req.ip` and
+    never from any client-supplied header. It is used for the `scope=public`
+    ingress rule and for nothing else. Neither identity may be substituted for
+    the other (§10.1).
+15. Trusted proxies are explicitly enumerated /32 host identities; production
+    refuses to start on anything outside the two approved states in §5.1.1, and
+    the public-gateway identity is optional until its rollout phase.
+16. `zones` and `any` keep their exact current semantics and remain
     backward-compatible.
-16. `scope=any` is never redefined as public.
-17. The public listener default-denies every path outside `GET|POST /s/:token`.
-18. The public gateway holds no secret, no database handle, and no Data Lake
+17. `scope=any` is never redefined as public.
+18. The public listener default-denies every path outside `GET|POST /s/:token`.
+19. The public gateway holds no secret, no database handle, and no Data Lake
     mount.
-19. The UI never presents Public Internet sharing as available before
+20. The UI never presents Public Internet sharing as available before
     PUBLIC-SHARE-7 passes.
 
 ---
@@ -1031,7 +1181,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | PR | Scope | Produces | Explicitly not included |
 | :--- | :--- | :--- | :--- |
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
-| **PUBLIC-SHARE-2** | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the §7.4 provenance check, `trustedProxy.js` second identity, backend tests | Any gateway, any ingress, any UI change |
+| **PUBLIC-SHARE-2** | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
 | **PUBLIC-SHARE-3** | Public Share Gateway | Gateway Dockerfile + nginx config, `aegis_public_share` network, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural CI tests | Any Internet exposure; any DNS, NAT or tunnel |
 | **PUBLIC-SHARE-4** | Secure Shares UI | `public` as a selectable scope, EN/TH/ZH copy, correct public URL display, `zones`/`any` preserved | Enabling the option before 2 and 3 are merged |
 | **PUBLIC-SHARE-5** | Security regression suite | The full negative and positive matrix in §16 | New features |
@@ -1051,13 +1201,52 @@ still the wrong order. Rollback reverses it (§16.2).
 
 ### 16.1 What each phase must prove
 
-**PUBLIC-SHARE-2** — `public` accepted and stored; migration additive and
-idempotent, and re-runnable by a different superuser while still granting
-`drive_app`; `PUBLIC_SHARE_BASE_URL` absent ⇒ `public` rejected; malformed base
-URL ⇒ boot failure; public URL independent of the `Host` header; Vault file +
-`public` ⇒ rejected; cross-owner + `public` ⇒ rejected; a `zones`/`any` share
-redeemed with public provenance ⇒ blocked; `trustedProxy` TP-R1..R8 still reject
-broad, overlapping and multiple-unapproved values.
+**PUBLIC-SHARE-2** — scope and configuration: `public` accepted and stored;
+migration additive and idempotent, and re-runnable by a different superuser while
+still granting `drive_app`; `PUBLIC_SHARE_BASE_URL` absent ⇒ `public` rejected;
+malformed base URL ⇒ boot failure; public URL independent of the `Host` header;
+Vault file + `public` ⇒ rejected; cross-owner + `public` ⇒ rejected.
+
+Plus five groups that exist specifically to pin the §10.1 split. These are the
+tests that would have caught the provenance error corrected during PR #97 review,
+so none of them is optional:
+
+*Provenance / attribution split.* With the trusted public-gateway peer as the
+socket peer and `X-Forwarded-For` carrying an external client address:
+
+```text
+requestIngressKind(req)  = 'public-gateway'
+requestSourceIp(req)     = the external client address   (NOT the gateway address)
+```
+
+Both assertions in one test, so the two identities cannot silently converge.
+
+*Public ingress blocks the older scopes.*
+
+```text
+scope=zones  + public-gateway ingress → DENY
+scope=any    + public-gateway ingress → DENY
+scope=public + public-gateway ingress → continues to the normal redemption gates
+```
+
+*Private ingress stays backward-compatible.*
+
+```text
+scope=zones  via HUB/private path → existing CIDR semantics, unchanged
+scope=any    via HUB/private path → existing behaviour, unchanged
+scope=public via private path     → allowed, per §7.4
+```
+
+*Forged headers never create public provenance.* A caller whose socket peer is
+**not** the public gateway, sending arbitrary `X-Forwarded-For`, `X-Real-IP` and
+`Forwarded`, must never yield `ingress = 'public-gateway'`.
+
+*Trusted-proxy startup compatibility.* Both approved production states start:
+HUB alone, and HUB + the approved public-gateway identity. These are rejected:
+public gateway without HUB; an unapproved /32; any prefix shorter than /32; a
+`FORBIDDEN_SHARED_RANGES` value; duplicate or ambiguous entries; a third proxy.
+Every existing `tests/trustedProxy.test.js` rejection case (TP-R1..R8) must still
+pass unchanged unless a reviewer explicitly approves a behaviour change.
 
 **PUBLIC-SHARE-3** — for every path in §6.3, the gateway returns `404` **and**
 Drive records no request; case variants and traversal forms all `404`; methods
@@ -1163,8 +1352,20 @@ Until G6, every status note, UI string and receipt says the same thing:
   cannot be finalised yet.
 - **The trusted-proxy change is a real modification to a production-verified
   control.** B4.3's spoof resistance was proven with exactly one approved
-  identity. Adding a second is sound but is not the configuration that was
-  accepted in production.
+  identity. Adding a second approved *state* (§5.1.1) is sound and keeps HUB-only
+  as the default, but it is not the configuration that was accepted in
+  production.
+- **The ingress-provenance helper does not exist yet.** §10.1 specifies it;
+  `server/request/sourceIp.js` today has no counterpart for the socket peer, and
+  no route reads `req.socket.remoteAddress`. Naming, file placement and exact
+  signature are PUBLIC-SHARE-2 implementation detail — only the contract is fixed
+  here.
+- **Ingress provenance is an address comparison, not authentication.** It proves
+  the socket peer is the configured gateway address, which is sound only because
+  `aegis_public_share` has exactly two members and Drive publishes no port. If
+  that network ever gained a third member the control would weaken silently; the
+  Compose structural test named in T-10 is what keeps that from happening
+  unnoticed.
 - **HTTP Range is unsupported**, so a public recipient with an unreliable
   connection restarts a large download from zero (§11).
 - **Rate limiting is in-memory and per-process** (`rateLimit.js`). It resets on

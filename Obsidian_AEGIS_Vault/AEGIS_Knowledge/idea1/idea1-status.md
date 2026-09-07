@@ -436,9 +436,25 @@ Three durable facts established by that review of current source:
 - **`server/config/trustedProxy.js` is a hard, code-level blocker for any second
   proxy.** In production it accepts exactly one CIDR and it must be the approved
   HUB identity `172.19.255.2/32`; a public gateway added as a second peer makes
-  Drive **refuse to boot**. Widening the approved set to a second explicitly
-  pinned identity is a reviewed source change for PUBLIC-SHARE-2/3, not a config
-  tweak, and it modifies a control that B4.3 production acceptance depends on.
+  Drive **refuse to boot**. The contract therefore defines two approved
+  production states — `{HUB}` and `{HUB, one approved public-gateway /32}` — with
+  the gateway identity optional until its rollout phase, so Drive still starts
+  before the gateway exists and after a gateway rollback. This is a reviewed
+  source change for PUBLIC-SHARE-2/3, not a config tweak, and it modifies a
+  control that B4.3 production acceptance depends on.
+- **Ingress provenance and client identity are two different facts, and the
+  contract must never substitute one for the other.** Once the public gateway is
+  a trusted proxy that forwards the real recipient address, Express resolves
+  `req.ip` to the **recipient**, not to the gateway — measured against the
+  repository's own `express`/`proxy-addr` with one trusted `/32` peer:
+  `req.socket.remoteAddress` = the peer, `req.ip` = `203.0.113.50`. So the
+  `scope=public` ingress rule cannot be written against `requestSourceIp()`.
+  Client identity (`requestSourceIp(req)` → `req.ip`) drives `zones` CIDR
+  enforcement, the rate-limit IP axis and the audit source address; ingress
+  provenance is a separate central helper over the immediate socket peer, used
+  only to decide whether a request arrived through the public gateway, and never
+  derived from a client-supplied header. This was corrected during PR #97 review;
+  the first pushed draft had the mechanism wrong.
 - **The in-memory rate limiter creates a self-DoS risk specific to the public
   path.** If recipient addresses are not correctly attributed at the gateway,
   every public recipient collapses to one source IP and any five failures lock
