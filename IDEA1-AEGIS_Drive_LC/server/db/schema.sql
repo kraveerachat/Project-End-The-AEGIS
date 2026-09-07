@@ -182,10 +182,14 @@ ALTER TABLE shares ADD COLUMN IF NOT EXISTS token_hash CHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_idx ON shares (token_hash);
 
 -- 'zones' = จำกัดตาม network_zones ที่ Admin ดูแล (snapshot ลง vlan_scope ตอนสร้าง)
+-- 'public' = ตั้งใจให้ไถ่ผ่าน Public Share Gateway เท่านั้น (PUBLIC-SHARE-2)
+--            ⚠️ ไม่ใช่ alias ของ 'any' และไม่ใช่ค่า default ที่บันทึกได้ —
+--               users.share_default_scope ยังจำกัดที่ ('any','zones') ตามเดิม
 -- ค่าเดิม 'vlan'/'subnet' ยังถูกยอมรับเพื่อไม่ทำให้แถวที่มีอยู่ผิด constraint
+-- ฐานข้อมูลที่มีอยู่แล้วได้ค่าเดียวกันจาก migrations/009_public_share_scope.sql
 ALTER TABLE shares DROP CONSTRAINT IF EXISTS shares_scope_check;
 ALTER TABLE shares ADD CONSTRAINT shares_scope_check
-  CHECK (scope IN ('any', 'zones', 'vlan', 'subnet'));
+  CHECK (scope IN ('any', 'zones', 'public', 'vlan', 'subnet'));
 
 -- ── Privacy-Preserving Audit Log ─────────────────────────────────────────────
 -- ⚠️ ชื่อไฟล์ถูกเก็บเป็น SHA-256 (target_hash) — ผู้ตรวจ log เห็นว่า "มีเหตุการณ์กับไฟล์ไหน

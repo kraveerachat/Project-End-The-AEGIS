@@ -14,6 +14,7 @@ import {
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
+import { publicShareUrl } from '../config/publicShare.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -734,12 +735,30 @@ apiRouter.get('/shares', requireAuth, async (req, res, next) => {
 apiRouter.post('/shares', requireAuth, async (req, res, next) => {
   try {
     const { fileId, expiry, authType, scope, password } = req.body ?? {}
-    const created = await store.createShare({ fileId, expiry, authType, scope, password }, req.user)
+    // Frozen at boot by createApp — never read from process.env per request, and
+    // never influenced by anything the caller sent.
+    const publicShare = req.app.get('publicShareConfig')
+    const created = await store.createShare(
+      { fileId, expiry, authType, scope, password },
+      req.user,
+      { publicShareEnabled: Boolean(publicShare?.publicShareEnabled) },
+    )
     if (!created) return res.status(400).json({ error: 'Invalid input' })
     await auditAct(req, 'SHARE_CREATE', created.share.fileName)
     // ⚠️ ห้าม log/audit ตัว token — มันคือ credential ที่เปิดไฟล์ได้ทันที
     //    (targetHash ด้านบนเป็น hash ของ "ชื่อไฟล์" ตามแบบแผน privacy-preserving เดิม)
-    res.status(201).json({ share: created.share, path: `/s/${created.token}` })
+    const path = `/s/${created.token}`
+    // ⚠️ publicUrl is composed from the CONFIGURED origin plus the server-created
+    //    path. The request Host contributes nothing, which is what makes Host
+    //    poisoning impossible here rather than merely unlikely — see
+    //    idea1-public-share-architecture §8.1 and threat T-09. Only a public
+    //    share gets one; 'zones' and 'any' keep returning the bare path, and the
+    //    client composes the internal URL from its own origin as it always has.
+    const body = { share: created.share, path }
+    if (created.share.scope === 'public') {
+      body.publicUrl = publicShareUrl(publicShare.baseUrl, path)
+    }
+    res.status(201).json(body)
   } catch (err) {
     next(err)
   }

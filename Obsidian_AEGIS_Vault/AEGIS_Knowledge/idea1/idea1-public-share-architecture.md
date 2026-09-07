@@ -1181,7 +1181,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | PR | Scope | Produces | Explicitly not included |
 | :--- | :--- | :--- | :--- |
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
-| **PUBLIC-SHARE-2** | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
+| **PUBLIC-SHARE-2** *(delivered, not deployed)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
 | **PUBLIC-SHARE-3** | Public Share Gateway | Gateway Dockerfile + nginx config, `aegis_public_share` network, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural CI tests | Any Internet exposure; any DNS, NAT or tunnel |
 | **PUBLIC-SHARE-4** | Secure Shares UI | `public` as a selectable scope, EN/TH/ZH copy, correct public URL display, `zones`/`any` preserved | Enabling the option before 2 and 3 are merged |
 | **PUBLIC-SHARE-5** | Security regression suite | The full negative and positive matrix in §16 | New features |
@@ -1355,11 +1355,13 @@ Until G6, every status note, UI string and receipt says the same thing:
   identity. Adding a second approved *state* (§5.1.1) is sound and keeps HUB-only
   as the default, but it is not the configuration that was accepted in
   production.
-- **The ingress-provenance helper does not exist yet.** §10.1 specifies it;
-  `server/request/sourceIp.js` today has no counterpart for the socket peer, and
-  no route reads `req.socket.remoteAddress`. Naming, file placement and exact
-  signature are PUBLIC-SHARE-2 implementation detail — only the contract is fixed
-  here.
+- ~~**The ingress-provenance helper does not exist yet.**~~ **Delivered by
+  PUBLIC-SHARE-2** as `server/request/ingress.js` (`requestIngressKind`,
+  `requestIngressPeerIp`), with `requestSourceIp()` unchanged beside it. The
+  §10.1 split is now implemented and measured through the real Express stack
+  rather than only specified. It returns a third value, `unknown`, when a gateway
+  is configured but the peer cannot be read, so the "private only" scope rule
+  fails toward denial.
 - **Ingress provenance is an address comparison, not authentication.** It proves
   the socket peer is the configured gateway address, which is sound only because
   `aegis_public_share` has exactly two members and Drive publishes no port. If

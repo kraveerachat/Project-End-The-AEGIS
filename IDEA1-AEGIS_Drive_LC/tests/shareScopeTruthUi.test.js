@@ -76,14 +76,49 @@ test('SHARE-SCOPE-UI-3 any states the pre-existing route and no extra Share CIDR
   }
 })
 
-test('SHARE-SCOPE-API-1 server and persisted defaults still reject a public scope contract', async () => {
-  const [store, schema, migration] = await Promise.all([
+// ⚠️ Rewritten in PUBLIC-SHARE-2. This test used to assert that the backend
+//    could not represent `public` at all — that claim is now obsolete, and
+//    deleting the test to make the suite green would have thrown away the only
+//    guard on UI honesty. What it defends instead is the boundary that is still
+//    true: the backend understands a public share, and a user still cannot make
+//    one from the interface, because no gateway and no Internet ingress exist.
+test('SHARE-SCOPE-API-1 the backend can represent public while the UI still cannot offer it', async () => {
+  const [store, schema, migration009, securitySettings, envExample] = await Promise.all([
     readFile(path.join(rootDir, 'server/db/store.js'), 'utf8'),
     readFile(path.join(rootDir, 'server/db/schema.sql'), 'utf8'),
+    readFile(path.join(rootDir, 'server/db/migrations/009_public_share_scope.sql'), 'utf8'),
     readFile(path.join(rootDir, 'server/db/migrations/007_security_settings.sql'), 'utf8'),
+    readFile(path.join(rootDir, '.env.example'), 'utf8'),
   ])
-  assert.match(store, /const SCOPES = new Set\(\['any', 'zones'\]\)/)
-  assert.doesNotMatch(`${store}\n${schema}\n${migration}`, /['"]public(?:-internet)?['"]/i)
+
+  // The backend contract exists (PUBLIC-SHARE-2).
+  assert.match(store, /const SCOPES = new Set\(\['any', 'zones', 'public'\]\)/)
+  assert.match(schema, /CHECK \(scope IN \('any', 'zones', 'public', 'vlan', 'subnet'\)\)/)
+  assert.match(migration009, /'public'/)
+
+  // The saved per-user default is still private-only: a stored preference must
+  // never publish a file to the Internet on the sharer's behalf.
+  assert.match(schema, /CHECK \(share_default_scope IN \('any', 'zones'\)\)/)
+  assert.doesNotMatch(securitySettings, /['"]public(?:-internet)?['"]/i)
+
+  // No ingress is configured by default: the gateway identity ships commented
+  // out, so a deployment that copies this file stays in legacy/private mode and
+  // no request can be classified as arriving through a public gateway.
+  assert.match(envExample, /^#\s*PUBLIC_SHARE_GATEWAY_CIDR=/m)
+  assert.doesNotMatch(envExample, /^PUBLIC_SHARE_GATEWAY_CIDR=/m)
+})
+
+test('SHARE-SCOPE-API-2 the Shares screen never offers the public scope to a user', async () => {
+  const screen = await readFile(path.join(rootDir, 'src/screens/Shares.jsx'), 'utf8')
+  // The selectable options are exactly the two private scopes. A future PR that
+  // adds `public` here must also update the copy this suite asserts, which is
+  // the point: the option cannot appear quietly.
+  assert.match(screen, /\{ value: 'zones', label: t\('scopeZones'\) \}/)
+  assert.match(screen, /\{ value: 'any', label: t\('scopeAny'\) \}/)
+  assert.doesNotMatch(screen, /value: 'public'/)
+  assert.doesNotMatch(screen, /value="public"/)
+  // And the read-only unavailable notice is still rendered.
+  assert.match(screen, /PublicInternetNotice/)
 })
 
 test('SHARE-SCOPE-UI-4 long localized scope labels stack without clipping on mobile', async () => {

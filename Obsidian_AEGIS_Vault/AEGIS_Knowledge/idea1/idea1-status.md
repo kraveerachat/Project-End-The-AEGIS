@@ -410,6 +410,68 @@ Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
 
 Public Share remains not implemented.
 
+### Public Share backend contract implemented, not deployed (2026-09-08)
+
+> [!info] PUBLIC-SHARE-2 is backend contract work only
+> **Backend public-share contract = IMPLEMENTED / TESTED LOCALLY. Public Share
+> Gateway = NOT IMPLEMENTED. Public Internet ingress = NOT IMPLEMENTED. Public
+> Internet UI option = NOT ENABLED. Production deployment = NOT DONE. External
+> 4G/5G acceptance = NOT DONE.** No port, DNS record, NAT rule, tunnel,
+> certificate, firewall, VLAN or Twingate change was made, and no migration was
+> run against Production. Owner gates G1 and G2 were approved for this work; G3,
+> G4, G5 and G6 remain open.
+
+Durable facts established on branch `feat/idea1-public-share-backend-contract`
+from `867f1ccf7714394217987978df00ba5fad7882e8`:
+
+- **`scope=public` exists as a third explicit backend scope**, gated on a
+  configured `PUBLIC_SHARE_BASE_URL`. Without that origin, creating one is
+  refused with the existing generic `400 Invalid input`. `zones` and `any`
+  semantics are unchanged, and `users.share_default_scope` deliberately stays
+  `('any','zones')` so a saved preference can never publish a file on the
+  sharer's behalf. Migration `009_public_share_scope.sql` widens the
+  `shares.scope` CHECK additively and preserves the legacy `vlan`/`subnet`
+  values; `schema.sql` reaches the same end state under the same constraint name.
+
+- **The client/ingress identity split is implemented, not just specified.**
+  `requestSourceIp(req)` → `req.ip` remains the sole client-source accessor and
+  still drives `zones` CIDR enforcement, the rate-limit IP axis and the audit
+  source. A new `server/request/ingress.js` derives ingress provenance from
+  `req.socket.remoteAddress` alone, and only that decides whether a request
+  arrived through the public gateway. Verified through the real Express stack: a
+  request from the gateway peer carrying `X-Forwarded-For: 203.0.113.50` audits
+  its source as `203.0.113.50`, not the gateway; and the same peer sending **no**
+  forwarding header — where `req.ip` falls back to the peer — still classifies as
+  public-gateway ingress. No forged header can manufacture that provenance.
+
+- **The public ingress refuses `zones` and `any`**, with no bytes, no hit
+  increment, and a `SHARE_REDEEM_OUT_OF_SCOPE / BLOCKED` audit event. `public`
+  continues through the unchanged token, password, expiry, revoke, trash and
+  Vault gates. **When no gateway identity is configured the rule is inert**, so
+  this changes nothing for the configuration Production runs today.
+
+- **Password rate limiting is namespaced by ingress** (`share` vs
+  `share-public`), selected before any database access. A public-path lockout
+  cannot lock private redemption, and neither can lock the login page.
+
+- **Trusted proxy now has two approved production states**, per gate G2:
+  `{ HUB /32 }` — the currently deployed state and still the default — or
+  `{ HUB /32, one approved public-gateway /32 }` when
+  `PUBLIC_SHARE_GATEWAY_CIDR` is set. Order is irrelevant. A gateway that is
+  named but not trusted is refused at boot, because Express would otherwise stop
+  at it when walking `X-Forwarded-For` and collapse `req.ip` to the gateway's own
+  address. Every previous rejection still holds, and every pre-existing
+  `trustedProxy` test passes unchanged.
+
+Verification: full IDEA1 suite **1097 tests / 1027 pass / 1 fail / 69
+PostgreSQL-gated skips**, build pass. The single failure is the pre-existing,
+unrelated `AUTOLOCK-5`, proven by stashing every change on this branch and
+reproducing it on the resulting pristine `origin/main` tree. ⚠️ **Migration 009
+was never executed against a real PostgreSQL database** — no test database was
+available — so its idempotency is argued from the DDL contract and 008's
+precedent, not observed. Applying it to an isolated database is a prerequisite
+for any deployment.
+
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 
 > [!info] PUBLIC-SHARE-1 is architecture and security-contract work only
