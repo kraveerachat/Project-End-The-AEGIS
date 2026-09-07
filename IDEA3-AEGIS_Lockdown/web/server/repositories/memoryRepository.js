@@ -1,21 +1,24 @@
+import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
+import {
+  DEFAULT_SETTINGS,
+  auditEntryForOperationalError,
+  sanitizeAuditEntry,
+  sanitizedSettings,
+  validateAuditLimit,
+} from './auditRecords.js'
+
 export function createMemoryRepository({ clock = () => new Date() } = {}) {
   const acknowledgedAlerts = new Set()
   const incidentNotes = new Map()
   const audit = []
-  const settings = {
-    dedupWindowSeconds: 60,
-    correlationWindowMinutes: 10,
-    escalationThreshold: 3,
-    eventRetentionDays: 30,
-    auditRetentionDays: 180,
-    exportLimit: 1000,
-  }
+  const activeOperationalErrors = new Set()
+  const settings = { ...DEFAULT_SETTINGS }
 
   function appendAudit(entry) {
     const record = {
       id: `audit-${String(audit.length + 1).padStart(5, '0')}`,
       timestamp: clock().toISOString(),
-      ...entry,
+      ...sanitizeAuditEntry(entry),
     }
     audit.unshift(record)
     return record
@@ -34,8 +37,26 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
       return appendAudit(entry)
     },
     updateSettings(next) {
-      Object.assign(settings, next)
+      Object.assign(settings, sanitizedSettings(next))
       return { ...settings }
+    },
+    recordOperationalErrors(errors) {
+      const unique = new Map()
+      for (const error of Array.isArray(errors) ? errors : []) {
+        unique.set(operationalErrorFingerprint(error), error)
+      }
+      const recorded = []
+      for (const [fingerprint, error] of unique) {
+        if (activeOperationalErrors.has(fingerprint)) continue
+        recorded.push(appendAudit(auditEntryForOperationalError(error)))
+      }
+      activeOperationalErrors.clear()
+      for (const fingerprint of unique.keys()) activeOperationalErrors.add(fingerprint)
+      return recorded
+    },
+    queryAudit({ limit = 100 } = {}) {
+      validateAuditLimit(limit)
+      return audit.slice(0, limit)
     },
     apply(snapshot) {
       return {
@@ -46,5 +67,6 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
         settings: { ...snapshot.settings, policy: { ...snapshot.settings.policy, ...settings } },
       }
     },
+    close() {},
   }
 }
