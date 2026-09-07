@@ -6,8 +6,11 @@ services:
       dockerfile: Dockerfile
     environment:
       PUBLIC_SHARE_HOST: ${PUBLIC_SHARE_HOST:-share.example.invalid}
-    ports:
-      - "127.0.0.1:${PUBLIC_SHARE_GATEWAY_PORT:-18080}:8080"
+    # No host-published port. On an internal network Docker silently drops any
+    # publish request, and B5 forbids a host path to this gateway anyway. The
+    # runtime suite drives it from inside the network instead.
+    expose:
+      - "8080"
     depends_on:
       drive:
         condition: service_healthy
@@ -50,6 +53,9 @@ networks:
   aegis_public_share:
     name: aegis_public_share
     driver: bridge
+    # B5: Gateway -> everything else = nothing. internal:true removes the
+    # host/NAT path entirely; do not remove it to make a host port work.
+    internal: true
     ipam:
       config:
         - subnet: 172.31.254.0/29

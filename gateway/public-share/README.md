@@ -91,7 +91,7 @@ network:
 
 | Service | Address | Host-published port |
 | --- | --- | --- |
-| `public-share-gateway` | `172.31.254.2` | localhost-only test listener |
+| `public-share-gateway` | `172.31.254.2` | none |
 | `drive` test recorder | `172.31.254.3` | none |
 
 These addresses are source/test identities, not evidence of a deployed
@@ -101,40 +101,49 @@ overlapping `172.19.254.0/29`. No existing network is modified or removed. The
 recorder proves gateway routing and header behavior; it does not prove real
 Drive authorization.
 
-### Open item — B5 no-egress is not yet enforced by the harness network
+### B5 is enforced by the network: `internal: true`
 
-The harness proves exactly two members, gateway-joins-no-other-network, and the
-absence of unrelated AEGIS DNS names. It does **not** yet set Docker
-`internal: true`, so it does not enforce architecture boundary **B5**
-(`Gateway -> everything else = nothing`); a normal user-defined bridge still
-reaches the host/NAT boundary.
+`aegis_public_share` is a Docker **internal** network, which is what enforces
+architecture boundary **B5** (`Gateway -> everything else = nothing`). A normal
+user-defined bridge would still reach the host/NAT boundary; an internal one has
+no route off the bridge at all.
 
-Setting `internal: true` was measured on this Docker Desktop environment
-(Docker 28.3.2, linux containers) and **does** deliver the B5 property, but it
-also disables port publishing entirely, which removes the localhost-only
-listener the runtime suite needs:
+Measured on the real harness (Docker 28.3.2, Docker Desktop, linux containers):
 
 ```text
-docker network inspect aegis_public_share -> Internal=true, exactly 2 members
-gateway -> drive:8001                     -> works
-gateway -> 1.1.1.1                        -> "Network unreachable"   (B5 holds)
-HostConfig.PortBindings                   -> {"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18081"}]}
-NetworkSettings.Ports                     -> {"8080/tcp":[]}          (silently not published)
-docker port <gateway>                     -> empty; no host listener
-host -> 127.0.0.1:18081                   -> ECONNREFUSED
+docker network inspect aegis_public_share -> Internal = true, members = 2
+                                             172.31.254.2  public-share-gateway
+                                             172.31.254.3  drive
+gateway networks                          -> 1 (aegis_public_share)
+drive networks                            -> 1 (aegis_public_share)
+gateway published ports                   -> {}   (docker port: empty)
+drive published ports                     -> {}   (docker port: empty)
+gateway -> drive:8001                     -> {"ok":true}
+gateway -> 1.1.1.1                        -> "Network unreachable"
+nginx -t                                  -> test is successful
 ```
 
-Docker accepts the publish request and drops it without any warning. With
-`internal: true` applied, 11 of the 15 runtime checks fail at connection setup.
+**Neither member publishes a host port, and that is deliberate.** Docker cannot
+publish a port from an internal network — it accepts the request and silently
+drops it, leaving `NetworkSettings.Ports` empty with no warning — and B5 forbids
+a host path to the gateway in any case. `PS3-STRUCT-1` pins `internal: true` so
+removing it fails the suite, and `PS3-RUNTIME-1` re-checks `Internal=true`, both
+membership counts, and the absence of published ports on the real network.
+
+Because there is no host listener, the runtime suite generates every HTTP
+request **from inside the network, using only the two existing members**:
+
+- the `drive` test recorder drives the gateway at `http://public-share-gateway:8080`
+  (raw `node:http`, not `fetch`, so a request target such as `/s/token/../api`
+  reaches the traversal guard unnormalised);
+- the gateway drives its own listener over `127.0.0.1:8080` for the
+  upstream-failure and token-log check, where the recorder must be stopped.
+
+No third client container is added.
+
 Disabling masquerading instead (`com.docker.network.bridge.enable_ip_masquerade:
 "false"`) was also measured and does **not** block egress here, so it is not a
-substitute.
-
-Resolving this needs an owner/security decision, because every option changes
-an accepted PR3 property: drive the gateway from inside the container instead
-of a published port, add a third client member to the network, or accept
-enforcing B5 only at the PUBLIC-SHARE-6 real-stack/perimeter phase. **The
-isolation requirement is not removed here, and no option was chosen.**
+substitute for `internal: true`.
 
 ## Running the focused checks
 
@@ -147,6 +156,7 @@ node --test tests/publicShareGatewayRuntime.test.js
 Remove-Item Env:PUBLIC_SHARE_GATEWAY_RUNTIME
 ```
 
-The runtime suite chooses a free localhost port, builds a unique Compose
-project, refuses to adopt a pre-existing `aegis_public_share` network, and
-removes only its own throwaway containers/network afterwards.
+The runtime suite builds a unique Compose project, refuses to adopt a
+pre-existing `aegis_public_share` network, drives the gateway only from inside
+that network, and removes only its own throwaway containers/network afterwards.
+It needs no host port and opens none.

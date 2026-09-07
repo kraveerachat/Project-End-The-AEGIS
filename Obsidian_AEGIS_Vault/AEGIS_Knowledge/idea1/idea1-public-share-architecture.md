@@ -196,7 +196,10 @@ is not permitted to become a second, weaker policy engine.
 **D4 — A dedicated Docker network, `aegis_public_share`.** The gateway must not
 join `aegis_internal` (which reaches PostgreSQL and Monitor) and must not join
 `aegis_drive_proxy` (which is HUB's private identity `172.19.255.2/29`). It gets
-its own /29 with exactly two members: the gateway and Drive.
+its own /29 with exactly two members: the gateway and Drive. The network is
+Docker `internal: true`, which is what makes B5 a property of the network rather
+than a convention — and it is why no member publishes a host port, since Docker
+cannot publish one from an internal network.
 
 ---
 
@@ -1467,17 +1470,21 @@ Until G6, every status note, UI string and receipt says the same thing:
   immediate recipient-facing HTTP peer. A G4 Option B tunnel/reverse proxy would
   invalidate that assumption and needs a reviewed provider trust/attribution
   adapter in PUBLIC-SHARE-6 before deployment (§10).
-- **The PUBLIC-SHARE-3 harness network does not yet enforce B5.** It proves
-  exactly two members, no second Docker network on the gateway, and no unrelated
-  AEGIS DNS names, but it is not a Docker `internal: true` network, so
-  `Gateway -> everything else = nothing` is not enforced at the network layer.
-  Setting `internal: true` was measured on Docker Desktop 28.3.2 and does deliver
-  the property, but it also silently disables port publishing
-  (`NetworkSettings.Ports` becomes empty, the host listener never appears), which
-  removes the localhost-only listener the runtime suite drives; disabling
-  masquerading instead does not block egress there. Reconciling the two needs an
-  owner/security decision and is open — see
-  `gateway/public-share/README.md`.
+- **B5 is enforced by the PUBLIC-SHARE-3 harness network, and the harness
+  therefore has no host listener.** `aegis_public_share` is a Docker
+  `internal: true` network, so `Gateway -> everything else = nothing` holds at
+  the network layer: the gateway reaches `drive:8001` and nothing else
+  (`wget http://1.1.1.1/` returns `Network unreachable`). Docker cannot publish
+  a port from an internal network — it accepts the request and silently drops it
+  — so **neither member publishes a host port**, and the runtime suite drives the
+  gateway from inside the network using only the two existing members: the drive
+  recorder calls `http://public-share-gateway:8080`, and the gateway calls its
+  own `127.0.0.1:8080` for the upstream-failure/token-log check where the
+  recorder must be stopped. No third client container exists. Disabling
+  masquerading instead does **not** block egress and is not a substitute. This
+  is owner-approved (PR #100 review): B5 is not deferred to PUBLIC-SHARE-6. The
+  residual limit is that this proves the Docker network boundary, not a
+  perimeter/firewall boundary, which PUBLIC-SHARE-6 still owns.
 - **HTTP Range is unsupported**, so a public recipient with an unreliable
   connection restarts a large download from zero (§11).
 - **Rate limiting is in-memory and per-process** (`rateLimit.js`). It resets on

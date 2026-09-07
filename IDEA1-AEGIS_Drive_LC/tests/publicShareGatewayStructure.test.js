@@ -137,19 +137,33 @@ test('PS3-STRUCT-1 dedicated Compose keeps aegis_public_share to exactly gateway
   assert.deepEqual(serviceNetworks(services.get('public-share-gateway')), ['aegis_public_share'])
 
   assert.match(compose, /^networks:\s*[\s\S]*?^  aegis_public_share:\s*[\s\S]*?^    name: aegis_public_share$/m)
+
+  // B5 (Gateway -> everything else = nothing) is enforced by the network
+  // itself, not merely by counting members. Removing this line silently
+  // restores a host/NAT path, so it is pinned here and re-checked against the
+  // real network in PS3-RUNTIME-1.
+  assert.match(
+    compose,
+    /^networks:[\s\S]*?^  aegis_public_share:[\s\S]*?^    internal: true$/m,
+    'aegis_public_share must stay a Docker internal network',
+  )
+
   assert.match(compose, /subnet:\s*172\.31\.254\.0\/29/)
   assert.match(compose, /public-share-gateway:[\s\S]*?ipv4_address:\s*172\.31\.254\.2/)
   assert.match(compose, /drive:[\s\S]*?ipv4_address:\s*172\.31\.254\.3/)
 })
 
-test('PS3-STRUCT-2 only the gateway is host-published, and only on localhost', () => {
+test('PS3-STRUCT-2 neither member publishes a host port', () => {
   const services = composeServices(readGateway('docker-compose.yml'))
   const gateway = services.get('public-share-gateway').join('\n')
   const drive = services.get('drive').join('\n')
 
-  assert.match(gateway, /127\.0\.0\.1:\$\{PUBLIC_SHARE_GATEWAY_PORT:-18080\}:8080/)
+  // An internal network cannot publish a port, and B5 forbids a host path to
+  // the gateway. Both listeners are reachable only from inside the network.
+  assert.doesNotMatch(gateway, /^    ports:/m, 'the gateway must not request a host port')
+  assert.doesNotMatch(drive, /^    ports:/m, 'the recorder must not request a host port')
   assert.doesNotMatch(gateway, /0\.0\.0\.0:/)
-  assert.doesNotMatch(drive, /^    ports:/m)
+  assert.match(gateway, /^    expose:\s*[\s\S]*?8080/m)
   assert.match(drive, /^    expose:\s*[\s\S]*?8001/m)
 })
 

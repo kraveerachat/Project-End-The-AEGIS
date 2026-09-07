@@ -2,14 +2,21 @@
 //
 // Opt in with PUBLIC_SHARE_GATEWAY_RUNTIME=1. The default full IDEA1 suite
 // skips this one integration harness so it never mutates Docker implicitly.
+//
+// `aegis_public_share` is a Docker `internal: true` network, which is what
+// enforces architecture boundary B5 (Gateway -> everything else = nothing).
+// Docker cannot publish a host port from an internal network, and B5 forbids a
+// host path to the gateway anyway, so every HTTP request below is generated
+// from inside the network by one of the two existing members: the drive test
+// recorder drives the gateway at http://public-share-gateway:8080, and the
+// gateway drives its own listener when the recorder has to be stopped. No
+// third container is added.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { request as httpRequest } from 'node:http'
-import { createServer } from 'node:net'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -19,59 +26,48 @@ const COMPOSE_FILE = fileURLToPath(new URL('../../gateway/public-share/docker-co
 const HOST = 'share.example.invalid'
 const PROJECT = `aegis-ps3-${process.pid}`
 
-async function freePort() {
-  const server = createServer()
-  await new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-  const { port } = server.address()
-  await new Promise((resolve) => server.close(resolve))
-  return port
-}
-
-function gatewayRequest(port, pathname, { method = 'GET', headers = {}, body = null } = {}) {
-  const payload = body === null ? null : Buffer.isBuffer(body) ? body : Buffer.from(String(body))
-  return new Promise((resolve, reject) => {
-    const req = httpRequest({
-      hostname: '127.0.0.1',
-      port,
-      path: pathname,
-      method,
-      headers: {
-        Host: HOST,
-        ...headers,
-        ...(payload && !('Content-Length' in headers)
-          ? { 'Content-Length': String(payload.length) }
-          : {}),
-      },
-    }, (res) => {
-      const chunks = []
-      res.on('data', (chunk) => chunks.push(chunk))
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        headers: res.headers,
-        body: Buffer.concat(chunks),
-      }))
-    })
-    req.on('error', reject)
-    if (payload) req.write(payload)
-    req.end()
-  })
+/**
+ * Build the client program run inside the recorder container. It speaks raw
+ * node:http rather than fetch on purpose: fetch would normalise a request
+ * target such as `/s/token/../api`, and the raw target is exactly what the
+ * gateway's traversal guard has to be tested against.
+ */
+function clientProgram(specs) {
+  return [
+    "const http = require('node:http')",
+    `const specs = ${JSON.stringify(specs)}`,
+    'const run = (spec) => new Promise((resolve) => {',
+    '  const payload = !spec.body ? null',
+    "    : spec.body.kind === 'fill' ? Buffer.alloc(spec.body.size, spec.body.char)",
+    '    : Buffer.from(spec.body.value)',
+    '  const headers = Object.assign({ Host: spec.host }, spec.headers || {})',
+    "  if (payload && headers['Content-Length'] === undefined) headers['Content-Length'] = String(payload.length)",
+    '  const req = http.request({',
+    "    hostname: 'public-share-gateway', port: 8080,",
+    "    path: spec.path, method: spec.method || 'GET', headers,",
+    '  }, (res) => {',
+    '    const chunks = []',
+    "    res.on('data', (c) => chunks.push(c))",
+    "    res.on('end', () => resolve({",
+    '      status: res.statusCode, headers: res.headers,',
+    "      body: Buffer.concat(chunks).toString('utf8'),",
+    '    }))',
+    '  })',
+    "  req.on('error', (e) => resolve({ error: e.code || e.message }))",
+    '  if (payload) req.write(payload)',
+    '  req.end()',
+    '})',
+    'Promise.all(specs.map(run)).then((r) => console.log(JSON.stringify(r)))',
+  ].join('\n')
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', {
   skip: ENABLED ? false : 'set PUBLIC_SHARE_GATEWAY_RUNTIME=1 to run the isolated Docker harness',
-  timeout: 360_000,
+  timeout: 420_000,
 }, async (t) => {
-  const port = await freePort()
-  const env = {
-    ...process.env,
-    PUBLIC_SHARE_GATEWAY_PORT: String(port),
-    PUBLIC_SHARE_HOST: HOST,
-  }
+  const env = { ...process.env, PUBLIC_SHARE_HOST: HOST }
   const docker = async (args, options = {}) => execFileAsync('docker', args, {
     cwd: ROOT,
     env,
@@ -99,6 +95,30 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   const driveId = (await compose(['ps', '-q', 'drive'])).stdout.trim()
   assert.ok(gatewayId && driveId, 'both isolated containers must be running')
 
+  /** Drive the gateway from inside the network, as the recorder container. */
+  const gatewayRequests = async (specs) => {
+    const withHost = specs.map((spec) => ({ host: HOST, ...spec }))
+    const result = await docker(['exec', driveId, 'node', '-e', clientProgram(withHost)])
+    return JSON.parse(result.stdout.trim())
+  }
+  const gatewayRequest = async (path, options = {}) => (
+    (await gatewayRequests([{ path, ...options }]))[0]
+  )
+
+  /**
+   * Drive the gateway's own listener from inside the gateway container. Used
+   * only where the recorder is stopped. Busybox nc exits as soon as stdin is
+   * exhausted, so stdin is held open long enough to outlast the response —
+   * including the 5s proxy_connect_timeout on a dead upstream.
+   */
+  const gatewaySelfRequest = async (requestLine, { holdSeconds = 3 } = {}) => {
+    const wire = `${requestLine} HTTP/1.1\\r\\nHost: ${HOST}\\r\\nConnection: close\\r\\n\\r\\n`
+    const result = await docker(['exec', gatewayId, 'sh', '-c',
+      `{ printf '${wire}'; sleep ${holdSeconds}; } | nc 127.0.0.1 8080`])
+    const status = /^HTTP\/1\.1 (\d{3})/.exec(result.stdout)
+    return { status: status ? Number(status[1]) : 0, raw: result.stdout }
+  }
+
   const recorder = async (pathname = '/__test/state', method = 'GET') => {
     const script = [
       `fetch('http://127.0.0.1:8001${pathname}', { method: '${method}' })`,
@@ -110,8 +130,12 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   }
   const resetRecorder = () => recorder('/__test/reset', 'POST')
 
-  await t.test('PS3-RUNTIME-1 real network/container shape has exactly two isolated members', async () => {
+  await t.test('PS3-RUNTIME-1 the dedicated network is internal with exactly two isolated members', async () => {
     const network = JSON.parse((await docker(['network', 'inspect', 'aegis_public_share'])).stdout)[0]
+
+    // B5 is enforced by the network itself, not merely by membership.
+    assert.equal(network.Internal, true, 'aegis_public_share must be a Docker internal network')
+
     const members = Object.values(network.Containers)
     assert.equal(members.length, 2)
     assert.deepEqual(members.map((entry) => entry.Name).sort(), [
@@ -127,10 +151,29 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     assert.equal(gateway.Config.User, '101:101')
     assert.equal(gateway.HostConfig.ReadonlyRootfs, true)
     assert.ok(gateway.HostConfig.CapDrop.includes('ALL'))
-    assert.equal(gateway.HostConfig.PortBindings['8080/tcp'][0].HostIp, '127.0.0.1')
-    assert.deepEqual(drive.HostConfig.PortBindings ?? {}, {})
+
+    // Neither member may reach the host. An internal network cannot publish a
+    // port, so a request for one would be silently dropped rather than refused.
+    assert.deepEqual(gateway.HostConfig.PortBindings ?? {}, {}, 'gateway must request no host port')
+    assert.deepEqual(gateway.NetworkSettings.Ports ?? {}, {}, 'gateway must publish no host port')
+    assert.deepEqual(drive.HostConfig.PortBindings ?? {}, {}, 'drive must request no host port')
+    assert.deepEqual(drive.NetworkSettings.Ports ?? {}, {}, 'drive must publish no host port')
+
     assert.equal(gateway.Mounts.some((mount) => ['bind', 'volume'].includes(mount.Type)), false)
     assert.equal(gateway.Config.Env.some((value) => /DATABASE_URL|SESSION_SECRET|VAULT|STORAGE|PASSWORD|TOKEN/i.test(value)), false)
+  })
+
+  await t.test('PS3-RUNTIME-1b the gateway has no egress path off the dedicated network', async () => {
+    // Routing is decided locally: with internal:true there is no route off the
+    // bridge at all, so this never depends on real Internet availability.
+    const egress = await docker(['exec', gatewayId, 'sh', '-c',
+      'wget -qO- -T 4 http://1.1.1.1/ 2>&1 || true'])
+    assert.match(egress.stdout, /Network unreachable/i, `gateway reached off-network: ${egress.stdout}`)
+
+    // The one permitted path still works.
+    const upstream = await docker(['exec', gatewayId, 'sh', '-c',
+      'wget -qO- -T 5 http://drive:8001/__test/health 2>&1'])
+    assert.match(upstream.stdout, /"ok":\s*true/)
   })
 
   await t.test('PS3-RUNTIME-2 generated nginx config is valid', async () => {
@@ -141,28 +184,28 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
 
   await t.test('PS3-RUNTIME-3 GET, POST, case variant and trailing slash reach only the recorder', async () => {
     await resetRecorder()
-    const cases = [
-      ['GET', '/s/Abc_123-x', null],
-      ['POST', '/s/Abc_123-x', 'password=small'],
-      ['GET', '/S/Abc_123-x', null],
-      ['GET', '/s/Abc_123-x/', null],
-    ]
-    for (const [method, pathname, body] of cases) {
-      const response = await gatewayRequest(port, pathname, {
-        method,
-        body,
-        headers: body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {},
-      })
-      assert.equal(response.status, 200, `${method} ${pathname}`)
+    const responses = await gatewayRequests([
+      { path: '/s/Abc_123-x', method: 'GET' },
+      {
+        path: '/s/Abc_123-x',
+        method: 'POST',
+        body: { kind: 'text', value: 'password=small' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      },
+      { path: '/S/Abc_123-x', method: 'GET' },
+      { path: '/s/Abc_123-x/', method: 'GET' },
+    ])
+    for (const [index, response] of responses.entries()) {
+      assert.equal(response.status, 200, `case ${index}: ${JSON.stringify(response)}`)
     }
     const state = await recorder()
     assert.equal(state.count, 4)
-    assert.deepEqual(state.requests.map(({ method }) => method), ['GET', 'POST', 'GET', 'GET'])
+    assert.deepEqual(state.requests.map(({ method }) => method).sort(), ['GET', 'GET', 'GET', 'POST'])
   })
 
   await t.test('PS3-RUNTIME-4 query cannot select another route and forwarding headers are authored', async () => {
     await resetRecorder()
-    const response = await gatewayRequest(port, '/s/QueryToken?next=/api/files', {
+    const response = await gatewayRequest('/s/QueryToken?next=/api/files', {
       headers: {
         'X-Forwarded-For': '10.0.0.5',
         'X-Real-IP': '10.0.0.6',
@@ -171,7 +214,7 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
       },
     })
     assert.equal(response.status, 200)
-    const received = JSON.parse(response.body.toString('utf8'))
+    const received = JSON.parse(response.body)
     assert.equal(received.path, '/s/QueryToken?next=/api/files')
     assert.equal(received.headers.host, HOST)
     assert.equal(received.headers['x-forwarded-host'], HOST)
@@ -193,59 +236,56 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
       '/s/', '/s/token/../api', '/s/token/../../api', '/s/token/extra',
       '/s/token=', '/s/token.', '/s/%2e%2e/api', '/static/app.js', '/anything.txt',
     ]
-    for (const pathname of forbidden) {
-      const response = await gatewayRequest(port, pathname)
-      assert.equal(response.status, 404, pathname)
+    const responses = await gatewayRequests(forbidden.map((path) => ({ path })))
+    for (const [index, response] of responses.entries()) {
+      assert.equal(response.status, 404, `${forbidden[index]}: ${JSON.stringify(response)}`)
     }
-    const malformed = await gatewayRequest(port, '/s/%ZZ')
+    const malformed = await gatewayRequest('/s/%ZZ')
     assert.ok([400, 404].includes(malformed.status), `malformed encoding returned ${malformed.status}`)
     assert.equal((await recorder()).count, 0)
   })
 
   await t.test('PS3-RUNTIME-6 PUT, PATCH, DELETE, OPTIONS and HEAD stop before Drive', async () => {
     await resetRecorder()
-    for (const method of ['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']) {
-      const response = await gatewayRequest(port, '/s/MethodToken', { method })
-      assert.equal(response.status, 405, method)
+    const methods = ['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']
+    const responses = await gatewayRequests(methods.map((method) => ({ path: '/s/MethodToken', method })))
+    for (const [index, response] of responses.entries()) {
+      assert.equal(response.status, 405, methods[index])
     }
     assert.equal((await recorder()).count, 0)
   })
 
   await t.test('PS3-RUNTIME-7 an attacker-controlled Host is never forwarded', async () => {
     await resetRecorder()
-    const response = await gatewayRequest(port, '/s/HostToken', {
-      headers: { Host: 'evil.attacker.invalid' },
-    })
+    const response = await gatewayRequest('/s/HostToken', { host: 'evil.attacker.invalid' })
     assert.equal(response.status, 404)
     assert.equal((await recorder()).count, 0)
   })
 
   await t.test('PS3-RUNTIME-8 a normal form passes and a body over 16 KiB never reaches Drive', async () => {
     await resetRecorder()
-    const small = await gatewayRequest(port, '/s/BodyToken', {
+    const small = await gatewayRequest('/s/BodyToken', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'password=small',
+      body: { kind: 'text', value: 'password=small' },
     })
     assert.equal(small.status, 200)
-    assert.equal(JSON.parse(small.body.toString('utf8')).bodyLength, 14)
+    assert.equal(JSON.parse(small.body).bodyLength, 14)
 
-    const oversized = await gatewayRequest(port, '/s/BodyToken', {
+    const oversized = await gatewayRequest('/s/BodyToken', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: Buffer.alloc(16 * 1024 + 1, 'x'),
+      body: { kind: 'fill', size: 16 * 1024 + 1, char: 'x' },
     })
-    assert.equal(oversized.status, 413)
+    assert.equal(oversized.status, 413, JSON.stringify(oversized))
     assert.equal((await recorder()).count, 1)
   })
 
   await t.test('PS3-RUNTIME-9 ordinary traffic passes and a burst is capped with 429', async () => {
     await sleep(2500)
     await resetRecorder()
-    assert.equal((await gatewayRequest(port, '/s/RateToken')).status, 200)
-    const burst = await Promise.all(Array.from({ length: 40 }, () => (
-      gatewayRequest(port, '/s/RateToken')
-    )))
+    assert.equal((await gatewayRequest('/s/RateToken')).status, 200)
+    const burst = await gatewayRequests(Array.from({ length: 40 }, () => ({ path: '/s/RateToken' })))
     const statuses = burst.map(({ status }) => status)
     assert.ok(statuses.includes(429), `statuses=${JSON.stringify(statuses)}`)
     const state = await recorder()
@@ -256,7 +296,7 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   await t.test('PS3-RUNTIME-10 self-health is internal; public health is denied', async () => {
     await sleep(2500)
     await resetRecorder()
-    const publicHealth = await gatewayRequest(port, '/healthz')
+    const publicHealth = await gatewayRequest('/healthz')
     assert.equal(publicHealth.status, 404)
     assert.equal((await recorder()).count, 0)
     const internal = await docker(['exec', gatewayId, 'wget', '-qO-', 'http://127.0.0.1:8081/healthz'])
@@ -268,13 +308,21 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     const driveLookup = await docker(['exec', gatewayId, 'nslookup', 'drive'])
     assert.match(`${driveLookup.stdout}${driveLookup.stderr}`, /Address:\s*172\.31\.254\.3\b/)
     for (const name of ['postgres', 'monitor', 'gateway']) {
-      // BusyBox nslookup exits 0 even for "Can't find ...: No answer", so the
-      // answer itself—not the process code—is the contract under test.
-      const lookup = await docker(['exec', gatewayId, 'nslookup', name])
+      // The answer itself—not the process code—is the contract under test.
+      // BusyBox nslookup exits 0 for "Can't find ...: No answer" but non-zero
+      // for the SERVFAIL the embedded resolver returns on an internal network,
+      // so the exit status is deliberately discarded here.
+      const lookup = await docker(['exec', gatewayId, 'sh', '-c',
+        `nslookup ${name} 2>&1 || true`])
       assert.match(
-        `${lookup.stdout}${lookup.stderr}`,
-        /(?:can't find|no answer|nxdomain)/i,
+        lookup.stdout,
+        /(?:can't find|no answer|nxdomain|servfail)/i,
         `${name} unexpectedly resolved inside the dedicated network`,
+      )
+      assert.doesNotMatch(
+        lookup.stdout,
+        /^Address:\s*(?!127\.0\.0\.11)\d/m,
+        `${name} returned an address inside the dedicated network`,
       )
     }
   })
@@ -282,18 +330,22 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   await t.test('PS3-RUNTIME-12 a unique raw token never appears in access or routine error logs', async () => {
     const sentinel = `TOKEN_MUST_NOT_APPEAR_${randomBytes(8).toString('hex')}`
     await sleep(2500)
-    await gatewayRequest(port, `/s/${sentinel}`)
-    await gatewayRequest(port, `/api/${sentinel}`)
-    await gatewayRequest(port, `/s/${sentinel}`, { method: 'PUT' })
-    await Promise.all(Array.from({ length: 24 }, () => gatewayRequest(port, `/s/${sentinel}`)))
+    await gatewayRequests([
+      { path: `/s/${sentinel}` },
+      { path: `/api/${sentinel}` },
+      { path: `/s/${sentinel}`, method: 'PUT' },
+      ...Array.from({ length: 24 }, () => ({ path: `/s/${sentinel}` })),
+    ])
 
     // Routine upstream failure is practical in this isolated harness. Stop and
     // restart only this task's recorder; no existing Docker object is touched.
+    // With the recorder down the request must come from the gateway itself,
+    // because nothing outside the internal network can reach the listener.
     await docker(['stop', '--time', '1', driveId])
-    const unavailable = await gatewayRequest(port, `/s/${sentinel}`)
+    const unavailable = await gatewaySelfRequest(`GET /s/${sentinel}`, { holdSeconds: 9 })
     assert.ok(
       [502, 504].includes(unavailable.status),
-      `stopped upstream must fail closed (received ${unavailable.status})`,
+      `stopped upstream must fail closed (received ${unavailable.status}: ${unavailable.raw})`,
     )
     await docker(['start', driveId])
 
@@ -301,6 +353,7 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     assert.equal(logs.includes(sentinel), false, 'raw bearer token leaked into gateway logs')
     console.log(`[public-share-gateway] log sentinel absent across success/deny/method/rate/upstream-failure: ${sentinel.length} chars`)
   })
+
   await t.test('PS3-RUNTIME-13 a valid PUBLIC_SHARE_HOST renders exactly one configured server_name', async () => {
     const image = JSON.parse((await docker(['inspect', gatewayId])).stdout)[0].Image
     const rendered = await docker([
