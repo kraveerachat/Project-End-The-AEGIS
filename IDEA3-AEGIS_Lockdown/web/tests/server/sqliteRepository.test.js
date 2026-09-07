@@ -249,6 +249,10 @@ describe('SQLite audit repository', () => {
       ['incident-path', '/srv/NOTE_PATH_CANARY_8675309/private'],
       ['incident-stack', 'stack trace: NOTE_STACK_CANARY_8675309'],
       ['incident-payload', 'rawPayload=NOTE_PAYLOAD_CANARY_8675309'],
+      ['incident-api-key', 'apiKey=NOTE_API_KEY_CANARY_8675309'],
+      ['incident-hash', 'hash=NOTE_HASH_CANARY_8675309'],
+      ['incident-mqtt-password', 'mqttPassword=NOTE_MQTT_PASSWORD_CANARY_8675309'],
+      ['incident-windows-path', 'C:\\Aegis\\NOTE_WINDOWS_PATH_CANARY_8675309\\private.txt'],
     ]
 
     for (const [id, note] of unsafeNotes) repository.addIncidentNote(id, note)
@@ -258,7 +262,7 @@ describe('SQLite audit repository', () => {
       .map((name) => readFileSync(join(database.directory, 'nested', name)))
       .map((contents) => contents.toString('utf8'))
       .join('')
-    expect(databaseBytes).not.toMatch(/NOTE_(PASSWORD|TOKEN|PATH|STACK|PAYLOAD)_CANARY_8675309/)
+    expect(databaseBytes).not.toMatch(/NOTE_(PASSWORD|TOKEN|PATH|STACK|PAYLOAD|API_KEY|HASH|MQTT_PASSWORD|WINDOWS_PATH)_CANARY_8675309/)
 
     repository = openRepository({ path: database.path, clock: fixedClock() })
     const unsafeSnapshot = { ...snapshot(), incidents: unsafeNotes.map(([id]) => ({ id, analystNote: null })) }

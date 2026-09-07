@@ -3,7 +3,9 @@ import { createOperationalError } from '../domain/operationalErrors.js'
 const SENSITIVE_KEY = /password|passwd|cookie|session|csrf|secret|credential|authorization|hmac|mqtt|token|key|path|stack|payload/i
 const PROTOTYPE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const CORRELATION_ID = /^[a-zA-Z0-9._:-]{1,128}$/
-const SENSITIVE_NOTE = /\b(?:password(?:[\s_-]*hash)?|passwd|token|secret|credential|authorization|cookie|session|csrf(?:[\s_-]*token)?|hmac(?:[\s_-]*credential)?|mqtt(?:[\s_-]*credential)?|path|stack(?:[\s_-]*trace)?|raw[\s_-]*payload)\b|(?:^|[\s"'=(])\/(?:[^\s"'<>]+\/)*[^\s"'<>]*/i
+const SENSITIVE_NOTE_INDICATOR = /\b(?:api[\s_-]*key|hash|password(?:[\s_-]*hash)?|passwd|token|secret|credential|authorization|cookie|session|csrf(?:[\s_-]*token)?|hmac(?:[\s_-]*credential)?|mqtt(?:[\s_-]*(?:credential|password))?|path|stack(?:[\s_-]*trace)?|raw[\s_-]*payload)\b/i
+const UNIX_ABSOLUTE_PATH = /(?:^|[\s"'=(])\/(?:[^\s"'<>]+\/)*[^\s"'<>]+/
+const WINDOWS_ABSOLUTE_PATH = /(?:^|[\s"'=(])[a-zA-Z]:\\(?:[^\\\s"'<>]+\\)*[^\\\s"'<>]+/
 const MAX_DETAIL_DEPTH = 6
 const MAX_DETAIL_ENTRIES = 50
 const MAX_TEXT_LENGTH = 500
@@ -75,7 +77,9 @@ export function sanitizeAuditEntry(entry = {}) {
 
 export function sanitizeIncidentNote(note) {
   const normalized = typeof note === 'string' ? note.trim().slice(0, MAX_TEXT_LENGTH) : ''
-  return normalized && !SENSITIVE_NOTE.test(normalized)
+  const sensitive = [SENSITIVE_NOTE_INDICATOR, UNIX_ABSOLUTE_PATH, WINDOWS_ABSOLUTE_PATH]
+    .some((pattern) => pattern.test(normalized))
+  return normalized && !sensitive
     ? normalized
     : '[REDACTED: sensitive incident note]'
 }
