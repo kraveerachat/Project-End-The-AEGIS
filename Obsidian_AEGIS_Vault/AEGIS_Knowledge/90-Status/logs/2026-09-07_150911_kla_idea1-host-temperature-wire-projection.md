@@ -156,6 +156,14 @@ the defect lived only in the projection step between them and the wire.
   `TELEM-SOCKET-5` test, which exists to assert that such values must **not**
   appear in a response body. No credential, host address, or key is added by
   this change.
+- **`host-agent-linux` CI on PR #96 at `0d0290c11e83f5de38e2bdca4dd469326edabfb9`
+  — pass: 160 tests, 160 pass, 0 fail, 0 skipped.** This is the run that matters
+  for the socket contract: on Linux the agent binds a real AF_UNIX socket, so
+  the three assertions skipped on Windows (stale socket-file reclamation and
+  `chmod 0660`) actually execute, and all three `TELEM-SOCKET-8` wire tests pass
+  over a real Unix socket rather than a Windows named pipe.
+- `collaboration-guardrails` and `host-backup-agent-linux` CI on PR #96 —
+  **pass**.
 - **No production access of any kind.** No SSH, no agent restart, no image
   build, no deployment, no `smartctl`, no `systemctl`. None is claimed.
 
@@ -221,8 +229,9 @@ Every path below is outside the `idea1` boundary and inside `infrastructure`
   this receipt was measured by this task.
 - The three POSIX-only socket assertions (stale socket-file reclamation and
   `chmod 0660`) are skipped on the Windows development machine, as they always
-  have been. They are unaffected by this change, but this task did not exercise
-  them on Linux.
+  have been. They **were** exercised on Linux by `host-agent-linux` CI on
+  PR #96 (160/160, 0 skipped), so this is no longer an outstanding gap — it only
+  means the local Windows figures under-report by three.
 - The previously recorded pre-existing Drive failure `AUTOLOCK-5` was not
   re-examined here: the full Drive suite was not run, only the three telemetry
   and temperature files relevant to this change.
