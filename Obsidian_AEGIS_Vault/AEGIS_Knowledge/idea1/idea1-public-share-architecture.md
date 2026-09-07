@@ -11,16 +11,17 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!warning] This note is a contract, not a capability
-> **PUBLIC-SHARE-1 is architecture and security-contract work only. Public
-> Internet Share is NOT IMPLEMENTED and NOT DEPLOYED.** Nothing described under
-> "Required target architecture" exists in the repository or on the production
-> host. No port was opened, no DNS record was created, no gateway was deployed,
-> and no firewall, NAT, VLAN or Twingate policy was changed to produce this note.
+> [!warning] Contract partly delivered; Public Internet Share is still unavailable
+> **PUBLIC-SHARE-1 architecture and PUBLIC-SHARE-2 backend contract are merged.
+> PUBLIC-SHARE-3 gateway source is implemented and verified locally only. Public
+> Internet Share remains NOT IMPLEMENTED and NOT DEPLOYED.** No Production
+> gateway or `aegis_public_share` network exists, migration 009 has not been
+> applied to Production, and no port, DNS, TLS certificate, firewall, NAT, VLAN,
+> managed tunnel or Twingate policy has been changed. The UI still does not offer
+> `scope=public`; G4, G5 and G6 remain open.
 >
-> Everything in **Current verified state** is existing behaviour read from
-> `origin/main` at `478059949dd80ab5c0abb8451f783fcfd844a32b`. Everything else is
-> a proposal that later PRs must implement and prove.
+> The isolated PUBLIC-SHARE-3 harness is source/test evidence, not Production
+> evidence. Its two containers and network are removed after each runtime run.
 
 ---
 
@@ -33,8 +34,9 @@ Internet access — home Wi-Fi, someone else's Wi-Fi, a mobile hotspot, 4G/5G �
 
 This note fixes the architecture, the trust boundaries, the route contract, the
 scope contract, the configuration contract, the threat model, the ingress
-decision matrix, and the PR sequence that gets there. It deliberately stops
-before any of it is built.
+decision matrix, and the PR sequence that gets there. Later PRs now implement
+the backend contract and dedicated gateway source while keeping deployment and
+Internet exposure behind their explicit gates.
 
 The single principle everything below is derived from:
 
@@ -216,9 +218,11 @@ independently re-derived.
 
 ### 5.1 The trusted-proxy constraint is a hard, code-level blocker
 
-This is the single most important implementation finding of PUBLIC-SHARE-1.
+This was the single most important implementation finding of PUBLIC-SHARE-1 and
+is now closed in source by PUBLIC-SHARE-2.
 
-`IDEA1-AEGIS_Drive_LC/server/config/trustedProxy.js` contains:
+At the PUBLIC-SHARE-1 base, `IDEA1-AEGIS_Drive_LC/server/config/trustedProxy.js`
+contained:
 
 ```js
 const APPROVED_PRODUCTION_PROXY_CIDRS = new Set(['172.19.255.2/32'])
@@ -229,9 +233,10 @@ if (env.NODE_ENV === 'production'
 }
 ```
 
-In production, `TRUSTED_PROXY_CIDRS` must be **exactly one** value and it must be
-HUB's identity. A public gateway that proxies to Drive is a **second** proxy peer.
-Adding it to the environment variable alone makes Drive **refuse to boot**.
+PUBLIC-SHARE-2 replaced that one-state source rule with the two explicitly
+enumerated states in §5.1.1. Production still runs the first (HUB-only) state;
+merely adding an environment value outside either approved state still makes
+Drive **refuse to boot**.
 
 That constraint is not an obstacle to route around; it is the control that made
 B4.3's spoof resistance provable, and it exists because trusting a broad range
@@ -1105,9 +1110,14 @@ recipient's real Internet address once §10 is in place. It comes from
 `requestSourceIp(req)` and **never** from the ingress peer (§10.1) — an audit
 trail that recorded the gateway's container address for every public redemption
 would be worse than useless, because it would look like real attribution while
-identifying nobody. That address is genuinely more personal data than the private
-path records, and the owner should decide deliberately whether to store it in
-full, truncate it, or hash it — a decision this note flags rather than makes.
+identifying nobody.
+
+**G3 is APPROVED:** the existing application audit may retain the full canonical
+recipient source IP for security attribution, rate-limit investigation, and
+incident response. This does not authorize analytics, marketing, profiling, or
+a second persistent gateway IP log. The raw share token, plaintext password, and
+public URL containing the token remain forbidden. No real Internet recipient IP
+has been recorded: there is still no Internet ingress.
 
 ---
 
@@ -1200,7 +1210,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | :--- | :--- | :--- | :--- |
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
 | **PUBLIC-SHARE-2** *(delivered, not deployed)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
-| **PUBLIC-SHARE-3** | Public Share Gateway | Gateway Dockerfile + nginx config, `aegis_public_share` network, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural CI tests | Any Internet exposure; any DNS, NAT or tunnel |
+| **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
 | **PUBLIC-SHARE-4** | Secure Shares UI | `public` as a selectable scope, EN/TH/ZH copy, correct public URL display, `zones`/`any` preserved | Enabling the option before 2 and 3 are merged |
 | **PUBLIC-SHARE-5** | Security regression suite | The full negative and positive matrix in §16 | New features |
 | **PUBLIC-SHARE-6** | Internal integration acceptance | Gateway↔Drive behaviour proven on an internal address, including streaming, timeouts, concurrency and slow clients | Internet exposure |
@@ -1336,15 +1346,15 @@ Step 6 is mandatory evidence. A rollback without it is not a completed rollback.
 
 Each gate is an explicit owner decision, recorded before the work it unblocks.
 
-- **G1 — Contract acceptance.** Kla accepts §6 (route contract), §7 (scope
-  contract) and §8 (configuration contract) before PUBLIC-SHARE-2 is written.
-- **G2 — Trusted-proxy change.** Kla, as infrastructure owner, accepts adding a
-  second approved proxy identity to `trustedProxy.js` (§5.1). This is a change to
-  a control that a production acceptance (B4.3) currently depends on, so it needs
-  an explicit decision, not an implicit one.
-- **G3 — Audit personal-data decision.** Owner decides whether public-path audit
-  rows store the recipient's full Internet address, a truncated form, or a hash
-  (§12).
+- **G1 — APPROVED.** Kla accepted §6 (route contract), §7 (scope contract) and
+  §8 (configuration contract); PUBLIC-SHARE-2 implements them.
+- **G2 — APPROVED.** Kla, as infrastructure owner, accepted the two-state
+  trusted-proxy implementation in §5.1.1; PUBLIC-SHARE-2 implements it while
+  Production remains in HUB-only mode.
+- **G3 — APPROVED.** The application audit may retain the full canonical
+  recipient Internet address from `requestSourceIp(req)` for security
+  attribution, rate-limit investigation, and incident response, under the
+  restrictions in §12. No Internet recipient has been observed yet.
 - **G4 — Ingress choice.** Owner chooses Option A or Option B from §13, with the
   T-14/T-27 trade-off explicitly acknowledged. **No ingress work begins before
   this gate.**
@@ -1362,9 +1372,10 @@ Until G6, every status note, UI string and receipt says the same thing:
 
 ## 18. Known limitations
 
-- **Nothing here is implemented.** No source, configuration, test, or
-  infrastructure change accompanies this note. Every "required additional
-  control" is unbuilt.
+- **Delivery is partial by phase.** PUBLIC-SHARE-2 backend source is merged and
+  PUBLIC-SHARE-3 gateway source/runtime harness is implemented and locally
+  verified. No gateway is deployed, no real Drive integration has run through
+  it, and every ingress/TLS/external-acceptance control remains unbuilt.
 - **No ingress method is chosen** (§13, G4), so the threat model's ingress
   entries (T-13, T-14, T-25, T-26, T-27) have option-dependent residual risk that
   cannot be finalised yet.

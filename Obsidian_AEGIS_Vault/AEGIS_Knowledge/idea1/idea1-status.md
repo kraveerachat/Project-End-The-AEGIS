@@ -115,7 +115,7 @@ edit_policy: owner-writable
 | Dashboard | ✅ PASS / CLOSED |
 | Files | ✅ PASS / CLOSED |
 | Private Vault | ✅ PASS / CLOSED for tested scope |
-| Secure Shares | ✅ PASS / CLOSED for private/internal scope; public external gateway remains NOT IMPLEMENTED |
+| Secure Shares | ✅ PASS / CLOSED for private/internal scope; Public Internet Share remains NOT IMPLEMENTED |
 | File History | ✅ PASS / CLOSED |
 | Protected Trash | ✅ PASS / CLOSED for functional/manual workflow |
 | Audit Log | ✅ PASS / CLOSED |
@@ -317,7 +317,7 @@ Confirmed locally in the same pass:
 | Password-protected share | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS; duplicated `/drive/s/s/:token` = **NO**. A4 confirmed a wrong password is denied, and A5 confirmed no-password sharing still passes. The earlier relative-action defect is historical and superseded by PR #24 acceptance. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy = PASS; production displays the AEGIS-reachable scope semantics introduced by Batch A. |
 | Network-scoped share | ✅ **VERIFIED IN PRODUCTION / PASS / CLOSED** | B4.3 proved direct-source CIDR allow/deny behavior and trusted-proxy spoof resistance. The engine enforces the canonical source observed by the application. Twingate endpoint-subnet attribution remains limited as documented below; this topology limitation is not an application enforcement failure. |
-| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
+| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. Dedicated share-only gateway source now exists and is locally verified, but no gateway is deployed, no ingress/DNS/TLS exists, and the UI remains disabled. |
 
 The current route implementation performs password, expiry, revoke, rate-limit,
 Vault exclusion, and CIDR checks at the application layer.
@@ -414,12 +414,12 @@ Public Share remains not implemented.
 
 > [!info] PUBLIC-SHARE-2 is backend contract work only
 > **Backend public-share contract = IMPLEMENTED / TESTED LOCALLY. Public Share
-> Gateway = NOT IMPLEMENTED. Public Internet ingress = NOT IMPLEMENTED. Public
+> Gateway source = IMPLEMENTED / LOCALLY VERIFIED / NOT DEPLOYED. Public Internet ingress = NOT IMPLEMENTED. Public
 > Internet UI option = NOT ENABLED. Production deployment = NOT DONE. External
 > 4G/5G acceptance = NOT DONE.** No port, DNS record, NAT rule, tunnel,
 > certificate, firewall, VLAN or Twingate change was made, and no migration was
-> run against Production. Owner gates G1 and G2 were approved for this work; G3,
-> G4, G5 and G6 remain open.
+> run against Production. Owner gates G1, G2 and G3 are approved; G4, G5 and G6
+> remain open.
 
 Durable facts established on branch `feat/idea1-public-share-backend-contract`
 from `867f1ccf7714394217987978df00ba5fad7882e8`:
@@ -488,6 +488,49 @@ tests / 1098 pass / 1 fail / 0 skips** — every previously gated test observed,
 one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still never had
 009 applied; doing so remains a prerequisite of any deployment, and the observed
 run was on PostgreSQL 16.15 while production runs the 15 line.
+
+### Dedicated Public Share Gateway source implemented, not deployed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-3 is local source/runtime evidence only
+> **Dedicated gateway source = YES. Isolated two-member test harness = YES.
+> Production gateway = NO. Production migration 009 = NO. Public DNS/TLS/NAT/
+> tunnel/Internet ingress = NO. Public UI = DISABLED. External acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `feat/idea1-public-share-gateway` adds a separate
+`gateway/public-share/` container/config rather than widening either existing
+general gateway. The only proxying location is the anchored, case-insensitive
+`GET|POST /s/[A-Za-z0-9_-]+/?` route; every other path, method, raw traversal
+form, and unapproved Host terminates locally. Forwarding identity is authored by
+the gateway (`X-Forwarded-For` and `X-Real-IP` from the observed edge peer,
+`Forwarded` cleared, HTTPS/public Host fixed from configuration). Responses are
+unbuffered, bodies are capped at 16 KiB, explicit timeouts are present, and the
+minimal log format excludes URI, query, referrer, Host and source address.
+
+The test harness creates `aegis_public_share` with exactly two members and no
+host-published recorder port. Its test-only subnet is `172.31.254.0/29`
+(gateway `.2`, Drive recorder `.3`) because this development machine already
+owns `172.19.0.0/16`; Docker rejected the architecture example
+`172.19.254.0/29` as overlapping. No existing Docker network was changed or
+removed. Runtime teardown restored the pre-test Docker state.
+
+Local evidence: structural T-10 **9/9 PASS**; real-container gateway runtime
+**13/13 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
+traffic passed while a deterministic 41-request sequence produced **30×429**
+and only **11 upstream contacts**; a unique raw-token sentinel stayed absent
+from gateway logs across success, denial, method rejection, throttling and a
+routine upstream failure. The positive recorder tests prove gateway routing,
+not real Drive authorization; PUBLIC-SHARE-6 owns that integration.
+
+**G3 is APPROVED.** Once real public ingress exists, the existing application
+audit may retain the full canonical recipient IP from `requestSourceIp(req)` for
+security attribution, rate-limit investigation and incident response. It must
+never substitute the gateway peer for the recipient, persist a raw token,
+plaintext password, or public URL containing the token, or introduce analytics/
+profiling use. No real Internet recipient was observed by this task.
+
+G4 (ingress choice), G5 (exposure) and G6 (final acceptance) remain open. No
+Production action, PUBLIC-SHARE-4 UI work, or PUBLIC-SHARE-5/6/7 work is included.
 
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 

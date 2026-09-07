@@ -1,0 +1,106 @@
+# AEGIS PUBLIC-SHARE-3 — dedicated share-only gateway.
+# Source/test configuration only. It does not provide TLS or Internet ingress.
+
+worker_processes 1;
+error_log /dev/stderr crit;
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+
+    # The bearer token lives in the URL. Neither access nor routine error logs
+    # may persist a URI, query, referrer, Host, or recipient address. The Drive
+    # application audit remains the canonical attribution record approved at G3.
+    log_format public_share_safe 'method=$request_method status=$status bytes=$body_bytes_sent request_time=$request_time upstream_time=$upstream_response_time';
+
+    # Conservative implementation default, not product policy. PUBLIC-SHARE-6
+    # may tune it from observed internal integration evidence.
+    limit_req_zone $binary_remote_addr zone=public_share_edge:1m rate=5r/s;
+
+    # Regex locations see nginx's normalized URI. This map checks the untouched
+    # request target too, preventing `/s/token/../api` from normalizing into an
+    # apparently valid share route. Harmless query strings remain on /s/:token.
+    map $request_uri $public_share_route_ok {
+        default 0;
+        ~*^/s/[A-Za-z0-9_-]+/?(?:\?.*)?$ 1;
+    }
+
+    client_body_temp_path /tmp/client_temp;
+    proxy_temp_path /tmp/proxy_temp;
+    fastcgi_temp_path /tmp/fastcgi_temp;
+    uwsgi_temp_path /tmp/uwsgi_temp;
+    scgi_temp_path /tmp/scgi_temp;
+
+    # Unknown Host values terminate locally. No upstream is reachable here.
+    server {
+        listen 8080 default_server;
+        server_name _;
+        access_log /dev/stdout public_share_safe;
+        return 404;
+    }
+
+    # The only public listener that can reach Drive.
+    server {
+        listen 8080;
+        server_name $PUBLIC_SHARE_HOST;
+        access_log /dev/stdout public_share_safe;
+
+        location ~* ^/s/[A-Za-z0-9_-]+/?$ {
+            if ($public_share_route_ok = 0) {
+                return 404;
+            }
+            if ($request_method !~ ^(GET|POST)$) {
+                return 405;
+            }
+
+            limit_req zone=public_share_edge burst=10 nodelay;
+            limit_req_status 429;
+
+            client_max_body_size 16k;
+            client_body_timeout 15s;
+            send_timeout 300s;
+
+            proxy_pass http://drive:8001;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 300s;
+
+            # Author the trust boundary; never append or relay caller values.
+            proxy_set_header Host $PUBLIC_SHARE_HOST;
+            proxy_set_header X-Forwarded-Host $PUBLIC_SHARE_HOST;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Forwarded "";
+            proxy_set_header X-Forwarded-Proto https;
+        }
+
+        location / {
+            return 404;
+        }
+    }
+
+    # Container-local liveness only. The public listener has no health route.
+    server {
+        listen 127.0.0.1:8081;
+        server_name _;
+        access_log off;
+        default_type text/plain;
+
+        location = /healthz {
+            access_log off;
+            return 200 "ok\n";
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}

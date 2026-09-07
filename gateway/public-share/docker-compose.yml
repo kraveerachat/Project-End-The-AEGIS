@@ -1,0 +1,56 @@
+# PUBLIC-SHARE-3 isolated source/runtime harness. Not a Production stack.
+services:
+  public-share-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PUBLIC_SHARE_HOST: ${PUBLIC_SHARE_HOST:-share.example.invalid}
+    ports:
+      - "127.0.0.1:${PUBLIC_SHARE_GATEWAY_PORT:-18080}:8080"
+    depends_on:
+      drive:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      aegis_public_share:
+        ipv4_address: 172.31.254.2
+
+  # Purpose-built recorder standing in for Drive. It proves routing only; it is
+  # not an AEGIS authorization service and its port is never host-published.
+  drive:
+    build:
+      context: ./test-recorder
+      dockerfile: Dockerfile
+    expose:
+      - "8001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=4m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/__test/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    networks:
+      aegis_public_share:
+        ipv4_address: 172.31.254.3
+
+networks:
+  aegis_public_share:
+    name: aegis_public_share
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.254.0/29
+          gateway: 172.31.254.1
