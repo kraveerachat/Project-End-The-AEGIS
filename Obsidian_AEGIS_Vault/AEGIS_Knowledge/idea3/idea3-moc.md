@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-06
+updated: 2026-09-08
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center is on shared `main`; the Headless Core implementation and local automated evidence are proposed in open [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) and are not merged yet. Live MQTT, ESP32, relay, physical isolation, and production deployment still require separate evidence.
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core from [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) are on shared `main`. Fix1A now starts application code in `LOCKDOWN` with GPIO27 LOW, and fresh Deadman → relay → RJ45 evidence confirms that reconnect does not restore the link without an explicit authenticated RESTORE. Electrical reset-window 1B and Router/Switch real-Ethernet validation remain open.
 
 ## Owned source and canonical notes
 
@@ -20,7 +20,7 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The open PR #91 branch contains the Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions while preserving the Admin-only Web Security Center from `main`. Hardware proof remains open: protocol-correlated STATUS is not direct electrical relay evidence and does not prove WAN isolation. See [[idea3/idea3-status]] for the exact closed/open matrix.
+The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. Fix1A application-startup behavior and the 60-second Deadman path have direct RJ45 cable-tester evidence, including explicit recovery behavior. This does not prove fail-secure behavior before application code runs: GPIO27 can remain high-impedance during EN/reset, and real Router/Switch traffic isolation is deferred to the final hardware-closure PR. See [[idea3/idea3-status]] for the exact closed/open matrix.
 
 ## Shared dependencies
 
