@@ -105,6 +105,94 @@ not project `scope`, so every share read as non-`public` on the redemption path
 and a legitimate public share was refused through the public ingress. Caught by
 `PS2-INGRESS-1` failing, not by inspection.
 
+## Review amendment — PR #99 (2026-09-08)
+
+Amended in place under `AGENTS.md` §9: same task, same branch, same PR, **same
+receipt**. No second receipt, branch, or PR. Reviewed head
+`43c2f05dfe2c8c037a0a345649c56b68302d346d`.
+
+Two code/contract defects were found in owner review. Both were real, both are
+corrected, and one verification gate remains blocked by this environment.
+
+### Blocker A — shared-bridge validation was too narrow (fixed)
+
+`server/config/publicShare.js` compared the configured gateway against an
+exact-string set:
+
+```js
+const FORBIDDEN_GATEWAY_RANGES = new Set(['172.18.0.0/16', '172.18.0.1/32'])
+// …
+if (FORBIDDEN_GATEWAY_RANGES.has(value)) throw …
+```
+
+Because the input is constrained to a single `/32`, that only ever rejected the
+one address someone had thought to write down. `172.18.0.1/32` was refused while
+`172.18.0.2/32`, `172.18.0.5/32`, `172.18.1.20/32`, `172.18.10.20/32` and
+`172.18.255.254/32` were all **accepted** — every one of them still on the
+shared `aegis_internal` bridge that carries PostgreSQL and Monitor. The rule was
+about the network; the check was about a string.
+
+Corrected to real containment. `FORBIDDEN_GATEWAY_NETWORKS` holds the network,
+and a new exported `forbiddenGatewayNetworkFor(address)` decides membership by
+masking the parsed IPv4 host against the prefix. The parser is the single
+authoritative rejection point; `trustedProxy.js` reaches the same verdict by
+calling it, and the production-state test proves the end-to-end configuration
+fails too rather than relying on the unit alone. The error now names the network
+it matched.
+
+### Blocker B — trailing slash silently widened the G1 contract (fixed)
+
+The merged PUBLIC-SHARE-1 contract states the configured origin carries **no
+trailing slash**. The first implementation accepted `https://share.example.invalid/`
+and normalised it away, and a test approved that behaviour. That is a contract
+change, not an implementation detail, and PUBLIC-SHARE-2 has no authority to
+reopen an accepted gate.
+
+`parsePublicShareBaseUrl()` now rejects a trailing slash outright. The check runs
+on the raw text, because `new URL()` normalises both `https://host` and
+`https://host/` to pathname `/` and the distinction does not survive parsing.
+A side benefit worth keeping: the configured string and the emitted URL are now
+literally the same text, so an operator reading `.env` sees exactly what
+recipients receive. Every other rejection (non-HTTPS, credentials, non-root path,
+query, fragment) is unchanged, and a valid value is still normalised once.
+
+### Verification C — isolated PostgreSQL migration evidence — **BLOCKED**
+
+**Not completed, and not faked.** Migration 009 still has not been executed
+against a real PostgreSQL database, so the PR stays Draft.
+
+Exact blocker, established rather than assumed:
+
+- `docker version` fails with
+  `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`.
+- Docker Desktop is installed at `C:\Program Files\Docker\Docker\Docker Desktop.exe`
+  and was launched twice from this session; no `*docker*` process survives the
+  launch.
+- Its privileged helper `com.docker.service` reports **Stopped**. Starting a
+  Windows service requires elevation, which is a system-settings change this task
+  will not make on its own.
+- No PostgreSQL is listening on `127.0.0.1:5432`, `:5433` or `:55432`.
+- `TEST_DATABASE_URL` is unset and no `.env.test` exists.
+
+Consequently the 69 PostgreSQL-gated tests still skip, and every assertion the
+review asks for — migration run #1 and #2, row preservation, the real
+`shares_scope_check` definition read from `pg_constraint`, the `public` insert,
+the legacy `vlan`/`subnet` inserts, the rejected `internet` insert, and the
+untouched-column checks — remains **unobserved**. The static DDL contract tests
+(`PS2-MIG-1..5`) are the only migration evidence this receipt carries, and they
+are not a substitute.
+
+To unblock: start Docker Desktop (needs elevation), or provide a
+`TEST_DATABASE_URL` pointing at a throwaway database. Production must never be
+used, and was not.
+
+### Correction to an earlier figure in this receipt
+
+The pre-amendment entry reporting `tests/shareRedemption.test.js` as **24 tests,
+21 pass** was a *combined* run of `shareRedemption` and `trustedProxy` in one
+command. Alone, `shareRedemption` is **17 tests, 14 pass, 0 fail, 3 skips**. The
+figures below are corrected; no test result changed, only how it was reported.
+
 ## Source files changed
 
 New:
@@ -156,13 +244,13 @@ screen offers exactly `zones` and `any` and still renders the unavailable notice
 
 ## Verification evidence
 
-- `npm test` in `IDEA1-AEGIS_Drive_LC` — **1097 tests, 1027 pass, 1 fail, 69 PostgreSQL-gated skips**. The single failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the column`, which is **pre-existing and unrelated**: verified, not assumed, by stashing every change in this branch and re-running the same file on the resulting pristine `origin/main` tree, where it fails identically (`9 tests, 8 pass, 1 fail`). It concerns migration 008 and its own test file, both byte-identical to `origin/main` on this branch (`git diff origin/main --name-only` over both paths is empty). Out of scope here and left untouched.
+- `npm test` in `IDEA1-AEGIS_Drive_LC` — **1099 tests, 1029 pass, 1 fail, 69 PostgreSQL-gated skips** (re-run after the PR #99 amendments; +2 tests are the new `PS2-CFG-2b` and `PS2-CFG-6b`). **PUBLIC-SHARE-2 introduced failures = 0.** The suite is not reported as PASS while the runner reports one failure. The single failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the column`, which is **pre-existing and unrelated**: verified, not assumed, by stashing every change in this branch and re-running the same file on the resulting pristine `origin/main` tree, where it fails identically (`9 tests, 8 pass, 1 fail`). It concerns migration 008 and its own test file, both byte-identical to `origin/main` on this branch (`git diff origin/main --name-only` over both paths is empty). Out of scope here and left untouched.
 - `node --test --test-concurrency=1 tests/publicShareBackend.test.js` — **19 tests, 17 pass, 0 fail, 2 PostgreSQL-gated skips**.
-- `node --test --test-concurrency=1 tests/publicShareConfig.test.js` — **pass 16/16**.
+- `node --test --test-concurrency=1 tests/publicShareConfig.test.js` — **pass 18/18**, including the two new amendment tests.
 - `node --test --test-concurrency=1 tests/trustedProxy.test.js` — **pass 11/11**, including the 7 pre-existing cases unchanged.
 - `node --test --test-concurrency=1 tests/shareScopeTruthUi.test.js` — **pass 6/6**.
-- `node --test --test-concurrency=1 tests/shareRedemption.test.js` — **24 tests, 21 pass, 0 fail, 3 skips**; the existing private-path behaviour (CIDR allow/deny, forged-XFF rejection, password, expiry, revoke, Vault, hits, audit, trash) is unchanged.
-- `npm run build` — **pass**, built in 11.61 s. `dist/` restored afterwards and confirmed clean in `git status`.
+- `node --test --test-concurrency=1 tests/shareRedemption.test.js` — **17 tests, 14 pass, 0 fail, 3 PostgreSQL-gated skips**; the existing private-path behaviour (CIDR allow/deny, forged-XFF rejection, password, expiry, revoke, Vault, hits, audit, trash) is unchanged.
+- `npm run build` — **pass**, re-run after the amendments (5.05 s). `dist/` restored afterwards and confirmed clean in `git status`.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — **pass**, 0 errors (2 pre-existing owner-data canvas warnings, unrelated).
 - `node scripts/validate-collaboration-policy.mjs --event … --changed-files …` — **pass**, run locally against a synthesised event carrying this PR's body and this branch's real `git diff --name-status origin/main...HEAD`.
 - `git status --short` / `git diff --check` — **clean**; only the intended paths, no whitespace or conflict-marker error.
@@ -228,15 +316,26 @@ even though all three live inside the owned area.
 
 - **Public Internet Share is still not usable, by design.** No gateway, no
   ingress, no UI option, no deployment, no external acceptance.
-- **Migration 009 was never executed against a real PostgreSQL database.** No
-  test database was available in this environment, so the 69 PostgreSQL-gated
-  tests skipped and the migration is verified only by its DDL contract
+- **Two defects reached the first pushed head (`43c2f05d`) and were caught in
+  owner review, not by this task's own checks**: the shared-bridge check compared
+  strings instead of testing network containment, and the base-URL parser
+  silently widened the accepted G1 no-trailing-slash contract. Both are fixed and
+  covered by tests, but the miss is recorded rather than smoothed over — neither
+  would have been caught by any check that existed before the review.
+- **Migration 009 has still never been executed against a real PostgreSQL
+  database, and PR #99 stays Draft because of it.** The PR #99 review made this a
+  required gate; it could not be completed here. Docker Desktop is installed but
+  its engine will not start (`com.docker.service` is Stopped, and starting a
+  Windows service needs elevation this task will not take on its own); no
+  PostgreSQL listens on `127.0.0.1:5432`, `:5433` or `:55432`; `TEST_DATABASE_URL`
+  is unset. So the migration is verified **only** by its DDL contract
   (transactional, catalog-based constraint lookup restricted to `contype='c'`,
   the exact widened CHECK, no destructive or unrelated statement, no touch of
-  `share_default_scope`/`token_hash`/`password_hash`). **Idempotency and
-  re-runnability are argued from the SQL and from 008's proven precedent, not
-  observed.** Applying it to an isolated database is a prerequisite for
-  deployment and is not evidence this receipt carries.
+  `share_default_scope`/`token_hash`/`password_hash`). **Idempotency,
+  re-runnability, row preservation, the real `shares_scope_check` definition, the
+  `public` insert, the legacy `vlan`/`subnet` inserts and the rejected `internet`
+  insert are all UNOBSERVED.** Applying 009 to an isolated database remains a
+  prerequisite for deployment and is not evidence this receipt carries.
 - **Two `publicShareBackend` tests skipped** for the same reason: the Vault-file
   rejection and the raw-token-not-persisted checks both need PostgreSQL to set
   `files.vault` and to read `shares.token_hash`. The Vault exclusion is still

@@ -465,7 +465,14 @@ Rules:
   a host, no path, no query, no fragment, no credentials, no trailing slash.
   An invalid value fails startup rather than being silently coerced — the
   precedent is `MAX_SUPPORTED_LOGICAL_FILE_BYTES` failing at boot instead of
-  clamping.
+  clamping. **A trailing slash is one of those invalid values: it is rejected,
+  not trimmed** (PR #99 review — PUBLIC-SHARE-2 first accepted and normalised it
+  away, which would have quietly widened this already-accepted contract). The
+  check runs on the raw text, because `new URL()` collapses `https://host` and
+  `https://host/` to the same pathname and the distinction does not survive
+  parsing. Rejecting also keeps the configured string and the emitted URL
+  literally identical, so an operator reading `.env` sees exactly what recipients
+  receive.
 - **Used only for `public` shares.** `zones` and `any` responses keep returning
   the bare path. `POST /api/shares` returns `publicUrl` only when
   `scope === 'public'`.
@@ -485,8 +492,19 @@ the correction this contract turns on:
    (§7.4, §10.1).
 
 It is **never** compared against `req.ip`. Same validation rules as the HUB
-identity: exactly one IPv4 host CIDR (`/32`), no broad prefix, no
-`FORBIDDEN_SHARED_RANGES` value, validated independently at boot.
+identity: exactly one IPv4 host CIDR (`/32`), no broad prefix, validated
+independently at boot — and **not inside** any forbidden network.
+
+> [!warning] Containment, not string equality (PR #99 review)
+> "Not a forbidden range" must be evaluated by masking the host against the
+> network, not by comparing the configured text to a list. Because this value is
+> constrained to a single `/32`, an exact-match list only ever rejects the one
+> address someone wrote down: PUBLIC-SHARE-2's first implementation refused
+> `172.18.0.1/32` while accepting `172.18.0.2/32`, `172.18.1.20/32` and
+> `172.18.255.254/32` — all still on the shared `aegis_internal` bridge that
+> carries PostgreSQL and Monitor. The delivered code decides membership with
+> `forbiddenGatewayNetworkFor(address)` and rejects every host in
+> `172.18.0.0/16`.
 
 **Optional until the gateway rollout phase needs it.** Absent or empty ⇒ legacy
 private mode: the trusted set is HUB alone, `requestIngressKind()` can never

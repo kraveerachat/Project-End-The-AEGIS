@@ -30,15 +30,58 @@ const BASE_URL_NAME = 'PUBLIC_SHARE_BASE_URL'
 const GATEWAY_NAME = 'PUBLIC_SHARE_GATEWAY_CIDR'
 
 /**
- * Ranges the gateway identity may never be. Kept in step with
+ * Networks the gateway identity may never sit INSIDE. Kept in step with
  * config/trustedProxy.js: the shared `aegis_internal` bridge carries PostgreSQL
- * and Monitor, so trusting it would let any container on it claim to be the
- * public gateway.
+ * and Monitor, so a gateway identity on it would let any container there be
+ * mistaken for the public ingress.
+ *
+ * ⚠️ Containment, not string equality (PR #99 review). The gateway value is
+ *    constrained to a single /32, so an exact-match list only ever rejects the
+ *    one address someone happened to write down: `172.18.0.1/32` was refused
+ *    while `172.18.0.2/32`, `172.18.10.20/32` and `172.18.255.254/32` sailed
+ *    through, all of them still on the shared bridge. The rule is about the
+ *    network, so the check has to be about the network.
  */
-const FORBIDDEN_GATEWAY_RANGES = new Set([
-  '172.18.0.0/16',
-  '172.18.0.1/32',
+const FORBIDDEN_GATEWAY_NETWORKS = Object.freeze([
+  { cidr: '172.18.0.0/16', label: 'the shared aegis_internal bridge' },
 ])
+
+/** Dotted-quad → 32-bit integer, or null when it is not a valid IPv4 address. */
+function ipv4ToInt(address) {
+  const parts = String(address).split('.')
+  if (parts.length !== 4) return null
+  let value = 0
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null
+    const octet = Number(part)
+    if (octet > 255) return null
+    value = value * 256 + octet
+  }
+  return value
+}
+
+/** Is this IPv4 host address inside `<network>/<prefix>`? */
+function ipv4InNetwork(address, cidr) {
+  const [network, prefixText] = String(cidr).split('/')
+  const prefix = Number(prefixText)
+  const host = ipv4ToInt(address)
+  const base = ipv4ToInt(network)
+  if (host === null || base === null) return false
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false
+  if (prefix === 0) return true
+  const mask = prefix === 32 ? 0xffffffff : (0xffffffff << (32 - prefix)) >>> 0
+  return ((host & mask) >>> 0) === ((base & mask) >>> 0)
+}
+
+/**
+ * The forbidden network this host belongs to, or null.
+ *
+ * Exported so the trusted-proxy boundary and the tests can reason about the one
+ * authoritative rule rather than restating it.
+ */
+export function forbiddenGatewayNetworkFor(address) {
+  return FORBIDDEN_GATEWAY_NETWORKS.find(({ cidr }) => ipv4InNetwork(address, cidr)) ?? null
+}
 
 /** Strict IPv4 host CIDR. Only /32 — a prefix is a range, and a range is not an identity. */
 const HOST_CIDR = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/32$/
@@ -56,6 +99,13 @@ export function normalizeIpv4Mapped(value) {
  * Returns the origin with no trailing slash, e.g. `https://share.example.invalid`.
  * The architecture contract forbids deriving this from a request Host header, so
  * the only input is configuration.
+ *
+ * ⚠️ A trailing slash is REJECTED, not silently trimmed (PR #99 review). The
+ *    merged G1 contract states the configured origin carries no trailing slash;
+ *    accepting one and normalising it would have quietly widened an already
+ *    accepted contract, and this task has no authority to reopen G1. Rejecting
+ *    it also keeps the configured string and the emitted URL literally the same
+ *    text, so an operator reading `.env` sees exactly what recipients receive.
  */
 export function parsePublicShareBaseUrl(raw) {
   const value = String(raw ?? '').trim()
@@ -66,6 +116,12 @@ export function parsePublicShareBaseUrl(raw) {
     url = new URL(value)
   } catch {
     throw new Error(`${BASE_URL_NAME} must be an absolute https:// URL`)
+  }
+
+  // Checked on the RAW text: `new URL()` normalises both `https://host` and
+  // `https://host/` to pathname '/', so the distinction only survives here.
+  if (value.endsWith('/')) {
+    throw new Error(`${BASE_URL_NAME} must not end with a trailing slash`)
   }
 
   // https only: the token is in the path, so a public share URL that could be
@@ -105,8 +161,13 @@ export function parsePublicShareGatewayCidr(raw) {
   for (const octet of match.slice(1)) {
     if (Number(octet) > 255) throw new Error(`${GATEWAY_NAME} contains an invalid IPv4 address`)
   }
-  if (FORBIDDEN_GATEWAY_RANGES.has(value)) {
-    throw new Error(`${GATEWAY_NAME} must not use the shared aegis_internal bridge`)
+  // Containment, not equality: every host inside a forbidden network is refused,
+  // not just the one address someone thought to list.
+  const forbidden = forbiddenGatewayNetworkFor(match[0].slice(0, -'/32'.length))
+  if (forbidden) {
+    throw new Error(
+      `${GATEWAY_NAME} must not be inside ${forbidden.label} (${forbidden.cidr})`,
+    )
   }
   return value
 }

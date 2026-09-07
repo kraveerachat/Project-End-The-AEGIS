@@ -189,8 +189,15 @@ test('TP-S3 production rejects every state that is neither approved shape', () =
     // A prefix is a range, and a range is not an identity.
     [{ TRUSTED_PROXY_CIDRS: `${HUB},172.19.254.0/24`, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.0/24' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
     [{ TRUSTED_PROXY_CIDRS: `${HUB},172.19.254.2/31`, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.2/31' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
-    // The shared aegis_internal bridge carries PostgreSQL and Monitor.
-    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.1/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.1/32' }, /PUBLIC_SHARE_GATEWAY_CIDR|bridge/i],
+    // The shared aegis_internal bridge carries PostgreSQL and Monitor. Every host
+    // inside 172.18.0.0/16 is refused, not just the one address someone listed —
+    // PR #99 review found the original check was exact-string and let .2, .5,
+    // 1.20 and 255.254 through as "dedicated" gateway identities.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.1/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.1/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.2/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.2/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.5/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.5/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.1.20/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.1.20/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.255.254/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.255.254/32' }, /inside/i],
     // Malformed.
     [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: 'not-a-cidr' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
     [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.2' }, /PUBLIC_SHARE_GATEWAY_CIDR/],

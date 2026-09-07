@@ -17,6 +17,7 @@ delete process.env.PUBLIC_SHARE_GATEWAY_CIDR
 
 const {
   publicShareConfigFromEnv, parsePublicShareBaseUrl, parsePublicShareGatewayCidr, publicShareUrl,
+  forbiddenGatewayNetworkFor,
 } = await import('../server/config/publicShare.js')
 const { requestIngressKind, requestIngressPeerIp } = await import('../server/request/ingress.js')
 
@@ -36,11 +37,24 @@ test('PS2-CFG-1 an absent base URL disables public share creation', () => {
 
 test('PS2-CFG-2 a valid base URL is normalised once, with no trailing slash', () => {
   assert.equal(parsePublicShareBaseUrl('https://share.example.invalid'), 'https://share.example.invalid')
-  assert.equal(parsePublicShareBaseUrl('https://share.example.invalid/'), 'https://share.example.invalid')
   assert.equal(parsePublicShareBaseUrl('  https://share.example.invalid  '), 'https://share.example.invalid')
   // A non-default port is part of the origin and is preserved; :443 is not.
   assert.equal(parsePublicShareBaseUrl('https://share.example.invalid:8443'), 'https://share.example.invalid:8443')
   assert.equal(parsePublicShareBaseUrl('https://share.example.invalid:443'), 'https://share.example.invalid')
+})
+
+test('PS2-CFG-2b a trailing slash is rejected, not silently trimmed', () => {
+  // The merged G1 contract says the configured origin carries no trailing slash.
+  // An earlier draft of PUBLIC-SHARE-2 accepted one and normalised it away, which
+  // would have quietly widened an already accepted contract; PR #99 review caught
+  // it. Rejecting also keeps the configured text and the emitted URL identical.
+  for (const value of [
+    'https://share.example.invalid/',
+    '  https://share.example.invalid/  ',
+    'https://share.example.invalid:8443/',
+  ]) {
+    assert.throws(() => parsePublicShareBaseUrl(value), /trailing slash/i, value)
+  }
 })
 
 test('PS2-CFG-3 a malformed base URL fails closed instead of being coerced', () => {
@@ -102,6 +116,36 @@ test('PS2-CFG-6 the gateway identity must be exactly one IPv4 host CIDR', () => 
   for (const value of rejected) {
     assert.throws(() => parsePublicShareGatewayCidr(value), /PUBLIC_SHARE_GATEWAY_CIDR/, value)
   }
+})
+
+test('PS2-CFG-6b every host inside the shared aegis_internal bridge is refused', () => {
+  // PR #99 review: the first implementation compared the configured value against
+  // an exact-string list. Because the input is constrained to a single /32, that
+  // rejected only `172.18.0.1/32` while every other host on the same bridge —
+  // where PostgreSQL and Monitor live — was accepted as a "dedicated" gateway.
+  // The rule is about the network, so the check is about the network.
+  for (const value of [
+    '172.18.0.1/32',
+    '172.18.0.2/32',
+    '172.18.0.5/32',
+    '172.18.1.20/32',
+    '172.18.10.20/32',
+    '172.18.255.254/32',
+  ]) {
+    assert.throws(
+      () => parsePublicShareGatewayCidr(value),
+      /must not be inside .*172\.18\.0\.0\/16/,
+      value,
+    )
+  }
+
+  // The boundaries either side of the /16 are not inside it and must still pass.
+  for (const value of ['172.17.255.254/32', '172.19.0.1/32', '172.19.254.2/32']) {
+    assert.equal(parsePublicShareGatewayCidr(value), value)
+  }
+
+  assert.equal(forbiddenGatewayNetworkFor('172.18.7.7')?.cidr, '172.18.0.0/16')
+  assert.equal(forbiddenGatewayNetworkFor('172.19.254.2'), null)
 })
 
 // ═══ Ingress provenance, as a unit ═══════════════════════════════════════════

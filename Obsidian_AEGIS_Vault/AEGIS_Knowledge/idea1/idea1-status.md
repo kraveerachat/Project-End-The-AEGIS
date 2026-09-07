@@ -457,20 +457,29 @@ from `867f1ccf7714394217987978df00ba5fad7882e8`:
 - **Trusted proxy now has two approved production states**, per gate G2:
   `{ HUB /32 }` — the currently deployed state and still the default — or
   `{ HUB /32, one approved public-gateway /32 }` when
-  `PUBLIC_SHARE_GATEWAY_CIDR` is set. Order is irrelevant. A gateway that is
+  `PUBLIC_SHARE_GATEWAY_CIDR` is set — which must be a single IPv4 `/32` that is
+  **not inside** a forbidden network (evaluated by masking the host against
+  `172.18.0.0/16`, the shared `aegis_internal` bridge, not by string comparison).
+  Order is irrelevant. A gateway that is
   named but not trusted is refused at boot, because Express would otherwise stop
   at it when walking `X-Forwarded-For` and collapse `req.ip` to the gateway's own
   address. Every previous rejection still holds, and every pre-existing
   `trustedProxy` test passes unchanged.
 
-Verification: full IDEA1 suite **1097 tests / 1027 pass / 1 fail / 69
-PostgreSQL-gated skips**, build pass. The single failure is the pre-existing,
+`PUBLIC_SHARE_BASE_URL` rejects a trailing slash rather than trimming it, so the
+configured origin and the emitted public URL are the same text.
+
+Verification: full IDEA1 suite **1099 tests / 1029 pass / 1 fail / 69
+PostgreSQL-gated skips**, build pass, **0 failures introduced by
+PUBLIC-SHARE-2**. The single failure is the pre-existing,
 unrelated `AUTOLOCK-5`, proven by stashing every change on this branch and
 reproducing it on the resulting pristine `origin/main` tree. ⚠️ **Migration 009
-was never executed against a real PostgreSQL database** — no test database was
-available — so its idempotency is argued from the DDL contract and 008's
-precedent, not observed. Applying it to an isolated database is a prerequisite
-for any deployment.
+has never been executed against a real PostgreSQL database** — no Docker engine
+and no local PostgreSQL were available in the development environment — so its
+idempotency, row preservation and real constraint definition are argued from the
+DDL contract and 008's precedent, **not observed**. Applying it to an isolated
+database is a prerequisite for any deployment, and PR #99 stays Draft until that
+evidence exists.
 
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 
