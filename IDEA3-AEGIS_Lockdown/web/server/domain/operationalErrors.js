@@ -28,6 +28,7 @@ export const OPERATIONAL_ERROR_CODES = Object.freeze(Object.fromEntries(
 
 const sensitiveKey = /password|token|secret|credential|authorization|cookie|hmac|key|path|stack|payload/i
 const correlationId = /^[a-zA-Z0-9._:-]{1,128}$/
+const serverComponents = new Set(['IDEA1 Adapter', 'IDEA2 Adapter', 'IDEA3 Runtime Adapter'])
 
 export function redactSensitive(value) {
   if (Array.isArray(value)) return value.map(redactSensitive)
@@ -45,13 +46,14 @@ export function createOperationalError(code, fields = {}) {
   const occurredAt = typeof fields.occurredAt === 'string' && Number.isFinite(Date.parse(fields.occurredAt))
     ? new Date(fields.occurredAt).toISOString()
     : new Date().toISOString()
+  const component = serverComponents.has(fields.component) ? fields.component : definition.component
 
   return {
     code: OPERATIONAL_ERROR_CODES[code] ? code : 'CORE_PROCESS_FAILURE',
     category: definition.category,
     severity: definition.severity,
     message: definition.message,
-    component: definition.component,
+    component,
     occurredAt,
     recoverable: definition.recoverable,
     correlationId: safeCorrelationId,
@@ -62,6 +64,7 @@ export function operationalErrorFingerprint(error) {
   const safe = createOperationalError(error?.code, {
     occurredAt: error?.occurredAt,
     correlationId: error?.correlationId,
+    component: error?.component,
   })
   return createHash('sha256').update([safe.code, safe.category, safe.component, safe.correlationId ?? ''].join('|')).digest('hex')
 }

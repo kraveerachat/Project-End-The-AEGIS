@@ -33,6 +33,10 @@ function providerFor(runtimeResponse) {
   })
 }
 
+function providerWithFetch(fetchImpl) {
+  return createLiveProvider({ config: adapterConfig, clock: () => fixedNow, fetchImpl })
+}
+
 describe('upstream evidence normalization', () => {
   it('allows only the four approved IDEA1 producer fields plus server-owned fields', () => {
     const normalized = normalizeIdea1Event({
@@ -120,7 +124,7 @@ describe('upstream evidence normalization', () => {
       issues: [
         { code: 'BROKER_DISCONNECTED', correlationId: 'nonce-100', password: 'private' },
         { code: 'MQTT_RECONNECTING', nonce: 'nonce-101', payload: { token: 'private' } },
-        { code: 'COMMAND_TIMEOUT', authorization: 'private' },
+        { code: 'COMMAND_TIMEOUT', commandNonce: 'command-302', nonce: 'dropped', correlation_id: 'dropped', authorization: 'private' },
         { code: 'ACK_TIMEOUT' }, { code: 'STATUS_TIMEOUT' },
         { code: 'PHYSICAL_CONFIRMATION_TIMEOUT' }, { code: 'PHYSICAL_STATE_MISMATCH' },
       ],
@@ -131,7 +135,21 @@ describe('upstream evidence normalization', () => {
       'PHYSICAL_CONFIRMATION_TIMEOUT', 'PHYSICAL_STATE_MISMATCH',
     ]))
     expect(snapshot.operationalErrors.find((error) => error.code === 'MQTT_DISCONNECTED')?.correlationId).toBe('nonce-100')
+    expect(snapshot.operationalErrors.find((error) => error.code === 'COMMAND_TIMEOUT')?.correlationId).toBe('command-302')
     expect(JSON.stringify(snapshot.operationalErrors)).not.toMatch(/password|token|authorization|private|payload/)
+  })
+
+  it('accepts only commandNonce and correlationId for command-stage correlation', () => {
+    const normalized = normalizeRuntimeStatus({
+      ...healthyRuntimeRaw,
+      issues: [
+        { code: 'COMMAND_TIMEOUT', commandNonce: 'command-303', nonce: 'dropped', correlation_id: 'dropped' },
+        { code: 'ACK_TIMEOUT', nonce: 'dropped', correlation_id: 'dropped' },
+      ],
+    }, { now: fixedNow, maxAgeMs: 120_000 })
+
+    expect(normalized.operationalErrors.find((error) => error.code === 'COMMAND_TIMEOUT')?.correlationId).toBe('command-303')
+    expect(normalized.operationalErrors.find((error) => error.code === 'ACK_TIMEOUT')?.correlationId).toBeNull()
   })
 
   it.each([
@@ -148,5 +166,19 @@ describe('upstream evidence normalization', () => {
     const snapshot = await providerFor(() => jsonResponse('{not-json')).getSnapshot()
     expect(snapshot.runtime.status).toBe('UNKNOWN')
     expect(snapshot.operationalErrors).toContainEqual(expect.objectContaining({ code: 'MALFORMED_RUNTIME_STATUS' }))
+  })
+
+  it('keeps simultaneous adapter timeouts separate by server-controlled source component', async () => {
+    const snapshot = await providerWithFetch(async (url) => {
+      if (url === adapterConfig.adapters.runtimeUrl) return jsonResponse(healthyRuntimeRaw)
+      const error = new Error('timeout')
+      error.name = 'AbortError'
+      throw error
+    }).getSnapshot()
+
+    expect(snapshot.operationalErrors.filter((error) => error.code === 'ADAPTER_TIMEOUT')).toEqual([
+      expect.objectContaining({ component: 'IDEA1 Adapter' }),
+      expect.objectContaining({ component: 'IDEA2 Adapter' }),
+    ])
   })
 })

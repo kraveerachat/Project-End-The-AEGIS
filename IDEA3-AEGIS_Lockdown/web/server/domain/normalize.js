@@ -118,10 +118,8 @@ function runtimeIssueErrors(issues, occurredAt) {
     if (!code) return []
     const correlationId = typeof issue.correlationId === 'string'
       ? issue.correlationId
-      : typeof issue.correlation_id === 'string'
-        ? issue.correlation_id
-        : typeof issue.nonce === 'string'
-          ? issue.nonce
+      : typeof issue.commandNonce === 'string'
+        ? issue.commandNonce
           : null
     return [createOperationalError(code, { occurredAt, correlationId })]
   })

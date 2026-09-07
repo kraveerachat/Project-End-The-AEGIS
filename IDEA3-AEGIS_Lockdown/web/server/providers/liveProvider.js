@@ -32,12 +32,12 @@ async function fetchJson(url, { fetchImpl, timeoutMs }) {
   }
 }
 
-function adapterOperationalError(result, now, { runtime = false } = {}) {
+function adapterOperationalError(result, now, component, { runtime = false } = {}) {
   if (!result.configured || result.ok) return null
   const code = result.code === 'MALFORMED_RESPONSE'
     ? runtime ? 'MALFORMED_RUNTIME_STATUS' : 'ADAPTER_RESPONSE_REJECTED'
     : result.code
-  return createOperationalError(code, { occurredAt: now.toISOString() })
+  return createOperationalError(code, { occurredAt: now.toISOString(), component })
 }
 
 function sourceState(id, name, result, now) {
@@ -61,7 +61,11 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
         ? normalizeRuntimeStatus(runtimeResult.data, { now, maxAgeMs: config.maxEvidenceAgeMs })
         : unknownRuntime(runtimeResult.configured ? 'ABSENT' : 'NOT_CONFIGURED')
       const operationalErrors = [
-        ...[adapterOperationalError(idea1Result, now), adapterOperationalError(idea2Result, now), adapterOperationalError(runtimeResult, now, { runtime: true })].filter(Boolean),
+        ...[
+          adapterOperationalError(idea1Result, now, 'IDEA1 Adapter'),
+          adapterOperationalError(idea2Result, now, 'IDEA2 Adapter'),
+          adapterOperationalError(runtimeResult, now, 'IDEA3 Runtime Adapter', { runtime: true }),
+        ].filter(Boolean),
         ...runtime.operationalErrors,
       ].filter((error, index, errors) => errors.findIndex((candidate) => operationalErrorFingerprint(candidate) === operationalErrorFingerprint(error)) === index)
       const sources = [
