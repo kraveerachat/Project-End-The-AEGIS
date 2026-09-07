@@ -35,8 +35,15 @@ const PROC_STAT_1 = 'cpu  100 20 30 400 50 6 4 0 0 0\n'
 const PROC_STAT_2 = 'cpu  200 20 30 500 50 6 4 0 0 0\n'
 const MEMINFO = 'MemTotal:        8138332 kB\nMemAvailable:    5061404 kB\n'
 
-/** A sampler with two completed cycles, so every metric is available. */
-async function readySampler() {
+/**
+ * A sampler with two completed cycles, so every metric is available.
+ *
+ * `extraReaders` exists for the thermal reader. It is absent by default,
+ * which is itself the realistic case: an agent built without a
+ * hostTemperature reader must still publish `{ available: false }` on the
+ * wire rather than omitting the metric.
+ */
+async function readySampler(extraReaders = {}) {
   const state = { ms: 1_000_000, stat: PROC_STAT_1, rx: '1000', tx: '2000' }
   const sampler = createSampler({
     interfaceName: 'enp1s0',
@@ -47,6 +54,7 @@ async function readySampler() {
       networkRx: async () => state.rx,
       networkTx: async () => state.tx,
       uptime: async () => '86400.55 172800.10\n',
+      ...extraReaders,
     },
   })
   await sampler.sampleOnce()
@@ -151,7 +159,7 @@ test('TELEM-SOCKET-4 the response body carries only allowlisted keys', async () 
   const body = JSON.parse((await request(socketPath)).body)
 
   assert.deepEqual(Object.keys(body).sort(), [...AGENT_TOP_LEVEL_KEYS].sort())
-  assert.deepEqual(Object.keys(body.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  assert.deepEqual(Object.keys(body.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   for (const [name, metric] of Object.entries(body.metrics)) {
     for (const key of Object.keys(metric)) {
       assert.ok(AGENT_METRIC_KEYS[name].includes(key), `metrics.${name}.${key} is not allowlisted`)
@@ -188,6 +196,66 @@ test('TELEM-SOCKET-5 the response leaks no environment, user, path, or process d
     assert.ok(!body.toLowerCase().includes(word.toLowerCase()), `response must not mention ${word}`)
   }
   delete process.env.AEGIS_TELEMETRY_LEAK_CANARY
+})
+
+// ── TELEM-SOCKET-8 · CPU package temperature on the wire ──────────
+//
+// Production regression, and the reason these assert at the real HTTP
+// Unix-socket boundary rather than against projectAgentSnapshot() directly:
+// the sampler measured x86_pkg_temp correctly and `sampler.snapshot()` carried
+// metrics.temperature, but the strict projector did not list the metric, so
+// GET /internal/telemetry answered with cpu/memory/network/uptime only and
+// Drive had no temperature to render. A unit test on the sampler would have
+// stayed green through the whole outage; only the wire body proves the fix.
+test('TELEM-SOCKET-8 an available temperature is published on the wire', async () => {
+  const sampler = await readySampler({
+    hostTemperature: async () => ({ available: true, celsius: 55.8, sensor: 'x86_pkg_temp' }),
+  })
+  const { socketPath } = await startAgent(sampler)
+
+  const res = await request(socketPath)
+  assert.equal(res.status, 200)
+
+  const body = JSON.parse(res.body)
+  assert.deepEqual(body.metrics.temperature, {
+    available: true,
+    celsius: 55.8,
+    sensor: 'x86_pkg_temp',
+  })
+})
+
+test('TELEM-SOCKET-8 an unavailable temperature keeps the bare unavailable shape', async () => {
+  // No hostTemperature reader is configured, which is exactly how an agent
+  // built before thermal support behaves, and how a host whose kernel exposes
+  // no x86_pkg_temp zone must be reported.
+  const { socketPath } = await startAgent(await readySampler())
+
+  const body = JSON.parse((await request(socketPath)).body)
+  // Exactly this and nothing more: no null celsius, no placeholder sensor, no
+  // fabricated zero. A field that is absent cannot be rendered as a reading.
+  assert.deepEqual(body.metrics.temperature, { available: false })
+  assert.deepEqual(Object.keys(body.metrics.temperature), ['available'])
+})
+
+test('TELEM-SOCKET-8 strict projection strips an unexpected temperature field', async () => {
+  const sampler = await readySampler({
+    hostTemperature: async () => ({ available: true, celsius: 55.8, sensor: 'x86_pkg_temp' }),
+  })
+  // Widening the allowlist must not turn the projector into a pass-through. A
+  // future sampler that grows a field gets that field dropped, exactly as cpu
+  // and memory already do in TELEM-SOCKET-4.
+  const raw = sampler.snapshot()
+  raw.metrics.temperature.zonePath = '/sys/class/thermal/thermal_zone1'
+  raw.metrics.temperature.criticalCelsius = 100
+
+  const { socketPath } = await startAgent(sampler)
+  const res = await request(socketPath)
+  const body = JSON.parse(res.body)
+
+  assert.deepEqual(Object.keys(body.metrics.temperature).sort(), ['available', 'celsius', 'sensor'])
+  assert.equal(body.metrics.temperature.zonePath, undefined)
+  assert.equal(body.metrics.temperature.criticalCelsius, undefined)
+  assert.ok(!res.body.includes('thermal_zone'), 'no host filesystem path may reach the wire')
 })
 
 // ── TELEM-11B · no TCP listener ───────────────────────────────────────

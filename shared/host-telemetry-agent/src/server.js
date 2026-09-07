@@ -55,6 +55,19 @@ export const AGENT_METRIC_KEYS = Object.freeze({
   memory: Object.freeze(['available', 'usedBytes', 'totalBytes', 'percent']),
   network: Object.freeze(['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds']),
   uptime: Object.freeze(['available', 'hostSeconds']),
+  // CPU package temperature. It belongs in `metrics` rather than on a route of
+  // its own because it is a host counter of the same kind as CPU and memory,
+  // and Drive's V1 schema already treats it as an OPTIONAL metric — an agent
+  // that omits it stays compatible, and one that sends it is accepted.
+  //
+  // Production proved the cost of leaving it out of this allowlist: the sampler
+  // measured x86_pkg_temp correctly and this projector then dropped it, so the
+  // wire body never carried a temperature Drive could render.
+  temperature: Object.freeze([
+    'available',
+    'celsius',
+    'sensor',
+  ]),
 })
 
 /** Copy only allowlisted keys, and only when the metric claims availability. */
@@ -83,6 +96,10 @@ export function projectAgentSnapshot(snapshot) {
       memory: projectMetric('memory', snapshot.metrics?.memory),
       network: projectMetric('network', snapshot.metrics?.network),
       uptime: projectMetric('uptime', snapshot.metrics?.uptime),
+      temperature: projectMetric(
+        'temperature',
+        snapshot.metrics?.temperature
+      ),
     },
   }
 }

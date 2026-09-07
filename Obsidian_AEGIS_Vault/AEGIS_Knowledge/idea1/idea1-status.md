@@ -68,6 +68,38 @@ edit_policy: owner-writable
 > group as optional and tolerates an older agent; an agent publishing it to an
 > older Drive trips `unexpected-metric-group` and blanks every telemetry tile.
 > Rollback reverses the order.
+> **Host CPU package temperature — Production isolated the defect to the agent's
+> wire projection (2026-09-07)**: the new Drive image
+> `sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1`
+> deployed successfully and is healthy, and is compatible with the previously
+> accepted host agent. The new host telemetry agent was deployed, observed, and
+> **rolled back successfully**; the previously accepted agent is active again.
+> PostgreSQL, HUB and Monitor stayed healthy and HTTPS health was 200/200/200
+> throughout. Production evidence proved that `x86_pkg_temp` discovery and the
+> sampler were correct — `samplerMetricKeys` carried `cpu, memory, network,
+> uptime, temperature` and `samplerTemperature` was
+> `{ available: true, celsius: ~55, sensor: "x86_pkg_temp" }` — but the
+> `GET /internal/telemetry` wire response carried only `cpu`, `memory`,
+> `network` and `uptime`. **`shared/host-telemetry-agent/src/server.js` strict
+> wire projection omitted `metrics.temperature`, preventing Drive from receiving
+> the measurement.** The agent rebuilds its response body from
+> `AGENT_METRIC_KEYS` rather than serializing the snapshot, and PR #95 added the
+> metric to the sampler without adding it to that allowlist, so the projector
+> correctly dropped an unlisted group. Fixed on branch
+> `fix/idea1-host-temperature-wire-projection`: `AGENT_METRIC_KEYS.temperature`
+> now lists exactly `available`, `celsius`, `sensor`, and
+> `projectAgentSnapshot()` projects the group through the same strict
+> `projectMetric()` helper — no spread, no pass-through, `{ available: false }`
+> preserved for an unusable sensor, and no change to `thermal.js`, sensor
+> discovery, the systemd unit, or the Drive schema. New wire-level regression
+> tests assert the available, unavailable and extra-field cases against a real
+> HTTP request over the Unix socket, because every sampler and thermal unit test
+> stayed green throughout this defect. The Drive-before-agent rollout constraint
+> is **already satisfied** — the deployed Drive image treats `temperature` as an
+> optional group and tolerates an agent that omits it. ⚠️ **Production
+> acceptance remains incomplete**: the fix is verified in tests only. No agent
+> was rebuilt or restarted with it, and the Dashboard CPU temperature tile has
+> still never rendered a real reading.
 > **Latest full-suite evidence**: **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #80, plus focused Vault auto-lock suites **9/9 + 9/9 PASS**. PR #79 separately recorded Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.
 > **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Storage & Backup accepted manual/removable-media scope, Audit Log and Access Control are **PASS / CLOSED**. Private Vault includes the accepted direct-VLAN30 high-bitrate preview scope for `START_LIVE.mp4` (~1.1 GB): first frame ~8 s, >60 s continuous playback without observed buffering, and successful seek/resume. Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media scope** after Production `DIFFERENT_DEVICE`, two successful manual backups, repository integrity checks, two successful isolated restore verifications, healthy final UI regression, and matching Backup audit events. Settings remains **PARTIAL** only because the latest exhaustive profile/avatar sweep is still optional/not re-tested; **Security & Privacy is PASS / CLOSED**, including SECURITY-2. Real RAID1 remains **DEFERRED / FUTURE HARDWARE**, and automatic scheduled execution (`STORAGE-AUTO-2`) remains **NOT TESTED / optional for the borrowed-HGST acceptance scope**.
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
