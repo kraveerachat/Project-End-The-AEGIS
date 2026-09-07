@@ -488,7 +488,14 @@ const EXPIRY_MS = { '1h': HOUR, '24h': DAY, '7d': 7 * DAY, '30d': 30 * DAY }
 //    เชื่อว่าต้องมีรหัสจึงเปิดได้ กลายเป็นลิงก์ที่ใครถือก็เปิดได้ทันที
 //    ค่า 'otc' ยังผ่าน CHECK ของตารางเพื่อไม่ทำให้แถวเก่าผิด constraint แต่สร้างใหม่ไม่ได้
 const AUTH_TYPES = new Set(['password', 'none'])
-const SCOPES = new Set(['any', 'zones'])
+// ⚠️ 'public' is the third EXPLICIT scope (PUBLIC-SHARE-2). It is deliberately
+//    not an alias of 'any': overloading 'any' would have made every share ever
+//    created with it Internet-redeemable the moment a gateway was deployed,
+//    retroactively, without its creator ever agreeing to that. It is also not a
+//    saved default — users.share_default_scope stays ('any','zones') so a stored
+//    preference can never publish a file on the sharer's behalf.
+//    Creating one additionally requires PUBLIC_SHARE_BASE_URL (see createShare).
+const SCOPES = new Set(['any', 'zones', 'public'])
 const MIN_LINK_PASSWORD = 8
 
 /** token ดิบ 256 บิต — URL-safe, เดาไม่ได้ (ไม่ใช่ id ที่ไล่เลขได้) */
@@ -562,8 +569,17 @@ export async function listShares(userId) {
  * ⚠️ ถ้าเลือก 'zones' แต่ยังไม่มี zone ใดถูกกำหนดไว้ = ปฏิเสธ ไม่ใช่สร้างลิงก์ที่
  *    "จำกัดขอบเขต" ด้วยรายการว่าง (ซึ่งจะกลายเป็นไม่จำกัดจริง ๆ แต่ป้ายบอกว่าจำกัด)
  */
-export async function createShare({ fileId, expiry, authType, scope, password }, user) {
+export async function createShare(
+  { fileId, expiry, authType, scope, password },
+  user,
+  { publicShareEnabled = false } = {},
+) {
   if (!EXPIRY_MS[expiry] || !AUTH_TYPES.has(authType) || !SCOPES.has(scope)) return null
+  // A deployment with no configured public origin cannot express a public URL,
+  // so it must not mint a share whose whole point is that URL. Fail closed and
+  // reuse the existing generic rejection rather than inventing an error that
+  // tells a caller about server configuration.
+  if (scope === 'public' && !publicShareEnabled) return null
 
   const pw = String(password ?? '')
   if (authType === 'password' && pw.length < MIN_LINK_PASSWORD) return null
@@ -641,6 +657,10 @@ export async function findShareByToken(token) {
       filePath: r.file_path, fileSize: Number(r.file_size), fileVault: r.file_vault,
       fileDeleted: r.file_deleted_at != null,
       authType: r.auth_type, passwordHash: r.password_hash,
+      // ⚠️ scope is projected here because the redemption path enforces the
+      //    public-ingress rule with it (PUBLIC-SHARE-2). Without it every share
+      //    would read as non-public and be refused through the public gateway.
+      scope: r.scope,
       scopeCidrs: r.vlan_scope ?? [], revoked: r.revoked,
       expiresAt: new Date(r.expires_at).getTime(),
     }
@@ -654,6 +674,7 @@ export async function findShareByToken(token) {
     filePath: file?.path ?? null, fileSize: file?.size ?? 0, fileVault: Boolean(file?.vault),
     fileDeleted: file?.deletedAt != null,
     authType: s.authType, passwordHash: s.passwordHash ?? null,
+    scope: s.scope,
     scopeCidrs: s.scopeCidrs ?? [], revoked: s.revoked, expiresAt: s.expiresAt,
   }
 }

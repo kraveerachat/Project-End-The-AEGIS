@@ -25,6 +25,7 @@ import * as store from '../db/store.js'
 import { keyExists, openReadStream } from '../storage/fileStore.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
+import { INGRESS_PRIVATE, requestIngressKind } from '../request/ingress.js'
 
 export const shareRouter = Router()
 
@@ -217,12 +218,49 @@ async function resolveShare(req, token) {
     await auditShare(req, 'SHARE_REDEEM', share.fileName, 'BLOCKED')
     return { ok: false, kind: 'gone' }
   }
+  // ⚠️ Public-ingress rule (PUBLIC-SHARE-2). A 'zones' or 'any' link must not
+  //    become Internet-redeemable merely because a Public Share Gateway now
+  //    stands in front of Drive — their creators agreed to a private audience.
+  //    Only 'public' may be redeemed through that ingress.
+  //
+  //    This uses INGRESS provenance (the immediate socket peer), NOT the client
+  //    source. On a correct public request Express resolves req.ip to the
+  //    external RECIPIENT, so comparing requestSourceIp() against the gateway
+  //    identity would never match — see request/ingress.js for the measurement.
+  //
+  //    When no gateway is configured requestIngressKind() is always 'private',
+  //    so this check is inert for the currently deployed configuration.
+  if (share.scope !== 'public' && requestIngressKind(req) !== INGRESS_PRIVATE) {
+    // No bytes, no hit count. Audited as blocked with the same hashed-target
+    // discipline as every other refusal, and rendered to the recipient through
+    // the ordinary restricted page — the public ingress must not become an
+    // oracle for which scope a link happens to carry.
+    await auditShare(req, 'SHARE_REDEEM_OUT_OF_SCOPE', share.fileName, 'BLOCKED')
+    return { ok: false, kind: 'scope' }
+  }
   if (!ipAllowed(requestSourceIp(req), share.scopeCidrs)) {
     await auditShare(req, 'SHARE_REDEEM_OUT_OF_SCOPE', share.fileName, 'BLOCKED')
     return { ok: false, kind: 'scope' }
   }
   return { ok: true, share }
 }
+
+/**
+ * Which rate-limit namespace this request's password attempts belong to.
+ *
+ * ⚠️ The private and public paths are separate abuse boundaries and must not
+ *    share a counter. The limiter's IP axis is keyed on the CLIENT address, so
+ *    without this split one Internet recipient's five wrong passwords would lock
+ *    the `share|<ip>` axis for the internal office NAT too — the same
+ *    self-inflicted lockout already found once when share guessing locked the
+ *    login page for everyone behind one address.
+ *
+ *    Both namespaces are already distinct from 'login', so neither can lock
+ *    anyone out of signing in.
+ */
+const limiterScopeFor = (req) => (
+  requestIngressKind(req) === INGRESS_PRIVATE ? 'share' : 'share-public'
+)
 
 /** ส่งไฟล์จริงให้ผู้รับ + นับ hit + audit — เรียกได้เฉพาะเมื่อผ่านด่านทั้งหมดแล้ว */
 async function deliver(req, res, share, nonce) {
@@ -278,7 +316,8 @@ shareRouter.post('/s/:token', async (req, res, next) => {
     //    backoff) โดยใช้ hash ของ token เป็น "แกนบัญชี" ถ้าไม่มีด่านนี้ ลิงก์ที่ตั้งรหัส
     //    สั้น ๆ จะถูกไล่เดารหัสได้ไม่จำกัดครั้งจากเครื่องเดียว โดยที่เจ้าของไฟล์ไม่รู้เลย
     const rateKey = `share:${sha256Hex(String(req.params.token))}`
-    const lock = checkLock(req, rateKey, 'share')
+    const limiterScope = limiterScopeFor(req)
+    const lock = checkLock(req, rateKey, limiterScope)
     if (lock.locked) {
       res.set('Retry-After', String(Math.ceil(lock.retryAfterMs / 1000)))
       await auditShare(req, 'SHARE_REDEEM_LOCKOUT', rateKey, 'BLOCKED')
@@ -298,7 +337,7 @@ shareRouter.post('/s/:token', async (req, res, next) => {
     const submitted = String(req.body?.password ?? '')
     const ok = share.passwordHash ? await bcrypt.compare(submitted, share.passwordHash) : false
     if (!ok) {
-      recordFailure(req, rateKey, 'share')
+      recordFailure(req, rateKey, limiterScope)
       await auditShare(req, 'SHARE_REDEEM', share.fileName, 'DENIED')
       return passwordForm(res, {
         nonce, fileName: share.fileName,
@@ -306,7 +345,7 @@ shareRouter.post('/s/:token', async (req, res, next) => {
       })
     }
 
-    recordSuccess(req, rateKey, 'share')
+    recordSuccess(req, rateKey, limiterScope)
     return deliver(req, res, share, nonce)
   } catch (err) {
     next(err)

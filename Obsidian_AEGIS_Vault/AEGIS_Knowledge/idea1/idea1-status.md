@@ -410,6 +410,85 @@ Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
 
 Public Share remains not implemented.
 
+### Public Share backend contract implemented, not deployed (2026-09-08)
+
+> [!info] PUBLIC-SHARE-2 is backend contract work only
+> **Backend public-share contract = IMPLEMENTED / TESTED LOCALLY. Public Share
+> Gateway = NOT IMPLEMENTED. Public Internet ingress = NOT IMPLEMENTED. Public
+> Internet UI option = NOT ENABLED. Production deployment = NOT DONE. External
+> 4G/5G acceptance = NOT DONE.** No port, DNS record, NAT rule, tunnel,
+> certificate, firewall, VLAN or Twingate change was made, and no migration was
+> run against Production. Owner gates G1 and G2 were approved for this work; G3,
+> G4, G5 and G6 remain open.
+
+Durable facts established on branch `feat/idea1-public-share-backend-contract`
+from `867f1ccf7714394217987978df00ba5fad7882e8`:
+
+- **`scope=public` exists as a third explicit backend scope**, gated on a
+  configured `PUBLIC_SHARE_BASE_URL`. Without that origin, creating one is
+  refused with the existing generic `400 Invalid input`. `zones` and `any`
+  semantics are unchanged, and `users.share_default_scope` deliberately stays
+  `('any','zones')` so a saved preference can never publish a file on the
+  sharer's behalf. Migration `009_public_share_scope.sql` widens the
+  `shares.scope` CHECK additively and preserves the legacy `vlan`/`subnet`
+  values; `schema.sql` reaches the same end state under the same constraint name.
+
+- **The client/ingress identity split is implemented, not just specified.**
+  `requestSourceIp(req)` → `req.ip` remains the sole client-source accessor and
+  still drives `zones` CIDR enforcement, the rate-limit IP axis and the audit
+  source. A new `server/request/ingress.js` derives ingress provenance from
+  `req.socket.remoteAddress` alone, and only that decides whether a request
+  arrived through the public gateway. Verified through the real Express stack: a
+  request from the gateway peer carrying `X-Forwarded-For: 203.0.113.50` audits
+  its source as `203.0.113.50`, not the gateway; and the same peer sending **no**
+  forwarding header — where `req.ip` falls back to the peer — still classifies as
+  public-gateway ingress. No forged header can manufacture that provenance.
+
+- **The public ingress refuses `zones` and `any`**, with no bytes, no hit
+  increment, and a `SHARE_REDEEM_OUT_OF_SCOPE / BLOCKED` audit event. `public`
+  continues through the unchanged token, password, expiry, revoke, trash and
+  Vault gates. **When no gateway identity is configured the rule is inert**, so
+  this changes nothing for the configuration Production runs today.
+
+- **Password rate limiting is namespaced by ingress** (`share` vs
+  `share-public`), selected before any database access. A public-path lockout
+  cannot lock private redemption, and neither can lock the login page.
+
+- **Trusted proxy now has two approved production states**, per gate G2:
+  `{ HUB /32 }` — the currently deployed state and still the default — or
+  `{ HUB /32, one approved public-gateway /32 }` when
+  `PUBLIC_SHARE_GATEWAY_CIDR` is set — which must be a single IPv4 `/32` that is
+  **not inside** a forbidden network (evaluated by masking the host against
+  `172.18.0.0/16`, the shared `aegis_internal` bridge, not by string comparison).
+  Order is irrelevant. A gateway that is
+  named but not trusted is refused at boot, because Express would otherwise stop
+  at it when walking `X-Forwarded-For` and collapse `req.ip` to the gateway's own
+  address. Every previous rejection still holds, and every pre-existing
+  `trustedProxy` test passes unchanged.
+
+`PUBLIC_SHARE_BASE_URL` rejects a trailing slash rather than trimming it, so the
+configured origin and the emitted public URL are the same text.
+
+Verification: full IDEA1 suite **1099 tests / 1029 pass / 1 fail / 69
+PostgreSQL-gated skips**, build pass, **0 failures introduced by
+PUBLIC-SHARE-2**. The single failure is the pre-existing,
+unrelated `AUTOLOCK-5`, proven by stashing every change on this branch and
+reproducing it on the resulting pristine `origin/main` tree. **Migration 009 is verified against a real
+isolated PostgreSQL 16.15**: built from the pre-PR#99 base schema taken from Git
+(`867f1cc`, blob `4c325785`), seeded with synthetic `any`/`zones`/`vlan`/`subnet`
+rows, applied **twice** (both runs PASS, idempotency observed), after which the
+catalog reports
+`CHECK ((scope = ANY (ARRAY['any','zones','public','vlan','subnet'])))`, all four
+pre-migration rows survive unchanged, a `public` insert succeeds, legacy
+`vlan`/`subnet` inserts still succeed, `scope='internet'` is rejected,
+`token_hash`/`password_hash`/`vlan_scope`/`expires_at`/`revoked`/`hits` keep their
+contract, and `users.share_default_scope` still refuses `public`. The full IDEA1
+suite against that database as the least-privilege `drive_app` role is **1099
+tests / 1098 pass / 1 fail / 0 skips** — every previously gated test observed, the
+one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still never had
+009 applied; doing so remains a prerequisite of any deployment, and the observed
+run was on PostgreSQL 16.15 while production runs the 15 line.
+
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 
 > [!info] PUBLIC-SHARE-1 is architecture and security-contract work only
