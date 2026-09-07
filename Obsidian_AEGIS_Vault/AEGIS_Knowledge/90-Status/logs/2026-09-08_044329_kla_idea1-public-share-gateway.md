@@ -87,7 +87,7 @@ edit_policy: append-by-new-file
 - The timeout was added because a first bare `npm test` run hung indefinitely in the unrelated, pre-existing `tests/vaultChunkedUploadClient.test.js` — "concurrency 2 · ส่งสอง index ที่ต่างกันพร้อมกันจริง" (line 418). `npm test` runs with `--test-timeout=0`, so that flake blocks the suite forever. The file is untouched by this branch and exists unchanged on `origin/main`; re-running it alone reproduced the hang once and then passed 20/20, confirming a pre-existing timing flake rather than a PUBLIC-SHARE-3 regression.
 - `npm run build` — passed: Vite 7.3.6 transformed 2,681 modules and built in 4.14 s; retained the existing chunk-size warning for the 609.95 kB main chunk. Generated `dist/index.html` was restored and is not part of this task.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — passed with two existing owner-review warnings for the architecture/network canvas files.
-POLICY_PLACEHOLDER
+- `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — passed (`Collaboration policy passed.`) against the final Draft PR body and all 15 changed paths.
 - `git diff --check` and `git diff --cached --check` — passed after all task files and the receipt were complete.
 
 ## Canonical notes updated
