@@ -58,7 +58,6 @@ const telemetry = (overrides = {}) => ({
       available: true, interface: 'enp1s0',
       rxBytesPerSec: 2_411_724, txBytesPerSec: 524_288, windowSeconds: 5, stale: false,
     },
-    temperature: { available: true, celsius: 54, sensor: 'x86_pkg_temp', stale: false },
     twingate: { available: false, scope: 'server-connector', status: 'unavailable', reason: 'no-approved-source' },
     uptime: {
       available: true,
@@ -69,10 +68,21 @@ const telemetry = (overrides = {}) => ({
   },
 })
 
+const healthyDiskHealth = (overrides = {}) => ({
+  available: true,
+  status: 'HEALTHY',
+  reason: null,
+  stale: false,
+  temperatureCelsius: 40,
+  warnings: [],
+  ...overrides,
+})
+
 const render = (data, lang = 'en', extra = {}) =>
   renderToStaticMarkup(React.createElement(ServerTelemetry, {
     t: makeT(lang),
     data,
+    diskHealth: healthyDiskHealth(),
     ...extra,
   }))
 
@@ -82,7 +92,7 @@ const render = (data, lang = 'en', extra = {}) =>
 // the first response lands there is nothing to report either way, so the tiles
 // must not accuse a source that has not been asked yet.
 test('TELEM-UI-11 tiles say loading, not unavailable, before the first response', () => {
-  const html = render(null, 'en', { loading: true })
+  const html = render(null, 'en', { loading: true, diskHealth: null, diskHealthLoading: true })
   assert.equal((html.match(/aria-label="[^"]+ · Loading"/g) ?? []).length, 6)
   assert.doesNotMatch(html, /· Unavailable"/)
   assert.doesNotMatch(
@@ -95,7 +105,7 @@ test('TELEM-UI-11 tiles say loading, not unavailable, before the first response'
 
 test('TELEM-UI-11 a finished load with no data still reports unavailable', () => {
   // loading:false + data:null is a real failure, and must keep saying so.
-  const html = render(null, 'en', { loading: false })
+  const html = render(null, 'en', { loading: false, diskHealth: null })
   assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
 })
 
@@ -162,7 +172,7 @@ test('TELEM-UI-12 a withheld metric would still be distinguished from an unmeasu
 
 // ── the pre-existing contract, unchanged ──────────────────────────────
 test('Server Telemetry renders six truthful unavailable metric cards', () => {
-  const html = render(null)
+  const html = render(null, 'en', { diskHealth: null })
   for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'System uptime', 'Temperature']) {
     assert.match(html, new RegExp(`>${label}<`), `${label} card must be visible`)
   }
@@ -234,36 +244,40 @@ test('TELEM-UI-5 Drive service uptime survives a dead host agent', () => {
 })
 
 // ── TELEM-UI-6 · Temperature ──────────────────────────────────────────
-test('TELEM-UI-6 Dashboard renders CPU package temperature and no SSD/Twingate substitution', () => {
+test('TELEM-UI-6 Dashboard renders the real disk-health temperature and no Twingate tile', () => {
   const html = render(telemetry())
   assert.match(html, /Temperature · Normal/)
-  assert.match(html, /54 °C/)
-  assert.match(html, /CPU package \/ host thermal sensor/)
-  assert.doesNotMatch(html, /40 °C/)
+  assert.match(html, /40 °C/)
   assert.doesNotMatch(html, />Twingate</)
 })
 
-test('TELEM-UI-6 unavailable host temperatures never become 0 °C', () => {
-  for (const temperature of [
-    { available: false },
-    undefined,
+test('TELEM-UI-6 null and unavailable disk-health temperatures never become 0 °C', () => {
+  for (const diskHealth of [
+    healthyDiskHealth({ temperatureCelsius: null }),
+    { available: false, status: 'UNKNOWN', reason: 'agent-unreachable', temperatureCelsius: null, warnings: [] },
   ]) {
-    const metrics = telemetry().metrics
-    const html = render(telemetry({ ...metrics, temperature }))
+    const html = render(telemetry(), 'en', { diskHealth })
     assert.match(html, /Temperature · Unavailable/)
     assert.doesNotMatch(html, /0 °C/)
   }
 })
 
-test('TELEM-UI-6 temperature state follows host snapshot staleness without a browser threshold', () => {
-  const stale = render(telemetry({ temperature: { available: true, celsius: 54, sensor: 'x86_pkg_temp', stale: true } }))
+test('TELEM-UI-6 temperature state follows stale and backend warning evidence', () => {
+  const stale = render(telemetry(), 'en', { diskHealth: healthyDiskHealth({ stale: true }) })
   assert.match(stale, /Temperature · Stale/)
-  assert.match(stale, /54 °C/)
+  assert.match(stale, /40 °C/)
+
+  const warning = render(telemetry(), 'en', {
+    diskHealth: healthyDiskHealth({ warnings: ['temperature-high'] }),
+  })
+  assert.match(warning, /Temperature · Warning/)
+  assert.match(warning, /40 °C/)
 })
 
-test('TELEM-UI-6 temperature shares the host telemetry loading state', () => {
-  const html = render(null, 'en', { loading: true })
+test('TELEM-UI-6 temperature has an independent loading state', () => {
+  const html = render(telemetry(), 'en', { diskHealth: null, diskHealthLoading: true })
   assert.match(html, /Temperature · Loading/)
+  assert.doesNotMatch(html, /Temperature · Unavailable/)
 })
 
 // ── TELEM-UI-7 · partial failure ──────────────────────────────────────
@@ -291,8 +305,7 @@ test('TELEM-UI-8 an unavailable metric never renders a fabricated zero', () => {
     },
     network: { available: false },
     uptime: { available: true, host: { available: false }, service: { available: true, seconds: 7_200 } },
-    temperature: { available: false },
-  }))
+  }), 'en', { diskHealth: null })
   // Nothing may render as a zero measurement of any unit.
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*(?:%|B|KB|MB|GB|TB)\b/)
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*[KMGT]?B\/s/)

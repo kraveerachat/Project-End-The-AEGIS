@@ -22,7 +22,6 @@ function harness({ scripts = {}, startMs = 1_000_000 } = {}) {
     rxBytes: '1000',
     txBytes: '2000',
     uptime: UPTIME,
-    temperature: { sensor: 'x86_pkg_temp', millidegreesCelsius: '54000\n' },
     ...scripts,
   }
   const timers = { created: 0, cleared: 0, handle: null }
@@ -43,7 +42,6 @@ function harness({ scripts = {}, startMs = 1_000_000 } = {}) {
       networkRx: readerFor('rxBytes'),
       networkTx: readerFor('txBytes'),
       uptime: readerFor('uptime'),
-      temperature: readerFor('temperature'),
     },
     setTimer: (fn, ms) => {
       timers.created += 1
@@ -72,7 +70,6 @@ test('TELEM-SAMPLER-1 first cycle publishes delta-free metrics only', async () =
   assert.equal(snapshot.metrics.network.available, false, 'network needs two samples')
   assert.equal(snapshot.metrics.memory.available, true)
   assert.equal(snapshot.metrics.uptime.available, true)
-  assert.deepEqual(snapshot.metrics.temperature, { available: true, celsius: 54, sensor: 'x86_pkg_temp' })
   // Unavailable must carry no numbers at all — not even a zero.
   assert.deepEqual(Object.keys(snapshot.metrics.cpu), ['available'])
   assert.deepEqual(Object.keys(snapshot.metrics.network), ['available'])
@@ -89,7 +86,7 @@ test('TELEM-SAMPLER-2 second cycle produces measured cpu and network', async () 
   state.txBytes = '4500'
   await sampler.sampleOnce()
 
-  const { cpu, network, memory, uptime, temperature } = sampler.snapshot().metrics
+  const { cpu, network, memory, uptime } = sampler.snapshot().metrics
   // total delta 200, idle delta 100 -> 50% busy over a real 5s window.
   assert.equal(cpu.available, true)
   assert.equal(cpu.percent, 50)
@@ -103,7 +100,6 @@ test('TELEM-SAMPLER-2 second cycle produces measured cpu and network', async () 
 
   assert.equal(memory.totalBytes, 8138332 * 1024)
   assert.equal(uptime.hostSeconds, 86400.55)
-  assert.equal(temperature.celsius, 54)
   assert.equal(sampler.snapshot().measuredAt, new Date(1_005_000).toISOString())
 })
 
@@ -128,16 +124,15 @@ test('TELEM-SAMPLER-3 one failing source never fabricates zero for it', async ()
 
 // ── TELEM-SAMPLER-4 ───────────────────────────────────────────────────
 test('TELEM-SAMPLER-4 malformed source content yields a truthful unavailable', async () => {
-  const { sampler, state } = harness({ scripts: { procStat: 'garbage', rxBytes: 'not-a-number', temperature: { sensor: 'x86_pkg_temp', millidegreesCelsius: '-1000' } } })
+  const { sampler, state } = harness({ scripts: { procStat: 'garbage', rxBytes: 'not-a-number' } })
   await sampler.sampleOnce()
   state.ms += 5000
   await sampler.sampleOnce()
 
-  const { cpu, network, uptime, temperature } = sampler.snapshot().metrics
+  const { cpu, network, uptime } = sampler.snapshot().metrics
   assert.equal(cpu.available, false)
   assert.equal(network.available, false)
   assert.equal(uptime.available, true, 'a sound source stays available')
-  assert.deepEqual(temperature, { available: false })
 })
 
 // ── TELEM-SAMPLER-5 ───────────────────────────────────────────────────

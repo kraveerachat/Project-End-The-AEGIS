@@ -6,20 +6,16 @@
 import { loadAgentConfig } from './config.js'
 import { createSampler } from './sampler.js'
 import { createTelemetryServer } from './server.js'
-import { createCpuPackageTemperatureReader, createFileReaders } from './sources.js'
+import { createFileReaders } from './sources.js'
 
 /**
  * Build the complete agent from the environment.
  *
- * @param {{ env?: NodeJS.ProcessEnv, readFile?: Function, readdir?: Function }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, readFile?: Function }} [options]
  */
-export function createAgent({ env = process.env, readFile, readdir } = {}) {
+export function createAgent({ env = process.env, readFile } = {}) {
   const config = loadAgentConfig(env)
   const readers = createFileReaders(config.sources, readFile ? { readFile } : {})
-  readers.temperature = createCpuPackageTemperatureReader({
-    ...(readFile ? { readFile } : {}),
-    ...(readdir ? { readdir } : {}),
-  })
   const sampler = createSampler({
     intervalMs: config.intervalMs,
     interfaceName: config.interfaceName,

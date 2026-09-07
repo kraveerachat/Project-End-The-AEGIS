@@ -236,7 +236,7 @@ test('TELEM-API-3 a healthy agent is normalized into the Drive contract', async 
   assert.equal(data.maxAgeSeconds, 15)
   assert.deepEqual(
     Object.keys(data.metrics).sort(),
-    ['cpu', 'disk', 'memory', 'network', 'temperature', 'twingate', 'uptime'],
+    ['cpu', 'disk', 'memory', 'network', 'twingate', 'uptime'],
   )
 
   assert.equal(data.metrics.cpu.percent, 12.5)
@@ -244,29 +244,6 @@ test('TELEM-API-3 a healthy agent is normalized into the Drive contract', async 
   assert.equal(data.metrics.network.interface, 'enp1s0')
   assert.equal(data.metrics.network.rxBytesPerSec, 1024)
   assert.equal(data.metrics.uptime.host.seconds, 86_400.55)
-})
-
-test('TELEM-API-TEMP-1 CPU package temperature is projected and inherits host staleness', async () => {
-  await useFakeAgent(respondWith(hostSnapshot({
-    ageSeconds: 90,
-    overrides: { temperature: { available: true, celsius: 54, sensor: 'x86_pkg_temp' } },
-  })))
-  const { data } = await admin.req('/api/telemetry')
-
-  assert.deepEqual(data.metrics.temperature, {
-    available: true,
-    celsius: 54,
-    sensor: 'x86_pkg_temp',
-    stale: true,
-  })
-  assert.equal(data.ok, false)
-})
-
-test('TELEM-API-TEMP-2 an older agent without temperature stays compatible and reports unavailable', async () => {
-  await useFakeAgent(respondWith(hostSnapshot()))
-  const { data } = await admin.req('/api/telemetry')
-  assert.deepEqual(data.metrics.temperature, { available: false })
-  assert.equal(data.ok, true, 'the optional additive metric does not degrade an otherwise complete old-agent response')
 })
 
 // ── TELEM-API-4 / TELEM-API-7 ─────────────────────────────────────────
@@ -446,14 +423,13 @@ test('TELEM-12 the response carries only approved telemetry keys', async () => {
     disk: ['available', 'scope', 'usedBytes', 'freeBytes', 'totalBytes', 'percent', 'health', 'reason'],
     network: ['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds', 'stale'],
     twingate: ['available', 'scope', 'status', 'reason'],
-    temperature: ['available', 'celsius', 'sensor', 'stale'],
     uptime: ['available', 'host', 'service'],
   }
   for (const [role, client] of [['admin', admin], ['datalake-user', user]]) {
     const { data } = await client.req('/api/telemetry')
     assert.deepEqual(
       Object.keys(data.metrics).sort(),
-      ['cpu', 'disk', 'memory', 'network', 'temperature', 'twingate', 'uptime'],
+      ['cpu', 'disk', 'memory', 'network', 'twingate', 'uptime'],
       `${role}: no metric may be added or dropped`,
     )
     for (const [name, keys] of Object.entries(allowed)) {

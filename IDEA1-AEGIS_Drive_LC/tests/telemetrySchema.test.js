@@ -52,29 +52,6 @@ test('a well-formed snapshot is accepted unchanged', () => {
   assert.equal(snapshot.measuredAt, MEASURED_AT)
 })
 
-test('host temperature is an optional strictly validated additive metric', () => {
-  const metrics = validSnapshot().metrics
-  const snapshot = accept(validSnapshot({
-    metrics: { ...metrics, temperature: { available: true, celsius: 54, sensor: 'x86_pkg_temp' } },
-  }))
-  assert.deepEqual(snapshot.metrics.temperature, { available: true, celsius: 54, sensor: 'x86_pkg_temp' })
-  accept(validSnapshot())
-
-  for (const bad of [
-    { available: false, celsius: 0 },
-    { available: true, celsius: -1, sensor: 'x86_pkg_temp' },
-    { available: true, celsius: Infinity, sensor: 'x86_pkg_temp' },
-    { available: true, celsius: 54, sensor: 'acpitz' },
-    { available: true, celsius: 54, sensor: 'x86_pkg_temp', path: '/sys/class/thermal/thermal_zone1' },
-  ]) {
-    reject(validSnapshot({ metrics: { ...metrics, temperature: bad } }), `temperature ${JSON.stringify(bad)}`)
-  }
-
-  accept(validSnapshot({
-    metrics: { ...metrics, temperature: { available: true, celsius: 0, sensor: 'x86_pkg_temp' } },
-  }))
-})
-
 test('every metric may independently declare itself unavailable', () => {
   const snapshot = accept(validSnapshot({
     metrics: {

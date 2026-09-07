@@ -65,7 +65,7 @@ Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-med
 > [!warning]
 > The source and local QA described here have not been deployed to Production. Existing Production evidence remains valid only for the previously deployed build; the changed Dashboard, Storage, and Secure Share views still require controlled deployment and owner visual acceptance.
 
-- Dashboard source now renders `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature is an optional additive host-telemetry metric discovered by exact `x86_pkg_temp` sensor type under `/sys/class/thermal/thermal_zone*/`, independent of zone numbering. Missing, unreadable, malformed, or negative input is unavailable; there is no SSD fallback or synthesized zero, while a real measured zero remains a measurement. The obsolete Dashboard Twingate tile is removed.
+- Dashboard source now renders `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature reuses `diskHealth.temperatureCelsius` from `/api/storage`; null/unavailable/stale/warning states follow disk-health evidence, and the obsolete Dashboard Twingate tile is removed.
 - Storage Disk Health source now renders `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains in backend health evidence but is not repeated in this fact grid. Local connector state comes from `/api/remote-access.localConnector`; Twingate control-plane state remains NOT MEASURED.
 - Secure Shares keeps only `scope=zones` and `scope=any`. `scope=any` adds no Share-layer CIDR rule but still requires a pre-existing route to AEGIS. Public External Internet Share is a read-only `NOT AVAILABLE` fact and remains NOT IMPLEMENTED / FUTURE ARCHITECTURE.
 - An off-site client was observed successfully reaching an unrestricted `scope=any` link while Twingate was disabled. The exact alternate network path was not independently established in that test, so this is evidence of AEGIS reachability, not evidence of a public Internet gateway. A second remote user in Chonburi without an established AEGIS path could not download the link.
@@ -354,7 +354,7 @@ Production evidence:
 - physical device capacity ~119 GB
 - bounded disk-health collector + telemetry agent architecture is active
 
-The current source fact grid is `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. SSD temperature remains backend disk-health evidence and supports `temperature-high` warning derivation, but is not displayed in this Storage grid and is not the Dashboard server temperature. The connector fact uses only `/api/remote-access.localConnector`; Twingate control-plane status remains NOT MEASURED. This changed grid still awaits Production deployment/owner acceptance.
+The current source fact grid is `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains backend health evidence for the Dashboard and `temperature-high` warning derivation, but is no longer duplicated in the visible Storage grid. The connector fact uses only `/api/remote-access.localConnector`; Twingate control-plane status remains NOT MEASURED. This changed grid still awaits Production deployment/owner acceptance.
 
 Current production collector pattern:
 - `aegis-disk-health.timer` active

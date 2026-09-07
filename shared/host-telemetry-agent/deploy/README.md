@@ -1,12 +1,12 @@
 # AEGIS host telemetry agent — deployment
 
-**Temperature-extension status: prepared, not installed by this task.** Any
-runtime update remains a separate, reviewed step.
+**Status: prepared, not installed.** Nothing in this directory has been run on
+any host. Installation is a separate, reviewed step.
 
 ## What the agent is
 
-A single Node process that reads fixed host counters plus one bounded thermal
-class and publishes a normalized snapshot on a Unix socket:
+A single Node process that reads five files and publishes one normalized
+snapshot on a Unix socket:
 
 | Metric | Source |
 |---|---|
@@ -14,7 +14,6 @@ class and publishes a normalized snapshot on a Unix socket:
 | Memory | `/proc/meminfo` (`MemTotal`, `MemAvailable`) |
 | Network | `/sys/class/net/enp1s0/statistics/{rx_bytes,tx_bytes}` |
 | Host uptime | `/proc/uptime` |
-| CPU package temperature | discover exact `x86_pkg_temp` under `/sys/class/thermal/thermal_zone*/type`, then read that zone's `temp` |
 
 It does **not** collect disk capacity. Drive measures the Data Lake itself with
 `statfs` on the mount it already has, which needs no host access at all.
@@ -66,7 +65,7 @@ running Drive container depends on that bind.
 
 ## Hardening: why each directive is there
 
-Every directive in the unit leaves the required reads working. The ones
+Every directive in the unit leaves the five required reads working. The ones
 worth explaining:
 
 | Directive | Why it is safe here |
@@ -77,7 +76,7 @@ worth explaining:
 | `ProtectControlGroups=true` | Makes `/sys/fs/cgroup` read-only. Cgroups are not read. |
 | `ProtectProc=invisible` | Hides other processes' `/proc/<pid>`. The files read here are aggregates, not per-PID. |
 | `RestrictAddressFamilies=AF_UNIX` | Makes "no TCP listener" a property of the deployment, not just of the code. |
-| `CapabilityBoundingSet=` (empty) | The agent reads only files available to its existing account; sysfs temperature needs no capability when readable. |
+| `CapabilityBoundingSet=` (empty) | The agent reads only world-readable files; it needs nothing. |
 
 ### Deliberately NOT used
 
@@ -124,21 +123,13 @@ the following has **not** been run and must be, on the target host:
 systemd-analyze verify /etc/systemd/system/aegis-telemetry.service
 systemd-analyze security aegis-telemetry.service
 
-# the fixed reads still work under the sandbox
+# the five reads still work under the sandbox
 systemd-run --uid=aegis-telemetry --gid=aegis-telemetry \
   --property=ProtectSystem=strict --property=ProtectProc=invisible \
   --property=PrivateDevices=true --property=RestrictAddressFamilies=AF_UNIX \
   --pty head -1 /proc/stat /proc/meminfo /proc/uptime \
   /sys/class/net/enp1s0/statistics/rx_bytes \
   /sys/class/net/enp1s0/statistics/tx_bytes
-
-# the existing account can discover the package sensor by type; never assume zone1
-sudo -u aegis-telemetry sh -c '
-  for zone in /sys/class/thermal/thermal_zone*; do
-    [ "$(cat "$zone/type" 2>/dev/null)" = x86_pkg_temp ] && cat "$zone/temp" && exit 0
-  done
-  exit 1
-'
 
 # the socket exists with the expected owner and mode
 stat -c '%U:%G %a' /run/aegis-telemetry /run/aegis-telemetry/telemetry.sock

@@ -172,23 +172,3 @@ export function parseUptime(text) {
   if (!/^\d+(\.\d+)?$/.test(first ?? '')) return null
   return nonNegative(Number(first))
 }
-
-/**
- * Normalize the Linux thermal sysfs millidegree value selected by sources.js.
- * Negative readings are rejected. Zero is retained when sysfs actually
- * reports it; "never fabricate zero" does not mean discarding a measured zero.
- *
- * @param {{ sensor?: unknown, millidegreesCelsius?: unknown } | null} raw
- * @returns {{ celsius: number, sensor: 'x86_pkg_temp' } | null}
- */
-export function parseCpuPackageTemperature(raw) {
-  if (!raw || raw.sensor !== 'x86_pkg_temp') return null
-  if (typeof raw.millidegreesCelsius !== 'string') return null
-  const text = raw.millidegreesCelsius.trim()
-  if (!/^\d+$/.test(text)) return null
-  const millidegrees = Number(text)
-  if (!Number.isFinite(millidegrees) || millidegrees < 0) return null
-  const celsius = millidegrees / 1000
-  if (!Number.isFinite(celsius) || celsius < 0) return null
-  return { celsius, sensor: 'x86_pkg_temp' }
-}

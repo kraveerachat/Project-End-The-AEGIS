@@ -1,8 +1,8 @@
 // tests/agent.test.js — AEGIS host telemetry agent · wiring and read surface
 //
 // These assert the properties that no unit test of a single module can: that
-// the assembled agent's configured readers stay on their exact allowlist,
-// that it never shells out, and that it opens no network listener of any kind.
+// the assembled agent reads exactly five allowlisted files, that it never
+// shells out, and that it opens no network listener of any kind.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -14,7 +14,7 @@ import { createFileReaders } from '../src/sources.js'
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
-test('the fixed configured readers open exactly their seven approved sources', async () => {
+test('the agent reads exactly the seven approved sources and nothing else', async () => {
   const opened = []
   const readers = createFileReaders(
     createAgent({ env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' }, readFile: async () => '0' }).config.sources,

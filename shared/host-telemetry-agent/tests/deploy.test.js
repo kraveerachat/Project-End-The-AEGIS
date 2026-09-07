@@ -9,7 +9,7 @@
 //              the half a generic hardening checklist gets wrong.
 //
 // What these tests cannot do is execute systemd. Running the unit and
-// confirming the required reads still succeed under it remains a Linux-host step
+// confirming the five reads still succeed under it remains a Linux-host step
 // before deployment; see deploy/README.md.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -141,7 +141,7 @@ test('only AF_UNIX is reachable, which makes a TCP listener impossible', () => {
   assert.equal(directives.get('IPAddressDeny'), 'any')
 })
 
-test('the filesystem-hardening directives proven compatible with the required reads are present', () => {
+test('the filesystem-hardening directives proven compatible with the five reads are present', () => {
   // Each of these leaves /proc/stat, /proc/meminfo, /proc/uptime and
   // /sys/class/net/<iface>/statistics/* readable.
   const expected = {

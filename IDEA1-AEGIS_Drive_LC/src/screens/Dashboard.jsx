@@ -438,8 +438,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
 
       {/* Fed by App's /api/telemetry poll (10s). Disk and Drive service uptime
           are measured by Drive itself; CPU/memory/network/host uptime come from
-          the host telemetry agent over a Unix socket. Temperature is the CPU
-          package sensor from host sysfs, never the SSD SMART value. null — and any metric the
+          the host telemetry agent over a Unix socket. null — and any metric the
           agent could not supply — renders an explicit unavailable tile, never a
           zero. See server/telemetry/index.js for the contract. */}
       <Reveal delay={160}>
@@ -447,6 +446,8 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           t={t}
           data={telemetry}
           loading={telemetryLoading}
+          diskHealth={storage.data?.diskHealth ?? null}
+          diskHealthLoading={storage.loading}
         />
       </Reveal>
 
