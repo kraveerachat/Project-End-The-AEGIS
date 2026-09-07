@@ -111,8 +111,10 @@ Amended in place under `AGENTS.md` §9: same task, same branch, same PR, **same
 receipt**. No second receipt, branch, or PR. Reviewed head
 `43c2f05dfe2c8c037a0a345649c56b68302d346d`.
 
-Two code/contract defects were found in owner review. Both were real, both are
-corrected, and one verification gate remains blocked by this environment.
+Two code/contract defects were found in owner review. Both were real and both are
+corrected. The verification gate this section originally recorded as blocked —
+running migration 009 against a real isolated PostgreSQL database — has since
+been **completed**; see "Verification C" below.
 
 ### Blocker A — shared-bridge validation was too narrow (fixed)
 
@@ -281,8 +283,9 @@ New:
 - `IDEA1-AEGIS_Drive_LC/server/db/migrations/009_public_share_scope.sql`
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareBackend.test.js` — 19 tests over real
   HTTP through the production app.
-- `IDEA1-AEGIS_Drive_LC/tests/publicShareConfig.test.js` — 16 configuration,
-  ingress-unit and migration-DDL tests.
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareConfig.test.js` — 18 configuration,
+  ingress-unit and migration-DDL tests (16 at first push, plus `PS2-CFG-2b` and
+  `PS2-CFG-6b` from the PR #99 review amendment).
 
 Modified:
 
@@ -419,11 +422,14 @@ even though all three live inside the owned area.
   written for, because 009 creates nothing for that rule to apply to.
 - **Production has still never had 009 applied**, and applying it remains a
   prerequisite of any deployment of this code.
-- **Two `publicShareBackend` tests skipped** for the same reason: the Vault-file
-  rejection and the raw-token-not-persisted checks both need PostgreSQL to set
-  `files.vault` and to read `shares.token_hash`. The Vault exclusion is still
-  covered on the in-memory path by `createShare` refusing `file.vault`, and by
-  the existing `shareRedemption` Vault test under PostgreSQL.
+- **Mode-dependent skips, all of them since observed.** In the default in-memory
+  mode two `publicShareBackend` tests skip (the Vault-file rejection and the
+  raw-token-not-persisted checks need PostgreSQL to set `files.vault` and read
+  `shares.token_hash`), and three `shareRedemption` tests skip for the same kind
+  of reason. **Under Verification C's isolated PostgreSQL both suites ran with
+  zero skips and zero failures** — `publicShareBackend` 19/19 and
+  `shareRedemption` 17/17 — so these are a limitation of the *in-memory* run, not
+  an outstanding gap in what has been verified.
 - **`AUTOLOCK-5` fails on this branch and on pristine `origin/main` alike.**
   Pre-existing, proven by stashing, out of scope, untouched.
 - **The gateway peer in tests is a loopback alias (`127.0.0.3`), not a
