@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   auditEntryForOperationalError,
   sanitizeAuditEntry,
+  sanitizeIncidentNote,
   sanitizedSettings,
   validateAuditLimit,
 } from './auditRecords.js'
@@ -184,6 +185,7 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
   function addIncidentNote(id, note) {
     return transaction('add incident note', () => {
       const occurredAt = nowIso(clock)
+      const safeNote = sanitizeIncidentNote(note)
       const audit = insertAuditRecord({
         category: 'INCIDENT', action: 'ADD_NOTE', outcome: 'SUCCESS', actorRef: 'session-admin',
         resourceType: 'incident', resourceId: id,
@@ -191,7 +193,7 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
       database.prepare(`
         INSERT INTO incident_notes (incident_id, note, updated_at, audit_id) VALUES (?, ?, ?, ?)
         ON CONFLICT(incident_id) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at, audit_id = excluded.audit_id
-      `).run(id, note, occurredAt, audit.databaseId)
+      `).run(id, safeNote, occurredAt, audit.databaseId)
       return audit.record
     })
   }

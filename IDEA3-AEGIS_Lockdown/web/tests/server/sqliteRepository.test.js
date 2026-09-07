@@ -239,6 +239,39 @@ describe('SQLite audit repository', () => {
     expect(databaseBytes).toContain('retained')
     expect(databaseBytes).not.toMatch(/CANARY_(PASSWORD|COOKIE|SESSION|CSRF|HASH|HMAC|MQTT|PATH|STACK|PAYLOAD|AUTH|TOKEN)_8675309/)
   })
+
+  it('redacts an unsafe incident note before SQLite or memory state claims it was persisted', () => {
+    const database = testDatabase()
+    let repository = openRepository({ path: database.path, clock: fixedClock() })
+    const unsafeNotes = [
+      ['incident-password', 'password=NOTE_PASSWORD_CANARY_8675309'],
+      ['incident-token', 'token=NOTE_TOKEN_CANARY_8675309'],
+      ['incident-path', '/srv/NOTE_PATH_CANARY_8675309/private'],
+      ['incident-stack', 'stack trace: NOTE_STACK_CANARY_8675309'],
+      ['incident-payload', 'rawPayload=NOTE_PAYLOAD_CANARY_8675309'],
+    ]
+
+    for (const [id, note] of unsafeNotes) repository.addIncidentNote(id, note)
+    repository.close()
+
+    const databaseBytes = readdirSync(join(database.directory, 'nested'))
+      .map((name) => readFileSync(join(database.directory, 'nested', name)))
+      .map((contents) => contents.toString('utf8'))
+      .join('')
+    expect(databaseBytes).not.toMatch(/NOTE_(PASSWORD|TOKEN|PATH|STACK|PAYLOAD)_CANARY_8675309/)
+
+    repository = openRepository({ path: database.path, clock: fixedClock() })
+    const unsafeSnapshot = { ...snapshot(), incidents: unsafeNotes.map(([id]) => ({ id, analystNote: null })) }
+    expect(repository.apply(unsafeSnapshot).incidents.map(({ analystNote }) => analystNote)).toEqual(
+      unsafeNotes.map(() => '[REDACTED: sensitive incident note]'),
+    )
+
+    const memory = createMemoryRepository({ clock: fixedClock() })
+    for (const [id, note] of unsafeNotes) memory.addIncidentNote(id, note)
+    expect(memory.apply(unsafeSnapshot).incidents.map(({ analystNote }) => analystNote)).toEqual(
+      unsafeNotes.map(() => '[REDACTED: sensitive incident note]'),
+    )
+  })
 })
 
 describe('shared audit contract', () => {
@@ -280,5 +313,23 @@ describe('shared audit contract', () => {
     expect(repository.queryAudit({ limit: 10 })).toHaveLength(2)
     expect(() => repository.queryAudit({ limit: 251 })).toThrow(RangeError)
     expect(repository.close()).toBeUndefined()
+  })
+
+  it('orders memory audit by timestamp descending and numeric sequence descending on ties', () => {
+    const timestamps = [
+      '2026-09-08T03:00:00.000Z',
+      '2026-09-08T01:00:00.000Z',
+      '2026-09-08T03:00:00.000Z',
+    ]
+    const repository = createMemoryRepository({ clock: () => new Date(timestamps.shift()) })
+    repository.recordAction({ category: 'TEST', action: 'LATEST_EARLIER_SEQUENCE', outcome: 'SUCCESS' })
+    repository.recordAction({ category: 'TEST', action: 'OLDEST', outcome: 'SUCCESS' })
+    repository.recordAction({ category: 'TEST', action: 'LATEST_LATER_SEQUENCE', outcome: 'SUCCESS' })
+
+    expect(repository.queryAudit({ limit: 3 }).map(({ id, action }) => ({ id, action }))).toEqual([
+      { id: 'audit-00003', action: 'LATEST_LATER_SEQUENCE' },
+      { id: 'audit-00001', action: 'LATEST_EARLIER_SEQUENCE' },
+      { id: 'audit-00002', action: 'OLDEST' },
+    ])
   })
 })
