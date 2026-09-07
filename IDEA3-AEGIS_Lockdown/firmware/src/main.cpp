@@ -51,7 +51,7 @@ const unsigned long STATUS_PUBLISH_INTERVAL_MS = 30000;  // ส่ง status ท
 // ========== State ==========
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-bool isLockedDown = false;
+bool isLockedDown = true;
 unsigned long lastHeartbeatMs = 0;
 bool deadmanTriggered = false;
 String usedNonces[NONCE_HISTORY_SIZE];
@@ -294,10 +294,11 @@ void updateLedBlink() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+  // Preload the active-low safe state before enabling the output driver.
+  digitalWrite(RELAY_IN, RELAY_TRIGGER);
   pinMode(RELAY_IN, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
-  digitalWrite(RELAY_IN, RELAY_RELEASE);
   digitalWrite(LED_GREEN, HIGH);
   digitalWrite(LED_RED, LOW);
 

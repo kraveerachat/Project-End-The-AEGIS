@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-06
+updated: 2026-09-08
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center is on shared `main`; the Headless Core implementation and local automated evidence are in open PR #91 and are not merged yet. Live adapters, durable storage, ESP32 flash, MQTT hardware E2E, relay actuation, physical WAN isolation, and production deployment remain unproven. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Fix1A application-startup fail-secure behavior and the Deadman → relay → RJ45 path now have fresh physical evidence. Electrical reset-window 1B, Router/Switch real-Ethernet E2E, live adapters, durable storage, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -48,20 +48,46 @@ sequenceDiagram
 
 * **HMAC-SHA256 Validation**: Firmware source rejects commands whose signature does not match; this branch verifies the contract through tests and compile-only evidence.
 * **Anti-Replay Attack (Nonce)**: Firmware source tracks single-use nonces and now echoes command correlation through ACK/command-triggered STATUS.
-* **Dead Man's Switch**: Firmware source retains fail-secure heartbeat-loss behavior; this revision has not rerun the behavior on real hardware.
+* **Dead Man's Switch**: The source contract sends heartbeat every 15 seconds and triggers Deadman after 60 seconds without heartbeat. Fresh physical testing observed RJ45 Pin 2 disappear after timeout, remain absent after reconnect, and return only after explicit authenticated RESTORE.
 
 ---
 
 ## ⚙️ Headless Core / Command & Physical Evidence track
 
-Personal planning label: **IDEA3 PR4**. Git publication branch:
-`feat/idea3-headless-core-pr4`. The historical source checkpoints were audited
-from `feat/idea3-headless-core`. Actual publication is open as
-[GitHub PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91):
-`OPEN / READY_FOR_REVIEW / MERGEABLE / REVIEW_REQUIRED`, not merged. This
-follow-up evidence audit started from base
-`9ade0dab6361f2bb1212fd67dc7469122463c989` and head
-`24d152d0f734ccaed2036f22a1cd89e61547fd88`.
+Personal planning label: **IDEA3 PR4**. The Headless Core publication from
+`feat/idea3-headless-core-pr4` was merged through
+[GitHub PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91)
+and is part of the current canonical `main` baseline. Historical source
+checkpoints remain recorded below for traceability.
+
+### Fix1A application startup and Deadman physical E2E — PASS (2026-09-08)
+
+- Application state now initializes as `LOCKDOWN`; the active-low relay value is preloaded with `RELAY_TRIGGER` before GPIO27 becomes an output, so the application-startup GPIO27 state is LOW.
+- Regression `test_firmware_boots_relay_in_fail_secure_state` protects the locked initial state, trigger polarity, absence of a setup-time release, and preload-before-output ordering.
+- Physical post-flash boot observation: RJ45 Pin 2 was absent after application startup.
+- Source timing contract: heartbeat interval = 15 seconds; Deadman timeout = 60 seconds.
+- Explicit RESTORE/NORMAL: `1 2 3 4 5 6 7 8`.
+- Deadman timeout: `1 _ 3 4 5 6 7 8`.
+- Heartbeat/MQTT reconnect without RESTORE: `1 _ 3 4 5 6 7 8`; reconnect does not auto-RESTORE.
+- Explicit authenticated RESTORE after reconnect: `1 2 3 4 5 6 7 8`.
+
+Fresh canonical Task 4 verification on `fix/idea3-fail-secure-boot-deadman-e2e`:
+
+- Fix1A regression — **1 passed**.
+- Relay/controller/firmware/runtime focused tests — **44 passed**.
+- Full Python suite — **63 passed**.
+- Ruff and compileall — **PASS**.
+- Project-local dependencies — `pytest 9.1.1`, `ruff 0.16.3`, `paho-mqtt 2.1.0`; `pip check` passes.
+- PlatformIO — **compile-only SUCCESS**, RAM 46,588/327,680 bytes (14.2%), Flash 789,325/1,310,720 bytes (60.2%); final `firmware.bin` 795,904 bytes, SHA256 `2b2ebb37c79f8e8751b1f3a8ebec682d3c0825bc77dcbbfb6982ad984e8065a7`.
+- Repository policy tests — **56 passed, 0 failed**; their nested Git fixtures required normal `/tmp` process permissions after the sandboxed run returned `EPERM`.
+- Vault validation — **PASS** with two pre-existing owner-data canvas warnings; neither canvas changed.
+- No firmware upload/flash, ESP32 reset/power-cycle, hardware change, command publication, or production deployment occurred during this canonical PR execution.
+
+> [!warning] 1B electrical reset-window — OPEN / KNOWN LIMITATION
+> Prior physical observation: before EN/reset, Pin 2 was absent; while EN was held/reset, Pin 2 returned; after application boot, Pin 2 was absent again. Fix1A covers application-startup behavior only and does not prove fail-secure behavior before application code runs, when GPIO27 may be high-impedance. Optional external pull-down mitigation remains to be validated.
+
+> [!info] Deferred final hardware validation
+> Task 3 Router/Switch real Ethernet E2E is **DEFERRED TO FINAL HARDWARE CLOSURE PR**. Required proof remains RESTORE traffic/link works → CUT traffic/link fails → RESTORE traffic/link recovers. IDEA3 is not fully complete.
 
 ### Operational mode ownership — CLOSED
 
@@ -111,7 +137,7 @@ Requested != Published != ACK != Executed != Physical Evidence
 - Active command evidence changes only when `STATUS.command_nonce` matches the tracked command nonce; confirmation additionally requires the expected physical state.
 - Missing/mismatched correlation is ignored for command completion and audited without false confirmation (`cfb6efe2`).
 
-### Fresh verification — 2026-09-06
+### Historical PR4 verification — 2026-09-06
 
 - Python: `pytest -p no:cacheprovider -q` — **62 passed**; final pre-review rerun completed in 0.38s.
 - Ruff: scoped check of `aegis_soc`, detector entry points, and tests — **All checks passed**.
@@ -134,15 +160,15 @@ Requested != Published != ACK != Executed != Physical Evidence
 
 ### Still open
 
-- ESP32 flash/upload and real MQTT/HMAC end-to-end acceptance.
-- Physical CUT/RESTORE relay observation and actual WAN isolation verification.
-- Deadman and recovery hardware acceptance for this revision.
+- 1B electrical reset-window mitigation/validation; GPIO27 may be high-impedance before application code runs.
+- Task 3 Router/Switch real Ethernet E2E in the final hardware-closure PR.
 - Production Web → Core → MQTT integration and durable production/audit persistence.
 - Full migration of remaining GUI-owned operational state/heartbeat behavior into the Core/API boundary where duplication still exists.
 
 Protocol-correlated STATUS remains device-reported evidence, not direct electrical
-measurement of relay contacts. Hardware E2E is **NOT_COMPLETED** and physical
-isolation is **NOT_PROVEN**.
+measurement of relay contacts. The cable-tester Deadman path is physically
+observed, but Router/Switch traffic isolation and reset-window mitigation remain
+**NOT_COMPLETED**; the complete hardware program is not yet closed.
 
 ---
 

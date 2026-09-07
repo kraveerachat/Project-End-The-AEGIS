@@ -47,3 +47,16 @@ def test_firmware_non_command_status_does_not_forward_command_nonce():
     assert 'setLockdown(true, "SECURE BOOT - ไม่พบ Heartbeat ภายใน 90 วิ!");' in source
     assert 'setLockdown(true, "DEAD MAN\'S SWITCH - ขาดสัญญาณ Heartbeat 60 วิ!");' in source
     assert 'publishStatus(isLockedDown ? "LOCKDOWN" : "NORMAL", "heartbeat");' in source
+
+
+def test_firmware_boots_relay_in_fail_secure_state():
+    """Application startup must engage the active-low relay before output enable."""
+    source = FIRMWARE_SOURCE.read_text(encoding="utf-8")
+    setup = source.split("void setup()", 1)[1].split("void loop()", 1)[0]
+    preload_trigger = "digitalWrite(RELAY_IN, RELAY_TRIGGER);"
+    enable_output = "pinMode(RELAY_IN, OUTPUT);"
+
+    assert "bool isLockedDown = true;" in source
+    assert preload_trigger in setup
+    assert "digitalWrite(RELAY_IN, RELAY_RELEASE);" not in setup
+    assert setup.index(preload_trigger) < setup.index(enable_output)
