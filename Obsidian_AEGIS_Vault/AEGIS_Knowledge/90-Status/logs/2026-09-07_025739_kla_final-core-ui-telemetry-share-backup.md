@@ -12,7 +12,11 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Dashboard Server Telemetry now uses the final six-tile order and replaces the obsolete Twingate placeholder with smartctl-derived disk-health temperature from the existing `/api/storage` response. Null, unavailable, stale and backend-warning states remain explicit.
+- Dashboard Server Telemetry uses the final six-tile order — `CPU | RAM | Disk` then `Network | Uptime | CPU temperature` — and the obsolete Twingate placeholder is gone.
+
+  ⚠️ **Reconciled against `main` (PR #95).** This task originally implemented its own Dashboard temperature, sourced from smartctl-derived `diskHealth.temperatureCelsius` on `/api/storage`. PR #95 landed on `main` first with a different and better-founded source, so **that implementation is canonical and this task's version was reverted in full** (commit `2f3af3b`), not merged or blended. The dashboard number is now the CPU **package** sensor `x86_pkg_temp`, discovered from `/sys/class/thermal` with no hardcoded zone number, no SSD/SMART fallback, and fail-closed `{ available: false }` when the sensor is unusable.
+
+  This mattered because the two numbers are different physical sensors on the same machine: the SSD reads ~40 °C via smartctl while the CPU package reads ~55–56 °C. Publishing the disk figure under a "Temperature" label would have been a real reading of the wrong thing.
 - Storage Disk Health now shows Model, Device, SMART, Twingate Local Connector, Power-on Hours and Device Capacity. The connector reuses the Settings semantic mapping from `/api/remote-access.localConnector`; temperature remains backend health evidence but is not duplicated in this grid.
 - Secure Shares still exposes only `zones` and `any`. Copy now states that `any` needs a pre-existing route to AEGIS, while Public External Internet Share is a read-only unavailable fact with no new route, schema or selectable scope.
 - Canonical IDEA1 notes close Account/Profile/Avatar and the Settings parent from existing owner-observed Production evidence, preserve the RAID/hardware boundary, and keep `STORAGE-AUTO-2` open until an explicitly approved scheduler-triggered Production run is observed.
@@ -20,7 +24,7 @@ edit_policy: append-by-new-file
 
 ## Source files changed
 
-- `IDEA1-AEGIS_Drive_LC/src/components/ServerTelemetry.jsx` — replace the Dashboard Twingate tile with evidence-backed Temperature and pin the final order/state model.
+- `IDEA1-AEGIS_Drive_LC/src/components/ServerTelemetry.jsx` — reconciled to `main`: the file is now byte-identical to the PR #95 version. This task's disk-health temperature tile, its `diskHealth`/`diskHealthLoading` props and its `temperatureCelsius`-based tile state were all removed.
 - `IDEA1-AEGIS_Drive_LC/src/components/SettingsPanels.jsx` — consume the shared local-connector semantic mapping.
 - `IDEA1-AEGIS_Drive_LC/src/components/ui.jsx` — allow a scoped class on the existing segmented-control primitive.
 - `IDEA1-AEGIS_Drive_LC/src/index.css` — stack long Secure Share scope labels at mobile width with 44 px targets.
@@ -29,9 +33,9 @@ edit_policy: append-by-new-file
 - `IDEA1-AEGIS_Drive_LC/src/screens/Dashboard.jsx` — pass existing disk-health evidence and loading state to Server Telemetry.
 - `IDEA1-AEGIS_Drive_LC/src/screens/Shares.jsx` — clarify the two real scopes and add the non-interactive Public Internet unavailable block.
 - `IDEA1-AEGIS_Drive_LC/src/screens/Storage.jsx` — read local connector status and render the final six-fact Disk Health grid independently of disk evidence availability.
-- `IDEA1-AEGIS_Drive_LC/tests/appShellRevision.test.js` — pin Temperature presence and obsolete Dashboard Twingate absence.
+- `IDEA1-AEGIS_Drive_LC/tests/appShellRevision.test.js` — pin Temperature presence and obsolete Dashboard Twingate absence; the label assertion now matches `main`'s canonical `CPU temperature`.
 - `IDEA1-AEGIS_Drive_LC/tests/i18nCopyAudit.test.js` — pin localized reachability and Public Internet distinctions.
-- `IDEA1-AEGIS_Drive_LC/tests/serverTelemetryUi.test.js` — cover final order and all Temperature evidence states.
+- `IDEA1-AEGIS_Drive_LC/tests/serverTelemetryUi.test.js` — reconciled to `main`: PR #95's `TELEM-UI-14` already pins the exact six-tile set and order, so this task's weaker order test and its disk-health temperature cases were dropped rather than duplicated.
 - `IDEA1-AEGIS_Drive_LC/tests/shareScopeTruthUi.test.js` — cover exactly two scopes, no public contract, localized truthfulness and mobile wrapping.
 - `IDEA1-AEGIS_Drive_LC/tests/storageBackupUi.test.js` — cover final facts and healthy/stale/unavailable connector states, including independence from disk-health availability.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/IDEA1-Progress-Update-6.1.md` — add the pre-Production source checkpoint and reconcile current Settings/Share/Backup/RAID truth.
@@ -69,7 +73,11 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- No Production deployment or read-only Production temperature evidence-chain verification was performed; owner approval is required first.
+- **Production deployment and end-to-end acceptance remain PENDING.** No Drive image was built or deployed, no agent was restarted, and the reconciled Dashboard has never rendered against the real Production sensor. Owner approval is required first.
+
+  What is **no longer** an open question is the sysfs account read: Production preflight has already verified that the existing `aegis-telemetry` service identity (UID/GID 29100) can read the Linux thermal sysfs under the current sandbox, **with no new privileges**. Owner-supplied preflight evidence recorded three distinct physical sensors: `acpitz` ≈ 27.8 °C (chassis), `x86_pkg_temp` ≈ 55–56 °C (CPU package), and `smartctl /dev/sda` ≈ 40 °C (SSD). `PrivateDevices=yes`, `ProtectSystem=strict` and the empty capability set are unchanged, and no privilege expansion is required or requested.
+
+- ⚠️ **Rollout ordering (inherited from PR #95, unchanged by this task):** deploy the Drive image **before** restarting the host agent. An agent publishing `metrics.temperature` to a Drive that predates PR #95 trips `unexpected-metric-group` and blanks every telemetry tile. Rollback reverses the order.
 - Dashboard, Storage and Secure Share changed views still need Production screenshots and owner visual acceptance.
 - `STORAGE-AUTO-2` remains OPEN / UNPROVEN; no schedule was enabled and no scheduler-triggered Production run was performed.
 - Twingate control-plane connectivity remains NOT MEASURED; only bounded local connector runtime evidence is shown.

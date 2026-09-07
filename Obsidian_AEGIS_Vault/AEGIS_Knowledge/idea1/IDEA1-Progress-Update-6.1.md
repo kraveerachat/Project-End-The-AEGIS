@@ -65,7 +65,7 @@ Result: **Storage & Backup = PASS / CLOSED for the accepted manual/removable-med
 > [!warning]
 > The source and local QA described here have not been deployed to Production. Existing Production evidence remains valid only for the previously deployed build; the changed Dashboard, Storage, and Secure Share views still require controlled deployment and owner visual acceptance.
 
-- Dashboard source now renders `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature reuses `diskHealth.temperatureCelsius` from `/api/storage`; null/unavailable/stale/warning states follow disk-health evidence, and the obsolete Dashboard Twingate tile is removed.
+- Dashboard source now renders `CPU | RAM | Disk` then `Network | Uptime | CPU Temperature`. Temperature is the CPU **package** sensor `x86_pkg_temp`, from the host telemetry agent's bounded `/sys/class/thermal` discovery merged from PR #95 — no hardcoded thermal zone number, no SSD/SMART fallback, fail-closed `{ available: false }` when unusable. It is **not** `diskHealth.temperatureCelsius`: the SSD reads ~40 °C while the CPU package reads ~55–56 °C, so those are different physical sensors. The obsolete Dashboard Twingate tile is removed.
 - Storage Disk Health source now renders `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains in backend health evidence but is not repeated in this fact grid. Local connector state comes from `/api/remote-access.localConnector`; Twingate control-plane state remains NOT MEASURED.
 - Secure Shares keeps only `scope=zones` and `scope=any`. `scope=any` adds no Share-layer CIDR rule but still requires a pre-existing route to AEGIS. Public External Internet Share is a read-only `NOT AVAILABLE` fact and remains NOT IMPLEMENTED / FUTURE ARCHITECTURE.
 - An off-site client was observed successfully reaching an unrestricted `scope=any` link while Twingate was disabled. The exact alternate network path was not independently established in that test, so this is evidence of AEGIS reachability, not evidence of a public Internet gateway. A second remote user in Chonburi without an established AEGIS path could not download the link.
@@ -144,7 +144,7 @@ Upload remains a **Files workflow**, not a standalone sidebar screen.
 
 | Screen | Current status | Evidence / remaining boundary |
 | :--- | :--- | :--- |
-| Dashboard | ✅ **PASS / CLOSED for deployed baseline; changed layout pending Production acceptance** | Existing Production telemetry is accepted. The six-tile Temperature redesign is locally verified but not yet deployed. |
+| Dashboard | ✅ **PASS / CLOSED for deployed baseline; changed layout pending Production acceptance** | Existing Production telemetry is accepted. The six-tile layout with the PR #95 `x86_pkg_temp` tile is locally verified but not yet deployed. |
 | Files | ✅ **PASS / CLOSED** | Deterministic 1 MiB upload → download SHA-256 exact match passed. |
 | Private Vault | ✅ **PASS / CLOSED (tested scope)** | 2 MiB zero-knowledge exact-hash round trip and direct-VLAN large preview/playback accepted; remote high-bitrate path remains a documented delivery limitation. |
 | Secure Shares | ✅ **PASS / CLOSED (private/internal)** | `zones` and `any` are implemented and Production verified. `any` still requires AEGIS reachability; the clarification UI awaits deployment. Public External Internet Share remains NOT IMPLEMENTED. |
@@ -167,7 +167,7 @@ Current accepted boundaries:
 - host telemetry path exists through the bounded telemetry agent
 - no need to repeat basic dashboard acceptance unless telemetry contracts or deployment are changed
 
-The current source layout is `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature is derived from smartctl-backed disk-health evidence already projected through `/api/storage`; browser code does not duplicate the warning threshold. This changed layout is locally verified and still awaits Production deployment/owner acceptance.
+The current source layout is `CPU | RAM | Disk` then `Network | Uptime | CPU Temperature`. Temperature is the CPU **package** sensor `x86_pkg_temp`, from the host telemetry agent's bounded `/sys/class/thermal` discovery merged from PR #95 — no hardcoded thermal zone number, no SSD/SMART fallback, fail-closed `{ available: false }` when unusable. It is **not** `diskHealth.temperatureCelsius`: the SSD reads ~40 °C while the CPU package reads ~55–56 °C, so those are different physical sensors. The obsolete Dashboard Twingate tile is removed. This changed layout is locally verified — desktop 1280×720 and mobile 435×982 both render exactly six tiles in that order with no Twingate tile — and still awaits Production deployment/owner acceptance.
 
 Host telemetry production path:
 

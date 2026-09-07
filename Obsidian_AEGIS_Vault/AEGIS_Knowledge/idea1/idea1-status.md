@@ -53,12 +53,17 @@ edit_policy: owner-writable
 > fallback** — no `acpitz` (~27.8 °C chassis), no SSD SMART temperature
 > (~40 °C, a separate `/api/storage` contract), no other zone, no `0` — an
 > unusable sensor is `{ available: false }`. **No systemd privilege change was
-> required or made**: production preflight verified UID 29100 reading the
-> thermal sysfs under the existing sandbox, and `PrivateDevices=yes`,
+> required or made**: production preflight **has already verified** that the
+> existing `aegis-telemetry` identity UID/GID `29100` reads the Linux thermal
+> sysfs under the current sandbox, and `PrivateDevices=yes`,
 > `ProtectSystem=strict` and the empty capability set are untouched (the unit
-> diff is comment-only). ⚠️ **Status is implemented and locally verified only —
-> not built, not deployed, not production-accepted**, and the tile has never
-> rendered against the real sensor. ⚠️ **Rollout order is a hard constraint:
+> diff is comment-only). That account-read question is settled, not outstanding.
+> Owner-supplied preflight recorded three **distinct physical sensors** on the
+> host: `acpitz` ≈ 27.8 °C (chassis), `x86_pkg_temp` ≈ 55–56 °C (CPU package,
+> the one the Dashboard shows), and `smartctl /dev/sda` ≈ 40 °C (SSD, reported
+> separately through `/api/storage`). ⚠️ What remains pending is **Production
+> deployment and end-to-end acceptance**: no image was built or deployed, no
+> agent was restarted, and the tile has never rendered against the real sensor. ⚠️ **Rollout order is a hard constraint:
 > deploy the Drive image before restarting the agent.** Drive treats the new
 > group as optional and tolerates an older agent; an agent publishing it to an
 > older Drive trips `unexpected-metric-group` and blanks every telemetry tile.
@@ -2261,7 +2266,7 @@ The source change does not disable or weaken `PrivateDevices=true`; unresolved e
 This source pass starts from `d3ea65934c898571694fb722fcc6db105861c775` and remains **not deployed**. Existing Production acceptance is not reused as evidence for the changed Dashboard, Storage, or Secure Share presentation; those three views still need controlled deployment and owner visual acceptance.
 
 - **Secure Shares:** `scope=zones` (approved networks with administrator-defined CIDR enforcement) and `scope=any` are the only selectable modes and remain Production-verified PASS/CLOSED. `scope=any` means no additional Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS. Public External Internet Share is NOT IMPLEMENTED / FUTURE ARCHITECTURE and appears only as a read-only unavailable fact. An off-site client once reached a `scope=any` link with Twingate disabled, but the alternate route was not established; this proves AEGIS reachability, not a public gateway. A second Chonburi client without an established AEGIS path could not download.
-- **Dashboard:** the locally verified source order is `CPU | RAM | Disk` then `Network | Uptime | Temperature`. Temperature reuses smartctl-derived disk-health evidence from `/api/storage`; null, unavailable, stale, and backend `temperature-high` states remain explicit. No browser threshold or hardcoded reading was added. The old Dashboard Twingate placeholder is removed.
+- **Dashboard:** the locally verified source order is `CPU | RAM | Disk` then `Network | Uptime | CPU Temperature`. Temperature is the CPU **package** sensor `x86_pkg_temp`, from the host telemetry agent's bounded `/sys/class/thermal` discovery merged from PR #95 — no hardcoded thermal zone number, no SSD/SMART fallback, fail-closed `{ available: false }` when unusable. It is **not** `diskHealth.temperatureCelsius`: the SSD reads ~40 °C while the CPU package reads ~55–56 °C, so those are different physical sensors. The obsolete Dashboard Twingate tile is removed. This branch's own disk-health-derived temperature was reverted in favour of the merged PR #95 implementation rather than kept alongside it.
 - **Storage:** Disk Health now presents `Model | Device | SMART` then `Twingate Local Connector | Power-on Hours | Device Capacity`. Temperature remains in backend health evidence. Connector state uses only `/api/remote-access.localConnector`; Twingate control-plane state remains NOT MEASURED. Connector evidence stays visible even when disk-health evidence is unavailable.
 - **Backup:** manual Backup Job, configuration, integrity, restore verification, and HGST `DIFFERENT_DEVICE` target remain PASS/CLOSED for the accepted scope. Historical source/receipt audit found no real scheduler-triggered Production execution, so `STORAGE-AUTO-2` remains OPEN / UNPROVEN. Current schedule remains disabled; this task performed no Production action.
 - **RAID:** UI is PASS; no real array is configured. Real validation remains DEFERRED / HARDWARE LIMITATION because there is no dedicated erasable disk pair. HGST 1 TB is the accepted Backup Target, never a RAID member or “RAID0”.
