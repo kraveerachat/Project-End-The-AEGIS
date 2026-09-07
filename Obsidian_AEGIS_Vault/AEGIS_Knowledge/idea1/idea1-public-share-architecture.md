@@ -516,6 +516,51 @@ private mode: the trusted set is HUB alone, `requestIngressKind()` can never
 return `public-gateway`, and Drive starts exactly as it does in production today.
 Drive must never be made to require a peer that has not been deployed yet.
 
+#### 8.1.1 `PUBLIC_SHARE_HOST` — the gateway's hostname-only allowlist
+
+The gateway container takes one variable of its own, delivered and validated by
+PUBLIC-SHARE-3 in `gateway/public-share/`:
+
+```text
+PUBLIC_SHARE_HOST          # e.g. share.example.invalid — hostname ONLY
+```
+
+It must equal the **hostname component** of the backend's already-validated
+`PUBLIC_SHARE_BASE_URL` (§8.1):
+
+```text
+PUBLIC_SHARE_BASE_URL=https://share.example.invalid
+PUBLIC_SHARE_HOST=share.example.invalid
+```
+
+The value is not a secret, but it is substituted into nginx **directive
+context** (`server_name`, `proxy_set_header Host`, `proxy_set_header
+X-Forwarded-Host`), so it is an allowlist-integrity boundary in exactly the
+sense §6.2 means. An operator typo or a malformed environment value must not be
+able to widen the accepted `Host` set, alter nginx parsing, inject an additional
+directive or `location`, turn the single-host gateway into virtual-host
+multiplexing, or make the generated config ambiguous.
+
+It is therefore **validated fail-closed before the template is rendered**, by
+`gateway/public-share/validate-public-share-host.sh` running from the image's
+wrapper `entrypoint.sh`. Same spirit as `PUBLIC_SHARE_BASE_URL` and
+`TRUSTED_PROXY_CIDRS`: **an invalid value fails startup and is never silently
+sanitised.** On refusal `/tmp/nginx.conf` is never rendered at all, so nginx
+cannot start with a config the value could have altered.
+
+The accepted grammar is one RFC 1123 host name — characters `A-Za-z0-9.-` only,
+labels of 1–63 characters that neither begin nor end with `-`, no empty label,
+no leading or trailing dot, at most 253 characters, and no all-numeric final
+label. Whitespace, multiple names, `;`, `{`, `}`, `$`, `/`, backslash, newline,
+carriage return, tab, `*`, `~`, a scheme, a path, a query, a fragment,
+credentials, and `host:port` all fail startup.
+
+**Hostname-only is a deliberate contract, not an oversight.** If the public
+origin chosen at G4 needs a non-default port, PUBLIC-SHARE-6 / the ingress
+integration task must explicitly reconcile the public `Host` /
+`X-Forwarded-Host` contract at that point. No deployment port is invented in
+advance.
+
 ### 8.2 What must never appear in configuration or source
 
 No certificate, no private key, no real production domain invented by an agent,
@@ -985,6 +1030,25 @@ The gateway's header handling, stated as requirements:
 | `X-Forwarded-Host` | Set to the configured public host | Never the raw client `Host` (T-09). |
 | `Host` | Normalised to the configured public host | The public origin is single-purpose; there is no virtual-host multiplexing to preserve. |
 
+> [!warning] The delivered PR3 model assumes the gateway is the immediate peer
+> The table above, and the `$binary_remote_addr` edge rate limit that goes with
+> it, are correct for a topology where the Public Share Gateway directly
+> observes the recipient connection. That is the accepted direct-peer gateway
+> contract, and it is what PUBLIC-SHARE-3 delivers.
+>
+> It must **not** be read as automatically compatible with every G4 option. A
+> managed HTTP tunnel or reverse proxy (§13 Option B) inserts another trusted
+> hop, and then `$remote_addr` identifies the tunnel/provider connector rather
+> than the actual recipient. That would cause incorrect G3 attribution, collapse
+> every recipient onto one address, and re-create the T-05 rate-limit self-DoS
+> this design exists to avoid.
+>
+> G4 is still **OPEN**, so this is not solved by trusting a vendor header now.
+> If G4 selects an option that inserts an HTTP hop, PUBLIC-SHARE-6 / the ingress
+> integration task must define and review the provider trust/attribution adapter
+> **before** deployment. PUBLIC-SHARE-3 does not authorize trusting provider
+> headers and does not claim Option B is deployable unchanged.
+
 ### 10.1 Two identities, neither replacing the other
 
 This is the single most important implementation rule in this note, and the one
@@ -1397,6 +1461,23 @@ Until G6, every status note, UI string and receipt says the same thing:
   that network ever gained a third member the control would weaken silently; the
   Compose structural test named in T-10 is what keeps that from happening
   unnoticed.
+- **The PUBLIC-SHARE-3 header and rate-limit model is direct-peer only.** It
+  authors `X-Forwarded-For`/`X-Real-IP` from `$remote_addr` and keys the edge
+  limit on `$binary_remote_addr`, which is correct only while the gateway is the
+  immediate recipient-facing HTTP peer. A G4 Option B tunnel/reverse proxy would
+  invalidate that assumption and needs a reviewed provider trust/attribution
+  adapter in PUBLIC-SHARE-6 before deployment (§10).
+- **The PUBLIC-SHARE-3 harness network does not yet enforce B5.** It proves
+  exactly two members, no second Docker network on the gateway, and no unrelated
+  AEGIS DNS names, but it is not a Docker `internal: true` network, so
+  `Gateway -> everything else = nothing` is not enforced at the network layer.
+  Setting `internal: true` was measured on Docker Desktop 28.3.2 and does deliver
+  the property, but it also silently disables port publishing
+  (`NetworkSettings.Ports` becomes empty, the host listener never appears), which
+  removes the localhost-only listener the runtime suite drives; disabling
+  masquerading instead does not block egress there. Reconciling the two needs an
+  owner/security decision and is open — see
+  `gateway/public-share/README.md`.
 - **HTTP Range is unsupported**, so a public recipient with an unreliable
   connection restarts a large download from zero (§11).
 - **Rate limiting is in-memory and per-process** (`rateLimit.js`). It resets on

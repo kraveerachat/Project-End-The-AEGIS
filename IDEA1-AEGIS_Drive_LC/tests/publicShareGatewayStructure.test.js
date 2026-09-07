@@ -5,6 +5,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const GATEWAY_ROOT = new URL('../../gateway/public-share/', import.meta.url)
 const readGateway = (name) => readFileSync(new URL(name, GATEWAY_ROOT), 'utf8')
@@ -289,4 +291,126 @@ test('PS3-STRUCT-9 self-health is loopback-only and public health falls through 
 
   const publicServer = http.blocks.find((block) => directiveValues(block, 'server_name').includes('$PUBLIC_SHARE_HOST'))
   assert.equal(publicServer.blocks.some((block) => block.header === 'location = /healthz'), false)
+})
+
+test('PS3-STRUCT-10 PUBLIC_SHARE_HOST is validated fail-closed before the template renders', () => {
+  const dockerfile = readGateway('Dockerfile')
+  const entrypoint = readGateway('entrypoint.sh')
+  const dockerignore = readGateway('.dockerignore')
+
+  // Both scripts must survive the deliberately restrictive build context.
+  assert.match(dockerignore, /^!entrypoint\.sh$/m)
+  assert.match(dockerignore, /^!validate-public-share-host\.sh$/m)
+
+  // The image must run the wrapper, not the stock nginx entrypoint.
+  assert.match(
+    dockerfile,
+    /^ENTRYPOINT \["\/usr\/local\/bin\/aegis-public-share-entrypoint\.sh"\]$/m,
+    'the validating wrapper must be the image entrypoint',
+  )
+  assert.match(dockerfile, /^COPY .*validate-public-share-host\.sh \/usr\/local\/bin\/aegis-validate-public-share-host\.sh$/m)
+  assert.match(dockerfile, /^COPY .*entrypoint\.sh \/usr\/local\/bin\/aegis-public-share-entrypoint\.sh$/m)
+  assert.match(dockerfile, /chmod 0555 \/usr\/local\/bin\/aegis-validate-public-share-host\.sh/)
+  assert.match(dockerfile, /chmod 0555 \/usr\/local\/bin\/aegis-public-share-entrypoint\.sh/)
+
+  // Order is the whole control: validate, and only then hand over to nginx.
+  const validateAt = entrypoint.indexOf('/usr/local/bin/aegis-validate-public-share-host.sh')
+  const handoverAt = entrypoint.indexOf('exec /docker-entrypoint.sh')
+  assert.ok(validateAt > -1, 'entrypoint must run the validator')
+  assert.ok(handoverAt > -1, 'entrypoint must hand over to the stock nginx entrypoint')
+  assert.ok(validateAt < handoverAt, 'validation must precede nginx template rendering and start')
+  assert.match(entrypoint, /^set -eu$/m, 'entrypoint must abort on a failed validation')
+})
+
+test('PS3-STRUCT-11 the host validator is a strict allowlist that never sanitizes', () => {
+  const validator = readGateway('validate-public-share-host.sh')
+
+  // A denylist would be bypassable; the contract is one positive character
+  // class plus explicit structural rules, and refusal instead of rewriting.
+  assert.match(
+    validator,
+    /\[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\.-\]/,
+    'validation must be an explicit, locale-independent allowlist',
+  )
+  assert.match(validator, /\bexit 1\b/, 'a rejected value must fail startup')
+  assert.doesNotMatch(
+    validator,
+    /\b(tr|sed|cut)\b\s|PUBLIC_SHARE_HOST=/,
+    'the validator must not rewrite or normalise PUBLIC_SHARE_HOST',
+  )
+  for (const rule of [/253/, /63/, /must not begin with a dot/, /must not end with a dot/, /empty label/]) {
+    assert.match(validator, rule, `hostname grammar rule missing: ${rule}`)
+  }
+})
+
+// Real execution of the shipped script. The authoritative proof that nginx
+// never starts on a bad value lives in publicShareGatewayRuntime.test.js; this
+// runs the same file directly so the grammar is covered by the default suite.
+const shAvailable = (() => {
+  try {
+    return spawnSync('sh', ['-c', 'exit 0']).status === 0
+  } catch {
+    return false
+  }
+})()
+
+test('PS3-STRUCT-12 the shipped validator accepts one hostname and rejects every malformed form', {
+  skip: shAvailable ? false : 'no POSIX sh on PATH; the Docker runtime suite proves this end to end',
+}, () => {
+  const script = fileURLToPath(new URL('validate-public-share-host.sh', GATEWAY_ROOT))
+  const validate = (value) => spawnSync('sh', [script], {
+    env: value === null ? { ...process.env, PUBLIC_SHARE_HOST: undefined } : { ...process.env, PUBLIC_SHARE_HOST: value },
+    encoding: 'utf8',
+  })
+
+  for (const good of [
+    'share.example.invalid',
+    'a.co',
+    'Share.Example.INVALID',
+    'x-y.z-w.example',
+    `${'a'.repeat(63)}.example`,
+  ]) {
+    assert.equal(validate(good).status, 0, `valid hostname rejected: ${good}`)
+  }
+
+  const bad = {
+    empty: '',
+    whitespace: 'evil.example ',
+    'multiple names': 'evil.example another.test',
+    semicolon: 'evil;return 200',
+    'open brace': 'evil.example{',
+    'close brace': 'evil.example}',
+    'nginx variable': 'evil${host}',
+    slash: 'evil.example/path',
+    backslash: 'evil.example\\path',
+    newline: 'evil.example\nanother.test',
+    'trailing newline': 'evil.example\n',
+    'carriage return': 'evil.example\revil',
+    tab: 'evil.example\tanother.test',
+    wildcard: '*.example.invalid',
+    'regex prefix': '~^.*$',
+    scheme: 'https://evil.example',
+    query: 'evil.example?a=b',
+    fragment: 'evil.example#f',
+    credentials: 'user:pass@evil.example',
+    'host:port': 'evil.example:8443',
+    underscore: 'bad_host.example',
+    'leading dot': '.example.invalid',
+    'trailing dot': 'example.invalid.',
+    'empty label': 'a..b.example',
+    'hyphen-led label': '-bad.example',
+    'hyphen-tailed label': 'bad-.example',
+    'over-long label': `${'a'.repeat(64)}.example`,
+    'over-long name': `${`${'a'.repeat(63)}.`.repeat(4)}example`,
+    'IPv4 literal': '172.31.254.2',
+    'nginx catch-all': '_',
+  }
+  for (const [label, value] of Object.entries(bad)) {
+    const result = validate(value)
+    assert.equal(result.status, 1, `${label} must fail startup (got exit ${result.status})`)
+    assert.match(result.stderr, /refusing to start/, `${label} must explain the refusal`)
+  }
+
+  // The refusal must never echo attacker-influenced input back into logs.
+  assert.doesNotMatch(validate('evil;return 200').stderr, /return 200/)
 })

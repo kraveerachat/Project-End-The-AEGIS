@@ -514,13 +514,32 @@ owns `172.19.0.0/16`; Docker rejected the architecture example
 `172.19.254.0/29` as overlapping. No existing Docker network was changed or
 removed. Runtime teardown restored the pre-test Docker state.
 
-Local evidence: structural T-10 **9/9 PASS**; real-container gateway runtime
-**13/13 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
+`PUBLIC_SHARE_HOST` is substituted into nginx directive context, so it is
+validated fail-closed **before** the template renders: the image entrypoint runs
+`gateway/public-share/validate-public-share-host.sh` and refuses to start on
+anything but one RFC 1123 hostname, never sanitising a bad value. On refusal no
+config is generated at all, so a malformed value cannot widen the accepted
+`Host` set or inject a directive.
+
+Local evidence: structural T-10 **12/12 PASS**; real-container gateway runtime
+**15/15 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
 traffic passed while a deterministic 41-request sequence produced **30×429**
 and only **11 upstream contacts**; a unique raw-token sentinel stayed absent
 from gateway logs across success, denial, method rejection, throttling and a
-routine upstream failure. The positive recorder tests prove gateway routing,
-not real Drive authorization; PUBLIC-SHARE-6 owns that integration.
+routine upstream failure; a valid host rendered exactly one `server_name` while
+**11 malformed values were refused before nginx started**. The positive recorder
+tests prove gateway routing, not real Drive authorization; PUBLIC-SHARE-6 owns
+that integration.
+
+> [!warning] Open — the harness network does not yet enforce B5
+> The dedicated bridge has exactly two members, the gateway joins no second
+> Docker network, and unrelated AEGIS service names do not resolve there, but it
+> is **not** a Docker `internal: true` network, so `Gateway -> everything else =
+> nothing` is not enforced at the network layer. Applying `internal: true` was
+> measured on Docker 28.3.2/Docker Desktop: it delivers the property, but it
+> also silently disables port publishing and removes the localhost-only listener
+> the runtime suite drives, taking that suite from 15/15 to 4 passing. This is
+> PR #100 review Blocker B and needs an owner/security decision.
 
 **G3 is APPROVED.** Once real public ingress exists, the existing application
 audit may retain the full canonical recipient IP from `requestSourceIp(req)` for
@@ -531,6 +550,10 @@ profiling use. No real Internet recipient was observed by this task.
 
 G4 (ingress choice), G5 (exposure) and G6 (final acceptance) remain open. No
 Production action, PUBLIC-SHARE-4 UI work, or PUBLIC-SHARE-5/6/7 work is included.
+The delivered header and rate-limit model assumes the gateway is the immediate
+recipient-facing HTTP peer; if G4 later selects a managed reverse proxy/tunnel
+that inserts an HTTP hop, PUBLIC-SHARE-6 must define and review the provider
+trust/attribution adapter before deployment. No provider header is trusted here.
 
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 

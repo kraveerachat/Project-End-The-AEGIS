@@ -64,7 +64,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', {
   skip: ENABLED ? false : 'set PUBLIC_SHARE_GATEWAY_RUNTIME=1 to run the isolated Docker harness',
-  timeout: 240_000,
+  timeout: 360_000,
 }, async (t) => {
   const port = await freePort()
   const env = {
@@ -300,5 +300,72 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     const logs = `${(await docker(['logs', gatewayId])).stdout}${(await docker(['logs', gatewayId])).stderr}`
     assert.equal(logs.includes(sentinel), false, 'raw bearer token leaked into gateway logs')
     console.log(`[public-share-gateway] log sentinel absent across success/deny/method/rate/upstream-failure: ${sentinel.length} chars`)
+  })
+  await t.test('PS3-RUNTIME-13 a valid PUBLIC_SHARE_HOST renders exactly one configured server_name', async () => {
+    const image = JSON.parse((await docker(['inspect', gatewayId])).stdout)[0].Image
+    const rendered = await docker([
+      'run', '--rm', '--network', 'none', '-e', `PUBLIC_SHARE_HOST=${HOST}`,
+      '--entrypoint', '/bin/sh', image, '-c',
+      '/usr/local/bin/aegis-validate-public-share-host.sh && /docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null 2>&1 && cat /tmp/nginx.conf',
+    ])
+
+    assert.ok(rendered.stdout.includes(`server_name ${HOST};`), 'configured host must render as one name')
+    assert.ok(rendered.stdout.includes(`proxy_set_header Host ${HOST};`))
+    assert.ok(rendered.stdout.includes(`proxy_set_header X-Forwarded-Host ${HOST};`))
+    assert.equal(rendered.stdout.includes('$PUBLIC_SHARE_HOST'), false, 'template must be fully substituted')
+    // Only the two catch-alls and the one configured listener may exist.
+    assert.equal(rendered.stdout.split('server_name ').length - 1, 3)
+  })
+
+  await t.test('PS3-RUNTIME-14 every malformed PUBLIC_SHARE_HOST stops the gateway before nginx starts', async () => {
+    const image = JSON.parse((await docker(['inspect', gatewayId])).stdout)[0].Image
+    const malformed = {
+      empty: '',
+      'multiple names': 'evil.example another.test',
+      wildcard: '*.example.invalid',
+      'nginx regex prefix': '~^.*$',
+      'directive injection': 'evil;return 200',
+      'nginx variable': 'evil${host}',
+      scheme: 'https://evil.example',
+      path: 'evil.example/path',
+      'host:port': 'evil.example:8443',
+      'embedded newline': 'evil.example\nanother.test',
+      'brace injection': 'evil.example}',
+    }
+
+    for (const [label, value] of Object.entries(malformed)) {
+      // Run the real entrypoint chain, then report whether a config was ever
+      // rendered. The trailing echo keeps the outer shell status usable.
+      const probe = await docker([
+        'run', '--rm', '--network', 'none', '-e', `PUBLIC_SHARE_HOST=${value}`,
+        '--entrypoint', '/bin/sh', image, '-c',
+        '/usr/local/bin/aegis-public-share-entrypoint.sh nginx -g "daemon off;" -c /tmp/nginx.conf; echo "GATE_EXIT=$?"; [ -f /tmp/nginx.conf ] && echo RENDERED || echo NOT_RENDERED',
+      ])
+      const output = `${probe.stdout}${probe.stderr}`
+      assert.match(output, /refusing to start/, `${label} must be refused`)
+      assert.match(output, /GATE_EXIT=1/, `${label} must fail startup`)
+      assert.match(output, /NOT_RENDERED/, `${label} must never render an nginx config`)
+      assert.equal(output.includes('Configuration complete'), false, `${label} must not reach nginx start-up`)
+    }
+
+    // Under its real entrypoint the container must exit non-zero, so no
+    // restart policy or orchestrator can mistake this for a healthy start.
+    await assert.rejects(
+      docker(['run', '--rm', '--network', 'none', '-e', 'PUBLIC_SHARE_HOST=evil;return 200', image]),
+      'a malformed host must make the gateway container exit non-zero',
+    )
+
+    // The gate is load-bearing: bypassing it renders an injected directive
+    // that nginx would otherwise parse as configuration.
+    const bypass = await docker([
+      'run', '--rm', '--network', 'none', '-e', 'PUBLIC_SHARE_HOST=evil.example;return 200 "pwned"',
+      '--entrypoint', '/bin/sh', image, '-c',
+      '/docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null 2>&1; cat /tmp/nginx.conf',
+    ])
+    assert.ok(
+      bypass.stdout.includes('server_name evil.example;return 200 "pwned";'),
+      'without validation the template would accept an injected directive',
+    )
+    console.log(`[public-share-gateway] ${Object.keys(malformed).length} malformed PUBLIC_SHARE_HOST values refused before nginx start`)
   })
 })
