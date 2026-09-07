@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { z } from 'zod'
 import { CANONICAL_STATUSES, evaluateFreshness, isCanonicalStatus } from './status.js'
+import { OPERATIONAL_ERROR_CODES, createOperationalError } from './operationalErrors.js'
 
 const timestampSchema = z.string().datetime({ offset: true })
 const boundedText = z.string().trim().min(1).max(80)
@@ -28,6 +29,16 @@ const issueCodes = new Set([
   'COMPONENT_FAILED', 'STATUS_STALE', 'SUPERVISOR_FAILED', 'MALFORMED_EVIDENCE',
   'ADAPTER_UNAVAILABLE', 'ADAPTER_TIMEOUT', 'ADAPTER_RESPONSE_REJECTED',
 ])
+
+const issueCodeMap = Object.freeze({
+  PREFLIGHT_FAILED: 'CORE_PROCESS_FAILURE',
+  BROKER_DISCONNECTED: 'MQTT_DISCONNECTED',
+  DEVICE_OFFLINE: 'ESP32_UNAVAILABLE',
+  COMPONENT_FAILED: 'CORE_PROCESS_FAILURE',
+  STATUS_STALE: 'RUNTIME_EVIDENCE_STALE',
+  SUPERVISOR_FAILED: 'CORE_PROCESS_FAILURE',
+  MALFORMED_EVIDENCE: 'MALFORMED_RUNTIME_STATUS',
+})
 
 const componentNames = Object.freeze({
   runtime: 'Supervisor',
@@ -99,13 +110,49 @@ function normalizeIssues(issues) {
   })
 }
 
+function runtimeIssueErrors(issues, occurredAt) {
+  if (!Array.isArray(issues)) return []
+  return issues.slice(0, 20).flatMap((issue) => {
+    if (!issue || typeof issue !== 'object') return []
+    const code = issueCodeMap[issue.code] ?? (OPERATIONAL_ERROR_CODES[issue.code] ? issue.code : null)
+    if (!code) return []
+    const correlationId = typeof issue.correlationId === 'string'
+      ? issue.correlationId
+      : typeof issue.correlation_id === 'string'
+        ? issue.correlation_id
+        : typeof issue.nonce === 'string'
+          ? issue.nonce
+          : null
+    return [createOperationalError(code, { occurredAt, correlationId })]
+  })
+}
+
+function malformedRuntime(raw) {
+  return !raw
+    || raw.schemaVersion !== 1
+    || typeof raw.generatedAt !== 'string'
+    || !isCanonicalStatus(raw.status)
+    || !raw.components
+    || typeof raw.components !== 'object'
+    || Array.isArray(raw.components)
+}
+
 export function normalizeRuntimeStatus(raw, { now = new Date(), maxAgeMs = 120_000 } = {}) {
-  if (!raw || raw.schemaVersion !== 1 || typeof raw.generatedAt !== 'string') {
-    return unknownRuntime('MALFORMED')
+  if (malformedRuntime(raw)) {
+    return unknownRuntime('MALFORMED', [createOperationalError('MALFORMED_RUNTIME_STATUS', { occurredAt: now.toISOString() })])
   }
 
   const freshness = evaluateFreshness({ generatedAt: raw.generatedAt, now, maxAgeMs })
   const forceUnknown = freshness.status === 'UNKNOWN'
+  const operationalErrors = [
+    ...(freshness.freshness === 'STALE'
+      ? [createOperationalError('RUNTIME_EVIDENCE_STALE', { occurredAt: raw.generatedAt })]
+      : []),
+    ...(freshness.freshness === 'MALFORMED'
+      ? [createOperationalError('MALFORMED_RUNTIME_STATUS', { occurredAt: now.toISOString() })]
+      : []),
+    ...runtimeIssueErrors(raw.issues, raw.generatedAt),
+  ]
   const status = !forceUnknown && isCanonicalStatus(raw.status) ? raw.status : 'UNKNOWN'
   const components = Object.entries(componentNames).map(([id, name]) => ({
     id,
@@ -128,13 +175,14 @@ export function normalizeRuntimeStatus(raw, { now = new Date(), maxAgeMs = 120_0
       recoveryAuthorized: raw.modes?.recoveryAuthorized === true,
     },
     issues: normalizeIssues(raw.issues),
+    operationalErrors,
     evidenceSource: typeof raw.evidenceSource === 'string'
       ? raw.evidenceSource.slice(0, 80)
       : 'unknown',
   }
 }
 
-export function unknownRuntime(freshness = 'ABSENT') {
+export function unknownRuntime(freshness = 'ABSENT', operationalErrors = []) {
   return {
     schemaVersion: 1,
     generatedAt: null,
@@ -144,6 +192,7 @@ export function unknownRuntime(freshness = 'ABSENT') {
     components: Object.entries(componentNames).map(([id, name]) => ({ id, name, status: 'UNKNOWN' })),
     modes: { monitorOnly: true, dryRun: true, armed: false, autoContain: false, recoveryAuthorized: false },
     issues: [],
+    operationalErrors,
     evidenceSource: 'unavailable',
   }
 }

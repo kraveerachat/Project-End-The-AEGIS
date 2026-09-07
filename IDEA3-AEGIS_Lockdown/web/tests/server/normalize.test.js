@@ -11,6 +11,27 @@ import {
   idea1DeniedRaw,
   idea2DetectionRaw,
 } from '../fixtures/evidence.js'
+import { createLiveProvider } from '../../server/providers/liveProvider.js'
+
+const adapterConfig = Object.freeze({
+  adapters: Object.freeze({ idea1Url: 'https://idea1.test/status', idea2Url: 'https://idea2.test/status', runtimeUrl: 'https://runtime.test/status' }),
+  adapterTimeoutMs: 5,
+  maxEvidenceAgeMs: 120_000,
+})
+
+function jsonResponse(body, { ok = true } = {}) {
+  return { ok, text: async () => typeof body === 'string' ? body : JSON.stringify(body) }
+}
+
+function providerFor(runtimeResponse) {
+  return createLiveProvider({
+    config: adapterConfig,
+    clock: () => fixedNow,
+    fetchImpl: async (url) => url === adapterConfig.adapters.runtimeUrl
+      ? runtimeResponse()
+      : jsonResponse({ events: [] }),
+  })
+}
 
 describe('upstream evidence normalization', () => {
   it('allows only the four approved IDEA1 producer fields plus server-owned fields', () => {
@@ -69,5 +90,63 @@ describe('upstream evidence normalization', () => {
     expect(normalized.freshness).toBe('FRESH')
     expect(normalized.components).toContainEqual({ id: 'esp32', name: 'ESP32', status: 'HEALTHY' })
     expect(normalized.modes.monitorOnly).toBe(true)
+  })
+
+  it.each(['ERROR', 'STALE', 'UNAVAILABLE', 'TIMEOUT', 'UNKNOWN'])('never promotes %s runtime evidence to HEALTHY', (state) => {
+    const normalized = normalizeRuntimeStatus({
+      ...healthyRuntimeRaw,
+      status: state,
+      components: { ...healthyRuntimeRaw.components, broker: state },
+    }, { now: fixedNow, maxAgeMs: 120_000 })
+
+    expect(normalized.status).toBe('UNKNOWN')
+    expect(normalized.components.find((component) => component.id === 'broker')?.status).toBe('UNKNOWN')
+  })
+
+  it('fails closed and records a safe error for stale or malformed runtime evidence', () => {
+    const stale = normalizeRuntimeStatus({ ...healthyRuntimeRaw, generatedAt: '2026-09-03T00:00:00.000Z' }, { now: fixedNow, maxAgeMs: 120_000 })
+    const malformed = normalizeRuntimeStatus({ schemaVersion: 1, generatedAt: fixedNow.toISOString(), status: 'HEALTHY' }, { now: fixedNow, maxAgeMs: 120_000 })
+
+    expect(stale.status).toBe('UNKNOWN')
+    expect(stale.components.every((component) => component.status === 'UNKNOWN')).toBe(true)
+    expect(stale.operationalErrors).toContainEqual(expect.objectContaining({ code: 'RUNTIME_EVIDENCE_STALE' }))
+    expect(malformed.status).toBe('UNKNOWN')
+    expect(malformed.operationalErrors).toContainEqual(expect.objectContaining({ code: 'MALFORMED_RUNTIME_STATUS' }))
+  })
+
+  it('maps runtime broker and command distinctions without retaining secret fields', async () => {
+    const snapshot = await providerFor(() => jsonResponse({
+      ...healthyRuntimeRaw,
+      issues: [
+        { code: 'BROKER_DISCONNECTED', correlationId: 'nonce-100', password: 'private' },
+        { code: 'MQTT_RECONNECTING', nonce: 'nonce-101', payload: { token: 'private' } },
+        { code: 'COMMAND_TIMEOUT', authorization: 'private' },
+        { code: 'ACK_TIMEOUT' }, { code: 'STATUS_TIMEOUT' },
+        { code: 'PHYSICAL_CONFIRMATION_TIMEOUT' }, { code: 'PHYSICAL_STATE_MISMATCH' },
+      ],
+    })).getSnapshot()
+
+    expect(snapshot.operationalErrors.map((error) => error.code)).toEqual(expect.arrayContaining([
+      'MQTT_DISCONNECTED', 'MQTT_RECONNECTING', 'COMMAND_TIMEOUT', 'ACK_TIMEOUT', 'STATUS_TIMEOUT',
+      'PHYSICAL_CONFIRMATION_TIMEOUT', 'PHYSICAL_STATE_MISMATCH',
+    ]))
+    expect(snapshot.operationalErrors.find((error) => error.code === 'MQTT_DISCONNECTED')?.correlationId).toBe('nonce-100')
+    expect(JSON.stringify(snapshot.operationalErrors)).not.toMatch(/password|token|authorization|private|payload/)
+  })
+
+  it.each([
+    ['times out', () => { const error = new Error('token=private'); error.name = 'AbortError'; throw error }, 'ADAPTER_TIMEOUT'],
+    ['is unavailable', () => { throw new Error('password=private') }, 'ADAPTER_UNAVAILABLE'],
+    ['rejects response', () => jsonResponse({ token: 'private' }, { ok: false }), 'ADAPTER_RESPONSE_REJECTED'],
+  ])('records a safe error when the runtime adapter %s', async (_description, runtimeResponse, code) => {
+    const snapshot = await providerFor(runtimeResponse).getSnapshot()
+    expect(snapshot.operationalErrors).toContainEqual(expect.objectContaining({ code }))
+    expect(JSON.stringify(snapshot.operationalErrors)).not.toMatch(/token|password|private/)
+  })
+
+  it('maps malformed runtime responses into a safe status error', async () => {
+    const snapshot = await providerFor(() => jsonResponse('{not-json')).getSnapshot()
+    expect(snapshot.runtime.status).toBe('UNKNOWN')
+    expect(snapshot.operationalErrors).toContainEqual(expect.objectContaining({ code: 'MALFORMED_RUNTIME_STATUS' }))
   })
 })
