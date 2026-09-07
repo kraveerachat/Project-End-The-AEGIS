@@ -236,7 +236,7 @@ test('TELEM-API-3 a healthy agent is normalized into the Drive contract', async 
   assert.equal(data.maxAgeSeconds, 15)
   assert.deepEqual(
     Object.keys(data.metrics).sort(),
-    ['cpu', 'disk', 'memory', 'network', 'twingate', 'uptime'],
+    ['cpu', 'disk', 'memory', 'network', 'temperature', 'twingate', 'uptime'],
   )
 
   assert.equal(data.metrics.cpu.percent, 12.5)
@@ -422,6 +422,7 @@ test('TELEM-12 the response carries only approved telemetry keys', async () => {
     memory: ['available', 'usedBytes', 'totalBytes', 'percent', 'stale'],
     disk: ['available', 'scope', 'usedBytes', 'freeBytes', 'totalBytes', 'percent', 'health', 'reason'],
     network: ['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds', 'stale'],
+    temperature: ['available', 'celsius', 'sensor', 'stale'],
     twingate: ['available', 'scope', 'status', 'reason'],
     uptime: ['available', 'host', 'service'],
   }
@@ -429,7 +430,7 @@ test('TELEM-12 the response carries only approved telemetry keys', async () => {
     const { data } = await client.req('/api/telemetry')
     assert.deepEqual(
       Object.keys(data.metrics).sort(),
-      ['cpu', 'disk', 'memory', 'network', 'twingate', 'uptime'],
+      ['cpu', 'disk', 'memory', 'network', 'temperature', 'twingate', 'uptime'],
       `${role}: no metric may be added or dropped`,
     )
     for (const [name, keys] of Object.entries(allowed)) {

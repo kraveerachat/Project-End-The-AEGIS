@@ -39,6 +39,30 @@ edit_policy: owner-writable
 > Settings Account **Avatar Remove PASS / CLOSED**, Files **responsive tile/menu
 > PASS / CLOSED**, Private Vault **responsive menu PASS / CLOSED**.
 > **Backup classifier integration milestone**: PR #81 merged at `07ad78efdf1561f2a49a1ecc81440359b766b3bd`. This closes the classifier source/PR integration gate but does not itself change the running Production host Backup Agent. Resolve the live repository head from Git rather than treating this milestone SHA as a permanent `main` pointer.
+> **Host CPU package temperature — implemented, NOT deployed (2026-09-07)**: the
+> host telemetry agent now publishes `metrics.temperature` inside the existing
+> `/internal/telemetry` V1 snapshot, discovered by listing `/sys/class/thermal`
+> and selecting the zone whose `type` is exactly `x86_pkg_temp`; the Dashboard
+> renders it as a CPU temperature tile naming its sensor. The Dashboard Server
+> Telemetry card is now exactly six tiles — CPU / RAM / Disk on the first
+> desktop row, Network / Uptime / CPU temperature on the second. The Twingate
+> tile was dropped from that card because V1 has no approved connector source
+> and it could never display anything; `metrics.twingate` remains in the
+> `/api/telemetry` contract unchanged, and real connector health is planned for
+> the Storage & Backup disk-health view via `/api/remote-access`, not here. There is **no
+> fallback** — no `acpitz` (~27.8 °C chassis), no SSD SMART temperature
+> (~40 °C, a separate `/api/storage` contract), no other zone, no `0` — an
+> unusable sensor is `{ available: false }`. **No systemd privilege change was
+> required or made**: production preflight verified UID 29100 reading the
+> thermal sysfs under the existing sandbox, and `PrivateDevices=yes`,
+> `ProtectSystem=strict` and the empty capability set are untouched (the unit
+> diff is comment-only). ⚠️ **Status is implemented and locally verified only —
+> not built, not deployed, not production-accepted**, and the tile has never
+> rendered against the real sensor. ⚠️ **Rollout order is a hard constraint:
+> deploy the Drive image before restarting the agent.** Drive treats the new
+> group as optional and tolerates an older agent; an agent publishing it to an
+> older Drive trips `unexpected-metric-group` and blanks every telemetry tile.
+> Rollback reverses the order.
 > **Latest full-suite evidence**: **1012 total / 945 pass / 0 fail / 67 PostgreSQL-gated skips** on PR #80, plus focused Vault auto-lock suites **9/9 + 9/9 PASS**. PR #79 separately recorded Drive **992 total / 925 pass / 0 fail / 67 skips** and host telemetry **139 total / 136 pass / 0 fail / 3 platform-gated skips**.
 > **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Storage & Backup accepted manual/removable-media scope, Audit Log and Access Control are **PASS / CLOSED**. Private Vault includes the accepted direct-VLAN30 high-bitrate preview scope for `START_LIVE.mp4` (~1.1 GB): first frame ~8 s, >60 s continuous playback without observed buffering, and successful seek/resume. Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media scope** after Production `DIFFERENT_DEVICE`, two successful manual backups, repository integrity checks, two successful isolated restore verifications, healthy final UI regression, and matching Backup audit events. Settings remains **PARTIAL** only because the latest exhaustive profile/avatar sweep is still optional/not re-tested; **Security & Privacy is PASS / CLOSED**, including SECURITY-2. Real RAID1 remains **DEFERRED / FUTURE HARDWARE**, and automatic scheduled execution (`STORAGE-AUTO-2`) remains **NOT TESTED / optional for the borrowed-HGST acceptance scope**.
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.

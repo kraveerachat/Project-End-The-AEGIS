@@ -1,8 +1,13 @@
 // tests/agent.test.js — AEGIS host telemetry agent · wiring and read surface
 //
 // These assert the properties that no unit test of a single module can: that
-// the assembled agent reads exactly five allowlisted files, that it never
-// shells out, and that it opens no network listener of any kind.
+// the assembled agent opens exactly the allowlisted files, that it never shells
+// out, and that it opens no network listener of any kind.
+//
+// The file allowlist is asserted with the thermal reader's directory listing
+// stubbed empty, so this test measures the FIXED file surface alone. The
+// bounded /sys/class/thermal listing is the one dynamic read the agent makes,
+// and it has its own exact-surface assertions in tests/thermal.test.js.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -14,7 +19,7 @@ import { createFileReaders } from '../src/sources.js'
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
-test('the agent reads exactly the seven approved sources and nothing else', async () => {
+test('the agent reads exactly the seven approved fixed sources and nothing else', async () => {
   const opened = []
   const readers = createFileReaders(
     createAgent({ env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' }, readFile: async () => '0' }).config.sources,
@@ -37,6 +42,35 @@ test('the agent reads exactly the seven approved sources and nothing else', asyn
     // Docker socket — that stays with the collector and is never held here.
     '/var/lib/aegis-twingate-health/twingate-health.json',
   ])
+  // CPU package temperature is deliberately absent from this list: it is not a
+  // fixed source. It is discovered under one bounded directory, which is why
+  // `thermalRoot` is a separate config field rather than a `sources` entry.
+  assert.equal('hostTemperature' in createAgent({
+    env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' }, readFile: async () => '0',
+  }).config.sources, false)
+})
+
+test('the thermal read surface is one fixed directory and two files per zone', async () => {
+  const opened = []
+  const agent = createAgent({
+    env: { AEGIS_TELEMETRY_INTERFACE: 'enp1s0' },
+    readFile: async (p) => { opened.push(p); return p.endsWith('/type') ? 'x86_pkg_temp' : '55000' },
+    readdir: async (root) => {
+      // The root is a source constant. Nothing — not the environment, not a
+      // request — can point this listing somewhere else.
+      assert.equal(root, '/sys/class/thermal')
+      return ['thermal_zone0', 'cooling_device0']
+    },
+  })
+  assert.equal(agent.config.thermalRoot, '/sys/class/thermal')
+
+  await agent.sampler.sampleOnce()
+
+  assert.deepEqual(
+    opened.filter((p) => p.startsWith('/sys/class/thermal')),
+    ['/sys/class/thermal/thermal_zone0/type', '/sys/class/thermal/thermal_zone0/temp'],
+    'cooling_device0 must never be opened',
+  )
 })
 
 test('an empty AEGIS_TELEMETRY_DISK_HEALTH_FILE disables the sixth read entirely', () => {

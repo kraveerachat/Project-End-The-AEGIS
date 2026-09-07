@@ -58,6 +58,7 @@ const telemetry = (overrides = {}) => ({
       available: true, interface: 'enp1s0',
       rxBytesPerSec: 2_411_724, txBytesPerSec: 524_288, windowSeconds: 5, stale: false,
     },
+    temperature: { available: true, celsius: 55.8, sensor: 'x86_pkg_temp', stale: false },
     twingate: { available: false, scope: 'server-connector', status: 'unavailable', reason: 'no-approved-source' },
     uptime: {
       available: true,
@@ -158,10 +159,15 @@ test('TELEM-UI-12 a withheld metric would still be distinguished from an unmeasu
 // ── the pre-existing contract, unchanged ──────────────────────────────
 test('Server Telemetry renders six truthful unavailable metric cards', () => {
   const html = render(null)
-  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'Twingate', 'System uptime']) {
+  // The approved Dashboard layout: CPU / RAM / Disk on the first desktop row,
+  // Network / Uptime / CPU temperature on the second.
+  for (const label of ['CPU', 'RAM', 'Disk', 'Network', 'System uptime', 'CPU temperature']) {
     assert.match(html, new RegExp(`>${label}<`), `${label} card must be visible`)
   }
+  assert.doesNotMatch(html, />Twingate</, 'Twingate is not a Dashboard tile')
   assert.equal((html.match(/aria-label="[^"]+ · Unavailable"/g) ?? []).length, 6)
+  // The `°C` alternative in this pattern is now load-bearing rather than
+  // hypothetical: there is a real temperature tile that must not invent a 0.
   assert.doesNotMatch(html, /0(?:\.0+)?\s*(?:%|°C|ms|Mbps|Kbps|GB)/)
 })
 
@@ -227,10 +233,43 @@ test('TELEM-UI-5 Drive service uptime survives a dead host agent', () => {
   assert.match(html, /No data/, 'the host half must say so rather than borrow the service value')
 })
 
-// ── TELEM-UI-6 · Twingate ─────────────────────────────────────────────
-test('TELEM-UI-6 Twingate is truthfully unavailable, never implied online', () => {
+// ── TELEM-UI-14 · the approved Dashboard layout ───────────────────────
+// Pins the exact tile set AND their order, because the approved layout is a
+// two-row desktop grid and order is what puts each tile in its row:
+//
+//   CPU      | RAM      | Disk
+//   Network  | Uptime   | CPU temperature
+//
+// A count-only assertion would pass if two tiles swapped places.
+test('TELEM-UI-14 the Dashboard renders exactly the six approved tiles, in order', () => {
+  for (const data of [null, telemetry()]) {
+    const html = renderToStaticMarkup(
+      React.createElement(ServerTelemetry, { t: makeT('en'), data }),
+    )
+    const labels = [...html.matchAll(/aria-label="([^"·]+) · /g)].map((m) => m[1].trim())
+
+    assert.deepEqual(labels, [
+      'CPU', 'RAM', 'Disk', 'Network', 'System uptime', 'CPU temperature',
+    ])
+    assert.equal(labels.length, 6, 'exactly six Dashboard telemetry tiles')
+    assert.equal(labels.includes('Twingate'), false, 'Twingate is not a Dashboard tile')
+  }
+})
+
+// ── TELEM-UI-6 · Twingate is not a Dashboard tile ─────────────────────
+// It used to render as a permanently-unavailable tile, because V1 has no
+// approved connector source. The approved layout drops it instead: a tile that
+// can never say anything is not more honest than no tile, it is just noise.
+//
+// The BACKEND field is untouched — /api/telemetry still carries
+// metrics.twingate — so this is a presentation change only. Real connector
+// health is planned for the Storage & Backup disk-health view via
+// /api/remote-access, which reports local container evidence rather than a
+// control-plane status nothing measures.
+test('TELEM-UI-6 no Twingate tile is rendered, and nothing implies a connection', () => {
   const html = render(telemetry())
-  assert.match(html, /Twingate · Unavailable/)
+  assert.doesNotMatch(html, />Twingate</, 'the Dashboard renders no Twingate tile')
+  assert.doesNotMatch(html, /Twingate · /, 'and therefore no Twingate tile state')
   assert.doesNotMatch(html, /Connected|Online|Reachable/)
 })
 
@@ -258,11 +297,15 @@ test('TELEM-UI-8 an unavailable metric never renders a fabricated zero', () => {
       health: { available: false, reason: 'smart-not-observable' },
     },
     network: { available: false },
+    // Temperature is in this sweep too: 0 °C is a plausible-looking reading,
+    // which makes it exactly the kind of fabricated zero this test exists for.
+    temperature: { available: false },
     uptime: { available: true, host: { available: false }, service: { available: true, seconds: 7_200 } },
   }))
   // Nothing may render as a zero measurement of any unit.
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*(?:%|B|KB|MB|GB|TB)\b/)
   assert.doesNotMatch(html, /\b0(?:\.0+)?\s*[KMGT]?B\/s/)
+  assert.doesNotMatch(html, /0(?:\.0+)?\s*°C/)
   assert.equal((html.match(/· Unavailable"/g) ?? []).length >= 5, true)
 })
 
@@ -292,14 +335,16 @@ test('TELEM-UI-9 stale host metrics are visibly distinguishable from fresh ones'
   assert.equal((stale.match(/>Stale</g) ?? []).length, 2, 'only the stale metrics are labelled')
 })
 
-// ── TELEM-UI-13 · Twingate stays truthful ─────────────────────────────
-// Widening host-metric visibility did not connect a Twingate source. The tile
-// must never read Online, Connected, or Reachable while none exists.
-test('TELEM-UI-13 the Twingate tile claims no connection for any authenticated user', () => {
+// ── TELEM-UI-13 · no connection is ever implied ───────────────────────
+// Widening host-metric visibility did not connect a Twingate source, and
+// dropping the tile did not quietly add one somewhere else. Nothing on this
+// card may read Online, Connected, or Reachable while no approved source
+// exists — asserted here even though the tile itself is gone, because the
+// claim, not the tile, is what mattered.
+test('TELEM-UI-13 no telemetry tile claims a connection for any authenticated user', () => {
   const html = render(telemetry())
 
-  assert.match(html, /Twingate · Unavailable/)
-  assert.match(html, /No telemetry source connected/)
+  assert.doesNotMatch(html, />Twingate</)
   for (const claim of [/>Online</, />Connected</, />Reachable</]) {
     assert.doesNotMatch(html, claim, 'no approved connector source exists')
   }

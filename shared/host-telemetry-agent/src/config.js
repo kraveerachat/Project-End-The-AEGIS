@@ -46,6 +46,17 @@ export const DEFAULT_DISK_HEALTH_FILE = '/var/lib/aegis-disk-health/disk-health.
  */
 export const DEFAULT_TWINGATE_HEALTH_FILE = '/var/lib/aegis-twingate-health/twingate-health.json'
 
+/**
+ * The one directory the agent is allowed to LIST, for CPU package temperature.
+ *
+ * It is a constant rather than an environment variable on purpose: every other
+ * path in this config can be pointed somewhere by the unit file, but a
+ * listable directory is a strictly larger privilege than a named file, so it
+ * is fixed in source where it can be reviewed once. See src/thermal.js for the
+ * bounding rules applied inside it.
+ */
+export const THERMAL_ROOT = '/sys/class/thermal'
+
 const SYS_CLASS_NET = '/sys/class/net'
 const MAX_INTERFACE_LENGTH = 15 // Linux IFNAMSIZ is 16 including the NUL
 
@@ -149,6 +160,11 @@ export function loadAgentConfig(env = process.env) {
     intervalMs,
     diskHealthFile: diskHealthFile || null,
     twingateHealthFile: twingateHealthFile || null,
+    // Deliberately NOT a member of `sources`: everything in that map is a file
+    // opened with readFile, and this is a directory that gets listed. Keeping
+    // it separate is what lets the read-surface test keep asserting an exact
+    // list of files while naming the one directory alongside it.
+    thermalRoot: THERMAL_ROOT,
     sources,
   }
 }

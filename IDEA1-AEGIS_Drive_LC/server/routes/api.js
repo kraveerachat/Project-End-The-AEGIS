@@ -995,7 +995,10 @@ apiRouter.post('/backup/verify', requireRole(ROLES.ADMIN), forwardBackupCommand(
 //    ตอนนี้ไม่ทำแล้ว และไม่ได้แก้ที่หน้าจอ แต่แก้ที่นโยบายจริงฝั่งเซิร์ฟเวอร์
 // ⚠️ ขอบเขตการอนุญาตเหลือชั้นเดียวคือ requireAuth และไม่ถูกลดทอน — ไม่มีเซสชัน = 401
 //    เสมอ ไม่มีเส้นทางสาธารณะใหม่ใน nginx (ดูเหตุผลเต็มที่ server/telemetry/index.js)
-// ⚠️ ไม่มีการเปิดฟิลด์ telemetry ใหม่แม้แต่ฟิลด์เดียว — allowlist ยังเป็น schema V1 เดิม
+// ⚠️ allowlist ยังเป็น schema V1 — การมองเห็น (visibility) ไม่เคยเพิ่มฟิลด์ให้ใครเลย
+//    (2026-09-07: เพิ่ม metrics.temperature — CPU package จาก host agent — เป็น
+//     optional metric group ใน schema เดิม ไม่ใช่ schema ใหม่ และทุก role
+//     ยังได้ response รูปร่างเดียวกันเป๊ะ ดู server/telemetry/schema.js)
 //    ทุกประการ ที่เปลี่ยนคือ "ใครเห็น" ไม่ใช่ "เห็นอะไร" ดังนั้น Admin กับ DataLake-User
 //    ได้ response รูปร่างเดียวกันเป๊ะ ไม่ใช่ผู้ใช้ทั่วไปได้ข้อมูลเครื่องกว้างกว่าเดิม
 // ⚠️ ไม่รับพารามิเตอร์ใด ๆ จาก client เลย: interface และ socket path เป็นค่าคอนฟิกฝั่ง

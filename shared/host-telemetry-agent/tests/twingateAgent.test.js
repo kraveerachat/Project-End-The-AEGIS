@@ -59,7 +59,10 @@ test('TWAGENT-1 the V1 telemetry snapshot shape is unchanged by the connector re
   })
   const snapshot = await sampler.sampleOnce()
   assert.deepEqual(Object.keys(snapshot).sort(), ['measuredAt', 'metrics', 'schemaVersion'])
-  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  // See the note in diskHealthAgent.test.js: `temperature` belongs to the
+  // snapshot itself and is unavailable here because no thermal reader is wired.
+  // The property under test is that the CONNECTOR read adds no metric group.
+  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   assert.equal('twingate' in snapshot.metrics, false, 'a new metric group would break every deployed Drive V1 validator')
   assert.equal('connector' in snapshot, false)
 })
