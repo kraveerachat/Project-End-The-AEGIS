@@ -80,9 +80,8 @@ const duration = (seconds) => (number(seconds) ? fmtCountdown(seconds * 1000) : 
 function metricState(id, metric, loading = false) {
   if (!metric) return loading ? 'loading' : 'unavailable'
   if (id === 'temperature') {
-    if (metric.available !== true || !number(metric.temperatureCelsius)) return 'unavailable'
+    if (metric.available !== true || !number(metric.celsius)) return 'unavailable'
     if (metric.stale === true) return 'stale'
-    if (Array.isArray(metric.warnings) && metric.warnings.includes('temperature-high')) return 'warning'
     return 'available'
   }
   if (metric.available !== true) {
@@ -174,9 +173,12 @@ function MetricRows({ t, id, metric }) {
 
   if (id === 'temperature') {
     return (
-      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {metric.temperatureCelsius} °C
-      </strong>
+      <>
+        <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {metric.celsius} °C
+        </strong>
+        <span>{t('telemetryTemperatureSource')}</span>
+      </>
     )
   }
 
@@ -243,15 +245,13 @@ function TelemetryTile({ t, definition, value, loading }) {
  * @param {object} props
  * @param {object|null} props.data a full /api/telemetry response, or null when
  *   there is nothing to show.
- * @param {object|null} props.diskHealth the /api/storage diskHealth evidence
- *   used only for the Temperature tile. It remains separate from V1 telemetry.
  * @param {boolean} [props.loading] true while the first request for this screen
  *   is still in flight. It only changes tiles that have no value yet: "not
  *   asked" and "asked and failed" are different facts, and a tile must not
  *   accuse a source that has not been queried. A refresh over data already on
  *   screen leaves that data visible.
  */
-export function ServerTelemetry({ t, data, loading = false, diskHealth = null, diskHealthLoading = false }) {
+export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
     <Card className="p-5">
@@ -262,8 +262,8 @@ export function ServerTelemetry({ t, data, loading = false, diskHealth = null, d
             key={definition.id}
             t={t}
             definition={definition}
-            value={definition.id === 'temperature' ? diskHealth : metrics?.[definition.id]}
-            loading={definition.id === 'temperature' ? diskHealthLoading : loading}
+            value={metrics?.[definition.id]}
+            loading={loading}
           />
         ))}
       </div>

@@ -54,6 +54,7 @@ export const AGENT_METRIC_KEYS = Object.freeze({
   cpu: Object.freeze(['available', 'percent', 'windowSeconds']),
   memory: Object.freeze(['available', 'usedBytes', 'totalBytes', 'percent']),
   network: Object.freeze(['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds']),
+  temperature: Object.freeze(['available', 'celsius', 'sensor']),
   uptime: Object.freeze(['available', 'hostSeconds']),
 })
 
@@ -82,6 +83,7 @@ export function projectAgentSnapshot(snapshot) {
       cpu: projectMetric('cpu', snapshot.metrics?.cpu),
       memory: projectMetric('memory', snapshot.metrics?.memory),
       network: projectMetric('network', snapshot.metrics?.network),
+      temperature: projectMetric('temperature', snapshot.metrics?.temperature),
       uptime: projectMetric('uptime', snapshot.metrics?.uptime),
     },
   }

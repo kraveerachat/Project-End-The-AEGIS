@@ -2,9 +2,11 @@
 
 A minimal, dedicated agent that publishes host metrics to AEGIS Drive over a
 Unix socket. It exists so the Drive container can show real CPU, memory,
-network and uptime numbers **without** being granted host access.
+network, uptime and CPU-package temperature **without** being granted host
+access.
 
-**Not deployed.** See [`deploy/README.md`](./deploy/README.md).
+**The CPU-package temperature extension in this branch is not deployed.** See
+[`deploy/README.md`](./deploy/README.md).
 
 ## Design in one page
 
@@ -34,9 +36,10 @@ network and uptime numbers **without** being granted host access.
 Why an agent rather than giving Drive host access: the alternative designs all
 require something this system should not have — a privileged container, the
 Docker socket, the host PID namespace, or a host `/proc` mount. Each of those
-grants far more than "read five numbers". A separate unprivileged process that
-can only ever read those five files, exposed through one group-restricted
-socket, is the smallest thing that works.
+grants far more than the approved measurements. A separate unprivileged
+process restricted to fixed `/proc`/network files and bounded thermal-zone
+discovery, exposed through one group-restricted socket, is the smallest thing
+that works.
 
 ## Contract
 
@@ -53,15 +56,26 @@ even by a compromised process.
     "memory":  { "available": true, "usedBytes": 0, "totalBytes": 0, "percent": 0 },
     "network": { "available": true, "interface": "enp1s0",
                  "rxBytesPerSec": 0, "txBytesPerSec": 0, "windowSeconds": 5 },
+    "temperature": { "available": true, "celsius": 54, "sensor": "x86_pkg_temp" },
     "uptime":  { "available": true, "hostSeconds": 86400.55 }
   }
 }
 ```
 
 Response keys are strictly allowlisted (this V1 contract is unchanged by the
-disk-health addition below). The agent publishes no hostname, no
+separate disk-health addition below). `temperature` is an additive optional
+group for Drive compatibility during a Drive-first rollout: new agents always
+emit it as measured or unavailable, while new Drive releases still accept an
+older snapshot without it. The agent publishes no hostname, no
 usernames, no process list, no container or Docker data, no MAC or IP address,
 no filesystem paths, and no raw `/proc` or `/sys` content.
+
+Temperature discovery lists only `/sys/class/thermal`, accepts only names that
+match `thermal_zone<N>`, and selects the exact `x86_pkg_temp` type before
+reading that zone's `temp`. Zone numbering is never assumed. ACPI and SMART
+SSD temperatures are not fallbacks; absent, unreadable, malformed or negative
+package temperature is `{ "available": false }`. A measured zero remains a
+measurement and is never synthesized for an unavailable source.
 
 **`available: false` is always alone.** An unmeasurable metric is exactly
 `{ "available": false }` with no numbers beside it. A zero would be
@@ -142,8 +156,9 @@ Rules, all pinned by tests:
   cross the socket. `model` is the only free-text field, bounded to 64
   printable characters.
 
-The V1 `/internal/telemetry` body is byte-for-byte unchanged; no `disk` metric
-group was added to it.
+Physical disk health remains separate; no `disk` metric group was added to
+`/internal/telemetry`. In particular, SMART `temperatureCelsius` describes the
+SSD and is not the Dashboard Server / CPU Package Temperature.
 
 ## Configuration
 

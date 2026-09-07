@@ -45,12 +45,14 @@ const MAX_INTERFACE_LENGTH = 15 // Linux IFNAMSIZ minus the NUL
 const INTERFACE_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9_.:-]*[A-Za-z0-9])?$/
 
 const TOP_LEVEL_KEYS = ['schemaVersion', 'measuredAt', 'metrics']
-const METRIC_NAMES = ['cpu', 'memory', 'network', 'uptime']
+const REQUIRED_METRIC_NAMES = ['cpu', 'memory', 'network', 'uptime']
+const METRIC_NAMES = [...REQUIRED_METRIC_NAMES, 'temperature']
 
 const METRIC_KEYS = {
   cpu: ['available', 'percent', 'windowSeconds'],
   memory: ['available', 'usedBytes', 'totalBytes', 'percent'],
   network: ['available', 'interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds'],
+  temperature: ['available', 'celsius', 'sensor'],
   uptime: ['available', 'hostSeconds'],
 }
 
@@ -123,6 +125,12 @@ function validateMetric(name, metric) {
     return null
   }
 
+  if (name === 'temperature') {
+    if (!isFiniteNumber(metric.celsius) || metric.celsius < 0) return 'metrics.temperature-celsius-invalid'
+    if (metric.sensor !== 'x86_pkg_temp') return 'metrics.temperature-sensor-invalid'
+    return null
+  }
+
   if (!isFiniteNumber(metric.hostSeconds) || metric.hostSeconds < 0) {
     return 'metrics.uptime-invalid'
   }
@@ -148,9 +156,13 @@ export function validateAgentSnapshot(raw, { now = Date.now(), clockToleranceMs 
   const metrics = raw.metrics
   if (!isPlainObject(metrics)) return fail('metrics-not-an-object')
   if (!hasOnlyKeys(metrics, METRIC_NAMES)) return fail('unexpected-metric-group')
-  for (const name of METRIC_NAMES) {
+  for (const name of REQUIRED_METRIC_NAMES) {
     if (!(name in metrics)) return fail(`missing-metrics.${name}`)
     const reason = validateMetric(name, metrics[name])
+    if (reason) return fail(reason)
+  }
+  if ('temperature' in metrics) {
+    const reason = validateMetric('temperature', metrics.temperature)
     if (reason) return fail(reason)
   }
 

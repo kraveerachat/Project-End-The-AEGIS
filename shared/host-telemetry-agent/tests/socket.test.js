@@ -47,6 +47,7 @@ async function readySampler() {
       networkRx: async () => state.rx,
       networkTx: async () => state.tx,
       uptime: async () => '86400.55 172800.10\n',
+      temperature: async () => ({ sensor: 'x86_pkg_temp', millidegreesCelsius: '54000\n' }),
     },
   })
   await sampler.sampleOnce()
@@ -101,6 +102,7 @@ test('TELEM-SOCKET-1 GET /internal/telemetry returns the latest snapshot', async
   assert.equal(body.metrics.network.interface, 'enp1s0')
   assert.equal(body.metrics.memory.totalBytes, 8138332 * 1024)
   assert.equal(body.metrics.uptime.hostSeconds, 86400.55)
+  assert.deepEqual(body.metrics.temperature, { available: true, celsius: 54, sensor: 'x86_pkg_temp' })
 })
 
 test('TELEM-SOCKET-1 answers 503 before the first sample exists', async () => {
@@ -151,7 +153,7 @@ test('TELEM-SOCKET-4 the response body carries only allowlisted keys', async () 
   const body = JSON.parse((await request(socketPath)).body)
 
   assert.deepEqual(Object.keys(body).sort(), [...AGENT_TOP_LEVEL_KEYS].sort())
-  assert.deepEqual(Object.keys(body.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  assert.deepEqual(Object.keys(body.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   for (const [name, metric] of Object.entries(body.metrics)) {
     for (const key of Object.keys(metric)) {
       assert.ok(AGENT_METRIC_KEYS[name].includes(key), `metrics.${name}.${key} is not allowlisted`)

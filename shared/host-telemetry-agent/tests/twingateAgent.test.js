@@ -59,7 +59,7 @@ test('TWAGENT-1 the V1 telemetry snapshot shape is unchanged by the connector re
   })
   const snapshot = await sampler.sampleOnce()
   assert.deepEqual(Object.keys(snapshot).sort(), ['measuredAt', 'metrics', 'schemaVersion'])
-  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   assert.equal('twingate' in snapshot.metrics, false, 'a new metric group would break every deployed Drive V1 validator')
   assert.equal('connector' in snapshot, false)
 })

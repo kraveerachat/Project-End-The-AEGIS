@@ -12,7 +12,10 @@
 // real measurement, which is what the Drive schema and the dashboard rely on.
 import { diskHealthFromFileText } from './diskHealth.js'
 import { twingateHealthFromFileText } from './twingateHealth.js'
-import { cpuPercentFromDelta, networkRateFromDelta, parseMemInfo, parseNetworkCounter, parseProcStat, parseUptime } from './parsers.js'
+import {
+  cpuPercentFromDelta, networkRateFromDelta, parseCpuPackageTemperature,
+  parseMemInfo, parseNetworkCounter, parseProcStat, parseUptime,
+} from './parsers.js'
 
 /** The single unavailable shape. Frozen so no caller can bolt a zero onto it. */
 const UNAVAILABLE = Object.freeze({ available: false })
@@ -24,6 +27,15 @@ async function readOrNull(reader) {
     return typeof value === 'string' ? value : null
   } catch {
     return null // EACCES / ENOENT / EIO are all "unknown", never "zero"
+  }
+}
+
+/** The thermal reader returns a small internal object rather than file text. */
+async function readValueOrNull(reader) {
+  try {
+    return typeof reader === 'function' ? await reader() : null
+  } catch {
+    return null
   }
 }
 
@@ -70,12 +82,13 @@ export function createSampler({
 
   async function sampleOnce() {
     const atMs = now()
-    const [statText, memText, rxText, txText, uptimeText, diskText, twingateText] = await Promise.all([
+    const [statText, memText, rxText, txText, uptimeText, temperatureRaw, diskText, twingateText] = await Promise.all([
       readOrNull(readers.procStat),
       readOrNull(readers.memInfo),
       readOrNull(readers.networkRx),
       readOrNull(readers.networkTx),
       readOrNull(readers.uptime),
+      readValueOrNull(readers.temperature),
       diskConfigured ? readOrNull(readers.diskHealth) : Promise.resolve(null),
       twingateConfigured ? readOrNull(readers.twingateHealth) : Promise.resolve(null),
     ])
@@ -127,12 +140,18 @@ export function createSampler({
       ? { available: true, hostSeconds }
       : UNAVAILABLE
 
+    // ── CPU package temperature ──────────────────────────────────────
+    const parsedTemperature = parseCpuPackageTemperature(temperatureRaw)
+    const temperature = parsedTemperature
+      ? { available: true, ...parsedTemperature }
+      : UNAVAILABLE
+
     // Timestamped even when every source failed: a fully unavailable snapshot
     // is still evidence, and Drive needs the age to decide staleness.
     latest = {
       schemaVersion: 1,
       measuredAt: new Date(atMs).toISOString(),
-      metrics: { cpu, memory, network, uptime },
+      metrics: { cpu, memory, network, temperature, uptime },
     }
     return latest
   }

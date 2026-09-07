@@ -51,7 +51,7 @@ test('DISKAGENT-1 the V1 telemetry snapshot shape is unchanged by the disk-healt
   const sampler = createSampler({ interfaceName: 'enp1s0', readers: readersWith(JSON.stringify(validEvidence())), now: () => NOW })
   const snapshot = await sampler.sampleOnce()
   assert.deepEqual(Object.keys(snapshot).sort(), ['measuredAt', 'metrics', 'schemaVersion'])
-  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   assert.equal('disk' in snapshot.metrics, false, 'a new metric group would break every deployed Drive V1 validator')
 })
 
@@ -136,7 +136,7 @@ test('DISKAGENT-7 GET /internal/disk-health serves the projected evidence with n
     // The V1 route is byte-for-byte the same contract it was.
     const v1 = await get(socketPath, TELEMETRY_ROUTE)
     assert.equal(v1.status, 200)
-    assert.deepEqual(Object.keys(v1.body.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+    assert.deepEqual(Object.keys(v1.body.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
     // No third route appeared.
     assert.equal((await get(socketPath, '/internal/disk')).status, 404)
   } finally {

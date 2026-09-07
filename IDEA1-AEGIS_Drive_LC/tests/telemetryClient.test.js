@@ -63,6 +63,18 @@ test('a healthy agent yields a validated snapshot', async () => {
   assert.equal(result.snapshot.metrics.network.interface, 'enp1s0')
 })
 
+test('the client accepts the additive CPU package temperature metric', async () => {
+  const socketPath = await fakeAgent((_req, res) => {
+    const body = snapshotBody()
+    body.metrics.temperature = { available: true, celsius: 54, sensor: 'x86_pkg_temp' }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(body))
+  })
+  const result = await fetchHostTelemetry({ socketPath, now: NOW })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.snapshot.metrics.temperature, { available: true, celsius: 54, sensor: 'x86_pkg_temp' })
+})
+
 // ── TELEM-11C · Unix socket only ──────────────────────────────────────
 test('TELEM-11C the client can only address a socket path, never a host or port', async () => {
   // There is no parameter through which a URL could enter, and anything that

@@ -3,8 +3,9 @@
 // One normalized contract assembled from three sources with three different
 // trust levels, kept visibly separate rather than blended:
 //
-//   host agent   CPU, memory, network, host uptime — a separate process on the
-//                host, read over a Unix socket, validated as untrusted input.
+//   host agent   CPU, memory, network, host uptime and CPU package temperature
+//                — a separate process on the host, read over a Unix socket and
+//                validated as untrusted input.
 //   Drive local  Data Lake capacity (statfs on the mount Drive already has) and
 //                this process's own uptime. Always measurable.
 //   static       Twingate. There is no approved source for connector state in
@@ -136,6 +137,7 @@ export async function buildTelemetry({
     ['interface', 'rxBytesPerSec', 'txBytesPerSec', 'windowSeconds'],
     stale,
   )
+  const temperature = hostMetric(hostMetrics?.temperature, ['celsius', 'sensor'], stale)
 
   // Host uptime and Drive service uptime answer different questions — "has the
   // machine rebooted" versus "has this container restarted" — so they are kept
@@ -169,6 +171,7 @@ export async function buildTelemetry({
       memory,
       disk: diskMetric,
       network,
+      temperature,
       twingate: TWINGATE,
       uptime: {
         available: hostUptime.available || service.available,
