@@ -156,35 +156,112 @@ literally the same text, so an operator reading `.env` sees exactly what
 recipients receive. Every other rejection (non-HTTPS, credentials, non-root path,
 query, fragment) is unchanged, and a valid value is still normalised once.
 
-### Verification C — isolated PostgreSQL migration evidence — **BLOCKED**
+### Verification C — isolated PostgreSQL migration evidence — **COMPLETED**
 
-**Not completed, and not faked.** Migration 009 still has not been executed
-against a real PostgreSQL database, so the PR stays Draft.
+The owner started Docker Desktop, and the verification the earlier revision
+recorded as blocked has now been executed. Everything below is observed output,
+not inference.
 
-Exact blocker, established rather than assumed:
+**Environment.** `docker version` reports Server *Docker Desktop 4.43.2, engine
+28.3.2*. A throwaway container `aegis-public-share2-pgtest` ran
+`postgres:16` (**PostgreSQL 16.15**) published on `127.0.0.1:55439` only, with a
+synthetic password. Its **only** mount is the anonymous volume the image declares
+for `PGDATA` (`12cbe9333188…`), verified by `docker inspect`; no AEGIS volume
+(`aegis_system_postgres_data`, `aegis_system_drive_storage`,
+`aegisdrivetest_postgres_data`) is attached. The six pre-existing local dev
+containers were all `Exited` and none was started, stopped, or altered.
+**No Production database, credential, dump, volume, host or `.env` was used or
+contacted at any point.**
 
-- `docker version` fails with
-  `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`.
-- Docker Desktop is installed at `C:\Program Files\Docker\Docker\Docker Desktop.exe`
-  and was launched twice from this session; no `*docker*` process survives the
-  launch.
-- Its privileged helper `com.docker.service` reports **Stopped**. Starting a
-  Windows service requires elevation, which is a system-settings change this task
-  will not make on its own.
-- No PostgreSQL is listening on `127.0.0.1:5432`, `:5433` or `:55432`.
-- `TEST_DATABASE_URL` is unset and no `.env.test` exists.
+**Upgrade path, not a fresh install.** The test database was built from the
+pre-PR#99 base schema taken from Git, not from this branch:
+`git show 867f1ccf7714394217987978df00ba5fad7882e8:IDEA1-AEGIS_Drive_LC/server/db/schema.sql`
+(blob `4c325785a4e8dc9152b864aa633555ce24484f3d`). Its constraint before any
+migration was, read from the catalog:
 
-Consequently the 69 PostgreSQL-gated tests still skip, and every assertion the
-review asks for — migration run #1 and #2, row preservation, the real
-`shares_scope_check` definition read from `pg_constraint`, the `public` insert,
-the legacy `vlan`/`subnet` inserts, the rejected `internet` insert, and the
-untouched-column checks — remains **unobserved**. The static DDL contract tests
-(`PS2-MIG-1..5`) are the only migration evidence this receipt carries, and they
-are not a substitute.
+```text
+shares_scope_check => CHECK ((scope = ANY (ARRAY['any'::text, 'zones'::text, 'vlan'::text, 'subnet'::text])))
+```
 
-To unblock: start Docker Desktop (needs elevation), or provide a
-`TEST_DATABASE_URL` pointing at a throwaway database. Production must never be
-used, and was not.
+**Synthetic seed.** One synthetic user (id 9001), one synthetic file (id 9101)
+and four shares, one per pre-migration legal scope — no real AEGIS user, file,
+token or password anywhere:
+
+| id | scope | hits | token_hash prefix | vlan_scope |
+| :--- | :--- | :--- | :--- | :--- |
+| 9201 | `any` | 3 | `aaaaaaaa` | `{}` |
+| 9202 | `zones` | 0 | `bbbbbbbb` | `{192.0.2.0/24}` |
+| 9203 | `vlan` | 7 | `cccccccc` | `{198.51.100.0/24}` |
+| 9204 | `subnet` | 1 | `dddddddd` | `{203.0.113.0/24}` |
+
+`PRE_COUNT=4`. A `scope='public'` insert **before** the migration was rejected —
+`ERROR: new row for relation "shares" violates check constraint
+"shares_scope_check"` — proving the migration is what enables the value.
+
+**Migration runs.** `009_public_share_scope.sql` applied with
+`psql -v ON_ERROR_STOP=1`:
+
+```text
+run #1 → BEGIN / DO / ALTER TABLE / COMMIT   exit 0   PASS
+run #2 → BEGIN / DO / ALTER TABLE / COMMIT   exit 0   PASS   (idempotent, observed)
+```
+
+**Real catalog end state**, read with `pg_get_constraintdef` rather than trusted
+from the file:
+
+```text
+shares_scope_check => CHECK ((scope = ANY (ARRAY['any'::text, 'zones'::text, 'public'::text, 'vlan'::text, 'subnet'::text])))
+```
+
+**Post-migration assertions, all observed:**
+
+- **Rows preserved** — all four seeded rows intact after both runs
+  (`POST_COUNT=4`), with `scope`, `hits`, `token_hash`, `password_hash`,
+  `vlan_scope`, `revoked` and a still-future `expires_at` unchanged.
+- **`public` insert succeeds** — `INSERT 0 1` (id 9205).
+- **Legacy `vlan` / `subnet` still accepted** — `INSERT 0 2` (ids 9206, 9207).
+- **Invalid `scope='internet'` rejected** — check-constraint violation inside a
+  savepoint, rolled back; the session stayed usable (`still_usable=7`).
+- **Unrelated columns unchanged in contract** — `token_hash character NULL`,
+  `password_hash text NULL`, `vlan_scope ARRAY NOT NULL DEFAULT '{}'::text[]`,
+  `expires_at timestamptz NOT NULL`, `revoked boolean NOT NULL DEFAULT false`,
+  `hits integer NOT NULL DEFAULT 0`; `shares_token_hash_idx` unique index still
+  present.
+- **`users.share_default_scope` still private-only** —
+  `CHECK ((share_default_scope = ANY (ARRAY['any'::text, 'zones'::text])))`, and
+  an `UPDATE … SET share_default_scope='public'` was rejected by that constraint.
+- **Fresh install and migrated database agree** — a second database created from
+  this branch's `schema.sql` produces a byte-identical `shares_scope_check`
+  definition, so `PS2-MIG-5` is now observed rather than argued.
+
+**PostgreSQL-gated tests, run against the isolated database only.** The harness
+target was `postgresql://drive_app:…@127.0.0.1:55439/aegis_drive_apptest`, checked
+before running anything that resets tables. A least-privilege `drive_app` role was
+provisioned exactly as `postgres/init/02-app-roles.sh` does (LOGIN NOSUPERUSER
+NOCREATEDB NOCREATEROLE, DML-only, `REVOKE CONNECT … FROM PUBLIC`), and confirmed
+unable to alter schema (`ERROR: must be owner of table shares`) — without that,
+two identity-decoupling tests fail for the wrong reason.
+
+```text
+tests/publicShareBackend.test.js  19 tests, 19 pass, 0 fail, 0 skips
+tests/shareRedemption.test.js     17 tests, 17 pass, 0 fail, 0 skips
+full npm test (PostgreSQL)      1099 tests, 1098 pass, 1 fail, 0 skips
+```
+
+The full PostgreSQL run additionally set `AEGIS_PGTEST_SUPER_URL`, which closes
+the last five migration-probe skips, so **every one of the 69 previously gated
+tests was observed**. The single failure is the pre-existing `AUTOLOCK-5`.
+
+**One defect in this task's own test code was found by the PostgreSQL run.**
+`PS2-INGRESS-1` read `event.sourceIp`, but `readAudit()` returns snake_case rows
+from PostgreSQL and camelCase from the in-memory store, so the assertion was
+silently `undefined` under PostgreSQL. The **production behaviour was correct** —
+the audit row read directly from the database is
+`share-link | SHARE_REDEEM | OK | 203.0.113.50`, the external recipient and not
+the gateway peer. The test now uses `event?.source_ip ?? event?.sourceIp`, the
+same guard `tests/shareRedemption.test.js` already used. This was a test bug that
+only a real database could expose, which is precisely why the review required
+this gate.
 
 ### Correction to an earlier figure in this receipt
 
@@ -244,13 +321,14 @@ screen offers exactly `zones` and `any` and still renders the unavailable notice
 
 ## Verification evidence
 
-- `npm test` in `IDEA1-AEGIS_Drive_LC` — **1099 tests, 1029 pass, 1 fail, 69 PostgreSQL-gated skips** (re-run after the PR #99 amendments; +2 tests are the new `PS2-CFG-2b` and `PS2-CFG-6b`). **PUBLIC-SHARE-2 introduced failures = 0.** The suite is not reported as PASS while the runner reports one failure. The single failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the column`, which is **pre-existing and unrelated**: verified, not assumed, by stashing every change in this branch and re-running the same file on the resulting pristine `origin/main` tree, where it fails identically (`9 tests, 8 pass, 1 fail`). It concerns migration 008 and its own test file, both byte-identical to `origin/main` on this branch (`git diff origin/main --name-only` over both paths is empty). Out of scope here and left untouched.
-- `node --test --test-concurrency=1 tests/publicShareBackend.test.js` — **19 tests, 17 pass, 0 fail, 2 PostgreSQL-gated skips**.
+- `npm test` in `IDEA1-AEGIS_Drive_LC` (in-memory store, canonical) — **1099 tests, 1029 pass, 1 fail, 69 PostgreSQL-gated skips**. **PUBLIC-SHARE-2 introduced failures = 0.** The suite is not reported as PASS while the runner reports one failure.
+- `npm test` against the isolated PostgreSQL 16.15, as the least-privilege `drive_app` role, with `AEGIS_PGTEST_SUPER_URL` set — **1099 tests, 1098 pass, 1 fail, 0 skips**. Every previously gated test was observed. The single failure is the pre-existing `AUTOLOCK-5`. The single failure is `AUTOLOCK-5 migration 008 replaces the CHECK without touching the column`, which is **pre-existing and unrelated**: verified, not assumed, by stashing every change in this branch and re-running the same file on the resulting pristine `origin/main` tree, where it fails identically (`9 tests, 8 pass, 1 fail`). It concerns migration 008 and its own test file, both byte-identical to `origin/main` on this branch (`git diff origin/main --name-only` over both paths is empty). Out of scope here and left untouched.
+- `node --test --test-concurrency=1 tests/publicShareBackend.test.js` — **19/17/0 fail/2 skips** in memory mode, and **19 tests, 19 pass, 0 fail, 0 skips** against the isolated PostgreSQL.
 - `node --test --test-concurrency=1 tests/publicShareConfig.test.js` — **pass 18/18**, including the two new amendment tests.
 - `node --test --test-concurrency=1 tests/trustedProxy.test.js` — **pass 11/11**, including the 7 pre-existing cases unchanged.
 - `node --test --test-concurrency=1 tests/shareScopeTruthUi.test.js` — **pass 6/6**.
-- `node --test --test-concurrency=1 tests/shareRedemption.test.js` — **17 tests, 14 pass, 0 fail, 3 PostgreSQL-gated skips**; the existing private-path behaviour (CIDR allow/deny, forged-XFF rejection, password, expiry, revoke, Vault, hits, audit, trash) is unchanged.
-- `npm run build` — **pass**, re-run after the amendments (5.05 s). `dist/` restored afterwards and confirmed clean in `git status`.
+- `node --test --test-concurrency=1 tests/shareRedemption.test.js` — **17/14/0 fail/3 skips** in memory mode, and **17 tests, 17 pass, 0 fail, 0 skips** against the isolated PostgreSQL; the existing private-path behaviour (CIDR allow/deny, forged-XFF rejection, password, expiry, revoke, Vault, hits, audit, trash) is unchanged.
+- `npm run build` — **pass**, re-run after Verification C (5.18 s). `dist/` restored afterwards and confirmed clean in `git status`.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — **pass**, 0 errors (2 pre-existing owner-data canvas warnings, unrelated).
 - `node scripts/validate-collaboration-policy.mjs --event … --changed-files …` — **pass**, run locally against a synthesised event carrying this PR's body and this branch's real `git diff --name-status origin/main...HEAD`.
 - `git status --short` / `git diff --check` — **clean**; only the intended paths, no whitespace or conflict-marker error.
@@ -316,26 +394,31 @@ even though all three live inside the owned area.
 
 - **Public Internet Share is still not usable, by design.** No gateway, no
   ingress, no UI option, no deployment, no external acceptance.
+- **A third defect — in this task's own test code — was found only by the real
+  database**: `PS2-INGRESS-1` read `event.sourceIp`, which is `undefined` for
+  PostgreSQL rows. Production behaviour was correct throughout; the assertion was
+  silently vacuous in the one mode that could not run before. Fixed, and a
+  reminder that in-memory-only test evidence has a blind spot.
 - **Two defects reached the first pushed head (`43c2f05d`) and were caught in
   owner review, not by this task's own checks**: the shared-bridge check compared
   strings instead of testing network containment, and the base-URL parser
   silently widened the accepted G1 no-trailing-slash contract. Both are fixed and
   covered by tests, but the miss is recorded rather than smoothed over — neither
   would have been caught by any check that existed before the review.
-- **Migration 009 has still never been executed against a real PostgreSQL
-  database, and PR #99 stays Draft because of it.** The PR #99 review made this a
-  required gate; it could not be completed here. Docker Desktop is installed but
-  its engine will not start (`com.docker.service` is Stopped, and starting a
-  Windows service needs elevation this task will not take on its own); no
-  PostgreSQL listens on `127.0.0.1:5432`, `:5433` or `:55432`; `TEST_DATABASE_URL`
-  is unset. So the migration is verified **only** by its DDL contract
-  (transactional, catalog-based constraint lookup restricted to `contype='c'`,
-  the exact widened CHECK, no destructive or unrelated statement, no touch of
-  `share_default_scope`/`token_hash`/`password_hash`). **Idempotency,
-  re-runnability, row preservation, the real `shares_scope_check` definition, the
-  `public` insert, the legacy `vlan`/`subnet` inserts and the rejected `internet`
-  insert are all UNOBSERVED.** Applying 009 to an isolated database remains a
-  prerequisite for deployment and is not evidence this receipt carries.
+- **Migration 009 was verified on PostgreSQL 16.15, not on the production
+  PostgreSQL 15 line.** The throwaway container ran `postgres:16` while the
+  deployed stack uses `postgres:15-alpine`. The DDL involved (`pg_constraint`
+  lookup, `DROP CONSTRAINT`, `ADD CONSTRAINT … CHECK`) is identical across both
+  majors and nothing version-specific is used, but the observed run is 16.15 and
+  the receipt says so rather than implying 15 was exercised.
+- **The migration was applied by a superuser to a database whose tables that
+  superuser owns.** That matches how a deployment applies migrations, and the
+  no-GRANT reasoning was re-checked: 009 creates no object, and `drive_app`
+  retained working DML afterwards (the full PostgreSQL suite runs as that role).
+  It does not prove the cross-superuser ownership case that the LFT-V2-A rule was
+  written for, because 009 creates nothing for that rule to apply to.
+- **Production has still never had 009 applied**, and applying it remains a
+  prerequisite of any deployment of this code.
 - **Two `publicShareBackend` tests skipped** for the same reason: the Vault-file
   rejection and the raw-token-not-persisted checks both need PostgreSQL to set
   `files.vault` and to read `shares.token_hash`. The Vault exclusion is still

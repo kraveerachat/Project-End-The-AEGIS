@@ -473,13 +473,21 @@ Verification: full IDEA1 suite **1099 tests / 1029 pass / 1 fail / 69
 PostgreSQL-gated skips**, build pass, **0 failures introduced by
 PUBLIC-SHARE-2**. The single failure is the pre-existing,
 unrelated `AUTOLOCK-5`, proven by stashing every change on this branch and
-reproducing it on the resulting pristine `origin/main` tree. ⚠️ **Migration 009
-has never been executed against a real PostgreSQL database** — no Docker engine
-and no local PostgreSQL were available in the development environment — so its
-idempotency, row preservation and real constraint definition are argued from the
-DDL contract and 008's precedent, **not observed**. Applying it to an isolated
-database is a prerequisite for any deployment, and PR #99 stays Draft until that
-evidence exists.
+reproducing it on the resulting pristine `origin/main` tree. **Migration 009 is verified against a real
+isolated PostgreSQL 16.15**: built from the pre-PR#99 base schema taken from Git
+(`867f1cc`, blob `4c325785`), seeded with synthetic `any`/`zones`/`vlan`/`subnet`
+rows, applied **twice** (both runs PASS, idempotency observed), after which the
+catalog reports
+`CHECK ((scope = ANY (ARRAY['any','zones','public','vlan','subnet'])))`, all four
+pre-migration rows survive unchanged, a `public` insert succeeds, legacy
+`vlan`/`subnet` inserts still succeed, `scope='internet'` is rejected,
+`token_hash`/`password_hash`/`vlan_scope`/`expires_at`/`revoked`/`hits` keep their
+contract, and `users.share_default_scope` still refuses `public`. The full IDEA1
+suite against that database as the least-privilege `drive_app` role is **1099
+tests / 1098 pass / 1 fail / 0 skips** — every previously gated test observed, the
+one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still never had
+009 applied; doing so remains a prerequisite of any deployment, and the observed
+run was on PostgreSQL 16.15 while production runs the 15 line.
 
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 

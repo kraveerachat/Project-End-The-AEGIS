@@ -368,9 +368,15 @@ test('PS2-INGRESS-1 the gateway peer and the client address are different values
 
   // The audit source is the CLIENT, resolved through the trusted-proxy walk —
   // not 127.0.0.3, the gateway peer that carried the request.
+  //
+  // ⚠️ readAudit() returns snake_case rows from PostgreSQL and camelCase from the
+  //    in-memory store, so the accessor must tolerate both — the same shape guard
+  //    tests/shareRedemption.test.js already uses. Reading only `sourceIp` made
+  //    this assertion silently undefined under PostgreSQL.
   const event = (await readAudit(20)).find((row) => row.action === 'SHARE_REDEEM' && row.result === 'OK')
-  assert.equal(event?.sourceIp, '203.0.113.50')
-  assert.notEqual(event?.sourceIp, '127.0.0.3')
+  const auditSource = event?.source_ip ?? event?.sourceIp
+  assert.equal(auditSource, '203.0.113.50')
+  assert.notEqual(auditSource, '127.0.0.3')
 })
 
 test('PS2-INGRESS-2 the gateway peer is still the ingress when it sends no forwarding header', async () => {
