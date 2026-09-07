@@ -100,18 +100,18 @@ test('TH, EN, and ZH keep exact key parity with no empty values or wrong-script 
 test('share scope copy describes AEGIS reachability and current CIDR limits in every locale', () => {
   const labels = {
     en: {
-      scopeAny: 'Any AEGIS-reachable network',
-      scopeAnyTitle: 'Any AEGIS-reachable network',
+      scopeAny: 'Any network that can already reach AEGIS',
+      scopeAnyTitle: 'Any network that can already reach AEGIS',
       chipAnyNetwork: 'AEGIS-REACHABLE',
     },
     th: {
-      scopeAny: 'ทุกเครือข่ายที่เข้าถึง AEGIS ได้',
-      scopeAnyTitle: 'ทุกเครือข่ายที่เข้าถึง AEGIS ได้',
+      scopeAny: 'ทุกเครือข่ายที่มีเส้นทางเข้าถึง AEGIS อยู่แล้ว',
+      scopeAnyTitle: 'ทุกเครือข่ายที่มีเส้นทางเข้าถึง AEGIS อยู่แล้ว',
       chipAnyNetwork: 'เข้าถึง AEGIS ได้',
     },
     zh: {
-      scopeAny: '任何可访问 AEGIS 的网络',
-      scopeAnyTitle: '任何可访问 AEGIS 的网络',
+      scopeAny: '任何已经可以访问 AEGIS 的网络',
+      scopeAnyTitle: '任何已经可以访问 AEGIS 的网络',
       chipAnyNetwork: '可访问 AEGIS',
     },
   }
@@ -122,16 +122,22 @@ test('share scope copy describes AEGIS reachability and current CIDR limits in e
   }
 
   assert.match(`${STRINGS.en.newShareSub} ${STRINGS.en.scopeAnyBody}`, /Public Internet sharing is not currently available/)
+  assert.match(STRINGS.en.scopeAnyBody, /No additional CIDR restriction is applied by this share/)
+  assert.match(STRINGS.en.scopeAnyBody, /Twingate, an internal network, or another valid network path/)
   assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /source address visible to AEGIS/)
   assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /Twingate recipients may appear through the connector-visible address/)
   assert.match(`${STRINGS.en.scopeZonesBody} ${STRINGS.en.scopeEnforcementNote}`, /not a substitute for Twingate access or device policy/)
 
   assert.match(`${STRINGS.th.newShareSub} ${STRINGS.th.scopeAnyBody}`, /ยังไม่รองรับการแชร์ผ่านอินเทอร์เน็ตสาธารณะ/)
+  assert.match(STRINGS.th.scopeAnyBody, /ไม่จำกัด CIDR เพิ่มที่ชั้น Share/)
+  assert.match(STRINGS.th.scopeAnyBody, /Twingate.*เครือข่ายภายใน.*เส้นทางเครือข่ายอื่นที่อนุญาต/)
   assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /ที่อยู่ต้นทางที่ AEGIS มองเห็น/)
   assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /Twingate.*ที่อยู่ที่ Connector มองเห็น/)
   assert.match(`${STRINGS.th.scopeZonesBody} ${STRINGS.th.scopeEnforcementNote}`, /ไม่ใช้แทนนโยบายการเข้าถึงของ Twingate หรือนโยบายอุปกรณ์/)
 
   assert.match(`${STRINGS.zh.newShareSub} ${STRINGS.zh.scopeAnyBody}`, /当前不支持通过公共互联网共享/)
+  assert.match(STRINGS.zh.scopeAnyBody, /共享层不会额外施加 CIDR 限制/)
+  assert.match(STRINGS.zh.scopeAnyBody, /Twingate、内部网络或其他有效网络路径/)
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /AEGIS 可见的来源地址/)
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /Twingate.*连接器可见地址/)
   assert.match(`${STRINGS.zh.scopeZonesBody} ${STRINGS.zh.scopeEnforcementNote}`, /不能替代 Twingate 访问策略或设备策略/)

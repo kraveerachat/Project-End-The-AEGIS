@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-06
+updated: 2026-09-07
 owner: kla
 edit_policy: owner-writable
 ---
@@ -38,9 +38,11 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Production**, deployed from PR head `64807e963...` (identical tree, different
   commit): Settings Account avatar Remove, Files responsive tile/menu and
   Private Vault responsive menu are all **PASS / CLOSED**;
-- remaining optional/future work: profile/avatar exhaustive Settings sweep, STORAGE-AUTO-2 scheduled execution if desired, real RAID1 future hardware, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
+- the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public External Internet Share architecture, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
-Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. Automatic scheduled execution remains NOT TESTED / optional; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
+Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
 The current HGST 1 TB and Lexar 32 GB devices are existing/shared equipment: never erase, format, repartition, resize, move or delete their existing data. Only new AEGIS files inside the HGST `AEGIS_BACKUP` directory are allowed; Lexar remains disconnected/unused.
 
@@ -48,10 +50,10 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 
 ### Remaining IDEA1 work after Storage & Backup closure
 
-- Settings overall remains **PARTIAL** only if the optional latest exhaustive profile/avatar sweep is required for full parent-page closure.
-- `STORAGE-AUTO-2` automatic scheduled execution is **NOT TESTED / optional** for the borrowed/removable HGST acceptance scope; current schedule remains disabled.
+- The final Dashboard/Storage/Secure Share source pass still needs controlled Production deployment and owner visual acceptance; existing Production closure is not evidence for the changed layout.
+- `STORAGE-AUTO-2` automatic scheduled execution is **OPEN / UNPROVEN**; current schedule remains disabled, and it closes only after an explicitly approved scheduler-triggered Production run is observed.
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
-- Public external Secure Share remains **NOT IMPLEMENTED**.
+- Public External Internet Share remains **NOT IMPLEMENTED / FUTURE ARCHITECTURE**. `scope=any` is not public sharing: it adds no Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.
 

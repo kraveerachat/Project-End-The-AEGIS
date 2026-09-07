@@ -45,6 +45,19 @@ after(async () => {
 const capacity = { capacityBytes: { totalBytes: 61_075_263_488, usedBytes: 18_300_000_000, freeBytes: 42_775_263_488 }, usage: { docs: 0, archives: 0, media: 0, other: 0, vaultSeg: 0, versions: 0 }, unaccountedBytes: 18_300_000_000 }
 const unavailableDisk = { available: false, status: 'UNKNOWN', reason: 'agent-unreachable', stale: false, device: null, model: null, smart: null, temperatureCelsius: null, powerOnHours: null, capacityBytes: null, warnings: [], measuredAt: null, ageSeconds: null, maxAgeSeconds: 1800 }
 const healthyDisk = { available: true, status: 'HEALTHY', reason: null, stale: false, device: 'sda', model: 'AEGIS-FIXTURE M.2 2280 128GB', smart: { supported: true, enabled: true, passed: true }, temperatureCelsius: 41, powerOnHours: 3210, capacityBytes: 128035676160, warnings: [], measuredAt: '2026-08-07T08:58:00.000Z', ageSeconds: 120, maxAgeSeconds: 1800 }
+const healthyRemoteAccess = {
+  localConnector: {
+    available: true, status: 'HEALTHY', reason: null, stale: false,
+    runtimeState: 'RUNNING', health: 'HEALTHY', restartCount: 0,
+    measuredAt: '2026-08-07T08:59:30.000Z', ageSeconds: 30, maxAgeSeconds: 300,
+  },
+}
+const unavailableRemoteAccess = {
+  localConnector: {
+    available: false, status: 'UNKNOWN', reason: 'agent-unreachable', stale: false,
+    runtimeState: null, health: null, restartCount: null, measuredAt: null,
+  },
+}
 const unavailableBackup = { available: false, reason: 'agent-unreachable', engine: null, state: 'UNKNOWN', target: null, policy: null, job: null, nextRun: null, lastSuccessfulBackup: null, lastFailedBackup: null, backupAgeSeconds: null, maxBackupAgeSeconds: null, bytesCovered: null, lastSnapshotId: null, integrity: 'NOT_RUN', restoreVerification: { at: null, status: 'NOT_TESTED' }, successRate30d: null, completedJobs30d: 0, risk: 'UNKNOWN', riskReasons: ['agent-unreachable'] }
 const healthyBackup = { ...unavailableBackup, available: true, reason: null, engine: 'restic', state: 'READY', target: { id: 'usb-external-1', label: 'External USB SSD', type: 'external-mount', protection: 'DIFFERENT_DEVICE' }, policy: { activeTargetId: 'usb-external-1', scheduleId: 'daily-02:00', retentionId: 'keep-7d-4w', enabled: true }, nextRun: '2026-08-08T02:00:00.000Z', lastSuccessfulBackup: '2026-08-07T02:05:00.000Z', backupAgeSeconds: 25_000, maxBackupAgeSeconds: 129_600, bytesCovered: 18_300_000_000, lastSnapshotId: 'abc123', integrity: 'PASS', restoreVerification: { at: '2026-08-06T03:00:00.000Z', status: 'PASS' }, successRate30d: 100, completedJobs30d: 3, risk: 'HEALTHY', riskReasons: [] }
 const healthyRaid = {
@@ -64,10 +77,20 @@ const healthyRaid = {
   ],
 }
 
-function renderStorage({ storage, backupView = { data: null, error: 'forbidden', loading: false }, lang = 'en', error = null, loading = false }) {
+function renderStorage({
+  storage,
+  backupView = { data: null, error: 'forbidden', loading: false },
+  remoteAccess = unavailableRemoteAccess,
+  remoteError = null,
+  remoteLoading = false,
+  lang = 'en',
+  error = null,
+  loading = false,
+}) {
   globalThis.__AEGIS_API_FIXTURES__ = {
     '/api/storage': { loading, data: storage, error },
     '/api/backup': backupView,
+    '/api/remote-access': { loading: remoteLoading, data: remoteAccess, error: remoteError },
   }
   return renderToStaticMarkup(React.createElement(Storage, { t: makeT(lang), go: () => {} }))
 }
@@ -97,14 +120,28 @@ test('STORAGE-UI-1 both agents absent: every new section says unavailable in wor
   for (const fake of FABRICATED) assert.equal(html.includes(fake), false, `${fake} must never come back`)
 })
 
-test('STORAGE-UI-2 real evidence renders the model, temperature, hours and a HEALTHY chip; the serial is never on screen', () => {
+test('STORAGE-UI-1 connector evidence remains visible when disk-health evidence is unavailable', () => {
+  const html = renderStorage({
+    storage: { ...capacity, diskHealth: unavailableDisk, raid: { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' }, backup: unavailableBackup, maintenance: { active: false }, unavailable: { diskHealth: 'agent-unreachable', raid: 'not-configured', backups: 'agent-unreachable' } },
+    remoteAccess: healthyRemoteAccess,
+  })
+  assert.ok(html.includes(STRINGS.en.diskUnavailable))
+  assert.ok(html.includes(STRINGS.en.diskTwingateConnector))
+  assert.ok(html.includes(`${STRINGS.en.connStatusHealthy} / ${STRINGS.en.runtimeRunning}`))
+})
+
+test('STORAGE-UI-2 real evidence renders the final six facts and keeps temperature out of the visible grid', () => {
   const history = [{ jobId: '11111111-1111-1111-1111-111111111111', kind: 'backup', trigger: 'schedule', startedAt: '2026-08-07T02:00:00.000Z', finishedAt: '2026-08-07T02:05:00.000Z', status: 'SUCCESS', targetId: 'usb-external-1', targetType: 'external-mount', protection: 'DIFFERENT_DEVICE', bytesScanned: 18_300_000_000, bytesBackedUp: 250_000_000, snapshotId: 'abc123', integrityCheck: 'PASS', restoreVerification: 'NOT_TESTED', errorCode: null }]
   const html = renderStorage({
     storage: { ...capacity, diskHealth: healthyDisk, raid: { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' }, backup: healthyBackup, maintenance: { active: false }, unavailable: { raid: 'not-configured' } },
     backupView: { loading: false, error: null, data: { report: healthyBackup, targets: [], allowed: { scheduleIds: [], retentionIds: [] }, limits: null, tools: null, history } },
+    remoteAccess: healthyRemoteAccess,
   })
   assert.ok(html.includes('AEGIS-FIXTURE M.2 2280 128GB'))
-  assert.ok(html.includes('41 °C'))
+  assert.ok(html.includes(STRINGS.en.diskTwingateConnector))
+  assert.ok(html.includes(`${STRINGS.en.connStatusHealthy} / ${STRINGS.en.runtimeRunning}`))
+  assert.equal(html.includes(STRINGS.en.diskTemperature), false, 'temperature remains backend evidence, not a visible Disk Health fact')
+  assert.equal(html.includes('41 °C'), false)
   assert.ok(html.includes('3,210'))
   assert.ok(html.includes(STRINGS.en.diskStatusHealthy))
   assert.ok(html.includes(STRINGS.en.diskSmartPassed))
@@ -118,6 +155,30 @@ test('STORAGE-UI-2 real evidence renders the model, temperature, hours and a HEA
   assert.equal(html.includes(STRINGS.en.backupScheduleEmpty), false, 'a real job replaces the empty row')
   assert.equal(html.includes('serial'), false)
   assert.equal(html.includes('FIXTURE-SERIAL'), false)
+})
+
+test('STORAGE-UI-2 connector states share the Settings semantic model without control-plane claims', () => {
+  const storage = { ...capacity, diskHealth: healthyDisk, raid: { available: false, status: 'NOT_CONFIGURED', reason: 'no-array-configured' }, backup: unavailableBackup, maintenance: { active: false }, unavailable: { raid: 'not-configured' } }
+
+  const stale = renderStorage({
+    storage,
+    remoteAccess: { localConnector: { ...healthyRemoteAccess.localConnector, status: 'UNKNOWN', stale: true, reason: 'stale' } },
+  })
+  assert.ok(stale.includes(STRINGS.en.telemetryStateStale))
+
+  const unavailable = renderStorage({
+    storage,
+    remoteAccess: { localConnector: { available: false, status: 'UNKNOWN', stale: false, reason: 'agent-unreachable', runtimeState: null, health: null } },
+  })
+  assert.ok(unavailable.includes(STRINGS.en.telemetryStateUnavailable))
+
+  const failed = renderStorage({ storage, remoteAccess: null, remoteError: 'server' })
+  assert.ok(failed.includes(STRINGS.en.telemetryStateUnavailable))
+
+  for (const html of [stale, unavailable, failed]) {
+    assert.equal(html.includes(STRINGS.en.remoteControlPlaneSection), false)
+    assert.doesNotMatch(html, /Control Plane|Twingate Online|Connector online/i)
+  }
 })
 
 test('STORAGE-UI-3 stale disk evidence keeps the last readings visible but says Unknown and why', () => {

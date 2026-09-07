@@ -1412,6 +1412,24 @@ textarea:focus-visible {
   }
 }
 
+@media (max-width: 640px) {
+  .share-scope-segmented {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    border-radius: var(--r-card);
+  }
+
+  .share-scope-segmented .ui-segmented-option {
+    width: 100%;
+    min-height: 44px;
+    height: auto;
+    padding-block: 8px;
+    white-space: normal;
+    line-height: 1.35;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* The Neo polish layer is motion, so it is the first thing to go. */
   :root[data-ui-style="neo"] .ui-card,

@@ -61,6 +61,26 @@ function ScopePanel({ t, scope, zonesUnavailable }) {
   )
 }
 
+function PublicInternetNotice({ t }) {
+  return (
+    <aside
+      className="rounded-[var(--r-tile)] border border-line bg-card p-3.5 flex items-start gap-3"
+      aria-labelledby="public-share-title"
+    >
+      <span className="size-8 rounded-[9px] bg-sunken grid place-items-center text-ink-3 shrink-0" aria-hidden>
+        <Globe size={15} strokeWidth={1.6} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p id="public-share-title" className="text-[13px] font-semibold text-ink">{t('publicShareTitle')}</p>
+          <Chip tone="neutral">{t('publicShareUnavailable')}</Chip>
+        </div>
+        <p className="text-[12px] text-ink-2 leading-relaxed mt-1">{t('publicShareBody')}</p>
+      </div>
+    </aside>
+  )
+}
+
 /* ── One active-link row — collapses into hatch on revoke ────────── */
 function LinkRow({ t, link, now, revoking, onAskRevoke }) {
   const msLeft = link.expiresAt - now
@@ -275,6 +295,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
             <div>
               <p className="text-[12px] font-semibold text-ink-3 uppercase tracking-[0.06em] mb-2">{t('networkScope')}</p>
               <Segmented
+                className="share-scope-segmented"
                 ariaLabel={t('networkScope')}
                 options={[
                   { value: 'zones', label: t('scopeZones') },
@@ -285,6 +306,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
               />
             </div>
             <ScopePanel t={t} scope={scope} zonesUnavailable={createError === 'zones'} />
+            <PublicInternetNotice t={t} />
 
             {createError && (
               <p role="alert" className="text-[12.5px] font-medium" style={{ color: 'var(--danger)' }}>

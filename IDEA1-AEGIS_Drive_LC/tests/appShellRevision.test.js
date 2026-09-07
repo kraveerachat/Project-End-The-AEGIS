@@ -214,6 +214,10 @@ test('Dashboard keeps Data Lake Health and Server Telemetry without a full-width
   try {
     assert.match(view.document.body.textContent, /Data Lake Health/)
     assert.match(view.document.body.textContent, /Server Telemetry/)
+    // The canonical label from PR #95 is "CPU temperature": the tile is the
+    // x86_pkg_temp package sensor, not the SSD's SMART reading.
+    assert.match(view.document.body.textContent, /CPU temperature/)
+    assert.doesNotMatch(view.document.body.textContent, /Twingate/)
     assert.equal(view.document.querySelector('.quick-action-rail'), null)
   } finally {
     delete globalThis.__AEGIS_API_FIXTURES__
