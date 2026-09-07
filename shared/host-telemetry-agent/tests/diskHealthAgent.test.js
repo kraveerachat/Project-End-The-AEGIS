@@ -136,10 +136,13 @@ test('DISKAGENT-7 GET /internal/disk-health serves the projected evidence with n
     assert.equal(res.status, 200)
     assert.equal(res.headers['cache-control'], 'no-store')
     assert.deepEqual(res.body, projectDiskHealth(validEvidence()))
-    // The V1 route is byte-for-byte the same contract it was.
+    // Disk health stays on its own route: it never appears inside the V1
+    // telemetry metrics. `temperature` is there because it is a host counter
+    // Drive's schema declares optional, not because SMART leaked across.
     const v1 = await get(socketPath, TELEMETRY_ROUTE)
     assert.equal(v1.status, 200)
-    assert.deepEqual(Object.keys(v1.body.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+    assert.deepEqual(Object.keys(v1.body.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
+    assert.equal(v1.body.metrics.disk, undefined)
     // No third route appeared.
     assert.equal((await get(socketPath, '/internal/disk')).status, 404)
   } finally {
