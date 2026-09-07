@@ -16,6 +16,24 @@ import { fmtBytes, fmtCountdown } from '../lib/format.js'
 // host data is real but old, so it stays on screen with a label instead of
 // being blanked (which would lose information) or shown as current (a lie).
 
+/*
+ * The approved Dashboard layout: six tiles, in this exact order, which on a
+ * three-column desktop grid reads
+ *
+ *   CPU      | RAM      | Disk
+ *   Network  | Uptime   | CPU temperature
+ *
+ * Twingate is deliberately absent from this list. It is NOT removed from the
+ * backend: `/api/telemetry` still carries `metrics.twingate` and the V1
+ * contract is unchanged, so nothing that consumes the API breaks. What changed
+ * is only that the Dashboard no longer renders a permanently-unavailable tile
+ * for it — in V1 it has no approved source and could never show anything.
+ *
+ * Real connector health is not coming here either. It belongs to the planned
+ * Storage & Backup disk-health presentation, fed by `/api/remote-access`, which
+ * reports LOCAL container evidence. Putting that number on the Dashboard under
+ * the old "Twingate" label would imply a control-plane status nothing measures.
+ */
 const METRICS = [
   { id: 'cpu', labelKey: 'telemetryCpu', icon: Cpu },
   { id: 'memory', labelKey: 'telemetryRam', icon: MemoryStick },
@@ -79,12 +97,6 @@ const duration = (seconds) => (number(seconds) ? fmtCountdown(seconds * 1000) : 
  */
 function metricState(id, metric, loading = false) {
   if (!metric) return loading ? 'loading' : 'unavailable'
-  if (id === 'temperature') {
-    if (metric.available !== true || !number(metric.temperatureCelsius)) return 'unavailable'
-    if (metric.stale === true) return 'stale'
-    if (Array.isArray(metric.warnings) && metric.warnings.includes('temperature-high')) return 'warning'
-    return 'available'
-  }
   if (metric.available !== true) {
     // Reason-driven, not role-driven: this component never asks who is looking.
     // It reports what the response reported. See EMPTY_COPY on why the
@@ -92,6 +104,18 @@ function metricState(id, metric, loading = false) {
     return metric.reason === 'requires-admin' ? 'restricted' : 'unavailable'
   }
   if (metric.stale === true) return 'stale'
+
+  // Temperature is the one metric with no percentage, so it gets its own
+  // thresholds in absolute degrees. They are CPU-package thresholds, not
+  // chassis or disk ones: x86 packages throttle near 100 °C, so 80 warns with
+  // real headroom and 90 is genuinely critical.
+  if (id === 'temperature') {
+    if (!number(metric.celsius)) return 'available'
+    if (metric.celsius >= 90) return 'critical'
+    if (metric.celsius >= 80) return 'warning'
+    return 'available'
+  }
+
   const value = id === 'uptime' ? null : metric.percent
   if (!number(value)) return 'available'
   if (value >= 90) return 'critical'
@@ -173,10 +197,17 @@ function MetricRows({ t, id, metric }) {
   }
 
   if (id === 'temperature') {
+    // The sensor name is shown next to the number rather than hidden in a
+    // tooltip: "56 °C" alone invites the reader to assume it is whichever
+    // temperature they were already thinking of. Naming x86_pkg_temp makes it
+    // unmistakably the CPU package and not the SSD's SMART reading.
     return (
-      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {metric.temperatureCelsius} °C
-      </strong>
+      <>
+        <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {number(metric.celsius) ? `${metric.celsius} °C` : t('telemetryValueUnavailable')}
+        </strong>
+        <span>{metric.sensor || t('telemetryValueUnavailable')}</span>
+      </>
     )
   }
 
@@ -205,9 +236,7 @@ function TelemetryTile({ t, definition, value, loading }) {
   const Icon = definition.icon
   // A tile with no reading to render. The hatch marks a source that failed;
   // loading and restricted are not failures and are not hatched.
-  const emptyKey = definition.id === 'temperature' && state === 'unavailable'
-    ? 'telemetryTemperatureNotReported'
-    : EMPTY_COPY[state]
+  const emptyKey = EMPTY_COPY[state]
   const isEmpty = state in EMPTY_COPY
 
   return (
@@ -243,15 +272,13 @@ function TelemetryTile({ t, definition, value, loading }) {
  * @param {object} props
  * @param {object|null} props.data a full /api/telemetry response, or null when
  *   there is nothing to show.
- * @param {object|null} props.diskHealth the /api/storage diskHealth evidence
- *   used only for the Temperature tile. It remains separate from V1 telemetry.
  * @param {boolean} [props.loading] true while the first request for this screen
  *   is still in flight. It only changes tiles that have no value yet: "not
  *   asked" and "asked and failed" are different facts, and a tile must not
  *   accuse a source that has not been queried. A refresh over data already on
  *   screen leaves that data visible.
  */
-export function ServerTelemetry({ t, data, loading = false, diskHealth = null, diskHealthLoading = false }) {
+export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
     <Card className="p-5">
@@ -262,8 +289,8 @@ export function ServerTelemetry({ t, data, loading = false, diskHealth = null, d
             key={definition.id}
             t={t}
             definition={definition}
-            value={definition.id === 'temperature' ? diskHealth : metrics?.[definition.id]}
-            loading={definition.id === 'temperature' ? diskHealthLoading : loading}
+            value={metrics?.[definition.id]}
+            loading={loading}
           />
         ))}
       </div>

@@ -2,7 +2,8 @@
 
 A minimal, dedicated agent that publishes host metrics to AEGIS Drive over a
 Unix socket. It exists so the Drive container can show real CPU, memory,
-network and uptime numbers **without** being granted host access.
+network, uptime and CPU package temperature numbers **without** being granted
+host access.
 
 **Not deployed.** See [`deploy/README.md`](./deploy/README.md).
 
@@ -16,6 +17,9 @@ network and uptime numbers **without** being granted host access.
   │ /proc/uptime          │  │           │                      │
   │ /sys/.../rx_bytes     │  │           │  statfs /datalake ───┼─→ disk
   │ /sys/.../tx_bytes     │  │           │  process.uptime() ───┼─→ service
+  │ /sys/class/thermal/   │  │           │                      │
+  │   thermal_zoneN/      │  │           │                      │
+  │   {type,temp}         │  │           │                      │
   └───────────────────────┘  │           │                      │
                              ▼           │                      │
                     ┌─────────────────┐  │                      │
@@ -34,9 +38,34 @@ network and uptime numbers **without** being granted host access.
 Why an agent rather than giving Drive host access: the alternative designs all
 require something this system should not have — a privileged container, the
 Docker socket, the host PID namespace, or a host `/proc` mount. Each of those
-grants far more than "read five numbers". A separate unprivileged process that
-can only ever read those five files, exposed through one group-restricted
-socket, is the smallest thing that works.
+grants far more than "read a handful of numbers". A separate unprivileged
+process that can only ever read that small, enumerated set of files, exposed
+through one group-restricted socket, is the smallest thing that works.
+
+### The one directory this agent lists
+
+Every source above except temperature is a fixed absolute path. CPU package
+temperature is the exception: the kernel does not guarantee which
+`thermal_zoneN` carries `x86_pkg_temp` (it is zone 1 on this host today, and a
+BIOS or kernel change can renumber it), so the zone must be discovered.
+
+Hardcoding `thermal_zone1` would not be the safer choice — it would silently
+begin publishing `acpitz`, a ~28 °C chassis reading, as if it were the CPU
+package. The discovery is therefore allowed and then bounded hard:
+
+| Bound | Rule |
+|---|---|
+| Root | `/sys/class/thermal` only, a source constant, never an env var or request value |
+| Entries | only `thermal_zone[0-9]+`; anything else is not even opened |
+| Files | only `type` and `temp` within a matching zone |
+| Selection | exact string `x86_pkg_temp`; no fallback to another zone |
+| Failure | `{ "available": false }` — never acpitz, never SSD SMART, never 0 |
+| Execution | none; no shell, no subprocess, no capability |
+
+**No systemd privilege change was required.** Production preflight verified UID
+29100 (`aegis-telemetry`) reading these files under the existing sandbox, with
+`PrivateDevices=yes`, `ProtectSystem=strict` and an empty capability set all
+unchanged. Nothing in this feature relaxes the unit.
 
 ## Contract
 
@@ -53,10 +82,26 @@ even by a compromised process.
     "memory":  { "available": true, "usedBytes": 0, "totalBytes": 0, "percent": 0 },
     "network": { "available": true, "interface": "enp1s0",
                  "rxBytesPerSec": 0, "txBytesPerSec": 0, "windowSeconds": 5 },
-    "uptime":  { "available": true, "hostSeconds": 86400.55 }
+    "uptime":  { "available": true, "hostSeconds": 86400.55 },
+    "temperature": { "available": true, "celsius": 56, "sensor": "x86_pkg_temp" }
   }
 }
 ```
+
+### ⚠️ Rollout order: deploy Drive before this agent
+
+`metrics.temperature` is a new group inside the existing V1 snapshot, and
+Drive's validator rejects any metric group it does not know — by design, so
+contract drift is visible rather than silently stripped.
+
+A Drive carrying the temperature change treats the group as **optional**, so it
+works against an older agent (the tile simply reads unavailable). The reverse
+does not hold: an agent sending `temperature` to a Drive that predates this
+change trips `unexpected-metric-group` and blanks **every** tile, not just
+temperature.
+
+So: **deploy the Drive image first, then restart the agent.** Rolling back has
+the mirror-image constraint — roll the agent back before the Drive image.
 
 Response keys are strictly allowlisted (this V1 contract is unchanged by the
 disk-health addition below). The agent publishes no hostname, no

@@ -5,12 +5,15 @@ any host. Installation is a separate, reviewed step.
 
 ## What the agent is
 
-A single Node process that reads five files and publishes one normalized
+A single Node process that reads a small enumerated set of files (plus one
+bounded directory listing for CPU package temperature) and publishes one
+normalized
 snapshot on a Unix socket:
 
 | Metric | Source |
 |---|---|
 | CPU | `/proc/stat` (aggregate row, two samples ~5 s apart) |
+| CPU temperature | `/sys/class/thermal/thermal_zone[0-9]+/{type,temp}`, selecting the zone whose `type` is exactly `x86_pkg_temp` |
 | Memory | `/proc/meminfo` (`MemTotal`, `MemAvailable`) |
 | Network | `/sys/class/net/enp1s0/statistics/{rx_bytes,tx_bytes}` |
 | Host uptime | `/proc/uptime` |
@@ -65,7 +68,9 @@ running Drive container depends on that bind.
 
 ## Hardening: why each directive is there
 
-Every directive in the unit leaves the five required reads working. The ones
+Every directive in the unit leaves the required reads working — including the
+`/sys/class/thermal` listing, verified in production preflight as UID 29100
+under this exact sandbox, with no privilege change of any kind. The ones
 worth explaining:
 
 | Directive | Why it is safe here |
@@ -123,7 +128,7 @@ the following has **not** been run and must be, on the target host:
 systemd-analyze verify /etc/systemd/system/aegis-telemetry.service
 systemd-analyze security aegis-telemetry.service
 
-# the five reads still work under the sandbox
+# the reads still work under the sandbox
 systemd-run --uid=aegis-telemetry --gid=aegis-telemetry \
   --property=ProtectSystem=strict --property=ProtectProc=invisible \
   --property=PrivateDevices=true --property=RestrictAddressFamilies=AF_UNIX \

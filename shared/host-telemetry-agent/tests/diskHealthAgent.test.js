@@ -51,7 +51,10 @@ test('DISKAGENT-1 the V1 telemetry snapshot shape is unchanged by the disk-healt
   const sampler = createSampler({ interfaceName: 'enp1s0', readers: readersWith(JSON.stringify(validEvidence())), now: () => NOW })
   const snapshot = await sampler.sampleOnce()
   assert.deepEqual(Object.keys(snapshot).sort(), ['measuredAt', 'metrics', 'schemaVersion'])
-  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'uptime'])
+  // `temperature` is part of the snapshot's own metric set (see src/thermal.js);
+  // this sampler configures no thermal reader, so it is present and unavailable.
+  // What this test still pins is that the DISK-HEALTH read adds nothing here.
+  assert.deepEqual(Object.keys(snapshot.metrics).sort(), ['cpu', 'memory', 'network', 'temperature', 'uptime'])
   assert.equal('disk' in snapshot.metrics, false, 'a new metric group would break every deployed Drive V1 validator')
 })
 

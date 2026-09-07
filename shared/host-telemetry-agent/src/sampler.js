@@ -67,10 +67,17 @@ export function createSampler({
   // Local Twingate connector health is a third contract, read on the same cycle
   // and merged into neither of the other two for exactly the same reason.
   const twingateConfigured = typeof readers.twingateHealth === 'function'
+  // Host package temperature is different from all three above: it IS part of
+  // the snapshot's `metrics`, because it is a host counter of exactly the same
+  // kind as CPU and memory. Its reader is not a plain file reader — it lists a
+  // bounded directory and returns an already-projected metric — so it is
+  // invoked directly rather than through readOrNull. An agent built without it
+  // simply publishes `{ available: false }`.
+  const temperatureConfigured = typeof readers.hostTemperature === 'function'
 
   async function sampleOnce() {
     const atMs = now()
-    const [statText, memText, rxText, txText, uptimeText, diskText, twingateText] = await Promise.all([
+    const [statText, memText, rxText, txText, uptimeText, diskText, twingateText, temperatureRead] = await Promise.all([
       readOrNull(readers.procStat),
       readOrNull(readers.memInfo),
       readOrNull(readers.networkRx),
@@ -78,6 +85,11 @@ export function createSampler({
       readOrNull(readers.uptime),
       diskConfigured ? readOrNull(readers.diskHealth) : Promise.resolve(null),
       twingateConfigured ? readOrNull(readers.twingateHealth) : Promise.resolve(null),
+      temperatureConfigured
+        // Same failure policy as every other source, applied at the same edge:
+        // a thermal reader that throws degrades one metric for one cycle.
+        ? readers.hostTemperature().catch(() => null)
+        : Promise.resolve(null),
     ])
 
     latestDisk = diskHealthFromFileText(diskText, { now: () => atMs, configured: diskConfigured })
@@ -127,12 +139,24 @@ export function createSampler({
       ? { available: true, hostSeconds }
       : UNAVAILABLE
 
+    // ── Temperature ───────────────────────────────────────────────────
+    // The reader has already done selection and validation (src/thermal.js);
+    // this re-checks the shape rather than trusting it, so a future reader
+    // cannot introduce a number into an unavailable metric from a distance.
+    const temperature = temperatureRead
+      && temperatureRead.available === true
+      && Number.isFinite(temperatureRead.celsius)
+      && typeof temperatureRead.sensor === 'string'
+      && temperatureRead.sensor
+      ? { available: true, celsius: temperatureRead.celsius, sensor: temperatureRead.sensor }
+      : UNAVAILABLE
+
     // Timestamped even when every source failed: a fully unavailable snapshot
     // is still evidence, and Drive needs the age to decide staleness.
     latest = {
       schemaVersion: 1,
       measuredAt: new Date(atMs).toISOString(),
-      metrics: { cpu, memory, network, uptime },
+      metrics: { cpu, memory, network, uptime, temperature },
     }
     return latest
   }

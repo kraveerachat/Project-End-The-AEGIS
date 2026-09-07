@@ -442,13 +442,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           agent could not supply — renders an explicit unavailable tile, never a
           zero. See server/telemetry/index.js for the contract. */}
       <Reveal delay={160}>
-        <ServerTelemetry
-          t={t}
-          data={telemetry}
-          loading={telemetryLoading}
-          diskHealth={storage.data?.diskHealth ?? null}
-          diskHealthLoading={storage.loading}
-        />
+        <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
       </Reveal>
 
       {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}

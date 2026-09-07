@@ -88,8 +88,9 @@ RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 
 # ── filesystem and kernel ─────────────────────────────────────────────
-# Every directive below was chosen because it leaves the five required reads
-# working: /proc/stat, /proc/meminfo, /proc/uptime, and the rx_bytes/tx_bytes
+# Every directive below was chosen because it leaves the required reads
+# working: /proc/stat, /proc/meminfo, /proc/uptime, the bounded
+# /sys/class/thermal listing for CPU package temperature, and the rx_bytes/tx_bytes
 # counters under /sys/class/net/<iface>/statistics/.
 # systemd has no inline comments — the rest of the line is the value — so every
 # note below sits on its own line above the directive it explains.

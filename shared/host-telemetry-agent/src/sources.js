@@ -1,9 +1,17 @@
 // src/sources.js — AEGIS host telemetry agent · the I/O edge
 //
-// Every byte this agent ever reads enters through here, from a fixed map of
-// absolute paths built by config.js. There is no command execution, no
-// directory listing, and no path derived from a request: the agent cannot be
-// asked to read something its configuration did not already name.
+// Almost every byte this agent reads enters through here, from a fixed map of
+// absolute paths built by config.js. There is no command execution and no path
+// derived from a request: the agent cannot be asked to read something its
+// configuration did not already name.
+//
+// ONE exception, added 2026-09-07 and deliberately kept outside this module:
+// CPU package temperature (src/thermal.js) lists /sys/class/thermal, because
+// the kernel does not guarantee which thermal_zoneN carries x86_pkg_temp and a
+// hardcoded zone number would eventually publish the chassis sensor as the CPU.
+// That module does its own bounding — one fixed root, only thermal_zone[0-9]+,
+// only the `type` and `temp` files — and still routes each read through an
+// injected readFile, so the file surface stays reviewable in one place.
 import fspDefault from 'node:fs/promises'
 
 /**
