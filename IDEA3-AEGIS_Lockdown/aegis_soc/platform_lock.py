@@ -10,6 +10,13 @@ from pathlib import Path
 from types import ModuleType
 from typing import BinaryIO
 
+# Windows msvcrt.locking is a MANDATORY byte-range lock: any byte it covers becomes
+# unreadable to other handles. POSIX flock is advisory and whole-file. To give both
+# platforms the same observable contract - exclusive ownership plus an owner line
+# that stays readable while the lock is held - Windows locks a single reserved byte
+# far beyond the owner text instead of byte 0.
+LOCK_BYTE_OFFSET = 1 << 30
+
 
 class AlreadyRunningError(RuntimeError):
     """Raised when another process owns an AEGIS runtime lock."""
@@ -36,12 +43,13 @@ class ExclusiveFileLock:
         self._platform_module: ModuleType | None = None
 
     def _lock(self, handle: BinaryIO) -> None:
-        handle.seek(0)
         if self.platform == "win32":
             module = self.module_loader("msvcrt")
+            handle.seek(LOCK_BYTE_OFFSET)
             module.locking(handle.fileno(), module.LK_NBLCK, 1)
         else:
             module = self.module_loader("fcntl")
+            handle.seek(0)
             module.flock(handle.fileno(), module.LOCK_EX | module.LOCK_NB)
         self._platform_module = module
 
@@ -74,10 +82,11 @@ class ExclusiveFileLock:
         module = self._platform_module
         self._platform_module = None
         try:
-            handle.seek(0)
             if self.platform == "win32":
+                handle.seek(LOCK_BYTE_OFFSET)
                 module.locking(handle.fileno(), module.LK_UNLCK, 1)
             else:
+                handle.seek(0)
                 module.flock(handle.fileno(), module.LOCK_UN)
         finally:
             handle.close()
