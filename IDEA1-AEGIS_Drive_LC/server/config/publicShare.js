@@ -15,6 +15,11 @@
 //                              Share Gateway. Absent ⇒ legacy/private mode, and
 //                              no request can ever be classified as arriving
 //                              through a public gateway.
+//   PUBLIC_SHARE_UI_ENABLED    may the Shares screen OFFER `public` as a
+//                              selectable scope? Absent ⇒ false. This is a
+//                              deployment activation signal for UI truthfulness
+//                              only — it is NOT authorization, and turning it on
+//                              does not widen what POST /api/shares accepts.
 //
 // ⚠️ Parsed and validated ONCE, then frozen onto the app. A route must never
 //    read process.env per request: tests inject `env` through createApp({ env }),
@@ -28,6 +33,7 @@
 
 const BASE_URL_NAME = 'PUBLIC_SHARE_BASE_URL'
 const GATEWAY_NAME = 'PUBLIC_SHARE_GATEWAY_CIDR'
+const UI_ENABLED_NAME = 'PUBLIC_SHARE_UI_ENABLED'
 
 /**
  * Networks the gateway identity may never sit INSIDE. Kept in step with
@@ -172,6 +178,29 @@ export function parsePublicShareGatewayCidr(raw) {
   return value
 }
 
+/**
+ * Parse the UI activation flag.
+ *
+ * Strictly `true` or `false`. Absent or empty is false, because the safe state
+ * for "may the interface offer Internet sharing?" is no.
+ *
+ * ⚠️ Anything else FAILS THE BOOT rather than being coerced. `truthy`
+ *    coercion is how `PUBLIC_SHARE_UI_ENABLED=flase` or `=0` silently becomes
+ *    "on" or stays "off" against the operator's intent; the same refuse-to-start
+ *    policy as PUBLIC_SHARE_BASE_URL and TRUSTED_PROXY_CIDRS applies.
+ *
+ * ⚠️ This flag is UI truthfulness only. It is not an authorization control,
+ *    and it is not by itself evidence that owner gate G6 / PUBLIC-SHARE-7
+ *    acceptance passed. It may only be turned on after that acceptance.
+ */
+export function parsePublicShareUiEnabled(raw) {
+  const value = String(raw ?? '').trim()
+  if (!value) return false
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new Error(`${UI_ENABLED_NAME} must be exactly "true" or "false"`)
+}
+
 /** The single host address a `/32` names, for peer comparison. */
 export const gatewayAddressOf = (cidr) => (cidr ? cidr.slice(0, -'/32'.length) : null)
 
@@ -180,11 +209,13 @@ export const gatewayAddressOf = (cidr) => (cidr ? cidr.slice(0, -'/32'.length) :
  *
  * @param {object} [env]
  * @returns {{ baseUrl: string|null, gatewayCidr: string|null, gatewayAddress: string|null,
- *             publicShareEnabled: boolean, publicIngressConfigured: boolean }}
+ *             publicShareEnabled: boolean, publicIngressConfigured: boolean,
+ *             publicShareUiEnabled: boolean, publicSelectable: boolean }}
  */
 export function publicShareConfigFromEnv(env = process.env) {
   const baseUrl = parsePublicShareBaseUrl(env[BASE_URL_NAME])
   const gatewayCidr = parsePublicShareGatewayCidr(env[GATEWAY_NAME])
+  const uiEnabled = parsePublicShareUiEnabled(env[UI_ENABLED_NAME])
 
   return Object.freeze({
     baseUrl,
@@ -201,6 +232,24 @@ export function publicShareConfigFromEnv(env = process.env) {
     publicShareEnabled: baseUrl !== null,
     /** Is there a peer that could be classified as the public ingress at all? */
     publicIngressConfigured: gatewayCidr !== null,
+    /** Raw deployment activation signal for the interface. Default OFF. */
+    publicShareUiEnabled: uiEnabled,
+    /**
+     * May the Shares screen offer `public` as a selectable scope?
+     *
+     * All three must hold, and the default for each is off:
+     *   - a public origin exists, so a public URL can even be expressed;
+     *   - a public ingress peer is pinned, so the link could be redeemed;
+     *   - the deployment has explicitly activated the interface.
+     *
+     * ⚠️ This is the ONLY public-share fact the client is told. It is a
+     *    coarse boolean on purpose: the base URL, gateway identity, Docker
+     *    subnet, real public hostname and the G4 ingress choice all stay
+     *    server-side. And it changes nothing about authorization — POST
+     *    /api/shares still decides for itself, from publicShareEnabled alone,
+     *    whether a `scope=public` share may be minted.
+     */
+    publicSelectable: baseUrl !== null && gatewayCidr !== null && uiEnabled,
   })
 }
 

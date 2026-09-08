@@ -317,7 +317,7 @@ Confirmed locally in the same pass:
 | Password-protected share | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS; duplicated `/drive/s/s/:token` = **NO**. A4 confirmed a wrong password is denied, and A5 confirmed no-password sharing still passes. The earlier relative-action defect is historical and superseded by PR #24 acceptance. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy = PASS; production displays the AEGIS-reachable scope semantics introduced by Batch A. |
 | Network-scoped share | ✅ **VERIFIED IN PRODUCTION / PASS / CLOSED** | B4.3 proved direct-source CIDR allow/deny behavior and trusted-proxy spoof resistance. The engine enforces the canonical source observed by the application. Twingate endpoint-subnet attribution remains limited as documented below; this topology limitation is not an application enforcement failure. |
-| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. Dedicated share-only gateway source now exists and is locally verified, but no gateway is deployed, no ingress/DNS/TLS exists, and the UI remains disabled. |
+| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. Dedicated share-only gateway source and the Shares UI now both exist and are locally verified, but no gateway is deployed, no ingress/DNS/TLS exists, and the UI capability ships **off by default** on every deployment. |
 
 The current route implementation performs password, expiry, revoke, rate-limit,
 Vault exclusion, and CIDR checks at the application layer.
@@ -488,6 +488,129 @@ tests / 1098 pass / 1 fail / 0 skips** — every previously gated test observed,
 one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still never had
 009 applied; doing so remains a prerequisite of any deployment, and the observed
 run was on PostgreSQL 16.15 while production runs the 15 line.
+
+### Public-share security regression matrix pinned, no source changed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-5 is local regression evidence only
+> **Security regression matrix = YES. Gateway regression = YES. Backend
+> regression = YES. UI regression = YES. Token/password secrecy = YES. T-05
+> namespace separation = YES. Audit secrecy/attribution = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `chore/idea1-public-share-security-regression` automates the full public-
+share negative and positive matrix from the architecture's §16. It adds no
+product behaviour: **no shipped gateway, backend or UI source changed**, and the
+only new file is a test.
+
+`IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` owns the
+recipient-facing and forensic half that no single existing suite covered end to
+end: unknown/malformed/revoked/trashed links are one byte-identical refusal (only
+the CSP nonce is normalised out of the comparison, and the captured nonce values
+are asserted distinct across the four exercised responses — a freshness check,
+not an entropy claim) while the audit deliberately keeps the distinct forensic
+reason; the raw token is
+returned once and is absent from the listing, the audit and the stored row,
+which holds only a sha256 digest; the link password is never stored in plaintext
+(bcrypt only), never echoed, never listed, never audited, and — proven against
+the **real** gateway container — never present in its Docker logs after an
+allowed form POST carrying a unique password sentinel; a wrong password is
+denied and sustained guessing locks out with `Retry-After`; **T-05 holds in both
+directions** — a public lockout leaves the private path and login working, and
+private/login failures do not consume the public namespace; forged forwarding
+headers through an untrusted peer cannot rotate limiter identity; a Vault-backed
+share is refused at redemption as well as creation; only the owner may revoke
+and a non-owner (including Admin) gets the object-hiding 404 while the link
+stays alive; trashing kills live links without counting a hit; delivery counts
+exactly one hit and revoked/expired links count none; the delivered file keeps
+`attachment` / `octet-stream` / `nosniff` / `no-store` / `no-referrer`; refusal
+and password pages stay `noindex,nofollow` under a `default-src 'none'` CSP; and
+the audit records the canonical **recipient** address rather than the gateway
+peer while containing no raw token, password or public URL.
+
+Local evidence: the new suite is **16/16 PASS in memory mode and 16/16 PASS
+against a disposable PostgreSQL 15.18 instance**; existing focused suites stay
+green; gateway structure **12/12 PASS** and gateway runtime **18/18 PASS** with
+`nginx -t` reporting `syntax is ok` / `test is successful` inside the real
+internal network.
+
+Two gates need direct row access because a well-behaved API cannot reach them —
+a Vault-backed share row, and an already-expired row, since the shortest offered
+expiry is 1h. Under PostgreSQL they are genuinely exercised; in memory-only mode
+they report the evidence as unavailable rather than substituting a weaker
+assertion.
+
+Seven high-risk guards were proved load-bearing by temporarily breaking the
+invariant and confirming the expected test failed — T-05 namespace separation,
+the public-ingress scope block, the gateway default deny, gateway token-safe
+logging, UI public-URL ownership, and — added at the PR #103 review — CSP nonce
+freshness (a constant nonce) and gateway password-log secrecy (`$request_body`
+added to the log format). Every mutation was reverted and the tree verified
+clean.
+
+No accepted invariant failed against current `main`. PUBLIC-SHARE-6/7 were not
+started, and G4, G5 and G6 remain open.
+
+### Secure Shares public-scope UI implemented behind a server switch, not activated (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-4 is local source evidence only
+> **Public scope UI source = YES. Server-owned UI capability = YES. Default UI
+> capability = OFF. Production UI activation = NO. Production gateway = NO.
+> Production migration 009 = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO.
+> External acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `feat/idea1-public-share-ui` makes the Shares screen able to offer a
+third network scope without claiming it is available. Security invariant 20 is
+preserved rather than traded away: the interface *supports* `public`, but only
+offers it when the server says so.
+
+The decision is server-owned and defaults to off. A new optional, non-secret
+variable `PUBLIC_SHARE_UI_ENABLED` is parsed once at boot; absent or empty is
+false, and anything that is not exactly `true` or `false` fails the boot instead
+of being coerced. Public becomes selectable only when **all three** hold —
+`PUBLIC_SHARE_BASE_URL` set, `PUBLIC_SHARE_GATEWAY_CIDR` set, and the flag
+`true` — and `GET /api/shares` carries the result as one coarse boolean,
+`capabilities.publicSelectable`. The public origin, gateway identity, Docker
+subnet, real hostname and G4 choice are never sent to the client. An unknown,
+missing, non-boolean or failed read all mean unavailable, so the screen fails
+toward the safe answer while the request is in flight.
+
+**The flag is not authorization.** `POST /api/shares` still decides for itself,
+from `PUBLIC_SHARE_BASE_URL` alone, whether a public share may be minted; a test
+proves the outcome is identical with the flag on and off, so a UI switch can
+never become an access-control switch. It is also not evidence that G6 passed —
+it is the switch G6 authorises someone to flip, and `.env.example` ships it
+commented out saying exactly that.
+
+When the capability is off the screen shows two interactive scopes and keeps
+Public Internet as a read-only unavailable fact, with the stale "a separate
+gateway would be required" wording replaced by the truthful "not enabled on this
+deployment". When it is on the screen offers three, with public-specific risk
+copy that is not reused from `any`, a **mandatory link password** (the existing
+8-character backend minimum, not a raised one), and a transient **1h** public
+expiry default. The private auth and expiry choices are held separately and
+restored intact on switching back, and nothing about a one-off public selection
+is written to the account: `users.share_default_scope` stays `any | zones`.
+
+The public URL comes from the backend `publicUrl` verbatim. It is never derived
+from `window.location`, the `Host` header, `apiUrl(path)` or a hard-coded
+domain, and a successful public response without a non-empty `publicUrl` fails
+closed — no link is shown at all, rather than the internal path being handed to
+an external recipient.
+
+Local evidence: `shareScopeTruthUi` **17/17 PASS**, rewritten from the obsolete
+"only zones and any exist" claim into a two-state matrix driven through the real
+component in jsdom; `publicShareConfig` **24/24 PASS** including the flag and
+effective-selector matrices; `publicShareBackend` **21 passed / 2 skipped**
+including the coarse capability shape and the unchanged POST semantics. Layout
+was checked in a real browser at 320, 375, 640 and 1280 px across Classic and
+Neo and EN/TH/ZH: three stacked options, 44 px touch targets, no clipping and no
+horizontal overflow.
+
+PUBLIC-SHARE-5/6/7 were not started. G4, G5 and G6 remain open.
 
 ### Dedicated Public Share Gateway source implemented, not deployed (2026-09-08)
 
