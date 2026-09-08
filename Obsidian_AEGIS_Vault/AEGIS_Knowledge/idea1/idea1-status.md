@@ -539,9 +539,29 @@ ordinary Internet access. **G4, G5 and G6 remain open and
 source changed, and no Production database, gateway, network, volume or migration
 was contacted. PUBLIC-SHARE-7 was not started.
 
-**Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED, all
-FAILED SAFELY; the acceptance matrix has still never completed on server
-hardware.** The owner
+**PUBLIC-SHARE-6 = COMPLETE / PASS. PUBLIC-SHARE-7 = NOT STARTED.**
+
+**Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED and FAILED
+SAFELY; attempt #4 EXECUTED and PASSED — 16 tests, 16 passed, 0 failed, 0
+skipped, acceptance exit 0, post-run check failures 0, runner RC 0**, against the
+accepted source SHA `15c43d6bc4d5f3d7287d20e855677a44f0ec0231` on the real
+Beelink host. PS6-INT-4 streamed the full 64 MiB (67,108,864 bytes,
+`Content-Length` 67,109,045) in 262,144-byte chunks with **256 drain waits**,
+`endedRequest=true` and `responseStatus=201`, and every subtest that earlier
+attempts could only block or cascade executed and passed. Production pre/post
+inventory **IDENTICAL**, every Production service healthy, both protected volumes
+present, both PS6-built images removed by ID, the three base images preserved,
+all 50 `aegis-prod` rows unchanged, the Compose env file and temporary workdir
+removed, and no Production PostgreSQL connection, migration-009 read, Public-UI
+read or config mutation at any point.
+
+⚠️ **This is internal isolated acceptance only.** No public Internet ingress
+exists — no published port, DNS record, TLS certificate, NAT rule, tunnel or
+firewall change. A recipient in this harness is a container on an isolated Docker
+network, not someone on ordinary Internet access. **G4, G5 and G6 remain OPEN,
+`Public Internet Share = NOT IMPLEMENTED`, and PUBLIC-SHARE-7 has NOT started.**
+
+The owner
 approved running the same isolated harness on the server hardware. The earlier
 blocker — an agent session with no working SSH path to `192.168.10.10` — no
 longer applies: work now happens **on** the `aegis-system` host. All fourteen
@@ -620,9 +640,11 @@ while the client is still writing is reported as an HTTP status rather than
 collapsed into `EPIPE`, and the client-side write counters join the failure
 evidence. Guard 10 refuses a pinned tree that would repeat it.
 
-**The root cause of the `EPIPE` is still not claimed.** The unbounded write was
-the strongest candidate the harness owned and it is gone; whether it *was* the
-cause is a claim only the next run can support. Stage B has **not** been re-run.
+**The root cause of the attempt #3 `EPIPE` is still not claimed.** Attempt #4
+shows the streamed client completing the same 64 MiB object on the same host,
+endpoint and payload where the one-shot client failed, with 256 drain waits
+recorded — which is what the evidence supports, not a proof that the unbounded
+write was the sole cause.
 
 Two host findings changed the harness. First, the administrative account is not
 in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
