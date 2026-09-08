@@ -83,7 +83,7 @@ edit_policy: append-by-new-file
 - Real-browser responsive/accessibility check at 320, 375, 640 and 1280 px, across Classic and Neo and EN/TH/ZH (12 rendered states) — passed: 2 radios in the unavailable state and 3 in the enabled state everywhere, 44 px touch-target height at ≤640 px, zero clipped scope labels, and no horizontal document overflow at any width.
 - `npm run build` — passed: Vite built in 10.69 s, retaining the existing >500 kB chunk warning for the 609.95 kB main chunk. The regenerated `dist/index.html` was restored; `dist` is not part of this change.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — passed with the two pre-existing owner-review warnings for the architecture/network canvas files.
-- `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — POLICY_PENDING
+- `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — passed (`Collaboration policy passed.`) against the final Draft PR body and all 13 changed paths.
 - `git diff --check` and `git diff --cached --check` — passed.
 
 ## Canonical notes updated
