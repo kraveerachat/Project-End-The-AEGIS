@@ -1229,6 +1229,288 @@ Run on `aegis-system`, Node **v22.22.1**, in the neutral workspace clone,
 ⚠️ **`PUBLIC_SHARE_INTEGRATION_RUNTIME=1` was NOT run.** On this host that is
 Stage B.
 
+## Stage B attempt #3 — EXECUTED, FAILED SAFELY, CAUSE ISOLATED (appended 2026-09-08)
+
+⚠️ **Recorded as it happened. Attempts #1 and #2 above are untouched.**
+
+Run on the `aegis-system` host against PR #105 HEAD
+`0b8c40607aca47e405d09bdaba1d33db5face3b0`, project
+`aegis-ps6-stage-b-20260908-181524-2025133`.
+
+| Fact | Result |
+| :--- | :--- |
+| Source SHA | `0b8c40607aca47e405d09bdaba1d33db5face3b0` |
+| **The diagnostic amendment worked** | the failure is now one named condition instead of nine assertions |
+| PS6-INT-1 / -2 / -3 | **PASS** |
+| **PS6-INT-4** | **FAIL — `upload transport failure: status=0 error=EPIPE`** |
+| PS6-INT-5/6/7/8/10/12/14 | **SKIPPED — `BLOCKED_BY_PS6_INT_4`**, not failed |
+| PS6-INT-9 / -11 / -13 / -15 | **PASS** — the independent route-map, Host, B5 and teardown subtests continued |
+| Acceptance exit | **1** |
+| Cleanup | **PASS** |
+| Production pre/post inventory | **IDENTICAL** |
+| Production services | **all healthy**; protected volumes present |
+| PS6 objects | both built images removed; no container, network, volume or image survived; Compose env file removed; workdir removed |
+| Runner RC | **1** |
+| Root cause | **still not claimed** |
+
+### What the evidence block reported, at the moment of failure
+
+```
+PS6-INT-4 upload transport failure: status=0 error=EPIPE
+    response length: 0 bytes; body present: false; body bytes captured: 0; content-type: none
+
+  ── PS6-only failure evidence ──
+  container state  service | status | running | exitCode | oomKilled | restarts | health
+    drive:                 running|true|0|false|0|healthy
+    public-share-gateway:  running|true|0|false|0|healthy
+    postgres:              running|true|0|false|0|healthy
+    recipient:             running|true|0|false|0|none
+  drive health log: 0 0 0 0 0
+  compose ps: drive=running/healthy exit=0  postgres=running/healthy exit=0
+              public-share-gateway=running/healthy exit=0  recipient=running/none exit=0
+```
+
+**The Drive survived its own upload.** Running, healthy, exit code 0, `OOMKilled`
+**false**, **zero** restarts, five consecutive healthcheck exit-0s. It was not
+killed, it did not crash, it did not run out of memory and it did not restart.
+No 4xx and no 5xx was ever sent: the response never started at all.
+
+### ⚠️ The `shares_scope_check` log line is PS6-INT-3's, and is NOT the cause
+
+The bounded Drive log tail carries exactly one error:
+
+```
+[aegis-drive] unhandled error: error: new row for relation "shares" violates
+check constraint "shares_scope_check"   … constraint: 'shares_scope_check'
+```
+
+**That belongs to PS6-INT-3 and must not be attributed to PS6-INT-4.**
+PS6-INT-3 deliberately attempts a `scope=public` share while the database is
+still pre-009 and *requires* the constraint to refuse it — that refusal is the
+negative control that makes migration 009 load-bearing rather than decorative.
+**PS6-INT-3 PASSED.** The failing row in the log is `id 1`, `scope=public`,
+inserted before the migration was applied, which is precisely that control.
+
+There is **no** Drive-side error from PS6-INT-4 at all. That is itself evidence:
+the application never rejected the upload, because the request never reached a
+point where it could.
+
+### The remaining confirmed finding
+
+> A 64 MiB request emitted by the harness client ends with `EPIPE`, against a
+> Drive that stays running and healthy throughout.
+
+Nothing more than that is claimed.
+
+Nothing in the forbidden list was touched: no `/opt/aegis/Project-End-The-AEGIS`,
+no aegis-prod restart/recreate/exec, no Production PostgreSQL, no
+`aegis_postgres_data`/`aegis_drive_storage` mount, no Production Compose or
+`.env` edit, no Production migration 009, no Public UI, no host port, no
+DNS/TLS/NAT/tunnel/MikroTik/UFW/VLAN/Twingate change, no prune, no
+PUBLIC-SHARE-7. PR #105 remains Draft, not marked Ready, not merged.
+
+## Stage B upload-client amendment — stream the body, honour backpressure (appended 2026-09-08)
+
+**Stage B was NOT re-run.** Harness client, tests and documentation only. **No
+shipped Drive, gateway, backend, UI, database, Dockerfile, Production Compose or
+`.env.example` file changed**, and no acceptance was weakened.
+
+### What was wrong with the client
+
+The old PS6-INT-4 client built:
+
+1. a complete 64 MiB `Buffer` of deterministic payload;
+2. a **second** complete `Buffer` — head + payload + trailer — via `Buffer.concat`;
+3. and handed the whole ~190 MiB result to **one** `req.write()`.
+
+That is the one thing between "the harness asked" and "the socket broke" that the
+harness owns, and it is not a write model any HTTP client should use. It is now
+replaced — **and only it**.
+
+### Streaming upload design
+
+`UPLOAD_CLIENT`, a new in-container program block beside `PRELUDE`:
+
+- **`deterministicSource(label)`** — the same payload as a sequential source:
+  `seed = sha256(seed)`, 32 bytes at a time, starting from `sha256(label)`. Chunk
+  sizes are multiples of 32, so where the boundaries fall changes nothing.
+- **`uploadMultipart({ … })`** — writes the multipart head, then the file in
+  bounded chunks, then the trailer, and declares an explicit, correct
+  `Content-Length` computed as `head + totalBytes + tail`. The whole body is never
+  resident: one chunk is.
+- **`PS6_UPLOAD_CHUNK_BYTES`**, default **256 KiB**, validated at module load as
+  a multiple of 32 between 32 KiB and 1 MiB. A value that was not a multiple of 32
+  would move the seed boundaries and change the artifact, so it is refused rather
+  than clamped.
+
+⚠️ **Unchanged**: the shipped endpoint `POST /api/files/upload`, the 64 MiB
+acceptance size, the deterministic contents, the explicit `Content-Length`, and
+the exact server-side SHA-256 comparison. **Not** the V2 chunked upload, **not**
+another endpoint, **not** a smaller file, **not** a weaker requirement.
+
+### Backpressure model
+
+```
+write(head)
+for each bounded chunk of the file:
+    if settled or a request error has been seen → stop
+    generate the chunk, fold it into the running SHA-256, write it
+    if write() returned false → drainWaits += 1, wait for 'drain', then continue
+write(tail)
+end()            ← only after every chunk has been accepted for writing
+```
+
+`end()` is never called early, a pending `drain` wait is released if the request
+errors so nothing dangles, and the pump stops as soon as the result has settled.
+`PS6-UP-1` proves the wait is real rather than theoretical: against a receiver
+that refuses to read for 250 ms, `drainWaits > 0`, `writtenBytes === contentLength`
+and **every byte arrives**.
+
+### Response / error race model
+
+A server that answers 400 or 413 while the client is still writing will usually
+also break the client's pipe. That must be reported as the HTTP answer it is.
+
+- The client records `requestError` and `responseError` **separately and always**,
+  alongside `responseStarted` and `responseStatus`.
+- The `error` field the shared classifier reads is set **only when no response
+  arrived**. An available response is therefore never collapsed into a generic
+  `EPIPE`.
+- A request-side error does **not** settle the result. It arms a bounded grace
+  window (2 s by default); a response that completes inside it wins, and the
+  transport code is recorded beside it rather than instead of it.
+
+`PS6-UP-2` drives exactly that race and requires `status=413`, `error=null` and
+`parseJsonBody` reporting `reason: 'status'`. `PS6-UP-3` drives a destroyed
+socket and requires `responseStarted=false`, a clean transport code, and
+`reason: 'transport'`.
+
+### Client-side counters, in every failure message (TASK D)
+
+The PS6-only evidence block is **preserved unchanged** — Drive
+status/running/exit/OOM/restart/health, the health log, a bounded redacted Drive
+log tail and `compose ps` — and the counters now join it:
+
+```
+upload client:  contentLength=… chunkBytes=… generated=… written=… drainWaits=… endedRequest=…
+upload outcome: responseStarted=… responseStatus=… requestError=… responseError=…
+```
+
+They are numbers, booleans and error codes only. `PS6-UP-7` asserts that the
+counter object contains no cookie, CSRF token, share token, password or secret,
+and that the evidence block is still attached. A **successful** run prints the
+same counters and asserts `generatedBytes === FILE_BYTES`,
+`writtenBytes === contentLength` and `endedRequest === true`, so the evidence
+exists either way.
+
+### Guard 10
+
+New, same shape as guards 7–9: refuses a pinned tree that does not use
+`uploadMultipart`, never waits for `drain`, or still builds the whole request
+body as one `Buffer`. Verified to discriminate:
+
+```
+$ git show 0b8c4060:…/publicShareInternalIntegration.test.js | grep -c uploadMultipart          → 0   (refused)
+$ git show 0b8c4060:… | grep -c 'Buffer.concat(\[head, body, tail\])'                            → 1   (refused)
+$ grep -c uploadMultipart …/publicShareInternalIntegration.test.js                              → 2   (accepted)
+$ grep -c "req.once('drain'" …                                                                   → 1   (accepted)
+```
+
+### A harness defect found and fixed while writing the regression
+
+`PS6-UP-8` exists because the first draft of the regression extracted the
+in-container program by slicing the suite's raw source instead of evaluating the
+template literal. A template literal processes escapes: the source `\r\n` is a
+two-character CRLF in the emitted program and a four-character literal in a raw
+slice. A multipart delimiter made of the literal text `\r\n` is not a delimiter
+at all. The extraction now re-evaluates the slice as a template literal, and
+`PS6-UP-8` asserts the **bytes on the wire** — real CRLF in both the header and
+the trailer — rather than the source text. The same correction was applied to the
+diagnostics suite's `PRELUDE` extraction.
+
+### TASK F — current `main`
+
+`git fetch origin`, then `git rev-parse origin/main` and
+`git ls-remote origin refs/heads/main`, both at execution time:
+**`c68946cbe917a71349a8234a4bc028fbf4c6967d`** — the same commit already merged
+into this branch at `1e5e3f5a`. `git merge-base --is-ancestor origin/main HEAD`
+confirms it is already an ancestor. **`main` did not advance; no second merge was
+required.** No rebase, no force, no push to `main`, and all receipt history is
+intact.
+
+### Files changed by this amendment
+
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.test.js` — the new
+  `UPLOAD_CLIENT` block (`deterministicSource`, `uploadMultipart`), the
+  `UPLOAD_CHUNK_BYTES` constant with its validation, PS6-INT-4 switched to the
+  streaming sender with counters on every path, and the counters rendered in
+  `explainFailure` and asserted on success.
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareStageBUploadClient.test.js` — **new**,
+  9 tests, no Docker and no daemon.
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareStageBDiagnostics.test.js` — the
+  `PRELUDE` extraction re-evaluates escapes, and PS6-DIAG-7 now pins the
+  incremental digest instead of the removed one-shot line.
+- `gateway/public-share/integration/run-stage-b.sh` — guard 10.
+- `gateway/public-share/integration/README.md` — the upload client, the
+  backpressure model, the race model and guard 10.
+- This receipt, and the PUBLIC-SHARE-6 paragraph in `idea1/idea1-status.md`.
+
+### TASK G — verification after the amendment, non-Production only
+
+Run on `aegis-system`, Node **v22.22.1**, in the neutral workspace clone.
+
+- `node --test --test-concurrency=1 tests/publicShareStageBUploadClient.test.js` —
+  **9 tests, 9 passed, 0 failed.** The upload client is extracted from the suite
+  and evaluated in-process, then driven against a throwaway `node:http` server on
+  `127.0.0.1:0`: a slow receiver forces real `drain` waits and still receives
+  every byte; an early 413 is reported as a status with `error=null`; a destroyed
+  socket is a clean transport failure with `endedRequest=false` and
+  `clientSha256=null`; a successful upload's receiver-side digest equals the
+  incrementally computed client digest; the streamed payload is **byte-identical**
+  to the one-shot payload at chunk sizes 32 B, 1 KiB, 32 KiB, 256 KiB and 512 KiB;
+  Stage B's default is still exactly 64 MiB to the shipped endpoint; the counters
+  reach the failure message and carry no secret; the wire delimiters are real
+  CRLF; and guard 10 discriminates `0b8c4060` from this tree.
+- `node --test --test-concurrency=1 tests/publicShareStageBDiagnostics.test.js` —
+  **10 tests, 10 passed, 0 failed.**
+- `node --test --test-concurrency=1 --test-timeout=180000 tests/publicShareStageBCredentialPlumbing.test.js`
+  — **9 tests, 9 passed, 0 failed.**
+- `node --test tests/publicShareInternalIntegration.test.js` (no env var) —
+  **1 test, 0 passed, 1 skipped.** Still inert by default.
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` —
+  **passed: 1,180 tests, 1,109 passed, 0 failed, 0 cancelled, 71 skipped,
+  281.8 s.** (Was 1,171 / 1,100; the nine new PS6-UP tests are the difference.)
+- `node --test tests/publicShareGatewayStructure.test.js` — **12/12**;
+  `node --test tests/publicShareGatewayRuntime.test.js` — 1 test, 1 skipped
+  (opt-in, needs Docker).
+- `sh -n gateway/public-share/integration/run-stage-b.sh` — passed; refusals
+  re-driven after guard 10 and all still refuse; no `/tmp` strays.
+- `node --test tests/collaborationPolicy.test.mjs` — **18/18**;
+  `node scripts/validate-vault.mjs` — passed with the same two pre-existing
+  owner-review canvas warnings; `git diff --check`, `git diff --cached --check`,
+  `git status --short` — clean.
+
+⚠️ **`PUBLIC_SHARE_INTEGRATION_RUNTIME=1` was NOT run.** On this host that is
+Stage B.
+
+### What is still unproven
+
+- **The root cause of the `EPIPE` is not claimed.** The single unbounded write is
+  the strongest candidate the harness owns, and it is now gone; whether it *was*
+  the cause is a claim only attempt #4 can support. If the streamed client still
+  ends in `EPIPE`, the counters will say how many bytes the socket accepted before
+  it broke and whether the server had begun answering — which is a different and
+  much narrower question than the one attempt #3 could ask.
+- **The acceptance matrix has still never completed on server hardware.** No
+  PS6-INT-5 through -14 result in this receipt is a server result; seven of them
+  have never executed there at all.
+- Production migration 009 and the Public UI flag were again not read, for the
+  reasons recorded above. Their state is unchanged because nothing here writes to
+  them.
+
+**Stage B was not re-run. PUBLIC-SHARE-7 was not started. PR #105 remains Draft
+and is not merged.**
+
 ## Known limitations
 
 - **Public Internet Share remains NOT IMPLEMENTED.** Production gateway = NO,

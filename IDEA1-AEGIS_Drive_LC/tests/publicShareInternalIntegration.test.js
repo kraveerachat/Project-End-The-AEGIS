@@ -100,6 +100,23 @@ const POSTGRES_IP = '172.31.252.2'
  */
 const FILE_BYTES = Number(process.env.PS6_FILE_BYTES ?? 64 * 1024 * 1024)
 
+/**
+ * How much of that file is resident at once while it is being sent.
+ *
+ * ⚠️ Bounded on purpose. 256 KiB is large enough that the syscall count is
+ *    irrelevant and small enough that the client's memory stays flat however big
+ *    the acceptance object is. It must stay a multiple of 32: the deterministic
+ *    payload is derived 32 bytes at a time, so a chunk size that was not a
+ *    multiple of 32 would move the seed boundaries and change the file itself.
+ */
+const UPLOAD_CHUNK_BYTES = Number(process.env.PS6_UPLOAD_CHUNK_BYTES ?? 256 * 1024)
+if (!Number.isInteger(UPLOAD_CHUNK_BYTES) || UPLOAD_CHUNK_BYTES % 32 !== 0
+  || UPLOAD_CHUNK_BYTES < 32 * 1024 || UPLOAD_CHUNK_BYTES > 1024 * 1024) {
+  throw new Error(
+    `PS6_UPLOAD_CHUNK_BYTES must be a multiple of 32 between 32 KiB and 1 MiB, got ${UPLOAD_CHUNK_BYTES}`,
+  )
+}
+
 /** The 008-era CHECK, i.e. the exact state migration 009 has to widen. */
 const PRE_009_SCOPES = ['any', 'zones', 'vlan', 'subnet']
 
@@ -347,6 +364,195 @@ function parseJsonBody(label, res, expectedStatus) {
     d.preview = redactPreview(res.text, 300)
     return { ok: false, diagnostic: d }
   }
+}
+`
+
+/**
+ * The large-body upload client, used inside the Drive container.
+ *
+ * WARNING: Stage B attempt #3 died here, and this is why it exists.
+ *    The previous client built a complete 64 MiB Buffer, concatenated it with
+ *    the multipart head and tail into a SECOND complete Buffer, and handed the
+ *    whole thing to one req.write(). On the AEGIS server host that request
+ *    ended with:
+ *
+ *        PS6-INT-4 upload transport failure: status=0 error=EPIPE
+ *
+ *    with the Drive container running, healthy, exit code 0, OOMKilled false and
+ *    zero restarts, and no error of its own in its log. A single unbounded write
+ *    of a body that large is not a write model any HTTP client should use, and
+ *    it is the one thing between "the harness asked" and "the socket broke" that
+ *    the harness owns.
+ *
+ * WARNING: THIS IS A HARNESS CLIENT CHANGE ONLY. Same shipped endpoint
+ *    (POST /api/files/upload), same 64 MiB, same deterministic bytes, same
+ *    server-side SHA-256 comparison, same explicit Content-Length. Nothing is
+ *    switched to the V2 chunked upload, to another endpoint, to a smaller file
+ *    or to a weaker acceptance.
+ *
+ * The model: emit the multipart head, then the file in bounded chunks, then the
+ * trailer; honour backpressure by waiting for 'drain' whenever write() returns
+ * false; and never call end() until every chunk has been accepted for writing.
+ * The whole body is never resident at once -- only one chunk is.
+ */
+const UPLOAD_CLIENT = `
+/**
+ * The deterministic payload, as a sequential source instead of one Buffer.
+ *
+ * Byte-for-byte the SAME payload the one-shot version produced: seed =
+ * sha256(seed), 32 bytes at a time, starting from sha256(label). Chunk sizes are
+ * multiples of 32, so where the chunk boundaries fall changes nothing.
+ */
+function deterministicSource(label) {
+  let seed = crypto.createHash('sha256').update(label).digest()
+  return function next(size) {
+    const buf = Buffer.alloc(size)
+    let off = 0
+    while (off < size) {
+      seed = crypto.createHash('sha256').update(seed).digest()
+      const n = Math.min(32, size - off)
+      seed.copy(buf, off, 0, n)
+      off += n
+    }
+    return buf
+  }
+}
+
+/**
+ * Stream a multipart/form-data upload with an explicit, correct Content-Length,
+ * honouring backpressure, without ever holding the whole body in one Buffer.
+ *
+ * Resolves ONE record that separates a response from a write failure:
+ *
+ *   status, headers, length, sha256, text   the response, when one arrived
+ *   error                                   set ONLY when NO response arrived
+ *   requestError / responseError            always recorded, independently
+ *   responseStarted                         did the server begin a response
+ *   contentLength / generatedBytes /
+ *   writtenBytes / drainWaits /
+ *   endedRequest / chunkBytes               the client-side write counters
+ *   clientSha256                            digest of the FILE bytes generated
+ *
+ * WARNING: a server that answers 400 or 413 while the client is still writing
+ *    will usually also break the client's pipe. That must be reported as the
+ *    HTTP response it is, not collapsed into a generic EPIPE. So a request-side
+ *    error does not settle the result immediately: it arms a bounded grace
+ *    window, and a response that completes inside that window wins. The
+ *    transport code is still recorded next to it.
+ */
+function uploadMultipart(o) {
+  return new Promise((resolve) => {
+    const head = Buffer.from(
+      '--' + o.boundary + '\\r\\nContent-Disposition: form-data; name="' + o.fieldName +
+      '"; filename="' + o.filename + '"\\r\\nContent-Type: application/octet-stream\\r\\n\\r\\n')
+    const tail = Buffer.from('\\r\\n--' + o.boundary + '--\\r\\n')
+    const chunkBytes = o.chunkBytes || 262144
+    const contentLength = head.length + o.totalBytes + tail.length
+    const graceMs = o.errorGraceMs === undefined ? 2000 : o.errorGraceMs
+
+    const state = {
+      contentLength, chunkBytes,
+      generatedBytes: 0, writtenBytes: 0, drainWaits: 0,
+      responseStarted: false, status: 0, headers: null,
+      requestError: null, responseError: null, endedRequest: false,
+      clientSha256: null, error: null,
+    }
+
+    const fileHash = crypto.createHash('sha256')
+    let settled = false
+    let graceTimer = null
+    let releaseDrain = null
+
+    const settle = (extra) => {
+      if (settled) return
+      settled = true
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null }
+      // 'error' is the field the shared classifier reads. It is set ONLY when no
+      // response arrived, so an HTTP answer is never reported as a transport
+      // failure -- while requestError/responseError stay visible either way.
+      if (!state.responseStarted) state.error = state.requestError || state.responseError
+      const result = Object.assign({}, state, extra)
+      try { req.destroy() } catch (e) { /* already gone */ }
+      resolve(result)
+    }
+    const wake = () => { if (releaseDrain) { const r = releaseDrain; releaseDrain = null; r() } }
+
+    const headers = Object.assign({}, o.headers || {}, {
+      'Content-Type': 'multipart/form-data; boundary=' + o.boundary,
+      'Content-Length': String(contentLength),
+    })
+
+    const req = http.request({
+      host: o.host, port: o.port, path: o.path, method: 'POST', headers, setHost: false,
+    }, (res) => {
+      state.responseStarted = true
+      state.status = res.statusCode
+      state.headers = res.headers
+      const hash = crypto.createHash('sha256')
+      let length = 0
+      const keep = []
+      let kept = 0
+      res.on('data', (c) => {
+        hash.update(c)
+        length += c.length
+        if (o.captureBytes && kept < o.captureBytes) { keep.push(c); kept += c.length }
+      })
+      res.on('end', () => {
+        wake()
+        settle({
+          length, sha256: hash.digest('hex'),
+          text: o.captureBytes ? Buffer.concat(keep).toString('utf8').slice(0, o.captureBytes) : null,
+        })
+      })
+      res.on('error', (e) => {
+        state.responseError = e.code || e.message
+        wake()
+        settle({ length, text: o.captureBytes ? Buffer.concat(keep).toString('utf8').slice(0, o.captureBytes) : null })
+      })
+    })
+
+    req.on('error', (e) => {
+      state.requestError = e.code || e.message
+      wake()
+      // Give a response that may already be on the wire its bounded chance.
+      if (graceTimer === null) graceTimer = setTimeout(() => settle({ length: 0, text: null }), graceMs)
+      if (graceTimer.unref) graceTimer.unref()
+    })
+
+    const writeChunk = (buf) => new Promise((accepted) => {
+      const ok = req.write(buf)
+      state.writtenBytes += buf.length
+      if (ok || settled) return accepted()
+      state.drainWaits += 1
+      releaseDrain = accepted
+      req.once('drain', () => { if (releaseDrain === accepted) { releaseDrain = null; accepted() } })
+    })
+
+    const pump = async () => {
+      await writeChunk(head)
+      let offset = 0
+      while (offset < o.totalBytes) {
+        if (settled || state.requestError) return
+        const size = Math.min(chunkBytes, o.totalBytes - offset)
+        const chunk = o.nextChunk(size)
+        fileHash.update(chunk)
+        state.generatedBytes += chunk.length
+        await writeChunk(chunk)
+        offset += size
+      }
+      state.clientSha256 = fileHash.digest('hex')
+      if (settled || state.requestError) return
+      await writeChunk(tail)
+      if (settled) return
+      state.endedRequest = true
+      req.end()
+    }
+
+    pump().catch((e) => {
+      state.requestError = state.requestError || (e && (e.code || e.message)) || 'pump-failed'
+      settle({ length: 0, text: null })
+    })
+  })
 }
 `
 
@@ -687,6 +893,19 @@ test('PS6-INT the real gateway integrates with the real Drive on an internal add
       `    response length: ${f.length ?? 'n/a'} bytes; body present: ${f.hasText === undefined ? 'n/a' : f.hasText};` +
       ` body bytes captured: ${f.bodyBytes ?? 'n/a'}; content-type: ${f.contentType ?? 'none'}`,
     ]
+    if (f.upload) {
+      const u = f.upload
+      // ⚠️ The client-side write counters. They are what separates "the harness
+      //    never produced the bytes" from "the socket stopped accepting them"
+      //    from "the server answered while we were still writing".
+      detail.push(
+        `    upload client: contentLength=${u.contentLength} chunkBytes=${u.chunkBytes}` +
+        ` generated=${u.generatedBytes} written=${u.writtenBytes} drainWaits=${u.drainWaits}` +
+        ` endedRequest=${u.endedRequest}`,
+        `    upload outcome: responseStarted=${u.responseStarted} responseStatus=${u.responseStatus}` +
+        ` requestError=${u.requestError ?? 'none'} responseError=${u.responseError ?? 'none'}`,
+      )
+    }
     if (f.parseError) detail.push(`    parse error: ${redact(f.parseError)}`)
     if (f.preview) detail.push(`    body excerpt (bounded, redacted): ${bounded(f.preview, 300)}`)
     if (f.keys) detail.push(`    response shape: keys=${redact(JSON.stringify(f.keys))}`)
@@ -849,8 +1068,9 @@ Promise.all(targets.map(probe)).then(out)
 
   // ── PS6-INT-4 ──────────────────────────────────────────────────────────────
   await t.test('PS6-INT-4 the private path uploads 64 MiB and mints a public share', async () => {
-    const provision = `${PRELUDE}${PRIVATE_SESSION}
+    const provision = `${PRELUDE}${UPLOAD_CLIENT}${PRIVATE_SESSION}
 const FILE_BYTES = ${FILE_BYTES}
+const CHUNK_BYTES = ${UPLOAD_CHUNK_BYTES}
 ;(async () => {
   const s = new Session('localhost')
   await s.login(${JSON.stringify(SEED_USER)}, ${JSON.stringify(SEED_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)})
@@ -858,31 +1078,40 @@ const FILE_BYTES = ${FILE_BYTES}
 
   // Deterministic, incompressible-enough content derived from a fixed seed, so
   // the expected digest is a property of the test rather than of a lucky run.
-  const body = Buffer.alloc(FILE_BYTES)
-  let seed = crypto.createHash('sha256').update('ps6-payload').digest()
-  for (let off = 0; off < FILE_BYTES; off += 32) {
-    seed = crypto.createHash('sha256').update(seed).digest()
-    seed.copy(body, off, 0, Math.min(32, FILE_BYTES - off))
-  }
-  const expected = crypto.createHash('sha256').update(body).digest('hex')
-
+  // Generated one bounded chunk at a time and handed straight to the socket:
+  // byte-for-byte the same payload as the one-shot version, a flat memory
+  // profile instead of ~190 MiB, and a write model that honours backpressure.
+  const source = deterministicSource('ps6-payload')
   const boundary = '----ps6payload' + Date.now()
-  const head = Buffer.from('--' + boundary + '\\r\\nContent-Disposition: form-data; name="file"; filename="ps6-payload.bin"\\r\\nContent-Type: application/octet-stream\\r\\n\\r\\n')
-  const tail = Buffer.from('\\r\\n--' + boundary + '--\\r\\n')
-  const parts = Buffer.concat([head, body, tail])
-  const up = await send({ ...DRIVE, path: '/api/files/upload', method: 'POST', captureBytes: 65536,
-    headers: { Host: 'localhost', cookie: s.cookie, 'X-CSRF-Token': s.csrf,
-      'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': parts.length }, body: parts })
+  const up = await uploadMultipart({
+    ...DRIVE, path: '/api/files/upload', captureBytes: 65536,
+    headers: { Host: 'localhost', cookie: s.cookie, 'X-CSRF-Token': s.csrf },
+    boundary, fieldName: 'file', filename: 'ps6-payload.bin',
+    totalBytes: FILE_BYTES, chunkBytes: CHUNK_BYTES, nextChunk: source,
+  })
+  const expected = up.clientSha256
 
-  // The upload is the step Stage B attempt #2 died on. Classify it here, where
+  // Client-side write counters. A failure now says whether the bytes were even
+  // generated, how far the socket accepted them, how often it pushed back, and
+  // whether the server had already begun answering. None of this is a secret.
+  const counters = {
+    contentLength: up.contentLength, chunkBytes: up.chunkBytes,
+    generatedBytes: up.generatedBytes, writtenBytes: up.writtenBytes,
+    drainWaits: up.drainWaits, endedRequest: up.endedRequest,
+    responseStarted: up.responseStarted, responseStatus: up.status,
+    requestError: up.requestError, responseError: up.responseError,
+  }
+
+  // The upload is the step Stage B attempts #2 and #3 died on. Classify it here,
+  // where
   // the response object still exists, and hand the classification back as data.
   // JSON.parse is reached only when a body is known to be present.
   const parsed = parseJsonBody('PS6-INT-4 64 MiB private upload', up, 201)
-  if (!parsed.ok) { out({ ps6Failure: { stage: 'upload', ...parsed.diagnostic } }); return }
+  if (!parsed.ok) { out({ ps6Failure: { stage: 'upload', ...parsed.diagnostic, upload: counters } }); return }
   const uploaded = parsed.value
   if (!uploaded || !uploaded.file || uploaded.file.id === undefined || uploaded.file.sha256 === undefined) {
     out({ ps6Failure: { stage: 'upload', reason: 'unexpected-shape', status: up.status, length: up.length, hasText: true,
-      keys: Object.keys(uploaded || {}), fileKeys: Object.keys((uploaded && uploaded.file) || {}) } })
+      keys: Object.keys(uploaded || {}), fileKeys: Object.keys((uploaded && uploaded.file) || {}), upload: counters } })
     return
   }
 
@@ -901,7 +1130,7 @@ const FILE_BYTES = ${FILE_BYTES}
 
   out({
     uploadStatus: up.status, serverSha256: uploaded.file.sha256, serverSize: uploaded.file.size,
-    expectedSha256: expected, fileId: uploaded.file.id,
+    expectedSha256: expected, fileId: uploaded.file.id, upload: counters,
     shareStatus: share.status, publicUrl: share.data && share.data.publicUrl,
     path: share.data && share.data.path, shareId: share.data && share.data.share && share.data.share.id,
     scope: share.data && share.data.share && share.data.share.scope,
@@ -923,6 +1152,15 @@ const FILE_BYTES = ${FILE_BYTES}
     }
     if (r.ps6Failure) assert.fail(await explainFailure('PS6-INT-4 upload', r.ps6Failure))
 
+    if (r.upload) {
+      const u = r.upload
+      console.log(`[ps6] PS6-INT-4 upload client: contentLength=${u.contentLength} chunkBytes=${u.chunkBytes} ` +
+        `generated=${u.generatedBytes} written=${u.writtenBytes} drainWaits=${u.drainWaits} ` +
+        `endedRequest=${u.endedRequest} responseStatus=${u.responseStatus}`)
+      assert.equal(u.generatedBytes, FILE_BYTES, 'the client must have generated exactly the acceptance size')
+      assert.equal(u.writtenBytes, u.contentLength, 'every byte of the request must have been handed to the socket')
+      assert.equal(u.endedRequest, true, 'the request must only be ended after every chunk was accepted')
+    }
     assert.equal(r.uploadStatus, 201, 'the 64 MiB upload must succeed on the private path')
     assert.equal(r.serverSize, FILE_BYTES, 'the server must store exactly the bytes that were sent')
     assert.equal(r.serverSha256, r.expectedSha256,

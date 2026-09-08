@@ -560,6 +560,25 @@ grep -qE 'const [A-Za-z_]+ = JSON\.parse\([A-Za-z_]+\.text\)' "$TEST_FILE" && di
 grep -q 'BLOCKED_BY_PS6_INT_4' "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA does not block artifact-dependent subtests, so one provisioning failure would again be reported as eight"
 note "responses are classified before parsing, and dependent subtests are blocked rather than failed"
 
+# ── Guard 10 · the pinned source streams its large body ─────────────────────
+#
+# ⚠️ Added after Stage B attempt #3. That run reached the 64 MiB private upload
+#    and ended with `status=0 error=EPIPE`, while the PS6 Drive stayed running,
+#    healthy, exit code 0, OOMKilled false and zero restarts, with no error of
+#    its own in its log. The client had built the whole 64 MiB file as one
+#    Buffer, concatenated it with the multipart head and tail into a second
+#    whole Buffer, and handed roughly 190 MiB to a single req.write().
+#
+#    That is not a write model any HTTP client should use, and it is the one
+#    thing between "the harness asked" and "the socket broke" that the harness
+#    owns. A tree that still does it would spend another production-host window
+#    reproducing the same EPIPE.
+say "guard 10 — the pinned source streams its large upload with backpressure"
+grep -q 'uploadMultipart' "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA does not use the streaming upload client, so its 64 MiB request would again be one unbounded write — exactly the Stage B attempt #3 EPIPE. Use a PR #105 HEAD that includes the streaming-client amendment."
+grep -q "req.once('drain'" "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA never waits for drain, so it does not honour backpressure"
+grep -q 'Buffer\.concat(\[head, body, tail\])' "$TEST_FILE" && die "the pinned acceptance suite at $PS6_SOURCE_SHA still builds the whole request body as one Buffer"
+note "the large upload is streamed in bounded chunks and waits for drain"
+
 # ── Dependencies · none are installed on the host, deliberately ──────────────
 #
 # The acceptance suite imports node:test, node:assert, node:child_process,

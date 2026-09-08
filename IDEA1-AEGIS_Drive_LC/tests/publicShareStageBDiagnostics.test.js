@@ -48,7 +48,11 @@ const suiteSource = readFileSync(SUITE, 'utf8')
 const PRELUDE = (() => {
   const match = suiteSource.match(/const PRELUDE = `([\s\S]*?)`\n/)
   assert.ok(match, 'the suite must still define PRELUDE as a single template literal')
-  return match[1]
+  // Re-evaluated as a template literal, not used as a raw slice: a template
+  // literal processes escapes, and the emitted program is what runs in the
+  // container. PRELUDE carries no substitution, which is what makes this safe.
+  assert.ok(!match[1].includes('${'), 'PRELUDE must carry no substitution')
+  return new Function('return `' + match[1] + '`')()
 })()
 
 // The prelude is CommonJS — it is fed to `node` on stdin inside a container —
@@ -281,7 +285,11 @@ test('PS6-DIAG-6 artifact-dependent subtests are BLOCKED, not failed', () => {
 test('PS6-DIAG-7 the diagnostics change no shipped behaviour and weaken no acceptance', () => {
   // The acceptance object is still a real, deterministic 64 MiB file.
   assert.match(suiteSource, /const FILE_BYTES = Number\(process\.env\.PS6_FILE_BYTES \?\? 64 \* 1024 \* 1024\)/)
-  assert.match(suiteSource, /const expected = crypto\.createHash\('sha256'\)\.update\(body\)\.digest\('hex'\)/)
+  // The digest is still computed from the same deterministic bytes — now
+  // incrementally, as they are streamed, rather than from one resident Buffer.
+  // The payload itself is unchanged; PS6-UP-5 proves that byte for byte.
+  assert.match(suiteSource, /const source = deterministicSource\('ps6-payload'\)/)
+  assert.match(suiteSource, /const expected = up\.clientSha256/)
   // Still the same legacy private endpoint: nothing was swapped for a passing one.
   assert.equal(
     (suiteSource.match(/path: '\/api\/files\/upload'/g) ?? []).length, 2,

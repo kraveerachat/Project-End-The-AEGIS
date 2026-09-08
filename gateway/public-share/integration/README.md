@@ -255,6 +255,61 @@ Three things changed, none of them in shipped code:
 `parseJsonBody` and `BLOCKED_BY_PS6_INT_4` to be present and refuses a tree that
 still assigns `JSON.parse` of a response body that may not exist.
 
+### The large-body upload client
+
+Stage B attempt #3 used those diagnostics and isolated the failure to one line:
+
+```
+PS6-INT-4 upload transport failure: status=0 error=EPIPE
+```
+
+with the PS6 Drive container **running, healthy, exit code 0, `OOMKilled` false,
+zero restarts**, PostgreSQL and the gateway healthy, and no error of the Drive's
+own in its log. Seven dependent subtests were correctly `BLOCKED_BY_PS6_INT_4`
+rather than reported as defects, and the topology, default-deny and B5 subtests
+passed.
+
+⚠️ The one `shares_scope_check` error in that Drive log belongs to **PS6-INT-3**,
+which deliberately attempts a `scope=public` share while the database is still
+pre-009 and *requires* the constraint to refuse it. PS6-INT-3 passed. **It must
+not be attributed to PS6-INT-4.**
+
+The old client built a complete 64 MiB `Buffer`, concatenated it with the
+multipart head and tail into a second complete `Buffer`, and handed the whole
+~190 MiB result to **one** `req.write()`. That is not a write model any HTTP
+client should use, and it is the one thing between "the harness asked" and "the
+socket broke" that the harness owns. It is now:
+
+- `deterministicSource(label)` — the same payload, as a sequential source:
+  `seed = sha256(seed)`, 32 bytes at a time, from `sha256(label)`. Chunk sizes are
+  multiples of 32, so where the boundaries fall changes nothing. `PS6-UP-5` proves
+  the streamed payload is **byte-identical** to the one-shot payload at every
+  legal chunk size.
+- `uploadMultipart(…)` — writes the multipart head, then the file in bounded
+  chunks (`PS6_UPLOAD_CHUNK_BYTES`, default **256 KiB**, constrained to a multiple
+  of 32 between 32 KiB and 1 MiB), then the trailer. `write()` returning `false`
+  is followed by waiting for `drain`, and `end()` is not called until every chunk
+  has been accepted. `Content-Length` is still declared explicitly and correctly.
+
+⚠️ **Harness client only.** Same shipped endpoint `POST /api/files/upload`, same
+64 MiB, same deterministic bytes, same explicit `Content-Length`, same
+server-side SHA-256 comparison. Not the V2 chunked upload, not another endpoint,
+not a smaller file, not a weaker acceptance.
+
+**Response versus write failure is never ambiguous.** The client records
+`contentLength`, `chunkBytes`, `generatedBytes`, `writtenBytes`, `drainWaits`,
+`endedRequest`, `responseStarted`, `responseStatus`, `requestError` and
+`responseError` — and the `error` field the shared classifier reads is set **only
+when no response arrived**. A server that answers 400 or 413 while the client is
+still writing will usually also break the client's pipe; that request-side error
+arms a bounded grace window instead of settling the result, so a response that
+completes inside it wins and the transport code is recorded beside it rather than
+instead of it. The counters join the PS6-only evidence block in any failure
+message, and are printed and asserted on success too.
+
+**Guard 10** refuses a pinned tree that still builds the whole request body as one
+`Buffer` or never waits for `drain`.
+
 ⚠️ **No shipped behaviour changed, and no acceptance was weakened.** The upload is
 still the same shipped private endpoint, still 64 MiB, still deterministic, and
 `PS6-INT-4` still asserts status 201, the exact byte count and the server-side

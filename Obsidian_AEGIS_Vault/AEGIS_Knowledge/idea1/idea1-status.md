@@ -539,9 +539,9 @@ ordinary Internet access. **G4, G5 and G6 remain open and
 source changed, and no Production database, gateway, network, volume or migration
 was contacted. PUBLIC-SHARE-7 was not started.
 
-**Stage B: gate APPROVED 2026-09-08. Attempts #1 and #2 EXECUTED, both FAILED
-SAFELY; the acceptance matrix has still never completed on server hardware.**
-The owner
+**Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED, all
+FAILED SAFELY; the acceptance matrix has still never completed on server
+hardware.** The owner
 approved running the same isolated harness on the server hardware. The earlier
 blocker — an agent session with no working SSH path to `192.168.10.10` — no
 longer applies: work now happens **on** the `aegis-system` host. All fourteen
@@ -591,9 +591,38 @@ first, never Production), and marks artifact-dependent subtests
 `BLOCKED_BY_PS6_INT_4` instead of failing them. Guard 9 refuses a pinned tree
 that would repeat any of it. **No shipped source changed and no acceptance was
 weakened**: the upload is still the same shipped private endpoint, still 64 MiB,
-still deterministic, still digest-checked. **The cause of the upload failure is
-still unknown and is not claimed**; the next run is what will identify it. Stage B
-has **not** been re-run.
+still deterministic, still digest-checked.
+
+Attempt #3, against `0b8c4060…`, used those diagnostics and isolated the
+remaining failure to one condition: **`PS6-INT-4 upload transport failure:
+status=0 error=EPIPE`**, with the PS6 Drive **running, healthy, exit code 0,
+`OOMKilled` false and zero restarts**, PostgreSQL and the gateway healthy, and no
+error of the Drive's own for that request. PS6-INT-1/2/3/9/11/13/15 passed and
+the seven artifact-dependent subtests were correctly **SKIPPED** as
+`BLOCKED_BY_PS6_INT_4` rather than failed. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+⚠️ The one `shares_scope_check` error in that Drive log is **PS6-INT-3's
+intentional pre-009 negative control** — PS6-INT-3 passed — and must not be
+attributed to PS6-INT-4.
+
+The remaining confirmed finding is therefore narrow: a 64 MiB request emitted by
+the harness client ends with `EPIPE` against a Drive that stays healthy. The
+harness client owned an obvious defect and it is now fixed: it built the whole
+64 MiB file as one `Buffer`, concatenated a second whole `Buffer` for the
+multipart body, and handed ~190 MiB to a single `req.write()`. It now streams the
+body in bounded 256 KiB chunks, waits for `drain` whenever `write()` returns
+false, and calls `end()` only after every chunk has been accepted — same
+endpoint, same 64 MiB, same deterministic bytes (proven byte-identical), same
+explicit `Content-Length`, same server-side digest check. A response that arrives
+while the client is still writing is reported as an HTTP status rather than
+collapsed into `EPIPE`, and the client-side write counters join the failure
+evidence. Guard 10 refuses a pinned tree that would repeat it.
+
+**The root cause of the `EPIPE` is still not claimed.** The unbounded write was
+the strongest candidate the harness owned and it is gone; whether it *was* the
+cause is a claim only the next run can support. Stage B has **not** been re-run.
 
 Two host findings changed the harness. First, the administrative account is not
 in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
