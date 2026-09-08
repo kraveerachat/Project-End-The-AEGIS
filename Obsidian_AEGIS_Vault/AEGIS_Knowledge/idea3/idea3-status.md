@@ -199,6 +199,105 @@ Known limitations:
 
 ---
 
+## PR6 verified closure and PR7 inventory/design baseline — 2026-09-08
+
+### VERIFIED IMPLEMENTATION
+
+- GitHub PR #101 merged PR6 into `main` at
+  `5f30bc54f8603195ed9618e755fe3726ea343bb6`; every listed PR6 commit is an
+  ancestor of that merge.
+- PR6 established durable SQLite schema version 1 audit persistence with WAL,
+  reopen/restart durability, bounded Admin reads, allowlisted sanitization, and
+  HTTP 503 fail-closed behavior when an audit write cannot be persisted.
+- PR6 also established production session-secret and bcrypt policy, disabled
+  development login in production, throttled login failures, and durably
+  audited authentication and operational-failure events.
+- Exactly one PR6 receipt exists:
+  `90-Status/logs/2026-09-08_111604_music_idea3-production-reliability.md`.
+- Inventory classification totals are `VERIFIED=26`, `STALE_DOC=1`,
+  `MISSING_EVIDENCE=0`, and `UNRESOLVED=3`.
+- `web/server/providers/liveProvider.js` still presents the Audit Store as
+  `In-memory repository` with `MEMORY_ONLY` provenance. This contradicts the
+  durable PR6 Web audit implementation and is a PR7 source correction; the
+  runtime-owned event snapshot store remains non-durable.
+
+### VERIFIED TEST EVIDENCE
+
+- Fresh verification on the PR7 base: Python **63/63**, Ruff **PASS**,
+  compileall **PASS**, Web **168/168 across 18 files**, Web build **PASS** with
+  1,677 modules, offline production dependency audit **0 vulnerabilities**,
+  repository tests **56/56**, firmware compile-only **PASS**, and vault
+  validation **PASS** with two known unchanged owner-data canvas warnings.
+- The firmware compile used the checked-in placeholder secrets header in an
+  isolated copy. Its output hash is intentionally not compared with the
+  historical secret-dependent binary hash.
+- Initial failures caused by an unintended PlatformIO Python, old global
+  dependencies, missing Node modules, and a missing local firmware header were
+  environmental. Clean isolated reruns using pinned project dependencies
+  produced the results above.
+
+### HISTORICAL PHYSICAL EVIDENCE
+
+- Fix1A application-start behavior and the Deadman → relay → RJ45 cable-tester
+  path remain verified historical evidence. They were not physically rerun for
+  PR7 and do not prove the pre-application reset window, router/switch traffic
+  isolation, or total-power-loss fail-secure behavior.
+
+### PR7 CONTRACT INVENTORY — DESIGN ONLY
+
+- `IDEA1_CONTRACT=PARTIAL`: `GET /api/audit` exposes bounded current audit data
+  only to a human Admin session, omits a stable event ID and explicit severity,
+  and does not provide a service-to-service read boundary.
+- `IDEA2_CONTRACT=PARTIAL`: Monitor alert/detection routes require human
+  session/RBAC; its internal API-key routes are write-only. The Detection
+  Engine recent-events route is unauthenticated, sensitive, non-durable, and
+  unsuitable as a production feed.
+- `IDEA3_ADAPTER_BASE=PARTIAL`: the current Web adapters send no integration
+  credential and assume producer schemas that do not match current IDEA1,
+  IDEA2, or the Python runtime status file. Fetch success currently substitutes
+  for event-time freshness.
+- `AEGIS_IDEA1_STATUS_URL`, `AEGIS_IDEA2_STATUS_URL`,
+  `AEGIS_IDEA3_RUNTIME_STATUS_URL`, `AEGIS_MAX_EVIDENCE_AGE_MS`, and
+  `AEGIS_ADAPTER_TIMEOUT_MS` are all `USED_IN_SOURCE`. Direct environment-key
+  wiring assertions do not exist, so none is classified `USED_AND_TESTED`.
+- The approved PR7 direction is upstream-owned, versioned, bounded read-only
+  event feeds protected by dedicated integration credentials, translated by
+  IDEA3-only adapters. Human-session automation, direct database reads, and
+  the unauthenticated Detection Engine ring buffer are rejected.
+- The normalized event design requires stable source event IDs and event-time
+  freshness. Cross-IDEA correlation additionally requires fresh eligible
+  IDEA1 + IDEA2 evidence with the same non-null reviewed correlation key inside
+  ten minutes. Current upstream source does not supply that common key.
+- The lifecycle stops at `Containment Accepted`. All command-request,
+  publication, ACK, execution, and physical-evidence fields remain false.
+- Design:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-08-idea3-pr7-live-security-integration-design.md`.
+- Implementation plan:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-08-idea3-pr7-live-security-integration.md`.
+
+### OPEN / NOT PROVEN
+
+```text
+IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
+IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
+CROSS_IDEA_EVENT_NORMALIZATION = OPEN / PR7
+CROSS_IDEA_INCIDENT_CORRELATION = OPEN / PR7
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = OPEN / PR7
+1B_RESET_WINDOW = OPEN / PR8
+ROUTER_SWITCH_REAL_ETHERNET_E2E = OPEN / PR8
+KALI_E2E = OPEN / PR9
+WINDOWS_EXE = OPEN / PR10
+PRODUCTION_DEPLOYMENT = OPEN / PR11
+FINAL_SYSTEM_ACCEPTANCE = OPEN / PR12
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+No PR7 application source, upstream source, firmware, MQTT behavior, hardware,
+network, production data, deployment, or physical system was changed by this
+inventory/design baseline.
+
+---
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

@@ -1309,3 +1309,78 @@ IDEA3_PRODUCTION_COMPLETE = NO
 ```
 
 Do not merge, deploy, perform hardware work, or implement PR7–PR12 as part of this task.
+
+
+## 28. PR7 Inventory and Design Baseline — 2026-09-08
+
+### Git checkpoint
+
+```text
+Branch: feat/idea3-live-security-integration
+Base: 5f30bc54f8603195ed9618e755fe3726ea343bb6
+Base state: GitHub PR #101 / PR6 is merged and reachable from main
+Application source modified in this baseline: NO
+```
+
+### Completed inventory
+
+- Reconciled each PR6 implementation, test, commit, and Obsidian claim. Totals:
+  `VERIFIED=26`, `STALE_DOC=1`, `MISSING_EVIDENCE=0`, `UNRESOLVED=3`.
+- Fresh base verification passed: Python 63/63, Ruff, compileall, Web 168/168,
+  Web build, offline production dependency audit with 0 vulnerabilities,
+  repository tests 56/56, compile-only firmware, and vault validation with two
+  known unchanged owner-data canvas warnings.
+- Identified stale source presentation metadata in
+  `web/server/providers/liveProvider.js`: Web audit is described as memory-only
+  even though PR6 made it durable SQLite. Correct this under PR7 with a
+  regression assertion while retaining runtime-owned event snapshot wording.
+- Confirmed all five documented adapter variables are used by source, but
+  direct environment-wiring assertions are absent.
+
+### Real contract findings
+
+- IDEA1's available audit feed is a human Admin-session route and lacks a stable
+  public event ID, explicit severity, and dedicated integration auth.
+- IDEA2 Monitor alerts/detections are human session/RBAC routes; internal
+  API-key routes are write-only. The Detection Engine recent ring-buffer route
+  is unauthenticated, sensitive, and non-durable, so it is rejected as a
+  production integration source.
+- Current IDEA3 Web adapters send no credentials, assume incompatible event
+  shapes, and assign freshness at fetch time. The Python runtime writes a local
+  snake_case `status.json`, not the Web's expected HTTP v1 envelope.
+- No verified source currently produces `CAMERA_TAMPER`, and no shared
+  cross-IDEA correlation key exists.
+
+### Approved design boundary
+
+- Use reviewed upstream-owned, versioned, bounded read-only service feeds with
+  dedicated integration credentials, plus source-specific IDEA3 adapters.
+- Normalize stable producer IDs, event timestamps, severity, safe evidence,
+  and a reviewed correlation key. IDEA3 owns receive time and freshness.
+- Deduplicate by `source:event_id`, fail closed on conflicting content, and
+  correlate only fresh eligible IDEA1 + IDEA2 events that share a non-null key
+  inside the ten-minute window.
+- Reuse PR6 SQLite/audit and Admin/CSRF controls for durable containment
+  acceptance. The lifecycle ends at `Containment Accepted`; command requested,
+  command published, ACK, execution, and physical evidence all remain false.
+
+Design and executable task plan:
+
+- `docs/superpowers/specs/2026-09-08-idea3-pr7-live-security-integration-design.md`
+- `docs/superpowers/plans/2026-09-08-idea3-pr7-live-security-integration.md`
+
+### Open gates and exact next step
+
+All five PR7 delivery outcomes remain **OPEN**. PR8 reset-window and real
+Ethernet proof, PR9 Kali E2E, PR10 Windows packaging, PR11 production
+deployment, and PR12 final acceptance also remain **OPEN**;
+`IDEA3_PRODUCTION_COMPLETE = NO`.
+
+The next implementation session must start with the plan's upstream interface
+dependency gate. Do not claim live integration unless reviewed IDEA1 and IDEA2
+service feeds exist and are exercised. If either feed is absent, record the
+implementation task as partial/blocked rather than falling back to human
+sessions, direct database reads, or the unauthenticated Detection Engine route.
+
+No merge, deployment, firmware flash, MQTT connection/publication, relay
+action, network change, production database access, or physical test occurred.
