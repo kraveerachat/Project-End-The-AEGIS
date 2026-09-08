@@ -1434,11 +1434,19 @@ private redemption or login (T-05).
 > rate-limit, log and B5 matrix stays in the PUBLIC-SHARE-3 suites; the UI
 > matrix stays in `shareScopeTruthUi.test.js`.
 >
-> Five high-risk guards were proved load-bearing by temporarily breaking the
+> Seven high-risk guards were proved load-bearing by temporarily breaking the
 > invariant and confirming the expected test failed: T-05 namespace separation,
 > the public-ingress scope block, the gateway default deny, gateway token-safe
-> logging, and UI public-URL ownership. Every mutation was reverted; **no
-> shipped gateway, backend or UI source changed in that phase.**
+> logging, UI public-URL ownership, CSP nonce freshness (a constant nonce), and
+> gateway password-log secrecy (`$request_body` added to the log format). Every
+> mutation was reverted; **no shipped gateway, backend or UI source changed in
+> that phase.**
+>
+> The CSP nonce is asserted **distinct across the exercised responses** — a
+> freshness check, not a claim about entropy quality — and the link password is
+> proven absent from the **real** gateway container's Docker logs after an
+> allowed form POST, which is a request-body leak path the token sentinel never
+> covered.
 >
 > Two gates need direct row access because a well-behaved API cannot reach them
 > — a Vault-backed share row and an already-expired row (the shortest offered
