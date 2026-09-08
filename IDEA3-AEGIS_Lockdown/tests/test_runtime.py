@@ -6,7 +6,13 @@ from dataclasses import replace
 import pytest
 
 from aegis_soc import config
-from aegis_soc.runtime import RuntimeSettings, RuntimeState, RuntimeStatus, read_status
+from aegis_soc.runtime import (
+    RuntimeSettings,
+    RuntimeState,
+    RuntimeStatus,
+    read_status,
+    safe_status_projection,
+)
 from aegis_soc.supervisor import (
     AegisSupervisor,
     AlreadyRunningError,
@@ -1098,3 +1104,116 @@ def test_matching_status_command_nonce_confirms_restore(tmp_path):
     assert physical["nonce"] == result.nonce
     assert physical["observed_state"] == "NORMAL"
     assert physical["physical_confirmed_at"] == 100.0
+
+
+class TestSafeRuntimeProjection:
+    """The exported runtime status must stay a safe, versioned projection."""
+
+    def _status(self, **changes):
+        base = RuntimeStatus(
+            state=RuntimeState.RUNNING,
+            profile="production",
+            dry_run=False,
+            auto_contain=True,
+            broker="CONNECTED",
+            device="ONLINE",
+            uplink="NORMAL",
+            armed="ARMED",
+            detail="broker 192.168.2.174 ready; secret /etc/aegis/hmac.key loaded",
+            updated_at=1_788_000_000.0,
+            components={"detector": "RUNNING", "gui": "RUNNING"},
+        )
+        return replace(base, **changes)
+
+    def test_exports_the_versioned_safe_contract(self):
+        projection = safe_status_projection(self._status())
+
+        assert projection == {
+            "schemaVersion": 1,
+            "generatedAt": "2026-08-29T10:40:00.000Z",
+            "status": "HEALTHY",
+            "components": {
+                "broker": "CONNECTED",
+                "device": "ONLINE",
+                "uplink": "NORMAL",
+                "detector": "RUNNING",
+                "gui": "RUNNING",
+            },
+            "modes": {
+                "profile": "production",
+                "dryRun": False,
+                "autoContain": True,
+                "armed": "ARMED",
+            },
+            "issues": [],
+            "evidenceSource": "RUNTIME_STATUS_FILE",
+        }
+
+    def test_never_exports_secret_config_or_free_text_values(self):
+        projection = safe_status_projection(self._status())
+        rendered = json.dumps(projection)
+
+        for leaked in ("192.168.2.174", "hmac.key", "/etc/aegis", "detail", "pid"):
+            assert leaked not in rendered
+        assert "detail" not in projection
+        assert "pid" not in projection
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            (RuntimeState.RUNNING, "HEALTHY"),
+            (RuntimeState.DEGRADED, "DEGRADED"),
+            (RuntimeState.LOCKDOWN, "DEGRADED"),
+            (RuntimeState.FAILED, "FAILED"),
+            (RuntimeState.SHUTDOWN, "FAILED"),
+            (RuntimeState.INIT, "UNKNOWN"),
+            (RuntimeState.PREFLIGHT, "UNKNOWN"),
+            (RuntimeState.WAIT_BROKER, "UNKNOWN"),
+            (RuntimeState.WAIT_DEVICE, "UNKNOWN"),
+        ],
+    )
+    def test_maps_every_runtime_state_to_a_canonical_status(self, state, expected):
+        assert safe_status_projection(self._status(state=state))["status"] == expected
+
+    def test_fails_closed_on_an_unrecognized_state_or_component(self):
+        projection = safe_status_projection(
+            self._status(state="TOTALLY_NEW_STATE", components={"detector": "WEIRD", "secret_loader": "RUNNING"})
+        )
+
+        assert projection["status"] == "UNKNOWN"
+        assert projection["components"]["detector"] == "UNKNOWN"
+        assert "secret_loader" not in projection["components"]
+
+    def test_reports_allowlisted_issue_codes_for_unhealthy_evidence(self):
+        projection = safe_status_projection(
+            self._status(
+                state=RuntimeState.DEGRADED,
+                broker="DISCONNECTED",
+                device="UNKNOWN",
+                components={"detector": "FAILED"},
+            )
+        )
+
+        assert projection["issues"] == [
+            "COMPONENT_FAILURE",
+            "ESP32_UNAVAILABLE",
+            "MQTT_DISCONNECTED",
+        ]
+
+    def test_accepts_a_persisted_status_document_read_back_from_disk(self, tmp_path):
+        path = tmp_path / "status.json"
+        self._status().write(path)
+
+        projection = safe_status_projection(read_status(path))
+
+        assert projection["schemaVersion"] == 1
+        assert projection["status"] == "HEALTHY"
+        assert projection["evidenceSource"] == "RUNTIME_STATUS_FILE"
+
+    @pytest.mark.parametrize("document", [None, {}, {"state": "RUNNING", "updated_at": "not-a-number"}])
+    def test_fails_closed_on_missing_or_malformed_status_documents(self, document):
+        projection = safe_status_projection(document)
+
+        assert projection["status"] == "UNKNOWN"
+        assert projection["generatedAt"] is None
+        assert projection["evidenceSource"] == "RUNTIME_STATUS_ABSENT"

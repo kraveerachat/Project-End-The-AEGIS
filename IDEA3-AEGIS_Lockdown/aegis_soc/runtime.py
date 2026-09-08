@@ -191,3 +191,111 @@ def read_status(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+SAFE_STATUS_SCHEMA_VERSION = 1
+
+_CANONICAL_STATUS_BY_STATE = {
+    RuntimeState.RUNNING: "HEALTHY",
+    RuntimeState.DEGRADED: "DEGRADED",
+    RuntimeState.LOCKDOWN: "DEGRADED",
+    RuntimeState.FAILED: "FAILED",
+    RuntimeState.SHUTDOWN: "FAILED",
+    RuntimeState.INIT: "UNKNOWN",
+    RuntimeState.PREFLIGHT: "UNKNOWN",
+    RuntimeState.WAIT_BROKER: "UNKNOWN",
+    RuntimeState.WAIT_DEVICE: "UNKNOWN",
+}
+
+_ALLOWED_COMPONENTS = ("detector", "gui", "preflight")
+_ALLOWED_COMPONENT_STATES = frozenset({"RUNNING", "RESTARTING", "FAILED", "STOPPED"})
+_ALLOWED_BROKER_STATES = frozenset({"CONNECTED", "DISCONNECTED", "UNKNOWN"})
+_ALLOWED_DEVICE_STATES = frozenset({"ONLINE", "OFFLINE", "UNKNOWN"})
+_ALLOWED_UPLINK_STATES = frozenset({"NORMAL", "LOCKDOWN", "UNKNOWN"})
+_ALLOWED_ARMED_STATES = frozenset({"ARMED", "DISARMED", "MONITOR_ONLY"})
+_ALLOWED_PROFILES = frozenset({"development", "lab", "production"})
+
+
+def _allowlisted(value: object, allowed: frozenset[str]) -> str:
+    return value if isinstance(value, str) and value in allowed else "UNKNOWN"
+
+
+def _iso_utc(updated_at: object) -> str | None:
+    if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)):
+        return None
+    try:
+        moment = time.gmtime(float(updated_at))
+    except (OSError, OverflowError, ValueError):
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%S", moment) + ".000Z"
+
+
+def _absent_projection() -> dict:
+    return {
+        "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
+        "generatedAt": None,
+        "status": "UNKNOWN",
+        "components": {},
+        "modes": {"profile": "UNKNOWN", "dryRun": True, "autoContain": False, "armed": "UNKNOWN"},
+        "issues": [],
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+    }
+
+
+def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
+    """Project runtime status into the versioned contract IDEA3 Web may consume.
+
+    Only allowlisted state vocabulary crosses this boundary. Free-text ``detail``,
+    ``pid``, paths, addresses, and every configuration or secret value are dropped
+    rather than sanitized, so an unrecognized field can never leak by default.
+    """
+    if isinstance(status, RuntimeStatus):
+        document = asdict(status)
+    elif isinstance(status, dict):
+        document = status
+    else:
+        return _absent_projection()
+
+    generated_at = _iso_utc(document.get("updated_at"))
+    if generated_at is None:
+        return _absent_projection()
+
+    raw_components = document.get("components")
+    components = {
+        "broker": _allowlisted(document.get("broker"), _ALLOWED_BROKER_STATES),
+        "device": _allowlisted(document.get("device"), _ALLOWED_DEVICE_STATES),
+        "uplink": _allowlisted(document.get("uplink"), _ALLOWED_UPLINK_STATES),
+    }
+    if isinstance(raw_components, dict):
+        for name in _ALLOWED_COMPONENTS:
+            if name in raw_components:
+                components[name] = _allowlisted(raw_components[name], _ALLOWED_COMPONENT_STATES)
+
+    state = document.get("state")
+    status_value = _CANONICAL_STATUS_BY_STATE.get(state, "UNKNOWN") if isinstance(state, str) else "UNKNOWN"
+
+    issues = set()
+    if components["broker"] != "CONNECTED":
+        issues.add("MQTT_DISCONNECTED")
+    if components["device"] != "ONLINE":
+        issues.add("ESP32_UNAVAILABLE")
+    if any(components.get(name) == "FAILED" for name in _ALLOWED_COMPONENTS):
+        issues.add("COMPONENT_FAILURE")
+    if status_value == "FAILED":
+        issues.add("CORE_PROCESS_FAILURE")
+
+    profile = document.get("profile")
+    return {
+        "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
+        "generatedAt": generated_at,
+        "status": status_value,
+        "components": components,
+        "modes": {
+            "profile": profile if profile in _ALLOWED_PROFILES else "UNKNOWN",
+            "dryRun": bool(document.get("dry_run", True)),
+            "autoContain": bool(document.get("auto_contain", False)),
+            "armed": _allowlisted(document.get("armed"), _ALLOWED_ARMED_STATES),
+        },
+        "issues": sorted(issues),
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+    }
