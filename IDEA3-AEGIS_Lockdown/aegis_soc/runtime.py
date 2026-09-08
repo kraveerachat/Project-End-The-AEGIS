@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import config
+from .paths import RuntimePaths
 
 
 class RuntimeState(StrEnum):
@@ -58,6 +59,11 @@ class RuntimeSettings:
             raise ValueError(f"unsupported profile: {profile}")
 
         root = Path(__file__).resolve().parent.parent
+        external_paths = (
+            RuntimePaths.from_environment()
+            if os.getenv("AEGIS_DATA_DIR", "").strip() or sys.platform == "win32"
+            else None
+        )
         defaults = {
             "development": (True, False, False),
             "lab": (True, True, True),
@@ -86,8 +92,14 @@ class RuntimeSettings:
             device_wait_sec=float(os.getenv("AEGIS_DEVICE_WAIT_SEC", str(config.DEVICE_OFFLINE_SEC))),
             max_restarts=int(os.getenv("AEGIS_MAX_RESTARTS", "5")),
             restart_window_sec=float(os.getenv("AEGIS_RESTART_WINDOW_SEC", "300")),
-            runtime_dir=Path(os.getenv("AEGIS_RUNTIME_DIR", root / ".aegis-runtime")).resolve(),
-            log_dir=Path(os.getenv("AEGIS_RUNTIME_LOG_DIR", root / "logs")).resolve(),
+            runtime_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_DIR",
+                external_paths.runtime_dir if external_paths else root / ".aegis-runtime",
+            )).resolve(),
+            log_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_LOG_DIR",
+                external_paths.log_dir if external_paths else root / "logs",
+            )).resolve(),
         )
 
     @property

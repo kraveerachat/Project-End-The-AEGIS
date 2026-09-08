@@ -4,6 +4,9 @@ AEGIS IDEA 3 — Configuration
 """
 import hashlib
 import os
+import sys
+
+from .paths import RuntimePaths, configuration_path, load_dotenv
 
 
 def _env_bool(name, default=False):
@@ -19,26 +22,13 @@ def _env_bool(name, default=False):
     raise ValueError(f"{name} must be one of: 1/0, true/false, yes/no, on/off")
 
 
-def _load_dotenv(path=".env"):
-    """โหลดค่าจากไฟล์ .env เข้า environment ก่อนอ่านค่าทั้งหมด"""
-    if not os.path.exists(path):
-        return
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception as e:
-        print(f"[.env] อ่านไฟล์ไม่สำเร็จ: {e}")
+load_dotenv(configuration_path())
 
-
-_load_dotenv()      # ← บรรทัดนี้สำคัญสุด: เรียกใช้ก่อนอ่านค่า
+_RUNTIME_PATHS = (
+    RuntimePaths.from_environment()
+    if os.getenv("AEGIS_DATA_DIR", "").strip() or sys.platform == "win32"
+    else None
+)
 
 # ---- MQTT Broker ----
 BROKER_IP = os.getenv("AEGIS_BROKER_IP", "192.168.2.174")
@@ -77,8 +67,14 @@ PHYSICAL_CONFIRM_TIMEOUT_SEC = 8  # ACK แล้วรอสถานะทา�
 DEVICE_OFFLINE_SEC = 45           # ไม่ได้รับข้อความจาก ESP32 นานเกินนี้ = ถือว่าออฟไลน์
 
 # ---- Files ----
-DB_PATH = os.getenv("AEGIS_DB_PATH", "aegis_audit.db")
-LOG_PATH = os.getenv("AEGIS_LOG_PATH", "aegis_soc.log")
+DB_PATH = os.getenv(
+    "AEGIS_DB_PATH",
+    str(_RUNTIME_PATHS.core_db) if _RUNTIME_PATHS else "aegis_audit.db",
+)
+LOG_PATH = os.getenv(
+    "AEGIS_LOG_PATH",
+    str(_RUNTIME_PATHS.log_dir / "aegis_soc.log") if _RUNTIME_PATHS else "aegis_soc.log",
+)
 SOUND_LOCKDOWN = os.getenv("AEGIS_SOUND_LOCKDOWN", "detect.wav")       # เสียงตอนตัด
 SOUND_RESTORE = os.getenv("AEGIS_SOUND_RESTORE", "connect.wav")        # เสียงตอนคืน
 MQTT_USER = os.getenv("AEGIS_MQTT_USER", "")
