@@ -11,7 +11,12 @@ from dataclasses import replace
 import pytest
 
 from aegis_soc.paths import RuntimePaths
-from aegis_soc.windows_launcher import ControlServer, LauncherRuntime, LauncherSettings
+from aegis_soc.windows_launcher import (
+    ControlServer,
+    LauncherRuntime,
+    LauncherSettings,
+    write_configuration,
+)
 
 
 def _paths(tmp_path):
@@ -321,3 +326,57 @@ def test_launcher_run_cleans_up_when_a_child_cannot_start(tmp_path):
         "control:close",
     ]
     assert not (settings.paths.runtime_dir / "control.token").exists()
+
+
+def test_configuration_is_external_atomic_and_contains_no_plaintext_password(tmp_path):
+    settings = _settings(tmp_path)
+    observed_passwords = []
+
+    def password_hasher(password):
+        observed_passwords.append(password)
+        return '$2b$12$lQ3edrbcQxKq1sNMxX8bzuC/2IAHW5LExZtuJ21rUpMdjB3pN6cYy'
+
+    path = write_configuration(
+        settings,
+        username="admin",
+        password="operator-password",
+        password_hasher=password_hasher,
+        secret_factory=lambda: "generated-session-secret",
+    )
+
+    text = path.read_text(encoding="utf-8")
+    assert path == settings.paths.config_file
+    assert observed_passwords == ["operator-password"]
+    assert "operator-password" not in text
+    assert "SESSION_SECRET=generated-session-secret" in text
+    assert "AEGIS_IDEA3_ADMIN_USER=admin" in text
+    assert "AEGIS_IDEA3_ADMIN_PASSWORD_HASH=$2b$12$" in text
+    assert "AEGIS_IDEA1_INTEGRATION_TOKEN=\n" in text
+    assert "AEGIS_IDEA2_INTEGRATION_TOKEN=\n" in text
+    assert list(path.parent.glob("*.tmp")) == []
+
+
+def test_configuration_refuses_invalid_username_or_implicit_overwrite(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.config_file.parent.mkdir(parents=True)
+    settings.paths.config_file.write_text("EXISTING=value\n", encoding="utf-8")
+    hasher = lambda _password: '$2b$12$lQ3edrbcQxKq1sNMxX8bzuC/2IAHW5LExZtuJ21rUpMdjB3pN6cYy'
+
+    with pytest.raises(FileExistsError):
+        write_configuration(
+            settings,
+            username="admin",
+            password="password",
+            password_hasher=hasher,
+            secret_factory=lambda: "session-secret",
+        )
+    with pytest.raises(ValueError, match="username"):
+        write_configuration(
+            settings,
+            username="admin\nSESSION_SECRET=attacker",
+            password="password",
+            password_hasher=hasher,
+            secret_factory=lambda: "session-secret",
+            force=True,
+        )
+    assert settings.paths.config_file.read_text(encoding="utf-8") == "EXISTING=value\n"
