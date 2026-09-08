@@ -414,11 +414,15 @@ PROJECT_SEQUENCE = PR8_WINDOWS_EXE_STANDALONE_RUNTIME
 BASE_SHA = c68946cbe917a71349a8234a4bc028fbf4c6967d
 BRANCH = feat/idea3-windows-standalone-pr8
 ARCHITECTURE = LAUNCHER_EXE_PLUS_BUNDLED_COMPONENTS_ONEDIR
-STATUS = DESIGN_APPROVED_IMPLEMENTATION_NOT_STARTED
+STATUS = LINUX_IMPLEMENTATION_COMPLETE / WINDOWS_ACCEPTANCE_BLOCKED
 WINDOWS_BUILD_EVIDENCE = NOT_RUN
 WINDOWS_SMOKE_EVIDENCE = NOT_RUN
 IDEA3_PRODUCTION_COMPLETE = NO
 ```
+
+> Superseded by the PR8 implementation section below. Implementation plan Tasks
+> 1-10 and 12 are complete on Linux; Task 11 Windows build and clean-machine
+> smoke acceptance is BLOCKED pending a real Windows x64 machine.
 
 - The approved package separates an immutable application payload from external
   writable configuration, databases, logs, and runtime state under
@@ -440,7 +444,7 @@ IDEA3_PRODUCTION_COMPLETE = NO
 ```text
 PROJECT PR6 Production Reliability = CLOSED / MERGED
 PROJECT PR7 Cross-IDEA Integration Boundary = CLOSED / MERGED
-PROJECT PR8 Windows EXE / Standalone Runtime = DESIGN APPROVED / IMPLEMENTATION OPEN
+PROJECT PR8 Windows EXE / Standalone Runtime = LINUX IMPLEMENTATION COMPLETE / WINDOWS ACCEPTANCE BLOCKED
 PROJECT PR9 Production Runtime / Deployment Preparation = OPEN
 PROJECT PR10 Final Hardware Closure = OPEN / WAITING FOR PHYSICAL COMPONENTS
 PROJECT PR11 Kali Cross-IDEA Security E2E = OPEN
@@ -456,6 +460,89 @@ IDEA3_PRODUCTION_COMPLETE = NO
 No PR8 application behavior, package, Windows build, deployment, network,
 firmware, MQTT publication, relay action, or physical test is claimed at this
 checkpoint.
+
+---
+
+## PR8 Windows standalone implementation — 2026-09-09
+
+### IMPLEMENTED AND TESTED (Linux source side only)
+
+- External runtime path contract in `aegis_soc/paths.py`: writable configuration,
+  databases, logs, and runtime state resolve outside the installed payload, under
+  `%LOCALAPPDATA%\AEGIS\IDEA3` by default with an absolute-path `AEGIS_DATA_DIR`
+  override and an `AEGIS_CONFIG_FILE` override for the config file alone.
+- Cross-platform single-instance locking in `aegis_soc/platform_lock.py`: IDEA3
+  imports on Windows without `fcntl` while Linux locking semantics are preserved.
+- Honest Windows capability projection in `aegis_soc/runtime.py`: dry-run, absent
+  hardware, and Linux-only capabilities are never promoted to `HEALTHY`;
+  `UNKNOWN` / `UNAVAILABLE` / `DEGRADED` stay as reported.
+- Production Web runtime in `web/server/runtime.js` and `web/server/createApp.js`:
+  `/security` base path, safe health route, hashed-asset caching, SPA/API
+  separation, and idempotent HTTP/SQLite shutdown.
+- Launcher control and lifecycle in `aegis_soc/windows_launcher.py`: loopback-only
+  control API, token-protected stop, Core-then-Web start order, Web-first
+  shutdown, and cleanup on partial startup failure.
+- Secure configuration provisioning: `write_configuration()` writes the external
+  `.env` atomically. The operator password only ever reaches the bcrypt hasher
+  (`web/server/passwordHash.js`, stdin-only, cost 12); the session secret is
+  generated locally; integration and MQTT values are written blank so an
+  unconfigured install fails closed instead of inheriting a bundled credential.
+- Evaluator commands `configure`, `status`, `open`, `logs`, `doctor`: `status`
+  returns non-zero for any state other than `RUNNING`, `open` reaches a browser
+  only after Web health succeeds, and `doctor` validates locally without
+  contacting or actuating the broker, device, or relay and without echoing any
+  configuration value.
+- Deterministic packaging inputs in `windows/`: PyInstaller 6.22.2 and Node
+  24.20.0 x64 pinned with SHA-256, a one-folder spec, a fail-fast `build.ps1`
+  that refuses a dirty tree or a hash mismatch and scans the payload for secret
+  and forbidden artifacts, and `smoke.ps1` clean-machine acceptance.
+
+### VERIFIED TEST EVIDENCE — 2026-09-09 (Arch Linux)
+
+- Python `pytest tests -q` — **145 passed**.
+- `ruff check aegis_soc tests windows detector.py sim_auto_detector.py` — **All checks passed**.
+- Python `compileall` — **PASS**.
+- Web `vitest run` — **292 passed across 24 files**.
+- Web production build — **PASS**.
+- `npm audit --omit=dev --offline` — **0 vulnerabilities**.
+- Repository `node --test tests/*.test.mjs` — **56 passed, 0 failed**.
+- Vault validation — **PASS** with the two pre-existing owner-data canvas
+  warnings; neither canvas changed.
+- `git diff --check` — **PASS**.
+- No forbidden or generated path is introduced by this branch; the only
+  non-`IDEA3-AEGIS_Lockdown/` path changed is this canonical note.
+
+### WINDOWS ACCEPTANCE — BLOCKED, NOT CLAIMED
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PR8_IMPLEMENTATION_PLAN_TASK_11 = BLOCKED
+BLOCKER = no Windows x64 machine available; build.ps1 and smoke.ps1 refuse to run
+          on non-Windows hosts and pwsh is unavailable on this Arch host
+```
+
+`build.ps1` and `smoke.ps1` have never been executed. Their correctness is
+asserted only by source-side contract tests. No Linux result in this section is
+Windows acceptance evidence, and no EXE has been produced, run, or distributed.
+
+### STILL OPEN
+
+```text
+PROJECT PR8 = PARTIAL / WINDOWS ACCEPTANCE BLOCKED
+IDEA1_SERVICE_EVENT_FEED = OPEN
+IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+LIVE_CROSS_IDEA_EXERCISE = OPEN
+CROSS_IDEA_EVENT_NORMALIZATION = IMPLEMENTED_UNEXERCISED
+CROSS_IDEA_INCIDENT_CORRELATION = IMPLEMENTED_UNEXERCISED
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = IMPLEMENTED_UNEXERCISED
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+No MQTT connection or publication, ACK, relay CUT/RESTORE, firmware compile or
+flash, network change, production database access, deployment, or physical
+evidence occurred during PR8.
 
 ---
 

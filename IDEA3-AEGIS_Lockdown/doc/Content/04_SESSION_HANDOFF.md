@@ -1574,3 +1574,73 @@ test occurred. No generated package, database, log, or secret was committed.
 Next: implementation-plan Task 4, beginning with failing tests for production
 `/security` API/static serving, loopback health, and idempotent HTTP/SQLite
 shutdown.
+
+---
+
+## 32. PR8 Windows Standalone Runtime — Linux implementation complete — 2026-09-09
+
+```text
+BASE_SHA = c68946cbe917a71349a8234a4bc028fbf4c6967d
+BRANCH   = feat/idea3-windows-standalone-pr8
+STATUS   = PARTIAL / WINDOWS ACCEPTANCE BLOCKED
+```
+
+### Implemented
+
+Plan Tasks 1-10 and 12 are complete on Linux:
+
+- `aegis_soc/paths.py` — external data-root contract, `AEGIS_DATA_DIR` /
+  `AEGIS_CONFIG_FILE` overrides.
+- `aegis_soc/platform_lock.py` — cross-platform single-instance locking; IDEA3
+  imports on Windows without `fcntl`.
+- `aegis_soc/runtime.py` — honest Windows capability projection; nothing absent
+  or dry-run is promoted to `HEALTHY`.
+- `web/server/runtime.js`, `web/server/createApp.js`, `web/server/config.js` —
+  production `/security` runtime, health route, asset caching, idempotent
+  shutdown.
+- `aegis_soc/windows_launcher.py` — loopback control API, token-protected stop,
+  Core-then-Web start, Web-first shutdown, `write_configuration()`, and the
+  `status` / `open` / `logs` / `doctor` evaluator commands.
+- `web/server/passwordHash.js` — stdin-only bcrypt cost-12 helper.
+- `windows/` — pinned toolchain lock, one-folder PyInstaller spec, launcher entry
+  point, fail-fast `build.ps1`, `smoke.ps1`, and operator README.
+
+### Verification (Arch Linux, 2026-09-09)
+
+Python 145 passed; Ruff PASS; compileall PASS; Web 292 passed across 24 files;
+Web production build PASS; `npm audit --omit=dev --offline` 0 vulnerabilities;
+repository tests 56 passed; vault validation PASS with the two known unchanged
+canvas warnings; `git diff --check` PASS.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+`build.ps1` and `smoke.ps1` have never been executed. Both refuse to run on
+non-Windows hosts and `pwsh` is unavailable here, so PowerShell parser validation
+is also `NOT_RUN_ON_LINUX`. No Linux result is Windows acceptance evidence.
+
+### Safety invariants held
+
+`WEB_TO_MQTT = NO`, `WEB_TO_ESP32 = NO`, `WEB_TO_RELAY = NO`. A source-level test
+asserts the launcher module imports no `mqtt_client`, `MQTTManager`,
+`issue_command`, `CUT_UPLINK`, or `paho`. No secret, runtime database, log, or
+generated artifact is committed. No merge, deploy, firmware flash, MQTT
+publication, relay action, or physical test occurred.
+
+### Next command
+
+Obtain a Windows x64 machine, then run:
+
+```powershell
+pip install -r windows\requirements-build.txt
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
+
+Only after both pass may `WINDOWS_BUILD_VERIFIED` and `WINDOWS_SMOKE_VERIFIED`
+become `YES` and PR8 move from PARTIAL toward closure.
