@@ -361,6 +361,28 @@ def test_configuration_is_external_atomic_and_contains_no_plaintext_password(tmp
     assert list(path.parent.glob("*.tmp")) == []
 
 
+def test_configuration_emits_the_keys_the_production_web_runtime_requires(tmp_path):
+    settings = _settings(tmp_path)
+
+    path = write_configuration(
+        settings,
+        username="admin",
+        password="operator-password",
+        password_hasher=lambda _p: "$2b$12$lQ3edrbcQxKq1sNMxX8bzuC/2IAHW5LExZtuJ21rUpMdjB3pN6cYy",
+        secret_factory=lambda: "generated-session-secret",
+    )
+    values = dict(
+        line.split("=", 1)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+
+    assert values["AEGIS_WEB_STATIC_DIR"] == str(settings.static_dir)
+    assert values["AEGIS_WEB_BASE_PATH"] == "/security"
+    assert values["AEGIS_BIND_HOST"] == settings.bind_host
+    assert "AEGIS_IDEA3_STATIC_DIR" not in values
+
+
 def test_configuration_refuses_invalid_username_or_implicit_overwrite(tmp_path):
     settings = _settings(tmp_path)
     settings.paths.config_file.parent.mkdir(parents=True)
