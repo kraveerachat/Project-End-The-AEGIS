@@ -11,16 +11,17 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!warning] This note is a contract, not a capability
-> **PUBLIC-SHARE-1 is architecture and security-contract work only. Public
-> Internet Share is NOT IMPLEMENTED and NOT DEPLOYED.** Nothing described under
-> "Required target architecture" exists in the repository or on the production
-> host. No port was opened, no DNS record was created, no gateway was deployed,
-> and no firewall, NAT, VLAN or Twingate policy was changed to produce this note.
+> [!warning] Contract partly delivered; Public Internet Share is still unavailable
+> **PUBLIC-SHARE-1 architecture and PUBLIC-SHARE-2 backend contract are merged.
+> PUBLIC-SHARE-3 gateway source is implemented and verified locally only. Public
+> Internet Share remains NOT IMPLEMENTED and NOT DEPLOYED.** No Production
+> gateway or `aegis_public_share` network exists, migration 009 has not been
+> applied to Production, and no port, DNS, TLS certificate, firewall, NAT, VLAN,
+> managed tunnel or Twingate policy has been changed. The UI still does not offer
+> `scope=public`; G4, G5 and G6 remain open.
 >
-> Everything in **Current verified state** is existing behaviour read from
-> `origin/main` at `478059949dd80ab5c0abb8451f783fcfd844a32b`. Everything else is
-> a proposal that later PRs must implement and prove.
+> The isolated PUBLIC-SHARE-3 harness is source/test evidence, not Production
+> evidence. Its two containers and network are removed after each runtime run.
 
 ---
 
@@ -33,8 +34,9 @@ Internet access — home Wi-Fi, someone else's Wi-Fi, a mobile hotspot, 4G/5G �
 
 This note fixes the architecture, the trust boundaries, the route contract, the
 scope contract, the configuration contract, the threat model, the ingress
-decision matrix, and the PR sequence that gets there. It deliberately stops
-before any of it is built.
+decision matrix, and the PR sequence that gets there. Later PRs now implement
+the backend contract and dedicated gateway source while keeping deployment and
+Internet exposure behind their explicit gates.
 
 The single principle everything below is derived from:
 
@@ -196,6 +198,22 @@ join `aegis_internal` (which reaches PostgreSQL and Monitor) and must not join
 `aegis_drive_proxy` (which is HUB's private identity `172.19.255.2/29`). It gets
 its own /29 with exactly two members: the gateway and Drive.
 
+B5 is made a property of the network by **two** controls, not one:
+
+```text
+internal: true      -> removes normal external/default-route connectivity
+gateway_mode_ipv4
+  = "isolated"      -> removes the Docker-host bridge address for that network
+together            -> source/test enforcement of the B5 Docker-network boundary
+```
+
+`internal: true` alone is necessary but not sufficient: an ordinary internal
+bridge still keeps the Docker-host bridge address, and appropriately configured
+host services stay reachable through it. Docker Engine 28 adds bridge gateway
+mode `isolated`, valid alongside `internal`, which removes that address. No
+member publishes a host port either, since Docker cannot publish one from an
+internal network.
+
 ---
 
 ## 5. Trust boundaries
@@ -216,9 +234,11 @@ independently re-derived.
 
 ### 5.1 The trusted-proxy constraint is a hard, code-level blocker
 
-This is the single most important implementation finding of PUBLIC-SHARE-1.
+This was the single most important implementation finding of PUBLIC-SHARE-1 and
+is now closed in source by PUBLIC-SHARE-2.
 
-`IDEA1-AEGIS_Drive_LC/server/config/trustedProxy.js` contains:
+At the PUBLIC-SHARE-1 base, `IDEA1-AEGIS_Drive_LC/server/config/trustedProxy.js`
+contained:
 
 ```js
 const APPROVED_PRODUCTION_PROXY_CIDRS = new Set(['172.19.255.2/32'])
@@ -229,9 +249,10 @@ if (env.NODE_ENV === 'production'
 }
 ```
 
-In production, `TRUSTED_PROXY_CIDRS` must be **exactly one** value and it must be
-HUB's identity. A public gateway that proxies to Drive is a **second** proxy peer.
-Adding it to the environment variable alone makes Drive **refuse to boot**.
+PUBLIC-SHARE-2 replaced that one-state source rule with the two explicitly
+enumerated states in §5.1.1. Production still runs the first (HUB-only) state;
+merely adding an environment value outside either approved state still makes
+Drive **refuse to boot**.
 
 That constraint is not an obstacle to route around; it is the control that made
 B4.3's spoof resistance provable, and it exists because trusting a broad range
@@ -510,6 +531,51 @@ independently at boot — and **not inside** any forbidden network.
 private mode: the trusted set is HUB alone, `requestIngressKind()` can never
 return `public-gateway`, and Drive starts exactly as it does in production today.
 Drive must never be made to require a peer that has not been deployed yet.
+
+#### 8.1.1 `PUBLIC_SHARE_HOST` — the gateway's hostname-only allowlist
+
+The gateway container takes one variable of its own, delivered and validated by
+PUBLIC-SHARE-3 in `gateway/public-share/`:
+
+```text
+PUBLIC_SHARE_HOST          # e.g. share.example.invalid — hostname ONLY
+```
+
+It must equal the **hostname component** of the backend's already-validated
+`PUBLIC_SHARE_BASE_URL` (§8.1):
+
+```text
+PUBLIC_SHARE_BASE_URL=https://share.example.invalid
+PUBLIC_SHARE_HOST=share.example.invalid
+```
+
+The value is not a secret, but it is substituted into nginx **directive
+context** (`server_name`, `proxy_set_header Host`, `proxy_set_header
+X-Forwarded-Host`), so it is an allowlist-integrity boundary in exactly the
+sense §6.2 means. An operator typo or a malformed environment value must not be
+able to widen the accepted `Host` set, alter nginx parsing, inject an additional
+directive or `location`, turn the single-host gateway into virtual-host
+multiplexing, or make the generated config ambiguous.
+
+It is therefore **validated fail-closed before the template is rendered**, by
+`gateway/public-share/validate-public-share-host.sh` running from the image's
+wrapper `entrypoint.sh`. Same spirit as `PUBLIC_SHARE_BASE_URL` and
+`TRUSTED_PROXY_CIDRS`: **an invalid value fails startup and is never silently
+sanitised.** On refusal `/tmp/nginx.conf` is never rendered at all, so nginx
+cannot start with a config the value could have altered.
+
+The accepted grammar is one RFC 1123 host name — characters `A-Za-z0-9.-` only,
+labels of 1–63 characters that neither begin nor end with `-`, no empty label,
+no leading or trailing dot, at most 253 characters, and no all-numeric final
+label. Whitespace, multiple names, `;`, `{`, `}`, `$`, `/`, backslash, newline,
+carriage return, tab, `*`, `~`, a scheme, a path, a query, a fragment,
+credentials, and `host:port` all fail startup.
+
+**Hostname-only is a deliberate contract, not an oversight.** If the public
+origin chosen at G4 needs a non-default port, PUBLIC-SHARE-6 / the ingress
+integration task must explicitly reconcile the public `Host` /
+`X-Forwarded-Host` contract at that point. No deployment port is invented in
+advance.
 
 ### 8.2 What must never appear in configuration or source
 
@@ -980,6 +1046,25 @@ The gateway's header handling, stated as requirements:
 | `X-Forwarded-Host` | Set to the configured public host | Never the raw client `Host` (T-09). |
 | `Host` | Normalised to the configured public host | The public origin is single-purpose; there is no virtual-host multiplexing to preserve. |
 
+> [!warning] The delivered PR3 model assumes the gateway is the immediate peer
+> The table above, and the `$binary_remote_addr` edge rate limit that goes with
+> it, are correct for a topology where the Public Share Gateway directly
+> observes the recipient connection. That is the accepted direct-peer gateway
+> contract, and it is what PUBLIC-SHARE-3 delivers.
+>
+> It must **not** be read as automatically compatible with every G4 option. A
+> managed HTTP tunnel or reverse proxy (§13 Option B) inserts another trusted
+> hop, and then `$remote_addr` identifies the tunnel/provider connector rather
+> than the actual recipient. That would cause incorrect G3 attribution, collapse
+> every recipient onto one address, and re-create the T-05 rate-limit self-DoS
+> this design exists to avoid.
+>
+> G4 is still **OPEN**, so this is not solved by trusting a vendor header now.
+> If G4 selects an option that inserts an HTTP hop, PUBLIC-SHARE-6 / the ingress
+> integration task must define and review the provider trust/attribution adapter
+> **before** deployment. PUBLIC-SHARE-3 does not authorize trusting provider
+> headers and does not claim Option B is deployable unchanged.
+
 ### 10.1 Two identities, neither replacing the other
 
 This is the single most important implementation rule in this note, and the one
@@ -1105,9 +1190,14 @@ recipient's real Internet address once §10 is in place. It comes from
 `requestSourceIp(req)` and **never** from the ingress peer (§10.1) — an audit
 trail that recorded the gateway's container address for every public redemption
 would be worse than useless, because it would look like real attribution while
-identifying nobody. That address is genuinely more personal data than the private
-path records, and the owner should decide deliberately whether to store it in
-full, truncate it, or hash it — a decision this note flags rather than makes.
+identifying nobody.
+
+**G3 is APPROVED:** the existing application audit may retain the full canonical
+recipient source IP for security attribution, rate-limit investigation, and
+incident response. This does not authorize analytics, marketing, profiling, or
+a second persistent gateway IP log. The raw share token, plaintext password, and
+public URL containing the token remain forbidden. No real Internet recipient IP
+has been recorded: there is still no Internet ingress.
 
 ---
 
@@ -1200,7 +1290,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | :--- | :--- | :--- | :--- |
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
 | **PUBLIC-SHARE-2** *(delivered, not deployed)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
-| **PUBLIC-SHARE-3** | Public Share Gateway | Gateway Dockerfile + nginx config, `aegis_public_share` network, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural CI tests | Any Internet exposure; any DNS, NAT or tunnel |
+| **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
 | **PUBLIC-SHARE-4** | Secure Shares UI | `public` as a selectable scope, EN/TH/ZH copy, correct public URL display, `zones`/`any` preserved | Enabling the option before 2 and 3 are merged |
 | **PUBLIC-SHARE-5** | Security regression suite | The full negative and positive matrix in §16 | New features |
 | **PUBLIC-SHARE-6** | Internal integration acceptance | Gateway↔Drive behaviour proven on an internal address, including streaming, timeouts, concurrency and slow clients | Internet exposure |
@@ -1336,15 +1426,15 @@ Step 6 is mandatory evidence. A rollback without it is not a completed rollback.
 
 Each gate is an explicit owner decision, recorded before the work it unblocks.
 
-- **G1 — Contract acceptance.** Kla accepts §6 (route contract), §7 (scope
-  contract) and §8 (configuration contract) before PUBLIC-SHARE-2 is written.
-- **G2 — Trusted-proxy change.** Kla, as infrastructure owner, accepts adding a
-  second approved proxy identity to `trustedProxy.js` (§5.1). This is a change to
-  a control that a production acceptance (B4.3) currently depends on, so it needs
-  an explicit decision, not an implicit one.
-- **G3 — Audit personal-data decision.** Owner decides whether public-path audit
-  rows store the recipient's full Internet address, a truncated form, or a hash
-  (§12).
+- **G1 — APPROVED.** Kla accepted §6 (route contract), §7 (scope contract) and
+  §8 (configuration contract); PUBLIC-SHARE-2 implements them.
+- **G2 — APPROVED.** Kla, as infrastructure owner, accepted the two-state
+  trusted-proxy implementation in §5.1.1; PUBLIC-SHARE-2 implements it while
+  Production remains in HUB-only mode.
+- **G3 — APPROVED.** The application audit may retain the full canonical
+  recipient Internet address from `requestSourceIp(req)` for security
+  attribution, rate-limit investigation, and incident response, under the
+  restrictions in §12. No Internet recipient has been observed yet.
 - **G4 — Ingress choice.** Owner chooses Option A or Option B from §13, with the
   T-14/T-27 trade-off explicitly acknowledged. **No ingress work begins before
   this gate.**
@@ -1362,9 +1452,10 @@ Until G6, every status note, UI string and receipt says the same thing:
 
 ## 18. Known limitations
 
-- **Nothing here is implemented.** No source, configuration, test, or
-  infrastructure change accompanies this note. Every "required additional
-  control" is unbuilt.
+- **Delivery is partial by phase.** PUBLIC-SHARE-2 backend source is merged and
+  PUBLIC-SHARE-3 gateway source/runtime harness is implemented and locally
+  verified. No gateway is deployed, no real Drive integration has run through
+  it, and every ingress/TLS/external-acceptance control remains unbuilt.
 - **No ingress method is chosen** (§13, G4), so the threat model's ingress
   entries (T-13, T-14, T-25, T-26, T-27) have option-dependent residual risk that
   cannot be finalised yet.
@@ -1386,6 +1477,34 @@ Until G6, every status note, UI string and receipt says the same thing:
   that network ever gained a third member the control would weaken silently; the
   Compose structural test named in T-10 is what keeps that from happening
   unnoticed.
+- **The PUBLIC-SHARE-3 header and rate-limit model is direct-peer only.** It
+  authors `X-Forwarded-For`/`X-Real-IP` from `$remote_addr` and keys the edge
+  limit on `$binary_remote_addr`, which is correct only while the gateway is the
+  immediate recipient-facing HTTP peer. A G4 Option B tunnel/reverse proxy would
+  invalidate that assumption and needs a reviewed provider trust/attribution
+  adapter in PUBLIC-SHARE-6 before deployment (§10).
+- **B5 is enforced by the PUBLIC-SHARE-3 harness network, and the harness
+  therefore has no host listener.** `aegis_public_share` is a Docker
+  `internal: true` network **with bridge gateway mode `isolated`**; both are
+  required, because an ordinary internal bridge still keeps the Docker-host
+  bridge address through which host services stay reachable. Measured side by
+  side on Docker 28.3.2: with `internal` only, the bridge address answers ARP
+  and returns `Connection refused` (live); with `isolated` added, its ARP entry
+  is incomplete and it returns `Host is unreachable`. On the real harness the
+  gateway has no default route, cannot reach `1.1.1.1`/`8.8.8.8`, finds
+  `172.31.254.1` unreachable on every probed port, and cannot resolve
+  `host.docker.internal` or `gateway.docker.internal`; it reaches `drive:8001`
+  and nothing else. Docker cannot publish
+  a port from an internal network — it accepts the request and silently drops it
+  — so **neither member publishes a host port**, and the runtime suite drives the
+  gateway from inside the network using only the two existing members: the drive
+  recorder calls `http://public-share-gateway:8080`, and the gateway calls its
+  own `127.0.0.1:8080` for the upstream-failure/token-log check where the
+  recorder must be stopped. No third client container exists. Disabling
+  masquerading instead does **not** block egress and is not a substitute. This
+  is owner-approved (PR #100 review): B5 is not deferred to PUBLIC-SHARE-6. The
+  residual limit is that this proves the Docker network boundary, not a
+  perimeter/firewall boundary, which PUBLIC-SHARE-6 still owns.
 - **HTTP Range is unsupported**, so a public recipient with an unreliable
   connection restarts a large download from zero (§11).
 - **Rate limiting is in-memory and per-process** (`rateLimit.js`). It resets on
