@@ -2,6 +2,12 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { requireAdmin } from '../security/auth.js'
 import { requireCsrf, requireSameOrigin } from '../security/csrf.js'
+import {
+  CONTAINMENT_DECISIONS,
+  containmentDecisionRecord,
+  containmentResponse,
+  evaluateContainmentDecision,
+} from '../domain/containment.js'
 
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(250).default(100),
@@ -14,6 +20,8 @@ const auditQuerySchema = z.object({
 }).strict()
 
 const noteSchema = z.object({ note: z.string().trim().min(1).max(500) }).strict()
+const containmentSchema = z.object({ decision: z.enum(CONTAINMENT_DECISIONS) }).strict()
+const INCIDENT_ID = /^[a-z0-9-]{1,80}$/
 const recoverySchema = z.object({
   incidentId: z.string().regex(/^[a-z0-9-]{1,80}$/),
   confirmation: z.literal('VALIDATE ONLY'),
@@ -92,6 +100,45 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
       if (!body.success) return invalid(res)
       const audit = await repository.addIncidentNote(req.params.id, body.data.note)
       res.json({ incident: { id: req.params.id, analystNote: body.data.note }, audit })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  /**
+   * Record an Admin containment decision for a current containment candidate.
+   *
+   * This is the end of the PR7 boundary. It reads the current live correlation,
+   * writes one durable decision, and returns every downstream command and physical
+   * stage as not reached. It publishes nothing and touches no hardware path.
+   */
+  router.post('/incidents/:id/containment', async (req, res, next) => {
+    try {
+      if (!INCIDENT_ID.test(req.params.id)) return invalid(res)
+      const body = containmentSchema.safeParse(req.body)
+      if (!body.success) return invalid(res, 'DECISION_INVALID')
+      if (req.session.demoMode) {
+        return res.status(409).json({ error: { code: 'DEMO_MODE_ACTIVE', message: 'Demo Mode ไม่สามารถบันทึกการตัดสินใจจริงได้' } })
+      }
+
+      const snapshot = await liveProvider.getSnapshot({ limit: 250 })
+      const incident = snapshot.incidents.find((candidate) => candidate.id === req.params.id)
+      const evaluation = evaluateContainmentDecision({ incident, decision: body.data.decision })
+      if (!evaluation.ok) {
+        const status = evaluation.error.code === 'DECISION_INVALID' ? 400 : 409
+        return res.status(status).json({ error: { code: evaluation.error.code, message: 'เหตุการณ์นี้ไม่อยู่ในสถานะที่ตัดสินใจได้' } })
+      }
+
+      const stored = await repository.recordContainmentDecision(
+        containmentDecisionRecord({ incident, decision: body.data.decision, state: evaluation.state }),
+      )
+      if (stored.status === 'CONFLICT') {
+        return res.status(409).json({
+          error: { code: 'CONTAINMENT_DECISION_CONFLICT', message: 'มีการตัดสินใจก่อนหน้าที่ขัดแย้งกันอยู่แล้ว' },
+        })
+      }
+
+      return res.json({ containment: containmentResponse(incident.id, stored.state), audit: stored.audit })
     } catch (error) {
       next(error)
     }

@@ -4,6 +4,8 @@ import {
   auditEntryForOperationalError,
   sanitizeAuditEntry,
   sanitizeIncidentNote,
+  containmentAuditEntry,
+  safeContainmentDecision,
   sanitizedSettings,
   validateAuditLimit,
 } from './auditRecords.js'
@@ -13,6 +15,7 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
   const incidentNotes = new Map()
   const audit = []
   const activeOperationalErrors = new Set()
+  const containmentDecisions = new Map()
   const settings = { ...DEFAULT_SETTINGS }
 
   function appendAudit(entry) {
@@ -43,6 +46,18 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
     },
     recordAction(entry) {
       return appendAudit(entry)
+    },
+    recordContainmentDecision(decision) {
+      const safe = safeContainmentDecision(decision)
+      const existing = containmentDecisions.get(safe.incidentId)
+      if (existing) {
+        return { status: existing.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...existing, audit: null }
+      }
+      containmentDecisions.set(safe.incidentId, safe)
+      return { status: 'RECORDED', ...safe, audit: appendAudit(containmentAuditEntry(safe)) }
+    },
+    readContainmentDecision(incidentId) {
+      return containmentDecisions.get(incidentId) ?? null
     },
     updateSettings(next) {
       Object.assign(settings, sanitizedSettings(next))

@@ -110,6 +110,45 @@ export function auditEntryForOperationalError(error) {
   })
 }
 
+const CONTAINMENT_STATES = new Set(['CONTAINMENT_ACCEPTED', 'CONTAINMENT_REJECTED'])
+const CONTAINMENT_DECISIONS = new Set(['ACCEPT', 'REJECT'])
+const STABLE_ID = /^[A-Za-z0-9._:-]{1,128}$/
+const MAX_EVIDENCE_IDS = 50
+
+/**
+ * Reduce a containment decision to the stable IDs, codes, and counts that may be
+ * stored durably. Any raw upstream payload, credential, name, media reference, or
+ * path a caller passes is dropped here rather than sanitized in place.
+ */
+export function safeContainmentDecision(decision = {}) {
+  const evidenceIds = Array.isArray(decision.evidenceIds)
+    ? decision.evidenceIds.filter((id) => typeof id === 'string' && STABLE_ID.test(id)).slice(0, MAX_EVIDENCE_IDS).sort()
+    : []
+  return {
+    incidentId: typeof decision.incidentId === 'string' && STABLE_ID.test(decision.incidentId) ? decision.incidentId : 'unknown',
+    decision: CONTAINMENT_DECISIONS.has(decision.decision) ? decision.decision : 'REJECT',
+    state: CONTAINMENT_STATES.has(decision.state) ? decision.state : 'CONTAINMENT_REJECTED',
+    correlationKey: typeof decision.correlationKey === 'string' && CORRELATION_ID.test(decision.correlationKey)
+      ? decision.correlationKey
+      : null,
+    severity: boundedText(decision.severity, 'UNKNOWN').slice(0, 20),
+    evidenceIds,
+  }
+}
+
+export function containmentAuditEntry(safe) {
+  return sanitizeAuditEntry({
+    category: 'CONTAINMENT',
+    action: safe.state,
+    outcome: 'SUCCESS',
+    actorRef: 'session-admin',
+    resourceType: 'incident',
+    resourceId: safe.incidentId,
+    correlationId: safe.correlationKey,
+    detail: { decision: safe.decision, severity: safe.severity, evidenceCount: safe.evidenceIds.length },
+  })
+}
+
 export function sanitizedSettings(next = {}) {
   return Object.fromEntries(Object.entries(next).filter(([key, value]) => (
     Object.hasOwn(DEFAULT_SETTINGS, key) && Number.isSafeInteger(value)

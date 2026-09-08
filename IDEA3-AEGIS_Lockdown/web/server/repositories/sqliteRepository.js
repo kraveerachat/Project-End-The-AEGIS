@@ -7,12 +7,17 @@ import {
   DEFAULT_SETTINGS,
   auditEntryForOperationalError,
   sanitizeAuditEntry,
+  containmentAuditEntry,
+  safeContainmentDecision,
   sanitizeIncidentNote,
   sanitizedSettings,
   validateAuditLimit,
 } from './auditRecords.js'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
+// v1 -> v2 is purely additive: it introduces containment_decisions and leaves
+// every v1 table and audit row untouched.
+const MIGRATABLE_VERSIONS = new Set([1])
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS schema_meta (
@@ -50,6 +55,16 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS active_operational_errors (
     fingerprint TEXT PRIMARY KEY,
     activated_at TEXT NOT NULL,
+    audit_id INTEGER NOT NULL REFERENCES audit_log(id)
+  );
+  CREATE TABLE IF NOT EXISTS containment_decisions (
+    incident_id TEXT PRIMARY KEY,
+    decision TEXT NOT NULL CHECK (decision IN ('ACCEPT', 'REJECT')),
+    state TEXT NOT NULL CHECK (state IN ('CONTAINMENT_ACCEPTED', 'CONTAINMENT_REJECTED')),
+    correlation_key TEXT,
+    severity TEXT NOT NULL,
+    evidence_ids_json TEXT NOT NULL,
+    decided_at TEXT NOT NULL,
     audit_id INTEGER NOT NULL REFERENCES audit_log(id)
   );
 `
@@ -108,7 +123,11 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
       database.exec(SCHEMA)
       database.prepare('INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, ?)').run(SCHEMA_VERSION)
       const metadata = database.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get()
-      if (metadata?.version !== SCHEMA_VERSION) throw new Error('Unsupported audit schema version')
+      const storedVersion = Number(metadata?.version)
+      if (storedVersion !== SCHEMA_VERSION) {
+        if (!MIGRATABLE_VERSIONS.has(storedVersion)) throw new Error('Unsupported audit schema version')
+        database.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(SCHEMA_VERSION)
+      }
       database.exec('COMMIT')
     } catch (error) {
       try { database.exec('ROLLBACK') } catch {}
@@ -196,6 +215,77 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
       `).run(id, safeNote, occurredAt, audit.databaseId)
       return audit.record
     })
+  }
+
+  function containmentDecisionRow(row) {
+    let evidenceIds = []
+    try {
+      const parsed = JSON.parse(row.evidence_ids_json)
+      if (Array.isArray(parsed)) evidenceIds = parsed.filter((id) => typeof id === 'string')
+    } catch {
+      evidenceIds = []
+    }
+    return {
+      incidentId: row.incident_id,
+      decision: row.decision,
+      state: row.state,
+      correlationKey: row.correlation_key,
+      severity: row.severity,
+      evidenceIds,
+    }
+  }
+
+  function readContainmentDecision(incidentId) {
+    try {
+      const row = database.prepare('SELECT * FROM containment_decisions WHERE incident_id = ?').get(incidentId)
+      return row ? containmentDecisionRow(row) : null
+    } catch (error) {
+      throw wrap('read containment decision', error)
+    }
+  }
+
+  /**
+   * Record one durable Admin containment decision.
+   *
+   * Repeating the same decision is idempotent and writes no second audit row; the
+   * opposite decision conflicts and leaves the stored decision unchanged, so an
+   * accepted candidate can never be silently reversed.
+   */
+  function recordContainmentDecision(decision) {
+    return transaction('record containment decision', () => {
+      const safe = safeContainmentDecision(decision)
+      const existing = database.prepare('SELECT * FROM containment_decisions WHERE incident_id = ?').get(safe.incidentId)
+      if (existing) {
+        const stored = containmentDecisionRow(existing)
+        return { status: stored.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...stored, audit: null }
+      }
+
+      const occurredAt = nowIso(clock)
+      const audit = insertAuditRecord(containmentAuditEntry(safe), occurredAt)
+      database.prepare(`
+        INSERT INTO containment_decisions (
+          incident_id, decision, state, correlation_key, severity, evidence_ids_json, decided_at, audit_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        safe.incidentId,
+        safe.decision,
+        safe.state,
+        safe.correlationKey,
+        safe.severity,
+        JSON.stringify(safe.evidenceIds),
+        occurredAt,
+        audit.databaseId,
+      )
+      return { status: 'RECORDED', ...safe, audit: audit.record }
+    })
+  }
+
+  function schemaVersion() {
+    try {
+      return Number(database.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get()?.version)
+    } catch (error) {
+      throw wrap('read schema version', error)
+    }
   }
 
   function updateSettings(next) {
@@ -294,6 +384,9 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     recordAction,
     acknowledgeAlert,
     addIncidentNote,
+    recordContainmentDecision,
+    readContainmentDecision,
+    schemaVersion,
     updateSettings,
     recordOperationalErrors,
     queryAudit,
