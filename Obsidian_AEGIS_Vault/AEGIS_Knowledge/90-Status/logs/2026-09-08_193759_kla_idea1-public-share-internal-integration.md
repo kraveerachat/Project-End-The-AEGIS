@@ -216,6 +216,11 @@ edit_policy: append-by-new-file
   it reproduces the production role/grant split and applies repository SQL.
 - `gateway/public-share/integration/README.md` — same boundary; it documents a
   topology and a set of claims about B5.
+- `gateway/public-share/integration/run-stage-b.sh` — same boundary, and the
+  strongest reason for integration review in this PR: it is the script that would
+  run Docker **as root** on the AEGIS server host. Its guards, its refusal
+  conditions and its teardown scope should be read line by line before anyone
+  executes it.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md`
   — an IDEA1-owned canonical note, but the contract it records spans the
   infrastructure-owned gateway boundary and the shared trusted-proxy/ingress
@@ -320,7 +325,18 @@ Re-verified after that refactor, on the developer machine:
   `docker network ls` afterwards showed zero PS6 containers and zero PS6
   networks. The override therefore changes nothing when it is not set.
 - `sh -n gateway/public-share/integration/run-stage-b.sh` — passed (syntax only).
-  The runner has still never been executed.
+- `sh run-stage-b.sh` with no argument, and with an abbreviated SHA — both
+  refused, as designed, with exit code 2 and an actionable message. This is the
+  only part of the runner with real runtime evidence; every Docker-touching path
+  in it remains unexecuted.
+- ⚠️ **The runner deliberately has no default source SHA.** An earlier draft
+  hardcoded the Stage A commit `ef77c00…`, which was wrong the moment the runner
+  existed: that commit predates the `PS6_DOCKER` override and therefore cannot
+  run on the server host at all. A pinned default is also always one commit
+  stale, because adding it changes the branch head. The SHA is now a required
+  argument, validated as full 40-char lowercase hex and verified against the
+  checkout before any build. **Stage B must be run against PR #105 HEAD at the
+  time of the run — not against `ef77c00`.**
 - The non-default `PS6_DOCKER` path — `sudo env -u DOCKER_HOST docker` — is
   **untested**, because this machine has neither `sudo` nor the server's daemon
   configuration. Its first real exercise will be the first Stage B run.

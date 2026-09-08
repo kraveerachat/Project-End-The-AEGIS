@@ -16,11 +16,32 @@
 #    the runtime Compose file or Production .env. No migration against Production.
 #    No host port. No ingress, DNS, TLS, NAT, tunnel, firewall or VLAN change.
 #
+# ⚠️ THE SOURCE SHA IS REQUIRED AND IS NOT DEFAULTED.
+#    An earlier draft hardcoded the Stage A commit, which was wrong the moment
+#    this file existed: that commit predates the PS6_DOCKER override and so
+#    cannot run on this host at all. A pinned default would also always be one
+#    commit stale, because adding it changes the branch head. Pass the SHA that
+#    PR #105 actually points at when you run this, and the guard below verifies
+#    the checkout really is that commit before anything is built.
+#
 # Usage (from a quiet window):
-#   sh run-stage-b.sh
+#   PS6_SOURCE_SHA=<PR #105 HEAD> sh run-stage-b.sh
+#   sh run-stage-b.sh <PR #105 HEAD>
 set -eu
 
-PS6_SOURCE_SHA=ef77c00f1b17b4fa85511baeb760665d9aee2237
+PS6_SOURCE_SHA=${PS6_SOURCE_SHA:-${1:-}}
+[ -n "$PS6_SOURCE_SHA" ] || {
+  printf '\n[ps6-stage-b] REFUSING: no source SHA given.\n  Pass PR #105 HEAD, e.g.\n    PS6_SOURCE_SHA=<40-hex> sh run-stage-b.sh\n  Find it with: git ls-remote origin refs/heads/feat/idea1-public-share-internal-integration\n' >&2
+  exit 2
+}
+case "$PS6_SOURCE_SHA" in
+  *[!0-9a-f]*|"") printf '\n[ps6-stage-b] REFUSING: source SHA must be full 40-char lowercase hex\n' >&2; exit 2 ;;
+esac
+[ ${#PS6_SOURCE_SHA} -eq 40 ] || {
+  printf '\n[ps6-stage-b] REFUSING: source SHA must be the full 40 characters, not abbreviated\n' >&2
+  exit 2
+}
+
 PRODUCTION_CHECKOUT=/opt/aegis/Project-End-The-AEGIS
 DOCKER="sudo env -u DOCKER_HOST docker"
 REQUIRED_IMAGES="postgres:15-alpine node:20-alpine nginx:alpine"
