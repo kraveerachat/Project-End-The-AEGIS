@@ -14,8 +14,9 @@ edit_policy: owner-writable
 > [!warning] Contract partly delivered; Public Internet Share is still unavailable
 > **PUBLIC-SHARE-1 architecture and PUBLIC-SHARE-2 backend contract are merged.
 > PUBLIC-SHARE-3 gateway source is implemented and verified locally only.
-> PUBLIC-SHARE-6 has now proven gateway↔Drive integration on an isolated
-> internal address. Public Internet Share remains NOT IMPLEMENTED and NOT
+> PUBLIC-SHARE-6 is COMPLETE: gateway↔Drive integration is proven on an isolated
+> internal address, on a developer machine and now on AEGIS server hardware
+> (16/16, exit 0). Public Internet Share remains NOT IMPLEMENTED and NOT
 > DEPLOYED.** No Production gateway or `aegis_public_share` network exists,
 > migration 009 has not been applied to Production, and no port, DNS, TLS
 > certificate, firewall, NAT, VLAN, managed tunnel or Twingate policy has been
@@ -1346,8 +1347,8 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
-| **PUBLIC-SHARE-6** *(internal acceptance passed; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
-| **PUBLIC-SHARE-7** | Real external E2E | Acceptance from ≥2 external paths with Twingate off | — |
+| **PUBLIC-SHARE-6** *(COMPLETE — internal acceptance passed on server hardware; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
+| **PUBLIC-SHARE-7** *(NOT STARTED)* | Real external E2E | Acceptance from ≥2 external paths with Twingate off | — |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
@@ -1461,7 +1462,7 @@ file large enough to exceed default timeouts; an interrupted transfer; a slow
 client; concurrent downloads; and confirmation that `/api`, `/drive` and
 `/healthz` are unreachable through the gateway.
 
-> [!success] PUBLIC-SHARE-6 internal acceptance passed — still no ingress, still not deployed
+> [!success] PUBLIC-SHARE-6 COMPLETE — internal acceptance passed on server hardware; still no ingress, still not deployed
 > `gateway/public-share/integration/` stands up the **real** PUBLIC-SHARE-3
 > gateway image in front of the **real** AEGIS Drive image on a **real**
 > PostgreSQL 15, and `tests/publicShareInternalIntegration.test.js` drives it.
@@ -1498,12 +1499,30 @@ client; concurrent downloads; and confirmation that `/api`, `/drive` and
 >    `proxy_read_timeout` and `send_timeout`, whose nginx defaults are 60s. The
 >    transfer completes only because the shipped template raises both to 300s.
 >
+> **Stage B — the same acceptance matrix, on AEGIS server hardware (2026-09-08).**
+> The matrix above was first measured on a developer machine. It has since been
+> run on the Beelink host `aegis-system` itself, against the production Docker
+> daemon through `sudo -n env -u DOCKER_HOST docker`, in its own throwaway
+> Compose project on its own three isolated networks. Attempt #4, against source
+> SHA `15c43d6bc4d5f3d7287d20e855677a44f0ec0231`, **passed 16/16 — 0 failed, 0
+> skipped, acceptance exit 0, post-run check failures 0, runner RC 0.** PS6-INT-4
+> streamed the full 64 MiB (67,108,864 bytes; `Content-Length` 67,109,045) in
+> 262,144-byte chunks with **256 drain waits** and `responseStatus=201`.
+> Three earlier attempts failed safely and are recorded in the receipt rather
+> than discarded: a Compose credential stripped at the `sudo` boundary, a
+> diagnostic that masked a transport failure, and a single unbounded 64 MiB
+> write. Production was **IDENTICAL** pre and post on every attempt, every
+> Production service stayed healthy, both protected volumes survived, and every
+> PS6 container, network, volume, built image and temporary file was removed.
+>
 > **G4, G5 and G6 remain open, and `Public Internet Share = NOT IMPLEMENTED`.**
 > A recipient in this harness is a container on an isolated Docker network, not
 > someone on ordinary Internet access — that distinction is exactly what
-> PUBLIC-SHARE-7 exists to close. No shipped gateway, backend or UI source
-> changed in this phase, and nothing in Production was contacted, restarted,
-> migrated or read.
+> PUBLIC-SHARE-7 exists to close, and **PUBLIC-SHARE-7 has not started**. No
+> ingress method is chosen, no port is published, and no DNS record, TLS
+> certificate, NAT rule, tunnel or firewall change exists. No shipped gateway,
+> backend or UI source changed in this phase, and nothing in Production was
+> contacted, restarted, migrated or read.
 
 **PUBLIC-SHARE-7** — real external E2E, client condition
 `Twingate = OFF`, `AEGIS account = not required`, `network = ordinary external
