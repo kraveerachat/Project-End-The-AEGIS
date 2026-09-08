@@ -489,6 +489,56 @@ one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still nev
 009 applied; doing so remains a prerequisite of any deployment, and the observed
 run was on PostgreSQL 16.15 while production runs the 15 line.
 
+### Public-share internal integration acceptance passed, nothing deployed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-6 is isolated internal evidence only
+> **Real gateway in front of real Drive = YES. Real PostgreSQL 15.18 = YES.
+> Migration 009 on a real 008-era database = YES. 64 MiB byte-exact delivery =
+> YES. Slow client (75s stall) = YES. Interrupted transfer = YES. Concurrency =
+> YES. Forbidden routes and Host termination = YES. Forged-header attribution =
+> YES. Ingress split = YES. B5 = YES. Revocation = YES. Verified teardown = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+
+`gateway/public-share/integration/` stands the **real** PUBLIC-SHARE-3 gateway
+image in front of the **real** AEGIS Drive image on a **real** PostgreSQL 15.18,
+across three `internal: true` + `gateway_mode_ipv4: isolated` networks with no
+host port anywhere. `tests/publicShareInternalIntegration.test.js` drives it and
+reports **16 tests, 16 passed, 0 failed in 148.2 s**. This is the first evidence
+in the repository of the two tiers actually connected — PUBLIC-SHARE-3 measured
+the gateway against a recorder, PUBLIC-SHARE-5 measured the application against a
+modelled peer, and neither put one in front of the other.
+
+The recipient is a container on the edge network only, so "a recipient cannot
+reach Drive except through the gateway" is enforced by Docker and is probed
+rather than asserted about a diagram.
+
+Three facts this phase established that were not previously recorded:
+
+- **Migration 009 now has real-database evidence.** The harness provisions the
+  pre-009 constraint deliberately, then shows a `scope=public` share **cannot**
+  be minted until 009 is applied, that re-applying it is a no-op, and that the
+  scoped `drive_app` role is refused the migration. Previous 009 evidence was
+  against `schema.sql`, which already carries `public` and therefore could not
+  distinguish an applied migration from an unapplied one.
+- **The production State B trusted-proxy pair is enforced at boot.** Drive
+  refuses to start under `NODE_ENV=production` unless `TRUSTED_PROXY_CIDRS` is
+  exactly the approved HUB identity **and** `PUBLIC_SHARE_GATEWAY_CIDR`. The
+  first harness attempt failed the boot on precisely this — the control working,
+  not a defect.
+- **The gateway's raised timeouts are measurable.** With `proxy_buffering off`, a
+  75 s client stall lands on `proxy_read_timeout` and `send_timeout`, whose nginx
+  defaults are 60 s. The 64 MiB transfer completes only because the shipped
+  template sets both to 300 s.
+
+⚠️ This is **internal** integration. No ingress method is chosen, nothing is
+exposed, and a container on an isolated Docker network is not a recipient on
+ordinary Internet access. **G4, G5 and G6 remain open and
+`Public Internet Share = NOT IMPLEMENTED`.** No shipped gateway, backend or UI
+source changed, and no Production database, gateway, network, volume or migration
+was contacted. PUBLIC-SHARE-7 was not started.
+
 ### Public-share security regression matrix pinned, no source changed (2026-09-08)
 
 > [!warning] PUBLIC-SHARE-5 is local regression evidence only
