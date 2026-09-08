@@ -23,10 +23,11 @@ edit_policy: append-by-new-file
   and the two gateway suites already pin.
 - **Indistinguishability.** Unknown, malformed, revoked and trashed links return
   one byte-identical refusal — same status, same content-type, same body — with
-  no file name, owner, storage path, file bytes or echoed token. The
-  per-response CSP nonce is normalised before comparison *and* separately
-  asserted to still be present and random, so normalising it cannot hide a fixed
-  nonce.
+  no file name, owner, storage path, file bytes or echoed token. Only the CSP
+  nonce is normalised out of that comparison, and the real nonce values are
+  captured first and asserted **distinct across the four exercised responses**,
+  so the normalisation cannot hide a fixed nonce. This measures freshness per
+  exercised response; it is **not** a claim about entropy quality.
 - **The audit is deliberately NOT flattened.** A separate test asserts the
   forensic record still distinguishes `SHARE_REDEEM_REVOKED` from an unknown
   token, because indistinguishability is a recipient-facing property, not an
@@ -36,7 +37,11 @@ edit_policy: append-by-new-file
   only a sha256 hex digest.
 - **Password secrecy.** The plaintext link password never appears in the
   creation response, the listing, the audit, the failed password form or the
-  success response, and is stored only as a bcrypt hash.
+  success response, and is stored only as a bcrypt hash. Separately, the real
+  Public Share Gateway runtime test now submits a unique password sentinel in an
+  allowed `application/x-www-form-urlencoded` POST and asserts it is absent from
+  the **real nginx container's own Docker logs**, alongside the existing raw-token
+  sentinel — a request-BODY leak path the token check never covered.
 - **Password correctness and lockout.** A wrong password is denied, the right one
   delivers the bytes, and sustained guessing is stopped server-side with a
   `Retry-After` header and no file content. The existing threshold is asserted as
@@ -63,6 +68,7 @@ edit_policy: append-by-new-file
 ## Source files changed
 
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` — **new, and the only code file**: the 16-test public-share security regression matrix described above, exercised through the same Express app production runs plus two modelled trusted edges (`127.0.0.2` private, `127.0.0.3` public gateway) and one untrusted peer (`127.0.0.4`).
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js` — **amended** (PR #103 review): `PS3-RUNTIME-12` now also submits a unique link-password sentinel through an allowed form POST and asserts it is absent from the real gateway container's Docker logs, not only the raw token.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md` — marks the PUBLIC-SHARE-5 rollout row delivered-in-source and records which suite owns which part of the §16 matrix, the negative controls, and the two row-access-dependent gates.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — records the matrix as implemented and locally verified, with Public Internet Share still NOT IMPLEMENTED.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-08_164556_kla_idea1-public-share-security-regression.md` — this one immutable task receipt.
@@ -74,14 +80,14 @@ shows no file under `gateway/`, `IDEA1-AEGIS_Drive_LC/server/`,
 ## Verification evidence
 
 - `git fetch origin; git rev-parse origin/main` — passed: `origin/main` was `cda1db551b1cb242c761c6bd919fc2cf7a3966ab` (matching the merge commit of PR #102) with no Pull Request open, so the branch was cut from current `main` with no dependency to stack on.
-- `node --test tests/publicShareSecurityRegression.test.js` (memory store) — passed: 16 tests, 16 passed, 0 failed. The Vault-redemption and expiry gates reported their evidence as **unavailable** in this mode rather than substituting a weaker assertion.
-- `TEST_DATABASE_URL=… node --test tests/publicShareSecurityRegression.test.js` (PostgreSQL) — passed: 16 tests, 16 passed, 0 failed, with the Vault-redemption and expiry gates genuinely exercised.
-- `node --test tests/publicShareGatewayStructure.test.js` — passed: 12 tests, 12 passed, 0 failed.
-- `PUBLIC_SHARE_GATEWAY_RUNTIME=1 node --test tests/publicShareGatewayRuntime.test.js` — passed: 18 tests, 18 passed, 0 failed on the real Docker harness, including in-container `nginx -t` reporting `syntax is ok` / `test is successful`, the route/method deny matrix with zero upstream contacts, header sanitation, Host poisoning, the edge rate limit, token-safe logs, and the `internal: true` + `gateway_mode_ipv4=isolated` two-member B5 structure.
-- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` (the `npm test` script plus an explicit per-test timeout) — failed only at the accepted pre-existing `AUTOLOCK-5`: 1,151 tests, 1,080 passed, 1 failed, 0 cancelled, 70 skipped, 163.7 s. **PUBLIC-SHARE-5 introduced failures = 0.** The count rose from 1,133 to 1,151 because of the 16 new regression tests plus two run-mode variants. The explicit per-test timeout is used because bare `npm test` runs with `--test-timeout=0` and the pre-existing `vaultChunkedUploadClient.test.js` flake can otherwise hang the suite indefinitely; that flake did not fire in this run. PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`, and the pre-existing React `act(...)` warnings remained.
-- `npm run build` — passed: Vite built in 9.28 s, retaining the existing >500 kB chunk warning for the 609.95 kB main chunk. The regenerated `dist/index.html` was restored; `dist` is not part of this change.
+- `node --test tests/publicShareSecurityRegression.test.js` (memory store) — passed: 16 tests, 16 passed, 0 failed (re-run after the PR #103 amendment). The Vault-redemption and expiry gates reported their evidence as **unavailable** in this mode rather than substituting a weaker assertion.
+- `TEST_DATABASE_URL=… node --test tests/publicShareSecurityRegression.test.js` (PostgreSQL 15.18, re-provisioned isolated instance) — passed: 16 tests, 16 passed, 0 failed, with the Vault-redemption and expiry gates genuinely exercised (re-run after the amendment).
+- `node --test tests/publicShareGatewayStructure.test.js` — passed: 12 tests, 12 passed, 0 failed (re-run after the amendment).
+- `PUBLIC_SHARE_GATEWAY_RUNTIME=1 node --test tests/publicShareGatewayRuntime.test.js` — passed: 18 tests, 18 passed, 0 failed on the real Docker harness (re-run after the amendment), including the amended `PS3-RUNTIME-12` which inspected 8,550 bytes of the real gateway container's Docker logs and found neither the raw-token nor the link-password sentinel, in-container `nginx -t` reporting `syntax is ok` / `test is successful`, the route/method deny matrix with zero upstream contacts, header sanitation, Host poisoning, the edge rate limit, token-safe logs, and the `internal: true` + `gateway_mode_ipv4=isolated` two-member B5 structure.
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` (the `npm test` script plus an explicit per-test timeout) — failed only at the accepted pre-existing `AUTOLOCK-5`: 1,151 tests, 1,080 passed, 1 failed, 0 cancelled, 70 skipped, 163.7 s. **This is the pre-amendment run and was deliberately NOT re-run for the PR #103 amendment**, which changed only two test files; the PS5, gateway structure and gateway runtime suites were all re-run and are green. No new full-suite numbers are claimed. **PUBLIC-SHARE-5 introduced failures = 0.** The count rose from 1,133 to 1,151 because of the 16 new regression tests plus two run-mode variants. The explicit per-test timeout is used because bare `npm test` runs with `--test-timeout=0` and the pre-existing `vaultChunkedUploadClient.test.js` flake can otherwise hang the suite indefinitely; that flake did not fire in this run. PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`, and the pre-existing React `act(...)` warnings remained.
+- `npm run build` — passed: re-run after the amendment; Vite built in 4.62 s, retaining the existing >500 kB chunk warning for the 609.95 kB main chunk. The regenerated `dist/index.html` was restored; `dist` is not part of this change.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — passed with the two pre-existing owner-review warnings for the architecture/network canvas files.
-- `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — POLICY_PENDING
+- `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — POLICY_PENDING_2
 - `git status --short`, `git diff --check`, `git diff --name-status origin/main...HEAD` — passed; the working tree carried no shipped-source modification at any point after the negative controls were reverted.
 
 ### Negative controls — the five high-risk guards are load-bearing
@@ -95,6 +101,8 @@ and the mutation was reverted. **None of these mutations is committed**, and
 - **Gateway default deny** — replaced the public listener's `location / { return 404; }` with `proxy_pass http://drive:8001;` in `gateway/public-share/nginx.conf.template`. Expected failures observed: `PS3-RUNTIME-5` (forbidden routes reached upstream) and `PS3-RUNTIME-10`.
 - **Gateway token-safe logging** — added `$request_uri` back to the `public_share_safe` log format. Expected failure observed: `PS3-RUNTIME-12`.
 - **UI public-URL ownership** — made the public branch of `Shares.jsx` compose `window.location.origin + apiUrl(path)`. Expected failures observed: `SHARE-SCOPE-UI-7` and `SHARE-SCOPE-API-1`.
+- **CSP nonce freshness** (PR #103 review) — replaced both `randomBytes(16).toString('base64')` nonce sites in `server/routes/share.js` with a constant. Expected failure observed: `PS5-T02-1`, reporting four identical captured nonces. Before the amendment this mutation would have PASSED, which is exactly why the assertion was strengthened.
+- **Gateway password-log secrecy** (PR #103 review) — added `$request_body` to the `public_share_safe` log format in `gateway/public-share/nginx.conf.template`. Expected failure observed: `PS3-RUNTIME-12` with `link password leaked into gateway logs`.
 
 ### PostgreSQL evidence
 

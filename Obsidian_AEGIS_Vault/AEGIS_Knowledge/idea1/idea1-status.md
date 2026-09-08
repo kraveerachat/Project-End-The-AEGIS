@@ -507,12 +507,16 @@ only new file is a test.
 
 `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` owns the
 recipient-facing and forensic half that no single existing suite covered end to
-end: unknown/malformed/revoked/trashed links are one byte-identical refusal
-(with the per-response CSP nonce normalised, and asserted to still vary) while
-the audit deliberately keeps the distinct forensic reason; the raw token is
+end: unknown/malformed/revoked/trashed links are one byte-identical refusal (only
+the CSP nonce is normalised out of the comparison, and the captured nonce values
+are asserted distinct across the four exercised responses — a freshness check,
+not an entropy claim) while the audit deliberately keeps the distinct forensic
+reason; the raw token is
 returned once and is absent from the listing, the audit and the stored row,
 which holds only a sha256 digest; the link password is never stored in plaintext
-(bcrypt only), never echoed, never listed, never audited; a wrong password is
+(bcrypt only), never echoed, never listed, never audited, and — proven against
+the **real** gateway container — never present in its Docker logs after an
+allowed form POST carrying a unique password sentinel; a wrong password is
 denied and sustained guessing locks out with `Retry-After`; **T-05 holds in both
 directions** — a public lockout leaves the private path and login working, and
 private/login failures do not consume the public namespace; forged forwarding
@@ -538,11 +542,13 @@ expiry is 1h. Under PostgreSQL they are genuinely exercised; in memory-only mode
 they report the evidence as unavailable rather than substituting a weaker
 assertion.
 
-Five high-risk guards were proved load-bearing by temporarily breaking the
+Seven high-risk guards were proved load-bearing by temporarily breaking the
 invariant and confirming the expected test failed — T-05 namespace separation,
 the public-ingress scope block, the gateway default deny, gateway token-safe
-logging, and UI public-URL ownership. Every mutation was reverted and the tree
-verified clean.
+logging, UI public-URL ownership, and — added at the PR #103 review — CSP nonce
+freshness (a constant nonce) and gateway password-log secrecy (`$request_body`
+added to the log format). Every mutation was reverted and the tree verified
+clean.
 
 No accepted invariant failed against current `main`. PUBLIC-SHARE-6/7 were not
 started, and G4, G5 and G6 remain open.
