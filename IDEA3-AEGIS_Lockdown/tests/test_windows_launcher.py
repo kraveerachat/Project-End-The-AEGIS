@@ -7,6 +7,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -551,3 +552,59 @@ def test_doctor_never_prints_secret_values_from_the_configuration(tmp_path):
 
     assert "super-secret-value" not in output.text()
     assert "$2b$12$" not in output.text()
+
+
+WINDOWS = Path(__file__).resolve().parent.parent / "windows"
+
+
+def test_toolchain_lock_pins_verified_node_archive():
+    lock = json.loads((WINDOWS / "toolchain-lock.json").read_text(encoding="utf-8"))
+
+    assert lock["node"]["version"] == "24.20.0"
+    assert lock["node"]["sha256"] == (
+        "6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba"
+    )
+    assert lock["node"]["architecture"] == "x64"
+    assert lock["node"]["url"].startswith("https://nodejs.org/")
+    assert lock["node"]["url"].endswith(lock["node"]["filename"])
+
+
+def test_build_requirements_pin_exact_pyinstaller():
+    requirements = (WINDOWS / "requirements-build.txt").read_text(encoding="utf-8")
+
+    assert "pyinstaller==6.22.2" in requirements
+    assert ">=" not in requirements
+
+
+def test_spec_is_onedir_and_excludes_secret_runtime_inputs():
+    spec = (WINDOWS / "aegis-idea3.spec").read_text(encoding="utf-8")
+
+    assert "EXE(" in spec and "COLLECT(" in spec
+    assert "name='AEGIS-IDEA3'" in spec
+    assert ".env" not in spec
+    assert "*.sqlite" not in spec
+
+
+def test_build_script_verifies_node_hash_and_refuses_a_dirty_source_tree():
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    assert "Get-FileHash" in script
+    assert "status --porcelain" in script
+    assert "SHA-256 mismatch" in script
+    for stage in ("pytest", "npm", "pyinstaller", "Compress-Archive"):
+        assert stage in script.lower() or stage in script
+
+
+def test_build_script_scans_for_forbidden_artifacts_and_writes_a_manifest():
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    assert "manifest.json" in script
+    for forbidden in (".env", "*.sqlite", "node_modules"):
+        assert forbidden in script
+
+
+def test_generated_windows_artifacts_are_ignored_by_git():
+    ignored = (Path(__file__).resolve().parent.parent / ".gitignore").read_text(encoding="utf-8")
+
+    for pattern in ("windows/cache/", "windows/build/", "windows/dist/", "windows/out/"):
+        assert pattern in ignored
