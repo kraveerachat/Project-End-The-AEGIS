@@ -15,6 +15,10 @@ from aegis_soc.windows_launcher import (
     ControlServer,
     LauncherRuntime,
     LauncherSettings,
+    doctor_command,
+    logs_command,
+    open_command,
+    status_command,
     write_configuration,
 )
 
@@ -380,3 +384,170 @@ def test_configuration_refuses_invalid_username_or_implicit_overwrite(tmp_path):
             force=True,
         )
     assert settings.paths.config_file.read_text(encoding="utf-8") == "EXISTING=value\n"
+
+
+class _Recorder:
+    def __init__(self):
+        self.lines = []
+
+    def write(self, text):
+        self.lines.append(text)
+        return len(text)
+
+    def text(self):
+        return "".join(self.lines)
+
+
+def _status_document(tmp_path, document):
+    paths = _paths(tmp_path)
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    (paths.runtime_dir / "launcher-status.json").write_text(
+        json.dumps(document), encoding="utf-8"
+    )
+    return paths
+
+
+def test_status_command_reports_running_and_returns_zero(tmp_path):
+    settings = _settings(tmp_path)
+    _status_document(tmp_path, {
+        "schemaVersion": 1, "status": "RUNNING", "profile": "production",
+        "dryRun": True, "components": {"core": "RUNNING", "web": "RUNNING"},
+    })
+    output = _Recorder()
+
+    code = status_command(settings, output=output)
+
+    assert code == 0
+    assert "RUNNING" in output.text()
+
+
+@pytest.mark.parametrize("status", ["STOPPED", "DEGRADED", "FAILED"])
+def test_status_command_returns_nonzero_for_unhealthy_states(tmp_path, status):
+    settings = _settings(tmp_path)
+    _status_document(tmp_path, {
+        "schemaVersion": 1, "status": status, "profile": "production",
+        "dryRun": True, "components": {"core": status, "web": status},
+    })
+    output = _Recorder()
+
+    code = status_command(settings, output=output)
+
+    assert code != 0
+    assert status in output.text()
+
+
+def test_status_command_reports_not_running_when_no_status_document_exists(tmp_path):
+    settings = _settings(tmp_path)
+    output = _Recorder()
+
+    code = status_command(settings, output=output)
+
+    assert code != 0
+    assert "NOT_RUNNING" in output.text()
+
+
+def test_open_command_refuses_to_launch_a_browser_until_web_health_succeeds(tmp_path):
+    settings = _settings(tmp_path)
+    opened = []
+    output = _Recorder()
+
+    code = open_command(
+        settings,
+        output=output,
+        health_check=lambda _url: False,
+        browser_open=opened.append,
+    )
+
+    assert code != 0
+    assert opened == []
+
+
+def test_open_command_opens_the_loopback_url_after_web_health_succeeds(tmp_path):
+    settings = _settings(tmp_path)
+    opened = []
+    output = _Recorder()
+
+    code = open_command(
+        settings,
+        output=output,
+        health_check=lambda _url: True,
+        browser_open=opened.append,
+    )
+
+    assert code == 0
+    assert opened == [f"http://{settings.bind_host}:{settings.web_port}/security"]
+
+
+def test_logs_command_tails_the_external_log_without_leaving_the_log_directory(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.log_dir.mkdir(parents=True, exist_ok=True)
+    (settings.paths.log_dir / "aegis_soc.log").write_text(
+        "".join(f"line-{index}\n" for index in range(10)), encoding="utf-8"
+    )
+    output = _Recorder()
+
+    code = logs_command(settings, output=output, lines=3)
+
+    assert code == 0
+    assert output.text().splitlines()[-3:] == ["line-7", "line-8", "line-9"]
+
+
+def test_logs_command_reports_missing_logs_instead_of_failing_hard(tmp_path):
+    settings = _settings(tmp_path)
+    output = _Recorder()
+
+    code = logs_command(settings, output=output, lines=3)
+
+    assert code != 0
+    assert "NO_LOGS" in output.text()
+
+
+def test_doctor_reports_missing_configuration_and_payload_without_contacting_hardware(tmp_path):
+    settings = _settings(tmp_path)
+    settings.web_entrypoint.unlink()
+    output = _Recorder()
+
+    code = doctor_command(settings, output=output)
+    text = output.text()
+
+    assert code != 0
+    assert "config: MISSING" in text
+    assert "payload: MISSING" in text
+    for forbidden in ("mqtt", "broker", "relay", "esp32"):
+        assert forbidden not in text.lower()
+
+
+def test_doctor_passes_when_config_payload_and_writable_paths_are_present(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.config_file.parent.mkdir(parents=True, exist_ok=True)
+    settings.paths.config_file.write_text("NODE_ENV=production\n", encoding="utf-8")
+    settings.web_entrypoint.parent.mkdir(parents=True, exist_ok=True)
+    settings.web_entrypoint.write_text("// server\n", encoding="utf-8")
+    settings.node_executable.parent.mkdir(parents=True, exist_ok=True)
+    settings.node_executable.write_text("", encoding="utf-8")
+    settings.static_dir.mkdir(parents=True, exist_ok=True)
+    output = _Recorder()
+
+    code = doctor_command(settings, output=output, port_probe=lambda _host, _port: True)
+    text = output.text()
+
+    assert code == 0
+    assert "config: OK" in text
+    assert "payload: OK" in text
+    assert "writable: OK" in text
+
+
+def test_doctor_never_prints_secret_values_from_the_configuration(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.config_file.parent.mkdir(parents=True, exist_ok=True)
+    settings.paths.config_file.write_text(
+        "SESSION_SECRET=super-secret-value\n"
+        "AEGIS_IDEA3_ADMIN_PASSWORD_HASH=$2b$12$abcdefghijklmnopqrstuv\n",
+        encoding="utf-8",
+    )
+    output = _Recorder()
+
+    doctor_command(settings, output=output, port_probe=lambda _host, _port: True)
+
+    assert "super-secret-value" not in output.text()
+    assert "$2b$12$" not in output.text()

@@ -487,3 +487,115 @@ def write_configuration(
     ]
     _atomic_write_file(config_path, "\n".join(lines) + "\n")
     return config_path
+
+
+_HEALTHY_STATUS = "RUNNING"
+_LOG_TAIL_LIMIT = 2000
+
+
+def _security_url(settings: LauncherSettings) -> str:
+    return f"http://{settings.bind_host}:{settings.web_port}/security"
+
+
+def _read_launcher_status(settings: LauncherSettings) -> dict | None:
+    path = settings.paths.runtime_dir / "launcher-status.json"
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def status_command(settings: LauncherSettings, *, output=sys.stdout) -> int:
+    """Report launcher status. Any non-RUNNING state returns a non-zero code."""
+    document = _read_launcher_status(settings)
+    if document is None:
+        output.write("status: NOT_RUNNING\n")
+        return 1
+
+    status = document.get("status")
+    status = status if isinstance(status, str) and status else "UNKNOWN"
+    components = document.get("components")
+    output.write(f"status: {status}\n")
+    if isinstance(components, dict):
+        for name, state in sorted(components.items()):
+            output.write(f"  {name}: {state}\n")
+    return 0 if status == _HEALTHY_STATUS else 1
+
+
+def open_command(
+    settings: LauncherSettings,
+    *,
+    output=sys.stdout,
+    health_check: Callable[[str], bool],
+    browser_open: Callable[[str], object] | None = None,
+) -> int:
+    """Open the Security Center only after Web health actually succeeds."""
+    url = _security_url(settings)
+    if not health_check(url):
+        output.write("open: WEB_NOT_HEALTHY\n")
+        return 1
+
+    if browser_open is None:
+        import webbrowser
+
+        browser_open = webbrowser.open
+    browser_open(url)
+    output.write(f"open: {url}\n")
+    return 0
+
+
+def logs_command(settings: LauncherSettings, *, output=sys.stdout, lines: int = 200) -> int:
+    """Tail the external Core log without reading outside the log directory."""
+    log_path = settings.paths.log_dir / "aegis_soc.log"
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+            tail = list(handle)[-max(1, min(lines, _LOG_TAIL_LIMIT)):]
+    except OSError:
+        output.write(f"logs: NO_LOGS ({settings.paths.log_dir})\n")
+        return 1
+
+    for line in tail:
+        output.write(line if line.endswith("\n") else f"{line}\n")
+    return 0
+
+
+def doctor_command(
+    settings: LauncherSettings,
+    *,
+    output=sys.stdout,
+    port_probe: Callable[[str, int], bool] | None = None,
+) -> int:
+    """Validate configuration, payload, writable paths, and ports.
+
+    This performs no broker, device, or relay contact of any kind, and never
+    echoes a configuration value: only presence and OK/MISSING codes are printed.
+    """
+    checks: list[tuple[str, bool, str]] = []
+
+    checks.append(("config", settings.paths.config_file.is_file(), str(settings.paths.config_file)))
+
+    payload_present = all((
+        settings.web_entrypoint.is_file(),
+        settings.node_executable.is_file(),
+        settings.static_dir.is_dir(),
+    ))
+    checks.append(("payload", payload_present, str(settings.application_root)))
+
+    writable = True
+    for directory in (settings.paths.runtime_dir, settings.paths.log_dir):
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            writable = writable and os.access(directory, os.W_OK)
+        except OSError:
+            writable = False
+    checks.append(("writable", writable, str(settings.paths.root)))
+
+    if port_probe is not None:
+        checks.append(("ports", port_probe(settings.bind_host, settings.web_port), f"{settings.bind_host}:{settings.web_port}"))
+
+    checks.append(("platform", sys.platform.startswith(("win32", "linux", "darwin")), sys.platform))
+
+    for name, ok, detail in checks:
+        output.write(f"{name}: {'OK' if ok else 'MISSING'} ({detail})\n")
+    return 0 if all(ok for _name, ok, _detail in checks) else 1
