@@ -278,11 +278,11 @@ Known limitations:
 ### OPEN / NOT PROVEN
 
 ```text
-IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
-IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
-CROSS_IDEA_EVENT_NORMALIZATION = OPEN / PR7
-CROSS_IDEA_INCIDENT_CORRELATION = OPEN / PR7
-CROSS_IDEA_CONTAINMENT_ACCEPTANCE = OPEN / PR7
+IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7 (upstream feed absent)
+IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7 (upstream feed absent)
+CROSS_IDEA_EVENT_NORMALIZATION = IMPLEMENTED_UNEXERCISED / PR7
+CROSS_IDEA_INCIDENT_CORRELATION = IMPLEMENTED_UNEXERCISED / PR7
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = IMPLEMENTED_UNEXERCISED / PR7
 1B_RESET_WINDOW = OPEN / PR8
 ROUTER_SWITCH_REAL_ETHERNET_E2E = OPEN / PR8
 KALI_E2E = OPEN / PR9
@@ -295,6 +295,101 @@ IDEA3_PRODUCTION_COMPLETE = NO
 No PR7 application source, upstream source, firmware, MQTT behavior, hardware,
 network, production data, deployment, or physical system was changed by this
 inventory/design baseline.
+
+---
+
+## PR7 IDEA3-side implementation — 2026-09-08
+
+### IMPLEMENTED AND TESTED (IDEA3 source only)
+
+- Canonical cross-IDEA event contract in
+  `web/server/domain/integrationEvents.js`. `event_type` is restricted to the
+  single reviewed value `ACCESS_DENIED`, so the design-only `CAMERA_TAMPER`
+  value is rejected before normalization and can never become
+  containment-eligible. `subject` is always emitted as `null`, so raw human
+  names and other privacy-sensitive producer free text cannot survive
+  normalization; both properties are regression-tested.
+- Read-only source adapters in `web/server/providers/` over a shared HTTP
+  boundary: GET-only, `Accept: application/json`, per-source bearer credential,
+  redirect rejection, non-`http(s)` URL rejection, 2.5 s timeout, 256 KiB
+  response limit, `schema_version=1` envelope, and a 500-event bound. Neither the
+  credential nor a raw body is ever returned in a result.
+- Two new configuration keys, `AEGIS_IDEA1_INTEGRATION_TOKEN` and
+  `AEGIS_IDEA2_INTEGRATION_TOKEN`, are per-source and default to absent. The
+  five previously documented adapter keys now have direct configuration-wiring
+  assertions and are therefore `USED_AND_TESTED`.
+- `liveProvider` no longer treats fetch success as evidence freshness. Envelope
+  freshness and per-event freshness are evaluated separately, stale/future
+  evidence stays observable but containment-ineligible, and a stale envelope
+  raises the new `ADAPTER_EVIDENCE_STALE` operational error.
+- `liveProvider` audit provenance corrected to `SQLITE_AUDIT_ONLY` with the Audit
+  Store reported as a durable SQLite store; the event snapshot store is reported
+  honestly as `RUNTIME_ONLY` and is still not persisted.
+- Deterministic correlation in `web/server/domain/correlate.js`: eligible
+  IDEA1 + IDEA2 evidence sharing one validated non-null `correlation_key` inside
+  the ten-minute window, sorted by `occurred_at` then `source:event_id`, with a
+  stable hashed incident ID. The only produced state is
+  `CONTAINMENT_CANDIDATE`. The former same-`sourceIp` heuristic is removed.
+- Containment acceptance boundary: `POST /api/security/incidents/:id/containment`
+  under Admin + same-origin + CSRF. It is idempotent for a repeated identical
+  decision, returns HTTP 409 on the opposite decision, is denied in Demo Mode,
+  and always returns `command_requested`, `command_published`, `acknowledged`,
+  `executed`, and `physical_evidence` as `false`. A source-level test asserts the
+  route and domain import no controller, MQTT, broker, firmware, or command
+  module.
+- Additive SQLite schema **version 2** adds `containment_decisions`,
+  `integration_lifecycle`, and `correlated_incidents`. Every schema v1 table and
+  audit row is preserved and a v1 database is migrated in place on reopen.
+- Durable integration lifecycle audit using only `ADAPTER_FAILURE`,
+  `ADAPTER_RECOVERED`, `EVENT_REJECTED`, `EVENT_ID_CONFLICT`,
+  `INCIDENT_CORRELATED`, `CONTAINMENT_ACCEPTED`, and `CONTAINMENT_REJECTED`.
+  Coalescing is durable across restart: one row per active failure period, one
+  recovery row per validated recovery, one row per stable conflict, and one row
+  per stable correlated incident. Demo Mode writes none of them.
+- Python `aegis_soc.runtime.safe_status_projection()` exports a versioned,
+  allowlisted runtime projection (`schemaVersion`, `generatedAt`, canonical
+  `status`, allowlisted `components`, `modes`, `issues`, `evidenceSource`). Free
+  text `detail`, `pid`, paths, addresses, and configuration values are dropped
+  rather than sanitized, and a missing or malformed document fails closed to
+  `RUNTIME_STATUS_ABSENT`.
+
+### VERIFIED TEST EVIDENCE — 2026-09-08
+
+- Python `pytest -p no:cacheprovider -q` — **80 passed** (63 baseline plus 17 new
+  runtime-projection tests).
+- `ruff check aegis_soc detector.py sim_auto_detector.py tests --no-cache` —
+  **All checks passed**.
+- Python `compileall` — **PASS**.
+- Web `npm test` — **277 passed across 22 files** (168 on the PR7 base).
+- Web `npm run build` — **PASS**.
+- `npm audit --omit=dev --offline` — **0 vulnerabilities**.
+- Repository `node --test --test-concurrency=1 tests/*.test.mjs` — **56 passed**.
+- `git diff --check` — **PASS**.
+- Vault validation — **PASS** with the two pre-existing owner-data canvas
+  warnings; neither canvas changed.
+- No MQTT connection, command publication, ACK, firmware compile or flash, relay
+  action, network change, production database access, deployment, or physical
+  evidence claim occurred. Every adapter test used an injected fetch stub; no
+  real upstream host was contacted.
+
+### NOT PROVEN — LIVE INTEGRATION REMAINS OPEN
+
+- No reviewed IDEA1 or IDEA2 service event feed exists in current source, so the
+  adapters were never exercised against a real producer. `IDEA1_SERVICE_EVENT_FEED`
+  and `IDEA2_SERVICE_EVENT_FEED` remain `ABSENT` and both live integrations stay
+  `OPEN`.
+- No reviewed shared cross-IDEA `correlation_key` exists upstream, so no real
+  cross-IDEA incident has been produced. Correlation and containment acceptance
+  are implemented and unit-tested but unexercised against live evidence.
+- The reviewed privacy-safe contract carries no source IP, so live IDEA1/IDEA2
+  evidence tables and the live incident view render no `sourceIp`. Demo Mode is
+  unaffected. Rebinding those views to the new contract is deliberately not part
+  of PR7.
+- `web/server/domain/normalize.js` still exports the legacy
+  `normalizeIdea1Event` / `normalizeIdea2Event` producer shims. They are no longer
+  reachable from `liveProvider` and remain only for their own direct tests.
+- Firmware was not compiled for PR7: no firmware path changed, so a compile would
+  add no evidence.
 
 ---
 

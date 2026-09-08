@@ -102,6 +102,46 @@ describe('configuration boundaries', () => {
       .toBe('.aegis-runtime/security-center-audit.sqlite3')
   })
 
+  it('wires all five documented read-only adapter environment keys into configuration', () => {
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      AEGIS_IDEA1_STATUS_URL: 'https://idea1.internal/api/integration/events',
+      AEGIS_IDEA2_STATUS_URL: 'https://idea2.internal/api/integration/events',
+      AEGIS_IDEA3_RUNTIME_STATUS_URL: 'https://idea3.internal/api/runtime/status',
+      AEGIS_MAX_EVIDENCE_AGE_MS: '45000',
+      AEGIS_ADAPTER_TIMEOUT_MS: '1500',
+    })
+
+    expect(config.adapters).toEqual(expect.objectContaining({
+      idea1Url: 'https://idea1.internal/api/integration/events',
+      idea2Url: 'https://idea2.internal/api/integration/events',
+      runtimeUrl: 'https://idea3.internal/api/runtime/status',
+    }))
+    expect(config.maxEvidenceAgeMs).toBe(45_000)
+    expect(config.adapterTimeoutMs).toBe(1_500)
+  })
+
+  it('falls back to safe defaults when the five adapter keys are absent', () => {
+    const config = loadConfig({ NODE_ENV: 'test' })
+
+    expect(config.adapters).toEqual(expect.objectContaining({ idea1Url: null, idea2Url: null, runtimeUrl: null }))
+    expect(config.maxEvidenceAgeMs).toBe(120_000)
+    expect(config.adapterTimeoutMs).toBe(2_500)
+  })
+
+  it('keeps the per-source integration credentials separate and absent by default', () => {
+    const configured = loadConfig({
+      NODE_ENV: 'test',
+      AEGIS_IDEA1_INTEGRATION_TOKEN: ' idea1-integration-credential ',
+      AEGIS_IDEA2_INTEGRATION_TOKEN: 'idea2-integration-credential',
+    })
+
+    expect(configured.adapters.idea1Token).toBe('idea1-integration-credential')
+    expect(configured.adapters.idea2Token).toBe('idea2-integration-credential')
+    expect(loadConfig({ NODE_ENV: 'test', AEGIS_IDEA1_INTEGRATION_TOKEN: '   ' }).adapters)
+      .toEqual(expect.objectContaining({ idea1Token: null, idea2Token: null }))
+  })
+
   it('honors an explicit audit database path override', () => {
     expect(loadConfig({
       NODE_ENV: 'test',
