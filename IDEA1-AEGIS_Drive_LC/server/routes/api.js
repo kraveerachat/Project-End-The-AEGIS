@@ -718,7 +718,25 @@ apiRouter.post('/trash/empty', requireAuth, async (req, res, next) => {
 // ── Shares — VLAN-aware secure links ─────────────────────────────────
 apiRouter.get('/shares', requireAuth, async (req, res, next) => {
   try {
-    res.json({ shares: await store.listShares(req.user.id) })
+    // Frozen at boot by createApp — never read from process.env per request.
+    const publicShare = req.app.get('publicShareConfig')
+    res.json({
+      shares: await store.listShares(req.user.id),
+      /**
+       * Coarse, authenticated UI-activation facts. Additive: existing clients
+       * that only read `shares` are unaffected.
+       *
+       * ⚠️ One effective boolean, nothing else. The public origin, the pinned
+       *    gateway identity, the dedicated Docker subnet, the real public
+       *    hostname and the G4 ingress choice are all deliberately absent — the
+       *    interface needs to know whether to offer the option, not where the
+       *    deployment lives.
+       * ⚠️ This is UI truthfulness, not authorization. POST /api/shares
+       *    decides independently whether a `scope=public` share may be minted,
+       *    so flipping this flag can never widen what the API accepts.
+       */
+      capabilities: { publicSelectable: Boolean(publicShare?.publicSelectable) },
+    })
   } catch (err) {
     next(err)
   }

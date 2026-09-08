@@ -15,15 +15,93 @@ delete process.env.TRUSTED_PROXY_CIDRS
 delete process.env.PUBLIC_SHARE_BASE_URL
 delete process.env.PUBLIC_SHARE_GATEWAY_CIDR
 
+delete process.env.PUBLIC_SHARE_UI_ENABLED
+
 const {
   publicShareConfigFromEnv, parsePublicShareBaseUrl, parsePublicShareGatewayCidr, publicShareUrl,
-  forbiddenGatewayNetworkFor,
+  forbiddenGatewayNetworkFor, parsePublicShareUiEnabled,
 } = await import('../server/config/publicShare.js')
 const { requestIngressKind, requestIngressPeerIp } = await import('../server/request/ingress.js')
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const migrationsDir = path.join(rootDir, 'server/db/migrations')
 const MIGRATION_009 = '009_public_share_scope.sql'
+
+// ═══ UI activation flag (PUBLIC-SHARE-4) ══════════════════════════
+
+test('PS4-CFG-1 the UI activation flag is absent-means-false', () => {
+  for (const value of [undefined, '', '   ']) {
+    assert.equal(parsePublicShareUiEnabled(value), false)
+    assert.equal(publicShareConfigFromEnv({ PUBLIC_SHARE_UI_ENABLED: value }).publicShareUiEnabled, false)
+  }
+})
+
+test('PS4-CFG-2 only the exact strings true and false are accepted', () => {
+  assert.equal(parsePublicShareUiEnabled('true'), true)
+  assert.equal(parsePublicShareUiEnabled('false'), false)
+  assert.equal(parsePublicShareUiEnabled('  true  '), true)
+  assert.equal(parsePublicShareUiEnabled('  false  '), false)
+})
+
+test('PS4-CFG-3 anything else fails the boot instead of being coerced', () => {
+  // Every one of these is a value a truthy check would have silently accepted
+  // or silently ignored — which is how a deployment ends up advertising
+  // Internet sharing nobody turned on, or failing to turn it on and not knowing.
+  for (const value of ['1', '0', 'yes', 'no', 'on', 'off', 'TRUE', 'False', 'flase', 'enabled', 'null']) {
+    assert.throws(
+      () => parsePublicShareUiEnabled(value),
+      /PUBLIC_SHARE_UI_ENABLED must be exactly "true" or "false"/,
+      `${value} must fail closed`,
+    )
+    assert.throws(() => publicShareConfigFromEnv({ PUBLIC_SHARE_UI_ENABLED: value }))
+  }
+})
+
+test('PS4-CFG-4 publicSelectable needs the base URL, the gateway AND the flag', () => {
+  const BASE = 'https://share.example.invalid'
+  const GATEWAY = '172.19.254.2/32'
+  const selectable = (env) => publicShareConfigFromEnv(env).publicSelectable
+
+  // The default deployment — nothing configured — is off.
+  assert.equal(selectable({}), false)
+
+  // Each single missing ingredient is enough to keep it off.
+  assert.equal(selectable({ PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY, PUBLIC_SHARE_UI_ENABLED: 'true' }), false, 'base missing')
+  assert.equal(selectable({ PUBLIC_SHARE_BASE_URL: BASE, PUBLIC_SHARE_UI_ENABLED: 'true' }), false, 'gateway missing')
+  assert.equal(selectable({ PUBLIC_SHARE_BASE_URL: BASE, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }), false, 'flag absent')
+  assert.equal(
+    selectable({ PUBLIC_SHARE_BASE_URL: BASE, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY, PUBLIC_SHARE_UI_ENABLED: 'false' }),
+    false,
+    'flag false',
+  )
+
+  // All three together, and only then.
+  assert.equal(
+    selectable({ PUBLIC_SHARE_BASE_URL: BASE, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY, PUBLIC_SHARE_UI_ENABLED: 'true' }),
+    true,
+  )
+})
+
+test('PS4-CFG-5 the UI flag never widens what the backend may mint', () => {
+  const BASE = 'https://share.example.invalid'
+  // publicShareEnabled is the authorization-side fact and depends on the base
+  // URL ALONE. Turning the interface flag on or off must not move it, or the
+  // UI switch would have become an access-control switch.
+  for (const flag of [undefined, 'false', 'true']) {
+    const config = publicShareConfigFromEnv({ PUBLIC_SHARE_BASE_URL: BASE, PUBLIC_SHARE_UI_ENABLED: flag })
+    assert.equal(config.publicShareEnabled, true, `flag=${flag} must not change publicShareEnabled`)
+  }
+  for (const flag of [undefined, 'false', 'true']) {
+    const config = publicShareConfigFromEnv({ PUBLIC_SHARE_UI_ENABLED: flag })
+    assert.equal(config.publicShareEnabled, false, `flag=${flag} must not enable minting on its own`)
+  }
+})
+
+test('PS4-CFG-6 the frozen config is not re-read per request', () => {
+  const config = publicShareConfigFromEnv({ PUBLIC_SHARE_UI_ENABLED: 'true' })
+  assert.equal(Object.isFrozen(config), true)
+  assert.throws(() => { 'use strict'; config.publicSelectable = true })
+})
 
 // ═══ Base URL ════════════════════════════════════════════════════════════════
 

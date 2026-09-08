@@ -577,6 +577,53 @@ integration task must explicitly reconcile the public `Host` /
 `X-Forwarded-Host` contract at that point. No deployment port is invented in
 advance.
 
+#### 8.1.2 `PUBLIC_SHARE_UI_ENABLED` — the interface activation switch
+
+The Shares screen has to answer one question: *may I offer Public Internet as a
+selectable scope?* That answer belongs to the deployment, not to the bundle, so
+PUBLIC-SHARE-4 adds a third optional, non-secret variable:
+
+```text
+PUBLIC_SHARE_UI_ENABLED    # exactly "true" or "false"; absent ⇒ false
+```
+
+Parsed once at boot beside the other two. Absent or empty is false; anything
+that is not exactly `true` or `false` **fails the boot** rather than being
+coerced, for the same reason a trailing slash on the base URL is rejected: a
+truthy check turns `flase`, `0`, `yes` and `off` into silent, unreviewable
+policy.
+
+The effective answer requires all three, and each defaults to off:
+
+```text
+publicSelectable = publicShareEnabled        (PUBLIC_SHARE_BASE_URL is set)
+                && publicIngressConfigured   (PUBLIC_SHARE_GATEWAY_CIDR is set)
+                && publicShareUiEnabled      (this variable is "true")
+```
+
+Two properties matter more than the mechanism:
+
+- **It is not authorization.** `POST /api/shares` still decides for itself,
+  from `publicShareEnabled` alone, whether a `scope=public` share may be minted.
+  Turning the interface on widens nothing; turning it off closes nothing. A test
+  pins both directions, because the day this flag starts gating the API is the
+  day a UI toggle silently becomes an access-control toggle.
+- **It is not evidence that G6 passed.** It is the switch that G6 authorises
+  someone to flip. `.env.example` ships it commented out and says so.
+
+`GET /api/shares` carries the result to the client as one coarse boolean:
+
+```json
+{ "shares": [], "capabilities": { "publicSelectable": false } }
+```
+
+Nothing else. Not the public origin, not the pinned gateway identity, not the
+dedicated Docker subnet, not the real public hostname, and not the G4 ingress
+choice. The interface needs to know whether to offer the option — not where the
+deployment lives. `undefined`, a missing key, a failed read and a non-boolean
+all mean *unavailable*, so the client fails toward the safe answer while the
+request is still in flight.
+
 ### 8.2 What must never appear in configuration or source
 
 No certificate, no private key, no real production domain invented by an agent,
@@ -1278,7 +1325,11 @@ weakens one is a change to be rejected, not a trade-off to be negotiated.
 19. The public gateway holds no secret, no database handle, and no Data Lake
     mount.
 20. The UI never presents Public Internet sharing as available before
-    PUBLIC-SHARE-7 passes.
+    PUBLIC-SHARE-7 passes. PUBLIC-SHARE-4 satisfies this rather than weakening
+    it: the interface *supports* `public`, but only offers it when a
+    server-owned capability says so, and that capability is **off by default**
+    and may only be switched on after G6 / PUBLIC-SHARE-7 acceptance. Shipping
+    the interaction and activating it are two separate events — see §8.1.2.
 
 ---
 
@@ -1291,7 +1342,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
 | **PUBLIC-SHARE-2** *(delivered, not deployed)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
 | **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
-| **PUBLIC-SHARE-4** | Secure Shares UI | `public` as a selectable scope, EN/TH/ZH copy, correct public URL display, `zones`/`any` preserved | Enabling the option before 2 and 3 are merged |
+| **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** | Security regression suite | The full negative and positive matrix in §16 | New features |
 | **PUBLIC-SHARE-6** | Internal integration acceptance | Gateway↔Drive behaviour proven on an internal address, including streaming, timeouts, concurrency and slow clients | Internet exposure |
 | **PUBLIC-SHARE-7** | Real external E2E | Acceptance from ≥2 external paths with Twingate off | — |
