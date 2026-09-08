@@ -489,6 +489,64 @@ one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still nev
 009 applied; doing so remains a prerequisite of any deployment, and the observed
 run was on PostgreSQL 16.15 while production runs the 15 line.
 
+### Public-share security regression matrix pinned, no source changed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-5 is local regression evidence only
+> **Security regression matrix = YES. Gateway regression = YES. Backend
+> regression = YES. UI regression = YES. Token/password secrecy = YES. T-05
+> namespace separation = YES. Audit secrecy/attribution = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `chore/idea1-public-share-security-regression` automates the full public-
+share negative and positive matrix from the architecture's §16. It adds no
+product behaviour: **no shipped gateway, backend or UI source changed**, and the
+only new file is a test.
+
+`IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` owns the
+recipient-facing and forensic half that no single existing suite covered end to
+end: unknown/malformed/revoked/trashed links are one byte-identical refusal
+(with the per-response CSP nonce normalised, and asserted to still vary) while
+the audit deliberately keeps the distinct forensic reason; the raw token is
+returned once and is absent from the listing, the audit and the stored row,
+which holds only a sha256 digest; the link password is never stored in plaintext
+(bcrypt only), never echoed, never listed, never audited; a wrong password is
+denied and sustained guessing locks out with `Retry-After`; **T-05 holds in both
+directions** — a public lockout leaves the private path and login working, and
+private/login failures do not consume the public namespace; forged forwarding
+headers through an untrusted peer cannot rotate limiter identity; a Vault-backed
+share is refused at redemption as well as creation; only the owner may revoke
+and a non-owner (including Admin) gets the object-hiding 404 while the link
+stays alive; trashing kills live links without counting a hit; delivery counts
+exactly one hit and revoked/expired links count none; the delivered file keeps
+`attachment` / `octet-stream` / `nosniff` / `no-store` / `no-referrer`; refusal
+and password pages stay `noindex,nofollow` under a `default-src 'none'` CSP; and
+the audit records the canonical **recipient** address rather than the gateway
+peer while containing no raw token, password or public URL.
+
+Local evidence: the new suite is **16/16 PASS in memory mode and 16/16 PASS
+against a disposable PostgreSQL 15.18 instance**; existing focused suites stay
+green; gateway structure **12/12 PASS** and gateway runtime **18/18 PASS** with
+`nginx -t` reporting `syntax is ok` / `test is successful` inside the real
+internal network.
+
+Two gates need direct row access because a well-behaved API cannot reach them —
+a Vault-backed share row, and an already-expired row, since the shortest offered
+expiry is 1h. Under PostgreSQL they are genuinely exercised; in memory-only mode
+they report the evidence as unavailable rather than substituting a weaker
+assertion.
+
+Five high-risk guards were proved load-bearing by temporarily breaking the
+invariant and confirming the expected test failed — T-05 namespace separation,
+the public-ingress scope block, the gateway default deny, gateway token-safe
+logging, and UI public-URL ownership. Every mutation was reverted and the tree
+verified clean.
+
+No accepted invariant failed against current `main`. PUBLIC-SHARE-6/7 were not
+started, and G4, G5 and G6 remain open.
+
 ### Secure Shares public-scope UI implemented behind a server switch, not activated (2026-09-08)
 
 > [!warning] PUBLIC-SHARE-4 is local source evidence only
