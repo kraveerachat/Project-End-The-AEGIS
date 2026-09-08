@@ -382,13 +382,25 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     }
   })
 
-  await t.test('PS3-RUNTIME-12 a unique raw token never appears in access or routine error logs', async () => {
+  await t.test('PS3-RUNTIME-12 no raw token or link password ever appears in the gateway logs', async () => {
     const sentinel = `TOKEN_MUST_NOT_APPEAR_${randomBytes(8).toString('hex')}`
+    // PUBLIC-SHARE-5 review: the token was covered, the link PASSWORD was not.
+    // A public recipient submits it in an allowed form POST, which is a request
+    // BODY rather than a URL — a different leak path from the token, and the
+    // one the "never logged" claim depends on.
+    const passwordSentinel = `PASSWORD_MUST_NOT_APPEAR_${randomBytes(8).toString('hex')}`
     await sleep(2500)
     await gatewayRequests([
       { path: `/s/${sentinel}` },
       { path: `/api/${sentinel}` },
       { path: `/s/${sentinel}`, method: 'PUT' },
+      // The allowed form POST the real password flow uses.
+      {
+        path: `/s/${sentinel}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: { kind: 'text', value: `password=${passwordSentinel}` },
+      },
       ...Array.from({ length: 24 }, () => ({ path: `/s/${sentinel}` })),
     ])
 
@@ -404,9 +416,12 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     )
     await docker(['start', driveId])
 
-    const logs = `${(await docker(['logs', gatewayId])).stdout}${(await docker(['logs', gatewayId])).stderr}`
+    // The REAL nginx container's own access and error logs, not a model of them.
+    const captured = await docker(['logs', gatewayId])
+    const logs = `${captured.stdout}${captured.stderr}`
     assert.equal(logs.includes(sentinel), false, 'raw bearer token leaked into gateway logs')
-    console.log(`[public-share-gateway] log sentinel absent across success/deny/method/rate/upstream-failure: ${sentinel.length} chars`)
+    assert.equal(logs.includes(passwordSentinel), false, 'link password leaked into gateway logs')
+    console.log(`[public-share-gateway] token and password sentinels absent from real Docker logs across success/deny/method/form-POST/rate/upstream-failure (${logs.length} log bytes inspected)`)
   })
 
   await t.test('PS3-RUNTIME-13 a valid PUBLIC_SHARE_HOST renders exactly one configured server_name', async () => {
