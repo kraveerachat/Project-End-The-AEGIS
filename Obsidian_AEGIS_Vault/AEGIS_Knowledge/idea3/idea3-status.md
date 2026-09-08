@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Fix1A application-startup fail-secure behavior and the Deadman → relay → RJ45 path now have fresh physical evidence. Electrical reset-window 1B, Router/Switch real-Ethernet E2E, live adapters, durable storage, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Fix1A application-startup fail-secure behavior and the Deadman → relay → RJ45 path now have fresh physical evidence. Electrical reset-window 1B, Router/Switch real-Ethernet E2E, live adapters, and production deployment remain open; durable Web audit persistence is closed by Project Sequence PR6. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -162,7 +162,7 @@ Requested != Published != ACK != Executed != Physical Evidence
 
 - 1B electrical reset-window mitigation/validation; GPIO27 may be high-impedance before application code runs.
 - Task 3 Router/Switch real Ethernet E2E in the final hardware-closure PR.
-- Production Web → Core → MQTT integration and durable production/audit persistence.
+- Production Web → Core → MQTT live integration remains open; durable Web audit persistence is closed by PR6.
 - Full migration of remaining GUI-owned operational state/heartbeat behavior into the Core/API boundary where duplication still exists.
 
 Protocol-correlated STATUS remains device-reported evidence, not direct electrical
@@ -193,9 +193,9 @@ Current Overview-pass evidence: affected client regressions pass 31/31; the full
 Known limitations:
 
 - IDEA1, IDEA2, and IDEA3 live endpoints are not configured or integration-tested in this task;
-- operational and audit repositories are in-memory and are not production-durable;
+- operational snapshot state remains runtime-owned, while Web audit records are durable in SQLite schema version 1 under PR6;
 - the browser has no MQTT, relay, isolation, broker-secret, signing-secret, or recovery-execution endpoint; Recovery is dry-run validation only;
-- production deployment, gateway routing, persistent database, external identity provider, and real hardware remain deferred.
+- production deployment, gateway routing, external identity provider, live cross-IDEA integration, and final real-hardware closure remain deferred.
 
 ---
 

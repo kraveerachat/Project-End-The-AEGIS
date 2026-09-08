@@ -53,6 +53,21 @@ describe('security snapshot routes', () => {
     expect(response.body.error.code).toBe('AUTH_REQUIRED')
   })
 
+  it('allows an Admin to read a bounded audit ledger without CSRF material', async () => {
+    const { agent } = await authenticatedAgent(buildApp())
+
+    const denied = await request(buildApp()).get('/api/security/audit?limit=10')
+    const response = await agent.get('/api/security/audit?limit=1')
+    const tooLarge = await agent.get('/api/security/audit?limit=251')
+
+    expect(denied.status).toBe(401)
+    expect(response.status).toBe(200)
+    expect(response.body.audit).toHaveLength(1)
+    expect(response.body.audit[0]).toMatchObject({ category: 'AUTH', action: 'LOGIN', outcome: 'SUCCESS' })
+    expect(tooLarge.status).toBe(400)
+    expect(tooLarge.body.error.code).toBe('QUERY_INVALID')
+  })
+
   it('keeps Demo and Live records structurally separate', async () => {
     const { agent, csrfToken } = await authenticatedAgent(buildApp())
 

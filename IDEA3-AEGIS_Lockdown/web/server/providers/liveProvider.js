@@ -1,6 +1,7 @@
 import { normalizeIdea1Event, normalizeIdea2Event, normalizeRuntimeStatus, unknownRuntime } from '../domain/normalize.js'
 import { deriveOverallStatus } from '../domain/status.js'
 import { correlateIncidents, deduplicateEvents } from '../domain/correlate.js'
+import { createOperationalError, operationalErrorFingerprint } from '../domain/operationalErrors.js'
 
 const MAX_RESPONSE_BYTES = 256 * 1024
 
@@ -19,12 +20,24 @@ async function fetchJson(url, { fetchImpl, timeoutMs }) {
     if (!response.ok || Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
       return { configured: true, ok: false, code: 'ADAPTER_RESPONSE_REJECTED', data: null }
     }
-    return { configured: true, ok: true, code: null, data: JSON.parse(text) }
+    try {
+      return { configured: true, ok: true, code: null, data: JSON.parse(text) }
+    } catch {
+      return { configured: true, ok: false, code: 'MALFORMED_RESPONSE', data: null }
+    }
   } catch (error) {
     return { configured: true, ok: false, code: error?.name === 'AbortError' ? 'ADAPTER_TIMEOUT' : 'ADAPTER_UNAVAILABLE', data: null }
   } finally {
     clearTimeout(timer)
   }
+}
+
+function adapterOperationalError(result, now, component, { runtime = false } = {}) {
+  if (!result.configured || result.ok) return null
+  const code = result.code === 'MALFORMED_RESPONSE'
+    ? runtime ? 'MALFORMED_RUNTIME_STATUS' : 'ADAPTER_RESPONSE_REJECTED'
+    : result.code
+  return createOperationalError(code, { occurredAt: now.toISOString(), component })
 }
 
 function sourceState(id, name, result, now) {
@@ -47,6 +60,14 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
       const runtime = runtimeResult.ok
         ? normalizeRuntimeStatus(runtimeResult.data, { now, maxAgeMs: config.maxEvidenceAgeMs })
         : unknownRuntime(runtimeResult.configured ? 'ABSENT' : 'NOT_CONFIGURED')
+      const operationalErrors = [
+        ...[
+          adapterOperationalError(idea1Result, now, 'IDEA1 Adapter'),
+          adapterOperationalError(idea2Result, now, 'IDEA2 Adapter'),
+          adapterOperationalError(runtimeResult, now, 'IDEA3 Runtime Adapter', { runtime: true }),
+        ].filter(Boolean),
+        ...runtime.operationalErrors,
+      ].filter((error, index, errors) => errors.findIndex((candidate) => operationalErrorFingerprint(candidate) === operationalErrorFingerprint(error)) === index)
       const sources = [
         sourceState('idea1', 'IDEA1 Access Security', idea1Result, now),
         sourceState('idea2', 'IDEA2 Detection', idea2Result, now),
@@ -66,6 +87,7 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
         idea1: { status: sources[0].status, freshness: sources[0].freshness, generatedAt: sources[0].generatedAt, summary: { denied: idea1Events.filter((event) => event.result === 'DENIED').length, blocked: idea1Events.filter((event) => event.result === 'BLOCKED').length, uniqueSourceIps: new Set(idea1Events.map((event) => event.sourceIp)).size, repeated: 0, escalated: 0 }, events: idea1Events.slice(0, limit) },
         idea2: { status: sources[1].status, freshness: sources[1].freshness, generatedAt: sources[1].generatedAt, summary: { detections: idea2Events.length, high: idea2Events.filter((event) => event.severity === 'HIGH').length, critical: idea2Events.filter((event) => event.severity === 'CRITICAL').length, cameras: new Set(idea2Events.map((event) => event.target)).size }, events: idea2Events.slice(0, limit) },
         alerts: [], incidents, audit: [], runtime: { ...runtime, timeline: [], readiness: [] }, devices: [],
+        operationalErrors,
         recovery: { gatewayStatus: 'DISABLED', liveHardware: false, authorization: 'DISABLED', incidentState: incidents[0]?.state ?? 'NONE', preconditions: [], runbook: [], history: [] },
         settings: { adapters: sources.slice(0, 3).map((source) => ({ id: source.id, name: source.name, enabled: source.status !== 'DISABLED', configured: source.status !== 'NOT_CONFIGURED', timeoutMs: config.adapterTimeoutMs, alias: source.id, lastValidation: source.generatedAt, lastSuccess: source.status === 'HEALTHY' ? source.generatedAt : null })), policy: {}, security: { csrf: 'ENFORCED', adminRbac: 'ENFORCED', secureCookieProduction: 'REQUIRED', productionDemo: 'DENIED', rawPayload: 'DENIED' } },
         provenance: { provider: 'live-read-only-adapters', liveMerged: false, persistence: 'MEMORY_ONLY' },
