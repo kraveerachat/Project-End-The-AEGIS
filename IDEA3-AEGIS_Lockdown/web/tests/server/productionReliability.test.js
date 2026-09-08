@@ -40,6 +40,38 @@ function liveSnapshot(operationalErrors = []) {
   }
 }
 
+const CANDIDATE = Object.freeze({
+  id: 'inc-0123456789abcd',
+  state: 'CONTAINMENT_CANDIDATE',
+  severity: 'HIGH',
+  correlationKey: 'zone-a-incident-42',
+  firstSeen: '2026-09-08T03:55:00.000Z',
+  lastSeen: '2026-09-08T04:00:00.000Z',
+  idea1Count: 1,
+  idea2Count: 1,
+  evidenceIds: ['IDEA1:idea1-event-1', 'IDEA2:idea2-event-1'],
+  responseState: 'NOT_REQUESTED',
+})
+
+function integrationSnapshot({ idea1 = {}, idea2 = {}, conflicts = [], incidents = [] } = {}) {
+  return {
+    ...liveSnapshot(),
+    incidents,
+    integration: {
+      schemaVersion: 1,
+      idea1: { source: 'IDEA1', status: 'HEALTHY', code: null, rejectedCount: 0, ...idea1 },
+      idea2: { source: 'IDEA2', status: 'HEALTHY', code: null, rejectedCount: 0, ...idea2 },
+      events: [],
+      conflicts,
+      eligibleCount: 0,
+    },
+  }
+}
+
+function actionsIn(audit, action) {
+  return audit.filter((row) => row.action === action)
+}
+
 async function login(agent) {
   const response = await agent
     .post('/api/auth/login')
@@ -193,5 +225,143 @@ describe('production reliability routes', () => {
     expect((await agent.get('/api/auth/session')).body.demoMode).toBe(false)
     const audit = await agent.get('/api/security/audit?limit=1')
     expect(audit.status).toBe(503)
+  })
+})
+
+describe('durable integration lifecycle audit', () => {
+  it('records one adapter failure per active period, one recovery, and a new period after restart', async () => {
+    const { path, repository } = openRepository()
+    let snapshot = integrationSnapshot({ idea1: { status: 'UNKNOWN', code: 'ADAPTER_TIMEOUT' } })
+    const liveProvider = { getSnapshot: async () => snapshot }
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider }))
+    await login(agent)
+
+    await agent.get('/api/security/snapshot')
+    await agent.get('/api/security/snapshot')
+    snapshot = integrationSnapshot()
+    await agent.get('/api/security/snapshot')
+    await agent.get('/api/security/snapshot')
+    snapshot = integrationSnapshot({ idea1: { status: 'UNKNOWN', code: 'ADAPTER_UNAVAILABLE' } })
+    await agent.get('/api/security/snapshot')
+
+    const audit = repository.queryAudit({ limit: 100 })
+    expect(actionsIn(audit, 'ADAPTER_FAILURE')).toHaveLength(2)
+    expect(actionsIn(audit, 'ADAPTER_RECOVERED')).toHaveLength(1)
+    repository.close()
+
+    const reopened = createSqliteRepository({ path, clock: () => new Date('2026-09-08T04:01:00.000Z') })
+    repositories.push(reopened)
+    const restarted = request.agent(createApp({ config: config(), repository: reopened, liveProvider }))
+    await login(restarted)
+    await restarted.get('/api/security/snapshot')
+
+    // The active failure period survives the restart, so it is not re-reported.
+    expect(actionsIn(reopened.queryAudit({ limit: 100 }), 'ADAPTER_FAILURE')).toHaveLength(2)
+  })
+
+  it('records rejected events and each stable ID conflict exactly once per active period', async () => {
+    const { repository } = openRepository()
+    let snapshot = integrationSnapshot({
+      idea1: { rejectedCount: 3 },
+      conflicts: [{ code: 'EVENT_ID_CONFLICT', source: 'IDEA1', event_id: 'dupe' }],
+    })
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider: { getSnapshot: async () => snapshot } }))
+    await login(agent)
+
+    await agent.get('/api/security/snapshot')
+    await agent.get('/api/security/snapshot')
+    snapshot = integrationSnapshot()
+    await agent.get('/api/security/snapshot')
+    snapshot = integrationSnapshot({ idea1: { rejectedCount: 1 } })
+    await agent.get('/api/security/snapshot')
+
+    const audit = repository.queryAudit({ limit: 100 })
+    expect(actionsIn(audit, 'EVENT_ID_CONFLICT')).toHaveLength(1)
+    expect(actionsIn(audit, 'EVENT_REJECTED')).toHaveLength(2)
+    expect(actionsIn(audit, 'EVENT_REJECTED')[0].detail).toEqual(expect.objectContaining({ count: 1 }))
+  })
+
+  it('records one correlation row per stable incident no matter how often it is observed', async () => {
+    const { repository } = openRepository()
+    const liveProvider = { getSnapshot: async () => integrationSnapshot({ incidents: [CANDIDATE] }) }
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider }))
+    await login(agent)
+
+    await agent.get('/api/security/snapshot')
+    await agent.get('/api/security/snapshot')
+
+    const correlated = actionsIn(repository.queryAudit({ limit: 100 }), 'INCIDENT_CORRELATED')
+    expect(correlated).toHaveLength(1)
+    expect(correlated[0]).toEqual(expect.objectContaining({
+      outcome: 'SUCCESS', resourceId: CANDIDATE.id, correlationId: 'zone-a-incident-42',
+    }))
+  })
+
+  it('records exactly one decision row per Admin containment action', async () => {
+    const { repository } = openRepository()
+    const liveProvider = { getSnapshot: async () => integrationSnapshot({ incidents: [CANDIDATE] }) }
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider }))
+    const csrfToken = await login(agent)
+
+    await securityWrite(agent, csrfToken, `/api/security/incidents/${CANDIDATE.id}/containment`).send({ decision: 'ACCEPT' })
+    await securityWrite(agent, csrfToken, `/api/security/incidents/${CANDIDATE.id}/containment`).send({ decision: 'ACCEPT' })
+
+    expect(actionsIn(repository.queryAudit({ limit: 100 }), 'CONTAINMENT_ACCEPTED')).toHaveLength(1)
+  })
+
+  it('uses only the allowlisted integration audit actions and stores no raw payload, path, or credential', async () => {
+    const { repository } = openRepository()
+    const liveProvider = {
+      getSnapshot: async () => integrationSnapshot({
+        idea1: { status: 'UNKNOWN', code: 'ADAPTER_TIMEOUT', rejectedCount: 2, rawBody: '/var/aegis/snapshots/cam-02.jpg', token: 'must-not-leak' },
+        conflicts: [{ code: 'EVENT_ID_CONFLICT', source: 'IDEA2', event_id: 'dupe', subject: 'Alice Example' }],
+        incidents: [{ ...CANDIDATE, analystNote: 'Alice Example at /var/aegis/cam-02.jpg' }],
+      }),
+    }
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider }))
+    await login(agent)
+
+    await agent.get('/api/security/snapshot')
+
+    const audit = repository.queryAudit({ limit: 100 })
+    const allowed = new Set([
+      'ADAPTER_FAILURE', 'ADAPTER_RECOVERED', 'EVENT_REJECTED', 'EVENT_ID_CONFLICT',
+      'INCIDENT_CORRELATED', 'CONTAINMENT_ACCEPTED', 'CONTAINMENT_REJECTED', 'LOGIN',
+    ])
+    expect(audit.every((row) => allowed.has(row.action))).toBe(true)
+    expect(JSON.stringify(audit)).not.toMatch(/Alice Example|must-not-leak|cam-02\.jpg|\/var\/aegis/)
+  })
+
+  it('does not write live integration audit rows while Demo Mode is active', async () => {
+    const repository = createMemoryRepository()
+    const demoProvider = { getSnapshot: async () => integrationSnapshot({ idea1: { status: 'UNKNOWN', code: 'ADAPTER_TIMEOUT' }, incidents: [CANDIDATE] }) }
+    const agent = request.agent(createApp({ config: config(), repository, demoProvider }))
+    const csrfToken = await login(agent)
+
+    expect((await securityWrite(agent, csrfToken, '/api/security/demo-mode').send({ enabled: true })).status).toBe(200)
+    expect((await agent.get('/api/security/snapshot')).status).toBe(200)
+
+    const actions = repository.queryAudit({ limit: 100 }).map((row) => row.action)
+    expect(actions).not.toContain('ADAPTER_FAILURE')
+    expect(actions).not.toContain('INCIDENT_CORRELATED')
+  })
+
+  it('returns the safe 503 boundary when integration lifecycle persistence fails', async () => {
+    const working = createMemoryRepository()
+    const repository = {
+      ...working,
+      recordIntegrationOutcome() {
+        throw new AuditPersistenceError('persist integration outcome', new Error('/private/audit.sqlite3 secret-token'))
+      },
+    }
+    const liveProvider = { getSnapshot: async () => integrationSnapshot({ incidents: [CANDIDATE] }) }
+    const agent = request.agent(createApp({ config: config(), repository, liveProvider }))
+    await login(agent)
+
+    const response = await agent.get('/api/security/snapshot')
+
+    expect(response.status).toBe(503)
+    expect(response.body).toEqual({ error: { code: 'AUDIT_PERSISTENCE_FAILURE', message: 'ระบบบันทึกเหตุการณ์ไม่พร้อมใช้งาน' } })
+    expect(JSON.stringify(response.body)).not.toMatch(/private|sqlite|secret|token|stack|payload/i)
   })
 })

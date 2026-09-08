@@ -149,6 +149,69 @@ export function containmentAuditEntry(safe) {
   })
 }
 
+const INTEGRATION_SOURCES = new Set(['IDEA1', 'IDEA2'])
+const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,63}$/
+
+function safeSource(source) {
+  return INTEGRATION_SOURCES.has(source) ? source : 'UNKNOWN'
+}
+
+function safeCode(code) {
+  return typeof code === 'string' && SAFE_CODE.test(code) ? code : 'UNKNOWN'
+}
+
+/**
+ * Build the audit entries for the integration lifecycle.
+ *
+ * Only the seven allowlisted actions may be produced, and only stable IDs, safe
+ * codes, and bounded counts reach `detail`. Raw upstream bodies, credentials,
+ * names, media, paths, and stacks are never passed through.
+ */
+export function integrationAuditEntry(action, { source, code, count, incident } = {}) {
+  switch (action) {
+    case 'ADAPTER_FAILURE':
+      return sanitizeAuditEntry({
+        category: 'ADAPTER', action, outcome: 'FAILURE', actorRef: 'system',
+        resourceType: 'integration-source', resourceId: safeSource(source),
+        detail: { code: safeCode(code) },
+      })
+    case 'ADAPTER_RECOVERED':
+      return sanitizeAuditEntry({
+        category: 'ADAPTER', action, outcome: 'SUCCESS', actorRef: 'system',
+        resourceType: 'integration-source', resourceId: safeSource(source),
+        detail: {},
+      })
+    case 'EVENT_REJECTED':
+      return sanitizeAuditEntry({
+        category: 'EVENT', action, outcome: 'FAILURE', actorRef: 'system',
+        resourceType: 'integration-source', resourceId: safeSource(source),
+        detail: { count: Number.isSafeInteger(count) && count >= 0 ? Math.min(count, 1_000_000) : 0 },
+      })
+    case 'EVENT_ID_CONFLICT':
+      return sanitizeAuditEntry({
+        category: 'EVENT', action, outcome: 'FAILURE', actorRef: 'system',
+        resourceType: 'integration-event',
+        resourceId: `${safeSource(source)}:${typeof code === 'string' && STABLE_ID.test(code) ? code : 'unknown'}`,
+        detail: {},
+      })
+    case 'INCIDENT_CORRELATED':
+      return sanitizeAuditEntry({
+        category: 'INCIDENT', action, outcome: 'SUCCESS', actorRef: 'system',
+        resourceType: 'incident',
+        resourceId: typeof incident?.id === 'string' && STABLE_ID.test(incident.id) ? incident.id : 'unknown',
+        correlationId: incident?.correlationKey ?? null,
+        detail: {
+          severity: boundedText(incident?.severity, 'UNKNOWN').slice(0, 20),
+          idea1Count: Number.isSafeInteger(incident?.idea1Count) ? incident.idea1Count : 0,
+          idea2Count: Number.isSafeInteger(incident?.idea2Count) ? incident.idea2Count : 0,
+          evidenceCount: Array.isArray(incident?.evidenceIds) ? incident.evidenceIds.length : 0,
+        },
+      })
+    default:
+      return null
+  }
+}
+
 export function sanitizedSettings(next = {}) {
   return Object.fromEntries(Object.entries(next).filter(([key, value]) => (
     Object.hasOwn(DEFAULT_SETTINGS, key) && Number.isSafeInteger(value)

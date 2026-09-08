@@ -8,6 +8,7 @@ import {
   auditEntryForOperationalError,
   sanitizeAuditEntry,
   containmentAuditEntry,
+  integrationAuditEntry,
   safeContainmentDecision,
   sanitizeIncidentNote,
   sanitizedSettings,
@@ -55,6 +56,16 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS active_operational_errors (
     fingerprint TEXT PRIMARY KEY,
     activated_at TEXT NOT NULL,
+    audit_id INTEGER NOT NULL REFERENCES audit_log(id)
+  );
+  CREATE TABLE IF NOT EXISTS integration_lifecycle (
+    marker TEXT PRIMARY KEY,
+    activated_at TEXT NOT NULL,
+    audit_id INTEGER NOT NULL REFERENCES audit_log(id)
+  );
+  CREATE TABLE IF NOT EXISTS correlated_incidents (
+    incident_id TEXT PRIMARY KEY,
+    correlated_at TEXT NOT NULL,
     audit_id INTEGER NOT NULL REFERENCES audit_log(id)
   );
   CREATE TABLE IF NOT EXISTS containment_decisions (
@@ -280,6 +291,74 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     })
   }
 
+  /**
+   * Persist the integration lifecycle for one live cycle.
+   *
+   * Coalescing is durable: an adapter failure or event-rejection period produces a
+   * single row until the source is validated again, each stable event-ID conflict
+   * and each stable correlated incident produces exactly one row for its lifetime,
+   * and a restart therefore never re-reports an already-active period.
+   */
+  function recordIntegrationOutcome({ sources = [], conflicts = [], incidents = [] } = {}) {
+    return transaction('record integration outcome', () => {
+      const occurredAt = nowIso(clock)
+      const active = new Set(database.prepare('SELECT marker FROM integration_lifecycle').all().map(({ marker }) => marker))
+      const activate = database.prepare('INSERT INTO integration_lifecycle (marker, activated_at, audit_id) VALUES (?, ?, ?)')
+      const deactivate = database.prepare('DELETE FROM integration_lifecycle WHERE marker = ?')
+      const recorded = []
+
+      function emit(action, fields) {
+        const entry = integrationAuditEntry(action, fields)
+        if (!entry) return null
+        const audit = insertAuditRecord(entry, occurredAt)
+        recorded.push(audit.record)
+        return audit
+      }
+
+      for (const source of sources) {
+        if (source?.status === 'NOT_CONFIGURED') continue
+        const failureMarker = `${source.source}:ADAPTER_FAILURE`
+        if (source.status === 'HEALTHY') {
+          if (active.has(failureMarker)) {
+            deactivate.run(failureMarker)
+            emit('ADAPTER_RECOVERED', { source: source.source })
+          }
+        } else if (!active.has(failureMarker)) {
+          const audit = emit('ADAPTER_FAILURE', { source: source.source, code: source.code })
+          if (audit) activate.run(failureMarker, occurredAt, audit.databaseId)
+        }
+
+        const rejectionMarker = `${source.source}:EVENT_REJECTED`
+        const rejectedCount = Number.isSafeInteger(source.rejectedCount) ? source.rejectedCount : 0
+        if (rejectedCount > 0) {
+          if (!active.has(rejectionMarker)) {
+            const audit = emit('EVENT_REJECTED', { source: source.source, count: rejectedCount })
+            if (audit) activate.run(rejectionMarker, occurredAt, audit.databaseId)
+          }
+        } else if (active.has(rejectionMarker)) {
+          deactivate.run(rejectionMarker)
+        }
+      }
+
+      for (const conflict of conflicts) {
+        const marker = `CONFLICT:${conflict?.source}:${conflict?.event_id}`
+        if (active.has(marker)) continue
+        const audit = emit('EVENT_ID_CONFLICT', { source: conflict?.source, code: conflict?.event_id })
+        if (audit) activate.run(marker, occurredAt, audit.databaseId)
+      }
+
+      const seen = database.prepare('SELECT incident_id FROM correlated_incidents WHERE incident_id = ?')
+      const remember = database.prepare('INSERT INTO correlated_incidents (incident_id, correlated_at, audit_id) VALUES (?, ?, ?)')
+      for (const incident of incidents) {
+        if (typeof incident?.id !== 'string' || seen.get(incident.id)) continue
+        const audit = emit('INCIDENT_CORRELATED', { incident })
+        if (audit) remember.run(incident.id, occurredAt, audit.databaseId)
+      }
+
+      return recorded
+    })
+  }
+
   function schemaVersion() {
     try {
       return Number(database.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get()?.version)
@@ -386,6 +465,7 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     addIncidentNote,
     recordContainmentDecision,
     readContainmentDecision,
+    recordIntegrationOutcome,
     schemaVersion,
     updateSettings,
     recordOperationalErrors,

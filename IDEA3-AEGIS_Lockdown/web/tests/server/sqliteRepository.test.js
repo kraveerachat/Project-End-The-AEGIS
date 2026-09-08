@@ -58,7 +58,7 @@ describe('SQLite audit repository', () => {
     expect(schemaRows).toEqual([{ singleton: 1, version: 2 }])
     expect(tables).toEqual(expect.arrayContaining([
       'schema_meta', 'audit_log', 'alert_acknowledgements', 'incident_notes', 'settings', 'active_operational_errors',
-      'containment_decisions',
+      'containment_decisions', 'integration_lifecycle', 'correlated_incidents',
     ]))
     expect(journalMode).toBe('wal')
     expect(repository.queryAudit({ limit: 10 })).toEqual([])
@@ -313,7 +313,8 @@ describe('shared audit contract', () => {
 
     expect(Object.keys(repository).sort()).toEqual([
       'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'queryAudit', 'readContainmentDecision',
-      'recordAction', 'recordContainmentDecision', 'recordOperationalErrors', 'updateSettings',
+      'recordAction', 'recordContainmentDecision', 'recordIntegrationOutcome', 'recordOperationalErrors',
+      'updateSettings',
     ])
     repository.recordOperationalErrors([error])
     repository.recordOperationalErrors([error])
@@ -435,5 +436,41 @@ describe('durable containment decisions and additive schema v2', () => {
     expect(repeated.status).toBe('UNCHANGED')
     expect(reversed).toEqual(expect.objectContaining({ status: 'CONFLICT', state: 'CONTAINMENT_ACCEPTED' }))
     expect(repository.readContainmentDecision(decision.incidentId).state).toBe('CONTAINMENT_ACCEPTED')
+  })
+})
+
+describe('durable integration lifecycle storage', () => {
+  const failing = { sources: [{ source: 'IDEA1', status: 'UNKNOWN', code: 'ADAPTER_TIMEOUT', rejectedCount: 0 }] }
+  const healthy = { sources: [{ source: 'IDEA1', status: 'HEALTHY', code: null, rejectedCount: 0 }] }
+
+  it('keeps an active failure period across a reopen instead of re-reporting it', () => {
+    const { path } = testDatabase()
+    const first = openRepository({ path, clock: fixedClock() })
+
+    expect(first.recordIntegrationOutcome(failing).map((row) => row.action)).toEqual(['ADAPTER_FAILURE'])
+    first.close()
+
+    const reopened = openRepository({ path, clock: fixedClock() })
+    expect(reopened.recordIntegrationOutcome(failing)).toEqual([])
+    expect(reopened.recordIntegrationOutcome(healthy).map((row) => row.action)).toEqual(['ADAPTER_RECOVERED'])
+    expect(reopened.recordIntegrationOutcome(failing).map((row) => row.action)).toEqual(['ADAPTER_FAILURE'])
+  })
+
+  it('remembers a correlated incident permanently so it is audited once', () => {
+    const { path } = testDatabase()
+    const incident = { id: 'inc-0123456789abcd', correlationKey: 'zone-a-incident-42', severity: 'HIGH', idea1Count: 1, idea2Count: 1, evidenceIds: ['IDEA1:a', 'IDEA2:b'] }
+    const first = openRepository({ path, clock: fixedClock() })
+
+    expect(first.recordIntegrationOutcome({ incidents: [incident] }).map((row) => row.action)).toEqual(['INCIDENT_CORRELATED'])
+    first.close()
+
+    expect(openRepository({ path, clock: fixedClock() }).recordIntegrationOutcome({ incidents: [incident] })).toEqual([])
+  })
+
+  it('ignores an unconfigured source entirely', () => {
+    const { path } = testDatabase()
+    const repository = openRepository({ path, clock: fixedClock() })
+
+    expect(repository.recordIntegrationOutcome({ sources: [{ source: 'IDEA2', status: 'NOT_CONFIGURED', code: 'NOT_CONFIGURED' }] })).toEqual([])
   })
 })

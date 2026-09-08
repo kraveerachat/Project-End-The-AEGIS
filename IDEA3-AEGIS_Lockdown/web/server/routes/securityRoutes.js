@@ -49,7 +49,17 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
     try {
       const provider = req.session.demoMode ? demoProvider : liveProvider
       const snapshot = await provider.getSnapshot(query.data)
-      if (!req.session.demoMode) await repository.recordOperationalErrors(snapshot.operationalErrors)
+      // Demo Mode must never advance live source lifecycle, event, or correlation state.
+      if (!req.session.demoMode) {
+        await repository.recordOperationalErrors(snapshot.operationalErrors)
+        if (snapshot.integration) {
+          await repository.recordIntegrationOutcome({
+            sources: [snapshot.integration.idea1, snapshot.integration.idea2].filter(Boolean),
+            conflicts: snapshot.integration.conflicts ?? [],
+            incidents: snapshot.incidents ?? [],
+          })
+        }
+      }
       res.json(await repository.apply(snapshot))
     } catch (error) {
       next(error)
