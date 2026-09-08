@@ -28,6 +28,17 @@ class RuntimeState(StrEnum):
     SHUTDOWN = "SHUTDOWN"
 
 
+def platform_capabilities(platform: str | None = None) -> dict[str, bool]:
+    """Return only runtime components that this source implements on a platform."""
+    platform_name = sys.platform if platform is None else platform
+    windows = platform_name == "win32"
+    return {
+        "detector": not windows,
+        "operator_gui": not windows,
+        "voice": False,
+    }
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     profile: str
@@ -114,9 +125,10 @@ class RuntimeSettings:
     def lock_path(self) -> Path:
         return self.runtime_dir / "supervisor.lock"
 
-    def preflight(self) -> tuple[list[str], list[str]]:
+    def preflight(self, *, platform: str | None = None) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         warnings: list[str] = []
+        capabilities = platform_capabilities(platform)
 
         minimum_python = (3, 10)
         if sys.version_info[:2] < minimum_python:
@@ -136,10 +148,16 @@ class RuntimeSettings:
                 errors.append("MQTT broker address must be an IP address or localhost")
         if self.voice_enabled:
             errors.append("voice was requested but no voice runtime entry point exists")
-        if self.start_gui and not os.getenv("DISPLAY"):
-            errors.append("GUI was requested but DISPLAY is not set")
-        if self.start_detector and not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
-            errors.append("detector.py is unavailable")
+        if self.start_gui:
+            if not capabilities["operator_gui"]:
+                errors.append("Tk operator GUI is not packaged on Windows")
+            elif not os.getenv("DISPLAY"):
+                errors.append("GUI was requested but DISPLAY is not set")
+        if self.start_detector:
+            if not capabilities["detector"]:
+                errors.append("detector is unavailable on Windows")
+            elif not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
+                errors.append("detector.py is unavailable")
 
         if self.profile == "production":
             if not config.SECRET_KEY or config.SECRET_KEY == config.DEMO_SECRET:
@@ -285,6 +303,17 @@ def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
 
     state = document.get("state")
     status_value = _CANONICAL_STATUS_BY_STATE.get(state, "UNKNOWN") if isinstance(state, str) else "UNKNOWN"
+    if status_value == "HEALTHY":
+        if bool(document.get("dry_run", True)):
+            status_value = "UNKNOWN"
+        elif (
+            components["broker"] == "DISCONNECTED"
+            or components["device"] == "OFFLINE"
+            or any(components.get(name) == "FAILED" for name in _ALLOWED_COMPONENTS)
+        ):
+            status_value = "DEGRADED"
+        elif any(components[name] == "UNKNOWN" for name in ("broker", "device", "uplink")):
+            status_value = "UNKNOWN"
 
     issues = set()
     if components["broker"] != "CONNECTED":
