@@ -118,6 +118,56 @@ are therefore not classified `USED_AND_TESTED`.
 Until reviewed upstream feeds exist, the live integration remains OPEN and the
 adapters must fail closed as `NOT_CONFIGURED` or `ADAPTER_UNAVAILABLE`.
 
+## Task 1 execution — upstream dependency gate
+
+Task 1 was re-executed on branch
+`feat/idea3-live-security-integration` at
+`2e638b41dbec6740ecbfb46b89e72572a130c9ee`. The worktree was clean and matched
+the pushed remote branch before this evidence-only update. Current source still
+contains no reviewed service event feed for either upstream system.
+
+| Candidate surface | Current source truth | Dependency verdict |
+|---|---|---|
+| IDEA1 `GET /api/audit` | `requireRole(ROLES.ADMIN)` protects the human-session route. It returns `{ events }` from `readAudit(200)`; rows expose `at`, actor label, role, action, target hash, result, and source IP, but no stable event ID or explicit severity. | REJECTED_AS_SERVICE_FEED |
+| IDEA2 `GET /api/alerts` | `requireRole(ROLES.SOC)` protects the human-session route. It returns `{ alerts }` with stable database IDs, but no versioned envelope or dedicated integration authentication, and includes snapshot/acknowledger presentation fields that must not cross the integration boundary. | REJECTED_AS_SERVICE_FEED |
+| IDEA2 `GET /api/detections` | `requireAuth` plus server-owned `camera_assignment` filtering protects the human-session route. It returns recognition names/confidence and has no event severity or service authentication. | REJECTED_AS_SERVICE_FEED |
+| IDEA2 `/internal/*` | `X-Detection-Engine-Key` is a real fail-secure service credential, but the event routes are write-only ingest. The sole GET returns Telegram routing data, not security events. | NOT_A_READ_FEED |
+| Detection Engine `GET /detections/recent` and `WS /ws/events` | Both expose a process-local recent-event ring without authentication. Events may contain recognition names, bounding boxes, track IDs, and confidence; the buffer is non-durable and does not supply the required stable IDs/envelope. | REJECTED_FOR_PRODUCTION |
+
+The required-source search found no upstream implementation of
+`schema_version`, `generated_at`, `event_id`, `occurred_at`, or
+`correlation_key` in the reviewed IDEA1/IDEA2 server and Detection Engine
+source. The existing `DETECTION_ENGINE_API_KEY` cannot be repurposed for an
+IDEA3 read path because it authenticates a different producer-to-Monitor trust
+boundary.
+
+Each upstream owner must separately review and provide a bounded read-only feed
+whose route name remains that owner's decision. IDEA3 requires HTTP 200 JSON
+with `schema_version=1`, a valid `generated_at`, and bounded `events`; a
+dedicated source-specific integration credential; a response limit no greater
+than 256 KiB; stable event IDs and occurrence timestamps; and no raw secrets,
+media, biometric names/templates, embeddings, filesystem paths, or human-session
+artifacts. The two feeds must also define a reviewed privacy-safe correlation
+key before real cross-IDEA correlation can be claimed.
+
+```text
+PR7_TASK_1_UPSTREAM_INTERFACE_INVENTORY = CLOSED
+PR7_UPSTREAM_DEPENDENCY_GATE = BLOCKED
+IDEA1_SERVICE_EVENT_FEED = ABSENT
+IDEA2_SERVICE_EVENT_FEED = ABSENT
+TASK_1_IMPLEMENTATION_RESULT = PARTIAL / EVIDENCE-ONLY
+IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN
+IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN
+CROSS_IDEA_EVENT_NORMALIZATION = OPEN
+CROSS_IDEA_INCIDENT_CORRELATION = OPEN
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = OPEN
+```
+
+No upstream or IDEA3 application source changed in Task 1. No endpoint path,
+schema, credential, production data, command state, MQTT behavior, ACK,
+execution, physical evidence, hardware, deployment, or PR8–PR12 state was
+created or claimed.
+
 ## Component map
 
 | Component | Decision | Reason |
