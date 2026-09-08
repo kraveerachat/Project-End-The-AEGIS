@@ -29,7 +29,9 @@ import { createServer, normalizePath } from 'vite'
 import reactPlugin from '@vitejs/plugin-react'
 
 import { LANGS, STRINGS, makeT } from '../src/lib/strings.js'
-import { shareBackend, resetShareBackend } from './fixtures/publicShareUiApi.js'
+import {
+  shareBackend, resetShareBackend, PRIVATE_EXPIRES_AT, PUBLIC_EXPIRES_AT,
+} from './fixtures/publicShareUiApi.js'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = (name) => normalizePath(path.join(rootDir, 'tests/fixtures', name))
@@ -295,13 +297,16 @@ test('SHARE-SCOPE-UI-6 public starts at 1h and the private expiry is restored', 
 
 /* ════════ UI-7 · the backend owns the public URL ════════ */
 
-test('SHARE-SCOPE-UI-7 a public link shows the server publicUrl exactly', async () => {
+test('SHARE-SCOPE-UI-7 the public confirmation shows URL, scope, password state and server expiry', async () => {
   resetShareBackend({
     createResponse: {
       ok: true,
       status: 201,
       data: {
-        share: { id: 's2', fileName: 'q4-report.pdf', hasPassword: true, scopeCidrs: [] },
+        share: {
+          id: 's2', fileName: 'q4-report.pdf', hasPassword: true, scopeCidrs: [],
+          expiresAt: PUBLIC_EXPIRES_AT,
+        },
         path: '/s/PublicToken456',
         publicUrl: 'https://share.example.invalid/s/PublicToken456',
       },
@@ -313,10 +318,20 @@ test('SHARE-SCOPE-UI-7 a public link shows the server publicUrl exactly', async 
   await ui.submit()
 
   const shown = ui.text()
+  // 1. the exact backend publicUrl — never the browser origin or the bare path
   assert.ok(shown.includes('https://share.example.invalid/s/PublicToken456'), 'the exact publicUrl must be shown')
-  // Never the browser origin, and never the bare internal path as a public link.
   assert.equal(shown.includes('http://localhost/s/PublicToken456'), false)
-  assert.ok(shown.includes(STRINGS.en.shareLinkPublicNote))
+  // 2. Public Internet scope
+  assert.ok(shown.includes(STRINGS.en.shareLinkPublicNote), 'the public scope must be named')
+  // 3. password-protected state
+  assert.ok(shown.includes(STRINGS.en.shareLinkPasswordNote), 'the password-protected state must be shown')
+  // 4. expiry, derived from the STORED value (now + 3h), not from any form option
+  assert.ok(shown.includes(STRINGS.en.colExpiresIn), 'the expiry must be labelled')
+  assert.ok(shown.includes('3h 00m'), `expiry countdown missing from: ${shown}`)
+  // 5. one-time-copy warning
+  assert.ok(shown.includes(STRINGS.en.shareLinkOnceWarn), 'the one-time-copy warning must be shown')
+  // and never the plaintext password
+  assert.equal(shown.includes('longenough1'), false, 'the plaintext password must never be echoed')
   await ui.unmount()
 })
 
@@ -327,12 +342,65 @@ test('SHARE-SCOPE-UI-7b zones and any keep composing the internal URL from the o
     await ui.chooseScope(scopeLabel)
     await ui.typePassword('longenough1')
     await ui.submit()
+    const shown = ui.text()
     assert.ok(
-      ui.text().includes('http://localhost/s/PrivateToken123'),
+      shown.includes('http://localhost/s/PrivateToken123'),
       `${scopeLabel} must keep the existing origin+path behaviour`,
     )
+    // The stored expiry (now + 2d 5h) is shown for private links too.
+    assert.ok(shown.includes(STRINGS.en.colExpiresIn), `${scopeLabel} expiry label`)
+    assert.ok(shown.includes('2d 5h'), `${scopeLabel} expiry countdown missing from: ${shown}`)
+    assert.equal(shown.includes(STRINGS.en.shareLinkPublicNote), false, `${scopeLabel} must not claim public scope`)
     await ui.unmount()
   }
+})
+
+test('SHARE-SCOPE-UI-7d the shown expiry is the stored one and the form cannot change it', async () => {
+  resetShareBackend({
+    createResponse: {
+      ok: true,
+      status: 201,
+      data: {
+        share: {
+          id: 's4', fileName: 'q4-report.pdf', hasPassword: true, scopeCidrs: [],
+          expiresAt: PUBLIC_EXPIRES_AT,
+        },
+        path: '/s/PublicToken999',
+        publicUrl: 'https://share.example.invalid/s/PublicToken999',
+      },
+    },
+  })
+  const ui = await mount({ publicSelectable: true })
+  await ui.chooseScope(STRINGS.en.scopePublic)
+  // The form says 1h; the server says 3h. The confirmation must believe the server.
+  assert.equal(ui.select('share-expiry').value, '1h')
+  await ui.typePassword('longenough1')
+  await ui.submit()
+  assert.ok(ui.text().includes('3h 00m'), 'the confirmation must use the stored expiry, not the form selection')
+
+  // The link is already issued and immutable. Editing the form afterwards must
+  // not rewrite what the confirmation claims about it.
+  await ui.choose('share-expiry', '30d')
+  assert.equal(ui.select('share-expiry').value, '30d', 'the form itself still moves')
+  const shown = ui.text()
+  assert.ok(shown.includes('3h 00m'), 'the issued link keeps the expiry the server stored')
+  assert.equal(shown.includes('30d 0h'), false, 'the form value must not leak into the confirmation')
+
+  // Switching scope afterwards must not rewrite it either.
+  await ui.chooseScope(STRINGS.en.scopeZones)
+  assert.ok(ui.text().includes('3h 00m'), 'the issued link is unaffected by later scope changes')
+  await ui.unmount()
+})
+
+test('SHARE-SCOPE-UI-7e the confirmation expiry is read from the response, not recomputed', async () => {
+  const screen = await readFile(path.join(rootDir, 'src/screens/Shares.jsx'), 'utf8')
+  // Both branches take the stored value straight from the response.
+  assert.equal((screen.match(/expiresAt: res\.data\.share\.expiresAt/g) ?? []).length, 2)
+  // And the confirmation renders that field, not the form state.
+  assert.match(screen, /created\.expiresAt/)
+  assert.doesNotMatch(screen, /created[\s\S]{0,80}EXPIRY_MS\[/, 'the confirmation must not recompute a duration')
+  assert.doesNotMatch(screen, /expiresAt:\s*Date\.now\(\)/, 'the client clock must not author the stored expiry')
+  assert.doesNotMatch(screen, /expiresAt:\s*(?:publicExpiry|privateExpiry|expiry)/)
 })
 
 test('SHARE-SCOPE-UI-7c a public response without publicUrl fails closed', async () => {

@@ -206,7 +206,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const [createError, setCreateError] = useState(null) // null | 'input' | 'zones' | 'server'
   // ⚠️ URL ของลิงก์ถูกแสดง "ครั้งเดียว" ตรงนี้ — เซิร์ฟเวอร์เก็บแต่ sha256 ของ token
   //    จึงไม่มีทางแสดงซ้ำได้ (แบบแผนเดียวกับรหัสผ่านชั่วคราวของบัญชีใหม่ในจอ Access)
-  const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs, isPublic } | null
+  const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs, isPublic, expiresAt } | null
   const [copied, setCopied] = useState(false)
 
   // ── ตัวกรองของตาราง active links (scope / expiry) ──────────────────────────
@@ -271,6 +271,9 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
         hasPassword: res.data.share.hasPassword,
         scopeCidrs: res.data.share.scopeCidrs ?? [],
         isPublic: true,
+        // ⚠️ วันหมดอายุของ "ลิงก์ที่สร้างแล้ว" มาจากเซิร์ฟเวอร์เท่านั้น ไม่ใช่จาก
+        //    ค่าในฟอร์ม — ฟอร์มยังแก้ต่อได้หลังสร้าง แต่ลิงก์ที่ออกไปแล้วเปลี่ยนไม่ได้
+        expiresAt: res.data.share.expiresAt,
       })
       setLinkPassword('')
       sharesApi.retry()
@@ -284,6 +287,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
       hasPassword: res.data.share.hasPassword,
       scopeCidrs: res.data.share.scopeCidrs ?? [],
       isPublic: false,
+      expiresAt: res.data.share.expiresAt,
     })
     setLinkPassword('')
     sharesApi.retry()
@@ -442,6 +446,17 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 )}
                 {created.hasPassword && (
                   <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('shareLinkPasswordNote')}</p>
+                )}
+                {/* ⚠️ อายุของลิงก์ที่ "สร้างแล้ว" — อ่านจาก created.expiresAt ที่เซิร์ฟเวอร์คืนมา
+                    ห้ามประกอบใหม่จาก expiry ในฟอร์ม เพราะผู้ใช้แก้ฟอร์มต่อได้หลังสร้าง
+                    แล้วตัวเลขบนใบยืนยันจะโกหกเกี่ยวกับลิงก์ที่ส่งออกไปแล้ว */}
+                {Number.isFinite(created.expiresAt) && (
+                  <p className="text-[11.5px] text-ink-3 leading-relaxed">
+                    {t('colExpiresIn')}:{' '}
+                    <span className="font-mono text-ink-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {created.expiresAt - now > 0 ? fmtCountdown(created.expiresAt - now, t('expired')) : t('expired')}
+                    </span>
+                  </p>
                 )}
                 {created.scopeCidrs.length > 0 && (
                   <p className="text-[11.5px] text-ink-3 leading-relaxed">
