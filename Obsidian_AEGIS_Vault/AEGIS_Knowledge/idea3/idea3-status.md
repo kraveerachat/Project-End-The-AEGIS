@@ -393,6 +393,72 @@ inventory/design baseline.
 
 ---
 
+## PR7 merge reconciliation and PR8 Windows standalone decision — 2026-09-08
+
+### VERIFIED CURRENT GIT STATE
+
+- Project-sequence PR7 is merged through GitHub PR #104. Current `main` and
+  `origin/main` both resolve to merge commit
+  `c68946cbe917a71349a8234a4bc028fbf4c6967d`.
+- The PR7 inventory/design split in GitHub PR #106 and the PR7 implementation
+  receipt both remain reachable from `main`. Historical receipts remain
+  immutable and are not rewritten to add later merge facts.
+- PR7 live-source limitations are unchanged: both upstream service feeds and a
+  reviewed shared correlation key remain absent, so correlation and containment
+  acceptance remain `IMPLEMENTED_UNEXERCISED` against real producers.
+
+### PR8 CHECKPOINT
+
+```text
+PROJECT_SEQUENCE = PR8_WINDOWS_EXE_STANDALONE_RUNTIME
+BASE_SHA = c68946cbe917a71349a8234a4bc028fbf4c6967d
+BRANCH = feat/idea3-windows-standalone-pr8
+ARCHITECTURE = LAUNCHER_EXE_PLUS_BUNDLED_COMPONENTS_ONEDIR
+STATUS = DESIGN_APPROVED_IMPLEMENTATION_NOT_STARTED
+WINDOWS_BUILD_EVIDENCE = NOT_RUN
+WINDOWS_SMOKE_EVIDENCE = NOT_RUN
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+- The approved package separates an immutable application payload from external
+  writable configuration, databases, logs, and runtime state under
+  `%LOCALAPPDATA%\AEGIS\IDEA3` by default.
+- A PyInstaller one-folder launcher will supervise packaged Python Core and a
+  pinned Node runtime, while Express serves the prebuilt React application at
+  `/security/` on loopback only.
+- Linux-only detector, UFW, voice, audio, and Tk operator surfaces are not
+  represented as working Windows components. Missing IDEA1/IDEA2 feeds remain
+  `NOT_CONFIGURED` or `UNAVAILABLE`; absent device, relay, and physical evidence
+  remain `UNKNOWN`.
+- Design:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-08-idea3-pr8-windows-standalone-design.md`.
+- Implementation plan:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-08-idea3-pr8-windows-standalone.md`.
+
+### CORRECT PROJECT-SEQUENCE ROADMAP
+
+```text
+PROJECT PR6 Production Reliability = CLOSED / MERGED
+PROJECT PR7 Cross-IDEA Integration Boundary = CLOSED / MERGED
+PROJECT PR8 Windows EXE / Standalone Runtime = DESIGN APPROVED / IMPLEMENTATION OPEN
+PROJECT PR9 Production Runtime / Deployment Preparation = OPEN
+PROJECT PR10 Final Hardware Closure = OPEN / WAITING FOR PHYSICAL COMPONENTS
+PROJECT PR11 Kali Cross-IDEA Security E2E = OPEN
+PROJECT PR12 Final System Acceptance = OPEN
+
+IDEA1_SERVICE_EVENT_FEED = OPEN
+IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+LIVE_CROSS_IDEA_EXERCISE = OPEN
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+No PR8 application behavior, package, Windows build, deployment, network,
+firmware, MQTT publication, relay action, or physical test is claimed at this
+checkpoint.
+
+---
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

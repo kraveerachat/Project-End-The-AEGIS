@@ -1449,3 +1449,88 @@ No merge, deployment, firmware compile or flash, MQTT connection or publication,
 relay action, network change, production database access, or physical test
 occurred. Every adapter test used an injected fetch stub; no real upstream host
 was contacted.
+
+
+---
+
+## 30. PR8 Windows Standalone Design Checkpoint — 2026-09-08
+
+### Git and reconciliation
+
+```text
+Base / main: c68946cbe917a71349a8234a4bc028fbf4c6967d
+Branch: feat/idea3-windows-standalone-pr8
+Worktree: /tmp/aegis-idea3-windows-standalone-pr8
+PR7 merge reachable: YES
+PR7 GitHub PR: #104 / merged
+Application source modified: NO
+```
+
+The checkout was freshly cloned and fast-forward synchronized because the
+original workspace directory resolved into a dirty parent repository. The
+original tree was not switched, reset, cleaned, or modified.
+
+PR7 Tasks 1-9 were reconciled against merged source, tests, Git history, status,
+receipts, design, plan, and this handoff. PR7 code/policy/review/merge are closed.
+Real IDEA1/IDEA2 feeds, a shared reviewed correlation key, and live cross-IDEA
+exercise remain open. Historical PR7 receipts were not edited.
+
+### PR8 inventory result
+
+- Python Core has no packaging metadata and currently assumes `fcntl`, `/proc`,
+  POSIX signals, `journalctl`, UFW tooling, `DISPLAY`, and Linux audio commands.
+- Express does not serve the Vite build or close its HTTP/SQLite resources on
+  signals. React uses `/security/`; current production API routes are `/api`.
+- Node must be bundled because Web uses Node's built-in SQLite API and declares
+  Node `>=22.13.0`.
+- Core and Web databases, logs, `.env`, PID/lock/status files, and SQLite WAL/SHM
+  files require an external writable location.
+- No Windows packaging source, binary policy exception, or release workflow was
+  found. Generated EXEs, bundles, runtimes, build trees, databases, and logs will
+  remain untracked.
+
+### Approved architecture
+
+Use a PyInstaller `onedir` launcher executable with packaged Python Core, pinned
+Node.js 24.20.0 x64, production Express dependencies, and prebuilt React assets.
+Mutable state defaults to `%LOCALAPPDATA%\AEGIS\IDEA3`. The launcher owns a
+loopback-only control/status service, child lifecycle, evaluator commands, and
+browser opening. Web remains unable to publish MQTT, command ESP32, or actuate a
+relay.
+
+Default evaluator start is lab/headless/detector-disabled/dry-run with Web
+production authentication. Missing upstream, device, relay, and physical
+evidence stays not configured, unavailable, or unknown. Production Core remains
+fail-closed on demo HMAC/Admin PIN configuration.
+
+Design and plan:
+
+- `docs/superpowers/specs/2026-09-08-idea3-pr8-windows-standalone-design.md`
+- `docs/superpowers/plans/2026-09-08-idea3-pr8-windows-standalone.md`
+
+### Verification at this checkpoint
+
+```text
+Fresh-main / ancestry / cleanliness checks: PASS before planning edits
+Design placeholder scan: PASS
+git diff --check: PASS
+Linux regression: NOT RUN for PR8 yet
+Windows build: NOT RUN
+Windows smoke: NOT RUN
+```
+
+### Safety and next action
+
+```text
+SECRETS_COMMITTED = NO
+RUNTIME_DB_COMMITTED = NO
+OLD_RECEIPTS_MODIFIED = NO
+FORCE_PUSH = NO
+MERGE = NO
+DEPLOY = NO
+PHYSICAL_ACTION = NO
+```
+
+Next: execute Task 1 of the PR8 implementation plan with failing path/bootstrap
+tests first. Do not claim Windows verification until the generated candidate is
+built and exercised on Windows x64.
