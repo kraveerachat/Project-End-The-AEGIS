@@ -23,6 +23,7 @@ function destroySession(req) {
 
 export function createAuthRouter({ config, loginLimiter, repository }) {
   const router = Router()
+  const rateLimitAuditKeys = new Set()
 
   router.get('/session', (req, res) => {
     if (!req.session?.identity || req.session.identity.role !== 'ADMIN') {
@@ -38,15 +39,20 @@ export function createAuthRouter({ config, loginLimiter, repository }) {
   router.post('/login', requireSameOrigin, async (req, res, next) => {
     try {
       const key = req.ip || 'unknown'
-      if (!loginLimiter.check(key).allowed) {
-        repository.recordAction({
-          category: 'AUTH', action: 'LOGIN', outcome: 'RATE_LIMITED', actorRef: 'anonymous',
-          resourceType: 'session', resourceId: 'current',
-        })
+      const limitStatus = loginLimiter.check(key)
+      if (!limitStatus.allowed) {
+        if (!rateLimitAuditKeys.has(key)) {
+          repository.recordAction({
+            category: 'AUTH', action: 'LOGIN', outcome: 'RATE_LIMITED', actorRef: 'anonymous',
+            resourceType: 'session', resourceId: 'current',
+          })
+          rateLimitAuditKeys.add(key)
+        }
         return res.status(429).json({
           error: { code: 'RATE_LIMITED', message: 'ลองใหม่ภายหลัง' },
         })
       }
+      rateLimitAuditKeys.delete(key)
 
       const parsed = credentialsSchema.safeParse(req.body)
       const identity = parsed.success

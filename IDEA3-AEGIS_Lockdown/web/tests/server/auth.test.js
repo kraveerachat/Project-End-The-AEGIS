@@ -16,6 +16,14 @@ function testConfig(overrides = {}) {
   })
 }
 
+function failedLogin(app) {
+  return request(app)
+    .post('/api/auth/login')
+    .set('Origin', 'http://localhost')
+    .set('Host', 'localhost')
+    .send({ username: 'admin', password: 'wrong' })
+}
+
 describe('administrator authentication', () => {
   it('returns the same failure response for an unknown user and a wrong password', async () => {
     const repository = createMemoryRepository()
@@ -103,26 +111,21 @@ describe('administrator authentication', () => {
     ]))
   })
 
-  it('rate-limits repeated login failures without revealing account existence', async () => {
+  it('rate-limits every blocked request but audits the blocked window only once per source', async () => {
     const repository = createMemoryRepository()
     const app = createApp({ config: testConfig(), repository })
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const response = await request(app)
-        .post('/api/auth/login')
-        .set('Origin', 'http://localhost')
-        .set('Host', 'localhost')
-        .send({ username: 'admin', password: 'wrong' })
+      const response = await failedLogin(app)
       expect(response.status).toBe(401)
     }
 
-    const blocked = await request(app)
-      .post('/api/auth/login')
-      .set('Origin', 'http://localhost')
-      .set('Host', 'localhost')
-      .send({ username: 'admin', password: 'wrong' })
-    expect(blocked.status).toBe(429)
-    expect(blocked.body.error.code).toBe('RATE_LIMITED')
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const blocked = await failedLogin(app)
+      expect(blocked.status).toBe(429)
+      expect(blocked.body.error.code).toBe('RATE_LIMITED')
+    }
+
     expect(repository.queryAudit({ limit: 10 })).toEqual([
       expect.objectContaining({
         category: 'AUTH', action: 'LOGIN', outcome: 'RATE_LIMITED', actorRef: 'anonymous',
@@ -132,6 +135,33 @@ describe('administrator authentication', () => {
         category: 'AUTH', action: 'LOGIN', outcome: 'FAILURE', actorRef: 'anonymous',
       })),
     ])
+  })
+
+  it('audits rate limiting again after the source enters a new limiter window', async () => {
+    let now = new Date('2026-09-08T03:00:00.000Z')
+    const clock = () => new Date(now)
+    const repository = createMemoryRepository({ clock })
+    const app = createApp({ config: testConfig(), repository, clock })
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await failedLogin(app)).status).toBe(401)
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect((await failedLogin(app)).status).toBe(429)
+    }
+
+    now = new Date(now.getTime() + 15 * 60 * 1_000)
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await failedLogin(app)).status).toBe(401)
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect((await failedLogin(app)).status).toBe(429)
+    }
+
+    const audit = repository.queryAudit({ limit: 20 })
+    expect(audit.filter(({ outcome }) => outcome === 'RATE_LIMITED')).toHaveLength(2)
+    expect(audit.filter(({ outcome }) => outcome === 'FAILURE')).toHaveLength(10)
   })
 
   it('does not return or retain authenticated state when the login audit cannot be persisted', async () => {

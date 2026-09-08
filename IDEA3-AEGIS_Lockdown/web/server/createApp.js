@@ -58,7 +58,11 @@ export function createApp({
   if (sessionStore) sessionOptions.store = sessionStore
   app.use(session(sessionOptions))
 
-  const loginLimiter = createRateLimiter({ limit: 5, windowMs: 15 * 60 * 1_000 })
+  const loginLimiter = createRateLimiter({
+    limit: 5,
+    windowMs: 15 * 60 * 1_000,
+    clock: () => clock().getTime(),
+  })
   app.use('/api/auth', createAuthRouter({ config, loginLimiter, repository: appRepository }))
   app.use('/api/security', createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
 
