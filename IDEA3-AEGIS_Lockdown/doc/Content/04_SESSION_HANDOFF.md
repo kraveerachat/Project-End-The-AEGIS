@@ -1534,3 +1534,43 @@ PHYSICAL_ACTION = NO
 Next: execute Task 1 of the PR8 implementation plan with failing path/bootstrap
 tests first. Do not claim Windows verification until the generated candidate is
 built and exercised on Windows x64.
+
+
+---
+
+## 31. PR8 Implementation Batch 1 — 2026-09-09
+
+### Completed
+
+- Task 1: added an explicit immutable application root, external writable data
+  root, absolute configuration-file resolution, atomic/non-overriding dotenv
+  loading, and data-root-derived Core database/log/runtime defaults.
+- Task 2: removed the eager `fcntl` import from the supervisor and introduced an
+  OS-selected exclusive lock with tested POSIX behavior and a Windows
+  `msvcrt.locking` boundary.
+- Task 3: added explicit Windows component capabilities and made the safe runtime
+  projection refuse top-level `HEALTHY` when dry-run, broker, device, uplink, or
+  failed-component evidence does not support that claim.
+
+### Commits and verification
+
+```text
+49498a52 feat(idea3): add external runtime path contract
+191f3c35 fix(idea3): isolate platform runtime locking
+170b8445 fix(idea3): preserve unknown hardware truth on Windows
+
+Task 1 selected tests: PASS — 74
+Task 2 selected tests: PASS — 57
+Task 3 selected tests: PASS — 81
+Focused Ruff checks: PASS
+git diff --check: PASS
+Windows build/smoke: NOT RUN
+```
+
+All tests used temporary paths and fakes; no MQTT connection, command publish,
+relay action, network change, production data access, deployment, or physical
+test occurred. No generated package, database, log, or secret was committed.
+
+Next: implementation-plan Task 4, beginning with failing tests for production
+`/security` API/static serving, loopback health, and idempotent HTTP/SQLite
+shutdown.
