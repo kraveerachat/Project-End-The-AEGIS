@@ -248,16 +248,112 @@ No file under `IDEA1-AEGIS_Drive_LC/server/`, `IDEA1-AEGIS_Drive_LC/src/`,
 - Rollback is PR revert. There is no Production rollback because nothing was
   deployed, activated or migrated.
 
+## Stage B — gate APPROVED, execution NOT PERFORMED (appended 2026-09-08)
+
+The owner approved the Stage B scope interpretation and then the PS6-SERVER-GATE
+itself: run the same isolated harness on the AEGIS server hardware while touching
+no existing production service, data, network, runtime Compose, `.env`, migration
+or public ingress.
+
+**Stage B was not executed.** This session has no working SSH path to the server
+host, so no Stage B result exists and none is claimed.
+
+- TCP `192.168.10.10:22` is reachable over Twingate and the host key is already
+  trusted. The blocker is authentication: `ssh -v` previously reported
+  `Server accepts key: ...id_ed25519_admin-main_thispc` — the public key **is**
+  in `admin-main`'s `authorized_keys` — and then `Permission denied (publickey)`,
+  because the private key is passphrase-protected and the signature step cannot
+  complete without an agent.
+- On this machine the Windows `ssh-agent` service is **Stopped / Disabled**,
+  `ssh-add -l` returns `Error connecting to agent`, `SSH_AUTH_SOCK` is unset, and
+  no agent process or named pipe exists. An agent loaded in another shell window
+  is not visible to this session. Four authentication attempts were made across
+  the task and then stopped, to avoid walking a production account into a
+  lockout.
+- Enabling the agent service is a system setting and was deliberately **not**
+  changed. Passing or handling the key passphrase is out of the question.
+
+### Preflight figures are OWNER-SUPPLIED, not measured here
+
+The host, Docker, production-container, network, capacity and image figures used
+to plan Stage B were supplied by the owner. They are recorded as owner-supplied
+and are **not** reproduced or independently verified by this task, in the same
+way the architecture note keeps owner-supplied acceptance separate from
+repository-recorded evidence. Every one of the fourteen host facts remains
+**NOT MEASURED** by this session.
+
+### One preflight finding did change the harness
+
+The owner's preflight established that on the server host the administrative
+account is **not** in the `docker` group and `DOCKER_HOST` points at a Podman
+socket that does not exist, so every Docker command must run as
+`sudo env -u DOCKER_HOST docker`.
+
+The Stage A harness hardcoded `docker`, so it could not have run there at all —
+it would have failed on the daemon socket in a way that reads like a harness bug.
+That is a real Stage B blocker independent of SSH, and it is now fixed:
+
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.test.js` — every
+  Docker call now goes through `PS6_DOCKER` (default `docker`, split on
+  whitespace so a wrapper with arguments works). No call site invokes `docker`
+  directly.
+- `gateway/public-share/integration/run-stage-b.sh` — **new**: a Stage B runner
+  that refuses to start unless the daemon is reachable through the required
+  wrapper, the temporary work directory is outside the production checkout, the
+  three required base images are already present locally, the PS6 and
+  `aegis_public_share` network names are free, and no existing network already
+  uses `172.31.250-252.0/29`. It pins the source tree to PR #105 HEAD
+  `ef77c00f1b17b4fa85511baeb760665d9aee2237` and verifies the SHA before
+  building, never touching `/opt/aegis/Project-End-The-AEGIS`. It records a
+  read-only pre/post inventory of containers, networks, volumes and images and
+  diffs them, checks for surviving PS6 objects, and removes its temporary source.
+  It never pulls, prunes, or starts/stops/restarts/execs a production container.
+- `gateway/public-share/integration/README.md` — documents `PS6_DOCKER`,
+  including the warning that on such a host the harness runs Docker as root while
+  still creating only its own project, networks and anonymous volumes.
+
+Re-verified after that refactor, on the developer machine:
+
+- `PUBLIC_SHARE_INTEGRATION_RUNTIME=1 node --test --test-concurrency=1 --test-timeout=1800000 tests/publicShareInternalIntegration.test.js`
+  — **passed: 16 tests, 16 passed, 0 failed, 0 skipped, 192.6 s**, with the
+  default `PS6_DOCKER` (plain `docker`). Teardown clean: `docker ps -a` and
+  `docker network ls` afterwards showed zero PS6 containers and zero PS6
+  networks. The override therefore changes nothing when it is not set.
+- `sh -n gateway/public-share/integration/run-stage-b.sh` — passed (syntax only).
+  The runner has still never been executed.
+- The non-default `PS6_DOCKER` path — `sudo env -u DOCKER_HOST docker` — is
+  **untested**, because this machine has neither `sudo` nor the server's daemon
+  configuration. Its first real exercise will be the first Stage B run.
+
+### Two requested post-run checks cannot be performed as written
+
+The owner's post-run list asks to verify that Production migration 009 remains
+NOT APPLIED and that the Public UI remains OFF. Both conflict with the same
+instruction set: the first requires connecting to Production PostgreSQL, and the
+second requires reading Production configuration — each explicitly forbidden.
+
+The runner therefore does **not** attempt either. What it proves instead is that
+no path to them existed: the pre/post inventory diff shows no production
+container, network or volume changed, no PS6 container was ever attached to a
+production network, no production volume was mounted, and the harness's own
+PostgreSQL is a throwaway instance on an internal isolated network. That is an
+argument from absence of contact, not a reading of the two values, and it is
+recorded as such rather than presented as equivalent. Confirming the values
+themselves is an owner-side read.
+
 ## Known limitations
 
 - **Public Internet Share remains NOT IMPLEMENTED.** Production gateway = NO,
   Production migration 009 = NO, Production UI activation = NO, public
   DNS/TLS/NAT/tunnel/ingress = NO, external 4G/5G acceptance = NO. **G4, G5 and
   G6 remain open**, and PUBLIC-SHARE-7 was not started.
-- **This is Stage A only.** The PS6-SERVER-GATE and everything behind it were not
-  requested and not approved, so no server-side Stage B execution, no Production
-  service restart, no Production data mount and no host-port or ingress change
-  was attempted or claimed.
+- **This is Stage A only, and Stage B is gate-approved but unexecuted.** The
+  PS6-SERVER-GATE was approved by the owner on 2026-09-08; execution did not
+  happen, for the SSH reason recorded in the Stage B section. No server-side run,
+  no Production service restart, no Production data mount, no host-port and no
+  ingress change was attempted or claimed. `run-stage-b.sh` is written and
+  syntax-checked but **has never been executed anywhere**, so it carries no
+  runtime evidence of its own — its guards are unproven until a real run.
 - **The hit counter increments before delivery, not on completion.**
   `server/routes/share.js` counts, then streams, so an authorised-then-interrupted
   download still counts one hit. `PS6-INT-7` records this as observed behaviour

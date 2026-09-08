@@ -15,6 +15,32 @@ PUBLIC_SHARE_INTEGRATION_RUNTIME=1 node --test --test-concurrency=1 \
 Without `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` the suite skips, so `npm test` never
 builds an image or touches Docker implicitly.
 
+### Running it on a host that needs a different Docker invocation
+
+`PS6_DOCKER` overrides how Docker is called; it defaults to plain `docker` and is
+split on whitespace, so a wrapper with its own arguments works. Every Docker call
+in the suite goes through it.
+
+This exists because a hardcoded `docker` fails on hosts where the invoking
+account cannot reach the daemon, with a socket permission error that reads like a
+harness bug. The AEGIS server host (`aegis-system`) is exactly that case: the
+administrative account is **not** in the `docker` group, and `DOCKER_HOST` is set
+to a Podman socket that does not exist — so both the privilege and the
+environment must be corrected at the call site:
+
+```bash
+PS6_DOCKER="sudo env -u DOCKER_HOST docker" \
+PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
+  node --test --test-concurrency=1 --test-timeout=1800000 \
+  tests/publicShareInternalIntegration.test.js
+```
+
+⚠️ On such a host the harness runs Docker as root. It still creates only its own
+project, its own three networks and its own anonymous volumes, still publishes no
+host port, and still tears down only `-p aegis-ps6-<pid>` — it never runs a bare
+`compose down`, `system prune` or `volume prune`. Read the compose file before
+granting it root.
+
 ---
 
 ## Why it exists

@@ -539,6 +539,24 @@ ordinary Internet access. **G4, G5 and G6 remain open and
 source changed, and no Production database, gateway, network, volume or migration
 was contacted. PUBLIC-SHARE-7 was not started.
 
+**Stage B: gate APPROVED 2026-09-08, execution NOT PERFORMED.** The owner
+approved running the same isolated harness on the server hardware. It did not
+run: the agent session has no working SSH path to `192.168.10.10` — the public
+key is authorised (`ssh -v` reports `Server accepts key`) but the private key is
+passphrase-protected and no reachable agent exists, so the signature step cannot
+complete. All fourteen host preflight facts therefore remain **NOT MEASURED by
+the repository**; the figures used for planning are **owner-supplied** and are
+not reproduced here.
+
+One preflight finding did change the harness. On the server host the
+administrative account is not in the `docker` group and `DOCKER_HOST` points at a
+non-existent Podman socket, so Docker must be invoked as
+`sudo env -u DOCKER_HOST docker`. The Stage A suite hardcoded `docker` and could
+not have run there at all; every Docker call now goes through the `PS6_DOCKER`
+override, and `gateway/public-share/integration/run-stage-b.sh` encodes the
+Stage B guards. That runner has **never been executed**, so it carries no runtime
+evidence of its own.
+
 ### Public-share security regression matrix pinned, no source changed (2026-09-08)
 
 > [!warning] PUBLIC-SHARE-5 is local regression evidence only

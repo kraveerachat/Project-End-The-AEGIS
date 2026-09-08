@@ -78,6 +78,26 @@ const WRONG_LINK_PASSWORD = 'ps6-link-wrong-000'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * How to invoke Docker. Defaults to plain `docker`, which is right on a
+ * developer machine.
+ *
+ * ⚠️ It is configurable because a host can require otherwise, and a hardcoded
+ *    `docker` would simply fail there with a socket permission error that looks
+ *    like a harness bug. The AEGIS server host is exactly that case: the
+ *    administrative account is not in the `docker` group, and `DOCKER_HOST`
+ *    points at a Podman socket that does not exist — so both the privilege and
+ *    the environment have to be corrected at the call site:
+ *
+ *      PS6_DOCKER="sudo env -u DOCKER_HOST docker"
+ *
+ * Split on whitespace, so a wrapper with its own arguments works. Every Docker
+ * call in this file goes through it; nothing invokes `docker` directly.
+ */
+const DOCKER_ARGV = String(process.env.PS6_DOCKER ?? 'docker').trim().split(/\s+/).filter(Boolean)
+const DOCKER_BIN = DOCKER_ARGV[0]
+const DOCKER_PREFIX = DOCKER_ARGV.slice(1)
+
 // ═══ In-container client programs ════════════════════════════════════════════
 //
 // Programs are fed to `node` on STDIN rather than through `node -e`, so their
@@ -182,7 +202,7 @@ class Session {
  */
 function dockerStdin(args, input, { env, timeoutMs = 600_000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('docker', args, { env, stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(DOCKER_BIN, [...DOCKER_PREFIX, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
@@ -232,7 +252,7 @@ test('PS6-INT the real gateway integrates with the real Drive on an internal add
     PS6_SESSION_SECRET: randomBytes(32).toString('base64url'),
   }
 
-  const docker = (args, options = {}) => execFileAsync('docker', args, {
+  const docker = (args, options = {}) => execFileAsync(DOCKER_BIN, [...DOCKER_PREFIX, ...args], {
     env, maxBuffer: 64 * 1024 * 1024, ...options,
   })
   const compose = (args, options) => docker(['compose', '-p', PROJECT, '-f', COMPOSE_FILE, ...args], options)
