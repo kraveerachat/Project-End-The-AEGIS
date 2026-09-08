@@ -895,6 +895,340 @@ developer machine's Stage A figure and is labelled as such.
 **Stage B was not re-run. PUBLIC-SHARE-7 was not started. PR #105 remains Draft
 and is not merged.**
 
+## Stage B attempt #2 — EXECUTED, FAILED SAFELY (appended 2026-09-08)
+
+⚠️ **Recorded as it happened. Attempt #1 above is untouched, and nothing here is
+edited later.**
+
+Run on the `aegis-system` host against PR #105 HEAD
+`dc9dda7c4c825a38ed237ec507766df941f7e8fe`, project
+`aegis-ps6-stage-b-20260908-173942-2000140`.
+
+| Fact | Result |
+| :--- | :--- |
+| Source SHA | `dc9dda7c4c825a38ed237ec507766df941f7e8fe` |
+| Compose credential plumbing | **PASS** — guard 8 accepted the tree, the env file supplied every interpolation, `up --build` ran |
+| Isolated stack | **built and started successfully** — the attempt #1 blocker is gone |
+| Acceptance | 16 tests, **7 passed, 9 failed** (8 subtests + the parent) |
+| Passing subtests | PS6-INT-1, -2, -3, -9, -11, -13, -15 |
+| Failing subtests | PS6-INT-4, -5, -6, -7, -8, -10, -12, -14 |
+| Primary failure | **PS6-INT-4**, during the deterministic 64 MiB private-path upload |
+| Classification | **one failure, not eight.** Seven of the eight are cascade |
+| Acceptance exit | **1** |
+| Cleanup | **PASS** |
+| Production inventory pre/post | **IDENTICAL** |
+| Production services | **all healthy** |
+| Runner RC | **1** |
+
+### What actually failed, and what the harness said instead
+
+PS6-INT-4 uploads a deterministic 64 MiB object on the shipped private path. The
+in-container `send()` helper resolves `{ error, status: 0 }` and **no** `text`
+when a request never completes. The program then did:
+
+```js
+const uploaded = JSON.parse(up.text)
+```
+
+so the run's only report of the failure was, from inside the Drive container:
+
+```
+docker exited 1: SyntaxError: "undefined" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at [stdin]:100:25
+```
+
+**The real transport cause was destroyed by the diagnostic.** `up.text` was
+`undefined`, which is reachable only through `send()`'s error branch — so the
+64 MiB upload never completed, and the code that would have said why threw
+before saying anything. `captureBytes` was set, so a completed HTTP exchange —
+even a 413 or a 500 — would have produced a string; it did not.
+
+PS6-INT-4 therefore minted no token, no share id and no file id, and
+`artifact.token` stayed `null`. The seven dependent subtests then asked the
+gateway for `/s/undefined`, received the 404 nginx and Drive correctly return
+for an unknown token, and were reported as failures:
+
+- PS6-INT-5 `the password page must render through the gateway — 404 !== 200`
+- PS6-INT-6, -7, -8 — the same 404, on the slow-client, interrupted-transfer and
+  concurrency paths
+- PS6-INT-10 — the forged-header redemption could not be a redemption
+- PS6-INT-12 — the ingress split needs the non-public share PS6-INT-4 never made
+- PS6-INT-14 — revocation needs a share id
+
+**None of those seven is a confirmed product defect, and none is claimed as one.**
+They are one provisioning failure counted eight times.
+
+⚠️ Three of the seven "passes" are weaker than they look, and are recorded that
+way rather than banked: **PS6-INT-9** and **PS6-INT-13** consumed
+`artifact.token` while it was `undefined`, so their token-shaped assertions ran
+against the literal string `/s/undefined`. PS6-INT-13's "the raw share token must
+never reach the gateway log" was, in that run, a check that the gateway log does
+not contain the word `undefined` — true, and worth nothing. PS6-INT-11's
+substance (Host handling) does not depend on the artifact and stands.
+
+### Production safety evidence from attempt #2
+
+Everything below held, and is the reason this failure was safe:
+
+- credential env-file plumbing **PASS**; guard 8 accepted `dc9dda7c`
+- PS6-INT-1 (three internal isolated networks, no host port), PS6-INT-2
+  (recipient default-deny), PS6-INT-3 (migration 009 load-bearing on a real
+  008-era database), PS6-INT-11 (unknown Host terminates at the gateway),
+  PS6-INT-13 (B5 topology probes) and PS6-INT-15 (teardown) **PASS**
+- PS6 cleanup **PASS**; **both PS6-built images removed**; no PS6 container,
+  network, volume or image survived
+- the Compose env file removed; the temporary workdir removed
+- Production pre/post inventory **IDENTICAL**; all Production services healthy;
+  protected Production volumes present
+- **no Production mutation of any kind**
+
+Nothing in the forbidden list was touched: no `/opt/aegis/Project-End-The-AEGIS`,
+no aegis-prod restart/recreate/exec, no Production PostgreSQL, no
+`aegis_postgres_data`/`aegis_drive_storage` mount, no Production Compose or
+`.env` edit, no Production migration 009, no Public UI, no host port, no
+DNS/TLS/NAT/tunnel/MikroTik/UFW/VLAN/Twingate change, no prune, no
+PUBLIC-SHARE-7. PR #105 remains Draft, not marked Ready, not merged.
+
+## Stage B diagnostics amendment — say what failed, and count it once (appended 2026-09-08)
+
+**Stage B was NOT re-run.** This amendment is harness, tests and documentation
+only. **No shipped Drive, gateway, backend, UI, database, Dockerfile, Production
+Compose or `.env.example` file changed**, and no acceptance was weakened.
+
+### TASK A — PS6-INT-4 now exposes the real cause
+
+A new `parseJsonBody(label, res, expectedStatus)` in the in-container prelude
+classifies a response *before* anything parses it, and returns
+`{ ok:false, diagnostic }` rather than throwing:
+
+| Condition | `reason` | What is reported |
+| :--- | :--- | :--- |
+| `send()` error branch | `transport` | the transport code, `status=0`, expected status — **and `JSON.parse` is never called** |
+| wrong HTTP status | `status` | status, expected status, response length, body present?, content type, and a **bounded 300-char redacted excerpt** |
+| completed with no body | `empty-body` | status and length; nothing is parsed |
+| body is not JSON | `not-json` | the parse error, bounded, plus the same redacted excerpt |
+
+The headline a transport failure now produces is exactly:
+
+```
+PS6-INT-4 upload transport failure: status=0 error=ECONNRESET
+```
+
+followed by response length, body-present, captured bytes and content type, then
+the PS6-only evidence block below. `JSON.parse` runs only when a body is known to
+exist. The same fix is applied to PS6-INT-3's 1 KiB probe upload, which carried
+the identical latent defect and passed only because it never failed.
+
+The in-container programs no longer `process.exit(1)` with a stack on stderr;
+they emit a structured `ps6Failure` record, so the test process can render it
+*and* capture container evidence before teardown. `out()` is now idempotent, so
+a late failure cannot corrupt an already-emitted result. `Session.json` carries
+the transport error, so a failed login reads
+`login failed: status=0 error=ECONNRESET` instead of `login failed: 0 null`.
+
+**Nothing is printed that must not be**: no password, no session secret, no raw
+share token, no cookie, no CSRF token, no Production credential. Excerpts pass
+through an in-container `REDACT` list (session cookie, CSRF token, link
+password, reset password, seed password) and then through the test-side
+redactor.
+
+### TASK B — PS6-only failure evidence, captured before teardown
+
+On any provisioning failure — a `ps6Failure` record, or a `docker exec` that did
+not complete at all, which is what an in-container OOM kill looks like — the
+suite captures, **while the stack is still up**:
+
+- per container: `status`, `running`, `exitCode`, `OOMKilled`, `RestartCount`,
+  health state;
+- the Drive health-check log (bounded to 800 characters);
+- a **160-line tail of the PS6 Drive log**, bounded to 6,000 characters;
+- `compose ps` state/health/exit per service, bounded.
+
+Together those discriminate the conditions the failure could be: a connection
+reset, a Drive process exit or restart, a health failure, a rejected request or
+body, a storage write failure, an OOM kill, or another transport condition.
+
+⚠️ **Every container is checked against its own
+`com.docker.compose.project` label before it is inspected or read**, and a
+container that is not labelled with this run's project is refused by name. **No
+Production container is inspected, and no Production log is ever read or
+printed.** Every string that leaves the block passes through a redactor covering
+`PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`, `PS6_DRIVE_DB_PASSWORD`,
+`PS6_SESSION_SECRET`, the link password and the reset password. The helper never
+throws: a diagnostic that fails must not replace the failure it was called to
+explain.
+
+### TASK C — the cascade is blocked, not renamed
+
+Seven subtests are declared with `skip: blockedByInt4(…)` naming exactly the
+artifact fields each one consumes:
+
+| Subtest | Requires |
+| :--- | :--- |
+| PS6-INT-5 | `token`, `shareId`, `sha256` |
+| PS6-INT-6 | `token`, `sha256` |
+| PS6-INT-7 | `token`, `shareId`, `sha256` |
+| PS6-INT-8 | `token`, `shareId`, `sha256` |
+| PS6-INT-10 | `token` |
+| PS6-INT-12 | `privateToken`, `sha256` |
+| PS6-INT-14 | `token`, `shareId` |
+
+When any is missing the subtest is **SKIPPED** with
+
+```
+BLOCKED_BY_PS6_INT_4 — PS6-INT-4 did not provision <fields>, so this subtest
+would assert against a non-existent artifact. It is blocked, not failed:
+nothing here is evidence of a product defect.
+```
+
+⚠️ **The acceptance meaning is unchanged.** The guard is evaluated when the
+subtest is *declared*, which is after PS6-INT-4 has already run, and returns
+`false` when every required field is present — so a successful PS6-INT-4 skips
+nothing and all sixteen subtests execute exactly as before.
+
+PS6-INT-9, -11 and -13 measure the gateway's route map, its default-deny and B5,
+none of which is a property of the artifact, so they keep running. They now use
+an obviously synthetic `ps6-unprovisioned-token` and emit a diagnostic saying so,
+and PS6-INT-13's raw-token log assertion is explicitly **not evaluated** when no
+token exists rather than being allowed to pass against the string `undefined`.
+
+### TASK D — no paper-over, and what is still unknown
+
+**Nothing was substituted to obtain a pass.** PS6-INT-4 still uploads to the same
+shipped `/api/files/upload`, still 64 MiB, still deterministic from a fixed seed,
+and still asserts status 201, the exact byte count and the server-side SHA-256.
+The V2 chunked path was **not** adopted, and no such change is proposed here.
+
+What is known so far, from reading the repository and the host read-only —
+**no Stage B was run to obtain any of it**:
+
+- `up.text` was `undefined`, which is reachable **only** through `send()`'s error
+  branch. `captureBytes` was set, so any completed exchange — including a 413 or
+  a 500 — would have produced a string. **The request or the response errored;
+  this was not an HTTP-level rejection.**
+- PS6-INT-3's 1 KiB probe upload through the same endpoint, the same session and
+  the same container **passed** in the same run. The failure is size-dependent,
+  not endpoint- or auth-dependent.
+- PS6-INT-4 failed after **7.8 s**, so it was not a timeout: the shipped gateway
+  timeouts are 300 s and the suite's own budget is 900 s.
+- Server-side memory is not an obvious candidate: `server/storage/fileStore.js`
+  uses `multer.diskStorage`, so the server writes through as a stream at constant
+  RAM, and its `MAX_UPLOAD_BYTES` is 1 GiB — 64 MiB is well inside it.
+- Client-side, the in-container program holds the 64 MiB payload **and** the
+  concatenated multipart buffer, then hands the whole thing to one `req.write`,
+  so roughly 190–200 MiB is live in that one Node process.
+- Host facts measured here, read-only: 7,203 MiB RAM total with ~5,748 MiB
+  available, 4 GiB swap, 4 CPUs, 37 GiB free on `/`. **`/tmp` is a 3.6 GiB
+  tmpfs**, i.e. RAM — and `PS6_WORKDIR` lives there.
+- The harness Compose file declares **no** `mem_limit`, `deploy.resources`,
+  `ulimits` or `shm_size` for any service, so a container cgroup limit is not
+  configured; a host-level OOM kill is still possible and is exactly what
+  `OOMKilled` in the new evidence would show.
+
+⚠️ **None of that identifies the cause, and this receipt does not claim one.** The
+attempt #2 run destroyed the evidence that would have. The next Stage B run will
+report the transport code, the Drive container's exit code, `OOMKilled`, restart
+count, health state and a bounded Drive log tail — which is what distinguishes a
+reset from a crash from an OOM from a storage failure. **If, and only if, that
+evidence shows the single-request path is the wrong canonical shape for this
+hardware, a move to the V2 chunked upload will be proposed separately, with the
+reasoning, before any such change is made.** It is not proposed now.
+
+### Guard 9
+
+New, and the same shape as guards 7 and 8: it refuses a pinned source tree whose
+acceptance suite does not classify a response before parsing it, or that still
+assigns `JSON.parse` of a response body that may not exist, or that does not
+block artifact-dependent subtests. A production-host window is far too expensive
+to spend rediscovering attempt #2. Verified to discriminate:
+
+```
+$ git show dc9dda7c:…/publicShareInternalIntegration.test.js | grep -cE "const [A-Za-z_]+ = JSON\.parse\([A-Za-z_]+\.text\)"
+2          # the attempt #2 source — guard 9 refuses it
+$ grep -cE "const [A-Za-z_]+ = JSON\.parse\([A-Za-z_]+\.text\)" …/publicShareInternalIntegration.test.js
+0          # the amended source — guard 9 accepts it
+$ grep -c parseJsonBody …   → 3      $ grep -c BLOCKED_BY_PS6_INT_4 … → 3
+```
+
+### TASK F — current `main` reconciled into the branch
+
+- `git fetch origin`, then the current `main` verified at execution time by both
+  `git rev-parse origin/main` and `git ls-remote origin refs/heads/main`:
+  **`c68946cbe917a71349a8234a4bc028fbf4c6967d`** (PR #104,
+  `feat/idea3-live-security-integration`, plus PR #106).
+- `git merge --no-ff origin/main` — **clean, zero conflicts**. No rebase, no
+  force push, no push to `main`.
+- The merge touches **only** `IDEA3-AEGIS_Lockdown/**` and three IDEA3-owned
+  vault paths (`idea3/idea3-status.md` and two `music` receipts). It changes no
+  file under `IDEA1-AEGIS_Drive_LC/`, `gateway/`, `postgres/`, `shared/`, the
+  root `docker-compose.yml` or `.env.example`, and it does not touch this
+  receipt. Both Stage B attempts' evidence is intact and unedited.
+
+⚠️ **The next Stage B must run against the NEW branch HEAD, not `dc9dda7c`.**
+
+### Files changed by this amendment
+
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.test.js` —
+  `parseJsonBody`/`describe`/`redactPreview`/idempotent `out()` in the prelude;
+  `ps6FailureEvidence`, `explainFailure`, `redact`, `bounded`,
+  `ownedByThisProject`, `blockedByInt4`, `routingToken` in the suite; PS6-INT-3
+  and PS6-INT-4 classify before parsing and capture evidence on both failure
+  paths; PS6-INT-14's revocation program reports a failure as data; the seven
+  dependent subtests carry a skip guard; PS6-INT-9/-11/-13 declare the synthetic
+  token and PS6-INT-13 refuses the vacuous assertion.
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareStageBDiagnostics.test.js` — **new**,
+  10 tests, no Docker and no daemon.
+- `gateway/public-share/integration/run-stage-b.sh` — guard 9.
+- `gateway/public-share/integration/README.md` — the diagnostics, the evidence
+  model, the blocking model and guard 9.
+- This receipt, and the PUBLIC-SHARE-6 paragraph in `idea1/idea1-status.md`.
+
+### TASK G — verification after the amendment, non-Production only
+
+Run on `aegis-system`, Node **v22.22.1**, in the neutral workspace clone,
+**after** the `main` merge.
+
+- `node --test --test-concurrency=1 tests/publicShareStageBDiagnostics.test.js` —
+  **10 tests, 10 passed, 0 failed.** The in-container prelude is extracted from
+  the suite as source and evaluated in-process, so PS6-DIAG-1/2/2b/2c/3 exercise
+  the exact code that runs inside the Drive container: a transport error is
+  classified and never parsed (`ECONNRESET`, `EPIPE`, `ECONNREFUSED`,
+  `ETIMEDOUT`, `socket hang up`), a 413 is reported with a bounded 300-character
+  excerpt, empty-body and not-JSON are distinct findings, a good response still
+  parses unchanged, and a diagnostic never carries a cookie, a CSRF token or a
+  link password. PS6-DIAG-4/5/6/7/8 pin the absence of any unguarded parse, the
+  PS6-only and redacted evidence model, the seven skip guards and their exact
+  required fields, that no acceptance was weakened, and that guard 9
+  discriminates the attempt #2 source from this one.
+- `node --test --test-concurrency=1 --test-timeout=180000 tests/publicShareStageBCredentialPlumbing.test.js`
+  — **9 tests, 9 passed, 0 failed.** The attempt #1 fix is unaffected.
+- `node --test tests/publicShareInternalIntegration.test.js` (no env var) —
+  **1 test, 0 passed, 1 skipped.** Still inert by default.
+- `node --test tests/publicShareGatewayStructure.test.js` — **12/12.**
+- `node --test tests/publicShareGatewayRuntime.test.js` — **1 test, 1 skipped**;
+  it is opt-in and needs Docker, so it stays inert here, as it did before.
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` —
+  **passed: 1,171 tests, 1,100 passed, 0 failed, 0 cancelled, 71 skipped,
+  278.6 s.** (Was 1,161 / 1,090 before this amendment; the ten new PS6-DIAG tests
+  are the difference.) PostgreSQL-only tests stayed skipped without
+  `TEST_DATABASE_URL`.
+- `sh -n gateway/public-share/integration/run-stage-b.sh` — passed. Runner
+  refusals re-driven after the merge and after guard 9: no SHA (exit 2),
+  abbreviated SHA (exit 2), `PS6_PROJECT=aegis-ps6-prod-test` (may not contain
+  `prod`), `PS6_COMPOSE_ENV_FILE` outside `PS6_WORKDIR` — all still refused
+  before anything is created. `ls -d /tmp/aegis-ps6-* /tmp/ps6-*` afterwards:
+  **nothing**.
+- `node --test tests/collaborationPolicy.test.mjs` — **18 tests, 18 passed, 0
+  failed.**
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`
+  — passed, with the same two pre-existing owner-review canvas warnings, and now
+  also covering the three IDEA3 notes the `main` merge brought in.
+- `git diff --check`, `git diff --cached --check`, `git status --short` — clean.
+
+⚠️ **`PUBLIC_SHARE_INTEGRATION_RUNTIME=1` was NOT run.** On this host that is
+Stage B.
+
 ## Known limitations
 
 - **Public Internet Share remains NOT IMPLEMENTED.** Production gateway = NO,

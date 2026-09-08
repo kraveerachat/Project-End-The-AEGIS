@@ -539,8 +539,9 @@ ordinary Internet access. **G4, G5 and G6 remain open and
 source changed, and no Production database, gateway, network, volume or migration
 was contacted. PUBLIC-SHARE-7 was not started.
 
-**Stage B: gate APPROVED 2026-09-08. Attempt #1 EXECUTED and FAILED SAFELY;
-the acceptance matrix has still never run on server hardware.** The owner
+**Stage B: gate APPROVED 2026-09-08. Attempts #1 and #2 EXECUTED, both FAILED
+SAFELY; the acceptance matrix has still never completed on server hardware.**
+The owner
 approved running the same isolated harness on the server hardware. The earlier
 blocker — an agent session with no working SSH path to `192.168.10.10` — no
 longer applies: work now happens **on** the `aegis-system` host. All fourteen
@@ -564,8 +565,35 @@ rather than an environment variable: one PS6-owned file at
 `$PS6_WORKDIR/evidence/compose.env`, mode `0600`, never printed, never committed,
 removed by the existing cleanup trap, and passed to every Compose call — the
 suite's and the runner's teardown alike — as `--env-file` before `-p` and `-f`.
-A new guard 8 refuses any pinned source tree that predates this. Stage B has
-**not** been re-run.
+A new guard 8 refuses any pinned source tree that predates this.
+
+Attempt #2, against `dc9dda7c…`, cleared that: the credential plumbing passed and
+the **isolated stack built and started**. It then reported **9 failures out of
+16**, which were **one** failure. `PS6-INT-4`'s deterministic 64 MiB private-path
+upload did not complete, and the harness called `JSON.parse` on the body a failed
+request never returned — so the only thing the run said was
+`SyntaxError: "undefined" is not valid JSON`, and the real transport cause was
+destroyed. `PS6-INT-4` then minted no token, share id or file id, and seven
+dependent subtests asked the gateway for `/s/undefined`, got its correct 404, and
+were reported as defects. **They are not defects, and none is claimed as one.**
+`PS6-INT-1/2/3/11` passed on their own terms; `PS6-INT-9` and `-13` passed with
+token-shaped assertions that ran against the literal string `undefined` and are
+recorded as weaker than they look. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+The harness now classifies a response before parsing it (transport error, wrong
+status, empty body, non-JSON — each a distinct, bounded, redacted finding),
+captures PS6-only evidence before teardown (container status/exit code/
+`OOMKilled`/restart count/health, the Drive health log, a bounded PS6 Drive log
+tail and `compose ps`, each container checked against its own project label
+first, never Production), and marks artifact-dependent subtests
+`BLOCKED_BY_PS6_INT_4` instead of failing them. Guard 9 refuses a pinned tree
+that would repeat any of it. **No shipped source changed and no acceptance was
+weakened**: the upload is still the same shipped private endpoint, still 64 MiB,
+still deterministic, still digest-checked. **The cause of the upload failure is
+still unknown and is not claimed**; the next run is what will identify it. Stage B
+has **not** been re-run.
 
 Two host findings changed the harness. First, the administrative account is not
 in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket

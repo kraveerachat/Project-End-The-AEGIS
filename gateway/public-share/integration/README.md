@@ -203,6 +203,63 @@ interpolation at all and is still fail-closed.
 `PS6_PROJECT`: such a tree would get exactly as far as attempt #1 did, on a
 production host, before anyone found out.
 
+### Failure diagnostics, and why one failure is one failure
+
+Stage B attempt #2 reported **nine** failures that were **one** failure.
+
+`PS6-INT-4` uploads a deterministic 64 MiB object on the private path. The
+in-container `send()` helper resolves `{ error, status: 0 }` and **no** `text`
+when a request never completes — and the program then did
+`const uploaded = JSON.parse(up.text)`. So whatever actually stopped a 64 MiB
+upload that succeeds on a developer machine surfaced only as
+
+```
+SyntaxError: "undefined" is not valid JSON
+```
+
+and the cause was destroyed by the diagnostic. `PS6-INT-4` then minted no token,
+no share id and no file id, and seven dependent subtests asked the gateway for
+`/s/undefined`, received the 404 it correctly returns, and were reported as
+confirmed defects.
+
+Three things changed, none of them in shipped code:
+
+1. **Classify before parsing.** `parseJsonBody(label, res, expectedStatus)` in the
+   in-container prelude returns `{ ok: false, diagnostic }` for a transport
+   error, an unexpected status, an empty body or a non-JSON body, and only calls
+   `JSON.parse` when a body is known to exist. The diagnostic carries the
+   transport code, the status, the expected status, the response length, whether
+   a body was present, the content type and — for a status or parse failure —
+   a **bounded, redacted** 300-character excerpt. A transport failure now reads
+   `PS6-INT-4 upload transport failure: status=0 error=ECONNRESET`.
+2. **Capture PS6-only evidence before teardown.** On any provisioning failure the
+   suite records, for this project's containers only and each checked against its
+   own `com.docker.compose.project` label first: status, running, exit code,
+   `OOMKilled`, restart count, health state, the Drive health-check log, a
+   160-line tail of the **PS6** Drive log, and `compose ps`. Everything is
+   bounded and passed through a redactor covering the four throwaway PS6
+   credentials, the link password and the reset password. **No production
+   container is inspected, and no production log is ever read or printed.**
+3. **Block the cascade.** A subtest that consumes the artifact is declared with
+   `skip: blockedByInt4(…)`, so when `PS6-INT-4` provisioned nothing it is
+   reported as `BLOCKED_BY_PS6_INT_4` rather than failed. The guard is evaluated
+   when the subtest is declared — after `PS6-INT-4` has run — so a successful
+   `PS6-INT-4` skips nothing and the acceptance meaning is unchanged.
+   `PS6-INT-9`, `-11` and `-13` measure the route map, default-deny and B5 rather
+   than the artifact, so they keep running on an obviously synthetic token and
+   say so; the one assertion inside `PS6-INT-13` that would become vacuous
+   (the raw token must not appear in the gateway log) is explicitly **not**
+   evaluated rather than allowed to pass for free.
+
+**Guard 9** refuses a pinned tree that would repeat any of that: it requires
+`parseJsonBody` and `BLOCKED_BY_PS6_INT_4` to be present and refuses a tree that
+still assigns `JSON.parse` of a response body that may not exist.
+
+⚠️ **No shipped behaviour changed, and no acceptance was weakened.** The upload is
+still the same shipped private endpoint, still 64 MiB, still deterministic, and
+`PS6-INT-4` still asserts status 201, the exact byte count and the server-side
+digest. Nothing was substituted to obtain a pass.
+
 ### Pre/post inventory: stable identity, not human strings
 
 The runner does **not** diff `docker ps --format '{{.Status}}'`. That prints

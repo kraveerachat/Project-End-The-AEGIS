@@ -543,6 +543,23 @@ grep -q 'PS6_COMPOSE_ENV_FILE' "$TEST_FILE" || die "the pinned acceptance suite 
 grep -q "'--env-file'" "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA never passes --env-file to docker compose"
 note "the pinned acceptance suite reads PS6_COMPOSE_ENV_FILE and passes --env-file"
 
+# ── Guard 9 · the pinned source classifies before it parses ──────────────────
+#
+# ⚠️ Added after Stage B attempt #2. That run reached the 64 MiB private upload
+#    and the upload did not complete; the suite then called JSON.parse on the
+#    body a failed request never returned, so the only thing the run reported
+#    was `SyntaxError: "undefined" is not valid JSON` — and the real transport
+#    cause was gone. Seven dependent subtests then failed on `/s/undefined` and
+#    were indistinguishable from real defects.
+#
+#    A production-host window is far too expensive to spend rediscovering that.
+#    Refuse a pinned tree that would repeat it.
+say "guard 9 — the pinned source classifies a response before parsing it"
+grep -q 'parseJsonBody' "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA does not classify a response before parsing it, so a transport failure would surface as a JSON SyntaxError and the real cause would be lost — exactly the Stage B attempt #2 outcome. Use a PR #105 HEAD that includes the diagnostics amendment."
+grep -qE 'const [A-Za-z_]+ = JSON\.parse\([A-Za-z_]+\.text\)' "$TEST_FILE" && die "the pinned acceptance suite at $PS6_SOURCE_SHA still assigns JSON.parse of a response body that may not exist"
+grep -q 'BLOCKED_BY_PS6_INT_4' "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA does not block artifact-dependent subtests, so one provisioning failure would again be reported as eight"
+note "responses are classified before parsing, and dependent subtests are blocked rather than failed"
+
 # ── Dependencies · none are installed on the host, deliberately ──────────────
 #
 # The acceptance suite imports node:test, node:assert, node:child_process,

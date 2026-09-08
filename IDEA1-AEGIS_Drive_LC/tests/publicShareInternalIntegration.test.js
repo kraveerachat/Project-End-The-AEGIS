@@ -285,7 +285,69 @@ function send(opts) {
   })
 }
 
-function out(value) { process.stdout.write(JSON.stringify(value)) }
+let OUT_DONE = false
+/** Emit the program's one JSON result. Idempotent: a later call cannot corrupt it. */
+function out(value) { if (OUT_DONE) return; OUT_DONE = true; process.stdout.write(JSON.stringify(value)) }
+
+/**
+ * Secrets this program knows and must never emit. Populated by the caller after
+ * a session exists, because the cookie and the CSRF token only exist then.
+ */
+const REDACT = []
+
+/** A bounded, redacted excerpt. The only body text any diagnostic may carry. */
+function redactPreview(text, max) {
+  let s = String(text == null ? '' : text).slice(0, max || 200)
+  for (const secret of REDACT) { if (secret) s = s.split(secret).join('<<redacted>>') }
+  return s
+}
+
+/**
+ * Describe a send() result without revealing it.
+ *
+ * WARNING: send() resolves { error, status: 0 } and NO 'text' on a transport
+ *    error. Stage B attempt #2 fed that missing 'text' straight to JSON.parse,
+ *    so the real failure -- the 64 MiB upload never completed -- surfaced as
+ *    'SyntaxError: "undefined" is not valid JSON' and the real cause was lost.
+ *    Nothing below parses anything until a body is known to exist.
+ */
+function describe(label, res, expectedStatus) {
+  const hasText = typeof res.text === 'string' && res.text.length > 0
+  return {
+    label,
+    expectedStatus,
+    status: res.status == null ? 0 : res.status,
+    error: res.error == null ? null : String(res.error),
+    length: res.length == null ? 0 : res.length,
+    hasText,
+    bodyBytes: typeof res.text === 'string' ? res.text.length : 0,
+    contentType: (res.headers && res.headers['content-type']) || null,
+  }
+}
+
+/**
+ * Parse a JSON response body ONLY when one actually exists.
+ * Returns { ok: true, value } or { ok: false, diagnostic } — it never throws and
+ * never calls JSON.parse on undefined.
+ */
+function parseJsonBody(label, res, expectedStatus) {
+  const d = describe(label, res, expectedStatus)
+  if (d.error) { d.reason = 'transport'; return { ok: false, diagnostic: d } }
+  if (d.status !== expectedStatus) {
+    d.reason = 'status'
+    d.preview = redactPreview(res.text, 300)
+    return { ok: false, diagnostic: d }
+  }
+  if (!d.hasText) { d.reason = 'empty-body'; return { ok: false, diagnostic: d } }
+  try {
+    return { ok: true, value: JSON.parse(res.text) }
+  } catch (e) {
+    d.reason = 'not-json'
+    d.parseError = String((e && e.message) || e).slice(0, 200)
+    d.preview = redactPreview(res.text, 300)
+    return { ok: false, diagnostic: d }
+  }
+}
 `
 
 /** Session helper used on the PRIVATE path, from inside the drive container. */
@@ -305,8 +367,10 @@ class Session {
     const setCookie = res.headers && res.headers['set-cookie']
     if (setCookie && setCookie.length) this.cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
     let data = null
+    // A transport error has no body at all; recording it is what makes a failed
+    // login say ECONNRESET instead of 'login failed: 0 null'.
     try { data = JSON.parse(res.text) } catch (e) { data = null }
-    return { status: res.status, data, headers: res.headers }
+    return { status: res.status, data, headers: res.headers, error: res.error == null ? null : String(res.error) }
   }
 
   /** Log in, walking the seed account's mandatory first-login password reset. */
@@ -317,13 +381,13 @@ class Session {
       used = seedPassword
       res = await this.json('/api/login', { method: 'POST', body: { username, password: seedPassword } })
     }
-    if (res.status !== 200) throw new Error('login failed: ' + res.status + ' ' + JSON.stringify(res.data))
+    if (res.status !== 200) throw new Error('login failed: status=' + res.status + ' error=' + res.error + ' body=' + redactPreview(JSON.stringify(res.data), 200))
     this.csrf = res.data.csrfToken
     if (res.data.user && res.data.user.mustResetPassword) {
       const reset = await this.json('/api/password/reset', {
         method: 'POST', body: { currentPassword: used, newPassword: resetPassword },
       })
-      if (reset.status !== 200) throw new Error('force-reset failed: ' + reset.status + ' ' + JSON.stringify(reset.data))
+      if (reset.status !== 200) throw new Error('force-reset failed: status=' + reset.status + ' error=' + reset.error + ' body=' + redactPreview(JSON.stringify(reset.data), 200))
     }
     return res.data
   }
@@ -470,7 +534,165 @@ test('PS6-INT the real gateway integrates with the real Drive on an internal add
   ], sql, { timeoutMs: 120_000 })
 
   /** Everything the run needs to know about the artifact under test. */
-  const artifact = { token: null, sha256: null, size: null, shareId: null, fileId: null }
+  const artifact = { token: null, privateToken: null, sha256: null, size: null, shareId: null, fileId: null }
+
+  /**
+   * A subtest that consumes the artifact must not masquerade as an independent
+   * finding when PS6-INT-4 never provisioned one.
+   *
+   * ⚠️ Stage B attempt #2 reported NINE failures. Eight of them were one
+   *    failure: PS6-INT-4 never minted a token, a share id or a file id, so
+   *    every dependent subtest asked the gateway for `/s/undefined` and
+   *    asserted on the 404 it correctly returned. Seven confirmed defects were
+   *    reported that did not exist.
+   *
+   * Returning a string here makes node:test SKIP the subtest and print the
+   * reason, so the run says "blocked" where it used to say "failed". The value
+   * is computed when the subtest is declared — i.e. after PS6-INT-4 has already
+   * run — so a successful PS6-INT-4 leaves every dependent subtest executing
+   * exactly as before. The acceptance meaning is unchanged.
+   */
+  const blockedByInt4 = (...required) => {
+    const missing = required.filter((key) => artifact[key] === null || artifact[key] === undefined)
+    return missing.length === 0
+      ? false
+      : `BLOCKED_BY_PS6_INT_4 — PS6-INT-4 did not provision ${missing.join(', ')}, ` +
+        'so this subtest would assert against a non-existent artifact. It is blocked, not failed: ' +
+        'nothing here is evidence of a product defect.'
+  }
+
+  /**
+   * A token for the routing, default-deny and B5 probes, which are about the
+   * gateway's map rather than about the artifact and must keep running when the
+   * artifact is missing. It is deliberately obvious in any log or assertion
+   * message that no real token was involved.
+   */
+  const UNPROVISIONED_TOKEN = 'ps6-unprovisioned-token'
+  const routingToken = () => artifact.token ?? UNPROVISIONED_TOKEN
+
+  // ── PS6-only failure evidence, captured BEFORE teardown ────────────────────
+  //
+  // ⚠️ Everything below is scoped to THIS project's containers, and each one is
+  //    checked against its own `com.docker.compose.project` label before it is
+  //    inspected or read. No production container is inspected, and no
+  //    production log is ever read or printed.
+  //
+  // ⚠️ Every string that leaves this block passes through `redact()` first, so
+  //    the four throwaway PS6 credentials, the link password and the reset
+  //    password cannot reach the runner's output even if a log line carried one.
+
+  const REDACTIONS = [
+    env.PS6_SUPER_PASSWORD, env.PS6_DRIVE_DB_PASSWORD, env.PS6_SESSION_SECRET, env.PS6_SUPER_USER,
+    LINK_PASSWORD, RESET_PASSWORD, SEED_PASSWORD,
+  ].filter((value) => typeof value === 'string' && value.length >= 4)
+
+  const redact = (value) => {
+    let text = String(value ?? '')
+    for (const secret of REDACTIONS) text = text.split(secret).join('«redacted»')
+    return text
+  }
+  const bounded = (value, max) => {
+    const text = redact(value)
+    return text.length <= max ? text : `${text.slice(0, max)}\n      … ${text.length - max} more characters not shown`
+  }
+
+  /** Refuse to touch any container that is not labelled with THIS project. */
+  const ownedByThisProject = async (id) => {
+    if (!id) return false
+    try {
+      const { stdout } = await docker(['inspect', id, '--format', '{{index .Config.Labels "com.docker.compose.project"}}'])
+      return stdout.trim() === PROJECT
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Enough PS6-only evidence to tell a connection reset from a process exit,
+   * a health failure, a rejected body, a storage failure or an OOM kill —
+   * captured while the stack is still up, because the cleanup trap is about to
+   * remove it. Never throws: a diagnostic that fails must not replace the
+   * failure it was called to explain.
+   */
+  const ps6FailureEvidence = async (reason) => {
+    const lines = [
+      '',
+      `  ── PS6-only failure evidence — ${reason} ──`,
+      `  project ${PROJECT}; no production container is inspected, read or logged`,
+    ]
+    const named = [['drive', driveId], ['public-share-gateway', gatewayId], ['postgres', postgresId], ['recipient', recipientId]]
+
+    lines.push('  container state  service | status | running | exitCode | oomKilled | restarts | health')
+    for (const [service, id] of named) {
+      if (!(await ownedByThisProject(id))) {
+        lines.push(`    ${service}: not labelled ${PROJECT} — refusing to inspect it`)
+        continue
+      }
+      try {
+        const { stdout } = await docker(['inspect', id, '--format',
+          '{{.State.Status}}|{{.State.Running}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.RestartCount}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'])
+        lines.push(`    ${service}: ${stdout.trim()}`)
+      } catch (e) {
+        lines.push(`    ${service}: inspect failed — ${bounded(e.message, 200)}`)
+      }
+    }
+
+    if (await ownedByThisProject(driveId)) {
+      try {
+        const { stdout } = await docker(['inspect', driveId, '--format',
+          '{{if .State.Health}}{{range .State.Health.Log}}{{.ExitCode}} {{.Output}}{{end}}{{else}}no healthcheck{{end}}'])
+        lines.push(`  drive health log (bounded, redacted):\n      ${bounded(stdout.trim(), 800)}`)
+      } catch (e) {
+        lines.push(`  drive health log: unavailable — ${bounded(e.message, 200)}`)
+      }
+
+      // The decisive artefact: why the Drive process stopped answering. Bounded
+      // and redacted; this is the harness's own throwaway Drive, never Production's.
+      try {
+        const { stdout, stderr } = await docker(['logs', '--tail', '160', driveId], { maxBuffer: 8 * 1024 * 1024 })
+        lines.push(`  drive logs, last 160 lines (bounded, redacted):\n      ${bounded(`${stdout}${stderr}`, 6000)}`)
+      } catch (e) {
+        lines.push(`  drive logs: unavailable — ${bounded(e.message, 200)}`)
+      }
+    }
+
+    try {
+      const { stdout } = await compose(['ps', '--format', 'json'])
+      const rows = stdout.trim().split('\n').filter(Boolean).map((line) => {
+        try {
+          const p = JSON.parse(line)
+          return `${p.Service}=${p.State}/${p.Health || 'none'} exit=${p.ExitCode ?? 'n/a'}`
+        } catch { return 'unparseable row' }
+      })
+      lines.push(`  compose ps: ${bounded(rows.join('  '), 1000)}`)
+    } catch (e) {
+      lines.push(`  compose ps: unavailable — ${bounded(e.message, 200)}`)
+    }
+
+    lines.push('  ── end PS6-only failure evidence ──')
+    return lines.join('\n')
+  }
+
+  /**
+   * Turn an in-container `ps6Failure` record into a message that says what
+   * actually happened, and attach the PS6-only evidence captured before teardown.
+   */
+  const explainFailure = async (label, failure) => {
+    const f = failure ?? {}
+    const headline = f.reason === 'transport'
+      ? `${label} transport failure: status=${f.status ?? 0} error=${f.error ?? 'unknown'}`
+      : `${label} ${f.stage ?? 'request'} failure (${f.reason ?? 'unknown'}): ` +
+        `status=${f.status ?? 'n/a'} expected=${f.expectedStatus ?? 'n/a'} error=${f.error ?? 'none'}`
+    const detail = [
+      `    response length: ${f.length ?? 'n/a'} bytes; body present: ${f.hasText === undefined ? 'n/a' : f.hasText};` +
+      ` body bytes captured: ${f.bodyBytes ?? 'n/a'}; content-type: ${f.contentType ?? 'none'}`,
+    ]
+    if (f.parseError) detail.push(`    parse error: ${redact(f.parseError)}`)
+    if (f.preview) detail.push(`    body excerpt (bounded, redacted): ${bounded(f.preview, 300)}`)
+    if (f.keys) detail.push(`    response shape: keys=${redact(JSON.stringify(f.keys))}`)
+    if (f.stack) detail.push(`    in-container stack (redacted): ${bounded(f.stack, 1200)}`)
+    return `${headline}\n${detail.join('\n')}\n${await ps6FailureEvidence(headline)}`
+  }
 
   // ── PS6-INT-1 ──────────────────────────────────────────────────────────────
   await t.test('PS6-INT-1 three internal isolated networks, and no host port anywhere', async () => {
@@ -568,6 +790,7 @@ Promise.all(targets.map(probe)).then(out)
 ;(async () => {
   const s = new Session('localhost')
   await s.login(${JSON.stringify(SEED_USER)}, ${JSON.stringify(SEED_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)})
+  REDACT.push(s.cookie, s.csrf, ${JSON.stringify(LINK_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)}, ${JSON.stringify(SEED_PASSWORD)})
   const body = Buffer.alloc(1024, 0x61)
   const boundary = '----ps6probe' + Date.now()
   const parts = Buffer.concat([
@@ -577,14 +800,27 @@ Promise.all(targets.map(probe)).then(out)
   const up = await send({ ...DRIVE, path: '/api/files/upload', method: 'POST', captureBytes: 65536,
     headers: { Host: 'localhost', cookie: s.cookie, 'X-CSRF-Token': s.csrf,
       'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': parts.length }, body: parts })
-  const uploaded = JSON.parse(up.text)
+  const parsed = parseJsonBody('PS6-INT-3 probe upload', up, 201)
+  if (!parsed.ok) { out({ ps6Failure: { stage: 'probe-upload', ...parsed.diagnostic } }); return }
+  const uploaded = parsed.value
+  if (!uploaded || !uploaded.file || uploaded.file.id === undefined) {
+    out({ ps6Failure: { stage: 'probe-upload', reason: 'unexpected-shape', status: up.status, length: up.length, hasText: true, keys: Object.keys(uploaded || {}) } })
+    return
+  }
   const share = await s.json('/api/shares', { method: 'POST', body: {
     fileId: uploaded.file.id, expiry: '1h', authType: 'password', scope: 'public', password: ${JSON.stringify(LINK_PASSWORD)},
   } })
   out({ uploadStatus: up.status, fileId: uploaded.file.id, shareStatus: share.status, shareBody: share.data })
-})().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1) })
+})().catch((e) => { out({ ps6Failure: { stage: 'probe-program', reason: 'exception', stack: redactPreview(String((e && e.stack) || e), 1200) } }) })
 `
-    const pre = await runNode(driveId, provision, { timeoutMs: 180_000 })
+    let pre
+    try {
+      pre = await runNode(driveId, provision, { timeoutMs: 180_000 })
+    } catch (cause) {
+      assert.fail(`PS6-INT-3 the probe program did not complete inside the Drive container: ` +
+        `${bounded(cause && cause.message, 2000)}\n${await ps6FailureEvidence('PS6-INT-3 probe program did not complete')}`)
+    }
+    if (pre.ps6Failure) assert.fail(await explainFailure('PS6-INT-3', pre.ps6Failure))
     assert.equal(pre.uploadStatus, 201, 'the probe upload must succeed on the private path')
     assert.notEqual(pre.shareStatus, 201,
       'a public share must NOT be creatable before migration 009 — the database constraint has to refuse it')
@@ -618,6 +854,7 @@ const FILE_BYTES = ${FILE_BYTES}
 ;(async () => {
   const s = new Session('localhost')
   await s.login(${JSON.stringify(SEED_USER)}, ${JSON.stringify(SEED_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)})
+  REDACT.push(s.cookie, s.csrf, ${JSON.stringify(LINK_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)}, ${JSON.stringify(SEED_PASSWORD)})
 
   // Deterministic, incompressible-enough content derived from a fixed seed, so
   // the expected digest is a property of the test rather than of a lucky run.
@@ -636,7 +873,18 @@ const FILE_BYTES = ${FILE_BYTES}
   const up = await send({ ...DRIVE, path: '/api/files/upload', method: 'POST', captureBytes: 65536,
     headers: { Host: 'localhost', cookie: s.cookie, 'X-CSRF-Token': s.csrf,
       'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': parts.length }, body: parts })
-  const uploaded = JSON.parse(up.text)
+
+  // The upload is the step Stage B attempt #2 died on. Classify it here, where
+  // the response object still exists, and hand the classification back as data.
+  // JSON.parse is reached only when a body is known to be present.
+  const parsed = parseJsonBody('PS6-INT-4 64 MiB private upload', up, 201)
+  if (!parsed.ok) { out({ ps6Failure: { stage: 'upload', ...parsed.diagnostic } }); return }
+  const uploaded = parsed.value
+  if (!uploaded || !uploaded.file || uploaded.file.id === undefined || uploaded.file.sha256 === undefined) {
+    out({ ps6Failure: { stage: 'upload', reason: 'unexpected-shape', status: up.status, length: up.length, hasText: true,
+      keys: Object.keys(uploaded || {}), fileKeys: Object.keys((uploaded && uploaded.file) || {}) } })
+    return
+  }
 
   // Created through a request carrying a POISONED Host header. The public URL
   // must come from PUBLIC_SHARE_BASE_URL alone.
@@ -660,9 +908,21 @@ const FILE_BYTES = ${FILE_BYTES}
     privateStatus: priv.status, privatePath: priv.data && priv.data.path,
     privatePublicUrl: priv.data ? (priv.data.publicUrl ?? null) : null,
   })
-})().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1) })
+})().catch((e) => { out({ ps6Failure: { stage: 'provisioning-program', reason: 'exception', stack: redactPreview(String((e && e.stack) || e), 1200) } }) })
 `
-    const r = await runNode(driveId, provision, { timeoutMs: 900_000 })
+    // ⚠️ The program can also fail to RUN — an OOM kill inside the container, a
+    //    daemon error, a timeout — in which case `docker exec` itself is
+    //    non-zero. Both paths capture PS6-only evidence before the cleanup trap
+    //    removes the stack, because after teardown there is nothing left to ask.
+    let r
+    try {
+      r = await runNode(driveId, provision, { timeoutMs: 900_000 })
+    } catch (cause) {
+      assert.fail(`PS6-INT-4 the provisioning program did not complete inside the Drive container: ` +
+        `${bounded(cause && cause.message, 2000)}\n${await ps6FailureEvidence('PS6-INT-4 provisioning program did not complete')}`)
+    }
+    if (r.ps6Failure) assert.fail(await explainFailure('PS6-INT-4 upload', r.ps6Failure))
+
     assert.equal(r.uploadStatus, 201, 'the 64 MiB upload must succeed on the private path')
     assert.equal(r.serverSize, FILE_BYTES, 'the server must store exactly the bytes that were sent')
     assert.equal(r.serverSha256, r.expectedSha256,
@@ -706,7 +966,8 @@ send(${JSON.stringify({ host: GATEWAY_EDGE_IP, port: 8080, ...spec })}).then(out
   const hitsOf = async (shareId) => Number(await psql(`SELECT hits FROM shares WHERE id = ${Number(shareId)}`))
 
   // ── PS6-INT-5 ──────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-5 normal redemption end to end through the real gateway', async () => {
+  await t.test('PS6-INT-5 normal redemption end to end through the real gateway',
+    { skip: blockedByInt4('token', 'shareId', 'sha256') }, async () => {
     const form = await recipientRequest({ path: `/s/${artifact.token}`, headers: { Host: HOST }, captureBytes: 65536 })
     assert.equal(form.status, 200, 'the password page must render through the gateway')
     assert.match(String(form.headers['content-type']), /text\/html/)
@@ -739,7 +1000,8 @@ send(${JSON.stringify({ host: GATEWAY_EDGE_IP, port: 8080, ...spec })}).then(out
   })
 
   // ── PS6-INT-6 ──────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-6 a slow client with a 75s stall completes intact', async () => {
+  await t.test('PS6-INT-6 a slow client with a 75s stall completes intact',
+    { skip: blockedByInt4('token', 'sha256') }, async () => {
     // 75s exceeds the 60s nginx default for proxy_read_timeout and send_timeout.
     // With `proxy_buffering off` the gateway stops reading from Drive while the
     // recipient is not draining, so this stall lands on those very timers. It
@@ -782,7 +1044,8 @@ req.end(body)
   })
 
   // ── PS6-INT-7 ──────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-7 an interrupted transfer harms neither the gateway nor Drive', async () => {
+  await t.test('PS6-INT-7 an interrupted transfer harms neither the gateway nor Drive',
+    { skip: blockedByInt4('token', 'shareId', 'sha256') }, async () => {
     const before = await hitsOf(artifact.shareId)
     const program = `${PRELUDE}
 const body = ${JSON.stringify(formBody(LINK_PASSWORD))}
@@ -823,7 +1086,8 @@ req.end(body)
   })
 
   // ── PS6-INT-8 ──────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-8 concurrent downloads all complete intact', async () => {
+  await t.test('PS6-INT-8 concurrent downloads all complete intact',
+    { skip: blockedByInt4('token', 'shareId', 'sha256') }, async () => {
     const CONCURRENCY = 4
     const before = await hitsOf(artifact.shareId)
     const program = `${PRELUDE}
@@ -850,15 +1114,21 @@ Promise.all(Array.from({ length: ${CONCURRENCY} }, one))
   })
 
   // ── PS6-INT-9 ──────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-9 no AEGIS surface but /s/:token is reachable through the gateway', async () => {
+  // ⚠️ PS6-INT-9, -11 and -13 measure the gateway's ROUTE MAP, its default-deny
+  //    and B5 — none of which is a property of the artifact — so they keep
+  //    running when PS6-INT-4 provisioned nothing. They then use an obviously
+  //    synthetic token, and each says so, so a reader never mistakes a routing
+  //    result for an artifact result.
+  await t.test('PS6-INT-9 no AEGIS surface but /s/:token is reachable through the gateway', async (sub) => {
+    if (!artifact.token) sub.diagnostic(`route-map probes use the synthetic token ${UNPROVISIONED_TOKEN} — BLOCKED_BY_PS6_INT_4 for anything artifact-shaped`)
     const auditBefore = Number(await psql('SELECT count(*) FROM audit_log'))
 
     const forbidden = [
       '/', '/healthz', '/drive/', '/drive/index.html', '/monitor/',
       '/api', '/api/me', '/api/shares', '/api/files', '/api/audit',
       // Traversal: normalises to /api/me, but the RAW target is what the map checks.
-      `/s/${artifact.token}/../api/me`,
-      `/s/${artifact.token}/../../api/me`,
+      `/s/${routingToken()}/../api/me`,
+      `/s/${routingToken()}/../../api/me`,
       '/s/', '/s',
     ]
     const program = `${PRELUDE}
@@ -875,7 +1145,7 @@ Promise.all(paths.map((p) => send({
     }
 
     // A method the contract does not allow, on the one allowed route.
-    const put = await recipientRequest({ path: `/s/${artifact.token}`, method: 'PUT', headers: { Host: HOST }, captureBytes: 4096 })
+    const put = await recipientRequest({ path: `/s/${routingToken()}`, method: 'PUT', headers: { Host: HOST }, captureBytes: 4096 })
     assert.equal(put.status, 405, 'only GET and POST are allowed on the share route')
 
     // The decisive half: none of that reached Drive. Every refused request was
@@ -889,7 +1159,7 @@ Promise.all(paths.map((p) => send({
     // rather than a new surface — it is deliberately NOT asserted to 404. What
     // must hold is the security property: it is still a gated redemption and
     // cannot hand over the file without the link password.
-    const upper = await recipientRequest({ path: `/S/${artifact.token}`, headers: { Host: HOST }, captureBytes: 4096 })
+    const upper = await recipientRequest({ path: `/S/${routingToken()}`, headers: { Host: HOST }, captureBytes: 4096 })
     assert.notEqual(upper.length, FILE_BYTES,
       'no spelling of the share route may deliver the file without the link password')
     assert.doesNotMatch(String(upper.text ?? ''), /csrfToken|DataLake/i,
@@ -897,7 +1167,8 @@ Promise.all(paths.map((p) => send({
   })
 
   // ── PS6-INT-10 ─────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-10 forged forwarding headers cannot move the attributed source', async () => {
+  await t.test('PS6-INT-10 forged forwarding headers cannot move the attributed source',
+    { skip: blockedByInt4('token') }, async () => {
     const forged = await recipientRequest(redeemSpec(artifact.token, LINK_PASSWORD, {
       'X-Forwarded-For': '203.0.113.9',
       'X-Real-IP': '203.0.113.9',
@@ -921,10 +1192,11 @@ Promise.all(paths.map((p) => send({
   })
 
   // ── PS6-INT-11 ─────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-11 an unknown Host terminates at the gateway', async () => {
+  await t.test('PS6-INT-11 an unknown Host terminates at the gateway', async (sub) => {
+    if (!artifact.token) sub.diagnostic(`Host probes use the synthetic token ${UNPROVISIONED_TOKEN}; the Host contract does not depend on the artifact`)
     const auditBefore = Number(await psql('SELECT count(*) FROM audit_log'))
     for (const host of ['evil.attacker.invalid', '172.31.250.2', 'localhost', `${HOST}.attacker.invalid`]) {
-      const res = await recipientRequest({ path: `/s/${artifact.token}`, headers: { Host: host }, captureBytes: 4096 })
+      const res = await recipientRequest({ path: `/s/${routingToken()}`, headers: { Host: host }, captureBytes: 4096 })
       assert.equal(res.status, 404, `Host ${host} must fall to the default server, got ${res.status}`)
     }
     assert.equal(Number(await psql('SELECT count(*) FROM audit_log')), auditBefore,
@@ -932,7 +1204,8 @@ Promise.all(paths.map((p) => send({
   })
 
   // ── PS6-INT-12 ─────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-12 the ingress split holds in both directions', async () => {
+  await t.test('PS6-INT-12 the ingress split holds in both directions',
+    { skip: blockedByInt4('privateToken', 'sha256') }, async () => {
     // A non-public share offered to the gateway is refused, because arriving
     // through the public ingress is not a private ingress.
     const viaGateway = await recipientRequest({
@@ -957,7 +1230,7 @@ send({ host: '127.0.0.1', port: 8001, path: ${JSON.stringify(`/s/${artifact.priv
   })
 
   // ── PS6-INT-13 ─────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-13 B5 holds: the gateway reaches its upstream and nothing else', async () => {
+  await t.test('PS6-INT-13 B5 holds: the gateway reaches its upstream and nothing else', async (sub) => {
     // Busybox in the nginx:alpine image. No default route means no Internet and
     // no Docker host; PostgreSQL is on a network the gateway is not a member of.
     const routes = (await docker(['exec', gatewayId, 'ip', 'route'])).stdout
@@ -977,23 +1250,37 @@ send({ host: '127.0.0.1', port: 8001, path: ${JSON.stringify(`/s/${artifact.priv
     // the link password may appear in the gateway's own logs.
     const logs = (await docker(['logs', gatewayId])).stdout + (await docker(['logs', gatewayId])).stderr
     assert.ok(logs.length > 0, 'the gateway must have produced access logs to inspect')
-    assert.ok(!logs.includes(artifact.token), 'the raw share token must never reach the gateway log')
+    // Asserting `!logs.includes(undefined)` would be a check on the string
+    // "undefined", which proves nothing. Say so instead of scoring a free pass.
+    if (artifact.token) {
+      assert.ok(!logs.includes(artifact.token), 'the raw share token must never reach the gateway log')
+    } else {
+      sub.diagnostic('BLOCKED_BY_PS6_INT_4 — the raw-token log assertion was NOT evaluated: no token was ever minted')
+    }
     assert.ok(!logs.includes(LINK_PASSWORD), 'the link password must never reach the gateway log')
     assert.ok(!logs.includes(RECIPIENT_IP), 'the recipient address must not be persisted in the gateway log')
   })
 
   // ── PS6-INT-14 ─────────────────────────────────────────────────────────────
-  await t.test('PS6-INT-14 revocation propagates through the gateway immediately', async () => {
+  await t.test('PS6-INT-14 revocation propagates through the gateway immediately',
+    { skip: blockedByInt4('token', 'shareId') }, async () => {
     const program = `${PRELUDE}${PRIVATE_SESSION}
 ;(async () => {
   const s = new Session('localhost')
   await s.login(${JSON.stringify(SEED_USER)}, ${JSON.stringify(SEED_PASSWORD)}, ${JSON.stringify(RESET_PASSWORD)})
   const res = await s.json('/api/shares/' + ${JSON.stringify(String(artifact.shareId))}, { method: 'DELETE' })
-  out({ status: res.status })
-})().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1) })
+  out({ status: res.status, error: res.error })
+})().catch((e) => { out({ ps6Failure: { stage: 'revocation-program', reason: 'exception', stack: redactPreview(String((e && e.stack) || e), 1200) } }) })
 `
-    const revoked = await runNode(driveId, program, { timeoutMs: 120_000 })
-    assert.equal(revoked.status, 200, 'the owner must be able to revoke')
+    let revoked
+    try {
+      revoked = await runNode(driveId, program, { timeoutMs: 120_000 })
+    } catch (cause) {
+      assert.fail(`PS6-INT-14 the revocation program did not complete inside the Drive container: ` +
+        `${bounded(cause && cause.message, 2000)}\n${await ps6FailureEvidence('PS6-INT-14 revocation program did not complete')}`)
+    }
+    if (revoked.ps6Failure) assert.fail(await explainFailure('PS6-INT-14 revocation', revoked.ps6Failure))
+    assert.equal(revoked.status, 200, `the owner must be able to revoke (transport error: ${revoked.error ?? 'none'})`)
 
     const before = await hitsOf(artifact.shareId)
     const after = await recipientRequest(redeemSpec(artifact.token, LINK_PASSWORD))
