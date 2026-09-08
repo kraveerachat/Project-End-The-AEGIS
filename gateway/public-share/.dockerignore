@@ -1,0 +1,5 @@
+**
+!Dockerfile
+!nginx.conf.template
+!entrypoint.sh
+!validate-public-share-host.sh
