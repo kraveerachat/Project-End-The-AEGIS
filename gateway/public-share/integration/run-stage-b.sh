@@ -22,7 +22,8 @@
 #   1. ONE Compose project      $PS6_PROJECT      (always `aegis-ps6-…`)
 #   2. THREE networks           aegis_ps6_edge / _upstream / _data
 #   3. The project's anonymous volumes and its two BUILT images
-#   4. ONE temporary directory  /tmp/$PS6_PROJECT/
+#   4. ONE temporary directory  /tmp/$PS6_PROJECT/, which holds the ONE Compose
+#      env file  /tmp/$PS6_PROJECT/evidence/compose.env  (mode 0600)
 #
 #    Every destructive command below names one of those four. There is no
 #    `prune`, no bare `down`, and no filter broad enough to reach `aegis-prod`,
@@ -44,6 +45,45 @@
 #    cleanup that is still possible and stops, rather than retrying in a way that
 #    could prompt. An optional bounded keepalive (`sudo -n -v`) refreshes the
 #    existing timestamp only, is capped, and is killed by the cleanup trap.
+#
+# ── Credential plumbing across the sudo boundary ────────────────────────
+#
+# ⚠️ STAGE B ATTEMPT #1 FAILED HERE, and this is the fix.
+#
+#    `docker-compose.yml` interpolates four variables:
+#
+#        PS6_SUPER_USER  PS6_SUPER_PASSWORD  PS6_DRIVE_DB_PASSWORD  PS6_SESSION_SECRET
+#
+#    The acceptance suite generates all four as throwaway random values in its
+#    own child environment. That environment does NOT survive `sudo`: sudo
+#    deliberately drops arbitrary variables, so by the time `docker compose` ran,
+#    all four were gone and Compose refused to interpolate:
+#
+#        required variable PS6_SUPER_USER is missing a value
+#
+#    That is a harness credential-plumbing defect, not a product defect. No PS6
+#    container was created, Production was untouched, and cleanup completed.
+#
+# ⚠️ IT IS NOT FIXED BY WEAKENING THE BOUNDARY. There is no `sudo -E`, no
+#    `--preserve-env`, no sudoers `env_keep`, no docker-group membership, no
+#    passwordless sudo and no global environment change anywhere in this file.
+#    The privilege boundary is exactly what it was.
+#
+#    Instead the plumbing is made explicit. This runner owns ONE more file:
+#
+#        $PS6_WORKDIR/evidence/compose.env        mode 0600
+#
+#    It is created empty and owner-only BEFORE the suite starts, written by the
+#    suite with those four throwaway values and nothing else, handed to every
+#    Compose invocation as `--env-file`, never printed, never committed, and
+#    removed with the rest of $PS6_WORKDIR by the cleanup trap. A PATH crosses
+#    `sudo` because it is an argument; an environment variable does not.
+#
+#    The runner's own project teardown uses the SAME file, so cleanup can no
+#    longer fail interpolation for the reason attempt #1 did. If the file is
+#    missing or empty — a run that died before the suite could write it — the
+#    project-scoped `down` is skipped and the label-scoped sweeps below perform
+#    the teardown instead, still project-filtered and still fail-closed.
 #
 # ── Usage (from a quiet window) ──────────────────────────────────────────────
 #
@@ -135,6 +175,23 @@ case "$PS6_WORKDIR" in
   "$PRODUCTION_CHECKOUT"|"$PRODUCTION_CHECKOUT"/*) die "PS6_WORKDIR is inside the production checkout" ;;
 esac
 
+# ── The one Compose env file this run owns ───────────────────────────────────
+#
+# The only file this runner ever writes a secret into, and it never writes the
+# secret itself: it creates the file empty at mode 0600 and the acceptance suite
+# fills it with its own four throwaway values. See the header for why this
+# exists. It lives INSIDE $PS6_WORKDIR, so the existing cleanup trap already
+# owns its removal — no second lifetime to get wrong.
+PS6_COMPOSE_ENV_FILE=${PS6_COMPOSE_ENV_FILE:-$EVIDENCE_DIR/compose.env}
+
+case "$PS6_COMPOSE_ENV_FILE" in
+  "$PS6_WORKDIR"/*) ;;
+  *) die "PS6_COMPOSE_ENV_FILE must be inside $PS6_WORKDIR so the cleanup trap removes it — got '$PS6_COMPOSE_ENV_FILE'" ;;
+esac
+case "$PS6_COMPOSE_ENV_FILE" in
+  *..*) die "PS6_COMPOSE_ENV_FILE may not contain '..' — got '$PS6_COMPOSE_ENV_FILE'" ;;
+esac
+
 # ═══ Cleanup trap ════════════════════════════════════════════════════════════
 #
 # Armed BEFORE anything is created, so an INT/TERM at any point still tears down
@@ -175,7 +232,11 @@ cleanup_docker() {
     printf '\n[ps6-stage-b] FAIL CLOSED: sudo -n is no longer authorised, so Docker cleanup cannot run.\n' >&2
     printf '  Run these by hand, in this order:\n' >&2
     printf '    sudo -v\n' >&2
-    printf '    sudo env -u DOCKER_HOST docker compose -p %s -f %s down --volumes --remove-orphans --rmi local --timeout 10\n' "$PS6_PROJECT" "$COMPOSE_FILE" >&2
+    if [ -s "$PS6_COMPOSE_ENV_FILE" ]; then
+      printf '    sudo env -u DOCKER_HOST docker compose --env-file %s -p %s -f %s down --volumes --remove-orphans --rmi local --timeout 10\n' "$PS6_COMPOSE_ENV_FILE" "$PS6_PROJECT" "$COMPOSE_FILE" >&2
+    else
+      printf '    # no Compose env file exists, so a project-scoped `down` cannot interpolate; use the label sweep below\n' >&2
+    fi
     printf '    sudo env -u DOCKER_HOST docker ps -aq --filter label=com.docker.compose.project=%s\n' "$PS6_PROJECT" >&2
     printf '    rm -rf %s\n' "$PS6_WORKDIR" >&2
     return 1
@@ -186,9 +247,25 @@ cleanup_docker() {
   #     and node:20-alpine carry an explicit `image:` key and are therefore a
   #     custom tag, which `local` never removes. This is Compose's own scoping,
   #     not a filter written here.
+  #
+  #     ⚠️ `--env-file` FIRST, before `-p` and `-f`. Compose's env file is a
+  #        top-level flag; after the subcommand it is a different, service-scoped
+  #        flag that supplies no interpolation. Without it this very command is
+  #        what failed in Stage B attempt #1 — the teardown could not interpolate
+  #        the variables sudo had stripped, so it did nothing.
+  #
+  #     If the file is missing or empty the project-scoped `down` is SKIPPED
+  #     rather than run without interpolation: it could only fail. The
+  #     label-scoped sweeps immediately below are the teardown in that case, and
+  #     they need no interpolation at all.
   if [ "$STARTED" -eq 1 ] && [ -f "$COMPOSE_FILE" ]; then
-    $DOCKER compose -p "$PS6_PROJECT" -f "$COMPOSE_FILE" \
-      down --volumes --remove-orphans --rmi local --timeout 10 || true
+    if [ -s "$PS6_COMPOSE_ENV_FILE" ]; then
+      $DOCKER compose --env-file "$PS6_COMPOSE_ENV_FILE" -p "$PS6_PROJECT" -f "$COMPOSE_FILE" \
+        down --volumes --remove-orphans --rmi local --timeout 10 || true
+    else
+      note "no Compose env file yet — the project-scoped down is skipped because it"
+      note "could only fail interpolation; the label-scoped sweeps below do the teardown"
+    fi
   fi
 
   # 2 · anything the project labelled that survived, swept by label only.
@@ -233,6 +310,14 @@ cleanup_workdir() {
     /tmp/aegis-ps6-*) ;;
     *) printf '[ps6-stage-b] REFUSING to remove %s\n' "$PS6_WORKDIR" >&2; return 1 ;;
   esac
+  # The secret-bearing file is named and removed explicitly first, so its removal
+  # is a statement rather than a side effect of the directory going away. Its
+  # CONTENTS are never read, printed or echoed — only its path.
+  if [ -e "$PS6_COMPOSE_ENV_FILE" ]; then
+    rm -f "$PS6_COMPOSE_ENV_FILE"
+    [ -e "$PS6_COMPOSE_ENV_FILE" ] \
+      && printf '[ps6-stage-b] %s survived removal\n' "$PS6_COMPOSE_ENV_FILE" >&2
+  fi
   [ -e "$PS6_WORKDIR" ] || return 0
   say "cleanup — temporary directory $PS6_WORKDIR"
   rm -rf "$PS6_WORKDIR"
@@ -343,6 +428,25 @@ note "no conflict with 172.31.250-252.0/29"
 
 mkdir -p "$SRC_DIR" "$EVIDENCE_DIR"
 
+# ── The Compose env file, created empty and owner-only ───────────────────────
+#
+# Created here, before anything can write to it, so there is never a window in
+# which it exists at a wider mode. `umask 077` is what makes the creation itself
+# 0600 rather than 0600-after-the-fact; the explicit chmod covers the case where
+# a caller pointed PS6_COMPOSE_ENV_FILE at a path that somehow already exists.
+#
+# ⚠️ Nothing in this file ever reads, cats, greps, echoes or logs its CONTENTS.
+#    Only the path is printed.
+say "compose env file — explicit interpolation plumbing across the sudo boundary"
+(umask 077; : > "$PS6_COMPOSE_ENV_FILE") || die "cannot create $PS6_COMPOSE_ENV_FILE"
+chmod 600 "$PS6_COMPOSE_ENV_FILE" || die "cannot set mode 0600 on $PS6_COMPOSE_ENV_FILE"
+ENV_FILE_MODE=$(stat -c '%a' "$PS6_COMPOSE_ENV_FILE" 2>/dev/null || echo unknown)
+[ "$ENV_FILE_MODE" = 600 ] || die "$PS6_COMPOSE_ENV_FILE is mode $ENV_FILE_MODE, expected 600"
+note "path: $PS6_COMPOSE_ENV_FILE"
+note "mode: 0600, inside $PS6_WORKDIR, removed by the cleanup trap"
+note "the acceptance suite writes its four throwaway values here; contents are never printed"
+note "the privilege boundary is unchanged; no sudo environment preservation is used"
+
 # ═══ Stable inventory ════════════════════════════════════════════════════════
 #
 # ⚠️ NOT `docker ps --format '{{.Status}}'`. That prints "Up 4 days (healthy)",
@@ -426,6 +530,19 @@ TEST_FILE=$SRC_DIR/IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.tes
 grep -q 'process\.env\.PS6_PROJECT' "$TEST_FILE" || die "the pinned source at $PS6_SOURCE_SHA does not read PS6_PROJECT, so this runner cannot own the Compose project it would clean up. Use a PR #105 HEAD that includes the PS6_PROJECT amendment."
 note "the pinned acceptance suite reads PS6_PROJECT"
 
+# ── Guard 8 · the pinned source honours the Compose env file ─────────────────
+#
+# ⚠️ Same shape as guard 7, and added for the same reason: a pinned tree that
+#    predates this amendment generates its four throwaway values in its own
+#    environment and passes no `--env-file`. Under `sudo` those values are
+#    stripped, `compose up` fails interpolation, and the run gets exactly as far
+#    as Stage B attempt #1 did. Refuse early and say why, instead of spending a
+#    production-host window rediscovering it.
+say "guard 8 — the pinned source honours PS6_COMPOSE_ENV_FILE"
+grep -q 'PS6_COMPOSE_ENV_FILE' "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA does not read PS6_COMPOSE_ENV_FILE, so the four Compose interpolation variables it generates would be stripped at the sudo boundary — exactly the Stage B attempt #1 failure. Use a PR #105 HEAD that includes the Compose env-file amendment."
+grep -q "'--env-file'" "$TEST_FILE" || die "the pinned acceptance suite at $PS6_SOURCE_SHA never passes --env-file to docker compose"
+note "the pinned acceptance suite reads PS6_COMPOSE_ENV_FILE and passes --env-file"
+
 # ── Dependencies · none are installed on the host, deliberately ──────────────
 #
 # The acceptance suite imports node:test, node:assert, node:child_process,
@@ -454,7 +571,9 @@ say "run — Stage B acceptance matrix as project $PS6_PROJECT"
 STARTED=1
 cd "$SRC_DIR/IDEA1-AEGIS_Drive_LC"
 set +e
-PS6_DOCKER="$DOCKER" PS6_PROJECT="$PS6_PROJECT" PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
+PS6_DOCKER="$DOCKER" PS6_PROJECT="$PS6_PROJECT" \
+PS6_WORKDIR="$PS6_WORKDIR" PS6_COMPOSE_ENV_FILE="$PS6_COMPOSE_ENV_FILE" \
+PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
   node --test --test-concurrency=1 --test-timeout=1800000 \
   tests/publicShareInternalIntegration.test.js
 RESULT=$?
@@ -558,6 +677,13 @@ fi
 # ═══ Temporary artifacts ═════════════════════════════════════════════════════
 
 cleanup_workdir || fail "the temporary directory could not be removed"
+
+say "check — the Compose env file is gone"
+if [ -e "$PS6_COMPOSE_ENV_FILE" ]; then
+  fail "$PS6_COMPOSE_ENV_FILE survived cleanup"
+else
+  note "removed: $PS6_COMPOSE_ENV_FILE"
+fi
 
 say "check — no PS6 temporary artifact survives"
 STRAY=$(ls -d /tmp/aegis-ps6-* /tmp/ps6-stage-b* 2>/dev/null || true)

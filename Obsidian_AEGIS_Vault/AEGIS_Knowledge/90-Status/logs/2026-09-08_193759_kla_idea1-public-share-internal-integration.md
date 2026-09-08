@@ -613,6 +613,288 @@ PUBLIC-SHARE-7; prune anything; mark PR #105 Ready; merge.
 
 PR #105 remains **Draft**.
 
+## Stage B attempt #1 — EXECUTED, FAILED SAFELY (appended 2026-09-08)
+
+⚠️ **This attempt is recorded as it happened. Nothing below is edited or removed
+by the amendment that follows it.**
+
+Run on the `aegis-system` host against PR #105 HEAD
+`160612de791f65ce094cafa6f6b357e82012c027`, project
+`aegis-ps6-stage-b-20260908-161132-1950905`.
+
+| Fact | Result |
+| :--- | :--- |
+| How far execution got | **Compose interpolation only** |
+| Acceptance matrix | **NOT EXECUTED** — 1 test, 0 passed, 1 failed, 577 ms |
+| Root cause | the PS6 **throwaway** Compose variables were stripped at the `sudo` boundary |
+| PS6 stack created | **none** — no container, network, volume or image |
+| Cleanup | **PASS** |
+| Production pre/post identity | **IDENTICAL** |
+| Production services | **all healthy** |
+| Runner RC | **1** |
+| Product defect found | **none** |
+
+Guards 0–7 all passed: `sudo -n` was authorised, the daemon answered
+`server 29.7.1`, the project name and the three PS6 network names were free, the
+three base images were present, no network used `172.31.250-252.0/29`, the source
+tree resolved to exactly `160612de…` and was contained in the PR branch, and the
+pinned suite honoured `PS6_PROJECT`.
+
+Execution then stopped at the first Compose invocation:
+
+```
+Command failed: sudo -n env -u DOCKER_HOST docker compose -p aegis-ps6-stage-b-… \
+  -f …/docker-compose.yml up --build -d --wait --wait-timeout 300
+error while interpolating services.drive.environment.SESSION_SECRET:      required variable PS6_SESSION_SECRET is missing a value
+error while interpolating services.postgres.environment.DRIVE_DB_PASSWORD: required variable PS6_DRIVE_DB_PASSWORD is missing a value
+error while interpolating services.postgres.environment.POSTGRES_PASSWORD: required variable PS6_SUPER_PASSWORD is missing a value
+error while interpolating services.postgres.environment.POSTGRES_USER:     required variable PS6_SUPER_USER is missing a value
+```
+
+### Root cause
+
+The acceptance suite generates `PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`,
+`PS6_DRIVE_DB_PASSWORD` and `PS6_SESSION_SECRET` as throwaway random values in
+its own child environment. `PS6_DOCKER` on this host is
+
+```
+sudo -n env -u DOCKER_HOST docker
+```
+
+and a process environment does not cross a `sudo` boundary — sudo **correctly**
+declined to carry arbitrary `PS6_*` variables. Compose therefore saw none of the
+four and refused to interpolate.
+
+**This is a harness credential-plumbing defect, not a product defect.** No
+shipped gateway, backend, UI or database behaviour is implicated, and nothing in
+the failure says anything about the product under test.
+
+### What the failure cost, and did not cost
+
+The same missing values also broke the runner's own teardown: `cleanup — Docker
+objects owned by project …` emitted the identical four interpolation errors,
+because a `compose down` interpolates the file it is handed just as `up` does.
+That teardown consequently did nothing — which was harmless **only** because
+`compose up` had already failed before creating anything. Had the failure come
+one step later, the project-scoped `down` would have been unable to remove a live
+stack. That is the second defect this amendment fixes.
+
+All post-run checks passed anyway, through the label-scoped sweeps and the
+inventory diff:
+
+- pre/post inventory **IDENTICAL** — every production container ID, image ID,
+  Compose project, running state, health state and network attachment matched, as
+  did every network, volume and image outside the project;
+- all five containers `running=true health=healthy`
+  (`aegis-prod-drive-1`, `-hub-1`, `-monitor-1`, `-postgres-1`,
+  `twingate-aegis-connector-02`);
+- `aegis_postgres_data` and `aegis_drive_storage` present;
+- **50 `aegis-prod` rows, all unchanged**;
+- no PS6 container, volume, network or image survived — because none was ever
+  created;
+- the three base images preserved;
+- `/tmp/aegis-ps6-stage-b-20260908-161132-1950905` removed; nothing matched
+  `/tmp/aegis-ps6-*` or `/tmp/ps6-stage-b*`;
+- post-run check failures: **0**. Runner exit code **1**, from the acceptance.
+
+Nothing in the forbidden list was touched: no
+`/opt/aegis/Project-End-The-AEGIS`, no aegis-prod restart/recreate/exec, no
+Production PostgreSQL, no `aegis_postgres_data` or `aegis_drive_storage` mount,
+no Production Compose or `.env` edit, no Production migration 009, no Public UI,
+no host port, no DNS/TLS/NAT/tunnel/MikroTik/UFW/VLAN/Twingate change, no prune,
+no PUBLIC-SHARE-7, PR #105 still Draft, not merged.
+
+## Stage B credential-plumbing amendment — explicit Compose env file (appended 2026-09-08)
+
+**Stage B was NOT re-run.** This amendment is code, tests and documentation only.
+
+### The rule this fix had to obey
+
+The privilege boundary is unchanged and stays unchanged. **Not** used, anywhere:
+`sudo -E`, `sudo --preserve-env`, a sudoers `env_keep` entry, a docker-group
+change, passwordless sudo, or any global environment change. The entry point is
+still exactly
+
+```
+DOCKER="sudo -n env -u DOCKER_HOST docker"
+```
+
+The insight is that an **argument** crosses a privilege boundary that an
+**environment variable** does not. So the four values travel as a file path.
+
+### Design
+
+| Piece | Behaviour |
+| :--- | :--- |
+| `PS6_COMPOSE_ENV_FILE` | new, opt-in. Absolute path, and — when `PS6_WORKDIR` is set — required to be **inside** it. Invalid values throw at module load. |
+| Default in the runner | `$PS6_WORKDIR/evidence/compose.env`, i.e. inside the one temporary directory the runner already owns and already cleans up. |
+| Contents | exactly four lines: `PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`, `PS6_DRIVE_DB_PASSWORD`, `PS6_SESSION_SECRET`. Nothing else is ever written. Values are still minted per run with `randomBytes`; each is refused unless it matches `[A-Za-z0-9_-]+`, so nothing can be injected into the file's syntax. |
+| Every Compose call | `docker compose --env-file <path> -p <project> -f <file> …`. `--env-file` is a **top-level** flag and is emitted **before** `-p` and `-f` and before the subcommand; after the subcommand it is a different, service-scoped flag that supplies no interpolation. |
+| Unset | the developer-machine path, byte-for-byte unchanged: no file, no `--env-file`, Compose reads the inherited environment as before. |
+
+### Permission and lifetime model
+
+- Created by the runner **before the suite starts**, as
+  `(umask 077; : > "$PS6_COMPOSE_ENV_FILE")`, then an explicit `chmod 600`, then a
+  verified `stat -c '%a'` that must read `600` or the run refuses. There is never
+  a window at a wider mode.
+- Written by the suite with `writeFile(…, { mode: 0o600 })`, then `chmod` again
+  (Node's `mode` is masked by the umask on create and ignored on truncate), then
+  a `stat` check inside the suite — so Stage B carries its own permission
+  evidence in its own output.
+- **Never printed.** The runner echoes the path and the mode; nothing reads,
+  `cat`s, sources or logs the contents. The suite's error paths name keys only.
+- **Never committed.** It only ever exists under `/tmp/$PS6_PROJECT/`.
+- Removed by the **existing** cleanup trap: explicitly by name, then with the
+  whole directory, on success, on failure and on `INT`/`TERM`. A new post-run
+  check fails the run if it survives.
+
+### Cleanup behaviour
+
+The runner's own teardown now supplies the same file:
+
+```sh
+$DOCKER compose --env-file "$PS6_COMPOSE_ENV_FILE" -p "$PS6_PROJECT" -f "$COMPOSE_FILE" \
+  down --volumes --remove-orphans --rmi local --timeout 10
+```
+
+If the file is missing or empty — a run that died before the suite could write it
+— that project-scoped `down` is **skipped**, because without interpolation it
+could only fail, and the teardown falls through to what needs no interpolation at
+all:
+
+- containers, volumes and networks swept by
+  `label=com.docker.compose.project=$PS6_PROJECT`;
+- images swept by the `$PS6_PROJECT-` repository prefix, with an explicit refusal
+  for the three base images and for anything matching `aegis-prod`/`aegis_prod`;
+- protected volumes `aegis_postgres_data` and `aegis_drive_storage` refused by
+  name;
+- no `prune` of any kind, as before;
+- if `sudo -n` has lapsed, cleanup still **fails closed** and prints the exact
+  by-hand commands — now including `--env-file` when the file exists, and a note
+  that a project-scoped `down` is not possible when it does not.
+
+### Guard 8
+
+New, and the same shape as guard 7. It refuses a pinned source tree whose
+acceptance suite does not read `PS6_COMPOSE_ENV_FILE` and does not pass
+`--env-file`, because such a tree would reach exactly as far as attempt #1 did —
+on a production host, before anyone found out. Verified to discriminate:
+
+```
+$ git show 160612de:…/publicShareInternalIntegration.test.js | grep -c PS6_COMPOSE_ENV_FILE
+0          # the attempt #1 source — guard 8 refuses it
+$ grep -c PS6_COMPOSE_ENV_FILE …/publicShareInternalIntegration.test.js
+3          # the amended source — guard 8 accepts it
+```
+
+### The regression that reproduces the server condition
+
+`IDEA1-AEGIS_Drive_LC/tests/publicShareStageBCredentialPlumbing.test.js` — new,
+9 tests, **no Docker, no sudo, no daemon, no network, no privilege**.
+
+The sudo boundary is modelled by a wrapper that strips the environment *harder*
+than sudo does — `env -i PATH=… HOME=…`, where sudo keeps a small whitelist — and
+Docker is modelled by a recorder that implements only Compose's interpolation
+rule. The recorder logs argv, the surviving `PS6_*` keys, and for each resolved
+variable its **source** and a **sha256 of its value**; it never logs a value.
+
+| Test | What it proves |
+| :--- | :--- |
+| PS6-ENV-1 | no `sudo -E`, `--preserve-env`, `env_keep`, `NOPASSWD`, sudoers edit, `usermod`/`gpasswd`/`adduser`, `docker.sock` permission change or `prune` in the runner or the suite; after blanking quoted strings, **every** executed `sudo` is `sudo -n`; exactly one privileged entry point, still `sudo -n env -u DOCKER_HOST docker` |
+| PS6-ENV-2 | one env file, defaulted under the owned evidence directory, refused outside `PS6_WORKDIR` or containing `..`, created `umask 077` + `chmod 600` + verified `stat`, handed to the suite, used by the teardown with `--env-file` before `-p`/`-f`, removed and checked; contents never `cat`/`head`/`tail`/`od`/`xxd`/`base64`'d or sourced |
+| PS6-ENV-3 | the suite emits `--env-file` before `-p`/`-f`; writes **exactly** the four keys; mints them with `randomBytes`; reads no `.env`; names no `aegis-prod` object, no Production volume and no Production address |
+| PS6-ENV-4 | path validation at module load: relative **refused**, outside `PS6_WORKDIR` **refused**, climbing out with `..` **refused**, inside **accepted** (harness still skipped), unset **accepted** (developer path) |
+| **PS6-ENV-5** | **the regression.** Across the stripping boundary: no `PS6_*` variable survives it; `compose up` carries `--env-file <path>` as its first top-level flag, before `-p`/`-f`; interpolation **succeeds**; all four values resolve with source `env-file` — there is no environment left for them to come from; their sha256 digests match the file on disk, so they crossed intact; the file is `0600`; **not one of the four values appears anywhere in the run's output or in the recorder's log**; the suite's own teardown uses the same file |
+| **PS6-ENV-6** | **the negative control.** Same boundary, `PS6_COMPOSE_ENV_FILE` unset → no `--env-file`, interpolation **fails**, all four reported missing, and the output carries the exact attempt #1 text `required variable PS6_SUPER_USER is missing a value` (and the other three). The regression therefore reproduces the server condition rather than asserting it |
+| PS6-ENV-7 | the **real runner**, driven against non-privileged `sudo`/`docker`/`git` stubs, creates the env file and then fails at `git clone`: the env file and the whole `/tmp/aegis-ps6-…` directory are **gone** |
+| PS6-ENV-8 ×2 | `SIGINT` and `SIGTERM` delivered to the runner's process group while the env file is on disk: file **gone**, directory **gone**, exit non-zero |
+
+### Files changed
+
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.test.js` —
+  `COMPOSE_INTERPOLATION_KEYS`, `resolveComposeEnvFile()` (module-load
+  validation), `writeComposeEnvFile()` (0600, four keys, charset-checked, never
+  printed), and `--env-file` in the single `compose()` helper every Compose call
+  already went through.
+- `IDEA1-AEGIS_Drive_LC/tests/publicShareStageBCredentialPlumbing.test.js` —
+  **new**, the nine tests above.
+- `gateway/public-share/integration/run-stage-b.sh` — `PS6_COMPOSE_ENV_FILE`
+  definition and validation, `umask 077` creation with a verified mode, guard 8,
+  the variable handed to the suite alongside `PS6_WORKDIR`, `--env-file` in the
+  project teardown with the empty-file fallback, explicit removal in
+  `cleanup_workdir`, the fail-closed by-hand instructions updated, and a new
+  post-run check that the file is gone.
+- `gateway/public-share/integration/README.md` — the third environment variable,
+  why it exists, the top-level-flag rule, the permission and lifetime model, the
+  teardown behaviour and its fallback, and guard 8.
+- This receipt, and the PUBLIC-SHARE-6 paragraph in `idea1/idea1-status.md`.
+
+**No shipped gateway, backend, UI, database, Dockerfile, Production Compose or
+`.env.example` file changed.** `docker-compose.yml` under
+`gateway/public-share/integration/` was **not** modified — `--env-file` supplies
+the same interpolation the file already declared.
+
+### Verification after the amendment — non-Production only
+
+Run on `aegis-system`, Node **v22.22.1**, in the neutral workspace clone at
+`/home/admin-main/aegis-ps6-claude/aegis-repo`.
+
+- `node --test --test-concurrency=1 --test-timeout=180000 tests/publicShareStageBCredentialPlumbing.test.js`
+  — **passed: 9 tests, 9 passed, 0 failed, 6.2 s.** This is both the
+  sudo/environment-stripping regression and the cleanup/refusal evidence.
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` —
+  **passed: 1,161 tests, 1,090 passed, 0 failed, 0 cancelled, 71 skipped,
+  277.3 s.** (Was 1,152 / 1,081 before; the nine new tests are the difference.)
+  PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`.
+- `node --test tests/publicShareInternalIntegration.test.js` (no env var) —
+  **1 test, 0 passed, 1 skipped.** The harness is still inert by default.
+- `node --test tests/publicShareGatewayStructure.test.js` — **12 tests, 12
+  passed, 0 failed.**
+- `sh -n gateway/public-share/integration/run-stage-b.sh` — passed.
+- Runner refusals, re-driven by hand, every one before anything was created:
+
+  | Input | Result |
+  | :--- | :--- |
+  | no SHA | refused, exit 2 |
+  | `fb02537` (abbreviated) | refused, exit 2 |
+  | 40 non-hex characters | refused, exit 2 |
+  | `PS6_PROJECT=aegis-prod` | refused — fails the `aegis-ps6-` pattern |
+  | `PS6_PROJECT=aegis-ps6-prod-test` | refused — may not contain `prod` |
+  | `PS6_WORKDIR=/opt/aegis/Project-End-The-AEGIS/tmp` | refused — must be `/tmp/aegis-ps6-*` |
+  | `PS6_COMPOSE_ENV_FILE=/tmp/elsewhere.env` | **refused — must be inside `PS6_WORKDIR`** |
+  | `PS6_COMPOSE_ENV_FILE=/tmp/aegis-ps6-x/../escape.env` | **refused — may not contain `..`** |
+
+  `ls -d /tmp/aegis-ps6-*` afterwards: **nothing.**
+- `node --test tests/collaborationPolicy.test.mjs` — **18 tests, 18 passed, 0
+  failed.**
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`
+  — passed, with the same two pre-existing owner-review canvas warnings.
+- `git diff --check`, `git diff --cached --check`, `git status --short` — clean.
+
+⚠️ **`PUBLIC_SHARE_INTEGRATION_RUNTIME=1` 16/16 was again NOT re-run.** On this
+host that command builds images and starts containers through the production
+Docker daemon as root — which *is* Stage B. The carried-forward 16/16 remains the
+developer machine's Stage A figure and is labelled as such.
+
+### What is still unproven
+
+- **The fix has never met a real `sudo` or a real Docker daemon.** PS6-ENV-5
+  proves Compose receives the four values only through `--env-file` across a
+  boundary that strips the environment; it does not prove how Docker Compose
+  29.x, the production daemon or the real build behave. Stage B attempt #2 is the
+  first real exercise.
+- Stage B attempt #1 reached Compose interpolation and stopped, so **the
+  acceptance matrix has still never run on server hardware.** No PS6-INT result
+  in this receipt is a server result.
+- Production migration 009 and the Public UI flag were, again, not read — doing
+  so requires connecting to Production PostgreSQL or reading Production
+  configuration, both out of scope. Their state is unchanged because nothing here
+  writes to them.
+
+**Stage B was not re-run. PUBLIC-SHARE-7 was not started. PR #105 remains Draft
+and is not merged.**
+
 ## Known limitations
 
 - **Public Internet Share remains NOT IMPLEMENTED.** Production gateway = NO,

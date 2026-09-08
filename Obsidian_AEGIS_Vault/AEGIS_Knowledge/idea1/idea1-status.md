@@ -539,13 +539,33 @@ ordinary Internet access. **G4, G5 and G6 remain open and
 source changed, and no Production database, gateway, network, volume or migration
 was contacted. PUBLIC-SHARE-7 was not started.
 
-**Stage B: gate APPROVED 2026-09-08, execution NOT PERFORMED.** The owner
-approved running the same isolated harness on the server hardware. It has not
-run. The earlier blocker — an agent session with no working SSH path to
-`192.168.10.10` — no longer applies: work now happens **on** the `aegis-system`
-host, and the remaining gate is the owner's, not a transport's. All fourteen host
-preflight facts still remain **NOT MEASURED by the repository**; the figures used
-for planning are **owner-supplied** and are not reproduced here.
+**Stage B: gate APPROVED 2026-09-08. Attempt #1 EXECUTED and FAILED SAFELY;
+the acceptance matrix has still never run on server hardware.** The owner
+approved running the same isolated harness on the server hardware. The earlier
+blocker — an agent session with no working SSH path to `192.168.10.10` — no
+longer applies: work now happens **on** the `aegis-system` host. All fourteen
+host preflight facts still remain **NOT MEASURED by the repository**; the figures
+used for planning are **owner-supplied** and are not reproduced here.
+
+Attempt #1, against PR #105 HEAD `160612de…`, passed guards 0–7 and then stopped
+at the **first Compose invocation**. The suite generates its four throwaway
+Compose interpolation values (`PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`,
+`PS6_DRIVE_DB_PASSWORD`, `PS6_SESSION_SECRET`) in its own child environment, and a
+process environment does not cross the `sudo -n env -u DOCKER_HOST docker`
+boundary — sudo correctly declined to carry them. Compose refused to interpolate.
+**Acceptance matrix not executed; no PS6 stack created; cleanup PASS; Production
+pre/post identity IDENTICAL with all services healthy; runner RC = 1; no product
+defect found.** This was a harness credential-plumbing defect.
+
+It is fixed without weakening the privilege boundary — no `sudo -E`, no
+`--preserve-env`, no sudoers `env_keep`, no docker-group change, no passwordless
+sudo, no global environment change. The four values now travel as an **argument**
+rather than an environment variable: one PS6-owned file at
+`$PS6_WORKDIR/evidence/compose.env`, mode `0600`, never printed, never committed,
+removed by the existing cleanup trap, and passed to every Compose call — the
+suite's and the runner's teardown alike — as `--env-file` before `-p` and `-f`.
+A new guard 8 refuses any pinned source tree that predates this. Stage B has
+**not** been re-run.
 
 Two host findings changed the harness. First, the administrative account is not
 in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
@@ -559,12 +579,16 @@ address; `PS6_PROJECT` now carries that identity, under an enforced `aegis-ps6-`
 prefix, and an `EXIT`/`INT`/`TERM` trap tears down that project — and only that
 project — together with the single temporary directory it owns.
 
-`gateway/public-share/integration/run-stage-b.sh` has **never been run against a
-real Docker daemon**, so it carries no evidence about Production. It is no longer
-wholly unexercised: its refusals, its cleanup trap, its interrupt path and its
-post-cleanup checks have been driven end to end against a recording Docker stub
-on the host. That proves the runner's own control flow, and nothing about
-Production.
+`gateway/public-share/integration/run-stage-b.sh` has now reached a real Docker
+daemon exactly once, in Stage B attempt #1, and got as far as Compose
+interpolation. It still carries **no evidence about Production behaviour**: its
+guards, refusals, cleanup trap, interrupt path and post-cleanup checks are
+exercised against recording stubs, and `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` 16/16
+remains a developer-machine Stage A figure that has never been re-measured on
+this host. The credential-plumbing fix itself has met neither a real `sudo` nor a
+real daemon; the regression that proves it
+(`tests/publicShareStageBCredentialPlumbing.test.js`, 9/9) models the
+environment-stripping boundary with `env -i` and models Docker with a recorder.
 
 ### Public-share security regression matrix pinned, no source changed (2026-09-08)
 

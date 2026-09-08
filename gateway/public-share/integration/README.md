@@ -15,12 +15,13 @@ PUBLIC_SHARE_INTEGRATION_RUNTIME=1 node --test --test-concurrency=1 \
 Without `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` the suite skips, so `npm test` never
 builds an image or touches Docker implicitly.
 
-### Two environment variables the suite understands
+### Three environment variables the suite understands
 
 | Variable | Default | What it does |
 | :--- | :--- | :--- |
 | `PS6_DOCKER` | `docker` | how Docker is invoked; split on whitespace, so a wrapper with its own arguments works |
 | `PS6_PROJECT` | `aegis-ps6-<pid>` | the Compose project the run owns; must match `^aegis-ps6-[a-z0-9][a-z0-9_-]*$` |
+| `PS6_COMPOSE_ENV_FILE` | *(unset)* | an owned file the suite writes its four throwaway Compose interpolation values into, and passes to every `docker compose` as `--env-file` |
 
 **`PS6_DOCKER`** exists because a hardcoded `docker` fails on hosts where the
 invoking account cannot reach the daemon, with a socket permission error that
@@ -45,13 +46,62 @@ typo, by an inherited environment variable, or by a caller that meant well. An
 invalid value throws immediately rather than surfacing later as a confusing
 Compose error.
 
+**`PS6_COMPOSE_ENV_FILE`** exists because **Stage B attempt #1 failed on exactly
+its absence.** `docker-compose.yml` interpolates four variables:
+
+```
+PS6_SUPER_USER   PS6_SUPER_PASSWORD   PS6_DRIVE_DB_PASSWORD   PS6_SESSION_SECRET
+```
+
+The suite generates all four as throwaway random values in its own child
+environment. That environment does **not** cross a `sudo` boundary — sudo
+correctly refuses to carry arbitrary variables — so on the server host Compose
+saw none of them and refused to start:
+
+```
+error while interpolating services.postgres.environment.POSTGRES_USER:
+required variable PS6_SUPER_USER is missing a value
+```
+
+That is a harness credential-plumbing defect, **not** a product defect.
+
+⚠️ **It is not fixed by weakening the privilege boundary.** There is no `sudo -E`,
+no `--preserve-env`, no sudoers `env_keep` entry, no docker-group membership, no
+passwordless sudo and no global environment change anywhere in this harness. The
+boundary is exactly what it was: `sudo -n env -u DOCKER_HOST docker`.
+
+Instead the plumbing is explicit. When `PS6_COMPOSE_ENV_FILE` is set, the suite
+writes **only** those four values to that path at mode `0600` before the first
+Compose invocation, and every Compose call becomes
+
+```
+docker compose --env-file <path> -p <project> -f <file> …
+```
+
+`--env-file` is a **top-level** Compose flag and must come before `-p` and `-f`
+and before the subcommand; after the subcommand it is a different, service-scoped
+flag that supplies no interpolation. A path survives `sudo` because it is an
+argument, not an environment variable.
+
+The path must be absolute and, when `PS6_WORKDIR` is set, inside it — the file
+holds secrets and the caller's cleanup is what removes it, so a path outside that
+directory would outlive the run. An invalid value throws at module load.
+
+**Unset is the developer-machine path and is unchanged**: no file is written, no
+`--env-file` is passed, and Compose reads the four values from the inherited
+child environment exactly as before.
+
 ```bash
 PS6_DOCKER="sudo -n env -u DOCKER_HOST docker" \
 PS6_PROJECT="aegis-ps6-stage-b-20260908-120000" \
+PS6_WORKDIR="/tmp/aegis-ps6-stage-b-20260908-120000" \
+PS6_COMPOSE_ENV_FILE="/tmp/aegis-ps6-stage-b-20260908-120000/evidence/compose.env" \
 PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
   node --test --test-concurrency=1 --test-timeout=1800000 \
   tests/publicShareInternalIntegration.test.js
 ```
+
+`run-stage-b.sh` sets all four for you; the block above is what it does.
 
 ⚠️ On such a host the harness runs Docker as root. It still creates only its own
 project, its own three networks and its own anonymous volumes, still publishes no
@@ -104,7 +154,8 @@ interrupt at any point still tears down exactly what exists. It may remove only:
    own scoping: `postgres:15-alpine` and `node:20-alpine` carry an explicit
    `image:` key and are therefore a custom tag, which `local` never removes;
 5. the one temporary directory `/tmp/$PS6_PROJECT/`, which holds **both** the
-   pinned source tree and all evidence files.
+   pinned source tree and all evidence files — including the one Compose env
+   file, `/tmp/$PS6_PROJECT/evidence/compose.env`.
 
 It never touches `aegis-prod`, a production network, `aegis_postgres_data`,
 `aegis_drive_storage`, a production image, or any unrelated Docker object, and
@@ -113,6 +164,44 @@ there is no `prune` of any kind anywhere in the file.
 Point 5 is a fix, not a restatement: an earlier draft wrote `$WORKDIR.pre` and
 `$WORKDIR.post` as *siblings* of the work directory, so they survived the very
 `rm -rf` that was supposed to clean up after the run.
+
+### The Compose env file
+
+One file, `/tmp/$PS6_PROJECT/evidence/compose.env`:
+
+- created **empty and `0600`** by the runner before the suite starts (`umask 077`,
+  then an explicit `chmod`, then a verified `stat`), so there is never a window at
+  a wider mode;
+- written by the suite with the four throwaway interpolation values and nothing
+  else — never a Production credential, because the suite reads no `.env` and
+  generates every value with `randomBytes`;
+- **never printed.** The runner echoes the path and the mode; nothing anywhere
+  reads, `cat`s, sources or logs the contents, and the suite's own error paths
+  carry key names only;
+- never committed — it only ever exists under `/tmp/$PS6_PROJECT/`;
+- removed by the existing cleanup trap, explicitly by name and then with the
+  directory, on success, on failure, and on `INT`/`TERM`. A post-run check fails
+  the run if it survives.
+
+**The runner's own teardown uses the same file**:
+
+```
+docker compose --env-file "$PS6_COMPOSE_ENV_FILE" -p "$PS6_PROJECT" -f "$COMPOSE_FILE" down …
+```
+
+Without it, cleanup would fail interpolation for exactly the reason attempt #1
+did, and would tear nothing down. If the file is missing or empty — a run that
+died before the suite could write it — that project-scoped `down` is **skipped**,
+because it could only fail, and the label-scoped sweeps do the teardown instead:
+containers, volumes and networks by `com.docker.compose.project=$PS6_PROJECT`, and
+images by the `$PS6_PROJECT-` repository prefix with an explicit refusal for base
+images and anything matching `aegis-prod`/`aegis_prod`. That path needs no
+interpolation at all and is still fail-closed.
+
+**Guard 8** refuses a pinned source tree whose acceptance suite does not read
+`PS6_COMPOSE_ENV_FILE`, for the same reason guard 7 refuses one that does not read
+`PS6_PROJECT`: such a tree would get exactly as far as attempt #1 did, on a
+production host, before anyone found out.
 
 ### Pre/post inventory: stable identity, not human strings
 
