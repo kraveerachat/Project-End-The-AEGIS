@@ -608,3 +608,75 @@ def test_generated_windows_artifacts_are_ignored_by_git():
 
     for pattern in ("windows/cache/", "windows/build/", "windows/dist/", "windows/out/"):
         assert pattern in ignored
+
+
+class _FakeProcess:
+    def __init__(self, name, events):
+        self.name = name
+        self.events = events
+        self._alive = True
+
+    def poll(self):
+        return None if self._alive else 0
+
+    def terminate(self):
+        self.events.append(f"terminate:{self.name}")
+        self._alive = False
+
+    def wait(self, timeout=None):
+        self.events.append(f"wait:{self.name}")
+        return 0
+
+    def kill(self):
+        self.events.append(f"kill:{self.name}")
+        self._alive = False
+
+
+def test_shutdown_closes_web_before_core_and_waits_for_each(tmp_path):
+    settings = _settings(tmp_path)
+    runtime = LauncherRuntime(settings)
+    events = []
+    runtime.children = {
+        "core": _FakeProcess("core", events),
+        "web": _FakeProcess("web", events),
+    }
+
+    runtime.shutdown_children(timeout=5)
+
+    assert events == ["terminate:web", "wait:web", "terminate:core", "wait:core"]
+
+
+def test_shutdown_leaves_external_databases_untouched(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.core_db.parent.mkdir(parents=True, exist_ok=True)
+    settings.paths.core_db.write_bytes(b"core-audit")
+    settings.paths.web_db.parent.mkdir(parents=True, exist_ok=True)
+    settings.paths.web_db.write_bytes(b"web-audit")
+    runtime = LauncherRuntime(settings)
+    runtime.children = {"web": _FakeProcess("web", [])}
+
+    runtime.shutdown_children(timeout=5)
+
+    assert settings.paths.core_db.read_bytes() == b"core-audit"
+    assert settings.paths.web_db.read_bytes() == b"web-audit"
+
+
+def test_launcher_module_opens_no_controller_or_actuation_path():
+    source = (Path(__file__).resolve().parent.parent / "aegis_soc" / "windows_launcher.py").read_text(
+        encoding="utf-8"
+    )
+
+    for forbidden in ("mqtt_client", "MQTTManager", "issue_command", "CUT_UPLINK", "paho"):
+        assert forbidden not in source
+
+
+def test_smoke_script_uses_bundle_binaries_and_never_prints_credentials():
+    script = (WINDOWS / "smoke.ps1").read_text(encoding="utf-8")
+
+    assert "-BundlePath" in script and "-DataPath" in script
+    assert "AEGIS_DATA_DIR" in script
+    assert "smoke-result.json" in script
+    for stage in ("configure", "status", "login", "logout", "stop"):
+        assert stage in script.lower()
+    assert "Write-Host $password" not in script
+    assert "ConvertTo-Json" in script
