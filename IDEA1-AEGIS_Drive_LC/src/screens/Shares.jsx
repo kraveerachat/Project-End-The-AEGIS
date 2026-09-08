@@ -24,6 +24,9 @@ const SCOPE_CHIP = {
   vlan: { key: 'chipVlanOnly', tone: 'accent' },   // ค่าเดิมของแถวก่อน migration
   subnet: { key: 'chipSubnet', tone: 'accent' },
   any: { key: 'chipAnyNetwork', tone: 'warn' },
+  // ⚠️ ต้องมีคีย์นี้จริง ไม่งั้น fallback `?? SCOPE_CHIP.any` จะทำให้ลิงก์สาธารณะ
+  //    ถูกแสดงเป็น "AEGIS-REACHABLE" ในตาราง = บอกขอบเขตผิดจากความจริง
+  public: { key: 'chipPublicInternet', tone: 'danger' },
 }
 const AUTH_LABEL = { password: 'authPassword', otc: 'authOtc', none: 'authNone' }
 
@@ -32,6 +35,24 @@ const AUTH_LABEL = { password: 'authPassword', otc: 'authOtc', none: 'authNone' 
    เคลื่อนไหวที่อธิบายกลไกที่ไม่มีอยู่ ผู้ใช้ตัดสินใจแชร์ไฟล์จากสิ่งที่อ่านบนจอนี้ */
 function ScopePanel({ t, scope, zonesUnavailable }) {
   const restricted = scope === 'zones'
+  const isPublic = scope === 'public'
+  if (isPublic) {
+    // ⚠️ สำเนาแยกจาก 'any' โดยตั้งใจ — สองขอบเขตนี้มีความเสี่ยงคนละแบบ
+    //    ใช้ข้อความเดียวกันเมื่อไรคือการบอกผู้ใช้ว่ามันเท่ากัน ซึ่งไม่จริง
+    return (
+      <div
+        className="rounded-[var(--r-tile)] border p-3.5 flex flex-col gap-2"
+        style={{ borderColor: 'var(--warn)', background: 'var(--warn-soft)' }}
+      >
+        <div className="flex items-center gap-2">
+          <Globe size={15} strokeWidth={1.6} className="shrink-0" style={{ color: 'var(--warn)' }} />
+          <p className="text-[13px] font-semibold text-ink">{t('scopePublicTitle')}</p>
+        </div>
+        <p className="text-[12.5px] text-ink-2 leading-relaxed">{t('scopePublicBody')}</p>
+        <p className="text-[11.5px] font-medium text-ink-2 leading-relaxed">{t('scopePublicPasswordRequired')}</p>
+      </div>
+    )
+  }
   return (
     <div className="rounded-[var(--r-tile)] border border-line bg-sunken p-3.5 flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -123,6 +144,12 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const filesApi = useApi('/api/files')
   const shares = placeholderMode ? [] : (sharesApi.data?.shares ?? [])
   const files = placeholderMode ? [] : (filesApi.data?.files ?? []).filter((f) => !f.vault && f.type !== 'Folder')
+  /* ── ใครเป็นคนตัดสินว่า Public เลือกได้ — เซิร์ฟเวอร์เท่านั้น ─────────────────
+     ⚠️ ต้องเป็น === true เท่านั้น: ระหว่างโหลด/พัง/คีย์หาย ค่าจะเป็น undefined
+        แล้ว "ไม่พร้อมใช้งาน" คือคำตอบที่ปลอดภัย ห้ามเดาในทางเปิด
+     ⚠️ ห้ามใช้ build flag, window.location, Host หรือการมีอยู่ของซอร์ส gateway
+        มาตัดสินแทน — ทั้งหมดนั้นไคลเอนต์แต่งเองได้และไม่ใช่ความจริงของ deployment */
+  const publicSelectable = sharesApi.data?.capabilities?.publicSelectable === true
   const fetchError = visibleFetchError(sharesApi.error, placeholderMode)
   const filesError = visibleFetchError(filesApi.error, placeholderMode)
   const filesUnavailable = Boolean(filesApi.error)
@@ -141,26 +168,45 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
         ต้องไม่เขียนทับค่าเริ่มต้นของบัญชี ไม่งั้นการสร้างลิงก์ชั่วคราวที่เปิดกว้าง
         หนึ่งครั้งจะกลายเป็นนโยบายถาวรของทุกลิงก์ถัดไปโดยที่ผู้ใช้ไม่รู้ตัว */
   const shareDefaultsApi = useApi('/api/security/settings')
-  const [expiry, setExpiry] = useState('24h')
-  const [auth, setAuth] = useState('password')
+  /* ⚠️ แยก state ของ "ส่วนตัว" กับ "สาธารณะ" ออกจากกัน แล้วค่อยคำนวณค่าที่ใช้จริง
+     การเลือก public หนึ่งครั้งต้องไม่กลืนค่าที่ผู้ใช้ตั้งไว้สำหรับลิงก์ส่วนตัว
+     สลับกลับมา zones/any แล้วต้องได้ auth/expiry เดิมคืนทุกครั้ง */
+  const [privateExpiry, setPrivateExpiry] = useState('24h')
+  const [privateAuth, setPrivateAuth] = useState('password')
+  // ค่าเริ่มต้นสั้น ๆ สำหรับลิงก์สาธารณะ เป็นค่า transient ของฟอร์มนี้เท่านั้น
+  // ไม่ใช่เพดานของเซิร์ฟเวอร์ และไม่ถูกบันทึกเป็นค่าเริ่มต้นของบัญชี
+  const [publicExpiry, setPublicExpiry] = useState('1h')
   const [linkPassword, setLinkPassword] = useState('')
   const [scope, setScope] = useState('zones')
+  const isPublicScope = scope === 'public'
+  // ลิงก์สาธารณะบังคับรหัสลิงก์เสมอ (T-02) — 'none' เลือกไม่ได้ในโหมดนี้
+  const auth = isPublicScope ? 'password' : privateAuth
+  const expiry = isPublicScope ? publicExpiry : privateExpiry
+  const setExpiry = isPublicScope ? setPublicExpiry : setPrivateExpiry
   const defaultsAppliedRef = useRef(false)
   useEffect(() => {
     const defaults = shareDefaultsApi.data?.settings?.shareDefaults
     // ใช้ครั้งเดียวต่อการเข้าจอ — ไม่งั้นการ refetch จะรีเซ็ตสิ่งที่ผู้ใช้เพิ่งเลือกไว้
     if (!defaults || defaultsAppliedRef.current) return
     defaultsAppliedRef.current = true
-    setExpiry(defaults.expiry)
+    // ⚠️ ค่าที่บัญชีบันทึกไว้เป็นของ "ลิงก์ส่วนตัว" เท่านั้น — schema จำกัด
+    //    share_default_scope ไว้ที่ any|zones อยู่แล้ว จึงไม่มีทางตั้ง public เป็น
+    //    ค่าเริ่มต้นถาวรได้ และหน้านี้ก็ไม่เขียนค่ากลับไป
+    setPrivateExpiry(defaults.expiry)
     setScope(defaults.scope)
     // requirePassword เป็น boolean ไม่ใช่รหัสผ่าน — แปลงเป็น authType ที่สัญญาแชร์รู้จัก
-    setAuth(defaults.requirePassword ? 'password' : 'none')
+    setPrivateAuth(defaults.requirePassword ? 'password' : 'none')
   }, [shareDefaultsApi.data])
+  // ความสามารถหายกลางคัน (deployment ปิดสวิตช์ / โหลดพลาด) ต้องไม่ค้างอยู่ที่ public
+  useEffect(() => {
+    if (!publicSelectable && scope === 'public') setScope('zones')
+  }, [publicSelectable, scope])
+
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(null) // null | 'input' | 'zones' | 'server'
   // ⚠️ URL ของลิงก์ถูกแสดง "ครั้งเดียว" ตรงนี้ — เซิร์ฟเวอร์เก็บแต่ sha256 ของ token
   //    จึงไม่มีทางแสดงซ้ำได้ (แบบแผนเดียวกับรหัสผ่านชั่วคราวของบัญชีใหม่ในจอ Access)
-  const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs } | null
+  const [created, setCreated] = useState(null) // { url, fileName, hasPassword, scopeCidrs, isPublic } | null
   const [copied, setCopied] = useState(false)
 
   // ── ตัวกรองของตาราง active links (scope / expiry) ──────────────────────────
@@ -182,6 +228,8 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
   const selectedFileId = fileId || files[0]?.id || ''
 
   const passwordTooShort = auth === 'password' && linkPassword.length > 0 && linkPassword.length < 8
+  // ⚠️ ไม่ยกระดับความยาวขั้นต่ำเกินกว่าที่ backend บังคับอยู่แล้ว (8 ตัวอักษร)
+  //    สำหรับ public เพียงแค่ 'none' เลือกไม่ได้ จึงบังคับให้ต้องมีรหัสเสมอ
   const canCreate = Boolean(selectedFileId) && !creating &&
     (auth !== 'password' || linkPassword.length >= 8)
 
@@ -201,6 +249,33 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
       setCreateError(res.status === 400 && scope === 'zones' ? 'zones' : res.status === 400 ? 'input' : 'server')
       return
     }
+    /* ── ที่มาของ URL — จุดที่ผิดพลาดแล้วอันตรายที่สุดบนจอนี้ ────────────────────
+       zones/any: ประกอบจาก origin ของเบราว์เซอร์เหมือนเดิม (URL ภายใน)
+       public   : ใช้ publicUrl จากเซิร์ฟเวอร์ "ตรง ๆ" เท่านั้น
+       ⚠️ ห้ามเดา public URL จาก window.location/Host/apiUrl(path) เด็ดขาด —
+          origin ของผู้ดูแลที่กำลังเปิดจอนี้คือที่อยู่ภายใน การหยิบมาแปะให้ผู้รับ
+          ภายนอกคือการมอบลิงก์ที่ใช้ไม่ได้ และเปิดเผยที่อยู่ภายในไปพร้อมกัน
+       ⚠️ ถ้าเซิร์ฟเวอร์ตอบสำเร็จแต่ไม่มี publicUrl แปลว่า config ไม่สอดคล้องกัน
+          ต้อง fail closed: ไม่แสดงลิงก์ใด ๆ ไม่ตกกลับไปใช้ path ภายใน */
+    if (scope === 'public') {
+      const publicUrl = res.data.publicUrl
+      if (typeof publicUrl !== 'string' || publicUrl.length === 0) {
+        setCreateError('publicUrl')
+        setLinkPassword('')
+        sharesApi.retry()
+        return
+      }
+      setCreated({
+        url: publicUrl,
+        fileName: res.data.share.fileName,
+        hasPassword: res.data.share.hasPassword,
+        scopeCidrs: res.data.share.scopeCidrs ?? [],
+        isPublic: true,
+      })
+      setLinkPassword('')
+      sharesApi.retry()
+      return
+    }
     // ประกอบ URL เต็มฝั่ง client: origin ของเบราว์เซอร์ + BASE_URL ของ bundle
     // (Express ไม่รู้ prefix '/drive' ของตัวเองเพราะ nginx ตัดออกก่อนถึงมัน)
     setCreated({
@@ -208,6 +283,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
       fileName: res.data.share.fileName,
       hasPassword: res.data.share.hasPassword,
       scopeCidrs: res.data.share.scopeCidrs ?? [],
+      isPublic: false,
     })
     setLinkPassword('')
     sharesApi.retry()
@@ -266,10 +342,21 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                     รหัสออกไปให้ผู้รับเลย (ไม่มีอีเมล/SMS) เดิมเลือกได้และเซิร์ฟเวอร์รับค่าไว้
                     แต่ไม่มีรหัสถูกสร้างหรือถูกตรวจที่ไหน = ลิงก์ที่ผู้ใช้เชื่อว่าต้องมีรหัส
                     จึงเปิดได้ กลายเป็นลิงก์ที่ใครถือก็เปิดได้ทันที */}
-                <PillSelect id="share-auth" value={auth} onChange={(e) => setAuth(e.target.value)}>
+                {/* ⚠️ public บังคับรหัสลิงก์: ล็อกช่องนี้ไว้แทนที่จะซ่อน เพื่อให้เห็นว่า
+                    ค่าที่จะถูกส่งคือ password จริง ๆ และค่าที่ผู้ใช้ตั้งไว้ฝั่งส่วนตัว
+                    ยังอยู่ครบเมื่อสลับกลับ */}
+                <PillSelect
+                  id="share-auth"
+                  value={auth}
+                  disabled={isPublicScope}
+                  onChange={(e) => setPrivateAuth(e.target.value)}
+                >
                   <option value="password">{t('authPassword')}</option>
-                  <option value="none">{t('authNone')}</option>
+                  {!isPublicScope && <option value="none">{t('authNone')}</option>}
                 </PillSelect>
+                {isPublicScope && (
+                  <p className="text-[11.5px] text-ink-3 mt-1.5 leading-relaxed">{t('scopePublicPasswordRequired')}</p>
+                )}
               </Field>
             </div>
 
@@ -300,17 +387,24 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 options={[
                   { value: 'zones', label: t('scopeZones') },
                   { value: 'any', label: t('scopeAny') },
+                  // ตัวเลือกที่สามถูก "สร้าง" ก็ต่อเมื่อเซิร์ฟเวอร์อนุญาต ไม่ใช่ซ่อนด้วย CSS
+                  ...(publicSelectable ? [{ value: 'public', label: t('scopePublic') }] : []),
                 ]}
                 value={scope}
                 onChange={(v) => { setScope(v); setCreateError(null) }}
               />
             </div>
             <ScopePanel t={t} scope={scope} zonesUnavailable={createError === 'zones'} />
-            <PublicInternetNotice t={t} />
+            {/* ประกาศ "ยังไม่พร้อมใช้งาน" แสดงเฉพาะตอนที่มันจริงเท่านั้น */}
+            {!publicSelectable && <PublicInternetNotice t={t} />}
 
             {createError && (
               <p role="alert" className="text-[12.5px] font-medium" style={{ color: 'var(--danger)' }}>
-                {createError === 'zones' ? t('scopeNoZones') : t('actionFailed')}
+                {createError === 'zones'
+                  ? t('scopeNoZones')
+                  : createError === 'publicUrl'
+                    ? t('publicUrlMissing')
+                    : t('actionFailed')}
               </p>
             )}
             <Btn variant="primary" onClick={createLink} disabled={!canCreate}>
@@ -341,6 +435,11 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                   {t('shareLinkOnceWarn')}
                 </p>
+                {created.isPublic && (
+                  <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                    {t('shareLinkPublicNote')}
+                  </p>
+                )}
                 {created.hasPassword && (
                   <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('shareLinkPasswordNote')}</p>
                 )}
@@ -373,6 +472,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                   <option value="all">{t('filterScope')} · {t('filterAll')}</option>
                   <option value="zones">{t('scopeZones')}</option>
                   <option value="any">{t('scopeAny')}</option>
+                  <option value="public">{t('scopePublic')}</option>
                 </PillSelect>
               </div>
               <div className="w-[168px]">

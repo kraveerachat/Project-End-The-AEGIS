@@ -51,6 +51,7 @@ const CONFIGURED_ORIGIN = 'https://share.example.invalid'
 
 let driveServer, noPublicServer, privateProxy, gatewayProxy, bareGatewayProxy
 let directBaseUrl, noPublicBaseUrl, privateBaseUrl, gatewayBaseUrl, bareGatewayBaseUrl
+let uiEnabledServer, uiEnabledBaseUrl
 
 /**
  * A local TCP hop that models a trusted edge.
@@ -108,6 +109,14 @@ before(async () => {
   await new Promise((r) => noPublicServer.once('listening', r))
   noPublicBaseUrl = `http://127.0.0.1:${noPublicServer.address().port}`
 
+  // A third app identical to the first except that the deployment has activated
+  // the interface. PUBLIC-SHARE-4: this must move the advertised capability and
+  // nothing else.
+  uiEnabledServer = createApp({ env: { ...process.env, PUBLIC_SHARE_UI_ENABLED: 'true' } })
+    .listen(0, '127.0.0.1')
+  await new Promise((r) => uiEnabledServer.once('listening', r))
+  uiEnabledBaseUrl = `http://127.0.0.1:${uiEnabledServer.address().port}`
+
   privateProxy = edgeProxy('127.0.0.2')
   gatewayProxy = edgeProxy('127.0.0.3')
   // The gateway peer with no forwarding header at all: req.ip then falls back to
@@ -119,7 +128,7 @@ before(async () => {
 })
 
 after(async () => {
-  for (const server of [privateProxy, gatewayProxy, bareGatewayProxy, noPublicServer, driveServer]) {
+  for (const server of [privateProxy, gatewayProxy, bareGatewayProxy, uiEnabledServer, noPublicServer, driveServer]) {
     await new Promise((r) => server.close(r))
   }
   if (usingPostgres) {
@@ -546,6 +555,79 @@ test('PS2-LIMIT-2 share lockouts never reach the login page', async () => {
     headers: { 'X-Test-Client-IP': '203.0.113.88' },
   })
   assert.notEqual(login.status, 429, 'a share lockout must never lock signing in')
+})
+
+/* ═══ PUBLIC-SHARE-4 · the coarse UI activation capability ═══════════════
+   The Shares screen has to know whether to OFFER the public scope. It is told
+   one boolean and nothing else — not the public origin, not the pinned gateway
+   identity, not the dedicated subnet, not the G4 ingress choice. */
+
+test('PS4-API-1 GET /api/shares advertises exactly one coarse boolean, default false', async () => {
+  const owner = await loginClient(directBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const res = await owner.req('/api/shares')
+
+  assert.equal(res.status, 200)
+  // Default deployment: PUBLIC_SHARE_UI_ENABLED is not set anywhere in this suite.
+  assert.deepEqual(res.data.capabilities, { publicSelectable: false })
+  assert.deepEqual(Object.keys(res.data).sort(), ['capabilities', 'shares'])
+  assert.ok(Array.isArray(res.data.shares), 'the existing shares payload is unchanged')
+
+  // Nothing about where this deployment lives may travel with it.
+  const body = JSON.stringify(res.data)
+  for (const secretish of ['share.example.invalid', '127.0.0.3', '/32', '172.19.', '172.31.', 'PUBLIC_SHARE']) {
+    assert.equal(body.includes(secretish), false, `${secretish} must not be exposed to the client`)
+  }
+})
+
+test('PS4-API-2 the capability follows the deployment, not the request', async () => {
+  const owner = await loginClient(uiEnabledBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const res = await owner.req('/api/shares')
+  assert.equal(res.status, 200)
+  assert.deepEqual(res.data.capabilities, { publicSelectable: true })
+
+  // A deployment with no public origin stays false even with the flag on.
+  const noPublicOwner = await loginClient(noPublicBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const noPublic = await noPublicOwner.req('/api/shares')
+  assert.deepEqual(noPublic.data.capabilities, { publicSelectable: false })
+})
+
+test('PS4-API-3 the capability is authenticated like the rest of the route', async () => {
+  const anonymous = await new Client(directBaseUrl).req('/api/shares')
+  assert.equal(anonymous.status, 401)
+  assert.equal(anonymous.data?.capabilities, undefined, 'an anonymous caller learns nothing')
+})
+
+test('PS4-API-4 the UI flag does not change what POST /api/shares accepts', async () => {
+  // With the interface flag OFF (the default in this suite) a public share is
+  // still mintable through the API, exactly as PUBLIC-SHARE-2 defined it. The
+  // flag governs whether the screen OFFERS the option, never authorization.
+  const off = await loginClient(directBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const offFile = await uploadFile(off)
+  const offShare = await createShare(off, offFile.id, {
+    scope: 'public', authType: 'password', password: 'ui-flag-off-password',
+  })
+  assert.equal(offShare.status, 201)
+  assert.equal(offShare.data.share.scope, 'public')
+  assert.equal(offShare.data.publicUrl, `https://share.example.invalid${offShare.data.path}`)
+
+  // With the flag ON the outcome is identical — same status, same scope, same
+  // configured origin. Turning the UI on widened nothing.
+  const on = await loginClient(uiEnabledBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const onFile = await uploadFile(on)
+  const onShare = await createShare(on, onFile.id, {
+    scope: 'public', authType: 'password', password: 'ui-flag-on-password',
+  })
+  assert.equal(onShare.status, 201)
+  assert.equal(onShare.data.share.scope, 'public')
+  assert.equal(onShare.data.publicUrl, `https://share.example.invalid${onShare.data.path}`)
+
+  // And a deployment with no public origin still refuses, flag or no flag.
+  const nowhere = await loginClient(noPublicBaseUrl, DEMO_USER.username, DEMO_USER.password)
+  const nowhereFile = await uploadFile(nowhere)
+  const refused = await createShare(nowhere, nowhereFile.id, {
+    scope: 'public', authType: 'password', password: 'ui-flag-absent-password',
+  })
+  assert.equal(refused.status, 400)
 })
 
 console.log(`[public share backend tests] database mode: ${DB_MODE}`)
