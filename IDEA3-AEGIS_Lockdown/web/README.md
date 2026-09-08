@@ -18,7 +18,7 @@
 
 ## เริ่มใช้งานสำหรับพัฒนา
 
-ต้องใช้ Node.js 20 ขึ้นไป จากโฟลเดอร์นี้ให้ติดตั้ง dependency แล้วเปิด API และ Vite แยกกันสอง terminal:
+ต้องใช้ Node.js 22.13.0 ขึ้นไป จากโฟลเดอร์นี้ให้ติดตั้ง dependency แล้วเปิด API และ Vite แยกกันสอง terminal:
 
 ```bash
 npm ci
@@ -42,9 +42,9 @@ npm run dev
 | ตัวแปร | ความหมาย |
 |---|---|
 | `PORT` | พอร์ต API; ค่าเริ่มต้น `8003` |
-| `SESSION_SECRET` | secret ของ session; production ต้องยาวอย่างน้อย 32 ตัวอักษร |
+| `SESSION_SECRET` | production ต้องยาวอย่างน้อย 32 ตัวอักษร, ห้ามใช้ development default/ค่าอักษรซ้ำล้วน และต้องมีอย่างน้อย 3 character classes |
 | `AEGIS_IDEA3_ADMIN_USER` | ชื่อบัญชี Admin |
-| `AEGIS_IDEA3_ADMIN_PASSWORD_HASH` | bcrypt hash ที่จำเป็นใน production |
+| `AEGIS_IDEA3_ADMIN_PASSWORD_HASH` | bcrypt hash ที่จำเป็นใน production; cost ต้องอยู่ระหว่าง 12–31 |
 | `AEGIS_ALLOW_DEV_LOGIN` | เปิดรหัสผ่านพัฒนาได้เฉพาะ non-production เมื่อเป็น `true` |
 | `AEGIS_IDEA3_DEV_PASSWORD` | รหัสผ่าน local-only เมื่อเปิด development login |
 | `AEGIS_DEMO_ALLOWED` | ปิด Demo ใน non-production ได้ด้วย `false`; production ปิดเสมอ |
@@ -54,8 +54,36 @@ npm run dev
 | `AEGIS_MAX_EVIDENCE_AGE_MS` | อายุสูงสุดของหลักฐานก่อนเป็น `UNKNOWN` |
 | `AEGIS_ADAPTER_TIMEOUT_MS` | timeout ของ adapter แต่ละแหล่ง |
 | `AEGIS_SESSION_IDLE_MS` | อายุ idle ของ Admin session |
+| `AEGIS_IDEA3_AUDIT_DB_PATH` | SQLite audit path; ค่าเริ่มต้น `.aegis-runtime/security-center-audit.sqlite3` |
 
 ถ้า endpoint ใดไม่ถูกตั้งค่า ระบบแสดง `NOT_CONFIGURED`; ถ้าตอบไม่ได้/ผิด schema/เก่าเกินไป ระบบแสดง `UNKNOWN` โดยไม่สร้างข้อมูลปลอม และ Demo records ถูกแยก namespace จาก Live records เสมอ
+
+## Production authentication และ durable audit
+
+Canonical environment template อยู่ที่ `../.env.example`
+
+เมื่อ `NODE_ENV=production` ระบบจะ fail closed หาก `SESSION_SECRET` ไม่ผ่าน
+production policy หรือ `AEGIS_IDEA3_ADMIN_PASSWORD_HASH` ไม่ใช่ bcrypt hash
+ที่มี cost 12–31 และ development login จะถูกปิดเสมอใน production
+
+Web Security Center ใช้ SQLite audit repository โดยค่าเริ่มต้นที่
+`.aegis-runtime/security-center-audit.sqlite3` ใช้ schema version 1 และ WAL
+เพื่อเก็บ audit แบบ durable ข้ามการ reopen/restart ของ process
+
+Login success/failure/rate-limit, logout, operational failures และ action audit
+ถูกสร้างฝั่ง server หาก audit persistence เปิดหรือเขียนไม่ได้ operation ที่ต้อง
+พึ่ง audit จะ fail closed ด้วย HTTP `503` และ code
+`AUDIT_PERSISTENCE_FAILURE`
+
+Admin ที่ authenticate แล้วสามารถอ่าน audit แบบ bounded ผ่าน
+`GET /api/security/audit?limit=1..250`
+
+Session และ audit มี lifecycle แยกกัน: session ไม่ถูกอ้างว่า durable ข้าม
+process restart ส่วน audit ที่ commit ลง SQLite จะยังอยู่
+
+ก่อน backup/restore SQLite ให้หยุด Web service และสำรอง database พร้อม WAL/SHM
+ที่เกี่ยวข้อง ห้าม commit database, runtime artifacts, credential, hash หรือ
+session secret ลง Git
 
 ## ตรวจสอบก่อนส่งงาน
 

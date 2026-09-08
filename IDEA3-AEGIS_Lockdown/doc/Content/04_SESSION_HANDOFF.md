@@ -1243,3 +1243,69 @@ architecture diagram called an HMAC-signed command "encrypted" and used a stale
 topic; and historical standalone hardware PASS tables could be mistaken for
 fresh PR4 proof. Historical claims are now labelled as archival/not rerun, while
 the PR4 hardware and production boundary remains explicitly unproven.
+
+
+## 27. PR6 Production Reliability & Persistence Hardening — 2026-09-08
+
+Project Sequence **PR6** is the IDEA3 production-reliability hardening task.
+`PR6` is an internal project sequence label, not a predicted GitHub PR number.
+
+### Git checkpoint
+
+```text
+Branch: feat/idea3-production-reliability
+Base: c650cf2eda1c963e9f97fab8c7c34c3644022cb3
+Implementation HEAD before Task 5 docs: d3ffd9c28c87404af8f5b7cbd3d0efa25b329e0e
+```
+
+### Closed implementation areas
+
+- Error Reporting — CLOSED.
+- Audit Persistence — CLOSED.
+- Production Session / Authentication — CLOSED.
+- Operational failure persistence and bounded Admin audit — CLOSED.
+- SQLite schema version 1 with WAL and restart/reopen durability.
+- Production session-secret policy and bcrypt cost 12–31 validation.
+- Development login is hard-disabled in production.
+- Auth success/failure/rate-limit/logout events are server-side audited.
+- Audit persistence failures fail closed with HTTP 503.
+- Admin audit reads are bounded to `limit=1..250`.
+- No MQTT publish, ESP32 execution, relay actuation, CUT, or RESTORE route was added.
+
+### Fresh PR6 verification
+
+```text
+Python pytest:         PASS — 63/63
+Ruff:                  PASS
+Python compileall:     PASS
+Web tests:             PASS — 168/168
+Web production build:  PASS
+npm audit --omit=dev:  PASS — 0 vulnerabilities
+Firmware compile-only: PASS
+Firmware SHA-256: 6a37e2a0ee4ed594d2812c895cdb2d5235af5cfbde012e3f87cc63c0dfec1c42
+Repository tests:      PASS — 56/56
+Vault validation:      PASS — 2 pre-existing owner-data canvas warnings
+git diff --check:      PASS
+```
+
+Firmware verification was compile-only. No firmware flash, live Wi-Fi, live MQTT,
+GPIO/relay action, CUT/RESTORE execution, network change, or production deployment occurred.
+
+### Downstream work remains OPEN
+
+```text
+IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
+IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
+CROSS_IDEA_EVENT_NORMALIZATION = OPEN / PR7
+CROSS_IDEA_INCIDENT_CORRELATION = OPEN / PR7
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = OPEN / PR7
+1B_RESET_WINDOW = OPEN / PR8
+ROUTER_SWITCH_REAL_ETHERNET_E2E = OPEN / PR8
+KALI_E2E = OPEN / PR9
+WINDOWS_EXE = OPEN / PR10
+PRODUCTION_DEPLOYMENT = OPEN / PR11
+FINAL_SYSTEM_ACCEPTANCE = OPEN / PR12
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+Do not merge, deploy, perform hardware work, or implement PR7–PR12 as part of this task.
