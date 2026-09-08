@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe('SQLite audit repository', () => {
-  it('creates schema version 1, the required tables, WAL storage, and parent directories', () => {
+  it('creates schema version 2, the required tables, WAL storage, and parent directories', () => {
     const database = testDatabase()
     const repository = openRepository({ path: database.path, clock: fixedClock() })
 
@@ -55,9 +55,10 @@ describe('SQLite audit repository', () => {
     const journalMode = inspection.prepare('PRAGMA journal_mode').get().journal_mode
     inspection.close()
 
-    expect(schemaRows).toEqual([{ singleton: 1, version: 1 }])
+    expect(schemaRows).toEqual([{ singleton: 1, version: 2 }])
     expect(tables).toEqual(expect.arrayContaining([
       'schema_meta', 'audit_log', 'alert_acknowledgements', 'incident_notes', 'settings', 'active_operational_errors',
+      'containment_decisions', 'integration_lifecycle', 'correlated_incidents',
     ]))
     expect(journalMode).toBe('wal')
     expect(repository.queryAudit({ limit: 10 })).toEqual([])
@@ -311,7 +312,9 @@ describe('shared audit contract', () => {
     const error = createOperationalError('MQTT_DISCONNECTED', { occurredAt: '2026-09-08T00:59:00.000Z' })
 
     expect(Object.keys(repository).sort()).toEqual([
-      'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'queryAudit', 'recordAction', 'recordOperationalErrors', 'updateSettings',
+      'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'queryAudit', 'readContainmentDecision',
+      'recordAction', 'recordContainmentDecision', 'recordIntegrationOutcome', 'recordOperationalErrors',
+      'updateSettings',
     ])
     repository.recordOperationalErrors([error])
     repository.recordOperationalErrors([error])
@@ -339,5 +342,135 @@ describe('shared audit contract', () => {
       { id: 'audit-00001', action: 'LATEST_EARLIER_SEQUENCE' },
       { id: 'audit-00002', action: 'OLDEST' },
     ])
+  })
+})
+
+describe('durable containment decisions and additive schema v2', () => {
+  const decision = Object.freeze({
+    incidentId: 'inc-0123456789abcd',
+    decision: 'ACCEPT',
+    state: 'CONTAINMENT_ACCEPTED',
+    correlationKey: 'zone-a-incident-42',
+    evidenceIds: ['IDEA1:idea1-event-1', 'IDEA2:idea2-event-1'],
+    severity: 'HIGH',
+  })
+
+  it('stores a decision durably and returns it unchanged after reopening the database', () => {
+    const { path } = testDatabase()
+    const first = openRepository({ path, clock: fixedClock() })
+
+    const recorded = first.recordContainmentDecision(decision)
+    first.close()
+    const reopened = openRepository({ path, clock: fixedClock() })
+
+    expect(recorded).toEqual(expect.objectContaining({ status: 'RECORDED', state: 'CONTAINMENT_ACCEPTED' }))
+    expect(reopened.readContainmentDecision(decision.incidentId)).toEqual(expect.objectContaining({
+      incidentId: decision.incidentId,
+      decision: 'ACCEPT',
+      state: 'CONTAINMENT_ACCEPTED',
+      correlationKey: 'zone-a-incident-42',
+    }))
+    expect(reopened.queryAudit({ limit: 10 }).filter((row) => row.action === 'CONTAINMENT_ACCEPTED')).toHaveLength(1)
+  })
+
+  it('is idempotent for the same decision and conflicts on the opposite one', () => {
+    const { path } = testDatabase()
+    const repository = openRepository({ path, clock: fixedClock() })
+
+    repository.recordContainmentDecision(decision)
+    const repeated = repository.recordContainmentDecision(decision)
+    const reversed = repository.recordContainmentDecision({ ...decision, decision: 'REJECT', state: 'CONTAINMENT_REJECTED' })
+
+    expect(repeated).toEqual(expect.objectContaining({ status: 'UNCHANGED', state: 'CONTAINMENT_ACCEPTED' }))
+    expect(reversed).toEqual(expect.objectContaining({ status: 'CONFLICT', state: 'CONTAINMENT_ACCEPTED' }))
+    expect(repository.queryAudit({ limit: 50 }).filter((row) => row.action === 'CONTAINMENT_ACCEPTED')).toHaveLength(1)
+    expect(repository.queryAudit({ limit: 50 }).filter((row) => row.action === 'CONTAINMENT_REJECTED')).toHaveLength(0)
+  })
+
+  it('never stores raw upstream payloads, credentials, or human names with a decision', () => {
+    const { path } = testDatabase()
+    const repository = openRepository({ path, clock: fixedClock() })
+
+    repository.recordContainmentDecision({
+      ...decision,
+      rawEvent: { subject: 'Alice Example', token: 'must-not-leak' },
+      snapshotPath: '/var/aegis/snapshots/cam-02.jpg',
+    })
+    repository.close()
+
+    const stored = readFileSync(path, 'utf8')
+    expect(stored).not.toMatch(/Alice Example|must-not-leak|cam-02\.jpg/)
+  })
+
+  it('migrates a schema v1 database to v2 additively and keeps every v1 audit row', () => {
+    const { path } = testDatabase()
+    const legacy = openRepository({ path, clock: fixedClock() })
+    legacy.recordAction({ category: 'ALERT', action: 'LEGACY_V1_ROW', outcome: 'SUCCESS' })
+    legacy.close()
+
+    const database = new DatabaseSync(path)
+    database.exec('DROP TABLE IF EXISTS containment_decisions')
+    database.prepare('UPDATE schema_meta SET version = 1 WHERE singleton = 1').run()
+    database.close()
+
+    const migrated = openRepository({ path, clock: fixedClock() })
+
+    expect(migrated.queryAudit({ limit: 10 }).map((row) => row.action)).toContain('LEGACY_V1_ROW')
+    expect(migrated.recordContainmentDecision(decision)).toEqual(expect.objectContaining({ status: 'RECORDED' }))
+    expect(migrated.schemaVersion()).toBe(2)
+  })
+
+  it('reports no decision for an incident that has never been decided', () => {
+    const { path } = testDatabase()
+    expect(openRepository({ path, clock: fixedClock() }).readContainmentDecision('inc-never-decided')).toBeNull()
+  })
+
+  it('keeps the in-memory repository behaviour identical for containment decisions', () => {
+    const repository = createMemoryRepository({ clock: fixedClock() })
+
+    const recorded = repository.recordContainmentDecision(decision)
+    const repeated = repository.recordContainmentDecision(decision)
+    const reversed = repository.recordContainmentDecision({ ...decision, decision: 'REJECT', state: 'CONTAINMENT_REJECTED' })
+
+    expect(recorded.status).toBe('RECORDED')
+    expect(repeated.status).toBe('UNCHANGED')
+    expect(reversed).toEqual(expect.objectContaining({ status: 'CONFLICT', state: 'CONTAINMENT_ACCEPTED' }))
+    expect(repository.readContainmentDecision(decision.incidentId).state).toBe('CONTAINMENT_ACCEPTED')
+  })
+})
+
+describe('durable integration lifecycle storage', () => {
+  const failing = { sources: [{ source: 'IDEA1', status: 'UNKNOWN', code: 'ADAPTER_TIMEOUT', rejectedCount: 0 }] }
+  const healthy = { sources: [{ source: 'IDEA1', status: 'HEALTHY', code: null, rejectedCount: 0 }] }
+
+  it('keeps an active failure period across a reopen instead of re-reporting it', () => {
+    const { path } = testDatabase()
+    const first = openRepository({ path, clock: fixedClock() })
+
+    expect(first.recordIntegrationOutcome(failing).map((row) => row.action)).toEqual(['ADAPTER_FAILURE'])
+    first.close()
+
+    const reopened = openRepository({ path, clock: fixedClock() })
+    expect(reopened.recordIntegrationOutcome(failing)).toEqual([])
+    expect(reopened.recordIntegrationOutcome(healthy).map((row) => row.action)).toEqual(['ADAPTER_RECOVERED'])
+    expect(reopened.recordIntegrationOutcome(failing).map((row) => row.action)).toEqual(['ADAPTER_FAILURE'])
+  })
+
+  it('remembers a correlated incident permanently so it is audited once', () => {
+    const { path } = testDatabase()
+    const incident = { id: 'inc-0123456789abcd', correlationKey: 'zone-a-incident-42', severity: 'HIGH', idea1Count: 1, idea2Count: 1, evidenceIds: ['IDEA1:a', 'IDEA2:b'] }
+    const first = openRepository({ path, clock: fixedClock() })
+
+    expect(first.recordIntegrationOutcome({ incidents: [incident] }).map((row) => row.action)).toEqual(['INCIDENT_CORRELATED'])
+    first.close()
+
+    expect(openRepository({ path, clock: fixedClock() }).recordIntegrationOutcome({ incidents: [incident] })).toEqual([])
+  })
+
+  it('ignores an unconfigured source entirely', () => {
+    const { path } = testDatabase()
+    const repository = openRepository({ path, clock: fixedClock() })
+
+    expect(repository.recordIntegrationOutcome({ sources: [{ source: 'IDEA2', status: 'NOT_CONFIGURED', code: 'NOT_CONFIGURED' }] })).toEqual([])
   })
 })

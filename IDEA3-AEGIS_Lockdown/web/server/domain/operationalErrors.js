@@ -20,6 +20,7 @@ const CATALOG = Object.freeze({
   ADAPTER_UNAVAILABLE: ['ADAPTER', 'HIGH', 'Upstream adapter is unavailable.', 'Adapter', true],
   ADAPTER_TIMEOUT: ['ADAPTER', 'HIGH', 'Upstream adapter timed out.', 'Adapter', true],
   ADAPTER_RESPONSE_REJECTED: ['ADAPTER', 'HIGH', 'Upstream adapter response was rejected.', 'Adapter', true],
+  ADAPTER_EVIDENCE_STALE: ['EVIDENCE', 'HIGH', 'Upstream adapter evidence is outside the accepted freshness window.', 'Adapter', true],
 })
 
 export const OPERATIONAL_ERROR_CODES = Object.freeze(Object.fromEntries(

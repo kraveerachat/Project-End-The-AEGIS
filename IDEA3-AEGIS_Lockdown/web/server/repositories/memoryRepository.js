@@ -4,6 +4,9 @@ import {
   auditEntryForOperationalError,
   sanitizeAuditEntry,
   sanitizeIncidentNote,
+  containmentAuditEntry,
+  integrationAuditEntry,
+  safeContainmentDecision,
   sanitizedSettings,
   validateAuditLimit,
 } from './auditRecords.js'
@@ -13,6 +16,9 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
   const incidentNotes = new Map()
   const audit = []
   const activeOperationalErrors = new Set()
+  const containmentDecisions = new Map()
+  const activeIntegrationMarkers = new Set()
+  const correlatedIncidents = new Set()
   const settings = { ...DEFAULT_SETTINGS }
 
   function appendAudit(entry) {
@@ -43,6 +49,59 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
     },
     recordAction(entry) {
       return appendAudit(entry)
+    },
+    recordContainmentDecision(decision) {
+      const safe = safeContainmentDecision(decision)
+      const existing = containmentDecisions.get(safe.incidentId)
+      if (existing) {
+        return { status: existing.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...existing, audit: null }
+      }
+      containmentDecisions.set(safe.incidentId, safe)
+      return { status: 'RECORDED', ...safe, audit: appendAudit(containmentAuditEntry(safe)) }
+    },
+    readContainmentDecision(incidentId) {
+      return containmentDecisions.get(incidentId) ?? null
+    },
+    recordIntegrationOutcome({ sources = [], conflicts = [], incidents = [] } = {}) {
+      const recorded = []
+      const emit = (action, fields) => {
+        const entry = integrationAuditEntry(action, fields)
+        if (entry) recorded.push(appendAudit(entry))
+        return Boolean(entry)
+      }
+
+      for (const source of sources) {
+        if (source?.status === 'NOT_CONFIGURED') continue
+        const failureMarker = `${source.source}:ADAPTER_FAILURE`
+        if (source.status === 'HEALTHY') {
+          if (activeIntegrationMarkers.delete(failureMarker)) emit('ADAPTER_RECOVERED', { source: source.source })
+        } else if (!activeIntegrationMarkers.has(failureMarker)) {
+          if (emit('ADAPTER_FAILURE', { source: source.source, code: source.code })) activeIntegrationMarkers.add(failureMarker)
+        }
+
+        const rejectionMarker = `${source.source}:EVENT_REJECTED`
+        const rejectedCount = Number.isSafeInteger(source.rejectedCount) ? source.rejectedCount : 0
+        if (rejectedCount > 0) {
+          if (!activeIntegrationMarkers.has(rejectionMarker)) {
+            if (emit('EVENT_REJECTED', { source: source.source, count: rejectedCount })) activeIntegrationMarkers.add(rejectionMarker)
+          }
+        } else {
+          activeIntegrationMarkers.delete(rejectionMarker)
+        }
+      }
+
+      for (const conflict of conflicts) {
+        const marker = `CONFLICT:${conflict?.source}:${conflict?.event_id}`
+        if (activeIntegrationMarkers.has(marker)) continue
+        if (emit('EVENT_ID_CONFLICT', { source: conflict?.source, code: conflict?.event_id })) activeIntegrationMarkers.add(marker)
+      }
+
+      for (const incident of incidents) {
+        if (typeof incident?.id !== 'string' || correlatedIncidents.has(incident.id)) continue
+        if (emit('INCIDENT_CORRELATED', { incident })) correlatedIncidents.add(incident.id)
+      }
+
+      return recorded
     },
     updateSettings(next) {
       Object.assign(settings, sanitizedSettings(next))
