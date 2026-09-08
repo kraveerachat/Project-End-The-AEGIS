@@ -13,15 +13,17 @@ edit_policy: owner-writable
 
 > [!warning] Contract partly delivered; Public Internet Share is still unavailable
 > **PUBLIC-SHARE-1 architecture and PUBLIC-SHARE-2 backend contract are merged.
-> PUBLIC-SHARE-3 gateway source is implemented and verified locally only. Public
-> Internet Share remains NOT IMPLEMENTED and NOT DEPLOYED.** No Production
-> gateway or `aegis_public_share` network exists, migration 009 has not been
-> applied to Production, and no port, DNS, TLS certificate, firewall, NAT, VLAN,
-> managed tunnel or Twingate policy has been changed. The UI still does not offer
-> `scope=public`; G4, G5 and G6 remain open.
+> PUBLIC-SHARE-3 gateway source is implemented and verified locally only.
+> PUBLIC-SHARE-6 has now proven gateway↔Drive integration on an isolated
+> internal address. Public Internet Share remains NOT IMPLEMENTED and NOT
+> DEPLOYED.** No Production gateway or `aegis_public_share` network exists,
+> migration 009 has not been applied to Production, and no port, DNS, TLS
+> certificate, firewall, NAT, VLAN, managed tunnel or Twingate policy has been
+> changed. The UI still does not offer `scope=public`; G4, G5 and G6 remain open.
 >
-> The isolated PUBLIC-SHARE-3 harness is source/test evidence, not Production
-> evidence. Its two containers and network are removed after each runtime run.
+> The isolated PUBLIC-SHARE-3 and PUBLIC-SHARE-6 harnesses are source/test
+> evidence, not Production evidence. Every container, network and volume either
+> creates is removed after each runtime run.
 
 ---
 
@@ -1344,7 +1346,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
-| **PUBLIC-SHARE-6** | Internal integration acceptance | Gateway↔Drive behaviour proven on an internal address, including streaming, timeouts, concurrency and slow clients | Internet exposure |
+| **PUBLIC-SHARE-6** *(internal acceptance passed; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
 | **PUBLIC-SHARE-7** | Real external E2E | Acceptance from ≥2 external paths with Twingate off | — |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
@@ -1458,6 +1460,50 @@ private redemption or login (T-05).
 file large enough to exceed default timeouts; an interrupted transfer; a slow
 client; concurrent downloads; and confirmation that `/api`, `/drive` and
 `/healthz` are unreachable through the gateway.
+
+> [!success] PUBLIC-SHARE-6 internal acceptance passed — still no ingress, still not deployed
+> `gateway/public-share/integration/` stands up the **real** PUBLIC-SHARE-3
+> gateway image in front of the **real** AEGIS Drive image on a **real**
+> PostgreSQL 15, and `tests/publicShareInternalIntegration.test.js` drives it.
+> This is the first evidence in the repository of the two tiers actually
+> connected: PUBLIC-SHARE-3 measured the gateway against a recorder, and
+> PUBLIC-SHARE-5 measured the application against a modelled peer.
+>
+> Proven end to end across a real nginx hop: a 64 MiB (67,108,864-byte) upload on
+> the private path and byte-exact SHA-256 delivery on the public one; a slow
+> client that stalls **75s** mid-transfer and still receives every byte; an
+> interrupted transfer that harms neither tier; four concurrent downloads all
+> intact; `/`, `/api/*`, `/drive/`, `/monitor/`, `/healthz`, `/s/`, both traversal
+> spellings and a `PUT` all refused **without one of them reaching the
+> application**; an unknown `Host` terminated at the gateway; forged
+> `X-Forwarded-For` / `X-Real-IP` / `Forwarded` unable to move attribution off the
+> real recipient address; a `scope=any` link refused through the public ingress
+> while still redeemable privately; revocation effective immediately; and B5
+> reconfirmed with the gateway holding no default route and no path to
+> PostgreSQL.
+>
+> Three things this phase established that were not previously recorded:
+> 1. **Migration 009 is now proven against a real 008-era database**, not only
+>    against `schema.sql`. The harness deliberately provisions the pre-009
+>    constraint and demonstrates that a `scope=public` share **cannot** be minted
+>    until 009 is applied, that re-applying it is a no-op, and that `drive_app`
+>    is refused the migration.
+> 2. **The production State B trusted-proxy pair is load-bearing at boot.**
+>    `config/trustedProxy.js` refuses to start under `NODE_ENV=production` unless
+>    `TRUSTED_PROXY_CIDRS` is exactly the approved HUB identity **and**
+>    `PUBLIC_SHARE_GATEWAY_CIDR`. The first harness attempt failed the boot on
+>    this, which is the control working.
+> 3. **The slow-client timeout tuning is measurable, not decorative.** With
+>    `proxy_buffering off`, a 75s client stall lands directly on
+>    `proxy_read_timeout` and `send_timeout`, whose nginx defaults are 60s. The
+>    transfer completes only because the shipped template raises both to 300s.
+>
+> **G4, G5 and G6 remain open, and `Public Internet Share = NOT IMPLEMENTED`.**
+> A recipient in this harness is a container on an isolated Docker network, not
+> someone on ordinary Internet access — that distinction is exactly what
+> PUBLIC-SHARE-7 exists to close. No shipped gateway, backend or UI source
+> changed in this phase, and nothing in Production was contacted, restarted,
+> migrated or read.
 
 **PUBLIC-SHARE-7** — real external E2E, client condition
 `Twingate = OFF`, `AEGIS account = not required`, `network = ordinary external

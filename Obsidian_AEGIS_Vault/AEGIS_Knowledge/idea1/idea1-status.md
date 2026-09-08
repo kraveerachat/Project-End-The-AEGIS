@@ -489,6 +489,164 @@ one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still nev
 009 applied; doing so remains a prerequisite of any deployment, and the observed
 run was on PostgreSQL 16.15 while production runs the 15 line.
 
+### Public-share internal integration acceptance passed, nothing deployed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-6 is isolated internal evidence only
+> **Real gateway in front of real Drive = YES. Real PostgreSQL 15.18 = YES.
+> Migration 009 on a real 008-era database = YES. 64 MiB byte-exact delivery =
+> YES. Slow client (75s stall) = YES. Interrupted transfer = YES. Concurrency =
+> YES. Forbidden routes and Host termination = YES. Forged-header attribution =
+> YES. Ingress split = YES. B5 = YES. Revocation = YES. Verified teardown = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+
+`gateway/public-share/integration/` stands the **real** PUBLIC-SHARE-3 gateway
+image in front of the **real** AEGIS Drive image on a **real** PostgreSQL 15.18,
+across three `internal: true` + `gateway_mode_ipv4: isolated` networks with no
+host port anywhere. `tests/publicShareInternalIntegration.test.js` drives it and
+reports **16 tests, 16 passed, 0 failed in 148.2 s**. This is the first evidence
+in the repository of the two tiers actually connected — PUBLIC-SHARE-3 measured
+the gateway against a recorder, PUBLIC-SHARE-5 measured the application against a
+modelled peer, and neither put one in front of the other.
+
+The recipient is a container on the edge network only, so "a recipient cannot
+reach Drive except through the gateway" is enforced by Docker and is probed
+rather than asserted about a diagram.
+
+Three facts this phase established that were not previously recorded:
+
+- **Migration 009 now has real-database evidence.** The harness provisions the
+  pre-009 constraint deliberately, then shows a `scope=public` share **cannot**
+  be minted until 009 is applied, that re-applying it is a no-op, and that the
+  scoped `drive_app` role is refused the migration. Previous 009 evidence was
+  against `schema.sql`, which already carries `public` and therefore could not
+  distinguish an applied migration from an unapplied one.
+- **The production State B trusted-proxy pair is enforced at boot.** Drive
+  refuses to start under `NODE_ENV=production` unless `TRUSTED_PROXY_CIDRS` is
+  exactly the approved HUB identity **and** `PUBLIC_SHARE_GATEWAY_CIDR`. The
+  first harness attempt failed the boot on precisely this — the control working,
+  not a defect.
+- **The gateway's raised timeouts are measurable.** With `proxy_buffering off`, a
+  75 s client stall lands on `proxy_read_timeout` and `send_timeout`, whose nginx
+  defaults are 60 s. The 64 MiB transfer completes only because the shipped
+  template sets both to 300 s.
+
+⚠️ This is **internal** integration. No ingress method is chosen, nothing is
+exposed, and a container on an isolated Docker network is not a recipient on
+ordinary Internet access. **G4, G5 and G6 remain open and
+`Public Internet Share = NOT IMPLEMENTED`.** No shipped gateway, backend or UI
+source changed, and no Production database, gateway, network, volume or migration
+was contacted. PUBLIC-SHARE-7 was not started.
+
+**Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED, all
+FAILED SAFELY; the acceptance matrix has still never completed on server
+hardware.** The owner
+approved running the same isolated harness on the server hardware. The earlier
+blocker — an agent session with no working SSH path to `192.168.10.10` — no
+longer applies: work now happens **on** the `aegis-system` host. All fourteen
+host preflight facts still remain **NOT MEASURED by the repository**; the figures
+used for planning are **owner-supplied** and are not reproduced here.
+
+Attempt #1, against PR #105 HEAD `160612de…`, passed guards 0–7 and then stopped
+at the **first Compose invocation**. The suite generates its four throwaway
+Compose interpolation values (`PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`,
+`PS6_DRIVE_DB_PASSWORD`, `PS6_SESSION_SECRET`) in its own child environment, and a
+process environment does not cross the `sudo -n env -u DOCKER_HOST docker`
+boundary — sudo correctly declined to carry them. Compose refused to interpolate.
+**Acceptance matrix not executed; no PS6 stack created; cleanup PASS; Production
+pre/post identity IDENTICAL with all services healthy; runner RC = 1; no product
+defect found.** This was a harness credential-plumbing defect.
+
+It is fixed without weakening the privilege boundary — no `sudo -E`, no
+`--preserve-env`, no sudoers `env_keep`, no docker-group change, no passwordless
+sudo, no global environment change. The four values now travel as an **argument**
+rather than an environment variable: one PS6-owned file at
+`$PS6_WORKDIR/evidence/compose.env`, mode `0600`, never printed, never committed,
+removed by the existing cleanup trap, and passed to every Compose call — the
+suite's and the runner's teardown alike — as `--env-file` before `-p` and `-f`.
+A new guard 8 refuses any pinned source tree that predates this.
+
+Attempt #2, against `dc9dda7c…`, cleared that: the credential plumbing passed and
+the **isolated stack built and started**. It then reported **9 failures out of
+16**, which were **one** failure. `PS6-INT-4`'s deterministic 64 MiB private-path
+upload did not complete, and the harness called `JSON.parse` on the body a failed
+request never returned — so the only thing the run said was
+`SyntaxError: "undefined" is not valid JSON`, and the real transport cause was
+destroyed. `PS6-INT-4` then minted no token, share id or file id, and seven
+dependent subtests asked the gateway for `/s/undefined`, got its correct 404, and
+were reported as defects. **They are not defects, and none is claimed as one.**
+`PS6-INT-1/2/3/11` passed on their own terms; `PS6-INT-9` and `-13` passed with
+token-shaped assertions that ran against the literal string `undefined` and are
+recorded as weaker than they look. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+The harness now classifies a response before parsing it (transport error, wrong
+status, empty body, non-JSON — each a distinct, bounded, redacted finding),
+captures PS6-only evidence before teardown (container status/exit code/
+`OOMKilled`/restart count/health, the Drive health log, a bounded PS6 Drive log
+tail and `compose ps`, each container checked against its own project label
+first, never Production), and marks artifact-dependent subtests
+`BLOCKED_BY_PS6_INT_4` instead of failing them. Guard 9 refuses a pinned tree
+that would repeat any of it. **No shipped source changed and no acceptance was
+weakened**: the upload is still the same shipped private endpoint, still 64 MiB,
+still deterministic, still digest-checked.
+
+Attempt #3, against `0b8c4060…`, used those diagnostics and isolated the
+remaining failure to one condition: **`PS6-INT-4 upload transport failure:
+status=0 error=EPIPE`**, with the PS6 Drive **running, healthy, exit code 0,
+`OOMKilled` false and zero restarts**, PostgreSQL and the gateway healthy, and no
+error of the Drive's own for that request. PS6-INT-1/2/3/9/11/13/15 passed and
+the seven artifact-dependent subtests were correctly **SKIPPED** as
+`BLOCKED_BY_PS6_INT_4` rather than failed. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+⚠️ The one `shares_scope_check` error in that Drive log is **PS6-INT-3's
+intentional pre-009 negative control** — PS6-INT-3 passed — and must not be
+attributed to PS6-INT-4.
+
+The remaining confirmed finding is therefore narrow: a 64 MiB request emitted by
+the harness client ends with `EPIPE` against a Drive that stays healthy. The
+harness client owned an obvious defect and it is now fixed: it built the whole
+64 MiB file as one `Buffer`, concatenated a second whole `Buffer` for the
+multipart body, and handed ~190 MiB to a single `req.write()`. It now streams the
+body in bounded 256 KiB chunks, waits for `drain` whenever `write()` returns
+false, and calls `end()` only after every chunk has been accepted — same
+endpoint, same 64 MiB, same deterministic bytes (proven byte-identical), same
+explicit `Content-Length`, same server-side digest check. A response that arrives
+while the client is still writing is reported as an HTTP status rather than
+collapsed into `EPIPE`, and the client-side write counters join the failure
+evidence. Guard 10 refuses a pinned tree that would repeat it.
+
+**The root cause of the `EPIPE` is still not claimed.** The unbounded write was
+the strongest candidate the harness owned and it is gone; whether it *was* the
+cause is a claim only the next run can support. Stage B has **not** been re-run.
+
+Two host findings changed the harness. First, the administrative account is not
+in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
+(re-confirmed on the host: `docker version` fails on
+`unix:///run/user/1000/podman/podman.sock`), so Docker must be invoked as
+`sudo env -u DOCKER_HOST docker`. The Stage A suite hardcoded `docker` and could
+not have run there at all; every Docker call now goes through the `PS6_DOCKER`
+override. Second, the runner must own a **named** Compose project rather than let
+the suite pick `aegis-ps6-<pid>`, or a crash leaves objects no cleanup can
+address; `PS6_PROJECT` now carries that identity, under an enforced `aegis-ps6-`
+prefix, and an `EXIT`/`INT`/`TERM` trap tears down that project — and only that
+project — together with the single temporary directory it owns.
+
+`gateway/public-share/integration/run-stage-b.sh` has now reached a real Docker
+daemon exactly once, in Stage B attempt #1, and got as far as Compose
+interpolation. It still carries **no evidence about Production behaviour**: its
+guards, refusals, cleanup trap, interrupt path and post-cleanup checks are
+exercised against recording stubs, and `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` 16/16
+remains a developer-machine Stage A figure that has never been re-measured on
+this host. The credential-plumbing fix itself has met neither a real `sudo` nor a
+real daemon; the regression that proves it
+(`tests/publicShareStageBCredentialPlumbing.test.js`, 9/9) models the
+environment-stripping boundary with `env -i` and models Docker with a recorder.
+
 ### Public-share security regression matrix pinned, no source changed (2026-09-08)
 
 > [!warning] PUBLIC-SHARE-5 is local regression evidence only
