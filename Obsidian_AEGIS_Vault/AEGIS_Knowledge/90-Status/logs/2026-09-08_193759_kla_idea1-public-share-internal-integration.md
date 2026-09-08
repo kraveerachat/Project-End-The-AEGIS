@@ -357,6 +357,262 @@ argument from absence of contact, not a reading of the two values, and it is
 recorded as such rather than presented as equivalent. Confirming the values
 themselves is an owner-side read.
 
+## Stage B runner amendment — still NOT EXECUTED (appended 2026-09-08, on the host)
+
+This session runs **locally on the Beelink host `aegis-system`**, in a neutral
+workspace at `/home/admin-main/aegis-ps6-claude/aegis-repo`, cloned fresh from
+GitHub. `/opt/aegis/Project-End-The-AEGIS` was **not** cloned into, read, fetched,
+checked out, modified or built from at any point. The earlier SSH blocker is
+therefore gone; **Stage B was still not executed**, and nothing below claims
+otherwise.
+
+No sudoers file, group membership, passwordless-sudo setting, global
+`DOCKER_HOST`, Docker service or Podman service was changed, and no sudo password
+was requested, captured, stored, echoed or handled.
+
+### Why the previous runner was not safe to run
+
+Six defects, each of which would only have shown up on the production host:
+
+1. **It did not own its Compose project.** The suite chose
+   `aegis-ps6-${process.pid}` inside its own process — a name the launching
+   script cannot know. So the runner's teardown named a project that never
+   existed, while the real one kept its containers, networks, volumes and two
+   built images. **This is not hypothetical: a dry run reproduced it** (the
+   runner owned `aegis-ps6-stage-b-20260908-144116-1903775`; `compose up` ran
+   under `aegis-ps6-1903863`).
+2. **No cleanup trap.** A `Ctrl-C`, a `SIGTERM`, or any guard failure after
+   `compose up` left the whole stack running on a production host.
+3. **No built-image cleanup.** Two images were built per run and never removed.
+4. **Evidence files escaped their own cleanup.** `$WORKDIR.pre` and
+   `$WORKDIR.post` are *siblings* of `$WORKDIR`, so `rm -rf "$WORKDIR"` left them
+   behind, every run, forever.
+5. **The pre/post comparison could not pass.** It diffed
+   `docker ps --format '{{.Status}}'`, i.e. the human string `Up 4 days
+   (healthy)`, whose uptime advances between the two snapshots. A guaranteed
+   false positive is not a check.
+6. **Interactive sudo inside Node.** `DOCKER="sudo env -u DOCKER_HOST docker"`
+   invoked through `execFile`/`spawn` would block on a password prompt that
+   nothing can answer.
+
+### Runner changes
+
+`gateway/public-share/integration/run-stage-b.sh`
+
+- **Owned project.** `PS6_PROJECT` is minted as
+  `aegis-ps6-stage-b-<UTC timestamp>-<pid>` before any Docker object exists, or
+  accepted from the caller, and is validated against
+  `^aegis-ps6-[a-z0-9][a-z0-9_-]*$`, a 64-character cap, an exact-match
+  blocklist and a `*prod*` substring refusal. It is exported to the suite, so
+  runner and suite name the same project for the whole run.
+- **Cleanup trap on `EXIT`/`INT`/`TERM`,** armed *before* anything is created.
+  `INT`/`TERM` only choose the exit status; `EXIT` performs the teardown, so
+  there is exactly one cleanup path however the script ends. Both halves are
+  idempotent, so the main flow can call them in order (to measure the post-state
+  *after* cleanup) and the trap re-runs them harmlessly.
+- **What cleanup may remove:** the one Compose project; the three PS6 networks;
+  the project's anonymous volumes; the images the project built; the one owned
+  temporary directory. Nothing else is reachable — every destructive command is
+  filtered by `$PS6_PROJECT`, and there is **no `prune` of any kind** in the
+  file (`system`, `image`, `volume` or `builder`).
+- **Built-image cleanup is Compose's own scoping,** not a filter written by
+  hand: `down --rmi local` removes only images with no custom tag, and
+  `postgres:15-alpine`, `node:20-alpine` and `nginx:alpine` all carry an explicit
+  `image:` key. A second sweep by repository prefix catches stragglers, and
+  refuses any candidate that is a base image or matches `aegis-prod`/`aegis_prod`
+  even if it somehow matched the prefix.
+- **One owned temporary directory.** `/tmp/$PS6_PROJECT/` holds `src/` (the
+  pinned source tree) and `evidence/` (pre, post, diff). `PS6_WORKDIR` is refused
+  unless it is under `/tmp/aegis-ps6-`. No sibling file is created anywhere.
+- **Stable inventory instead of uptime strings.** For every container outside the
+  project: name, container ID, image ID, Compose project label, running state,
+  health state (`none` when no healthcheck exists) and every network attachment
+  with its IP — plus every network (ID, name, driver, scope), volume and image.
+  Sorted under `LC_ALL=C`, so the diff is deterministic.
+- **Post-cleanup checks,** each failing the run independently: the inventory is
+  byte-identical; no production container reports an unhealthy state;
+  `aegis_postgres_data` and `aegis_drive_storage` still exist; no PS6 container,
+  volume, network or image survives; every built image is gone **by ID**; all
+  three base images are still present; every `aegis-prod` row is unchanged; and
+  nothing matches `/tmp/aegis-ps6-*` or `/tmp/ps6-stage-b*`.
+- **Guard 7 — the pinned source must honour `PS6_PROJECT`.** Added *because the
+  dry run caught defect 1*. Against a tree whose suite still picks its own pid
+  project, the runner would clean an empty project and report success while the
+  real one leaked. Ownership is verified against the pinned tree, not assumed
+  from the branch name.
+- **Source verification is stricter.** The 40-char lowercase-hex SHA is still
+  required and never defaulted; additionally the checkout must resolve to exactly
+  that SHA **and** the SHA must be an ancestor of
+  `origin/feat/idea1-public-share-internal-integration`, so a valid commit from
+  some other branch is refused.
+- **Host-side `npm ci` removed.** See below.
+
+`IDEA1-AEGIS_Drive_LC/tests/publicShareInternalIntegration.test.js`
+
+- `PROJECT` now resolves from `PS6_PROJECT` with the same validation, throwing
+  immediately on an invalid value. Unset keeps the previous `aegis-ps6-<pid>`
+  default, so a developer machine behaves exactly as before.
+- `PS6-INT-15` additionally asserts that no volume carries the project label
+  after `down --volumes`, and that `postgres:15-alpine` and `node:20-alpine` are
+  still present — the cheap negative that would catch a future `--rmi all`.
+
+`gateway/public-share/integration/README.md` — documents `PS6_PROJECT`, the
+owner-mediated sudo model, what the cleanup trap may and may not remove, the
+stable-inventory rationale, and why there is no host-side `npm ci`.
+
+### Sudo / privilege execution model
+
+The runner never prompts for a credential and never handles one. It uses
+`sudo -n` exclusively.
+
+1. The **owner** runs `sudo -v` by hand, in their own terminal.
+2. Guard 0 checks `sudo -n true`. If that fails the runner **refuses to start**
+   with exit 2 and tells the owner to run `sudo -v` — it does not retry, and it
+   does not fall back to an interactive path.
+3. Every Docker child process is `sudo -n env -u DOCKER_HOST docker …`, both from
+   the script and from Node's `execFile`/`spawn` via `PS6_DOCKER`. A password
+   prompt therefore cannot appear anywhere a process could not answer it.
+4. If authorisation lapses mid-run, cleanup **fails closed**: it prints the exact
+   commands the owner must run by hand (`sudo -v`, the project-scoped
+   `compose down`, the label query, the `rm -rf`) and returns non-zero. It does
+   not retry with interactive credential handling.
+5. The bounded keepalive is opt-out (`PS6_SUDO_KEEPALIVE=0`), runs `sudo -n -v`
+   every 50 s, is capped by `PS6_SUDO_KEEPALIVE_MAX_SECONDS` (default 5400 s),
+   and is killed by the cleanup trap. Because `-n` cannot prompt, it can only
+   refresh a timestamp the owner already created — it can never create one.
+
+Nothing persists a credential. `DOCKER_HOST` is unset **per child process** via
+`env -u`; the host's global setting is untouched.
+
+### Host-side `npm ci` removed
+
+The acceptance suite imports `node:test`, `node:assert/strict`,
+`node:child_process`, `node:crypto`, `node:fs/promises`, `node:url` and
+`node:util` — Node built-ins, every one. It loads nothing from `node_modules`, so
+the host-side `npm ci` installed roughly a thousand packages the run never
+touched. Removing it deletes a host mutation, removes the audit noise, and
+*shrinks* the Drive build context, because this repository ships no
+`.dockerignore` for `IDEA1-AEGIS_Drive_LC` and a populated `node_modules` would
+otherwise be uploaded to the daemon on every build.
+
+**The Drive image is unaffected.** It is still built from the shipped
+`IDEA1-AEGIS_Drive_LC/Dockerfile`, which runs its own `npm ci` inside its build
+stage. **No Dockerfile was modified.**
+
+### Stage A verification after the amendment
+
+Run on `aegis-system`, Node **v22.22.1**, in the neutral workspace clone.
+
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` —
+  **passed: 1,152 tests, 1,081 passed, 0 failed, 0 cancelled, 71 skipped,
+  271.4 s.** PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`.
+- ⚠️ **A previously recorded failure did not reproduce, and the earlier note is
+  now wrong.** The Stage A entry above records `AUTOLOCK-5` failing on
+  `doesNotMatch(/ADD COLUMN/i)`. It passes here, and
+  `node --test tests/vaultAutoLockDuration.test.js` passes 9/9: the test strips
+  SQL line comments before asserting, so migration 008's comment can no longer
+  trip it. The earlier figures (1,080 passed / 1 failed) are left in place
+  unedited as the record of what that run actually reported; **this run's figures
+  are 1,081 passed / 0 failed and are the ones being claimed now.**
+- `node --test tests/publicShareGatewayStructure.test.js` — passed: **12 tests,
+  12 passed, 0 failed.** The PUBLIC-SHARE-3 structural contract is unaffected.
+- `node --test tests/publicShareInternalIntegration.test.js` (no env var) —
+  passed: 1 test, 0 passed, 1 skipped. The harness stays inert by default, and
+  stays inert with a valid `PS6_PROJECT` set.
+- `PS6_PROJECT` validation, four cases: `aegis-prod`, `ps6-run`,
+  `aegis-ps6-Bad` and a 70-character name were each **refused** at module load
+  with the explanatory error; `aegis-ps6-stage-b-20260908-120000` was accepted.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`
+  — passed with the same two pre-existing owner-review canvas warnings.
+- `node --test tests/collaborationPolicy.test.mjs` — passed: **18 tests, 18
+  passed, 0 failed.**
+- `sh -n gateway/public-share/integration/run-stage-b.sh` — passed.
+- `git diff --check`, `git diff --cached --check`, `git status --short` — clean;
+  no whitespace error and no unintended path.
+
+⚠️ **`PUBLIC_SHARE_INTEGRATION_RUNTIME=1` 16/16 was NOT re-run, deliberately.**
+On this host that command builds two images and starts four containers through
+the production Docker daemon as root — which *is* Stage B. There is no second
+daemon and no developer machine here, so re-running it is not a Stage A check
+that happens to need Docker; it is the gated run itself. The instruction to stop
+before Stage B wins over the instruction to re-run it. **The 16/16 figure being
+carried forward is the Stage A figure from the developer machine, unchanged and
+not re-measured on this host.**
+
+### Runner evidence: every refusal, the trap and the interrupt path
+
+Driven against a **recording Docker/sudo stub** on this host — no daemon
+contacted, no privilege used, nothing mutated. This proves the runner's own
+control flow and **nothing whatsoever about Production**.
+
+Refusals, all exit 2 or 1, all before anything was created:
+
+| Input | Result |
+| :--- | :--- |
+| no SHA | refused, with the `git ls-remote` command to find it |
+| `fb02537` (abbreviated) | refused — must be the full 40 characters |
+| `ZZ02537…` (non-hex) | refused — must be 40-char lowercase hex |
+| `PS6_PROJECT=aegis-prod` | refused — fails the `aegis-ps6-` pattern |
+| `PS6_PROJECT=ps6-run` | refused — fails the `aegis-ps6-` pattern |
+| `PS6_PROJECT=aegis-ps6-prod-test` | refused — may not contain `prod` |
+| `PS6_WORKDIR=/opt/aegis/Project-End-The-AEGIS/tmp` | refused — must be `/tmp/aegis-ps6-*` |
+| no `sudo -n` authorisation | refused — tells the owner to run `sudo -v`; no prompt |
+| pinned SHA `fb02537…` | **refused by guard 7** — that tree does not read `PS6_PROJECT` |
+
+Full green path, against a local mirror pinned to `6a3775da…` (a copy of the
+runner with only `REPO_URL` repointed at that mirror; `diff` confirmed the copy
+differs from the shipped file in that one line):
+
+- `compose up` ran as `-p aegis-ps6-stage-b-20260908-145022-1910254` — **the
+  runner's project, not a pid the runner cannot see.**
+- Built images captured before cleanup: `…-drive:latest`
+  (`sha256:img_ps6_drive`) and `…-public-share-gateway:latest`
+  (`sha256:img_ps6_gateway`).
+- After cleanup: **`removed: sha256:img_ps6_drive`**, **`removed:
+  sha256:img_ps6_gateway`** — verified by ID, not by name.
+- **`preserved: postgres:15-alpine`, `node:20-alpine`, `nginx:alpine`.**
+- Pre/post inventory **IDENTICAL**: both production containers matched on
+  container ID, image ID, Compose project, running state, `healthy`, and network
+  attachment; every network, volume and image row unchanged.
+- `aegis_postgres_data` and `aegis_drive_storage` present; 4 `aegis-prod` rows
+  unchanged.
+- No PS6 container, volume, network or image survived.
+- `/tmp/aegis-ps6-stage-b-…` **removed**; `nothing matches /tmp/aegis-ps6-* or
+  /tmp/ps6-stage-b*`.
+- The acceptance itself exited 1, as intended — the stub is not a Docker daemon
+  and cannot start containers. The run's purpose was the surrounding machinery.
+
+Interrupt path — `SIGINT` to the process group (what `Ctrl-C` at a terminal
+does) while `compose up` was in flight, with both built images present:
+
+- the trap fired and issued, in order: `compose -p <project> -f <file> down
+  --volumes --remove-orphans --rmi local --timeout 10`; the three label-scoped
+  sweeps for containers, volumes and networks; the repository-prefix image sweep;
+  then `rm -rf` of the owned directory;
+- afterwards: no PS6 image, **`NONE`** for `/tmp/aegis-ps6-*`;
+- **`grep -c prune` over the complete recorded command log of every run: `0`.**
+
+### Proof obligations that remain open
+
+- The `sudo -n env -u DOCKER_HOST docker` path has still **never reached a real
+  Docker daemon**. Its first real exercise is the first Stage B run.
+- Everything in the section above is stub evidence. It says the runner does the
+  right things in the right order; it says nothing about how a real daemon, a
+  real build or the real production containers behave.
+- No image was built, no container started, no network created and no volume
+  written on this host by this session.
+
+### Stage B boundaries, all still in force and all still unexercised
+
+Not done, not attempted, not claimed: stop/restart/recreate/exec into
+`aegis-prod`; attach a production container to a PS6 network; use Production
+PostgreSQL; mount Production storage; edit Production Compose or Production
+`.env`; apply migration 009 to Production; enable the Public UI; publish a host
+port; configure DNS/TLS/NAT/tunnel; change MikroTik/UFW/VLAN/Twingate; run
+PUBLIC-SHARE-7; prune anything; mark PR #105 Ready; merge.
+
+PR #105 remains **Draft**.
+
 ## Known limitations
 
 - **Public Internet Share remains NOT IMPLEMENTED.** Production gateway = NO,

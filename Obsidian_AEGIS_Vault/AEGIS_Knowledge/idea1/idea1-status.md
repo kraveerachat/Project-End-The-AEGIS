@@ -540,22 +540,31 @@ source changed, and no Production database, gateway, network, volume or migratio
 was contacted. PUBLIC-SHARE-7 was not started.
 
 **Stage B: gate APPROVED 2026-09-08, execution NOT PERFORMED.** The owner
-approved running the same isolated harness on the server hardware. It did not
-run: the agent session has no working SSH path to `192.168.10.10` — the public
-key is authorised (`ssh -v` reports `Server accepts key`) but the private key is
-passphrase-protected and no reachable agent exists, so the signature step cannot
-complete. All fourteen host preflight facts therefore remain **NOT MEASURED by
-the repository**; the figures used for planning are **owner-supplied** and are
-not reproduced here.
+approved running the same isolated harness on the server hardware. It has not
+run. The earlier blocker — an agent session with no working SSH path to
+`192.168.10.10` — no longer applies: work now happens **on** the `aegis-system`
+host, and the remaining gate is the owner's, not a transport's. All fourteen host
+preflight facts still remain **NOT MEASURED by the repository**; the figures used
+for planning are **owner-supplied** and are not reproduced here.
 
-One preflight finding did change the harness. On the server host the
-administrative account is not in the `docker` group and `DOCKER_HOST` points at a
-non-existent Podman socket, so Docker must be invoked as
+Two host findings changed the harness. First, the administrative account is not
+in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
+(re-confirmed on the host: `docker version` fails on
+`unix:///run/user/1000/podman/podman.sock`), so Docker must be invoked as
 `sudo env -u DOCKER_HOST docker`. The Stage A suite hardcoded `docker` and could
 not have run there at all; every Docker call now goes through the `PS6_DOCKER`
-override, and `gateway/public-share/integration/run-stage-b.sh` encodes the
-Stage B guards. That runner has **never been executed**, so it carries no runtime
-evidence of its own.
+override. Second, the runner must own a **named** Compose project rather than let
+the suite pick `aegis-ps6-<pid>`, or a crash leaves objects no cleanup can
+address; `PS6_PROJECT` now carries that identity, under an enforced `aegis-ps6-`
+prefix, and an `EXIT`/`INT`/`TERM` trap tears down that project — and only that
+project — together with the single temporary directory it owns.
+
+`gateway/public-share/integration/run-stage-b.sh` has **never been run against a
+real Docker daemon**, so it carries no evidence about Production. It is no longer
+wholly unexercised: its refusals, its cleanup trap, its interrupt path and its
+post-cleanup checks have been driven end to end against a recording Docker stub
+on the host. That proves the runner's own control flow, and nothing about
+Production.
 
 ### Public-share security regression matrix pinned, no source changed (2026-09-08)
 
