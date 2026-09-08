@@ -68,6 +68,8 @@ edit_policy: append-by-new-file
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass: two known unchanged owner-data canvas warnings.
 - `node scripts/validate-collaboration-policy.mjs --event /tmp/aegis-pr7-event.json --changed-files /tmp/aegis-pr7-changed-files.txt` — pass: collaboration policy passed.
 - `git diff --check` — pass before staging.
+- `git commit -m "docs(idea3): inventory PR7 integration contracts"` — pass: baseline commit `ba859c97f9beb28a4a8b36522d3024642b940701`.
+- `git push -u origin feat/idea3-live-security-integration` — pass: remote branch created and upstream tracking configured; no Pull Request was created.
 - Initial verification attempts using the PlatformIO Python/global packages, a Web tree before `npm ci`, restricted local-listener/subprocess execution, and firmware without the ignored local header or PlatformIO cache write access failed for environmental reasons. Isolated or appropriately permitted pinned reruns produced the passing results above; the failures are not represented as product defects.
 
 ## Canonical notes updated
@@ -131,7 +133,7 @@ TASK_2_REAL_CONTRACT_INVENTORY = CLOSED
 TASK_3_PR7_ARCHITECTURE_DESIGN = CLOSED
 TASK_4_PR7_BRANCH_AND_WORKTREE = CLOSED
 TASK_5_OBSIDIAN_AND_PLAN_RECONCILIATION = CLOSED
-TASK_6_VERIFY_COMMIT_PUSH = OPEN UNTIL PUSH
+TASK_6_VERIFY_COMMIT_PUSH = CLOSED
 
 IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
 IDEA2_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7
