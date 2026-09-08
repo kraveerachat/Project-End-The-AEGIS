@@ -15,21 +15,39 @@ PUBLIC_SHARE_INTEGRATION_RUNTIME=1 node --test --test-concurrency=1 \
 Without `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` the suite skips, so `npm test` never
 builds an image or touches Docker implicitly.
 
-### Running it on a host that needs a different Docker invocation
+### Two environment variables the suite understands
 
-`PS6_DOCKER` overrides how Docker is called; it defaults to plain `docker` and is
-split on whitespace, so a wrapper with its own arguments works. Every Docker call
-in the suite goes through it.
+| Variable | Default | What it does |
+| :--- | :--- | :--- |
+| `PS6_DOCKER` | `docker` | how Docker is invoked; split on whitespace, so a wrapper with its own arguments works |
+| `PS6_PROJECT` | `aegis-ps6-<pid>` | the Compose project the run owns; must match `^aegis-ps6-[a-z0-9][a-z0-9_-]*$` |
 
-This exists because a hardcoded `docker` fails on hosts where the invoking
-account cannot reach the daemon, with a socket permission error that reads like a
-harness bug. The AEGIS server host (`aegis-system`) is exactly that case: the
-administrative account is **not** in the `docker` group, and `DOCKER_HOST` is set
-to a Podman socket that does not exist — so both the privilege and the
-environment must be corrected at the call site:
+**`PS6_DOCKER`** exists because a hardcoded `docker` fails on hosts where the
+invoking account cannot reach the daemon, with a socket permission error that
+reads like a harness bug. The AEGIS server host (`aegis-system`) is exactly that
+case: the administrative account is **not** in the `docker` group, and
+`DOCKER_HOST` is set to a Podman socket that does not exist — so both the
+privilege and the environment must be corrected at the call site. Every Docker
+call in the suite goes through it; nothing invokes `docker` directly.
+
+**`PS6_PROJECT`** exists because the *caller* has to be able to know the project
+name. A `process.pid` chosen inside the test process is unknowable to the script
+that launched it, so a runner could not clean up after a crashed run — and a
+runner that guessed would be guessing about `docker compose down`, which is the
+one place a wrong guess is expensive. With `PS6_PROJECT` the Stage B runner mints
+the identifier before anything exists, passes it in, and owns it for the whole
+run.
+
+The `aegis-ps6-` prefix is **enforced, not conventional**. Every teardown in the
+suite and in the runner is `-p "$PS6_PROJECT"`-scoped, so the prefix is what makes
+it structurally impossible to aim that teardown at a production project — by
+typo, by an inherited environment variable, or by a caller that meant well. An
+invalid value throws immediately rather than surfacing later as a confusing
+Compose error.
 
 ```bash
-PS6_DOCKER="sudo env -u DOCKER_HOST docker" \
+PS6_DOCKER="sudo -n env -u DOCKER_HOST docker" \
+PS6_PROJECT="aegis-ps6-stage-b-20260908-120000" \
 PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
   node --test --test-concurrency=1 --test-timeout=1800000 \
   tests/publicShareInternalIntegration.test.js
@@ -37,9 +55,104 @@ PUBLIC_SHARE_INTEGRATION_RUNTIME=1 \
 
 ⚠️ On such a host the harness runs Docker as root. It still creates only its own
 project, its own three networks and its own anonymous volumes, still publishes no
-host port, and still tears down only `-p aegis-ps6-<pid>` — it never runs a bare
-`compose down`, `system prune` or `volume prune`. Read the compose file before
-granting it root.
+host port, and still tears down only `-p "$PS6_PROJECT"` — it never runs a bare
+`compose down`, `system prune`, `image prune`, `volume prune` or `builder prune`.
+Read the compose file before granting it root.
+
+---
+
+## Stage B: running it on the AEGIS server host
+
+`run-stage-b.sh` is the only supported way to run this harness on the server. It
+is not a convenience wrapper; it is the set of refusals.
+
+```bash
+sudo -v                                    # the OWNER runs this, by hand
+PS6_SOURCE_SHA=<PR #105 HEAD> sh run-stage-b.sh 2>&1 | tee ps6-stage-b.log
+```
+
+### Privilege model — owner-mediated, non-interactive, fail-closed
+
+The runner **never** prompts for a credential and never asks for, captures,
+stores or echoes one. It uses `sudo -n` exclusively:
+
+- the owner establishes the sudo timestamp by hand with `sudo -v` beforehand;
+- every Docker child process is `sudo -n env -u DOCKER_HOST docker …`, so a
+  `sudo` password prompt can never appear inside a Node `execFile`/`spawn` where
+  nothing would be able to answer it;
+- if `sudo -n` is not already authorised the runner **refuses to start**;
+- if authorisation lapses mid-run the runner **fails closed** — it performs the
+  cleanup that is still possible, prints the exact commands the owner must run by
+  hand, and stops rather than retrying in a way that could prompt;
+- an optional bounded keepalive (`sudo -n -v`, capped by
+  `PS6_SUDO_KEEPALIVE_MAX_SECONDS`, default 5400 s) only refreshes a timestamp
+  that already exists — `-n` cannot create one — and is killed by the cleanup
+  trap.
+
+Nothing in the runner modifies sudoers, group membership, `DOCKER_HOST` outside
+its own child processes, or any Docker/Podman service.
+
+### What the runner owns, and the cleanup trap
+
+An `EXIT`/`INT`/`TERM` trap is armed **before** anything is created, so an
+interrupt at any point still tears down exactly what exists. It may remove only:
+
+1. the one Compose project `$PS6_PROJECT`;
+2. the three PS6-created networks;
+3. the project's anonymous volumes;
+4. the images the project *built* — via `down --rmi local`, which is Compose's
+   own scoping: `postgres:15-alpine` and `node:20-alpine` carry an explicit
+   `image:` key and are therefore a custom tag, which `local` never removes;
+5. the one temporary directory `/tmp/$PS6_PROJECT/`, which holds **both** the
+   pinned source tree and all evidence files.
+
+It never touches `aegis-prod`, a production network, `aegis_postgres_data`,
+`aegis_drive_storage`, a production image, or any unrelated Docker object, and
+there is no `prune` of any kind anywhere in the file.
+
+Point 5 is a fix, not a restatement: an earlier draft wrote `$WORKDIR.pre` and
+`$WORKDIR.post` as *siblings* of the work directory, so they survived the very
+`rm -rf` that was supposed to clean up after the run.
+
+### Pre/post inventory: stable identity, not human strings
+
+The runner does **not** diff `docker ps --format '{{.Status}}'`. That prints
+`Up 4 days (healthy)` — a human string whose uptime advances between the two
+snapshots, so the diff is guaranteed to differ for reasons that mean nothing.
+
+What it captures for every container outside its own project is stable identity:
+
+| Field | Source |
+| :--- | :--- |
+| container name | `{{.Name}}` |
+| container ID | `{{.Id}}` |
+| image ID | `{{.Image}}` |
+| Compose project | `com.docker.compose.project` label |
+| running state | `{{.State.Running}}` |
+| health state | `{{.State.Health.Status}}`, or `none` |
+| network attachments | every network name and IP |
+
+plus every network (ID, name, driver, scope), volume and image outside the
+project. After cleanup those snapshots must be **identical**, every production
+service must still report a healthy state, `aegis_postgres_data` and
+`aegis_drive_storage` must still exist, every image the project built must be
+gone *by ID*, every base image must still be present, and nothing may match
+`/tmp/aegis-ps6-*`.
+
+### No host-side `npm ci`
+
+The acceptance suite imports `node:test`, `node:assert`, `node:child_process`,
+`node:crypto`, `node:fs/promises`, `node:url` and `node:util` — Node built-ins,
+every one. It loads nothing from `node_modules`, so the host-side `npm ci` an
+earlier draft ran installed roughly a thousand packages the run never touched.
+Removing it deletes a whole class of host mutation, removes the audit noise, and
+*shrinks* the Drive build context, because this repository ships no
+`.dockerignore` for `IDEA1-AEGIS_Drive_LC` and a populated `node_modules` would
+otherwise be uploaded to the daemon on every build.
+
+⚠️ The Drive image is unaffected. It is still built from the shipped
+`IDEA1-AEGIS_Drive_LC/Dockerfile`, which runs its own `npm ci` inside the build
+stage. No Dockerfile was modified to make this possible.
 
 ---
 
@@ -124,7 +237,7 @@ after state, including that the scoped `drive_app` role **cannot** apply it.
 | `PS6-INT-12` | the ingress split holds in both directions |
 | `PS6-INT-13` | B5: the gateway reaches its upstream and nothing else; logs leak no token, password or address |
 | `PS6-INT-14` | revocation propagates through the gateway immediately |
-| `PS6-INT-15` | the harness removes every container, network and volume it created |
+| `PS6-INT-15` | the harness removes every container, network and volume it created, and removes no shared base image |
 
 `PS6-INT-6` is the one worth understanding. With `proxy_buffering off` the gateway
 stops reading from Drive while the recipient is not draining, so a single 75s
@@ -158,4 +271,5 @@ mounts no Production path (the only mounts are read-only copies of the
 repository's own SQL), declares no named volume, and publishes no host port. The
 suite refuses to start if any of its three network names already exists, so it can
 never adopt or delete a network it did not create, and `PS6-INT-15` asserts the
-teardown actually removed everything.
+teardown actually removed everything — every container, every network, every
+project-labelled volume — while the shared base images are still present.

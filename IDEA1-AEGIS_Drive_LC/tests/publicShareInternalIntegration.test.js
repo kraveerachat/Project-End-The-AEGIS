@@ -44,7 +44,40 @@ const MIGRATION_009 = fileURLToPath(new URL('../server/db/migrations/009_public_
 
 const HOST = 'share.example.invalid'
 const BASE_URL = `https://${HOST}`
-const PROJECT = `aegis-ps6-${process.pid}`
+/**
+ * The Compose project this run owns, and the ONLY project any teardown here
+ * ever names.
+ *
+ * ⚠️ It is settable because the caller has to be able to know it in advance.
+ *    A `process.pid` chosen inside this process is unknowable to the script that
+ *    launched it, so a runner could not clean up after a crashed run, and a
+ *    runner that guessed would be guessing about `docker compose down` — the one
+ *    place a wrong guess is expensive. `PS6_PROJECT` lets the Stage B runner
+ *    mint the identifier, pass it in, and own it for the whole run.
+ *
+ * ⚠️ The `aegis-ps6-` prefix is REQUIRED, not conventional. Every teardown in
+ *    this file and in `run-stage-b.sh` is `-p $PROJECT`-scoped, so the prefix is
+ *    what makes it impossible to point that teardown at `aegis-prod` — by typo,
+ *    by an inherited environment variable, or by a caller that meant well. An
+ *    unset variable keeps the previous per-pid default, so a developer machine
+ *    behaves exactly as before.
+ *
+ * The rest of the charset is Compose's own project-name rule (lowercase
+ * alphanumerics, `_` and `-`, starting alphanumeric); an invalid value throws
+ * here rather than surfacing later as a confusing Compose error.
+ */
+const PROJECT = resolveProject(process.env.PS6_PROJECT)
+
+function resolveProject(given) {
+  if (given === undefined || given === '') return `aegis-ps6-${process.pid}`
+  if (given.length > 64 || !/^aegis-ps6-[a-z0-9][a-z0-9_-]*$/.test(given)) {
+    throw new Error(
+      `PS6_PROJECT must match /^aegis-ps6-[a-z0-9][a-z0-9_-]*$/ and be at most 64 characters, got ${JSON.stringify(given)}. ` +
+      'The aegis-ps6- prefix is what keeps every project-scoped teardown away from a production project name.',
+    )
+  }
+  return given
+}
 
 const EDGE_NETWORK = 'aegis_ps6_edge'
 const UPSTREAM_NETWORK = 'aegis_ps6_upstream'
@@ -843,5 +876,19 @@ send({ host: '127.0.0.1', port: 8001, path: ${JSON.stringify(`/s/${artifact.priv
     }
     const remaining = (await docker(['ps', '-aq', '--filter', `label=com.docker.compose.project=${PROJECT}`])).stdout.trim()
     assert.equal(remaining, '', 'no container may survive the teardown')
+
+    // Drive's /datalake is an anonymous volume, so Compose labels it with the
+    // project and `down --volumes` is what removes it. Asserting the label query
+    // is empty proves the removal happened rather than assuming the flag worked.
+    const volumes = (await docker([
+      'volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${PROJECT}`,
+    ])).stdout.trim()
+    assert.equal(volumes, '', 'no volume may survive the teardown')
+
+    // The teardown is project-scoped, so it must NOT have reached the shared
+    // base images. This is the cheap negative that catches a future `--rmi all`.
+    for (const image of ['postgres:15-alpine', 'node:20-alpine']) {
+      await docker(['image', 'inspect', image])
+    }
   })
 })
