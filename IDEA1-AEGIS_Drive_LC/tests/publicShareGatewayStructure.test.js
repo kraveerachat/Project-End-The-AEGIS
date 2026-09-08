@@ -247,6 +247,9 @@ test('PS3-STRUCT-6 gateway authors every trusted forwarding header', () => {
     const [name, ...rest] = value.split(/\s+/)
     return [name, rest.join(' ')]
   }))
+  // PUBLIC-SHARE-7 adds the stripped half. The AUTHORED half is unchanged and
+  // still pinned exactly: $remote_addr is the canonical recipient in both edge
+  // modes, so the direct-peer spelling stays correct behind a managed tunnel.
   assert.deepEqual(actual, {
     Host: '$PUBLIC_SHARE_HOST',
     'X-Forwarded-Host': '$PUBLIC_SHARE_HOST',
@@ -254,6 +257,18 @@ test('PS3-STRUCT-6 gateway authors every trusted forwarding header', () => {
     'X-Real-IP': '$remote_addr',
     Forwarded: '""',
     'X-Forwarded-Proto': 'https',
+    // Provider identity headers are consumed at the gateway and never relayed,
+    // in BOTH modes — so a direct caller cannot smuggle one past a direct-mode
+    // gateway either, and no Drive route can ever be tempted to parse one.
+    'CF-Connecting-IP': '""',
+    'CF-Connecting-IPv6': '""',
+    'CF-Pseudo-IPv4': '""',
+    'True-Client-IP': '""',
+    'CF-Visitor': '""',
+    'CF-IPCountry': '""',
+    'CF-Ray': '""',
+    'CF-Worker': '""',
+    'CDN-Loop': '""',
   })
 })
 
