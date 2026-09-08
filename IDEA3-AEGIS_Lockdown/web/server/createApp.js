@@ -6,15 +6,18 @@ import { createSecurityRouter } from './routes/securityRoutes.js'
 import { createRateLimiter } from './security/rateLimit.js'
 import { createDemoProvider } from './providers/demoProvider.js'
 import { createLiveProvider } from './providers/liveProvider.js'
-import { createMemoryRepository } from './repositories/memoryRepository.js'
+import { AuditPersistenceError } from './repositories/auditRecords.js'
+import { createSqliteRepository } from './repositories/sqliteRepository.js'
 
 export function createApp({
   config,
   clock = () => new Date(),
   demoProvider = createDemoProvider({ clock }),
   liveProvider = createLiveProvider({ config, clock }),
-  repository = createMemoryRepository({ clock }),
+  repository,
+  sessionStore,
 }) {
+  const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
   const app = express()
   app.disable('x-powered-by')
   app.set('trust proxy', false)
@@ -39,7 +42,7 @@ export function createApp({
     next()
   })
   app.use(express.json({ limit: '32kb', strict: true }))
-  app.use(session({
+  const sessionOptions = {
     name: 'aegis.idea3.sid',
     secret: config.sessionSecret,
     resave: false,
@@ -51,16 +54,31 @@ export function createApp({
       secure: config.production,
       maxAge: config.sessionIdleMs,
     },
-  }))
+  }
+  if (sessionStore) sessionOptions.store = sessionStore
+  app.use(session(sessionOptions))
 
   const loginLimiter = createRateLimiter({ limit: 5, windowMs: 15 * 60 * 1_000 })
-  app.use('/api/auth', createAuthRouter({ config, loginLimiter }))
-  app.use('/api/security', createSecurityRouter({ config, demoProvider, liveProvider, repository }))
+  app.use('/api/auth', createAuthRouter({ config, loginLimiter, repository: appRepository }))
+  app.use('/api/security', createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
 
   app.use((error, _req, res, _next) => {
-    const status = error?.type === 'entity.too.large' ? 413 : 500
-    const code = status === 413 ? 'REQUEST_TOO_LARGE' : 'INTERNAL_ERROR'
-    res.status(status).json({ error: { code, message: 'ไม่สามารถดำเนินการได้' } })
+    if (error instanceof AuditPersistenceError) {
+      return res.status(503).json({
+        error: {
+          code: 'AUDIT_PERSISTENCE_FAILURE',
+          message: 'ระบบบันทึกเหตุการณ์ไม่พร้อมใช้งาน',
+        },
+      })
+    }
+    if (error?.type === 'entity.too.large') {
+      return res.status(413).json({
+        error: { code: 'REQUEST_TOO_LARGE', message: 'ไม่สามารถดำเนินการได้' },
+      })
+    }
+    return res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'ไม่สามารถดำเนินการได้' },
+    })
   })
 
   return app
