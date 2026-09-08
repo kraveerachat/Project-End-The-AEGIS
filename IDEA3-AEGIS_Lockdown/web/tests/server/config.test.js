@@ -10,6 +10,7 @@ function productionConfig(overrides = {}) {
     SESSION_SECRET: STRONG_SESSION_SECRET,
     AEGIS_IDEA3_ADMIN_USER: 'admin',
     AEGIS_IDEA3_ADMIN_PASSWORD_HASH: BCRYPT_HASH,
+    AEGIS_WEB_STATIC_DIR: '/opt/aegis/security-center',
     ...overrides,
   }
 }
@@ -147,5 +148,27 @@ describe('configuration boundaries', () => {
       NODE_ENV: 'test',
       AEGIS_IDEA3_AUDIT_DB_PATH: '/var/lib/aegis/audit.sqlite3',
     }).auditDbPath).toBe('/var/lib/aegis/audit.sqlite3')
+  })
+
+  it('uses the packaged security base path and loopback binding in production', () => {
+    const config = loadConfig(productionConfig())
+
+    expect(config.webBasePath).toBe('/security')
+    expect(config.staticDir).toBe('/opt/aegis/security-center')
+    expect(config.bindHost).toBe('127.0.0.1')
+  })
+
+  it.each([
+    ['an external bind address', { AEGIS_BIND_HOST: '0.0.0.0' }, /AEGIS_BIND_HOST/],
+    ['a relative static path', { AEGIS_WEB_STATIC_DIR: 'web/dist' }, /AEGIS_WEB_STATIC_DIR/],
+    ['a traversing base path', { AEGIS_WEB_BASE_PATH: '/security/../admin' }, /AEGIS_WEB_BASE_PATH/],
+    ['a URL as base path', { AEGIS_WEB_BASE_PATH: 'https://example.test/security' }, /AEGIS_WEB_BASE_PATH/],
+  ])('rejects %s', (_case, override, message) => {
+    expect(() => loadConfig(productionConfig(override))).toThrow(message)
+  })
+
+  it('requires an explicit static directory in production', () => {
+    expect(() => loadConfig(productionConfig({ AEGIS_WEB_STATIC_DIR: undefined })))
+      .toThrow(/AEGIS_WEB_STATIC_DIR/)
   })
 })

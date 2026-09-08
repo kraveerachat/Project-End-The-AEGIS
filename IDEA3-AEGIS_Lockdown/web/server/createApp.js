@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import express from 'express'
 import session from 'express-session'
 import helmet from 'helmet'
@@ -19,6 +21,12 @@ export function createApp({
 }) {
   const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
   const app = express()
+  let closed = false
+  app.locals.close = () => {
+    if (closed) return
+    appRepository.close()
+    closed = true
+  }
   app.disable('x-powered-by')
   app.set('trust proxy', false)
 
@@ -63,8 +71,39 @@ export function createApp({
     windowMs: 15 * 60 * 1_000,
     clock: () => clock().getTime(),
   })
-  app.use('/api/auth', createAuthRouter({ config, loginLimiter, repository: appRepository }))
-  app.use('/api/security', createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
+  const apiBase = `${config.webBasePath}/api`
+  app.get(`${apiBase}/health`, (_req, res) => res.json({ status: 'ok' }))
+  app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository }))
+  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
+  app.use(apiBase, (_req, res) => res.status(404).json({
+    error: { code: 'NOT_FOUND', message: 'ไม่พบข้อมูลที่ร้องขอ' },
+  }))
+
+  if (config.staticDir) {
+    const indexPath = path.join(config.staticDir, 'index.html')
+    if (!existsSync(indexPath)) {
+      throw new Error('AEGIS_WEB_STATIC_DIR does not contain index.html')
+    }
+    const mountPath = config.webBasePath || '/'
+    app.use(mountPath, express.static(config.staticDir, {
+      index: false,
+      maxAge: '1y',
+      immutable: true,
+      setHeaders(res, filePath) {
+        res.setHeader(
+          'Cache-Control',
+          path.basename(filePath) === 'index.html'
+            ? 'no-store'
+            : 'public, max-age=31536000, immutable',
+        )
+      },
+    }))
+    app.use(mountPath, (req, res, next) => {
+      if (!['GET', 'HEAD'].includes(req.method) || !req.accepts('html')) return next()
+      res.set('Cache-Control', 'no-store')
+      return res.sendFile(indexPath)
+    })
+  }
 
   app.use((error, _req, res, _next) => {
     if (error instanceof AuditPersistenceError) {

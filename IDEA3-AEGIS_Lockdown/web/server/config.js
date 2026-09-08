@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 const MINIMUM_SESSION_SECRET_LENGTH = 32
 const DEVELOPMENT_SESSION_SECRET = 'development-only-session-secret-change-me'
 const BCRYPT_HASH = /^\$2([aby])\$(\d{2})\$[./A-Za-z0-9]{53}$/
@@ -39,6 +41,41 @@ function positiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function webBasePath(value, production) {
+  const raw = value ?? (production ? '/security' : '')
+  if (raw === '') return ''
+  const segments = raw.split('/').slice(1)
+  if (
+    !raw.startsWith('/')
+    || raw.endsWith('/')
+    || segments.length === 0
+    || segments.some((segment) => !/^[A-Za-z0-9_-]+$/.test(segment))
+  ) {
+    throw new Error('AEGIS_WEB_BASE_PATH must be a normalized absolute URL path')
+  }
+  return raw
+}
+
+function staticDirectory(value, production) {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) {
+    if (production) throw new Error('AEGIS_WEB_STATIC_DIR is required in production')
+    return null
+  }
+  if (!path.isAbsolute(raw)) {
+    throw new Error('AEGIS_WEB_STATIC_DIR must be an absolute path')
+  }
+  return path.resolve(raw)
+}
+
+function loopbackHost(value) {
+  const host = value || '127.0.0.1'
+  if (!['127.0.0.1', '::1'].includes(host)) {
+    throw new Error('AEGIS_BIND_HOST must be a loopback address')
+  }
+  return host
+}
+
 export function loadConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || 'development'
   const production = nodeEnv === 'production'
@@ -59,6 +96,9 @@ export function loadConfig(env = process.env) {
     throw new Error('AEGIS_IDEA3_DEV_PASSWORD is required when development login is enabled')
   }
 
+  const basePath = webBasePath(env.AEGIS_WEB_BASE_PATH, production)
+  const staticDir = staticDirectory(env.AEGIS_WEB_STATIC_DIR, production)
+
   return Object.freeze({
     nodeEnv,
     production,
@@ -68,6 +108,9 @@ export function loadConfig(env = process.env) {
     auditDbPath: env.AEGIS_IDEA3_AUDIT_DB_PATH || (nodeEnv === 'test'
       ? ':memory:'
       : '.aegis-runtime/security-center-audit.sqlite3'),
+    webBasePath: basePath,
+    staticDir,
+    bindHost: loopbackHost(env.AEGIS_BIND_HOST),
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
     maxEvidenceAgeMs: positiveInteger(env.AEGIS_MAX_EVIDENCE_AGE_MS, 120_000),
     adapterTimeoutMs: positiveInteger(env.AEGIS_ADAPTER_TIMEOUT_MS, 2_500),

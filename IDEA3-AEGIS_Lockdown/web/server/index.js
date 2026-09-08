@@ -1,9 +1,23 @@
-import { createApp } from './createApp.js'
 import { loadConfig } from './config.js'
+import { startServer } from './runtime.js'
 
 const config = loadConfig()
-const app = createApp({ config })
+const runtime = await startServer({ config })
+let shuttingDown = false
 
-app.listen(config.port, '127.0.0.1', () => {
-  process.stdout.write(`AEGIS IDEA3 Security Center listening on http://127.0.0.1:${config.port}\n`)
-})
+process.stdout.write(`AEGIS IDEA3 Security Center listening on http://${config.bindHost}:${config.port}${config.webBasePath}/\n`)
+
+async function shutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  process.stdout.write(`AEGIS IDEA3 Security Center stopping after ${signal}\n`)
+  try {
+    await runtime.close()
+  } catch (error) {
+    process.stderr.write(`AEGIS IDEA3 Security Center shutdown failed: ${error?.name || 'Error'}\n`)
+    process.exitCode = 1
+  }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
