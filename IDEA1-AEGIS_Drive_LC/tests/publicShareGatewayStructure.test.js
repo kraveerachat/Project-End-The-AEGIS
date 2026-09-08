@@ -139,13 +139,22 @@ test('PS3-STRUCT-1 dedicated Compose keeps aegis_public_share to exactly gateway
   assert.match(compose, /^networks:\s*[\s\S]*?^  aegis_public_share:\s*[\s\S]*?^    name: aegis_public_share$/m)
 
   // B5 (Gateway -> everything else = nothing) is enforced by the network
-  // itself, not merely by counting members. Removing this line silently
-  // restores a host/NAT path, so it is pinned here and re-checked against the
-  // real network in PS3-RUNTIME-1.
+  // itself, not merely by counting members, and it takes two controls:
+  //   internal: true    removes normal external/default-route connectivity;
+  //   gateway_mode_ipv4 "isolated" removes the Docker-host bridge address,
+  //                     which an ordinary internal bridge keeps and through
+  //                     which host services would stay reachable.
+  // Removing either silently restores a host path, so both are pinned here and
+  // re-checked against the real network in PS3-RUNTIME-1/1c.
   assert.match(
     compose,
     /^networks:[\s\S]*?^  aegis_public_share:[\s\S]*?^    internal: true$/m,
     'aegis_public_share must stay a Docker internal network',
+  )
+  assert.match(
+    compose,
+    /^networks:[\s\S]*?^  aegis_public_share:[\s\S]*?^      com\.docker\.network\.bridge\.gateway_mode_ipv4: "isolated"$/m,
+    'aegis_public_share must use isolated bridge gateway mode so no host bridge address exists',
   )
 
   assert.match(compose, /subnet:\s*172\.31\.254\.0\/29/)
@@ -326,6 +335,15 @@ test('PS3-STRUCT-10 PUBLIC_SHARE_HOST is validated fail-closed before the templa
   assert.match(dockerfile, /^COPY .*entrypoint\.sh \/usr\/local\/bin\/aegis-public-share-entrypoint\.sh$/m)
   assert.match(dockerfile, /chmod 0555 \/usr\/local\/bin\/aegis-validate-public-share-host\.sh/)
   assert.match(dockerfile, /chmod 0555 \/usr\/local\/bin\/aegis-public-share-entrypoint\.sh/)
+
+  // Defence in depth: the base image otherwise feeds every environment
+  // variable to envsubst, so a variable named after an nginx variable used in
+  // the template would silently rewrite it.
+  assert.match(
+    dockerfile,
+    /^ENV NGINX_ENVSUBST_FILTER=\^PUBLIC_SHARE_HOST\$$/m,
+    'envsubst must be restricted to PUBLIC_SHARE_HOST only',
+  )
 
   // Order is the whole control: validate, and only then hand over to nginx.
   const validateAt = entrypoint.indexOf('/usr/local/bin/aegis-validate-public-share-host.sh')

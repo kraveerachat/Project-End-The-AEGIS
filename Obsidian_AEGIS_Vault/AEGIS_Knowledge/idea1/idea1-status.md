@@ -508,8 +508,8 @@ unbuffered, bodies are capped at 16 KiB, explicit timeouts are present, and the
 minimal log format excludes URI, query, referrer, Host and source address.
 
 The test harness creates `aegis_public_share` as a Docker `internal: true`
-network with exactly two members and no host-published port on either of them.
-Its test-only subnet is `172.31.254.0/29`
+network with bridge gateway mode `isolated`, exactly two members, and no
+host-published port on either of them. Its test-only subnet is `172.31.254.0/29`
 (gateway `.2`, Drive recorder `.3`) because this development machine already
 owns `172.19.0.0/16`; Docker rejected the architecture example
 `172.19.254.0/29` as overlapping. No existing Docker network was changed or
@@ -523,7 +523,7 @@ config is generated at all, so a malformed value cannot widen the accepted
 `Host` set or inject a directive.
 
 Local evidence: structural T-10 **12/12 PASS**; real-container gateway runtime
-**16/16 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
+**18/18 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
 traffic passed while a deterministic 41-request sequence produced **29×429**
 and only **12 upstream contacts**; a unique raw-token sentinel stayed absent
 from gateway logs across success, denial, method rejection, throttling and a
@@ -532,11 +532,19 @@ routine upstream failure; a valid host rendered exactly one `server_name` while
 tests prove gateway routing, not real Drive authorization; PUBLIC-SHARE-6 owns
 that integration.
 
-> [!info] B5 is enforced by the network, so the harness has no host listener
-> `aegis_public_share` is a Docker `internal: true` network, so
-> `Gateway -> everything else = nothing` holds at the network layer: the gateway
-> reaches `drive:8001` and nothing else (`wget http://1.1.1.1/` returns
-> `Network unreachable`). Docker cannot publish a port from an internal network
+> [!info] B5 is enforced by two network controls, so the harness has no host listener
+> `internal: true` removes normal external/default-route connectivity;
+> `com.docker.network.bridge.gateway_mode_ipv4: "isolated"` (Docker Engine 28,
+> here 28.3.2) removes the Docker-host bridge address for that network. Both are
+> required: an ordinary internal bridge keeps that address, and host services
+> bound to it stay reachable — measured side by side, `internal` alone answers
+> ARP and returns `Connection refused`, while `internal` + `isolated` gives an
+> incomplete ARP entry and `Host is unreachable`. Together they give source/test
+> enforcement of `Gateway -> everything else = nothing`: the gateway has no
+> default route, cannot reach `1.1.1.1`/`8.8.8.8`, finds `172.31.254.1`
+> unreachable on every probed port, cannot resolve `host.docker.internal` or
+> `gateway.docker.internal`, and reaches `drive:8001` and nothing else. Docker
+> cannot publish a port from an internal network
 > — it accepts the request and silently drops it — so neither member publishes a
 > host port, and the runtime suite drives the gateway from inside the network
 > using only the two existing members: the drive recorder calls
@@ -544,7 +552,8 @@ that integration.
 > `127.0.0.1:8080` for the upstream-failure/token-log check where the recorder
 > must be stopped. No third client container exists. Owner-approved at the
 > PR #100 review; B5 is **not** deferred to PUBLIC-SHARE-6. This proves the
-> Docker network boundary, not a perimeter/firewall boundary.
+> Docker network boundary, not a MikroTik/UFW/VLAN/Twingate or Production
+> perimeter boundary.
 
 **G3 is APPROVED.** Once real public ingress exists, the existing application
 audit may retain the full canonical recipient IP from `requestSourceIp(req)` for

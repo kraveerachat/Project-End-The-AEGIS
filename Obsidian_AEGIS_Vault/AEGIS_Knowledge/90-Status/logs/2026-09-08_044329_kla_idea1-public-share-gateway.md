@@ -48,6 +48,26 @@ edit_policy: append-by-new-file
   a host port; the runtime suite generates every HTTP request from inside the
   network using only the two existing members. B5 is **not** deferred to
   PUBLIC-SHARE-6.
+- **Final infrastructure-review finding — resolved.** `internal: true` is
+  necessary but not sufficient: an ordinary internal bridge still keeps the
+  Docker-host bridge address, through which appropriately configured host
+  services stay reachable. The network now also sets
+  `com.docker.network.bridge.gateway_mode_ipv4: "isolated"` (Docker Engine 28;
+  here 28.3.2), which removes that address. The two controls are documented
+  separately and neither is claimed to do the other's job:
+  `internal: true` removes normal external/default-route connectivity;
+  `gateway_mode_ipv4=isolated` removes the Docker-host bridge address;
+  together they give source/test enforcement of the PR3 B5 Docker-network
+  boundary. No MikroTik/UFW/VLAN/Twingate or Production perimeter claim is made.
+- **Optional defence-in-depth taken.** The image now sets
+  `NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$`, so envsubst may substitute that
+  one variable and nothing else. This was adopted because it proved
+  load-bearing, not cosmetic: with the base image default, an environment
+  variable named after an nginx variable used in the template rewrites it —
+  `remote_addr=EVIL_INJECTED` turned
+  `proxy_set_header X-Forwarded-For $remote_addr;` into
+  `proxy_set_header X-Forwarded-For EVIL_INJECTED;`, which would break G3
+  attribution and collapse the T-05 rate-limit axis.
 - **Runtime harness rewritten for the internal network.** The drive test
   recorder drives the gateway at `http://public-share-gateway:8080` using raw
   `node:http` (not `fetch`, which would normalise a traversal target and defeat
@@ -64,11 +84,11 @@ edit_policy: append-by-new-file
 ## Source files changed
 
 - `gateway/public-share/.dockerignore` — limits the dedicated image build context.
-- `gateway/public-share/Dockerfile` — pins and hardens the non-root nginx gateway image.
+- `gateway/public-share/Dockerfile` — pins and hardens the non-root nginx gateway image, installs the validating entrypoint, and restricts envsubst to `PUBLIC_SHARE_HOST` only.
 - `gateway/public-share/validate-public-share-host.sh` — **new**: fail-closed `PUBLIC_SHARE_HOST` hostname-grammar validation that refuses startup instead of sanitising.
 - `gateway/public-share/entrypoint.sh` — **new**: image entrypoint that runs the validator before handing over to the stock nginx entrypoint, so an invalid value never reaches template rendering.
 - `gateway/public-share/nginx.conf.template` — implements the share-only allowlist, forwarding-header boundary, streaming/timeouts, rate limit, redacted logs, and loopback health listener.
-- `gateway/public-share/docker-compose.yml` — defines the two-member `aegis_public_share` source/runtime harness as a Docker `internal: true` network with no host-published port on either member, enforcing B5.
+- `gateway/public-share/docker-compose.yml` — defines the two-member `aegis_public_share` source/runtime harness as a Docker `internal: true` network with bridge gateway mode `isolated` and no host-published port on either member, enforcing B5.
 - `gateway/public-share/README.md` — documents truthful scope, local operation, subnet choice, and non-Production limitations.
 - `gateway/public-share/test-recorder/Dockerfile` — pins the non-root test-only Drive recorder image.
 - `gateway/public-share/test-recorder/server.mjs` — records upstream contacts for deterministic boundary assertions without AEGIS data or authorization claims.
@@ -84,25 +104,55 @@ edit_policy: append-by-new-file
 - `git fetch origin; git rev-parse origin/main` — passed: current `origin/main` remained `c650cf2eda1c963e9f97fab8c7c34c3644022cb3`; no reconciliation was required.
 - `node --test tests/publicShareGatewayStructure.test.js` — passed: 12 tests, 12 passed, 0 failed. `PS3-STRUCT-12` executes the shipped `validate-public-share-host.sh` directly against 5 valid hostnames and 30 malformed values.
 - `node --test --test-concurrency=1 tests/publicShareGatewayStructure.test.js tests/publicShareGatewayRuntime.test.js tests/publicShareBackend.test.js tests/publicShareConfig.test.js tests/trustedProxy.test.js tests/shareScopeTruthUi.test.js tests/shareRedemption.test.js` — passed: 84 tests, 78 passed, 0 failed, 6 skipped (the opt-in runtime suite and PostgreSQL-only cases).
-- `$env:PUBLIC_SHARE_GATEWAY_RUNTIME='1'; node --test tests/publicShareGatewayRuntime.test.js` — passed: 16 tests, 16 passed, 0 failed, on the `internal: true` network; includes successful `nginx -t`, `Internal=true` with exactly two members, positive/negative/method/Host/body/isolation checks, 12 successful upstream requests versus 29 HTTP 429 responses in the deterministic 41-request rate sequence, and a 38-character sentinel absent from logs across success, denial, throttling, and upstream failure.
+- `$env:PUBLIC_SHARE_GATEWAY_RUNTIME='1'; node --test tests/publicShareGatewayRuntime.test.js` — passed: 18 tests, 18 passed, 0 failed, on the `internal: true` + `gateway_mode_ipv4=isolated` network; includes successful `nginx -t`, `Internal=true` with exactly two members, positive/negative/method/Host/body/isolation checks, 12 successful upstream requests versus 29 HTTP 429 responses in the deterministic 41-request rate sequence, and a 38-character sentinel absent from logs across success, denial, throttling, and upstream failure.
 - `PS3-RUNTIME-13` — passed: with `PUBLIC_SHARE_HOST=share.example.invalid` the real image renders exactly one `server_name share.example.invalid;`, matching `Host`/`X-Forwarded-Host`, and no unsubstituted `$PUBLIC_SHARE_HOST`.
 - `PS3-RUNTIME-14` — passed: 11 malformed values (`empty`, `evil.example another.test`, `*.example.invalid`, `~^.*$`, `evil;return 200`, `evil${host}`, `https://evil.example`, `evil.example/path`, `evil.example:8443`, an embedded newline, and `evil.example}`) each produced the refusal message, `GATE_EXIT=1`, `NOT_RENDERED` (no generated config), and no nginx `Configuration complete` line; the container also exits non-zero under its real entrypoint. The same test proves the gate is load-bearing: with the entrypoint bypassed, `evil.example;return 200 "pwned"` renders `server_name evil.example;return 200 "pwned";` into the config.
-- Blocker B delivered evidence — real harness, `internal: true` in force:
-  `docker network inspect aegis_public_share` reported `Internal = true` and
+- B5 delivered evidence — real harness, `internal: true` **and**
+  `gateway_mode_ipv4=isolated` in force:
+  `docker network inspect aegis_public_share` reported `Internal = true`,
+  `Options["com.docker.network.bridge.gateway_mode_ipv4"] = "isolated"`, and
   `members = 2` (`172.31.254.2` gateway, `172.31.254.3` drive); the gateway had
   exactly one Docker network and drive exactly one; `docker port` was empty and
   `NetworkSettings.Ports`/`HostConfig.PortBindings` were `{}` for **both**
-  members; `gateway -> drive:8001` returned `{"ok":true}`; `gateway -> 1.1.1.1`
-  returned `Network unreachable`; `nginx -t` reported `test is successful`.
-- Negative control — deleting `internal: true` from the harness made
-  `PS3-STRUCT-1` fail with `aegis_public_share must stay a Docker internal
-  network`, so a future removal cannot pass unnoticed. The line was restored.
+  members; `gateway -> drive:8001` returned `{"ok":true}` and
+  `drive -> gateway:8080` returned `200`; `gateway -> 1.1.1.1` and
+  `gateway -> 8.8.8.8` both returned `Network unreachable`;
+  `docker exec <gateway> ip route` printed exactly one line,
+  `172.31.254.0/29 dev eth0 scope link src 172.31.254.2`, with **no default
+  route**; `nginx -t` reported `test is successful`.
+- Host-path verification — no probe demonstrated a usable host-service path:
+  TCP probes from the gateway to `172.31.254.1` on 22, 53, 80, 443, 445, 3389,
+  5432, 8080 and 9000 were all unreachable; `wget http://172.31.254.1/` returned
+  `Host is unreachable`; the ARP entry for `172.31.254.1` was **incomplete**
+  (`00:00:00:00:00:00`, flags `0x0`) while the drive entry was complete, proving
+  nothing holds that address; `host.docker.internal` and
+  `gateway.docker.internal` both returned `SERVFAIL` and resolved to no address.
+- Why both controls are required — measured side by side on the same host and
+  subnet, changing only the option: with `internal` **only**, the bridge address
+  answered ARP with a real MAC (`96:f2:69:3e:4a:47`) and `wget` returned
+  `Connection refused`, i.e. the address is live and a host service bound there
+  would be reachable; with `internal` **plus** `isolated`, the ARP entry was
+  incomplete and `wget` returned `Host is unreachable`. This is the reviewed
+  finding reproduced, and it is why `internal: true` alone is no longer claimed
+  to prove the B5 statement.
+- Negative controls — deleting `internal: true` made `PS3-STRUCT-1` fail with
+  `aegis_public_share must stay a Docker internal network`; separately deleting
+  the `gateway_mode_ipv4` option made `PS3-STRUCT-1` fail with
+  `aegis_public_share must use isolated bridge gateway mode so no host bridge
+  address exists`. Both lines were restored before commit.
+- envsubst hardening evidence — with the base image default, rendering the
+  template with `remote_addr=EVIL_INJECTED` in the environment produced
+  `proxy_set_header X-Forwarded-For EVIL_INJECTED;` and
+  `proxy_set_header X-Real-IP EVIL_INJECTED;`. With
+  `NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$` set in the image, the same
+  environment rendered `$remote_addr` unchanged while still substituting
+  `server_name share.example.invalid;`. Pinned by `PS3-RUNTIME-13b`.
 - `com.docker.network.bridge.enable_ip_masquerade: "false"` was measured earlier
   as an alternative and did **not** block egress on this host, so it is recorded
   as not a substitute for `internal: true`.
 - `docker ps -a --format "{{.Names}}|{{.Status}}"; docker network ls --format "{{.Name}}"; docker network inspect aegis_public_share` — passed cleanup check: the original six exited AEGIS containers and original networks remained; `aegis_public_share` no longer existed after test teardown.
-- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` (the `npm test` script plus an explicit per-test timeout) — failed only at the accepted pre-existing `AUTOLOCK-5`: 1,112 tests, 1,041 passed, 1 failed, 70 skipped, 137.5 s; PUBLIC-SHARE-3 introduced failures = 0. The test count rose from 1,109 to 1,112 because of the three new structural checks. PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`; pre-existing React `act(...)` warnings remained.
-- The timeout was added because a first bare `npm test` run hung indefinitely in the unrelated, pre-existing `tests/vaultChunkedUploadClient.test.js` — "concurrency 2 · ส่งสอง index ที่ต่างกันพร้อมกันจริง" (line 418). `npm test` runs with `--test-timeout=0`, so that flake blocks the suite forever. The file is untouched by this branch and exists unchanged on `origin/main`; re-running it alone reproduced the hang once and then passed 20/20, confirming a pre-existing timing flake rather than a PUBLIC-SHARE-3 regression.
+- `node --test --test-concurrency=1 --test-timeout=120000 "tests/**/*.test.js"` (the `npm test` script plus an explicit per-test timeout) — 1,112 tests, 1,040 passed, **1 failed**, **1 cancelled**, 70 skipped, 259.3 s. The failure is the accepted pre-existing `AUTOLOCK-5`. The cancellation is the pre-existing `tests/vaultChunkedUploadClient.test.js` flake (line 418, "concurrency 2") hitting the 120 s timeout. PUBLIC-SHARE-3 introduced failures = 0. The test count rose from 1,109 to 1,112 because of the three new structural checks. PostgreSQL-only tests stayed skipped without `TEST_DATABASE_URL`; pre-existing React `act(...)` warnings remained.
+- The explicit timeout exists because a first bare `npm test` run hung **indefinitely** in that same unrelated test: `npm test` runs with `--test-timeout=0`, so the flake blocks the suite forever. The file is untouched by this branch and exists unchanged on `origin/main`. It is genuinely intermittent, not a deterministic break: across this task it hung once, passed in the second and third full runs, timed out in the fourth, and then passed 20/20 twice in a row when run alone immediately afterwards. Recorded as a pre-existing flake, not a PUBLIC-SHARE-3 regression, and deliberately not fixed here.
 - `npm run build` — passed: Vite 7.3.6 transformed 2,681 modules and built in 4.14 s; retained the existing chunk-size warning for the 609.95 kB main chunk. Generated `dist/index.html` was restored and is not part of this task.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — passed with two existing owner-review warnings for the architecture/network canvas files.
 - `node scripts/validate-collaboration-policy.mjs --event <local-pr-event> --changed-files <local-name-status>` — passed (`Collaboration policy passed.`) against the final Draft PR body and all 15 changed paths.
@@ -129,9 +179,9 @@ edit_policy: append-by-new-file
 
 - Kla infrastructure review is required for every `gateway/public-share/**` path above, especially the dedicated `internal: true` two-member network/container boundary, the absence of any host-published port, the in-network request generation used by the runtime suite, non-root/read-only execution, the startup host-validation control, the header overwrite policy, and the absence of credentials/storage mounts.
 - Confirm that neither root `docker-compose.yml` nor existing `gateway/nginx.conf`/HUB/Drive behavior changed, and that no public ingress, DNS, TLS, NAT, tunnel, firewall, VLAN, Twingate, Production environment, or Production migration was configured.
-- **B5 network isolation — owner/security decision taken 2026-09-08 and implemented.** The owner approved making `aegis_public_share` a Docker `internal: true` network and directed that the gateway's host-published port be removed rather than the isolation weakened, with B5 **not** deferred to PUBLIC-SHARE-6. Delivered: `internal: true` is set and pinned by `PS3-STRUCT-1`; neither member publishes a host port; exactly two members remain; the runtime suite drives the gateway from inside the network using only those two members, adding no third client container. Kla infrastructure review is still requested for the rewritten harness transport.
+- **B5 network isolation — owner/security decision taken 2026-09-08, implemented, then hardened after the final infrastructure-review finding.** Delivered: `internal: true` **and** `com.docker.network.bridge.gateway_mode_ipv4: "isolated"`, both pinned by `PS3-STRUCT-1` with negative controls; neither member publishes a host port; exactly two members remain; the runtime suite drives the gateway from inside the network using only those two members, adding no third client container. B5 is **not** deferred to PUBLIC-SHARE-6. Kla infrastructure review is requested for the rewritten in-network harness transport and for the two-control isolation shape.
 - **G4 stays open and unprejudiced.** The delivered header and rate-limit model assumes the gateway is the immediate recipient-facing HTTP peer. If G4 selects a managed reverse proxy/tunnel that inserts an HTTP hop, PUBLIC-SHARE-6 / the ingress integration task must define and review the provider trust/attribution adapter before deployment. This PR does not authorize trusting provider headers and does not claim Option B is deployable unchanged.
-- Confirm the scope of the delivered isolation claim: `internal: true` proves the **Docker network** boundary (no route off the bridge, no host-published port, unrelated AEGIS names unresolvable). It is not a perimeter/firewall claim. PUBLIC-SHARE-6 still owns real-stack/perimeter integration and deployment-specific reachability proof.
+- Confirm the scope of the delivered isolation claim: `internal: true` + `gateway_mode_ipv4=isolated` proves the **Docker network** boundary (no default route, no host bridge address, no host-published port, unrelated AEGIS names unresolvable). It is explicitly **not** a MikroTik, UFW, VLAN, Twingate, or Production perimeter claim, and none was configured or measured. PUBLIC-SHARE-6 still owns real-stack/perimeter integration and deployment-specific reachability proof.
 - Source rollback is PR revert. Local runtime rollback is removal of only the unique PUBLIC-SHARE-3 test project containers/network; Production rollback is not applicable because nothing was deployed.
 
 ## Known limitations
@@ -139,10 +189,11 @@ edit_policy: append-by-new-file
 - Public Internet Share remains unavailable: no Production gateway, migration 009 application, public ingress, DNS, TLS, NAT/tunnel, firewall/VLAN/Twingate change, UI public scope, or 4G/5G acceptance exists.
 - The upstream recorder proves gateway routing/header behavior, not real Drive authorization, large-file delivery, range behavior, slow clients, concurrency, or real ingress source attribution. PUBLIC-SHARE-6 owns real Drive integration acceptance.
 - G4 (ingress choice), G5 (Internet exposure), and G6 (final acceptance) remain open. PUBLIC-SHARE-4/5/6/7 were not started.
-- Architecture boundary **B5** is now enforced at the Docker network layer (`internal: true`, verified egress failure, no host-published port on either member). That is a Docker-network claim only — it is **not** a host firewall, MikroTik, UFW, VLAN, or perimeter claim, and none was made or configured. PUBLIC-SHARE-6 owns perimeter proof.
+- Architecture boundary **B5** is now enforced at the Docker network layer by two controls — `internal: true` (no external/default-route connectivity) and `gateway_mode_ipv4=isolated` (no Docker-host bridge address) — with verified egress failure, no default route, no reachable host address, and no host-published port on either member. That is a Docker-network claim only: it is **not** a host firewall, MikroTik, UFW, VLAN, Twingate, or Production perimeter claim, and none was made or configured. PUBLIC-SHARE-6 owns perimeter proof.
+- Docker Desktop on Windows runs the bridge inside its own Linux VM, so these probes observe the network from inside that VM rather than from the Windows host. The claim is therefore that no usable host-service path exists from the container across this Docker network; it is not a statement about Windows-level firewalling.
 - Because an internal network cannot publish a host port, the harness has no host listener and cannot be driven from the host. Every request comes from inside the network (drive recorder → gateway; gateway → its own listener when the recorder is stopped), so the observed edge address is a container address rather than a real recipient address. Rate-limit and forwarding-header behaviour is therefore proven mechanically, not against real Internet peers.
 - `PUBLIC_SHARE_HOST` validation is a **startup** control on the gateway's own configuration boundary. It proves the generated nginx config cannot be widened or injected by a malformed environment value; it is not a runtime request-path control and it does not validate that the configured hostname matches any deployed DNS record, certificate, or `PUBLIC_SHARE_BASE_URL` value, because nothing is deployed.
 - The delivered header/rate-limit model is **direct-peer only**: `X-Forwarded-For`/`X-Real-IP` come from `$remote_addr` and the edge limit is keyed on `$binary_remote_addr`. This is correct for a gateway that directly observes the recipient connection and is **not** claimed to be compatible with a G4 option that inserts a managed tunnel/reverse-proxy hop.
 - Full `npm test` retains the unrelated, pre-existing `AUTOLOCK-5` failure and 70 skips, including PostgreSQL-only cases without `TEST_DATABASE_URL`; React `act(...)` warnings are unchanged. The build retains its existing >500 kB chunk warning.
-- `tests/vaultChunkedUploadClient.test.js` carries a pre-existing timing flake that can hang the whole suite because `npm test` sets no per-test timeout. It is unrelated to this branch and is not fixed here; running the suite with `--test-timeout=120000` bounds it.
+- `tests/vaultChunkedUploadClient.test.js` carries a pre-existing timing flake (line 418, "concurrency 2") that can hang the whole suite because `npm test` sets no per-test timeout. It is unrelated to this branch, reproduces on `origin/main` content, and is **not** fixed here; running the suite with `--test-timeout=120000` bounds it to one cancelled test instead of an indefinite hang. It is a genuine outstanding defect in the vault upload client tests and deserves its own task.
 - `npm ci` reported 6 dependency audit findings (4 moderate, 2 high); no dependency or lockfile was changed and `npm audit fix` was not run.

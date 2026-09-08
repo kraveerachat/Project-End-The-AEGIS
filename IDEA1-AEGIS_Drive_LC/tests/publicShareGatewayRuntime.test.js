@@ -133,8 +133,17 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   await t.test('PS3-RUNTIME-1 the dedicated network is internal with exactly two isolated members', async () => {
     const network = JSON.parse((await docker(['network', 'inspect', 'aegis_public_share'])).stdout)[0]
 
-    // B5 is enforced by the network itself, not merely by membership.
+    // B5 is enforced by the network itself, not merely by membership, and it
+    // takes two controls. `internal` removes normal external/default-route
+    // connectivity; an ordinary internal bridge still keeps the Docker-host
+    // bridge address, through which appropriately configured host services stay
+    // reachable. `gateway_mode_ipv4: isolated` removes that address too.
     assert.equal(network.Internal, true, 'aegis_public_share must be a Docker internal network')
+    assert.equal(
+      network.Options?.['com.docker.network.bridge.gateway_mode_ipv4'],
+      'isolated',
+      'aegis_public_share must use isolated bridge gateway mode so no host bridge address exists',
+    )
 
     const members = Object.values(network.Containers)
     assert.equal(members.length, 2)
@@ -166,14 +175,60 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
   await t.test('PS3-RUNTIME-1b the gateway has no egress path off the dedicated network', async () => {
     // Routing is decided locally: with internal:true there is no route off the
     // bridge at all, so this never depends on real Internet availability.
-    const egress = await docker(['exec', gatewayId, 'sh', '-c',
-      'wget -qO- -T 4 http://1.1.1.1/ 2>&1 || true'])
-    assert.match(egress.stdout, /Network unreachable/i, `gateway reached off-network: ${egress.stdout}`)
+    for (const address of ['1.1.1.1', '8.8.8.8']) {
+      const egress = await docker(['exec', gatewayId, 'sh', '-c',
+        `wget -qO- -T 4 http://${address}/ 2>&1 || true`])
+      assert.match(egress.stdout, /Network unreachable/i, `gateway reached ${address}: ${egress.stdout}`)
+    }
 
-    // The one permitted path still works.
+    // No default route may exist at all — not merely an unreachable one.
+    const routes = await docker(['exec', gatewayId, 'sh', '-c', 'ip route'])
+    assert.doesNotMatch(routes.stdout, /^default\b/m, `gateway has a default route:\n${routes.stdout}`)
+    assert.match(routes.stdout, /^172\.31\.254\.0\/29 dev eth0 scope link/m, routes.stdout)
+    assert.equal(routes.stdout.trim().split('\n').length, 1, `unexpected extra routes:\n${routes.stdout}`)
+
+    // Both permitted in-network paths still work.
     const upstream = await docker(['exec', gatewayId, 'sh', '-c',
       'wget -qO- -T 5 http://drive:8001/__test/health 2>&1'])
-    assert.match(upstream.stdout, /"ok":\s*true/)
+    assert.match(upstream.stdout, /"ok":\s*true/, 'gateway -> drive:8001 must work')
+    assert.equal((await gatewayRequest('/s/ReachToken')).status, 200, 'drive -> gateway:8080 must work')
+  })
+
+  await t.test('PS3-RUNTIME-1c no usable host-service path remains from the gateway', async () => {
+    // The reason isolated mode is required: on an ordinary internal bridge the
+    // Docker host still holds the bridge address, and a host service bound
+    // there stays reachable (it answers ARP and refuses closed ports). Under
+    // isolated mode nothing holds the address, so it is unreachable at L3.
+    const ports = [22, 53, 80, 443, 445, 3389, 5432, 8080]
+    const probe = await docker(['exec', gatewayId, 'sh', '-c',
+      `for p in ${ports.join(' ')}; do nc -z -w 2 172.31.254.1 $p && echo "OPEN $p"; done; true`])
+    assert.equal(probe.stdout.trim(), '', `a host service answered on 172.31.254.1:\n${probe.stdout}`)
+
+    const http = await docker(['exec', gatewayId, 'sh', '-c',
+      'wget -qO- -T 3 http://172.31.254.1/ 2>&1 || true'])
+    assert.match(http.stdout, /unreachable/i, `172.31.254.1 answered at L3: ${http.stdout}`)
+    assert.doesNotMatch(
+      http.stdout,
+      /Connection refused/i,
+      'Connection refused means the host address is live; isolated mode is not in force',
+    )
+
+    // An incomplete ARP entry (all-zero MAC) proves nothing holds the address.
+    const arp = await docker(['exec', gatewayId, 'sh', '-c', 'cat /proc/net/arp'])
+    const bridgeEntry = arp.stdout.split('\n').find((line) => line.startsWith('172.31.254.1'))
+    if (bridgeEntry) {
+      assert.match(bridgeEntry, /00:00:00:00:00:00/, `something answered ARP for the bridge address: ${bridgeEntry}`)
+    }
+
+    // Docker Desktop's host aliases must not resolve on this network either.
+    for (const name of ['host.docker.internal', 'gateway.docker.internal']) {
+      const lookup = await docker(['exec', gatewayId, 'sh', '-c', `nslookup ${name} 2>&1 || true`])
+      assert.doesNotMatch(
+        lookup.stdout,
+        /^Address:\s*(?!127\.0\.0\.11)\d/m,
+        `${name} resolved to a usable address: ${lookup.stdout}`,
+      )
+    }
   })
 
   await t.test('PS3-RUNTIME-2 generated nginx config is valid', async () => {
@@ -368,6 +423,33 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     assert.equal(rendered.stdout.includes('$PUBLIC_SHARE_HOST'), false, 'template must be fully substituted')
     // Only the two catch-alls and the one configured listener may exist.
     assert.equal(rendered.stdout.split('server_name ').length - 1, 3)
+
+    // nginx's own variables must survive substitution untouched.
+    for (const variable of ['$remote_addr', '$binary_remote_addr', '$request_method', '$request_uri']) {
+      assert.ok(rendered.stdout.includes(variable), `${variable} must survive envsubst`)
+    }
+  })
+
+  await t.test('PS3-RUNTIME-13b envsubst cannot rewrite nginx variables from the environment', async () => {
+    const image = JSON.parse((await docker(['inspect', gatewayId])).stdout)[0].Image
+
+    // Without NGINX_ENVSUBST_FILTER the base image substitutes every defined
+    // environment variable, so a variable named `remote_addr` would rewrite
+    // `X-Forwarded-For $remote_addr` into a fixed attacker-chosen string and
+    // break both G3 attribution and the T-05 rate-limit axis.
+    const rendered = await docker([
+      'run', '--rm', '--network', 'none',
+      '-e', `PUBLIC_SHARE_HOST=${HOST}`,
+      '-e', 'remote_addr=EVIL_INJECTED',
+      '-e', 'request_method=EVIL_INJECTED',
+      '--entrypoint', '/bin/sh', image, '-c',
+      '/usr/local/bin/aegis-validate-public-share-host.sh && /docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null 2>&1 && cat /tmp/nginx.conf',
+    ])
+
+    assert.equal(rendered.stdout.includes('EVIL_INJECTED'), false, 'an environment variable rewrote the generated config')
+    assert.ok(rendered.stdout.includes('proxy_set_header X-Forwarded-For $remote_addr;'))
+    assert.ok(rendered.stdout.includes('proxy_set_header X-Real-IP $remote_addr;'))
+    assert.ok(rendered.stdout.includes(`server_name ${HOST};`), 'the one intended substitution must still happen')
   })
 
   await t.test('PS3-RUNTIME-14 every malformed PUBLIC_SHARE_HOST stops the gateway before nginx starts', async () => {

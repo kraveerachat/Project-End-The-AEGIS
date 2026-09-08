@@ -53,9 +53,15 @@ networks:
   aegis_public_share:
     name: aegis_public_share
     driver: bridge
-    # B5: Gateway -> everything else = nothing. internal:true removes the
-    # host/NAT path entirely; do not remove it to make a host port work.
+    # B5: Gateway -> everything else = nothing, as two separate controls.
+    #   internal: true      removes normal external/default-route connectivity.
+    #   gateway_mode_ipv4   "isolated" removes the Docker-host bridge address,
+    #                       so there is no host-service path either. An ordinary
+    #                       internal bridge still keeps that address.
+    # Both are required; do not remove either to make a host port work.
     internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
     ipam:
       config:
         - subnet: 172.31.254.0/29

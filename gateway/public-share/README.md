@@ -54,6 +54,15 @@ refusal independent of the base image's own error handling. On refusal
 `/tmp/nginx.conf` is never rendered, so nginx cannot start with a config the
 value could have altered, and the container exits non-zero.
 
+The image also sets `NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$`, so
+`PUBLIC_SHARE_HOST` is the **only** variable envsubst may substitute. By default
+the base image feeds every defined environment variable to envsubst, so a
+variable that happens to be named after an nginx variable used in the template
+would silently rewrite it — an environment with `remote_addr=...` set turns
+`proxy_set_header X-Forwarded-For $remote_addr;` into a fixed attacker-chosen
+string, breaking G3 attribution and the T-05 rate-limit axis. `PS3-RUNTIME-13b`
+proves this cannot happen.
+
 The grammar accepts one RFC 1123 host name: the characters `A-Za-z0-9.-` only,
 labels of 1–63 characters that neither begin nor end with `-`, no empty label,
 no leading or trailing dot, at most 253 characters in total, and no all-numeric
@@ -101,17 +110,48 @@ overlapping `172.19.254.0/29`. No existing network is modified or removed. The
 recorder proves gateway routing and header behavior; it does not prove real
 Drive authorization.
 
-### B5 is enforced by the network: `internal: true`
+### B5 is enforced by two network controls
 
-`aegis_public_share` is a Docker **internal** network, which is what enforces
-architecture boundary **B5** (`Gateway -> everything else = nothing`). A normal
-user-defined bridge would still reach the host/NAT boundary; an internal one has
-no route off the bridge at all.
+Architecture boundary **B5** is `Gateway -> PostgreSQL, Monitor, HUB, host =
+nothing`. `internal: true` alone does **not** prove that statement, and the
+harness does not claim it does:
+
+```text
+internal: true
+  -> removes normal external/default-route connectivity
+
+com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+  -> removes the Docker-host bridge address for the internal network
+
+together
+  -> source/test enforcement of the PR3 B5 Docker-network boundary
+```
+
+An ordinary internal bridge still keeps the Docker-host bridge address, and
+appropriately configured host services stay reachable through it. Docker Engine
+28 adds `gateway_mode_ipv4: isolated`, valid alongside `internal`, which removes
+that address; the engine here is 28.3.2.
+
+Measured side by side on this host, same subnet, same settings apart from the
+option — this is why both controls are required:
+
+```text
+internal only            ARP 172.31.x.1 -> 96:f2:69:3e:4a:47 (complete)
+                         http://172.31.x.1/ -> "Connection refused"
+                         (address is LIVE; a host service bound there is reachable)
+
+internal + isolated      ARP 172.31.x.1 -> 00:00:00:00:00:00 (incomplete)
+                         http://172.31.x.1/ -> "Host is unreachable"
+                         (nothing holds the address at all)
+```
 
 Measured on the real harness (Docker 28.3.2, Docker Desktop, linux containers):
 
 ```text
-docker network inspect aegis_public_share -> Internal = true, members = 2
+docker network inspect aegis_public_share
+  Internal                                -> true
+  Options[...gateway_mode_ipv4]           -> "isolated"
+  members                                 -> 2
                                              172.31.254.2  public-share-gateway
                                              172.31.254.3  drive
 gateway networks                          -> 1 (aegis_public_share)
@@ -119,16 +159,30 @@ drive networks                            -> 1 (aegis_public_share)
 gateway published ports                   -> {}   (docker port: empty)
 drive published ports                     -> {}   (docker port: empty)
 gateway -> drive:8001                     -> {"ok":true}
-gateway -> 1.1.1.1                        -> "Network unreachable"
+drive -> gateway:8080                     -> 200
+gateway -> 1.1.1.1 / 8.8.8.8              -> "Network unreachable"
+ip route (gateway)                        -> 172.31.254.0/29 dev eth0 scope link
+                                             src 172.31.254.2      (no default route)
+172.31.254.1 tcp 22/53/80/443/445/3389/5432/8080 -> all unreachable
+http://172.31.254.1/                      -> "Host is unreachable"
+host.docker.internal                      -> SERVFAIL (does not resolve)
+gateway.docker.internal                   -> SERVFAIL (does not resolve)
 nginx -t                                  -> test is successful
 ```
+
+No probe demonstrated a usable host-service path. This is a **Docker-network**
+claim only: it is not MikroTik, UFW, VLAN, Twingate, or any Production perimeter
+isolation, none of which was configured or measured.
 
 **Neither member publishes a host port, and that is deliberate.** Docker cannot
 publish a port from an internal network — it accepts the request and silently
 drops it, leaving `NetworkSettings.Ports` empty with no warning — and B5 forbids
-a host path to the gateway in any case. `PS3-STRUCT-1` pins `internal: true` so
-removing it fails the suite, and `PS3-RUNTIME-1` re-checks `Internal=true`, both
-membership counts, and the absence of published ports on the real network.
+a host path to the gateway in any case. `PS3-STRUCT-1` pins **both**
+`internal: true` and the isolated gateway mode, so removing either fails the
+suite; `PS3-RUNTIME-1` re-checks `Internal=true`, the `isolated` option, both
+membership counts, and the absence of published ports on the real network;
+`PS3-RUNTIME-1b` checks the route table and egress; `PS3-RUNTIME-1c` runs the
+host-path probes above.
 
 Because there is no host listener, the runtime suite generates every HTTP
 request **from inside the network, using only the two existing members**:

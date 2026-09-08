@@ -17,6 +17,13 @@ RUN chmod 0555 /usr/local/bin/aegis-validate-public-share-host.sh \
     && chmod 0555 /usr/local/bin/aegis-public-share-entrypoint.sh
 
 ENV NGINX_ENVSUBST_OUTPUT_DIR=/tmp
+# Substitute PUBLIC_SHARE_HOST and nothing else. By default the base image
+# feeds every environment variable to envsubst, so a variable that happens to
+# be named after an nginx variable used in the template (remote_addr,
+# request_method, ...) would silently rewrite it -- turning
+# `X-Forwarded-For $remote_addr` into a fixed attacker-chosen string and
+# breaking both G3 attribution and the T-05 rate-limit axis.
+ENV NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$
 
 USER 101:101
 EXPOSE 8080

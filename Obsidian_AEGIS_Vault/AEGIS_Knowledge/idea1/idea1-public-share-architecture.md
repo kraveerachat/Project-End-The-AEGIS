@@ -196,10 +196,23 @@ is not permitted to become a second, weaker policy engine.
 **D4 — A dedicated Docker network, `aegis_public_share`.** The gateway must not
 join `aegis_internal` (which reaches PostgreSQL and Monitor) and must not join
 `aegis_drive_proxy` (which is HUB's private identity `172.19.255.2/29`). It gets
-its own /29 with exactly two members: the gateway and Drive. The network is
-Docker `internal: true`, which is what makes B5 a property of the network rather
-than a convention — and it is why no member publishes a host port, since Docker
-cannot publish one from an internal network.
+its own /29 with exactly two members: the gateway and Drive.
+
+B5 is made a property of the network by **two** controls, not one:
+
+```text
+internal: true      -> removes normal external/default-route connectivity
+gateway_mode_ipv4
+  = "isolated"      -> removes the Docker-host bridge address for that network
+together            -> source/test enforcement of the B5 Docker-network boundary
+```
+
+`internal: true` alone is necessary but not sufficient: an ordinary internal
+bridge still keeps the Docker-host bridge address, and appropriately configured
+host services stay reachable through it. Docker Engine 28 adds bridge gateway
+mode `isolated`, valid alongside `internal`, which removes that address. No
+member publishes a host port either, since Docker cannot publish one from an
+internal network.
 
 ---
 
@@ -1472,9 +1485,16 @@ Until G6, every status note, UI string and receipt says the same thing:
   adapter in PUBLIC-SHARE-6 before deployment (§10).
 - **B5 is enforced by the PUBLIC-SHARE-3 harness network, and the harness
   therefore has no host listener.** `aegis_public_share` is a Docker
-  `internal: true` network, so `Gateway -> everything else = nothing` holds at
-  the network layer: the gateway reaches `drive:8001` and nothing else
-  (`wget http://1.1.1.1/` returns `Network unreachable`). Docker cannot publish
+  `internal: true` network **with bridge gateway mode `isolated`**; both are
+  required, because an ordinary internal bridge still keeps the Docker-host
+  bridge address through which host services stay reachable. Measured side by
+  side on Docker 28.3.2: with `internal` only, the bridge address answers ARP
+  and returns `Connection refused` (live); with `isolated` added, its ARP entry
+  is incomplete and it returns `Host is unreachable`. On the real harness the
+  gateway has no default route, cannot reach `1.1.1.1`/`8.8.8.8`, finds
+  `172.31.254.1` unreachable on every probed port, and cannot resolve
+  `host.docker.internal` or `gateway.docker.internal`; it reaches `drive:8001`
+  and nothing else. Docker cannot publish
   a port from an internal network — it accepts the request and silently drops it
   — so **neither member publishes a host port**, and the runtime suite drives the
   gateway from inside the network using only the two existing members: the drive
