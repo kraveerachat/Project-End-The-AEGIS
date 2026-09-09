@@ -106,8 +106,9 @@ Copy-Item -Force (Join-Path $extracted 'node.exe') $nodeStage
 # ---------------------------------------------------------------- stage 8
 Write-Stage 'Assemble server payload'
 # The launcher opens <bundle>\server\index.js and <bundle>\server\passwordHash.js,
-# so the payload is staged and verified by one helper instead of by a Copy-Item
-# whose result depends on whether the destination directory already exists.
+# so one helper stages the payload file by file to explicit destinations. No
+# directory is ever copied: a recursive directory copy nests its source inside a
+# destination that already exists, which is what shipped server\server\index.js.
 $serverStage = Join-Path $StageDir 'server'
 & (Join-Path $WindowsDir 'stage-server-payload.ps1') -WebDir $WebDir -ServerStage $serverStage
 Push-Location $serverStage
@@ -115,6 +116,21 @@ try {
     & npm ci --omit=dev --ignore-scripts
     if ($LASTEXITCODE -ne 0) { Fail 'production dependency install failed' }
 } finally { Pop-Location }
+
+Write-Stage 'Verify the shipped server layout'
+# Staging checks its own output; this checks the directory that is actually
+# archived, after npm ci has written into it. A bundle whose entrypoints are not
+# directly under server\ cannot start, so it must never reach the ZIP.
+foreach ($required in @('index.js', 'passwordHash.js', 'package.json', 'package-lock.json')) {
+    $shipped = Join-Path $serverStage $required
+    if (-not (Test-Path -LiteralPath $shipped -PathType Leaf)) {
+        Fail "bundle payload is missing server\$required at $shipped"
+    }
+}
+$nestedServer = Join-Path $serverStage 'server'
+if (Test-Path -LiteralPath $nestedServer) {
+    Fail "server payload is nested at $nestedServer; the launcher opens <bundle>\server\index.js"
+}
 
 Write-Stage 'Assemble built Web assets'
 $webStage = Join-Path $StageDir 'web'
@@ -160,6 +176,16 @@ $manifest = [ordered]@{
         }
     })
 }
+
+# The manifest is the evidence an operator verifies a bundle against, so the
+# payload contract is asserted on the recorded paths as well as on disk.
+$manifestPaths = @($manifest.files | ForEach-Object { $_.path })
+foreach ($required in @('server/index.js', 'server/passwordHash.js')) {
+    if ($manifestPaths -notcontains $required) { Fail "manifest does not record $required" }
+}
+$nestedPaths = @($manifestPaths | Where-Object { $_.StartsWith('server/server/') })
+if ($nestedPaths) { Fail "manifest records a nested server payload:`n$($nestedPaths -join "`n")" }
+
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $StageDir 'manifest.json') -Encoding utf8
 
 # ---------------------------------------------------------------- stage 11

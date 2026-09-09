@@ -1406,14 +1406,17 @@ requires_powershell = pytest.mark.skipif(
 
 
 @requires_powershell
-@pytest.mark.parametrize("destination", ["missing", "already_exists"])
+@pytest.mark.parametrize(
+    "destination", ["missing", "already_exists", "already_staged", "nested_payload"]
+)
 def test_server_payload_is_staged_directly_under_server(tmp_path, destination):
     """The launcher opens <bundle>/server/index.js, so the payload must not nest.
 
     ``Copy-Item -Recurse`` of a directory onto a destination that already exists
-    places the source *inside* it, which produced <bundle>/server/server/... on
-    real Windows while package.json stayed one level up. Both destination states
-    must now yield the same flat layout.
+    places the source *inside* it, which shipped <bundle>/server/server/index.js
+    and passwordHash.js on real Windows while package.json stayed one level up.
+    Every destination state, including a directory that already holds the nested
+    defect, must now yield the same flat layout.
     """
 
     web = _web_source_tree(tmp_path)
@@ -1421,12 +1424,22 @@ def test_server_payload_is_staged_directly_under_server(tmp_path, destination):
     server_stage.parent.mkdir(parents=True)
     if destination == "already_exists":
         (server_stage / "stale").mkdir(parents=True)
+    elif destination == "already_staged":
+        (server_stage / "routes").mkdir(parents=True)
+        (server_stage / "index.js").write_text("// previous build\n", encoding="utf-8")
+        (server_stage / "stale").mkdir()
+    elif destination == "nested_payload":
+        (server_stage / "server" / "routes").mkdir(parents=True)
+        (server_stage / "server" / "index.js").write_text("// nested\n", encoding="utf-8")
+        (server_stage / "server" / "passwordHash.js").write_text("// nested\n", encoding="utf-8")
+        (server_stage / "stale").mkdir()
 
     completed = _stage_server_payload(web, server_stage)
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert (server_stage / "index.js").is_file()
     assert (server_stage / "passwordHash.js").is_file()
+    assert (server_stage / "index.js").read_text(encoding="utf-8") == "// entrypoint\n"
     assert not (server_stage / "server" / "index.js").exists()
     assert not (server_stage / "server" / "passwordHash.js").exists()
     assert not (server_stage / "server").exists()
@@ -1434,6 +1447,36 @@ def test_server_payload_is_staged_directly_under_server(tmp_path, destination):
     assert (server_stage / "routes" / "session.js").is_file()
     assert (server_stage / "package.json").is_file()
     assert (server_stage / "package-lock.json").is_file()
+
+
+@requires_powershell
+def test_server_payload_staging_is_flat_for_a_nested_source_tree(tmp_path):
+    """Deeper sources keep their own shape without gaining a server/ level."""
+
+    web = _web_source_tree(tmp_path)
+    (web / "server" / "repositories" / "sqlite").mkdir(parents=True)
+    (web / "server" / "repositories" / "sqlite" / "audit.js").write_text(
+        "// audit\n", encoding="utf-8"
+    )
+    server_stage = tmp_path / "bundle" / "server"
+
+    completed = _stage_server_payload(web, server_stage)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert (server_stage / "repositories" / "sqlite" / "audit.js").is_file()
+    staged = sorted(
+        path.relative_to(server_stage).as_posix()
+        for path in server_stage.rglob("*")
+        if path.is_file()
+    )
+    assert staged == [
+        "index.js",
+        "package-lock.json",
+        "package.json",
+        "passwordHash.js",
+        "repositories/sqlite/audit.js",
+        "routes/session.js",
+    ]
 
 
 @requires_powershell
@@ -1468,3 +1511,56 @@ def test_server_staging_helper_pins_the_launcher_payload_contract():
     for required in ("index.js", "passwordHash.js", "package.json", "package-lock.json"):
         assert f"'{required}'" in helper
     assert "$nested = Join-Path $ServerStage 'server'" in helper
+
+
+def test_server_staging_helper_never_copies_a_directory():
+    """The nesting defect is only reachable through a recursive directory copy.
+
+    PowerShell copies a directory's *contents* into a destination that does not
+    exist and the directory *itself* into one that does. Staging each file to an
+    explicit destination path removes that dependency on the destination's prior
+    state, so no ``Copy-Item -Recurse`` may return to this script. These assertions
+    hold on any host; the behavioural tests above need PowerShell and are skipped
+    without it, which is exactly where the shipped defect went unnoticed.
+    """
+
+    helper = STAGE_SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    copies = re.findall(r"(?m)^\s*Copy-Item.*$", helper)
+    assert copies
+    for copy in copies:
+        assert "-Recurse" not in copy, copy
+    assert "Get-ChildItem -LiteralPath $serverSource -Recurse -File -Force" in helper
+    # A file is copied to an explicit file path under a directory the script made.
+    assert "New-Item -ItemType Directory -Force -Path $parent" in helper
+
+
+def test_build_script_verifies_the_shipped_server_layout():
+    """The archived directory, not just the staging step, must be proven flat.
+
+    Staging validates its own output before ``npm ci``; nothing re-checked the
+    directory that is actually compressed, so a bundle whose entrypoints were not
+    directly under server/ could still be produced and handed to an evaluator.
+    """
+
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    verify = script.index("Write-Stage 'Verify the shipped server layout'")
+    assert script.index("npm ci --omit=dev") < verify
+    assert verify < script.index("Compress-Archive")
+    for required in ("index.js", "passwordHash.js", "package.json", "package-lock.json"):
+        assert f"'{required}'" in script[verify:]
+    assert "$nestedServer = Join-Path $serverStage 'server'" in script
+    assert "Fail \"server payload is nested at $nestedServer" in script
+
+
+def test_build_script_rejects_a_manifest_that_records_a_nested_payload():
+    """manifest.json is the operator's verification evidence for a bundle."""
+
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    guard = script.index("$nestedPaths = @($manifestPaths")
+    assert "'server/index.js', 'server/passwordHash.js'" in script
+    assert "$_.StartsWith('server/server/')" in script
+    assert guard < script.index("Set-Content -Path (Join-Path $StageDir 'manifest.json')")
+    assert guard < script.index("Compress-Archive")

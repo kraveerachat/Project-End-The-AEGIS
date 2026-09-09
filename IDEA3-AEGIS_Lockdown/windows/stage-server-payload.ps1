@@ -7,13 +7,18 @@
     The launcher resolves <bundle>\server\index.js and <bundle>\server\passwordHash.js
     directly, so this layout is a contract rather than a convenience.
 
-    A recursive copy of a *directory* onto a destination that already exists
-    nests the source inside it (<bundle>\server\server\...), while the same call
-    against a missing destination copies the contents. That difference is the
-    packaging defect this script removes: every entry is copied to an explicit
-    destination path, so the result never depends on what the destination
-    happened to be beforehand, and the staged layout is verified before the
-    caller installs production dependencies into it.
+    A recursive copy of a *directory* nests the source inside a destination that
+    already exists (<bundle>\server\server\...) and copies its contents into a
+    destination that does not, so the staged layout depends on the state of the
+    destination and on the provider's semantics. Real Windows evidence showed that
+    difference shipping as <bundle>\server\server\index.js while the launcher
+    opens <bundle>\server\index.js.
+
+    This script therefore never copies a directory: it walks the source files and
+    copies each one to an explicit destination *file* path under a directory it
+    created itself, so nesting is impossible regardless of the destination's prior
+    state. Empty source directories are not reproduced; the payload is JavaScript
+    files, and server\node_modules is created by the caller's `npm ci`.
 #>
 
 [CmdletBinding()]
@@ -29,13 +34,22 @@ $serverSource = Join-Path $WebDir 'server'
 if (-not (Test-Path -LiteralPath $serverSource -PathType Container)) {
     throw "BUILD FAILED: Web server sources are missing: $serverSource"
 }
+# Resolve before measuring relative paths: a relative -WebDir would otherwise not
+# be a prefix of the absolute FullName the enumeration reports.
+$serverSource = (Resolve-Path -LiteralPath $serverSource).ProviderPath.TrimEnd('\', '/')
 
 # Stage from a known-empty directory so a leftover tree cannot survive into the bundle.
 if (Test-Path -LiteralPath $ServerStage) { Remove-Item -LiteralPath $ServerStage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $ServerStage | Out-Null
 
-foreach ($entry in Get-ChildItem -LiteralPath $serverSource -Force) {
-    Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $ServerStage $entry.Name) -Recurse -Force
+foreach ($file in Get-ChildItem -LiteralPath $serverSource -Recurse -File -Force) {
+    $relative = $file.FullName.Substring($serverSource.Length + 1)
+    $destination = Join-Path $ServerStage $relative
+    $parent = Split-Path -Parent $destination
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }
 
 foreach ($file in @('package.json', 'package-lock.json')) {
