@@ -112,11 +112,11 @@ edit_policy: owner-writable
 | Task | `PUBLIC-SHARE-7 S5.2 G5 Readiness Design` |
 | Branch | `docs/idea1-public-share-g5-readiness` |
 | Owner | `kla` |
-| Pull Request | **Pending Draft PR** |
-| Current state | **IN PROGRESS** |
+| Pull Request | `#113` — **OPEN / DRAFT** |
+| Current state | **CLOSED / PARTIAL — design delivered; execution blocked on measurement** |
 | Started | 2026-09-10 |
 | Starting SHA | `618543ee0d88613a651305962b5ed64c8593c2e5` — PR #111 merge commit |
-| Last checkpoint | S5.1 merged through PR #111; S5.2 implementation/evidence checkpoint pending |
+| Last checkpoint | `c2fd417c328d34a776b43f749a203a89a5d502d7` — S5.2 implementation/evidence checkpoint |
 | Production mutation allowed | **NO for S5.2** |
 
 ### Goal
@@ -208,7 +208,7 @@ IMPLEMENTED.**
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | S5.1 | Production freeze + deployment/rollback plan; documentation only | **MERGED / HISTORICAL PASS** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`; PR #111 merge `618543ee0d88613a651305962b5ed64c8593c2e5` | **PASS** | No retroactive receipt; historical governance-transition outcome | superseded by separately governed S5.2 task |
-| S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **IN PROGRESS / BLOCKED ON MEASUREMENT** | baseline root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; no Production access | pending | **PARTIAL — design frozen; executable firewall commands blocked** | owner-run read-only firewall/network/DNS preflight; domain/zone proof; fresh Cloudflare allowlist before S5.5; G5 remains OPEN | complete documentation validation, receipt and Draft PR; stop before S5.3 |
+| S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **CLOSED / PARTIAL — BLOCKED ON MEASUREMENT** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access | `c2fd417c328d34a776b43f749a203a89a5d502d7`; Draft PR #113 | **PARTIAL — design frozen; executable firewall commands blocked** | owner-run read-only firewall/network/DNS preflight; domain/zone proof; fresh Cloudflare allowlist before S5.5; G5 remains OPEN | stop; a separately authorised task must collect the preflight before S5.3 |
 | S5.3 | Production Drive/database preparation and migration 009 | NOT STARTED | — | — | — | controlled Production mutation | requires separate explicit approval |
 | S5.4 | Dedicated Public Share networks + gateway deployment | NOT STARTED | — | — | — | isolated gateway runtime | after S5.3 |
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | NOT STARTED | — | — | — | connector isolation proof and G5 | after S5.4 |
@@ -251,7 +251,7 @@ S5.1 merged through PR #111 at
 receipt under the governance transition then in force; S5.2 does not fabricate
 one retroactively.
 
-**Done in S5.2 so far:** the three candidate `/29` ranges, exact component
+**Done in S5.2:** the three candidate `/29` ranges, exact component
 membership, `/32` trust, backend-neutral default-deny isolation contract,
 positive/negative probes, persistence requirements, rollback order, and
 S5.3–S5.5 mutation boundaries are documented. No Production action occurred.
@@ -262,9 +262,10 @@ NOT VERIFIED. The runtime collision check, connector image digest, DNS path and
 fresh Cloudflare endpoint allowlist also remain open. G5/G6 are OPEN and Public
 Internet Share is NOT IMPLEMENTED.
 
-**Next:** complete S5.2 repository validation, create its one final immutable
-receipt, publish one Draft PR, and stop. Do not begin S5.3, access Production,
-or request G5 from this checkpoint.
+**Next:** stop at Draft PR #113. A separately authorised task must collect and
+review the narrow read-only Production preflight before executable firewall
+commands can be finalized. Do not begin S5.3, mutate Production, or request G5
+from this checkpoint.
 
 ### Current acceptance reconciliation — 2026-09-06
 
