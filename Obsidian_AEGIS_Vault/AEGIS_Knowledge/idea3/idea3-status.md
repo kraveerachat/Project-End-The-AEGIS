@@ -512,19 +512,51 @@ checkpoint.
 - No forbidden or generated path is introduced by this branch; the only
   non-`IDEA3-AEGIS_Lockdown/` path changed is this canonical note.
 
-### WINDOWS ACCEPTANCE — BLOCKED, NOT CLAIMED
+### WINDOWS ACCEPTANCE — BUILD PASSED AT `ca5a4fe6`; CURRENT SHA NOT VERIFIED
 
 ```text
-WINDOWS_BUILD_VERIFIED = NO
-WINDOWS_SMOKE_VERIFIED = NO
+WINDOWS_BUILD_VERIFIED_AT_ca5a4fe6 = YES
+WINDOWS_SMOKE_VERIFIED_AT_ca5a4fe6 = NO / PARTIAL FAILURE
+WINDOWS_BUILD_VERIFIED_FOR_CURRENT_SHA = NO
+WINDOWS_SMOKE_VERIFIED_FOR_CURRENT_SHA = NO
 PR8_IMPLEMENTATION_PLAN_TASK_11 = BLOCKED
-BLOCKER = no Windows x64 machine available; build.ps1 and smoke.ps1 refuse to run
-          on non-Windows hosts and pwsh is unavailable on this Arch host
+BLOCKER = the post-ca5a4fe6 source fix requires a fresh Windows build and smoke
 ```
 
-`build.ps1` and `smoke.ps1` have never been executed. Their correctness is
-asserted only by source-side contract tests. No Linux result in this section is
-Windows acceptance evidence, and no EXE has been produced, run, or distributed.
+- Real Windows build at `ca5a4fe679b6a31a87c3dd78643f52f0d0b44356`:
+  Python **194 passed**, Web **297 passed**, Vite build PASS, PyInstaller PASS,
+  production npm install PASS, forbidden-artifact and manifest checks PASS, ZIP
+  PASS. Artifact `AEGIS-IDEA3-ca5a4fe679b6.zip`, SHA-256
+  `5ae7982983a8a9c9d8184722dceb7dee8406088bedb4672c165eb300fec5c746`.
+- Real Windows smoke at that SHA passed configuration, post-configuration
+  doctor, Web start/restart health, stopped-state reporting, toolchain
+  independence, and blank integration-token checks. It failed
+  `status-reports-running`, `admin-login-succeeds`, and completion.
+- Core root cause: generated blank `AEGIS_BROKER_PORT` was parsed with
+  `int("")`; its Thai import-time fallback diagnostic then raised
+  `UnicodeEncodeError` under `cp1252`. The fix treats blank broker settings as
+  explicitly unconfigured, uses a safe default port without import-time output,
+  disables MQTT connection startup when unconfigured, fails live mode closed,
+  and restores the approved default lab/headless/dry-run launcher profile.
+- Smoke root cause: acceptance called unprefixed `/api/...` URLs even though
+  production mounts `/security/api/...`; `/security/healthz` also hit the SPA
+  fallback rather than the JSON health route. All acceptance URLs now derive
+  from one `/security/api` base.
+- Secure-cookie audit: `express-session` suppresses a production Secure cookie
+  on ordinary HTTP. IDEA3 now recognizes only a proven loopback request as the
+  browser-trusted localhost context while retaining `Secure`, `HttpOnly`, and
+  `SameSite=Strict`. Smoke validates those attributes, carries the opaque cookie
+  explicitly because PowerShell does not implement the browser localhost
+  exception, and supplies the required CSRF token on logout.
+- Fresh Arch source verification after the fix: Python **196 passed, 6 skipped**
+  (Windows-only); Web **298 passed across 24 files**; Vite build PASS with 1,677
+  modules; Ruff PASS; compileall PASS with its cache redirected to `/tmp` after
+  the workspace mount rejected `__pycache__` writes; production npm audit **0
+  vulnerabilities**; repository tests **56 passed**; vault validation PASS with
+  the two unchanged owner-data canvas warnings; `git diff --check` PASS.
+
+No Windows build or smoke result exists for the new source. The `ca5a4fe6`
+artifact is historical evidence for that exact SHA only and must not be reused.
 
 ### STILL OPEN
 

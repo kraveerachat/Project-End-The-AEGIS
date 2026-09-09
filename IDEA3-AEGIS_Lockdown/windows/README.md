@@ -3,11 +3,11 @@
 One-folder Windows distribution: a launcher executable plus a bundled Node
 runtime, the production Express server, and prebuilt React assets.
 
-> **Status.** The build and smoke scripts in this folder have **not** been
-> executed on Windows. Source-side contract tests pass on Linux, which is not
-> Windows acceptance evidence. `WINDOWS_BUILD_VERIFIED = NO` and
-> `WINDOWS_SMOKE_VERIFIED = NO` until `build.ps1` and `smoke.ps1` are run on a
-> real Windows x64 machine.
+> **Status.** A real Windows build passed at source `ca5a4fe6`, but its smoke
+> run exposed Core configuration and Web acceptance-path defects. Those defects
+> are fixed after that candidate, so `WINDOWS_BUILD_VERIFIED = NO` and
+> `WINDOWS_SMOKE_VERIFIED = NO` for the current source until both scripts are
+> rerun on Windows x64.
 
 ## Layout
 
@@ -112,6 +112,14 @@ logout, records the audit row count, stops, restarts, confirms the audit survive
 asserts absent feeds and absent hardware stay honest, and confirms no bundle child
 process survives. Results are written to `windows\out\evidence\smoke-result.json`
 (untracked). No password or token value is printed.
+
+The production API is addressed below `/security/api`. The browser origin is
+`http://localhost:<port>`, which supported Windows browsers treat as a trusted
+localhost origin for Secure cookies. The server still emits
+`Secure; HttpOnly; SameSite=Strict`. PowerShell does not apply the same
+localhost exception in its cookie container, so the smoke script first verifies
+those attributes and then carries only the opaque cookie value explicitly for
+its loopback API checks; it never relaxes the production cookie policy.
 
 ## Backup, upgrade, rollback
 

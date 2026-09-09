@@ -2045,3 +2045,83 @@ PLAN_TASK_11 = BLOCKED
 .\windows\build.ps1
 .\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
 ```
+
+## 37. PR8 Task 11 — real Windows Core/config and smoke API fixes — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+START_SHA = ca5a4fe679b6a31a87c3dd78643f52f0d0b44356
+SOURCE_FIX_COMMIT = a5abb6613b6754882286988407b3ef25139d7b81
+STATUS = PARTIAL / NEW WINDOWS BUILD AND SMOKE REQUIRED
+```
+
+### Real Windows evidence at the start SHA
+
+- Build PASS: Python 194, Web 297, Vite, PyInstaller, production npm install,
+  artifact scan, manifest, ZIP, and final BUILD OK all passed.
+- Artifact: `AEGIS-IDEA3-ca5a4fe679b6.zip`; SHA-256
+  `5ae7982983a8a9c9d8184722dceb7dee8406088bedb4672c165eb300fec5c746`.
+- Smoke passed configuration, post-configure doctor, Web start/restart health,
+  stopped-state reporting, and toolchain/blank-token checks. It failed launcher
+  running status, Admin login, and completion. The launcher was subsequently
+  stopped cleanly.
+
+### Confirmed defects and exact fixes
+
+1. `config.py` evaluated `int("")` for the intentionally blank optional broker
+   port. Its Thai import-time fallback diagnostic then failed under Windows
+   `cp1252`, so Core exited before writing status. Blank broker values now mean
+   unconfigured, port fallback emits no import-time text, malformed-port detail
+   is ASCII-safe through validation, no MQTT connection starts while
+   unconfigured, and live mode still fails closed.
+2. The launcher defaulted to `production` although the approved standalone
+   default is lab/headless/dry-run with production Web authentication. The
+   default is now `lab`; explicit production remains strict and still requires
+   HMAC, Admin PIN, and MQTT configuration.
+3. `smoke.ps1` called unprefixed `/api/...` routes and probed
+   `/security/healthz`, which the SPA fallback could satisfy. One
+   `$apiBaseUrl = "$baseUrl$webBasePath/api"` now owns health, login, logout,
+   audit, and snapshot URLs.
+4. Secure-cookie audit confirmed `express-session` withholds a Secure cookie on
+   ordinary HTTP. The production app now recognizes only the proven loopback
+   socket as the browser-trusted localhost context and still emits
+   `Secure; HttpOnly; SameSite=Strict`. The smoke harness uses `localhost`,
+   validates all three attributes, explicitly carries only the opaque cookie
+   because PowerShell does not apply the browser localhost exception, and sends
+   the login-issued CSRF token on logout. No production cookie flag was removed
+   or weakened.
+
+### Fresh source-side verification
+
+```text
+Focused Python = 161 passed, 6 skipped
+Focused Web = 58 passed
+Full Python = 196 passed, 6 Windows-only skipped
+Full Web = 298 passed across 24 files
+Vite production build = PASS, 1677 modules
+Ruff = PASS
+compileall = PASS using PYTHONPYCACHEPREFIX under /tmp
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 56 passed
+Vault validation = PASS, two unchanged owner-data canvas warnings
+git diff --check = PASS
+```
+
+The first compileall attempt failed only because the mounted worktree rejected
+`__pycache__` writes (`EROFS`); redirecting the cache to `/tmp` passed. The
+first focused Web command was run from the wrong directory and invoked an
+unintended transient Vitest version; that result is discarded. The locked Web
+suite was rerun from `web/` and is the result recorded above.
+
+### Current gate and next action
+
+```text
+WINDOWS_BUILD_VERIFIED = NO for the new SHA
+WINDOWS_SMOKE_VERIFIED = NO for the new SHA
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+Do not reuse the `ca5a4fe6` artifact as evidence for the new source. On Windows
+x64, pull the new SHA, run `windows/build.ps1`, require BUILD OK, extract the
+new ZIP, choose a fresh absolute DataPath, run `windows/smoke.ps1`, and report
+every acceptance result. Do not merge PR #107 before that evidence is reviewed.
