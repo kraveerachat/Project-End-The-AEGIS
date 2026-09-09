@@ -3,7 +3,7 @@ title: AEGIS Core and Integration MOC
 tags: [aegis, core, shared, integration, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-09-09
 owner: kla
 edit_policy: owner-only
 ---
@@ -22,7 +22,9 @@ Kla owns Core and shared integration. Area owners keep their own canonical statu
 
 - [[core/system-overview]] and [[core/system-context]] — system topology and preserved architecture detail.
 - [[core/hub-aegis-entry]], [[core/security-architecture]], and [[core/integration-points]] — entry, security, and reviewed interfaces.
-- [[core/agent-operating-rules]] and [[core/design-system-ui-language]] — operating and design rules.
+- [[core/agent-operating-rules]] — durable task lifecycle, ownership, and collaboration rules.
+- [[core/development-session-workflow]] — mandatory session state, evidence, Git checkpoint, handoff, publication-only transfer, and final receipt contract.
+- [[core/design-system-ui-language]] — shared design rules.
 - [[.schema.md]] — vault ownership, receipt, and navigation rules.
 
 ## Integration queue
@@ -35,4 +37,6 @@ Verify the affected area first, then run the applicable shared contract, deploym
 
 ## Finish a shared task
 
-Follow [[.schema.md]], create one immutable receipt from [[90-Status/logs/_template]], and place any owner decision or integration review in [[90-Status/integration-queue]].
+Follow [[core/development-session-workflow]] and [[.schema.md]], create one
+immutable receipt from [[90-Status/logs/_template]] at final task handoff, and
+place any owner decision or integration review in [[90-Status/integration-queue]].
