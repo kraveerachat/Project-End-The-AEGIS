@@ -393,6 +393,299 @@ inventory/design baseline.
 
 ---
 
+## PR7 merge reconciliation and PR8 Windows standalone decision — 2026-09-08
+
+### VERIFIED CURRENT GIT STATE
+
+- Project-sequence PR7 is merged through GitHub PR #104. Current `main` and
+  `origin/main` both resolve to merge commit
+  `c68946cbe917a71349a8234a4bc028fbf4c6967d`.
+- The PR7 inventory/design split in GitHub PR #106 and the PR7 implementation
+  receipt both remain reachable from `main`. Historical receipts remain
+  immutable and are not rewritten to add later merge facts.
+- PR7 live-source limitations are unchanged: both upstream service feeds and a
+  reviewed shared correlation key remain absent, so correlation and containment
+  acceptance remain `IMPLEMENTED_UNEXERCISED` against real producers.
+
+### PR8 CHECKPOINT
+
+```text
+PROJECT_SEQUENCE = PR8_WINDOWS_EXE_STANDALONE_RUNTIME
+BASE_SHA = c68946cbe917a71349a8234a4bc028fbf4c6967d
+BRANCH = feat/idea3-windows-standalone-pr8
+ARCHITECTURE = LAUNCHER_EXE_PLUS_BUNDLED_COMPONENTS_ONEDIR
+STATUS = LINUX_IMPLEMENTATION_COMPLETE / WINDOWS_ACCEPTANCE_BLOCKED
+WINDOWS_BUILD_EVIDENCE = NOT_RUN
+WINDOWS_SMOKE_EVIDENCE = NOT_RUN
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+> Superseded by the PR8 implementation section below. Implementation plan Tasks
+> 1-10 and 12 are complete on Linux; Task 11 Windows build and clean-machine
+> smoke acceptance is BLOCKED pending a real Windows x64 machine.
+
+- The approved package separates an immutable application payload from external
+  writable configuration, databases, logs, and runtime state under
+  `%LOCALAPPDATA%\AEGIS\IDEA3` by default.
+- A PyInstaller one-folder launcher will supervise packaged Python Core and a
+  pinned Node runtime, while Express serves the prebuilt React application at
+  `/security/` on loopback only.
+- Linux-only detector, UFW, voice, audio, and Tk operator surfaces are not
+  represented as working Windows components. Missing IDEA1/IDEA2 feeds remain
+  `NOT_CONFIGURED` or `UNAVAILABLE`; absent device, relay, and physical evidence
+  remain `UNKNOWN`.
+- Design:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-08-idea3-pr8-windows-standalone-design.md`.
+- Implementation plan:
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-08-idea3-pr8-windows-standalone.md`.
+
+### CORRECT PROJECT-SEQUENCE ROADMAP
+
+```text
+PROJECT PR6 Production Reliability = CLOSED / MERGED
+PROJECT PR7 Cross-IDEA Integration Boundary = CLOSED / MERGED
+PROJECT PR8 Windows EXE / Standalone Runtime = LINUX IMPLEMENTATION COMPLETE / WINDOWS ACCEPTANCE BLOCKED
+PROJECT PR9 Production Runtime / Deployment Preparation = OPEN
+PROJECT PR10 Final Hardware Closure = OPEN / WAITING FOR PHYSICAL COMPONENTS
+PROJECT PR11 Kali Cross-IDEA Security E2E = OPEN
+PROJECT PR12 Final System Acceptance = OPEN
+
+IDEA1_SERVICE_EVENT_FEED = OPEN
+IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+LIVE_CROSS_IDEA_EXERCISE = OPEN
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+No PR8 application behavior, package, Windows build, deployment, network,
+firmware, MQTT publication, relay action, or physical test is claimed at this
+checkpoint.
+
+---
+
+## PR8 Windows standalone implementation — 2026-09-09
+
+### IMPLEMENTED AND TESTED (Linux source side only)
+
+- External runtime path contract in `aegis_soc/paths.py`: writable configuration,
+  databases, logs, and runtime state resolve outside the installed payload, under
+  `%LOCALAPPDATA%\AEGIS\IDEA3` by default with an absolute-path `AEGIS_DATA_DIR`
+  override and an `AEGIS_CONFIG_FILE` override for the config file alone.
+- Cross-platform single-instance locking in `aegis_soc/platform_lock.py`: IDEA3
+  imports on Windows without `fcntl` while Linux locking semantics are preserved.
+- Honest Windows capability projection in `aegis_soc/runtime.py`: dry-run, absent
+  hardware, and Linux-only capabilities are never promoted to `HEALTHY`;
+  `UNKNOWN` / `UNAVAILABLE` / `DEGRADED` stay as reported.
+- Production Web runtime in `web/server/runtime.js` and `web/server/createApp.js`:
+  `/security` base path, safe health route, hashed-asset caching, SPA/API
+  separation, and idempotent HTTP/SQLite shutdown.
+- Launcher control and lifecycle in `aegis_soc/windows_launcher.py`: loopback-only
+  control API, token-protected stop, Core-then-Web start order, Web-first
+  shutdown, and cleanup on partial startup failure.
+- Secure configuration provisioning: `write_configuration()` writes the external
+  `.env` atomically. The operator password only ever reaches the bcrypt hasher
+  (`web/server/passwordHash.js`, stdin-only, cost 12); the session secret is
+  generated locally; integration and MQTT values are written blank so an
+  unconfigured install fails closed instead of inheriting a bundled credential.
+- Evaluator commands `configure`, `status`, `open`, `logs`, `doctor`: `status`
+  returns non-zero for any state other than `RUNNING`, `open` reaches a browser
+  only after Web health succeeds, and `doctor` validates locally without
+  contacting or actuating the broker, device, or relay and without echoing any
+  configuration value.
+- Deterministic packaging inputs in `windows/`: PyInstaller 6.22.2 and Node
+  24.20.0 x64 pinned with SHA-256, a one-folder spec, a fail-fast `build.ps1`
+  that refuses a dirty tree or a hash mismatch and scans the payload for secret
+  and forbidden artifacts, and `smoke.ps1` clean-machine acceptance.
+
+### VERIFIED TEST EVIDENCE — 2026-09-09 (Arch Linux)
+
+- Python `pytest tests -q` — **145 passed**.
+- `ruff check aegis_soc tests windows detector.py sim_auto_detector.py` — **All checks passed**.
+- Python `compileall` — **PASS**.
+- Web `vitest run` — **292 passed across 24 files**.
+- Web production build — **PASS**.
+- `npm audit --omit=dev --offline` — **0 vulnerabilities**.
+- Repository `node --test tests/*.test.mjs` — **56 passed, 0 failed**.
+- Vault validation — **PASS** with the two pre-existing owner-data canvas
+  warnings; neither canvas changed.
+- `git diff --check` — **PASS**.
+- No forbidden or generated path is introduced by this branch; the only
+  non-`IDEA3-AEGIS_Lockdown/` path changed is this canonical note.
+
+### WINDOWS ACCEPTANCE — STAGING BUNDLE PASSED AT `c7cdc2b2`; CURRENT SHA NOT VERIFIED
+
+```text
+WINDOWS_BUILD_VERIFIED_AT_c7cdc2b2 = YES
+WINDOWS_STAGING_BUNDLE_SMOKE_AT_c7cdc2b2 = PASS (25 checks, 0 failed)
+WINDOWS_EXTRACTED_ZIP_SMOKE_AT_c7cdc2b2 = NO
+WINDOWS_BUILD_VERIFIED_FOR_CURRENT_SHA = NO
+WINDOWS_SMOKE_VERIFIED_FOR_CURRENT_SHA = NO
+PR8_IMPLEMENTATION_PLAN_TASK_11 = ACCEPTANCE PENDING
+BLOCKER = the post-main-sync SHA requires a fresh Windows build and extracted-ZIP smoke
+```
+
+- Real Windows build at `c7cdc2b2e70e4224a756b53f3e87363b55c9ea58`:
+  Python **202 passed**, Web **298 passed across 24 files**, Vite build PASS,
+  PyInstaller PASS, production npm install PASS, forbidden-artifact and manifest
+  checks PASS, ZIP PASS, and final BUILD OK. Artifact
+  `AEGIS-IDEA3-c7cdc2b2e70e.zip`, SHA-256
+  `faaeaea5259647dea0292d6cc6db286fea540162c41c8a8d63a8eaa774a93694`.
+- Real Windows smoke at that SHA passed **25 checks with 0 failed** against the
+  freshly built staging bundle at `windows/out/AEGIS-IDEA3`: configuration,
+  Core/Web RUNNING status, Admin login, `Secure; HttpOnly; SameSite=Strict`
+  cookie validation, audit read, honest absent-integration/hardware states,
+  logout, stop/restart, audit persistence, external durable DB, no surviving
+  bundle children, and clean completion.
+- This is not extracted-ZIP acceptance. The attempted extraction wrapper had an
+  interactive PowerShell `if/elseif` parsing mistake, so `BundlePath` remained
+  `windows/out/AEGIS-IDEA3` instead of the extracted ZIP directory.
+- Core root cause: generated blank `AEGIS_BROKER_PORT` was parsed with
+  `int("")`; its Thai import-time fallback diagnostic then raised
+  `UnicodeEncodeError` under `cp1252`. The fix treats blank broker settings as
+  explicitly unconfigured, uses a safe default port without import-time output,
+  disables MQTT connection startup when unconfigured, fails live mode closed,
+  and restores the approved default lab/headless/dry-run launcher profile.
+- Smoke root cause: acceptance called unprefixed `/api/...` URLs even though
+  production mounts `/security/api/...`; `/security/healthz` also hit the SPA
+  fallback rather than the JSON health route. All acceptance URLs now derive
+  from one `/security/api` base.
+- Secure-cookie audit: `express-session` suppresses a production Secure cookie
+  on ordinary HTTP. IDEA3 now recognizes only a proven loopback request as the
+  browser-trusted localhost context while retaining `Secure`, `HttpOnly`, and
+  `SameSite=Strict`. Smoke validates those attributes, carries the opaque cookie
+  explicitly because PowerShell does not implement the browser localhost
+  exception, and supplies the required CSRF token on logout.
+- `origin/main` advanced to `d32885b36c08c71dc5719109de12ed8ac8f6589e`
+  during Windows acceptance and was merged normally with no conflicts. The
+  resulting implementation/evidence checkpoint is
+  `8214792022a4d29672227f6637e8399a7f1e189c`.
+- Fresh Arch verification at that reconciled checkpoint: focused Python **161
+  passed, 6 skipped**; focused Web **58 passed**; full Python **196 passed, 6
+  Windows-only skipped**; Web **298 passed across 24 files**; Vite build PASS
+  with 1,677 modules; Ruff PASS; compileall PASS with cache redirected to
+  `/tmp`; production npm audit **0 vulnerabilities**; repository tests **57
+  passed**; vault validation PASS with the two unchanged owner-data canvas
+  warnings.
+
+The `c7cdc2b2` build and staging-bundle smoke are historical evidence for that
+exact SHA only. They do not verify the post-merge SHA and do not substitute for
+fresh extracted-ZIP smoke acceptance.
+
+### STILL OPEN
+
+```text
+PROJECT PR8 = ACCEPTANCE PENDING / WINDOWS RE-ACCEPTANCE REQUIRED
+IDEA1_SERVICE_EVENT_FEED = OPEN
+IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+LIVE_CROSS_IDEA_EXERCISE = OPEN
+CROSS_IDEA_EVENT_NORMALIZATION = IMPLEMENTED_UNEXERCISED
+CROSS_IDEA_INCIDENT_CORRELATION = IMPLEMENTED_UNEXERCISED
+CROSS_IDEA_CONTAINMENT_ACCEPTANCE = IMPLEMENTED_UNEXERCISED
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+No MQTT connection or publication, ACK, relay CUT/RESTORE, firmware compile or
+flash, network change, production database access, deployment, or physical
+evidence occurred during PR8.
+
+---
+
+## Current Task
+
+Task: IDEA3 PR8 Windows standalone runtime
+Branch: `feat/idea3-windows-standalone-pr8`
+Owner: `music`
+PR: #107 (Draft)
+Current state: ACCEPTANCE PENDING
+Started: 2026-09-08
+Last checkpoint: `8214792022a4d29672227f6637e8399a7f1e189c`
+Production mutation allowed: NO
+
+### Goal
+
+Deliver and verify the deterministic IDEA3 Windows x64 one-folder runtime.
+
+### Scope
+
+IDEA3 launcher, packaging, external data, Web runtime, source verification, and
+Windows build/smoke acceptance.
+
+### Out of scope
+
+Production deployment, MQTT publication, firmware/relay changes, network
+changes, live IDEA1/IDEA2 feeds, and physical acceptance.
+
+### Safety boundaries
+
+Keep PR #107 Draft and unmerged; do not rebase or force-push; preserve the
+immutable receipt; use a fresh external DataPath; do not enable hardware or MQTT.
+
+### Acceptance criteria
+
+Fresh Windows build from the final SHA must report BUILD OK. The resulting ZIP
+must be freshly extracted and pass `windows/smoke.ps1` with a fresh DataPath;
+browser-localhost behavior must be confirmed if still required.
+
+## Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S13 | Final main sync and source re-verification | CLOSED | Focused 161/6 + 58; full 196/6 + 298; Vite/Ruff/compile/audit; repo 57; vault PASS | `8214792022a4d29672227f6637e8399a7f1e189c` | PASS | Windows final-SHA build and extracted-ZIP smoke | Return final SHA to Windows |
+
+## Handoff
+
+### Current branch
+
+`feat/idea3-windows-standalone-pr8`
+
+### Current HEAD
+
+Implementation/evidence checkpoint:
+`8214792022a4d29672227f6637e8399a7f1e189c`. The later documentation checkpoint
+is recorded in PR #107 and the session report after Git assigns it.
+
+### Current task state
+
+ACCEPTANCE PENDING. Local source and governance gates pass; final-SHA Windows
+acceptance is not yet run.
+
+### Sessions closed
+
+S13 final main sync and source re-verification.
+
+### Session currently open
+
+None locally. The next environment-bound session is Windows re-acceptance.
+
+### Verified evidence
+
+`c7cdc2b2` Windows build and staging-bundle smoke PASS with the extraction
+qualification above; `82147920` Arch source/governance verification PASS.
+
+### Known issues
+
+No extracted-ZIP smoke exists, and no Windows evidence exists for the post-merge
+SHA.
+
+### Exact remaining work
+
+Build the final SHA on Windows, require BUILD OK, freshly extract its ZIP, use a
+fresh DataPath, run the smoke suite against that extracted directory, and report
+all acceptance results.
+
+### Next command / next action
+
+On Windows x64, pull the final PR head and run `windows/build.ps1`.
+
+### Do not do
+
+Do not merge PR #107, reuse the `c7cdc2b2` artifact as final-SHA evidence,
+rebase, force-push, create another receipt, enable MQTT/hardware, or mutate
+Production.
+
+---
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

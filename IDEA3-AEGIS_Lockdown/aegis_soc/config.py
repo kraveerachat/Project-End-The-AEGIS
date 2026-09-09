@@ -4,6 +4,9 @@ AEGIS IDEA 3 — Configuration
 """
 import hashlib
 import os
+import sys
+
+from .paths import RuntimePaths, configuration_path, load_dotenv
 
 
 def _env_bool(name, default=False):
@@ -19,34 +22,36 @@ def _env_bool(name, default=False):
     raise ValueError(f"{name} must be one of: 1/0, true/false, yes/no, on/off")
 
 
-def _load_dotenv(path=".env"):
-    """โหลดค่าจากไฟล์ .env เข้า environment ก่อนอ่านค่าทั้งหมด"""
-    if not os.path.exists(path):
-        return
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception as e:
-        print(f"[.env] อ่านไฟล์ไม่สำเร็จ: {e}")
+load_dotenv(configuration_path())
 
-
-_load_dotenv()      # ← บรรทัดนี้สำคัญสุด: เรียกใช้ก่อนอ่านค่า
+_RUNTIME_PATHS = (
+    RuntimePaths.from_environment()
+    if os.getenv("AEGIS_DATA_DIR", "").strip() or sys.platform == "win32"
+    else None
+)
 
 # ---- MQTT Broker ----
-BROKER_IP = os.getenv("AEGIS_BROKER_IP", "192.168.2.174")
-try:
-    PORT = int(os.getenv("AEGIS_BROKER_PORT", "1883"))
-except ValueError:
-    PORT = 1883
-    print("[config] AEGIS_BROKER_PORT ไม่ใช่ตัวเลข — ใช้ค่า default 1883")
+_DEFAULT_BROKER_IP = "192.168.2.174"
+_DEFAULT_BROKER_PORT = 1883
+_broker_ip = os.getenv("AEGIS_BROKER_IP")
+BROKER_IP = _DEFAULT_BROKER_IP if _broker_ip is None else _broker_ip.strip()
+BROKER_CONFIGURED = bool(BROKER_IP)
+
+
+def _broker_port(value: str | None) -> tuple[int, str | None]:
+    """Parse an optional broker port without emitting import-time console text."""
+    candidate = "" if value is None else value.strip()
+    if not candidate:
+        return _DEFAULT_BROKER_PORT, None
+    try:
+        return int(candidate), None
+    except ValueError:
+        return _DEFAULT_BROKER_PORT, (
+            "AEGIS_BROKER_PORT is not an integer; using default port 1883"
+        )
+
+
+PORT, _BROKER_PORT_WARNING = _broker_port(os.getenv("AEGIS_BROKER_PORT"))
 
 # ---- Secrets (ตั้งผ่าน environment variable) ----
 # ต้องตรงกับ HMAC_SECRET ใน src/main.cpp ของ ESP32 เสมอ
@@ -77,8 +82,14 @@ PHYSICAL_CONFIRM_TIMEOUT_SEC = 8  # ACK แล้วรอสถานะทา�
 DEVICE_OFFLINE_SEC = 45           # ไม่ได้รับข้อความจาก ESP32 นานเกินนี้ = ถือว่าออฟไลน์
 
 # ---- Files ----
-DB_PATH = os.getenv("AEGIS_DB_PATH", "aegis_audit.db")
-LOG_PATH = os.getenv("AEGIS_LOG_PATH", "aegis_soc.log")
+DB_PATH = os.getenv(
+    "AEGIS_DB_PATH",
+    str(_RUNTIME_PATHS.core_db) if _RUNTIME_PATHS else "aegis_audit.db",
+)
+LOG_PATH = os.getenv(
+    "AEGIS_LOG_PATH",
+    str(_RUNTIME_PATHS.log_dir / "aegis_soc.log") if _RUNTIME_PATHS else "aegis_soc.log",
+)
 SOUND_LOCKDOWN = os.getenv("AEGIS_SOUND_LOCKDOWN", "detect.wav")       # เสียงตอนตัด
 SOUND_RESTORE = os.getenv("AEGIS_SOUND_RESTORE", "connect.wav")        # เสียงตอนคืน
 MQTT_USER = os.getenv("AEGIS_MQTT_USER", "")
@@ -109,13 +120,19 @@ def validate_config():
     if DRY_RUN:
         warnings.append("AEGIS_DRY_RUN เปิดอยู่ — คำสั่ง relay จะถูกบันทึกเป็น WOULD_SEND และไม่ publish")
 
+    if _BROKER_PORT_WARNING:
+        warnings.append(_BROKER_PORT_WARNING)
+    if not BROKER_CONFIGURED:
+        warnings.append("MQTT broker is not configured; MQTT actuation is unavailable")
+
     # ตรวจรูปแบบ broker IP
     import ipaddress
-    try:
-        ipaddress.ip_address(BROKER_IP)
-    except ValueError:
-        if BROKER_IP not in ("localhost",):
-            warnings.append(f"AEGIS_BROKER_IP '{BROKER_IP}' ไม่ใช่ IP ที่ถูกต้อง")
+    if BROKER_CONFIGURED:
+        try:
+            ipaddress.ip_address(BROKER_IP)
+        except ValueError:
+            if BROKER_IP not in ("localhost",):
+                warnings.append(f"AEGIS_BROKER_IP '{BROKER_IP}' ไม่ใช่ IP ที่ถูกต้อง")
 
     # ตรวจ port อยู่ในช่วงที่ใช้ได้
     if not (1 <= PORT <= 65535):

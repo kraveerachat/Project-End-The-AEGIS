@@ -128,6 +128,9 @@ class MQTTManager:
 
     # ---------- lifecycle ----------
     def start(self):
+        if not config.BROKER_CONFIGURED:
+            self._log("MQTT broker is not configured; connection disabled", db.WARN)
+            return
         try:
             # ตั้ง user/password ถ้ามี (ต้องทำก่อน connect)
             if config.MQTT_USER:

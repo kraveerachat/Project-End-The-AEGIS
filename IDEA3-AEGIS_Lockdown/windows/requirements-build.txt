@@ -1,0 +1,3 @@
+# Exact build toolchain for the Windows standalone bundle.
+# Pinned deliberately: a range would make the artifact non-deterministic.
+pyinstaller==6.22.2

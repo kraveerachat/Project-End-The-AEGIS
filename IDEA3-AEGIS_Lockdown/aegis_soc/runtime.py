@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import config
+from .paths import RuntimePaths
 
 
 class RuntimeState(StrEnum):
@@ -25,6 +26,17 @@ class RuntimeState(StrEnum):
     LOCKDOWN = "LOCKDOWN"
     FAILED = "FAILED"
     SHUTDOWN = "SHUTDOWN"
+
+
+def platform_capabilities(platform: str | None = None) -> dict[str, bool]:
+    """Return only runtime components that this source implements on a platform."""
+    platform_name = sys.platform if platform is None else platform
+    windows = platform_name == "win32"
+    return {
+        "detector": not windows,
+        "operator_gui": not windows,
+        "voice": False,
+    }
 
 
 @dataclass(frozen=True)
@@ -58,6 +70,11 @@ class RuntimeSettings:
             raise ValueError(f"unsupported profile: {profile}")
 
         root = Path(__file__).resolve().parent.parent
+        external_paths = (
+            RuntimePaths.from_environment()
+            if os.getenv("AEGIS_DATA_DIR", "").strip() or sys.platform == "win32"
+            else None
+        )
         defaults = {
             "development": (True, False, False),
             "lab": (True, True, True),
@@ -86,8 +103,14 @@ class RuntimeSettings:
             device_wait_sec=float(os.getenv("AEGIS_DEVICE_WAIT_SEC", str(config.DEVICE_OFFLINE_SEC))),
             max_restarts=int(os.getenv("AEGIS_MAX_RESTARTS", "5")),
             restart_window_sec=float(os.getenv("AEGIS_RESTART_WINDOW_SEC", "300")),
-            runtime_dir=Path(os.getenv("AEGIS_RUNTIME_DIR", root / ".aegis-runtime")).resolve(),
-            log_dir=Path(os.getenv("AEGIS_RUNTIME_LOG_DIR", root / "logs")).resolve(),
+            runtime_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_DIR",
+                external_paths.runtime_dir if external_paths else root / ".aegis-runtime",
+            )).resolve(),
+            log_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_LOG_DIR",
+                external_paths.log_dir if external_paths else root / "logs",
+            )).resolve(),
         )
 
     @property
@@ -102,9 +125,10 @@ class RuntimeSettings:
     def lock_path(self) -> Path:
         return self.runtime_dir / "supervisor.lock"
 
-    def preflight(self) -> tuple[list[str], list[str]]:
+    def preflight(self, *, platform: str | None = None) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         warnings: list[str] = []
+        capabilities = platform_capabilities(platform)
 
         minimum_python = (3, 10)
         if sys.version_info[:2] < minimum_python:
@@ -115,19 +139,31 @@ class RuntimeSettings:
             errors.append("broker/device wait values cannot be negative")
         if self.max_restarts < 0 or self.restart_window_sec <= 0:
             errors.append("restart limits must be non-negative with a positive window")
-        if not (1 <= config.PORT <= 65535):
-            errors.append("MQTT broker port is outside 1-65535")
-        try:
-            ipaddress.ip_address(config.BROKER_IP)
-        except ValueError:
-            if config.BROKER_IP != "localhost":
-                errors.append("MQTT broker address must be an IP address or localhost")
+        if not config.BROKER_CONFIGURED:
+            if self.dry_run:
+                warnings.append("MQTT broker is not configured; dry-run remains monitor-only")
+            else:
+                errors.append("live mode requires a configured MQTT broker")
+        else:
+            if not (1 <= config.PORT <= 65535):
+                errors.append("MQTT broker port is outside 1-65535")
+            try:
+                ipaddress.ip_address(config.BROKER_IP)
+            except ValueError:
+                if config.BROKER_IP != "localhost":
+                    errors.append("MQTT broker address must be an IP address or localhost")
         if self.voice_enabled:
             errors.append("voice was requested but no voice runtime entry point exists")
-        if self.start_gui and not os.getenv("DISPLAY"):
-            errors.append("GUI was requested but DISPLAY is not set")
-        if self.start_detector and not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
-            errors.append("detector.py is unavailable")
+        if self.start_gui:
+            if not capabilities["operator_gui"]:
+                errors.append("Tk operator GUI is not packaged on Windows")
+            elif not os.getenv("DISPLAY"):
+                errors.append("GUI was requested but DISPLAY is not set")
+        if self.start_detector:
+            if not capabilities["detector"]:
+                errors.append("detector is unavailable on Windows")
+            elif not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
+                errors.append("detector.py is unavailable")
 
         if self.profile == "production":
             if not config.SECRET_KEY or config.SECRET_KEY == config.DEMO_SECRET:
@@ -273,6 +309,17 @@ def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
 
     state = document.get("state")
     status_value = _CANONICAL_STATUS_BY_STATE.get(state, "UNKNOWN") if isinstance(state, str) else "UNKNOWN"
+    if status_value == "HEALTHY":
+        if bool(document.get("dry_run", True)):
+            status_value = "UNKNOWN"
+        elif (
+            components["broker"] == "DISCONNECTED"
+            or components["device"] == "OFFLINE"
+            or any(components.get(name) == "FAILED" for name in _ALLOWED_COMPONENTS)
+        ):
+            status_value = "DEGRADED"
+        elif any(components[name] == "UNKNOWN" for name in ("broker", "device", "uplink")):
+            status_value = "UNKNOWN"
 
     issues = set()
     if components["broker"] != "CONNECTED":
