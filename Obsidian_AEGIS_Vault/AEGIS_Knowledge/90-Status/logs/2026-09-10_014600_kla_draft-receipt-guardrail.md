@@ -4,7 +4,7 @@ date: 2026-09-10T01:46:00+07:00
 owner: kla
 area: shared
 branch: fix/shared-draft-receipt-guardrail
-status: partial
+status: complete
 edit_policy: append-by-new-file
 ---
 
@@ -24,8 +24,9 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `node --test tests/collaborationPolicy.test.mjs` — fail: not executed in this connector environment; GitHub CI verification is pending on the Draft PR.
-- PR #111 collaboration failure was inspected directly: its only policy errors were zero new receipts plus receipt-only cross-scope declarations, despite the PR remaining Draft and explicitly deferring its final task receipt.
+- `node --test tests/collaborationPolicy.test.mjs` — pass via GitHub `Collaboration guardrails` run #318; workflow conclusion `success`.
+- PR #112 collaboration guardrail — pass; the updated validator accepted the shared governance task with exactly one receipt.
+- PR #111 collaboration failure was inspected directly before the fix: its only policy errors were zero new receipts plus receipt-only cross-scope declarations, despite the PR remaining Draft and explicitly deferring its final task receipt.
 
 ## Canonical notes updated
 
@@ -44,5 +45,5 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- GitHub CI has not yet verified this correction at the time of this initial receipt checkpoint.
+- GitHub CI run #318 verified this correction successfully before final review.
 - This task does not modify PR #111, Production, Public Share source, deployment state, G5, or G6.
