@@ -19,6 +19,7 @@ if (!event.pull_request?.body || !event.pull_request?.head?.ref) {
 
 const body = event.pull_request.body;
 const branch = event.pull_request.head.ref;
+const isDraft = event.pull_request.draft === true;
 const policyMatch = body.match(/<!--\s*collaboration-policy\s*([\s\S]*?)-->/i);
 const errors = [];
 let area = '';
@@ -108,9 +109,11 @@ if (nonAppendReceiptChanges.length > 0) {
   );
 }
 
-if (newReceipts.length !== 1) {
-  errors.push(`Every task must add exactly one new Obsidian task receipt; found ${newReceipts.length}.`);
-} else {
+if (newReceipts.length > 1) {
+  errors.push(`A task Pull Request may add at most one final Obsidian task receipt; found ${newReceipts.length}.`);
+} else if (newReceipts.length === 0 && !isDraft) {
+  errors.push('A final Obsidian task receipt is required before Ready/non-Draft review; found 0.');
+} else if (newReceipts.length === 1) {
   const receiptPath = newReceipts[0].path;
   const receiptOwner = receiptPath.match(receiptPattern)?.[2];
   if (owner && receiptOwner !== owner) {
@@ -235,11 +238,13 @@ for (const path of crossScopePaths) {
   if (!sharedSurfaces.includes(path)) {
     errors.push(`Shared surfaces touched must name ${path}.`);
   }
-  if (!receiptSharedSurfaces.includes(path)) {
+  if (newReceipts.length === 1 && !receiptSharedSurfaces.includes(path)) {
     errors.push(`Receipt Shared surfaces touched must name ${path}.`);
   }
 }
 if (
+  newReceipts.length === 1
+  &&
   crossScopePaths.length > 0
   && (!receiptIntegrationRequests || /^-?\s*none\b/i.test(receiptIntegrationRequests))
 ) {

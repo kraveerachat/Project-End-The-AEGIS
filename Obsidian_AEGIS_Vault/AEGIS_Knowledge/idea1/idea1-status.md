@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-08
+updated: 2026-09-10
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -104,6 +104,153 @@ edit_policy: owner-writable
 > **Current page acceptance headline**: Dashboard, Files, Private Vault tested scope, Secure Shares private/internal scope, File History, Trash, Storage & Backup accepted manual/removable-media scope, Audit Log and Access Control are **PASS / CLOSED**. Private Vault includes the accepted direct-VLAN30 high-bitrate preview scope for `START_LIVE.mp4` (~1.1 GB): first frame ~8 s, >60 s continuous playback without observed buffering, and successful seek/resume. Storage & Backup is now **PASS / CLOSED for the accepted manual/removable-media scope** after Production `DIFFERENT_DEVICE`, two successful manual backups, repository integrity checks, two successful isolated restore verifications, healthy final UI regression, and matching Backup audit events. Settings remains **PARTIAL** only because the latest exhaustive profile/avatar sweep is still optional/not re-tested; **Security & Privacy is PASS / CLOSED**, including SECURITY-2. Real RAID1 remains **DEFERRED / FUTURE HARDWARE**, and automatic scheduled execution (`STORAGE-AUTO-2`) remains **NOT TESTED / optional for the borrowed-HGST acceptance scope**.
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
+
+## Current Task — PUBLIC-SHARE-7 External Deployment & Acceptance
+
+| Field | Current value |
+| :--- | :--- |
+| Task | `PUBLIC-SHARE-7 External Deployment & Acceptance` |
+| Branch | `feat/idea1-public-share-external-deployment` |
+| Owner | `kla` |
+| Pull Request | `#111` — **OPEN / DRAFT** |
+| Current state | **IN PROGRESS** |
+| Started | 2026-09-09 |
+| Starting SHA | `d32885b36c08c71dc5719109de12ed8ac8f6589e` |
+| Last checkpoint | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee` — governance compatibility repair and verified S5.1 implementation/evidence checkpoint |
+| Production mutation allowed | **NO for S5.1** |
+
+### Goal
+
+Deploy and externally accept the already delivered Public Share capability in
+small, owner-gated Production sessions, preserving the private AEGIS surfaces
+and keeping Public Internet Share unavailable until every required gate passes.
+
+### G4 decision — APPROVED on 2026-09-09
+
+The owner selected **§13 Option B / Managed Tunnel**:
+
+```text
+External Internet recipient
+→ Cloudflare Edge HTTPS
+→ named Cloudflare Tunnel
+→ isolated outbound-only cloudflared connector
+→ dedicated Public Share Gateway
+→ dedicated Gateway→Drive network
+→ AEGIS Drive
+```
+
+The decision explicitly accepts the documented residual trade-offs: under
+**T-14**, Cloudflare/provider infrastructure may observe or log a public share
+URL whose path contains the bearer token; under **T-27**, recipient attribution
+depends on provider-asserted `CF-Connecting-IP`, accepted only through the
+pre-exposure-tested pinned-connector adapter. Option B was chosen because the
+measured site is behind upstream NAT/CGNAT, inbound forwarding is not practical,
+and the existing perimeter posture has no inbound Internet listener.
+
+G4 approval selects the architecture only. It does **not** approve exposure and
+does not prove a tunnel, DNS, TLS, connector isolation, or public recipient flow.
+**G5 remains OPEN. G6 remains OPEN. Public Internet Share remains NOT
+IMPLEMENTED.**
+
+### Scope
+
+- S5.1 records G4, freezes the owner-supplied Production baseline, and creates
+  the exact deployment/rollback plan.
+- Later sessions may prepare Drive/database capability, deploy the dedicated
+  gateway and connector, expose a public hostname only after G5, run external
+  security/resilience/rollback acceptance, and enable the UI only after G6.
+- The session sequence is defined in
+  `docs/superpowers/plans/2026-09-09-idea1-public-share-external-deployment.md`.
+
+### Out of scope for S5.1
+
+- Any Beelink or Production access or mutation.
+- Installing or running `cloudflared`; applying migration 009.
+- DNS, Cloudflare, UFW, MikroTik, Twingate, Docker Production, Production
+  `.env`, database, network, container, or feature-flag changes.
+- G5, G6, Internet exposure, external acceptance, and UI activation.
+
+### Safety boundaries
+
+- `PRODUCTION MUTATION ALLOWED = NO` for S5.1.
+- Never expose credentials, tunnel tokens, `.env` contents, private keys, raw
+  share tokens, or bearer URLs in Git, chat, commands, screenshots, or logs.
+- Never use blind `git pull` followed by whole-stack
+  `docker compose up --build -d` on Production.
+- Preserve the current Drive, Monitor, HUB, PostgreSQL and Twingate runtime
+  identities unless a later separately approved step explicitly changes Drive.
+- Preserve `aegis_drive_storage` and `aegis_postgres_data`; never use destructive
+  volume/database cleanup as deployment or rollback.
+- Keep `PUBLIC_SHARE_UI_ENABLED=false` until G6.
+
+### Acceptance criteria
+
+- G4 is recorded as Managed Tunnel with T-14/T-27 acknowledged.
+- Current Production evidence is labelled owner-supplied and frozen without
+  re-reading or mutating the host.
+- Deployment and reverse-order rollback are executable, fail-closed, and place
+  G5 immediately before actual Internet exposure.
+- Missing domain/Cloudflare-zone ownership and unresolved real-connector
+  isolation remain explicit hard dependencies.
+- G5/G6 remain OPEN and every public-runtime acceptance item remains NOT RUN.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| S5.1 | Production freeze + deployment/rollback plan; documentation only | **PASS — publication stop point** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee` | **PASS** | S5.2–S5.12; one final receipt remains deferred to S5.12 | stop here; S5.2 remains NOT STARTED and requires separate explicit authority |
+| S5.2 | G5 readiness review: domain/zone proof, connector isolation design and exact mutation scope | NOT STARTED | — | — | — | owner G5 decision | begin only after S5.1 review |
+| S5.3 | Production Drive/database preparation and migration 009 | NOT STARTED | — | — | — | controlled Production mutation | requires separate explicit approval |
+| S5.4 | Dedicated Public Share networks + gateway deployment | NOT STARTED | — | — | — | isolated gateway runtime | after S5.3 |
+| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | NOT STARTED | — | — | — | connector isolation proof and G5 | after S5.4 |
+| G5 | Owner authorises actual Internet exposure | **OPEN** | — | — | — | public hostname activation | only after S5.5 evidence |
+| S5.6 | Public hostname, DNS and TLS activation | NOT STARTED | — | — | — | external security acceptance | requires G5 |
+| S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
+| S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
+| S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
+| S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
+| G6 | Owner accepts completion and authorises UI activation | **OPEN** | — | — | — | UI activation | only after S5.10 evidence |
+| S5.11 | Enable Public Share UI last | NOT STARTED | — | — | — | final E2E | requires G6 |
+| S5.12 | Final E2E, canonical closeout and one immutable task receipt | NOT STARTED | — | — | — | task closure | after S5.11 |
+
+### Owner-supplied measured Production baseline — frozen for planning
+
+No value below was reproduced from Windows in S5.1.
+
+| Boundary | Owner-supplied evidence |
+| :--- | :--- |
+| GitHub source | `origin/main = d32885b36c08c71dc5719109de12ed8ac8f6589e` |
+| Production checkout | `/opt/aegis/Project-End-The-AEGIS`, branch `main`, clean, HEAD `2806373bb300728a0babb953a63f98bcd714ffef`, intentionally stale |
+| Runtime Compose | `/opt/aegis/runtime/docker-compose.production.yml`; SHA-256 `5aae5cd7ded537f9124d2af8733d076f177871e0d3757208bf0c4a61fc635193` |
+| Production `.env` | metadata only: `root:root`, mode `0600`; contents not read or copied |
+| Drive | healthy; image `sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1`; OCI revision `913758a3111fb74e31eb55b7982a84d127cae8f5` |
+| Monitor | healthy; image ID `sha256:9a3c20428308ab685a2037b72953adaa9621f327e88a9c6ea600f1bebbb4a4d9`; active overlay `/opt/aegis/runtime/monitor-single-camera-ui-20260906-204814/compose.active.yml` |
+| HUB | healthy; image ID `sha256:8c365f8c8ae82b61d9e9048cb05afccb2e580b03b73a849edc8d830f99d560fc`; reliable OCI revision not proven |
+| PostgreSQL / Twingate | `aegis-prod-postgres-1` and `twingate-aegis-connector-02` healthy |
+| Protected volumes | `aegis_drive_storage` and `aegis_postgres_data` present |
+| Database | `shares_scope_check` permits only `any`, `zones`, `vlan`, `subnet`; migration 009 **NOT APPLIED** |
+| Public gateway / connector | no Production gateway/network; `cloudflared` not installed; service inactive |
+| Perimeter | UFW active, incoming/routed deny, outgoing allow; no Public Share ingress |
+| Public names | `aegistk-pb.com` and `share.aegistk-pb.com` = NXDOMAIN through Cloudflare and Google DoH; ownership/zone not verified |
+| Runtime provenance | **PARTIALLY KNOWN**; whole-stack rebuild is prohibited |
+
+### Done / Remaining / Next
+
+**Done in S5.1:** G4 formally recorded; the measured baseline frozen; the
+deployment, rollback, mutation, G5 and dependency boundaries planned. PR #111
+remains Draft. The repository-wide guardrail now permits zero final receipts
+while a Draft multi-session task remains in progress, still enforces all PR-level
+cross-scope declarations, and requires exactly one valid final receipt before
+Ready/non-Draft review. No task receipt was created and no Production action was
+taken.
+
+**Remaining:** every S5.2–S5.12 runtime, exposure, external-acceptance, rollback,
+G6 and UI-activation step. A usable owner-controlled domain/Cloudflare zone and
+an approved real-connector isolation design are current hard blockers.
+
+**Next:** stop after the S5.1 Draft PR publication checkpoint. S5.2 remains NOT
+STARTED and requires separate explicit authority. Do not begin any Production
+mutation or request G5 from this checkpoint.
 
 ### Current acceptance reconciliation — 2026-09-06
 
@@ -661,7 +808,7 @@ mutation was caught by which test.
 | S2 | Managed-tunnel adapter implementation, source/structure tests, static negative controls | CLOSED | PASS |
 | S3 | Podman configuration preflight; duplicate-identity defect found and fixed; interim checkpoint `a07687c2` | CLOSED | PASS |
 | S4 | Docker runtime matrix, runtime negative controls, Production safety, `PS7-PRE-11` fix `99457959` | **CLOSED** | **PASS** |
-| S5 | External phase — real tunnel, DNS, TLS, 4G/5G acceptance, rollback, G5/G6 | **NOT STARTED** | — |
+| S5 | External phase — Production deployment, real tunnel/DNS/TLS, 4G/5G acceptance, rollback, G5/G6 | **IN PROGRESS** | New task/branch opened; S5.1 planning in progress; no Production mutation |
 
 #### Task status dashboard
 
@@ -677,7 +824,7 @@ mutation was caught by which test.
 | Twingate-OFF 4G/5G acceptance | **NOT RUN** |
 | Real Internet resilience matrix | **NOT RUN** |
 | Ingress rollback acceptance | **NOT RUN** |
-| G4 gate (ingress choice) | **OPEN — owner's to record** |
+| G4 gate (ingress choice) | **APPROVED — Option B / Managed Tunnel (2026-09-09)** |
 | G5 (exposure) | **OPEN** |
 | G6 (completion) | **OPEN** |
 | Public Internet Share | **NOT IMPLEMENTED** |
@@ -853,14 +1000,16 @@ Three facts this phase established that were not previously recorded:
   defaults are 60 s. The 64 MiB transfer completes only because the shipped
   template sets both to 300 s.
 
-⚠️ This is **internal** integration. No ingress method is chosen, nothing is
-exposed, and a container on an isolated Docker network is not a recipient on
-ordinary Internet access. **G4, G5 and G6 remain open and
-`Public Internet Share = NOT IMPLEMENTED`.** No shipped gateway, backend or UI
-source changed, and no Production database, gateway, network, volume or migration
-was contacted. PUBLIC-SHARE-7 was not started.
+⚠️ **Historical PUBLIC-SHARE-6 boundary:** at this checkpoint no ingress method
+had been chosen, nothing was exposed, and a container on an isolated Docker
+network was not a recipient on ordinary Internet access. G4, G5 and G6 were
+open and `Public Internet Share = NOT IMPLEMENTED`. No shipped gateway, backend
+or UI source changed, and no Production database, gateway, network, volume or
+migration was contacted. PUBLIC-SHARE-7 had not started.
 
-**PUBLIC-SHARE-6 = COMPLETE / PASS. PUBLIC-SHARE-7 = NOT STARTED.**
+**Historical checkpoint: PUBLIC-SHARE-6 = COMPLETE / PASS; PUBLIC-SHARE-7 had
+not started.** Current PUBLIC-SHARE-7 state is recorded in the Current Task
+section above.
 
 **Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED and FAILED
 SAFELY; attempt #4 EXECUTED and PASSED — 16 tests, 16 passed, 0 failed, 0
@@ -876,11 +1025,13 @@ all 50 `aegis-prod` rows unchanged, the Compose env file and temporary workdir
 removed, and no Production PostgreSQL connection, migration-009 read, Public-UI
 read or config mutation at any point.
 
-⚠️ **This is internal isolated acceptance only.** No public Internet ingress
-exists — no published port, DNS record, TLS certificate, NAT rule, tunnel or
-firewall change. A recipient in this harness is a container on an isolated Docker
-network, not someone on ordinary Internet access. **G4, G5 and G6 remain OPEN,
-`Public Internet Share = NOT IMPLEMENTED`, and PUBLIC-SHARE-7 has NOT started.**
+⚠️ **Historical PUBLIC-SHARE-6 evidence only.** No public Internet ingress
+existed — no published port, DNS record, TLS certificate, NAT rule, tunnel or
+firewall change. A recipient in this harness was a container on an isolated
+Docker network, not someone on ordinary Internet access. G4, G5 and G6 were
+OPEN and PUBLIC-SHARE-7 had not started at that checkpoint. Current truth:
+G4 is now APPROVED for Option B; G5/G6 remain OPEN; `Public Internet Share =
+NOT IMPLEMENTED`.
 
 The owner
 approved running the same isolated harness on the server hardware. The earlier
@@ -1051,8 +1202,9 @@ freshness (a constant nonce) and gateway password-log secrecy (`$request_body`
 added to the log format). Every mutation was reverted and the tree verified
 clean.
 
-No accepted invariant failed against current `main`. PUBLIC-SHARE-6/7 were not
-started, and G4, G5 and G6 remain open.
+No accepted invariant failed against current `main`. **At this PUBLIC-SHARE-5
+checkpoint**, PUBLIC-SHARE-6/7 had not started and G4, G5 and G6 were open.
+Current PUBLIC-SHARE-7 and gate state is recorded in the Current Task section.
 
 ### Secure Shares public-scope UI implemented behind a server switch, not activated (2026-09-08)
 
@@ -1111,7 +1263,9 @@ was checked in a real browser at 320, 375, 640 and 1280 px across Classic and
 Neo and EN/TH/ZH: three stacked options, 44 px touch targets, no clipping and no
 horizontal overflow.
 
-PUBLIC-SHARE-5/6/7 were not started. G4, G5 and G6 remain open.
+**Historical PUBLIC-SHARE-4 checkpoint:** PUBLIC-SHARE-5/6/7 had not started,
+and G4, G5 and G6 were open at that checkpoint. Current PUBLIC-SHARE-7 and gate
+state is recorded in the Current Task section above.
 
 ### Dedicated Public Share Gateway source implemented, not deployed (2026-09-08)
 

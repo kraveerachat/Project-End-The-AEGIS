@@ -4,7 +4,7 @@ aliases: ["06 - 🤖 Agent Operating Rules"]
 tags: [aegis, agent, workflow, rules, automation, ai]
 type: module
 created: 2026-08-06
-updated: 2026-09-09
+updated: 2026-09-10
 sources: ["AGENTS.md", "[[core/development-session-workflow]]", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"]
 owner: kla
 edit_policy: owner-only
@@ -48,9 +48,10 @@ flowchart LR
     Scope --> Work["Scoped code and canonical facts"]
     Work --> Session["Meaningful sessions + canonical checkpoints"]
     Session --> Test["Run affected verification"]
-    Test --> Receipt["Create one final 90-Status/logs receipt"]
-    Receipt --> PR["Pull Request + owner review"]
-    PR --> Main
+    Test --> DraftPR["Publish or maintain Draft PR"]
+    DraftPR --> Receipt["Final handoff: create one receipt"]
+    Receipt --> Ready["Ready PR + owner review"]
+    Ready --> Main
 ```
 
 ### Ownership and current maturity
@@ -77,13 +78,16 @@ agent must:
 1. keep the infrastructure change to the minimum necessary;
 2. set PR metadata `integration-review: yes`;
 3. list every exact path under PR `Shared surfaces touched`;
-4. repeat the same exact paths under receipt `Shared surfaces touched`;
-5. describe the owner decision, rollout, migration, or rollback under receipt
-   `Integration requests`; and
+4. at final task handoff, repeat the same exact paths under receipt `Shared
+   surfaces touched`;
+5. at final task handoff, describe the owner decision, rollout, migration, or
+   rollback under receipt `Integration requests`; and
 6. run area verification plus the applicable integration/deployment check.
 
-The GitHub collaboration validator enforces both declarations. A PR-only
-declaration is insufficient because future agents read receipts from Obsidian.
+For a receipt-less Draft, the GitHub collaboration validator enforces the PR
+declarations. At final handoff it enforces both PR and receipt declarations; a
+PR-only declaration is then insufficient because future agents read receipts
+from Obsidian.
 
 ### Branch and publication sequence
 
@@ -105,6 +109,11 @@ stage exact paths, commit, and push the branch with `git push -u origin
 When `origin/main` advances during an unmerged task, merge it into the task
 branch and reconcile both sides; do not rebase shared work. An agent may prepare
 and maintain the PR, but the responsible human owner/reviewer merges it.
+
+Keep a multi-session task PR Draft while implementation, evidence, or final
+closeout remains incomplete. A Draft PR may have zero final receipts while the
+task is in progress, or one fully validated final receipt after closeout.
+Exactly one immutable final receipt is required before Ready/non-Draft review.
 
 ### Task lifecycle versus development sessions
 

@@ -58,10 +58,14 @@ git status --short
 git diff --name-status origin/main...HEAD
 ```
 
-5. Create exactly one Obsidian task receipt from
-   `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md`.
-6. Update the selected area's canonical note only when implementation facts changed.
-7. Declare every path outside the selected area as a shared surface.
+5. Keep the same task Pull Request Draft while implementation, evidence, or
+   final closeout is incomplete. A Draft multi-session task may legitimately
+   have no final receipt yet.
+6. At final task handoff, create exactly one Obsidian task receipt from
+   `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/_template.md` before the
+   Pull Request becomes Ready/non-Draft.
+7. Update the selected area's canonical note only when implementation facts changed.
+8. Declare every path outside the selected area as a shared surface.
 
 ## Commit and publish the task branch
 
@@ -78,7 +82,9 @@ git push -u origin HEAD
 
 Open a Pull Request into `main` and complete every section of the template.
 The policy check requires a valid task area/owner, concrete verification,
-exactly one new receipt, and declared shared paths.
+and declared shared paths throughout the task. It permits zero final receipts
+while the Pull Request is Draft and in progress, validates a final receipt fully
+when one exists, and requires exactly one before Ready/non-Draft review.
 
 ## When another Pull Request merges first
 
