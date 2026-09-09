@@ -51,7 +51,10 @@ describe('Dashboard language preference', () => {
 
     expect(await screen.findByRole('radiogroup', { name: 'Language' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
-    expect(document.documentElement.lang).toBe('en')
+    // The document language is written by an effect, which React flushes after the
+    // commit that puts the English UI in the DOM. Asserting it synchronously here
+    // races that flush and intermittently observes the previous 'th'.
+    await waitFor(() => expect(document.documentElement.lang).toBe('en'))
     expect(api.fetch).toHaveBeenCalledTimes(3)
 
     fireEvent.click(screen.getByRole('radio', { name: '中文' }))

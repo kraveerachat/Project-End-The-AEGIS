@@ -59,6 +59,12 @@ if ($actualNodeHash -ne $expectedNodeHash) {
 }
 
 # ---------------------------------------------------------------- stage 4
+Write-Stage 'Discard any previous artifact'
+# Do this before verification, not after: a build that fails in a later stage must
+# not leave an earlier bundle in windows/out, or a smoke run can accept a stale
+# artifact as this commit's output.
+if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
+
 Write-Stage 'Run source verification'
 if (-not $SkipTests) {
     Push-Location $ProjectRoot
@@ -78,7 +84,6 @@ if (-not $SkipTests) {
 
 # ---------------------------------------------------------------- stage 5
 Write-Stage 'Prepare clean staging directory'
-if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 
 # ---------------------------------------------------------------- stage 6

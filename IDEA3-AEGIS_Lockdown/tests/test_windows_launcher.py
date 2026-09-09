@@ -1346,3 +1346,18 @@ def test_spec_packages_the_core_supervisor_and_its_transport():
     assert "'aegis_soc.supervisor'" in spec
     assert "'paho'" not in spec, "the Core child imports paho at module import time"
     assert "'tkinter'" in spec and "'pytest'" in spec
+
+
+def test_build_script_discards_a_stale_artifact_before_verification():
+    """A build that fails verification must not leave a previous bundle behind.
+
+    Smoke acceptance takes a bundle path, so a stale artifact surviving a failed
+    build can be smoke-tested and reported against the wrong commit.
+    """
+
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    discard = script.index("Remove-Item -Recurse -Force $OutDir")
+    assert discard < script.index("python -m pytest")
+    assert discard < script.index("npm test")
+    assert script.count("Remove-Item -Recurse -Force $OutDir") == 1

@@ -1945,3 +1945,103 @@ PLAN_TASK_11 = BLOCKED
 .\windows\build.ps1
 .\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
 ```
+
+## 36. PR8 Task 11 — appLanguage flake: the test raced a React effect — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = 0231204af258e6ce70ca12f9a10f381bdbb2a1c0
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+The Windows build on `0231204a` failed in stage 4 Web verification, not in
+packaging: Python 182 passed, Web 296 passed with one failure in
+`tests/client/appLanguage.test.jsx`, expecting `document.documentElement.lang`
+to be `en` and receiving `th`. Because the previous stage ordering only cleared
+`windows/out` after verification, the smoke run that followed exercised the stale
+`d4e51cde` artifact. That smoke result is not evidence about `0231204a`.
+
+### Root cause — the test, not the application
+
+`src/App.jsx` writes the document language from an effect:
+
+```jsx
+useEffect(() => {
+  const activeLanguage = session?.authenticated && route === 'dashboard' ? language : 'th'
+  document.documentElement.lang = htmlLanguage(activeLanguage)
+}, [language, route, session?.authenticated])
+```
+
+React commits the DOM first and flushes that passive effect afterwards, so there
+is a real window in which the English dashboard is already in the DOM while
+`document.documentElement.lang` still holds the previous `th`. The test awaited
+the English UI and then asserted the effect's side effect synchronously, so it
+sampled inside that window.
+
+Measured on Linux with a probe that recorded the value at the exact moment
+`findByRole('radiogroup', { name: 'Language' })` resolved:
+
+```text
+run 1 = 1 stale in 80 iterations
+run 2 = 1 stale in 80 iterations
+run 3 = 2 stale in 80 iterations
+observed values = ["en", "th"]
+```
+
+That is the same assertion and the same wrong value the Windows run reported. The
+application is correct: the effect always runs, and the same file already awaits
+this state for the language switch on the next assertion.
+
+### Fix
+
+`web/tests/client/appLanguage.test.jsx` awaits the effect instead of racing it:
+
+```jsx
+await waitFor(() => expect(document.documentElement.lang).toBe('en'))
+```
+
+No production behaviour changed. Every contract still holds: a persisted
+`aegis_lang=en` initialises English, the document language becomes `en`, an
+unsupported value falls back to Thai, switching persists `zh`, and switching does
+not refetch evidence (`apiFetch` stays at three calls).
+
+The second case asserting `th` is not racy: `th` is both the pre-test value and
+the effect's value, so no ordering can make it observe a different one.
+
+### Stale-artifact hazard closed
+
+`windows/build.ps1` now discards `windows/out` before verification rather than
+after it, so a build that fails in any earlier stage cannot leave a previous
+bundle that a later smoke run would accept as this commit's output. A regression
+asserts the discard precedes both test stages.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Fixed pattern probe        = 80/80 with no stale observation
+Focused appLanguage        = 12 consecutive runs, 2 passed each
+Full Web suite             = 6 consecutive runs, 297 passed each
+Vite production build      = PASS, 1677 modules transformed
+Full Python suite          = 183 passed
+Windows launcher/source    = 95 passed
+Ruff check                 = PASS
+compileall                 = PASS
+Repository tests           = 56 passed
+Vault validation           = PASS with the two known canvas warnings
+PowerShell 7.4.6 parser    = build.ps1 PARSE OK
+```
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO   (must be rerun on the new SHA)
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
