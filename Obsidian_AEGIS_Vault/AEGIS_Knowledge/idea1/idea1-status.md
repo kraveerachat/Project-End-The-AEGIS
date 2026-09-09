@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-09
+updated: 2026-09-10
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -112,11 +112,11 @@ edit_policy: owner-writable
 | Task | `PUBLIC-SHARE-7 External Deployment & Acceptance` |
 | Branch | `feat/idea1-public-share-external-deployment` |
 | Owner | `kla` |
-| Pull Request | Pending until the S5.1 Draft PR is created |
+| Pull Request | `#111` — **OPEN / DRAFT** |
 | Current state | **IN PROGRESS** |
 | Started | 2026-09-09 |
 | Starting SHA | `d32885b36c08c71dc5719109de12ed8ac8f6589e` |
-| Last checkpoint | Pending S5.1 implementation/evidence checkpoint |
+| Last checkpoint | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee` — governance compatibility repair and verified S5.1 implementation/evidence checkpoint |
 | Production mutation allowed | **NO for S5.1** |
 
 ### Goal
@@ -198,7 +198,7 @@ IMPLEMENTED.**
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| S5.1 | Production freeze + deployment/rollback plan; documentation only | **PASS — documentation checkpoint pending** | clean branch at exact `d32885b36...`; canonical/source review; governance and vault validation pending | pending | pending final validation | S5.2–S5.12 | close S5.1 after Draft PR and checkpoint binding |
+| S5.1 | Production freeze + deployment/rollback plan; documentation only | **PASS — publication stop point** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee` | **PASS** | S5.2–S5.12; one final receipt remains deferred to S5.12 | stop here; S5.2 remains NOT STARTED and requires separate explicit authority |
 | S5.2 | G5 readiness review: domain/zone proof, connector isolation design and exact mutation scope | NOT STARTED | — | — | — | owner G5 decision | begin only after S5.1 review |
 | S5.3 | Production Drive/database preparation and migration 009 | NOT STARTED | — | — | — | controlled Production mutation | requires separate explicit approval |
 | S5.4 | Dedicated Public Share networks + gateway deployment | NOT STARTED | — | — | — | isolated gateway runtime | after S5.3 |
@@ -237,15 +237,20 @@ No value below was reproduced from Windows in S5.1.
 ### Done / Remaining / Next
 
 **Done in S5.1:** G4 formally recorded; the measured baseline frozen; the
-deployment, rollback, mutation, G5 and dependency boundaries planned. No
-Production action was taken.
+deployment, rollback, mutation, G5 and dependency boundaries planned. PR #111
+remains Draft. The repository-wide guardrail now permits zero final receipts
+while a Draft multi-session task remains in progress, still enforces all PR-level
+cross-scope declarations, and requires exactly one valid final receipt before
+Ready/non-Draft review. No task receipt was created and no Production action was
+taken.
 
 **Remaining:** every S5.2–S5.12 runtime, exposure, external-acceptance, rollback,
 G6 and UI-activation step. A usable owner-controlled domain/Cloudflare zone and
 an approved real-connector isolation design are current hard blockers.
 
-**Next:** human review of the S5.1 Draft PR, then S5.2 only. Do not begin any
-Production mutation or request G5 from this checkpoint.
+**Next:** stop after the S5.1 Draft PR publication checkpoint. S5.2 remains NOT
+STARTED and requires separate explicit authority. Do not begin any Production
+mutation or request G5 from this checkpoint.
 
 ### Current acceptance reconciliation — 2026-09-06
 

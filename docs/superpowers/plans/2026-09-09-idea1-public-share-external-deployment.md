@@ -314,7 +314,7 @@ Rollback never runs whole-stack `down`, never uses `-v`, never prunes, and never
 - [x] Record G4 = approved Option B with T-14/T-27.
 - [x] Freeze owner-supplied Production evidence without host access.
 - [x] Write deployment, rollback, mutation, G5 and dependency boundaries.
-- [ ] Run governance/vault/diff validation, create implementation/evidence checkpoint, open one Draft PR, bind the checkpoint in the Session Register and close S5.1.
+- [x] Run governance/vault/diff validation, create implementation/evidence checkpoint `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`, open Draft PR #111, bind the checkpoint in the Session Register, and reach the S5.1 publication stop point without creating the task's final receipt.
 
 ### S5.2–S5.12
 
