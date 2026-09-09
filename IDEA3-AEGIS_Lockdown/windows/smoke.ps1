@@ -129,7 +129,7 @@ try {
         $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
         $login = Invoke-WebRequest -Uri "$apiBaseUrl/auth/login" -Method Post -Body $body `
             -ContentType 'application/json' -Headers @{ Origin = $baseUrl }
-        $setCookie = @($login.Headers.GetValues('Set-Cookie')) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
+        $setCookie = @($login.Headers['Set-Cookie']) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
         $cookiePolicyOk = $setCookie -match '(?i);\s*Secure(?:;|$)' -and `
             $setCookie -match '(?i);\s*HttpOnly(?:;|$)' -and `
             $setCookie -match '(?i);\s*SameSite=Strict(?:;|$)'
@@ -182,7 +182,7 @@ try {
         $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
         $login2 = Invoke-WebRequest -Uri "$apiBaseUrl/auth/login" -Method Post -Body $body `
             -ContentType 'application/json' -Headers @{ Origin = $baseUrl }
-        $setCookie2 = @($login2.Headers.GetValues('Set-Cookie')) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
+        $setCookie2 = @($login2.Headers['Set-Cookie']) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
         $sessionCookie = ($setCookie2 -split ';', 2)[0]
         $audit2 = Invoke-RestMethod -Uri "$apiBaseUrl/security/audit?limit=250" `
             -Headers @{ Cookie = $sessionCookie }

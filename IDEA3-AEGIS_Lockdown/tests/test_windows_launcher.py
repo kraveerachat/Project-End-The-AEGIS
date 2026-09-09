@@ -1313,6 +1313,8 @@ def test_smoke_preserves_and_exercises_the_secure_session_contract():
     assert "Secure" in script and "HttpOnly" in script and "SameSite=Strict" in script
     assert "X-CSRF-Token" in script
     assert "Cookie = $sessionCookie" in script
+    assert ".Headers.GetValues('Set-Cookie')" not in script
+    assert script.count(".Headers['Set-Cookie']") == 2
 
 
 def test_launcher_reports_an_incomplete_bundle_without_a_frozen_traceback(tmp_path, monkeypatch, capsys):
