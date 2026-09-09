@@ -12,6 +12,13 @@ Current truth:
 - public scope in the IDEA1 UI: disabled;
 - PUBLIC-SHARE-4/5/6/7: not started by this work.
 
+PUBLIC-SHARE-7 later added the managed-proxy edge trust adapter to this same
+image. It is **off by default**: with `PUBLIC_SHARE_EDGE_MODE` unset the gateway
+behaves exactly as described below, and the direct-peer model in
+"Limitation — the header and rate-limit model assumes a direct peer" is what
+runs. See `managed-tunnel/README.md` for the managed model, and the note at the
+end of that section for what PUBLIC-SHARE-7 does and does not settle.
+
 The public listener accepts only `GET|POST /s/[A-Za-z0-9_-]+/?`, for the
 configured `PUBLIC_SHARE_HOST`, and terminates everything else locally. It
 overwrites forwarding identity, streams responses without proxy buffering,
@@ -91,6 +98,51 @@ address, and re-create the T-05 rate-limit self-DoS.
 
 PR3 does not authorize trusting provider headers and does not claim Option B is
 deployable unchanged. **G4 remains open and is not chosen here.**
+
+### PUBLIC-SHARE-7 answers that limitation in source, and only in source
+
+The adapter the paragraph above demanded now exists in this image, as a second
+fail-closed startup gate plus a generated nginx include:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PUBLIC_SHARE_EDGE_MODE` | `direct` | `direct` keeps the model above, unchanged. `cloudflare` inserts the managed-proxy trust model. Anything else refuses to start. |
+| `PUBLIC_SHARE_EDGE_PROXY_CIDR` | unset | Required **iff** the mode is `cloudflare`: exactly one pinned tunnel-connector identity as an IPv4 `/32`. Set without that mode, it refuses to start rather than being silently ignored. |
+
+| File | Installed as | Role |
+| --- | --- | --- |
+| `validate-public-share-edge.sh` | `/usr/local/bin/aegis-validate-public-share-edge.sh` | Validates both values fail-closed, then generates `/tmp/aegis-edge/http.conf` |
+
+`entrypoint.sh` runs it after the host validator and before the handover, so
+neither value can reach a rendered config unless both are valid. The template
+includes the generated file at an **exact** path, so a gateway whose trust model
+was never generated does not start.
+
+`NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$` is **unchanged**: the new values
+never pass through envsubst. The one value that reaches nginx directive context —
+the connector address — is validated character by character and emitted by the
+validator itself, not substituted into a template.
+
+In `cloudflare` mode nginx's own `realip` module canonicalises `$remote_addr` and
+`$binary_remote_addr` from `CF-Connecting-IP`, but **only** behind the pinned
+peer, so the authored `X-Forwarded-For`/`X-Real-IP` and the `$binary_remote_addr`
+edge limit keep their spelling above and become per-recipient. Because `realip`
+does nothing at all when the header is missing or unparsable — and reads only the
+FIRST matching header when several arrive — four independent controls gate the
+share route and all four must pass: the peer must be the pinned connector, the
+provider header must be present, it must not be ambiguous (more than one claim),
+and canonicalisation must actually have happened. The gate returns 403 in the rewrite phase, before `limit_req` and
+before `proxy_pass`.
+
+The provider identity headers are also stripped before Drive in **both** modes
+(`CF-Connecting-IP`, `CF-Connecting-IPv6`, `CF-Pseudo-IPv4`, `True-Client-IP`,
+`CF-Visitor`, `CF-IPCountry`, `CF-Ray`, `CF-Worker`, `CDN-Loop`).
+
+⚠️ **This is source and local acceptance, not an ingress decision.** G4 is still
+not recorded as chosen by this work, no tunnel exists, and nothing is exposed.
+`managed-tunnel/` measures the adapter against the real Drive on an isolated
+Docker topology; it is not evidence that a real tunnel, DNS name or certificate
+works. G5 and G6 remain **OPEN**.
 
 ## Local harness
 
@@ -214,3 +266,13 @@ The runtime suite builds a unique Compose project, refuses to adopt a
 pre-existing `aegis_public_share` network, drives the gateway only from inside
 that network, and removes only its own throwaway containers/network afterwards.
 It needs no host port and opens none.
+
+The PUBLIC-SHARE-7 managed-proxy adapter has its own suite. Its static half runs
+by default; its Docker half is opt-in the same way:
+
+```bash
+cd IDEA1-AEGIS_Drive_LC
+node --test tests/publicShareManagedTunnelIntegration.test.js          # PS7-STRUCT only
+PUBLIC_SHARE_MANAGED_TUNNEL_RUNTIME=1 node --test --test-concurrency=1 \
+  --test-timeout=1800000 tests/publicShareManagedTunnelIntegration.test.js
+```

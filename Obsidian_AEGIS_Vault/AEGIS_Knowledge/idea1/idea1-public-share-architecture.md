@@ -25,6 +25,13 @@ edit_policy: owner-writable
 > The isolated PUBLIC-SHARE-3 and PUBLIC-SHARE-6 harnesses are source/test
 > evidence, not Production evidence. Every container, network and volume either
 > creates is removed after each runtime run.
+>
+> **PUBLIC-SHARE-7 is IN PROGRESS (2026-09-09).** Its first task — the
+> managed-proxy trust adapter and pre-exposure acceptance (§10.2) — is
+> **COMPLETE and PASSED 20/20** against the real Drive on an isolated topology.
+> Nothing is exposed, no ingress method is recorded as chosen, and every
+> statement above about DNS, TLS, tunnels, NAT, firewalls and Production remains
+> unchanged.
 
 ---
 
@@ -1174,6 +1181,131 @@ headers, and `req.ip` remains the only client-source value. The Drive changes ar
 > before Drive sees it — is a property of the private path and is **unchanged**
 > by anything here. Do not present the public gateway as solving it.
 
+### 10.2 PUBLIC-SHARE-7 managed-proxy adapter — delivered, pre-exposure PASS (2026-09-09)
+
+> [!success] Adapter delivered and accepted pre-exposure; PS7 overall IN PROGRESS
+> The adapter the warning above demanded now exists **in source** and has
+> **passed its Docker runtime acceptance 20/20** against the real Drive on real
+> PostgreSQL (Session S4). **PUBLIC-SHARE-7 is still NOT COMPLETE**: G4's gate is
+> the owner's to record, **G5 and G6 remain OPEN**, and
+> `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
+> certificate, NAT rule, firewall, VLAN, Twingate or Production change was made.
+
+**Scope.** G4's practical direction is Option B: PS7-01 measured the site behind
+upstream NAT/CGNAT, so Option A's inbound port-forward is not available on the
+current topology. This work builds what Option B requires and does not mark the
+G4 decision as taken.
+
+**Where the adapter lives.** Entirely in the gateway, in front of Drive. Two
+validated, non-secret variables consumed by the gateway image:
+
+```text
+PUBLIC_SHARE_EDGE_MODE=direct|cloudflare      default: direct
+PUBLIC_SHARE_EDGE_PROXY_CIDR=<one IPv4 /32>   required iff mode=cloudflare
+```
+
+`validate-public-share-edge.sh` validates both **before** nginx renders anything
+and then *generates* the small include the template loads at an exact path. The
+PUBLIC-SHARE-3 envsubst hardening is unchanged: no new operator value reaches
+nginx directive context through substitution, and the one value that does reach
+it — the connector address — is validated character by character and emitted by
+the validator itself. A missing trust file is a start-up error, so a gateway
+whose trust model was never generated does not start.
+
+**The trust model.** In managed mode nginx's own `realip` module canonicalises
+`$remote_addr`/`$binary_remote_addr` from `CF-Connecting-IP`, but only behind the
+pinned peer, so the §10 header table and the `$binary_remote_addr` edge limit
+keep their spelling and become per-recipient with no special case. `realip` alone
+is not sufficient — it silently does nothing when the header is missing or
+unparsable, and reads only the FIRST matching header when several arrive — so
+**four** independent controls gate the share route and all four must pass:
+
+| Control | Denies when |
+| :--- | :--- |
+| `$aegis_edge_peer_untrusted` | the immediate TCP peer is not the pinned connector |
+| `$aegis_edge_recipient_absent` | the connector sent no `CF-Connecting-IP` at all |
+| `$aegis_edge_recipient_ambiguous` | more than one recipient identity arrived |
+| `$aegis_edge_not_canonical` | `$remote_addr` is still the connector — an unparsable value, or a `realip` configuration that did not apply |
+
+The gate returns 403 in the rewrite phase, **before** `limit_req` and before
+`proxy_pass`, so a refused request consumes no rate-limit token and never reaches
+Drive. Provider identity headers are consumed at the gateway and never relayed,
+in **both** modes.
+
+**§10.1 is unchanged and was not re-conflated.** `requestSourceIp(req) → req.ip`
+remains the sole client-source accessor; `requestIngressKind(req)` still reads
+the immediate socket peer and still classifies the **gateway**, not the connector
+and not the recipient. `server/request/sourceIp.js`, `server/request/ingress.js`
+and `server/config/trustedProxy.js` are **unchanged by this work**, and
+`TRUSTED_PROXY_CIDRS` is **not** widened — no Cloudflare range, RFC1918 subnet,
+Docker bridge range or `0.0.0.0/0` anywhere.
+
+**Two measured behaviours, recorded because they were measured and not assumed.**
+
+- **Ambiguous provider identity was accepted, and is now refused.** On the real
+  pinned image, two `CF-Connecting-IP` headers were accepted with HTTP 200 and
+  attributed to whichever arrived first, because `realip` reads the first match
+  and ignores the rest. That is a caller-influenced choice of identity. The
+  ambiguity control was added in response; re-measured, a duplicated header and a
+  comma-joined value both fail closed with 403 while a single recipient is still
+  200 with the correct `X-Forwarded-For`.
+- **`CF-Connecting-IP: <address>:<port>` is accepted and canonicalised to the
+  address.** Attribution is still the correct recipient with the port dropped, so
+  this is not an attribution defect. The acceptance suite's expectation was
+  corrected rather than the adapter weakened.
+
+**IPv6.** Recipients are attributable end to end: `realip` canonicalises the
+address, the gateway authors it into `X-Forwarded-For`, Express resolves `req.ip`
+to it, and `audit_log.source_ip` is `INET`, which holds it. `ipAllowed()` remains
+IPv4-only for `zones` shares, but a `zones` share can never be redeemed through
+the public ingress (§7.4), so no IPv6 path is lossy here and no lossy conversion
+was invented.
+
+**Evidence status at this checkpoint.** Source/structure suites green; five
+static negative controls confirmed load-bearing and reverted; a rootless Podman
+preflight against the real pinned image confirmed `--with-http_realip_module`,
+`nginx -t` success in both modes, untrusted-peer denial, forged-header
+resistance, IPv6 preservation and per-recipient rate-limit separation. ⚠️ **The
+Podman preflight is configuration evidence only. It is not Docker acceptance**:
+it cannot reproduce `internal: true` with `gateway_mode_ipv4: isolated`, and it
+involved no Drive, no PostgreSQL, no audit, no isolation and no teardown
+evidence.
+
+**Docker runtime evidence (Session S4, 2026-09-09) — CLOSED / PASS.** The
+runtime matrix ran against the real Drive on real PostgreSQL 15 across the
+isolated topology, on **Docker Engine 29.7.1**. The first pass reported 20 tests,
+18 pass, 2 fail, 0 skipped — 13 of 14 PS7-PRE subtests passing, with the one
+failure being a defect in the test rather than the adapter (below). After that
+fix: **20 tests, 20 passed, 0 failed, 0 skipped, acceptance exit code 0, post-run
+check failures 0.** All seven runtime negative controls proved load-bearing. Attribution through the managed
+hop, forged-header resistance, per-recipient limiting, the scope split,
+revocation, log safety and connector-bypass denial were all measured against the
+real application. Production inventory was **IDENTICAL** across both full runs
+and every harness object was torn down. See [[idea1/idea1-status]] for the full
+per-subtest and per-control breakdown.
+
+⚠️ **One durable platform fact this produced.** How an isolated bridge presents
+unreachability is **engine-dependent**, and a test must not encode one
+platform's wording. PUBLIC-SHARE-3 measured `Host is unreachable` on Docker
+Desktop 28.3.2; native Linux Docker 29.7.1 drops the packet with no ICMP reply,
+so the client **times out** instead. The discriminator that actually
+distinguishes a live address from a dead one is **`Connection refused`**, which
+did not occur once. `PS7-PRE-11` asserted the wording rather than the property
+and was corrected — asserting `Connection refused` first, accepting a timeout,
+rejecting any HTTP response, and adding PUBLIC-SHARE-3's ARP corroboration.
+
+**Pre-exposure managed-tunnel acceptance = PASS.** ⚠️ This closes the adapter
+task only. **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet acceptance =
+**NOT RUN**, **G4's gate is still the owner's to record**, **G5 and G6 remain
+OPEN**, and `Public Internet Share = NOT IMPLEMENTED`.
+
+⚠️ **One deployment gate is recorded rather than faked.** In the harness the
+connector sits on an internal, isolated Docker network with no route to Drive,
+PostgreSQL or a private surface. A real `cloudflared` connector needs an outbound
+Internet path, so reproducing "the connector can reach nothing but the gateway"
+in Production is host-firewall and/or VLAN work that source cannot assert. It
+must be designed and reviewed before G5.
+
 ---
 
 ## 11. Streaming and large-file considerations
@@ -1348,7 +1480,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal acceptance passed on server hardware; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
-| **PUBLIC-SHARE-7** *(NOT STARTED)* | Real external E2E | Acceptance from ≥2 external paths with Twingate off | — |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure adapter implemented, runtime matrix pending)* | Managed-tunnel trust adapter, pre-exposure acceptance harness, then real external E2E | The fail-closed managed-proxy edge mode (§10.2), one pinned connector identity, real-IP canonicalisation, provider-header stripping, per-recipient edge limiting, and the isolated `managed-tunnel/` harness | Any real tunnel, domain, DNS record, TLS certificate, Internet exposure or Production change; the G4 decision itself |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
@@ -1624,12 +1756,15 @@ Until G6, every status note, UI string and receipt says the same thing:
   that network ever gained a third member the control would weaken silently; the
   Compose structural test named in T-10 is what keeps that from happening
   unnoticed.
-- **The PUBLIC-SHARE-3 header and rate-limit model is direct-peer only.** It
-  authors `X-Forwarded-For`/`X-Real-IP` from `$remote_addr` and keys the edge
-  limit on `$binary_remote_addr`, which is correct only while the gateway is the
-  immediate recipient-facing HTTP peer. A G4 Option B tunnel/reverse proxy would
-  invalidate that assumption and needs a reviewed provider trust/attribution
-  adapter in PUBLIC-SHARE-6 before deployment (§10).
+- ~~**The PUBLIC-SHARE-3 header and rate-limit model is direct-peer only.**~~
+  **Addressed in source by PUBLIC-SHARE-7 (§10.2), not yet accepted at runtime.**
+  Direct mode is unchanged and remains the default. Managed mode canonicalises
+  `$remote_addr`/`$binary_remote_addr` from the pinned connector's
+  `CF-Connecting-IP`, so the authored `X-Forwarded-For`/`X-Real-IP` and the edge
+  limit become per-recipient without changing their spelling. The residual limit
+  is that the Docker runtime matrix, the runtime negative controls and the
+  Production pre/post evidence are still **PENDING**, so this is an
+  implementation checkpoint rather than a closed limitation.
 - **B5 is enforced by the PUBLIC-SHARE-3 harness network, and the harness
   therefore has no host listener.** `aegis_public_share` is a Docker
   `internal: true` network **with bridge gateway mode `isolated`**; both are

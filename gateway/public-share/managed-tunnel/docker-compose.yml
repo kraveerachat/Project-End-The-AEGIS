@@ -1,0 +1,251 @@
+# PUBLIC-SHARE-7 pre-exposure managed-tunnel harness. NOT a Production stack.
+#
+# PUBLIC-SHARE-6 put the real gateway in front of the real Drive with the
+# recipient as the gateway's IMMEDIATE peer. That is the direct-peer topology
+# PUBLIC-SHARE-3 was designed for. This harness adds the hop that G4 Option B
+# would insert, and measures what the gateway does with it:
+#
+#   external recipient (an address the provider asserts, never a container here)
+#        │
+#        ▼
+#   managed provider edge  ─┐  neither exists in this harness: a provider edge
+#   provider TLS/DNS       ─┘  and a real tunnel are G5 work, not code work
+#        │
+#        ▼
+#   tunnel-connector  ──edge──▶ public-share-gateway ──upstream──▶ drive ──data──▶ postgres
+#
+# ⚠️ THE CONNECTOR IS A STAND-IN, AND THE README SAYS SO IN THE SAME WORDS.
+#    `tunnel-connector` is a stock node:20-alpine container that re-originates
+#    HTTP requests toward the gateway carrying `CF-Connecting-IP`, which is the
+#    ONE property of a managed tunnel that the gateway's trust model has to be
+#    correct about. It is NOT cloudflared, there is no Cloudflare account, no
+#    tunnel credential, no DNS record, no TLS and no public URL. Nothing here is
+#    evidence that a real tunnel works — it is evidence that the gateway's
+#    provider-trust adapter is fail-closed and per-recipient.
+#
+# ⚠️ `direct-caller` is the other half of that claim. It sits on the same edge
+#    network and sends the same provider headers WITHOUT being the pinned
+#    connector. A trust model that cannot tell the two apart is not a trust
+#    model, so this container exists to prove the gateway can.
+#
+# ⚠️ IT CHANGES NOTHING OUTSIDE ITSELF. Its own project name, its own four
+#    networks, its own containers, its own anonymous volumes, its own throwaway
+#    credentials. It reads no .env, mounts no Production path, publishes no host
+#    port, and touches no Production database, gateway, network or migration.
+#    Everything is removed by `docker compose down --volumes --remove-orphans`.
+#
+# ⚠️ NO HOST PORT EXISTS ANYWHERE IN THIS FILE, deliberately. Every network is
+#    `internal: true` with `gateway_mode_ipv4: isolated`, so Docker has neither a
+#    default route nor a host-bridge address to offer. Requests are generated
+#    from inside the topology by the member that is supposed to generate them.
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${PS7_SUPER_USER:?PS7_SUPER_USER is required}
+      POSTGRES_PASSWORD: ${PS7_SUPER_PASSWORD:?PS7_SUPER_PASSWORD is required}
+      POSTGRES_DB: postgres
+      # Consumed by db-init/00-aegis-drive.sh. Generated per run by the test.
+      DRIVE_DB_PASSWORD: ${PS7_DRIVE_DB_PASSWORD:?PS7_DRIVE_DB_PASSWORD is required}
+    volumes:
+      # Read-only mounts of the repository's own SQL. Nothing is copied or
+      # re-typed here, so the harness cannot drift from the shipped schema.
+      - ../../../IDEA1-AEGIS_Drive_LC/server/db/schema.sql:/sql-src/idea1-schema.sql:ro
+      - ../../../IDEA1-AEGIS_Drive_LC/server/db/seed.sql:/sql-src/idea1-seed.sql:ro
+      - ./db-init/00-aegis-drive.sh:/docker-entrypoint-initdb.d/00-aegis-drive.sh:ro
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d aegis_drive"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      aegis_ps7_data:
+        ipv4_address: 172.31.242.2
+
+  # The REAL AEGIS Drive application, built from its own shipped Dockerfile.
+  drive:
+    build:
+      context: ../../../IDEA1-AEGIS_Drive_LC
+    environment:
+      NODE_ENV: production
+      PORT: 8001
+      SESSION_SECRET: ${PS7_SESSION_SECRET:?PS7_SESSION_SECRET is required}
+      # This harness terminates plain HTTP end to end; there is no TLS to make a
+      # Secure cookie returnable. Production is unaffected and unchanged.
+      COOKIE_SECURE: "false"
+      # The production "State B" pair, exactly as PUBLIC-SHARE-6 used it.
+      #
+      # ⚠️ Drive's side of the trust boundary is UNCHANGED by PUBLIC-SHARE-7.
+      #    TRUSTED_PROXY_CIDRS still names the HUB identity and the ONE gateway
+      #    identity, and NOTHING here is widened to a Cloudflare range: the
+      #    tunnel connector is not a peer Drive ever sees, and Drive must never
+      #    be taught to believe a provider header. The whole managed-proxy
+      #    adapter lives in the gateway, in front of this.
+      TRUSTED_PROXY_CIDRS: 172.19.255.2/32,172.31.241.2/32
+      # The ONE peer that counts as arriving through the Public Share Gateway —
+      # the gateway's UPSTREAM address, not its edge address and not the
+      # connector. requestIngressKind() must keep classifying this peer.
+      PUBLIC_SHARE_GATEWAY_CIDR: 172.31.241.2/32
+      PUBLIC_SHARE_BASE_URL: https://share.example.invalid
+      # Deliberately NOT "true". The UI activation signal is G6's to flip.
+      PUBLIC_SHARE_UI_ENABLED: "false"
+      DATABASE_URL: postgresql://drive_app:${PS7_DRIVE_DB_PASSWORD}@postgres:5432/aegis_drive
+      STORAGE_ROOT: /datalake
+    # An anonymous volume, removed by `down --volumes`. No Production named
+    # volume (drive_storage) is referenced anywhere in this file.
+    volumes:
+      - /datalake
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8001/healthz || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+    networks:
+      aegis_ps7_data:
+        ipv4_address: 172.31.242.3
+      aegis_ps7_upstream:
+        ipv4_address: 172.31.241.3
+
+  # The REAL Public Share Gateway image, in MANAGED-PROXY mode. The build
+  # context is the parent directory on purpose, so this harness cannot test a
+  # modified gateway.
+  public-share-gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      PUBLIC_SHARE_HOST: share.example.invalid
+      # The two PUBLIC-SHARE-7 values. Absent, these default to `direct` and the
+      # image behaves exactly as PUBLIC-SHARE-3/6 measured it.
+      PUBLIC_SHARE_EDGE_MODE: cloudflare
+      # ONE pinned connector identity: tunnel-connector's edge address, as a
+      # /32. Not a Cloudflare range, not the edge subnet, not the bridge.
+      PUBLIC_SHARE_EDGE_PROXY_CIDR: 172.31.240.3/32
+    depends_on:
+      drive:
+        condition: service_healthy
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      aegis_ps7_edge:
+        ipv4_address: 172.31.240.2
+      aegis_ps7_upstream:
+        ipv4_address: 172.31.241.2
+
+  # The pinned tunnel connector stand-in. Stock node image, no AEGIS code, no
+  # credential, no volume — so the harness cannot accidentally give it a
+  # capability a real connector would not have. Its ONE privilege is its
+  # address, which is what PUBLIC_SHARE_EDGE_PROXY_CIDR pins.
+  tunnel-connector:
+    image: node:20-alpine
+    command: ["sleep", "infinity"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      aegis_ps7_edge:
+        ipv4_address: 172.31.240.3
+
+  # An untrusted caller that reaches the same listener and forges the same
+  # provider headers. Identical image and privileges to the connector; the only
+  # difference is that its address is NOT the pinned one.
+  direct-caller:
+    image: node:20-alpine
+    command: ["sleep", "infinity"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      aegis_ps7_edge:
+        ipv4_address: 172.31.240.4
+
+  # A private-side service on the data network, standing in for the class of
+  # surface HUB and Monitor occupy in Production.
+  #
+  # ⚠️ It LISTENS, and Drive can reach it. That is deliberate: a probe against
+  #    an address where nothing listens fails for everyone and proves nothing.
+  #    Because this one answers on the private side, "the gateway and the
+  #    connector cannot reach it" is a measured negative rather than a vacuous
+  #    one. It is a stand-in for a private surface, NOT the real HUB or Monitor.
+  private-surface:
+    image: node:20-alpine
+    command:
+      - node
+      - -e
+      - "require('node:http').createServer((q,s)=>{s.writeHead(200,{'Content-Type':'text/plain'});s.end('ps7-private-surface')}).listen(8080,'0.0.0.0')"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=8m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    networks:
+      aegis_ps7_data:
+        ipv4_address: 172.31.242.4
+
+networks:
+  # All three carry BOTH controls. `internal` removes normal external and
+  # default-route connectivity; `gateway_mode_ipv4: isolated` additionally
+  # removes the Docker-host bridge address, which an ordinary internal bridge
+  # keeps and through which host services stay reachable. Removing either one
+  # to make a host port work would break the boundary this harness measures.
+  aegis_ps7_edge:
+    name: aegis_ps7_edge
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+    ipam:
+      config:
+        - subnet: 172.31.240.0/29
+          gateway: 172.31.240.1
+
+  aegis_ps7_upstream:
+    name: aegis_ps7_upstream
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+    ipam:
+      config:
+        - subnet: 172.31.241.0/29
+          gateway: 172.31.241.1
+
+  aegis_ps7_data:
+    name: aegis_ps7_data
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+    ipam:
+      config:
+        - subnet: 172.31.242.0/29
+          gateway: 172.31.242.1

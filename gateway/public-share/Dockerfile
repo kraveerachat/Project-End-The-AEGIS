@@ -11,9 +11,16 @@ COPY --chown=101:101 nginx.conf.template /etc/nginx/templates/nginx.conf.templat
 # PUBLIC_SHARE_HOST reaches nginx directive context, so it is validated
 # fail-closed before the template is rendered. The wrapper entrypoint runs the
 # validator first and only then hands over to the stock nginx entrypoint.
+#
+# PUBLIC-SHARE-7 adds the edge trust validator beside it. It validates
+# PUBLIC_SHARE_EDGE_MODE / PUBLIC_SHARE_EDGE_PROXY_CIDR and GENERATES the small
+# nginx include the template loads, so a managed-tunnel connector identity never
+# reaches directive context through envsubst.
 COPY --chown=root:root validate-public-share-host.sh /usr/local/bin/aegis-validate-public-share-host.sh
+COPY --chown=root:root validate-public-share-edge.sh /usr/local/bin/aegis-validate-public-share-edge.sh
 COPY --chown=root:root entrypoint.sh /usr/local/bin/aegis-public-share-entrypoint.sh
 RUN chmod 0555 /usr/local/bin/aegis-validate-public-share-host.sh \
+    && chmod 0555 /usr/local/bin/aegis-validate-public-share-edge.sh \
     && chmod 0555 /usr/local/bin/aegis-public-share-entrypoint.sh
 
 ENV NGINX_ENVSUBST_OUTPUT_DIR=/tmp
