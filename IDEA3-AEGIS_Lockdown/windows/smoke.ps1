@@ -34,8 +34,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $results = [System.Collections.Generic.List[object]]::new()
-$launcher = Join-Path $BundlePath 'AEGIS-IDEA3.exe'
-$bundleNode = Join-Path $BundlePath 'node' 'node.exe'
 $baseUrl = "http://127.0.0.1:$WebPort"
 
 function Add-Result([string]$Check, [bool]$Ok, [string]$Detail = '') {
@@ -52,6 +50,15 @@ function Invoke-Launcher([string[]]$LauncherArgs, [string]$StdIn = $null) {
 
 # ------------------------------------------------------------ preconditions
 if (-not $IsWindows) { throw 'SMOKE FAILED: Windows acceptance must run on Windows' }
+
+# Canonicalise the bundle before anything compares against it. A relative
+# -BundlePath never matches an absolute process path, so the process-origin
+# checks below would report PASS without proving anything.
+if (-not (Test-Path -LiteralPath $BundlePath)) { throw "SMOKE FAILED: -BundlePath not found: $BundlePath" }
+$BundlePath = (Resolve-Path -LiteralPath $BundlePath).ProviderPath
+
+$launcher = Join-Path $BundlePath 'AEGIS-IDEA3.exe'
+$bundleNode = Join-Path $BundlePath 'node' 'node.exe'
 if (-not (Test-Path $launcher)) { throw "SMOKE FAILED: launcher not found at $launcher" }
 if (Test-Path $DataPath) { throw "SMOKE FAILED: -DataPath must not already exist (use a disposable path)" }
 

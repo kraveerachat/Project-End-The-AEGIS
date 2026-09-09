@@ -793,6 +793,74 @@ def test_launcher_module_opens_no_controller_or_actuation_path():
         assert forbidden not in source
 
 
+SMOKE_FILE = WINDOWS / "smoke.ps1"
+
+
+def _bundle_independent_passes(bundle_path, tool_source):
+    """Model of the smoke check `$onPath.Source -notlike "$BundlePath*"`."""
+
+    return not tool_source.startswith(bundle_path)
+
+
+def _survivor_detected(bundle_path, process_path):
+    """Model of the smoke check `$_.Path.StartsWith($BundlePath)`."""
+
+    return process_path.startswith(bundle_path)
+
+
+def test_a_relative_bundle_path_would_make_the_process_origin_checks_vacuous(tmp_path):
+    """The defect this contract exists to prevent, stated as executable evidence."""
+
+    bundle = tmp_path / "AEGIS-IDEA3"
+    (bundle / "node").mkdir(parents=True)
+    tool_inside_bundle = str(bundle / "node" / "node.exe")
+    child_inside_bundle = str(bundle / "AEGIS-IDEA3.exe")
+    relative_bundle = os.path.join(".", "AEGIS-IDEA3")
+
+    # An absolute process path never matches a relative prefix, so a bundle-sourced
+    # toolchain and a surviving bundle child both report PASS without being proven.
+    assert _bundle_independent_passes(relative_bundle, tool_inside_bundle)
+    assert not _survivor_detected(relative_bundle, child_inside_bundle)
+
+    # The canonical absolute path the acceptance boundary must produce instead.
+    resolved_bundle = str(bundle.resolve())
+    assert not _bundle_independent_passes(resolved_bundle, tool_inside_bundle)
+    assert _survivor_detected(resolved_bundle, child_inside_bundle)
+
+
+def test_smoke_script_canonicalises_the_bundle_path_before_every_use():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    resolution = script.index("Resolve-Path -LiteralPath $BundlePath")
+    for use in (
+        "Join-Path $BundlePath 'AEGIS-IDEA3.exe'",
+        "Join-Path $BundlePath 'node' 'node.exe'",
+        '-notlike "$BundlePath*"',
+        ".StartsWith($BundlePath)",
+        "Join-Path $BundlePath '*.sqlite3'",
+    ):
+        assert use in script, use
+        assert script.index(use) > resolution, f"{use} compares an unresolved -BundlePath"
+
+
+def test_smoke_script_fails_loudly_on_an_unresolvable_bundle_path():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    guard = script.index("Test-Path -LiteralPath $BundlePath")
+    assert "SMOKE FAILED: -BundlePath not found" in script
+    assert guard < script.index("Resolve-Path -LiteralPath $BundlePath")
+
+
+def test_smoke_script_keeps_every_precondition_gate():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    assert script.index("Windows acceptance must run on Windows") < script.index(
+        "Resolve-Path -LiteralPath $BundlePath"
+    )
+    assert "SMOKE FAILED: launcher not found at" in script
+    assert "-DataPath must not already exist" in script
+
+
 def test_smoke_script_uses_bundle_binaries_and_never_prints_credentials():
     script = (WINDOWS / "smoke.ps1").read_text(encoding="utf-8")
 

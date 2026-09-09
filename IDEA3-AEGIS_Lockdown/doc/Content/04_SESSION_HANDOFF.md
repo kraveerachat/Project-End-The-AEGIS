@@ -1729,3 +1729,85 @@ On the Windows x64 machine, pull this branch and rerun:
 ```powershell
 .\windows\build.ps1
 ```
+
+## 34. PR8 Task 11 — smoke acceptance boundary: unresolved -BundlePath — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = a37840bd1a383844e8ed6866478d0ff5372dd943
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+### Defect
+
+`windows/smoke.ps1` accepted `-BundlePath` and compared it directly against
+absolute process paths:
+
+```powershell
+$onPath.Source -notlike "$BundlePath*"      # bundle-independent:python|node|npm
+$_.Path.StartsWith($BundlePath)             # no-bundle-child-survives
+```
+
+A relative `-BundlePath` never matches an absolute process path, so both
+process-origin checks would have reported `PASS` without proving anything, and
+`durable-db-outside-payload` would have probed the wrong directory. The failure
+mode was a silent false PASS in acceptance evidence, not a loud error. Found by
+source review on Linux before Windows smoke was ever executed.
+
+`-DataPath` is not affected: `RuntimePaths` already rejects a relative
+`AEGIS_DATA_DIR` with `AEGIS_DATA_DIR must be an absolute path`.
+
+### Fix
+
+`windows/smoke.ps1` canonicalises the bundle at the acceptance boundary, after
+the Windows guard and before `$launcher`, `$bundleNode`, and every comparison:
+
+```powershell
+if (-not (Test-Path -LiteralPath $BundlePath)) { throw "SMOKE FAILED: -BundlePath not found: $BundlePath" }
+$BundlePath = (Resolve-Path -LiteralPath $BundlePath).ProviderPath
+```
+
+A missing or unresolvable bundle now fails loudly instead of degrading. No smoke
+gate was removed, relaxed, or reordered ahead of the `$IsWindows` guard.
+
+### Regression
+
+`tests/test_windows_launcher.py` adds four contracts: an executable
+demonstration that a relative prefix makes both process-origin checks vacuous
+and that the resolved path restores them, an ordering contract requiring every
+`$BundlePath` use to appear after the resolution, a negative-path contract for
+the loud failure, and a gate-preservation contract.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Contract regressions before fix = 3 FAILED (no resolution existed)
+Focused smoke regression        = 5 passed
+Focused Windows tests           = 69 passed
+Full Python suite               = 157 passed
+Ruff check                      = PASS
+compileall                      = PASS
+Web suite                       = 297 passed across 24 files
+Vite production build           = PASS, 1677 modules transformed
+Repository tests                = 56 passed
+Vault validation                = PASS with the two known canvas warnings
+```
+
+PowerShell remains unexecuted here: `pwsh` is still unavailable on the Linux
+development machine, so `smoke.ps1` is asserted only by source contract. That is
+`NOT_RUN_ON_LINUX`, not acceptance.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
