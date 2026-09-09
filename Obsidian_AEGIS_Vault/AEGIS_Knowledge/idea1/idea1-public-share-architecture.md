@@ -3,7 +3,7 @@ title: IDEA1 Public Share Gateway — Architecture and Threat Model
 tags: [aegis, idea1, share-links, architecture, threat-model, public-gateway, security]
 type: concept
 created: 2026-09-07
-updated: 2026-09-09
+updated: 2026-09-10
 sources: ["[[idea1/idea1-status]]", "[[core/security-architecture]]"]
 owner: kla
 edit_policy: owner-writable
@@ -34,6 +34,20 @@ edit_policy: owner-writable
 > 2026-09-09 with T-14/T-27 explicitly acknowledged, but no tunnel, domain, DNS,
 > TLS, connector, firewall or Production configuration exists. G5 and G6 remain
 > OPEN.
+
+> [!important] S5.2 G5-readiness design — delivered, execution still blocked
+> The owner-approved candidate Production topology is now frozen as edge
+> `172.31.240.0/29`, upstream `172.31.241.0/29`, and egress
+> `172.31.242.0/29`, subject to a fresh runtime collision check before network
+> creation. Connector isolation is a host-enforced, backend-neutral,
+> default-deny contract; it is explicitly **not** a `DOCKER-USER`-only design.
+> Exact executable firewall commands remain **BLOCKED / PENDING MEASUREMENT**
+> until an owner-run read-only Production preflight establishes the Docker
+> firewall backend, effective iptables/nftables/UFW hooks and priorities, IPv4
+> forwarding, actual bridge interfaces, and connector DNS path. See
+> `docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md`.
+> Domain ownership and the Cloudflare zone are **NOT VERIFIED**; G5 and G6 stay
+> **OPEN**, and Public Internet Share stays **NOT IMPLEMENTED**.
 
 > [!important] Current G4 decision — approved, not deployed
 > **G4 = APPROVED — §13 Option B / Managed Tunnel.** The site is behind measured
@@ -1317,7 +1331,11 @@ connector sits on an internal, isolated Docker network with no route to Drive,
 PostgreSQL or a private surface. A real `cloudflared` connector needs an outbound
 Internet path, so reproducing "the connector can reach nothing but the gateway"
 in Production is host-firewall and/or VLAN work that source cannot assert. It
-must be designed and reviewed before G5.
+must be designed and reviewed before G5. S5.2 now freezes the exact logical
+topology, trust and probe contract in
+`docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md`; exact
+backend-specific commands remain blocked until the required Production
+preflight measures the real packet-filter and DNS paths.
 
 ---
 
@@ -1496,7 +1514,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal acceptance passed on server hardware; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure 20/20 PASS; S5 external deployment planning started)* | Managed-tunnel trust adapter, pre-exposure acceptance, then owner-gated Production deployment and real external E2E | Delivered adapter/harness plus S5.1 Production freeze and deployment/rollback plan; G4 Option B approved | G5, any actual tunnel/hostname exposure, external acceptance, G6 and UI activation remain open |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure 20/20 PASS; S5.2 readiness design delivered)* | Managed-tunnel trust adapter, pre-exposure acceptance, then owner-gated Production deployment and real external E2E | Delivered adapter/harness, S5.1 Production freeze, and S5.2 candidate topology/trust/isolation design; G4 Option B approved | Production preflight and executable firewall rules, domain/zone proof, G5, actual tunnel/hostname exposure, external acceptance, G6 and UI activation remain open |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
