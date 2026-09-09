@@ -13,9 +13,16 @@
 ## Global Constraints
 
 - Task: `PUBLIC-SHARE-7 External Deployment & Acceptance`.
-- Branch: `feat/idea1-public-share-external-deployment` from `d32885b36c08c71dc5719109de12ed8ac8f6589e`.
-- One task, one branch, one Draft PR, multiple S5 sessions, exactly one final immutable receipt at S5.12.
+- S5.1 was published on `feat/idea1-public-share-external-deployment` and merged
+  through PR #111 at `618543ee0d88613a651305962b5ed64c8593c2e5`.
+- S5.2 is a separately governed documentation task on
+  `docs/idea1-public-share-g5-readiness` from that exact merge SHA, with one
+  branch, one Draft PR, and one final immutable S5.2 receipt. This supersedes
+  the earlier assumption that every S5 session would remain in PR #111. Do not
+  create a retroactive S5.1 receipt; PR #111's receipt-less Draft lifecycle was
+  accepted under the governance transition then in force.
 - S5.1 is documentation/planning only: `PRODUCTION MUTATION ALLOWED = NO`.
+- S5.2 is documentation/design only: `PRODUCTION MUTATION ALLOWED = NO`.
 - G4 is approved for Option B / Managed Tunnel; G5 and G6 remain open.
 - G5 is the only gate that authorises an actual public hostname/tunnel route.
 - `PUBLIC_SHARE_UI_ENABLED=false` until G6; UI activation is last.
@@ -165,37 +172,57 @@ Do not echo passwords or environment variables. Stop immediately on non-zero exi
 
 ## 6. Production network topology and connector-isolation gate
 
-Target membership:
+S5.2 freezes the following candidate Production membership, subject to the
+required fresh runtime collision check:
 
 ```text
-cloudflared
-  ├─ aegis_public_share_egress   # connector only; outbound path
-  └─ aegis_public_share_edge     # connector + gateway only
-gateway
-  ├─ aegis_public_share_edge
-  └─ aegis_public_share_upstream # gateway + Drive only
-Drive
-  └─ aegis_public_share_upstream
+edge       172.31.240.0/29  Gateway .2 + cloudflared .3
+upstream   172.31.241.0/29  Gateway .2 + Drive .3
+egress     172.31.242.0/29  cloudflared .2 only
 ```
 
-`aegis_public_share_edge` and `aegis_public_share_upstream` must be `internal: true` with isolated bridge gateway mode, have no host-published port, and contain exactly the named two members. The gateway never joins `aegis_internal`, `aegis_drive_proxy`, the Monitor network, or the connector's egress network.
+Edge and upstream must be `internal: true`, use
+`gateway_mode_ipv4=isolated`, publish no host ports, and contain exactly the
+two named members. Egress is a dedicated NAT bridge with stable reviewed bridge
+identity `aegis-ps-eg`, no inbound published ports, and cloudflared as its only
+container. The gateway never joins an existing AEGIS private network or egress;
+the connector never joins upstream or any private AEGIS network. Drive retains
+its required existing private Production memberships.
 
-The egress network is an unresolved Production security design, not inherited from the harness. S5.2 must review one exact implementation before S5.5:
+Drive trusts only HUB `172.19.255.2/32` and Gateway
+`172.31.241.2/32`. Gateway trusts only connector `172.31.240.3/32`.
+Cloudflare/provider CIDRs are forbidden from Drive trust.
 
-1. **Preferred minimal-host design:** connector-only Docker bridge plus explicit host firewall/`DOCKER-USER` or nftables policy that permits required Cloudflare Tunnel egress/DNS and denies host, RFC1918, link-local, Docker private bridges and AEGIS listeners.
-2. **Stronger infrastructure design:** dedicated connector VLAN/namespace with equivalent egress allow/deny policy and no route to private AEGIS networks.
+The connector egress design is host-enforced, fail-closed, and matched to the
+actually measured Docker firewall backend. It is **not** a
+`DOCKER-USER`-only design. TCP and UDP 7844 to the current official Cloudflare
+Tunnel endpoints are the required provider path; TCP 443 remains denied unless
+a separately reviewed optional feature proves it is required. Exact executable
+iptables/nftables/UFW commands are **BLOCKED / PENDING MEASUREMENT** until the
+owner-run read-only preflight establishes backend, hooks/priorities, UFW
+integration, forwarding, bridge interfaces, and DNS resolver path.
 
-Whichever design the owner accepts must include commands, interface/container identity, rule order, persistence mechanism and exact rollback. UFW's current routed-deny policy is not assumed to police Docker forwarding.
+The complete S5.2 contract—including rule order, persistence, positive/negative
+probes, preflight, allowlist freshness requirement, mutation boundaries and
+rollback—is frozen in
+`docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md`.
 
 Required proof before G5:
 
-- connector resolves and reaches required Cloudflare endpoints on the approved outbound ports;
+- connector resolves through the measured approved DNS path and reaches only
+  current required Cloudflare endpoints over TCP/UDP 7844;
 - connector reaches the gateway listener on the edge network;
 - connector cannot directly reach Drive, PostgreSQL, HUB, Monitor, host-private listeners, Docker bridge gateways or Twingate resources;
 - gateway reaches only Drive on its upstream network;
 - Drive sees only the gateway as ingress provenance and the provider-asserted recipient as client source;
 - Drive trusts only HUB `/32` plus gateway `/32`; no provider CIDR is present;
 - no host port or inbound NAT/firewall rule exists.
+
+Additionally, connector→Drive/PostgreSQL/HUB/Monitor/host-private/private
+Docker or LAN ranges, Gateway→Internet, and Gateway→any private service except
+Drive must all be denied. TCP 443 is a negative control. A wider Drive proxy
+trust, a provider CIDR in Drive trust, or a public listener before G5 fails the
+gate.
 
 Any unexpected reachable private address is a failed gate. Do not add exceptions to make the test pass.
 
@@ -315,10 +342,25 @@ Rollback never runs whole-stack `down`, never uses `-v`, never prunes, and never
 - [x] Freeze owner-supplied Production evidence without host access.
 - [x] Write deployment, rollback, mutation, G5 and dependency boundaries.
 - [x] Run governance/vault/diff validation, create implementation/evidence checkpoint `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`, open Draft PR #111, bind the checkpoint in the Session Register, and reach the S5.1 publication stop point without creating the task's final receipt.
+- [x] PR #111 merged at
+  `618543ee0d88613a651305962b5ed64c8593c2e5`. No retroactive S5.1 receipt is
+  created; this is retained as the historical governance-transition outcome.
 
 ### S5.2–S5.12
 
-Each later session begins only after reviewing the prior checkpoint and obtaining the explicit mutation/gate authority named above. Every session records exact source SHA, environment, commands, pass/fail/skip counts, cleanup, limitations and next action in the same canonical Current Task/Session Register. No session creates a receipt; S5.12 creates the task's one final receipt.
+Each later session begins only after reviewing the prior checkpoint and
+obtaining the explicit mutation/gate authority named above. S5.2 is a separate
+documentation task/branch/PR under the current repository workflow and creates
+exactly one final S5.2 receipt at handoff. Future mutation sessions must follow
+the same one-task/one-branch/one-PR/one-final-receipt rule unless the owner
+defines an already-compliant task boundary. Every session records exact source
+SHA, environment, commands, pass/fail/skip counts, cleanup, limitations and
+next action in the canonical Current Task/Session Register.
+
+S5.2 freezes the logical G5-readiness design in
+`docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md` while
+truthfully leaving executable firewall commands and G5 blocked pending the
+owner-run Production preflight.
 
 ## 14. S5.1 verification and stop point
 
@@ -333,4 +375,6 @@ git diff --check origin/main...HEAD
 
 Run the collaboration-policy validator against the actual Draft PR body and exact changed-file list. S5.1 discovered and repaired a stale guardrail assumption before closure. The validator now implements the merged GOV-1 lifecycle generically: a Draft multi-session PR may have zero final receipts while its task is in progress, validates one final receipt fully when present, rejects more than one, and requires exactly one before Ready/non-Draft review. Receipt-less Draft work still must satisfy branch, area, owner, verification, cross-scope declaration, integration-review, and historical-receipt immutability checks. Do not create the final receipt before task closeout.
 
-S5.1 stops after its documentation checkpoint, normal push, Draft PR creation and CI observation. It does not begin S5.2, request G5, access the Beelink, or mutate Production.
+S5.1 stopped after its documentation checkpoint, normal push, Draft PR creation
+and CI observation; PR #111 merged. S5.2 does not request G5, access the
+Beelink, or mutate Production.
