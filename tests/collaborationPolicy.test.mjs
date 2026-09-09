@@ -84,13 +84,14 @@ ${integrationRequests}
 function runPolicy({
   body = validBody(),
   branch = 'feat/idea1-policy-test',
+  draft = false,
   changes,
   receiptContent,
 }) {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'aegis-policy-'));
   const eventPath = join(fixtureDir, 'event.json');
   const changedFilesPath = join(fixtureDir, 'changed-files.txt');
-  writeFileSync(eventPath, JSON.stringify({ pull_request: { body, head: { ref: branch } } }));
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { body, draft, head: { ref: branch } } }));
   writeFileSync(changedFilesPath, changes);
 
   const policy = Object.fromEntries(
@@ -154,6 +155,57 @@ test('rejects a task pull request without exactly one new Obsidian receipt', () 
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.match(result.stderr, /exactly one new Obsidian task receipt/i);
+});
+
+test('accepts a Draft task Pull Request with receipt deferred until final task closeout', () => {
+  const body = validBody().replace(
+    /## Obsidian receipt[\s\S]*?(?=## Canonical notes updated)/,
+    '## Obsidian receipt\n\nNo receipt is created yet. Receipt deferred until final task closeout.\n\n',
+  );
+  const result = runPolicy({
+    body,
+    draft: true,
+    changes: 'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
+});
+
+test('rejects a Draft task Pull Request without a receipt or an explicit deferral declaration', () => {
+  const body = validBody().replace(
+    /## Obsidian receipt[\s\S]*?(?=## Canonical notes updated)/,
+    '## Obsidian receipt\n\nPending.\n\n',
+  );
+  const result = runPolicy({
+    body,
+    draft: true,
+    changes: 'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /receipt is pending\/deferred until final task closeout/i);
+});
+
+test('accepts a declared cross-scope Draft Pull Request while its final receipt is deferred', () => {
+  const body = validBody({
+    integrationReview: 'yes',
+    sharedSurfaces: '- `gateway/nginx.conf` — route required by IDEA1.',
+  }).replace(
+    /## Obsidian receipt[\s\S]*?(?=## Canonical notes updated)/,
+    '## Obsidian receipt\n\nNo receipt is created yet. Final task closeout will create the one immutable receipt.\n\n',
+  );
+  const result = runPolicy({
+    body,
+    draft: true,
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'M\tgateway/nginx.conf',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
 });
 
 test('rejects cross-scope changes that are not declared for integration review', () => {
