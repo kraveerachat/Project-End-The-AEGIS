@@ -61,8 +61,11 @@ if ($actualNodeHash -ne $expectedNodeHash) {
 # ---------------------------------------------------------------- stage 4
 Write-Stage 'Run source verification'
 if (-not $SkipTests) {
-    & python -m pytest -p no:cacheprovider -q
-    if ($LASTEXITCODE -ne 0) { Fail 'Python tests failed' }
+    Push-Location $ProjectRoot
+    try {
+        & python -m pytest -p no:cacheprovider -q
+        if ($LASTEXITCODE -ne 0) { Fail 'Python tests failed' }
+    } finally { Pop-Location }
 
     Push-Location $WebDir
     try {

@@ -1644,3 +1644,88 @@ pip install -r windows\requirements-build.txt
 
 Only after both pass may `WINDOWS_BUILD_VERIFIED` and `WINDOWS_SMOKE_VERIFIED`
 become `YES` and PR8 move from PARTIAL toward closure.
+
+## 33. PR8 Task 11 — Windows build defect 2: PyInstaller spec working-directory dependency — 2026-09-09
+
+```text
+BRANCH  = feat/idea3-windows-standalone-pr8
+BASE_OF_REPORT = 267add43b996877cf75e44ae96773858397acd7c
+STATUS  = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+### Reported real-Windows evidence (operator run, not reproduced on Linux)
+
+On Windows x64 with PowerShell 7.6.5, Python 3.14.6, pytest 9.1.1 and
+PyInstaller 6.22.2, `.\windows\build.ps1` passed stages 1-5 — Python 148 passed,
+Web 297 passed, Vite production build PASS with 1677 modules — and then failed
+in stage 6:
+
+```text
+==> Build launcher executable
+ERROR: script 'C:\Users\puppu\Project-End-The-AEGIS\windows\launcher_main.py' not found
+BUILD FAILED: pyinstaller failed
+```
+
+The launcher exists at
+`Project-End-The-AEGIS\IDEA3-AEGIS_Lockdown\windows\launcher_main.py`.
+
+### Root cause
+
+`windows/build.ps1` anchored correctly on `$PSScriptRoot`, but
+`windows/aegis-idea3.spec` independently derived
+`project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))`. PyInstaller 6
+executes a spec file without changing the process working directory, so the spec
+resolved one directory level above the caller instead of above the spec. Invoked
+from the module root, `'..'` became the repository root and the launcher path did
+not exist. Stage 4 had the same latent dependency: `python -m pytest` ran in the
+caller directory rather than the module root.
+
+### Fix
+
+- `windows/aegis-idea3.spec` now anchors on `SPECPATH`, the spec directory that
+  PyInstaller injects into the spec namespace, so the launcher script and the
+  `pathex` entry for the IDEA3 Python package are resolved from the source layout
+  and never from the caller. One-folder `EXE` + `COLLECT` architecture, hidden
+  imports, and exclusions are unchanged.
+- `windows/build.ps1` runs stage 4 Python verification inside
+  `Push-Location $ProjectRoot` / `Pop-Location`, matching the existing Web stage.
+- `tests/test_windows_launcher.py` gains an executable contract: the spec is run
+  with stub PyInstaller classes from the module root, the repository root, and an
+  unrelated directory, and every run must select
+  `windows/launcher_main.py` and a `pathex` containing the module root.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Regression before fix   = FAIL (repository-root run resolved <parent>/windows/launcher_main.py)
+Regression after fix    = 5 passed
+Focused Windows tests   = 65 passed (test_windows_launcher, test_paths, test_platform_lock)
+Full Python suite       = 153 passed
+Ruff check              = PASS
+Web suite               = 297 passed across 24 files
+Vite production build   = PASS, 1677 modules transformed
+Repository tests        = 56 passed
+Vault validation        = PASS with the two known unchanged canvas warnings
+Real PyInstaller 6.22.2 = one-folder bundle built from the repository root CWD
+                          on Linux; aegis_soc.windows_launcher, paths and
+                          platform_lock collected
+```
+
+The Linux PyInstaller run is a path-contract check only. It is not a Windows
+artifact and is not Windows acceptance.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next command
+
+On the Windows x64 machine, pull this branch and rerun:
+
+```powershell
+.\windows\build.ps1
+```

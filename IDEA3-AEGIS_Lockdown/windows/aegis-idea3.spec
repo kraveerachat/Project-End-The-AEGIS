@@ -8,10 +8,15 @@
 
 import os
 
-project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
+# PyInstaller executes this file with SPECPATH bound to the directory that holds
+# the spec, and it never changes the process working directory. Anchoring on the
+# spec location keeps the packaged sources identical no matter which directory
+# build.ps1 was invoked from.
+windows_dir = os.path.abspath(SPECPATH)
+project_root = os.path.abspath(os.path.join(windows_dir, os.pardir))
 
 analysis = Analysis(
-    [os.path.join(project_root, 'windows', 'launcher_main.py')],
+    [os.path.join(windows_dir, 'launcher_main.py')],
     pathex=[project_root],
     binaries=[],
     datas=[],

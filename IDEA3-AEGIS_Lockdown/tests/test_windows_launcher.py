@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -605,6 +606,106 @@ def test_spec_is_onedir_and_excludes_secret_runtime_inputs():
     assert "name='AEGIS-IDEA3'" in spec
     assert ".env" not in spec
     assert "*.sqlite" not in spec
+
+
+SPEC_FILE = WINDOWS / "aegis-idea3.spec"
+MODULE_ROOT = WINDOWS.parent
+
+
+class _StubAnalysis:
+    """Records the source arguments the spec hands to PyInstaller."""
+
+    def __init__(self, scripts, **options):
+        self.requested_scripts = list(scripts)
+        self.requested_options = options
+        self.pure = ()
+        self.zipped_data = ()
+        self.scripts = ()
+        self.binaries = ()
+        self.zipfiles = ()
+        self.datas = ()
+
+
+def _execute_spec_from(working_directory):
+    """Execute the spec the way PyInstaller 6 does, from an arbitrary directory.
+
+    PyInstaller injects SPEC/SPECPATH into the spec namespace and never changes
+    the process working directory, so the caller's directory must not influence
+    which sources are packaged.
+    """
+
+    recorded = {}
+
+    def _record(name):
+        def factory(*args, **options):
+            recorded.setdefault(name, []).append((args, options))
+            return object()
+
+        return factory
+
+    def _analysis(scripts, **options):
+        analysis = _StubAnalysis(scripts, **options)
+        recorded["analysis"] = analysis
+        return analysis
+
+    namespace = {
+        "Analysis": _analysis,
+        "PYZ": _record("PYZ"),
+        "EXE": _record("EXE"),
+        "COLLECT": _record("COLLECT"),
+        "SPEC": str(SPEC_FILE),
+        "SPECPATH": str(SPEC_FILE.parent),
+        "DISTPATH": str(Path(working_directory) / "dist"),
+        "workpath": str(Path(working_directory) / "build"),
+        "os": os,
+    }
+
+    previous = Path.cwd()
+    os.chdir(working_directory)
+    try:
+        exec(  # noqa: S102 - the spec is repository source, executed exactly as PyInstaller does
+            compile(SPEC_FILE.read_text(encoding="utf-8"), str(SPEC_FILE), "exec"),
+            namespace,
+        )
+    finally:
+        os.chdir(previous)
+    return recorded
+
+
+@pytest.mark.parametrize(
+    "caller",
+    ["module_root", "repository_root", "unrelated_directory"],
+)
+def test_spec_resolves_bundle_sources_independently_of_the_caller_directory(tmp_path, caller):
+    working_directory = {
+        "module_root": MODULE_ROOT,
+        "repository_root": MODULE_ROOT.parent,
+        "unrelated_directory": tmp_path,
+    }[caller]
+
+    recorded = _execute_spec_from(working_directory)
+
+    analysis = recorded["analysis"]
+    launcher = WINDOWS / "launcher_main.py"
+    assert launcher.is_file()
+    assert [Path(script) for script in analysis.requested_scripts] == [launcher]
+    search_path = [Path(entry) for entry in analysis.requested_options["pathex"]]
+    assert MODULE_ROOT in search_path
+    assert (MODULE_ROOT / "aegis_soc" / "__init__.py").is_file()
+    assert recorded["COLLECT"], "the one-folder bundle must still be collected"
+
+
+def test_spec_never_anchors_sources_on_the_process_working_directory():
+    spec = SPEC_FILE.read_text(encoding="utf-8")
+
+    assert "os.getcwd()" not in spec
+    assert "SPECPATH" in spec
+
+
+def test_build_script_runs_source_verification_from_the_module_root():
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    assert "Push-Location $ProjectRoot" in script
 
 
 def test_build_script_verifies_node_hash_and_refuses_a_dirty_source_tree():
