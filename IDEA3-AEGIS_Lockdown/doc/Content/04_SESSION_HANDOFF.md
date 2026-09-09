@@ -1811,3 +1811,137 @@ PLAN_TASK_11 = BLOCKED
 .\windows\build.ps1
 .\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
 ```
+
+## 35. PR8 Task 11 — real Windows smoke: launcher lifecycle contract repaired — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = d4e51cde00be16a896f71b68dfacc4dcea591c8a
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+Windows build was VERIFIED PASS on `d4e51cde` (artifact
+`7904c6f76e7277fca74a4cdd536893bb52a5470cffa18a00530f03f8b6fb17a6`). Real
+Windows smoke then failed at `configure-succeeds`, and aborted before the
+evidence stage because `<DataPath>\config\.env` was never created.
+
+### Root cause — not the reported suspicion
+
+`configure` did not fail in `getpass`. Every launcher command crashed in
+`_settings()`:
+
+```text
+AttributeError: type object 'RuntimePaths' has no attribute 'resolve'
+```
+
+`RuntimePaths` only ever exposed `from_environment()`, which `runtime.py`,
+`config.py` and `tests/test_paths.py` all use. `windows/launcher_main.py` was the
+only caller of a method that has never existed, and no test imported the entry
+point, so the Linux suites never touched the line. Reproduced by direct
+execution on Linux: `doctor` and `status` both exit 1 with that traceback.
+
+This also explains the smoke transcript. The checks that "passed" before
+`configure-succeeds` only asserted a non-zero exit or absent output, so a
+crashing launcher satisfied them vacuously. `configure-succeeds` was the single
+check that required exit 0, so it was the only one that could expose the defect.
+
+### Every defect found and fixed in this pass
+
+1. **`RuntimePaths.resolve()` does not exist** — every command crashed. Now uses
+   `RuntimePaths.from_environment()`.
+2. **`application_root` anchored on `sys._MEIPASS`** — PyInstaller 6 puts that at
+   `_internal`, while `build.ps1` stages `node/`, `server/` and `web/` beside the
+   executable. Every bundled component was unreachable. Now uses the existing
+   `aegis_soc.paths.application_root()`, which returns the executable's directory
+   when frozen. Verified against a real frozen one-folder build.
+3. **`start` and `stop` were documented but never implemented** — `windows/README.md`
+   lists both and `smoke.ps1` invokes both, but `build_parser()` exposed neither, so
+   argparse rejected them. Added `start_command` (runs `LauncherRuntime`) and
+   `stop_command` (loopback POST to `/v1/stop` with the runtime-issued control
+   token; no process is signalled or killed).
+4. **The frozen Core child could not start, for three independent reasons** —
+   `core_command(frozen=True)` re-invokes the executable as `AEGIS-IDEA3.exe core`,
+   but there was no such entry point; `aegis_soc.supervisor` was not packaged at
+   all; and the spec excluded `paho`, which the supervisor imports at module import
+   time. The entry point now forwards its argv to the supervisor untouched, and the
+   spec packages the supervisor and its transport.
+5. **`configure` could not read a piped credential on Windows** — CPython's
+   `win_getpass` calls `msvcrt.getwch()`, which reads the console and never sees a
+   redirected pipe. Credentials are now read from stdin when it is not a terminal;
+   an interactive console still gets hidden entry. This defect was never reached on
+   Windows because of defect 1, and cannot be reproduced on Linux because
+   `unix_getpass` falls back to reading stdin.
+6. **`config-integration-tokens-blank` was a dead gate** — PowerShell `-match` is
+   single-line, so `'...TOKEN=\s*$'` could never match a blank value in the middle
+   of the file. Proven False against the real generated configuration; the
+   multiline-anchored form is True for blank and False for a configured token, and
+   now covers IDEA1 and IDEA2.
+7. **An aborted smoke run wrote no evidence** — the body is now wrapped so the
+   evidence stage always runs, `$auditBefore`/`$auditAfter`/`$password` are declared
+   before the run (proven necessary: under `Set-StrictMode` the evidence stage
+   itself throws otherwise), the abort reason is recorded with the generated
+   password redacted, and an aborted run records a failing check so it can never
+   read as PASS.
+8. **A frozen executable answered operators with a stack trace** — invalid settings
+   now print `launcher: INVALID_SETTINGS (...)` and return 2.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Full Python suite        = 182 passed
+Ruff check               = PASS
+compileall               = PASS
+Web suite                = 297 passed across 24 files
+Vite production build    = PASS, 1677 modules transformed
+Repository tests         = 56 passed
+Vault validation         = PASS with the two known canvas warnings
+PowerShell 7.4.6 parser  = smoke.ps1 PARSE OK, build.ps1 PARSE OK
+```
+
+PowerShell is no longer entirely unexecuted on Linux: a 7.4.6 runtime was used to
+parse both scripts and to drive the launcher over a real pipeline. It is still not
+Windows, and none of it is acceptance.
+
+### Frozen-bundle evidence produced on Linux
+
+A real PyInstaller 6.22.2 one-folder build was exercised with the payload staged
+the way `build.ps1` stages it:
+
+```text
+doctor (unconfigured)                    = exit 1, config MISSING, payload OK
+configure over a real PowerShell pipe    = exit 0, external .env written
+bcrypt cost-12 hash in the configuration = present, no plaintext password
+password in launcher output              = absent
+doctor (configured)                      = exit 0
+status (stopped) / stop (not running)    = non-zero, NOT_RUNNING
+frozen Core child                        = runs; writes runtime/status.json,
+                                           supervisor.lock, aegis-events.jsonl
+Core status honesty                      = broker UNKNOWN, device UNKNOWN,
+                                           uplink UNKNOWN, dry_run true
+```
+
+None of this is a Windows artifact and none of it is Windows acceptance.
+
+### Bundle composition change to review
+
+The bundle now contains `paho` and the Core supervisor, because the frozen
+executable is also the Core child and the supervisor imports its transport at
+module import time. Broker settings stay blank in the generated configuration, so
+no actuation path is configured, dry-run remains on, and absent hardware still
+reports `UNKNOWN`. If a Web-only bundle was intended instead, this is the decision
+to revisit.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO   (must be rerun on the new SHA)
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```

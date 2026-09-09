@@ -36,6 +36,12 @@ $ErrorActionPreference = 'Stop'
 $results = [System.Collections.Generic.List[object]]::new()
 $baseUrl = "http://127.0.0.1:$WebPort"
 
+# Declared before the run so an aborted candidate can still write its evidence
+# under Set-StrictMode instead of failing again inside the evidence stage.
+$password = ''
+$auditBefore = -1
+$auditAfter = -1
+
 function Add-Result([string]$Check, [bool]$Ok, [string]$Detail = '') {
     $results.Add([ordered]@{ check = $Check; result = $(if ($Ok) { 'PASS' } else { 'FAIL' }); detail = $Detail })
     $colour = if ($Ok) { 'Green' } else { 'Red' }
@@ -65,108 +71,121 @@ if (Test-Path $DataPath) { throw "SMOKE FAILED: -DataPath must not already exist
 $env:AEGIS_DATA_DIR = $DataPath
 New-Item -ItemType Directory -Force -Path $DataPath | Out-Null
 
-# The bundle must be self-contained: a developer toolchain on PATH must not be
-# what makes this pass.
-foreach ($tool in @('python', 'node', 'npm')) {
-    $onPath = Get-Command $tool -ErrorAction SilentlyContinue
-    Add-Result "bundle-independent:$tool" ($null -eq $onPath -or $onPath.Source -notlike "$BundlePath*") `
-        'bundle must not depend on a PATH toolchain'
-}
-Add-Result 'bundle-node-present' (Test-Path $bundleNode) $bundleNode
-
-# ------------------------------------------------------------ doctor + configure
-$doctor = Invoke-Launcher @('doctor')
-Add-Result 'doctor-reports-missing-config' ($doctor.ExitCode -ne 0) 'unconfigured install must fail closed'
-
-$password = [System.Guid]::NewGuid().ToString('N') + 'Aa1!'
-$configure = Invoke-Launcher @('configure', '--username', $AdminUser) "$password`n$password`n"
-Add-Result 'configure-succeeds' ($configure.ExitCode -eq 0) ''
-Add-Result 'configure-hides-password' ($configure.Output -notmatch [regex]::Escape($password)) 'password must never be echoed'
-
-$configFile = Join-Path $DataPath 'config' '.env'
-$configText = Get-Content $configFile -Raw
-Add-Result 'config-has-no-plaintext-password' ($configText -notmatch [regex]::Escape($password)) ''
-Add-Result 'config-integration-tokens-blank' ($configText -match 'AEGIS_IDEA1_INTEGRATION_TOKEN=\s*$') 'absent feeds stay unconfigured'
-
-$doctorAfter = Invoke-Launcher @('doctor')
-Add-Result 'doctor-passes-after-configure' ($doctorAfter.ExitCode -eq 0) ''
-
-# ------------------------------------------------------------ start + health
-$startJob = Start-Process -FilePath $launcher -ArgumentList 'start' -PassThru
-$healthy = $false
-foreach ($attempt in 1..60) {
-    try {
-        $health = Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2
-        if ($health) { $healthy = $true; break }
-    } catch { Start-Sleep -Seconds 1 }
-}
-Add-Result 'web-becomes-healthy' $healthy $baseUrl
-$status = Invoke-Launcher @('status')
-Add-Result 'status-reports-running' ($status.ExitCode -eq 0) ''
-
-# ------------------------------------------------------------ login / logout
-$session = $null
-$loginOk = $false
+# Every acceptance result below is recorded even if a step aborts the run, so a
+# failed candidate still produces evidence. No secret is ever written out.
 try {
-    $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
-    $login = Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
-        -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session
-    $loginOk = $login.StatusCode -eq 200
-} catch { $loginOk = $false }
-Add-Result 'admin-login-succeeds' $loginOk ''
+    # The bundle must be self-contained: a developer toolchain on PATH must not be
+    # what makes this pass.
+    foreach ($tool in @('python', 'node', 'npm')) {
+        $onPath = Get-Command $tool -ErrorAction SilentlyContinue
+        Add-Result "bundle-independent:$tool" ($null -eq $onPath -or $onPath.Source -notlike "$BundlePath*") `
+            'bundle must not depend on a PATH toolchain'
+    }
+    Add-Result 'bundle-node-present' (Test-Path $bundleNode) $bundleNode
 
-$auditBefore = -1
-if ($loginOk) {
-    $audit = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session
-    $auditBefore = @($audit.audit).Count
-    Add-Result 'audit-readable' ($auditBefore -ge 1) "rows=$auditBefore"
+    # ------------------------------------------------------------ doctor + configure
+    $doctor = Invoke-Launcher @('doctor')
+    Add-Result 'doctor-reports-missing-config' ($doctor.ExitCode -ne 0) 'unconfigured install must fail closed'
 
-    $snapshot = Invoke-RestMethod -Uri "$baseUrl/api/security/snapshot" -WebSession $session
-    $idea1 = ($snapshot.sources | Where-Object { $_.id -eq 'idea1' }).status
-    $idea2 = ($snapshot.sources | Where-Object { $_.id -eq 'idea2' }).status
-    Add-Result 'idea1-absent-is-honest' ($idea1 -in @('NOT_CONFIGURED', 'UNKNOWN')) "idea1=$idea1"
-    Add-Result 'idea2-absent-is-honest' ($idea2 -in @('NOT_CONFIGURED', 'UNKNOWN')) "idea2=$idea2"
-    Add-Result 'hardware-absent-is-honest' ($snapshot.runtime.status -in @('UNKNOWN', 'NOT_CONFIGURED')) `
-        "runtime=$($snapshot.runtime.status)"
+    $password = [System.Guid]::NewGuid().ToString('N') + 'Aa1!'
+    $configure = Invoke-Launcher @('configure', '--username', $AdminUser) "$password`n$password`n"
+    Add-Result 'configure-succeeds' ($configure.ExitCode -eq 0) ''
+    Add-Result 'configure-hides-password' ($configure.Output -notmatch [regex]::Escape($password)) 'password must never be echoed'
 
-    Invoke-WebRequest -Uri "$baseUrl/api/auth/logout" -Method Post -WebSession $session `
-        -Headers @{ Origin = $baseUrl } | Out-Null
-    Add-Result 'admin-logout-succeeds' $true ''
-}
+    $configFile = Join-Path $DataPath 'config' '.env'
+    $configText = Get-Content $configFile -Raw
+    Add-Result 'config-has-no-plaintext-password' ($configText -notmatch [regex]::Escape($password)) ''
+    # (?m) is required: PowerShell -match is single-line, so an unanchored `$`
+    # only matches the end of the whole file and the check could never pass.
+    $blankToken = '(?m)^AEGIS_IDEA{0}_INTEGRATION_TOKEN=[ \t]*\r?$'
+    Add-Result 'config-integration-tokens-blank' `
+        (($configText -match ($blankToken -f 1)) -and ($configText -match ($blankToken -f 2))) `
+        'absent feeds stay unconfigured'
 
-# ------------------------------------------------------------ stop / restart
-Invoke-Launcher @('stop') | Out-Null
-Start-Sleep -Seconds 3
-$stopped = Invoke-Launcher @('status')
-Add-Result 'status-nonzero-after-stop' ($stopped.ExitCode -ne 0) ''
+    $doctorAfter = Invoke-Launcher @('doctor')
+    Add-Result 'doctor-passes-after-configure' ($doctorAfter.ExitCode -eq 0) ''
 
-Start-Process -FilePath $launcher -ArgumentList 'start' -PassThru | Out-Null
-$restarted = $false
-foreach ($attempt in 1..60) {
+    # ------------------------------------------------------------ start + health
+    $startJob = Start-Process -FilePath $launcher -ArgumentList 'start' -PassThru
+    $healthy = $false
+    foreach ($attempt in 1..60) {
+        try {
+            $health = Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2
+            if ($health) { $healthy = $true; break }
+        } catch { Start-Sleep -Seconds 1 }
+    }
+    Add-Result 'web-becomes-healthy' $healthy $baseUrl
+    $status = Invoke-Launcher @('status')
+    Add-Result 'status-reports-running' ($status.ExitCode -eq 0) ''
+
+    # ------------------------------------------------------------ login / logout
+    $session = $null
+    $loginOk = $false
     try {
-        if (Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2) { $restarted = $true; break }
-    } catch { Start-Sleep -Seconds 1 }
+        $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
+        $login = Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
+            -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session
+        $loginOk = $login.StatusCode -eq 200
+    } catch { $loginOk = $false }
+    Add-Result 'admin-login-succeeds' $loginOk ''
+
+    if ($loginOk) {
+        $audit = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session
+        $auditBefore = @($audit.audit).Count
+        Add-Result 'audit-readable' ($auditBefore -ge 1) "rows=$auditBefore"
+
+        $snapshot = Invoke-RestMethod -Uri "$baseUrl/api/security/snapshot" -WebSession $session
+        $idea1 = ($snapshot.sources | Where-Object { $_.id -eq 'idea1' }).status
+        $idea2 = ($snapshot.sources | Where-Object { $_.id -eq 'idea2' }).status
+        Add-Result 'idea1-absent-is-honest' ($idea1 -in @('NOT_CONFIGURED', 'UNKNOWN')) "idea1=$idea1"
+        Add-Result 'idea2-absent-is-honest' ($idea2 -in @('NOT_CONFIGURED', 'UNKNOWN')) "idea2=$idea2"
+        Add-Result 'hardware-absent-is-honest' ($snapshot.runtime.status -in @('UNKNOWN', 'NOT_CONFIGURED')) `
+            "runtime=$($snapshot.runtime.status)"
+
+        Invoke-WebRequest -Uri "$baseUrl/api/auth/logout" -Method Post -WebSession $session `
+            -Headers @{ Origin = $baseUrl } | Out-Null
+        Add-Result 'admin-logout-succeeds' $true ''
+    }
+
+    # ------------------------------------------------------------ stop / restart
+    Invoke-Launcher @('stop') | Out-Null
+    Start-Sleep -Seconds 3
+    $stopped = Invoke-Launcher @('status')
+    Add-Result 'status-nonzero-after-stop' ($stopped.ExitCode -ne 0) ''
+
+    Start-Process -FilePath $launcher -ArgumentList 'start' -PassThru | Out-Null
+    $restarted = $false
+    foreach ($attempt in 1..60) {
+        try {
+            if (Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2) { $restarted = $true; break }
+        } catch { Start-Sleep -Seconds 1 }
+    }
+    Add-Result 'web-healthy-after-restart' $restarted ''
+
+    if ($restarted) {
+        $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
+        Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
+            -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session2 | Out-Null
+        $audit2 = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session2
+        $auditAfter = @($audit2.audit).Count
+        Add-Result 'audit-survives-restart' ($auditAfter -ge $auditBefore) "before=$auditBefore after=$auditAfter"
+    }
+
+    # ------------------------------------------------------------ final stop
+    Invoke-Launcher @('stop') | Out-Null
+    Start-Sleep -Seconds 3
+    $survivors = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($BundlePath) }
+    Add-Result 'no-bundle-child-survives' ($null -eq $survivors -or @($survivors).Count -eq 0) ''
+
+    $dbPresent = (Get-ChildItem -Path $DataPath -Recurse -Filter '*.sqlite3' -ErrorAction SilentlyContinue).Count -gt 0
+    Add-Result 'durable-db-outside-payload' ($dbPresent -and -not (Test-Path (Join-Path $BundlePath '*.sqlite3'))) $DataPath
+
+    Add-Result 'smoke-run-completed' $true 'all acceptance steps ran'
+} catch {
+    $message = $_.Exception.Message
+    if ($password) { $message = $message.Replace($password, '<redacted>') }
+    Add-Result 'smoke-run-completed' $false "aborted: $message"
 }
-Add-Result 'web-healthy-after-restart' $restarted ''
-
-$auditAfter = -1
-if ($restarted) {
-    $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
-    Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
-        -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session2 | Out-Null
-    $audit2 = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session2
-    $auditAfter = @($audit2.audit).Count
-    Add-Result 'audit-survives-restart' ($auditAfter -ge $auditBefore) "before=$auditBefore after=$auditAfter"
-}
-
-# ------------------------------------------------------------ final stop
-Invoke-Launcher @('stop') | Out-Null
-Start-Sleep -Seconds 3
-$survivors = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($BundlePath) }
-Add-Result 'no-bundle-child-survives' ($null -eq $survivors -or @($survivors).Count -eq 0) ''
-
-$dbPresent = (Get-ChildItem -Path $DataPath -Recurse -Filter '*.sqlite3' -ErrorAction SilentlyContinue).Count -gt 0
-Add-Result 'durable-db-outside-payload' ($dbPresent -and -not (Test-Path (Join-Path $BundlePath '*.sqlite3'))) $DataPath
 
 # ------------------------------------------------------------ evidence
 $evidenceDir = Join-Path $PSScriptRoot 'out' 'evidence'

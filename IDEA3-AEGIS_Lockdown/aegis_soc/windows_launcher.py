@@ -525,6 +525,46 @@ def status_command(settings: LauncherSettings, *, output=sys.stdout) -> int:
     return 0 if status == _HEALTHY_STATUS else 1
 
 
+def start_command(settings: LauncherSettings, *, runtime_factory=LauncherRuntime) -> int:
+    """Run the launcher: Core then Web, owned by :class:`LauncherRuntime`.
+
+    This blocks until the authenticated control boundary requests a stop, which
+    is why the operator starts it as its own process.
+    """
+    return runtime_factory(settings).run()
+
+
+def stop_command(
+    settings: LauncherSettings,
+    *,
+    output=sys.stdout,
+    post: Callable[[str, dict[str, str]], int],
+) -> int:
+    """Ask the running launcher to stop through its own control boundary.
+
+    The stop travels over loopback with the runtime-issued control token; no
+    process is signalled or killed from here, and the token is never printed.
+    """
+    try:
+        token = (settings.paths.runtime_dir / "control.token").read_text(encoding="utf-8").strip()
+    except OSError:
+        output.write("stop: NOT_RUNNING\n")
+        return 1
+    if not token:
+        output.write("stop: NO_CONTROL_TOKEN\n")
+        return 1
+
+    status = post(
+        f"http://{settings.bind_host}:{settings.control_port}/v1/stop",
+        {"X-AEGIS-Control-Token": token},
+    )
+    if status == 202:
+        output.write("stop: ACCEPTED\n")
+        return 0
+    output.write(f"stop: REFUSED ({status})\n")
+    return 1
+
+
 def open_command(
     settings: LauncherSettings,
     *,

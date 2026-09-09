@@ -1,6 +1,7 @@
 # PyInstaller spec for the AEGIS IDEA3 Windows launcher.
 #
-# This layer packages the Python launcher ONLY. The Node runtime, Express server,
+# This layer packages the Python launcher and the Core supervisor it re-invokes
+# as its child. The Node runtime, Express server,
 # built React assets, and the configuration template are copied alongside the
 # executable by build.ps1 as a one-folder distribution. Configuration, databases,
 # logs, tests, and documentation are never packaged: writable runtime state lives
@@ -20,10 +21,17 @@ analysis = Analysis(
     pathex=[project_root],
     binaries=[],
     datas=[],
-    hiddenimports=['aegis_soc.windows_launcher', 'aegis_soc.paths', 'aegis_soc.platform_lock'],
+    hiddenimports=[
+        'aegis_soc.windows_launcher',
+        'aegis_soc.paths',
+        'aegis_soc.platform_lock',
+        # The frozen executable is also the Core child, so the supervisor and its
+        # transport must be present; broker settings stay blank until configured.
+        'aegis_soc.supervisor',
+    ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=['tkinter', 'pytest', 'paho'],
+    excludes=['tkinter', 'pytest'],
     noarchive=False,
 )
 

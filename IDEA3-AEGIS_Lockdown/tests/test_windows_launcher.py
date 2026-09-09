@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
+import getpass
+import io
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -20,7 +26,9 @@ from aegis_soc.windows_launcher import (
     doctor_command,
     logs_command,
     open_command,
+    start_command,
     status_command,
+    stop_command,
     write_configuration,
 )
 
@@ -65,6 +73,165 @@ def _json_request(url, *, method="GET", headers=None, data=None):
             return response.status, dict(response.headers), json.loads(response.read())
     except urllib.error.HTTPError as error:
         return error.code, dict(error.headers), json.loads(error.read())
+
+
+def _bundle_for_subprocess(tmp_path):
+    """A payload shaped like the built one-folder bundle."""
+    bundle = tmp_path / "bundle"
+    (bundle / "node").mkdir(parents=True)
+    (bundle / "server").mkdir()
+    (bundle / "web").mkdir()
+    (bundle / "windows").mkdir()
+    (bundle / "node" / "node.exe").write_bytes(b"node")
+    (bundle / "server" / "index.js").write_text("// server\n", encoding="utf-8")
+    (bundle / "web" / "index.html").write_text("<!doctype html>\n", encoding="utf-8")
+    shutil.copy(LAUNCHER_MAIN, bundle / "windows" / "launcher_main.py")
+    shutil.copytree(Path(__file__).resolve().parent.parent / "aegis_soc", bundle / "aegis_soc")
+    return bundle
+
+
+def test_settings_use_a_runtime_paths_api_that_actually_exists(tmp_path, monkeypatch):
+    """`_settings` is the first line of every command; a wrong API breaks them all."""
+
+    launcher_main = _load_launcher_main()
+    bundle = _bundle_for_subprocess(tmp_path)
+    monkeypatch.setenv("AEGIS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(bundle / "AEGIS-IDEA3.exe"))
+
+    settings = launcher_main._settings(
+        argparse.Namespace(profile="lab", dry_run=True, web_port=8003)
+    )
+
+    assert settings.paths.config_file == tmp_path / "data" / "config" / ".env"
+    assert settings.application_root == bundle
+
+
+def test_frozen_application_root_is_the_bundle_directory_not_the_pyinstaller_internal(
+    tmp_path, monkeypatch
+):
+    """PyInstaller 6 puts sys._MEIPASS in _internal; the payload is beside the exe.
+
+    build.ps1 stages node/, server/ and web/ next to AEGIS-IDEA3.exe, so anchoring
+    on _MEIPASS makes every bundled component unreachable.
+    """
+
+    launcher_main = _load_launcher_main()
+    bundle = _bundle_for_subprocess(tmp_path)
+    internal = bundle / "_internal"
+    internal.mkdir()
+    monkeypatch.setenv("AEGIS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(bundle / "AEGIS-IDEA3.exe"))
+    monkeypatch.setattr(sys, "_MEIPASS", str(internal), raising=False)
+
+    settings = launcher_main._settings(
+        argparse.Namespace(profile="lab", dry_run=True, web_port=8003)
+    )
+
+    assert settings.application_root == bundle
+    assert settings.application_root != internal
+    assert settings.node_executable == bundle / "node" / "node.exe"
+    assert settings.web_entrypoint.is_file()
+    assert (settings.static_dir / "index.html").is_file()
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_code", "expected_text"),
+    [("doctor", 1, "config: MISSING"), ("status", 1, "status: NOT_RUNNING")],
+)
+def test_frozen_entry_point_runs_commands_instead_of_crashing(
+    tmp_path, command, expected_code, expected_text
+):
+    """Run the entry point as its own process, the way the bundle does."""
+
+    bundle = _bundle_for_subprocess(tmp_path)
+    environment = dict(os.environ)
+    environment["AEGIS_DATA_DIR"] = str(tmp_path / "data")
+
+    completed = subprocess.run(
+        [sys.executable, str(bundle / "windows" / "launcher_main.py"), "--profile", "lab", command],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=60,
+        check=False,
+    )
+
+    assert "Traceback" not in completed.stderr, completed.stderr
+    assert completed.returncode == expected_code
+    assert expected_text in completed.stdout
+
+
+def test_stop_reaches_a_real_control_server_over_loopback(tmp_path, monkeypatch):
+    """Exercise the actual HTTP wiring the launcher uses, not a stub."""
+
+    launcher_main = _load_launcher_main()
+    stopped = []
+    server = ControlServer(
+        host="127.0.0.1",
+        port=0,
+        token="live-control-token",
+        core_status=lambda: {"status": "UNKNOWN"},
+        launcher_status=lambda: {"status": "RUNNING"},
+        request_stop=lambda: stopped.append(True),
+    )
+    server.start()
+    try:
+        settings = replace(
+            _settings(tmp_path),
+            control_port=int(server.base_url.rsplit(":", 1)[1]),
+        )
+        settings.paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+        (settings.paths.runtime_dir / "control.token").write_text(
+            "live-control-token\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(launcher_main, "_settings", lambda _arguments: settings)
+
+        assert launcher_main.main(["stop"]) == 0
+    finally:
+        server.close()
+
+    assert stopped == [True]
+
+
+def test_stop_is_refused_when_the_control_token_is_wrong(tmp_path, monkeypatch):
+    launcher_main = _load_launcher_main()
+    stopped = []
+    server = ControlServer(
+        host="127.0.0.1",
+        port=0,
+        token="real-token",
+        core_status=lambda: {"status": "UNKNOWN"},
+        launcher_status=lambda: {"status": "RUNNING"},
+        request_stop=lambda: stopped.append(True),
+    )
+    server.start()
+    try:
+        settings = replace(
+            _settings(tmp_path),
+            control_port=int(server.base_url.rsplit(":", 1)[1]),
+        )
+        settings.paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+        (settings.paths.runtime_dir / "control.token").write_text("stolen-token\n", encoding="utf-8")
+        monkeypatch.setattr(launcher_main, "_settings", lambda _arguments: settings)
+
+        assert launcher_main.main(["stop"]) == 1
+    finally:
+        server.close()
+
+    assert stopped == []
+
+
+def test_smoke_script_records_evidence_even_when_the_run_aborts():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    abort = script.index("Add-Result 'smoke-run-completed' $false")
+    evidence = script.index("smoke-result.json")
+    assert abort < evidence, "an aborted run must still reach the evidence stage"
+    assert "Add-Result 'smoke-run-completed' $true" in script
+    assert "$message.Replace($password, '<redacted>')" in script
+    assert "exit $(if ($failed -eq 0) { 0 } else { 1 })" in script
 
 
 def test_launcher_settings_require_loopback_distinct_ports_and_payload(tmp_path):
@@ -580,6 +747,245 @@ def test_doctor_never_prints_secret_values_from_the_configuration(tmp_path):
 WINDOWS = Path(__file__).resolve().parent.parent / "windows"
 
 
+# --------------------------------------------------------------- launcher CLI
+
+LAUNCHER_MAIN = WINDOWS / "launcher_main.py"
+
+
+def _load_launcher_main():
+    """Import the frozen entry point from its source path, as PyInstaller does."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("aegis_launcher_main", LAUNCHER_MAIN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _PipedStdin(io.StringIO):
+    """Redirected stdin: exactly what `$StdIn | & AEGIS-IDEA3.exe configure` gives."""
+
+    def isatty(self):
+        return False
+
+
+class _ConsoleStdin(io.StringIO):
+    """An interactive console, where hidden entry must still be used."""
+
+    def isatty(self):
+        return True
+
+
+def _configure_arguments(**changes):
+    defaults = {"username": "admin", "force": False}
+    defaults.update(changes)
+    return argparse.Namespace(**defaults)
+
+
+def test_configure_reads_piped_credentials_and_never_calls_the_console_getpass(tmp_path, monkeypatch):
+    """Windows `getpass` reads the console, not a redirected pipe.
+
+    CPython's ``win_getpass`` calls ``msvcrt.getwch()``, which reads CONIN$ and
+    never sees piped stdin, so the documented stdin-only automation contract
+    cannot be served by ``getpass`` on a frozen Windows console executable.
+    """
+
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+    hashed = []
+
+    def _hasher_factory(_settings):
+        def hash_password(password):
+            hashed.append(password)
+            return "$2b$12$" + "x" * 53
+
+        return hash_password
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("getpass must not be used when stdin is redirected")
+
+    monkeypatch.setattr(launcher_main, "_node_password_hasher", _hasher_factory)
+    monkeypatch.setattr(getpass, "getpass", _forbidden)
+    monkeypatch.setattr(sys, "stdin", _PipedStdin("piped-secret\npiped-secret\n"))
+
+    code = launcher_main._configure(settings, _configure_arguments())
+
+    assert code == 0
+    assert settings.paths.config_file.is_file()
+    assert hashed == ["piped-secret"]
+    assert "piped-secret" not in settings.paths.config_file.read_text(encoding="utf-8")
+
+
+def test_configure_rejects_mismatched_piped_credentials_without_writing_config(tmp_path, monkeypatch):
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+
+    monkeypatch.setattr(launcher_main, "_node_password_hasher", lambda _s: (lambda _p: "$2b$12$" + "x" * 53))
+    monkeypatch.setattr(sys, "stdin", _PipedStdin("first-secret\nsecond-secret\n"))
+
+    code = launcher_main._configure(settings, _configure_arguments())
+
+    assert code == 2
+    assert not settings.paths.config_file.exists()
+
+
+def test_configure_fails_loudly_when_the_pipe_supplies_no_credentials(tmp_path, monkeypatch):
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+
+    monkeypatch.setattr(launcher_main, "_node_password_hasher", lambda _s: (lambda _p: "$2b$12$" + "x" * 53))
+    monkeypatch.setattr(sys, "stdin", _PipedStdin(""))
+
+    code = launcher_main._configure(settings, _configure_arguments())
+
+    assert code != 0
+    assert not settings.paths.config_file.exists()
+
+
+def test_configure_still_hides_entry_on_an_interactive_console(tmp_path, monkeypatch):
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+    prompts = []
+
+    def _fake_getpass(prompt=""):
+        prompts.append(prompt)
+        return "console-secret"
+
+    monkeypatch.setattr(launcher_main, "_node_password_hasher", lambda _s: (lambda _p: "$2b$12$" + "x" * 53))
+    monkeypatch.setattr(getpass, "getpass", _fake_getpass)
+    monkeypatch.setattr(sys, "stdin", _ConsoleStdin(""))
+
+    code = launcher_main._configure(settings, _configure_arguments())
+
+    assert code == 0
+    assert len(prompts) == 2
+
+
+def test_configure_never_echoes_the_password_it_read(tmp_path, monkeypatch, capsys):
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+
+    monkeypatch.setattr(launcher_main, "_node_password_hasher", lambda _s: (lambda _p: "$2b$12$" + "x" * 53))
+    monkeypatch.setattr(sys, "stdin", _PipedStdin("never-print-me\nnever-print-me\n"))
+
+    launcher_main._configure(settings, _configure_arguments())
+    captured = capsys.readouterr()
+
+    assert "never-print-me" not in captured.out
+    assert "never-print-me" not in captured.err
+
+
+def test_launcher_cli_exposes_every_documented_operator_command():
+    """The parser and windows/README.md must describe the same launcher."""
+
+    launcher_main = _load_launcher_main()
+    parser = launcher_main.build_parser()
+    documented = set(
+        re.findall(r"^AEGIS-IDEA3\.exe (\w[\w-]*)", (WINDOWS / "README.md").read_text(encoding="utf-8"), re.MULTILINE)
+    )
+    subparsers = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+
+    assert documented, "README must document the operator commands"
+    assert documented <= set(subparsers.choices), (
+        f"documented but not implemented: {sorted(documented - set(subparsers.choices))}"
+    )
+    for command in ("configure", "doctor", "start", "status", "open", "logs", "stop"):
+        assert command in subparsers.choices
+
+
+@pytest.mark.parametrize("command", ["start", "stop"])
+def test_lifecycle_commands_parse_and_dispatch(tmp_path, monkeypatch, command):
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+    dispatched = []
+
+    monkeypatch.setattr(launcher_main, "_settings", lambda _arguments: settings)
+    monkeypatch.setattr(
+        launcher_main,
+        "start_command",
+        lambda given, **_kwargs: dispatched.append(("start", given)) or 0,
+    )
+    monkeypatch.setattr(
+        launcher_main,
+        "stop_command",
+        lambda given, **_kwargs: dispatched.append(("stop", given)) or 0,
+    )
+
+    assert launcher_main.main([command]) == 0
+    assert dispatched == [(command, settings)]
+
+
+def test_start_command_runs_the_launcher_runtime_with_its_children(tmp_path):
+    settings = _settings(tmp_path)
+    started = []
+
+    class _Runtime:
+        def __init__(self, given):
+            started.append(given)
+
+        def run(self):
+            return 7
+
+    assert start_command(settings, runtime_factory=_Runtime) == 7
+    assert started == [settings]
+
+
+def test_stop_command_uses_the_authenticated_loopback_control_boundary(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    (settings.paths.runtime_dir / "control.token").write_text("control-token-value\n", encoding="utf-8")
+    calls = []
+    output = io.StringIO()
+
+    def _post(url, headers):
+        calls.append((url, headers))
+        return 202
+
+    assert stop_command(settings, output=output, post=_post) == 0
+    url, headers = calls[0]
+    assert url == f"http://{settings.bind_host}:{settings.control_port}/v1/stop"
+    assert headers["X-AEGIS-Control-Token"] == "control-token-value"
+    assert "control-token-value" not in output.getvalue()
+
+
+def test_stop_command_reports_not_running_without_a_control_token(tmp_path):
+    settings = _settings(tmp_path)
+    output = io.StringIO()
+
+    def _post(_url, _headers):
+        raise AssertionError("stop must not contact anything without a token")
+
+    assert stop_command(settings, output=output, post=_post) == 1
+    assert "NOT_RUNNING" in output.getvalue()
+
+
+def test_stop_command_returns_nonzero_when_the_boundary_refuses(tmp_path):
+    settings = _settings(tmp_path)
+    settings.paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    (settings.paths.runtime_dir / "control.token").write_text("stale-token\n", encoding="utf-8")
+    output = io.StringIO()
+
+    assert stop_command(settings, output=output, post=lambda _u, _h: 403) == 1
+    assert "stale-token" not in output.getvalue()
+
+
+def test_stop_command_never_terminates_arbitrary_processes():
+    import ast
+    import inspect
+
+    function = ast.parse(inspect.getsource(stop_command)).body[0]
+    if ast.get_docstring(function):
+        function.body = function.body[1:]
+    code = ast.unparse(function)
+
+    for forbidden in ("kill", "taskkill", "terminate", "Popen", "psutil", "signal"):
+        assert forbidden not in code
+
+
+
+
 def test_toolchain_lock_pins_verified_node_archive():
     lock = json.loads((WINDOWS / "toolchain-lock.json").read_text(encoding="utf-8"))
 
@@ -871,3 +1277,72 @@ def test_smoke_script_uses_bundle_binaries_and_never_prints_credentials():
         assert stage in script.lower()
     assert "Write-Host $password" not in script
     assert "ConvertTo-Json" in script
+
+
+def test_launcher_reports_an_incomplete_bundle_without_a_frozen_traceback(tmp_path, monkeypatch, capsys):
+    """A frozen executable must never answer an operator with a stack trace."""
+
+    launcher_main = _load_launcher_main()
+    incomplete = tmp_path / "bundle"
+    incomplete.mkdir()
+    monkeypatch.setenv("AEGIS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(launcher_main.sys, "_MEIPASS", str(incomplete), raising=False)
+
+    code = launcher_main.main(["doctor"])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "INVALID_SETTINGS" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_smoke_integration_token_gate_is_multiline_anchored():
+    """PowerShell `-match` is single-line: an unanchored `$` makes the gate dead."""
+
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    assert "(?m)^AEGIS_IDEA{0}_INTEGRATION_TOKEN=" in script
+    assert "AEGIS_IDEA1_INTEGRATION_TOKEN=\\s*$" not in script
+
+
+def test_frozen_core_child_forwards_its_argv_to_the_supervisor(monkeypatch):
+    """The bundle re-invokes itself as Core; the launcher parser must not eat its flags."""
+
+    from aegis_soc import supervisor
+
+    launcher_main = _load_launcher_main()
+    forwarded = []
+    monkeypatch.setattr(supervisor, "main", lambda argv=None: forwarded.append(argv) or 0)
+
+    code = launcher_main.main(
+        ["core", "--profile", "lab", "--dry-run", "--headless", "--no-detector", "--no-voice"]
+    )
+
+    assert code == 0
+    assert forwarded == [
+        ["--profile", "lab", "--dry-run", "--headless", "--no-detector", "--no-voice"]
+    ]
+
+
+def test_core_child_command_and_entry_point_agree(tmp_path, monkeypatch):
+    """`core_command(frozen=True)` and the entry point must describe one contract."""
+
+    from aegis_soc import supervisor
+
+    launcher_main = _load_launcher_main()
+    settings = _settings(tmp_path)
+    command = settings.core_command(frozen=True)
+    forwarded = []
+    monkeypatch.setattr(supervisor, "main", lambda argv=None: forwarded.append(argv) or 0)
+
+    assert command[1] == "core"
+    assert launcher_main.main(command[1:]) == 0
+    assert forwarded == [command[2:]]
+
+
+def test_spec_packages_the_core_supervisor_and_its_transport():
+    spec = SPEC_FILE.read_text(encoding="utf-8")
+
+    assert "'aegis_soc.supervisor'" in spec
+    assert "'paho'" not in spec, "the Core child imports paho at module import time"
+    assert "'tkinter'" in spec and "'pytest'" in spec
