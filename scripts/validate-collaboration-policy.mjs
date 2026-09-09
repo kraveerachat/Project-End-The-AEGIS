@@ -19,6 +19,7 @@ if (!event.pull_request?.body || !event.pull_request?.head?.ref) {
 
 const body = event.pull_request.body;
 const branch = event.pull_request.head.ref;
+const isDraft = event.pull_request.draft === true;
 const policyMatch = body.match(/<!--\s*collaboration-policy\s*([\s\S]*?)-->/i);
 const errors = [];
 let area = '';
@@ -108,8 +109,17 @@ if (nonAppendReceiptChanges.length > 0) {
   );
 }
 
-if (newReceipts.length !== 1) {
+if (newReceipts.length > 1) {
   errors.push(`Every task must add exactly one new Obsidian task receipt; found ${newReceipts.length}.`);
+} else if (newReceipts.length === 0) {
+  if (!isDraft) {
+    errors.push('Every non-draft task Pull Request must add exactly one new Obsidian task receipt; found 0.');
+  } else {
+    const receiptSection = extractSection(body, 'Obsidian receipt');
+    if (!/\b(?:no receipt|receipt pending|receipt deferred|deferred until|final task closeout)\b/i.test(receiptSection)) {
+      errors.push('A Draft Pull Request without a receipt must explicitly declare that the task receipt is pending/deferred until final task closeout.');
+    }
+  }
 } else {
   const receiptPath = newReceipts[0].path;
   const receiptOwner = receiptPath.match(receiptPattern)?.[2];
@@ -235,12 +245,13 @@ for (const path of crossScopePaths) {
   if (!sharedSurfaces.includes(path)) {
     errors.push(`Shared surfaces touched must name ${path}.`);
   }
-  if (!receiptSharedSurfaces.includes(path)) {
+  if (newReceipts.length === 1 && !receiptSharedSurfaces.includes(path)) {
     errors.push(`Receipt Shared surfaces touched must name ${path}.`);
   }
 }
 if (
-  crossScopePaths.length > 0
+  newReceipts.length === 1
+  && crossScopePaths.length > 0
   && (!receiptIntegrationRequests || /^-?\s*none\b/i.test(receiptIntegrationRequests))
 ) {
   errors.push('Receipt Integration requests must describe the required review.');
