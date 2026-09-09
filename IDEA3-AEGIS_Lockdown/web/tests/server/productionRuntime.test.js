@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
+import bcrypt from 'bcryptjs'
 import { loadConfig } from '../../server/config.js'
 import { createApp } from '../../server/createApp.js'
 import { startServer } from '../../server/runtime.js'
@@ -21,7 +22,7 @@ function staticDirectory() {
   return root
 }
 
-function productionConfig(root) {
+function productionConfig(root, overrides = {}) {
   return loadConfig({
     NODE_ENV: 'production',
     SESSION_SECRET: STRONG_SESSION_SECRET,
@@ -29,6 +30,7 @@ function productionConfig(root) {
     AEGIS_IDEA3_ADMIN_PASSWORD_HASH: BCRYPT_HASH,
     AEGIS_IDEA3_AUDIT_DB_PATH: ':memory:',
     AEGIS_WEB_STATIC_DIR: root,
+    ...overrides,
   })
 }
 
@@ -51,6 +53,33 @@ describe('production Web runtime', () => {
     expect(index.headers['cache-control']).toContain('no-store')
     expect(health.status).toBe(200)
     expect(health.body).toEqual({ status: 'ok' })
+  })
+
+  it('emits a Secure production session cookie on the trusted localhost origin', async () => {
+    const root = staticDirectory()
+    const password = 'standalone-loopback-password'
+    const config = productionConfig(root, {
+      AEGIS_IDEA3_ADMIN_PASSWORD_HASH: bcrypt.hashSync(password, 12),
+    })
+    const app = createApp({ config, repository: createMemoryRepository() })
+
+    const login = await request(app)
+      .post('/security/api/auth/login')
+      .set('Host', 'localhost')
+      .set('Origin', 'http://localhost')
+      .send({ username: 'admin', password })
+
+    expect(login.status).toBe(200)
+    const setCookie = login.headers['set-cookie']?.[0]
+    expect(setCookie).toContain('Secure')
+    expect(setCookie).toContain('HttpOnly')
+    expect(setCookie).toContain('SameSite=Strict')
+
+    const session = await request(app)
+      .get('/security/api/auth/session')
+      .set('Host', 'localhost')
+      .set('Cookie', setCookie.split(';', 1)[0])
+    expect(session.body.authenticated).toBe(true)
   })
 
   it('caches hashed assets without caching the application shell', async () => {

@@ -139,13 +139,19 @@ class RuntimeSettings:
             errors.append("broker/device wait values cannot be negative")
         if self.max_restarts < 0 or self.restart_window_sec <= 0:
             errors.append("restart limits must be non-negative with a positive window")
-        if not (1 <= config.PORT <= 65535):
-            errors.append("MQTT broker port is outside 1-65535")
-        try:
-            ipaddress.ip_address(config.BROKER_IP)
-        except ValueError:
-            if config.BROKER_IP != "localhost":
-                errors.append("MQTT broker address must be an IP address or localhost")
+        if not config.BROKER_CONFIGURED:
+            if self.dry_run:
+                warnings.append("MQTT broker is not configured; dry-run remains monitor-only")
+            else:
+                errors.append("live mode requires a configured MQTT broker")
+        else:
+            if not (1 <= config.PORT <= 65535):
+                errors.append("MQTT broker port is outside 1-65535")
+            try:
+                ipaddress.ip_address(config.BROKER_IP)
+            except ValueError:
+                if config.BROKER_IP != "localhost":
+                    errors.append("MQTT broker address must be an IP address or localhost")
         if self.voice_enabled:
             errors.append("voice was requested but no voice runtime entry point exists")
         if self.start_gui:

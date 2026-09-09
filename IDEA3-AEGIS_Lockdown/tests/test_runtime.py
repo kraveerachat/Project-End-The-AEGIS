@@ -91,6 +91,27 @@ def test_windows_preflight_rejects_requested_linux_only_components(tmp_path):
     assert "Tk operator GUI is not packaged on Windows" in errors
 
 
+def test_dry_run_preflight_accepts_an_explicitly_unconfigured_broker(tmp_path, monkeypatch):
+    settings = _settings(tmp_path, dry_run=True)
+    monkeypatch.setattr(config, "BROKER_CONFIGURED", False, raising=False)
+    monkeypatch.setattr(config, "BROKER_IP", "")
+
+    errors, warnings = settings.preflight(platform="win32")
+
+    assert errors == []
+    assert any("broker is not configured" in warning.lower() for warning in warnings)
+
+
+def test_live_preflight_fails_closed_when_broker_is_unconfigured(tmp_path, monkeypatch):
+    settings = _settings(tmp_path, dry_run=False)
+    monkeypatch.setattr(config, "BROKER_CONFIGURED", False, raising=False)
+    monkeypatch.setattr(config, "BROKER_IP", "")
+
+    errors, _ = settings.preflight(platform="win32")
+
+    assert "live mode requires a configured MQTT broker" in errors
+
+
 def test_status_write_is_atomic_and_readable(tmp_path):
     path = tmp_path / "runtime" / "status.json"
     status = RuntimeStatus(state=RuntimeState.DEGRADED, detail="device unknown")

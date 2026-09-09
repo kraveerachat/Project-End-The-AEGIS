@@ -496,7 +496,7 @@ _LOG_TAIL_LIMIT = 2000
 
 
 def _security_url(settings: LauncherSettings) -> str:
-    return f"http://{settings.bind_host}:{settings.web_port}/security"
+    return f"http://localhost:{settings.web_port}/security"
 
 
 def _read_launcher_status(settings: LauncherSettings) -> dict | None:

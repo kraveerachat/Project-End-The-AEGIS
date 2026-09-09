@@ -6,6 +6,18 @@ from aegis_soc import config
 from aegis_soc.mqtt_client import MQTTManager
 
 
+def test_unconfigured_broker_never_opens_an_mqtt_connection(monkeypatch):
+    manager = MQTTManager()
+    calls = []
+    monkeypatch.setattr("aegis_soc.mqtt_client.config.BROKER_CONFIGURED", False, raising=False)
+    monkeypatch.setattr(manager.client, "connect_async", lambda *args: calls.append(args))
+    monkeypatch.setattr(manager.client, "loop_start", lambda: calls.append("loop"))
+
+    manager.start()
+
+    assert calls == []
+
+
 class FakeClient:
     def __init__(self):
         self.subscriptions = []

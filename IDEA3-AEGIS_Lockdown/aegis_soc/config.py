@@ -31,12 +31,27 @@ _RUNTIME_PATHS = (
 )
 
 # ---- MQTT Broker ----
-BROKER_IP = os.getenv("AEGIS_BROKER_IP", "192.168.2.174")
-try:
-    PORT = int(os.getenv("AEGIS_BROKER_PORT", "1883"))
-except ValueError:
-    PORT = 1883
-    print("[config] AEGIS_BROKER_PORT ไม่ใช่ตัวเลข — ใช้ค่า default 1883")
+_DEFAULT_BROKER_IP = "192.168.2.174"
+_DEFAULT_BROKER_PORT = 1883
+_broker_ip = os.getenv("AEGIS_BROKER_IP")
+BROKER_IP = _DEFAULT_BROKER_IP if _broker_ip is None else _broker_ip.strip()
+BROKER_CONFIGURED = bool(BROKER_IP)
+
+
+def _broker_port(value: str | None) -> tuple[int, str | None]:
+    """Parse an optional broker port without emitting import-time console text."""
+    candidate = "" if value is None else value.strip()
+    if not candidate:
+        return _DEFAULT_BROKER_PORT, None
+    try:
+        return int(candidate), None
+    except ValueError:
+        return _DEFAULT_BROKER_PORT, (
+            "AEGIS_BROKER_PORT is not an integer; using default port 1883"
+        )
+
+
+PORT, _BROKER_PORT_WARNING = _broker_port(os.getenv("AEGIS_BROKER_PORT"))
 
 # ---- Secrets (ตั้งผ่าน environment variable) ----
 # ต้องตรงกับ HMAC_SECRET ใน src/main.cpp ของ ESP32 เสมอ
@@ -105,13 +120,19 @@ def validate_config():
     if DRY_RUN:
         warnings.append("AEGIS_DRY_RUN เปิดอยู่ — คำสั่ง relay จะถูกบันทึกเป็น WOULD_SEND และไม่ publish")
 
+    if _BROKER_PORT_WARNING:
+        warnings.append(_BROKER_PORT_WARNING)
+    if not BROKER_CONFIGURED:
+        warnings.append("MQTT broker is not configured; MQTT actuation is unavailable")
+
     # ตรวจรูปแบบ broker IP
     import ipaddress
-    try:
-        ipaddress.ip_address(BROKER_IP)
-    except ValueError:
-        if BROKER_IP not in ("localhost",):
-            warnings.append(f"AEGIS_BROKER_IP '{BROKER_IP}' ไม่ใช่ IP ที่ถูกต้อง")
+    if BROKER_CONFIGURED:
+        try:
+            ipaddress.ip_address(BROKER_IP)
+        except ValueError:
+            if BROKER_IP not in ("localhost",):
+                warnings.append(f"AEGIS_BROKER_IP '{BROKER_IP}' ไม่ใช่ IP ที่ถูกต้อง")
 
     # ตรวจ port อยู่ในช่วงที่ใช้ได้
     if not (1 <= PORT <= 65535):

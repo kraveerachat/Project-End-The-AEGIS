@@ -666,7 +666,7 @@ def test_open_command_opens_the_loopback_url_after_web_health_succeeds(tmp_path)
     )
 
     assert code == 0
-    assert opened == [f"http://{settings.bind_host}:{settings.web_port}/security"]
+    assert opened == [f"http://localhost:{settings.web_port}/security"]
 
 
 def test_logs_command_tails_the_external_log_without_leaving_the_log_directory(tmp_path):
@@ -893,6 +893,15 @@ def test_launcher_cli_exposes_every_documented_operator_command():
     )
     for command in ("configure", "doctor", "start", "status", "open", "logs", "stop"):
         assert command in subparsers.choices
+
+
+def test_launcher_defaults_to_the_approved_lab_dry_run_profile():
+    launcher_main = _load_launcher_main()
+
+    arguments = launcher_main.build_parser().parse_args(["start"])
+
+    assert arguments.profile == "lab"
+    assert arguments.dry_run is True
 
 
 @pytest.mark.parametrize("command", ["start", "stop"])
@@ -1277,6 +1286,33 @@ def test_smoke_script_uses_bundle_binaries_and_never_prints_credentials():
         assert stage in script.lower()
     assert "Write-Host $password" not in script
     assert "ConvertTo-Json" in script
+
+
+def test_smoke_acceptance_urls_derive_from_the_production_api_base():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    assert '$webBasePath = "/security"' in script
+    assert '$apiBaseUrl = "$baseUrl$webBasePath/api"' in script
+    for endpoint in (
+        "/health",
+        "/auth/login",
+        "/auth/logout",
+        "/security/audit?limit=250",
+        "/security/snapshot",
+    ):
+        assert f'$apiBaseUrl{endpoint}' in script
+    assert '$baseUrl/api/' not in script
+    assert '$baseUrl/security/healthz' not in script
+
+
+def test_smoke_preserves_and_exercises_the_secure_session_contract():
+    script = SMOKE_FILE.read_text(encoding="utf-8")
+
+    assert '$baseUrl = "http://localhost:$WebPort"' in script
+    assert "session-cookie-is-secure" in script
+    assert "Secure" in script and "HttpOnly" in script and "SameSite=Strict" in script
+    assert "X-CSRF-Token" in script
+    assert "Cookie = $sessionCookie" in script
 
 
 def test_launcher_reports_an_incomplete_bundle_without_a_frozen_traceback(tmp_path, monkeypatch, capsys):

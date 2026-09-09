@@ -142,13 +142,15 @@ def _run_config_import(tmp_path, environment):
             (
                 "import json; from aegis_soc import config; "
                 "print(json.dumps({'db': config.DB_PATH, 'log': config.LOG_PATH, "
-                "'port': config.PORT}))"
+                "'port': config.PORT, 'brokerConfigured': config.BROKER_CONFIGURED, "
+                "'warnings': config.validate_config()}))"
             ),
         ],
         cwd=tmp_path,
         env=env,
         capture_output=True,
         text=True,
+        encoding=env.get("PYTHONIOENCODING", "utf-8").split(":", 1)[0],
         check=False,
     )
 
@@ -170,6 +172,43 @@ def test_config_loads_an_explicit_absolute_dotenv(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["port"] == 2883
+
+
+def test_config_import_accepts_standalone_blank_optional_broker_values(tmp_path):
+    dotenv = tmp_path / "standalone.env"
+    dotenv.write_text(
+        "AEGIS_BROKER_IP=\nAEGIS_BROKER_PORT=\nAEGIS_MQTT_USER=\nAEGIS_MQTT_PASS=\n",
+        encoding="utf-8",
+    )
+
+    result = _run_config_import(tmp_path, {"AEGIS_CONFIG_FILE": str(dotenv)})
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["port"] == 1883
+    assert payload["brokerConfigured"] is False
+    assert any("broker is not configured" in warning.lower() for warning in payload["warnings"])
+
+
+def test_malformed_broker_port_fallback_is_windows_console_safe(tmp_path):
+    dotenv = tmp_path / "malformed.env"
+    dotenv.write_text("AEGIS_BROKER_IP=\nAEGIS_BROKER_PORT=not-a-port\n", encoding="utf-8")
+
+    result = _run_config_import(
+        tmp_path,
+        {
+            "AEGIS_CONFIG_FILE": str(dotenv),
+            "PYTHONIOENCODING": "cp1252",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["port"] == 1883
+    assert payload["brokerConfigured"] is False
+    assert "AEGIS_BROKER_PORT is not an integer; using default port 1883" in payload["warnings"]
+    assert "UnicodeEncodeError" not in result.stderr
+    assert result.stdout.isascii()
 
 
 def test_config_rejects_a_relative_dotenv_path(tmp_path):

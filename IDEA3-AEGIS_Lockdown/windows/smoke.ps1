@@ -34,13 +34,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $results = [System.Collections.Generic.List[object]]::new()
-$baseUrl = "http://127.0.0.1:$WebPort"
+$baseUrl = "http://localhost:$WebPort"
+$webBasePath = "/security"
+$apiBaseUrl = "$baseUrl$webBasePath/api"
 
 # Declared before the run so an aborted candidate can still write its evidence
 # under Set-StrictMode instead of failing again inside the evidence stage.
 $password = ''
 $auditBefore = -1
 $auditAfter = -1
+$sessionCookie = ''
+$csrfToken = ''
 
 function Add-Result([string]$Check, [bool]$Ok, [string]$Detail = '') {
     $results.Add([ordered]@{ check = $Check; result = $(if ($Ok) { 'PASS' } else { 'FAIL' }); detail = $Detail })
@@ -110,7 +114,7 @@ try {
     $healthy = $false
     foreach ($attempt in 1..60) {
         try {
-            $health = Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2
+            $health = Invoke-RestMethod -Uri "$apiBaseUrl/health" -TimeoutSec 2
             if ($health) { $healthy = $true; break }
         } catch { Start-Sleep -Seconds 1 }
     }
@@ -119,22 +123,34 @@ try {
     Add-Result 'status-reports-running' ($status.ExitCode -eq 0) ''
 
     # ------------------------------------------------------------ login / logout
-    $session = $null
     $loginOk = $false
+    $cookiePolicyOk = $false
     try {
         $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
-        $login = Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
-            -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session
-        $loginOk = $login.StatusCode -eq 200
+        $login = Invoke-WebRequest -Uri "$apiBaseUrl/auth/login" -Method Post -Body $body `
+            -ContentType 'application/json' -Headers @{ Origin = $baseUrl }
+        $setCookie = @($login.Headers.GetValues('Set-Cookie')) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
+        $cookiePolicyOk = $setCookie -match '(?i);\s*Secure(?:;|$)' -and `
+            $setCookie -match '(?i);\s*HttpOnly(?:;|$)' -and `
+            $setCookie -match '(?i);\s*SameSite=Strict(?:;|$)'
+        $sessionCookie = ($setCookie -split ';', 2)[0]
+        $csrfToken = ($login.Content | ConvertFrom-Json).csrfToken
+        $loginOk = $login.StatusCode -eq 200 -and $sessionCookie -and $csrfToken
     } catch { $loginOk = $false }
     Add-Result 'admin-login-succeeds' $loginOk ''
+    Add-Result 'session-cookie-is-secure' $cookiePolicyOk 'Secure; HttpOnly; SameSite=Strict required'
 
     if ($loginOk) {
-        $audit = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session
+        # PowerShell's CookieContainer will not return a Secure cookie to HTTP,
+        # while supported Windows browsers apply the localhost exception. Carry
+        # the already validated opaque cookie explicitly for this loopback smoke.
+        $audit = Invoke-RestMethod -Uri "$apiBaseUrl/security/audit?limit=250" `
+            -Headers @{ Cookie = $sessionCookie }
         $auditBefore = @($audit.audit).Count
         Add-Result 'audit-readable' ($auditBefore -ge 1) "rows=$auditBefore"
 
-        $snapshot = Invoke-RestMethod -Uri "$baseUrl/api/security/snapshot" -WebSession $session
+        $snapshot = Invoke-RestMethod -Uri "$apiBaseUrl/security/snapshot" `
+            -Headers @{ Cookie = $sessionCookie }
         $idea1 = ($snapshot.sources | Where-Object { $_.id -eq 'idea1' }).status
         $idea2 = ($snapshot.sources | Where-Object { $_.id -eq 'idea2' }).status
         Add-Result 'idea1-absent-is-honest' ($idea1 -in @('NOT_CONFIGURED', 'UNKNOWN')) "idea1=$idea1"
@@ -142,8 +158,8 @@ try {
         Add-Result 'hardware-absent-is-honest' ($snapshot.runtime.status -in @('UNKNOWN', 'NOT_CONFIGURED')) `
             "runtime=$($snapshot.runtime.status)"
 
-        Invoke-WebRequest -Uri "$baseUrl/api/auth/logout" -Method Post -WebSession $session `
-            -Headers @{ Origin = $baseUrl } | Out-Null
+        Invoke-WebRequest -Uri "$apiBaseUrl/auth/logout" -Method Post `
+            -Headers @{ Origin = $baseUrl; Cookie = $sessionCookie; 'X-CSRF-Token' = $csrfToken } | Out-Null
         Add-Result 'admin-logout-succeeds' $true ''
     }
 
@@ -157,16 +173,19 @@ try {
     $restarted = $false
     foreach ($attempt in 1..60) {
         try {
-            if (Invoke-RestMethod -Uri "$baseUrl/security/healthz" -TimeoutSec 2) { $restarted = $true; break }
+            if (Invoke-RestMethod -Uri "$apiBaseUrl/health" -TimeoutSec 2) { $restarted = $true; break }
         } catch { Start-Sleep -Seconds 1 }
     }
     Add-Result 'web-healthy-after-restart' $restarted ''
 
     if ($restarted) {
         $body = @{ username = $AdminUser; password = $password } | ConvertTo-Json
-        Invoke-WebRequest -Uri "$baseUrl/api/auth/login" -Method Post -Body $body `
-            -ContentType 'application/json' -Headers @{ Origin = $baseUrl } -SessionVariable session2 | Out-Null
-        $audit2 = Invoke-RestMethod -Uri "$baseUrl/api/security/audit?limit=250" -WebSession $session2
+        $login2 = Invoke-WebRequest -Uri "$apiBaseUrl/auth/login" -Method Post -Body $body `
+            -ContentType 'application/json' -Headers @{ Origin = $baseUrl }
+        $setCookie2 = @($login2.Headers.GetValues('Set-Cookie')) | Where-Object { $_ -like 'aegis.idea3.sid=*' } | Select-Object -First 1
+        $sessionCookie = ($setCookie2 -split ';', 2)[0]
+        $audit2 = Invoke-RestMethod -Uri "$apiBaseUrl/security/audit?limit=250" `
+            -Headers @{ Cookie = $sessionCookie }
         $auditAfter = @($audit2.audit).Count
         Add-Result 'audit-survives-restart' ($auditAfter -ge $auditBefore) "before=$auditBefore after=$auditAfter"
     }

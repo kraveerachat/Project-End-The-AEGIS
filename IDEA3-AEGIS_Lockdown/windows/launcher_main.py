@@ -117,7 +117,7 @@ def _configure(settings: LauncherSettings, arguments: argparse.Namespace) -> int
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="AEGIS-IDEA3", description="AEGIS IDEA3 standalone launcher")
-    parser.add_argument("--profile", default="production", choices=["development", "lab", "production"])
+    parser.add_argument("--profile", default="lab", choices=["development", "lab", "production"])
     parser.add_argument("--web-port", type=int, default=DEFAULT_WEB_PORT)
     parser.add_argument("--dry-run", action="store_true", default=True)
     subcommands = parser.add_subparsers(dest="command", required=True)

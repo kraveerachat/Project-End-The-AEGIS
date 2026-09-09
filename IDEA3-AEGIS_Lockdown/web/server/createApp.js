@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import express from 'express'
 import session from 'express-session'
@@ -10,6 +11,13 @@ import { createDemoProvider } from './providers/demoProvider.js'
 import { createLiveProvider } from './providers/liveProvider.js'
 import { AuditPersistenceError } from './repositories/auditRecords.js'
 import { createSqliteRepository } from './repositories/sqliteRepository.js'
+
+function isLoopbackAddress(address) {
+  if (typeof address !== 'string') return false
+  const normalized = address.startsWith('::ffff:') ? address.slice(7) : address
+  if (normalized === '::1') return true
+  return net.isIP(normalized) === 4 && normalized.startsWith('127.')
+}
 
 export function createApp({
   config,
@@ -50,6 +58,19 @@ export function createApp({
     next()
   })
   app.use(express.json({ limit: '32kb', strict: true }))
+  if (config.production) {
+    // Browsers treat localhost as a trustworthy Secure-cookie origin even over
+    // HTTP. express-session does not model that exception, so tell only the
+    // session middleware that a request proven to arrive over loopback is secure.
+    // The server remains bound to a validated loopback address and no external
+    // X-Forwarded-Proto value is trusted.
+    app.use((req, _res, next) => {
+      if (isLoopbackAddress(req.socket.remoteAddress)) {
+        req.headers['x-forwarded-proto'] = 'https'
+      }
+      next()
+    })
+  }
   const sessionOptions = {
     name: 'aegis.idea3.sid',
     secret: config.sessionSecret,
@@ -63,6 +84,7 @@ export function createApp({
       maxAge: config.sessionIdleMs,
     },
   }
+  if (config.production) sessionOptions.proxy = true
   if (sessionStore) sessionOptions.store = sessionStore
   app.use(session(sessionOptions))
 
