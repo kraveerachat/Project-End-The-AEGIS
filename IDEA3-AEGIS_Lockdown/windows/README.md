@@ -17,6 +17,9 @@ AEGIS-IDEA3/
 ├── core/                  packaged Python core
 ├── node/node.exe          pinned Node runtime
 ├── server/                production Express runtime + production dependencies
+│   ├── index.js           Web entrypoint the launcher starts
+│   ├── passwordHash.js    stdin-only bcrypt helper used by `configure`
+│   └── node_modules/      production dependencies installed by the build
 ├── web/                   prebuilt React production assets
 ├── config.env.template    non-secret configuration template
 ├── toolchain-lock.json    pinned build inputs

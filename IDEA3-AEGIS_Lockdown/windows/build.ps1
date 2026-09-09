@@ -105,11 +105,11 @@ Copy-Item -Force (Join-Path $extracted 'node.exe') $nodeStage
 
 # ---------------------------------------------------------------- stage 8
 Write-Stage 'Assemble server payload'
+# The launcher opens <bundle>\server\index.js and <bundle>\server\passwordHash.js,
+# so the payload is staged and verified by one helper instead of by a Copy-Item
+# whose result depends on whether the destination directory already exists.
 $serverStage = Join-Path $StageDir 'server'
-New-Item -ItemType Directory -Force -Path $serverStage | Out-Null
-foreach ($item in @('server', 'package.json', 'package-lock.json')) {
-    Copy-Item -Recurse -Force (Join-Path $WebDir $item) $serverStage
-}
+& (Join-Path $WindowsDir 'stage-server-payload.ps1') -WebDir $WebDir -ServerStage $serverStage
 Push-Location $serverStage
 try {
     & npm ci --omit=dev --ignore-scripts
@@ -117,7 +117,15 @@ try {
 } finally { Pop-Location }
 
 Write-Stage 'Assemble built Web assets'
-Copy-Item -Recurse -Force (Join-Path $WebDir 'dist') (Join-Path $StageDir 'web')
+$webStage = Join-Path $StageDir 'web'
+if (Test-Path -LiteralPath $webStage) { Remove-Item -LiteralPath $webStage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $webStage | Out-Null
+foreach ($entry in Get-ChildItem -LiteralPath (Join-Path $WebDir 'dist') -Force) {
+    Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $webStage $entry.Name) -Recurse -Force
+}
+if (-not (Test-Path -LiteralPath (Join-Path $webStage 'index.html') -PathType Leaf)) {
+    Fail 'staged Web assets are missing index.html'
+}
 
 Write-Stage 'Assemble configuration template and notices'
 Copy-Item -Force (Join-Path $ProjectRoot '.env.example') (Join-Path $StageDir 'config.env.template')

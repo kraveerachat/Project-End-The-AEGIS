@@ -1361,3 +1361,110 @@ def test_build_script_discards_a_stale_artifact_before_verification():
     assert discard < script.index("python -m pytest")
     assert discard < script.index("npm test")
     assert script.count("Remove-Item -Recurse -Force $OutDir") == 1
+
+
+STAGE_SERVER_SCRIPT = WINDOWS / "stage-server-payload.ps1"
+
+
+def _web_source_tree(root):
+    """Minimal stand-in for IDEA3-AEGIS_Lockdown/web with the paths that matter."""
+
+    web = root / "web"
+    server = web / "server"
+    (server / "routes").mkdir(parents=True)
+    (server / "index.js").write_text("// entrypoint\n", encoding="utf-8")
+    (server / "passwordHash.js").write_text("// bcrypt helper\n", encoding="utf-8")
+    (server / "routes" / "session.js").write_text("// routes\n", encoding="utf-8")
+    (web / "package.json").write_text('{"name":"aegis-idea3-web"}\n', encoding="utf-8")
+    (web / "package-lock.json").write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    return web
+
+
+def _stage_server_payload(web_dir, server_stage):
+    return subprocess.run(
+        [
+            "pwsh",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(STAGE_SERVER_SCRIPT),
+            "-WebDir",
+            str(web_dir),
+            "-ServerStage",
+            str(server_stage),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+requires_powershell = pytest.mark.skipif(
+    shutil.which("pwsh") is None,
+    reason="PowerShell 7 is required to execute the bundle staging contract",
+)
+
+
+@requires_powershell
+@pytest.mark.parametrize("destination", ["missing", "already_exists"])
+def test_server_payload_is_staged_directly_under_server(tmp_path, destination):
+    """The launcher opens <bundle>/server/index.js, so the payload must not nest.
+
+    ``Copy-Item -Recurse`` of a directory onto a destination that already exists
+    places the source *inside* it, which produced <bundle>/server/server/... on
+    real Windows while package.json stayed one level up. Both destination states
+    must now yield the same flat layout.
+    """
+
+    web = _web_source_tree(tmp_path)
+    server_stage = tmp_path / "bundle" / "server"
+    server_stage.parent.mkdir(parents=True)
+    if destination == "already_exists":
+        (server_stage / "stale").mkdir(parents=True)
+
+    completed = _stage_server_payload(web, server_stage)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert (server_stage / "index.js").is_file()
+    assert (server_stage / "passwordHash.js").is_file()
+    assert not (server_stage / "server" / "index.js").exists()
+    assert not (server_stage / "server" / "passwordHash.js").exists()
+    assert not (server_stage / "server").exists()
+    assert not (server_stage / "stale").exists()
+    assert (server_stage / "routes" / "session.js").is_file()
+    assert (server_stage / "package.json").is_file()
+    assert (server_stage / "package-lock.json").is_file()
+
+
+@requires_powershell
+def test_server_payload_staging_fails_when_the_entrypoints_are_missing(tmp_path):
+    web = _web_source_tree(tmp_path)
+    (web / "server" / "passwordHash.js").unlink()
+    server_stage = tmp_path / "bundle" / "server"
+
+    completed = _stage_server_payload(web, server_stage)
+
+    assert completed.returncode != 0
+    assert "passwordHash.js" in completed.stdout + completed.stderr
+
+
+def test_build_script_delegates_server_staging_to_the_verified_helper():
+    script = (WINDOWS / "build.ps1").read_text(encoding="utf-8")
+
+    assert STAGE_SERVER_SCRIPT.is_file()
+    assert "stage-server-payload.ps1') -WebDir $WebDir -ServerStage $serverStage" in script
+    # The directory-onto-existing-directory copy is what nested the payload.
+    assert "Copy-Item -Recurse -Force (Join-Path $WebDir $item) $serverStage" not in script
+    assert "@('server', 'package.json', 'package-lock.json')" not in script
+    # npm ci must still install production dependencies into <bundle>/server.
+    assert script.index("-ServerStage $serverStage") < script.index("npm ci --omit=dev")
+
+
+def test_server_staging_helper_pins_the_launcher_payload_contract():
+    helper = STAGE_SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    for copy in re.findall(r"(?m)^\s*Copy-Item.*$", helper):
+        assert "-LiteralPath" in copy and "-Destination" in copy, copy
+    for required in ("index.js", "passwordHash.js", "package.json", "package-lock.json"):
+        assert f"'{required}'" in helper
+    assert "$nested = Join-Path $ServerStage 'server'" in helper
