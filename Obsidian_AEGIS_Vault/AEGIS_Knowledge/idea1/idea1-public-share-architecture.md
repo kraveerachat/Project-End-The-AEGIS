@@ -3,7 +3,7 @@ title: IDEA1 Public Share Gateway — Architecture and Threat Model
 tags: [aegis, idea1, share-links, architecture, threat-model, public-gateway, security]
 type: concept
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-09
 sources: ["[[idea1/idea1-status]]", "[[core/security-architecture]]"]
 owner: kla
 edit_policy: owner-writable
@@ -20,7 +20,8 @@ edit_policy: owner-writable
 > DEPLOYED.** No Production gateway or `aegis_public_share` network exists,
 > migration 009 has not been applied to Production, and no port, DNS, TLS
 > certificate, firewall, NAT, VLAN, managed tunnel or Twingate policy has been
-> changed. The UI still does not offer `scope=public`; G4, G5 and G6 remain open.
+> changed. The UI still does not offer `scope=public`; **G4 is APPROVED for
+> Option B / Managed Tunnel, while G5 and G6 remain OPEN.**
 >
 > The isolated PUBLIC-SHARE-3 and PUBLIC-SHARE-6 harnesses are source/test
 > evidence, not Production evidence. Every container, network and volume either
@@ -29,9 +30,22 @@ edit_policy: owner-writable
 > **PUBLIC-SHARE-7 is IN PROGRESS (2026-09-09).** Its first task — the
 > managed-proxy trust adapter and pre-exposure acceptance (§10.2) — is
 > **COMPLETE and PASSED 20/20** against the real Drive on an isolated topology.
-> Nothing is exposed, no ingress method is recorded as chosen, and every
-> statement above about DNS, TLS, tunnels, NAT, firewalls and Production remains
-> unchanged.
+> Nothing is exposed. The owner approved **G4 Option B / Managed Tunnel** on
+> 2026-09-09 with T-14/T-27 explicitly acknowledged, but no tunnel, domain, DNS,
+> TLS, connector, firewall or Production configuration exists. G5 and G6 remain
+> OPEN.
+
+> [!important] Current G4 decision — approved, not deployed
+> **G4 = APPROVED — §13 Option B / Managed Tunnel.** The site is behind measured
+> upstream NAT/CGNAT, inbound forwarding is not practical, and the existing
+> perimeter has no inbound Internet listener. The chosen path is Cloudflare Edge
+> HTTPS → named Cloudflare Tunnel → isolated outbound-only `cloudflared`
+> connector → dedicated Public Share Gateway → dedicated Gateway→Drive network.
+> The owner accepts T-14 (the provider may observe or log the bearer URL) and
+> T-27 (recipient attribution relies on provider-asserted identity accepted only
+> through the pinned-connector adapter). This decision does **not** approve G5,
+> prove connector isolation, or claim Internet exposure. Public Internet Share
+> remains NOT IMPLEMENTED.
 
 ---
 
@@ -1116,11 +1130,10 @@ The gateway's header handling, stated as requirements:
 > every recipient onto one address, and re-create the T-05 rate-limit self-DoS
 > this design exists to avoid.
 >
-> G4 is still **OPEN**, so this is not solved by trusting a vendor header now.
-> If G4 selects an option that inserts an HTTP hop, PUBLIC-SHARE-6 / the ingress
-> integration task must define and review the provider trust/attribution adapter
-> **before** deployment. PUBLIC-SHARE-3 does not authorize trusting provider
-> headers and does not claim Option B is deployable unchanged.
+> At the PUBLIC-SHARE-3 checkpoint G4 was **OPEN**, so that phase did not trust a
+> vendor header. G4 now approves Option B, and §10.2 records the subsequently
+> delivered provider trust/attribution adapter. PUBLIC-SHARE-3 itself still does
+> not authorize provider trust or claim a deployed tunnel.
 
 ### 10.1 Two identities, neither replacing the other
 
@@ -1186,15 +1199,15 @@ headers, and `req.ip` remains the only client-source value. The Drive changes ar
 > [!success] Adapter delivered and accepted pre-exposure; PS7 overall IN PROGRESS
 > The adapter the warning above demanded now exists **in source** and has
 > **passed its Docker runtime acceptance 20/20** against the real Drive on real
-> PostgreSQL (Session S4). **PUBLIC-SHARE-7 is still NOT COMPLETE**: G4's gate is
-> the owner's to record, **G5 and G6 remain OPEN**, and
+> PostgreSQL (Session S4). **PUBLIC-SHARE-7 is still NOT COMPLETE**: G4 is now
+> owner-approved for Option B, **G5 and G6 remain OPEN**, and
 > `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
 > certificate, NAT rule, firewall, VLAN, Twingate or Production change was made.
 
-**Scope.** G4's practical direction is Option B: PS7-01 measured the site behind
-upstream NAT/CGNAT, so Option A's inbound port-forward is not available on the
-current topology. This work builds what Option B requires and does not mark the
-G4 decision as taken.
+**Scope.** PS7-01 measured the site behind upstream NAT/CGNAT, so Option A's
+inbound port-forward is not available on the current topology. The pre-exposure
+task built what Option B requires while G4 was still pending; the owner has since
+approved **G4 Option B / Managed Tunnel** for the external-deployment task.
 
 **Where the adapter lives.** Entirely in the gateway, in front of Drive. Two
 validated, non-secret variables consumed by the gateway image:
@@ -1296,8 +1309,8 @@ rejecting any HTTP response, and adding PUBLIC-SHARE-3's ARP corroboration.
 
 **Pre-exposure managed-tunnel acceptance = PASS.** ⚠️ This closes the adapter
 task only. **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet acceptance =
-**NOT RUN**, **G4's gate is still the owner's to record**, **G5 and G6 remain
-OPEN**, and `Public Internet Share = NOT IMPLEMENTED`.
+**NOT RUN**, **G4 is APPROVED for Option B**, **G5 and G6 remain OPEN**, and
+`Public Internet Share = NOT IMPLEMENTED`.
 
 ⚠️ **One deployment gate is recorded rather than faked.** In the harness the
 connector sits on an internal, isolated Docker network with no route to Drive,
@@ -1385,7 +1398,8 @@ has been recorded: there is still no Internet ingress.
 
 ## 13. Public ingress decision matrix
 
-**No ingress method is approved. Nothing in this section was configured.**
+**G4 is APPROVED for Option B / Managed Tunnel. Nothing in this section has been
+configured or exposed.**
 
 | Dimension | Option A — Public IP + NAT / port-forward | Option B — Managed public tunnel / reverse proxy |
 | :--- | :--- | :--- |
@@ -1402,21 +1416,23 @@ has been recorded: there is still no Internet ingress.
 | Rollback | Remove NAT rule, remove DNS, stop gateway | Delete tunnel route, remove DNS, stop connector |
 | Cost | Possibly a static IP | Possibly a subscription |
 
-**Recommendation criteria, not a decision.** Choose Option A if the deciding
-factor is *nobody outside AEGIS should ever see a share URL* — T-14 and T-27 are
-strictly better under A, and this project's existing posture (no inbound ports,
-ZTNA rather than exposed services, see [[concepts/ZTNA_Twingate_vs_OpenVPN]])
-argues for keeping the trust boundary in-house. Choose Option B if the deciding
-factor is *never open an inbound hole in the perimeter* — B keeps the firewall
-posture intact and moves the exposure to a vendor whose business is absorbing it.
+**Decision record.** Option A would keep T-14/T-27 entirely inside AEGIS, but it
+requires inbound forwarding that the measured NAT/CGNAT topology does not
+provide and would contradict the current no-inbound-listener posture. The owner
+therefore selected **Option B** on 2026-09-09: outbound connectivity through a
+named Cloudflare Tunnel, with the provider trust and attribution trade-offs
+accepted explicitly.
 
-The two criteria genuinely conflict. This is an owner decision with a security
-trade-off in both directions, and PUBLIC-SHARE-1 does not make it.
+The two criteria still conflict; choosing B does not erase its residual risk.
+Cloudflare/provider infrastructure may observe or log the public bearer URL
+(T-14), and AEGIS relies on provider-asserted recipient identity behind one
+pinned connector (T-27). The adapter's pre-exposure 20/20 result is the accepted
+source/runtime control for that trust decision, not evidence of a real tunnel.
 
-> [!danger] Do not treat either option as chosen
+> [!danger] G4 is architecture approval, not exposure approval
 > No MikroTik rule, UFW rule, VLAN change, Twingate policy, NAT entry, DNS record,
-> tunnel, or certificate was created, modified, or planned into existence by this
-> task. §14's gate G4 is where a choice is recorded.
+> tunnel, connector, or certificate exists because of G4. **G5 remains the only
+> owner gate that authorises actual Internet exposure.**
 
 ---
 
@@ -1480,7 +1496,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal acceptance passed on server hardware; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure adapter implemented, runtime matrix pending)* | Managed-tunnel trust adapter, pre-exposure acceptance harness, then real external E2E | The fail-closed managed-proxy edge mode (§10.2), one pinned connector identity, real-IP canonicalisation, provider-header stripping, per-recipient edge limiting, and the isolated `managed-tunnel/` harness | Any real tunnel, domain, DNS record, TLS certificate, Internet exposure or Production change; the G4 decision itself |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure 20/20 PASS; S5 external deployment planning started)* | Managed-tunnel trust adapter, pre-exposure acceptance, then owner-gated Production deployment and real external E2E | Delivered adapter/harness plus S5.1 Production freeze and deployment/rollback plan; G4 Option B approved | G5, any actual tunnel/hostname exposure, external acceptance, G6 and UI activation remain open |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
@@ -1647,11 +1663,13 @@ client; concurrent downloads; and confirmation that `/api`, `/drive` and
 > Production service stayed healthy, both protected volumes survived, and every
 > PS6 container, network, volume, built image and temporary file was removed.
 >
-> **G4, G5 and G6 remain open, and `Public Internet Share = NOT IMPLEMENTED`.**
+> **Historical PUBLIC-SHARE-6 boundary:** G4, G5 and G6 were open at that
+> checkpoint, and `Public Internet Share = NOT IMPLEMENTED`.
 > A recipient in this harness is a container on an isolated Docker network, not
 > someone on ordinary Internet access — that distinction is exactly what
-> PUBLIC-SHARE-7 exists to close, and **PUBLIC-SHARE-7 has not started**. No
-> ingress method is chosen, no port is published, and no DNS record, TLS
+> PUBLIC-SHARE-7 exists to close, and **PUBLIC-SHARE-7 had not started at that
+> checkpoint**. No ingress method had been chosen then, no port is published,
+> and no DNS record, TLS
 > certificate, NAT rule, tunnel or firewall change exists. No shipped gateway,
 > backend or UI source changed in this phase, and nothing in Production was
 > contacted, restarted, migrated or read.
@@ -1714,9 +1732,9 @@ Each gate is an explicit owner decision, recorded before the work it unblocks.
   recipient Internet address from `requestSourceIp(req)` for security
   attribution, rate-limit investigation, and incident response, under the
   restrictions in §12. No Internet recipient has been observed yet.
-- **G4 — Ingress choice.** Owner chooses Option A or Option B from §13, with the
-  T-14/T-27 trade-off explicitly acknowledged. **No ingress work begins before
-  this gate.**
+- **G4 — APPROVED on 2026-09-09.** Owner selected **Option B / Managed Tunnel**
+  from §13 and explicitly acknowledged T-14/T-27. This permits planning and
+  non-exposed preparation only; it is not G5 and creates no Internet exposure.
 - **G5 — Exposure gate.** After PUBLIC-SHARE-6 passes internally, the owner
   authorises actual Internet exposure. This is the point of no return and the
   only gate that changes the perimeter.
@@ -1735,9 +1753,10 @@ Until G6, every status note, UI string and receipt says the same thing:
   PUBLIC-SHARE-3 gateway source/runtime harness is implemented and locally
   verified. No gateway is deployed, no real Drive integration has run through
   it, and every ingress/TLS/external-acceptance control remains unbuilt.
-- **No ingress method is chosen** (§13, G4), so the threat model's ingress
-  entries (T-13, T-14, T-25, T-26, T-27) have option-dependent residual risk that
-  cannot be finalised yet.
+- **Ingress method chosen, not deployed.** G4 selects Option B / Managed Tunnel,
+  so T-13, T-14, T-25, T-26 and T-27 now carry the Option B residual-risk model.
+  Domain/zone ownership, connector isolation, the named tunnel, DNS, TLS and G5
+  remain unproven or open.
 - **The trusted-proxy change is a real modification to a production-verified
   control.** B4.3's spoof resistance was proven with exactly one approved
   identity. Adding a second approved *state* (§5.1.1) is sound and keeps HUB-only
@@ -1757,14 +1776,15 @@ Until G6, every status note, UI string and receipt says the same thing:
   Compose structural test named in T-10 is what keeps that from happening
   unnoticed.
 - ~~**The PUBLIC-SHARE-3 header and rate-limit model is direct-peer only.**~~
-  **Addressed in source by PUBLIC-SHARE-7 (§10.2), not yet accepted at runtime.**
+  **Addressed in source and accepted in the isolated pre-exposure runtime by
+  PUBLIC-SHARE-7 (§10.2); not deployed or externally accepted.**
   Direct mode is unchanged and remains the default. Managed mode canonicalises
   `$remote_addr`/`$binary_remote_addr` from the pinned connector's
   `CF-Connecting-IP`, so the authored `X-Forwarded-For`/`X-Real-IP` and the edge
   limit become per-recipient without changing their spelling. The residual limit
-  is that the Docker runtime matrix, the runtime negative controls and the
-  Production pre/post evidence are still **PENDING**, so this is an
-  implementation checkpoint rather than a closed limitation.
+  is that the real connector-isolation design, Production pre/post evidence and
+  ordinary-Internet acceptance are still **PENDING**, so the pre-exposure pass
+  does not close this limitation.
 - **B5 is enforced by the PUBLIC-SHARE-3 harness network, and the harness
   therefore has no host listener.** `aegis_public_share` is a Docker
   `internal: true` network **with bridge gateway mode `isolated`**; both are
