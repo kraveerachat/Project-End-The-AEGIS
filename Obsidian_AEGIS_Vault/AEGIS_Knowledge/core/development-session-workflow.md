@@ -72,7 +72,7 @@ evidence resolves it.
 
 ## 3. Required state models
 
-Use only these task states:
+The following values are the preferred/common canonical task-state vocabulary:
 
 ```text
 NOT STARTED
@@ -84,6 +84,16 @@ ACCEPTANCE PENDING
 PASS
 CLOSED
 ```
+
+Use the smallest applicable set. A task does not need to pass through every
+state. Domain- or task-specific states such as `PARTIAL` may be used when they
+are explicitly defined and evidence-safe. A custom state must never falsely
+upgrade implementation maturity, deployment maturity, acceptance, or task
+closure. `PRE-EXPOSURE PASS` and `ACCEPTANCE PENDING` are available only where
+they apply to that task.
+
+Task state, session state, result, and evidence maturity are separate fields;
+do not use one as a substitute for another.
 
 Use only these session states:
 
