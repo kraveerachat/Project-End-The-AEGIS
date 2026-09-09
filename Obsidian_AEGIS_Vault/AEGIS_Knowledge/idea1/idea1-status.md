@@ -551,14 +551,103 @@ Rootless **Podman preflight** against the **real pinned gateway image**
 > removed afterwards and the rootless store was verified empty, as it was
 > before.
 
+#### Session S4 — Docker runtime evidence (2026-09-09): 18/20, one harness defect found and fixed, re-run PENDING
+
+> [!warning] S4 is NOT closed and this is NOT a pre-exposure PASS
+> The Docker runtime matrix ran for the first time and **13 of the 14 PS7-PRE
+> subtests passed**. One failed — **PS7-PRE-11** — and it was a defect in the
+> *test*, not in the adapter. The fix is in, but the post-fix re-run has **not**
+> been executed, so **there is still no runtime acceptance and no task receipt.**
+
+**What ran.** Nine full harness runs on the Beelink: one baseline, seven
+negative controls each in a disposable copy of the tree, and one final re-run.
+**Docker Engine 29.7.1**, native Linux. Evidence: `/tmp/ps7-evidence/`
+(`01-normal.log`, `nc1..nc7.log`, `04-normal.log`, `summary.txt`).
+
+**Result — baseline and final run, identically: 20 tests, 18 pass, 2 fail, 0
+skipped.** Zero unexpected skips. Passing: PS7-PRE-01, 02, 03, 04, 05, 06, 07,
+08, 09, 10, 12, 13, 14, and all five PS7-STRUCT tests. The two failures are
+PS7-PRE-11 and its parent.
+
+**The one failure, and its classification.**
+
+```text
+PS7-PRE-11  B5 holds: the gateway reaches its upstream and nothing else
+  172.31.240.1 answered at L3: wget: download timed out
+```
+
+Classified **HARNESS_DEFECT**. The assertion required the literal word
+`unreachable`. PUBLIC-SHARE-3 measured `Host is unreachable` on **Docker Desktop
+28.3.2**; on **native Linux Docker 29.7.1** an isolated bridge drops the packet
+with no ICMP reply at all, so the client times out instead. Both mean nothing
+answered.
+
+⚠️ **The isolation property itself held, and was not taken on trust.** In the
+same subtest the `nc` probes to *both* bridge addresses (`172.31.240.1`,
+`172.31.241.1`) returned **closed**, and the string **`Connection refused`
+appears zero times in the entire run log** — that answer is the actual proof of
+a *live* address, and it never occurred. Every other B5 assertion passed: no
+default route, PostgreSQL closed, the private-surface stand-in closed, no
+egress, and no resolvable name for `postgres`, `private-surface`, `monitor` or
+`host.docker.internal`.
+
+**The fix, which strengthens the control rather than relaxing it.**
+`Connection refused` is now asserted **first**, as the discriminator the check
+exists for; a timeout is accepted alongside `unreachable`; **any HTTP response
+is explicitly rejected**; and PUBLIC-SHARE-3's ARP corroboration is added, so a
+*completed* ARP entry for the bridge address fails the test regardless of how
+the HTTP client words its failure. No security assertion was weakened, no
+Production object was touched, and nothing was changed to make a test pass.
+
+**Runtime negative controls — all seven proved load-bearing.** Each mutation was
+applied to exactly one invariant in a disposable copy, produced the named
+failure, and was reverted:
+
+| # | Mutation | Caught by | What the failure showed |
+| :--- | :--- | :--- | :--- |
+| NC1 | pinned connector peer check disabled | `PS7-PRE-02`, `PS7-PRE-06` | an untrusted caller was admitted |
+| NC2 | trust `X-Forwarded-For` instead of the provider header | `PS7-PRE-03/04/05/06/07/08/09/13`, `PS7-STRUCT-4` | 11 failures |
+| NC3 | `set_real_ip_from 0.0.0.0/0` instead of the pinned `/32` | `PS7-PRE-01`, `PS7-STRUCT-4` | ⚠️ `PS7-PRE-02` did **not** fail — the peer pin denies an untrusted caller independently, so this is genuine defence in depth rather than a single point of failure |
+| NC4 | edge limit keyed on `$server_name` | `PS7-PRE-06`, `PS7-STRUCT-2` | recipient buckets collapsed into one |
+| NC5 | `X-Forwarded-For` authored from `$realip_remote_addr` | `PS7-PRE-03/04/05/09`, `PS7-STRUCT-3` | the audit recorded `172.31.240.3` (the connector) instead of `203.0.113.10` (the recipient) — the exact G3/T-05 collapse |
+| NC6 | connector given a direct route to Drive | `PS7-PRE-12` | `drive-upstream: open` |
+| NC7 | ambiguity control removed | `PS7-PRE-05` | a comma-joined recipient identity was accepted, `200 !== 403` |
+
+⚠️ **`summary.txt` in the evidence directory says `NOT-CAUGHT-BY` for every
+control, and that text is wrong.** The driver's matcher used `^not ok`, but
+`node:test` indents subtests, so it only ever matched the parent test. The
+per-log detail above is the authoritative reading; the matcher has been
+corrected for future runs.
+
+**Production safety — both full runs.** Stable inventory **IDENTICAL** (container
+IDs, image IDs, Compose project, running state, health state, network
+attachments); `aegis_postgres_data` and `aegis_drive_storage` **present**; both
+harness-built images removed **by ID**; `postgres:15-alpine`, `node:20-alpine`
+and `nginx:alpine` **preserved**; **50 `aegis-prod` rows unchanged**; the Compose
+env file removed; **post-run check failures: 0** in each run.
+
+**Teardown and residue.** No harness container, network, volume or image
+survived any of the nine runs. `residue-gateway.txt` and `residue-idea1.txt` are
+both **0 bytes** — the disposable copy was byte-identical to the real checkout
+after every mutation was reverted — the copy was removed, `git-status.txt` is
+empty, and no `/tmp/aegis-ps7-*` or `/tmp/ps7-nc-work` object remains.
+
+**Still PENDING before this task can close.**
+
+- **Post-fix re-run of the normal harness = PENDING.** Until it is green there is
+  **no pre-exposure acceptance**, and the immutable receipt is deliberately not
+  created.
+- The seven negative controls are **not** repeated: each catch is already
+  demonstrated, and PS7-PRE-11 failed identically in the baseline *and* in every
+  control run, so it cannot have changed which mutation was caught by which test.
+
 #### Pending
 
-- **PS7-PRE-01..14 = PENDING DOCKER EVIDENCE**
-- **Runtime negative controls = PENDING** (seven prepared: pinned-peer check,
-  provider-header trust, `/32` versus everyone, rate-limit identity, source
-  attribution, connector→Drive isolation, ambiguity control)
-- **Production pre/post inventory = PENDING**
-- **Teardown / no-leftovers = PENDING**
+- **PS7-PRE-01..14 = 13 of 14 MEASURED PASS; PS7-PRE-11 pending its post-fix re-run** (see Session S4)
+- **Runtime negative controls = ALL SEVEN MEASURED LOAD-BEARING** (see Session S4)
+- **Production pre/post inventory = MEASURED IDENTICAL across both full runs**
+- **Teardown / no-leftovers = MEASURED CLEAN across all nine runs**
+- **Post-fix re-run of the normal harness = PENDING; there is no pre-exposure acceptance until it is green**
 - **Real Cloudflare tunnel = NOT RUN**
 - **Public DNS / external TLS = NOT RUN**
 - **Twingate-OFF 4G/5G external acceptance = NOT RUN**

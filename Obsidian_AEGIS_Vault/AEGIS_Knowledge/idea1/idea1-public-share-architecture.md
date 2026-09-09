@@ -1268,8 +1268,31 @@ resistance, IPv6 preservation and per-recipient rate-limit separation. ⚠️ **
 Podman preflight is configuration evidence only. It is not Docker acceptance**:
 it cannot reproduce `internal: true` with `gateway_mode_ipv4: isolated`, and it
 involved no Drive, no PostgreSQL, no audit, no isolation and no teardown
-evidence. **PS7-PRE-01..14, the runtime negative controls, the Production
-pre/post inventory and the teardown evidence are all PENDING.**
+evidence.
+
+**Docker runtime evidence (Session S4, 2026-09-09) — measured, not yet
+accepted.** The runtime matrix ran against the real Drive on real PostgreSQL 15
+across the isolated topology, on **Docker Engine 29.7.1**: **20 tests, 18 pass,
+2 fail, 0 skipped**, with 13 of the 14 PS7-PRE subtests passing and all seven
+runtime negative controls proving load-bearing. Attribution through the managed
+hop, forged-header resistance, per-recipient limiting, the scope split,
+revocation, log safety and connector-bypass denial were all measured against the
+real application. Production inventory was **IDENTICAL** across both full runs
+and every harness object was torn down. See [[idea1/idea1-status]] for the full
+per-subtest and per-control breakdown.
+
+⚠️ **One durable platform fact this produced.** How an isolated bridge presents
+unreachability is **engine-dependent**, and a test must not encode one
+platform's wording. PUBLIC-SHARE-3 measured `Host is unreachable` on Docker
+Desktop 28.3.2; native Linux Docker 29.7.1 drops the packet with no ICMP reply,
+so the client **times out** instead. The discriminator that actually
+distinguishes a live address from a dead one is **`Connection refused`**, which
+did not occur once. `PS7-PRE-11` asserted the wording rather than the property
+and was corrected — asserting `Connection refused` first, accepting a timeout,
+rejecting any HTTP response, and adding PUBLIC-SHARE-3's ARP corroboration.
+
+**The post-fix re-run of the normal harness is PENDING, so there is still no
+pre-exposure acceptance and no task receipt.**
 
 ---
 

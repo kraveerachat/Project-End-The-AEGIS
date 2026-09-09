@@ -1289,11 +1289,36 @@ send({ host: '127.0.0.1', port: 8001, path: ${JSON.stringify(`/s/${artifact.priv
     for (const bridge of ['172.31.240.1', '172.31.241.1']) {
       assert.equal(await probe(bridge, 8080), 'closed', `the gateway must not reach ${bridge}`)
     }
+    // ⚠️ HOW unreachability presents is engine- and host-dependent, and this
+    //    assertion must not encode one platform's wording. PUBLIC-SHARE-3
+    //    measured "Host is unreachable" on Docker Desktop 28.3.2; on native
+    //    Linux Docker 29.7.1 with `gateway_mode_ipv4: isolated` the packet is
+    //    dropped with no ICMP reply at all, so the client times out instead.
+    //    Both mean nothing answered, and an earlier draft of this suite failed
+    //    on the wording rather than on the property.
+    //
+    //    "Connection refused" is the DISCRIMINATOR this check exists for: it
+    //    proves the bridge address is LIVE and that isolated mode is not in
+    //    force. A timeout is the opposite of that, so it is asserted first.
     const hostHttp = await docker(['exec', gatewayId, 'sh', '-c',
       'wget -qO- -T 3 http://172.31.240.1/ 2>&1 || true'])
-    assert.match(hostHttp.stdout, /unreachable/i, `172.31.240.1 answered at L3: ${hostHttp.stdout}`)
     assert.doesNotMatch(hostHttp.stdout, /Connection refused/i,
       'Connection refused means the host address is live; isolated mode is not in force')
+    assert.match(hostHttp.stdout, /unreachable|timed out|timeout/i,
+      `172.31.240.1 answered at L3: ${hostHttp.stdout}`)
+    assert.doesNotMatch(hostHttp.stdout, /HTTP\/|<html|<!doctype/i,
+      `a host service served a response at 172.31.240.1: ${hostHttp.stdout}`)
+
+    // Corroboration that nothing holds the address at all, independent of how
+    // the HTTP client words its failure: an ARP entry with an all-zero MAC is
+    // an incomplete resolution. No entry at all is equally fine — what must
+    // never appear is a COMPLETED one, which would mean something answered.
+    const arp = await docker(['exec', gatewayId, 'sh', '-c', 'cat /proc/net/arp'])
+    const bridgeEntry = arp.stdout.split('\n').find((line) => line.startsWith('172.31.240.1'))
+    if (bridgeEntry) {
+      assert.match(bridgeEntry, /00:00:00:00:00:00/,
+        `something answered ARP for the bridge address: ${bridgeEntry}`)
+    }
 
     // No egress. Decided locally by the absence of a route, so this never
     // depends on real Internet availability.
