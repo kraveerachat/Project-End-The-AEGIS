@@ -3,8 +3,8 @@ title: START HERE — AEGIS Knowledge Entry Point
 tags: [aegis, moc, index, entry-point, agent-protocol, map-of-content]
 type: moc
 created: 2026-08-06
-updated: 2026-08-13
-sources: ["[[index]]", "[[log]]", "[[.schema.md]]"]
+updated: 2026-09-09
+sources: ["[[index]]", "[[log]]", "[[.schema.md]]", "[[core/development-session-workflow]]"]
 owner: kla
 edit_policy: owner-only
 ---
@@ -12,7 +12,10 @@ edit_policy: owner-only
 # 🧭 START HERE — AEGIS Knowledge Entry Point
 
 > **This is the single door into the AEGIS knowledge base.**
-> Every AI agent and every human joining this project reads this file first. It answers three questions in order: *what is this system*, *what has been done to it*, and *what is still open* — then points at the exact note for anything deeper.
+> Humans use this as the single door into the AEGIS knowledge base. Repository
+> agents first read root `AGENTS.md`, then [[core/development-session-workflow]],
+> then this orientation. It answers three questions in order: *what is this
+> system*, *what has been done to it*, and *what is still open*.
 
 ---
 
@@ -34,24 +37,31 @@ edit_policy: owner-only
 3. **Fail-Secure & Air-Gap** — heartbeat loss cuts the WAN uplink. → [[concepts/Dead_Mans_Switch]]
 4. **OWASP Hardening** — no tokens in `localStorage`; HttpOnly + SameSite=Strict + CSRF. → [[concepts/OWASP_Security_Defense]]
 
-Full rules, including the mandatory post-prompt sync procedure: **[[core/agent-operating-rules]]**
+Full task rules: **[[core/agent-operating-rules]]**. Multi-session planning,
+evidence, checkpoint, handoff, and final receipt rules:
+**[[core/development-session-workflow]]**.
 
 ---
 
 ## 🤖 Agent reading protocol
 
-**Every session, before doing any work — read in this order:**
+**Every task/session, before doing any work — read in this order:**
 
-1. **[[START_HERE]]** (this file) — orientation and the map below.
-2. **[[core/agent-operating-rules]]** — the four principles, the in-place-edit policy, and the 3-step sync you owe at the end.
-3. **[[summaries/08_Outstanding_Items_Consolidated]]** — what is already known to be broken. **Check this before reporting any "new" bug**; most are already tracked, and several were re-discovered and re-reported across sessions because nobody looked.
-4. **Choose the workspace dashboard before reading area detail**: [[core/core-moc]] for shared contracts and integration; [[idea1/idea1-moc]], [[idea2/idea2-moc]], [[idea3/idea3-moc]], or [[infrastructure/infrastructure-moc]] for an owned area. Then open that dashboard's canonical status note.
-5. For UI work → **[[core/design-system-ui-language]]**; for security work → **[[concepts/Terminal_Verification_Protocol]]**.
+1. Repository-root **`AGENTS.md`** — authority, ownership, Git, receipt, and PR policy.
+2. **[[core/development-session-workflow]]** — task/session state, evidence, checkpoints, and handoff.
+3. **[[START_HERE]]** (this file) — orientation and the map below.
+4. **[[core/agent-operating-rules]]** — durable architecture and collaboration rules.
+5. **[[summaries/08_Outstanding_Items_Consolidated]]** — known open work; check before reporting a “new” bug.
+6. **Choose the workspace dashboard before area detail**: [[core/core-moc]] for shared contracts and integration; [[idea1/idea1-moc]], [[idea2/idea2-moc]], [[idea3/idea3-moc]], or [[infrastructure/infrastructure-moc]] for an owned area. Then open that dashboard's canonical status note, relevant architecture, newest receipts, and current source/tests.
 
-**Before you finish — the conflict-safe 3-step sync:**
-1. Update only the canonical status note owned by your area. Do not edit another member's fragment.
-2. Create exactly one new immutable task receipt from [[90-Status/logs/_template]] using `YYYY-MM-DD_HHMMSS_owner_topic.md`.
-3. In the Pull Request, list tests, canonical notes, shared surfaces and integration requests. Kla integrates accepted cross-area changes through [[90-Status/integration-queue]].
+**Before a meaningful session checkpoint:** update only the canonical status note
+owned by the task area, record evidence and the checkpoint SHA, then validate the
+vault and diff. A session does not create a branch, Pull Request, or receipt.
+
+**At final task handoff:** create exactly one immutable task receipt from
+[[90-Status/logs/_template]], then list tests, canonical notes, shared surfaces,
+and integration requests in the Pull Request. Kla integrates accepted cross-area
+changes through [[90-Status/integration-queue]].
 
 The historical [[log]] is frozen. Never append new task results to it.
 
@@ -188,4 +198,4 @@ flowchart TD
 ## ⚠️ Two environment notes
 
 - **Open Obsidian on `Obsidian_AEGIS_Vault/AEGIS_Knowledge`, not the repo root.** Opening the root indexes ~500 extra Markdown files from `node_modules/` and four duplicated AI-skill trees, which is what produced the scattered orphan graph. Ignore filters are now set at the root as a safety net — see [[core/agent-operating-rules]].
-- **This project is under Git and uses protected Pull Requests.** Work on one task branch, pull/rebase current `main` before editing, push the branch, wait for checks/review, then merge. Never force-push `main`.
+- **This project is under Git and uses protected Pull Requests.** Work on one task branch, fetch and synchronize from current `origin/main` as `AGENTS.md` specifies, checkpoint coherent sessions on that branch, push it, and wait for checks and human review. Do not rebase shared task work, force-push, push directly to `main`, or let an agent merge the Pull Request.
