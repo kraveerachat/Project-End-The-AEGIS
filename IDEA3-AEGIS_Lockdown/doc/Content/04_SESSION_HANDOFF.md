@@ -2125,3 +2125,68 @@ Do not reuse the `ca5a4fe6` artifact as evidence for the new source. On Windows
 x64, pull the new SHA, run `windows/build.ps1`, require BUILD OK, extract the
 new ZIP, choose a fresh absolute DataPath, run `windows/smoke.ps1`, and report
 every acceptance result. Do not merge PR #107 before that evidence is reviewed.
+
+## 38. PR8 Task 11 — staging-bundle acceptance and final main sync — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+WINDOWS_TESTED_SHA = c7cdc2b2e70e4224a756b53f3e87363b55c9ea58
+MERGED_ORIGIN_MAIN = d32885b36c08c71dc5719109de12ed8ac8f6589e
+IMPLEMENTATION_EVIDENCE_CHECKPOINT = 8214792022a4d29672227f6637e8399a7f1e189c
+STATUS = ACCEPTANCE PENDING / FINAL-SHA WINDOWS RE-ACCEPTANCE REQUIRED
+PRODUCTION MUTATION ALLOWED = NO
+```
+
+### Qualified real Windows evidence at `c7cdc2b2`
+
+- Build PASS: Python 202, Web 298 across 24 files, Vite, PyInstaller,
+  production npm install, artifact scan, manifest, ZIP, and BUILD OK.
+- Artifact: `AEGIS-IDEA3-c7cdc2b2e70e.zip`; SHA-256
+  `faaeaea5259647dea0292d6cc6db286fea540162c41c8a8d63a8eaa774a93694`.
+- Staging-bundle smoke PASS: 25 checks, 0 failed, including Core/Web RUNNING,
+  Admin login/logout, secure cookie attributes, audit read and persistence,
+  honest absent IDEA1/IDEA2/hardware states, stop/restart, external durable DB,
+  no surviving bundle child, and clean completion.
+- This is not extracted-ZIP acceptance. An interactive PowerShell extraction
+  wrapper parsed incorrectly, so smoke retained
+  `BundlePath=windows/out/AEGIS-IDEA3` and exercised the fresh staging bundle.
+
+### Final main reconciliation
+
+`origin/main` advanced from `d60d7fc1` to `d32885b3`. It was merged normally
+without rebase and without conflicts. The incoming delta contains only shared
+development-session governance and vault-validator changes; no IDEA3 product
+source changed.
+
+### Fresh verification at `82147920`
+
+```text
+Focused Python = 161 passed, 6 skipped
+Focused Web = 58 passed across 5 files
+Full Python = 196 passed, 6 Windows-only skipped
+Full Web = 298 passed across 24 files
+Vite production build = PASS, 1677 modules
+Ruff = PASS
+compileall = PASS using PYTHONPYCACHEPREFIX under /tmp
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 57 passed
+Vault validation = PASS, two unchanged owner-data canvas warnings
+```
+
+No source, runtime configuration, dependency, deployment, MQTT, firmware,
+relay, network, Production data, or physical behavior changed in this sync.
+The existing PR8 receipt remains unchanged and no receipt was created.
+
+### Current gate and exact next action
+
+```text
+WINDOWS_BUILD_VERIFIED = NO for the new SHA
+WINDOWS_SMOKE_VERIFIED = NO for the new SHA
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+Keep PR #107 Draft and unmerged. On Windows x64, pull the final PR head, run
+`windows/build.ps1`, require BUILD OK, freshly extract the new ZIP, select a
+fresh absolute DataPath, run `windows/smoke.ps1` against the extracted bundle,
+and report every acceptance result. Confirm browser-localhost behavior if still
+required.

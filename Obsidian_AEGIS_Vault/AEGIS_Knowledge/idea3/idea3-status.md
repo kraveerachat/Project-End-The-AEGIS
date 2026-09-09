@@ -512,26 +512,33 @@ checkpoint.
 - No forbidden or generated path is introduced by this branch; the only
   non-`IDEA3-AEGIS_Lockdown/` path changed is this canonical note.
 
-### WINDOWS ACCEPTANCE — BUILD PASSED AT `ca5a4fe6`; CURRENT SHA NOT VERIFIED
+### WINDOWS ACCEPTANCE — STAGING BUNDLE PASSED AT `c7cdc2b2`; CURRENT SHA NOT VERIFIED
 
 ```text
-WINDOWS_BUILD_VERIFIED_AT_ca5a4fe6 = YES
-WINDOWS_SMOKE_VERIFIED_AT_ca5a4fe6 = NO / PARTIAL FAILURE
+WINDOWS_BUILD_VERIFIED_AT_c7cdc2b2 = YES
+WINDOWS_STAGING_BUNDLE_SMOKE_AT_c7cdc2b2 = PASS (25 checks, 0 failed)
+WINDOWS_EXTRACTED_ZIP_SMOKE_AT_c7cdc2b2 = NO
 WINDOWS_BUILD_VERIFIED_FOR_CURRENT_SHA = NO
 WINDOWS_SMOKE_VERIFIED_FOR_CURRENT_SHA = NO
-PR8_IMPLEMENTATION_PLAN_TASK_11 = BLOCKED
-BLOCKER = the post-ca5a4fe6 source fix requires a fresh Windows build and smoke
+PR8_IMPLEMENTATION_PLAN_TASK_11 = ACCEPTANCE PENDING
+BLOCKER = the post-main-sync SHA requires a fresh Windows build and extracted-ZIP smoke
 ```
 
-- Real Windows build at `ca5a4fe679b6a31a87c3dd78643f52f0d0b44356`:
-  Python **194 passed**, Web **297 passed**, Vite build PASS, PyInstaller PASS,
-  production npm install PASS, forbidden-artifact and manifest checks PASS, ZIP
-  PASS. Artifact `AEGIS-IDEA3-ca5a4fe679b6.zip`, SHA-256
-  `5ae7982983a8a9c9d8184722dceb7dee8406088bedb4672c165eb300fec5c746`.
-- Real Windows smoke at that SHA passed configuration, post-configuration
-  doctor, Web start/restart health, stopped-state reporting, toolchain
-  independence, and blank integration-token checks. It failed
-  `status-reports-running`, `admin-login-succeeds`, and completion.
+- Real Windows build at `c7cdc2b2e70e4224a756b53f3e87363b55c9ea58`:
+  Python **202 passed**, Web **298 passed across 24 files**, Vite build PASS,
+  PyInstaller PASS, production npm install PASS, forbidden-artifact and manifest
+  checks PASS, ZIP PASS, and final BUILD OK. Artifact
+  `AEGIS-IDEA3-c7cdc2b2e70e.zip`, SHA-256
+  `faaeaea5259647dea0292d6cc6db286fea540162c41c8a8d63a8eaa774a93694`.
+- Real Windows smoke at that SHA passed **25 checks with 0 failed** against the
+  freshly built staging bundle at `windows/out/AEGIS-IDEA3`: configuration,
+  Core/Web RUNNING status, Admin login, `Secure; HttpOnly; SameSite=Strict`
+  cookie validation, audit read, honest absent-integration/hardware states,
+  logout, stop/restart, audit persistence, external durable DB, no surviving
+  bundle children, and clean completion.
+- This is not extracted-ZIP acceptance. The attempted extraction wrapper had an
+  interactive PowerShell `if/elseif` parsing mistake, so `BundlePath` remained
+  `windows/out/AEGIS-IDEA3` instead of the extracted ZIP directory.
 - Core root cause: generated blank `AEGIS_BROKER_PORT` was parsed with
   `int("")`; its Thai import-time fallback diagnostic then raised
   `UnicodeEncodeError` under `cp1252`. The fix treats blank broker settings as
@@ -548,20 +555,26 @@ BLOCKER = the post-ca5a4fe6 source fix requires a fresh Windows build and smoke
   `SameSite=Strict`. Smoke validates those attributes, carries the opaque cookie
   explicitly because PowerShell does not implement the browser localhost
   exception, and supplies the required CSRF token on logout.
-- Fresh Arch source verification after the fix: Python **196 passed, 6 skipped**
-  (Windows-only); Web **298 passed across 24 files**; Vite build PASS with 1,677
-  modules; Ruff PASS; compileall PASS with its cache redirected to `/tmp` after
-  the workspace mount rejected `__pycache__` writes; production npm audit **0
-  vulnerabilities**; repository tests **56 passed**; vault validation PASS with
-  the two unchanged owner-data canvas warnings; `git diff --check` PASS.
+- `origin/main` advanced to `d32885b36c08c71dc5719109de12ed8ac8f6589e`
+  during Windows acceptance and was merged normally with no conflicts. The
+  resulting implementation/evidence checkpoint is
+  `8214792022a4d29672227f6637e8399a7f1e189c`.
+- Fresh Arch verification at that reconciled checkpoint: focused Python **161
+  passed, 6 skipped**; focused Web **58 passed**; full Python **196 passed, 6
+  Windows-only skipped**; Web **298 passed across 24 files**; Vite build PASS
+  with 1,677 modules; Ruff PASS; compileall PASS with cache redirected to
+  `/tmp`; production npm audit **0 vulnerabilities**; repository tests **57
+  passed**; vault validation PASS with the two unchanged owner-data canvas
+  warnings.
 
-No Windows build or smoke result exists for the new source. The `ca5a4fe6`
-artifact is historical evidence for that exact SHA only and must not be reused.
+The `c7cdc2b2` build and staging-bundle smoke are historical evidence for that
+exact SHA only. They do not verify the post-merge SHA and do not substitute for
+fresh extracted-ZIP smoke acceptance.
 
 ### STILL OPEN
 
 ```text
-PROJECT PR8 = PARTIAL / WINDOWS ACCEPTANCE BLOCKED
+PROJECT PR8 = ACCEPTANCE PENDING / WINDOWS RE-ACCEPTANCE REQUIRED
 IDEA1_SERVICE_EVENT_FEED = OPEN
 IDEA2_SERVICE_EVENT_FEED = OPEN
 SHARED_CORRELATION_KEY = OPEN
@@ -575,6 +588,101 @@ IDEA3_PRODUCTION_COMPLETE = NO
 No MQTT connection or publication, ACK, relay CUT/RESTORE, firmware compile or
 flash, network change, production database access, deployment, or physical
 evidence occurred during PR8.
+
+---
+
+## Current Task
+
+Task: IDEA3 PR8 Windows standalone runtime
+Branch: `feat/idea3-windows-standalone-pr8`
+Owner: `music`
+PR: #107 (Draft)
+Current state: ACCEPTANCE PENDING
+Started: 2026-09-08
+Last checkpoint: `8214792022a4d29672227f6637e8399a7f1e189c`
+Production mutation allowed: NO
+
+### Goal
+
+Deliver and verify the deterministic IDEA3 Windows x64 one-folder runtime.
+
+### Scope
+
+IDEA3 launcher, packaging, external data, Web runtime, source verification, and
+Windows build/smoke acceptance.
+
+### Out of scope
+
+Production deployment, MQTT publication, firmware/relay changes, network
+changes, live IDEA1/IDEA2 feeds, and physical acceptance.
+
+### Safety boundaries
+
+Keep PR #107 Draft and unmerged; do not rebase or force-push; preserve the
+immutable receipt; use a fresh external DataPath; do not enable hardware or MQTT.
+
+### Acceptance criteria
+
+Fresh Windows build from the final SHA must report BUILD OK. The resulting ZIP
+must be freshly extracted and pass `windows/smoke.ps1` with a fresh DataPath;
+browser-localhost behavior must be confirmed if still required.
+
+## Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S13 | Final main sync and source re-verification | CLOSED | Focused 161/6 + 58; full 196/6 + 298; Vite/Ruff/compile/audit; repo 57; vault PASS | `8214792022a4d29672227f6637e8399a7f1e189c` | PASS | Windows final-SHA build and extracted-ZIP smoke | Return final SHA to Windows |
+
+## Handoff
+
+### Current branch
+
+`feat/idea3-windows-standalone-pr8`
+
+### Current HEAD
+
+Implementation/evidence checkpoint:
+`8214792022a4d29672227f6637e8399a7f1e189c`. The later documentation checkpoint
+is recorded in PR #107 and the session report after Git assigns it.
+
+### Current task state
+
+ACCEPTANCE PENDING. Local source and governance gates pass; final-SHA Windows
+acceptance is not yet run.
+
+### Sessions closed
+
+S13 final main sync and source re-verification.
+
+### Session currently open
+
+None locally. The next environment-bound session is Windows re-acceptance.
+
+### Verified evidence
+
+`c7cdc2b2` Windows build and staging-bundle smoke PASS with the extraction
+qualification above; `82147920` Arch source/governance verification PASS.
+
+### Known issues
+
+No extracted-ZIP smoke exists, and no Windows evidence exists for the post-merge
+SHA.
+
+### Exact remaining work
+
+Build the final SHA on Windows, require BUILD OK, freshly extract its ZIP, use a
+fresh DataPath, run the smoke suite against that extracted directory, and report
+all acceptance results.
+
+### Next command / next action
+
+On Windows x64, pull the final PR head and run `windows/build.ps1`.
+
+### Do not do
+
+Do not merge PR #107, reuse the `c7cdc2b2` artifact as final-SHA evidence,
+rebase, force-push, create another receipt, enable MQTT/hardware, or mutate
+Production.
 
 ---
 
