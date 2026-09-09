@@ -410,16 +410,18 @@ Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
 
 Public Share remains not implemented.
 
-### PUBLIC-SHARE-7 pre-exposure managed-tunnel adapter — IN PROGRESS CHECKPOINT (2026-09-08)
+### PUBLIC-SHARE-7 pre-exposure managed-tunnel adapter — PASS; PS7 overall IN PROGRESS (2026-09-08 → 2026-09-09)
 
-> [!warning] IN PROGRESS — implementation checkpoint, not an acceptance
-> **This is a sub-session checkpoint, not a result.** The managed-tunnel trust
-> adapter is implemented and its source/structure evidence is green, but the
-> Docker-gated runtime matrix has **not** run yet. **PUBLIC-SHARE-7 is NOT
-> COMPLETE, there is no PRE-EXPOSURE PASS yet, G5 and G6 remain OPEN, and
-> `Public Internet Share = NOT IMPLEMENTED`.** No tunnel, domain, DNS record,
-> TLS certificate, NAT rule, firewall change, Twingate change or Production
-> change was made by this work.
+> [!success] Pre-exposure task = PASS. PUBLIC-SHARE-7 overall = IN PROGRESS
+> **The Managed-Tunnel Edge Adapter + Pre-Exposure Acceptance task is COMPLETE
+> and its Docker runtime acceptance passed 20/20 (Session S4 below).**
+>
+> ⚠️ **That is not PUBLIC-SHARE-7.** Everything requiring the real Internet is
+> still untouched: **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet
+> acceptance = **NOT RUN**, **G5 and G6 remain OPEN**, and
+> `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
+> certificate, NAT rule, firewall change, VLAN change, Twingate change or
+> Production change was made by this work.
 
 #### Plan and scope
 
@@ -551,23 +553,37 @@ Rootless **Podman preflight** against the **real pinned gateway image**
 > removed afterwards and the rootless store was verified empty, as it was
 > before.
 
-#### Session S4 — Docker runtime evidence (2026-09-09): 18/20, one harness defect found and fixed, re-run PENDING
+#### Session S4 — Docker runtime evidence (2026-09-09): CLOSED / PASS
 
-> [!warning] S4 is NOT closed and this is NOT a pre-exposure PASS
-> The Docker runtime matrix ran for the first time and **13 of the 14 PS7-PRE
-> subtests passed**. One failed — **PS7-PRE-11** — and it was a defect in the
-> *test*, not in the adapter. The fix is in, but the post-fix re-run has **not**
-> been executed, so **there is still no runtime acceptance and no task receipt.**
+> [!success] S4 = CLOSED. Pre-exposure managed-tunnel acceptance = PASS
+> **PS7-PRE-01..14 = 20 tests, 20 passed, 0 failed, 0 skipped, acceptance exit
+> code 0, post-run check failures 0.** All seven runtime negative controls are
+> load-bearing. Production pre/post **IDENTICAL**, protected volumes **PRESENT**,
+> teardown **CLEAN**, mutation residue **NONE**.
+>
+> ⚠️ **This closes the Managed-Tunnel Edge Adapter + Pre-Exposure Acceptance
+> task, NOT PUBLIC-SHARE-7.** `PUBLIC-SHARE-7 overall = IN PROGRESS`. Real
+> Internet acceptance = **NOT RUN**. G5 and G6 remain **OPEN** and
+> `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
+> certificate, NAT rule, firewall, VLAN, Twingate or Production change exists.
 
 **What ran.** Nine full harness runs on the Beelink: one baseline, seven
 negative controls each in a disposable copy of the tree, and one final re-run.
 **Docker Engine 29.7.1**, native Linux. Evidence: `/tmp/ps7-evidence/`
 (`01-normal.log`, `nc1..nc7.log`, `04-normal.log`, `summary.txt`).
 
-**Result — baseline and final run, identically: 20 tests, 18 pass, 2 fail, 0
-skipped.** Zero unexpected skips. Passing: PS7-PRE-01, 02, 03, 04, 05, 06, 07,
-08, 09, 10, 12, 13, 14, and all five PS7-STRUCT tests. The two failures are
-PS7-PRE-11 and its parent.
+**First result — baseline and its final re-run, identically: 20 tests, 18 pass,
+2 fail, 0 skipped.** Zero unexpected skips. Passing: PS7-PRE-01, 02, 03, 04, 05,
+06, 07, 08, 09, 10, 12, 13, 14, and all five PS7-STRUCT tests. The two failures
+were PS7-PRE-11 and its parent.
+
+**Final result after the fix — `05-normal-postfix.log`, 2026-09-09 07:35:
+20 tests, 20 passed, 0 failed, 0 skipped; acceptance exit code 0; post-run check
+failures 0.** The run was executed from the real checkout at commit
+`994579590b10b06c3e0cde0e63331bb38fbd1051`, which contains the fix, with a clean
+worktree — so the green result is the fixed code and not a re-reading of the old
+one. `PS7-PRE-11`, which had failed deterministically on this host in all three
+prior runs, now passes.
 
 **The one failure, and its classification.**
 
@@ -632,22 +648,75 @@ both **0 bytes** — the disposable copy was byte-identical to the real checkout
 after every mutation was reverted — the copy was removed, `git-status.txt` is
 empty, and no `/tmp/aegis-ps7-*` or `/tmp/ps7-nc-work` object remains.
 
-**Still PENDING before this task can close.**
+The seven negative controls were **not** repeated after the fix, deliberately:
+each catch is already demonstrated above, and `PS7-PRE-11` failed identically in
+the baseline **and** in every control run, so it cannot have changed which
+mutation was caught by which test.
 
-- **Post-fix re-run of the normal harness = PENDING.** Until it is green there is
-  **no pre-exposure acceptance**, and the immutable receipt is deliberately not
-  created.
-- The seven negative controls are **not** repeated: each catch is already
-  demonstrated, and PS7-PRE-11 failed identically in the baseline *and* in every
-  control run, so it cannot have changed which mutation was caught by which test.
+#### Session register
+
+| Session | Scope | State | Result |
+| :--- | :--- | :--- | :--- |
+| S1 | Survey and PS7-01 Production read-only baseline | CLOSED | PASS |
+| S2 | Managed-tunnel adapter implementation, source/structure tests, static negative controls | CLOSED | PASS |
+| S3 | Podman configuration preflight; duplicate-identity defect found and fixed; interim checkpoint `a07687c2` | CLOSED | PASS |
+| S4 | Docker runtime matrix, runtime negative controls, Production safety, `PS7-PRE-11` fix `99457959` | **CLOSED** | **PASS** |
+| S5 | External phase — real tunnel, DNS, TLS, 4G/5G acceptance, rollback, G5/G6 | **NOT STARTED** | — |
+
+#### Task status dashboard
+
+| Item | State |
+| :--- | :--- |
+| Managed-tunnel source implementation | **PASS** |
+| Pre-exposure Docker runtime acceptance | **PASS** |
+| Runtime negative controls | **PASS** (7 of 7 load-bearing) |
+| Production mutation | **NOT PERFORMED** |
+| Real Cloudflare tunnel | **NOT RUN** |
+| Public DNS | **NOT RUN** |
+| External TLS | **NOT RUN** |
+| Twingate-OFF 4G/5G acceptance | **NOT RUN** |
+| Real Internet resilience matrix | **NOT RUN** |
+| Ingress rollback acceptance | **NOT RUN** |
+| G4 gate (ingress choice) | **OPEN — owner's to record** |
+| G5 (exposure) | **OPEN** |
+| G6 (completion) | **OPEN** |
+| Public Internet Share | **NOT IMPLEMENTED** |
+| **PUBLIC-SHARE-7 overall** | **IN PROGRESS** |
+
+#### Planned · completed · remaining
+
+**Planned for this task.** A managed-tunnel trust adapter for G4 Option B, plus
+one integrated pre-exposure harness able to evidence several PS7 matrix rows in a
+single run, with no Internet exposure and no Production change.
+
+**Completed.** The fail-closed edge mode with one pinned connector identity;
+real-IP canonicalisation; four independent trust controls; provider-header
+stripping; per-recipient edge limiting; preserved direct mode; an isolated
+six-service harness; a Production-safe runner; the acceptance suite; two defects
+found and fixed; seven runtime and five static negative controls; and the
+measured Production-safety and teardown evidence above.
+
+**Remaining, and explicitly out of scope here.** Everything requiring the real
+Internet: installing and running `cloudflared` in an approved isolated
+deployment, obtaining a stable public domain, real DNS and TLS, **G5**, the
+external 4G/5G matrix with Twingate off, real-Internet resilience testing,
+ingress rollback acceptance, post-rollback private-system verification, and
+**G6**. The PS7 matrix rows those cover — PS7-04, 05, 06, 07, 10..17, 25, 27, 28,
+29, 30 — remain **NOT RUN**.
+
+⚠️ **A deployment gate for the external phase, recorded rather than faked.** In
+this harness the connector sits on an internal, isolated Docker network with no
+route to Drive, PostgreSQL or a private surface. A real `cloudflared` connector
+needs an outbound Internet path, so reproducing "the connector can reach nothing
+but the gateway" in Production is **host-firewall and/or VLAN work**, not
+something source can assert. It must be designed and reviewed before G5.
 
 #### Pending
 
-- **PS7-PRE-01..14 = 13 of 14 MEASURED PASS; PS7-PRE-11 pending its post-fix re-run** (see Session S4)
-- **Runtime negative controls = ALL SEVEN MEASURED LOAD-BEARING** (see Session S4)
-- **Production pre/post inventory = MEASURED IDENTICAL across both full runs**
-- **Teardown / no-leftovers = MEASURED CLEAN across all nine runs**
-- **Post-fix re-run of the normal harness = PENDING; there is no pre-exposure acceptance until it is green**
+- **PS7-PRE-01..14 = PASS** — 20/20, exit 0 (Session S4, CLOSED)
+- **Runtime negative controls = PASS** — all seven load-bearing (Session S4)
+- **Production pre/post inventory = IDENTICAL** across all three full runs
+- **Teardown / no-leftovers = CLEAN** across all ten runs; **mutation residue = NONE**
 - **Real Cloudflare tunnel = NOT RUN**
 - **Public DNS / external TLS = NOT RUN**
 - **Twingate-OFF 4G/5G external acceptance = NOT RUN**

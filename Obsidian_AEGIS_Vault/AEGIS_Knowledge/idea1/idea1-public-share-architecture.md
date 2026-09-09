@@ -26,10 +26,11 @@ edit_policy: owner-writable
 > evidence, not Production evidence. Every container, network and volume either
 > creates is removed after each runtime run.
 >
-> **PUBLIC-SHARE-7 is IN PROGRESS (2026-09-08).** The managed-proxy trust adapter
-> the §10 warning demanded now exists in source with green source/structure
-> evidence (§10.2), but its Docker runtime matrix has not run. Nothing is
-> exposed, no ingress method is recorded as chosen, and the status above is
+> **PUBLIC-SHARE-7 is IN PROGRESS (2026-09-09).** Its first task — the
+> managed-proxy trust adapter and pre-exposure acceptance (§10.2) — is
+> **COMPLETE and PASSED 20/20** against the real Drive on an isolated topology.
+> Nothing is exposed, no ingress method is recorded as chosen, and every
+> statement above about DNS, TLS, tunnels, NAT, firewalls and Production remains
 > unchanged.
 
 ---
@@ -1180,13 +1181,13 @@ headers, and `req.ip` remains the only client-source value. The Drive changes ar
 > before Drive sees it — is a property of the private path and is **unchanged**
 > by anything here. Do not present the public gateway as solving it.
 
-### 10.2 PUBLIC-SHARE-7 managed-proxy adapter — IN PROGRESS CHECKPOINT (2026-09-08)
+### 10.2 PUBLIC-SHARE-7 managed-proxy adapter — delivered, pre-exposure PASS (2026-09-09)
 
-> [!warning] Implementation checkpoint, not an acceptance
-> The adapter the warning above demanded now exists **in source**, and its
-> source/structure evidence is green. The Docker-gated runtime matrix has **not**
-> run yet. **PUBLIC-SHARE-7 is NOT COMPLETE and there is no PRE-EXPOSURE PASS
-> yet.** G4's gate is still the owner's to record, **G5 and G6 remain OPEN**, and
+> [!success] Adapter delivered and accepted pre-exposure; PS7 overall IN PROGRESS
+> The adapter the warning above demanded now exists **in source** and has
+> **passed its Docker runtime acceptance 20/20** against the real Drive on real
+> PostgreSQL (Session S4). **PUBLIC-SHARE-7 is still NOT COMPLETE**: G4's gate is
+> the owner's to record, **G5 and G6 remain OPEN**, and
 > `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
 > certificate, NAT rule, firewall, VLAN, Twingate or Production change was made.
 
@@ -1270,11 +1271,13 @@ it cannot reproduce `internal: true` with `gateway_mode_ipv4: isolated`, and it
 involved no Drive, no PostgreSQL, no audit, no isolation and no teardown
 evidence.
 
-**Docker runtime evidence (Session S4, 2026-09-09) — measured, not yet
-accepted.** The runtime matrix ran against the real Drive on real PostgreSQL 15
-across the isolated topology, on **Docker Engine 29.7.1**: **20 tests, 18 pass,
-2 fail, 0 skipped**, with 13 of the 14 PS7-PRE subtests passing and all seven
-runtime negative controls proving load-bearing. Attribution through the managed
+**Docker runtime evidence (Session S4, 2026-09-09) — CLOSED / PASS.** The
+runtime matrix ran against the real Drive on real PostgreSQL 15 across the
+isolated topology, on **Docker Engine 29.7.1**. The first pass reported 20 tests,
+18 pass, 2 fail, 0 skipped — 13 of 14 PS7-PRE subtests passing, with the one
+failure being a defect in the test rather than the adapter (below). After that
+fix: **20 tests, 20 passed, 0 failed, 0 skipped, acceptance exit code 0, post-run
+check failures 0.** All seven runtime negative controls proved load-bearing. Attribution through the managed
 hop, forged-header resistance, per-recipient limiting, the scope split,
 revocation, log safety and connector-bypass denial were all measured against the
 real application. Production inventory was **IDENTICAL** across both full runs
@@ -1291,8 +1294,17 @@ did not occur once. `PS7-PRE-11` asserted the wording rather than the property
 and was corrected — asserting `Connection refused` first, accepting a timeout,
 rejecting any HTTP response, and adding PUBLIC-SHARE-3's ARP corroboration.
 
-**The post-fix re-run of the normal harness is PENDING, so there is still no
-pre-exposure acceptance and no task receipt.**
+**Pre-exposure managed-tunnel acceptance = PASS.** ⚠️ This closes the adapter
+task only. **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet acceptance =
+**NOT RUN**, **G4's gate is still the owner's to record**, **G5 and G6 remain
+OPEN**, and `Public Internet Share = NOT IMPLEMENTED`.
+
+⚠️ **One deployment gate is recorded rather than faked.** In the harness the
+connector sits on an internal, isolated Docker network with no route to Drive,
+PostgreSQL or a private surface. A real `cloudflared` connector needs an outbound
+Internet path, so reproducing "the connector can reach nothing but the gateway"
+in Production is host-firewall and/or VLAN work that source cannot assert. It
+must be designed and reviewed before G5.
 
 ---
 
