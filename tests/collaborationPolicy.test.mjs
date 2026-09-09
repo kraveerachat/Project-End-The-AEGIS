@@ -12,6 +12,8 @@ function validBody({
   owner = 'kla',
   integrationReview = 'no',
   sharedSurfaces = 'None',
+  receipt = `- \`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_${owner}_policy-test.md\``,
+  integrationRequests = 'None',
 } = {}) {
   return `<!-- collaboration-policy
 area: ${area}
@@ -26,13 +28,16 @@ integration-review: ${integrationReview}
 - \`node --test\` — pass
 
 ## Obsidian receipt
-- \`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_${owner}_policy-test.md\`
+${receipt}
 
 ## Canonical notes updated
 - Relevant area status note.
 
 ## Shared surfaces touched
 ${sharedSurfaces}
+
+## Integration requests
+${integrationRequests}
 
 ## Known limitations
 None
@@ -84,13 +89,14 @@ ${integrationRequests}
 function runPolicy({
   body = validBody(),
   branch = 'feat/idea1-policy-test',
+  draft = false,
   changes,
   receiptContent,
 }) {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'aegis-policy-'));
   const eventPath = join(fixtureDir, 'event.json');
   const changedFilesPath = join(fixtureDir, 'changed-files.txt');
-  writeFileSync(eventPath, JSON.stringify({ pull_request: { body, head: { ref: branch } } }));
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { body, draft, head: { ref: branch } } }));
   writeFileSync(changedFilesPath, changes);
 
   const policy = Object.fromEntries(
@@ -147,13 +153,103 @@ test('rejects an owner that does not match the selected area', () => {
   assert.match(result.stderr, /area idea1 must use owner kla/i);
 });
 
-test('rejects a task pull request without exactly one new Obsidian receipt', () => {
+test('accepts an in-progress Draft task pull request with no final receipt', () => {
   const result = runPolicy({
+    draft: true,
+    body: validBody({ receipt: 'Pending — task remains Draft and in progress.' }),
+    changes: 'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
+});
+
+test('requires the final receipt before Ready or non-Draft review', () => {
+  const result = runPolicy({
+    body: validBody({ receipt: 'Pending — task remains in progress.' }),
     changes: 'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
   });
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stderr, /exactly one new Obsidian task receipt/i);
+  assert.match(result.stderr, /final.*receipt.*Ready\/non-Draft/i);
+});
+
+test('validates and accepts one final receipt while the pull request remains Draft', () => {
+  const result = runPolicy({
+    draft: true,
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
+});
+
+test('rejects more than one final receipt in a Draft pull request', () => {
+  const result = runPolicy({
+    draft: true,
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md',
+      'A\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_kla_second-policy-test.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /at most one.*receipt/i);
+});
+
+test('accepts declared cross-scope work in a Draft pull request with no final receipt', () => {
+  const result = runPolicy({
+    draft: true,
+    body: validBody({
+      integrationReview: 'yes',
+      receipt: 'Pending — task remains Draft and in progress.',
+      sharedSurfaces: '- `gateway/nginx.conf` — route required by IDEA1.',
+      integrationRequests: '- Gateway owner must review the route and rollback behavior.',
+    }),
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'M\tgateway/nginx.conf',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
+  assert.doesNotMatch(result.stderr, /receipt shared surfaces|receipt integration requests/i);
+});
+
+test('rejects undeclared cross-scope work in a receipt-less Draft pull request', () => {
+  const result = runPolicy({
+    draft: true,
+    body: validBody({ receipt: 'Pending — task remains Draft and in progress.' }),
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'M\tgateway/nginx.conf',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /cross-scope paths require integration-review: yes/i);
+  assert.match(result.stderr, /shared surfaces touched must name gateway\/nginx\.conf/i);
+  assert.doesNotMatch(result.stderr, /receipt shared surfaces|receipt integration requests|final.*receipt/i);
+});
+
+test('rejects historical receipt mutation even when a Draft has no final receipt', () => {
+  const result = runPolicy({
+    draft: true,
+    body: validBody({ receipt: 'Pending — task remains Draft and in progress.' }),
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      'M\tObsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-12_120000_pub_previous-task.md',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /existing Obsidian task receipts are immutable/i);
+  assert.doesNotMatch(result.stderr, /final.*receipt/i);
 });
 
 test('rejects cross-scope changes that are not declared for integration review', () => {

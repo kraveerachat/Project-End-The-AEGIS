@@ -331,6 +331,6 @@ node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge
 git diff --check origin/main...HEAD
 ```
 
-Run the collaboration-policy validator against the actual Draft PR body and exact changed-file list. Because the merged validator currently requires one new receipt while GOV-1 requires the receipt only at final task closeout, an in-progress S5.1 Draft PR with no receipt may report that single expected failure. Do not create an early receipt or weaken the validator to make a Draft check green; record the state and leave the task Draft.
+Run the collaboration-policy validator against the actual Draft PR body and exact changed-file list. S5.1 discovered and repaired a stale guardrail assumption before closure. The validator now implements the merged GOV-1 lifecycle generically: a Draft multi-session PR may have zero final receipts while its task is in progress, validates one final receipt fully when present, rejects more than one, and requires exactly one before Ready/non-Draft review. Receipt-less Draft work still must satisfy branch, area, owner, verification, cross-scope declaration, integration-review, and historical-receipt immutability checks. Do not create the final receipt before task closeout.
 
 S5.1 stops after its documentation checkpoint, normal push, Draft PR creation and CI observation. It does not begin S5.2, request G5, access the Beelink, or mutate Production.

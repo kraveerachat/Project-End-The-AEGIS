@@ -141,15 +141,18 @@ Whenever one or more cross-scope paths are changed:
 2. Set `integration-review: yes` in the PR policy block.
 3. List **every exact changed path** under PR `## Shared surfaces touched`, with
    the reason and affected area.
-4. List the same exact paths under receipt `## Shared surfaces touched`.
-5. Write a meaningful receipt `## Integration requests` entry naming the review,
-   decision, migration, rollout, or rollback required. `None` is invalid.
+4. At final task handoff, list the same exact paths under receipt
+   `## Shared surfaces touched`.
+5. At final task handoff, write a meaningful receipt `## Integration requests`
+   entry naming the review, decision, migration, rollout, or rollback required.
+   `None` is invalid.
 6. Explain downstream impact and rollback in the PR.
 7. Run both area-level verification and applicable integration/deployment checks.
 8. Do not mark the integration complete until the responsible reviewer accepts it.
 
-The collaboration policy check rejects a cross-scope path that is missing from
-either the PR or receipt.
+For a receipt-less Draft, the collaboration policy check enforces the PR
+declarations. Once the final receipt exists, it rejects a cross-scope path that
+is missing from either the PR or receipt.
 
 ## 6. Implement and verify honestly
 
@@ -228,7 +231,7 @@ Inspect and stage only intentional paths:
 ```bash
 git status --short
 git diff
-git add <exact-path-1> <exact-path-2> <receipt-path>
+git add <exact-path-1> <exact-path-2> [<receipt-path-at-final-handoff>]
 git diff --cached --check
 git diff --cached --name-status
 git commit -m "feat(idea2): describe the completed outcome"
@@ -251,14 +254,19 @@ The PR must include:
 - correct `area`, `owner`, and `integration-review` metadata;
 - concise summary and observable behavior;
 - exact verification commands/results;
-- the one new receipt path;
+- the one new receipt path, or `Pending — task still Draft/in progress` before
+  final handoff;
 - canonical notes updated;
 - exact shared/cross-scope paths and reasons;
 - migration, rollout, rollback, known limitations, and dependencies where relevant;
 - requested functional owner and integration reviewers.
 
-Keep the PR as Draft while implementation, evidence, dependency, or receipt work
-is incomplete. Mark it Ready only after local verification and policy checks pass.
+Keep the PR as Draft while implementation, evidence, dependency, or final
+receipt work is incomplete. A Draft multi-session task PR may legitimately have
+zero final receipts while the task is in progress, or one fully valid final
+receipt after closeout. Exactly one immutable final receipt is required before
+the PR becomes Ready/non-Draft for final review and merge. Mark it Ready only
+after local verification and policy checks pass.
 
 An agent may prepare, push, open, and maintain a Pull Request, but must never
 merge it. The responsible human owner or reviewer performs the merge after the
