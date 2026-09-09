@@ -55,6 +55,7 @@ edit_policy: append-by-new-file
   no tracked Production collision; existing occurrences are confined to the
   disposable managed-tunnel harness. Runtime collision proof remains required.
 - `git diff --check` — pass before implementation/evidence checkpoint.
+- `node scripts/validate-collaboration-policy.mjs --event <generated-pr-113-event.json> --changed-files <generated-pr-113-changed-files.txt>` — pass against the exact current Draft PR #113 body and `origin/main...HEAD` changed-file list.
 - Production mutation — none. Production access — none.
 
 ## Canonical notes updated
