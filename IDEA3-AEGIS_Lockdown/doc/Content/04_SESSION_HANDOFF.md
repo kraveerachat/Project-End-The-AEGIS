@@ -1449,3 +1449,744 @@ No merge, deployment, firmware compile or flash, MQTT connection or publication,
 relay action, network change, production database access, or physical test
 occurred. Every adapter test used an injected fetch stub; no real upstream host
 was contacted.
+
+
+---
+
+## 30. PR8 Windows Standalone Design Checkpoint — 2026-09-08
+
+### Git and reconciliation
+
+```text
+Base / main: c68946cbe917a71349a8234a4bc028fbf4c6967d
+Branch: feat/idea3-windows-standalone-pr8
+Worktree: /tmp/aegis-idea3-windows-standalone-pr8
+PR7 merge reachable: YES
+PR7 GitHub PR: #104 / merged
+Application source modified: NO
+```
+
+The checkout was freshly cloned and fast-forward synchronized because the
+original workspace directory resolved into a dirty parent repository. The
+original tree was not switched, reset, cleaned, or modified.
+
+PR7 Tasks 1-9 were reconciled against merged source, tests, Git history, status,
+receipts, design, plan, and this handoff. PR7 code/policy/review/merge are closed.
+Real IDEA1/IDEA2 feeds, a shared reviewed correlation key, and live cross-IDEA
+exercise remain open. Historical PR7 receipts were not edited.
+
+### PR8 inventory result
+
+- Python Core has no packaging metadata and currently assumes `fcntl`, `/proc`,
+  POSIX signals, `journalctl`, UFW tooling, `DISPLAY`, and Linux audio commands.
+- Express does not serve the Vite build or close its HTTP/SQLite resources on
+  signals. React uses `/security/`; current production API routes are `/api`.
+- Node must be bundled because Web uses Node's built-in SQLite API and declares
+  Node `>=22.13.0`.
+- Core and Web databases, logs, `.env`, PID/lock/status files, and SQLite WAL/SHM
+  files require an external writable location.
+- No Windows packaging source, binary policy exception, or release workflow was
+  found. Generated EXEs, bundles, runtimes, build trees, databases, and logs will
+  remain untracked.
+
+### Approved architecture
+
+Use a PyInstaller `onedir` launcher executable with packaged Python Core, pinned
+Node.js 24.20.0 x64, production Express dependencies, and prebuilt React assets.
+Mutable state defaults to `%LOCALAPPDATA%\AEGIS\IDEA3`. The launcher owns a
+loopback-only control/status service, child lifecycle, evaluator commands, and
+browser opening. Web remains unable to publish MQTT, command ESP32, or actuate a
+relay.
+
+Default evaluator start is lab/headless/detector-disabled/dry-run with Web
+production authentication. Missing upstream, device, relay, and physical
+evidence stays not configured, unavailable, or unknown. Production Core remains
+fail-closed on demo HMAC/Admin PIN configuration.
+
+Design and plan:
+
+- `docs/superpowers/specs/2026-09-08-idea3-pr8-windows-standalone-design.md`
+- `docs/superpowers/plans/2026-09-08-idea3-pr8-windows-standalone.md`
+
+### Verification at this checkpoint
+
+```text
+Fresh-main / ancestry / cleanliness checks: PASS before planning edits
+Design placeholder scan: PASS
+git diff --check: PASS
+Linux regression: NOT RUN for PR8 yet
+Windows build: NOT RUN
+Windows smoke: NOT RUN
+```
+
+### Safety and next action
+
+```text
+SECRETS_COMMITTED = NO
+RUNTIME_DB_COMMITTED = NO
+OLD_RECEIPTS_MODIFIED = NO
+FORCE_PUSH = NO
+MERGE = NO
+DEPLOY = NO
+PHYSICAL_ACTION = NO
+```
+
+Next: execute Task 1 of the PR8 implementation plan with failing path/bootstrap
+tests first. Do not claim Windows verification until the generated candidate is
+built and exercised on Windows x64.
+
+
+---
+
+## 31. PR8 Implementation Batch 1 — 2026-09-09
+
+### Completed
+
+- Task 1: added an explicit immutable application root, external writable data
+  root, absolute configuration-file resolution, atomic/non-overriding dotenv
+  loading, and data-root-derived Core database/log/runtime defaults.
+- Task 2: removed the eager `fcntl` import from the supervisor and introduced an
+  OS-selected exclusive lock with tested POSIX behavior and a Windows
+  `msvcrt.locking` boundary.
+- Task 3: added explicit Windows component capabilities and made the safe runtime
+  projection refuse top-level `HEALTHY` when dry-run, broker, device, uplink, or
+  failed-component evidence does not support that claim.
+
+### Commits and verification
+
+```text
+49498a52 feat(idea3): add external runtime path contract
+191f3c35 fix(idea3): isolate platform runtime locking
+170b8445 fix(idea3): preserve unknown hardware truth on Windows
+
+Task 1 selected tests: PASS — 74
+Task 2 selected tests: PASS — 57
+Task 3 selected tests: PASS — 81
+Focused Ruff checks: PASS
+git diff --check: PASS
+Windows build/smoke: NOT RUN
+```
+
+All tests used temporary paths and fakes; no MQTT connection, command publish,
+relay action, network change, production data access, deployment, or physical
+test occurred. No generated package, database, log, or secret was committed.
+
+Next: implementation-plan Task 4, beginning with failing tests for production
+`/security` API/static serving, loopback health, and idempotent HTTP/SQLite
+shutdown.
+
+---
+
+## 32. PR8 Windows Standalone Runtime — Linux implementation complete — 2026-09-09
+
+```text
+BASE_SHA = c68946cbe917a71349a8234a4bc028fbf4c6967d
+BRANCH   = feat/idea3-windows-standalone-pr8
+STATUS   = PARTIAL / WINDOWS ACCEPTANCE BLOCKED
+```
+
+### Implemented
+
+Plan Tasks 1-10 and 12 are complete on Linux:
+
+- `aegis_soc/paths.py` — external data-root contract, `AEGIS_DATA_DIR` /
+  `AEGIS_CONFIG_FILE` overrides.
+- `aegis_soc/platform_lock.py` — cross-platform single-instance locking; IDEA3
+  imports on Windows without `fcntl`.
+- `aegis_soc/runtime.py` — honest Windows capability projection; nothing absent
+  or dry-run is promoted to `HEALTHY`.
+- `web/server/runtime.js`, `web/server/createApp.js`, `web/server/config.js` —
+  production `/security` runtime, health route, asset caching, idempotent
+  shutdown.
+- `aegis_soc/windows_launcher.py` — loopback control API, token-protected stop,
+  Core-then-Web start, Web-first shutdown, `write_configuration()`, and the
+  `status` / `open` / `logs` / `doctor` evaluator commands.
+- `web/server/passwordHash.js` — stdin-only bcrypt cost-12 helper.
+- `windows/` — pinned toolchain lock, one-folder PyInstaller spec, launcher entry
+  point, fail-fast `build.ps1`, `smoke.ps1`, and operator README.
+
+### Verification (Arch Linux, 2026-09-09)
+
+Python 145 passed; Ruff PASS; compileall PASS; Web 292 passed across 24 files;
+Web production build PASS; `npm audit --omit=dev --offline` 0 vulnerabilities;
+repository tests 56 passed; vault validation PASS with the two known unchanged
+canvas warnings; `git diff --check` PASS.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+`build.ps1` and `smoke.ps1` have never been executed. Both refuse to run on
+non-Windows hosts and `pwsh` is unavailable here, so PowerShell parser validation
+is also `NOT_RUN_ON_LINUX`. No Linux result is Windows acceptance evidence.
+
+### Safety invariants held
+
+`WEB_TO_MQTT = NO`, `WEB_TO_ESP32 = NO`, `WEB_TO_RELAY = NO`. A source-level test
+asserts the launcher module imports no `mqtt_client`, `MQTTManager`,
+`issue_command`, `CUT_UPLINK`, or `paho`. No secret, runtime database, log, or
+generated artifact is committed. No merge, deploy, firmware flash, MQTT
+publication, relay action, or physical test occurred.
+
+### Next command
+
+Obtain a Windows x64 machine, then run:
+
+```powershell
+pip install -r windows\requirements-build.txt
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
+
+Only after both pass may `WINDOWS_BUILD_VERIFIED` and `WINDOWS_SMOKE_VERIFIED`
+become `YES` and PR8 move from PARTIAL toward closure.
+
+## 33. PR8 Task 11 — Windows build defect 2: PyInstaller spec working-directory dependency — 2026-09-09
+
+```text
+BRANCH  = feat/idea3-windows-standalone-pr8
+BASE_OF_REPORT = 267add43b996877cf75e44ae96773858397acd7c
+STATUS  = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+### Reported real-Windows evidence (operator run, not reproduced on Linux)
+
+On Windows x64 with PowerShell 7.6.5, Python 3.14.6, pytest 9.1.1 and
+PyInstaller 6.22.2, `.\windows\build.ps1` passed stages 1-5 — Python 148 passed,
+Web 297 passed, Vite production build PASS with 1677 modules — and then failed
+in stage 6:
+
+```text
+==> Build launcher executable
+ERROR: script 'C:\Users\puppu\Project-End-The-AEGIS\windows\launcher_main.py' not found
+BUILD FAILED: pyinstaller failed
+```
+
+The launcher exists at
+`Project-End-The-AEGIS\IDEA3-AEGIS_Lockdown\windows\launcher_main.py`.
+
+### Root cause
+
+`windows/build.ps1` anchored correctly on `$PSScriptRoot`, but
+`windows/aegis-idea3.spec` independently derived
+`project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))`. PyInstaller 6
+executes a spec file without changing the process working directory, so the spec
+resolved one directory level above the caller instead of above the spec. Invoked
+from the module root, `'..'` became the repository root and the launcher path did
+not exist. Stage 4 had the same latent dependency: `python -m pytest` ran in the
+caller directory rather than the module root.
+
+### Fix
+
+- `windows/aegis-idea3.spec` now anchors on `SPECPATH`, the spec directory that
+  PyInstaller injects into the spec namespace, so the launcher script and the
+  `pathex` entry for the IDEA3 Python package are resolved from the source layout
+  and never from the caller. One-folder `EXE` + `COLLECT` architecture, hidden
+  imports, and exclusions are unchanged.
+- `windows/build.ps1` runs stage 4 Python verification inside
+  `Push-Location $ProjectRoot` / `Pop-Location`, matching the existing Web stage.
+- `tests/test_windows_launcher.py` gains an executable contract: the spec is run
+  with stub PyInstaller classes from the module root, the repository root, and an
+  unrelated directory, and every run must select
+  `windows/launcher_main.py` and a `pathex` containing the module root.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Regression before fix   = FAIL (repository-root run resolved <parent>/windows/launcher_main.py)
+Regression after fix    = 5 passed
+Focused Windows tests   = 65 passed (test_windows_launcher, test_paths, test_platform_lock)
+Full Python suite       = 153 passed
+Ruff check              = PASS
+Web suite               = 297 passed across 24 files
+Vite production build   = PASS, 1677 modules transformed
+Repository tests        = 56 passed
+Vault validation        = PASS with the two known unchanged canvas warnings
+Real PyInstaller 6.22.2 = one-folder bundle built from the repository root CWD
+                          on Linux; aegis_soc.windows_launcher, paths and
+                          platform_lock collected
+```
+
+The Linux PyInstaller run is a path-contract check only. It is not a Windows
+artifact and is not Windows acceptance.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next command
+
+On the Windows x64 machine, pull this branch and rerun:
+
+```powershell
+.\windows\build.ps1
+```
+
+## 34. PR8 Task 11 — smoke acceptance boundary: unresolved -BundlePath — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = a37840bd1a383844e8ed6866478d0ff5372dd943
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+### Defect
+
+`windows/smoke.ps1` accepted `-BundlePath` and compared it directly against
+absolute process paths:
+
+```powershell
+$onPath.Source -notlike "$BundlePath*"      # bundle-independent:python|node|npm
+$_.Path.StartsWith($BundlePath)             # no-bundle-child-survives
+```
+
+A relative `-BundlePath` never matches an absolute process path, so both
+process-origin checks would have reported `PASS` without proving anything, and
+`durable-db-outside-payload` would have probed the wrong directory. The failure
+mode was a silent false PASS in acceptance evidence, not a loud error. Found by
+source review on Linux before Windows smoke was ever executed.
+
+`-DataPath` is not affected: `RuntimePaths` already rejects a relative
+`AEGIS_DATA_DIR` with `AEGIS_DATA_DIR must be an absolute path`.
+
+### Fix
+
+`windows/smoke.ps1` canonicalises the bundle at the acceptance boundary, after
+the Windows guard and before `$launcher`, `$bundleNode`, and every comparison:
+
+```powershell
+if (-not (Test-Path -LiteralPath $BundlePath)) { throw "SMOKE FAILED: -BundlePath not found: $BundlePath" }
+$BundlePath = (Resolve-Path -LiteralPath $BundlePath).ProviderPath
+```
+
+A missing or unresolvable bundle now fails loudly instead of degrading. No smoke
+gate was removed, relaxed, or reordered ahead of the `$IsWindows` guard.
+
+### Regression
+
+`tests/test_windows_launcher.py` adds four contracts: an executable
+demonstration that a relative prefix makes both process-origin checks vacuous
+and that the resolved path restores them, an ordering contract requiring every
+`$BundlePath` use to appear after the resolution, a negative-path contract for
+the loud failure, and a gate-preservation contract.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Contract regressions before fix = 3 FAILED (no resolution existed)
+Focused smoke regression        = 5 passed
+Focused Windows tests           = 69 passed
+Full Python suite               = 157 passed
+Ruff check                      = PASS
+compileall                      = PASS
+Web suite                       = 297 passed across 24 files
+Vite production build           = PASS, 1677 modules transformed
+Repository tests                = 56 passed
+Vault validation                = PASS with the two known canvas warnings
+```
+
+PowerShell remains unexecuted here: `pwsh` is still unavailable on the Linux
+development machine, so `smoke.ps1` is asserted only by source contract. That is
+`NOT_RUN_ON_LINUX`, not acceptance.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
+
+## 35. PR8 Task 11 — real Windows smoke: launcher lifecycle contract repaired — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = d4e51cde00be16a896f71b68dfacc4dcea591c8a
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+Windows build was VERIFIED PASS on `d4e51cde` (artifact
+`7904c6f76e7277fca74a4cdd536893bb52a5470cffa18a00530f03f8b6fb17a6`). Real
+Windows smoke then failed at `configure-succeeds`, and aborted before the
+evidence stage because `<DataPath>\config\.env` was never created.
+
+### Root cause — not the reported suspicion
+
+`configure` did not fail in `getpass`. Every launcher command crashed in
+`_settings()`:
+
+```text
+AttributeError: type object 'RuntimePaths' has no attribute 'resolve'
+```
+
+`RuntimePaths` only ever exposed `from_environment()`, which `runtime.py`,
+`config.py` and `tests/test_paths.py` all use. `windows/launcher_main.py` was the
+only caller of a method that has never existed, and no test imported the entry
+point, so the Linux suites never touched the line. Reproduced by direct
+execution on Linux: `doctor` and `status` both exit 1 with that traceback.
+
+This also explains the smoke transcript. The checks that "passed" before
+`configure-succeeds` only asserted a non-zero exit or absent output, so a
+crashing launcher satisfied them vacuously. `configure-succeeds` was the single
+check that required exit 0, so it was the only one that could expose the defect.
+
+### Every defect found and fixed in this pass
+
+1. **`RuntimePaths.resolve()` does not exist** — every command crashed. Now uses
+   `RuntimePaths.from_environment()`.
+2. **`application_root` anchored on `sys._MEIPASS`** — PyInstaller 6 puts that at
+   `_internal`, while `build.ps1` stages `node/`, `server/` and `web/` beside the
+   executable. Every bundled component was unreachable. Now uses the existing
+   `aegis_soc.paths.application_root()`, which returns the executable's directory
+   when frozen. Verified against a real frozen one-folder build.
+3. **`start` and `stop` were documented but never implemented** — `windows/README.md`
+   lists both and `smoke.ps1` invokes both, but `build_parser()` exposed neither, so
+   argparse rejected them. Added `start_command` (runs `LauncherRuntime`) and
+   `stop_command` (loopback POST to `/v1/stop` with the runtime-issued control
+   token; no process is signalled or killed).
+4. **The frozen Core child could not start, for three independent reasons** —
+   `core_command(frozen=True)` re-invokes the executable as `AEGIS-IDEA3.exe core`,
+   but there was no such entry point; `aegis_soc.supervisor` was not packaged at
+   all; and the spec excluded `paho`, which the supervisor imports at module import
+   time. The entry point now forwards its argv to the supervisor untouched, and the
+   spec packages the supervisor and its transport.
+5. **`configure` could not read a piped credential on Windows** — CPython's
+   `win_getpass` calls `msvcrt.getwch()`, which reads the console and never sees a
+   redirected pipe. Credentials are now read from stdin when it is not a terminal;
+   an interactive console still gets hidden entry. This defect was never reached on
+   Windows because of defect 1, and cannot be reproduced on Linux because
+   `unix_getpass` falls back to reading stdin.
+6. **`config-integration-tokens-blank` was a dead gate** — PowerShell `-match` is
+   single-line, so `'...TOKEN=\s*$'` could never match a blank value in the middle
+   of the file. Proven False against the real generated configuration; the
+   multiline-anchored form is True for blank and False for a configured token, and
+   now covers IDEA1 and IDEA2.
+7. **An aborted smoke run wrote no evidence** — the body is now wrapped so the
+   evidence stage always runs, `$auditBefore`/`$auditAfter`/`$password` are declared
+   before the run (proven necessary: under `Set-StrictMode` the evidence stage
+   itself throws otherwise), the abort reason is recorded with the generated
+   password redacted, and an aborted run records a failing check so it can never
+   read as PASS.
+8. **A frozen executable answered operators with a stack trace** — invalid settings
+   now print `launcher: INVALID_SETTINGS (...)` and return 2.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Full Python suite        = 182 passed
+Ruff check               = PASS
+compileall               = PASS
+Web suite                = 297 passed across 24 files
+Vite production build    = PASS, 1677 modules transformed
+Repository tests         = 56 passed
+Vault validation         = PASS with the two known canvas warnings
+PowerShell 7.4.6 parser  = smoke.ps1 PARSE OK, build.ps1 PARSE OK
+```
+
+PowerShell is no longer entirely unexecuted on Linux: a 7.4.6 runtime was used to
+parse both scripts and to drive the launcher over a real pipeline. It is still not
+Windows, and none of it is acceptance.
+
+### Frozen-bundle evidence produced on Linux
+
+A real PyInstaller 6.22.2 one-folder build was exercised with the payload staged
+the way `build.ps1` stages it:
+
+```text
+doctor (unconfigured)                    = exit 1, config MISSING, payload OK
+configure over a real PowerShell pipe    = exit 0, external .env written
+bcrypt cost-12 hash in the configuration = present, no plaintext password
+password in launcher output              = absent
+doctor (configured)                      = exit 0
+status (stopped) / stop (not running)    = non-zero, NOT_RUNNING
+frozen Core child                        = runs; writes runtime/status.json,
+                                           supervisor.lock, aegis-events.jsonl
+Core status honesty                      = broker UNKNOWN, device UNKNOWN,
+                                           uplink UNKNOWN, dry_run true
+```
+
+None of this is a Windows artifact and none of it is Windows acceptance.
+
+### Bundle composition change to review
+
+The bundle now contains `paho` and the Core supervisor, because the frozen
+executable is also the Core child and the supervisor imports its transport at
+module import time. Broker settings stay blank in the generated configuration, so
+no actuation path is configured, dry-run remains on, and absent hardware still
+reports `UNKNOWN`. If a Web-only bundle was intended instead, this is the decision
+to revisit.
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO   (must be rerun on the new SHA)
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
+
+## 36. PR8 Task 11 — appLanguage flake: the test raced a React effect — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+PARENT = 0231204af258e6ce70ca12f9a10f381bdbb2a1c0
+STATUS = PARTIAL / WINDOWS ACCEPTANCE STILL BLOCKED
+```
+
+The Windows build on `0231204a` failed in stage 4 Web verification, not in
+packaging: Python 182 passed, Web 296 passed with one failure in
+`tests/client/appLanguage.test.jsx`, expecting `document.documentElement.lang`
+to be `en` and receiving `th`. Because the previous stage ordering only cleared
+`windows/out` after verification, the smoke run that followed exercised the stale
+`d4e51cde` artifact. That smoke result is not evidence about `0231204a`.
+
+### Root cause — the test, not the application
+
+`src/App.jsx` writes the document language from an effect:
+
+```jsx
+useEffect(() => {
+  const activeLanguage = session?.authenticated && route === 'dashboard' ? language : 'th'
+  document.documentElement.lang = htmlLanguage(activeLanguage)
+}, [language, route, session?.authenticated])
+```
+
+React commits the DOM first and flushes that passive effect afterwards, so there
+is a real window in which the English dashboard is already in the DOM while
+`document.documentElement.lang` still holds the previous `th`. The test awaited
+the English UI and then asserted the effect's side effect synchronously, so it
+sampled inside that window.
+
+Measured on Linux with a probe that recorded the value at the exact moment
+`findByRole('radiogroup', { name: 'Language' })` resolved:
+
+```text
+run 1 = 1 stale in 80 iterations
+run 2 = 1 stale in 80 iterations
+run 3 = 2 stale in 80 iterations
+observed values = ["en", "th"]
+```
+
+That is the same assertion and the same wrong value the Windows run reported. The
+application is correct: the effect always runs, and the same file already awaits
+this state for the language switch on the next assertion.
+
+### Fix
+
+`web/tests/client/appLanguage.test.jsx` awaits the effect instead of racing it:
+
+```jsx
+await waitFor(() => expect(document.documentElement.lang).toBe('en'))
+```
+
+No production behaviour changed. Every contract still holds: a persisted
+`aegis_lang=en` initialises English, the document language becomes `en`, an
+unsupported value falls back to Thai, switching persists `zh`, and switching does
+not refetch evidence (`apiFetch` stays at three calls).
+
+The second case asserting `th` is not racy: `th` is both the pre-test value and
+the effect's value, so no ordering can make it observe a different one.
+
+### Stale-artifact hazard closed
+
+`windows/build.ps1` now discards `windows/out` before verification rather than
+after it, so a build that fails in any earlier stage cannot leave a previous
+bundle that a later smoke run would accept as this commit's output. A regression
+asserts the discard precedes both test stages.
+
+### Verification (Arch Linux, 2026-09-09)
+
+```text
+Fixed pattern probe        = 80/80 with no stale observation
+Focused appLanguage        = 12 consecutive runs, 2 passed each
+Full Web suite             = 6 consecutive runs, 297 passed each
+Vite production build      = PASS, 1677 modules transformed
+Full Python suite          = 183 passed
+Windows launcher/source    = 95 passed
+Ruff check                 = PASS
+compileall                 = PASS
+Repository tests           = 56 passed
+Vault validation           = PASS with the two known canvas warnings
+PowerShell 7.4.6 parser    = build.ps1 PARSE OK
+```
+
+### Windows evidence state
+
+```text
+WINDOWS_BUILD_VERIFIED = NO   (must be rerun on the new SHA)
+WINDOWS_SMOKE_VERIFIED = NO
+PLAN_TASK_11 = BLOCKED
+```
+
+### Next commands on Windows x64
+
+```powershell
+.\windows\build.ps1
+.\windows\smoke.ps1 -BundlePath '<extracted-bundle>' -DataPath '<disposable-path>'
+```
+
+## 37. PR8 Task 11 — real Windows Core/config and smoke API fixes — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+START_SHA = ca5a4fe679b6a31a87c3dd78643f52f0d0b44356
+SOURCE_FIX_COMMIT = a5abb6613b6754882286988407b3ef25139d7b81
+STATUS = PARTIAL / NEW WINDOWS BUILD AND SMOKE REQUIRED
+```
+
+### Real Windows evidence at the start SHA
+
+- Build PASS: Python 194, Web 297, Vite, PyInstaller, production npm install,
+  artifact scan, manifest, ZIP, and final BUILD OK all passed.
+- Artifact: `AEGIS-IDEA3-ca5a4fe679b6.zip`; SHA-256
+  `5ae7982983a8a9c9d8184722dceb7dee8406088bedb4672c165eb300fec5c746`.
+- Smoke passed configuration, post-configure doctor, Web start/restart health,
+  stopped-state reporting, and toolchain/blank-token checks. It failed launcher
+  running status, Admin login, and completion. The launcher was subsequently
+  stopped cleanly.
+
+### Confirmed defects and exact fixes
+
+1. `config.py` evaluated `int("")` for the intentionally blank optional broker
+   port. Its Thai import-time fallback diagnostic then failed under Windows
+   `cp1252`, so Core exited before writing status. Blank broker values now mean
+   unconfigured, port fallback emits no import-time text, malformed-port detail
+   is ASCII-safe through validation, no MQTT connection starts while
+   unconfigured, and live mode still fails closed.
+2. The launcher defaulted to `production` although the approved standalone
+   default is lab/headless/dry-run with production Web authentication. The
+   default is now `lab`; explicit production remains strict and still requires
+   HMAC, Admin PIN, and MQTT configuration.
+3. `smoke.ps1` called unprefixed `/api/...` routes and probed
+   `/security/healthz`, which the SPA fallback could satisfy. One
+   `$apiBaseUrl = "$baseUrl$webBasePath/api"` now owns health, login, logout,
+   audit, and snapshot URLs.
+4. Secure-cookie audit confirmed `express-session` withholds a Secure cookie on
+   ordinary HTTP. The production app now recognizes only the proven loopback
+   socket as the browser-trusted localhost context and still emits
+   `Secure; HttpOnly; SameSite=Strict`. The smoke harness uses `localhost`,
+   validates all three attributes, explicitly carries only the opaque cookie
+   because PowerShell does not apply the browser localhost exception, and sends
+   the login-issued CSRF token on logout. No production cookie flag was removed
+   or weakened.
+
+### Fresh source-side verification
+
+```text
+Focused Python = 161 passed, 6 skipped
+Focused Web = 58 passed
+Full Python = 196 passed, 6 Windows-only skipped
+Full Web = 298 passed across 24 files
+Vite production build = PASS, 1677 modules
+Ruff = PASS
+compileall = PASS using PYTHONPYCACHEPREFIX under /tmp
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 56 passed
+Vault validation = PASS, two unchanged owner-data canvas warnings
+git diff --check = PASS
+```
+
+The first compileall attempt failed only because the mounted worktree rejected
+`__pycache__` writes (`EROFS`); redirecting the cache to `/tmp` passed. The
+first focused Web command was run from the wrong directory and invoked an
+unintended transient Vitest version; that result is discarded. The locked Web
+suite was rerun from `web/` and is the result recorded above.
+
+### Current gate and next action
+
+```text
+WINDOWS_BUILD_VERIFIED = NO for the new SHA
+WINDOWS_SMOKE_VERIFIED = NO for the new SHA
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+Do not reuse the `ca5a4fe6` artifact as evidence for the new source. On Windows
+x64, pull the new SHA, run `windows/build.ps1`, require BUILD OK, extract the
+new ZIP, choose a fresh absolute DataPath, run `windows/smoke.ps1`, and report
+every acceptance result. Do not merge PR #107 before that evidence is reviewed.
+
+## 38. PR8 Task 11 — staging-bundle acceptance and final main sync — 2026-09-09
+
+```text
+BRANCH = feat/idea3-windows-standalone-pr8
+WINDOWS_TESTED_SHA = c7cdc2b2e70e4224a756b53f3e87363b55c9ea58
+MERGED_ORIGIN_MAIN = d32885b36c08c71dc5719109de12ed8ac8f6589e
+IMPLEMENTATION_EVIDENCE_CHECKPOINT = 8214792022a4d29672227f6637e8399a7f1e189c
+STATUS = ACCEPTANCE PENDING / FINAL-SHA WINDOWS RE-ACCEPTANCE REQUIRED
+PRODUCTION MUTATION ALLOWED = NO
+```
+
+### Qualified real Windows evidence at `c7cdc2b2`
+
+- Build PASS: Python 202, Web 298 across 24 files, Vite, PyInstaller,
+  production npm install, artifact scan, manifest, ZIP, and BUILD OK.
+- Artifact: `AEGIS-IDEA3-c7cdc2b2e70e.zip`; SHA-256
+  `faaeaea5259647dea0292d6cc6db286fea540162c41c8a8d63a8eaa774a93694`.
+- Staging-bundle smoke PASS: 25 checks, 0 failed, including Core/Web RUNNING,
+  Admin login/logout, secure cookie attributes, audit read and persistence,
+  honest absent IDEA1/IDEA2/hardware states, stop/restart, external durable DB,
+  no surviving bundle child, and clean completion.
+- This is not extracted-ZIP acceptance. An interactive PowerShell extraction
+  wrapper parsed incorrectly, so smoke retained
+  `BundlePath=windows/out/AEGIS-IDEA3` and exercised the fresh staging bundle.
+
+### Final main reconciliation
+
+`origin/main` advanced from `d60d7fc1` to `d32885b3`. It was merged normally
+without rebase and without conflicts. The incoming delta contains only shared
+development-session governance and vault-validator changes; no IDEA3 product
+source changed.
+
+### Fresh verification at `82147920`
+
+```text
+Focused Python = 161 passed, 6 skipped
+Focused Web = 58 passed across 5 files
+Full Python = 196 passed, 6 Windows-only skipped
+Full Web = 298 passed across 24 files
+Vite production build = PASS, 1677 modules
+Ruff = PASS
+compileall = PASS using PYTHONPYCACHEPREFIX under /tmp
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 57 passed
+Vault validation = PASS, two unchanged owner-data canvas warnings
+```
+
+No source, runtime configuration, dependency, deployment, MQTT, firmware,
+relay, network, Production data, or physical behavior changed in this sync.
+The existing PR8 receipt remains unchanged and no receipt was created.
+
+### Current gate and exact next action
+
+```text
+WINDOWS_BUILD_VERIFIED = NO for the new SHA
+WINDOWS_SMOKE_VERIFIED = NO for the new SHA
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+Keep PR #107 Draft and unmerged. On Windows x64, pull the final PR head, run
+`windows/build.ps1`, require BUILD OK, freshly extract the new ZIP, select a
+fresh absolute DataPath, run `windows/smoke.ps1` against the extracted bundle,
+and report every acceptance result. Confirm browser-localhost behavior if still
+required.

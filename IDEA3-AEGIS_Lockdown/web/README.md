@@ -67,8 +67,16 @@ production policy หรือ `AEGIS_IDEA3_ADMIN_PASSWORD_HASH` ไม่ใช
 ที่มี cost 12–31 และ development login จะถูกปิดเสมอใน production
 
 Web Security Center ใช้ SQLite audit repository โดยค่าเริ่มต้นที่
-`.aegis-runtime/security-center-audit.sqlite3` ใช้ schema version 1 และ WAL
+`.aegis-runtime/security-center-audit.sqlite3` ใช้ schema version 2 และ WAL
 เพื่อเก็บ audit แบบ durable ข้ามการ reopen/restart ของ process
+
+Schema v2 เพิ่ม `containment_decisions`, `integration_lifecycle` และ
+`correlated_incidents` แบบ additive; ฐานข้อมูล v1 เดิมจะถูก migrate ให้อัตโนมัติ
+เมื่อเปิดใหม่ และ audit row ของ v1 ทั้งหมดถูกเก็บไว้ครบ
+
+Backup/restore: ให้หยุด service ก่อนเสมอ แล้วคัดลอกไฟล์ `.sqlite3` พร้อมไฟล์คู่
+`.sqlite3-wal` และ `.sqlite3-shm` ไปด้วย การคัดลอกขณะ service ทำงานอยู่หรือคัดลอก
+เฉพาะไฟล์หลักโดยไม่เอา WAL/SHM อาจได้ audit ที่ไม่ครบ
 
 Login success/failure/rate-limit, logout, operational failures และ action audit
 ถูกสร้างฝั่ง server หาก audit persistence เปิดหรือเขียนไม่ได้ operation ที่ต้อง

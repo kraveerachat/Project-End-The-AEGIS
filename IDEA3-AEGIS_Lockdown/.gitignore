@@ -15,3 +15,9 @@ web/dist/
 *.sqlite-shm
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Generated Windows bundle artifacts (never committed)
+windows/cache/
+windows/build/
+windows/dist/
+windows/out/

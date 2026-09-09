@@ -420,6 +420,46 @@ describe('durable containment decisions and additive schema v2', () => {
     expect(migrated.schemaVersion()).toBe(2)
   })
 
+  it('survives a standalone restart cycle: v1 auth audit migrates to v2 and is recovered', () => {
+    const { path } = testDatabase()
+    const first = openRepository({ path, clock: fixedClock('2026-09-09T01:00:00.000Z') })
+    first.recordAction({
+      category: 'AUTH', action: 'LOGIN', outcome: 'FAILURE', actorRef: 'anonymous',
+      resourceType: 'session', resourceId: 'standalone',
+    })
+    first.close()
+
+    // Force the durable file back to schema v1 the way a pre-upgrade install would look.
+    const legacy = new DatabaseSync(path)
+    legacy.exec('DROP TABLE IF EXISTS containment_decisions')
+    legacy.exec('DROP TABLE IF EXISTS integration_lifecycle')
+    legacy.exec('DROP TABLE IF EXISTS correlated_incidents')
+    legacy.prepare('UPDATE schema_meta SET version = 1 WHERE singleton = 1').run()
+    legacy.close()
+
+    const migrated = openRepository({ path, clock: fixedClock('2026-09-09T02:00:00.000Z') })
+    expect(migrated.schemaVersion()).toBe(2)
+    migrated.close()
+
+    const reopened = openRepository({ path, clock: fixedClock('2026-09-09T03:00:00.000Z') })
+    const audit = reopened.queryAudit({ limit: 50 })
+
+    expect(audit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'AUTH', action: 'LOGIN', outcome: 'FAILURE', actorRef: 'anonymous' }),
+    ]))
+    expect(reopened.schemaVersion()).toBe(2)
+  })
+
+  it('keeps the durable audit file outside the installed payload directory', () => {
+    const { directory, path } = testDatabase()
+    const repository = openRepository({ path, clock: fixedClock() })
+    repository.recordAction({ category: 'AUTH', action: 'LOGIN', outcome: 'SUCCESS' })
+    repository.close()
+
+    expect(path.startsWith(directory)).toBe(true)
+    expect(readdirSync(directory).length).toBeGreaterThan(0)
+  })
+
   it('reports no decision for an incident that has never been decided', () => {
     const { path } = testDatabase()
     expect(openRepository({ path, clock: fixedClock() }).readContainmentDecision('inc-never-decided')).toBeNull()

@@ -150,6 +150,28 @@ adapter จริง, MQTT, ESP32, Telegram, command gateway หรือ relay 
 
 ---
 
+## Windows Standalone Runtime (PR8)
+
+A one-folder Windows distribution is built from `windows/`: a launcher EXE plus a
+pinned Node runtime, the production Express server, and prebuilt React assets.
+Writable state (configuration, SQLite audit, logs, runtime status) lives outside
+the installed payload under `%LOCALAPPDATA%\AEGIS\IDEA3`, overridable with
+`AEGIS_DATA_DIR`.
+
+Operator commands: `configure`, `doctor`, `start`, `status`, `open`, `logs`, `stop`.
+Passwords are read from stdin only and stored as a bcrypt cost-12 hash.
+
+Default launch is lab/headless/dry-run with production Web authentication.
+Detector, voice, UFW, and the Tk GUI are unavailable in this candidate, and
+absent IDEA1/IDEA2 feeds and absent hardware remain `NOT_CONFIGURED`/`UNKNOWN`
+rather than reporting healthy.
+
+> `WINDOWS_BUILD_VERIFIED = NO`, `WINDOWS_SMOKE_VERIFIED = NO`. The build and
+> smoke scripts have not yet been executed on Windows; Linux source-side tests
+> are not acceptance evidence.
+
+See `windows/README.md` for layout, build, smoke, backup, upgrade, and rollback.
+
 ## Architecture
 
 องค์ประกอบหลัก:

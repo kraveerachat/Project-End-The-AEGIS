@@ -10,6 +10,7 @@
     "dev": "vite --port 5176",
     "dev:server": "node --watch server/index.js",
     "start": "node server/index.js",
+    "hash-password": "node server/passwordHash.js",
     "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest"

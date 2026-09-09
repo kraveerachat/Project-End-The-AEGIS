@@ -1,5 +1,16 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../server/config.js'
+
+// AEGIS_WEB_STATIC_DIR is resolved with node:path, whose semantics are
+// platform-native. A rooted POSIX literal is absolute on Windows too, but
+// path.resolve() anchors it to the current drive ('/opt/x' -> 'C:\opt\x'), so
+// expectations must be computed rather than hardcoded. The launcher supplies a
+// platform-native absolute path (str(LauncherSettings.static_dir)), which
+// resolves to itself on both platforms.
+const NATIVE_STATIC_DIR = process.platform === 'win32'
+  ? 'C:\\AEGIS\\AEGIS-IDEA3\\web'
+  : '/opt/aegis/security-center'
 
 const STRONG_SESSION_SECRET = 'S3cure!ProductionSessionSecret-2026'
 const BCRYPT_HASH = '$2b$12$lQ3edrbcQxKq1sNMxX8bzuC/2IAHW5LExZtuJ21rUpMdjB3pN6cYy'
@@ -10,6 +21,7 @@ function productionConfig(overrides = {}) {
     SESSION_SECRET: STRONG_SESSION_SECRET,
     AEGIS_IDEA3_ADMIN_USER: 'admin',
     AEGIS_IDEA3_ADMIN_PASSWORD_HASH: BCRYPT_HASH,
+    AEGIS_WEB_STATIC_DIR: NATIVE_STATIC_DIR,
     ...overrides,
   }
 }
@@ -147,5 +159,47 @@ describe('configuration boundaries', () => {
       NODE_ENV: 'test',
       AEGIS_IDEA3_AUDIT_DB_PATH: '/var/lib/aegis/audit.sqlite3',
     }).auditDbPath).toBe('/var/lib/aegis/audit.sqlite3')
+  })
+
+  it('uses the packaged security base path and loopback binding in production', () => {
+    const config = loadConfig(productionConfig())
+
+    expect(config.webBasePath).toBe('/security')
+    expect(config.staticDir).toBe(path.resolve(NATIVE_STATIC_DIR))
+    expect(path.isAbsolute(config.staticDir)).toBe(true)
+    expect(config.bindHost).toBe('127.0.0.1')
+  })
+
+  it('returns a platform-native absolute static directory unchanged', () => {
+    // This is the exact shape the Windows launcher exports as
+    // AEGIS_WEB_STATIC_DIR, so resolution must be idempotent on each platform.
+    const config = loadConfig(productionConfig({ AEGIS_WEB_STATIC_DIR: NATIVE_STATIC_DIR }))
+
+    expect(config.staticDir).toBe(NATIVE_STATIC_DIR)
+    expect(path.isAbsolute(config.staticDir)).toBe(true)
+  })
+
+  it.each([
+    'web/dist',
+    './web/dist',
+    '../security-center',
+    '',
+  ])('still rejects the non-absolute static path %j in production', (staticDir) => {
+    expect(() => loadConfig(productionConfig({ AEGIS_WEB_STATIC_DIR: staticDir })))
+      .toThrow(/AEGIS_WEB_STATIC_DIR/)
+  })
+
+  it.each([
+    ['an external bind address', { AEGIS_BIND_HOST: '0.0.0.0' }, /AEGIS_BIND_HOST/],
+    ['a relative static path', { AEGIS_WEB_STATIC_DIR: 'web/dist' }, /AEGIS_WEB_STATIC_DIR/],
+    ['a traversing base path', { AEGIS_WEB_BASE_PATH: '/security/../admin' }, /AEGIS_WEB_BASE_PATH/],
+    ['a URL as base path', { AEGIS_WEB_BASE_PATH: 'https://example.test/security' }, /AEGIS_WEB_BASE_PATH/],
+  ])('rejects %s', (_case, override, message) => {
+    expect(() => loadConfig(productionConfig(override))).toThrow(message)
+  })
+
+  it('requires an explicit static directory in production', () => {
+    expect(() => loadConfig(productionConfig({ AEGIS_WEB_STATIC_DIR: undefined })))
+      .toThrow(/AEGIS_WEB_STATIC_DIR/)
   })
 })

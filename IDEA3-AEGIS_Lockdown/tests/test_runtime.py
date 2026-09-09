@@ -10,6 +10,7 @@ from aegis_soc.runtime import (
     RuntimeSettings,
     RuntimeState,
     RuntimeStatus,
+    platform_capabilities,
     read_status,
     safe_status_projection,
 )
@@ -67,6 +68,48 @@ def test_production_preflight_rejects_demo_credentials(tmp_path, monkeypatch):
 
     assert any("non-demo HMAC" in error for error in errors)
     assert any("non-default Admin PIN" in error for error in errors)
+
+
+def test_windows_capabilities_do_not_claim_linux_components():
+    assert platform_capabilities("win32") == {
+        "detector": False,
+        "operator_gui": False,
+        "voice": False,
+    }
+
+
+def test_windows_preflight_rejects_requested_linux_only_components(tmp_path):
+    settings = replace(
+        _settings(tmp_path),
+        start_detector=True,
+        start_gui=True,
+    )
+
+    errors, _ = settings.preflight(platform="win32")
+
+    assert "detector is unavailable on Windows" in errors
+    assert "Tk operator GUI is not packaged on Windows" in errors
+
+
+def test_dry_run_preflight_accepts_an_explicitly_unconfigured_broker(tmp_path, monkeypatch):
+    settings = _settings(tmp_path, dry_run=True)
+    monkeypatch.setattr(config, "BROKER_CONFIGURED", False, raising=False)
+    monkeypatch.setattr(config, "BROKER_IP", "")
+
+    errors, warnings = settings.preflight(platform="win32")
+
+    assert errors == []
+    assert any("broker is not configured" in warning.lower() for warning in warnings)
+
+
+def test_live_preflight_fails_closed_when_broker_is_unconfigured(tmp_path, monkeypatch):
+    settings = _settings(tmp_path, dry_run=False)
+    monkeypatch.setattr(config, "BROKER_CONFIGURED", False, raising=False)
+    monkeypatch.setattr(config, "BROKER_IP", "")
+
+    errors, _ = settings.preflight(platform="win32")
+
+    assert "live mode requires a configured MQTT broker" in errors
 
 
 def test_status_write_is_atomic_and_readable(tmp_path):
@@ -1199,6 +1242,37 @@ class TestSafeRuntimeProjection:
             "ESP32_UNAVAILABLE",
             "MQTT_DISCONNECTED",
         ]
+
+    def test_dry_run_without_device_evidence_is_not_healthy(self):
+        projection = safe_status_projection(
+            self._status(
+                dry_run=True,
+                broker="UNKNOWN",
+                device="UNKNOWN",
+                uplink="UNKNOWN",
+                components={},
+            )
+        )
+
+        assert projection["status"] == "UNKNOWN"
+        assert projection["components"] == {
+            "broker": "UNKNOWN",
+            "device": "UNKNOWN",
+            "uplink": "UNKNOWN",
+        }
+
+    @pytest.mark.parametrize(
+        ("changes", "expected"),
+        [
+            ({"broker": "DISCONNECTED"}, "DEGRADED"),
+            ({"device": "OFFLINE"}, "DEGRADED"),
+            ({"device": "UNKNOWN"}, "UNKNOWN"),
+            ({"uplink": "UNKNOWN"}, "UNKNOWN"),
+            ({"components": {"detector": "FAILED"}}, "DEGRADED"),
+        ],
+    )
+    def test_running_process_does_not_override_unhealthy_evidence(self, changes, expected):
+        assert safe_status_projection(self._status(**changes))["status"] == expected
 
     def test_accepts_a_persisted_status_document_read_back_from_disk(self, tmp_path):
         path = tmp_path / "status.json"
