@@ -22,6 +22,20 @@ def _post_telegram(text):
     urllib.request.urlopen(req, timeout=3)
 
 
+def _dispatch_telegram(text):
+    """Send outside the caller's safety-critical path without leaking secrets."""
+    def _send():
+        try:
+            _post_telegram(text)
+        except Exception:
+            print("Telegram notification delivery failed")
+
+    try:
+        threading.Thread(target=_send, daemon=True).start()
+    except Exception:
+        print("Telegram notification delivery failed")
+
+
 def send_webhook_alert(state, reason, rssi=None, heap=None, attacker_ip=None):
     """แจ้งเตือนหลักเมื่อ Uplink ถูกตัด/คืนค่า"""
     if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
@@ -51,9 +65,9 @@ def send_webhook_alert(state, reason, rssi=None, heap=None, attacker_ip=None):
         else:
             lines.append("✅ *EN:* System back online and operating normally.")
             lines.append("✅ *TH:* ระบบกลับมาออนไลน์และทำงานปกติแล้ว")
-        _post_telegram("\n".join(lines))
-    except Exception as e:
-        print(f"Telegram Webhook error: {e}")
+        _dispatch_telegram("\n".join(lines))
+    except Exception:
+        print("Telegram notification delivery failed")
 
 
 _OPS_LABELS = {
@@ -71,16 +85,10 @@ def send_ops_alert(event_type, details):
     if event_type not in _OPS_LABELS:
         return
 
-    def _send():
-        try:
-            title_en, title_th = _OPS_LABELS[event_type]
-            ts_str = time.strftime('%d %b %Y, %H:%M:%S')
-            _post_telegram(f"🛡️ *AEGIS IDEA 3 — SOC*\n{title_en}\n_{title_th}_\n\n"
-                           f"`{details}`\n\n🕐 {ts_str}")
-        except Exception as e:
-            print(f"Telegram Ops Alert error: {e}")
-
-    threading.Thread(target=_send, daemon=True).start()
+    title_en, title_th = _OPS_LABELS[event_type]
+    ts_str = time.strftime('%d %b %Y, %H:%M:%S')
+    _dispatch_telegram(f"🛡️ *AEGIS IDEA 3 — SOC*\n{title_en}\n_{title_th}_\n\n"
+                       f"`{details}`\n\n🕐 {ts_str}")
 
 
 def ufw_exec(args, timeout=30):
@@ -105,5 +113,5 @@ def send_telegram_reply(text):
         return
     try:
         _post_telegram(text)
-    except Exception as e:
-        print(f"[TG] ตอบกลับไม่สำเร็จ: {e}")
+    except Exception:
+        print("[TG] reply delivery failed")

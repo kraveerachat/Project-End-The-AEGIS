@@ -142,3 +142,64 @@ def test_status_callback_uses_empty_command_nonce_when_missing(monkeypatch):
     assert received == [
         ("NORMAL", -47, 199000, ""),
     ]
+
+
+def test_uplink_state_transitions_send_one_outbound_notification_each(monkeypatch):
+    monkeypatch.setattr(
+        "aegis_soc.mqtt_client.db.log_event",
+        lambda *args, **kwargs: None,
+    )
+    notifications = []
+    monkeypatch.setattr(
+        "aegis_soc.comms.send_webhook_alert",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+    manager = MQTTManager()
+
+    lockdown = SimpleNamespace(
+        topic=config.TOPIC_STATUS,
+        payload=b'{"state":"LOCKDOWN","reason":"cut","rssi":-48,"heap":200000}',
+    )
+    normal = SimpleNamespace(
+        topic=config.TOPIC_STATUS,
+        payload=b'{"state":"NORMAL","reason":"restored","rssi":-47,"heap":199000}',
+    )
+
+    manager._on_message(None, None, lockdown)
+    manager._on_message(None, None, lockdown)
+    manager._on_message(None, None, normal)
+    manager._on_message(None, None, normal)
+
+    assert notifications == [
+        (("LOCKDOWN", "cut", -48, 200000), {"attacker_ip": None}),
+        (("NORMAL", "restored", -47, 199000), {"attacker_ip": None}),
+    ]
+
+
+def test_telegram_failure_does_not_change_status_ack_or_physical_correlation(monkeypatch):
+    monkeypatch.setattr(
+        "aegis_soc.mqtt_client.db.log_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "aegis_soc.comms.send_webhook_alert",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("offline")),
+    )
+    manager = MQTTManager()
+    statuses = []
+    acknowledgements = []
+    manager.status_callback = lambda *args: statuses.append(args)
+    manager.ack_callback = lambda *args: acknowledgements.append(args)
+
+    message = SimpleNamespace(
+        topic=config.TOPIC_STATUS,
+        payload=(
+            b'{"state":"LOCKDOWN","reason":"verified","rssi":-48,'
+            b'"heap":200000,"command_nonce":"physical-123"}'
+        ),
+    )
+
+    manager._on_message(None, None, message)
+
+    assert statuses == [("LOCKDOWN", -48, 200000, "physical-123")]
+    assert acknowledgements == []

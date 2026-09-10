@@ -68,6 +68,20 @@ read-only endpoints. Blank optional dependencies are `NOT_CONFIGURED`, not
 healthy. Use `AEGIS_PROFILE=lab` and `AEGIS_DRY_RUN=1` only for isolated
 non-actuating acceptance; never label that state Production-deployed.
 
+Telegram notification is optional and outbound-only in this Production Runtime.
+Set both `AEGIS_TG_TOKEN` and `AEGIS_TG_CHAT` in the external configuration to
+enable one notification when an observed uplink state transitions to `LOCKDOWN`
+and one restore notification when it transitions to `NORMAL`. With either value
+blank, no Telegram request is made. Repeated unchanged state does not send a
+duplicate. Delivery runs outside the MQTT callback and failure is fail-soft;
+logs and status never include the token, chat ID, bot URL, or exception details.
+Production starts Core with `--headless`, does not start `TelegramListener`, and
+does not enable inbound `/cut` or `/restore` commands.
+
+Telegram acceptance or delivery proves notification transport only. It never
+counts as command publication, ACK, execution, relay confirmation, WAN
+isolation, or physical evidence.
+
 ## Preflight and service installation
 
 From the selected immutable release, build and verify before installation:

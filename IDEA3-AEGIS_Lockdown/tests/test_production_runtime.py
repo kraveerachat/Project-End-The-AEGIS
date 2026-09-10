@@ -17,6 +17,8 @@ from aegis_soc.production_runtime import (
     production_stop_command,
     restart_command,
 )
+from aegis_soc.supervisor import ChildProcessSupervisor, settings_from_args
+from aegis_soc.supervisor import build_parser as build_core_parser
 
 
 def _environment(tmp_path: Path) -> dict[str, str]:
@@ -130,6 +132,20 @@ def test_settings_support_spaces_and_explicit_server_payload_paths(tmp_path):
     assert child_environment["AEGIS_WEB_STATIC_DIR"] == environment["AEGIS_WEB_STATIC_DIR"]
     assert child_environment["AEGIS_IDEA3_RUNTIME_STATUS_URL"].endswith("/v1/core-status")
     assert "AEGIS_CONTROL_TOKEN" not in child_environment
+
+
+def test_production_core_is_headless_and_has_no_telegram_command_surface(tmp_path):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    command = settings.core_command()
+    core_args = build_core_parser().parse_args(command[3:])
+    core_settings = settings_from_args(core_args)
+    children = ChildProcessSupervisor(core_settings, lambda *args, **kwargs: None)
+
+    children.configure()
+
+    assert core_settings.start_gui is False
+    assert "gui" not in children.components
+    assert children.components == {}
 
 
 class _Process:

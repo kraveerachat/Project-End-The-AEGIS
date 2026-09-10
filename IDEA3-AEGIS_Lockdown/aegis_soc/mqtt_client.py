@@ -21,6 +21,7 @@ class MQTTManager:
         self.is_connected = False
         self.last_device_msg_ts = None   # เวลาที่ได้รับข้อความจาก ESP32 ล่าสุด
         self.last_attacker_ip = None
+        self.last_notified_uplink_state = None
 
         # callbacks (ตั้งค่าโดย GUI)
         self.log_callback = None          # (message: str, level: str)
@@ -84,7 +85,8 @@ class MQTTManager:
             elif msg.topic == config.TOPIC_STATUS:
                 self._mark_device_seen()
                 data = json.loads(payload_str)
-                state = data.get("state", "NORMAL")
+                observed_state = data.get("state")
+                state = observed_state if observed_state is not None else "NORMAL"
                 reason = data.get("reason", "")
                 rssi = data.get("rssi", 0)
                 heap = data.get("heap", 0)
@@ -100,13 +102,24 @@ class MQTTManager:
                     )
                 db.log_event("DEVICE_STATUS", f"{state} ({reason})", level)
 
-                if state in ("LOCKDOWN", "NORMAL"):
+                if (observed_state in ("LOCKDOWN", "NORMAL")
+                        and observed_state != self.last_notified_uplink_state):
                     attacker_ip = self.last_attacker_ip if state == "LOCKDOWN" else None
-                    # แจ้ง Telegram (import ในนี้กัน circular)
+                    self.last_notified_uplink_state = observed_state
+                    # แจ้ง Telegram (import ในนี้กัน circular) โดยไม่ผูกกับ ACK/physical evidence
                     from . import comms
-                    comms.send_webhook_alert(state, reason, rssi, heap, attacker_ip=attacker_ip)
-                    if state == "LOCKDOWN":
-                        self.last_attacker_ip = None
+                    try:
+                        comms.send_webhook_alert(
+                            state,
+                            reason,
+                            rssi,
+                            heap,
+                            attacker_ip=attacker_ip,
+                        )
+                    except Exception:
+                        print("Telegram notification scheduling failed")
+                if state == "LOCKDOWN":
+                    self.last_attacker_ip = None
 
         except Exception as e:
             print(f"MQTT parse error: {e}")
