@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from aegis_soc.production_runtime import ProductionSettings
+from aegis_soc.production_runtime import (
+    ProductionRuntime,
+    ProductionSettings,
+    build_parser,
+    production_status_command,
+    production_stop_command,
+    restart_command,
+)
 
 
 def _environment(tmp_path: Path) -> dict[str, str]:
@@ -121,3 +128,159 @@ def test_settings_support_spaces_and_explicit_server_payload_paths(tmp_path):
     assert child_environment["AEGIS_WEB_STATIC_DIR"] == environment["AEGIS_WEB_STATIC_DIR"]
     assert child_environment["AEGIS_IDEA3_RUNTIME_STATUS_URL"].endswith("/v1/core-status")
     assert "AEGIS_CONTROL_TOKEN" not in child_environment
+
+
+class _Process:
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+
+def _core_status(*, broker="UNKNOWN", device="UNKNOWN"):
+    return {
+        "schemaVersion": 1,
+        "generatedAt": "2026-09-10T00:00:00.000Z",
+        "status": "UNKNOWN",
+        "components": {"broker": broker, "device": device, "uplink": "UNKNOWN"},
+        "modes": {
+            "profile": "lab",
+            "dryRun": True,
+            "autoContain": False,
+            "armed": "MONITOR_ONLY",
+        },
+        "issues": [],
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+    }
+
+
+def test_service_snapshot_separates_process_health_audit_readiness_and_physical_truth(
+    tmp_path,
+):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=lambda _url: {
+            "status": "READY",
+            "audit": "READY",
+            "schemaVersion": 2,
+        },
+        core_status_reader=lambda: _core_status(),
+    )
+    runtime.children = {"core": _Process(), "web": _Process()}
+
+    snapshot = runtime.snapshot()
+
+    assert snapshot["status"] == "READY"
+    assert snapshot["processHealth"] == "HEALTHY"
+    assert snapshot["serviceReadiness"] == "READY"
+    assert snapshot["audit"] == "READY"
+    assert snapshot["mqtt"] == "NOT_CONFIGURED"
+    assert snapshot["idea1"] == "NOT_CONFIGURED"
+    assert snapshot["idea2"] == "NOT_CONFIGURED"
+    assert snapshot["esp32"] == "UNKNOWN"
+    assert snapshot["physicalEvidence"] == "UNKNOWN"
+
+
+def test_service_snapshot_degrades_when_web_or_audit_is_unavailable(tmp_path):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=lambda _url: {"status": "DEGRADED", "audit": "DEGRADED"},
+        core_status_reader=lambda: _core_status(broker="DISCONNECTED"),
+    )
+    runtime.children = {"core": _Process(), "web": _Process(returncode=1)}
+
+    snapshot = runtime.snapshot()
+
+    assert snapshot["status"] == "DEGRADED"
+    assert snapshot["processHealth"] == "DEGRADED"
+    assert snapshot["serviceReadiness"] == "DEGRADED"
+    assert snapshot["audit"] == "DEGRADED"
+    assert snapshot["mqtt"] == "NOT_CONFIGURED"
+    assert snapshot["physicalEvidence"] == "UNKNOWN"
+
+
+class _Output:
+    def __init__(self):
+        self.value = ""
+
+    def write(self, value):
+        self.value += value
+        return len(value)
+
+
+def test_production_status_reads_service_status_and_returns_nonzero_when_degraded(
+    tmp_path,
+):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    settings.paths.runtime_dir.mkdir(parents=True)
+    status_path = settings.paths.runtime_dir / "service-status.json"
+    status_path.write_text(
+        '{"status":"READY","audit":"READY","mqtt":"NOT_CONFIGURED"}\n',
+        encoding="utf-8",
+    )
+    output = _Output()
+
+    assert production_status_command(settings, output=output) == 0
+    assert "status: READY" in output.value
+    assert "audit: READY" in output.value
+    assert "mqtt: NOT_CONFIGURED" in output.value
+
+    status_path.write_text('{"status":"DEGRADED"}\n', encoding="utf-8")
+    assert production_status_command(settings, output=_Output()) == 1
+
+
+def test_production_stop_is_idempotent_when_no_instance_exists(tmp_path):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    output = _Output()
+
+    code = production_stop_command(
+        settings,
+        output=output,
+        post=lambda _url, _headers: pytest.fail("stop must not contact a missing instance"),
+    )
+
+    assert code == 0
+    assert output.value == "stop: NOT_RUNNING\n"
+
+
+def test_restart_stops_waits_for_the_old_boundary_and_starts_once(tmp_path):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    settings.paths.runtime_dir.mkdir(parents=True)
+    token_path = settings.paths.runtime_dir / "control.token"
+    token_path.write_text("old-control-token\n", encoding="utf-8")
+    events = []
+
+    def post(_url, headers):
+        assert headers == {"X-AEGIS-Control-Token": "old-control-token"}
+        events.append("stop")
+        token_path.unlink()
+        return 202
+
+    class Runtime:
+        def __init__(self, received_settings):
+            assert received_settings is settings
+
+        def run(self):
+            events.append("start")
+            return 0
+
+    code = restart_command(
+        settings,
+        post=post,
+        runtime_factory=Runtime,
+        sleep=lambda _seconds: pytest.fail("removed token must not require a wait"),
+        output=_Output(),
+    )
+
+    assert code == 0
+    assert events == ["stop", "start"]
+
+
+def test_cli_exposes_the_composite_service_lifecycle_commands():
+    parser = build_parser()
+
+    for command in ("start", "stop", "restart", "status", "doctor"):
+        assert parser.parse_args([command]).command == command
