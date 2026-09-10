@@ -505,7 +505,7 @@ and Phase D-B actual public stream acceptance.
   `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`.
 - Upstream: `172.31.241.0/29`, gateway `172.31.241.1`, isolated bridge.
 - Drive proxy trust: `172.19.255.2/32,172.31.241.2/32`; gateway CIDR: `172.31.241.2/32`.
-- Base URL: `https://share.aegistk-pb.com`; UI enabled: `false`.
+- Drive environment: `PUBLIC_SHARE_BASE_URL=https://share.aegistk-pb.com`, `PUBLIC_SHARE_GATEWAY_CIDR=172.31.241.2/32`, `PUBLIC_SHARE_UI_ENABLED=false`.
 - Gateway not running yet; no cloudflared; no host listener.
 
 #### 4. Private regression after Drive State B
@@ -521,6 +521,7 @@ and Phase D-B actual public stream acceptance.
 - Hardening: user `101:101`, `read_only=true`, `cap_drop=ALL`, `no-new-privileges=true`, host ports = 0.
 - Networks: edge `172.31.240.0/29` (Gateway `.2`, connector `.3` reserved);
   upstream `172.31.241.0/29` (Gateway `.2`, Drive `.3`).
+- Gateway environment: `PUBLIC_SHARE_HOST=share.aegistk-pb.com`.
 - Drive container preserved, DB digest preserved, host 8080 absent, cloudflared absent, egress absent.
 
 #### 6. Phase D-A — internal managed-edge security acceptance
@@ -544,10 +545,12 @@ and Phase D-B actual public stream acceptance.
 - Post-revoke verification: `post_revoke_gateway_http=404`, hits unchanged at 1,
   `active_public_shares_after_cleanup=0`, edge client removed, gateway logs token-safe,
   containers preserved, host 8080 absent, cloudflared absent, egress absent.
-- Workflow false starts truthfully recorded: initial browser session expired (401 on `/drive/api/me`);
-  clipboard workflow copied Console text; temporary share 32 created and lost from browser memory
-  was safely revoked (raw token never logged or recoverable from DB hash); new temporary share
-  created, streamed, and revoked. Zero token leakage throughout.
+- Workflow false starts truthfully recorded: initial browser session expired (HTTP 401 on `/drive/api/me`);
+  clipboard workflow copied Console text; temporary public share id 32 remained active after raw bearer token was lost from browser memory
+  (system persisted only token hash, raw token not recoverable); authenticated browser session called Drive API (`GET /drive/api/shares`
+  identified active share as id 32, and `DELETE /drive/api/shares/32` with session/CSRF token revoked it; no raw token recovered from PostgreSQL,
+  no row deleted from PostgreSQL); fresh temporary public share created, streamed through Gateway (HTTP 200), and revoked via browser UI;
+  final active public share count was zero. Zero token leakage throughout.
 
 #### 8. Final accepted runtime state
 ```text
