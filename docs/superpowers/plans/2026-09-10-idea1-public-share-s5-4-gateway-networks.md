@@ -222,6 +222,25 @@ The owner runs this block in the visible `admin-main@aegis-system` SSH session.
 It uses root only for read-only Docker/filesystem/database inspection, never
 prints `.env` or unrestricted container environment, and mutates nothing.
 
+Owner-run attempt 1 completed every non-database gate but returned two false
+negatives because `docker exec -u postgres ... psql` selected the Linux user
+without selecting the configured PostgreSQL role. A separate owner-run
+read-only diagnostic used the container's configured `POSTGRES_USER`, verified
+database identity `aegis@aegis_drive`, migration 009, and zero public rows:
+
+```text
+S5_4_PREFLIGHT_ATTEMPT_1=FAIL_FALSE_NEGATIVE
+FAILURE_SCOPE=POSTGRES_PROBE_ROLE_SELECTION
+PRODUCTION_DATABASE=HEALTHY
+MIGRATION_009=VERIFIED_PRESENT
+PUBLIC_SHARE_ROWS=0
+PRODUCTION_MUTATION=NONE
+```
+
+Attempt 1 is not a Production failure. The corrected preflight below resolves
+`POSTGRES_USER` only inside the PostgreSQL container and still requires a fresh
+complete PASS before any separately authorised S5.4 mutation.
+
 ```bash
 sudo bash <<'S5_4_PREFLIGHT'
 set -u
@@ -302,10 +321,17 @@ printf '%s\n' '--- Protected data and migration state ---'
 for volume in aegis_drive_storage aegis_postgres_data; do
   if $DOCKER volume inspect "$volume" >/dev/null 2>&1; then pass "protected_volume:$volume"; else fail "protected_volume:$volume"; fi
 done
-migration=$($DOCKER exec -u postgres "$POSTGRES" psql -X -v ON_ERROR_STOP=1 -d aegis_drive -Atqc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='shares_scope_check';" 2>/dev/null || true)
+postgres_query() {
+  sql=$1
+  $DOCKER exec -u postgres "$POSTGRES" sh -c '
+test -n "${POSTGRES_USER:-}" || exit 1
+exec psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d aegis_drive -Atqc "$1"
+' sh "$sql"
+}
+migration=$(postgres_query "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='shares_scope_check';" 2>/dev/null || true)
 printf 'SHARES_SCOPE_CHECK=%s\n' "$migration"
 case "$migration" in *public* ) pass migration_009_present ;; * ) fail migration_009_present ;; esac
-public_rows=$($DOCKER exec -u postgres "$POSTGRES" psql -X -v ON_ERROR_STOP=1 -d aegis_drive -Atqc "SELECT count(*) FROM shares WHERE scope='public';" 2>/dev/null || true)
+public_rows=$(postgres_query "SELECT count(*) FROM shares WHERE scope='public';" 2>/dev/null || true)
 expect_eq public_share_rows "$public_rows" 0
 
 printf '%s\n' '--- Network inventory and collision gate ---'

@@ -259,7 +259,7 @@ IMPLEMENTED.**
 | S5.1 | Production freeze + deployment/rollback plan; documentation only | **MERGED / HISTORICAL PASS** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`; PR #111 merge `618543ee0d88613a651305962b5ed64c8593c2e5` | **PASS** | No retroactive receipt; historical governance-transition outcome | superseded by separately governed S5.2 task |
 | S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **MERGED / HISTORICAL PARTIAL** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access. Post-S5.2 owner measurement later established Docker 29.7.1 iptables backend, iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny, IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success and TCP/7844 PASS. | `c2fd417c328d34a776b43f749a203a89a5d502d7`; PR #113 merge `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` | **PARTIAL — design frozen; measurement gap subsequently closed by owner** | domain/zone proof; fresh Cloudflare allowlist and exact S5.5 firewall implementation; G5 remains OPEN | superseded by this separately authorised S5.3 task |
 | S5.3 | Production Drive/database preparation and migration 009 | **CLOSED / PASS** | Production pre-mutation gate matched frozen baseline; Backup Agent job `0122772c-640a-45b7-a30b-8a2c70cca942` SUCCESS (integrity PASS); restore verify job `e91750fa-73d6-4759-8e38-98d10b6c1304` SUCCESS (integrity PASS, restore verify PASS); root dump `aegis_drive-pre-009-20260910T102518Z.dump` (size 93161, sha256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries PASS); migration 009 SHA-256 `e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0` applied transactionally, row count (25 total, 0 public) and non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15` preserved, second run idempotent, `drive_app` non-superuser/no ALTER authority; Drive built `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df` tagged `aegis-prod-drive:public-share-50ce6e1638`, rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z`, container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf` recreated on 3 private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`), protected volumes preserved, unrelated services healthy; private smoke/browser PASS, public UI hidden, ANY share create/redeem/revoke PASS (owner-confirmed S5.3), ZONES share PASS (owner-confirmed, corroborated by historical B4 Production Network Scope acceptance), Storage and Audit carried-forward as HISTORICAL_PASS (accepted evidence; not re-executed as new S5.3 browser acceptance); domain ownership OWNED (`aegistk-pb.com` / Cloudflare) | PR #114 | **PASS** | G5/G6 remain OPEN; S5.4/S5.5 remain NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.4 dedicated public networks and gateway deployment |
-| S5.4 | Dedicated Public Share networks + gateway deployment | **IN PROGRESS — repository preparation only** | exact overlay/test/runbook and owner preflight are being prepared; Production access and mutation remain prohibited | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb` | **IN PROGRESS** | owner-run read-only preflight, separate mutation authorization, runtime deployment/acceptance, final receipt | Draft PR checkpoint |
+| S5.4 | Dedicated Public Share networks + gateway deployment | **IN PROGRESS — repository preparation only** | exact overlay/test/runbook prepared; owner-run read-only preflight attempt 1 passed every non-database gate but produced two PostgreSQL false negatives because it selected the Linux user without the configured database role; follow-up read-only diagnostic verified `aegis@aegis_drive`, migration 009 present, and 0 public rows; Production database healthy and Production mutation NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; Draft PR #116 | **IN PROGRESS** | rerun the corrected complete owner preflight; separate mutation authorization, runtime deployment/acceptance, final receipt | Draft PR checkpoint |
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | NOT STARTED | — | — | — | connector isolation proof and G5 | after S5.4 |
 | G5 | Owner authorises actual Internet exposure | **OPEN** | — | — | — | public hostname activation | only after S5.5 evidence |
 | S5.6 | Public hostname, DNS and TLS activation | NOT STARTED | — | — | — | external security acceptance | requires G5 |
@@ -310,6 +310,25 @@ No value below was reproduced from Windows in S5.1.
 | Private regression | HTTP 200/401 `PASS`; HUB login `PASS`; Files `PASS`; public UI hidden (Internet card not ready / not selectable); ANY share lifecycle `PASS` (classification: owner-confirmed S5.3); ZONES share `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance) |
 | Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = IN PROGRESS (repository preparation only), S5.5 = NOT STARTED, G5 = OPEN, G6 = OPEN, Public Internet Share = NOT IMPLEMENTED, UI = OFF |
 
+### S5.4 owner-run read-only preflight attempt 1 — 2026-09-10
+
+```text
+S5_4_PREFLIGHT_ATTEMPT_1=FAIL_FALSE_NEGATIVE
+FAILURE_SCOPE=POSTGRES_PROBE_ROLE_SELECTION
+PRODUCTION_DATABASE=HEALTHY
+MIGRATION_009=VERIFIED_PRESENT
+PUBLIC_SHARE_ROWS=0
+PRODUCTION_MUTATION=NONE
+```
+
+Every non-database S5.4 preflight gate passed. The two empty PostgreSQL results
+came from selecting Linux user `postgres` without explicitly selecting the
+configured PostgreSQL role. A follow-up owner-run read-only diagnostic verified
+`psql` 15.19, database identity `aegis@aegis_drive`, the migration 009 constraint
+including `public`, and exactly zero `scope=public` rows. This was a probe-role
+false negative, not a Production failure. The corrected complete owner preflight
+must still pass before any separately authorised S5.4 mutation.
+
 ### Done / Remaining / Next
 
 **Done before S5.3:** G4 was recorded, S5.1 merged through PR #111 (`618543ee...`),
@@ -343,17 +362,20 @@ Domain ownership verified `OWNED` (`aegistk-pb.com` on Cloudflare).
 **Current / remaining:** S5.4 repository preparation is IN PROGRESS on its own
 branch and Draft PR. This checkpoint adds only the exact overlay contract,
 automated configuration tests, operator runbook, and owner-run read-only
-preflight. The preflight has not been run and no S5.4 Production mutation is
-authorised or claimed. Runtime network creation, Drive State B recreation,
-gateway deployment and acceptance remain pending a fresh passing preflight and
-separate explicit owner authorization. S5.5 connector deployment, G5 exposure
+preflight. Attempt 1 was run read-only and returned two false negatives limited
+to implicit PostgreSQL-role selection; a follow-up read-only diagnostic proved
+the Production database healthy, migration 009 present, and zero public rows.
+No S5.4 Production mutation was performed or is authorised. Runtime network
+creation, Drive State B recreation, gateway deployment and acceptance remain
+pending a fresh complete PASS from the corrected preflight and separate explicit
+owner authorization. S5.5 connector deployment, G5 exposure
 authorisation, S5.6–S5.10 external verification and rollback rehearsal, G6 UI
 activation authorisation, and S5.11 UI enablement remain later work. G5 and G6
-remain OPEN. Public Internet Share remains NOT IMPLEMENTED. Public Share UI remains
-disabled (`PUBLIC_SHARE_UI_ENABLED=false`).
+remain OPEN. Public Internet Share remains NOT IMPLEMENTED. Public Share UI
+remains effectively disabled.
 
-**Next:** complete repository validation and publish the S5.4 Draft PR, then
-stop. The owner may run the documented read-only Production preflight in a
+**Next:** validate and publish the corrected S5.4 Draft checkpoint, then stop.
+The owner may rerun the corrected complete read-only Production preflight in a
 separate visible session; Production mutation still requires separate explicit
 authorization.
 

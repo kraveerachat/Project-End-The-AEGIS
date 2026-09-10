@@ -13,10 +13,15 @@ const OVERLAY_URL = new URL(
   REPO_ROOT,
 )
 const RUNBOOK_URL = new URL('gateway/public-share/production/README.md', REPO_ROOT)
+const PLAN_URL = new URL(
+  'docs/superpowers/plans/2026-09-10-idea1-public-share-s5-4-gateway-networks.md',
+  REPO_ROOT,
+)
 const GATEWAY_ROOT = new URL('gateway/public-share/', REPO_ROOT)
 
 const overlay = readFileSync(OVERLAY_URL, 'utf8')
 const runbook = readFileSync(RUNBOOK_URL, 'utf8')
+const plan = readFileSync(PLAN_URL, 'utf8')
 const readGateway = (name) => readFileSync(new URL(name, GATEWAY_ROOT), 'utf8')
 
 function namedBlock(source, name, indent) {
@@ -185,4 +190,32 @@ test('S5.4-ROLLBACK-1 runbook restores the exact S5.3 private state without whol
   assert.doesNotMatch(runbook, /up (?:--build |-d )*(?![^\n]*\b(?:drive|public-share-gateway)\b)[^\n]*$/m)
   assert.doesNotMatch(runbook, /PUBLIC_SHARE_UI_ENABLED=true/)
   assert.doesNotMatch(runbook, /cloudflared.*(?:up|run|start|create)/i)
+})
+
+test('S5.4-PREFLIGHT-1 PostgreSQL probes select the configured role inside the container', () => {
+  const preflight = plan.match(
+    /sudo bash <<'S5_4_PREFLIGHT'([\s\S]*?)\nS5_4_PREFLIGHT/,
+  )?.[1]
+  assert.ok(preflight, 'the owner-run S5.4 preflight must remain executable')
+
+  assert.match(
+    preflight,
+    /postgres_query\(\) \{[\s\S]*?\$DOCKER exec[\s\S]*?sh -c '[\s\S]*?test -n "\$\{POSTGRES_USER:-\}"[\s\S]*?--username "\$POSTGRES_USER"[\s\S]*?' sh "\$sql"/,
+    'the configured database role must expand in the PostgreSQL container, not the host shell',
+  )
+  assert.doesNotMatch(
+    preflight,
+    /\$DOCKER exec -u postgres "\$POSTGRES" psql\b/,
+    'implicit PostgreSQL role selection caused the owner-observed false negative',
+  )
+  assert.match(
+    preflight,
+    /migration=\$\(postgres_query "SELECT pg_get_constraintdef\(oid\) FROM pg_constraint WHERE conname='shares_scope_check';"/,
+  )
+  assert.match(
+    preflight,
+    /public_rows=\$\(postgres_query "SELECT count\(\*\) FROM shares WHERE scope='public';"/,
+  )
+  assert.match(preflight, /case "\$migration" in \*public\* \) pass migration_009_present/)
+  assert.match(preflight, /expect_eq public_share_rows "\$public_rows" 0/)
 })
