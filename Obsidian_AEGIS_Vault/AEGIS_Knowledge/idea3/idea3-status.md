@@ -591,98 +591,121 @@ evidence occurred during PR8.
 
 ---
 
+## PR8 merge reconciliation — 2026-09-10
+
+PR8 source is merged through GitHub PR #107 at
+`f320bbf55456450406fe0c5547848fbdce099a96`, and source checkpoint
+`25fb442d15cdf2037817c9e63add4d7e96bcd568` is reachable from current `main`.
+The recorded 25/25 Windows smoke ran against the `c7cdc2b2` staging bundle, not
+an extracted ZIP and not the post-main-sync SHA. The immutable PR8 receipt remains
+historically `partial`; it is not edited. PR9 may reuse the merged source and
+contracts, but this reconciliation does not invent final Windows acceptance.
+
 ## Current Task
 
-Task: IDEA3 PR8 Windows standalone runtime
-Branch: `feat/idea3-windows-standalone-pr8`
+Task: PR9 Production Runtime / Deployment Preparation
+Branch: `feat/idea3-production-runtime-pr9`
 Owner: `music`
-PR: #107 (Draft)
-Current state: ACCEPTANCE PENDING
-Started: 2026-09-08
-Last checkpoint: `8214792022a4d29672227f6637e8399a7f1e189c`
+PR: Draft pending
+Current state: IN PROGRESS
+Started: 2026-09-10
+Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
+Last checkpoint: `6a1cee51a87786a3af1f9849d16c60a0db786f87`
 Production mutation allowed: NO
+PR5 dependency: OPEN / WAITING FOR MERGE
 
 ### Goal
 
-Deliver and verify the deterministic IDEA3 Windows x64 one-folder runtime.
+Prepare and locally verify the Core+Web production service lifecycle,
+configuration, paths, readiness, persistence, authentication, and operations
+boundary that is safe before PR5 merges.
 
 ### Scope
 
-IDEA3 launcher, packaging, external data, Web runtime, source verification, and
-Windows build/smoke acceptance.
+IDEA3-owned server runtime source, tests, service example, operations runbook,
+isolated production-like acceptance, and truthful Git/Obsidian reconciliation.
 
 ### Out of scope
 
-Production deployment, MQTT publication, firmware/relay changes, network
-changes, live IDEA1/IDEA2 feeds, and physical acceptance.
+PR5 merge synchronization, final PR9 acceptance/receipt/Ready state, Production
+deployment, Kali E2E, MQTT publication, firmware/relay changes, network changes,
+live IDEA1/IDEA2 feeds, and physical acceptance.
 
 ### Safety boundaries
 
-Keep PR #107 Draft and unmerged; do not rebase or force-push; preserve the
-immutable receipt; use a fresh external DataPath; do not enable hardware or MQTT.
+Use only disposable local paths, loopback listeners, generated test-only
+credentials, and absent/injected dependencies. Do not touch Production or
+hardware, do not create a PR9 receipt, and do not mark the future Draft Ready.
 
 ### Acceptance criteria
 
-Fresh Windows build from the final SHA must report BUILD OK. The resulting ZIP
-must be freshly extracted and pass `windows/smoke.ps1` with a fresh DataPath;
-browser-localhost behavior must be confirmed if still required.
+S1-S6 must produce source-backed design, a TDD plan, strict production contracts,
+Core+Web lifecycle/readiness evidence, focused negative regressions, a clean
+production-like isolated acceptance, an operations runbook, and exact evidence.
+S7 and S8 remain blocked until PR5 merges.
 
 ## Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S13 | Final main sync and source re-verification | CLOSED | Focused 161/6 + 58; full 196/6 + 298; Vite/Ruff/compile/audit; repo 57; vault PASS | `8214792022a4d29672227f6637e8399a7f1e189c` | PASS | Windows final-SHA build and extracted-ZIP smoke | Return final SHA to Windows |
+| S1 | Runtime inventory/design/plan | CLOSED | Source, tests, Git ancestry, PR5 ref and PR8 evidence audited; source-backed design and TDD plan committed | `6a1cee51a87786a3af1f9849d16c60a0db786f87` | PASS | none | start S2 |
+| S2 | Production config/path contract | IN PROGRESS | baseline Python 196/6, Web 298/24, repo 63 all pass when rerun outside sandbox loopback restrictions | — | pending RED/GREEN | implementation | write strict Web config tests |
+| S3 | Lifecycle + readiness | NOT STARTED | pending TDD | — | pending | all work | start after S2 |
+| S4 | Persistence/auth regressions | NOT STARTED | pending | — | pending | all work | start after S3 |
+| S5 | Production-like isolated acceptance | NOT STARTED | pending | — | pending | all work | start after S4 |
+| S6 | Runbook + evidence reconciliation | NOT STARTED | pending | — | pending | all work | start after S5 |
+| S7 | PR5 merge sync + final acceptance | BLOCKED | PR5 is not merged | — | BLOCKED | fresh main sync and final gates | wait for `PR5 MERGED` |
+| S8 | Final closeout / receipt / review | BLOCKED | S7 not run | — | BLOCKED | immutable receipt and Ready state | wait for S7 |
 
 ## Handoff
 
 ### Current branch
 
-`feat/idea3-windows-standalone-pr8`
+`feat/idea3-production-runtime-pr9`
 
 ### Current HEAD
 
-Implementation/evidence checkpoint:
-`8214792022a4d29672227f6637e8399a7f1e189c`. The later documentation checkpoint
-is recorded in PR #107 and the session report after Git assigns it.
+S1 implementation/evidence checkpoint:
+`6a1cee51a87786a3af1f9849d16c60a0db786f87`.
 
 ### Current task state
 
-ACCEPTANCE PENDING. Local source and governance gates pass; final-SHA Windows
-acceptance is not yet run.
+IN PROGRESS. S1 design is closed. The clean baseline passes when local
+loopback/subprocess permissions are available. S2 implementation is starting.
 
 ### Sessions closed
 
-S13 final main sync and source re-verification.
+S1 runtime inventory, design, and plan.
 
 ### Session currently open
 
-None locally. The next environment-bound session is Windows re-acceptance.
+S2 production configuration/path contract.
 
 ### Verified evidence
 
-`c7cdc2b2` Windows build and staging-bundle smoke PASS with the extraction
-qualification above; `82147920` Arch source/governance verification PASS.
+At the PR9 base: Python 196 passed / 6 Windows-only skipped; Web 298 passed;
+repository tests 63 passed. Initial restricted runs failed only on blocked local
+listeners/nested Git and passed unchanged with the required test permissions.
 
 ### Known issues
 
-No extracted-ZIP smoke exists, and no Windows evidence exists for the post-merge
-SHA.
+PR5 is open. The fetched hardware-closure ref adds no commit beyond current
+`main`, so no newer hardware truth is available in Git. PR8 final extracted-ZIP
+acceptance is also not present in current repository evidence.
 
 ### Exact remaining work
 
-Build the final SHA on Windows, require BUILD OK, freshly extract its ZIP, use a
-fresh DataPath, run the smoke suite against that extracted directory, and report
-all acceptance results.
+Complete S1-S6, push one Draft branch/PR without a receipt, then stop at the PR5
+merge gate.
 
 ### Next command / next action
 
-On Windows x64, pull the final PR head and run `windows/build.ps1`.
+Begin S2 with failing Web configuration and readiness tests.
 
 ### Do not do
 
-Do not merge PR #107, reuse the `c7cdc2b2` artifact as final-SHA evidence,
-rebase, force-push, create another receipt, enable MQTT/hardware, or mutate
-Production.
+Do not create the final PR9 receipt, mark the Draft Ready, merge, deploy, enable
+MQTT/hardware, claim physical evidence, rebase/force-push, or mutate Production.
 
 ---
 

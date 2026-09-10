@@ -2190,3 +2190,55 @@ Keep PR #107 Draft and unmerged. On Windows x64, pull the final PR head, run
 fresh absolute DataPath, run `windows/smoke.ps1` against the extracted bundle,
 and report every acceptance result. Confirm browser-localhost behavior if still
 required.
+
+## 39. PR9 production runtime — inventory/design checkpoint — 2026-09-10
+
+```text
+BRANCH = feat/idea3-production-runtime-pr9
+BASE = 50ce6e1638c6bcdb2a378a3cee660050b9cb41d8
+S1_CHECKPOINT = 6a1cee51a87786a3af1f9849d16c60a0db786f87
+STATUS = PARTIAL / PRE-PR5 WORK IN PROGRESS
+PRODUCTION_MUTATION_ALLOWED = NO
+PR5_DEPENDENCY = OPEN / WAITING FOR MERGE
+```
+
+### Reconciliation and inventory
+
+- PR8 source is merged and reusable, but recorded Windows acceptance remains a
+  25/25 staging-bundle smoke at `c7cdc2b2`; no extracted-ZIP or final-SHA rerun
+  is claimed. The immutable PR8 receipt remains unchanged.
+- The fetched PR5 branch ref contains no unmerged delta over current `main`.
+  The owner-supplied PR9 execution prompt remains the authority that PR5 is
+  still open, so hardware finalization is not imported or inferred.
+- The current Linux service example owns only Core. PR9 will reuse the merged
+  Core+Web lifecycle owner, add strict server paths and readiness, and replace
+  the example with a composite systemd service. Docker/Compose is not added.
+- MQTT, IDEA1, IDEA2, ESP32, and physical relay state remain separate evidence
+  dimensions. Missing dependencies must be explicit and cannot become healthy
+  or physical proof.
+
+The source-backed design and executable TDD plan are:
+
+- `docs/superpowers/specs/2026-09-10-idea3-pr9-production-runtime-design.md`
+- `docs/superpowers/plans/2026-09-10-idea3-pr9-production-runtime.md`
+
+### Fresh baseline verification
+
+The sandbox forbids loopback socket creation, so the first restricted runs
+showed only environment `EPERM` failures. The unchanged baseline was rerun with
+the same commands outside that restriction:
+
+```text
+Python = 196 passed, 6 skipped
+Web = 298 passed across 24 files
+Repository = 63 passed
+```
+
+No product assertion failed. No Production, broker, device, relay, network, or
+external database was accessed.
+
+### Exact next step
+
+Begin S2 with RED tests in `web/tests/server/config.test.js` for malformed
+production numeric values and a relative production audit database path. Then
+add RED readiness tests before changing runtime source.
