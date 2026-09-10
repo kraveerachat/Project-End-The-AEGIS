@@ -2190,3 +2190,103 @@ Keep PR #107 Draft and unmerged. On Windows x64, pull the final PR head, run
 fresh absolute DataPath, run `windows/smoke.ps1` against the extracted bundle,
 and report every acceptance result. Confirm browser-localhost behavior if still
 required.
+
+## 39. Project-sequence PR5 — Final Hardware Closure owner evidence — 2026-09-11
+
+```text
+BRANCH = fix/idea3-final-hardware-closure
+STATUS = READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED
+PR9 #115 = BLOCKED UNTIL PR5 GITHUB PR IS MERGED
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### Scope and safety boundary
+
+This session records owner-observed hardware and network evidence. Codex did
+not edit firmware or production source, flash or reset the ESP32, publish an
+MQTT command, change network configuration, or manipulate hardware. Firmware
+polarity remains `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH =
+NORMAL/RESTORE`.
+
+### Accepted topology
+
+GPIO27 has a 10 kΩ pull-down to ground and drives ULN2003 IN1. The ULN2003 uses
++5 V and common ground; OUT1 was continuity-verified against chip pin 16 and
+feeds the relay-input node. That node has a 10 kΩ pull-up to +5 V. Relay
+VCC/DC+ is +5 V, GND/DC- is common ground, and the trigger jumper is H.
+
+TP-Link Ethernet Pin 2 passes through Terminal CH1 → relay COM → relay NC →
+Terminal CH2 → Beelink Pin 2. Relay NO is unused. LOW leaves the ULN output
+high-impedance so the pull-up activates the high-trigger relay and opens COM-NC
+(CUT). HIGH makes the ULN sink the relay input so the relay releases and closes
+COM-NC (RESTORE). RESTORE shows red power ON/green trigger OFF; CUT shows red
+power ON/green trigger ON.
+
+### Accepted physical evidence
+
+```text
+RESTORE:          1 2 3 4 5 6 7 8
+CUT:              1 _ 3 4 5 6 7 8
+RESTORE:          1 2 3 4 5 6 7 8
+
+PHYSICAL_LOCKDOWN_PIN2=PASS
+PHYSICAL_RESTORE_PIN2=PASS
+RESET_WINDOW_1B=PASS
+RECONNECT_DOES_NOT_AUTO_RESTORE=PASS
+EXPLICIT_RESTORE_REQUIRED=PASS
+```
+
+From established CUT, Pin 2 stayed absent while EN was held, after
+release/reboot, and after ESP32/broker reconnect. There was no automatic
+restore; explicit authenticated RESTORE returned all eight pins. This reset
+window pass applies only while the relay/control circuit stays powered.
+Total-control-power-loss fail-secure behavior is not proven; loss of relay
+power may reconnect the mechanical NC path.
+
+### Accepted real Ethernet evidence
+
+MikroTik VLAN 10 gateway `192.168.10.1` reached Beelink `192.168.10.10` with
+5/5 ping and 0% loss; ARP showed the Beelink reachable on `VLAN10-Server`.
+Laptop `192.168.30.99` via VLAN 30 gateway `192.168.30.1` established direct
+SSH to the Beelink. RESTORE supported continuous ping and SSH. CUT stopped ping
+with no replies/`Destination Host Unreachable` and froze the existing SSH
+session. RESTORE resumed ping and a new SSH connection succeeded; the old
+severed session was not accepted as recovery proof.
+
+```text
+REAL_ETHERNET_RESTORE_BASELINE=PASS
+REAL_ETHERNET_CUT=PASS
+REAL_ETHERNET_RESTORE_RECOVERY=PASS
+SSH_CUT_EFFECT=PASS
+SSH_POST_RESTORE_RECONNECT=PASS
+```
+
+Cable-tester continuity is not by itself claimed as Ethernet traffic proof.
+
+### Twingate and mechanical qualification
+
+Direct-LAN Beelink reachability, ping to `1.1.1.1`, DNS for
+`api.twingate.com`, and HTTPS/TLS passed. Following earlier I/O errors, one
+manual connector restart was observed through Offline → Authentication →
+Authentication → Online; team connectivity then passed on the direct-LAN
+baseline.
+
+```text
+TWINGATE_DIRECT_BASELINE=PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART=PASS
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY=NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+```
+
+The final relay CUT → RESTORE Twingate automatic recovery was not conclusively
+rerun without restart. Breadboard, ESP32, and jumper movement caused
+intermittent bring-up behavior before the final sequence passed after reseating
+and stabilization. Deployment-grade use requires strain relief and a secure
+PCB/interconnect.
+
+### Current gate and next action
+
+Prepare the PR5 GitHub PR for owner/integration review and do not merge it.
+GitHub PR #115 remains Draft and its S7/S8 production work must remain blocked
+until the PR5 GitHub PR is actually merged. Total-control-power-loss behavior,
+final relay-cycle Twingate auto-recovery, production deployment, and overall
+IDEA3 production acceptance remain open.
