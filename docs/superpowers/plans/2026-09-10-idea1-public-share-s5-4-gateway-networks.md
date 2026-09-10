@@ -1,0 +1,370 @@
+# PUBLIC-SHARE-7 S5.4 Dedicated Gateway Networks — Implementation Plan
+
+> **Task state:** IN PROGRESS. This plan prepares repository artifacts only.
+> It does not authorize or record any Production mutation.
+
+**Area:** `idea1`
+
+**Owner:** `kla`
+
+**Branch:** `feat/idea1-public-share-s5-4-gateway-networks`
+
+**Base:** `dc673992b4c474716c4a14d2d375b3c9dd583feb`
+
+**Integration review:** required for the `gateway/**` runtime surface
+
+**Production access in this checkpoint:** forbidden
+
+## 1. Outcome and stop boundary
+
+Prepare a reviewable Compose overlay for the future S5.4 Production change:
+
+```text
+reserved cloudflared 172.31.240.3 (not deployed)
+  → edge 172.31.240.0/29
+  → gateway 172.31.240.2 + 172.31.241.2
+  → upstream 172.31.241.0/29
+  → Drive 172.31.241.3
+```
+
+Both S5.4 networks are internal bridges using Docker's isolated IPv4 gateway
+mode. The gateway has no host-published port and joins only edge and upstream.
+Drive retains its three existing private memberships and adds upstream. Drive
+trust becomes exactly HUB `172.19.255.2/32` plus gateway
+`172.31.241.2/32`. The gateway's managed-edge trust pins only the reserved
+connector `172.31.240.3/32`.
+
+The future egress subnet `172.31.242.0/29` is recorded as reserved only. It is
+not declared as a Compose network and no `cloudflared` service exists. The
+hostname `share.aegistk-pb.com` is configuration only: no DNS, TLS, tunnel,
+listener, firewall rule, or Internet route is created. The UI remains off.
+
+This task stops after a Draft PR and before the owner runs even the read-only
+Production preflight below. S5.5, G5, G6, and Production mutation remain outside
+this checkpoint.
+
+## 2. Files and implementation sequence
+
+1. Add `IDEA1-AEGIS_Drive_LC/tests/publicShareS54RuntimeContract.test.js` first.
+   It must fail while the S5.4 overlay is absent and then pin every security and
+   rollback invariant listed in section 3.
+2. Add `gateway/public-share/production/docker-compose.s5-4.yml`. It overlays
+   the existing Production Compose and the S5.3 Drive image-only override. It
+   reuses the existing `gateway/public-share/` image source and creates no new
+   share backend.
+3. Add `gateway/public-share/production/README.md`. It records the three-file
+   Compose order, exact image/source contract, service-scoped future rollout,
+   fail-closed checks, and the exact S5.3 rollback. It must contain no whole-stack
+   build or recreate command.
+4. Update
+   `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` to mark S5.4
+   IN PROGRESS and retain the merged S5.3 result as historical evidence.
+5. Do not create an S5.4 receipt while the PR is Draft and the task is still in
+   progress. Do not alter any historical receipt.
+
+## 3. Test-first contract
+
+The focused S5.4 suite must prove:
+
+- overlay identity and exact Compose layering order;
+- edge `172.31.240.0/29` and upstream `172.31.241.0/29`;
+- gateway edge `.2`, reserved connector `.3`, gateway upstream `.2`, Drive
+  upstream `.3`;
+- `internal: true` plus
+  `com.docker.network.bridge.gateway_mode_ipv4: "isolated"` on both networks;
+- no service `ports`, no host networking, and no default network;
+- gateway membership is exactly edge + upstream;
+- Drive adds upstream while retaining `aegis_internal`, `aegis_drive_proxy`,
+  and `aegis_vlan10_macvlan` at their existing addresses;
+- Drive trust is exactly
+  `172.19.255.2/32,172.31.241.2/32`, gateway ingress identity is exactly
+  `172.31.241.2/32`, base URL is exactly
+  `https://share.aegistk-pb.com`, and UI is exactly `"false"`;
+- no Cloudflare/provider range, broad subnet, Docker bridge range, LAN range,
+  or `0.0.0.0/0` appears in Drive trust;
+- gateway managed mode is `cloudflare` and its only trusted edge peer is
+  `172.31.240.3/32`;
+- no `cloudflared` service or egress network is declared;
+- gateway is non-root, read-only, capability-free, no-new-privileges, has only
+  a bounded noexec tmpfs, and receives no database/storage secret or mount;
+- gateway source remains the already-reviewed nginx-only implementation;
+- rollback selects the exact S5.3 override, restores HUB-only trust and the
+  exact three private memberships, removes only the gateway and S5.4 networks,
+  and uses service-scoped `--no-deps --no-build` operations;
+- no whole-stack recreate, `down`, `prune`, published port, or public activation
+  command is introduced.
+
+Run the red gate before adding the overlay:
+
+```bash
+cd IDEA1-AEGIS_Drive_LC
+node --test tests/publicShareS54RuntimeContract.test.js
+```
+
+Then run the green and regression gates:
+
+```bash
+cd IDEA1-AEGIS_Drive_LC
+node --test tests/publicShareS54RuntimeContract.test.js
+node --test tests/publicShareGatewayStructure.test.js
+node --test tests/publicShareManagedTunnelIntegration.test.js
+node --test tests/publicShareInternalIntegration.test.js
+node --test tests/publicShareGatewayRuntime.test.js
+node --test tests/publicShareSecurityRegression.test.js
+node --test tests/publicShareConfig.test.js
+node --test tests/trustedProxy.test.js
+node --test tests/shareScopeTruthUi.test.js
+npm test
+npm run build
+```
+
+The Docker runtime tests remain opt-in and must report skipped unless their
+explicit runtime flags are supplied. This repository-only checkpoint does not
+set those flags or touch Production. The managed-edge structural test converts
+only its temporary script/output arguments to POSIX separators on Windows so
+Git for Windows `sh` executes the same validator contract as Linux.
+
+## 4. Future S5.4 Production sequence — not authorized by this checkpoint
+
+The overlay is designed for this exact order after a later owner authorization
+and a passing fresh preflight:
+
+1. Copy the reviewed overlay to
+   `/opt/aegis/runtime/public-share/drive-gateway-s5-4.yml` and verify its SHA-256
+   against the merged repository blob.
+2. Build only the existing gateway source at tree
+   `2025eb0873a4e7f8d3d2b00b02fc3dfca02b91df` as
+   `aegis-public-share-gateway:public-share-50ce6e1638`. The gateway tree is
+   byte-identical at source revision
+   `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` and this task's base.
+3. Validate the merged Compose model using exactly:
+
+   ```bash
+   docker compose --project-name aegis-prod \
+     -f /opt/aegis/runtime/docker-compose.production.yml \
+     -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+     -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml config --quiet
+   ```
+
+4. Create only `aegis_public_share_edge` and
+   `aegis_public_share_upstream` through the reviewed Compose model.
+5. Recreate only Drive first:
+
+   ```bash
+   docker compose --project-name aegis-prod \
+     -f /opt/aegis/runtime/docker-compose.production.yml \
+     -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+     -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+     up -d --no-deps --no-build drive
+   ```
+
+6. Prove Drive health, exact four-network membership, exact proxy trust, private
+   HUB/login/Files/share regression, and UI-off state.
+7. Start only the gateway second:
+
+   ```bash
+   docker compose --project-name aegis-prod \
+     -f /opt/aegis/runtime/docker-compose.production.yml \
+     -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+     -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+     up -d --no-deps --no-build public-share-gateway
+   ```
+
+8. Test the gateway only from a temporary, explicitly approved member of the
+   internal edge network; remove that test member immediately. No host listener
+   and no Internet route may exist.
+
+These commands are documentary future steps. Running them is prohibited in the
+current repository-only checkpoint.
+
+## 5. Exact rollback to the S5.3 private state
+
+Rollback is gateway first, then Drive, reversing the rollout order:
+
+```bash
+docker compose --project-name aegis-prod \
+  -f /opt/aegis/runtime/docker-compose.production.yml \
+  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+  rm -s -f public-share-gateway
+
+docker compose --project-name aegis-prod \
+  -f /opt/aegis/runtime/docker-compose.production.yml \
+  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+  up -d --no-deps --no-build drive
+
+docker network rm aegis_public_share_edge aegis_public_share_upstream
+```
+
+The rollback acceptance state is:
+
+- Drive image
+  `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df`;
+- S5.3 override
+  `/opt/aegis/runtime/public-share/drive-s5-3.yml`, SHA-256
+  `324fb5126b2f13f7b1c529ef1391131ef37f81acc8c3921b9b50f649b179de62`;
+- memberships exactly `aegis_drive_proxy=172.19.255.3`,
+  `aegis_internal=172.18.0.3`, and
+  `aegis_vlan10_macvlan=192.168.10.11`;
+- HUB-only `TRUSTED_PROXY_CIDRS=172.19.255.2/32`;
+- no `PUBLIC_SHARE_GATEWAY_CIDR`;
+- `PUBLIC_SHARE_UI_ENABLED=false`;
+- gateway and both S5.4 networks absent;
+- protected volumes and all unrelated services unchanged.
+
+Network removal is permitted only after inspection proves no remaining member.
+No Compose `down`, whole-stack `up`, rebuild, restart, or prune command belongs
+to this plan.
+
+## 6. Owner-run S5.4 read-only Production preflight — do not run in Codex
+
+The owner runs this block in the visible `admin-main@aegis-system` SSH session.
+It uses root only for read-only Docker/filesystem/database inspection, never
+prints `.env` or unrestricted container environment, and mutates nothing.
+
+```bash
+sudo bash <<'S5_4_PREFLIGHT'
+set -u
+
+failures=0
+pass() { printf 'PASS %s\n' "$1"; }
+fail() { printf 'FAIL %s\n' "$1"; failures=$((failures + 1)); }
+expect_eq() {
+  label=$1 actual=$2 expected=$3
+  if [ "$actual" = "$expected" ]; then pass "$label=$actual"; else fail "$label expected=$expected actual=$actual"; fi
+}
+expect_present() { if [ -e "$2" ]; then pass "$1"; else fail "$1 missing"; fi; }
+
+unset DOCKER_HOST
+DOCKER='docker'
+COMPOSE=/opt/aegis/runtime/docker-compose.production.yml
+S53=/opt/aegis/runtime/public-share/drive-s5-3.yml
+DRIVE=aegis-prod-drive-1
+POSTGRES=aegis-prod-postgres-1
+EXPECTED_DRIVE_IMAGE=sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df
+EXPECTED_COMPOSE_SHA=5aae5cd7ded537f9124d2af8733d076f177871e0d3757208bf0c4a61fc635193
+EXPECTED_S53_SHA=324fb5126b2f13f7b1c529ef1391131ef37f81acc8c3921b9b50f649b179de62
+
+printf '%s\n' '=== S5.4 READ-ONLY PRE-MUTATION PREFLIGHT ==='
+expect_present production_compose_present "$COMPOSE"
+expect_present s5_3_override_present "$S53"
+if [ -f "$COMPOSE" ]; then expect_eq production_compose_sha "$(sha256sum "$COMPOSE" | awk '{print $1}')" "$EXPECTED_COMPOSE_SHA"; fi
+if [ -f "$S53" ]; then expect_eq s5_3_override_sha "$(sha256sum "$S53" | awk '{print $1}')" "$EXPECTED_S53_SHA"; fi
+
+printf '%s\n' '--- Docker engine and Production services ---'
+docker_version=$($DOCKER version --format '{{.Server.Version}}' 2>/dev/null || true)
+expect_eq docker_engine_version "$docker_version" 29.7.1
+prod_rows=$($DOCKER ps --filter label=com.docker.compose.project=aegis-prod --format '{{.Names}}|{{.State}}|{{.Status}}' | sort)
+printf '%s\n' "$prod_rows"
+if [ -n "$prod_rows" ] && ! printf '%s\n' "$prod_rows" | grep -Ev '\|running\|.*\(healthy\)' >/dev/null; then
+  pass production_services_running_healthy
+else
+  fail production_services_running_healthy
+fi
+for name in "$DRIVE" "$POSTGRES" twingate-aegis-connector-02; do
+  if $DOCKER inspect "$name" >/dev/null 2>&1; then pass "container_present:$name"; else fail "container_present:$name"; fi
+done
+
+drive_image=$($DOCKER inspect --format '{{.Image}}' "$DRIVE" 2>/dev/null || true)
+expect_eq drive_image "$drive_image" "$EXPECTED_DRIVE_IMAGE"
+drive_revision=$($DOCKER image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EXPECTED_DRIVE_IMAGE" 2>/dev/null || true)
+expect_eq drive_oci_revision "$drive_revision" 50ce6e1638c6bcdb2a378a3cee660050b9cb41d8
+
+drive_networks=$($DOCKER inspect "$DRIVE" 2>/dev/null | python3 -c 'import json,sys
+d=json.load(sys.stdin)[0]["NetworkSettings"]["Networks"]
+print(";".join("{}={}".format(name,d[name].get("IPAddress","")) for name in sorted(d)))' 2>/dev/null || true)
+expect_eq drive_private_networks "$drive_networks" 'aegis_drive_proxy=172.19.255.3;aegis_internal=172.18.0.3;aegis_vlan10_macvlan=192.168.10.11'
+
+printf '%s\n' '--- Selected non-secret Drive configuration ---'
+drive_cfg=$($DOCKER inspect "$DRIVE" 2>/dev/null | python3 -c 'import json,sys
+env=json.load(sys.stdin)[0]["Config"].get("Env",[])
+values=dict(item.split("=",1) for item in env if "=" in item)
+keys=("TRUSTED_PROXY_CIDRS","PUBLIC_SHARE_GATEWAY_CIDR","PUBLIC_SHARE_BASE_URL","PUBLIC_SHARE_UI_ENABLED")
+print(";".join("{}={}".format(k,values.get(k,"<unset>")) for k in keys))' 2>/dev/null || true)
+printf 'DRIVE_PUBLIC_CONFIG=%s\n' "$drive_cfg"
+printf '%s\n' "$drive_cfg" | grep -F 'TRUSTED_PROXY_CIDRS=172.19.255.2/32' >/dev/null && pass drive_hub_only_trust || fail drive_hub_only_trust
+printf '%s\n' "$drive_cfg" | grep -F 'PUBLIC_SHARE_GATEWAY_CIDR=<unset>' >/dev/null && pass gateway_cidr_unset || fail gateway_cidr_unset
+printf '%s\n' "$drive_cfg" | grep -F 'PUBLIC_SHARE_UI_ENABLED=false' >/dev/null && pass public_share_ui_off || fail public_share_ui_off
+
+printf '%s\n' '--- Protected data and migration state ---'
+for volume in aegis_drive_storage aegis_postgres_data; do
+  if $DOCKER volume inspect "$volume" >/dev/null 2>&1; then pass "protected_volume:$volume"; else fail "protected_volume:$volume"; fi
+done
+migration=$($DOCKER exec -u postgres "$POSTGRES" psql -X -v ON_ERROR_STOP=1 -d aegis_drive -Atqc "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='shares_scope_check';" 2>/dev/null || true)
+printf 'SHARES_SCOPE_CHECK=%s\n' "$migration"
+case "$migration" in *public* ) pass migration_009_present ;; * ) fail migration_009_present ;; esac
+public_rows=$($DOCKER exec -u postgres "$POSTGRES" psql -X -v ON_ERROR_STOP=1 -d aegis_drive -Atqc "SELECT count(*) FROM shares WHERE scope='public';" 2>/dev/null || true)
+expect_eq public_share_rows "$public_rows" 0
+
+printf '%s\n' '--- Network inventory and collision gate ---'
+$DOCKER network ls --format 'NETWORK={{.Name}} DRIVER={{.Driver}} SCOPE={{.Scope}}' | sort
+$DOCKER network inspect $($DOCKER network ls -q) 2>/dev/null | python3 -c 'import ipaddress,json,sys
+targets=[ipaddress.ip_network(x) for x in ("172.31.240.0/29","172.31.241.0/29","172.31.242.0/29")]
+collisions=[]
+for network in json.load(sys.stdin):
+    name=network.get("Name","")
+    for cfg in network.get("IPAM",{}).get("Config",[]) or []:
+        raw=cfg.get("Subnet")
+        if not raw: continue
+        try: existing=ipaddress.ip_network(raw,strict=False)
+        except ValueError: continue
+        for target in targets:
+            if existing.version==target.version and existing.overlaps(target): collisions.append("{}:{}<->{}".format(name,existing,target))
+print("SUBNET_COLLISIONS="+(";".join(collisions) if collisions else "NONE"))
+sys.exit(1 if collisions else 0)' && pass subnet_collision_check || fail subnet_collision_check
+for network in aegis_public_share_edge aegis_public_share_upstream aegis_public_share_egress; do
+  if $DOCKER network inspect "$network" >/dev/null 2>&1; then fail "public_share_network_absent:$network"; else pass "public_share_network_absent:$network"; fi
+done
+
+printf '%s\n' '--- No pre-exposure runtime ---'
+if $DOCKER ps -a --format '{{.Names}}' | grep -E '(^|[-_])(public-share-gateway|cloudflared)([-_]|$)' >/dev/null; then fail public_share_containers_absent; else pass public_share_containers_absent; fi
+if pgrep -a -x cloudflared >/dev/null 2>&1; then fail cloudflared_process_absent; else pass cloudflared_process_absent; fi
+if systemctl list-unit-files cloudflared.service --no-legend 2>/dev/null | grep -q '^cloudflared.service'; then fail cloudflared_service_absent; else pass cloudflared_service_absent; fi
+listeners=$(ss -H -lntup 2>/dev/null || true)
+printf '%s\n' "$listeners"
+if printf '%s\n' "$listeners" | grep -E '(:8080|share\.aegistk-pb\.com)' >/dev/null; then fail unexpected_public_share_listener; else pass unexpected_public_share_listener_absent; fi
+if getent hosts share.aegistk-pb.com >/dev/null 2>&1; then fail share_hostname_route_absent; else pass share_hostname_route_absent; fi
+
+printf '%s\n' '--- Rollback artifact ---'
+rollback_id=$($DOCKER image inspect --format '{{.Id}}' aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z 2>/dev/null || true)
+expect_eq rollback_image_id "$rollback_id" sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1
+
+if [ "$failures" -eq 0 ]; then
+  printf '%s\n' 'S5_4_PRE_MUTATION_GATE=PASS'
+  exit 0
+fi
+printf 'S5_4_PRE_MUTATION_GATE=FAIL failures=%s\n' "$failures"
+exit 1
+S5_4_PREFLIGHT
+```
+
+Safe output to return is the complete block output because it contains only
+service health/identity, image and file hashes, network/listener inventory,
+selected non-secret Public Share configuration, row count, and PASS/FAIL
+markers. Stop if the final marker is not exactly
+`S5_4_PRE_MUTATION_GATE=PASS`.
+
+## 7. Repository verification and Draft PR gate
+
+From repository root:
+
+```bash
+node --test tests/*.test.mjs
+node --test tests/collaborationPolicy.test.mjs
+node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge
+git diff --check
+git diff --name-status origin/main...HEAD
+```
+
+Run the collaboration-policy validator against the exact Draft PR body and exact
+changed-file list. The PR must declare `area: idea1`, `owner: kla`, and
+`integration-review: yes`; every `gateway/**` path must appear under shared
+surfaces. Draft + zero receipt is valid because S5.4 remains IN PROGRESS.
+
+The staged artifact scan must reject `.env`, credential/token/private-key files,
+database dumps, runtime databases, backup archives, and generated secrets. The
+content scan must review suspicious matches rather than printing secret values.
+
+Commit coherent checkpoints, push normally, and open one Draft PR targeting
+`main`. Do not mark it Ready, create a final receipt, merge it, run the owner
+preflight, or access Production.

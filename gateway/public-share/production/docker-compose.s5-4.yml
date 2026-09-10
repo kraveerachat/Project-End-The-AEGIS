@@ -1,0 +1,76 @@
+# PUBLIC-SHARE-7 S5.4 Production overlay contract.
+#
+# Repository preparation only: this file is not applied by this branch. It is
+# designed to layer after the Production Compose file and the S5.3 Drive
+# image-only override. S5.4 has no connector, egress network, public listener,
+# DNS route, TLS route, or Public Share UI activation.
+
+x-s5-4-contract:
+  RESERVED_CONNECTOR_EDGE_IP: 172.31.240.3
+  FUTURE_S5_5_EGRESS_SUBNET: 172.31.242.0/29
+
+services:
+  drive:
+    environment:
+      TRUSTED_PROXY_CIDRS: 172.19.255.2/32,172.31.241.2/32
+      PUBLIC_SHARE_GATEWAY_CIDR: 172.31.241.2/32
+      PUBLIC_SHARE_BASE_URL: https://share.aegistk-pb.com
+      PUBLIC_SHARE_UI_ENABLED: "false"
+    networks:
+      aegis_internal:
+        ipv4_address: 172.18.0.3
+      aegis_drive_proxy:
+        ipv4_address: 172.19.255.3
+      aegis_vlan10_macvlan:
+        ipv4_address: 192.168.10.11
+      aegis_public_share_upstream:
+        ipv4_address: 172.31.241.3
+
+  public-share-gateway:
+    image: aegis-public-share-gateway:public-share-50ce6e1638
+    environment:
+      PUBLIC_SHARE_HOST: share.aegistk-pb.com
+      PUBLIC_SHARE_EDGE_MODE: cloudflare
+      PUBLIC_SHARE_EDGE_PROXY_CIDR: 172.31.240.3/32
+    depends_on:
+      drive:
+        condition: service_healthy
+    user: "101:101"
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      aegis_public_share_edge:
+        ipv4_address: 172.31.240.2
+      aegis_public_share_upstream:
+        ipv4_address: 172.31.241.2
+
+networks:
+  aegis_public_share_edge:
+    name: aegis_public_share_edge
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+    ipam:
+      config:
+        - subnet: 172.31.240.0/29
+          gateway: 172.31.240.1
+
+  aegis_public_share_upstream:
+    name: aegis_public_share_upstream
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: "isolated"
+    ipam:
+      config:
+        - subnet: 172.31.241.0/29
+          gateway: 172.31.241.1
