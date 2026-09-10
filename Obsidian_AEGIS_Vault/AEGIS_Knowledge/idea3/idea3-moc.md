@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core from [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) are on shared `main`. Project-sequence PR5 now has owner-observed acceptance for the external pull-down/inverting-driver topology, powered EN/reset fail-secure behavior, and real Router/Switch Ethernet CUT/RESTORE. The PR5 GitHub branch is ready for review; GitHub PR #115 remains blocked until the PR5 GitHub PR is merged.
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core from [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) are on shared `main`. Project-sequence PR5 now has owner-observed acceptance for the external pull-down/inverting-driver topology, powered EN/reset fail-secure behavior, and real Router/Switch Ethernet CUT/RESTORE. PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`, which satisfied the PR9 gate. PR9 (GitHub PR #115) passed its post-PR5 S7 local verification, recorded its one S8 receipt, and is for human review; its `PRODUCTION_LIKE_VERIFIED` result is local loopback/dry-run evidence, not a Production deployment.
 
 ## Owned source and canonical notes
 

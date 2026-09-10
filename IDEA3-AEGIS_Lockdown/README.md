@@ -1,9 +1,9 @@
 # AEGIS IDEA 3 — Cyber-Physical Lockdown
 
-> **Current track:** IDEA3 `PR9` post-PR5 finalization; branch `feat/idea3-production-runtime-pr9`
-> **PR5 gate:** GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
-> **Status:** S7 reconciliation and fresh post-merge verification are in progress; PR #115 remains Draft
-> **Safety boundary:** Production deployment, total-control-power-loss fail-secure behavior, final relay-cycle Twingate auto-recovery, and deployment-grade prototype mechanics remain unproven; `IDEA3_PRODUCTION_COMPLETE = NO`
+> **Current track:** IDEA3 `PR9` Production Runtime / Deployment Preparation; branch `feat/idea3-production-runtime-pr9`
+> **PR5 gate:** SATISFIED — GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
+> **Status:** S7 post-PR5 sync and final local acceptance PASS; S8 closeout recorded; GitHub PR #115 is for human review and is not merged
+> **Safety boundary:** `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only. Production deployment, real Telegram delivery, total-control-power-loss fail-secure behavior, final relay-cycle Twingate auto-recovery, and deployment-grade prototype mechanics remain unproven; `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`
 
 AEGIS IDEA 3 เป็นระบบ **Cyber-Physical Active Defense** สำหรับตรวจจับภัยคุกคามทางไซเบอร์และตอบโต้ด้วยการตัด Uplink ทางกายภาพผ่าน ESP32 + Relay โดยออกแบบให้ทำงานร่วมกับ AEGIS IDEA 1 และ IDEA 2 ใน Production Integration Phase
 

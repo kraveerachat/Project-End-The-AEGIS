@@ -2472,6 +2472,7 @@ Keep PR #115 Draft with no final receipt. If PR5 is still unmerged, stop at
 `WAITING FOR PR5 MERGED`. If it has merged, stop before S7 and request the
 post-PR5 synchronization workflow. Never merge, rebase, force-push, deploy,
 contact Production, or contact real MQTT/hardware/upstream dependencies here.
+
 ## 44. Project-sequence PR5 — Final Hardware Closure owner evidence — 2026-09-11
 
 ```text
@@ -2571,3 +2572,125 @@ GitHub PR #115 remains Draft and its S7/S8 production work must remain blocked
 until the PR5 GitHub PR is actually merged. Total-control-power-loss behavior,
 final relay-cycle Twingate auto-recovery, production deployment, and overall
 IDEA3 production acceptance remain open.
+
+## 45. PR9 S7 post-PR5 sync, final acceptance, and S8 closeout — 2026-09-11
+
+```text
+BRANCH = feat/idea3-production-runtime-pr9
+PR = #115
+PR5 = MERGED through GitHub PR #117 at 58f19f2051170685757627a6baea90b264a877c4
+PR9_PR115_PR5_GATE = SATISFIED
+PRE_SYNC_HEAD = c7a1a7af7bc346b86a96f2f9bcb8a6f9ffce29aa
+MAIN_SYNC_COMMIT = e5863fc664e239b78f37dd4ce663bc1186f22744
+SESSIONS = S1-S8 CLOSED
+STATUS = READY FOR HUMAN REVIEW (an agent never merges PR #115)
+PRODUCTION_MUTATION_ALLOWED = NO
+PRODUCTION_DEPLOYED = NO
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+This section supersedes the PR5-gate and "exact next step" statements in
+sections 39-44. Those sections remain the dated records they were; their test
+counts are historical and are not the post-sync counts below.
+
+### S7 main sync
+
+- `e5863fc6` merges `origin/main` normally, without rebase or force-push. Its
+  parents are `c7a1a7af` (PR9 Telegram pre-gate head) and `58f19f20` (the
+  PR #117 merge). An earlier session created this merge locally before the S7
+  verification run; it was audited before being built on. Its tree differs from
+  a plain auto-merge only in the three conflicted IDEA3-owned documents
+  (`README.md`, this handoff, and `idea3/idea3-status.md`). No conflict marker
+  remains, and no source, firmware, IDEA1/IDEA2, shared, or receipt path was
+  hand-edited.
+- Both sides were kept: PR9 sections 39-43 plus the PR5 section renumbered to
+  44; PR5 hardware truth and PR9 runtime truth in the status note.
+- Post-merge defect corrected in S8: the auto-merge applied PR5's
+  "Historical ... PR8 snapshot" heading renames onto the live PR9 Session
+  Register and Handoff in the status note. Both are current PR9 records again.
+
+### PR5 hardware truth carried forward unchanged
+
+```text
+GPIO27 LOW = LOCKDOWN / CUT
+GPIO27 HIGH = NORMAL / RESTORE
+PHYSICAL_LOCKDOWN_PIN2 = PASS
+PHYSICAL_RESTORE_PIN2 = PASS
+RESET_WINDOW_1B = PASS
+RECONNECT_DOES_NOT_AUTO_RESTORE = PASS
+EXPLICIT_RESTORE_REQUIRED = PASS
+REAL_ETHERNET_RESTORE_BASELINE = PASS
+REAL_ETHERNET_CUT = PASS
+REAL_ETHERNET_RESTORE_RECOVERY = PASS
+SSH_CUT_EFFECT = PASS
+SSH_POST_RESTORE_RECONNECT = PASS
+TWINGATE_DIRECT_BASELINE = PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART = PASS
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY = NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN
+MECHANICAL_BREADBOARD_STABILITY = PROTOTYPE LIMITATION
+```
+
+These are owner-observed PR5 lab results. RJ45 continuity remains distinct from
+real Ethernet traffic evidence, and the frozen pre-CUT SSH session is not
+recovery proof. PR9 adds no physical evidence.
+
+### Truth boundaries and Telegram pre-gate at `c7a1a7af`
+
+```text
+Requested != Published != ACK != Executed != Relay Confirmation != Physical Evidence
+MQTT CONNECTED != ESP32 ONLINE; MQTT CONNECTED != relay success
+Telegram delivered != publication / ACK / execution / relay confirmation / WAN isolation / physical evidence
+```
+
+- Service MQTT: not configured → `NOT_CONFIGURED`; configured + Core `UNKNOWN`
+  → `UNKNOWN`; Core `DISCONNECTED` → `UNAVAILABLE`; Core `CONNECTED` →
+  `CONNECTED`. No status probe and no second MQTT connection.
+- Telegram: an observed `LOCKDOWN` transition schedules one alert and an
+  observed `NORMAL` transition one restore alert; repeated unchanged state is
+  suppressed; a blank `AEGIS_TG_TOKEN` or `AEGIS_TG_CHAT` makes no request;
+  delivery runs on a daemon thread and failure prints fixed wording without the
+  token, chat ID, bot URL, or exception detail. Production Core runs
+  `--headless`, so `TelegramListener` and inbound `/cut` / `/restore` are not
+  started. Every automated Telegram network boundary is faked.
+
+### S7 verification at `e5863fc6` (Arch Linux, Python 3.14.7 venv, Node v24.16.0)
+
+```text
+Focused runtime/MQTT/Core/controller/Telegram/drivers/paths = 224 passed, 6 Windows-only skipped
+Telegram subset (test_comms + test_mqtt_client)             = 8 passed
+Full Python  = 245 passed, 6 Windows-only skipped
+Full Web     = 309 passed across 24 files
+Vite build   = PASS, 1,677 modules
+Ruff = PASS; compileall = PASS
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 63 passed, 0 failed
+Vault validation = PASS, 2 known owner-data canvas warnings
+Collaboration policy (live PR #115 Draft body) = PASS
+git diff --check origin/main...HEAD = PASS
+Secret scan = 0 findings; artifact scan = 0 findings; 25 changed paths, all IDEA3-owned
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED
+Negative controls = 13/13 PASS
+Residue = 0 surviving processes, 0 loopback listeners; disposable roots removed
+REAL_TELEGRAM_API_CALLED = NO
+```
+
+No Production host, broker, ESP32, relay, MikroTik, TP-Link, Twingate, Telegram
+API, or real IDEA1/IDEA2 feed was contacted. The systemd example was not
+installed.
+
+### S8 closeout
+
+The one final PR9 receipt is
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-11_040839_music_idea3-pr9-production-runtime.md`.
+The PR5 and PR8 receipts are unchanged. Canonical current state is in
+`idea3/idea3-status.md`.
+
+### Remaining and next action
+
+Human owner/integration review and human merge of PR #115. Still open:
+Production deployment, real Telegram delivery, live IDEA1/IDEA2 feeds, a shared
+correlation key, a live cross-IDEA exercise, total-control-power-loss
+fail-secure behavior, final relay-cycle Twingate auto-recovery, and
+deployment-grade mechanics. Do not merge, deploy, flash, reset, publish MQTT,
+or manipulate the relay or network from this branch.
