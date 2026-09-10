@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-08
+updated: 2026-09-11
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,9 +12,137 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Fix1A application-startup fail-secure behavior and the Deadman → relay → RJ45 path now have fresh physical evidence. Electrical reset-window 1B, Router/Switch real-Ethernet E2E, live adapters, and production deployment remain open; durable Web audit persistence is closed by Project Sequence PR6. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 has owner-observed lab acceptance for the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE. The PR5 branch is ready for GitHub review, not merged. GitHub PR #115 remains blocked until PR5 is merged. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
+
+---
+
+## Project-sequence PR5 Final Hardware Closure — READY FOR REVIEW (2026-09-11)
+
+```text
+PR5 FINAL HARDWARE CLOSURE = READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED
+PR9 #115 = BLOCKED UNTIL PR5 GITHUB PR IS MERGED
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+This PR records owner-observed evidence; Codex did not flash firmware, reset the
+ESP32, publish a hardware command, change network state, or manipulate the
+circuit. The firmware semantic contract is unchanged:
+
+```text
+GPIO27 LOW  = LOCKDOWN / CUT
+GPIO27 HIGH = NORMAL / RESTORE
+```
+
+### Accepted final topology and polarity
+
+```text
+ESP32 GPIO27
+  ├─ 10 kΩ pull-down → GND
+  └─ ULN2003 IN1
+
+ULN2003
+  + → +5 V
+  - → common GND
+  OUT1 → Relay IN node
+
+Relay IN node
+  ULN2003 OUT1 + 10 kΩ pull-up → +5 V
+Relay VCC/DC+ → +5 V
+Relay GND/DC- → common GND
+trigger jumper → H
+
+Ethernet Pin 2
+  TP-Link side Pin 2 → Terminal CH1 → Relay COM → Relay NC
+  → Terminal CH2 → Beelink side Pin 2
+Relay NO unused
+```
+
+ULN2003 OUT1 was continuity-verified against chip pin 16. External inversion
+produces the required fail-secure relay semantics:
+
+- GPIO27 LOW → ULN OFF / OUT high-impedance → 10 kΩ pull-up drives Relay IN
+  HIGH → high-trigger relay activates → COM-NC opens → Pin 2 CUT.
+- GPIO27 HIGH → ULN ON → OUT sinks Relay IN LOW → relay releases → COM-NC
+  closes → Pin 2 restored.
+- RESTORE/NORMAL LEDs: red power ON, green trigger OFF, network passes.
+- CUT/LOCKDOWN LEDs: red power ON, green trigger ON, network blocked.
+
+### Physical RJ45 continuity — PASS
+
+```text
+RESTORE: 1 2 3 4 5 6 7 8
+CUT:     1 _ 3 4 5 6 7 8
+RESTORE: 1 2 3 4 5 6 7 8
+
+PHYSICAL_LOCKDOWN_PIN2=PASS
+PHYSICAL_RESTORE_PIN2=PASS
+```
+
+This establishes the selected Pin 2 contact behavior only; cable-tester
+continuity is not treated as Ethernet traffic proof.
+
+### Powered electrical reset-window 1B — PASS within stated scope
+
+Starting from CUT with Pin 2 absent, Pin 2 remained absent while EN was held,
+after release/reboot, and after the ESP32 and broker reconnected. Reconnect did
+not auto-restore the uplink. Only an explicit authenticated RESTORE returned
+Pins 1–8.
+
+```text
+RESET_WINDOW_1B=PASS
+RECONNECT_DOES_NOT_AUTO_RESTORE=PASS
+EXPLICIT_RESTORE_REQUIRED=PASS
+```
+
+The pass applies only while the relay/control circuit remains powered.
+Total-control-power-loss fail-secure behavior is **NOT PROVEN**; if relay power
+is lost, the relay's mechanical NC path may reconnect.
+
+### Router/Switch real Ethernet E2E — PASS
+
+Accepted baseline topology and addresses:
+
+- MikroTik VLAN 10 gateway: `192.168.10.1`.
+- Beelink: `192.168.10.10` on `VLAN10-Server`.
+- Laptop: `192.168.30.99`; VLAN 30 gateway: `192.168.30.1`.
+- MikroTik ping from `192.168.10.1` to Beelink: 5/5, 0% loss.
+- Beelink ARP was reachable on `VLAN10-Server`; direct laptop → Beelink SSH
+  succeeded.
+
+During RESTORE, continuous ping and SSH succeeded. During CUT, ping returned
+`Destination Host Unreachable`/no replies and the existing SSH session froze.
+After RESTORE, ping resumed and a **new** SSH session succeeded; the old severed
+SSH session was not used as the recovery criterion.
+
+```text
+REAL_ETHERNET_RESTORE_BASELINE=PASS
+REAL_ETHERNET_CUT=PASS
+REAL_ETHERNET_RESTORE_RECOVERY=PASS
+SSH_CUT_EFFECT=PASS
+SSH_POST_RESTORE_RECONNECT=PASS
+```
+
+### Twingate and prototype limitations
+
+Direct-LAN Beelink reachability, ping to `1.1.1.1`, DNS resolution for
+`api.twingate.com`, and HTTPS/TLS passed. After earlier I/O errors, the
+connector was manually restarted once and observed progressing Offline →
+Authentication → Authentication → Online; a teammate then confirmed
+connectivity on the direct-LAN baseline.
+
+```text
+TWINGATE_DIRECT_BASELINE=PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART=PASS
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY=NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+```
+
+The final relay CUT → RESTORE automatic Twingate recovery was not conclusively
+rerun without restart. Breadboard, ESP32, and jumper movement also caused
+intermittent bring-up behavior; the final sequence passed after reseating and
+stabilization. Strain relief and a secure PCB/interconnect remain required for
+deployment-grade use.
 
 ---
 
@@ -83,11 +211,11 @@ Fresh canonical Task 4 verification on `fix/idea3-fail-secure-boot-deadman-e2e`:
 - Vault validation — **PASS** with two pre-existing owner-data canvas warnings; neither canvas changed.
 - No firmware upload/flash, ESP32 reset/power-cycle, hardware change, command publication, or production deployment occurred during this canonical PR execution.
 
-> [!warning] 1B electrical reset-window — OPEN / KNOWN LIMITATION
-> Prior physical observation: before EN/reset, Pin 2 was absent; while EN was held/reset, Pin 2 returned; after application boot, Pin 2 was absent again. Fix1A covers application-startup behavior only and does not prove fail-secure behavior before application code runs, when GPIO27 may be high-impedance. Optional external pull-down mitigation remains to be validated.
+> [!warning] Historical pre-PR5 1B observation — SUPERSEDED
+> The 2026-09-08 checkpoint observed Pin 2 returning while EN was held and therefore left 1B open. Project-sequence PR5 later accepted a powered external pull-down/inverting-driver topology in which Pin 2 remained absent through EN/reset and reconnect. The historical result remains here for traceability; the current evidence and power-loss boundary are recorded above.
 
-> [!info] Deferred final hardware validation
-> Task 3 Router/Switch real Ethernet E2E is **DEFERRED TO FINAL HARDWARE CLOSURE PR**. Required proof remains RESTORE traffic/link works → CUT traffic/link fails → RESTORE traffic/link recovers. IDEA3 is not fully complete.
+> [!info] Historical PR4 deferral — CLOSED BY PR5 OWNER EVIDENCE
+> The 2026-09-08 checkpoint deferred Router/Switch real Ethernet E2E. Project-sequence PR5 now records RESTORE traffic works → CUT traffic fails → RESTORE traffic and a new SSH connection recover. IDEA3 remains not production-complete for the separate open items above.
 
 ### Operational mode ownership — CLOSED
 
@@ -158,7 +286,7 @@ Requested != Published != ACK != Executed != Physical Evidence
 - Relabelled historical standalone hardware tables so they cannot be mistaken for fresh PR4 evidence.
 - `MISSING_FROM_OBSIDIAN=NONE` after this reconciliation for the requested PR4 checklist.
 
-### Still open
+### Still open at the historical 2026-09-08 checkpoint
 
 - 1B electrical reset-window mitigation/validation; GPIO27 may be high-impedance before application code runs.
 - Task 3 Router/Switch real Ethernet E2E in the final hardware-closure PR.
@@ -166,9 +294,10 @@ Requested != Published != ACK != Executed != Physical Evidence
 - Full migration of remaining GUI-owned operational state/heartbeat behavior into the Core/API boundary where duplication still exists.
 
 Protocol-correlated STATUS remains device-reported evidence, not direct electrical
-measurement of relay contacts. The cable-tester Deadman path is physically
-observed, but Router/Switch traffic isolation and reset-window mitigation remain
-**NOT_COMPLETED**; the complete hardware program is not yet closed.
+measurement of relay contacts. At this historical checkpoint the cable-tester
+Deadman path was observed while Router/Switch traffic isolation and reset-window
+mitigation were still **NOT_COMPLETED**. The newer PR5 section above supersedes
+that old open-state assessment without rewriting its historical evidence.
 
 ---
 
@@ -591,7 +720,7 @@ evidence occurred during PR8.
 
 ---
 
-## Current Task
+## Historical Current Task — PR8 snapshot (2026-09-08)
 
 Task: IDEA3 PR8 Windows standalone runtime
 Branch: `feat/idea3-windows-standalone-pr8`
@@ -627,13 +756,13 @@ Fresh Windows build from the final SHA must report BUILD OK. The resulting ZIP
 must be freshly extracted and pass `windows/smoke.ps1` with a fresh DataPath;
 browser-localhost behavior must be confirmed if still required.
 
-## Session Register
+## Historical Session Register — PR8 snapshot
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S13 | Final main sync and source re-verification | CLOSED | Focused 161/6 + 58; full 196/6 + 298; Vite/Ruff/compile/audit; repo 57; vault PASS | `8214792022a4d29672227f6637e8399a7f1e189c` | PASS | Windows final-SHA build and extracted-ZIP smoke | Return final SHA to Windows |
 
-## Handoff
+## Historical Handoff — PR8 snapshot
 
 ### Current branch
 
@@ -683,6 +812,50 @@ On Windows x64, pull the final PR head and run `windows/build.ps1`.
 Do not merge PR #107, reuse the `c7cdc2b2` artifact as final-SHA evidence,
 rebase, force-push, create another receipt, enable MQTT/hardware, or mutate
 Production.
+
+---
+
+## Current Task and Handoff — Project-sequence PR5
+
+```text
+Task: IDEA3 PR5 Final Hardware Closure
+Branch: fix/idea3-final-hardware-closure
+Owner: music
+State: READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED
+Production mutation allowed: NO
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### Closed in this task
+
+- External pull-down/ULN2003/high-trigger relay topology documented with the
+  firmware polarity unchanged.
+- RJ45 Pin 2 CUT/RESTORE continuity accepted.
+- Powered EN/reset and reconnect behavior accepted without auto-restore.
+- Explicit authenticated RESTORE requirement accepted.
+- Real Router/Switch Ethernet ping and SSH CUT/RESTORE accepted.
+- Direct-LAN Twingate baseline and connector health after one manual restart
+  accepted.
+
+### Remaining after this task
+
+- Human review and merge of the PR5 GitHub PR.
+- GitHub PR #115 remains Draft/blocked until that merge; its S7/S8 production
+  work must not proceed early.
+- Total-control-power-loss fail-secure behavior is not proven.
+- Final relay-cycle Twingate automatic recovery without manual restart is not
+  conclusively verified.
+- Breadboard mechanics require strain relief and secure PCB/interconnect before
+  deployment-grade use.
+- Production adapters, deployment, and overall IDEA3 production acceptance
+  remain open.
+
+### Safety and next action
+
+Do not merge this PR automatically. Do not change firmware polarity, flash or
+reset hardware, publish MQTT commands, manipulate the circuit, or unblock PR
+#115 before the PR5 GitHub PR is actually merged. The next action is owner and
+integration review of the PR5 evidence boundary.
 
 ---
 
