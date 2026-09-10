@@ -284,10 +284,12 @@ class ProductionRuntime(LauncherRuntime):
             "serviceReadiness": service_readiness,
             "audit": readiness["audit"],
             "mqtt": mqtt,
-            "idea1": "UNAVAILABLE"
+            # This status source never probes the feeds, so a configured feed is
+            # UNKNOWN here; only the Web snapshot evaluates feed evidence.
+            "idea1": "UNKNOWN"
             if self.settings.idea1_configured
             else "NOT_CONFIGURED",
-            "idea2": "UNAVAILABLE"
+            "idea2": "UNKNOWN"
             if self.settings.idea2_configured
             else "NOT_CONFIGURED",
             "esp32": esp32,

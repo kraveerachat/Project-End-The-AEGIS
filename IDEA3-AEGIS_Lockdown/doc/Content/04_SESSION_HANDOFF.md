@@ -2308,3 +2308,54 @@ Do nothing on this branch until the owner states `PR5 MERGED`. Then run S7:
 reconcile hardware/reset/relay/CUT/RESTORE status with PR5 truth, and rerun the
 full gate plus isolated acceptance. S8 then adds the one PR9 receipt and requests
 Ready. An agent never merges PR #115.
+
+## 41. PR9 truth-model correction — still at the PR5 merge gate — 2026-09-10
+
+```text
+PARENT = 32a62fe18289efc4a2e0c7300aec5812200592b6
+CHECKPOINT = the commit containing this section (exact SHA in PR #115)
+STATUS = PARTIAL / WAITING FOR PR5 MERGE
+PRODUCTION_MUTATION_ALLOWED = NO
+```
+
+### IDEA1/IDEA2 service status
+
+`runtime/service-status.json` reported a configured IDEA1/IDEA2 feed as
+`UNAVAILABLE` although the service owner never contacts the feeds. A configured
+feed now reads `UNKNOWN` and a blank one `NOT_CONFIGURED`. `UNAVAILABLE` is
+reserved for a dependency that was checked and found unavailable. No network
+probe was added; the Web snapshot remains the feed-evidence authority. The new
+regression `test_service_snapshot_reports_configured_but_unprobed_feeds_as_unknown`
+failed first (`'UNAVAILABLE' == 'UNKNOWN'`) and passes after the change.
+
+Left unchanged for the owner: service-status `mqtt` reads `UNAVAILABLE` whenever
+a broker is configured and Core is not `CONNECTED`, including when Core reports
+broker `UNKNOWN`.
+
+### PR8 wording
+
+The owner reports that final PR8 Windows acceptance exists for
+`25fb442d15cdf2037817c9e63add4d7e96bcd568`, including the final extracted-ZIP
+smoke with 25/25 checks passed. Section 38 and the PR9 records above described
+that acceptance as absent. Correctly stated, the gap is **canonical documentation
+stale/missing**, not Windows acceptance missing: the final build result, ZIP
+digest, and smoke transcript for `25fb442d` are not recorded in this file, in the
+vault status note, or in the PR #107 description. PR9 did not rerun Windows
+acceptance. The immutable PR8 receipt is unchanged.
+
+### Verification of this checkpoint
+
+```text
+Full Python = 221 passed, 6 Windows-only skipped
+Focused lifecycle = 120 passed, 6 skipped; focused S4 Python = 80 passed
+Full Web = 309 passed across 24 files; Vite build PASS, 1677 modules
+Ruff PASS; compileall PASS; npm audit 0; repository tests 63 passed
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED
+Loopback negative controls = 10/10 PASS (after fixing a harness residue-matcher false positive)
+Vault validation PASS; collaboration policy PASS; secret/artifact scan 0; git diff --check PASS
+```
+
+### Exact next step
+
+Unchanged: wait for `PR5 MERGED`, then run S7 with `git fetch origin` and
+`git merge origin/main`.

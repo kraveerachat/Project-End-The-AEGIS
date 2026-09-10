@@ -514,6 +514,10 @@ checkpoint.
 
 ### WINDOWS ACCEPTANCE — STAGING BUNDLE PASSED AT `c7cdc2b2`; CURRENT SHA NOT VERIFIED
 
+> [!note] Historical record as of 2026-09-09
+> This block records only the `c7cdc2b2` staging-bundle evidence. Current PR8
+> acceptance state is in "PR8 merge reconciliation — 2026-09-10" below.
+
 ```text
 WINDOWS_BUILD_VERIFIED_AT_c7cdc2b2 = YES
 WINDOWS_STAGING_BUNDLE_SMOKE_AT_c7cdc2b2 = PASS (25 checks, 0 failed)
@@ -574,7 +578,7 @@ fresh extracted-ZIP smoke acceptance.
 ### STILL OPEN
 
 ```text
-PROJECT PR8 = ACCEPTANCE PENDING / WINDOWS RE-ACCEPTANCE REQUIRED
+PROJECT PR8 = SEE "PR8 merge reconciliation — 2026-09-10"
 IDEA1_SERVICE_EVENT_FEED = OPEN
 IDEA2_SERVICE_EVENT_FEED = OPEN
 SHARED_CORRELATION_KEY = OPEN
@@ -594,12 +598,30 @@ evidence occurred during PR8.
 ## PR8 merge reconciliation — 2026-09-10
 
 PR8 source is merged through GitHub PR #107 at
-`f320bbf55456450406fe0c5547848fbdce099a96`, and source checkpoint
+`f320bbf55456450406fe0c5547848fbdce099a96`, and the PR8 head
 `25fb442d15cdf2037817c9e63add4d7e96bcd568` is reachable from current `main`.
-The recorded 25/25 Windows smoke ran against the `c7cdc2b2` staging bundle, not
-an extracted ZIP and not the post-main-sync SHA. The immutable PR8 receipt remains
-historically `partial`; it is not edited. PR9 may reuse the merged source and
-contracts, but this reconciliation does not invent final Windows acceptance.
+
+```text
+PR8_FINAL_WINDOWS_ACCEPTANCE_AT_25fb442d = PASS (owner-reported, 2026-09-10)
+PR8_FINAL_EXTRACTED_ZIP_SMOKE_AT_25fb442d = PASS, 25/25 checks (owner-reported)
+PR8_CANONICAL_DOCUMENTATION = STALE / MISSING THE FINAL EVIDENCE
+PR8_RECEIPT = UNCHANGED (historically partial)
+```
+
+- The project owner reports that final PR8 Windows acceptance exists for
+  `25fb442d`, including the final extracted-ZIP smoke with 25/25 checks passed.
+  Earlier statements in this note and in the PR9 records that PR8 extracted-ZIP
+  acceptance was absent described missing canonical documentation, not missing
+  Windows acceptance.
+- The final evidence itself — build result, ZIP digest, and smoke transcript for
+  `25fb442d` — is not yet recorded in this note, in `04_SESSION_HANDOFF.md`, or
+  in the PR #107 description, which at merge still listed the extracted-ZIP smoke
+  as pending. Recording those artifacts here is an owner follow-up. PR9 did not
+  rerun or observe Windows acceptance, so this is owner-supplied evidence.
+- The 2026-09-09 block above remains the historical `c7cdc2b2` staging-bundle
+  record. The immutable PR8 receipt
+  `90-Status/logs/2026-09-09_022203_music_idea3-pr8-windows-standalone.md` keeps
+  `status: partial` as recorded at its own checkpoint and is not edited.
 
 ## Current Task
 
@@ -610,7 +632,8 @@ PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — D
 Current state: BLOCKED — S1-S6 CLOSED; waiting at the PR5 merge gate
 Started: 2026-09-10
 Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
-Last checkpoint: `15b5b94a0b26131db2b14f2274dcc6022c776b2b`
+Last checkpoint: the truth-model correction commit that contains this record
+(exact SHA in PR #115); preceded by `15b5b94a0b26131db2b14f2274dcc6022c776b2b`
 Production mutation allowed: NO
 PR5 dependency: OPEN / WAITING FOR MERGE
 
@@ -653,7 +676,7 @@ S7 and S8 remain blocked until PR5 merges.
 | S3 | Lifecycle + readiness | CLOSED | `/security/api/readiness` (`b55fcf1f`); composite Core+Web lifecycle, fail-on-child-exit, status model, CLI (`4e789af1`); lifecycle tests green | `4e789af14ff8f73e34a2b747a72d8fc7c02b9cee` | PASS | none | S4 |
 | S4 | Persistence/auth regressions | CLOSED | focused MQTT/runtime/controller/core, adapter/provider/correlation, SQLite/reliability, and config/auth/security suites all green; no source change needed | `15b5b94a0b26131db2b14f2274dcc6022c776b2b` (evidence SHA) | PASS | none | S5 |
 | S5 | Production-like isolated acceptance | CLOSED | driver `8d4c76bb`; two acceptance runs `PRODUCTION_LIKE_VERIFIED`; 10/10 loopback negative controls; clean-stop status defect found and fixed RED→GREEN | `15b5b94a0b26131db2b14f2274dcc6022c776b2b` | PASS | none | S6 |
-| S6 | Runbook + evidence reconciliation | CLOSED | runbook, composite service example, README (`2b64b565`); this reconciliation; vault, policy, diff, secret and artifact checks | `2b64b565a731f0eb4af6236cb96cebdd14fca048` | PASS | none | stop at PR5 gate |
+| S6 | Runbook + evidence reconciliation | CLOSED | runbook, composite service example, README (`2b64b565`); reconciliation (`32a62fe1`); truth-model correction: configured-but-unprobed IDEA1/IDEA2 service status `UNKNOWN`, PR8 wording reconciled; vault, policy, diff, secret and artifact checks | `2b64b565a731f0eb4af6236cb96cebdd14fca048`; correction checkpoint = the commit containing this row | PASS | none | stop at PR5 gate |
 | S7 | PR5 merge sync + final acceptance | BLOCKED | PR5 is not merged; `origin/main` still `50ce6e16` and the PR5 ref `3f07f80c` is already its ancestor | — | BLOCKED | fresh main sync and final gates | wait for `PR5 MERGED` |
 | S8 | Final closeout / receipt / review | BLOCKED | S7 not run | — | BLOCKED | immutable receipt and Ready state | wait for S7 |
 
@@ -687,6 +710,8 @@ here; no evidence below is carried forward from that session.
 | `2b64b565` | S6 | runbook, composite service example replacing the Core-only example, README routing |
 | `8d4c76bb` | S5 | isolated acceptance driver and contract tests |
 | `15b5b94a` | S5 | fix: truthful clean-stop service status |
+| `32a62fe1` | S6 | documentation checkpoint for S2-S6 |
+| correction checkpoint (SHA in PR #115) | S6 | configured-but-unprobed IDEA1/IDEA2 service status reads `UNKNOWN`; PR8 canonical wording reconciled |
 
 `de42b990` is the plan's Task 2 commit. It was verified in place and is
 preserved unchanged; every commit above is linear on `50ce6e16` with no rebase.
@@ -727,7 +752,7 @@ no schema change or migration was added.
 | Strict production Web config | yes | yes | yes (acceptance) | yes | — |
 | Liveness vs readiness | yes | yes | yes (200 `READY`; unusable DB → Web exits → `FAILED`) | yes | — |
 | Composite lifecycle and crash cleanup | yes | yes | yes | yes | systemd install |
-| Service status model | yes | yes | yes | yes | IDEA1/IDEA2 projection is configuration-only |
+| Service status model | yes | yes | yes | yes | MQTT `UNAVAILABLE` also shown when Core reports broker `UNKNOWN` (owner decision) |
 | Backup, restore, upgrade, rollback, secret rotation | procedure only | no | no | yes | host exercise |
 | MQTT delivery, ESP32, relay, WAN isolation | unchanged | existing only | no | yes | PR5 / hardware closure |
 
@@ -763,6 +788,37 @@ Focused S4 Web: sqliteRepository + productionReliability                      = 
 Focused S4 Web: config/auth/security/securityRoutes/productionRuntime/passwordHash = 72 passed (6 files)
 ```
 
+### Truth-model correction — 2026-09-10
+
+`runtime/service-status.json` reported a configured IDEA1/IDEA2 feed as
+`UNAVAILABLE` although this status source never contacts the feeds. It now
+reports `UNKNOWN`; `UNAVAILABLE` is reserved for a dependency that was checked
+and found unavailable, and no network probe was added. The Web snapshot remains
+the feed-evidence authority.
+
+- RED: `test_service_snapshot_reports_configured_but_unprobed_feeds_as_unknown`
+  failed with `assert 'UNAVAILABLE' == 'UNKNOWN'`; it also asserts that only the
+  readiness URL is probed.
+- GREEN in `aegis_soc/production_runtime.py`.
+- The PR8 records were reconciled: owner-reported final Windows acceptance at
+  `25fb442d` (including the extracted-ZIP 25/25 smoke) versus stale canonical
+  documentation. See "PR8 merge reconciliation — 2026-09-10".
+
+```text
+source = working tree committed as the correction checkpoint (parent 32a62fe1)
+Focused lifecycle: production_runtime + windows_launcher + acceptance + paths = 120 passed, 6 skipped
+Focused S4 Python: mqtt_client + runtime + controller + core                  = 80 passed
+Full Python  = 221 passed, 6 Windows-only skipped
+Ruff = PASS; compileall = PASS
+Full Web     = 309 passed across 24 files (Web source unchanged)
+Vite build   = PASS, 1677 modules; npm audit --omit=dev --offline = 0 vulnerabilities
+Repository   = 63 passed, 0 failed
+Isolated acceptance run 3 = PRODUCTION_LIKE_VERIFIED; final components STOPPED, audit UNKNOWN
+Negative controls run 4 = 10/10 PASS; configured IDEA1/IDEA2 service status = UNKNOWN
+Vault validation = PASS (2 known canvas warnings); collaboration policy = PASS
+Secret/artifact scan = 0 findings; git diff --check = PASS
+```
+
 Loopback listeners and nested Git fixtures were permitted in this session; no
 sandbox `EPERM` occurred. The first vault-validation call failed with
 `MODULE_NOT_FOUND` because a relative script path resolved from the Web
@@ -786,7 +842,14 @@ root per case, and a loopback feed server requiring a generated bearer token.
 Run 1: 9/10 — the malformed-feed case failed only because the harness expected
 `MALFORMED_RESPONSE`, while `web/server/providers/liveProvider.js` intentionally
 reports `ADAPTER_RESPONSE_REJECTED`; the product degraded correctly. Run 2 at
-`15b5b94a` after correcting that expectation: **10/10 PASS**.
+`15b5b94a` after correcting that expectation: **10/10 PASS**. After the
+truth-model correction the harness expects configured IDEA1/IDEA2 service
+status `UNKNOWN`. Run 3 reported 10/10 FAIL, all caused by the harness residue
+matcher: it matched the invoking shell, whose command line named these
+processes and whose working directory was the IDEA3 source. Product values were
+as expected in every case. The matcher now counts only real `python`/`node`
+processes. Run 4, from the same directory: **10/10 PASS**, and an independent
+residue scan found nothing.
 
 | Case | Observed |
 |---|---|
@@ -810,13 +873,20 @@ disposable roots were deleted after the evidence was captured.
 - `PRODUCTION_LIKE_VERIFIED` is local lab/headless/dry-run evidence only. No
   systemd install, Production host, broker, device, relay, WAN, or live
   IDEA1/IDEA2 producer was used.
-- Service-status `idea1`/`idea2` is a configuration-only projection: a
-  configured feed reads `UNAVAILABLE` even when the Web snapshot shows it
-  `HEALTHY/FRESH`. It never overstates, but the owner should decide whether it
-  should read `UNKNOWN` or probe the feed. The Web snapshot is the authority.
+- Service-status `idea1`/`idea2` never probes the feeds. Since the truth-model
+  correction a configured feed reads `UNKNOWN` there (formerly `UNAVAILABLE`,
+  which claimed a check that never happened); blank reads `NOT_CONFIGURED`. The
+  Web snapshot remains the feed-evidence authority.
+- Service-status `mqtt` still reads `UNAVAILABLE` whenever a broker is configured
+  and Core does not report `CONNECTED`, including when Core reports broker
+  `UNKNOWN` (observed in the dry-run MQTT negative control). Whether that should
+  also read `UNKNOWN` is an owner decision; it was left unchanged.
 - The negative-control harness is session-local and not committed.
 - Backup/restore, upgrade/rollback, and secret rotation are documented only.
-- PR8 extracted-ZIP Windows acceptance remains unproven; out of PR9 scope.
+- PR8 final Windows acceptance at `25fb442d`, including the extracted-ZIP 25/25
+  smoke, is owner-reported; what is missing is its canonical documentation (see
+  "PR8 merge reconciliation — 2026-09-10"), not the acceptance. PR9 does not
+  rerun it.
 
 ### Planned / Completed / Remaining
 
@@ -835,9 +905,9 @@ disposable roots were deleted after the evidence was captured.
 
 ### Current HEAD
 
-Last implementation/evidence checkpoint:
-`15b5b94a0b26131db2b14f2274dcc6022c776b2b`. The documentation checkpoint that
-records this table follows it on the same branch; PR #115 shows the exact head.
+The truth-model correction checkpoint that contains this record; PR #115 shows
+its exact SHA as the branch head. Earlier checkpoints: `32a62fe1`
+(documentation) and `15b5b94a` (implementation/evidence).
 
 ### Current task state
 
@@ -853,17 +923,18 @@ None. S7 and S8 are BLOCKED.
 
 ### Verified evidence
 
-At `15b5b94a`: Python 220 passed / 6 Windows-only skipped; Web 309 passed
-across 24 files; build 1677 modules; npm audit 0; repository 63 passed; Ruff and
-compileall PASS; isolated acceptance `PRODUCTION_LIKE_VERIFIED`; negative
-controls 10/10. Details are in the PR9 evidence section above.
+At the correction checkpoint: Python 221 passed / 6 Windows-only skipped; Web
+309 passed across 24 files; build 1677 modules; npm audit 0; repository 63
+passed; Ruff and compileall PASS; isolated acceptance `PRODUCTION_LIKE_VERIFIED`;
+negative controls 10/10. Details are in the PR9 evidence section above.
 
 ### Known issues
 
 PR5 is open; `origin/main` was still `50ce6e16` at publication and the PR5 ref
-`3f07f80c` adds nothing over it. Service-status IDEA1/IDEA2 is a
-configuration-only projection. PR8 final extracted-ZIP acceptance is not present
-in repository evidence.
+`3f07f80c` adds nothing over it. Service-status MQTT may read `UNAVAILABLE`
+while Core reports broker `UNKNOWN` (owner decision). PR8 final Windows
+acceptance at `25fb442d` is owner-reported; its canonical documentation is
+stale/missing.
 
 ### Exact remaining work
 

@@ -203,6 +203,37 @@ def test_service_snapshot_degrades_when_web_or_audit_is_unavailable(tmp_path):
     assert snapshot["physicalEvidence"] == "UNKNOWN"
 
 
+def test_service_snapshot_reports_configured_but_unprobed_feeds_as_unknown(tmp_path):
+    environment = _environment(tmp_path)
+    Path(environment["AEGIS_CONFIG_FILE"]).write_text(
+        "NODE_ENV=production\n"
+        "AEGIS_IDEA1_STATUS_URL=http://127.0.0.1:9/idea1-feed\n"
+        "AEGIS_IDEA2_STATUS_URL=http://127.0.0.1:9/idea2-feed\n",
+        encoding="utf-8",
+    )
+    settings = ProductionSettings.from_environment(environment)
+    probed = []
+
+    def readiness_probe(url):
+        probed.append(url)
+        return {"status": "READY", "audit": "READY", "schemaVersion": 2}
+
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=readiness_probe,
+        core_status_reader=lambda: _core_status(),
+    )
+    runtime.children = {"core": _Process(), "web": _Process()}
+
+    snapshot = runtime.snapshot()
+
+    # This status source never contacts the feeds, so it cannot claim they are
+    # unavailable; only the Web snapshot evaluates feed evidence.
+    assert snapshot["idea1"] == "UNKNOWN"
+    assert snapshot["idea2"] == "UNKNOWN"
+    assert probed == ["http://localhost:18003/security/api/readiness"]
+
+
 @pytest.mark.parametrize(
     ("terminal_status", "components"),
     [
