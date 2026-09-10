@@ -2359,3 +2359,52 @@ Vault validation PASS; collaboration policy PASS; secret/artifact scan 0; git di
 
 Unchanged: wait for `PR5 MERGED`, then run S7 with `git fetch origin` and
 `git merge origin/main`.
+
+## 42. PR9 pre-PR5 closure — WAITING FOR PR5 MERGED — 2026-09-10
+
+```text
+CORRECTION_CHECKPOINT = 0a97248f9fcb4e5ea3a7f50e1e03eaeed5c08ad1 (section 41)
+IMPLEMENTATION_CHECKPOINTS = 0cf2b007855672b5648b1fb4efb9097f0c3dd558, d66b44aad1a4083181617e0cba4cfa12cc285deb
+SESSIONS = S1-S6 CLOSED; S7 BLOCKED; S8 BLOCKED
+STATUS = WAITING FOR PR5 MERGED
+PRODUCTION_MUTATION_ALLOWED = NO
+```
+
+### What closed
+
+- `0cf2b007` — `deploy/production-like-acceptance.py` measures, instead of
+  asserting as constants, the running service states (IDEA1/IDEA2/MQTT
+  `NOT_CONFIGURED`, ESP32/physical evidence `UNKNOWN`, audit `READY`). It
+  requires the service owner's whole process tree to be gone after each stop, a
+  final `STOPPED` status, and no group/world-accessible path under the data root.
+- `d66b44aa` — `deploy/production-like-negative-controls.py` makes the 13
+  loopback-only negative controls reproducible from the repository. The cases
+  are: positive control; invalid configuration (missing session secret,
+  malformed `PORT`, live Core without actuation settings); unusable audit DB;
+  MQTT unavailable; IDEA1/IDEA2 unavailable; stale and malformed IDEA1/IDEA2
+  evidence; and a rejected IDEA2 schema.
+- Tooling: the task-local venv `/tmp/aegis-pr9-venv` carries the exact
+  `requirements-dev.txt` pins. No global Python or PlatformIO install was
+  modified, and no product behavior was changed for the environment.
+
+### Verification at `d66b44aa` (Arch Linux, Python 3.14.7, Node v24.16.0)
+
+```text
+Contract tests = 15 passed
+Focused lifecycle = 130 passed, 6 skipped; focused S4 Python = 80 passed
+Full Python = 231 passed, 6 Windows-only skipped
+Full Web = 309 passed across 24 files; Vite build PASS, 1677 modules; npm audit 0
+Ruff PASS; compileall PASS; repository tests 63 passed
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED (measured states, 0 surviving processes, owner-only permissions)
+Negative controls = 13/13 PASS
+```
+
+`origin/main` was still `50ce6e16` and the PR5 ref still `3f07f80c`, so no
+main sync was needed or performed. No Production host, broker, ESP32, relay,
+MikroTik, switch, Twingate, or real IDEA1/IDEA2 feed was touched.
+
+### Exact next step
+
+Wait for `PR5 MERGED`. Then S7: `git fetch origin`, `git merge origin/main`
+(never rebase or force-push), reconcile hardware status with PR5, rerun the
+full gate plus both drivers. S8: one PR9 receipt, then request Ready.
