@@ -237,7 +237,7 @@ class ProductionRuntime(LauncherRuntime):
             return self.core_status_reader()
         return super()._core_status()
 
-    def snapshot(self) -> dict:
+    def snapshot(self, *, probe_readiness: bool = True) -> dict:
         process_snapshot = super().snapshot()
         components = process_snapshot["components"]
         process_health = (
@@ -246,18 +246,19 @@ class ProductionRuntime(LauncherRuntime):
             else "DEGRADED"
         )
         readiness = {"status": "DEGRADED", "audit": "DEGRADED"}
-        try:
-            candidate = self.readiness_probe(
-                f"http://localhost:{self.settings.web_port}/security/api/readiness"
-            )
-            if (
-                candidate.get("status") == "READY"
-                and candidate.get("audit") == "READY"
-                and candidate.get("schemaVersion") == 2
-            ):
-                readiness = candidate
-        except (OSError, TypeError, ValueError, urllib.error.URLError):
-            pass
+        if probe_readiness:
+            try:
+                candidate = self.readiness_probe(
+                    f"http://localhost:{self.settings.web_port}/security/api/readiness"
+                )
+                if (
+                    candidate.get("status") == "READY"
+                    and candidate.get("audit") == "READY"
+                    and candidate.get("schemaVersion") == 2
+                ):
+                    readiness = candidate
+            except (OSError, TypeError, ValueError, urllib.error.URLError):
+                pass
 
         core_status = self._core_status()
         core_components = core_status.get("components", {})
@@ -294,12 +295,17 @@ class ProductionRuntime(LauncherRuntime):
         }
 
     def _write_status(self, status: str | None = None) -> None:
-        document = self.snapshot()
+        terminal = status in {"STOPPED", "FAILED"}
+        document = self.snapshot(probe_readiness=not terminal)
         if status is not None:
             document["status"] = status
             document["serviceReadiness"] = status
-            if status in {"STOPPED", "FAILED"}:
-                document["processHealth"] = status
+        if terminal:
+            # The children are already shut down, so audit readiness is unobservable.
+            document["processHealth"] = status
+            document["audit"] = "UNKNOWN"
+        if status == "STOPPED":
+            document["components"] = {"core": "STOPPED", "web": "STOPPED"}
         self._atomic_write(
             self.settings.paths.runtime_dir / "service-status.json",
             json.dumps(document, indent=2, sort_keys=True) + "\n",

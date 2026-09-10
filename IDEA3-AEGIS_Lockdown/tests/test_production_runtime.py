@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -200,6 +201,37 @@ def test_service_snapshot_degrades_when_web_or_audit_is_unavailable(tmp_path):
     assert snapshot["audit"] == "DEGRADED"
     assert snapshot["mqtt"] == "NOT_CONFIGURED"
     assert snapshot["physicalEvidence"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("terminal_status", "components"),
+    [
+        ("STOPPED", {"core": "STOPPED", "web": "STOPPED"}),
+        ("FAILED", {"core": "FAILED", "web": "FAILED"}),
+    ],
+)
+def test_terminal_service_status_does_not_probe_the_stopped_web_or_claim_audit_state(
+    tmp_path, terminal_status, components
+):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=lambda _url: pytest.fail("a stopped Web must not be probed"),
+        core_status_reader=lambda: _core_status(),
+    )
+    runtime.children = {"core": _Process(returncode=0), "web": _Process(returncode=0)}
+
+    runtime._write_status(terminal_status)
+
+    document = json.loads(
+        (settings.paths.runtime_dir / "service-status.json").read_text(encoding="utf-8")
+    )
+    assert document["status"] == terminal_status
+    assert document["processHealth"] == terminal_status
+    assert document["serviceReadiness"] == terminal_status
+    assert document["components"] == components
+    assert document["audit"] == "UNKNOWN"
+    assert document["physicalEvidence"] == "UNKNOWN"
 
 
 class _Output:
