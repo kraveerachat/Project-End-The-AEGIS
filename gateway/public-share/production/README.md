@@ -22,22 +22,29 @@ The reviewed future model uses exactly these files, in order:
 Validate the merged model before any service operation:
 
 ```bash
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
-  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml config --quiet
+  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+  config --quiet
 ```
 
 The future service-scoped order is Drive first and gateway second:
 
 ```bash
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   up -d --no-deps --no-build drive
 
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
@@ -53,13 +60,17 @@ Rollback removes the gateway first, then restores Drive by omitting the S5.4
 overlay:
 
 ```bash
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   rm -s -f public-share-gateway
 
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   up -d --no-deps --no-build drive

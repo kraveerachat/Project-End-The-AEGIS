@@ -80,6 +80,10 @@ test('S5.4-STRUCT-1 declares only the exact isolated edge and upstream topology'
   ], 'the S5.4 overlay must add only its two networks; private networks come from the Production base')
   assert.doesNotMatch(networks, /172\.31\.242\.0\/29/, 'future S5.5 egress must not be created')
 
+  assert.doesNotMatch(overlay, /driver:\s*macvlan/i, 'no second macvlan network may be declared in overlay')
+  assert.equal(directKeys(networks, 2).includes('aegis_vlan10'), false, 'top-level aegis_vlan10 must not be redeclared')
+  assert.equal(directKeys(networks, 2).includes('aegis_vlan10_macvlan'), false, 'top-level aegis_vlan10_macvlan must not be declared')
+
   for (const [name, subnet, gateway] of [
     ['aegis_public_share_edge', '172.31.240.0/29', '172.31.240.1'],
     ['aegis_public_share_upstream', '172.31.241.0/29', '172.31.241.1'],
@@ -106,20 +110,88 @@ test('S5.4-STRUCT-2 pins exact member addresses and preserves Drive private memb
     'aegis_drive_proxy',
     'aegis_internal',
     'aegis_public_share_upstream',
-    'aegis_vlan10_macvlan',
-  ])
+    'aegis_vlan10',
+  ], 'Drive must retain logical keys aegis_drive_proxy, aegis_internal, aegis_vlan10, and add aegis_public_share_upstream')
 
   const gatewayNetworks = namedBlock(service('public-share-gateway'), 'networks', 4)
   assert.match(gatewayNetworks, /aegis_public_share_edge:[\s\S]*?ipv4_address: 172\.31\.240\.2/)
   assert.match(gatewayNetworks, /aegis_public_share_upstream:[\s\S]*?ipv4_address: 172\.31\.241\.2/)
 
   const driveNetworks = namedBlock(service('drive'), 'networks', 4)
-  assert.match(driveNetworks, /aegis_drive_proxy:[\s\S]*?ipv4_address: 172\.19\.255\.3/)
-  assert.match(driveNetworks, /aegis_internal:[\s\S]*?ipv4_address: 172\.18\.0\.3/)
-  assert.match(driveNetworks, /aegis_vlan10_macvlan:[\s\S]*?ipv4_address: 192\.168\.10\.11/)
-  assert.match(driveNetworks, /aegis_public_share_upstream:[\s\S]*?ipv4_address: 172\.31\.241\.3/)
+  assert.doesNotMatch(
+    driveNetworks,
+    /aegis_vlan10_macvlan:/,
+    'S5.4 overlay must not use aegis_vlan10_macvlan as a Compose logical key',
+  )
+  assert.doesNotMatch(
+    overlay,
+    /^\s*aegis_vlan10_macvlan:/m,
+    'overlay must never declare aegis_vlan10_macvlan as a Compose key',
+  )
+  assert.match(
+    driveNetworks,
+    /aegis_vlan10:[\s\S]*?ipv4_address: 192\.168\.10\.11/,
+    'Drive logical key aegis_vlan10 must be mapped to 192.168.10.11',
+  )
+  assert.match(
+    driveNetworks,
+    /aegis_drive_proxy:[\s\S]*?ipv4_address: 172\.19\.255\.3/,
+    'existing Drive aegis_drive_proxy private address must not change',
+  )
+  assert.match(
+    driveNetworks,
+    /aegis_internal:[\s\S]*?ipv4_address: 172\.18\.0\.3/,
+    'existing Drive aegis_internal private address must not change',
+  )
+  assert.match(
+    driveNetworks,
+    /aegis_public_share_upstream:[\s\S]*?ipv4_address: 172\.31\.241\.3/,
+    'Drive upstream private address must be exactly 172.31.241.3',
+  )
 
   assert.match(overlay, /RESERVED_CONNECTOR_EDGE_IP: 172\.31\.240\.3/)
+})
+
+test('S5.4-ENV-1 all Production compose examples specify the canonical env-file', () => {
+  const extractComposeCommands = (text) => {
+    const matches = []
+    const regex = /docker compose\s+([\s\S]*?)(?=\n\s*(?:docker compose|docker network|```|$))/g
+    let match
+    while ((match = regex.exec(text)) !== null) {
+      matches.push(match[0])
+    }
+    return matches
+  }
+
+  const runbookCommands = extractComposeCommands(runbook)
+  assert.ok(runbookCommands.length >= 5, 'runbook must contain all S5.4 compose commands')
+  for (const cmd of runbookCommands) {
+    assert.match(
+      cmd,
+      /--env-file\s+\/opt\/aegis\/Project-End-The-AEGIS\/\.env/,
+      'every runbook compose command must specify the canonical Production --env-file',
+    )
+    assert.match(
+      cmd,
+      /--project-name\s+aegis-prod/,
+      'every runbook compose command must specify --project-name aegis-prod',
+    )
+  }
+
+  const planCommands = extractComposeCommands(plan)
+  assert.ok(planCommands.length >= 5, 'plan must contain all S5.4 compose commands')
+  for (const cmd of planCommands) {
+    assert.match(
+      cmd,
+      /--env-file\s+\/opt\/aegis\/Project-End-The-AEGIS\/\.env/,
+      'every plan compose command must specify the canonical Production --env-file',
+    )
+    assert.match(
+      cmd,
+      /--project-name\s+aegis-prod/,
+      'every plan compose command must specify --project-name aegis-prod',
+    )
+  }
 })
 
 test('S5.4-STRUCT-3 Drive and managed-edge trust are exact, narrow, and UI-off', () => {

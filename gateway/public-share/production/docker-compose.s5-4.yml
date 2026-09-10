@@ -21,7 +21,7 @@ services:
         ipv4_address: 172.18.0.3
       aegis_drive_proxy:
         ipv4_address: 172.19.255.3
-      aegis_vlan10_macvlan:
+      aegis_vlan10:
         ipv4_address: 192.168.10.11
       aegis_public_share_upstream:
         ipv4_address: 172.31.241.3

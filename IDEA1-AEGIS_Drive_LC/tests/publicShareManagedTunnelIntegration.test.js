@@ -48,9 +48,29 @@ const EDGE_VALIDATOR = fileURLToPath(new URL('validate-public-share-edge.sh', GA
 const POSIX_SHELL = (() => {
   if (process.platform !== 'win32') return 'sh'
   const found = spawnSync('where.exe', ['sh'], { encoding: 'utf8' })
-  return found.status === 0
-    ? found.stdout.split(/\r?\n/).find(Boolean)
-    : 'sh'
+  if (found.status === 0) {
+    const direct = found.stdout.split(/\r?\n/).find(Boolean)
+    if (direct) return direct
+  }
+  for (const candidate of [
+    'C:\\Program Files\\Git\\bin\\sh.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\sh.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\sh.exe',
+    'C:\\Program Files (x86)\\Git\\usr\\bin\\sh.exe',
+  ]) {
+    try {
+      if (spawnSync(candidate, ['-c', 'exit 0']).status === 0) return candidate
+    } catch {}
+  }
+  return 'sh'
+})()
+
+const posixShellAvailable = (() => {
+  try {
+    return spawnSync(POSIX_SHELL, ['-c', 'exit 0']).status === 0
+  } catch {
+    return false
+  }
 })()
 
 const HOST = 'share.example.invalid'

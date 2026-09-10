@@ -74,8 +74,9 @@ The focused S5.4 suite must prove:
   `com.docker.network.bridge.gateway_mode_ipv4: "isolated"` on both networks;
 - no service `ports`, no host networking, and no default network;
 - gateway membership is exactly edge + upstream;
-- Drive adds upstream while retaining `aegis_internal`, `aegis_drive_proxy`,
-  and `aegis_vlan10_macvlan` at their existing addresses;
+- Drive adds upstream while retaining Compose logical memberships `aegis_internal`,
+  `aegis_drive_proxy`, and `aegis_vlan10` (mapped to runtime network `aegis_vlan10_macvlan`)
+  at their existing addresses;
 - Drive trust is exactly
   `172.19.255.2/32,172.31.241.2/32`, gateway ingress identity is exactly
   `172.31.241.2/32`, base URL is exactly
@@ -140,10 +141,13 @@ and a passing fresh preflight:
 3. Validate the merged Compose model using exactly:
 
    ```bash
-   docker compose --project-name aegis-prod \
+   docker compose \
+     --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+     --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
      -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
-     -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml config --quiet
+     -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+     config --quiet
    ```
 
 4. Create only `aegis_public_share_edge` and
@@ -151,7 +155,9 @@ and a passing fresh preflight:
 5. Recreate only Drive first:
 
    ```bash
-   docker compose --project-name aegis-prod \
+   docker compose \
+     --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+     --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
      -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
      -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
@@ -163,7 +169,9 @@ and a passing fresh preflight:
 7. Start only the gateway second:
 
    ```bash
-   docker compose --project-name aegis-prod \
+   docker compose \
+     --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+     --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
      -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
      -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
@@ -182,13 +190,17 @@ current repository-only checkpoint.
 Rollback is gateway first, then Drive, reversing the rollout order:
 
 ```bash
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   rm -s -f public-share-gateway
 
-docker compose --project-name aegis-prod \
+docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   up -d --no-deps --no-build drive
@@ -381,6 +393,81 @@ service health/identity, image and file hashes, network/listener inventory,
 selected non-secret Public Share configuration, row count, and PASS/FAIL
 markers. Stop if the final marker is not exactly
 `S5_4_PRE_MUTATION_GATE=PASS`.
+
+### 6.1 Owner-run Phase A evidence and confirmed integration defects
+
+The S5.4 Production pre-mutation gate already **PASSED** (`S5_4_PRE_MUTATION_GATE=PASS`).
+Owner authorization for S5.4 Production mutation remains valid.
+
+During owner-run Phase A, two repository/runbook integration defects were
+confirmed BEFORE any Drive recreation, S5.4 network creation, or Gateway start:
+
+1. **CONFIRMED DEFECT 1 — missing canonical Production env file**:
+   Without `--env-file`, Compose failed variable interpolation for:
+   - `DRIVE_DB_PASSWORD`
+   - `DRIVE_SESSION_SECRET`
+   - `MONITOR_DB_PASSWORD`
+   - `DETECTION_ENGINE_API_KEY`
+   - `MONITOR_SESSION_SECRET`
+   - `POSTGRES_PASSWORD`
+   - `POSTGRES_USER`
+   The canonical Production env file `/opt/aegis/Project-End-The-AEGIS/.env`
+   exists (`root:root mode 0600`; contents not inspected).
+   Every S5.4 Production `docker compose` command requiring interpolation MUST use:
+   `--env-file /opt/aegis/Project-End-The-AEGIS/.env`.
+
+2. **CONFIRMED DEFECT 2 — incorrect Compose logical network key**:
+   Owner-run read-only diagnostic produced:
+   ```text
+   TOP_LEVEL_NETWORKS:
+   KEY=aegis_drive_proxy NAME=aegis_drive_proxy
+   KEY=aegis_internal NAME=aegis_internal
+   KEY=aegis_vlan10 NAME=aegis_vlan10_macvlan
+
+   DRIVE_LOGICAL_NETWORK_KEYS=
+   aegis_drive_proxy,aegis_internal,aegis_vlan10
+
+   DRIVE_RUNTIME_NETWORKS=
+   aegis_drive_proxy,aegis_internal,aegis_vlan10_macvlan
+   ```
+   Therefore:
+   `aegis_vlan10` = Compose logical key
+   `aegis_vlan10_macvlan` = Docker runtime network name
+   The S5.4 overlay mistakenly referenced `aegis_vlan10_macvlan:` instead of `aegis_vlan10:`.
+   Corrected to:
+   ```yaml
+   aegis_vlan10:
+     ipv4_address: 192.168.10.11
+   ```
+   No second macvlan network is created, the runtime network is not renamed, and base Compose is not modified. Drive retains `aegis_internal`, `aegis_drive_proxy`, and `aegis_vlan10`, and adds `aegis_public_share_upstream`. Runtime result after future deployment remains `aegis_internal=172.18.0.3`, `aegis_drive_proxy=172.19.255.3`, `aegis_vlan10_macvlan=192.168.10.11`, and `aegis_public_share_upstream=172.31.241.3`.
+
+Authoritative owner-run Phase A evidence:
+
+```text
+S5_4_PHASE_A_OVERLAY_STAGED=PASS
+OVERLAY_SHA256=90fb5ea04f62ffcfe8cda1be80cc5a854865886226b4ab9e9a20afa5f5959c10
+
+FROZEN_SOURCE_SHA=50ce6e1638c6bcdb2a378a3cee660050b9cb41d8
+GATEWAY_SOURCE_TREE=2025eb0873a4e7f8d3d2b00b02fc3dfca02b91df
+FROZEN_SOURCE_CLEAN=PASS
+
+GATEWAY_IMAGE_BUILD=PASS
+GATEWAY_IMAGE_ID=sha256:b61b0b0dcaa78fcb4739fe197544d06f8d5685e04e8596fb87563b65b8877909
+GATEWAY_IMAGE_USER=101:101
+
+S5_4_COMPOSE_VALIDATION_ATTEMPT_1=FAIL_MISSING_ENV_FILE
+S5_4_COMPOSE_VALIDATION_ATTEMPT_2=FAIL_WRONG_LOGICAL_NETWORK_KEY
+
+ROOT_CAUSE_1=MISSING_CANONICAL_PRODUCTION_ENV_FILE
+ROOT_CAUSE_2=COMPOSE_LOGICAL_NETWORK_KEY_MISMATCH
+
+DRIVE_RECREATED=NO
+S5_4_NETWORKS_CREATED=NO
+GATEWAY_CONTAINER_STARTED=NO
+PUBLIC_EXPOSURE=NONE
+```
+
+These are repository/runtime-contract defects, not Production service failures.
 
 ## 7. Repository verification and Draft PR gate
 
