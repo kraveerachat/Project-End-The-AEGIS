@@ -52,8 +52,10 @@ IDEA3_PRODUCTION_COMPLETE=NO
 
 The synchronized current-main base was
 `dc673992b4c474716c4a14d2d375b3c9dd583feb`. The branch merged that base
-normally without rebase or conflict. The final documentation/evidence
-checkpoint is `90efec19b9a18c8806e95694c8a3ae32f7b81417`.
+normally without rebase or conflict. The pre-receipt documentation/evidence
+checkpoint is `90efec19b9a18c8806e95694c8a3ae32f7b81417`; the receipt-bearing
+commit(s) follow it on this branch, and the final PR head is whatever GitHub
+reports for the PR at review time.
 
 ## Source files changed
 
