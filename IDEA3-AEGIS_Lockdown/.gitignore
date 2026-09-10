@@ -7,3 +7,17 @@ firmware/src/secrets.h
 firmware/.pio/
 web/node_modules/
 web/dist/
+
+# Durable SQLite audit artifacts
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Generated Windows bundle artifacts (never committed)
+windows/cache/
+windows/build/
+windows/dist/
+windows/out/

@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import config
+from .paths import RuntimePaths
 
 
 class RuntimeState(StrEnum):
@@ -25,6 +26,17 @@ class RuntimeState(StrEnum):
     LOCKDOWN = "LOCKDOWN"
     FAILED = "FAILED"
     SHUTDOWN = "SHUTDOWN"
+
+
+def platform_capabilities(platform: str | None = None) -> dict[str, bool]:
+    """Return only runtime components that this source implements on a platform."""
+    platform_name = sys.platform if platform is None else platform
+    windows = platform_name == "win32"
+    return {
+        "detector": not windows,
+        "operator_gui": not windows,
+        "voice": False,
+    }
 
 
 @dataclass(frozen=True)
@@ -58,6 +70,11 @@ class RuntimeSettings:
             raise ValueError(f"unsupported profile: {profile}")
 
         root = Path(__file__).resolve().parent.parent
+        external_paths = (
+            RuntimePaths.from_environment()
+            if os.getenv("AEGIS_DATA_DIR", "").strip() or sys.platform == "win32"
+            else None
+        )
         defaults = {
             "development": (True, False, False),
             "lab": (True, True, True),
@@ -86,8 +103,14 @@ class RuntimeSettings:
             device_wait_sec=float(os.getenv("AEGIS_DEVICE_WAIT_SEC", str(config.DEVICE_OFFLINE_SEC))),
             max_restarts=int(os.getenv("AEGIS_MAX_RESTARTS", "5")),
             restart_window_sec=float(os.getenv("AEGIS_RESTART_WINDOW_SEC", "300")),
-            runtime_dir=Path(os.getenv("AEGIS_RUNTIME_DIR", root / ".aegis-runtime")).resolve(),
-            log_dir=Path(os.getenv("AEGIS_RUNTIME_LOG_DIR", root / "logs")).resolve(),
+            runtime_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_DIR",
+                external_paths.runtime_dir if external_paths else root / ".aegis-runtime",
+            )).resolve(),
+            log_dir=Path(os.getenv(
+                "AEGIS_RUNTIME_LOG_DIR",
+                external_paths.log_dir if external_paths else root / "logs",
+            )).resolve(),
         )
 
     @property
@@ -102,9 +125,10 @@ class RuntimeSettings:
     def lock_path(self) -> Path:
         return self.runtime_dir / "supervisor.lock"
 
-    def preflight(self) -> tuple[list[str], list[str]]:
+    def preflight(self, *, platform: str | None = None) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         warnings: list[str] = []
+        capabilities = platform_capabilities(platform)
 
         minimum_python = (3, 10)
         if sys.version_info[:2] < minimum_python:
@@ -115,19 +139,31 @@ class RuntimeSettings:
             errors.append("broker/device wait values cannot be negative")
         if self.max_restarts < 0 or self.restart_window_sec <= 0:
             errors.append("restart limits must be non-negative with a positive window")
-        if not (1 <= config.PORT <= 65535):
-            errors.append("MQTT broker port is outside 1-65535")
-        try:
-            ipaddress.ip_address(config.BROKER_IP)
-        except ValueError:
-            if config.BROKER_IP != "localhost":
-                errors.append("MQTT broker address must be an IP address or localhost")
+        if not config.BROKER_CONFIGURED:
+            if self.dry_run:
+                warnings.append("MQTT broker is not configured; dry-run remains monitor-only")
+            else:
+                errors.append("live mode requires a configured MQTT broker")
+        else:
+            if not (1 <= config.PORT <= 65535):
+                errors.append("MQTT broker port is outside 1-65535")
+            try:
+                ipaddress.ip_address(config.BROKER_IP)
+            except ValueError:
+                if config.BROKER_IP != "localhost":
+                    errors.append("MQTT broker address must be an IP address or localhost")
         if self.voice_enabled:
             errors.append("voice was requested but no voice runtime entry point exists")
-        if self.start_gui and not os.getenv("DISPLAY"):
-            errors.append("GUI was requested but DISPLAY is not set")
-        if self.start_detector and not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
-            errors.append("detector.py is unavailable")
+        if self.start_gui:
+            if not capabilities["operator_gui"]:
+                errors.append("Tk operator GUI is not packaged on Windows")
+            elif not os.getenv("DISPLAY"):
+                errors.append("GUI was requested but DISPLAY is not set")
+        if self.start_detector:
+            if not capabilities["detector"]:
+                errors.append("detector is unavailable on Windows")
+            elif not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
+                errors.append("detector.py is unavailable")
 
         if self.profile == "production":
             if not config.SECRET_KEY or config.SECRET_KEY == config.DEMO_SECRET:
@@ -191,3 +227,122 @@ def read_status(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+SAFE_STATUS_SCHEMA_VERSION = 1
+
+_CANONICAL_STATUS_BY_STATE = {
+    RuntimeState.RUNNING: "HEALTHY",
+    RuntimeState.DEGRADED: "DEGRADED",
+    RuntimeState.LOCKDOWN: "DEGRADED",
+    RuntimeState.FAILED: "FAILED",
+    RuntimeState.SHUTDOWN: "FAILED",
+    RuntimeState.INIT: "UNKNOWN",
+    RuntimeState.PREFLIGHT: "UNKNOWN",
+    RuntimeState.WAIT_BROKER: "UNKNOWN",
+    RuntimeState.WAIT_DEVICE: "UNKNOWN",
+}
+
+_ALLOWED_COMPONENTS = ("detector", "gui", "preflight")
+_ALLOWED_COMPONENT_STATES = frozenset({"RUNNING", "RESTARTING", "FAILED", "STOPPED"})
+_ALLOWED_BROKER_STATES = frozenset({"CONNECTED", "DISCONNECTED", "UNKNOWN"})
+_ALLOWED_DEVICE_STATES = frozenset({"ONLINE", "OFFLINE", "UNKNOWN"})
+_ALLOWED_UPLINK_STATES = frozenset({"NORMAL", "LOCKDOWN", "UNKNOWN"})
+_ALLOWED_ARMED_STATES = frozenset({"ARMED", "DISARMED", "MONITOR_ONLY"})
+_ALLOWED_PROFILES = frozenset({"development", "lab", "production"})
+
+
+def _allowlisted(value: object, allowed: frozenset[str]) -> str:
+    return value if isinstance(value, str) and value in allowed else "UNKNOWN"
+
+
+def _iso_utc(updated_at: object) -> str | None:
+    if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)):
+        return None
+    try:
+        moment = time.gmtime(float(updated_at))
+    except (OSError, OverflowError, ValueError):
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%S", moment) + ".000Z"
+
+
+def _absent_projection() -> dict:
+    return {
+        "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
+        "generatedAt": None,
+        "status": "UNKNOWN",
+        "components": {},
+        "modes": {"profile": "UNKNOWN", "dryRun": True, "autoContain": False, "armed": "UNKNOWN"},
+        "issues": [],
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+    }
+
+
+def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
+    """Project runtime status into the versioned contract IDEA3 Web may consume.
+
+    Only allowlisted state vocabulary crosses this boundary. Free-text ``detail``,
+    ``pid``, paths, addresses, and every configuration or secret value are dropped
+    rather than sanitized, so an unrecognized field can never leak by default.
+    """
+    if isinstance(status, RuntimeStatus):
+        document = asdict(status)
+    elif isinstance(status, dict):
+        document = status
+    else:
+        return _absent_projection()
+
+    generated_at = _iso_utc(document.get("updated_at"))
+    if generated_at is None:
+        return _absent_projection()
+
+    raw_components = document.get("components")
+    components = {
+        "broker": _allowlisted(document.get("broker"), _ALLOWED_BROKER_STATES),
+        "device": _allowlisted(document.get("device"), _ALLOWED_DEVICE_STATES),
+        "uplink": _allowlisted(document.get("uplink"), _ALLOWED_UPLINK_STATES),
+    }
+    if isinstance(raw_components, dict):
+        for name in _ALLOWED_COMPONENTS:
+            if name in raw_components:
+                components[name] = _allowlisted(raw_components[name], _ALLOWED_COMPONENT_STATES)
+
+    state = document.get("state")
+    status_value = _CANONICAL_STATUS_BY_STATE.get(state, "UNKNOWN") if isinstance(state, str) else "UNKNOWN"
+    if status_value == "HEALTHY":
+        if bool(document.get("dry_run", True)):
+            status_value = "UNKNOWN"
+        elif (
+            components["broker"] == "DISCONNECTED"
+            or components["device"] == "OFFLINE"
+            or any(components.get(name) == "FAILED" for name in _ALLOWED_COMPONENTS)
+        ):
+            status_value = "DEGRADED"
+        elif any(components[name] == "UNKNOWN" for name in ("broker", "device", "uplink")):
+            status_value = "UNKNOWN"
+
+    issues = set()
+    if components["broker"] != "CONNECTED":
+        issues.add("MQTT_DISCONNECTED")
+    if components["device"] != "ONLINE":
+        issues.add("ESP32_UNAVAILABLE")
+    if any(components.get(name) == "FAILED" for name in _ALLOWED_COMPONENTS):
+        issues.add("COMPONENT_FAILURE")
+    if status_value == "FAILED":
+        issues.add("CORE_PROCESS_FAILURE")
+
+    profile = document.get("profile")
+    return {
+        "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
+        "generatedAt": generated_at,
+        "status": status_value,
+        "components": components,
+        "modes": {
+            "profile": profile if profile in _ALLOWED_PROFILES else "UNKNOWN",
+            "dryRun": bool(document.get("dry_run", True)),
+            "autoContain": bool(document.get("auto_contain", False)),
+            "armed": _allowlisted(document.get("armed"), _ALLOWED_ARMED_STATES),
+        },
+        "issues": sorted(issues),
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+    }

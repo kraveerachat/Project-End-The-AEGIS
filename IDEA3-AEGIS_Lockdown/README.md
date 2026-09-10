@@ -119,8 +119,16 @@ npm run dev:server
 npm run dev
 ```
 
-เปิด `http://127.0.0.1:5177/security/` การใช้งาน production ต้องตั้ง session secret และ
-credential ผ่าน environment; ห้ามใช้ค่าพัฒนาใน production ดูตัวแปรที่ `web/.env.example`
+เปิด `http://127.0.0.1:5176/security/` สำหรับ local Vite development การใช้งาน
+production ต้องตั้ง `SESSION_SECRET` ที่ผ่าน production policy และ
+`AEGIS_IDEA3_ADMIN_PASSWORD_HASH` เป็น bcrypt cost 12–31 ผ่าน environment; production
+จะไม่เปิด development login แม้ตั้ง `AEGIS_ALLOW_DEV_LOGIN=true`
+
+Security Center ใช้ durable SQLite audit repository โดยค่าเริ่มต้นที่
+`.aegis-runtime/security-center-audit.sqlite3` และเปลี่ยนได้ด้วย
+`AEGIS_IDEA3_AUDIT_DB_PATH` หากเปิดหรือเขียน audit ไม่สำเร็จ ระบบจะ fail closed และไม่คืน
+authenticated/action success ปลอม ส่วน session และ durable audit มี lifecycle แยกกัน:
+session ไม่ถูกอ้างว่าอยู่รอดข้าม process restart แต่ audit ที่ commit ลง SQLite จะยังอยู่
 
 Adapters ของ IDEA1/IDEA2 เป็น read-only HTTP consumers และปิดเป็น `NOT_CONFIGURED` จนกว่า
 owner ของแต่ละระบบจะจัดให้มี sanitized security endpoint ที่ได้รับการ review แล้ว ไม่มีการ
@@ -132,7 +140,7 @@ owner ของแต่ละระบบจะจัดให้มี sanitiz
 เพื่อดูตัวอย่าง IDEA1 audit, IDEA2 detection, IDEA3 runtime, ESP32 heartbeat/ACK, alerts
 และ correlated incident ได้ ข้อมูลตัวอย่างใช้ address ranges สำหรับเอกสารและมีแถบ
 `ข้อมูลจำลอง — ไม่ใช่สถานะระบบจริง` แสดงทุกหน้า ค่าเริ่มต้นของแต่ละ session ยังคงปิด
-และสามารถปิดความสามารถนี้ใน development ด้วย `AEGIS_WEB_DEMO_ALLOW=false`
+และสามารถปิดความสามารถนี้ใน development ด้วย `AEGIS_DEMO_ALLOWED=false`
 
 Production ปิด Demo Mode แบบบังคับแม้มีการพยายามตั้ง option ให้เปิด และ Demo Mode ไม่เรียก
 adapter จริง, MQTT, ESP32, Telegram, command gateway หรือ relay คำสั่ง CUT/RESTORE ยังคง
@@ -141,6 +149,28 @@ adapter จริง, MQTT, ESP32, Telegram, command gateway หรือ relay 
 รายละเอียดทั้งหมดดูที่ [`PROGRESS.md`](PROGRESS.md)
 
 ---
+
+## Windows Standalone Runtime (PR8)
+
+A one-folder Windows distribution is built from `windows/`: a launcher EXE plus a
+pinned Node runtime, the production Express server, and prebuilt React assets.
+Writable state (configuration, SQLite audit, logs, runtime status) lives outside
+the installed payload under `%LOCALAPPDATA%\AEGIS\IDEA3`, overridable with
+`AEGIS_DATA_DIR`.
+
+Operator commands: `configure`, `doctor`, `start`, `status`, `open`, `logs`, `stop`.
+Passwords are read from stdin only and stored as a bcrypt cost-12 hash.
+
+Default launch is lab/headless/dry-run with production Web authentication.
+Detector, voice, UFW, and the Tk GUI are unavailable in this candidate, and
+absent IDEA1/IDEA2 feeds and absent hardware remain `NOT_CONFIGURED`/`UNKNOWN`
+rather than reporting healthy.
+
+> `WINDOWS_BUILD_VERIFIED = NO`, `WINDOWS_SMOKE_VERIFIED = NO`. The build and
+> smoke scripts have not yet been executed on Windows; Linux source-side tests
+> are not acceptance evidence.
+
+See `windows/README.md` for layout, build, smoke, backup, upgrade, and rollback.
 
 ## Architecture
 

@@ -9,6 +9,13 @@ but they must not weaken or bypass these rules.
 Every task follows **one task → one branch → one Pull Request → one immutable
 Obsidian receipt**. Never push directly to `main`.
 
+A task may span multiple meaningful development sessions. Sessions remain on
+the same task branch and Pull Request, use canonical status plus Git checkpoints
+for continuity, and never create a receipt of their own. The mandatory session
+workflow is:
+
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/development-session-workflow.md`
+
 The workflow is designed to let IDEA1, IDEA2, IDEA3, and infrastructure work in
 parallel without losing another person's code or overwriting shared project
 knowledge.
@@ -25,11 +32,14 @@ An agent must not claim a task is complete unless:
 
 Before editing, read in this order:
 
-1. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md`
-2. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/08_Outstanding_Items_Consolidated.md`
-3. The selected area's MOC and status note from the ownership table below
-4. The 3–5 newest files in `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/`
-5. The source files, tests, deployment files, and open PR dependencies directly
+1. `AGENTS.md`
+2. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/development-session-workflow.md`
+3. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/START_HERE.md`
+4. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/agent-operating-rules.md`
+5. `Obsidian_AEGIS_Vault/AEGIS_Knowledge/summaries/08_Outstanding_Items_Consolidated.md`
+6. The selected area's MOC and status note from the ownership table below
+7. The 3–5 newest files in `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/`
+8. The source files, tests, deployment files, and open PR dependencies directly
    related to the task
 
 Do not infer current status from the Obsidian graph, filenames, screenshots, or
@@ -131,15 +141,18 @@ Whenever one or more cross-scope paths are changed:
 2. Set `integration-review: yes` in the PR policy block.
 3. List **every exact changed path** under PR `## Shared surfaces touched`, with
    the reason and affected area.
-4. List the same exact paths under receipt `## Shared surfaces touched`.
-5. Write a meaningful receipt `## Integration requests` entry naming the review,
-   decision, migration, rollout, or rollback required. `None` is invalid.
+4. At final task handoff, list the same exact paths under receipt
+   `## Shared surfaces touched`.
+5. At final task handoff, write a meaningful receipt `## Integration requests`
+   entry naming the review, decision, migration, rollout, or rollback required.
+   `None` is invalid.
 6. Explain downstream impact and rollback in the PR.
 7. Run both area-level verification and applicable integration/deployment checks.
 8. Do not mark the integration complete until the responsible reviewer accepts it.
 
-The collaboration policy check rejects a cross-scope path that is missing from
-either the PR or receipt.
+For a receipt-less Draft, the collaboration policy check enforces the PR
+declarations. Once the final receipt exists, it rejects a cross-scope path that
+is missing from either the PR or receipt.
 
 ## 6. Implement and verify honestly
 
@@ -166,7 +179,8 @@ clips, database dumps, dependencies, build output, or local AI settings.
 
 ### Always create one immutable receipt
 
-At the end of every task, copy `90-Status/logs/_template.md` and add exactly one:
+At the final handoff of every task, copy `90-Status/logs/_template.md` and add
+exactly one:
 
 ```text
 Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/YYYY-MM-DD_HHMMSS_<owner>_<topic>.md
@@ -186,14 +200,22 @@ The receipt must record:
 
 Receipts are **append-by-new-file**. Never edit, rename, or replace another
 task's receipt. Do not append new task entries to frozen legacy `log.md`.
+Meaningful sessions and checkpoint commits within the same task are tracked in
+the owner-maintained canonical status note under the session workflow; they do
+not create additional receipts.
 
 ### Update canonical notes only under the correct ownership rule
 
 - The functional owner updates their own area's MOC/status note in place when a
   durable implemented, tested, deployed, blocked, or maturity fact changed.
 - Replace stale facts; do not create duplicate notes for the same concept.
-- A non-owner does not directly rewrite another area's canonical note. Put the
-  exact proposed fact and target note under receipt `Integration requests`.
+- A non-owner does not directly rewrite another area's canonical note. When a
+  meaningful active session requires a live Current Task/Session Register, the
+  functional owner must either make that update or explicitly co-author/review
+  that narrowly scoped block before its documentation checkpoint. This does not
+  grant general ownership. If neither is available, record the session as
+  blocked; the final receipt still names the proposed fact and target note under
+  `Integration requests`.
 - Shared/Core canonical notes require Kla's integration review.
 - Update `index.md` only when a genuinely new canonical note is introduced.
 - Do not create graph links merely to make the Obsidian graph look denser.
@@ -209,7 +231,7 @@ Inspect and stage only intentional paths:
 ```bash
 git status --short
 git diff
-git add <exact-path-1> <exact-path-2> <receipt-path>
+git add <exact-path-1> <exact-path-2> [<receipt-path-at-final-handoff>]
 git diff --cached --check
 git diff --cached --name-status
 git commit -m "feat(idea2): describe the completed outcome"
@@ -232,14 +254,24 @@ The PR must include:
 - correct `area`, `owner`, and `integration-review` metadata;
 - concise summary and observable behavior;
 - exact verification commands/results;
-- the one new receipt path;
+- the one new receipt path, or `Pending — task still Draft/in progress` before
+  final handoff;
 - canonical notes updated;
 - exact shared/cross-scope paths and reasons;
 - migration, rollout, rollback, known limitations, and dependencies where relevant;
 - requested functional owner and integration reviewers.
 
-Keep the PR as Draft while implementation, evidence, dependency, or receipt work
-is incomplete. Mark it Ready only after local verification and policy checks pass.
+Keep the PR as Draft while implementation, evidence, dependency, or final
+receipt work is incomplete. A Draft multi-session task PR may legitimately have
+zero final receipts while the task is in progress, or one fully valid final
+receipt after closeout. Exactly one immutable final receipt is required before
+the PR becomes Ready/non-Draft for final review and merge. Mark it Ready only
+after local verification and policy checks pass.
+
+An agent may prepare, push, open, and maintain a Pull Request, but must never
+merge it. The responsible human owner or reviewer performs the merge after the
+required checks and approvals. No task instruction authorizes direct push to
+`main`, force-push, or agent merge.
 
 If another PR merges first:
 
@@ -250,8 +282,9 @@ git merge origin/main
 ```
 
 Resolve each conflict by reconciling both changes; never accept all of `ours` or
-`theirs` blindly. Re-run tests, update the receipt only if it is still part of the
-same unmerged task, push normally, and wait for checks again.
+`theirs` blindly. Re-run tests and update the one newly added receipt only when
+it belongs to this same unmerged task; receipts already present in the PR base
+remain immutable. Push normally and wait for checks again.
 
 ## 10. Completion gate
 

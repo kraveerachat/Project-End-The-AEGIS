@@ -1,0 +1,159 @@
+# AEGIS PUBLIC-SHARE-3 — dedicated share-only gateway.
+# Source/test configuration only. It does not provide TLS or Internet ingress.
+
+worker_processes 1;
+error_log /dev/stderr crit;
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+
+    # PUBLIC-SHARE-7 edge trust, GENERATED at container start by
+    # aegis-validate-public-share-edge.sh from PUBLIC_SHARE_EDGE_MODE and
+    # PUBLIC_SHARE_EDGE_PROXY_CIDR. It defines $aegis_edge_deny, and in managed
+    # mode also the realip canonicalisation that makes $remote_addr the actual
+    # recipient rather than the tunnel connector.
+    #
+    # ⚠️ An exact path, not a wildcard. A missing file is an nginx start-up
+    #    error, so a gateway whose trust model was never generated does not
+    #    start at all — and a template that referenced $aegis_edge_deny without
+    #    the map would fail variable initialisation for the same reason. Both
+    #    failures are the intended direction.
+    include /tmp/aegis-edge/http.conf;
+
+    # The bearer token lives in the URL. Neither access nor routine error logs
+    # may persist a URI, query, referrer, Host, or recipient address. The Drive
+    # application audit remains the canonical attribution record approved at G3.
+    log_format public_share_safe 'method=$request_method status=$status bytes=$body_bytes_sent request_time=$request_time upstream_time=$upstream_response_time';
+
+    # Conservative implementation default, not product policy. PUBLIC-SHARE-6
+    # may tune it from observed internal integration evidence.
+    #
+    # ⚠️ The KEY is the canonical recipient in both modes, and that is the whole
+    #    point of doing canonicalisation with realip rather than with a second
+    #    variable: in managed mode $binary_remote_addr is the provider-asserted
+    #    recipient, so two recipients arriving through the SAME tunnel connector
+    #    hold two independent buckets. Keying this on the connector instead
+    #    would let one recipient's burst rate-limit every other recipient in the
+    #    world — the T-05 self-DoS.
+    limit_req_zone $binary_remote_addr zone=public_share_edge:1m rate=5r/s;
+
+    # Regex locations see nginx's normalized URI. This map checks the untouched
+    # request target too, preventing `/s/token/../api` from normalizing into an
+    # apparently valid share route. Harmless query strings remain on /s/:token.
+    map $request_uri $public_share_route_ok {
+        default 0;
+        ~*^/s/[A-Za-z0-9_-]+/?(?:\?.*)?$ 1;
+    }
+
+    client_body_temp_path /tmp/client_temp;
+    proxy_temp_path /tmp/proxy_temp;
+    fastcgi_temp_path /tmp/fastcgi_temp;
+    uwsgi_temp_path /tmp/uwsgi_temp;
+    scgi_temp_path /tmp/scgi_temp;
+
+    # Unknown Host values terminate locally. No upstream is reachable here.
+    server {
+        listen 8080 default_server;
+        server_name _;
+        access_log /dev/stdout public_share_safe;
+        return 404;
+    }
+
+    # The only public listener that can reach Drive.
+    server {
+        listen 8080;
+        server_name $PUBLIC_SHARE_HOST;
+        access_log /dev/stdout public_share_safe;
+
+        location ~* ^/s/[A-Za-z0-9_-]+/?$ {
+            # Managed-proxy trust gate (PUBLIC-SHARE-7). Constant 0 in direct
+            # mode, so the delivered PUBLIC-SHARE-3 behaviour is unchanged. In
+            # managed mode it denies a peer that is not the pinned tunnel
+            # connector, a connector that sent no recipient identity, and a
+            # recipient identity that nginx could not canonicalise — before
+            # limit_req can consume a token and before any upstream contact.
+            if ($aegis_edge_deny) {
+                return 403;
+            }
+            if ($public_share_route_ok = 0) {
+                return 404;
+            }
+            if ($request_method !~ ^(GET|POST)$) {
+                return 405;
+            }
+
+            limit_req zone=public_share_edge burst=10 nodelay;
+            limit_req_status 429;
+
+            client_max_body_size 16k;
+            client_body_timeout 15s;
+            send_timeout 300s;
+
+            proxy_pass http://drive:8001;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 300s;
+
+            # Author the trust boundary; never append or relay caller values.
+            #
+            # $remote_addr is the CANONICAL RECIPIENT in both modes: the direct
+            # peer in direct mode, and the realip-substituted provider identity
+            # in managed mode. The gate above guarantees managed mode never gets
+            # here with $remote_addr still holding the connector, so these two
+            # headers keep their PUBLIC-SHARE-3 spelling and stay correct.
+            proxy_set_header Host $PUBLIC_SHARE_HOST;
+            proxy_set_header X-Forwarded-Host $PUBLIC_SHARE_HOST;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Forwarded "";
+            proxy_set_header X-Forwarded-Proto https;
+
+            # Provider identity headers are consumed HERE and never relayed.
+            # Drive's only source of client identity is req.ip via
+            # requestSourceIp(), derived from the X-Forwarded-For this gateway
+            # authors; a route that could also see CF-Connecting-IP would be one
+            # refactor away from parsing it. Stripping them in BOTH modes also
+            # means a direct caller cannot smuggle a provider header through a
+            # direct-mode gateway.
+            proxy_set_header CF-Connecting-IP "";
+            proxy_set_header CF-Connecting-IPv6 "";
+            proxy_set_header CF-Pseudo-IPv4 "";
+            proxy_set_header True-Client-IP "";
+            proxy_set_header CF-Visitor "";
+            proxy_set_header CF-IPCountry "";
+            proxy_set_header CF-Ray "";
+            proxy_set_header CF-Worker "";
+            proxy_set_header CDN-Loop "";
+        }
+
+        location / {
+            return 404;
+        }
+    }
+
+    # Container-local liveness only. The public listener has no health route.
+    server {
+        listen 127.0.0.1:8081;
+        server_name _;
+        access_log off;
+        default_type text/plain;
+
+        location = /healthz {
+            access_log off;
+            return 200 "ok\n";
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}

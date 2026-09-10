@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import ipaddress
 import json
 import logging
@@ -22,38 +21,29 @@ from . import config
 from . import database as db
 from .controller import AegisCommandController
 from .mqtt_client import MQTTManager
+from .platform_lock import AlreadyRunningError, ExclusiveFileLock
 from .runtime import RuntimeSettings, RuntimeState, RuntimeStatus
-
-
-class AlreadyRunningError(RuntimeError):
-    pass
 
 
 class InstanceLock:
     def __init__(self, settings: RuntimeSettings):
         self.settings = settings
-        self._handle = None
+        self._lock = ExclusiveFileLock(
+            settings.lock_path,
+            f"pid={os.getpid()}",
+        )
 
     def acquire(self) -> None:
         self.settings.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self._handle = self.settings.lock_path.open("a+", encoding="utf-8")
         try:
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            self._handle.close()
-            self._handle = None
-            raise AlreadyRunningError("another AEGIS supervisor holds the runtime lock") from exc
-        self._handle.seek(0)
-        self._handle.truncate()
-        self._handle.write(f"{os.getpid()}\n")
-        self._handle.flush()
-        self.settings.pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+            self._lock.acquire()
+            self.settings.pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+        except Exception:
+            self._lock.release()
+            raise
 
     def release(self) -> None:
-        if self._handle is not None:
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-            self._handle.close()
-            self._handle = None
+        self._lock.release()
         try:
             self.settings.pid_path.unlink()
         except FileNotFoundError:

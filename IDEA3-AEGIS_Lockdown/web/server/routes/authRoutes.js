@@ -21,11 +21,14 @@ function destroySession(req) {
   })
 }
 
-export function createAuthRouter({ config, loginLimiter }) {
+export function createAuthRouter({ config, loginLimiter, repository }) {
   const router = Router()
+  const rateLimitAuditKeys = new Set()
 
   router.get('/session', (req, res) => {
-    if (!req.session?.identity) return res.json({ authenticated: false })
+    if (!req.session?.identity || req.session.identity.role !== 'ADMIN') {
+      return res.json({ authenticated: false })
+    }
     return res.json({
       authenticated: true,
       identity: req.session.identity,
@@ -36,11 +39,20 @@ export function createAuthRouter({ config, loginLimiter }) {
   router.post('/login', requireSameOrigin, async (req, res, next) => {
     try {
       const key = req.ip || 'unknown'
-      if (!loginLimiter.check(key).allowed) {
+      const limitStatus = loginLimiter.check(key)
+      if (!limitStatus.allowed) {
+        if (!rateLimitAuditKeys.has(key)) {
+          repository.recordAction({
+            category: 'AUTH', action: 'LOGIN', outcome: 'RATE_LIMITED', actorRef: 'anonymous',
+            resourceType: 'session', resourceId: 'current',
+          })
+          rateLimitAuditKeys.add(key)
+        }
         return res.status(429).json({
           error: { code: 'RATE_LIMITED', message: 'ลองใหม่ภายหลัง' },
         })
       }
+      rateLimitAuditKeys.delete(key)
 
       const parsed = credentialsSchema.safeParse(req.body)
       const identity = parsed.success
@@ -49,18 +61,32 @@ export function createAuthRouter({ config, loginLimiter }) {
 
       if (!identity) {
         loginLimiter.recordFailure(key)
+        repository.recordAction({
+          category: 'AUTH', action: 'LOGIN', outcome: 'FAILURE', actorRef: 'anonymous',
+          resourceType: 'session', resourceId: 'current',
+        })
         return res.status(401).json({
           error: { code: 'AUTH_FAILED', message: 'เข้าสู่ระบบไม่สำเร็จ' },
         })
       }
 
-      loginLimiter.clear(key)
       await regenerateSession(req)
+      const csrfToken = randomBytes(32).toString('hex')
+      try {
+        repository.recordAction({
+          category: 'AUTH', action: 'LOGIN', outcome: 'SUCCESS', actorRef: 'session-admin',
+          resourceType: 'session', resourceId: 'current',
+        })
+      } catch (error) {
+        try { await destroySession(req) } catch {}
+        throw error
+      }
+      loginLimiter.clear(key)
       req.session.identity = identity
-      req.session.csrfToken = randomBytes(32).toString('hex')
+      req.session.csrfToken = csrfToken
       req.session.demoMode = false
 
-      return res.json({ identity, csrfToken: req.session.csrfToken, demoMode: false })
+      return res.json({ identity, csrfToken, demoMode: false })
     } catch (error) {
       next(error)
     }
@@ -72,6 +98,10 @@ export function createAuthRouter({ config, loginLimiter }) {
 
   router.post('/logout', requireSameOrigin, requireAdmin, requireCsrf, async (req, res, next) => {
     try {
+      repository.recordAction({
+        category: 'AUTH', action: 'LOGOUT', outcome: 'SUCCESS', actorRef: 'session-admin',
+        resourceType: 'session', resourceId: 'current',
+      })
       await destroySession(req)
       res.status(204).end()
     } catch (error) {

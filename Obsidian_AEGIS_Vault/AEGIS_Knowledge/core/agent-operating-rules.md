@@ -4,8 +4,8 @@ aliases: ["06 - 🤖 Agent Operating Rules"]
 tags: [aegis, agent, workflow, rules, automation, ai]
 type: module
 created: 2026-08-06
-updated: 2026-08-13
-sources: ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"]
+updated: 2026-09-10
+sources: ["AGENTS.md", "[[core/development-session-workflow]]", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"]
 owner: kla
 edit_policy: owner-only
 ---
@@ -34,18 +34,24 @@ These are the load-bearing constraints every agent and every commit must respect
 ## Branch → scope → test → receipt → Pull Request
 
 All humans and AI agents follow **one task, one branch, one Pull Request, one
-immutable receipt**. Nobody pushes directly to `main`. The complete executable
-runbook is `AGENTS.md`; this note records the durable knowledge model behind it.
+immutable final receipt**. A task may span multiple meaningful development
+sessions, but sessions remain on the same branch/PR and use canonical status plus
+Git checkpoints instead of additional receipts. Nobody pushes directly to
+`main`, force-pushes shared work, or lets an agent merge the task PR. The complete
+executable runbook is `AGENTS.md`; [[core/development-session-workflow]] is the
+canonical session/checkpoint/handoff contract behind it.
 
 ```mermaid
 flowchart LR
     Main["Current origin/main"] --> Branch["One task branch"]
     Branch --> Scope["Select one area and declare shared paths"]
     Scope --> Work["Scoped code and canonical facts"]
-    Work --> Test["Run affected verification"]
-    Test --> Receipt["Create one new 90-Status/logs receipt"]
-    Receipt --> PR["Pull Request + owner review"]
-    PR --> Main
+    Work --> Session["Meaningful sessions + canonical checkpoints"]
+    Session --> Test["Run affected verification"]
+    Test --> DraftPR["Publish or maintain Draft PR"]
+    DraftPR --> Receipt["Final handoff: create one receipt"]
+    Receipt --> Ready["Ready PR + owner review"]
+    Ready --> Main
 ```
 
 ### Ownership and current maturity
@@ -72,13 +78,16 @@ agent must:
 1. keep the infrastructure change to the minimum necessary;
 2. set PR metadata `integration-review: yes`;
 3. list every exact path under PR `Shared surfaces touched`;
-4. repeat the same exact paths under receipt `Shared surfaces touched`;
-5. describe the owner decision, rollout, migration, or rollback under receipt
-   `Integration requests`; and
+4. at final task handoff, repeat the same exact paths under receipt `Shared
+   surfaces touched`;
+5. at final task handoff, describe the owner decision, rollout, migration, or
+   rollback under receipt `Integration requests`; and
 6. run area verification plus the applicable integration/deployment check.
 
-The GitHub collaboration validator enforces both declarations. A PR-only
-declaration is insufficient because future agents read receipts from Obsidian.
+For a receipt-less Draft, the GitHub collaboration validator enforces the PR
+declarations. At final handoff it enforces both PR and receipt declarations; a
+PR-only declaration is then insufficient because future agents read receipts
+from Obsidian.
 
 ### Branch and publication sequence
 
@@ -97,7 +106,34 @@ against that dependency until it merges. Before publication, inspect the diff,
 stage exact paths, commit, and push the branch with `git push -u origin
 <branch-name>`. Force-push is prohibited.
 
-### Mandatory Obsidian receipt after every completed task
+When `origin/main` advances during an unmerged task, merge it into the task
+branch and reconcile both sides; do not rebase shared work. An agent may prepare
+and maintain the PR, but the responsible human owner/reviewer merges it.
+
+Keep a multi-session task PR Draft while implementation, evidence, or final
+closeout remains incomplete. A Draft PR may have zero final receipts while the
+task is in progress, or one fully validated final receipt after closeout.
+Exactly one immutable final receipt is required before Ready/non-Draft review.
+
+### Task lifecycle versus development sessions
+
+The task lifecycle remains the unit of branch, PR, and receipt ownership.
+Sessions are coherent implementation/evidence phases inside that lifecycle:
+
+```text
+one task branch + one PR
+→ S1..Sn plans, evidence and checkpoint SHAs
+→ one final immutable receipt
+```
+
+The active task's owner-maintained canonical status note carries its Current
+Task record, Session Register, planned/completed/remaining view, evidence, and
+handoff. A session or checkpoint never creates another receipt. The narrow case
+where a neutral environment only publishes an already-committed exact task SHA
+also creates no second receipt; its full guardrails are in
+[[core/development-session-workflow]].
+
+### Mandatory Obsidian receipt at final task handoff
 
 Create exactly one new file:
 
@@ -106,15 +142,25 @@ Create exactly one new file:
 Copy `90-Status/logs/_template.md`. Record exact changed paths, verification commands
 and results, canonical notes updated, shared surfaces, integration requests, and known
 limitations. Never edit another task's receipt and never add a new task entry to legacy
-[[log]]. This append-by-new-file pattern allows IDEA1 and IDEA2 to finish concurrently.
+[[log]]. Do not create one per session or checkpoint. This append-by-new-file pattern
+allows IDEA1 and IDEA2 to finish concurrently.
+
+While the task PR is unmerged, its one newly added receipt may be corrected in
+place if review changes the final truth. After merge it is historical and
+immutable; no later task edits it. The receipt records the final
+implementation/evidence checkpoint, while the later receipt-bearing commit SHA
+belongs in the PR/final report because a commit cannot contain its own SHA.
 
 Update a canonical module/concept note only when its durable implementation fact
 changed; replace stale claims in place and do not duplicate notes. An area's
 functional owner updates that area's canonical notes. A non-owner records the
 proposed fact and exact target note under `Integration requests` instead of
-rewriting another owner's source of truth. Update [[index]] only when a genuinely
-new canonical note is introduced. Broad vault restructuring remains an
-integration-owner task, not part of every feature branch.
+rewriting another owner's source of truth. For a live multi-session task, the
+owner either makes the Current Task/Session Register update or explicitly
+co-authors/reviews that narrowly scoped block; otherwise the session is blocked.
+Update [[index]] only when a genuinely new canonical note is introduced. Broad
+vault restructuring remains an integration-owner task, not part of every feature
+branch.
 
 See [[.schema.md]] for the directory layout and receipt contract.
 

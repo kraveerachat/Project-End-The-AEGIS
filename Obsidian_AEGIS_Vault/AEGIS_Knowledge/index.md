@@ -3,7 +3,7 @@ title: AEGIS LLM Wiki Catalog Index
 tags: [aegis, wiki, index, catalog]
 type: catalog
 created: 2026-07-20
-updated: 2026-09-07
+updated: 2026-09-09
 owner: kla
 edit_policy: owner-only
 ---
@@ -35,6 +35,7 @@ edit_policy: owner-only
 * [[core/system-context]] — Preserved detailed architecture content embedded by [[core/system-overview]]
 * [[core/integration-points]] — Cross-module contracts reviewed by the integration owner
 * [[core/agent-operating-rules]] — **[NEW 2026-08-06]** The 4 core principles, the mandatory post-prompt sync procedure, the repo-doc → vault map, and the vault-scope fix for the scattered graph
+* [[core/development-session-workflow]] — **[NEW 2026-09-09]** Mandatory task/session state, evidence, checkpoint, handoff, publication-only transfer, final receipt, and human-merge workflow
 * [[core/design-system-ui-language]] — **[NEW 2026-08-06]** Product register, Precision Light / Modern Elevated lineage, measured contrast rules, and the documented `DESIGN.md`-vs-shipped drift
 
 ---

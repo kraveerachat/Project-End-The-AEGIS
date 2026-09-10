@@ -26,7 +26,14 @@ Do not delete the collaboration-policy block.
 
 ## Obsidian receipt
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/YYYY-MM-DD_HHMMSS_owner_topic.md`
+- Pending — task still Draft/in progress.
+
+<!--
+A Draft multi-session task PR may have no final receipt yet. At final task
+handoff, replace Pending with the one immutable receipt path before marking the
+PR Ready/non-Draft. A Draft may also contain that one valid final receipt while
+awaiting the human Ready transition.
+-->
 
 ## Canonical notes updated
 
@@ -56,7 +63,9 @@ None
 
 - [ ] Scope and policy metadata match the actual changed paths.
 - [ ] Tests are reproducible and results are recorded honestly.
-- [ ] Exactly one new Obsidian task receipt is included.
+- [ ] Draft/in-progress receipt status is truthful; a Draft may contain zero or
+      one final receipt.
+- [ ] If Ready/non-Draft, exactly one valid immutable final task receipt is included.
 - [ ] Shared changes are explicitly listed and integration-reviewed.
 - [ ] No secrets, `.env`, credentials, tokens, recordings, or generated dependencies are included.
 - [ ] The branch was updated from current `main` after any competing PR merged.

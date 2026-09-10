@@ -16,6 +16,7 @@ import { shareRouter } from './routes/share.js'
 import { checkDb } from './db/connection.js'
 import { checkStorage } from './storage/fileStore.js'
 import { trustedProxyFromEnv } from './config/trustedProxy.js'
+import { publicShareConfigFromEnv } from './config/publicShare.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -28,6 +29,12 @@ export function createApp({ env = process.env } = {}) {
   // default to no proxy; production fails closed when the boundary is absent.
   // req.ip remains Express-owned — routes never parse forwarding headers.
   app.set('trust proxy', trustedProxyFromEnv(env))
+  // Public Share backend contract (PUBLIC-SHARE-2): parsed and frozen ONCE here
+  // so routes read one immutable object instead of process.env per request —
+  // tests inject env through createApp({ env }), and a per-request global read
+  // would make behaviour depend on whatever the process last set. A malformed
+  // value throws here, before the app can serve anything.
+  app.set('publicShareConfig', publicShareConfigFromEnv(env))
   app.disable('x-powered-by') // ไม่ประกาศว่าเป็น Express — ลด fingerprinting
 
   app.use(securityHeaders)                 // ทุก response มี CSP/XFO/HSTS ครบ

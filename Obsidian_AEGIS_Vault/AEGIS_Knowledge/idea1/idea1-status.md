@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-06
+updated: 2026-09-10
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -105,6 +105,215 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
+## Current Task — PUBLIC-SHARE-7 S5.3 Production Drive/Database Preparation
+
+| Field | Current value |
+| :--- | :--- |
+| Task | `PUBLIC-SHARE-7 S5.3 Production Drive/Database Preparation` |
+| Branch | `feat/idea1-public-share-s5-3-drive-db-preparation` |
+| Owner | `kla` |
+| Pull Request | #114 |
+| Current state | **CLOSED / PASS** |
+| Started | 2026-09-10 |
+| Starting SHA | `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` — PR #113 merge commit and frozen S5.3 release source |
+| Last checkpoint | `a3515e39eb6b4e4bcd32ad0f1ca2d1dc09323812` (opening); closeout commit pending PR #114 |
+| Production mutation allowed | **YES — narrow S5.3 scope only (COMPLETED)** |
+
+### Goal
+
+Prepare the Production Drive/database boundary for later Public Share work:
+freeze the exact release source, complete both backup gates, apply and prove
+migration 009 idempotently, and roll out only Drive in its existing private
+network mode with the Public Share UI disabled. Stop before S5.4.
+
+### G4 decision — APPROVED on 2026-09-09
+
+The owner selected **§13 Option B / Managed Tunnel**:
+
+```text
+External Internet recipient
+→ Cloudflare Edge HTTPS
+→ named Cloudflare Tunnel
+→ isolated outbound-only cloudflared connector
+→ dedicated Public Share Gateway
+→ dedicated Gateway→Drive network
+→ AEGIS Drive
+```
+
+The decision explicitly accepts the documented residual trade-offs: under
+**T-14**, Cloudflare/provider infrastructure may observe or log a public share
+URL whose path contains the bearer token; under **T-27**, recipient attribution
+depends on provider-asserted `CF-Connecting-IP`, accepted only through the
+pre-exposure-tested pinned-connector adapter. Option B was chosen because the
+measured site is behind upstream NAT/CGNAT, inbound forwarding is not practical,
+and the existing perimeter posture has no inbound Internet listener.
+
+G4 approval selects the architecture only. It does **not** approve exposure and
+does not prove a tunnel, DNS, TLS, connector isolation, or public recipient flow.
+**G5 remains OPEN. G6 remains OPEN. Public Internet Share remains NOT
+IMPLEMENTED.**
+
+### S5.3 scope
+
+- Freeze release source `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
+  in an isolated Production release checkout; never build from the stale
+  Production working tree.
+- Re-run the hardened Backup Agent manual backup and isolated restore
+  verification, then create and validate one separate root-protected PostgreSQL
+  custom-format backup.
+- Record non-secret database aggregates/digest, apply migration 009 with
+  `ON_ERROR_STOP=1`, reapply it to prove idempotence, and prove the Drive
+  application role cannot alter the table.
+- Build/tag only the Drive image, capture an immutable rollback tag, and
+  recreate only the Drive service through the measured Production Compose
+  chain plus a minimal S5.3 override.
+- Keep Drive on its three existing private networks, keep
+  `PUBLIC_SHARE_UI_ENABLED=false`, and prove private and unrelated-service
+  regression without exposing credentials or user content.
+- Reconcile the post-S5.2 owner firewall/DNS measurement as later evidence;
+  preserve the historical S5.2 receipt as immutable PARTIAL.
+
+### Out of scope for S5.3
+
+- S5.4 or later Public Share network/gateway/connector work.
+- Creating `172.31.240.0/29`, `172.31.241.0/29`, or `172.31.242.0/29`, or
+  attaching Drive to any Public Share network.
+- Installing/running `cloudflared`; tunnel, DNS, TLS, UFW, iptables, nftables,
+  MikroTik, VLAN, Twingate, NAT, route, or public-listener mutation.
+- Monitor/HUB mutation, PostgreSQL recreation, whole-stack Compose operations,
+  prune operations, protected-volume deletion/replacement, Production `.env`
+  reads/edits, G5/G6 approval, Internet exposure, and UI activation.
+
+### Safety boundaries
+
+- `PRODUCTION MUTATION ALLOWED = YES` only for the explicitly authorised S5.3
+  backup, additive migration, release-image, runtime-override, and Drive-only
+  recreation operations.
+- Never expose credentials, tunnel tokens, `.env` contents, private keys, raw
+  share tokens, or bearer URLs in Git, chat, commands, screenshots, or logs.
+- Never use blind `git pull` followed by whole-stack
+  `docker compose up --build -d` on Production.
+- Preserve the current Drive, Monitor, HUB, PostgreSQL and Twingate runtime
+  identities unless a later separately approved step explicitly changes Drive.
+- Preserve `aegis_drive_storage` and `aegis_postgres_data`; never use destructive
+  volume/database cleanup as deployment or rollback.
+- Keep `PUBLIC_SHARE_UI_ENABLED=false` until G6.
+
+### Acceptance criteria
+
+- Fresh Production preflight matches every load-bearing baseline before any
+  mutation; unexplained drift stops the task rather than being auto-repaired.
+- Both Backup Agent gates and the separate PostgreSQL custom dump/list gate pass
+  before migration 009 runs.
+- Migration 009 is applied transactionally, row aggregates/digest stay stable,
+  `scope=public` remains zero, the second run proves idempotence, and application
+  alter authority remains absent.
+- The frozen Drive image carries the exact OCI revision, only Drive is recreated,
+  health/private regression passes, and Monitor/HUB/PostgreSQL/Twingate keep
+  their identities and health.
+- Public Share UI stays off; gateway, connector, public networks/listener,
+  DNS/TLS route and Internet exposure remain absent.
+- G5/G6 remain OPEN, domain ownership is verified OWNED (no DNS/tunnel/TLS
+  route activated), and S5.4/S5.5 remain NOT STARTED.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| S5.1 | Production freeze + deployment/rollback plan; documentation only | **MERGED / HISTORICAL PASS** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`; PR #111 merge `618543ee0d88613a651305962b5ed64c8593c2e5` | **PASS** | No retroactive receipt; historical governance-transition outcome | superseded by separately governed S5.2 task |
+| S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **MERGED / HISTORICAL PARTIAL** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access. Post-S5.2 owner measurement later established Docker 29.7.1 iptables backend, iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny, IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success and TCP/7844 PASS. | `c2fd417c328d34a776b43f749a203a89a5d502d7`; PR #113 merge `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` | **PARTIAL — design frozen; measurement gap subsequently closed by owner** | domain/zone proof; fresh Cloudflare allowlist and exact S5.5 firewall implementation; G5 remains OPEN | superseded by this separately authorised S5.3 task |
+| S5.3 | Production Drive/database preparation and migration 009 | **CLOSED / PASS** | Production pre-mutation gate matched frozen baseline; Backup Agent job `0122772c-640a-45b7-a30b-8a2c70cca942` SUCCESS (integrity PASS); restore verify job `e91750fa-73d6-4759-8e38-98d10b6c1304` SUCCESS (integrity PASS, restore verify PASS); root dump `aegis_drive-pre-009-20260910T102518Z.dump` (size 93161, sha256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries PASS); migration 009 SHA-256 `e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0` applied transactionally, row count (25 total, 0 public) and non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15` preserved, second run idempotent, `drive_app` non-superuser/no ALTER authority; Drive built `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df` tagged `aegis-prod-drive:public-share-50ce6e1638`, rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z`, container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf` recreated on 3 private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`), protected volumes preserved, unrelated services healthy; private smoke/browser PASS, public UI hidden, ANY share create/redeem/revoke PASS (owner-confirmed S5.3), ZONES share PASS (owner-confirmed, corroborated by historical B4 Production Network Scope acceptance), Storage and Audit carried-forward as HISTORICAL_PASS (accepted evidence; not re-executed as new S5.3 browser acceptance); domain ownership OWNED (`aegistk-pb.com` / Cloudflare) | PR #114 | **PASS** | G5/G6 remain OPEN; S5.4/S5.5 remain NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.4 dedicated public networks and gateway deployment |
+| S5.4 | Dedicated Public Share networks + gateway deployment | NOT STARTED | — | — | — | isolated gateway runtime | after S5.3 |
+| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | NOT STARTED | — | — | — | connector isolation proof and G5 | after S5.4 |
+| G5 | Owner authorises actual Internet exposure | **OPEN** | — | — | — | public hostname activation | only after S5.5 evidence |
+| S5.6 | Public hostname, DNS and TLS activation | NOT STARTED | — | — | — | external security acceptance | requires G5 |
+| S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
+| S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
+| S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
+| S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
+| G6 | Owner accepts completion and authorises UI activation | **OPEN** | — | — | — | UI activation | only after S5.10 evidence |
+| S5.11 | Enable Public Share UI last | NOT STARTED | — | — | — | final E2E | requires G6 |
+| S5.12 | Final E2E, canonical closeout and one immutable task receipt | NOT STARTED | — | — | — | task closure | after S5.11 |
+
+### Owner-supplied measured Production baseline — frozen for planning
+
+No value below was reproduced from Windows in S5.1.
+
+| Boundary | Owner-supplied evidence |
+| :--- | :--- |
+| GitHub source | `origin/main = d32885b36c08c71dc5719109de12ed8ac8f6589e` |
+| Production checkout | `/opt/aegis/Project-End-The-AEGIS`, branch `main`, clean, HEAD `2806373bb300728a0babb953a63f98bcd714ffef`, intentionally stale |
+| Runtime Compose | `/opt/aegis/runtime/docker-compose.production.yml`; SHA-256 `5aae5cd7ded537f9124d2af8733d076f177871e0d3757208bf0c4a61fc635193` |
+| Production `.env` | metadata only: `root:root`, mode `0600`; contents not read or copied |
+| Drive | healthy; image `sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1`; OCI revision `913758a3111fb74e31eb55b7982a84d127cae8f5` |
+| Monitor | healthy; image ID `sha256:9a3c20428308ab685a2037b72953adaa9621f327e88a9c6ea600f1bebbb4a4d9`; active overlay `/opt/aegis/runtime/monitor-single-camera-ui-20260906-204814/compose.active.yml` |
+| HUB | healthy; image ID `sha256:8c365f8c8ae82b61d9e9048cb05afccb2e580b03b73a849edc8d830f99d560fc`; reliable OCI revision not proven |
+| PostgreSQL / Twingate | `aegis-prod-postgres-1` and `twingate-aegis-connector-02` healthy |
+| Protected volumes | `aegis_drive_storage` and `aegis_postgres_data` present |
+| Database | `shares_scope_check` permits only `any`, `zones`, `vlan`, `subnet`; migration 009 **NOT APPLIED** |
+| Public gateway / connector | no Production gateway/network; `cloudflared` not installed; service inactive |
+| Perimeter | UFW active, incoming/routed deny, outgoing allow; no Public Share ingress |
+| Public names | `aegistk-pb.com` and `share.aegistk-pb.com` = NXDOMAIN through Cloudflare and Google DoH; ownership/zone not verified |
+| Runtime provenance | **PARTIALLY KNOWN**; whole-stack rebuild is prohibited |
+
+### S5.3 Production measured baseline — 2026-09-10
+
+| Boundary | Owner-supplied measured evidence |
+| :--- | :--- |
+| Release source | `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` (tree `709f7407cd602f7d43ae8ebd387eb46e2e99a865`) in `/opt/aegis/releases/public-share/50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` |
+| Production checkout | `/opt/aegis/Project-End-The-AEGIS`, branch `main`, clean, HEAD `2806373bb300728a0babb953a63f98bcd714ffef`, intentionally stale and untouched |
+| Backup Agent manual backup | Job `0122772c-640a-45b7-a30b-8a2c70cca942`, status `SUCCESS`, snapshot `3eb550a1621c004f55cdbd8ddd88b65250fcb663b5dea98cc76c6ca3ab45656d`, integrity `PASS` |
+| Backup Agent restore verify | Job `e91750fa-73d6-4759-8e38-98d10b6c1304`, status `SUCCESS`, integrity `PASS`, restore verification `PASS` |
+| PostgreSQL custom backup | `/root/aegis-s5-3/aegis_drive-pre-009-20260910T102518Z.dump`, mode `0600`, size 93,161 bytes, SHA-256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries `PASS` |
+| Database migration 009 | SQL SHA-256 `e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0`. Applied transactionally; `shares_scope_check` permits `any, zones, public, vlan, subnet`. Row count (25 total, 0 public) and non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15` preserved. Second run proved idempotence. `drive_app` role is non-superuser with no ALTER authority |
+| Drive runtime | Built `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df` tagged `aegis-prod-drive:public-share-50ce6e1638` (OCI revision `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`). Rollback tag: `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z` on `sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1`. Override `/opt/aegis/runtime/public-share/drive-s5-3.yml` (SHA-256 `324fb5126b2f13f7b1c529ef1391131ef37f81acc8c3921b9b50f649b179de62`). Container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf` recreated |
+| Drive networks & volumes | Retains three private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`). Protected volumes `aegis_drive_storage` and `aegis_postgres_data` present |
+| Unrelated services | Monitor (`sha256:9a3c2042...`), HUB (`sha256:8c365f8c...`), PostgreSQL (`aegis-prod-postgres-1`), Twingate (`twingate-aegis-connector-02`) all healthy and untouched |
+| Public gateway & connector | Absent; no Public Share networks created; `cloudflared` not installed; no public listeners |
+| Domain ownership | `DOMAIN_OWNERSHIP=OWNED`, `DOMAIN=aegistk-pb.com`, `REGISTRAR=Cloudflare`. Proves ownership only; NO DNS/tunnel/TLS route activated |
+| Private regression | HTTP 200/401 `PASS`; HUB login `PASS`; Files `PASS`; public UI hidden (Internet card not ready / not selectable); ANY share lifecycle `PASS` (classification: owner-confirmed S5.3); ZONES share `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance) |
+| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = CLOSED / PASS, S5.4 = NOT STARTED, S5.5 = NOT STARTED, G5 = OPEN, G6 = OPEN, Public Internet Share = NOT IMPLEMENTED, UI = OFF |
+
+### Done / Remaining / Next
+
+**Done before S5.3:** G4 was recorded, S5.1 merged through PR #111 (`618543ee...`),
+and S5.2 merged through PR #113 (`50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`).
+Post-S5.2 owner measurement established Docker 29.7.1 iptables backend,
+iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny,
+IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success, and TCP/7844 PASS.
+
+**Done in S5.3:** Release source `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
+(tree `709f7407cd602f7d43ae8ebd387eb46e2e99a865`) deployed via dedicated release
+checkout. Fail-closed pre-mutation gate verified against frozen baseline.
+Both backup boundaries passed: Backup Agent manual backup (`0122772c-...`) and
+restore verification (`e91750fa-...`) both `SUCCESS` / `PASS`; root-protected
+PostgreSQL custom dump created and verified (size 93,161 bytes, SHA-256 `2310220d...`,
+restore list 106 entries `PASS`). Migration 009 applied transactionally with
+`ON_ERROR_STOP=1`; constraint updated to include `public`; row count (25 total,
+0 public) and non-secret digest preserved; second run proved idempotence; `drive_app`
+application role verified non-superuser with no ALTER authority. Drive image
+`sha256:04d2f814...` built and tagged `aegis-prod-drive:public-share-50ce6e1638`;
+rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z`
+captured; Drive container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf`
+recreated with override `/opt/aegis/runtime/public-share/drive-s5-3.yml` (SHA-256 `324fb5126b2f13f7b1c529ef1391131ef37f81acc8c3921b9b50f649b179de62`)
+on existing three private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`).
+Protected volumes preserved; Monitor, HUB, PostgreSQL, and Twingate untouched
+and healthy. Private smoke, login, Files, ANY share lifecycle PASS (classification: owner-confirmed S5.3),
+ZONES share PASS (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance),
+and public UI hidden verified; Storage and Audit carried-forward as HISTORICAL_PASS
+(classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance).
+Domain ownership verified `OWNED` (`aegistk-pb.com` on Cloudflare).
+
+**Remaining / blocked:** S5.4 dedicated public networks and gateway deployment,
+S5.5 connector deployment, G5 exposure authorisation, S5.6–S5.10 external
+verification and rollback rehearsal, G6 UI activation authorisation, S5.11 UI
+enablement. G5 and G6 remain OPEN. Public Internet Share remains NOT IMPLEMENTED.
+Public Share UI remains disabled (`PUBLIC_SHARE_UI_ENABLED=false`).
+
+**Next:** S5.4 dedicated Public Share networks and gateway deployment under a
+separate authorised task/branch/PR after PR #114 is merged. Do NOT start S5.4,
+create Public Share networks, or deploy gateway from this checkpoint.
+
 ### Current acceptance reconciliation — 2026-09-06
 
 > [!important] Authoritative current-state override
@@ -115,7 +324,7 @@ edit_policy: owner-writable
 | Dashboard | ✅ PASS / CLOSED |
 | Files | ✅ PASS / CLOSED |
 | Private Vault | ✅ PASS / CLOSED for tested scope |
-| Secure Shares | ✅ PASS / CLOSED for private/internal scope; public external gateway remains NOT IMPLEMENTED |
+| Secure Shares | ✅ PASS / CLOSED for private/internal scope; Public Internet Share remains NOT IMPLEMENTED |
 | File History | ✅ PASS / CLOSED |
 | Protected Trash | ✅ PASS / CLOSED for functional/manual workflow |
 | Audit Log | ✅ PASS / CLOSED |
@@ -317,7 +526,7 @@ Confirmed locally in the same pass:
 | Password-protected share | ✅ **VERIFIED IN PRODUCTION / RESOLVED** | A3 PASS; duplicated `/drive/s/s/:token` = **NO**. A4 confirmed a wrong password is denied, and A5 confirmed no-password sharing still passes. The earlier relative-action defect is historical and superseded by PR #24 acceptance. |
 | Share Copy | ✅ **VERIFIED IN PRODUCTION** | A7 Share Copy = PASS; production displays the AEGIS-reachable scope semantics introduced by Batch A. |
 | Network-scoped share | ✅ **VERIFIED IN PRODUCTION / PASS / CLOSED** | B4.3 proved direct-source CIDR allow/deny behavior and trusted-proxy spoof resistance. The engine enforces the canonical source observed by the application. Twingate endpoint-subnet attribution remains limited as documented below; this topology limitation is not an application enforcement failure. |
-| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. The desired future mode is a separate share-only public gateway exposing only `GET /s/:token` and `POST /s/:token`; no such public gateway exists today. |
+| Public external share | ⚪ **NOT IMPLEMENTED** | `aegis.internal` remains private and Twingate-reachable only. Dedicated share-only gateway source and the Shares UI now both exist and are locally verified, but no gateway is deployed, no ingress/DNS/TLS exists, and the UI capability ships **off by default** on every deployment. |
 
 The current route implementation performs password, expiry, revoke, rate-limit,
 Vault exclusion, and CIDR checks at the application layer.
@@ -409,6 +618,796 @@ Final cleanup state: `B4_TEMP_SHARES=NONE`, `B4_TEMP_ZONES=NONE`,
 `B4_TEMP_CONTAINERS=NONE`, and `B4_POST_CLEANUP=PASS / CLOSED`.
 
 Public Share remains not implemented.
+
+### PUBLIC-SHARE-7 pre-exposure managed-tunnel adapter — PASS; PS7 overall IN PROGRESS (2026-09-08 → 2026-09-09)
+
+> [!success] Pre-exposure task = PASS. PUBLIC-SHARE-7 overall = IN PROGRESS
+> **The Managed-Tunnel Edge Adapter + Pre-Exposure Acceptance task is COMPLETE
+> and its Docker runtime acceptance passed 20/20 (Session S4 below).**
+>
+> ⚠️ **That is not PUBLIC-SHARE-7.** Everything requiring the real Internet is
+> still untouched: **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet
+> acceptance = **NOT RUN**, **G5 and G6 remain OPEN**, and
+> `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
+> certificate, NAT rule, firewall change, VLAN change, Twingate change or
+> Production change was made by this work.
+
+#### Plan and scope
+
+G4's practical direction is **Managed Tunnel (§13 Option B)**: the PS7-01
+read-only survey measured the Beelink behind upstream NAT/CGNAT (WAN
+`192.168.1.100`, upstream `100.108.0.1`, public egress `184.22.149.147`), so
+Option A's inbound port-forward is not available on the current topology. ⚠️ The
+**G4 gate itself is still the owner's to record**; this work builds the adapter
+that Option B requires and does not mark the decision as taken.
+
+The sub-session goal is the code-only half: the **managed-tunnel trust adapter**
+plus a **pre-exposure security harness**, so several PS7 matrix rows can be
+proven in one run. Real Internet exposure is **deliberately deferred** to the
+later external phase.
+
+#### Work performed
+
+- **A second fail-closed startup gate** in the Public Share Gateway image.
+  `PUBLIC_SHARE_EDGE_MODE` (`direct` default, or `cloudflare`) and
+  `PUBLIC_SHARE_EDGE_PROXY_CIDR` (one pinned connector `/32`, required *iff*
+  managed mode) are validated character by character and then **generate**
+  `/tmp/aegis-edge/http.conf`, which the template includes at an exact path.
+  Nothing new passes through envsubst, so
+  `NGINX_ENVSUBST_FILTER=^PUBLIC_SHARE_HOST$` is unchanged.
+- **Pinned connector identity.** Only one immediate TCP peer may assert
+  recipient identity. A range, a bare address, a list, a loopback, an
+  unspecified or multicast address, an injected directive, an ambiguous mode, a
+  connector without managed mode, or managed mode without a connector all
+  refuse to start and render no trust file.
+- **Real-IP canonicalisation** through nginx's own `realip` module behind the
+  pinned peer only, so `$remote_addr`/`$binary_remote_addr` become the canonical
+  recipient and every PUBLIC-SHARE-3 directive keeps its spelling.
+- **Provider-header stripping** before Drive, in **both** modes:
+  `CF-Connecting-IP`, `CF-Connecting-IPv6`, `CF-Pseudo-IPv4`, `True-Client-IP`,
+  `CF-Visitor`, `CF-IPCountry`, `CF-Ray`, `CF-Worker`, `CDN-Loop`.
+- **Per-recipient rate-limit identity.** The edge limit stays keyed on
+  `$binary_remote_addr`, which canonicalisation makes the recipient rather than
+  the connector — the T-05 self-DoS is what keying on the connector would cause.
+- **Direct-mode compatibility preserved.** With the variables unset the
+  generated file defines `$aegis_edge_deny` as a constant `0`, so the delivered
+  PUBLIC-SHARE-3/6 behaviour is unchanged and the shared gate is inert.
+- **Drive's trust model is NOT widened.** `server/request/sourceIp.js`,
+  `server/request/ingress.js` and `server/config/trustedProxy.js` are
+  **unchanged**. `TRUSTED_PROXY_CIDRS` still names the HUB identity plus the one
+  gateway `/32`; no Cloudflare range, RFC1918 subnet, Docker bridge range or
+  `0.0.0.0/0` was added anywhere. `requestSourceIp(req) → req.ip` remains the
+  sole client-source accessor and `requestIngressKind(req)` still classifies the
+  gateway peer, not the connector and not the recipient.
+
+#### Defects discovered and fixed in this sub-session
+
+- **Ambiguous provider identity was accepted (real defect, fixed).** Measured on
+  the real pinned gateway image: a request carrying **two** `CF-Connecting-IP`
+  headers was accepted with HTTP 200 and attributed to whichever header arrived
+  first, because nginx's `realip` module reads the FIRST matching header and
+  ignores the rest — a caller-influenced choice of identity. A fourth control,
+  `$aegis_edge_recipient_ambiguous`, now refuses any value containing a comma
+  (`$http_cf_connecting_ip` joins repeated headers with `", "`). Re-measured
+  after the fix: duplicated header → **403**, comma-joined single value →
+  **403**, single recipient → **200** with the correct `X-Forwarded-For`.
+- **A test expectation was wrong, and the test was corrected rather than the
+  adapter weakened.** `CF-Connecting-IP: 203.0.113.10:443` is **accepted** by
+  nginx and canonicalised to `203.0.113.10`. Attribution is therefore still the
+  correct recipient with the port dropped, so this is **not** an attribution
+  defect. The suite previously expected 403 here; it now asserts the correct
+  canonicalisation instead.
+
+#### Evidence obtained so far
+
+Source and structure, all green:
+
+| Suite | Result |
+| :--- | :--- |
+| `publicShareManagedTunnelIntegration` (PS7-STRUCT-1..5) | 5 pass / 0 fail (PS7-PRE runtime test skipped, Docker-gated) |
+| `publicShareGatewayStructure` | 12 pass / 0 fail |
+| `publicShareConfig` | 24 pass / 0 fail |
+| `publicShareBackend` | 21 pass / 0 fail / 2 skipped |
+| `publicShareSecurityRegression` | 16 pass / 0 fail |
+| `shareScopeTruthUi` | 19 pass / 0 fail |
+| `shareRedemption` | 14 pass / 0 fail / 3 skipped |
+| `publicShareStageBCredentialPlumbing` | 9 pass / 0 fail |
+| `publicShareInternalIntegration` | inert/skipped by default, as designed |
+| Full IDEA1 baseline | 1186 tests. Run 1: 1113 pass / **1 fail**; runs 2 and 3: 1114 pass / 0 fail. One flaky failure whose identity was not captured; `AUTOLOCK-5` passes in isolation. Not attributable to this change, whose IDEA1 edits are two deterministic test files. |
+| `tests/collaborationPolicy.test.mjs` | 18 pass / 0 fail |
+| `scripts/validate-vault.mjs` | pass, same two pre-existing owner-review canvas warnings |
+
+Five **static negative controls** confirmed the source-shape controls are
+load-bearing. Each mutation was applied in a disposable copy, produced the named
+failure, and was reverted:
+
+| Mutation | Caught by |
+| :--- | :--- |
+| drop `CF-Connecting-IP` stripping | `PS7-STRUCT-3` |
+| remove the managed-proxy gate | `PS7-STRUCT-2` |
+| widen `TRUSTED_PROXY_CIDRS` with a Cloudflare range | `PS7-STRUCT-5` |
+| pin the connector as a `/24` instead of a `/32` | `PS7-STRUCT-5` |
+| let the validator accept a prefix shorter than `/32` | `PS7-STRUCT-4` |
+
+Rootless **Podman preflight** against the **real pinned gateway image**
+(`nginx:alpine@sha256:4a73073b…`):
+
+- `nginx -V` carries **`--with-http_realip_module`** — the design precondition,
+  measured rather than assumed;
+- `nginx -t` → *test is successful* in **both** `direct` and `cloudflare` mode;
+- an **untrusted peer** was refused **403** on all six header shapes
+  (`CF-Connecting-IP`, `True-Client-IP`, `X-Forwarded-For`, `X-Real-IP`,
+  `Forwarded`, and no headers at all);
+- from the pinned connector, **forged** `X-Forwarded-For`, `X-Real-IP`,
+  `Forwarded`, `True-Client-IP` and `CF-Pseudo-IPv4` alongside a valid
+  `CF-Connecting-IP` did **not** move attribution, and **no `CF-*` header
+  reached the upstream** — the recorder saw only `host`, `x-forwarded-host`,
+  `x-forwarded-for`, `x-real-ip` and `x-forwarded-proto`;
+- a **missing**, empty, hostname-valued, truncated or CIDR-valued provider
+  identity each failed closed with **403**;
+- an **IPv6 recipient** (`2001:db8::1234`) was preserved end to end into
+  `X-Forwarded-For`;
+- **per-recipient rate limiting** held: a 40-request burst from one recipient
+  gave 11×200 / 29×429 while a second recipient and an IPv6 recipient were both
+  served 200 immediately afterwards and the first stayed 429.
+
+> [!danger] Podman evidence is PREFLIGHT ONLY and is NOT Docker acceptance
+> Rootless Podman was used to build the real image and exercise the gateway's
+> **configuration and trust logic**. It cannot reproduce the harness's Docker
+> isolation model — `internal: true` with
+> `com.docker.network.bridge.gateway_mode_ipv4: isolated` is Docker Engine
+> behaviour — and it involved no Drive, no PostgreSQL, no audit and no teardown
+> evidence. **No isolation, attribution-in-audit, scope, revocation, log or
+> Production-safety claim rests on it.** Every Podman object created was
+> removed afterwards and the rootless store was verified empty, as it was
+> before.
+
+#### Session S4 — Docker runtime evidence (2026-09-09): CLOSED / PASS
+
+> [!success] S4 = CLOSED. Pre-exposure managed-tunnel acceptance = PASS
+> **PS7-PRE-01..14 = 20 tests, 20 passed, 0 failed, 0 skipped, acceptance exit
+> code 0, post-run check failures 0.** All seven runtime negative controls are
+> load-bearing. Production pre/post **IDENTICAL**, protected volumes **PRESENT**,
+> teardown **CLEAN**, mutation residue **NONE**.
+>
+> ⚠️ **This closes the Managed-Tunnel Edge Adapter + Pre-Exposure Acceptance
+> task, NOT PUBLIC-SHARE-7.** `PUBLIC-SHARE-7 overall = IN PROGRESS`. Real
+> Internet acceptance = **NOT RUN**. G5 and G6 remain **OPEN** and
+> `Public Internet Share = NOT IMPLEMENTED`. No tunnel, domain, DNS record, TLS
+> certificate, NAT rule, firewall, VLAN, Twingate or Production change exists.
+
+**What ran.** Nine full harness runs on the Beelink: one baseline, seven
+negative controls each in a disposable copy of the tree, and one final re-run.
+**Docker Engine 29.7.1**, native Linux. Evidence: `/tmp/ps7-evidence/`
+(`01-normal.log`, `nc1..nc7.log`, `04-normal.log`, `summary.txt`).
+
+**First result — baseline and its final re-run, identically: 20 tests, 18 pass,
+2 fail, 0 skipped.** Zero unexpected skips. Passing: PS7-PRE-01, 02, 03, 04, 05,
+06, 07, 08, 09, 10, 12, 13, 14, and all five PS7-STRUCT tests. The two failures
+were PS7-PRE-11 and its parent.
+
+**Final result after the fix — `05-normal-postfix.log`, 2026-09-09 07:35:
+20 tests, 20 passed, 0 failed, 0 skipped; acceptance exit code 0; post-run check
+failures 0.** The run was executed from the real checkout at commit
+`994579590b10b06c3e0cde0e63331bb38fbd1051`, which contains the fix, with a clean
+worktree — so the green result is the fixed code and not a re-reading of the old
+one. `PS7-PRE-11`, which had failed deterministically on this host in all three
+prior runs, now passes.
+
+**The one failure, and its classification.**
+
+```text
+PS7-PRE-11  B5 holds: the gateway reaches its upstream and nothing else
+  172.31.240.1 answered at L3: wget: download timed out
+```
+
+Classified **HARNESS_DEFECT**. The assertion required the literal word
+`unreachable`. PUBLIC-SHARE-3 measured `Host is unreachable` on **Docker Desktop
+28.3.2**; on **native Linux Docker 29.7.1** an isolated bridge drops the packet
+with no ICMP reply at all, so the client times out instead. Both mean nothing
+answered.
+
+⚠️ **The isolation property itself held, and was not taken on trust.** In the
+same subtest the `nc` probes to *both* bridge addresses (`172.31.240.1`,
+`172.31.241.1`) returned **closed**, and the string **`Connection refused`
+appears zero times in the entire run log** — that answer is the actual proof of
+a *live* address, and it never occurred. Every other B5 assertion passed: no
+default route, PostgreSQL closed, the private-surface stand-in closed, no
+egress, and no resolvable name for `postgres`, `private-surface`, `monitor` or
+`host.docker.internal`.
+
+**The fix, which strengthens the control rather than relaxing it.**
+`Connection refused` is now asserted **first**, as the discriminator the check
+exists for; a timeout is accepted alongside `unreachable`; **any HTTP response
+is explicitly rejected**; and PUBLIC-SHARE-3's ARP corroboration is added, so a
+*completed* ARP entry for the bridge address fails the test regardless of how
+the HTTP client words its failure. No security assertion was weakened, no
+Production object was touched, and nothing was changed to make a test pass.
+
+**Runtime negative controls — all seven proved load-bearing.** Each mutation was
+applied to exactly one invariant in a disposable copy, produced the named
+failure, and was reverted:
+
+| # | Mutation | Caught by | What the failure showed |
+| :--- | :--- | :--- | :--- |
+| NC1 | pinned connector peer check disabled | `PS7-PRE-02`, `PS7-PRE-06` | an untrusted caller was admitted |
+| NC2 | trust `X-Forwarded-For` instead of the provider header | `PS7-PRE-03/04/05/06/07/08/09/13`, `PS7-STRUCT-4` | 11 failures |
+| NC3 | `set_real_ip_from 0.0.0.0/0` instead of the pinned `/32` | `PS7-PRE-01`, `PS7-STRUCT-4` | ⚠️ `PS7-PRE-02` did **not** fail — the peer pin denies an untrusted caller independently, so this is genuine defence in depth rather than a single point of failure |
+| NC4 | edge limit keyed on `$server_name` | `PS7-PRE-06`, `PS7-STRUCT-2` | recipient buckets collapsed into one |
+| NC5 | `X-Forwarded-For` authored from `$realip_remote_addr` | `PS7-PRE-03/04/05/09`, `PS7-STRUCT-3` | the audit recorded `172.31.240.3` (the connector) instead of `203.0.113.10` (the recipient) — the exact G3/T-05 collapse |
+| NC6 | connector given a direct route to Drive | `PS7-PRE-12` | `drive-upstream: open` |
+| NC7 | ambiguity control removed | `PS7-PRE-05` | a comma-joined recipient identity was accepted, `200 !== 403` |
+
+⚠️ **`summary.txt` in the evidence directory says `NOT-CAUGHT-BY` for every
+control, and that text is wrong.** The driver's matcher used `^not ok`, but
+`node:test` indents subtests, so it only ever matched the parent test. The
+per-log detail above is the authoritative reading; the matcher has been
+corrected for future runs.
+
+**Production safety — both full runs.** Stable inventory **IDENTICAL** (container
+IDs, image IDs, Compose project, running state, health state, network
+attachments); `aegis_postgres_data` and `aegis_drive_storage` **present**; both
+harness-built images removed **by ID**; `postgres:15-alpine`, `node:20-alpine`
+and `nginx:alpine` **preserved**; **50 `aegis-prod` rows unchanged**; the Compose
+env file removed; **post-run check failures: 0** in each run.
+
+**Teardown and residue.** No harness container, network, volume or image
+survived any of the nine runs. `residue-gateway.txt` and `residue-idea1.txt` are
+both **0 bytes** — the disposable copy was byte-identical to the real checkout
+after every mutation was reverted — the copy was removed, `git-status.txt` is
+empty, and no `/tmp/aegis-ps7-*` or `/tmp/ps7-nc-work` object remains.
+
+The seven negative controls were **not** repeated after the fix, deliberately:
+each catch is already demonstrated above, and `PS7-PRE-11` failed identically in
+the baseline **and** in every control run, so it cannot have changed which
+mutation was caught by which test.
+
+#### Session register
+
+| Session | Scope | State | Result |
+| :--- | :--- | :--- | :--- |
+| S1 | Survey and PS7-01 Production read-only baseline | CLOSED | PASS |
+| S2 | Managed-tunnel adapter implementation, source/structure tests, static negative controls | CLOSED | PASS |
+| S3 | Podman configuration preflight; duplicate-identity defect found and fixed; interim checkpoint `a07687c2` | CLOSED | PASS |
+| S4 | Docker runtime matrix, runtime negative controls, Production safety, `PS7-PRE-11` fix `99457959` | **CLOSED** | **PASS** |
+| S5 | External phase — Production deployment, real tunnel/DNS/TLS, 4G/5G acceptance, rollback, G5/G6 | **IN PROGRESS** | New task/branch opened; S5.1 planning in progress; no Production mutation |
+
+#### Task status dashboard
+
+| Item | State |
+| :--- | :--- |
+| Managed-tunnel source implementation | **PASS** |
+| Pre-exposure Docker runtime acceptance | **PASS** |
+| Runtime negative controls | **PASS** (7 of 7 load-bearing) |
+| Production mutation | **NOT PERFORMED** |
+| Real Cloudflare tunnel | **NOT RUN** |
+| Public DNS | **NOT RUN** |
+| External TLS | **NOT RUN** |
+| Twingate-OFF 4G/5G acceptance | **NOT RUN** |
+| Real Internet resilience matrix | **NOT RUN** |
+| Ingress rollback acceptance | **NOT RUN** |
+| G4 gate (ingress choice) | **APPROVED — Option B / Managed Tunnel (2026-09-09)** |
+| G5 (exposure) | **OPEN** |
+| G6 (completion) | **OPEN** |
+| Public Internet Share | **NOT IMPLEMENTED** |
+| **PUBLIC-SHARE-7 overall** | **IN PROGRESS** |
+
+#### Planned · completed · remaining
+
+**Planned for this task.** A managed-tunnel trust adapter for G4 Option B, plus
+one integrated pre-exposure harness able to evidence several PS7 matrix rows in a
+single run, with no Internet exposure and no Production change.
+
+**Completed.** The fail-closed edge mode with one pinned connector identity;
+real-IP canonicalisation; four independent trust controls; provider-header
+stripping; per-recipient edge limiting; preserved direct mode; an isolated
+six-service harness; a Production-safe runner; the acceptance suite; two defects
+found and fixed; seven runtime and five static negative controls; and the
+measured Production-safety and teardown evidence above.
+
+**Remaining, and explicitly out of scope here.** Everything requiring the real
+Internet: installing and running `cloudflared` in an approved isolated
+deployment, obtaining a stable public domain, real DNS and TLS, **G5**, the
+external 4G/5G matrix with Twingate off, real-Internet resilience testing,
+ingress rollback acceptance, post-rollback private-system verification, and
+**G6**. The PS7 matrix rows those cover — PS7-04, 05, 06, 07, 10..17, 25, 27, 28,
+29, 30 — remain **NOT RUN**.
+
+⚠️ **A deployment gate for the external phase, recorded rather than faked.** In
+this harness the connector sits on an internal, isolated Docker network with no
+route to Drive, PostgreSQL or a private surface. A real `cloudflared` connector
+needs an outbound Internet path, so reproducing "the connector can reach nothing
+but the gateway" in Production is **host-firewall and/or VLAN work**, not
+something source can assert. It must be designed and reviewed before G5.
+
+#### Pending
+
+- **PS7-PRE-01..14 = PASS** — 20/20, exit 0 (Session S4, CLOSED)
+- **Runtime negative controls = PASS** — all seven load-bearing (Session S4)
+- **Production pre/post inventory = IDENTICAL** across all three full runs
+- **Teardown / no-leftovers = CLEAN** across all ten runs; **mutation residue = NONE**
+- **Real Cloudflare tunnel = NOT RUN**
+- **Public DNS / external TLS = NOT RUN**
+- **Twingate-OFF 4G/5G external acceptance = NOT RUN**
+- **G5 = OPEN**
+- **G6 = OPEN**
+- **Public Internet Share = NOT IMPLEMENTED**
+
+⚠️ The Docker half cannot be run from an agent session on this host: `sudo` here
+is **sudo-rs**, whose authorisation timestamp is tty/session-scoped, and an
+agent shell has no tty, so a ticket established in a human terminal is never
+visible to it. The harness is therefore run by the owner from a normal terminal.
+No sudoers, `tty_tickets`, docker-group or daemon change was made to work
+around this.
+
+### Public Share backend contract implemented, not deployed (2026-09-08)
+
+> [!info] PUBLIC-SHARE-2 is backend contract work only
+> **Backend public-share contract = IMPLEMENTED / TESTED LOCALLY. Public Share
+> Gateway source = IMPLEMENTED / LOCALLY VERIFIED / NOT DEPLOYED. Public Internet ingress = NOT IMPLEMENTED. Public
+> Internet UI option = NOT ENABLED. Production deployment = NOT DONE. External
+> 4G/5G acceptance = NOT DONE.** No port, DNS record, NAT rule, tunnel,
+> certificate, firewall, VLAN or Twingate change was made, and no migration was
+> run against Production. Owner gates G1, G2 and G3 are approved; G4, G5 and G6
+> remain open.
+
+Durable facts established on branch `feat/idea1-public-share-backend-contract`
+from `867f1ccf7714394217987978df00ba5fad7882e8`:
+
+- **`scope=public` exists as a third explicit backend scope**, gated on a
+  configured `PUBLIC_SHARE_BASE_URL`. Without that origin, creating one is
+  refused with the existing generic `400 Invalid input`. `zones` and `any`
+  semantics are unchanged, and `users.share_default_scope` deliberately stays
+  `('any','zones')` so a saved preference can never publish a file on the
+  sharer's behalf. Migration `009_public_share_scope.sql` widens the
+  `shares.scope` CHECK additively and preserves the legacy `vlan`/`subnet`
+  values; `schema.sql` reaches the same end state under the same constraint name.
+
+- **The client/ingress identity split is implemented, not just specified.**
+  `requestSourceIp(req)` → `req.ip` remains the sole client-source accessor and
+  still drives `zones` CIDR enforcement, the rate-limit IP axis and the audit
+  source. A new `server/request/ingress.js` derives ingress provenance from
+  `req.socket.remoteAddress` alone, and only that decides whether a request
+  arrived through the public gateway. Verified through the real Express stack: a
+  request from the gateway peer carrying `X-Forwarded-For: 203.0.113.50` audits
+  its source as `203.0.113.50`, not the gateway; and the same peer sending **no**
+  forwarding header — where `req.ip` falls back to the peer — still classifies as
+  public-gateway ingress. No forged header can manufacture that provenance.
+
+- **The public ingress refuses `zones` and `any`**, with no bytes, no hit
+  increment, and a `SHARE_REDEEM_OUT_OF_SCOPE / BLOCKED` audit event. `public`
+  continues through the unchanged token, password, expiry, revoke, trash and
+  Vault gates. **When no gateway identity is configured the rule is inert**, so
+  this changes nothing for the configuration Production runs today.
+
+- **Password rate limiting is namespaced by ingress** (`share` vs
+  `share-public`), selected before any database access. A public-path lockout
+  cannot lock private redemption, and neither can lock the login page.
+
+- **Trusted proxy now has two approved production states**, per gate G2:
+  `{ HUB /32 }` — the currently deployed state and still the default — or
+  `{ HUB /32, one approved public-gateway /32 }` when
+  `PUBLIC_SHARE_GATEWAY_CIDR` is set — which must be a single IPv4 `/32` that is
+  **not inside** a forbidden network (evaluated by masking the host against
+  `172.18.0.0/16`, the shared `aegis_internal` bridge, not by string comparison).
+  Order is irrelevant. A gateway that is
+  named but not trusted is refused at boot, because Express would otherwise stop
+  at it when walking `X-Forwarded-For` and collapse `req.ip` to the gateway's own
+  address. Every previous rejection still holds, and every pre-existing
+  `trustedProxy` test passes unchanged.
+
+`PUBLIC_SHARE_BASE_URL` rejects a trailing slash rather than trimming it, so the
+configured origin and the emitted public URL are the same text.
+
+Verification: full IDEA1 suite **1099 tests / 1029 pass / 1 fail / 69
+PostgreSQL-gated skips**, build pass, **0 failures introduced by
+PUBLIC-SHARE-2**. The single failure is the pre-existing,
+unrelated `AUTOLOCK-5`, proven by stashing every change on this branch and
+reproducing it on the resulting pristine `origin/main` tree. **Migration 009 is verified against a real
+isolated PostgreSQL 16.15**: built from the pre-PR#99 base schema taken from Git
+(`867f1cc`, blob `4c325785`), seeded with synthetic `any`/`zones`/`vlan`/`subnet`
+rows, applied **twice** (both runs PASS, idempotency observed), after which the
+catalog reports
+`CHECK ((scope = ANY (ARRAY['any','zones','public','vlan','subnet'])))`, all four
+pre-migration rows survive unchanged, a `public` insert succeeds, legacy
+`vlan`/`subnet` inserts still succeed, `scope='internet'` is rejected,
+`token_hash`/`password_hash`/`vlan_scope`/`expires_at`/`revoked`/`hits` keep their
+contract, and `users.share_default_scope` still refuses `public`. The full IDEA1
+suite against that database as the least-privilege `drive_app` role is **1099
+tests / 1098 pass / 1 fail / 0 skips** — every previously gated test observed, the
+one failure being the pre-existing `AUTOLOCK-5`. ⚠️ Production has still never had
+009 applied; doing so remains a prerequisite of any deployment, and the observed
+run was on PostgreSQL 16.15 while production runs the 15 line.
+
+### Public-share internal integration acceptance passed, nothing deployed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-6 is isolated internal evidence only
+> **Real gateway in front of real Drive = YES. Real PostgreSQL 15.18 = YES.
+> Migration 009 on a real 008-era database = YES. 64 MiB byte-exact delivery =
+> YES. Slow client (75s stall) = YES. Interrupted transfer = YES. Concurrency =
+> YES. Forbidden routes and Host termination = YES. Forged-header attribution =
+> YES. Ingress split = YES. B5 = YES. Revocation = YES. Verified teardown = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+
+`gateway/public-share/integration/` stands the **real** PUBLIC-SHARE-3 gateway
+image in front of the **real** AEGIS Drive image on a **real** PostgreSQL 15.18,
+across three `internal: true` + `gateway_mode_ipv4: isolated` networks with no
+host port anywhere. `tests/publicShareInternalIntegration.test.js` drives it and
+reports **16 tests, 16 passed, 0 failed in 148.2 s**. This is the first evidence
+in the repository of the two tiers actually connected — PUBLIC-SHARE-3 measured
+the gateway against a recorder, PUBLIC-SHARE-5 measured the application against a
+modelled peer, and neither put one in front of the other.
+
+The recipient is a container on the edge network only, so "a recipient cannot
+reach Drive except through the gateway" is enforced by Docker and is probed
+rather than asserted about a diagram.
+
+Three facts this phase established that were not previously recorded:
+
+- **Migration 009 now has real-database evidence.** The harness provisions the
+  pre-009 constraint deliberately, then shows a `scope=public` share **cannot**
+  be minted until 009 is applied, that re-applying it is a no-op, and that the
+  scoped `drive_app` role is refused the migration. Previous 009 evidence was
+  against `schema.sql`, which already carries `public` and therefore could not
+  distinguish an applied migration from an unapplied one.
+- **The production State B trusted-proxy pair is enforced at boot.** Drive
+  refuses to start under `NODE_ENV=production` unless `TRUSTED_PROXY_CIDRS` is
+  exactly the approved HUB identity **and** `PUBLIC_SHARE_GATEWAY_CIDR`. The
+  first harness attempt failed the boot on precisely this — the control working,
+  not a defect.
+- **The gateway's raised timeouts are measurable.** With `proxy_buffering off`, a
+  75 s client stall lands on `proxy_read_timeout` and `send_timeout`, whose nginx
+  defaults are 60 s. The 64 MiB transfer completes only because the shipped
+  template sets both to 300 s.
+
+⚠️ **Historical PUBLIC-SHARE-6 boundary:** at this checkpoint no ingress method
+had been chosen, nothing was exposed, and a container on an isolated Docker
+network was not a recipient on ordinary Internet access. G4, G5 and G6 were
+open and `Public Internet Share = NOT IMPLEMENTED`. No shipped gateway, backend
+or UI source changed, and no Production database, gateway, network, volume or
+migration was contacted. PUBLIC-SHARE-7 had not started.
+
+**Historical checkpoint: PUBLIC-SHARE-6 = COMPLETE / PASS; PUBLIC-SHARE-7 had
+not started.** Current PUBLIC-SHARE-7 state is recorded in the Current Task
+section above.
+
+**Stage B: gate APPROVED 2026-09-08. Attempts #1, #2 and #3 EXECUTED and FAILED
+SAFELY; attempt #4 EXECUTED and PASSED — 16 tests, 16 passed, 0 failed, 0
+skipped, acceptance exit 0, post-run check failures 0, runner RC 0**, against the
+accepted source SHA `15c43d6bc4d5f3d7287d20e855677a44f0ec0231` on the real
+Beelink host. PS6-INT-4 streamed the full 64 MiB (67,108,864 bytes,
+`Content-Length` 67,109,045) in 262,144-byte chunks with **256 drain waits**,
+`endedRequest=true` and `responseStatus=201`, and every subtest that earlier
+attempts could only block or cascade executed and passed. Production pre/post
+inventory **IDENTICAL**, every Production service healthy, both protected volumes
+present, both PS6-built images removed by ID, the three base images preserved,
+all 50 `aegis-prod` rows unchanged, the Compose env file and temporary workdir
+removed, and no Production PostgreSQL connection, migration-009 read, Public-UI
+read or config mutation at any point.
+
+⚠️ **Historical PUBLIC-SHARE-6 evidence only.** No public Internet ingress
+existed — no published port, DNS record, TLS certificate, NAT rule, tunnel or
+firewall change. A recipient in this harness was a container on an isolated
+Docker network, not someone on ordinary Internet access. G4, G5 and G6 were
+OPEN and PUBLIC-SHARE-7 had not started at that checkpoint. Current truth:
+G4 is now APPROVED for Option B; G5/G6 remain OPEN; `Public Internet Share =
+NOT IMPLEMENTED`.
+
+The owner
+approved running the same isolated harness on the server hardware. The earlier
+blocker — an agent session with no working SSH path to `192.168.10.10` — no
+longer applies: work now happens **on** the `aegis-system` host. All fourteen
+host preflight facts still remain **NOT MEASURED by the repository**; the figures
+used for planning are **owner-supplied** and are not reproduced here.
+
+Attempt #1, against PR #105 HEAD `160612de…`, passed guards 0–7 and then stopped
+at the **first Compose invocation**. The suite generates its four throwaway
+Compose interpolation values (`PS6_SUPER_USER`, `PS6_SUPER_PASSWORD`,
+`PS6_DRIVE_DB_PASSWORD`, `PS6_SESSION_SECRET`) in its own child environment, and a
+process environment does not cross the `sudo -n env -u DOCKER_HOST docker`
+boundary — sudo correctly declined to carry them. Compose refused to interpolate.
+**Acceptance matrix not executed; no PS6 stack created; cleanup PASS; Production
+pre/post identity IDENTICAL with all services healthy; runner RC = 1; no product
+defect found.** This was a harness credential-plumbing defect.
+
+It is fixed without weakening the privilege boundary — no `sudo -E`, no
+`--preserve-env`, no sudoers `env_keep`, no docker-group change, no passwordless
+sudo, no global environment change. The four values now travel as an **argument**
+rather than an environment variable: one PS6-owned file at
+`$PS6_WORKDIR/evidence/compose.env`, mode `0600`, never printed, never committed,
+removed by the existing cleanup trap, and passed to every Compose call — the
+suite's and the runner's teardown alike — as `--env-file` before `-p` and `-f`.
+A new guard 8 refuses any pinned source tree that predates this.
+
+Attempt #2, against `dc9dda7c…`, cleared that: the credential plumbing passed and
+the **isolated stack built and started**. It then reported **9 failures out of
+16**, which were **one** failure. `PS6-INT-4`'s deterministic 64 MiB private-path
+upload did not complete, and the harness called `JSON.parse` on the body a failed
+request never returned — so the only thing the run said was
+`SyntaxError: "undefined" is not valid JSON`, and the real transport cause was
+destroyed. `PS6-INT-4` then minted no token, share id or file id, and seven
+dependent subtests asked the gateway for `/s/undefined`, got its correct 404, and
+were reported as defects. **They are not defects, and none is claimed as one.**
+`PS6-INT-1/2/3/11` passed on their own terms; `PS6-INT-9` and `-13` passed with
+token-shaped assertions that ran against the literal string `undefined` and are
+recorded as weaker than they look. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+The harness now classifies a response before parsing it (transport error, wrong
+status, empty body, non-JSON — each a distinct, bounded, redacted finding),
+captures PS6-only evidence before teardown (container status/exit code/
+`OOMKilled`/restart count/health, the Drive health log, a bounded PS6 Drive log
+tail and `compose ps`, each container checked against its own project label
+first, never Production), and marks artifact-dependent subtests
+`BLOCKED_BY_PS6_INT_4` instead of failing them. Guard 9 refuses a pinned tree
+that would repeat any of it. **No shipped source changed and no acceptance was
+weakened**: the upload is still the same shipped private endpoint, still 64 MiB,
+still deterministic, still digest-checked.
+
+Attempt #3, against `0b8c4060…`, used those diagnostics and isolated the
+remaining failure to one condition: **`PS6-INT-4 upload transport failure:
+status=0 error=EPIPE`**, with the PS6 Drive **running, healthy, exit code 0,
+`OOMKilled` false and zero restarts**, PostgreSQL and the gateway healthy, and no
+error of the Drive's own for that request. PS6-INT-1/2/3/9/11/13/15 passed and
+the seven artifact-dependent subtests were correctly **SKIPPED** as
+`BLOCKED_BY_PS6_INT_4` rather than failed. Cleanup passed, both built images were
+removed, the Production inventory was **IDENTICAL** and every Production service
+healthy.
+
+⚠️ The one `shares_scope_check` error in that Drive log is **PS6-INT-3's
+intentional pre-009 negative control** — PS6-INT-3 passed — and must not be
+attributed to PS6-INT-4.
+
+The remaining confirmed finding is therefore narrow: a 64 MiB request emitted by
+the harness client ends with `EPIPE` against a Drive that stays healthy. The
+harness client owned an obvious defect and it is now fixed: it built the whole
+64 MiB file as one `Buffer`, concatenated a second whole `Buffer` for the
+multipart body, and handed ~190 MiB to a single `req.write()`. It now streams the
+body in bounded 256 KiB chunks, waits for `drain` whenever `write()` returns
+false, and calls `end()` only after every chunk has been accepted — same
+endpoint, same 64 MiB, same deterministic bytes (proven byte-identical), same
+explicit `Content-Length`, same server-side digest check. A response that arrives
+while the client is still writing is reported as an HTTP status rather than
+collapsed into `EPIPE`, and the client-side write counters join the failure
+evidence. Guard 10 refuses a pinned tree that would repeat it.
+
+**The root cause of the attempt #3 `EPIPE` is still not claimed.** Attempt #4
+shows the streamed client completing the same 64 MiB object on the same host,
+endpoint and payload where the one-shot client failed, with 256 drain waits
+recorded — which is what the evidence supports, not a proof that the unbounded
+write was the sole cause.
+
+Two host findings changed the harness. First, the administrative account is not
+in the `docker` group and `DOCKER_HOST` points at a non-existent Podman socket
+(re-confirmed on the host: `docker version` fails on
+`unix:///run/user/1000/podman/podman.sock`), so Docker must be invoked as
+`sudo env -u DOCKER_HOST docker`. The Stage A suite hardcoded `docker` and could
+not have run there at all; every Docker call now goes through the `PS6_DOCKER`
+override. Second, the runner must own a **named** Compose project rather than let
+the suite pick `aegis-ps6-<pid>`, or a crash leaves objects no cleanup can
+address; `PS6_PROJECT` now carries that identity, under an enforced `aegis-ps6-`
+prefix, and an `EXIT`/`INT`/`TERM` trap tears down that project — and only that
+project — together with the single temporary directory it owns.
+
+`gateway/public-share/integration/run-stage-b.sh` has now reached a real Docker
+daemon exactly once, in Stage B attempt #1, and got as far as Compose
+interpolation. It still carries **no evidence about Production behaviour**: its
+guards, refusals, cleanup trap, interrupt path and post-cleanup checks are
+exercised against recording stubs, and `PUBLIC_SHARE_INTEGRATION_RUNTIME=1` 16/16
+remains a developer-machine Stage A figure that has never been re-measured on
+this host. The credential-plumbing fix itself has met neither a real `sudo` nor a
+real daemon; the regression that proves it
+(`tests/publicShareStageBCredentialPlumbing.test.js`, 9/9) models the
+environment-stripping boundary with `env -i` and models Docker with a recorder.
+
+### Public-share security regression matrix pinned, no source changed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-5 is local regression evidence only
+> **Security regression matrix = YES. Gateway regression = YES. Backend
+> regression = YES. UI regression = YES. Token/password secrecy = YES. T-05
+> namespace separation = YES. Audit secrecy/attribution = YES.
+> Production migration 009 = NO. Production gateway = NO. Production UI
+> activation = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO. External
+> acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `chore/idea1-public-share-security-regression` automates the full public-
+share negative and positive matrix from the architecture's §16. It adds no
+product behaviour: **no shipped gateway, backend or UI source changed**, and the
+only new file is a test.
+
+`IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` owns the
+recipient-facing and forensic half that no single existing suite covered end to
+end: unknown/malformed/revoked/trashed links are one byte-identical refusal (only
+the CSP nonce is normalised out of the comparison, and the captured nonce values
+are asserted distinct across the four exercised responses — a freshness check,
+not an entropy claim) while the audit deliberately keeps the distinct forensic
+reason; the raw token is
+returned once and is absent from the listing, the audit and the stored row,
+which holds only a sha256 digest; the link password is never stored in plaintext
+(bcrypt only), never echoed, never listed, never audited, and — proven against
+the **real** gateway container — never present in its Docker logs after an
+allowed form POST carrying a unique password sentinel; a wrong password is
+denied and sustained guessing locks out with `Retry-After`; **T-05 holds in both
+directions** — a public lockout leaves the private path and login working, and
+private/login failures do not consume the public namespace; forged forwarding
+headers through an untrusted peer cannot rotate limiter identity; a Vault-backed
+share is refused at redemption as well as creation; only the owner may revoke
+and a non-owner (including Admin) gets the object-hiding 404 while the link
+stays alive; trashing kills live links without counting a hit; delivery counts
+exactly one hit and revoked/expired links count none; the delivered file keeps
+`attachment` / `octet-stream` / `nosniff` / `no-store` / `no-referrer`; refusal
+and password pages stay `noindex,nofollow` under a `default-src 'none'` CSP; and
+the audit records the canonical **recipient** address rather than the gateway
+peer while containing no raw token, password or public URL.
+
+Local evidence: the new suite is **16/16 PASS in memory mode and 16/16 PASS
+against a disposable PostgreSQL 15.18 instance**; existing focused suites stay
+green; gateway structure **12/12 PASS** and gateway runtime **18/18 PASS** with
+`nginx -t` reporting `syntax is ok` / `test is successful` inside the real
+internal network.
+
+Two gates need direct row access because a well-behaved API cannot reach them —
+a Vault-backed share row, and an already-expired row, since the shortest offered
+expiry is 1h. Under PostgreSQL they are genuinely exercised; in memory-only mode
+they report the evidence as unavailable rather than substituting a weaker
+assertion.
+
+Seven high-risk guards were proved load-bearing by temporarily breaking the
+invariant and confirming the expected test failed — T-05 namespace separation,
+the public-ingress scope block, the gateway default deny, gateway token-safe
+logging, UI public-URL ownership, and — added at the PR #103 review — CSP nonce
+freshness (a constant nonce) and gateway password-log secrecy (`$request_body`
+added to the log format). Every mutation was reverted and the tree verified
+clean.
+
+No accepted invariant failed against current `main`. **At this PUBLIC-SHARE-5
+checkpoint**, PUBLIC-SHARE-6/7 had not started and G4, G5 and G6 were open.
+Current PUBLIC-SHARE-7 and gate state is recorded in the Current Task section.
+
+### Secure Shares public-scope UI implemented behind a server switch, not activated (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-4 is local source evidence only
+> **Public scope UI source = YES. Server-owned UI capability = YES. Default UI
+> capability = OFF. Production UI activation = NO. Production gateway = NO.
+> Production migration 009 = NO. Public DNS/TLS/NAT/tunnel/Internet ingress = NO.
+> External acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `feat/idea1-public-share-ui` makes the Shares screen able to offer a
+third network scope without claiming it is available. Security invariant 20 is
+preserved rather than traded away: the interface *supports* `public`, but only
+offers it when the server says so.
+
+The decision is server-owned and defaults to off. A new optional, non-secret
+variable `PUBLIC_SHARE_UI_ENABLED` is parsed once at boot; absent or empty is
+false, and anything that is not exactly `true` or `false` fails the boot instead
+of being coerced. Public becomes selectable only when **all three** hold —
+`PUBLIC_SHARE_BASE_URL` set, `PUBLIC_SHARE_GATEWAY_CIDR` set, and the flag
+`true` — and `GET /api/shares` carries the result as one coarse boolean,
+`capabilities.publicSelectable`. The public origin, gateway identity, Docker
+subnet, real hostname and G4 choice are never sent to the client. An unknown,
+missing, non-boolean or failed read all mean unavailable, so the screen fails
+toward the safe answer while the request is in flight.
+
+**The flag is not authorization.** `POST /api/shares` still decides for itself,
+from `PUBLIC_SHARE_BASE_URL` alone, whether a public share may be minted; a test
+proves the outcome is identical with the flag on and off, so a UI switch can
+never become an access-control switch. It is also not evidence that G6 passed —
+it is the switch G6 authorises someone to flip, and `.env.example` ships it
+commented out saying exactly that.
+
+When the capability is off the screen shows two interactive scopes and keeps
+Public Internet as a read-only unavailable fact, with the stale "a separate
+gateway would be required" wording replaced by the truthful "not enabled on this
+deployment". When it is on the screen offers three, with public-specific risk
+copy that is not reused from `any`, a **mandatory link password** (the existing
+8-character backend minimum, not a raised one), and a transient **1h** public
+expiry default. The private auth and expiry choices are held separately and
+restored intact on switching back, and nothing about a one-off public selection
+is written to the account: `users.share_default_scope` stays `any | zones`.
+
+The public URL comes from the backend `publicUrl` verbatim. It is never derived
+from `window.location`, the `Host` header, `apiUrl(path)` or a hard-coded
+domain, and a successful public response without a non-empty `publicUrl` fails
+closed — no link is shown at all, rather than the internal path being handed to
+an external recipient.
+
+Local evidence: `shareScopeTruthUi` **17/17 PASS**, rewritten from the obsolete
+"only zones and any exist" claim into a two-state matrix driven through the real
+component in jsdom; `publicShareConfig` **24/24 PASS** including the flag and
+effective-selector matrices; `publicShareBackend` **21 passed / 2 skipped**
+including the coarse capability shape and the unchanged POST semantics. Layout
+was checked in a real browser at 320, 375, 640 and 1280 px across Classic and
+Neo and EN/TH/ZH: three stacked options, 44 px touch targets, no clipping and no
+horizontal overflow.
+
+**Historical PUBLIC-SHARE-4 checkpoint:** PUBLIC-SHARE-5/6/7 had not started,
+and G4, G5 and G6 were open at that checkpoint. Current PUBLIC-SHARE-7 and gate
+state is recorded in the Current Task section above.
+
+### Dedicated Public Share Gateway source implemented, not deployed (2026-09-08)
+
+> [!warning] PUBLIC-SHARE-3 is local source/runtime evidence only
+> **Dedicated gateway source = YES. Isolated two-member test harness = YES.
+> Production gateway = NO. Production migration 009 = NO. Public DNS/TLS/NAT/
+> tunnel/Internet ingress = NO. Public UI = DISABLED. External acceptance = NO.**
+> Public Internet Share therefore remains **NOT IMPLEMENTED**.
+
+Branch `feat/idea1-public-share-gateway` adds a separate
+`gateway/public-share/` container/config rather than widening either existing
+general gateway. The only proxying location is the anchored, case-insensitive
+`GET|POST /s/[A-Za-z0-9_-]+/?` route; every other path, method, raw traversal
+form, and unapproved Host terminates locally. Forwarding identity is authored by
+the gateway (`X-Forwarded-For` and `X-Real-IP` from the observed edge peer,
+`Forwarded` cleared, HTTPS/public Host fixed from configuration). Responses are
+unbuffered, bodies are capped at 16 KiB, explicit timeouts are present, and the
+minimal log format excludes URI, query, referrer, Host and source address.
+
+The test harness creates `aegis_public_share` as a Docker `internal: true`
+network with bridge gateway mode `isolated`, exactly two members, and no
+host-published port on either of them. Its test-only subnet is `172.31.254.0/29`
+(gateway `.2`, Drive recorder `.3`) because this development machine already
+owns `172.19.0.0/16`; Docker rejected the architecture example
+`172.19.254.0/29` as overlapping. No existing Docker network was changed or
+removed. Runtime teardown restored the pre-test Docker state.
+
+`PUBLIC_SHARE_HOST` is substituted into nginx directive context, so it is
+validated fail-closed **before** the template renders: the image entrypoint runs
+`gateway/public-share/validate-public-share-host.sh` and refuses to start on
+anything but one RFC 1123 hostname, never sanitising a bad value. On refusal no
+config is generated at all, so a malformed value cannot widen the accepted
+`Host` set or inject a directive.
+
+Local evidence: structural T-10 **12/12 PASS**; real-container gateway runtime
+**18/18 PASS**; `nginx -t` PASS inside the non-root/read-only gateway; ordinary
+traffic passed while a deterministic 41-request sequence produced **29×429**
+and only **12 upstream contacts**; a unique raw-token sentinel stayed absent
+from gateway logs across success, denial, method rejection, throttling and a
+routine upstream failure; a valid host rendered exactly one `server_name` while
+**11 malformed values were refused before nginx started**. The positive recorder
+tests prove gateway routing, not real Drive authorization; PUBLIC-SHARE-6 owns
+that integration.
+
+> [!info] B5 is enforced by two network controls, so the harness has no host listener
+> `internal: true` removes normal external/default-route connectivity;
+> `com.docker.network.bridge.gateway_mode_ipv4: "isolated"` (Docker Engine 28,
+> here 28.3.2) removes the Docker-host bridge address for that network. Both are
+> required: an ordinary internal bridge keeps that address, and host services
+> bound to it stay reachable — measured side by side, `internal` alone answers
+> ARP and returns `Connection refused`, while `internal` + `isolated` gives an
+> incomplete ARP entry and `Host is unreachable`. Together they give source/test
+> enforcement of `Gateway -> everything else = nothing`: the gateway has no
+> default route, cannot reach `1.1.1.1`/`8.8.8.8`, finds `172.31.254.1`
+> unreachable on every probed port, cannot resolve `host.docker.internal` or
+> `gateway.docker.internal`, and reaches `drive:8001` and nothing else. Docker
+> cannot publish a port from an internal network
+> — it accepts the request and silently drops it — so neither member publishes a
+> host port, and the runtime suite drives the gateway from inside the network
+> using only the two existing members: the drive recorder calls
+> `http://public-share-gateway:8080`, and the gateway calls its own
+> `127.0.0.1:8080` for the upstream-failure/token-log check where the recorder
+> must be stopped. No third client container exists. Owner-approved at the
+> PR #100 review; B5 is **not** deferred to PUBLIC-SHARE-6. This proves the
+> Docker network boundary, not a MikroTik/UFW/VLAN/Twingate or Production
+> perimeter boundary.
+
+**G3 is APPROVED.** Once real public ingress exists, the existing application
+audit may retain the full canonical recipient IP from `requestSourceIp(req)` for
+security attribution, rate-limit investigation and incident response. It must
+never substitute the gateway peer for the recipient, persist a raw token,
+plaintext password, or public URL containing the token, or introduce analytics/
+profiling use. No real Internet recipient was observed by this task.
+
+G4 (ingress choice), G5 (exposure) and G6 (final acceptance) remain open. No
+Production action, PUBLIC-SHARE-4 UI work, or PUBLIC-SHARE-5/6/7 work is included.
+The delivered header and rate-limit model assumes the gateway is the immediate
+recipient-facing HTTP peer; if G4 later selects a managed reverse proxy/tunnel
+that inserts an HTTP hop, PUBLIC-SHARE-6 must define and review the provider
+trust/attribution adapter before deployment. No provider header is trusted here.
 
 ### Public Share Gateway architecture accepted as a contract (2026-09-07)
 

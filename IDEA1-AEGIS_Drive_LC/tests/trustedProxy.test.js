@@ -138,3 +138,91 @@ test('TP-R1..R8 production rejects every proxy range except the exact HUB identi
     )
   }
 })
+
+// ── PUBLIC-SHARE-2 · the two approved production states (owner gate G2) ──────
+//
+// Production accepts exactly two trusted-proxy configurations and nothing else.
+// Legacy mode remains the default so the configuration currently running in
+// production still boots after this change; the gateway identity is optional
+// until the rollout phase that deploys a gateway.
+const HUB = '172.19.255.2/32'
+const GATEWAY = '172.19.254.2/32'
+const prodEnv = (extra) => ({ NODE_ENV: 'production', SESSION_SECRET: 'test-secret', ...extra })
+
+test('TP-S1 legacy mode: HUB alone, no gateway configured, still boots', () => {
+  const app = createApp({ env: prodEnv({ TRUSTED_PROXY_CIDRS: HUB }) })
+  const trust = app.get('trust proxy fn')
+  assert.equal(trust('172.19.255.2', 0), true)
+  assert.equal(trust('172.19.254.2', 0), false, 'an unconfigured gateway must not be trusted')
+  assert.equal(app.get('publicShareConfig').publicIngressConfigured, false)
+})
+
+test('TP-S2 gateway-enabled mode: HUB plus exactly one approved gateway', () => {
+  for (const order of [`${HUB},${GATEWAY}`, `${GATEWAY},${HUB}`]) {
+    const app = createApp({
+      env: prodEnv({ TRUSTED_PROXY_CIDRS: order, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }),
+    })
+    const trust = app.get('trust proxy fn')
+    // A set of identities, not a forwarding chain — order must not change meaning.
+    assert.equal(trust('172.19.255.2', 0), true, order)
+    assert.equal(trust('172.19.254.2', 0), true, order)
+    assert.equal(trust('172.19.254.3', 0), false, order)
+    assert.equal(app.get('publicShareConfig').gatewayAddress, '172.19.254.2')
+  }
+})
+
+test('TP-S3 production rejects every state that is neither approved shape', () => {
+  const rejected = [
+    // A named gateway that is not trusted: Express would stop at it when walking
+    // X-Forwarded-For and req.ip would collapse to the gateway's own address.
+    [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }, /exactly/i],
+    // The gateway without HUB — the private path would lose its edge.
+    [{ TRUSTED_PROXY_CIDRS: GATEWAY, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }, /exactly/i],
+    // Trusting a second peer that is not the declared gateway.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.19.254.9/32`, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }, /exactly/i],
+    // A third proxy.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},${GATEWAY},172.19.254.9/32`, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }, /exactly/i],
+    // Reusing HUB's identity as the gateway makes provenance ambiguous.
+    [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: HUB }, /reuse/i],
+    // A repeated identity hides a typo behind an apparently correct count.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},${HUB}`, PUBLIC_SHARE_GATEWAY_CIDR: GATEWAY }, /repeat/i],
+    // A prefix is a range, and a range is not an identity.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.19.254.0/24`, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.0/24' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.19.254.2/31`, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.2/31' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
+    // The shared aegis_internal bridge carries PostgreSQL and Monitor. Every host
+    // inside 172.18.0.0/16 is refused, not just the one address someone listed —
+    // PR #99 review found the original check was exact-string and let .2, .5,
+    // 1.20 and 255.254 through as "dedicated" gateway identities.
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.1/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.1/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.2/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.2/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.0.5/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.0.5/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.1.20/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.1.20/32' }, /inside/i],
+    [{ TRUSTED_PROXY_CIDRS: `${HUB},172.18.255.254/32`, PUBLIC_SHARE_GATEWAY_CIDR: '172.18.255.254/32' }, /inside/i],
+    // Malformed.
+    [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: 'not-a-cidr' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
+    [{ TRUSTED_PROXY_CIDRS: HUB, PUBLIC_SHARE_GATEWAY_CIDR: '172.19.254.2' }, /PUBLIC_SHARE_GATEWAY_CIDR/],
+  ]
+  for (const [extra, pattern] of rejected) {
+    assert.throws(() => createApp({ env: prodEnv(extra) }), pattern, JSON.stringify(extra))
+  }
+})
+
+test('TP-S4 a gateway named outside production must still be trusted', () => {
+  assert.throws(
+    () => createApp({
+      env: {
+        NODE_ENV: 'test',
+        SESSION_SECRET: 'test-secret',
+        TRUSTED_PROXY_CIDRS: '127.0.0.2/32',
+        PUBLIC_SHARE_GATEWAY_CIDR: '127.0.0.3/32',
+      },
+    }),
+    /must trust PUBLIC_SHARE_GATEWAY_CIDR/i,
+  )
+  assert.throws(
+    () => createApp({
+      env: { NODE_ENV: 'test', SESSION_SECRET: 'test-secret', PUBLIC_SHARE_GATEWAY_CIDR: '127.0.0.3/32' },
+    }),
+    /must trust PUBLIC_SHARE_GATEWAY_CIDR/i,
+  )
+})

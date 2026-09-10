@@ -68,12 +68,13 @@ function workspaceFiles() {
   const files = {
     'START_HERE.md': note({
       policy: 'owner-only',
-      body: '[[core/core-moc]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
+      body: '[[core/core-moc]] [[core/development-session-workflow]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
     }),
     'core/core-moc.md': note({
       policy: 'owner-only',
-      body: '[[core/system-overview]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
+      body: '[[core/system-overview]] [[core/development-session-workflow]] [[idea1/idea1-moc]] [[idea2/idea2-moc]] [[idea3/idea3-moc]] [[infrastructure/infrastructure-moc]]',
     }),
+    'core/development-session-workflow.md': note({ policy: 'owner-only' }),
     'idea1/idea1-moc.md': note({ body: '[[idea1/idea1-status]]' }),
     'idea2/idea2-moc.md': note({ owner: 'pub', body: '[[idea2/idea2-status]]' }),
     'idea3/idea3-moc.md': note({ owner: 'music', body: '[[idea3/idea3-status]]' }),
@@ -237,6 +238,27 @@ test('rejects a missing required workspace entry point', () => {
     const result = validateWorkspaceLayout({ vaultDir: root });
     assert.ok(result.errors.some((error) => error.includes('Missing workspace entry point')));
   });
+});
+
+test('requires the development-session workflow and its shared entry-point routes', () => {
+  const missingWorkflow = workspaceFiles();
+  delete missingWorkflow['core/development-session-workflow.md'];
+  withVault(missingWorkflow, (root) => {
+    const result = validateWorkspaceLayout({ vaultDir: root });
+    assert.ok(result.errors.some((error) => error.includes('Missing workspace entry point')));
+  });
+
+  for (const entryPoint of ['START_HERE.md', 'core/core-moc.md']) {
+    const files = workspaceFiles();
+    files[entryPoint] = files[entryPoint].replace('[[core/development-session-workflow]]', '');
+    withVault(files, (root) => {
+      const result = validateWorkspaceLayout({ vaultDir: root });
+      assert.ok(
+        result.errors.some((error) => error.includes(`Workspace entry point is missing required link: ${entryPoint}`)),
+        `${entryPoint} should route to the development-session workflow`,
+      );
+    });
+  }
 });
 
 test('rejects a workspace entry point missing a required canonical route', () => {

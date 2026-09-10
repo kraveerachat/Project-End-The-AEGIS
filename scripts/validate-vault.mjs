@@ -30,6 +30,7 @@ const RECEIPT_SECTIONS = [
 const WORKSPACE_ENTRY_POINTS = [
   'START_HERE.md',
   'core/core-moc.md',
+  'core/development-session-workflow.md',
   'idea1/idea1-moc.md',
   'idea2/idea2-moc.md',
   'idea3/idea3-moc.md',
@@ -38,6 +39,7 @@ const WORKSPACE_ENTRY_POINTS = [
 const WORKSPACE_REQUIRED_LINKS = new Map([
   ['START_HERE.md', [
     'core/core-moc',
+    'core/development-session-workflow',
     'idea1/idea1-moc',
     'idea2/idea2-moc',
     'idea3/idea3-moc',
@@ -45,6 +47,7 @@ const WORKSPACE_REQUIRED_LINKS = new Map([
   ]],
   ['core/core-moc.md', [
     'core/system-overview',
+    'core/development-session-workflow',
     'idea1/idea1-moc',
     'idea2/idea2-moc',
     'idea3/idea3-moc',
