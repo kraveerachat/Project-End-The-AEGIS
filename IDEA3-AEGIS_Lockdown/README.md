@@ -1,9 +1,9 @@
 # AEGIS IDEA 3 — Cyber-Physical Lockdown
 
-> **Migration status:** Headless Python Core, schema-v2 Web Security Center, and the composite server runtime are present in source
-> **PR track:** IDEA3 `PR9`; branch `feat/idea3-production-runtime-pr9`
-> **Status:** PR9 pre-PR5 server preparation is in progress; Production deployment, PR5 reconciliation, live MQTT, ESP32, relay, and network acceptance remain unproven
-> **Fresh validation (2026-09-10):** PR9 checkpoint results are recorded in `doc/Content/04_SESSION_HANDOFF.md`
+> **Current track:** IDEA3 `PR9` post-PR5 finalization; branch `feat/idea3-production-runtime-pr9`
+> **PR5 gate:** GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
+> **Status:** S7 reconciliation and fresh post-merge verification are in progress; PR #115 remains Draft
+> **Safety boundary:** Production deployment, total-control-power-loss fail-secure behavior, final relay-cycle Twingate auto-recovery, and deployment-grade prototype mechanics remain unproven; `IDEA3_PRODUCTION_COMPLETE = NO`
 
 AEGIS IDEA 3 เป็นระบบ **Cyber-Physical Active Defense** สำหรับตรวจจับภัยคุกคามทางไซเบอร์และตอบโต้ด้วยการตัด Uplink ทางกายภาพผ่าน ESP32 + Relay โดยออกแบบให้ทำงานร่วมกับ AEGIS IDEA 1 และ IDEA 2 ใน Production Integration Phase
 
@@ -54,17 +54,79 @@ Explicit Recovery
 - Concurrent Audit Writer race-condition protection
 - Runtime validation ของ Active Audit Ledger
 
+หลักฐานฮาร์ดแวร์ที่ owner ยืนยันสำหรับ project-sequence PR5:
+
+- RJ45 cable-tester: RESTORE `1 2 3 4 5 6 7 8` → CUT `1 _ 3 4 5 6 7 8` → RESTORE `1 2 3 4 5 6 7 8`
+- Powered EN/reset window: Pin 2 remained absent through hold, reboot, and reconnect; only explicit RESTORE returned Pin 2
+- Real Ethernet: ping and SSH worked in RESTORE, failed/froze in CUT, and a new SSH connection succeeded after RESTORE
+- Direct-LAN Twingate baseline and connector health after one manual restart passed
+
 สิ่งที่ยังไม่ถือว่าเสร็จใน evidence boundary ปัจจุบัน:
 
-- ESP32 flash/upload ของ revision นี้
-- real MQTT/HMAC end-to-end
-- relay CUT/RESTORE observation และ power measurement
-- physical WAN isolation verification
+- total-control-power-loss fail-secure behavior; loss of relay power may mechanically reconnect NC
+- final relay CUT → RESTORE Twingate automatic recovery without manual restart
+- deployment-grade strain relief and secure PCB/interconnect for the breadboard prototype
 - Production VLAN Integration
 - IDEA 1 / IDEA 2 Integration
 - Production MQTT TLS
 - systemd/watchdog deployment acceptance
-- Physical WAN Relay Integration บน topology จริง
+- overall IDEA3 production acceptance
+
+---
+
+## Project-sequence PR5 Final Hardware Closure — owner evidence accepted (2026-09-11)
+
+The firmware semantic contract remains unchanged:
+
+```text
+GPIO27 LOW  = LOCKDOWN / CUT
+GPIO27 HIGH = NORMAL / RESTORE
+```
+
+The accepted external circuit uses a 10 kΩ GPIO27 pull-down, ULN2003 IN1,
+ULN2003 OUT1 (continuity-verified as chip pin 16), and a 10 kΩ pull-up on the
+relay-input node. The relay is configured for high-level trigger. Ethernet Pin
+2 passes through COM and NC; NO is unused.
+
+```text
+LOW  → ULN OFF → relay input pulled HIGH → relay active → COM-NC open → Pin 2 CUT
+HIGH → ULN ON  → relay input sunk LOW    → relay released → COM-NC closed → Pin 2 restored
+```
+
+Observed LEDs: RESTORE/NORMAL has red power ON and green trigger OFF;
+CUT/LOCKDOWN has red power ON and green trigger ON.
+
+```text
+PHYSICAL_LOCKDOWN_PIN2=PASS
+PHYSICAL_RESTORE_PIN2=PASS
+RESET_WINDOW_1B=PASS
+RECONNECT_DOES_NOT_AUTO_RESTORE=PASS
+EXPLICIT_RESTORE_REQUIRED=PASS
+REAL_ETHERNET_RESTORE_BASELINE=PASS
+REAL_ETHERNET_CUT=PASS
+REAL_ETHERNET_RESTORE_RECOVERY=PASS
+SSH_CUT_EFFECT=PASS
+SSH_POST_RESTORE_RECONNECT=PASS
+TWINGATE_DIRECT_BASELINE=PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART=PASS
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY=NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+```
+
+`RESET_WINDOW_1B=PASS` applies only while the relay/control circuit remains
+powered. Total-control-power-loss fail-secure behavior is not proven; the
+relay's mechanical NC path may reconnect if relay power is lost. Breadboard,
+ESP32, and jumper movement caused intermittent bring-up behavior before the
+final sequence passed after reseating and stabilization, so strain relief and a
+secure PCB/interconnect remain deployment requirements.
+
+The old severed SSH session freezing during CUT is evidence of interruption,
+not a valid RESTORE criterion. Recovery was accepted only after ping resumed
+and a new SSH session succeeded. Cable-tester continuity alone is not treated
+as Ethernet traffic proof.
+
+No firmware, source, configuration, dependency, flash, reset, command, or
+hardware mutation is performed by this documentation PR. GitHub PR #115 stays
+blocked until this PR5 GitHub PR is merged. IDEA3 is not production-complete.
 
 ---
 

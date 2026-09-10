@@ -114,14 +114,14 @@ The current NXDOMAIN result and unverified domain ownership are blockers, not de
 
 The stale Production checkout is evidence, not a build workspace.
 
-- [ ] Fetch the canonical repository into a new release checkout under `/opt/aegis/releases/public-share/${DEPLOY_SOURCE_SHA}`; verify `HEAD`, tree and signature/review state.
-- [ ] Record `DEPLOY_SOURCE_SHA` as the full merged commit chosen by the owner; do not build an unmerged PR head unless the owner explicitly freezes that exact SHA.
-- [ ] Build only the Drive image from that release checkout, tag it immutably as `aegis-prod-drive:public-share-${DEPLOY_SOURCE_SHA:0:12}`, and add `org.opencontainers.image.revision=${DEPLOY_SOURCE_SHA}`.
-- [ ] Preserve the current Drive image ID and add a local rollback tag before recreation.
-- [ ] Use an image-only Compose override under `/opt/aegis/runtime/public-share/`; never use a Production `build:` directive.
-- [ ] Validate Compose with `docker compose ... config --quiet`; never print a rendered config that may contain secrets.
-- [ ] Recreate only Drive with `up -d --no-deps --no-build drive` when its approved session begins.
-- [ ] Keep Monitor's active overlay and running image untouched; do not run a project-wide `up`, `down`, `pull`, `build`, `prune` or recreate.
+- [x] Fetch the canonical repository into a new release checkout under `/opt/aegis/releases/public-share/${DEPLOY_SOURCE_SHA}`; verify `HEAD`, tree and signature/review state.
+- [x] Record `DEPLOY_SOURCE_SHA` as the full merged commit chosen by the owner; do not build an unmerged PR head unless the owner explicitly freezes that exact SHA.
+- [x] Build only the Drive image from that release checkout, tag it immutably as `aegis-prod-drive:public-share-${DEPLOY_SOURCE_SHA:0:12}`, and add `org.opencontainers.image.revision=${DEPLOY_SOURCE_SHA}`.
+- [x] Preserve the current Drive image ID and add a local rollback tag before recreation.
+- [x] Use an image-only Compose override under `/opt/aegis/runtime/public-share/`; never use a Production `build:` directive.
+- [x] Validate Compose with `docker compose ... config --quiet`; never print a rendered config that may contain secrets.
+- [x] Recreate only Drive with `up -d --no-deps --no-build drive` when its approved session begins.
+- [x] Keep Monitor's active overlay and running image untouched; do not run a project-wide `up`, `down`, `pull`, `build`, `prune` or recreate.
 
 Explicitly forbidden:
 
@@ -137,12 +137,12 @@ Migration 009 is additive: it replaces one CHECK with a strict superset and perf
 
 ### Before migration
 
-- [ ] Confirm `aegis-prod-postgres-1` is healthy and `aegis_postgres_data` exists.
-- [ ] Complete a current owner-approved backup through the existing Backup Agent and record job ID, `SUCCESS`, integrity `PASS`, artifact identity and retention location without credentials.
-- [ ] Produce a root-protected PostgreSQL custom-format backup of `aegis_drive`; record path metadata, byte size and SHA-256, never its contents.
-- [ ] Record the exact current constraint from `pg_constraint` and aggregate share counts by scope.
-- [ ] Record total share rows and a stable digest over non-secret row identity/scope/lifecycle fields; never select `token_hash` or `password_hash` into logs.
-- [ ] Verify no existing row uses `scope='public'`.
+- [x] Confirm `aegis-prod-postgres-1` is healthy and `aegis_postgres_data` exists.
+- [x] Complete a current owner-approved backup through the existing Backup Agent and record job ID, `SUCCESS`, integrity `PASS`, artifact identity and retention location without credentials.
+- [x] Produce a root-protected PostgreSQL custom-format backup of `aegis_drive`; record path metadata, byte size and SHA-256, never its contents.
+- [x] Record the exact current constraint from `pg_constraint` and aggregate share counts by scope.
+- [x] Record total share rows and a stable digest over non-secret row identity/scope/lifecycle fields; never select `token_hash` or `password_hash` into logs.
+- [x] Verify no existing row uses `scope='public'`.
 
 ### Apply
 
@@ -158,11 +158,11 @@ Do not echo passwords or environment variables. Stop immediately on non-zero exi
 
 ### After migration
 
-- [ ] Confirm `shares_scope_check` is exactly `any`, `zones`, `public`, `vlan`, `subnet`.
-- [ ] Re-run the non-secret counts/digest and prove existing rows are unchanged.
-- [ ] Re-run migration 009 once with `ON_ERROR_STOP=1` and prove idempotence.
-- [ ] Confirm `drive_app` still has only the expected application privileges and cannot run the migration itself.
-- [ ] Confirm PostgreSQL and the current Drive remain healthy before any Drive rollout.
+- [x] Confirm `shares_scope_check` is exactly `any`, `zones`, `public`, `vlan`, `subnet`.
+- [x] Re-run the non-secret counts/digest and prove existing rows are unchanged.
+- [x] Re-run migration 009 once with `ON_ERROR_STOP=1` and prove idempotence.
+- [x] Confirm `drive_app` still has only the expected application privileges and cannot run the migration itself.
+- [x] Confirm PostgreSQL and the current Drive remain healthy before any Drive rollout.
 
 ### Failure handling
 
@@ -228,8 +228,8 @@ Any unexpected reachable private address is a failed gate. Do not add exceptions
 
 ## 7. Drive and gateway rollout before exposure
 
-- [ ] Deploy the new Drive image first in legacy/private proxy mode, with migration 009 present and `PUBLIC_SHARE_UI_ENABLED=false`.
-- [ ] Verify private HUB login, Files, private `zones`/`any` share creation/redemption/revoke, health, storage and audit before changing proxy state.
+- [x] Deploy the new Drive image first in legacy/private proxy mode, with migration 009 present and `PUBLIC_SHARE_UI_ENABLED=false`.
+- [x] Verify private HUB login, Files, private `zones`/`any` share creation/redemption/revoke, health, storage and audit before changing proxy state.
 - [ ] Create the two internal isolated Public Share networks with exact reviewed `/29` subnets that do not overlap any runtime, VPN, VLAN or Docker network.
 - [ ] Apply the Drive-only runtime override that attaches Drive to `aegis_public_share_upstream`, sets one gateway `/32`, and sets `TRUSTED_PROXY_CIDRS` to exactly HUB `/32` plus that gateway `/32`.
 - [ ] Set `PUBLIC_SHARE_BASE_URL` only to the owner-controlled hostname selected after domain/zone proof; the hostname may remain NXDOMAIN before G5.
@@ -276,10 +276,10 @@ After G5 only:
 | Order | Session | Action | Production mutation | Gate/result required before next step |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | S5.2 | Refresh read-only baseline; prove domain/zone control; approve exact connector isolation and rollback commands | No | owner accepts evidence and mutation scope |
-| 2 | S5.3 | Freeze release SHA/tree and rollback images/config | Yes: release artifacts only | provenance and rollback IDs recorded |
-| 3 | S5.3 | Complete backup boundary | Yes: backup artifact | backup/integrity evidence PASS |
-| 4 | S5.3 | Apply migration 009 and verify rows/constraint/idempotence | Yes: additive DB constraint | database verification PASS |
-| 5 | S5.3 | Deploy Drive image in private mode, UI off | Yes: Drive only | health/private regression PASS |
+| 2 | S5.3 | Freeze release SHA/tree and rollback images/config | Yes: release artifacts only | provenance and rollback IDs recorded (COMPLETE / PASS) |
+| 3 | S5.3 | Complete backup boundary | Yes: backup artifact | backup/integrity evidence PASS (COMPLETE / PASS) |
+| 4 | S5.3 | Apply migration 009 and verify rows/constraint/idempotence | Yes: additive DB constraint | database verification PASS (COMPLETE / PASS) |
+| 5 | S5.3 | Deploy Drive image in private mode, UI off | Yes: Drive only | health/private regression PASS (COMPLETE / PASS) |
 | 6 | S5.4 | Create edge/upstream networks; deploy Drive State B then gateway | Yes: Drive/network/gateway | gateway and private regression PASS |
 | 7 | S5.5 | Apply approved connector egress isolation and start pinned named-tunnel connector without hostname route | Yes: connector/firewall or VLAN | all positive/negative isolation probes PASS |
 | 8 | G5 | Owner reviews steps 1–7 and explicitly authorises actual Internet exposure | No | **G5 APPROVED** |
@@ -346,21 +346,39 @@ Rollback never runs whole-stack `down`, never uses `-v`, never prunes, and never
   `618543ee0d88613a651305962b5ed64c8593c2e5`. No retroactive S5.1 receipt is
   created; this is retained as the historical governance-transition outcome.
 
-### S5.2–S5.12
+### S5.2 — G5 readiness design
+
+S5.2 froze the logical G5-readiness design in
+`docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md` and merged
+via PR #113 (`50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`). Post-S5.2 owner
+measurement subsequently established firewall backend, routing, and DNS uplinks.
+
+### S5.3 — Production Drive/database preparation and migration 009
+
+- [x] Freeze release source `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` (tree `709f7407cd602f7d43ae8ebd387eb46e2e99a865`) in dedicated release checkout `/opt/aegis/releases/public-share/50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`.
+- [x] Verify fail-closed pre-mutation gate against frozen Production baseline.
+- [x] Complete Backup Agent manual backup job `0122772c-640a-45b7-a30b-8a2c70cca942` (`SUCCESS`, snapshot `3eb550a1621c004f55cdbd8ddd88b65250fcb663b5dea98cc76c6ca3ab45656d`, integrity `PASS`).
+- [x] Complete Backup Agent restore verification job `e91750fa-73d6-4759-8e38-98d10b6c1304` (`SUCCESS`, integrity `PASS`, restore verification `PASS`).
+- [x] Produce root-protected PostgreSQL custom-format backup `/root/aegis-s5-3/aegis_drive-pre-009-20260910T102518Z.dump` (mode `0600`, size 93,161 bytes, SHA-256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries `PASS`).
+- [x] Verify pre-migration state: `shares_scope_check` (`any, zones, vlan, subnet`), 25 total share rows, 0 public rows, non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15`.
+- [x] Apply migration 009 (`e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0`) transactionally with `ON_ERROR_STOP=1`.
+- [x] Verify post-migration state: `shares_scope_check` (`any, zones, public, vlan, subnet`), row count (25 total, 0 public) and non-secret digest unchanged.
+- [x] Re-run migration 009 with `ON_ERROR_STOP=1` and prove idempotence (`PASS`).
+- [x] Verify `drive_app` application role has LOGIN-only, non-superuser privileges and no ALTER authority on `shares` (`PASS`).
+- [x] Build Drive image `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df`, tag `aegis-prod-drive:public-share-50ce6e1638` with OCI revision `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`.
+- [x] Capture rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z` on `sha256:fd9d8f74f0d3df73c21cdb46256f2afb101b7b9fbf1d4e3d95142c22712e23a1`.
+- [x] Deploy Drive-only Compose override `/opt/aegis/runtime/public-share/drive-s5-3.yml` (SHA-256 `324fb5126b2f13f7b1c529ef1391131ef37f81acc8c3921b9b50f649b179de62`) and recreate only Drive (`ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf`).
+- [x] Confirm Drive remains on its three private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`), protected volumes are preserved, and Monitor, HUB, PostgreSQL, and Twingate are untouched and healthy.
+- [x] Verify private regression: HTTP 200/401 `PASS`, HUB login `PASS`, Files `PASS`, public share UI hidden (`PASS`), ANY share create/redeem/revoke `PASS` (classification: owner-confirmed S5.3), ZONES share create/redeem/revoke `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance).
+- [x] Reconcile domain ownership as `OWNED` (`aegistk-pb.com` on Cloudflare); no DNS/tunnel/TLS route activated.
+- [x] Keep G5 and G6 `OPEN`; leave S5.4 and S5.5 `NOT STARTED`; Public Internet Share remains `NOT IMPLEMENTED`; Public Share UI remains `false`.
+
+### S5.4–S5.12
 
 Each later session begins only after reviewing the prior checkpoint and
-obtaining the explicit mutation/gate authority named above. S5.2 is a separate
-documentation task/branch/PR under the current repository workflow and creates
-exactly one final S5.2 receipt at handoff. Future mutation sessions must follow
-the same one-task/one-branch/one-PR/one-final-receipt rule unless the owner
-defines an already-compliant task boundary. Every session records exact source
-SHA, environment, commands, pass/fail/skip counts, cleanup, limitations and
-next action in the canonical Current Task/Session Register.
-
-S5.2 freezes the logical G5-readiness design in
-`docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md` while
-truthfully leaving executable firewall commands and G5 blocked pending the
-owner-run Production preflight.
+obtaining the explicit mutation/gate authority named above. Every session records
+exact source SHA, environment, commands, pass/fail/skip counts, cleanup, limitations
+and next action in the canonical Current Task/Session Register.
 
 ## 14. S5.1 verification and stop point
 
