@@ -152,10 +152,10 @@ test('S5.4-STRUCT-2 pins exact member addresses and preserves Drive private memb
   assert.match(overlay, /RESERVED_CONNECTOR_EDGE_IP: 172\.31\.240\.3/)
 })
 
-test('S5.4-ENV-1 all Production compose examples specify the canonical env-file', () => {
+test('S5.4-ENV-1 all owner-run Production compose examples specify sudo and canonical env-file', () => {
   const extractComposeCommands = (text) => {
     const matches = []
-    const regex = /docker compose\s+([\s\S]*?)(?=\n\s*(?:docker compose|docker network|```|$))/g
+    const regex = /(?:sudo\s+)?docker compose\s+([\s\S]*?)(?=\r?\n\s*(?:(?:sudo\s+)?docker compose|(?:sudo\s+)?docker network|```|$))/g
     let match
     while ((match = regex.exec(text)) !== null) {
       matches.push(match[0])
@@ -168,6 +168,12 @@ test('S5.4-ENV-1 all Production compose examples specify the canonical env-file'
   for (const cmd of runbookCommands) {
     assert.match(
       cmd,
+      /^sudo\s+docker compose\b/,
+      'every owner-run Production compose command must use the explicit sudo privilege boundary',
+    )
+    assert.doesNotMatch(cmd, /sudo\s+-E/, 'must not use sudo -E')
+    assert.match(
+      cmd,
       /--env-file\s+\/opt\/aegis\/Project-End-The-AEGIS\/\.env/,
       'every runbook compose command must specify the canonical Production --env-file',
     )
@@ -178,9 +184,26 @@ test('S5.4-ENV-1 all Production compose examples specify the canonical env-file'
     )
   }
 
+  assert.doesNotMatch(
+    runbook,
+    /(?:^|\r?\n)\s*docker compose\b/,
+    'runbook must never omit sudo for owner-run Production compose commands',
+  )
+  assert.doesNotMatch(
+    runbook,
+    /(?:^|\r?\n)\s*docker network rm\b/,
+    'runbook must use sudo for docker network rm',
+  )
+
   const planCommands = extractComposeCommands(plan)
   assert.ok(planCommands.length >= 5, 'plan must contain all S5.4 compose commands')
   for (const cmd of planCommands) {
+    assert.match(
+      cmd,
+      /^sudo\s+docker compose\b/,
+      'every owner-run Production compose command must use the explicit sudo privilege boundary',
+    )
+    assert.doesNotMatch(cmd, /sudo\s+-E/, 'must not use sudo -E')
     assert.match(
       cmd,
       /--env-file\s+\/opt\/aegis\/Project-End-The-AEGIS\/\.env/,
@@ -192,6 +215,17 @@ test('S5.4-ENV-1 all Production compose examples specify the canonical env-file'
       'every plan compose command must specify --project-name aegis-prod',
     )
   }
+
+  assert.doesNotMatch(
+    plan,
+    /(?:^|\r?\n)\s*docker compose\b/,
+    'plan must never omit sudo for owner-run Production compose commands',
+  )
+  assert.doesNotMatch(
+    plan,
+    /(?:^|\r?\n)\s*docker network rm\b/,
+    'plan must use sudo for docker network rm',
+  )
 })
 
 test('S5.4-STRUCT-3 Drive and managed-edge trust are exact, narrow, and UI-off', () => {
@@ -255,7 +289,8 @@ test('S5.4-ROLLBACK-1 runbook restores the exact S5.3 private state without whol
   assert.match(runbook, /PUBLIC_SHARE_UI_ENABLED=false/)
   assert.match(runbook, /up -d --no-deps --no-build drive/)
   assert.match(runbook, /rm -s -f public-share-gateway/)
-  assert.match(runbook, /docker network rm aegis_public_share_edge aegis_public_share_upstream/)
+  assert.match(runbook, /sudo docker network rm aegis_public_share_edge aegis_public_share_upstream/)
+  assert.match(plan, /sudo docker network rm aegis_public_share_edge aegis_public_share_upstream/)
 
   assert.doesNotMatch(runbook, /docker compose[^\n]*\bdown\b/)
   assert.doesNotMatch(runbook, /docker (?:system|image|volume|network) prune/)

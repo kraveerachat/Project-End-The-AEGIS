@@ -141,7 +141,7 @@ and a passing fresh preflight:
 3. Validate the merged Compose model using exactly:
 
    ```bash
-   docker compose \
+   sudo docker compose \
      --env-file /opt/aegis/Project-End-The-AEGIS/.env \
      --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -155,7 +155,7 @@ and a passing fresh preflight:
 5. Recreate only Drive first:
 
    ```bash
-   docker compose \
+   sudo docker compose \
      --env-file /opt/aegis/Project-End-The-AEGIS/.env \
      --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -169,7 +169,7 @@ and a passing fresh preflight:
 7. Start only the gateway second:
 
    ```bash
-   docker compose \
+   sudo docker compose \
      --env-file /opt/aegis/Project-End-The-AEGIS/.env \
      --project-name aegis-prod \
      -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -190,7 +190,7 @@ current repository-only checkpoint.
 Rollback is gateway first, then Drive, reversing the rollout order:
 
 ```bash
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -198,14 +198,14 @@ docker compose \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   rm -s -f public-share-gateway
 
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   up -d --no-deps --no-build drive
 
-docker network rm aegis_public_share_edge aegis_public_share_upstream
+sudo docker network rm aegis_public_share_edge aegis_public_share_upstream
 ```
 
 The rollback acceptance state is:
@@ -412,9 +412,12 @@ confirmed BEFORE any Drive recreation, S5.4 network creation, or Gateway start:
    - `POSTGRES_PASSWORD`
    - `POSTGRES_USER`
    The canonical Production env file `/opt/aegis/Project-End-The-AEGIS/.env`
-   exists (`root:root mode 0600`; contents not inspected).
-   Every S5.4 Production `docker compose` command requiring interpolation MUST use:
-   `--env-file /opt/aegis/Project-End-The-AEGIS/.env`.
+   exists (`root:root mode 0600`; contents not inspected). Because the operator
+   session is `admin-main@aegis-system`, Compose cannot read this root-protected
+   env file client-side without explicit privilege elevation.
+   Every S5.4 Production Compose command requiring interpolation MUST use:
+   `sudo docker compose --env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod ...`
+   and network rollback must use `sudo docker network rm ...`.
 
 2. **CONFIRMED DEFECT 2 — incorrect Compose logical network key**:
    Owner-run read-only diagnostic produced:

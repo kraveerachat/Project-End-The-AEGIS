@@ -22,7 +22,7 @@ The reviewed future model uses exactly these files, in order:
 Validate the merged model before any service operation:
 
 ```bash
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -34,7 +34,7 @@ docker compose \
 The future service-scoped order is Drive first and gateway second:
 
 ```bash
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -42,7 +42,7 @@ docker compose \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   up -d --no-deps --no-build drive
 
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -60,7 +60,7 @@ Rollback removes the gateway first, then restores Drive by omitting the S5.4
 overlay:
 
 ```bash
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
@@ -68,14 +68,14 @@ docker compose \
   -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
   rm -s -f public-share-gateway
 
-docker compose \
+sudo docker compose \
   --env-file /opt/aegis/Project-End-The-AEGIS/.env \
   --project-name aegis-prod \
   -f /opt/aegis/runtime/docker-compose.production.yml \
   -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
   up -d --no-deps --no-build drive
 
-docker network rm aegis_public_share_edge aegis_public_share_upstream
+sudo docker network rm aegis_public_share_edge aegis_public_share_upstream
 ```
 
 The two networks may be removed only after inspection proves they have no
