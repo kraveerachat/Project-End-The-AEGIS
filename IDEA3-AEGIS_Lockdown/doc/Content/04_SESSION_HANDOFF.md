@@ -2242,3 +2242,69 @@ external database was accessed.
 Begin S2 with RED tests in `web/tests/server/config.test.js` for malformed
 production numeric values and a relative production audit database path. Then
 add RED readiness tests before changing runtime source.
+
+## 40. PR9 production runtime — stopped at the PR5 merge gate — 2026-09-10
+
+```text
+BRANCH = feat/idea3-production-runtime-pr9
+PR = #115 (Draft, no receipt)
+BASE = 50ce6e1638c6bcdb2a378a3cee660050b9cb41d8
+IMPLEMENTATION_CHECKPOINT = 15b5b94a0b26131db2b14f2274dcc6022c776b2b
+SESSIONS = S1-S6 CLOSED; S7 BLOCKED; S8 BLOCKED
+STATUS = PARTIAL / WAITING FOR PR5 MERGE
+PRODUCTION_MUTATION_ALLOWED = NO
+LOCAL_RESULT = PRODUCTION_LIKE_VERIFIED (not PRODUCTION_DEPLOYED)
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### What exists now
+
+- `python -m aegis_soc.production_runtime start|stop|restart|status|doctor`
+  owns Core and Web: it validates an absolute external `AEGIS_DATA_DIR` outside
+  the payload, a loopback bind, and distinct ports; it starts Core before Web,
+  stops Web before Core, fails and cleans the peer when either child exits,
+  rejects a duplicate start, stops idempotently, and never sends
+  `RESTORE_UPLINK`.
+- Production Web rejects malformed numeric settings and a relative audit DB
+  path. `/security/api/health` is liveness; `/security/api/readiness` is 200
+  `READY` only after the schema-v2 audit probe succeeds, otherwise 503.
+- `runtime/service-status.json` keeps process health, readiness, audit, MQTT,
+  IDEA1, IDEA2, ESP32, and physical evidence separate.
+- `deploy/aegis-idea3.service.example` replaces the Core-only example and is not
+  installed. `docs/operations/production-runtime.md` is the server runbook.
+
+### Defect fixed in this session
+
+The first isolated acceptance run passed but left a misleading terminal status:
+after a clean stop it listed both children `FAILED` and audit `DEGRADED`,
+because the terminal write probed the Web it had just stopped. `15b5b94a` fixes
+this RED→GREEN: terminal writes do not probe, audit is `UNKNOWN`, and a clean
+stop reports `STOPPED` components.
+
+### Fresh verification at `15b5b94a` (Arch Linux, Python 3.14.7, Node v24.16.0)
+
+```text
+Full Python = 220 passed, 6 Windows-only skipped (218 / 6 at 8d4c76bb before the fix)
+Full Web = 309 passed across 24 files
+Vite build = PASS, 1677 modules
+Ruff = PASS; compileall = PASS
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 63 passed
+Vault validation = PASS, two unchanged owner-data canvas warnings
+Collaboration policy (Draft, no receipt) = PASS
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED, twice
+Loopback negative controls = 10/10 PASS (run 1 was 9/10 on a harness expectation error)
+```
+
+The canonical record, including the negative-control table, file and Git
+reconciliation, and limitations, is `idea3/idea3-status.md` in the vault. No
+Production host, real broker, device, relay, network, upstream producer, or
+Production database was contacted.
+
+### Exact next step
+
+Do nothing on this branch until the owner states `PR5 MERGED`. Then run S7:
+`git fetch origin`, `git merge origin/main` (never rebase or force-push),
+reconcile hardware/reset/relay/CUT/RESTORE status with PR5 truth, and rerun the
+full gate plus isolated acceptance. S8 then adds the one PR9 receipt and requests
+Ready. An agent never merges PR #115.

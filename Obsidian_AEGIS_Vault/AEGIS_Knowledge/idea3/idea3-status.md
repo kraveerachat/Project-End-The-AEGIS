@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-08
+updated: 2026-09-10
 owner: music
 edit_policy: owner-writable
 ---
@@ -606,11 +606,11 @@ contracts, but this reconciliation does not invent final Windows acceptance.
 Task: PR9 Production Runtime / Deployment Preparation
 Branch: `feat/idea3-production-runtime-pr9`
 Owner: `music`
-PR: Draft pending
-Current state: IN PROGRESS
+PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — Draft
+Current state: BLOCKED — S1-S6 CLOSED; waiting at the PR5 merge gate
 Started: 2026-09-10
 Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
-Last checkpoint: `6a1cee51a87786a3af1f9849d16c60a0db786f87`
+Last checkpoint: `15b5b94a0b26131db2b14f2274dcc6022c776b2b`
 Production mutation allowed: NO
 PR5 dependency: OPEN / WAITING FOR MERGE
 
@@ -649,13 +649,183 @@ S7 and S8 remain blocked until PR5 merges.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Runtime inventory/design/plan | CLOSED | Source, tests, Git ancestry, PR5 ref and PR8 evidence audited; source-backed design and TDD plan committed | `6a1cee51a87786a3af1f9849d16c60a0db786f87` | PASS | none | start S2 |
-| S2 | Production config/path contract | IN PROGRESS | baseline Python 196/6, Web 298/24, repo 63 all pass when rerun outside sandbox loopback restrictions | — | pending RED/GREEN | implementation | write strict Web config tests |
-| S3 | Lifecycle + readiness | NOT STARTED | pending TDD | — | pending | all work | start after S2 |
-| S4 | Persistence/auth regressions | NOT STARTED | pending | — | pending | all work | start after S3 |
-| S5 | Production-like isolated acceptance | NOT STARTED | pending | — | pending | all work | start after S4 |
-| S6 | Runbook + evidence reconciliation | NOT STARTED | pending | — | pending | all work | start after S5 |
-| S7 | PR5 merge sync + final acceptance | BLOCKED | PR5 is not merged | — | BLOCKED | fresh main sync and final gates | wait for `PR5 MERGED` |
+| S2 | Production config/path contract | CLOSED | strict production Web numerics + absolute audit DB path (`b55fcf1f`); server settings, external data root, payload paths, `.env.example` (`de42b990`); config and settings tests green | `de42b990c17ff1da564b0663535b4669942c3737` | PASS | none | S3 |
+| S3 | Lifecycle + readiness | CLOSED | `/security/api/readiness` (`b55fcf1f`); composite Core+Web lifecycle, fail-on-child-exit, status model, CLI (`4e789af1`); lifecycle tests green | `4e789af14ff8f73e34a2b747a72d8fc7c02b9cee` | PASS | none | S4 |
+| S4 | Persistence/auth regressions | CLOSED | focused MQTT/runtime/controller/core, adapter/provider/correlation, SQLite/reliability, and config/auth/security suites all green; no source change needed | `15b5b94a0b26131db2b14f2274dcc6022c776b2b` (evidence SHA) | PASS | none | S5 |
+| S5 | Production-like isolated acceptance | CLOSED | driver `8d4c76bb`; two acceptance runs `PRODUCTION_LIKE_VERIFIED`; 10/10 loopback negative controls; clean-stop status defect found and fixed RED→GREEN | `15b5b94a0b26131db2b14f2274dcc6022c776b2b` | PASS | none | S6 |
+| S6 | Runbook + evidence reconciliation | CLOSED | runbook, composite service example, README (`2b64b565`); this reconciliation; vault, policy, diff, secret and artifact checks | `2b64b565a731f0eb4af6236cb96cebdd14fca048` | PASS | none | stop at PR5 gate |
+| S7 | PR5 merge sync + final acceptance | BLOCKED | PR5 is not merged; `origin/main` still `50ce6e16` and the PR5 ref `3f07f80c` is already its ancestor | — | BLOCKED | fresh main sync and final gates | wait for `PR5 MERGED` |
 | S8 | Final closeout / receipt / review | BLOCKED | S7 not run | — | BLOCKED | immutable receipt and Ready state | wait for S7 |
+
+S2-S5 source commits were produced by an earlier session on this branch without a
+register update. They were re-verified at the current tree before being recorded
+here; no evidence below is carried forward from that session.
+
+### Task Status Dashboard
+
+| Area | Status | Evidence / Note |
+|---|---|---|
+| Design and plan | CLOSED | `6a1cee51` |
+| Source implementation | LOCAL VERIFIED | full Python and Web suites at `15b5b94a` |
+| Negative regressions | PASS | focused suites plus 10/10 loopback negative controls |
+| Production-like isolated acceptance | PASS — `PRODUCTION_LIKE_VERIFIED` | disposable loopback lab/headless/dry-run only |
+| Operations runbook | DOCUMENTED | not exercised on a host |
+| systemd installation | NOT RUN | `deploy/aegis-idea3.service.example` is an example |
+| Production deployment | NOT RUN | `PRODUCTION_MUTATION_ALLOWED = NO` |
+| PR5 sync and final acceptance (S7) | BLOCKED | PR5 open |
+| Receipt, Ready, review (S8) | BLOCKED | waits for S7 |
+
+### Git reconciliation
+
+| Commit | Session | Content |
+|---|---|---|
+| `6a1cee51` | S1 | source-backed design and TDD plan |
+| `1e6cec43` | S1 | S1 documentation checkpoint |
+| `b55fcf1f` | S2/S3 | strict production Web numerics, absolute audit DB path, readiness route |
+| `de42b990` | S2 | `ProductionSettings`: external `AEGIS_DATA_DIR`, explicit payload paths, loopback and distinct ports, `.env.example` keys |
+| `4e789af1` | S3 | `ProductionRuntime`, fail-on-child-exit and peer cleanup in the shared launcher, status model, `start/stop/restart/status/doctor` |
+| `2b64b565` | S6 | runbook, composite service example replacing the Core-only example, README routing |
+| `8d4c76bb` | S5 | isolated acceptance driver and contract tests |
+| `15b5b94a` | S5 | fix: truthful clean-stop service status |
+
+`de42b990` is the plan's Task 2 commit. It was verified in place and is
+preserved unchanged; every commit above is linear on `50ce6e16` with no rebase.
+
+### File reconciliation
+
+| Path | Change | Before → after |
+|---|---|---|
+| `IDEA3-AEGIS_Lockdown/aegis_soc/production_runtime.py` | added | no server owner for Core+Web → validated composite owner, status projection, CLI |
+| `IDEA3-AEGIS_Lockdown/aegis_soc/windows_launcher.py` | modified | child death left the owner running `DEGRADED` → owner fails, cleans the peer, removes the token, exits 1; duplicate start leaves the running status/token untouched |
+| `IDEA3-AEGIS_Lockdown/web/server/config.js` | modified | malformed production numerics silently defaulted; relative audit DB accepted → both rejected at startup in production |
+| `IDEA3-AEGIS_Lockdown/web/server/createApp.js` | modified | liveness only → separate schema-v2 readiness (200 `READY` / 503 `DEGRADED`) |
+| `IDEA3-AEGIS_Lockdown/.env.example` | modified | relative audit DB default → blank (service derives it); server payload keys documented |
+| `IDEA3-AEGIS_Lockdown/deploy/aegis-idea3.service.example` | added | composite hardened unit, `UMask=0077`, `ReadWritePaths=/var/lib/aegis-idea3` |
+| `IDEA3-AEGIS_Lockdown/deploy/aegis-supervisor.service.example` | deleted | Core-only unit contradicted the Core+Web topology |
+| `IDEA3-AEGIS_Lockdown/deploy/production-like-acceptance.py` | added | isolated two-generation acceptance driver |
+| `IDEA3-AEGIS_Lockdown/docs/operations/production-runtime.md` | added | server runbook |
+| `IDEA3-AEGIS_Lockdown/README.md` | modified | PR9 operator routing |
+| `IDEA3-AEGIS_Lockdown/tests/test_production_runtime.py` | added | settings, status, stop, restart, CLI, terminal-status tests |
+| `IDEA3-AEGIS_Lockdown/tests/test_production_like_acceptance.py` | added | driver contract tests |
+| `IDEA3-AEGIS_Lockdown/tests/test_windows_launcher.py` | modified | child-exit, duplicate-start, no-RESTORE tests |
+| `IDEA3-AEGIS_Lockdown/web/tests/server/config.test.js` | modified | strict numeric and audit-path tests |
+| `IDEA3-AEGIS_Lockdown/web/tests/server/productionRuntime.test.js` | modified | readiness tests |
+| `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-10-idea3-pr9-production-runtime-design.md` | added | design |
+| `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-10-idea3-pr9-production-runtime.md` | added | plan |
+| `IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md` | modified | PR9 handoff sections 39-40 |
+| `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` | modified | this task record |
+
+Configuration contract: production Web requires an absolute audit DB path and
+well-formed numerics; the composite service requires an absolute
+`AEGIS_DATA_DIR` outside the payload. Schema state: Web audit stays at schema v2;
+no schema change or migration was added.
+
+### Maturity by capability
+
+| Capability | Implemented | Automated tests | Local runtime | Documented | Open |
+|---|---|---|---|---|---|
+| Strict production Web config | yes | yes | yes (acceptance) | yes | — |
+| Liveness vs readiness | yes | yes | yes (200 `READY`; unusable DB → Web exits → `FAILED`) | yes | — |
+| Composite lifecycle and crash cleanup | yes | yes | yes | yes | systemd install |
+| Service status model | yes | yes | yes | yes | IDEA1/IDEA2 projection is configuration-only |
+| Backup, restore, upgrade, rollback, secret rotation | procedure only | no | no | yes | host exercise |
+| MQTT delivery, ESP32, relay, WAN isolation | unchanged | existing only | no | yes | PR5 / hardware closure |
+
+### Work performed and defects — this session
+
+- Verified HEAD `8d4c76bb`, the seven commits over `50ce6e16`, and `de42b990`.
+- Defect introduced by this task (`4e789af1`), found by the first isolated
+  acceptance run: after a clean stop, `runtime/service-status.json` recorded
+  `status: STOPPED` but `components: {core: FAILED, web: FAILED}` and
+  `audit: DEGRADED`, because the terminal write probed the Web readiness route it
+  had just stopped. RED: the new parametrized test failed 2/2 on the probe. Fix
+  `15b5b94a`: terminal writes skip the probe, report audit `UNKNOWN`, and map a
+  clean stop to `STOPPED` components as the PR8 launcher already did. GREEN, and
+  acceptance run 2 recorded the corrected terminal state.
+
+### Tests / Evidence — 2026-09-10
+
+```text
+host = Arch Linux; python = 3.14.7 venv (pytest 9.1.1, ruff 0.16.3, paho-mqtt 2.1.0, pip check clean); node = v24.16.0
+source_sha = 8d4c76bb (before fix) / 15b5b94a (after fix)
+
+Full Python  pytest -p no:cacheprovider -q        = 218 passed, 6 skipped @8d4c76bb; 220 passed, 6 skipped @15b5b94a
+Ruff         ruff check --no-cache aegis_soc tests windows deploy detector.py sim_auto_detector.py server_admin.py = PASS
+compileall   aegis_soc deploy detector.py server_admin.py sim_auto_detector.py = PASS (pycache redirected outside the tree)
+Full Web     npx vitest run                        = 309 passed across 24 files (Web source unchanged by the fix)
+Vite build                                         = PASS, 1677 modules
+npm audit --omit=dev --offline                     = 0 vulnerabilities
+Repository   node --test --test-concurrency=1 tests/*.test.mjs = 63 passed, 0 failed
+Focused lifecycle: production_runtime + windows_launcher + acceptance + paths = 119 passed, 6 skipped
+Focused S4 Python: mqtt_client + runtime + controller + core                  = 80 passed
+Focused S4 Web: adapters/provider/normalize/correlate/events/containment      = 112 passed (6 files)
+Focused S4 Web: sqliteRepository + productionReliability                      = 45 passed (2 files)
+Focused S4 Web: config/auth/security/securityRoutes/productionRuntime/passwordHash = 72 passed (6 files)
+```
+
+Loopback listeners and nested Git fixtures were permitted in this session; no
+sandbox `EPERM` occurred. The first vault-validation call failed with
+`MODULE_NOT_FOUND` because a relative script path resolved from the Web
+directory; the absolute-path rerun passed with the two known canvas warnings.
+
+### Isolated production-like acceptance
+
+`python deploy/production-like-acceptance.py --data-root <empty disposable path containing spaces>`
+passed twice (`@8d4c76bb`, `@15b5b94a`): `PRODUCTION_LIKE_VERIFIED`, 2
+generations, liveness, readiness `READY` schema v2, Admin login with a generated
+test-only bcrypt credential, LIVE snapshot with IDEA1/IDEA2 `NOT_CONFIGURED`,
+durable audit write, restart, audit read-back after restart, CSRF logout, clean
+stop exit 0, no control token, no temporary files, no Web listener, no surviving
+Core/Web process, no secret in logs/runtime, and owner-only 0600 files / 0700
+directories.
+
+### Negative controls — loopback only
+
+A session-local harness reused the committed driver helpers, a fresh disposable
+root per case, and a loopback feed server requiring a generated bearer token.
+Run 1: 9/10 — the malformed-feed case failed only because the harness expected
+`MALFORMED_RESPONSE`, while `web/server/providers/liveProvider.js` intentionally
+reports `ADAPTER_RESPONSE_REJECTED`; the product degraded correctly. Run 2 at
+`15b5b94a` after correcting that expectation: **10/10 PASS**.
+
+| Case | Observed |
+|---|---|
+| positive control: fresh IDEA1 feed | snapshot IDEA1 `HEALTHY/FRESH`; clean stop |
+| missing `SESSION_SECRET` | Web rejects policy → service `FAILED`, exit 1 |
+| audit DB path unusable | SQLite open fails → service `FAILED`, exit 1 |
+| live Core without broker/HMAC/PIN | Core preflight `FAILED` → service `FAILED`, exit 1 |
+| IDEA1 unavailable | IDEA1 `UNKNOWN`, `ADAPTER_UNAVAILABLE`, 0 incidents |
+| IDEA1 stale envelope | IDEA1 `UNKNOWN/STALE`, `ADAPTER_EVIDENCE_STALE`, 0 incidents |
+| IDEA2 malformed body | IDEA2 `UNKNOWN`, `ADAPTER_RESPONSE_REJECTED`, 0 incidents |
+| IDEA2 schema rejected | IDEA2 `UNKNOWN`, `ADAPTER_RESPONSE_REJECTED`, 0 incidents |
+| IDEA2 unavailable | IDEA2 `UNKNOWN`, `ADAPTER_UNAVAILABLE`, 0 incidents |
+| MQTT unavailable (dry-run) | service `mqtt: UNAVAILABLE`; nothing published |
+
+Every case kept `physicalEvidence: UNKNOWN` and ended with no control token,
+no surviving process, no Web listener, and no secret in logs/runtime. All
+disposable roots were deleted after the evidence was captured.
+
+### Known limitations
+
+- `PRODUCTION_LIKE_VERIFIED` is local lab/headless/dry-run evidence only. No
+  systemd install, Production host, broker, device, relay, WAN, or live
+  IDEA1/IDEA2 producer was used.
+- Service-status `idea1`/`idea2` is a configuration-only projection: a
+  configured feed reads `UNAVAILABLE` even when the Web snapshot shows it
+  `HEALTHY/FRESH`. It never overstates, but the owner should decide whether it
+  should read `UNKNOWN` or probe the feed. The Web snapshot is the authority.
+- The negative-control harness is session-local and not committed.
+- Backup/restore, upgrade/rollback, and secret rotation are documented only.
+- PR8 extracted-ZIP Windows acceptance remains unproven; out of PR9 scope.
+
+### Planned / Completed / Remaining
+
+- Completed: S1-S6 — design/plan, strict config, composite lifecycle,
+  readiness, negative regressions, isolated acceptance, runbook, reconciliation,
+  Draft PR #115 without a receipt.
+- Remaining: S7 — merge current `origin/main` after PR5, reconcile
+  hardware/reset/relay/CUT/RESTORE status fields, rerun the full gate. S8 — one
+  immutable PR9 receipt, Ready request, human review and merge.
 
 ## Handoff
 
@@ -665,42 +835,47 @@ S7 and S8 remain blocked until PR5 merges.
 
 ### Current HEAD
 
-S1 implementation/evidence checkpoint:
-`6a1cee51a87786a3af1f9849d16c60a0db786f87`.
+Last implementation/evidence checkpoint:
+`15b5b94a0b26131db2b14f2274dcc6022c776b2b`. The documentation checkpoint that
+records this table follows it on the same branch; PR #115 shows the exact head.
 
 ### Current task state
 
-IN PROGRESS. S1 design is closed. The clean baseline passes when local
-loopback/subprocess permissions are available. S2 implementation is starting.
+BLOCKED at the PR5 merge gate. Draft PR #115 is open without a receipt.
 
 ### Sessions closed
 
-S1 runtime inventory, design, and plan.
+S1-S6.
 
 ### Session currently open
 
-S2 production configuration/path contract.
+None. S7 and S8 are BLOCKED.
 
 ### Verified evidence
 
-At the PR9 base: Python 196 passed / 6 Windows-only skipped; Web 298 passed;
-repository tests 63 passed. Initial restricted runs failed only on blocked local
-listeners/nested Git and passed unchanged with the required test permissions.
+At `15b5b94a`: Python 220 passed / 6 Windows-only skipped; Web 309 passed
+across 24 files; build 1677 modules; npm audit 0; repository 63 passed; Ruff and
+compileall PASS; isolated acceptance `PRODUCTION_LIKE_VERIFIED`; negative
+controls 10/10. Details are in the PR9 evidence section above.
 
 ### Known issues
 
-PR5 is open. The fetched hardware-closure ref adds no commit beyond current
-`main`, so no newer hardware truth is available in Git. PR8 final extracted-ZIP
-acceptance is also not present in current repository evidence.
+PR5 is open; `origin/main` was still `50ce6e16` at publication and the PR5 ref
+`3f07f80c` adds nothing over it. Service-status IDEA1/IDEA2 is a
+configuration-only projection. PR8 final extracted-ZIP acceptance is not present
+in repository evidence.
 
 ### Exact remaining work
 
-Complete S1-S6, push one Draft branch/PR without a receipt, then stop at the PR5
-merge gate.
+S7 after the owner states `PR5 MERGED`: `git fetch origin`, `git merge
+origin/main` (no rebase), reconcile hardware/reset/relay/CUT/RESTORE status
+fields with PR5 truth, rerun the full gate and isolated acceptance. S8: create
+the one PR9 receipt, update this record, then request Ready.
 
 ### Next command / next action
 
-Begin S2 with failing Web configuration and readiness tests.
+Wait for `PR5 MERGED`. Then start S7 with `git fetch origin` and
+`git merge origin/main` on `feat/idea3-production-runtime-pr9`.
 
 ### Do not do
 
