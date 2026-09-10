@@ -2408,3 +2408,67 @@ MikroTik, switch, Twingate, or real IDEA1/IDEA2 feed was touched.
 Wait for `PR5 MERGED`. Then S7: `git fetch origin`, `git merge origin/main`
 (never rebase or force-push), reconcile hardware status with PR5, rerun the
 full gate plus both drivers. S8: one PR9 receipt, then request Ready.
+
+## 43. PR9 MQTT service-status truth correction — WAITING FOR PR5 MERGED — 2026-09-10
+
+```text
+START_HEAD = 5578e08cb87587e454e3b4d82770c3ad1d626727
+CORRECTION_CHECKPOINT = the commit containing this section
+SESSIONS = S1-S6 CLOSED; S7 BLOCKED; S8 BLOCKED
+STATUS = WAITING FOR PR5 MERGED
+PRODUCTION_MUTATION_ALLOWED = NO
+```
+
+### Corrected truth contract
+
+`ProductionRuntime` now derives service MQTT status only from the configuration
+and Core's existing broker evidence. It does not probe the broker and does not
+create a second MQTT connection.
+
+| MQTT configuration / Core broker evidence | Service `mqtt` |
+|---|---|
+| not configured / `UNKNOWN` | `NOT_CONFIGURED` |
+| configured / `UNKNOWN` | `UNKNOWN` |
+| configured / `DISCONNECTED` | `UNAVAILABLE` |
+| configured / `CONNECTED` | `CONNECTED` |
+
+RED was the configured + Core `UNKNOWN` row: the old projection returned
+`UNAVAILABLE`. GREEN is 4/4 matrix cases. The negative-control driver's former
+"MQTT unavailable (dry-run)" expectation was also false: dry-run never starts
+MQTT, so the corrected case is `mqtt-configured-unprobed-dry-run` and requires
+Core `UNKNOWN` plus service `UNKNOWN`. The driver passed 13/13. The
+`DISCONNECTED` and `CONNECTED` rows are exercised deterministically through
+injected Core evidence; no broker was contacted.
+
+Every matrix case keeps `esp32: UNKNOWN` and `physicalEvidence: UNKNOWN`.
+Therefore ACK is not physical evidence, MQTT `CONNECTED` is not ESP32 `ONLINE`,
+and MQTT `CONNECTED` is not relay success.
+
+### Fresh correction-tree verification
+
+```text
+Focused runtime/MQTT/Core/controller/driver contracts = 116 passed
+Full Python = 236 passed, 6 Windows-only skipped
+Full Web = 309 passed across 24 files
+Vite build = PASS, 1,677 modules
+Ruff = PASS; compileall = PASS
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 63 passed, 0 failed
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED
+Negative controls = 13/13 PASS
+```
+
+The disposable acceptance recorded MQTT `NOT_CONFIGURED`, ESP32/physical
+evidence `UNKNOWN`, two generations, persisted audit, and zero surviving
+processes. The disposable negative driver recorded configured-but-unprobed MQTT
+as Core `UNKNOWN` / service `UNKNOWN`, and every case ended without a control
+token, surviving process, listener, secret leak, or physical-evidence claim.
+The final SHA, vault/policy checks, and remote PR/PR5 state are recorded after
+the one correction commit is created and pushed.
+
+### Exact next step
+
+Keep PR #115 Draft with no final receipt. If PR5 is still unmerged, stop at
+`WAITING FOR PR5 MERGED`. If it has merged, stop before S7 and request the
+post-PR5 synchronization workflow. Never merge, rebase, force-push, deploy,
+contact Production, or contact real MQTT/hardware/upstream dependencies here.

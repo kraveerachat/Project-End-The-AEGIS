@@ -172,6 +172,19 @@ def mqtt_unavailable(observation: dict) -> bool:
     )
 
 
+def mqtt_unprobed(observation: dict) -> bool:
+    """Dry-run never starts MQTT, so configured broker evidence stays UNKNOWN."""
+    running = observation.get("runningServiceStatus") or {}
+    return (
+        not observation["exitedDuringStart"]
+        and observation.get("coreBroker") == "UNKNOWN"
+        and running.get("mqtt") == "UNKNOWN"
+        and running.get("physicalEvidence") == "UNKNOWN"
+        and observation["exit"] == 0
+        and _clean(observation)
+    )
+
+
 @dataclass(frozen=True)
 class Case:
     name: str
@@ -225,10 +238,10 @@ CASES = (
         prepare=_unusable_audit_database,
     ),
     Case(
-        "mqtt-unavailable-dry-run",
+        "mqtt-configured-unprobed-dry-run",
         "mqtt",
         lambda context: {"AEGIS_BROKER_IP": "127.0.0.1", "AEGIS_BROKER_PORT": str(context.closed_port)},
-        mqtt_unavailable,
+        mqtt_unprobed,
     ),
     Case("idea1-unavailable", "idea1", _closed_feed("IDEA1"), degrades("idea1", "ADAPTER_UNAVAILABLE"), probe=True),
     Case("idea2-unavailable", "idea2", _closed_feed("IDEA2"), degrades("idea2", "ADAPTER_UNAVAILABLE"), probe=True),

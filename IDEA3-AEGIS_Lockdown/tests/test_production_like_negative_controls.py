@@ -36,6 +36,7 @@ def _observation(**overrides):
         "idea2": {"status": "NOT_CONFIGURED"},
         "operationalErrors": [],
         "incidents": 0,
+        "coreBroker": None,
     }
     observation.update(overrides)
     return observation
@@ -104,7 +105,22 @@ def test_degraded_feed_stays_unknown_explicit_and_incident_free():
     )
 
 
-def test_mqtt_and_positive_control_predicates():
+def test_mqtt_configured_but_unprobed_preserves_unknown_truth():
+    mqtt_case = next(case for case in CONTROLS.CASES if case.category == "mqtt")
+    unprobed = _observation(
+        coreBroker="UNKNOWN",
+        runningServiceStatus={"mqtt": "UNKNOWN", "physicalEvidence": "UNKNOWN"},
+    )
+
+    assert mqtt_case.name == "mqtt-configured-unprobed-dry-run"
+    assert CONTROLS.mqtt_unprobed(unprobed)
+    assert not CONTROLS.mqtt_unprobed(
+        {**unprobed, "runningServiceStatus": {"mqtt": "UNAVAILABLE", "physicalEvidence": "UNKNOWN"}}
+    )
+    assert not CONTROLS.mqtt_unprobed({**unprobed, "coreBroker": "DISCONNECTED"})
+
+
+def test_mqtt_unavailable_and_positive_control_predicates():
     assert CONTROLS.mqtt_unavailable(
         _observation(runningServiceStatus={"mqtt": "UNAVAILABLE", "physicalEvidence": "UNKNOWN"})
     )

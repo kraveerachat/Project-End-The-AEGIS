@@ -265,7 +265,12 @@ class ProductionRuntime(LauncherRuntime):
         broker = core_components.get("broker")
         mqtt = "NOT_CONFIGURED"
         if self.settings.mqtt_configured:
-            mqtt = "CONNECTED" if broker == "CONNECTED" else "UNAVAILABLE"
+            if broker == "CONNECTED":
+                mqtt = "CONNECTED"
+            elif broker == "DISCONNECTED":
+                mqtt = "UNAVAILABLE"
+            else:
+                mqtt = "UNKNOWN"
         device = core_components.get("device")
         esp32 = device if device in {"ONLINE", "OFFLINE"} else "UNKNOWN"
         service_readiness = (

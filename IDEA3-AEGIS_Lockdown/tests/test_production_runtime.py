@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -200,6 +201,40 @@ def test_service_snapshot_degrades_when_web_or_audit_is_unavailable(tmp_path):
     assert snapshot["serviceReadiness"] == "DEGRADED"
     assert snapshot["audit"] == "DEGRADED"
     assert snapshot["mqtt"] == "NOT_CONFIGURED"
+    assert snapshot["physicalEvidence"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("configured", "broker", "expected"),
+    [
+        (False, "UNKNOWN", "NOT_CONFIGURED"),
+        (True, "UNKNOWN", "UNKNOWN"),
+        (True, "DISCONNECTED", "UNAVAILABLE"),
+        (True, "CONNECTED", "CONNECTED"),
+    ],
+)
+def test_service_snapshot_preserves_core_mqtt_evidence_truth(
+    tmp_path, configured, broker, expected
+):
+    settings = replace(
+        ProductionSettings.from_environment(_environment(tmp_path)),
+        mqtt_configured=configured,
+    )
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=lambda _url: {
+            "status": "READY",
+            "audit": "READY",
+            "schemaVersion": 2,
+        },
+        core_status_reader=lambda: _core_status(broker=broker),
+    )
+    runtime.children = {"core": _Process(), "web": _Process()}
+
+    snapshot = runtime.snapshot()
+
+    assert snapshot["mqtt"] == expected
+    assert snapshot["esp32"] == "UNKNOWN"
     assert snapshot["physicalEvidence"] == "UNKNOWN"
 
 

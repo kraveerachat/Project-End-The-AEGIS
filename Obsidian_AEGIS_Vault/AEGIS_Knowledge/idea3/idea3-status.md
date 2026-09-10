@@ -632,8 +632,8 @@ PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — D
 Current state: BLOCKED — S1-S6 CLOSED; waiting at the PR5 merge gate
 Started: 2026-09-10
 Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
-Last checkpoint: `d66b44aad1a4083181617e0cba4cfa12cc285deb` (implementation/evidence);
-the documentation checkpoint that records it follows on the branch
+Last pre-correction checkpoint: `5578e08cb87587e454e3b4d82770c3ad1d626727`;
+the MQTT truth correction checkpoint is the commit containing this section
 Production mutation allowed: NO
 PR5 dependency: OPEN / WAITING FOR MERGE
 
@@ -756,7 +756,7 @@ no schema change or migration was added.
 | Strict production Web config | yes | yes | yes (acceptance) | yes | — |
 | Liveness vs readiness | yes | yes | yes (200 `READY`; unusable DB → Web exits → `FAILED`) | yes | — |
 | Composite lifecycle and crash cleanup | yes | yes | yes | yes | systemd install |
-| Service status model | yes | yes | yes | yes | MQTT `UNAVAILABLE` also shown when Core reports broker `UNKNOWN` (owner decision) |
+| Service status model | yes | yes | yes | yes | MQTT preserves Core evidence: unconfigured `NOT_CONFIGURED`, configured/unprobed `UNKNOWN`, observed disconnect `UNAVAILABLE`, connected `CONNECTED` |
 | Backup, restore, upgrade, rollback, secret rotation | procedure only | no | no | yes | host exercise |
 | MQTT delivery, ESP32, relay, WAN isolation | unchanged | existing only | no | yes | PR5 / hardware closure |
 
@@ -938,10 +938,10 @@ All disposable roots were deleted after the evidence was captured.
   correction a configured feed reads `UNKNOWN` there (formerly `UNAVAILABLE`,
   which claimed a check that never happened); blank reads `NOT_CONFIGURED`. The
   Web snapshot remains the feed-evidence authority.
-- Service-status `mqtt` still reads `UNAVAILABLE` whenever a broker is configured
-  and Core does not report `CONNECTED`, including when Core reports broker
-  `UNKNOWN` (observed in the dry-run MQTT negative control). Whether that should
-  also read `UNKNOWN` is an owner decision; it was left unchanged.
+- Service-status `mqtt` does not probe or create another connection. It maps
+  only Core evidence: blank configuration → `NOT_CONFIGURED`; configured plus
+  Core `UNKNOWN` → `UNKNOWN`; Core `DISCONNECTED` → `UNAVAILABLE`; Core
+  `CONNECTED` → `CONNECTED`.
 - Both drivers read `/proc` and use POSIX process groups, so they are
   Linux-only; Windows acceptance remains the PR8 `windows/smoke.ps1` path.
 - Backup/restore, upgrade/rollback, and secret rotation are documented only.
@@ -949,6 +949,40 @@ All disposable roots were deleted after the evidence was captured.
   smoke, is owner-reported; what is missing is its canonical documentation (see
   "PR8 merge reconciliation — 2026-09-10"), not the acceptance. PR9 does not
   rerun it.
+
+### Final pre-PR5 MQTT truth correction — 2026-09-10
+
+The service owner previously collapsed every configured non-`CONNECTED` Core
+broker state to `UNAVAILABLE`. That overstated configured-but-unprobed dry-run
+evidence. The projection now preserves the existing Core truth without adding a
+probe or second MQTT connection:
+
+| MQTT configuration / Core broker evidence | Service `mqtt` |
+|---|---|
+| not configured / `UNKNOWN` | `NOT_CONFIGURED` |
+| configured / `UNKNOWN` | `UNKNOWN` |
+| configured / `DISCONNECTED` | `UNAVAILABLE` |
+| configured / `CONNECTED` | `CONNECTED` |
+
+The four-case regression failed first only for configured + `UNKNOWN`
+(`UNAVAILABLE` observed, `UNKNOWN` required), then passed 4/4 after the minimal
+mapping change. The 13-case disposable driver was corrected to label and assert
+its actual dry-run state: MQTT is configured but deliberately unprobed, Core is
+`UNKNOWN`, and service `mqtt` is `UNKNOWN`; it passed 13/13. Core
+`DISCONNECTED` → service `UNAVAILABLE` and Core `CONNECTED` → service
+`CONNECTED` are verified by the focused projection matrix without contacting a
+broker. In every matrix row, `esp32` and `physicalEvidence` remain `UNKNOWN`:
+an ACK is not physical evidence, MQTT connection is not ESP32-online evidence,
+and MQTT connection is not relay-success evidence.
+
+Fresh pre-PR5 verification at the correction tree: focused runtime/MQTT/Core/
+controller/driver contracts 116 passed; full Python 236 passed with 6
+Windows-only skips; full Web 309/309 across 24 files; Vite 1,677 modules; Ruff,
+compileall, offline npm audit, and repository 63/63 passed. Disposable
+acceptance returned `PRODUCTION_LIKE_VERIFIED`; disposable negative controls
+passed 13/13 with no surviving process, listener, token, secret leak, or claimed
+physical evidence. The final SHA, vault/policy checks, and remote PR/PR5 state
+are recorded after the one correction commit is created and pushed.
 
 ### Planned / Completed / Remaining
 
@@ -968,9 +1002,9 @@ All disposable roots were deleted after the evidence was captured.
 
 ### Current HEAD
 
-Last implementation/evidence checkpoint:
-`d66b44aad1a4083181617e0cba4cfa12cc285deb`. The documentation checkpoint that
-records this table follows it; PR #115 shows the exact head.
+Last pre-correction checkpoint:
+`5578e08cb87587e454e3b4d82770c3ad1d626727`. The MQTT truth correction is the
+commit containing the section above; PR #115 shows the exact pushed head.
 
 ### Current task state
 
@@ -986,18 +1020,17 @@ None. S7 and S8 are BLOCKED.
 
 ### Verified evidence
 
-At `d66b44aa`: Python 231 passed / 6 Windows-only skipped; Web 309 passed
-across 24 files; build 1677 modules; npm audit 0; repository 63 passed; Ruff
-and compileall PASS; measured isolated acceptance `PRODUCTION_LIKE_VERIFIED`;
-committed negative controls 13/13. Details are in the PR9 evidence section above.
+At the MQTT correction tree: Python 236 passed / 6 Windows-only skipped; Web
+309 passed across 24 files; build 1,677 modules; npm audit 0; repository 63
+passed; Ruff and compileall PASS; measured isolated acceptance
+`PRODUCTION_LIKE_VERIFIED`; committed negative controls 13/13. Details are in
+the PR9 evidence section above.
 
 ### Known issues
 
-PR5 is open; `origin/main` was still `50ce6e16` at publication and the PR5 ref
-`3f07f80c` adds nothing over it. Service-status MQTT may read `UNAVAILABLE`
-while Core reports broker `UNKNOWN` (owner decision). PR8 final Windows
-acceptance at `25fb442d` is owner-reported; its canonical documentation is
-stale/missing.
+PR5 remains the gate; its remote merge state is rechecked before publication.
+PR8 final Windows acceptance at `25fb442d` is owner-reported; its canonical
+documentation is stale/missing.
 
 ### Exact remaining work
 
