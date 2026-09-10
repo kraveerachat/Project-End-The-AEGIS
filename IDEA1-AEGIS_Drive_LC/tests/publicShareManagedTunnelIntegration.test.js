@@ -45,6 +45,34 @@ const readGateway = (name) => readFileSync(new URL(name, GATEWAY_ROOT), 'utf8')
 const COMPOSE_FILE = fileURLToPath(new URL('managed-tunnel/docker-compose.yml', GATEWAY_ROOT))
 const EDGE_VALIDATOR = fileURLToPath(new URL('validate-public-share-edge.sh', GATEWAY_ROOT))
 
+const POSIX_SHELL = (() => {
+  if (process.platform !== 'win32') return 'sh'
+  const found = spawnSync('where.exe', ['sh'], { encoding: 'utf8' })
+  if (found.status === 0) {
+    const direct = found.stdout.split(/\r?\n/).find(Boolean)
+    if (direct) return direct
+  }
+  for (const candidate of [
+    'C:\\Program Files\\Git\\bin\\sh.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\sh.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\sh.exe',
+    'C:\\Program Files (x86)\\Git\\usr\\bin\\sh.exe',
+  ]) {
+    try {
+      if (spawnSync(candidate, ['-c', 'exit 0']).status === 0) return candidate
+    } catch {}
+  }
+  return 'sh'
+})()
+
+const posixShellAvailable = (() => {
+  try {
+    return spawnSync(POSIX_SHELL, ['-c', 'exit 0']).status === 0
+  } catch {
+    return false
+  }
+})()
+
 const HOST = 'share.example.invalid'
 const BASE_URL = `https://${HOST}`
 
@@ -273,12 +301,29 @@ test('PS7-STRUCT-3 the gateway authors identity and relays no provider header', 
 })
 
 test('PS7-STRUCT-4 the shipped edge validator is fail-closed and renders only validated text', async (t) => {
-  const workdir = await mkdtemp(join(tmpdir(), 'ps7-edge-'))
+  // Git for Windows cannot reliably project the native user TEMP path through
+  // every POSIX-shell utility, so keep the disposable directory in the checkout.
+  const tempRoot = process.platform === 'win32' ? process.cwd() : tmpdir()
+  const workdir = await mkdtemp(join(tempRoot, '.ps7-edge-'))
   t.after(() => rm(workdir, { recursive: true, force: true }))
+
+  // Git for Windows `sh` needs POSIX separators for an output path consumed by
+  // shell utilities. Keep native paths for Node cleanup/reads and translate
+  // only the two argv values crossing into the POSIX shell.
+  const shellPath = (value) => {
+    if (process.platform !== 'win32') return value
+    return value
+      .replaceAll('\\', '/')
+      .replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`)
+  }
 
   const run = (env) => {
     const out = join(workdir, `case-${randomBytes(6).toString('hex')}`)
-    const result = spawnSync('sh', [EDGE_VALIDATOR, out], {
+    const scriptArgs = [shellPath(EDGE_VALIDATOR), shellPath(out)]
+    const shellArgs = process.platform === 'win32'
+      ? ['-c', 'PATH=/usr/bin:/mingw64/bin; export PATH; exec sh "$@"', 'sh', ...scriptArgs]
+      : scriptArgs
+    const result = spawnSync(POSIX_SHELL, shellArgs, {
       env: { PATH: process.env.PATH, ...env },
       encoding: 'utf8',
     })
@@ -291,7 +336,11 @@ test('PS7-STRUCT-4 the shipped edge validator is fail-closed and renders only va
 
   // ── the default is the already-accepted direct model ──────────────────────
   const direct = run({})
-  assert.equal(direct.status, 0, 'an unconfigured gateway must keep the direct-peer model')
+  assert.equal(
+    direct.status,
+    0,
+    `an unconfigured gateway must keep the direct-peer model: ${direct.stderr}`,
+  )
   assert.match(direct.rendered, /mode: direct/)
   assert.match(direct.rendered, /map \$remote_addr \$aegis_edge_deny \{\s*\n\s*default 0;/)
   assert.equal(direct.rendered.includes('set_real_ip_from'), false,
