@@ -1,7 +1,8 @@
 # PUBLIC-SHARE-7 S5.4 Dedicated Gateway Networks — Implementation Plan
 
-> **Task state:** IN PROGRESS. This plan prepares repository artifacts only.
-> It does not authorize or record any Production mutation.
+> **Task state:** CLOSED / PASS. Owner-run Production runtime acceptance
+> completed; reconciled into repository governance. S5.5 remains NOT STARTED;
+> G5/G6 remain OPEN; Public Share UI remains OFF; Internet exposure remains NONE.
 
 **Area:** `idea1`
 
@@ -13,11 +14,11 @@
 
 **Integration review:** required for the `gateway/**` runtime surface
 
-**Production access in this checkpoint:** forbidden
+**Production access in this repository closeout:** NONE (owner-run acceptance already completed)
 
 ## 1. Outcome and stop boundary
 
-Prepare a reviewable Compose overlay for the future S5.4 Production change:
+Prepare a reviewable Compose overlay for the S5.4 Production change:
 
 ```text
 reserved cloudflared 172.31.240.3 (not deployed)
@@ -39,9 +40,9 @@ not declared as a Compose network and no `cloudflared` service exists. The
 hostname `share.aegistk-pb.com` is configuration only: no DNS, TLS, tunnel,
 listener, firewall rule, or Internet route is created. The UI remains off.
 
-This task stops after a Draft PR and before the owner runs even the read-only
-Production preflight below. S5.5, G5, G6, and Production mutation remain outside
-this checkpoint.
+This document records the original implementation sequence, the owner-run
+Production execution and defects corrected, and the accepted final internal runtime state.
+S5.5, G5, G6, and public Internet exposure remain strictly outside S5.4.
 
 ## 2. Files and implementation sequence
 
@@ -125,10 +126,10 @@ set those flags or touch Production. The managed-edge structural test converts
 only its temporary script/output arguments to POSIX separators on Windows so
 Git for Windows `sh` executes the same validator contract as Linux.
 
-## 4. Future S5.4 Production sequence — not authorized by this checkpoint
+## 4. Production sequence — executed by owner in S5.4 acceptance
 
-The overlay is designed for this exact order after a later owner authorization
-and a passing fresh preflight:
+The overlay was executed in this exact order by the owner following authorization
+and pre-mutation verification:
 
 1. Copy the reviewed overlay to
    `/opt/aegis/runtime/public-share/drive-gateway-s5-4.yml` and verify its SHA-256
@@ -182,8 +183,9 @@ and a passing fresh preflight:
    internal edge network; remove that test member immediately. No host listener
    and no Internet route may exist.
 
-These commands are documentary future steps. Running them is prohibited in the
-current repository-only checkpoint.
+These commands reflect the exact sequence executed during owner-run Production
+acceptance. Production Drive State B and dedicated Gateway are active on isolated
+internal networks.
 
 ## 5. Exact rollback to the S5.3 private state
 
@@ -472,7 +474,102 @@ PUBLIC_EXPOSURE=NONE
 
 These are repository/runtime-contract defects, not Production service failures.
 
-## 7. Repository verification and Draft PR gate
+### 6.2 Owner-run Production execution and final runtime acceptance
+
+Following repository/runbook corrections, the owner executed Phase A correction,
+Phase B Drive State B, Phase C Gateway runtime, Phase D-A internal security acceptance,
+and Phase D-B actual public stream acceptance.
+
+#### 1. Phase A correction gate
+- Corrected overlay installed to `/opt/aegis/runtime/public-share/drive-gateway-s5-4.yml`
+  (repository blob `2987e195358f638d376ff32f163de42349ef2c64`, SHA-256 `cc36d08c16731f888f64cb2dcd84f1c9a41b11e9b447aa16ad67405bcdc12819`).
+- Canonical `--env-file /opt/aegis/Project-End-The-AEGIS/.env`, logical key `aegis_vlan10`,
+  and explicit `sudo` privilege boundary supplied.
+- Gateway image `aegis-public-share-gateway:public-share-50ce6e1638` (ID `sha256:b61b0b0dcaa78fcb4739fe197544d06f8d5685e04e8596fb87563b65b8877909`).
+- Result: `S5_4_PHASE_A_CORRECTION_GATE=PASS`.
+
+#### 2. Phase B attempt 1 — failed assertion and clean rollback
+- Drive State B was recreated, but acceptance script failed on a stale hard-coded
+  total share row assertion (expected 25, actual 27).
+- Automatic rollback executed cleanly to S5.3; rollback verification passed.
+- Investigation confirmed extra rows were legitimate previously-created/revoked private
+  acceptance shares. Revoked rows are intentionally persisted; total share count must
+  never be hard-coded as an acceptance invariant.
+
+#### 3. Phase B v2 — Drive State B accepted
+- Acceptance used snapshot/invariant comparison instead of hard-coded total.
+- Result: `S5_4_DRIVE_STATE_B_V2=PASS`, `AUTO_ROLLBACK=NOT_NEEDED`.
+- Pre-acceptance baseline: shares=27, public=0, digest=`5b902108c177ec00f09cc2b47f265317`.
+- Drive container: `7ca5cae9e8563a9d8940322f24b1de6e91960e59caed4cdfba715debb05582a4`.
+- Networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`,
+  `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`.
+- Upstream: `172.31.241.0/29`, gateway `172.31.241.1`, isolated bridge.
+- Drive proxy trust: `172.19.255.2/32,172.31.241.2/32`; gateway CIDR: `172.31.241.2/32`.
+- Base URL: `https://share.aegistk-pb.com`; UI enabled: `false`.
+- Gateway not running yet; no cloudflared; no host listener.
+
+#### 4. Private regression after Drive State B
+- Fresh private tests: `LOGIN=PASS`, `FILES=PASS`, `PUBLIC_UI_HIDDEN=PASS`.
+- Public Share card visible as not ready / unavailable; NOT selectable.
+- Fresh `any` scope: `ANY_CREATE=PASS`, `ANY_REDEEM=PASS`, `ANY_REVOKE=PASS`, `ANY_REDEEM_AFTER_REVOKE=BLOCKED`.
+- `zones` scope was deliberately not rerun in S5.4: `ZONES=HISTORICAL_PASS`, `ZONES_S5_4_RERUN=NOT_RUN`
+  (historical evidence at `90-Status/logs/2026-08-24_170607_kla_idea1-b4-network-scope-acceptance.md`).
+
+#### 5. Phase C — Production Gateway runtime
+- Result: `S5_4_GATEWAY_RUNTIME=PASS`.
+- Gateway container: `00f2cd8af06636f1e06ddf92519e5ed21dc05eaed48594fbc60bf90701300bcb`.
+- Hardening: user `101:101`, `read_only=true`, `cap_drop=ALL`, `no-new-privileges=true`, host ports = 0.
+- Networks: edge `172.31.240.0/29` (Gateway `.2`, connector `.3` reserved);
+  upstream `172.31.241.0/29` (Gateway `.2`, Drive `.3`).
+- Drive container preserved, DB digest preserved, host 8080 absent, cloudflared absent, egress absent.
+
+#### 6. Phase D-A — internal managed-edge security acceptance
+- Result: `S5_4_GATEWAY_SECURITY_DA=PASS`.
+- Gateway edge trust: connector `172.31.240.3/32` only. Canonical header: `CF-Connecting-IP`.
+- Provider/forwarding headers stripped before Drive: `CF-Connecting-IP`, `CF-Connecting-IPv6`,
+  `CF-Pseudo-IPv4`, `True-Client-IP`, `CF-Visitor`, `CF-IPCountry`, `CF-Ray`, `CF-Worker`, `CDN-Loop`.
+- Negative security: missing CF header -> 403; duplicate CF header -> 403; untrusted peer -> 403;
+  PUT -> 405; wrong Host -> 404; `/api/me` -> local 404; path traversal -> 404.
+- Positive attribution: synthetic GET -> canonical source `198.51.100.10`;
+  synthetic POST -> canonical recipient `198.51.100.21`. Forged forwarding headers rejected.
+- Rate limiting: burst produced 404=11, 429=29, other=0; separate recipient remained independent.
+- Gateway logs safe, no token leakage. Temporary edge member removed. Containers preserved.
+
+#### 7. Phase D-B — actual public share streaming through Production Gateway
+- Result: `S5_4_ACTUAL_PUBLIC_STREAM=PASS`, `S5_4_GATEWAY_STREAMING_DB=PASS`, `S5_4_TEMP_PUBLIC_SHARE_CLEANUP=PASS`.
+- Streamed object: 1048576 bytes; SHA-256 matched stored file; Content-Type: `application/octet-stream`.
+- Hit count incremented by exactly 1.
+- Canonical recipient attribution: `198.51.100.30`. Forged source `203.0.113.77` rejected.
+- Browser revoke completed: `S5_4_TEMP_PUBLIC_SHARE_REVOKE=PASS`.
+- Post-revoke verification: `post_revoke_gateway_http=404`, hits unchanged at 1,
+  `active_public_shares_after_cleanup=0`, edge client removed, gateway logs token-safe,
+  containers preserved, host 8080 absent, cloudflared absent, egress absent.
+- Workflow false starts truthfully recorded: initial browser session expired (401 on `/drive/api/me`);
+  clipboard workflow copied Console text; temporary share 32 created and lost from browser memory
+  was safely revoked (raw token never logged or recoverable from DB hash); new temporary share
+  created, streamed, and revoked. Zero token leakage throughout.
+
+#### 8. Final accepted runtime state
+```text
+S5_4_RUNTIME_ACCEPTANCE=PASS
+S5_4_DRIVE_STATE_B_V2=PASS
+S5_4_GATEWAY_RUNTIME=PASS
+S5_4_GATEWAY_SECURITY_DA=PASS
+S5_4_ACTUAL_PUBLIC_STREAM=PASS
+S5_4_GATEWAY_STREAMING_DB=PASS
+S5_4_TEMP_PUBLIC_SHARE_CLEANUP=PASS
+S5_5=NOT_STARTED
+G5=OPEN
+G6=OPEN
+PUBLIC_SHARE_UI=OFF
+ACTIVE_PUBLIC_SHARES=0
+CLOUDFLARED=ABSENT
+EGRESS_NETWORK=ABSENT
+INTERNET_EXPOSURE=NONE
+PUBLIC_INTERNET_SHARE=NOT_IMPLEMENTED
+```
+
+## 7. Repository closeout and Ready for Review gate
 
 From repository root:
 
@@ -484,15 +581,7 @@ git diff --check
 git diff --name-status origin/main...HEAD
 ```
 
-Run the collaboration-policy validator against the exact Draft PR body and exact
-changed-file list. The PR must declare `area: idea1`, `owner: kla`, and
-`integration-review: yes`; every `gateway/**` path must appear under shared
-surfaces. Draft + zero receipt is valid because S5.4 remains IN PROGRESS.
-
-The staged artifact scan must reject `.env`, credential/token/private-key files,
-database dumps, runtime databases, backup archives, and generated secrets. The
-content scan must review suspicious matches rather than printing secret values.
-
-Commit coherent checkpoints, push normally, and open one Draft PR targeting
-`main`. Do not mark it Ready, create a final receipt, merge it, run the owner
-preflight, or access Production.
+Verify that exactly ONE immutable final task receipt exists under
+`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/`, all required tests and
+validations pass, and PR #116 is updated and transitioned from Draft to Ready for Review.
+Human merge only. S5.5 remains NOT STARTED until explicitly authorized.

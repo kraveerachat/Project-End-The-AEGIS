@@ -1,9 +1,10 @@
 # PUBLIC-SHARE-7 S5.4 Production Overlay
 
-This directory prepares the repository-side S5.4 Drive State B and dedicated
-gateway network contract. It does not record a deployment. S5.4 is pre-Internet:
+This directory contains the repository-side S5.4 Drive State B and dedicated
+gateway network contract, reconciled with completed owner-run Production runtime
+acceptance. S5.4 is strictly pre-Internet:
 `cloudflared`: absent; DNS: absent; TLS route: absent; host-published listener:
-absent; Public Share UI: off.
+absent; Public Share UI: off; egress network: absent.
 
 The existing nginx-only gateway under `gateway/public-share/` is reused. Its
 source tree is `2025eb0873a4e7f8d3d2b00b02fc3dfca02b91df` at both revision
@@ -51,8 +52,9 @@ sudo docker compose \
   up -d --no-deps --no-build public-share-gateway
 ```
 
-These commands are documentation, not authorization. A later owner-approved
-Production session must first pass the fresh preflight in the S5.4 plan.
+These commands reflect the exact sequence executed during owner-run Production
+acceptance. Production Drive State B and dedicated Gateway are active on isolated
+internal networks.
 
 ## Exact S5.3 rollback
 
