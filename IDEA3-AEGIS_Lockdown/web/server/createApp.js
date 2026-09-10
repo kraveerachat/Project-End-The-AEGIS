@@ -95,6 +95,15 @@ export function createApp({
   })
   const apiBase = `${config.webBasePath}/api`
   app.get(`${apiBase}/health`, (_req, res) => res.json({ status: 'ok' }))
+  app.get(`${apiBase}/readiness`, (_req, res) => {
+    try {
+      const schemaVersion = appRepository.schemaVersion()
+      if (schemaVersion !== 2) throw new Error('unsupported audit schema')
+      return res.json({ status: 'READY', audit: 'READY', schemaVersion })
+    } catch {
+      return res.status(503).json({ status: 'DEGRADED', audit: 'DEGRADED' })
+    }
+  })
   app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository }))
   app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
   app.use(apiBase, (_req, res) => res.status(404).json({

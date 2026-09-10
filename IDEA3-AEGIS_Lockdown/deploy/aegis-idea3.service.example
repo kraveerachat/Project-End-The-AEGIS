@@ -1,0 +1,29 @@
+[Unit]
+Description=AEGIS IDEA3 Core and Web production runtime
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=aegis-idea3
+Group=aegis-idea3
+UMask=0077
+WorkingDirectory=/opt/aegis-idea3/current
+EnvironmentFile=/var/lib/aegis-idea3/config/.env
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_runtime start
+ExecStop=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_runtime stop
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aegis-idea3
+
+[Install]
+WantedBy=multi-user.target

@@ -346,6 +346,9 @@ class LauncherRuntime:
             f"pid={os.getpid()}",
         )
         result = 0
+        acquired = False
+        token_owned = False
+        final_status = "STOPPED"
         try:
             self.settings.validate()
             for directory in (
@@ -357,8 +360,10 @@ class LauncherRuntime:
             ):
                 directory.mkdir(parents=True, exist_ok=True)
             lock.acquire()
+            acquired = True
             token = self.token_factory()
             self._atomic_write(token_path, f"{token}\n")
+            token_owned = True
             try:
                 token_path.chmod(0o600)
             except OSError:
@@ -374,12 +379,19 @@ class LauncherRuntime:
             control_server.start()
             self._start_children(control_server.base_url)
             self._write_status()
-            while not self.stop_event.wait(0.5):
+            while True:
+                if any(process.poll() is not None for process in self.children.values()):
+                    result = 1
+                    final_status = "FAILED"
+                    break
+                if self.stop_event.wait(0.5):
+                    break
                 self._write_status()
         except AlreadyRunningError:
             result = 2
         except Exception:
             result = 1
+            final_status = "FAILED"
         finally:
             self.shutdown_children(timeout=15)
             if self._output_handle is not None:
@@ -387,15 +399,17 @@ class LauncherRuntime:
                 self._output_handle = None
             if control_server is not None:
                 control_server.close()
-            try:
-                token_path.unlink()
-            except FileNotFoundError:
-                pass
-            lock.release()
-            try:
-                self._write_status("STOPPED")
-            except OSError:
-                result = 1
+            if token_owned:
+                try:
+                    token_path.unlink()
+                except FileNotFoundError:
+                    pass
+            if acquired:
+                lock.release()
+                try:
+                    self._write_status(final_status)
+                except OSError:
+                    result = 1
         return result
 
 

@@ -11,6 +11,9 @@ import { loadConfig } from '../../server/config.js'
 const NATIVE_STATIC_DIR = process.platform === 'win32'
   ? 'C:\\AEGIS\\AEGIS-IDEA3\\web'
   : '/opt/aegis/security-center'
+const NATIVE_AUDIT_DB_PATH = process.platform === 'win32'
+  ? 'C:\\ProgramData\\AEGIS\\security-center-audit.sqlite3'
+  : '/var/lib/aegis-idea3/db/security-center-audit.sqlite3'
 
 const STRONG_SESSION_SECRET = 'S3cure!ProductionSessionSecret-2026'
 const BCRYPT_HASH = '$2b$12$lQ3edrbcQxKq1sNMxX8bzuC/2IAHW5LExZtuJ21rUpMdjB3pN6cYy'
@@ -21,6 +24,7 @@ function productionConfig(overrides = {}) {
     SESSION_SECRET: STRONG_SESSION_SECRET,
     AEGIS_IDEA3_ADMIN_USER: 'admin',
     AEGIS_IDEA3_ADMIN_PASSWORD_HASH: BCRYPT_HASH,
+    AEGIS_IDEA3_AUDIT_DB_PATH: NATIVE_AUDIT_DB_PATH,
     AEGIS_WEB_STATIC_DIR: NATIVE_STATIC_DIR,
     ...overrides,
   }
@@ -103,6 +107,30 @@ describe('configuration boundaries', () => {
 
     expect(config.demoAllowed).toBe(false)
     expect(config.auth.allowDevelopmentLogin).toBe(false)
+  })
+
+  it.each([
+    ['PORT', '8003x'],
+    ['PORT', '0'],
+    ['AEGIS_SESSION_IDLE_MS', '-1'],
+    ['AEGIS_MAX_EVIDENCE_AGE_MS', 'NaN'],
+    ['AEGIS_ADAPTER_TIMEOUT_MS', '2.5'],
+  ])('rejects malformed production %s=%j instead of silently defaulting', (name, value) => {
+    expect(() => loadConfig(productionConfig({ [name]: value }))).toThrow(new RegExp(name))
+  })
+
+  it.each([
+    'security-center-audit.sqlite3',
+    './runtime/security-center-audit.sqlite3',
+    '../runtime/security-center-audit.sqlite3',
+  ])('rejects the relative production audit database path %j', (auditDbPath) => {
+    expect(() => loadConfig(productionConfig({
+      AEGIS_IDEA3_AUDIT_DB_PATH: auditDbPath,
+    }))).toThrow(/AEGIS_IDEA3_AUDIT_DB_PATH/)
+  })
+
+  it('accepts an absolute production audit database path unchanged', () => {
+    expect(loadConfig(productionConfig()).auditDbPath).toBe(NATIVE_AUDIT_DB_PATH)
   })
 
   it('uses an in-memory audit database in tests', () => {
