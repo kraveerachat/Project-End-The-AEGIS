@@ -264,6 +264,10 @@ fi
 for name in "$DRIVE" "$POSTGRES" twingate-aegis-connector-02; do
   if $DOCKER inspect "$name" >/dev/null 2>&1; then pass "container_present:$name"; else fail "container_present:$name"; fi
 done
+connector_state=$($DOCKER inspect --format '{{.State.Status}}' twingate-aegis-connector-02 2>/dev/null || true)
+connector_health=$($DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}<none>{{end}}' twingate-aegis-connector-02 2>/dev/null || true)
+expect_eq twingate_connector_state "$connector_state" running
+expect_eq twingate_connector_health "$connector_health" healthy
 
 drive_image=$($DOCKER inspect --format '{{.Image}}' "$DRIVE" 2>/dev/null || true)
 expect_eq drive_image "$drive_image" "$EXPECTED_DRIVE_IMAGE"
@@ -276,15 +280,23 @@ print(";".join("{}={}".format(name,d[name].get("IPAddress","")) for name in sort
 expect_eq drive_private_networks "$drive_networks" 'aegis_drive_proxy=172.19.255.3;aegis_internal=172.18.0.3;aegis_vlan10_macvlan=192.168.10.11'
 
 printf '%s\n' '--- Selected non-secret Drive configuration ---'
-drive_cfg=$($DOCKER inspect "$DRIVE" 2>/dev/null | python3 -c 'import json,sys
+drive_env_field() {
+  key=$1
+  $DOCKER inspect "$DRIVE" 2>/dev/null | python3 -c 'import json,sys
+key=sys.argv[1]
 env=json.load(sys.stdin)[0]["Config"].get("Env",[])
-values=dict(item.split("=",1) for item in env if "=" in item)
-keys=("TRUSTED_PROXY_CIDRS","PUBLIC_SHARE_GATEWAY_CIDR","PUBLIC_SHARE_BASE_URL","PUBLIC_SHARE_UI_ENABLED")
-print(";".join("{}={}".format(k,values.get(k,"<unset>")) for k in keys))' 2>/dev/null || true)
-printf 'DRIVE_PUBLIC_CONFIG=%s\n' "$drive_cfg"
-printf '%s\n' "$drive_cfg" | grep -F 'TRUSTED_PROXY_CIDRS=172.19.255.2/32' >/dev/null && pass drive_hub_only_trust || fail drive_hub_only_trust
-printf '%s\n' "$drive_cfg" | grep -F 'PUBLIC_SHARE_GATEWAY_CIDR=<unset>' >/dev/null && pass gateway_cidr_unset || fail gateway_cidr_unset
-printf '%s\n' "$drive_cfg" | grep -F 'PUBLIC_SHARE_UI_ENABLED=false' >/dev/null && pass public_share_ui_off || fail public_share_ui_off
+matches=[item.split("=",1)[1] for item in env if item.split("=",1)[0] == key and "=" in item]
+sys.stdout.write("<unset>" if not matches else matches[0] if len(matches) == 1 else "<duplicate>")' "$key" 2>/dev/null || printf '%s' '<parse-error>'
+}
+trusted_proxy_cidrs=$(drive_env_field TRUSTED_PROXY_CIDRS)
+public_share_gateway_cidr=$(drive_env_field PUBLIC_SHARE_GATEWAY_CIDR)
+public_share_base_url=$(drive_env_field PUBLIC_SHARE_BASE_URL)
+public_share_ui_enabled=$(drive_env_field PUBLIC_SHARE_UI_ENABLED)
+
+if [ "$trusted_proxy_cidrs" = '172.19.255.2/32' ]; then pass drive_hub_only_trust_exact; else fail drive_hub_only_trust_exact; fi
+case "$public_share_gateway_cidr" in '<unset>'|'') pass gateway_cidr_unset_or_empty ;; *) fail gateway_cidr_unset_or_empty ;; esac
+case "$public_share_base_url" in '<unset>'|'') pass public_share_base_url_unset_or_empty ;; *) fail public_share_base_url_unset_or_empty ;; esac
+case "$public_share_ui_enabled" in '<unset>'|'') pass public_share_ui_effective_false_unset_or_empty ;; false) pass public_share_ui_effective_false_literal ;; *) fail public_share_ui_effective_false ;; esac
 
 printf '%s\n' '--- Protected data and migration state ---'
 for volume in aegis_drive_storage aegis_postgres_data; do
