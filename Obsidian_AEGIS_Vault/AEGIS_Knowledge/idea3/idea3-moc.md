@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-08
+updated: 2026-09-11
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core from [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) are on shared `main`. Fix1A now starts application code in `LOCKDOWN` with GPIO27 LOW, and fresh Deadman → relay → RJ45 evidence confirms that reconnect does not restore the link without an explicit authenticated RESTORE. Electrical reset-window 1B and Router/Switch real-Ethernet validation remain open.
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. The Web Security Center and Headless Core from [PR #91](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/91) are on shared `main`. Project-sequence PR5 now has owner-observed acceptance for the external pull-down/inverting-driver topology, powered EN/reset fail-secure behavior, and real Router/Switch Ethernet CUT/RESTORE. The PR5 GitHub branch is ready for review; GitHub PR #115 remains blocked until the PR5 GitHub PR is merged.
 
 ## Owned source and canonical notes
 
@@ -20,7 +20,7 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. Fix1A application-startup behavior and the 60-second Deadman path have direct RJ45 cable-tester evidence, including explicit recovery behavior. This does not prove fail-secure behavior before application code runs: GPIO27 can remain high-impedance during EN/reset, and real Router/Switch traffic isolation is deferred to the final hardware-closure PR. See [[idea3/idea3-status]] for the exact closed/open matrix.
+The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. Project-sequence PR5 preserves the firmware contract `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH = NORMAL/RESTORE`; external ULN2003 inversion plus pull-down/pull-up biasing produced the required relay behavior. RJ45 continuity, powered EN/reset, reconnect-without-auto-restore, explicit recovery, and real Ethernet traffic interruption/recovery were observed by the owner. Total-control-power-loss fail-secure behavior remains unproven, the breadboard prototype requires deployment-grade mechanical stabilization, and final relay-cycle Twingate auto-recovery is not claimed. `IDEA3_PRODUCTION_COMPLETE = NO`. See [[idea3/idea3-status]] for the exact evidence boundary.
 
 ## Shared dependencies
 

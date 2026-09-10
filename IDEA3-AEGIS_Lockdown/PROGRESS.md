@@ -1,22 +1,124 @@
 # AEGIS IDEA 3 — สรุปความคืบหน้า
 
-> อัปเดตล่าสุด: 6 กันยายน 2569 (2026-09-06)
+> อัปเดตล่าสุด: 11 กันยายน 2569 (2026-09-11)
 >
-> Current shared-repository track: IDEA3 personal `PR4` — Headless Core / Command & Physical Evidence
+> Current shared-repository track: project-sequence PR5 — Final Hardware Closure
 >
-> Publication branch/base: `feat/idea3-headless-core-pr4` from `origin/main@9ade0dab`
+> Publication branch: `fix/idea3-final-hardware-closure`
 >
-> Automated validation:
-> - `pytest` = **62/62 PASS**
-> - scoped Ruff = **PASS**
-> - Python compileall = **PASS**
-> - ESP32 PlatformIO compile-only = **PASS** (RAM 14.2%, Flash 60.2%)
+> Evidence state: **READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED**
+>
+> `PR9 #115 = BLOCKED UNTIL PR5 GITHUB PR IS MERGED`
+>
+> `IDEA3_PRODUCTION_COMPLETE = NO`
 >
 > หลักการบันทึกสถานะ:
 > - ระบุว่า **PASS / Confirmed** เฉพาะสิ่งที่ทดสอบจริงแล้ว
 > - แยกผล **Standalone/Lab Validation** ออกจาก **Production/VLAN/IDEA1/IDEA2 Integration**
 > - ไม่แก้ไขผลการทดสอบย้อนหลังให้ดูสมบูรณ์ หากพบข้อบกพร่องให้เก็บเป็นหลักฐานและบันทึก Root Cause ตามจริง
 > - Secret เช่น `.env` และ `src/secrets.h` ต้องไม่ถูก Track/Push ขึ้น GitHub
+
+---
+
+# PR5. Final Hardware Closure — current authoritative evidence
+
+## PR5.1 Firmware contract and accepted external circuit
+
+No firmware polarity changed:
+
+```text
+GPIO27 LOW  = LOCKDOWN / CUT
+GPIO27 HIGH = NORMAL / RESTORE
+```
+
+Accepted owner-observed topology:
+
+```text
+GPIO27 ─┬─ 10 kΩ pull-down → GND
+        └─ ULN2003 IN1
+ULN2003 + → +5 V; - → common GND
+ULN2003 OUT1 → Relay IN node
+Relay IN node → 10 kΩ pull-up → +5 V
+Relay VCC/DC+ → +5 V; GND/DC- → common GND; trigger jumper → H
+
+TP-Link Pin 2 → Terminal CH1 → Relay COM → Relay NC
+→ Terminal CH2 → Beelink Pin 2
+Relay NO unused
+```
+
+ULN2003 OUT1 continuity matched chip pin 16. LOW leaves the ULN output
+high-impedance, the pull-up activates the high-trigger relay, COM-NC opens, and
+Pin 2 is cut. HIGH makes the ULN sink the relay input, the relay releases,
+COM-NC closes, and Pin 2 is restored.
+
+## PR5.2 Physical and reset-window acceptance
+
+```text
+RESTORE = 1 2 3 4 5 6 7 8
+CUT     = 1 _ 3 4 5 6 7 8
+RESTORE = 1 2 3 4 5 6 7 8
+
+PHYSICAL_LOCKDOWN_PIN2=PASS
+PHYSICAL_RESTORE_PIN2=PASS
+RESET_WINDOW_1B=PASS
+RECONNECT_DOES_NOT_AUTO_RESTORE=PASS
+EXPLICIT_RESTORE_REQUIRED=PASS
+```
+
+Starting from CUT, Pin 2 stayed absent while EN was held, after release/reboot,
+and after ESP32/broker reconnect. Reconnect did not restore the link; only
+explicit authenticated RESTORE returned Pins 1–8. This pass is scoped to the
+relay/control circuit remaining powered. Total-control-power-loss fail-secure
+behavior is not proven, and a powerless relay may reconnect its mechanical NC
+path.
+
+## PR5.3 Router/Switch real Ethernet acceptance
+
+Baseline: MikroTik VLAN 10 gateway `192.168.10.1`, Beelink
+`192.168.10.10`, laptop `192.168.30.99`, VLAN 30 gateway `192.168.30.1`.
+MikroTik-to-Beelink ping passed 5/5 with 0% loss, ARP showed the Beelink
+reachable on `VLAN10-Server`, and direct laptop-to-Beelink SSH succeeded.
+
+- RESTORE: continuous ping and SSH succeeded.
+- CUT: ping had no replies/returned `Destination Host Unreachable`; the existing
+  SSH session froze.
+- RESTORE: ping resumed and a new SSH session succeeded. The old severed SSH
+  session was not accepted as a recovery criterion.
+
+```text
+REAL_ETHERNET_RESTORE_BASELINE=PASS
+REAL_ETHERNET_CUT=PASS
+REAL_ETHERNET_RESTORE_RECOVERY=PASS
+SSH_CUT_EFFECT=PASS
+SSH_POST_RESTORE_RECONNECT=PASS
+```
+
+Cable-tester continuity is supporting contact evidence and is not used by
+itself to claim Ethernet traffic behavior.
+
+## PR5.4 Twingate and prototype limitations
+
+Direct-LAN Beelink reachability, `1.1.1.1` ping, `api.twingate.com` DNS, and
+HTTPS/TLS passed. Following earlier I/O errors, the connector was manually
+restarted once and observed Offline → Authentication → Authentication → Online;
+team connectivity then passed on the direct-LAN baseline.
+
+```text
+TWINGATE_DIRECT_BASELINE=PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART=PASS
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY=NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+```
+
+The final relay CUT → RESTORE automatic Twingate recovery was not conclusively
+rerun without restart. Breadboard, ESP32, and jumper movement caused
+intermittent behavior during bring-up; the final sequence passed after
+reseating/stabilizing. Strain relief and a secure PCB/interconnect are required
+before deployment-grade use.
+
+This task records owner-supplied evidence only. It performs no source,
+configuration, firmware, dependency, flash, reset, MQTT, network, or hardware
+mutation. GitHub PR #115 stays blocked until the PR5 GitHub PR is merged, and
+overall production completion remains open.
 
 ---
 
