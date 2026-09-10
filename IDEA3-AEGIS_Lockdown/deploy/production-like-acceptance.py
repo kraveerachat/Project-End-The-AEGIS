@@ -22,6 +22,7 @@ ACCEPTANCE_STEPS = (
     "readiness",
     "login",
     "snapshot",
+    "service-status",
     "audit-write",
     "audit-read",
     "stop",
@@ -29,8 +30,20 @@ ACCEPTANCE_STEPS = (
     "audit-reopen",
     "logout",
     "clean-stop",
+    "process-residue",
+    "owner-only-permissions",
     "residue-check",
 )
+
+# With no broker, feed, or device configured, these are the only honest values.
+HONEST_ABSENT_STATES = {
+    "idea1": "NOT_CONFIGURED",
+    "idea2": "NOT_CONFIGURED",
+    "mqtt": "NOT_CONFIGURED",
+    "esp32": "UNKNOWN",
+    "physicalEvidence": "UNKNOWN",
+}
+PROC_ROOT = Path("/proc")
 
 
 class AcceptanceFailure(RuntimeError):
@@ -327,6 +340,93 @@ def _assert_no_secret_leak(data_root: Path, values: tuple[str, ...]) -> None:
             _require(not any(value in text for value in values), "secret reached logs/status")
 
 
+def _proc_stat(pid: int, proc_root: Path) -> tuple[int, str] | None:
+    """Return (parent pid, start time) for one live process, or None."""
+    try:
+        text = (proc_root / str(pid) / "stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    # The command name may contain spaces or parentheses; fields follow its last ")".
+    fields = text.rsplit(")", 1)[1].split()
+    return int(fields[1]), fields[19]
+
+
+def _process_tree(root_pid: int, *, proc_root: Path = PROC_ROOT) -> dict[int, str]:
+    """Map a process and all its descendants to their start times.
+
+    Parent links are followed instead of the process group because the Core
+    supervisor starts optional components in new sessions.
+    """
+    stats: dict[int, tuple[int, str]] = {}
+    for entry in proc_root.iterdir():
+        if entry.name.isdigit():
+            stat = _proc_stat(int(entry.name), proc_root)
+            if stat is not None:
+                stats[int(entry.name)] = stat
+    tree = {root_pid: stats[root_pid][1]} if root_pid in stats else {}
+    frontier = [root_pid]
+    while frontier:
+        parent = frontier.pop()
+        for pid, (ppid, starttime) in stats.items():
+            if ppid == parent and pid not in tree:
+                tree[pid] = starttime
+                frontier.append(pid)
+    return tree
+
+
+def _surviving(processes: dict[int, str], *, proc_root: Path = PROC_ROOT) -> list[int]:
+    """Return recorded processes still present with the same start time."""
+    survivors = []
+    for pid, starttime in sorted(processes.items()):
+        stat = _proc_stat(pid, proc_root)
+        if stat is not None and stat[1] == starttime:
+            survivors.append(pid)
+    return survivors
+
+
+def _owner_only_violations(root: Path) -> list[str]:
+    """List paths under the data root that grant any group or world access."""
+    violations = []
+    for path in sorted([root, *root.rglob("*")]):
+        try:
+            mode = path.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if mode & 0o077:
+            violations.append("." if path == root else path.relative_to(root).as_posix())
+    return violations
+
+
+def _read_service_status(data_root: Path) -> dict | None:
+    try:
+        document = json.loads((data_root / "runtime" / "service-status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def _wait_for_service_status(data_root: Path, *, timeout: float = 10) -> dict:
+    deadline = time.monotonic() + timeout
+    document = None
+    while time.monotonic() < deadline:
+        document = _read_service_status(data_root)
+        if document and document.get("processHealth") == "HEALTHY" and document.get("serviceReadiness") == "READY":
+            return document
+        time.sleep(0.1)
+    last = None if document is None else document.get("status")
+    raise AcceptanceFailure(f"service status did not reach HEALTHY/READY; last={last}")
+
+
+def _require_honest_states(document: dict) -> dict[str, str]:
+    """Require the measured absent/unknown states; return exactly what was observed."""
+    measured = {}
+    for name, expected in HONEST_ABSENT_STATES.items():
+        value = document.get(name)
+        _require(value == expected, f"{name} must be {expected} without that dependency; observed {value}")
+        measured[name] = value
+    return measured
+
+
 def run_acceptance(data_root: Path) -> dict[str, object]:
     source_root = Path(__file__).resolve().parent.parent
     root = validate_data_root(data_root, source_root=source_root)
@@ -356,17 +456,31 @@ def run_acceptance(data_root: Path) -> dict[str, object]:
     base_url = f"http://localhost:{web_port}/security"
     process = None
     generations = 0
+    service_states: dict[str, str] = {}
+    processes_observed = 0
     try:
         for first in (True, False):
             process = _start_service(source_root, environment)
             _exercise_generation(base_url, password, first=first)
+            running = _wait_for_service_status(root)
+            _require(running.get("audit") == "READY", "service status audit is not READY")
+            service_states = _require_honest_states(running)
+            owned = _process_tree(process.pid)
+            _require(len(owned) >= 3, "Core and Web were not observed under the service owner")
+            processes_observed = len(owned)
             generations += 1
             _stop_service(process, source_root=source_root, environment=environment)
             _require(process.poll() == 0, "service did not stop cleanly")
             process = None
+            _require(not _surviving(owned), "a service, Core, or Web process survived clean stop")
     finally:
         _stop_service(process, source_root=source_root, environment=environment)
 
+    final = _read_service_status(root) or {}
+    _require(
+        final.get("status") == "STOPPED" and final.get("components") == {"core": "STOPPED", "web": "STOPPED"},
+        "final service status is not a clean stop",
+    )
     runtime_dir = root / "runtime"
     _require(not (runtime_dir / "control.token").exists(), "control token residue")
     _require(not list(root.rglob("*.tmp")), "temporary file residue")
@@ -376,16 +490,20 @@ def run_acceptance(data_root: Path) -> dict[str, object]:
     except (OSError, urllib.error.URLError):
         pass
     _require(status == 0, "Web listener survived clean stop")
+    violations = _owner_only_violations(root)
+    _require(not violations, f"group/world-accessible paths: {', '.join(violations)}")
     _assert_no_secret_leak(root, (password, session_secret, password_hash))
     return {
         "result": "PRODUCTION_LIKE_VERIFIED",
         "generations": generations,
         "web": "READY",
         "audit": "PERSISTED_ACROSS_RESTART",
-        "idea1": "NOT_CONFIGURED",
-        "idea2": "NOT_CONFIGURED",
-        "mqtt": "NOT_CONFIGURED",
-        "physicalEvidence": "UNKNOWN",
+        **service_states,
+        "processesObservedPerGeneration": processes_observed,
+        "survivingProcesses": 0,
+        "controlToken": "ABSENT",
+        "ownerOnlyPermissions": True,
+        "finalStatus": final["status"],
         "productionMutation": False,
     }
 
