@@ -28,7 +28,7 @@ function productionConfig(root, overrides = {}) {
     SESSION_SECRET: STRONG_SESSION_SECRET,
     AEGIS_IDEA3_ADMIN_USER: 'admin',
     AEGIS_IDEA3_ADMIN_PASSWORD_HASH: BCRYPT_HASH,
-    AEGIS_IDEA3_AUDIT_DB_PATH: ':memory:',
+    AEGIS_IDEA3_AUDIT_DB_PATH: path.join(root, 'security-center-audit.sqlite3'),
     AEGIS_WEB_STATIC_DIR: root,
     ...overrides,
   })
@@ -53,6 +53,37 @@ describe('production Web runtime', () => {
     expect(index.headers['cache-control']).toContain('no-store')
     expect(health.status).toBe(200)
     expect(health.body).toEqual({ status: 'ok' })
+  })
+
+  it('reports ready only after the schema-v2 audit repository probe succeeds', async () => {
+    const root = staticDirectory()
+    const app = createApp({ config: productionConfig(root) })
+
+    const readiness = await request(app).get('/security/api/readiness')
+
+    expect(readiness.status).toBe(200)
+    expect(readiness.body).toEqual({
+      status: 'READY',
+      audit: 'READY',
+      schemaVersion: 2,
+    })
+    app.locals.close()
+  })
+
+  it('reports degraded when the audit repository readiness probe fails', async () => {
+    const root = staticDirectory()
+    const repository = {
+      schemaVersion() {
+        throw new Error('injected audit probe failure')
+      },
+      close() {},
+    }
+    const app = createApp({ config: productionConfig(root), repository })
+
+    const readiness = await request(app).get('/security/api/readiness')
+
+    expect(readiness.status).toBe(503)
+    expect(readiness.body).toEqual({ status: 'DEGRADED', audit: 'DEGRADED' })
   })
 
   it('emits a Secure production session cookie on the trusted localhost origin', async () => {

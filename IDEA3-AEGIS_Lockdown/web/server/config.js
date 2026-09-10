@@ -41,6 +41,32 @@ function positiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function configuredPositiveInteger(name, value, fallback, production) {
+  if (value === undefined || value === null) return fallback
+
+  if (production && !/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+
+  const parsed = Number(value)
+  if (production && (!Number.isSafeInteger(parsed) || parsed <= 0)) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return production ? parsed : positiveInteger(value, fallback)
+}
+
+function auditDatabasePath(value, nodeEnv) {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (nodeEnv === 'test') return raw || ':memory:'
+  if (nodeEnv === 'production') {
+    if (!raw || !path.isAbsolute(raw)) {
+      throw new Error('AEGIS_IDEA3_AUDIT_DB_PATH must be an absolute path in production')
+    }
+    return path.resolve(raw)
+  }
+  return raw || '.aegis-runtime/security-center-audit.sqlite3'
+}
+
 function webBasePath(value, production) {
   const raw = value ?? (production ? '/security' : '')
   if (raw === '') return ''
@@ -102,18 +128,31 @@ export function loadConfig(env = process.env) {
   return Object.freeze({
     nodeEnv,
     production,
-    port: positiveInteger(env.PORT, 8003),
+    port: configuredPositiveInteger('PORT', env.PORT, 8003, production),
     sessionSecret: sessionSecret || DEVELOPMENT_SESSION_SECRET,
-    sessionIdleMs: positiveInteger(env.AEGIS_SESSION_IDLE_MS, 30 * 60 * 1_000),
-    auditDbPath: env.AEGIS_IDEA3_AUDIT_DB_PATH || (nodeEnv === 'test'
-      ? ':memory:'
-      : '.aegis-runtime/security-center-audit.sqlite3'),
+    sessionIdleMs: configuredPositiveInteger(
+      'AEGIS_SESSION_IDLE_MS',
+      env.AEGIS_SESSION_IDLE_MS,
+      30 * 60 * 1_000,
+      production,
+    ),
+    auditDbPath: auditDatabasePath(env.AEGIS_IDEA3_AUDIT_DB_PATH, nodeEnv),
     webBasePath: basePath,
     staticDir,
     bindHost: loopbackHost(env.AEGIS_BIND_HOST),
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
-    maxEvidenceAgeMs: positiveInteger(env.AEGIS_MAX_EVIDENCE_AGE_MS, 120_000),
-    adapterTimeoutMs: positiveInteger(env.AEGIS_ADAPTER_TIMEOUT_MS, 2_500),
+    maxEvidenceAgeMs: configuredPositiveInteger(
+      'AEGIS_MAX_EVIDENCE_AGE_MS',
+      env.AEGIS_MAX_EVIDENCE_AGE_MS,
+      120_000,
+      production,
+    ),
+    adapterTimeoutMs: configuredPositiveInteger(
+      'AEGIS_ADAPTER_TIMEOUT_MS',
+      env.AEGIS_ADAPTER_TIMEOUT_MS,
+      2_500,
+      production,
+    ),
     auth: Object.freeze({
       username,
       passwordHash,

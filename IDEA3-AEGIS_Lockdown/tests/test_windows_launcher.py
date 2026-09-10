@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from aegis_soc.paths import RuntimePaths
+from aegis_soc.platform_lock import ExclusiveFileLock
 from aegis_soc.windows_launcher import (
     ControlServer,
     LauncherRuntime,
@@ -499,6 +500,85 @@ def test_launcher_run_cleans_up_when_a_child_cannot_start(tmp_path):
         "control:close",
     ]
     assert not (settings.paths.runtime_dir / "control.token").exists()
+    persisted = json.loads(
+        (settings.paths.runtime_dir / "launcher-status.json").read_text(encoding="utf-8")
+    )
+    assert persisted["status"] == "FAILED"
+
+
+def test_duplicate_launcher_start_leaves_running_status_and_control_token_untouched(
+    tmp_path,
+):
+    settings = _settings(tmp_path)
+    settings.paths.runtime_dir.mkdir(parents=True)
+    status_path = settings.paths.runtime_dir / "launcher-status.json"
+    token_path = settings.paths.runtime_dir / "control.token"
+    status_path.write_text('{"status":"RUNNING"}\n', encoding="utf-8")
+    token_path.write_text("existing-control-token\n", encoding="utf-8")
+    held_lock = ExclusiveFileLock(
+        settings.paths.runtime_dir / "launcher.lock", "existing owner"
+    )
+    held_lock.acquire()
+    try:
+        runtime = LauncherRuntime(settings)
+
+        assert runtime.run() == 2
+        assert status_path.read_text(encoding="utf-8") == '{"status":"RUNNING"}\n'
+        assert token_path.read_text(encoding="utf-8") == "existing-control-token\n"
+    finally:
+        held_lock.release()
+
+
+@pytest.mark.parametrize("failed_child", ["core", "web"])
+def test_launcher_run_fails_and_cleans_peer_when_an_owned_child_exits(
+    tmp_path, failed_child
+):
+    events = []
+    settings = _settings(tmp_path)
+
+    def popen(_command, **_kwargs):
+        name = "core" if "start:core" not in events else "web"
+        events.append(f"start:{name}")
+        return FakeProcess(
+            name,
+            events,
+            returncode=7 if name == failed_child else None,
+        )
+
+    class StopRequestedControlServer:
+        def __init__(self, **kwargs):
+            self.request_stop = kwargs["request_stop"]
+            self.base_url = "http://127.0.0.1:49152"
+
+        def start(self):
+            events.append("control:start")
+            self.request_stop()
+
+        def close(self):
+            events.append("control:close")
+
+    runtime = LauncherRuntime(
+        settings,
+        popen_factory=popen,
+        control_server_factory=StopRequestedControlServer,
+        token_factory=lambda: "control-secret",
+    )
+
+    assert runtime.run() == 1
+    persisted = json.loads(
+        (settings.paths.runtime_dir / "launcher-status.json").read_text(encoding="utf-8")
+    )
+    assert persisted["status"] == "FAILED"
+    survivor = "web" if failed_child == "core" else "core"
+    assert f"terminate:{survivor}" in events
+    assert not (settings.paths.runtime_dir / "control.token").exists()
+
+
+def test_launcher_lifecycle_source_cannot_issue_restore_uplink():
+    source = Path(LauncherRuntime.__module__.replace(".", "/"))
+    source = Path(__file__).resolve().parent.parent / f"{source}.py"
+
+    assert "RESTORE_UPLINK" not in source.read_text(encoding="utf-8")
 
 
 def test_configuration_is_external_atomic_and_contains_no_plaintext_password(tmp_path):

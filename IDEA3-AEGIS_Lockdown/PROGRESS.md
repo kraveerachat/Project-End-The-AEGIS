@@ -2,15 +2,15 @@
 
 > อัปเดตล่าสุด: 11 กันยายน 2569 (2026-09-11)
 >
-> Current shared-repository track: project-sequence PR5 — Final Hardware Closure
+> Current shared-repository track: IDEA3 PR9 — Production Runtime / Deployment Preparation (GitHub PR #115)
 >
-> Publication branch: `fix/idea3-final-hardware-closure`
+> Publication branch: `feat/idea3-production-runtime-pr9`
 >
-> Evidence state: **READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED**
+> PR5 Final Hardware Closure: **MERGED** through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4` (owner lab evidence accepted)
 >
-> `PR9 #115 = BLOCKED UNTIL PR5 GITHUB PR IS MERGED`
+> `PR9_PR115_PR5_GATE = SATISFIED`; `PR9_S7 = PASS`; `PR9_S8 = CLOSED / READY FOR HUMAN REVIEW`
 >
-> `IDEA3_PRODUCTION_COMPLETE = NO`
+> `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`
 >
 > หลักการบันทึกสถานะ:
 > - ระบุว่า **PASS / Confirmed** เฉพาะสิ่งที่ทดสอบจริงแล้ว
@@ -117,8 +117,9 @@ before deployment-grade use.
 
 This task records owner-supplied evidence only. It performs no source,
 configuration, firmware, dependency, flash, reset, MQTT, network, or hardware
-mutation. GitHub PR #115 stays blocked until the PR5 GitHub PR is merged, and
-overall production completion remains open.
+mutation. The PR5 GitHub PR #117 was merged at
+`58f19f2051170685757627a6baea90b264a877c4`, which satisfied the GitHub PR #115
+gate; overall production completion remains open.
 
 ---
 

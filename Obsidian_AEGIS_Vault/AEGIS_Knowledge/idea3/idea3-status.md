@@ -12,17 +12,22 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 has owner-observed lab acceptance for the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE. The PR5 branch is ready for GitHub review, not merged. GitHub PR #115 remains blocked until PR5 is merged. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744` and S8 recorded its one receipt; GitHub PR #115 is for human review and is not merged. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## Project-sequence PR5 Final Hardware Closure — READY FOR REVIEW (2026-09-11)
+## Project-sequence PR5 Final Hardware Closure — MERGED (2026-09-11)
 
 ```text
-PR5 FINAL HARDWARE CLOSURE = READY FOR REVIEW / OWNER LAB EVIDENCE ACCEPTED
-PR9 #115 = BLOCKED UNTIL PR5 GITHUB PR IS MERGED
+PR5 FINAL HARDWARE CLOSURE = MERGED / OWNER LAB EVIDENCE ACCEPTED
+PR5 PR #117 MERGE COMMIT = 58f19f2051170685757627a6baea90b264a877c4
+PR9_PR115_PR5_GATE = SATISFIED
+PR9 #115 = S7 PASS / S8 CLOSED / READY FOR HUMAN REVIEW
+TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY = NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+MECHANICAL_BREADBOARD_STABILITY = PROTOTYPE LIMITATION
 IDEA3_PRODUCTION_COMPLETE = NO
 ```
 
@@ -243,7 +248,7 @@ Fresh canonical Task 4 verification on `fix/idea3-fail-secure-boot-deadman-e2e`:
 ### ACK versus physical evidence — CLOSED at protocol lifecycle level
 
 ```text
-Requested != Published != ACK != Executed != Physical Evidence
+Requested != Published != ACK != Executed != Relay Confirmation != Physical Evidence
 ```
 
 - ACK success alone never proves relay or network isolation.
@@ -643,6 +648,10 @@ checkpoint.
 
 ### WINDOWS ACCEPTANCE — STAGING BUNDLE PASSED AT `c7cdc2b2`; CURRENT SHA NOT VERIFIED
 
+> [!note] Historical record as of 2026-09-09
+> This block records only the `c7cdc2b2` staging-bundle evidence. Current PR8
+> acceptance state is in "PR8 merge reconciliation — 2026-09-10" below.
+
 ```text
 WINDOWS_BUILD_VERIFIED_AT_c7cdc2b2 = YES
 WINDOWS_STAGING_BUNDLE_SMOKE_AT_c7cdc2b2 = PASS (25 checks, 0 failed)
@@ -703,7 +712,7 @@ fresh extracted-ZIP smoke acceptance.
 ### STILL OPEN
 
 ```text
-PROJECT PR8 = ACCEPTANCE PENDING / WINDOWS RE-ACCEPTANCE REQUIRED
+PROJECT PR8 = SEE "PR8 merge reconciliation — 2026-09-10"
 IDEA1_SERVICE_EVENT_FEED = OPEN
 IDEA2_SERVICE_EVENT_FEED = OPEN
 SHARED_CORRELATION_KEY = OPEN
@@ -720,102 +729,586 @@ evidence occurred during PR8.
 
 ---
 
-## Historical Current Task — PR8 snapshot (2026-09-08)
+## PR8 merge reconciliation — 2026-09-10
 
-Task: IDEA3 PR8 Windows standalone runtime
-Branch: `feat/idea3-windows-standalone-pr8`
+PR8 source is merged through GitHub PR #107 at
+`f320bbf55456450406fe0c5547848fbdce099a96`, and the PR8 head
+`25fb442d15cdf2037817c9e63add4d7e96bcd568` is reachable from current `main`.
+
+```text
+PR8_FINAL_WINDOWS_ACCEPTANCE_AT_25fb442d = PASS (owner-reported, 2026-09-10)
+PR8_FINAL_EXTRACTED_ZIP_SMOKE_AT_25fb442d = PASS, 25/25 checks (owner-reported)
+PR8_CANONICAL_DOCUMENTATION = STALE / MISSING THE FINAL EVIDENCE
+PR8_RECEIPT = UNCHANGED (historically partial)
+```
+
+- The project owner reports that final PR8 Windows acceptance exists for
+  `25fb442d`, including the final extracted-ZIP smoke with 25/25 checks passed.
+  Earlier statements in this note and in the PR9 records that PR8 extracted-ZIP
+  acceptance was absent described missing canonical documentation, not missing
+  Windows acceptance.
+- The final evidence itself — build result, ZIP digest, and smoke transcript for
+  `25fb442d` — is not yet recorded in this note, in `04_SESSION_HANDOFF.md`, or
+  in the PR #107 description, which at merge still listed the extracted-ZIP smoke
+  as pending. Recording those artifacts here is an owner follow-up. PR9 did not
+  rerun or observe Windows acceptance, so this is owner-supplied evidence.
+- The 2026-09-09 block above remains the historical `c7cdc2b2` staging-bundle
+  record. The immutable PR8 receipt
+  `90-Status/logs/2026-09-09_022203_music_idea3-pr8-windows-standalone.md` keeps
+  `status: partial` as recorded at its own checkpoint and is not edited.
+
+## Current Task
+
+Task: PR9 Production Runtime / Deployment Preparation
+Branch: `feat/idea3-production-runtime-pr9`
 Owner: `music`
-PR: #107 (Draft)
-Current state: ACCEPTANCE PENDING
-Started: 2026-09-08
-Last checkpoint: `8214792022a4d29672227f6637e8399a7f1e189c`
+PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — ready for human review; not merged
+Current state: READY FOR HUMAN REVIEW — S1-S8 CLOSED; human review and merge pending
+Started: 2026-09-10
+Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
+Last implementation checkpoint: `c7a1a7af7bc346b86a96f2f9bcb8a6f9ffce29aa` (Telegram outbound pre-gate)
+Final implementation/evidence checkpoint: `e5863fc664e239b78f37dd4ce663bc1186f22744`
+(S7 `origin/main` sync; every S7 gate ran at this tree)
 Production mutation allowed: NO
+PR5 dependency: MERGED at `58f19f2051170685757627a6baea90b264a877c4` — `PR9_PR115_PR5_GATE = SATISFIED`
+Final receipt: `90-Status/logs/2026-09-11_040839_music_idea3-pr9-production-runtime.md`
 
 ### Goal
 
-Deliver and verify the deterministic IDEA3 Windows x64 one-folder runtime.
+Finalize and locally verify the Core+Web production service lifecycle,
+configuration, paths, readiness, persistence, authentication, notifications,
+and operations boundary after reconciling the merged PR5 hardware evidence.
 
 ### Scope
 
-IDEA3 launcher, packaging, external data, Web runtime, source verification, and
-Windows build/smoke acceptance.
+IDEA3-owned server runtime source, tests, service example, operations runbook,
+isolated production-like acceptance, and truthful Git/Obsidian reconciliation.
 
 ### Out of scope
 
-Production deployment, MQTT publication, firmware/relay changes, network
-changes, live IDEA1/IDEA2 feeds, and physical acceptance.
+Production deployment, Kali E2E, MQTT publication, firmware/relay changes,
+network changes, live IDEA1/IDEA2 feeds, and new physical acceptance.
 
 ### Safety boundaries
 
-Keep PR #107 Draft and unmerged; do not rebase or force-push; preserve the
-immutable receipt; use a fresh external DataPath; do not enable hardware or MQTT.
+Use only disposable local paths, loopback listeners, generated test-only
+credentials, and absent/injected dependencies. Do not touch Production or
+hardware. Every S7 gate passed before S8 created the one receipt and requested
+Ready. An agent never merges PR #115.
 
 ### Acceptance criteria
 
-Fresh Windows build from the final SHA must report BUILD OK. The resulting ZIP
-must be freshly extracted and pass `windows/smoke.ps1` with a fresh DataPath;
-browser-localhost behavior must be confirmed if still required.
+S1-S6 must produce source-backed design, a TDD plan, strict production contracts,
+Core+Web lifecycle/readiness evidence, focused negative regressions, a clean
+production-like isolated acceptance, an operations runbook, and exact evidence.
+S7 must pass completely before S8 creates the final receipt and requests Ready.
+Met: S7 PASS at `e5863fc6`; S8 CLOSED with one receipt.
 
-## Historical Session Register — PR8 snapshot
+## Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S13 | Final main sync and source re-verification | CLOSED | Focused 161/6 + 58; full 196/6 + 298; Vite/Ruff/compile/audit; repo 57; vault PASS | `8214792022a4d29672227f6637e8399a7f1e189c` | PASS | Windows final-SHA build and extracted-ZIP smoke | Return final SHA to Windows |
+| S1 | Runtime inventory/design/plan | CLOSED | Source, tests, Git ancestry, PR5 ref and PR8 evidence audited; source-backed design and TDD plan committed | `6a1cee51a87786a3af1f9849d16c60a0db786f87` | PASS | none | start S2 |
+| S2 | Production config/path contract | CLOSED | strict production Web numerics + absolute audit DB path (`b55fcf1f`); server settings, external data root, payload paths, `.env.example` (`de42b990`); config and settings tests green | `de42b990c17ff1da564b0663535b4669942c3737` | PASS | none | S3 |
+| S3 | Lifecycle + readiness | CLOSED | `/security/api/readiness` (`b55fcf1f`); composite Core+Web lifecycle, fail-on-child-exit, status model, CLI (`4e789af1`); lifecycle tests green | `4e789af14ff8f73e34a2b747a72d8fc7c02b9cee` | PASS | none | S4 |
+| S4 | Persistence/auth/fail-closed regressions | CLOSED | focused MQTT/runtime/controller/core suites 80 passed at `d66b44aa`; adapter/provider/correlation, SQLite/reliability, and config/auth/security Web suites green at `15b5b94a` and inside the full Web 309/309 at `d66b44aa`; committed negative controls 13/13 | `d66b44aad1a4083181617e0cba4cfa12cc285deb` (evidence SHA) | PASS | none | S5 |
+| S5 | Production-like isolated acceptance | CLOSED | driver `8d4c76bb`; clean-stop defect fixed `15b5b94a`; driver now measures service states, process residue, and owner-only permissions (`0cf2b007`); reproducible negative-control driver (`d66b44aa`); measured run `PRODUCTION_LIKE_VERIFIED` | `d66b44aad1a4083181617e0cba4cfa12cc285deb` | PASS | none | S6 |
+| S6 | Runbook + evidence reconciliation | CLOSED | runbook, composite service example, README (`2b64b565`); reconciliation (`32a62fe1`); truth-model correction and PR8 wording (`0a97248f`); this pre-PR5 closure record; vault, policy, diff, secret and artifact checks | `2b64b565a731f0eb4af6236cb96cebdd14fca048`; `0a97248f9fcb4e5ea3a7f50e1e03eaeed5c08ad1` | PASS | none | stop at PR5 gate |
+| S7 | PR5 merge sync + final acceptance | CLOSED | PR #117 merged at `58f19f20`; normal `origin/main` merge `e5863fc6` audited; full Python 245/6 skipped, Web 309/309, Vite, Ruff, compileall, npm audit 0, repository 63/63, vault, policy, diff/secret/artifact scans, `PRODUCTION_LIKE_VERIFIED`, negative controls 13/13 — see "S7 post-PR5 sync and final acceptance" | `e5863fc664e239b78f37dd4ce663bc1186f22744` | PASS | none | S8 |
+| S8 | Final closeout / receipt / review | CLOSED | canonical state, handoff section 45, merge-mislabelled headings corrected, one receipt `2026-09-11_040839_music_idea3-pr9-production-runtime.md`; vault/policy/diff/secret/artifact rerun | receipt-bearing closeout commit (SHA in PR #115) | PASS | human review and merge | human reviewer |
 
-## Historical Handoff — PR8 snapshot
+S2-S5 source commits were produced by an earlier session on this branch without a
+register update. They were re-verified at the current tree before being recorded
+here; no evidence below is carried forward from that session.
+
+### Task Status Dashboard
+
+| Area | Status | Evidence / Note |
+|---|---|---|
+| Design and plan | CLOSED | `6a1cee51` |
+| Source implementation | LOCAL VERIFIED | full Python and Web suites at post-sync `e5863fc6` |
+| Negative regressions | PASS | focused suites plus the committed negative-control driver, 13/13 at `e5863fc6` |
+| Production-like isolated acceptance | PASS — `PRODUCTION_LIKE_VERIFIED` | disposable loopback lab/headless/dry-run only, rerun at `e5863fc6` |
+| Telegram outbound pre-gate | LOCAL VERIFIED | `c7a1a7af`; network faked; `REAL_TELEGRAM_API_CALLED = NO` |
+| Operations runbook | DOCUMENTED | not exercised on a host |
+| systemd installation | NOT RUN | `deploy/aegis-idea3.service.example` is an example |
+| Production deployment | NOT RUN | `PRODUCTION_MUTATION_ALLOWED = NO`; `PRODUCTION_DEPLOYED = NO` |
+| PR5 gate | SATISFIED | PR #117 merged at `58f19f20` |
+| PR5 sync and final acceptance (S7) | CLOSED / PASS | `e5863fc6` |
+| Receipt, Ready, review (S8) | CLOSED / PASS | one receipt; human review and merge pending |
+
+### Git reconciliation
+
+| Commit | Session | Content |
+|---|---|---|
+| `6a1cee51` | S1 | source-backed design and TDD plan |
+| `1e6cec43` | S1 | S1 documentation checkpoint |
+| `b55fcf1f` | S2/S3 | strict production Web numerics, absolute audit DB path, readiness route |
+| `de42b990` | S2 | `ProductionSettings`: external `AEGIS_DATA_DIR`, explicit payload paths, loopback and distinct ports, `.env.example` keys |
+| `4e789af1` | S3 | `ProductionRuntime`, fail-on-child-exit and peer cleanup in the shared launcher, status model, `start/stop/restart/status/doctor` |
+| `2b64b565` | S6 | runbook, composite service example replacing the Core-only example, README routing |
+| `8d4c76bb` | S5 | isolated acceptance driver and contract tests |
+| `15b5b94a` | S5 | fix: truthful clean-stop service status |
+| `32a62fe1` | S6 | documentation checkpoint for S2-S6 |
+| `0a97248f` | S6 | configured-but-unprobed IDEA1/IDEA2 service status reads `UNKNOWN`; PR8 canonical wording reconciled |
+| `0cf2b007` | S5 | acceptance driver measures service states, process-tree residue, final stop, and owner-only permissions |
+| `d66b44aa` | S4/S5 | reproducible fail-closed negative-control driver and contract tests |
+| `5578e08c` | S6 | pre-PR5 closure documentation checkpoint |
+| `97f03921` | S6 | MQTT service-status truth correction |
+| `c7a1a7af` | S6 addendum | Telegram outbound-only pre-gate: fail-soft, secret-safe, one alert per observed transition |
+| `e5863fc6` | S7 | normal `origin/main` merge after PR #117 (`58f19f20`); three IDEA3 document conflicts reconciled |
+| closeout commit | S8 | canonical reconciliation and the one receipt (SHA in PR #115) |
+
+`de42b990` is the plan's Task 2 commit. It was verified in place and is
+preserved unchanged. Every commit above is on the first-parent line from
+`50ce6e16`; `e5863fc6` is a normal merge, and nothing was rebased or force-pushed.
+
+### File reconciliation
+
+| Path | Change | Before → after |
+|---|---|---|
+| `IDEA3-AEGIS_Lockdown/aegis_soc/production_runtime.py` | added | no server owner for Core+Web → validated composite owner, status projection, CLI |
+| `IDEA3-AEGIS_Lockdown/aegis_soc/windows_launcher.py` | modified | child death left the owner running `DEGRADED` → owner fails, cleans the peer, removes the token, exits 1; duplicate start leaves the running status/token untouched |
+| `IDEA3-AEGIS_Lockdown/web/server/config.js` | modified | malformed production numerics silently defaulted; relative audit DB accepted → both rejected at startup in production |
+| `IDEA3-AEGIS_Lockdown/web/server/createApp.js` | modified | liveness only → separate schema-v2 readiness (200 `READY` / 503 `DEGRADED`) |
+| `IDEA3-AEGIS_Lockdown/.env.example` | modified | relative audit DB default → blank (service derives it); server payload keys documented |
+| `IDEA3-AEGIS_Lockdown/deploy/aegis-idea3.service.example` | added | composite hardened unit, `UMask=0077`, `ReadWritePaths=/var/lib/aegis-idea3` |
+| `IDEA3-AEGIS_Lockdown/deploy/aegis-supervisor.service.example` | deleted | Core-only unit contradicted the Core+Web topology |
+| `IDEA3-AEGIS_Lockdown/deploy/production-like-acceptance.py` | added | isolated two-generation acceptance driver that measures service states, process residue, and owner-only permissions |
+| `IDEA3-AEGIS_Lockdown/deploy/production-like-negative-controls.py` | added | 13-case loopback-only fail-closed negative-control driver |
+| `IDEA3-AEGIS_Lockdown/tests/test_production_like_negative_controls.py` | added | negative-control contract tests |
+| `IDEA3-AEGIS_Lockdown/docs/operations/production-runtime.md` | added | server runbook |
+| `IDEA3-AEGIS_Lockdown/README.md` | modified | PR9 operator routing; current PR5-gate/PR9 header |
+| `IDEA3-AEGIS_Lockdown/tests/test_production_runtime.py` | added | settings, status, stop, restart, CLI, terminal-status tests |
+| `IDEA3-AEGIS_Lockdown/tests/test_production_like_acceptance.py` | added | driver contract tests |
+| `IDEA3-AEGIS_Lockdown/tests/test_windows_launcher.py` | modified | child-exit, duplicate-start, no-RESTORE tests |
+| `IDEA3-AEGIS_Lockdown/web/tests/server/config.test.js` | modified | strict numeric and audit-path tests |
+| `IDEA3-AEGIS_Lockdown/web/tests/server/productionRuntime.test.js` | modified | readiness tests |
+| `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-10-idea3-pr9-production-runtime-design.md` | added | design |
+| `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-10-idea3-pr9-production-runtime.md` | added | plan |
+| `IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md` | modified | PR9 handoff sections 39-43 and 45; inherited PR5 section renumbered 44 |
+| `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` | modified | this task record |
+| `IDEA3-AEGIS_Lockdown/aegis_soc/comms.py` | modified | synchronous alert that logged exception text → daemon-thread dispatch with fixed secret-safe failure wording |
+| `IDEA3-AEGIS_Lockdown/aegis_soc/mqtt_client.py` | modified | alert on every `LOCKDOWN`/`NORMAL` STATUS (missing state defaulted to `NORMAL`) → one alert per observed transition; missing state never notifies; alert failure isolated |
+| `IDEA3-AEGIS_Lockdown/tests/test_comms.py` | added | missing-config, daemon-thread, fail-soft/secret-safe tests |
+| `IDEA3-AEGIS_Lockdown/tests/test_mqtt_client.py` | modified | transition/suppression and failure-isolation tests |
+| `IDEA3-AEGIS_Lockdown/PROGRESS.md` | modified | stale "PR #115 blocked until PR5" header → PR5 merged / gate satisfied |
+| `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-moc.md` | modified | stale PR5-blocked entry statement → merged gate and PR9 review state |
+| `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-11_040839_music_idea3-pr9-production-runtime.md` | added | the one final PR9 receipt |
+
+Configuration contract: production Web requires an absolute audit DB path and
+well-formed numerics; the composite service requires an absolute
+`AEGIS_DATA_DIR` outside the payload. Schema state: Web audit stays at schema v2;
+no schema change or migration was added.
+
+### Maturity by capability
+
+| Capability | Implemented | Automated tests | Local runtime | Documented | Open |
+|---|---|---|---|---|---|
+| Strict production Web config | yes | yes | yes (acceptance) | yes | — |
+| Liveness vs readiness | yes | yes | yes (200 `READY`; unusable DB → Web exits → `FAILED`) | yes | — |
+| Composite lifecycle and crash cleanup | yes | yes | yes | yes | systemd install |
+| Service status model | yes | yes | yes | yes | MQTT preserves Core evidence: unconfigured `NOT_CONFIGURED`, configured/unprobed `UNKNOWN`, observed disconnect `UNAVAILABLE`, connected `CONNECTED` |
+| Backup, restore, upgrade, rollback, secret rotation | procedure only | no | no | yes | host exercise |
+| MQTT delivery, ESP32, relay, WAN isolation | unchanged | existing only | no | yes | PR9 claims none; PR5 owner lab evidence merged via #117 (top section) |
+| Telegram outbound notification | yes | yes (network faked) | no | yes | real delivery unverified |
+
+### Work performed and defects — this session
+
+- Verified HEAD `8d4c76bb`, the seven commits over `50ce6e16`, and `de42b990`.
+- Defect introduced by this task (`4e789af1`), found by the first isolated
+  acceptance run: after a clean stop, `runtime/service-status.json` recorded
+  `status: STOPPED` but `components: {core: FAILED, web: FAILED}` and
+  `audit: DEGRADED`, because the terminal write probed the Web readiness route it
+  had just stopped. RED: the new parametrized test failed 2/2 on the probe. Fix
+  `15b5b94a`: terminal writes skip the probe, report audit `UNKNOWN`, and map a
+  clean stop to `STOPPED` components as the PR8 launcher already did. GREEN, and
+  acceptance run 2 recorded the corrected terminal state.
+
+### Tests / Evidence — 2026-09-10
+
+```text
+host = Arch Linux; python = 3.14.7 venv (pytest 9.1.1, ruff 0.16.3, paho-mqtt 2.1.0, pip check clean); node = v24.16.0
+source_sha = 8d4c76bb (before fix) / 15b5b94a (after fix)
+
+Full Python  pytest -p no:cacheprovider -q        = 218 passed, 6 skipped @8d4c76bb; 220 passed, 6 skipped @15b5b94a
+Ruff         ruff check --no-cache aegis_soc tests windows deploy detector.py sim_auto_detector.py server_admin.py = PASS
+compileall   aegis_soc deploy detector.py server_admin.py sim_auto_detector.py = PASS (pycache redirected outside the tree)
+Full Web     npx vitest run                        = 309 passed across 24 files (Web source unchanged by the fix)
+Vite build                                         = PASS, 1677 modules
+npm audit --omit=dev --offline                     = 0 vulnerabilities
+Repository   node --test --test-concurrency=1 tests/*.test.mjs = 63 passed, 0 failed
+Focused lifecycle: production_runtime + windows_launcher + acceptance + paths = 119 passed, 6 skipped
+Focused S4 Python: mqtt_client + runtime + controller + core                  = 80 passed
+Focused S4 Web: adapters/provider/normalize/correlate/events/containment      = 112 passed (6 files)
+Focused S4 Web: sqliteRepository + productionReliability                      = 45 passed (2 files)
+Focused S4 Web: config/auth/security/securityRoutes/productionRuntime/passwordHash = 72 passed (6 files)
+```
+
+### Truth-model correction — 2026-09-10
+
+`runtime/service-status.json` reported a configured IDEA1/IDEA2 feed as
+`UNAVAILABLE` although this status source never contacts the feeds. It now
+reports `UNKNOWN`; `UNAVAILABLE` is reserved for a dependency that was checked
+and found unavailable, and no network probe was added. The Web snapshot remains
+the feed-evidence authority.
+
+- RED: `test_service_snapshot_reports_configured_but_unprobed_feeds_as_unknown`
+  failed with `assert 'UNAVAILABLE' == 'UNKNOWN'`; it also asserts that only the
+  readiness URL is probed.
+- GREEN in `aegis_soc/production_runtime.py`.
+- The PR8 records were reconciled: owner-reported final Windows acceptance at
+  `25fb442d` (including the extracted-ZIP 25/25 smoke) versus stale canonical
+  documentation. See "PR8 merge reconciliation — 2026-09-10".
+
+```text
+source_sha = 0a97248f9fcb4e5ea3a7f50e1e03eaeed5c08ad1
+Focused lifecycle: production_runtime + windows_launcher + acceptance + paths = 120 passed, 6 skipped
+Focused S4 Python: mqtt_client + runtime + controller + core                  = 80 passed
+Full Python  = 221 passed, 6 Windows-only skipped
+Ruff = PASS; compileall = PASS
+Full Web     = 309 passed across 24 files (Web source unchanged)
+Vite build   = PASS, 1677 modules; npm audit --omit=dev --offline = 0 vulnerabilities
+Repository   = 63 passed, 0 failed
+Isolated acceptance run 3 = PRODUCTION_LIKE_VERIFIED; final components STOPPED, audit UNKNOWN
+Negative controls run 4 = 10/10 PASS; configured IDEA1/IDEA2 service status = UNKNOWN
+Vault validation = PASS (2 known canvas warnings); collaboration policy = PASS
+Secret/artifact scan = 0 findings; git diff --check = PASS
+```
+
+Loopback listeners and nested Git fixtures were permitted in this session; no
+sandbox `EPERM` occurred. The first vault-validation call failed with
+`MODULE_NOT_FOUND` because a relative script path resolved from the Web
+directory; the absolute-path rerun passed with the two known canvas warnings.
+
+### Pre-PR5 closure — measured acceptance and committed negative controls
+
+- Task 6 gap closed in `0cf2b007`. The driver had reported IDEA1, IDEA2, MQTT,
+  and physical evidence as constants, and it inferred cleanup from the Web
+  listener alone. It now reads the running `service-status.json` and requires
+  audit `READY`, IDEA1/IDEA2/MQTT `NOT_CONFIGURED`, and ESP32/physical evidence
+  `UNKNOWN`. It records the service owner's whole process tree by parent link and
+  start time, which also covers Core components started in new sessions, and
+  requires none of it to survive each stop. It requires a final `STOPPED` status
+  with `STOPPED` components and rejects any group/world-accessible path under the
+  data root. RED: 5 new contract tests failed before the helpers existed.
+- Task 5 gap closed in `d66b44aa`. The session-local harness is now the committed
+  `deploy/production-like-negative-controls.py` with contract tests. RED: test
+  collection failed because the module did not exist. The first GREEN attempt
+  hit two tooling-only problems: the test loaded the module without registering
+  it in `sys.modules`, which `dataclasses` requires, and Ruff SIM102. Both were
+  fixed without any product change.
+- Environment: task-local disposable venv `/tmp/aegis-pr9-venv` (Python 3.14.7;
+  pytest 9.1.1, ruff 0.16.3, paho-mqtt 2.1.0, exactly the `requirements-dev.txt`
+  pins; `pip check` clean), created from the system interpreter. No global
+  Python or PlatformIO installation was modified. Node v24.16.0.
+
+```text
+source_sha = d66b44aad1a4083181617e0cba4cfa12cc285deb
+Contract: test_production_like_acceptance + test_production_like_negative_controls = 15 passed
+Focused lifecycle: production_runtime + windows_launcher + both drivers + paths = 130 passed, 6 skipped
+Focused S4 Python: mqtt_client + runtime + controller + core = 80 passed
+Full Python  = 231 passed, 6 Windows-only skipped
+Ruff = PASS; compileall = PASS
+Full Web     = 309 passed across 24 files (includes every focused S4 Web suite; Web source unchanged since 15b5b94a)
+Vite build   = PASS, 1677 modules; npm audit --omit=dev --offline = 0 vulnerabilities
+Repository   = 63 passed, 0 failed
+Acceptance   = PRODUCTION_LIKE_VERIFIED (measured; see below)
+Negative controls = 13/13 PASS
+```
+
+### Isolated production-like acceptance
+
+`python deploy/production-like-acceptance.py --data-root <empty disposable path containing spaces>`
+passed twice (`@8d4c76bb`, `@15b5b94a`): `PRODUCTION_LIKE_VERIFIED`, 2
+generations, liveness, readiness `READY` schema v2, Admin login with a generated
+test-only bcrypt credential, LIVE snapshot with IDEA1/IDEA2 `NOT_CONFIGURED`,
+durable audit write, restart, audit read-back after restart, CSRF logout, clean
+stop exit 0, no control token, no temporary files, no Web listener, no surviving
+Core/Web process, no secret in logs/runtime, and owner-only 0600 files / 0700
+directories. In those runs, process residue and permissions were checked by
+hand outside the driver.
+
+At `d66b44aa` the driver measures these properties itself. `python
+deploy/production-like-acceptance.py --data-root <empty disposable path
+containing spaces>` returned `PRODUCTION_LIKE_VERIFIED` with: 2 generations; Web
+`READY`; audit `PERSISTED_ACROSS_RESTART`; measured `idea1`/`idea2`/`mqtt`
+`NOT_CONFIGURED` and `esp32`/`physicalEvidence` `UNKNOWN`; 3 owned processes
+observed per generation (service owner, Core, Web); 0 surviving; control token
+`ABSENT`; owner-only permissions `true`; final status `STOPPED`;
+`productionMutation: false`. Admin login and CSRF logout ran in both
+generations.
+
+### Negative controls — loopback only
+
+A session-local harness reused the committed driver helpers, a fresh disposable
+root per case, and a loopback feed server requiring a generated bearer token.
+Run 1: 9/10 — the malformed-feed case failed only because the harness expected
+`MALFORMED_RESPONSE`, while `web/server/providers/liveProvider.js` intentionally
+reports `ADAPTER_RESPONSE_REJECTED`; the product degraded correctly. Run 2 at
+`15b5b94a` after correcting that expectation: **10/10 PASS**. After the
+truth-model correction the harness expects configured IDEA1/IDEA2 service
+status `UNKNOWN`. Run 3 reported 10/10 FAIL, all caused by the harness residue
+matcher: it matched the invoking shell, whose command line named these
+processes and whose working directory was the IDEA3 source. Product values were
+as expected in every case. The matcher now counts only real `python`/`node`
+processes. Run 4, from the same directory: **10/10 PASS**, and an independent
+residue scan found nothing.
+
+The committed driver (`d66b44aa`) replaces that harness. `python
+deploy/production-like-negative-controls.py --data-root <empty disposable path
+containing spaces>` returned **13/13 PASS**. Residue is the recorded process
+tree plus a scan for any python/node service, Core, or Web process still running
+from the source tree.
+
+| Case | Category | Observed at `d66b44aa` |
+|---|---|---|
+| positive control: fresh IDEA1 feed | control | snapshot IDEA1 `HEALTHY`; service `idea1: UNKNOWN`; clean stop |
+| missing `SESSION_SECRET` | invalid-config | Web rejects policy → service `FAILED`, exit 1 |
+| malformed production `PORT` | invalid-config | owner rejects settings → exit 2, no runtime state, no child |
+| live Core without broker/HMAC/PIN | invalid-config | Core preflight `FAILED` → service `FAILED`, exit 1 |
+| audit DB path unusable | audit-failure | SQLite open fails → service `FAILED`, exit 1 |
+| MQTT unavailable (dry-run) | mqtt | service `mqtt: UNAVAILABLE` (Core broker `UNKNOWN`); nothing published |
+| IDEA1 unavailable | idea1 | IDEA1 `UNKNOWN`, `ADAPTER_UNAVAILABLE`, 0 incidents |
+| IDEA2 unavailable | idea2 | IDEA2 `UNKNOWN`, `ADAPTER_UNAVAILABLE`, 0 incidents |
+| IDEA1 stale envelope | stale-evidence | IDEA1 `UNKNOWN`, `ADAPTER_EVIDENCE_STALE`, 0 incidents |
+| IDEA2 stale envelope | stale-evidence | IDEA2 `UNKNOWN`, `ADAPTER_EVIDENCE_STALE`, 0 incidents |
+| IDEA1 malformed body | malformed-evidence | IDEA1 `UNKNOWN`, `ADAPTER_RESPONSE_REJECTED`, 0 incidents |
+| IDEA2 malformed body | malformed-evidence | IDEA2 `UNKNOWN`, `ADAPTER_RESPONSE_REJECTED`, 0 incidents |
+| IDEA2 schema rejected | malformed-evidence | IDEA2 `UNKNOWN`, `ADAPTER_RESPONSE_REJECTED`, 0 incidents |
+
+Every case kept `physicalEvidence: UNKNOWN` and ended with no control token,
+no surviving process, no Web listener, and no secret in logs/runtime. Every
+degraded feed read `UNKNOWN` in both the Web snapshot and the service status.
+All disposable roots were deleted after the evidence was captured.
+
+### Known limitations
+
+- `PRODUCTION_LIKE_VERIFIED` is local lab/headless/dry-run evidence only. No
+  systemd install, Production host, broker, device, relay, WAN, or live
+  IDEA1/IDEA2 producer was used.
+- Service-status `idea1`/`idea2` never probes the feeds. Since the truth-model
+  correction a configured feed reads `UNKNOWN` there (formerly `UNAVAILABLE`,
+  which claimed a check that never happened); blank reads `NOT_CONFIGURED`. The
+  Web snapshot remains the feed-evidence authority.
+- Service-status `mqtt` does not probe or create another connection. It maps
+  only Core evidence: blank configuration → `NOT_CONFIGURED`; configured plus
+  Core `UNKNOWN` → `UNKNOWN`; Core `DISCONNECTED` → `UNAVAILABLE`; Core
+  `CONNECTED` → `CONNECTED`.
+- Both drivers read `/proc` and use POSIX process groups, so they are
+  Linux-only; Windows acceptance remains the PR8 `windows/smoke.ps1` path.
+- Backup/restore, upgrade/rollback, and secret rotation are documented only.
+- PR8 final Windows acceptance at `25fb442d`, including the extracted-ZIP 25/25
+  smoke, is owner-reported; what is missing is its canonical documentation (see
+  "PR8 merge reconciliation — 2026-09-10"), not the acceptance. PR9 does not
+  rerun it.
+
+### Final pre-PR5 MQTT truth correction — 2026-09-10
+
+The service owner previously collapsed every configured non-`CONNECTED` Core
+broker state to `UNAVAILABLE`. That overstated configured-but-unprobed dry-run
+evidence. The projection now preserves the existing Core truth without adding a
+probe or second MQTT connection:
+
+| MQTT configuration / Core broker evidence | Service `mqtt` |
+|---|---|
+| not configured / `UNKNOWN` | `NOT_CONFIGURED` |
+| configured / `UNKNOWN` | `UNKNOWN` |
+| configured / `DISCONNECTED` | `UNAVAILABLE` |
+| configured / `CONNECTED` | `CONNECTED` |
+
+The four-case regression failed first only for configured + `UNKNOWN`
+(`UNAVAILABLE` observed, `UNKNOWN` required), then passed 4/4 after the minimal
+mapping change. The 13-case disposable driver was corrected to label and assert
+its actual dry-run state: MQTT is configured but deliberately unprobed, Core is
+`UNKNOWN`, and service `mqtt` is `UNKNOWN`; it passed 13/13. Core
+`DISCONNECTED` → service `UNAVAILABLE` and Core `CONNECTED` → service
+`CONNECTED` are verified by the focused projection matrix without contacting a
+broker. In every matrix row, `esp32` and `physicalEvidence` remain `UNKNOWN`:
+an ACK is not physical evidence, MQTT connection is not ESP32-online evidence,
+and MQTT connection is not relay-success evidence.
+
+Fresh pre-PR5 verification at the correction tree: focused runtime/MQTT/Core/
+controller/driver contracts 116 passed; full Python 236 passed with 6
+Windows-only skips; full Web 309/309 across 24 files; Vite 1,677 modules; Ruff,
+compileall, offline npm audit, and repository 63/63 passed. Disposable
+acceptance returned `PRODUCTION_LIKE_VERIFIED`; disposable negative controls
+passed 13/13 with no surviving process, listener, token, secret leak, or claimed
+physical evidence. The final SHA, vault/policy checks, and remote PR/PR5 state
+are recorded after the one correction commit is created and pushed.
+
+### S7 post-PR5 sync and final acceptance — 2026-09-11
+
+```text
+PR5 = GitHub PR #117 MERGED at 58f19f2051170685757627a6baea90b264a877c4 (head d416d1ecea338e38247510e7b547f63d42447e11)
+PR9_PR115_PR5_GATE = SATISFIED
+PRE_SYNC_HEAD = c7a1a7af7bc346b86a96f2f9bcb8a6f9ffce29aa
+MAIN_SYNC_COMMIT = e5863fc664e239b78f37dd4ce663bc1186f22744
+S7 = CLOSED / PASS
+S8 = CLOSED / PASS
+```
+
+`e5863fc6` merges `origin/main` normally; its parents are `c7a1a7af` and
+`58f19f20`. An earlier session created it locally before this S7 run, so it was
+audited before use: its tree differs from a plain auto-merge only in the three
+conflicted IDEA3-owned documents (`IDEA3-AEGIS_Lockdown/README.md`,
+`doc/Content/04_SESSION_HANDOFF.md`, and this note), no conflict marker remains,
+and no source, firmware, IDEA1/IDEA2, shared, or receipt path was hand-edited.
+The resolution kept PR9 handoff sections 39-43, renumbered the PR5 section to
+44, and kept both PR5 hardware truth and PR9 runtime truth here. One merge
+defect was corrected in S8: the auto-merge had applied PR5's "Historical ... PR8
+snapshot" heading renames onto this live PR9 Session Register and Handoff.
+
+The PR5 hardware matrix at the top of this note is carried forward unchanged.
+PR9 adds no physical evidence, and continuity evidence remains distinct from
+real Ethernet traffic evidence.
+
+#### Telegram outbound pre-gate — `c7a1a7af`
+
+Audited unchanged on the merged tree:
+
+- `test_uplink_state_transitions_send_one_outbound_notification_each` — an
+  observed `LOCKDOWN` transition schedules one alert and an observed `NORMAL`
+  transition one restore alert; repeated unchanged state is suppressed.
+- `test_missing_telegram_configuration_opens_no_network_request` — a blank
+  `AEGIS_TG_TOKEN` or `AEGIS_TG_CHAT` makes no request.
+- `test_webhook_delivery_is_deferred_to_a_daemon_thread` and
+  `test_webhook_network_failure_is_fail_soft_and_secret_safe` — delivery leaves
+  the MQTT callback; failure prints fixed wording without token, chat ID, bot
+  URL, or exception detail.
+- `test_telegram_failure_does_not_change_status_ack_or_physical_correlation` —
+  alert failure does not affect STATUS, ACK, or physical correlation.
+- Production starts Core with `--headless`; `TelegramListener` and inbound
+  `/cut`/`/restore` are constructed only in GUI mode.
+
+```text
+Telegram delivered != publication / ACK / execution / relay confirmation / WAN isolation / physical evidence
+REAL_TELEGRAM_API_CALLED = NO
+PRODUCTION_TELEGRAM_LISTENER_STARTED = NO
+PRODUCTION_REMOTE_CUT_ENABLED = NO
+PRODUCTION_REMOTE_RESTORE_ENABLED = NO
+REAL_TELEGRAM_PRODUCTION_DELIVERY = NOT VERIFIED
+```
+
+#### Post-sync verification at `e5863fc6`
+
+Arch Linux; task-local venv `/tmp/aegis-pr9-venv` (Python 3.14.7,
+`requirements-dev.txt` pins); Node v24.16.0. Counts above this section are
+historical pre-sync evidence.
+
+```text
+Focused runtime/MQTT/Core/controller/Telegram/drivers/paths = 224 passed, 6 Windows-only skipped
+Telegram subset (test_comms + test_mqtt_client)             = 8 passed
+Full Python  = 245 passed, 6 Windows-only skipped
+Full Web     = 309 passed across 24 files
+Vite build   = PASS, 1,677 modules
+Ruff = PASS; compileall = PASS
+npm audit --omit=dev --offline = 0 vulnerabilities
+Repository tests = 63 passed, 0 failed
+Vault validation = PASS, 2 known owner-data canvas warnings
+Collaboration policy (live PR #115 Draft body) = PASS
+git diff --check origin/main...HEAD = PASS
+Secret scan = 0 findings; artifact scan = 0 findings; 25 changed paths, all IDEA3-owned
+Isolated acceptance = PRODUCTION_LIKE_VERIFIED (2 generations, Web READY, audit persisted, IDEA1/IDEA2/MQTT NOT_CONFIGURED, ESP32/physical UNKNOWN, 0 surviving, owner-only, final STOPPED)
+Negative controls = 13/13 PASS (configured-but-unprobed MQTT: Core UNKNOWN / service UNKNOWN)
+Residue = 0 surviving processes, 0 loopback listeners; disposable roots removed
+```
+
+Every MQTT, IDEA1/IDEA2, ESP32, relay, and Telegram boundary was absent,
+injected, or faked. No Production host, broker, device, relay, MikroTik,
+TP-Link, Twingate, Telegram API, or real upstream feed was contacted.
+
+#### PR8 current truth
+
+```text
+PR8_HEAD = 25fb442d15cdf2037817c9e63add4d7e96bcd568
+PR8 = MERGED (GitHub PR #107)
+FINAL_WINDOWS_ACCEPTANCE = PASS (owner-reported)
+FINAL_EXTRACTED_ZIP_SMOKE = PASS / 25 of 25 (owner-reported)
+PR8_BUILD_ZIP_DIGEST_AND_TRANSCRIPT = NOT RECORDED IN CANONICAL DOCUMENTATION
+PR8_RECEIPT = UNCHANGED (historically partial)
+```
+
+#### Open after PR9
+
+```text
+PRODUCTION_DEPLOYED = NO
+REAL_TELEGRAM_PRODUCTION_DELIVERY = NOT VERIFIED
+LIVE_IDEA1_SERVICE_EVENT_FEED = OPEN
+LIVE_IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+LIVE_CROSS_IDEA_EXERCISE = OPEN
+TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY = NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+MECHANICAL_BREADBOARD_STABILITY = PROTOTYPE LIMITATION
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### Planned / Completed / Remaining
+
+- Completed: S1-S6 — design/plan, strict config, composite lifecycle,
+  readiness, negative regressions, measured isolated acceptance, reproducible
+  13-case negative controls, runbook, truth-model and MQTT corrections,
+  Telegram outbound pre-gate. S7 — normal post-PR5 main sync and the full gate
+  on the merged tree. S8 — canonical reconciliation and one immutable receipt.
+- Remaining: human owner/integration review and human merge of PR #115.
+  Production deployment and every item under "Open after PR9" are outside this
+  task.
+
+## Handoff
 
 ### Current branch
 
-`feat/idea3-windows-standalone-pr8`
+`feat/idea3-production-runtime-pr9`
 
 ### Current HEAD
 
-Implementation/evidence checkpoint:
-`8214792022a4d29672227f6637e8399a7f1e189c`. The later documentation checkpoint
-is recorded in PR #107 and the session report after Git assigns it.
+Final implementation/evidence checkpoint
+`e5863fc664e239b78f37dd4ce663bc1186f22744`; the S8 receipt-bearing closeout
+commit follows it. PR #115 shows the exact pushed head.
 
 ### Current task state
 
-ACCEPTANCE PENDING. Local source and governance gates pass; final-SHA Windows
-acceptance is not yet run.
+READY FOR HUMAN REVIEW. S1-S8 CLOSED with one final receipt; not merged.
 
 ### Sessions closed
 
-S13 final main sync and source re-verification.
+S1-S8.
 
 ### Session currently open
 
-None locally. The next environment-bound session is Windows re-acceptance.
+None.
 
 ### Verified evidence
 
-`c7cdc2b2` Windows build and staging-bundle smoke PASS with the extraction
-qualification above; `82147920` Arch source/governance verification PASS.
+See "Post-sync verification at `e5863fc6`" above: Python 245 passed / 6
+Windows-only skipped, Web 309/309, Vite, Ruff, compileall, npm audit 0,
+repository 63/63, vault, policy, scans, `PRODUCTION_LIKE_VERIFIED`, and
+negative controls 13/13.
 
 ### Known issues
 
-No extracted-ZIP smoke exists, and no Windows evidence exists for the post-merge
-SHA.
+None blocking review. PR8 final Windows acceptance is owner-reported and its
+artifacts are not yet in canonical documentation.
 
 ### Exact remaining work
 
-Build the final SHA on Windows, require BUILD OK, freshly extract its ZIP, use a
-fresh DataPath, run the smoke suite against that extracted directory, and report
-all acceptance results.
+Human review and merge of PR #115. A Production deployment would be a
+separately authorized task.
 
 ### Next command / next action
 
-On Windows x64, pull the final PR head and run `windows/build.ps1`.
+The human reviewer reviews GitHub PR #115.
 
 ### Do not do
 
-Do not merge PR #107, reuse the `c7cdc2b2` artifact as final-SHA evidence,
-rebase, force-push, create another receipt, enable MQTT/hardware, or mutate
+Do not let an agent merge PR #115. Do not deploy, install systemd, enable MQTT
+actuation or the Telegram listener, flash or reset hardware, manipulate the
+relay or network, claim physical evidence, rebase/force-push, or mutate
 Production.
-
 ---
 
-## Current Task and Handoff — Project-sequence PR5
+## Historical Task and Handoff — Project-sequence PR5 pre-merge snapshot
 
 ```text
 Task: IDEA3 PR5 Final Hardware Closure

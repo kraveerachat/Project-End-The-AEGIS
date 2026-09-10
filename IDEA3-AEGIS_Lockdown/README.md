@@ -1,9 +1,9 @@
 # AEGIS IDEA 3 — Cyber-Physical Lockdown
 
-> **Current track:** project-sequence PR5 Final Hardware Closure; branch `fix/idea3-final-hardware-closure`
-> **Status:** owner lab evidence accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE; ready for GitHub review, not merged
-> **Safety boundary:** firmware polarity is unchanged; total-control-power-loss fail-secure behavior and final relay-cycle Twingate auto-recovery are not claimed
-> **Project state:** GitHub PR #115 remains blocked until PR5 merges; `IDEA3_PRODUCTION_COMPLETE = NO`
+> **Current track:** IDEA3 `PR9` Production Runtime / Deployment Preparation; branch `feat/idea3-production-runtime-pr9`
+> **PR5 gate:** SATISFIED — GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
+> **Status:** S7 post-PR5 sync and final local acceptance PASS; S8 closeout recorded; GitHub PR #115 is for human review and is not merged
+> **Safety boundary:** `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only. Production deployment, real Telegram delivery, total-control-power-loss fail-secure behavior, final relay-cycle Twingate auto-recovery, and deployment-grade prototype mechanics remain unproven; `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`
 
 AEGIS IDEA 3 เป็นระบบ **Cyber-Physical Active Defense** สำหรับตรวจจับภัยคุกคามทางไซเบอร์และตอบโต้ด้วยการตัด Uplink ทางกายภาพผ่าน ESP32 + Relay โดยออกแบบให้ทำงานร่วมกับ AEGIS IDEA 1 และ IDEA 2 ใน Production Integration Phase
 
@@ -233,6 +233,27 @@ rather than reporting healthy.
 > are not acceptance evidence.
 
 See `windows/README.md` for layout, build, smoke, backup, upgrade, and rollback.
+
+## Server Production Runtime (PR9)
+
+`python -m aegis_soc.production_runtime start` owns Python Core and the
+Node/Express Security Center as one foreground service. It validates an immutable
+payload plus an absolute external `AEGIS_DATA_DIR`, starts Core before Web, stops
+Web before Core, fails and cleans the peer when either child exits, and never
+sends RESTORE during lifecycle operations. `status`, `stop`, `restart`, and
+`doctor` are also available; stop is idempotent and duplicate start is rejected.
+
+The Web endpoints `/security/api/health` and `/security/api/readiness` are
+deliberately different: health is process liveness, while readiness requires a
+successful schema-v2 audit probe. The service status keeps process, audit, MQTT,
+IDEA1, IDEA2, ESP32, and physical evidence states separate.
+
+The hardened unit is an uninstalled example at
+[`deploy/aegis-idea3.service.example`](deploy/aegis-idea3.service.example). See
+[`docs/operations/production-runtime.md`](docs/operations/production-runtime.md)
+for the external layout, configuration, lifecycle, diagnosis, backup/restore,
+upgrade, rollback, and secret-rotation procedure. This PR9 phase does not deploy
+the unit or access Production/hardware.
 
 ## Architecture
 
@@ -846,9 +867,10 @@ Important safety behavior:
 
 Configuration keys are documented in [`.env.example`](.env.example). Voice is
 independently selectable, but preflight currently rejects `--voice` because this
-repository has no executable voice adapter yet. The example systemd unit is at
-[`deploy/aegis-supervisor.service.example`](deploy/aegis-supervisor.service.example);
-replace its installation paths and review detector permissions before enabling it.
+repository has no executable voice adapter yet. The server service example at
+[`deploy/aegis-idea3.service.example`](deploy/aegis-idea3.service.example) owns
+both Core and Web; review its installation paths and permissions before enabling
+it.
 
 The supervisor writes rotating structured events to `logs/aegis-events.jsonl`,
 combined child output to `logs/aegis-components.log`, daemon console output to
