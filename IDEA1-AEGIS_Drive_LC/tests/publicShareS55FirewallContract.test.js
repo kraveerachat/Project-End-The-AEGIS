@@ -695,3 +695,144 @@ test('FIREWALL-DNS-FAIL-CLOSED no DNS exception exists in S5.5-D', () => {
     }
   } finally { h.cleanup() }
 })
+
+// ---------------------------------------------------------------------------
+// S5.5-E TASK 9: systemd firewall and connector lifecycle units.
+//
+// Units are parsed statically. No unit is ever installed, enabled, started or
+// reloaded by this suite, and systemd is never invoked.
+// ---------------------------------------------------------------------------
+
+const systemdDir = path.join(production, 'systemd')
+const firewallUnitPath = path.join(systemdDir, 'aegis-public-share-s5-5-firewall.service')
+const connectorUnitPath = path.join(systemdDir, 'aegis-public-share-connector.service')
+
+const RUNTIME_DIR = '/opt/aegis/runtime'
+const PUBLIC_SHARE_DIR = `${RUNTIME_DIR}/public-share`
+const COMPOSE_PROJECT = 'aegis-prod'
+
+// Parse a unit file into { Section: { Key: [values...] } }.
+function parseUnit(file) {
+  const sections = {}
+  let current = null
+  for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue
+    const header = /^\[(.+)]$/.exec(line)
+    if (header) { current = header[1]; sections[current] ??= {}; continue }
+    const kv = /^([A-Za-z][A-Za-z0-9]*)=(.*)$/.exec(line)
+    if (kv && current) {
+      sections[current][kv[1]] ??= []
+      sections[current][kv[1]].push(kv[2].trim())
+    }
+  }
+  return sections
+}
+
+const only = (section, key) => {
+  assert.ok(section?.[key], `missing ${key}`)
+  assert.equal(section[key].length, 1, `${key} must be declared exactly once`)
+  return section[key][0]
+}
+
+test('S5.5-UNIT-FIREWALL applies and removes only S5.5-owned firewall policy', () => {
+  const unit = parseUnit(firewallUnitPath)
+
+  assert.equal(only(unit.Service, 'Type'), 'oneshot')
+  assert.equal(only(unit.Service, 'RemainAfterExit'), 'yes')
+
+  const after = (unit.Unit.After ?? []).join(' ')
+  assert.match(after, /\bdocker\.service\b/, 'must order after docker.service')
+  assert.match(after, /\bufw\.service\b/, 'must order after ufw.service')
+
+  const start = only(unit.Service, 'ExecStart')
+  const stop = only(unit.Service, 'ExecStop')
+  assert.equal(start, `${PUBLIC_SHARE_DIR}/s5-5-firewall.sh apply`)
+  assert.equal(stop, `${PUBLIC_SHARE_DIR}/s5-5-firewall.sh remove`)
+
+  // Isolation must be proven before anything is allowed to depend on it.
+  const post = (unit.Service.ExecStartPost ?? []).join(' ')
+  assert.match(post, /s5-5-firewall\.sh validate/,
+    'apply must be followed by a validate gate')
+
+  // The unit must drive nothing but the S5.5 tooling.
+  const body = readFileSync(firewallUnitPath, 'utf8')
+  for (const forbidden of [/\bufw\s+(enable|disable|reload)/, /systemctl\s+(restart|stop)\s+docker/,
+    /iptables\s+-F/, /docker\s+compose\s+down/, /iptables-restore/]) {
+    assert.doesNotMatch(body, forbidden, `firewall unit must not run ${forbidden}`)
+  }
+})
+
+test('S5.5-UNIT-CONNECTOR starts only the connector behind the safety gates', () => {
+  const unit = parseUnit(connectorUnitPath)
+
+  const requires = (unit.Unit.Requires ?? []).join(' ')
+  const after = (unit.Unit.After ?? []).join(' ')
+  assert.match(requires, /aegis-public-share-s5-5-firewall\.service/,
+    'the connector must require the firewall unit')
+  assert.match(after, /aegis-public-share-s5-5-firewall\.service/,
+    'the connector must start after the firewall unit')
+  assert.match(after, /\bdocker\.service\b/, 'the connector must start after docker.service')
+
+  const pre = (unit.Service.ExecStartPre ?? []).join(' ')
+  assert.match(pre, new RegExp(`${PUBLIC_SHARE_DIR}/s5-5-runtime-check\\.sh --pre-start`),
+    'the pre-start validator must gate the connector')
+
+  const start = only(unit.Service, 'ExecStart')
+  const stop = only(unit.Service, 'ExecStop')
+
+  // Exactly one service is started, through the accepted four-layer stack.
+  assert.match(start, /docker compose/, 'must use docker compose')
+  assert.match(start, new RegExp(`--project-name ${COMPOSE_PROJECT}\\b`),
+    'must reuse the accepted Compose project, never invent a second one')
+  for (const layer of [
+    `${RUNTIME_DIR}/docker-compose.production.yml`,
+    `${PUBLIC_SHARE_DIR}/drive-s5-3.yml`,
+    `${PUBLIC_SHARE_DIR}/drive-gateway-s5-4.yml`,
+    `${PUBLIC_SHARE_DIR}/connector-s5-5.yml`,
+  ]) {
+    assert.ok(start.includes(`-f ${layer}`), `ExecStart must layer ${layer}`)
+  }
+  assert.match(start, /up -d --no-deps --no-build public-share-connector\s*$/,
+    'ExecStart must bring up only public-share-connector, with no dependencies or rebuild')
+  assert.match(stop, /\bstop public-share-connector\s*$/,
+    'ExecStop must stop only public-share-connector')
+
+  // Never a whole-stack operation, and never another service.
+  const body = readFileSync(connectorUnitPath, 'utf8')
+  assert.doesNotMatch(body, /compose[^\n]*\bdown\b/, 'docker compose down is forbidden')
+  assert.doesNotMatch(body, /\bprune\b/, 'prune is forbidden')
+  for (const service of ['drive', 'public-share-gateway', 'postgres', 'db', 'monitor', 'twingate']) {
+    assert.doesNotMatch(body, new RegExp(`(stop|rm|restart|up)[^\\n]*\\b${service}\\b`),
+      `the connector unit must never operate ${service}`)
+  }
+
+  assert.equal(only(unit.Service, 'Restart'), 'on-failure')
+  assert.equal(only(unit.Service, 'RestartSec'), '5s')
+  // StartLimit* are [Unit] directives in modern systemd.
+  assert.equal(only(unit.Unit, 'StartLimitBurst'), '5')
+  assert.equal(only(unit.Unit, 'StartLimitIntervalSec'), '60s')
+})
+
+test('S5.5-UNIT-ORDERING firewall precedes the connector and both fail closed', () => {
+  const firewall = parseUnit(firewallUnitPath)
+  const connector = parseUnit(connectorUnitPath)
+
+  // A connector may never come up without its isolation layer.
+  assert.match((connector.Unit.Requires ?? []).join(' '), /aegis-public-share-s5-5-firewall/)
+  assert.equal((firewall.Unit.Requires ?? []).some((r) => r.includes('connector')), false,
+    'the firewall unit must not depend on the connector')
+
+  // Stopping isolation must take the connector with it.
+  const boundBy = (firewall.Unit.PartOf ?? []).concat(connector.Unit.PartOf ?? []).join(' ')
+  const bindsTo = (connector.Unit.BindsTo ?? []).join(' ')
+  assert.ok(
+    /aegis-public-share-s5-5-firewall/.test(bindsTo) || /aegis-public-share/.test(boundBy),
+    'the connector must be bound to the firewall unit so isolation cannot be removed under it',
+  )
+
+  for (const file of [firewallUnitPath, connectorUnitPath]) {
+    const unit = parseUnit(file)
+    assert.ok(unit.Install, `${path.basename(file)} needs an [Install] section to be enabled`)
+  }
+})
