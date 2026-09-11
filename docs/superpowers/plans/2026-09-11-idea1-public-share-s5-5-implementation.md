@@ -417,7 +417,22 @@ Cloudflare edge network (region1 / region2)
 ### TASK 7: Host INPUT Guard Implementation + Negative Tests
 
 - **Canonical Phase:** `S5.5-D`
-- **Goal:** Deepen validation of the host `INPUT` guard `AEGIS-PS-INPUT` to guarantee no packet from `172.31.240.3` or `172.31.242.2` can reach host administration services, Docker bridge IPs, SSH, PostgreSQL, or local resolvers without explicit authorization.
+- **Status:** **CLOSED / PASS** (repository implementation only; S5.5-D CLOSED / PASS)
+- **Goal:** Deepen validation of the host `INPUT` guard `AEGIS-PS-INPUT` to guarantee no packet from connector sources (`172.31.240.3` or `172.31.242.2`) can reach host administration services, bridge addresses, SSH, PostgreSQL, or local resolvers without explicit authorization.
+- **Enforcement Principle vs. Acceptance Evidence:**
+  - **Enforcement mechanism:** Generic connector-source deny rules in `AEGIS-PS-INPUT` (matching source IPs and ingress interfaces) drop all traffic originating from the connector namespace regardless of destination port or IP.
+  - **Acceptance evidence:** The measured host listener inventory provides concrete positive/negative acceptance targets, but is acceptance evidence only, not the firewall filter mechanism.
+  - **Host surface topology distinction:**
+    - `172.31.240.1` is NOT a measured current Production host-local IPv4 address: the measured edge bridge carries no IPv4 host address (`internal=true`, `gateway_mode_ipv4=isolated`).
+    - `172.31.242.1` is DESIGNED FUTURE / MODEL-ONLY because the Production egress network is currently absent.
+    - Measured real host acceptance examples observed listening on Production by read-only preflight:
+      - `192.168.10.10:22` (host SSH)
+      - `192.168.10.10:80` (host HTTP)
+      - `192.168.10.10:443` (host HTTPS)
+      - `172.18.0.1:18077` (host service on default docker bridge)
+      - `127.0.0.53:53` (host systemd-resolved stub)
+      - `127.0.0.54:53` (host systemd-resolved stub secondary)
+    - TCP `2375` / `2376` are evaluated strictly as SYNTHETIC / MODEL-ONLY forbidden-port semantics (asserting generic source denial holds even if unencrypted/TLS daemon ports were probed); this does NOT claim the Docker API is absent generally.
 - **Files:**
   - Modify: `gateway/public-share/production/s5-5-firewall.sh`
   - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`
@@ -426,11 +441,12 @@ Cloudflare edge network (region1 / region2)
   - Produces: Verified host-input protection layer with automated negative assertions.
 - **Granular TDD Steps:**
   1. Add negative test cases in `publicShareS55FirewallContract.test.js`:
-     - Assert drop of connector -> host bridge `.1` (`172.31.240.1`, `172.31.242.1`).
-     - Assert drop of connector -> host physical IP listeners (SSH, Docker API).
+     - Assert generic connector-source drop across measured real host listeners (`192.168.10.10:22`, `192.168.10.10:80`, `192.168.10.10:443`, `172.18.0.1:18077`, `127.0.0.53:53`, `127.0.0.54:53`).
+     - Assert generic connector-source drop across synthetic/model-only forbidden ports (TCP `2375`, `2376`, `9090`, loopback `8080`) without claiming Docker API is absent generally.
+     - Assert drop of connector -> designed future egress gateway `172.31.242.1` (model-only; egress absent in Prod) and designed edge address `172.31.240.1` (model-only; edge bridge has no IPv4 host address in Prod).
      - Assert drop of connector -> Drive `172.31.241.3:8001`, PostgreSQL `5432`, upstream subnet `172.31.241.0/29`.
      - Assert drop of connector -> UDP/7844, TCP/443, and non-allowlisted Internet.
-  2. Update `s5-5-firewall.sh` to enforce explicit bridge interface filtering using stable egress bridge `-i aegis-ps-eg` and dynamically resolved edge Linux bridge (e.g. `br-${ID:0:12}` derived from `docker network inspect aegis_public_share_edge`, NEVER hard-coding `-i aegis_public_share_edge` or a static bridge name).
+  2. Update `s5-5-firewall.sh` to enforce explicit bridge interface filtering using stable egress bridge `-i aegis-ps-eg` and dynamically resolved edge Linux bridge (e.g. `br-${ID:0:12}` derived from `docker network inspect aegis_public_share_edge`, NEVER hard-coding `-i aegis_public_share_edge` or a static bridge name), while ensuring S5.4 Gateway (`172.31.240.2`) behavior is preserved.
   3. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
