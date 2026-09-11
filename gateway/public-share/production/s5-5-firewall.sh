@@ -307,18 +307,22 @@ require_connector_inactive() {
   local project service status running restarting paused
   IFS='|' read -r project service status running restarting paused <<< "$state"
 
-  # A container that is not this Compose service is not the connector this
-  # firewall isolates, so it does not gate teardown.
+  # An object EXISTS at the connector's name. If it does not carry the exact
+  # Compose identity then we cannot account for what is there, and tearing down
+  # isolation on the strength of an unrecognised object would be fail-open.
+  # Refuse and let a human resolve the anomaly.
   if [ "$project" != "$COMPOSE_PROJECT" ] || [ "$service" != "$COMPOSE_SERVICE" ]; then
-    return 0
+    die "object at ${CONNECTOR_CONTAINER} does not carry the expected Compose identity (${COMPOSE_PROJECT}/${COMPOSE_SERVICE}); refusing to remove S5.5 isolation"
   fi
 
   if [ "$running" = 'true' ] || [ "$restarting" = 'true' ] || [ "$paused" = 'true' ]; then
     die "connector is active (${status}); stop it before removing S5.5 isolation"
   fi
+  # Only positively safe stopped states permit teardown. 'dead', 'removing' and
+  # anything unrecognised are indeterminate, not safe, so they refuse.
   case "$status" in
-    created|exited|dead) return 0 ;;
-    *) die "connector state '${status}' is not a safe stopped state; refusing to remove isolation" ;;
+    created|exited) return 0 ;;
+    *) die "connector state '${status}' is not a positively safe stopped state; refusing to remove isolation" ;;
   esac
 }
 

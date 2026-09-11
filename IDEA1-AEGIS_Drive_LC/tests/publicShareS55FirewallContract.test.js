@@ -1181,3 +1181,104 @@ test('S5.5-FW-UNIT-ORDERING-STOPS-CONNECTOR-BEFORE-TEARDOWN', () => {
   assert.equal((firewall.Unit.Requires ?? []).some((r) => r.includes('connector')), false)
   assert.equal((firewall.Unit.After ?? []).some((r) => r.includes('connector')), false)
 })
+
+// ---------------------------------------------------------------------------
+// PRE-S5.5-F TEARDOWN IDENTITY CORRECTION
+//
+// An object existing at the connector's name with the wrong Compose identity is
+// an anomaly, not a clearance. Treating "not our container" as permission to
+// tear down isolation is fail-open: the safe reading is that we cannot account
+// for what is there, so we refuse.
+//
+// Likewise only `created` and `exited` are positively safe stopped states.
+// `dead` is not - it is an object in an indeterminate condition, and removal is
+// refused rather than assumed safe.
+// ---------------------------------------------------------------------------
+
+const EXACT_LABELS = {
+  'com.docker.compose.project': 'aegis-prod',
+  'com.docker.compose.service': 'public-share-connector',
+}
+
+test('S5.5-FW-TEARDOWN-IDENTITY fails closed on any identity drift', () => {
+  const drifts = {
+    'wrong project label': {
+      'com.docker.compose.project': 'someone-elses-project',
+      'com.docker.compose.service': 'public-share-connector',
+    },
+    'wrong service label': {
+      'com.docker.compose.project': 'aegis-prod',
+      'com.docker.compose.service': 'some-other-service',
+    },
+    'missing service label': { 'com.docker.compose.project': 'aegis-prod' },
+    'missing project label': { 'com.docker.compose.service': 'public-share-connector' },
+    'no labels at all': {},
+  }
+
+  for (const [label, labels] of Object.entries(drifts)) {
+    // Stopped, so state alone would otherwise have permitted removal.
+    const h = harness({ connectorState: 'exited', connectorLabels: labels })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const before = h.snapshot()
+
+      const result = h.run('remove')
+      assert.equal(result.status, 1,
+        `remove must fail closed on ${label}, even for a stopped object`)
+      assert.deepEqual(h.snapshot(), before,
+        `the firewall must be completely unchanged on ${label}`)
+      assert.equal(h.chains().includes(EGRESS_CHAIN), true, 'egress chain must survive')
+      assert.equal(h.chains().includes(INPUT_CHAIN), true, 'input chain must survive')
+      assert.equal(h.rules('DOCKER-USER').includes(`-j ${EGRESS_CHAIN}`), true,
+        'the egress anchor must survive')
+      assert.equal(h.run('validate').status, 0,
+        'isolation must still validate after a refused teardown')
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-FW-TEARDOWN-POSITIVE-STATES accepts only created and exited', () => {
+  // Positively safe stopped states, with the exact identity.
+  for (const state of ['created', 'exited']) {
+    const h = harness({ connectorState: state, connectorLabels: EXACT_LABELS })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const result = h.run('remove')
+      assert.equal(result.status, 0,
+        `remove must proceed for an exact-identity ${state} connector: ${result.stderr}`)
+      assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+      assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
+    } finally { h.cleanup() }
+  }
+
+  // Everything else refuses, including dead.
+  for (const state of ['running', 'restarting', 'paused', 'dead', 'removing', 'unknown']) {
+    const h = harness({ connectorState: state, connectorLabels: EXACT_LABELS })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const before = h.snapshot()
+      assert.equal(h.run('remove').status, 1,
+        `remove must refuse an exact-identity connector in state '${state}'`)
+      assert.deepEqual(h.snapshot(), before,
+        `the firewall must be unchanged when refusing state '${state}'`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-FW-TEARDOWN-ABSENT stays idempotent for a genuinely absent connector', () => {
+  const h = harness({ connectorAbsent: true })
+  try {
+    assert.equal(h.run('apply').status, 0)
+    assert.equal(h.run('remove').status, 0, 'an absent connector must permit rollback')
+    assert.equal(h.run('remove').status, 0, 'remove must stay idempotent')
+    assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-TEARDOWN-REFUSES-ONLY never stops or kills anything', () => {
+  const code = effectiveSource()
+  assert.doesNotMatch(code, /docker[^\n]*\bstop\b/i, 'firewall.sh must never stop a container')
+  assert.doesNotMatch(code, /docker[^\n]*\bkill\b/i, 'firewall.sh must never kill a container')
+  assert.doesNotMatch(code, /docker[^\n]*\brm\b/i, 'firewall.sh must never remove a container')
+  assert.doesNotMatch(code, /systemctl/i, 'firewall.sh must never drive systemd')
+})
