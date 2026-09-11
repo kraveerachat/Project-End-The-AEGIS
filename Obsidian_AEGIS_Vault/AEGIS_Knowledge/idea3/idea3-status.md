@@ -196,7 +196,7 @@ PR: not opened (no push or PR authorized)
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
-Last checkpoint: PUBLIC_SAFE_S1_CHECKPOINT = PENDING (recorded after the public-safe S1 checkpoint commit)
+Last checkpoint: `8250d6942eea0a50266039fad5389adf15a9fb93` (public-safe S1 inventory checkpoint)
 Production mutation allowed: NO (S1)
 Hardware testing: NOT RUN
 
@@ -232,7 +232,7 @@ and host-level specifics are deliberately not published):
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | PUBLIC_SAFE_S1_CHECKPOINT = PENDING | PENDING OWNER REVIEW; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | owner review; D1–D5; authorized read-only server inventory | S2 Server → Core boundary design after approval |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | PENDING OWNER REVIEW; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | owner review; D1–D5; authorized read-only server inventory | S2 Server → Core boundary design after approval |
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
