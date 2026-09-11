@@ -734,3 +734,129 @@ test('S5.5-DRIFT-NEVER-WEAKENS-FIREWALL the watchdog only reads firewall state',
   assert.doesNotMatch(code, /iptables/, 'the watchdog must never drive iptables directly')
   assert.doesNotMatch(code, /\bufw\b/, 'the watchdog must never drive UFW')
 })
+
+// ---------------------------------------------------------------------------
+// S5.5-E TASK 11: connector-only rollback.
+//
+// Driven against the same disposable mocks. Nothing is stopped, removed or
+// pruned for real, and Production is never contacted.
+// ---------------------------------------------------------------------------
+
+test('S5.5-ROLLBACK-FORBIDS-BROAD-OPERATIONS never uses a whole-stack hammer', () => {
+  const text = readFile(rollbackScript, 'utf8')
+  const code = text.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n')
+
+  assert.match(text, /^#!\/usr\/bin\/env bash$/m)
+  assert.match(text, /^set -euo pipefail$/m)
+
+  for (const forbidden of [
+    [/compose[^\n]*\bdown\b/, 'docker compose down'],
+    [/system\s+prune/, 'docker system prune'],
+    [/network\s+prune/, 'docker network prune'],
+    [/volume\s+prune/, 'docker volume prune'],
+    [/image\s+prune/, 'docker image prune'],
+    [/volume\s+rm/, 'volume removal'],
+    [/-v\b[^\n]*\brm\b|\brm\b[^\n]*\s-v\b/, 'container removal with volumes'],
+    [/\bufw\b/, 'UFW'],
+    [/systemctl[^\n]*\b(docker|containerd)\b/, 'docker daemon control'],
+  ]) {
+    assert.doesNotMatch(code, forbidden[0], `rollback must never run ${forbidden[1]}`)
+  }
+
+  // It must never recreate or restart anything it does not own.
+  for (const service of ['drive', 'public-share-gateway', 'postgres', 'monitor', 'twingate']) {
+    assert.doesNotMatch(code, new RegExp(`\\b(up|restart|rm|stop)\\b[^\\n]*\\b${service}\\b`),
+      `rollback must never operate ${service}`)
+  }
+})
+
+test('S5.5-ROLLBACK-ORDER reverses the lifecycle narrowly', () => {
+  // A deployed connector exists, and the egress network is already drained.
+  const h = runtimeHarness({
+    egressContainers: {},
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+  })
+  try {
+    const result = h.runRollback()
+    assert.equal(result.status, 0, `rollback should succeed: ${result.stdout}${result.stderr}`)
+
+    const systemctl = h.systemctlCalls()
+    const docker = h.mockLog()
+
+    // 1-2. Drift lifecycle and connector service are stopped and disabled first.
+    assert.match(systemctl, /stop aegis-public-share-drift\.timer/)
+    assert.match(systemctl, /disable aegis-public-share-drift\.timer/)
+    assert.match(systemctl, /stop aegis-public-share-connector\.service/)
+    assert.match(systemctl, /disable aegis-public-share-connector\.service/)
+
+    // Reverse order: the timer must be stopped before the connector, so the
+    // watchdog cannot fight the rollback.
+    assert.ok(
+      systemctl.indexOf('stop aegis-public-share-drift.timer')
+        < systemctl.indexOf('stop aegis-public-share-connector.service'),
+      'the drift timer must be stopped before the connector',
+    )
+
+    // 3. Only the connector container is removed.
+    assert.match(docker, /rm .*public-share-connector|stop .*public-share-connector/)
+
+    // 4. Firewall policy is removed through the owning tool only.
+    assert.match(h.mockLog(), /remove/, 's5-5-firewall.sh remove must be invoked')
+
+    // 5. The egress network is removed only after it is proven empty.
+    assert.match(docker, /network inspect aegis_public_share_egress/)
+    assert.match(docker, /network rm aegis_public_share_egress/)
+    assert.ok(
+      docker.indexOf('network inspect aegis_public_share_egress')
+        < docker.indexOf('network rm aegis_public_share_egress'),
+      'the egress network must be inspected before it is removed',
+    )
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-EGRESS-ENDPOINTS refuses to remove a network still in use', () => {
+  const h = runtimeHarness({
+    egressContainers: { 'aegis-prod-public-share-connector-1': '172.31.242.2' },
+  })
+  try {
+    const result = h.runRollback()
+    assert.notEqual(result.status, 0, 'rollback must fail when the egress network still has endpoints')
+    assert.doesNotMatch(h.mockLog(), /network rm aegis_public_share_egress/,
+      'a network with endpoints must never be removed')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-PRESERVES-S5-4 leaves the accepted baseline intact', () => {
+  const h = runtimeHarness({ egressContainers: {} })
+  try {
+    assert.equal(h.runRollback().status, 0)
+    const docker = h.mockLog()
+
+    // The S5.4 networks and services are never touched.
+    for (const network of ['aegis_public_share_edge', 'aegis_public_share_upstream',
+      'aegis_internal', 'aegis_drive_proxy', 'aegis_vlan10']) {
+      assert.doesNotMatch(docker, new RegExp(`network rm[^\\n]*${network}`),
+        `rollback must never remove ${network}`)
+    }
+    const systemctl = h.systemctlCalls()
+    for (const unit of ['docker', 'ufw', 'postgres', 'twingate', 'monitor']) {
+      assert.doesNotMatch(systemctl, new RegExp(unit, 'i'), `rollback must never control ${unit}`)
+    }
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-IDEMPOTENT tolerates already-absent objects', () => {
+  // Egress network already gone, connector already removed.
+  const h = runtimeHarness({ egress: false })
+  try {
+    const first = h.runRollback()
+    assert.equal(first.status, 0, `rollback must tolerate an absent egress network: ${first.stderr}`)
+    const second = h.runRollback()
+    assert.equal(second.status, 0, 'rollback must be idempotent')
+    assert.doesNotMatch(h.mockLog(), /\bprune\b/,
+      'an absent object must never trigger a broad cleanup')
+  } finally { h.cleanup() }
+})
