@@ -860,3 +860,91 @@ test('S5.5-ROLLBACK-IDEMPOTENT tolerates already-absent objects', () => {
       'an absent object must never trigger a broad cleanup')
   } finally { h.cleanup() }
 })
+
+// ---------------------------------------------------------------------------
+// S5.5-E TASK 13: production runbook contract.
+//
+// The runbook may DOCUMENT future Production commands, but documentation is not
+// authorization. These assertions pin both the operational content and the
+// explicit gating language.
+// ---------------------------------------------------------------------------
+
+const runbook = () => readFile(runbookPath, 'utf8')
+
+test('S5.5-RUNBOOK-COMPOSE-ORDER documents the exact four-layer stack', () => {
+  const text = runbook()
+  const layers = [
+    'docker-compose.production.yml',
+    'drive-s5-3.yml',
+    'drive-gateway-s5-4.yml',
+    'connector-s5-5.yml',
+  ]
+  let cursor = -1
+  for (const layer of layers) {
+    const at = text.indexOf(layer, cursor + 1)
+    assert.notEqual(at, -1, `the runbook must document ${layer}`)
+    assert.ok(at > cursor, `${layer} must appear in the accepted layering order`)
+    cursor = at
+  }
+  // The deployed connector overlay is a byte-for-byte copy, not a hand edit.
+  assert.match(text, /connector-s5-5\.yml[\s\S]{0,400}byte-for-byte[\s\S]{0,200}docker-compose\.s5-5\.yml|docker-compose\.s5-5\.yml[\s\S]{0,400}byte-for-byte[\s\S]{0,200}connector-s5-5\.yml/,
+    'the runbook must state connector-s5-5.yml is copied byte-for-byte from docker-compose.s5-5.yml')
+  assert.match(text, /--project-name aegis-prod/, 'the accepted Compose project must be documented')
+})
+
+test('S5.5-RUNBOOK-TOKEN documents exact credential preparation and handling', () => {
+  const text = runbook()
+  assert.match(text, /\/opt\/aegis\/runtime\/public-share\/secrets\/cloudflared-token/,
+    'the canonical token path must be documented')
+  assert.match(text, /0440/, 'mode 0440 must be documented')
+  assert.match(text, /root:65532|root\b[\s\S]{0,80}65532/, 'owner root and group 65532 must be documented')
+
+  // The create_host_path trap must be called out explicitly.
+  assert.match(text, /regular file/i, 'the runbook must require a regular file')
+  assert.match(text, /director(y|ies)/i, 'the runbook must warn about a directory being created')
+  assert.match(text, /before[\s\S]{0,120}compose|compose[\s\S]{0,120}before/i,
+    'the runbook must require creating the file BEFORE Compose runs')
+
+  // Handling warnings.
+  for (const warning of [/history/i, /\blogs?\b/i, /environment|env\b/i, /Obsidian|receipt/i]) {
+    assert.match(text, warning, `the runbook must warn about ${warning}`)
+  }
+  assert.match(text, /\b(cat|echo)\b/, 'the runbook must warn against echoing or cat-ing the token')
+})
+
+test('S5.5-RUNBOOK-LIFECYCLE documents firewall, validator, drift and rollback', () => {
+  const text = runbook()
+  assert.match(text, /s5-5-firewall\.sh apply/, 'firewall apply must be documented')
+  assert.match(text, /s5-5-firewall\.sh validate/, 'firewall validate must be documented')
+  assert.match(text, /s5-5-runtime-check\.sh --pre-start/, 'the pre-start validator must be documented')
+  assert.match(text, /s5-5-runtime-check\.sh --enforce-drift/, 'drift enforcement must be documented')
+  assert.match(text, /aegis-public-share-s5-5-firewall\.service/)
+  assert.match(text, /aegis-public-share-connector\.service/)
+  assert.match(text, /aegis-public-share-drift\.timer/)
+  assert.match(text, /rollback-s5-5\.sh/, 'connector-only rollback must be documented')
+  assert.match(text, /fail[- ]closed/i, 'fail-closed behaviour must be documented')
+
+  // The S5.4 rollback section must survive this update.
+  assert.match(text, /docker-compose\.s5-4\.yml|drive-gateway-s5-4\.yml/,
+    'the existing S5.4 runbook content must be preserved')
+})
+
+test('S5.5-RUNBOOK-NOT-AUTHORIZATION gates every Production action', () => {
+  const text = runbook()
+  assert.match(text, /DO NOT EXECUTE WITHOUT SEPARATE S5\.5-F OWNER AUTHORIZATION/,
+    'the runbook must carry the explicit non-authorization banner verbatim')
+  assert.match(text, /documentation is not approval|not authorization|NOT approval/i,
+    'the runbook must state that documentation is not approval')
+
+  // Remaining gates must be recorded honestly.
+  assert.match(text, /PRODUCTION_DNS_PATH_MEASURED=NO/)
+  assert.match(text, /atomicity[\s\S]{0,120}NOT ACCEPTED|NOT ACCEPTED[\s\S]{0,120}atomicity/i)
+  assert.match(text, /persistence[\s\S]{0,160}NOT ACCEPTED|NOT ACCEPTED[\s\S]{0,160}persistence/i)
+  assert.match(text, /NOT CONFIGURED/, 'public DNS/TLS must be recorded as not configured')
+  assert.match(text, /Internet exposure[\s\S]{0,40}NONE/i)
+  assert.match(text, /G5[\s\S]{0,20}OPEN/)
+  assert.match(text, /UI[\s\S]{0,20}OFF|PUBLIC_SHARE_UI_ENABLED[\s\S]{0,20}false/i)
+
+  // No DNS exception may be smuggled in as a documented step.
+  assert.doesNotMatch(text, /--dport\s+53[^\n]*ACCEPT/, 'no DNS allow rule may be documented')
+})
