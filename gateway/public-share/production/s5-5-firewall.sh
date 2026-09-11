@@ -344,11 +344,24 @@ cmd_apply() {
   echo "S5.5-FIREWALL=APPLIED (edge bridge ${edge_bridge}, $(printf '%s\n' "$endpoints" | grep -c .) endpoints)"
 }
 
+# iptables-nft re-serializes a few semantically equivalent forms when rules are
+# read back with `iptables -S`. Keep validation strict by normalizing ONLY the
+# transformations observed from the approved rule grammar; rule order, unknown
+# matches/options, addresses, ports, protocols and targets remain byte-significant.
+canonicalize_rules() {
+  sed -E \
+    -e 's/--ctstate RELATED,ESTABLISHED/--ctstate ESTABLISHED,RELATED/g' \
+    -e 's/-p tcp -m tcp /-p tcp /g' \
+    -e 's/^-s ([^ ]+) -i ([^ ]+) /-i \2 -s \1 /'
+}
+
 expect_chain() {
-  local chain="$1" expected="$2" actual
+  local chain="$1" expected="$2" actual expected_canonical actual_canonical
   chain_exists "$chain" || { echo "missing chain ${chain}" >&2; return 1; }
   actual="$(chain_rules "$chain")"
-  if [ "$actual" != "$expected" ]; then
+  expected_canonical="$(printf '%s\n' "$expected" | canonicalize_rules)"
+  actual_canonical="$(printf '%s\n' "$actual" | canonicalize_rules)"
+  if [ "$actual_canonical" != "$expected_canonical" ]; then
     echo "drifted chain ${chain}" >&2
     return 1
   fi
