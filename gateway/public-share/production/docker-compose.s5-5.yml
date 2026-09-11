@@ -33,8 +33,13 @@ services:
       - /run/secrets/cloudflared-token
     # The credential is supplied only as a read-only file on the Production
     # host. No token literal and no TUNNEL_TOKEN variable exists anywhere.
+    #
+    # Compose applies create_host_path to a bind mount, so a missing source
+    # would be materialised as a directory rather than failing hard. Presence,
+    # type and ownership of the canonical source file are therefore asserted by
+    # the Task 8 pre-start validator. This branch neither creates nor reads it.
     volumes:
-      - /etc/aegis/public-share/cloudflared-token:/run/secrets/cloudflared-token:ro
+      - /opt/aegis/runtime/public-share/secrets/cloudflared-token:/run/secrets/cloudflared-token:ro
     user: "65532:65532"
     read_only: true
     cap_drop:

@@ -29,6 +29,11 @@ const PIN_URL = new URL(
 const S5_4_SHA256 =
   'cc36d08c16731f888f64cb2dcd84f1c9a41b11e9b447aa16ad67405bcdc12819'
 
+// Owner-approved runtime credential contract. The host path is canonical and
+// the container destination is fixed; neither is created or read by this branch.
+const TOKEN_HOST_PATH = '/opt/aegis/runtime/public-share/secrets/cloudflared-token'
+const TOKEN_CONTAINER_PATH = '/run/secrets/cloudflared-token'
+
 const normalize = (text) => text.replace(/\r\n/g, '\n')
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
 
@@ -214,10 +219,24 @@ test('S5.5-CREDENTIAL-BOUNDS the token is file-only, read-only and never inline'
   assert.equal(command[tokenFileAt + 1], '/run/secrets/cloudflared-token')
   assert.equal(command.includes('--token'), false, 'an inline --token literal is forbidden')
 
+  // The owner-approved runtime credential lives under the canonical
+  // /opt/aegis/runtime/public-share/secrets/ path on the Production host.
   const mounts = listItems(namedBlock(connector, 'volumes', 4), 6)
-  const tokenMount = mounts.find((mount) => mount.includes('/run/secrets/cloudflared-token'))
-  assert.ok(tokenMount, 'the token must be bind-mounted into the container')
-  assert.match(tokenMount, /:ro$/, 'the token mount must be read-only')
+  assert.deepEqual(
+    mounts,
+    [`${TOKEN_HOST_PATH}:${TOKEN_CONTAINER_PATH}:ro`],
+    'the connector mounts exactly the canonical token file, read-only',
+  )
+
+  const [hostPath, containerPath, mode] = mounts[0].split(':')
+  assert.equal(hostPath, TOKEN_HOST_PATH, 'token host path must be the canonical source')
+  assert.equal(containerPath, TOKEN_CONTAINER_PATH, 'token container destination is fixed')
+  assert.equal(mode, 'ro', 'the token mount must be read-only')
+  assert.equal(
+    command[tokenFileAt + 1],
+    containerPath,
+    '--token-file must point at the mounted destination',
+  )
 
   const effective = withoutComments(overlay())
   assert.doesNotMatch(effective, /TUNNEL_TOKEN/, 'no TUNNEL_TOKEN environment variable')
