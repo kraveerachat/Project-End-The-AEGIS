@@ -37,6 +37,8 @@ readonly TUNNEL_PORT='7844'
 readonly EDGE_NETWORK='aegis_public_share_edge'
 readonly EGRESS_BRIDGE='aegis-ps-eg'
 readonly DOCKER_USER_CHAIN='DOCKER-USER'
+# Host chains the S5.5 anchors attach to. Both must pre-exist.
+readonly REQUIRED_HOST_CHAINS='INPUT DOCKER-USER'
 
 # Test seams. Defaults are the real tools and the real sysfs path.
 IPTABLES="${AEGIS_IPTABLES_BIN:-iptables}"
@@ -109,7 +111,17 @@ require_interface() {
 # DROPs are the isolation boundary: anything not accepted above is denied.
 egress_rules() {
   local endpoints="$1" endpoint
-  echo "-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+  # Return direction ONLY. AEGIS-PS-EGRESS is anchored first in DOCKER-USER, so
+  # an unqualified ESTABLISHED,RELATED accept here would authorise forwarding for
+  # every unrelated container on the host before Docker and UFW policy is ever
+  # consulted. Scoping by DESTINATION keeps the reply path of the connector's own
+  # flows working while leaving unrelated traffic to fall through untouched.
+  #
+  # Scoping by SOURCE would be wrong: an already-established connector flow to an
+  # unauthorised destination would then survive a reconciliation instead of
+  # hitting the terminal deny below.
+  echo "-d ${CONNECTOR_EDGE_IP} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+  echo "-d ${CONNECTOR_EGRESS_IP} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
   echo "-s ${CONNECTOR_EDGE_IP} -d ${GATEWAY_EDGE_IP} -p tcp --dport ${GATEWAY_HTTP_PORT} -j ACCEPT"
   while IFS= read -r endpoint; do
     [ -n "$endpoint" ] || continue
@@ -150,6 +162,30 @@ input_rules() {
   echo "-i ${EGRESS_BRIDGE} -s ${EGRESS_SUBNET} -j DROP"
   echo "-s ${CONNECTOR_EDGE_IP} -j DROP"
   echo "-s ${CONNECTOR_EGRESS_IP} -j DROP"
+}
+
+# --- pre-mutation safety ----------------------------------------------------
+
+# Production runs iptables-nft. Writing into an unexpected backend would appear
+# to succeed while the rules are never consulted, so refuse before mutating.
+require_nft_backend() {
+  local version
+  version="$("$IPTABLES" --version 2>/dev/null)" \
+    || die 'cannot determine the iptables backend'
+  case "$version" in
+    *nf_tables*) ;;
+    *) die "expected the nf_tables iptables backend, found: ${version}" ;;
+  esac
+}
+
+# The anchors have nowhere to go without these. Checked before any chain is
+# created, flushed or inserted, so a partial policy is never left behind.
+require_host_chains() {
+  local chain
+  for chain in $REQUIRED_HOST_CHAINS; do
+    chain_exists "$chain" \
+      || die "required host chain ${chain} is absent; refusing to mutate"
+  done
 }
 
 # --- chain primitives ------------------------------------------------------
@@ -231,6 +267,8 @@ rebuild_chain() {
 cmd_apply() {
   local endpoints edge_bridge egress input
   # Resolve and validate everything before touching a single rule.
+  require_nft_backend
+  require_host_chains
   endpoints="$(load_endpoints)"
   edge_bridge="$(resolve_edge_bridge)"
   require_interface "$EGRESS_BRIDGE"
