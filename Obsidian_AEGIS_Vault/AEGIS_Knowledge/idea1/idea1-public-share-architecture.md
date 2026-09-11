@@ -30,11 +30,13 @@ edit_policy: owner-writable
 > activation are **NOT IMPLEMENTED YET**. Internet exposure is **NONE**;
 > Public Internet Share is **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**.
 
-> [!important] S5.5 current state — S5.5-A and S5.5-B closed; no implementation
-> S5.5 is **IN PROGRESS** with S5.5-A and S5.5-B **CLOSED / PASS**. The fresh
+> [!important] S5.5 current state — S5.5-A, S5.5-B, and S5.5-C plan closed; no runtime implementation
+> S5.5 is **IN PROGRESS** with S5.5-A, S5.5-B, and S5.5-C (Plan) **CLOSED / PASS**. The fresh
 > Production read-only firewall/runtime preflight matched S5.2 assumptions and
 > the accepted S5.4 topology. The owner-approved S5.5-B specification is
-> `docs/superpowers/specs/2026-09-11-idea1-public-share-s5-5-cloudflared-egress-isolation-design.md`.
+> `docs/superpowers/specs/2026-09-11-idea1-public-share-s5-5-cloudflared-egress-isolation-design.md`,
+> and the 12-task test-driven implementation plan is
+> `docs/superpowers/plans/2026-09-11-idea1-public-share-s5-5-implementation.md`.
 > `PRODUCTION MUTATION ALLOWED = NO` for this checkpoint. No S5.5 overlay,
 > egress network, executable firewall policy, connector, tunnel, DNS, TLS,
 > public route, or feature-flag change exists yet.
@@ -46,8 +48,8 @@ edit_policy: owner-writable
 > supplemental INPUT guard, systemd fail-closed activation, and connector-only
 > rollback. Gateway remains edge + upstream; Drive never joins egress. Nine
 > pinned-image, DNS, packet-path, firewall-atomicity and restart gates must pass
-> before any Production mutation. S5.5-C is **NOT STARTED** and requires separate
-> owner approval.
+> before any Production mutation. S5.5 runtime tasks remain **NOT STARTED** and
+> require separate owner approval.
 
 > [!important] Domain and exposure truth
 > `aegistk-pb.com` is **OWNED**. `share.aegistk-pb.com` is the intended
