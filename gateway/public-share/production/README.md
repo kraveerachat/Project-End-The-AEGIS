@@ -291,8 +291,8 @@ Why exactly these flags, on Docker Compose v2:
 
 ```bash
 sudo docker inspect aegis-prod-public-share-connector-1 \
-  --format 'Status={{.State.Status}} Running={{.State.Running}} Restarts={{.RestartCount}}'
-# expected: Status=created Running=false Restarts=0
+  --format 'Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}}'
+# expected: Status=created Running=false Restarting=false
 ```
 
 Do not continue if `Running` is anything but `false`.

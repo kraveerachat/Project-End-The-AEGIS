@@ -156,18 +156,25 @@ check_connector_identity() {
 
 # Only a genuinely stopped object may be validated and then started. Anything
 # already running, mid-restart, paused, dead or in an unknown state is refused.
+#
+# An ACTIVE restart loop is read from CURRENT state only - State.Restarting, or a
+# "restarting" status. RestartCount is deliberately NOT consulted: it is a
+# cumulative historical counter, so a container that restarted at some point in
+# the past and is now genuinely stopped is still a safe object to start. Treating
+# it as proof of a live loop would make the connector permanently unstartable
+# after any past restart.
 check_connector_stopped() {
-  local state status running restarting paused dead restarts
+  local state status running restarting paused dead
   state="$(CONTAINER_JSON="$1" node --input-type=commonjs -e '
     const data = JSON.parse(process.env.CONTAINER_JSON)
     const c = Array.isArray(data) ? data[0] : data
     const s = c?.State ?? {}
     process.stdout.write([
       s.Status ?? "unknown", s.Running === true, s.Restarting === true,
-      s.Paused === true, s.Dead === true, c?.RestartCount ?? 0,
+      s.Paused === true, s.Dead === true,
     ].join("|"))
   ' 2>/dev/null)"
-  IFS='|' read -r status running restarting paused dead restarts <<< "$state"
+  IFS='|' read -r status running restarting paused dead <<< "$state"
 
   local result=0
   case "$status" in
@@ -178,8 +185,6 @@ check_connector_stopped() {
   [ "$restarting" = 'false' ] || { fail 'connector is restarting'; result=1; }
   [ "$paused" = 'false' ] || { fail 'connector is paused'; result=1; }
   [ "$dead" = 'false' ] || { fail 'connector is dead'; result=1; }
-  # A non-zero restart count means the object is in an active restart loop.
-  [ "$restarts" = '0' ] || { fail "connector is in a restart loop (${restarts} restarts)"; result=1; }
   return "$result"
 }
 

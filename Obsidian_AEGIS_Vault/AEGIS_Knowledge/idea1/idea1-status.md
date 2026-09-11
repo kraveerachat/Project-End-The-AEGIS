@@ -216,7 +216,10 @@ credential, verify the four-layer model, CREATE the connector stopped (this
 materialises the egress network and `aegis-ps-eg`), prove it is stopped and
 exactly attached, apply and validate the firewall, re-validate that same stopped
 object, then `start` it. Pre-start now refuses an absent egress network, an
-absent connector, any non-stopped state, an active restart loop, and any
+absent connector, any non-stopped state, an active restart loop read from
+current state only (`State.Restarting` or a `restarting` status - the cumulative
+historical `RestartCount` is deliberately not a rejection criterion, since a
+container that restarted in the past and is now stopped is safe to start), and any
 container whose `com.docker.compose.project`/`service` labels are not
 `aegis-prod`/`public-share-connector`. Drift enforcement keeps the lenient
 existence rules, because there the connector is expected to be running.

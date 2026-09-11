@@ -398,7 +398,7 @@ function runtimeHarness(options = {}) {
       State: {
         Status: state,
         Running: options.connectorRunning ?? (state === 'running'),
-        Restarting: state === 'restarting',
+        Restarting: options.connectorRestarting ?? (state === 'restarting'),
         Paused: state === 'paused',
         Dead: state === 'dead',
       },
@@ -1039,14 +1039,64 @@ test('S5.5-LIFECYCLE-PRESTART-REQUIRES-STOPPED refuses any non-stopped state', (
       'pre-start must refuse whenever Running is true')
   } finally { lying.cleanup() }
 
-  // A container caught in a restart loop is not a safe stopped object.
-  const looping = runtimeHarness({
-    ...STOPPED_CONNECTOR, connectorState: 'exited', connectorRestartCount: 3,
+  // An ACTIVE restart loop is current state, not history: Restarting=true must
+  // be refused whatever the status string says.
+  const restartingFlag = runtimeHarness({
+    ...STOPPED_CONNECTOR, connectorState: 'exited', connectorRestarting: true,
   })
   try {
-    assert.equal(looping.run('--pre-start').status, 1,
-      'pre-start must refuse a connector in an active restart loop')
-  } finally { looping.cleanup() }
+    assert.equal(restartingFlag.run('--pre-start').status, 1,
+      'pre-start must refuse whenever State.Restarting is true')
+  } finally { restartingFlag.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-RESTARTCOUNT-IS-HISTORY does not reject on past restarts', () => {
+  // RestartCount is cumulative history, not current state. A container that
+  // restarted earlier and is now genuinely stopped is a safe object to validate
+  // and start; rejecting it would make the connector permanently unstartable
+  // after any past restart.
+  const priorRestarts = runtimeHarness({
+    ...STOPPED_CONNECTOR,
+    connectorState: 'exited',
+    connectorRunning: false,
+    connectorRestarting: false,
+    connectorRestartCount: 3,
+  })
+  try {
+    const result = priorRestarts.run('--pre-start')
+    assert.equal(result.status, 0,
+      `a stopped connector with prior restarts must be accepted: ${result.stdout}${result.stderr}`)
+  } finally { priorRestarts.cleanup() }
+
+  // Both accepted stopped states, with and without restart history.
+  for (const state of ['created', 'exited']) {
+    for (const restarts of [0, 7]) {
+      const h = runtimeHarness({
+        ...STOPPED_CONNECTOR, connectorState: state, connectorRestartCount: restarts,
+      })
+      try {
+        assert.equal(h.run('--pre-start').status, 0,
+          `${state} with RestartCount=${restarts} must be accepted`)
+      } finally { h.cleanup() }
+    }
+  }
+
+  // An active loop is still refused, and history is never the reason.
+  for (const options of [
+    { connectorState: 'restarting', connectorRestartCount: 5 },
+    { connectorState: 'exited', connectorRestarting: true, connectorRestartCount: 0 },
+  ]) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, ...options })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, 'an active restart loop must be refused')
+    } finally { h.cleanup() }
+  }
+
+  // The validator must not treat a restart count as proof of a live loop.
+  const code = readFile(runtimeCheck, 'utf8')
+    .split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n')
+  assert.doesNotMatch(code, /RestartCount[^\n]*(fail|result=1)/i,
+    'RestartCount must not be a rejection criterion on its own')
 })
 
 test('S5.5-LIFECYCLE-PRESTART-ACCEPTS-CREATED-AND-EXITED passes only for the approved stopped states', () => {
