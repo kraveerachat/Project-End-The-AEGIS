@@ -20,6 +20,12 @@ const shell = process.platform === 'win32' && existsSync('C:/Program Files/Git/b
   ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
 
 const source = () => readFileSync(script, 'utf8')
+// Static scans target executable lines. Comments are documentation, not
+// directives, and must be free to name the things the script deliberately avoids.
+const effectiveSource = () => source()
+  .split(/\r?\n/)
+  .filter((line) => !line.trimStart().startsWith('#'))
+  .join('\n')
 const allowlist = () => JSON.parse(readFileSync(allowlistPath, 'utf8'))
 
 const EGRESS_CHAIN = 'AEGIS-PS-EGRESS'
@@ -91,7 +97,6 @@ case "\$op" in
     if [ -n "\$chain" ]; then
       chain_exists || { echo "iptables: No chain/target/match by that name." >&2; exit 1; }
       echo "-N \$chain"
-      grep "^RULE|\$chain|" "\$state" | sed "s|^RULE|\\\\|\$chain\\\\||-A \$chain |" 2>/dev/null || true
       grep "^RULE|\$chain|" "\$state" | while IFS='|' read -r _ c r; do echo "-A \$c \$r"; done
       exit 0
     fi
@@ -165,9 +170,23 @@ function harness(options = {}) {
     .filter((line) => line.startsWith('CHAIN|'))
     .map((line) => line.slice('CHAIN|'.length))
   const rawState = () => readFileSync(state, 'utf8')
+  // Firewall state is the set of chains and each chain's ordered rules. The
+  // order of lines in the mock's backing file is an artifact, not policy.
+  const snapshot = () => {
+    const lines = readFileSync(state, 'utf8').split('\n').filter(Boolean)
+    const chainList = lines.filter((l) => l.startsWith('CHAIN|')).map((l) => l.slice(6)).sort()
+    const perChain = {}
+    for (const line of lines) {
+      if (!line.startsWith('RULE|')) continue
+      const sep = line.indexOf('|', 5)
+      const chain = line.slice(5, sep)
+      ;(perChain[chain] ??= []).push(line.slice(sep + 1))
+    }
+    return { chains: chainList, rules: perChain }
+  }
   const writeState = (text) => writeFileSync(state, text)
   const cleanup = () => rmSync(root, { recursive: true, force: true })
-  return { run, rules, chains, rawState, writeState, cleanup, root, env }
+  return { run, rules, chains, rawState, snapshot, writeState, cleanup, root, env }
 }
 
 const expectedEgressRules = () => {
@@ -206,7 +225,7 @@ test('FIREWALL-SUBCOMMANDS apply, validate and remove are supported', () => {
 })
 
 test('FIREWALL-NO-GLOBAL-FLUSH the script never flushes shared chains', () => {
-  const text = source()
+  const text = effectiveSource()
   // Flushing or policy-setting a shared chain would take down unrelated traffic.
   assert.doesNotMatch(text, /-F\s+INPUT\b/, 'must never flush INPUT')
   assert.doesNotMatch(text, /-F\s+FORWARD\b/, 'must never flush FORWARD')
@@ -219,7 +238,7 @@ test('FIREWALL-NO-GLOBAL-FLUSH the script never flushes shared chains', () => {
 })
 
 test('FIREWALL-BRIDGE-RESOLUTION is dynamic and never hard-coded', () => {
-  const text = source()
+  const text = effectiveSource()
   // A Docker network name is not a Linux interface name.
   assert.doesNotMatch(text, /-i\s+aegis_public_share_edge/,
     'the Docker network name must never be used as an interface')
@@ -227,23 +246,36 @@ test('FIREWALL-BRIDGE-RESOLUTION is dynamic and never hard-coded', () => {
     'the observed edge bridge must never be hard-coded')
   assert.doesNotMatch(text, new RegExp(`["'\\s]${DERIVED_EDGE_BRIDGE}["'\\s]`),
     'the observed edge bridge name must not appear as a literal default')
-  assert.match(text, /docker[^\n]*network[^\n]*inspect[^\n]*aegis_public_share_edge/,
-    'the edge bridge must be resolved from docker network inspect')
+  // Resolution must actually call `network inspect` on the edge network. The
+  // network name may be held in a variable, so assert both facts, not one line.
+  assert.match(text, /network\s+inspect/, 'the edge bridge must come from docker network inspect')
+  assert.match(text, /aegis_public_share_edge/, 'the edge network must be named')
+  assert.match(text, /com\.docker\.network\.bridge\.name/,
+    'an explicitly configured bridge name must be honoured')
+  assert.match(text, /br-|slice\(0,\s*12\)|:0:12/,
+    'the bridge must otherwise be derived from the first 12 chars of the network id')
   // The egress bridge is explicitly configured, so it is stable and allowed.
   assert.match(text, new RegExp(EGRESS_BRIDGE), 'the stable egress bridge may be used directly')
 })
 
 test('FIREWALL-ALLOWLIST-CONSUMPTION reads endpoints instead of embedding them', () => {
-  const text = source()
+  const text = effectiveSource()
   assert.match(text, /cloudflare-endpoints\.json/, 'must consume the reviewed allowlist artifact')
   // No endpoint literal may be baked into the script.
   for (const endpoint of allowlist().endpoints) {
     assert.equal(text.includes(endpoint.replace('/32', '')), false,
       `${endpoint} must come from the allowlist, not from a literal in the script`)
   }
-  assert.doesNotMatch(text, /--dport\s+443\b/, 'TCP/443 must never be allowed')
-  assert.doesNotMatch(text, /-p\s+udp[^\n]*--dport\s+7844/, 'UDP/7844 must never be allowed')
-  assert.doesNotMatch(text, /-d\s+0\.0\.0\.0\/0[^\n]*ACCEPT/, 'no broad Internet accept')
+
+  // Detecting a forbidden transport is allowed; emitting one as an ACCEPT is not.
+  const accepts = text.split(/\r?\n/).filter((line) => /ACCEPT/.test(line))
+  for (const line of accepts) {
+    assert.doesNotMatch(line, /--dport\s+443\b/, `TCP/443 must never be accepted: ${line.trim()}`)
+    assert.doesNotMatch(line, /-p\s+udp/, `UDP must never be accepted: ${line.trim()}`)
+    assert.doesNotMatch(line, /-d\s+0\.0\.0\.0\/0/, `no broad Internet accept: ${line.trim()}`)
+  }
+  // The only accepted destination port for the tunnel is 7844 over TCP.
+  assert.match(text, /TUNNEL_PORT=['"]?7844/, 'the tunnel port must be pinned to 7844')
 })
 
 // ---------------------------------------------------------------------------
@@ -286,10 +318,22 @@ test('FIREWALL-APPLY-IDEMPOTENT repeated applies converge', () => {
   const h = harness()
   try {
     assert.equal(h.run('apply').status, 0)
-    const first = h.rawState()
+    const first = h.snapshot()
     assert.equal(h.run('apply').status, 0)
     assert.equal(h.run('apply').status, 0)
-    assert.equal(h.rawState(), first, 'apply must be idempotent, never duplicating rules or anchors')
+    const third = h.snapshot()
+    assert.deepEqual(third, first, 'apply must converge: same chains, same ordered rules')
+
+    // The real idempotency risk is silent accumulation.
+    for (const [chain, rules] of Object.entries(third.rules)) {
+      assert.deepEqual([...new Set(rules)], rules, `${chain} must not accumulate duplicate rules`)
+    }
+    assert.equal(third.rules['DOCKER-USER'].filter((r) => r.includes('AEGIS-PS')).length, 1,
+      'exactly one S5.5 anchor may remain in DOCKER-USER')
+    assert.equal(third.rules['INPUT'].filter((r) => r.includes('AEGIS-PS')).length, 1,
+      'exactly one S5.5 anchor may remain in INPUT')
+    // No staging chain may survive a completed apply.
+    assert.equal(third.chains.some((c) => c.endsWith('-NEW')), false, 'no staging chain may leak')
     assert.equal(h.run('validate').status, 0, 'validate must pass after repeated applies')
   } finally { h.cleanup() }
 })
