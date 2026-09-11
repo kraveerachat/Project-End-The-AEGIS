@@ -1,6 +1,16 @@
 # PUBLIC-SHARE-7 S5.5 connector lifecycle.
 #
-# Starts and stops ONLY the public-share-connector service, through the accepted
+# STARTS an already-created, already-validated container. It never creates or
+# recreates one, so the object ExecStartPre validated is exactly the object that
+# starts - a bring-up here could otherwise replace the container after validation
+# and start something unvalidated.
+#
+# The connector must already exist in a stopped state before this unit runs. That
+# is done once, under separate S5.5-F authorization, by the bootstrap create step
+# in the runbook, which is also what materialises the egress network and the
+# aegis-ps-eg bridge the firewall needs.
+#
+# It operates ONLY the public-share-connector service, through the accepted
 # four-layer Compose stack and the existing aegis-prod project. It never runs a
 # whole-stack operation and never touches drive, the gateway, the database,
 # monitoring or Twingate.
@@ -24,7 +34,7 @@ StartLimitIntervalSec=60s
 Type=oneshot
 RemainAfterExit=yes
 ExecStartPre=/opt/aegis/runtime/public-share/s5-5-runtime-check.sh --pre-start
-ExecStart=/usr/bin/docker compose --env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod -f /opt/aegis/runtime/docker-compose.production.yml -f /opt/aegis/runtime/public-share/drive-s5-3.yml -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml -f /opt/aegis/runtime/public-share/connector-s5-5.yml up -d --no-deps --no-build public-share-connector
+ExecStart=/usr/bin/docker compose --env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod -f /opt/aegis/runtime/docker-compose.production.yml -f /opt/aegis/runtime/public-share/drive-s5-3.yml -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml -f /opt/aegis/runtime/public-share/connector-s5-5.yml start public-share-connector
 ExecStop=/usr/bin/docker compose --env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod -f /opt/aegis/runtime/docker-compose.production.yml -f /opt/aegis/runtime/public-share/drive-s5-3.yml -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml -f /opt/aegis/runtime/public-share/connector-s5-5.yml stop public-share-connector
 Restart=on-failure
 RestartSec=5s

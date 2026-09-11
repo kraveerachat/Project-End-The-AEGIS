@@ -37,6 +37,8 @@ readonly TOKEN_GROUP_GID='65532'
 readonly TOKEN_MODE='440'
 
 readonly CONNECTOR_SERVICE='aegis-public-share-connector.service'
+readonly COMPOSE_PROJECT='aegis-prod'
+readonly COMPOSE_SERVICE='public-share-connector'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER="${AEGIS_DOCKER_BIN:-docker}"
@@ -108,12 +110,19 @@ check_upstream_topology() {
   return "$status"
 }
 
-# The egress network is created by the S5.5 overlay. It is legitimately absent
-# before first activation; when it exists it must match the accepted design.
+# The egress network is materialised by the authorized bootstrap create, which
+# runs BEFORE the firewall and before pre-start. At pre-start it must therefore
+# already exist; during drift enforcement it is checked only when present, since
+# a completed rollback legitimately removes it.
 check_egress_topology() {
-  local json status=0
-  json="$(network_json "$EGRESS_NETWORK")" || return 0
-  [ -n "$json" ] || return 0
+  local required="${1:-0}" json status=0
+  if ! json="$(network_json "$EGRESS_NETWORK")" || [ -z "$json" ]; then
+    if [ "$required" = '1' ]; then
+      fail "network ${EGRESS_NETWORK} must exist before the connector may start; run the authorized bootstrap create first"
+      return 1
+    fi
+    return 0
+  fi
   [ "$(network_field "$json" subnet)" = "$EGRESS_SUBNET" ] \
     || { fail "${EGRESS_NETWORK} subnet is not ${EGRESS_SUBNET}"; status=1; }
   [ "$(network_field "$json" gateway)" = "$EGRESS_GATEWAY" ] \
@@ -125,13 +134,78 @@ check_egress_topology() {
 
 # --- connector membership ---------------------------------------------------
 
-# Before first activation the connector does not exist, which is not a fault.
-# Whenever it does exist its attachments must be exactly edge + egress, on the
-# exact fixed addresses, and never host networking.
+# Bind validation to the accepted Compose project and service rather than to a
+# human-readable container name, which is not an authorisation boundary.
+check_connector_identity() {
+  local labels project service
+  labels="$(CONTAINER_JSON="$1" node --input-type=commonjs -e '
+    const data = JSON.parse(process.env.CONTAINER_JSON)
+    const c = Array.isArray(data) ? data[0] : data
+    const l = c?.Config?.Labels ?? {}
+    process.stdout.write([
+      l["com.docker.compose.project"] ?? "",
+      l["com.docker.compose.service"] ?? "",
+    ].join("|"))
+  ' 2>/dev/null)"
+  IFS='|' read -r project service <<< "$labels"
+  local status=0
+  [ "$project" = "$COMPOSE_PROJECT" ]     || { fail "connector must belong to Compose project ${COMPOSE_PROJECT}"; status=1; }
+  [ "$service" = "$COMPOSE_SERVICE" ]     || { fail "connector must be Compose service ${COMPOSE_SERVICE}"; status=1; }
+  return "$status"
+}
+
+# Only a genuinely stopped object may be validated and then started. Anything
+# already running, mid-restart, paused, dead or in an unknown state is refused.
+check_connector_stopped() {
+  local state status running restarting paused dead restarts
+  state="$(CONTAINER_JSON="$1" node --input-type=commonjs -e '
+    const data = JSON.parse(process.env.CONTAINER_JSON)
+    const c = Array.isArray(data) ? data[0] : data
+    const s = c?.State ?? {}
+    process.stdout.write([
+      s.Status ?? "unknown", s.Running === true, s.Restarting === true,
+      s.Paused === true, s.Dead === true, c?.RestartCount ?? 0,
+    ].join("|"))
+  ' 2>/dev/null)"
+  IFS='|' read -r status running restarting paused dead restarts <<< "$state"
+
+  local result=0
+  case "$status" in
+    created|exited) ;;
+    *) fail "connector must be stopped before start; state is '${status}'"; result=1 ;;
+  esac
+  [ "$running" = 'false' ] || { fail 'connector is already running'; result=1; }
+  [ "$restarting" = 'false' ] || { fail 'connector is restarting'; result=1; }
+  [ "$paused" = 'false' ] || { fail 'connector is paused'; result=1; }
+  [ "$dead" = 'false' ] || { fail 'connector is dead'; result=1; }
+  # A non-zero restart count means the object is in an active restart loop.
+  [ "$restarts" = '0' ] || { fail "connector is in a restart loop (${restarts} restarts)"; result=1; }
+  return "$result"
+}
+
+# The object that is validated must be the object that starts.
+#
+# At pre-start the connector has already been CREATED (stopped) by the authorized
+# bootstrap, so it MUST exist, MUST carry the accepted Compose identity, and MUST
+# still be stopped. Validating a container that is then created or recreated by
+# the start command would defeat the whole check, so nothing here tolerates an
+# absent connector at pre-start. During drift enforcement the connector is
+# expected to be running, and an absent one simply means there is nothing to
+# isolate.
 check_connector_membership() {
-  local json mode networks status=0
-  json="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>/dev/null)" || return 0
-  [ -n "$json" ] || return 0
+  local required="${1:-0}" json mode networks status=0
+  if ! json="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>/dev/null)" || [ -z "$json" ]; then
+    if [ "$required" = '1' ]; then
+      fail "connector container ${CONNECTOR_CONTAINER} does not exist; run the authorized bootstrap create first"
+      return 1
+    fi
+    return 0
+  fi
+
+  if [ "$required" = '1' ]; then
+    check_connector_identity "$json" || status=1
+    check_connector_stopped "$json" || status=1
+  fi
 
   mode="$(CONTAINER_JSON="$json" node --input-type=commonjs -e '
     const data = JSON.parse(process.env.CONTAINER_JSON)
@@ -208,20 +282,23 @@ check_firewall() {
 
 # --- modes ------------------------------------------------------------------
 
+# strict=1 is pre-start: the egress network and a stopped, correctly-identified
+# connector must already exist. strict=0 is drift enforcement, where the
+# connector is expected to be running and may legitimately be absent.
 run_all_checks() {
-  local status=0
+  local strict="${1:-0}" status=0
   # Firewall first: if isolation is not in place nothing else may proceed.
   check_firewall || return 1
   check_edge_topology || status=1
   check_upstream_topology || status=1
-  check_egress_topology || status=1
-  check_connector_membership || status=1
+  check_egress_topology "$strict" || status=1
+  check_connector_membership "$strict" || status=1
   check_token_file || status=1
   return "$status"
 }
 
 mode_pre_start() {
-  if run_all_checks; then
+  if run_all_checks 1; then
     echo 'S5.5-RUNTIME=PRESTART-OK'
     return 0
   fi
@@ -233,7 +310,7 @@ mode_pre_start() {
 # stops the gateway, drive, database, monitoring or Twingate, never touches the
 # Docker daemon or UFW, and never weakens a firewall rule to "recover".
 mode_enforce_drift() {
-  if run_all_checks; then
+  if run_all_checks 0; then
     echo 'S5.5-RUNTIME=DRIFT-OK'
     return 0
   fi
