@@ -12,9 +12,233 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744` and S8 recorded its one receipt; GitHub PR #115 is for human review and is not merged. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 has not started; read "PR10 pre-flight evidence reconciliation — 2026-09-11" first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
+
+---
+
+## PR10 pre-flight evidence reconciliation — 2026-09-11
+
+> [!important] Current IDEA3 truth — read this section first
+> Documentation-only audit on `docs/idea3-pr10-preflight-evidence-reconciliation`
+> from `origin/main` `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`. Every fact here
+> was re-checked against Git ancestry, GitHub PR metadata, current source, and
+> the immutable receipts. No hardware was re-run and no Production system was
+> touched. Later sections of this note remain as dated history.
+
+### Verified Git and GitHub state
+
+```text
+CURRENT_MAIN = 9ea9bbfcf40128f4565bc4ba37ba008a62c4879c (merge of GitHub PR #116, IDEA1)
+PR9 = GitHub PR #115 MERGED 2026-09-10T21:41:47Z (human merge)
+PR9_MERGE_COMMIT = 2c21cc3e5843bcd75eb1dd2b7f607a745cce254d (parents 58f19f20 + 09b91528)
+PR9_FINAL_HEAD = 09b9152882da4e7068fb883a4b25372953f2c8bc
+PR9_FINAL_EVIDENCE_CHECKPOINT = e5863fc664e239b78f37dd4ce663bc1186f22744 (ancestor of main)
+PR5 = GitHub PR #117 MERGED 2026-09-10T19:54:01Z at 58f19f2051170685757627a6baea90b264a877c4
+OPEN_IDEA3_GITHUB_PRS_BEFORE_THIS_TASK = NONE
+PRODUCTION_LIKE_VERIFIED = YES (PR9; local loopback, lab/headless/dry-run only)
+PRODUCTION_DEPLOYED = NO
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### Evidence truth model — preserved
+
+```text
+Requested != Published
+Published != ACK
+ACK != Executed
+Executed != Relay Confirmation
+Relay Confirmation != Physical Evidence
+```
+
+ACK proves only a nonce-correlated device reply. Command-triggered STATUS with a
+matching `command_nonce` is device-reported state, not electrical measurement.
+Cable-tester continuity is not traffic proof. An MQTT connection is not ESP32
+online evidence. Telegram delivery is none of these. Web containment acceptance
+stops at `Containment Accepted` with every command/ACK/execution/physical field
+`false`.
+
+### Project-sequence PR1–PR9 evidence matrix
+
+The repository explicitly labels PR4–PR9. It does **not** label PR1–PR3; the
+mapping below follows the owner's task sequence. By merge date, the 11-page
+Security Center (GitHub #62, 2026-09-03) predates the Dashboard (#85) and
+Overview (#87) deliveries (both 2026-09-06). Counts are the results recorded at
+each task's own checkpoint and are not re-run here.
+
+| Project PR | Scope | GitHub PR → merge commit | Receipt | Recorded evidence | State | Limitations kept |
+|---|---|---|---|---|---|---|
+| PR1 | Dashboard Mission Control + Thai/English/Chinese UI | #85 → `73daa3e5` | `2026-09-06_032258_music_idea3-dashboard-trilingual-consolidation.md` (`partial` at its checkpoint) | Web 98/98 (15 files); affected 50/50; Vite 1,677 modules; browser QA at 4 presets | CLOSED / MERGED | language selector scoped to Dashboard and shell; monitoring only |
+| PR2 | Architecture-first Overview UI Pass 01 | #87 → `2e33595a` | `2026-09-06_034354_music_idea3-overview-ui-pass-01-review.md` (`partial` at its checkpoint) | Web 102/102; affected 31/31; `HEALTHY` needs `FRESH` + parseable timestamp; Light/Dark desktop and 390×844 QA | CLOSED / MERGED | Chromium-only QA; Demo `HEALTHY` is fixture data |
+| PR3 | Security Center foundation: 11 pages, Admin session, CSRF, login throttling, headers, Live/Demo | #62 → `1b335f09` | `2026-09-03_034620_music_idea3-security-center-11-page.md` | Web 59/59 (12 files); Vite 1,675 modules; npm audit 0; browser QA of all 11 routes | CLOSED / MERGED | in-memory audit at the time (superseded by PR6) |
+| PR4 | Headless Core: ARMED/DISARMED, single command owner, ACK nonce, ACK/STATUS lifecycle, Task 2D6 `command_nonce` | #91 → `a8ea876d` | `2026-09-06_202113_music_idea3-headless-core-pr4.md` | Python 62; Ruff; compileall; firmware compile-only; repository 56/56 | CLOSED / MERGED | no hardware action in that PR |
+| PR4 follow-up | Fix1A fail-secure application boot + Deadman cable-tester E2E | #98 → `3f07f80c` | `2026-09-08_005140_music_idea3-fail-secure-boot-deadman.md` | Python 63; firmware compile-only; owner-observed Deadman, reconnect, RESTORE | CLOSED / MERGED | its open 1B result is SUPERSEDED by PR5 |
+| PR5 | Final hardware closure: external pull-down + ULN2003, powered EN/reset, real Ethernet | #117 → `58f19f20` | `2026-09-11_004410_music_idea3-pr5-final-hardware-closure.md` | owner-observed lab matrix (below); Python 196 passed / 6 skipped; repository 63/63 | CLOSED / MERGED — OWNER LAB EVIDENCE | power loss NOT PROVEN; Twingate relay-cycle auto-recovery NOT CLAIMED; breadboard |
+| PR6 | SQLite audit persistence + production auth hardening | #101 → `5f30bc54` | `2026-09-08_111604_music_idea3-production-reliability.md` | Python 63; Web 168/168 (18 files); npm audit 0; firmware compile-only; repository 56/56 | CLOSED / MERGED | runtime event snapshot store remains non-durable |
+| PR7 | Cross-IDEA integration boundary (inventory/design + IDEA3-side implementation) | #106 → `188fbc90`; #104 → `c68946cb` | `2026-09-08_153936_music_idea3-pr7-inventory-design.md`; `2026-09-08_191700_music_idea3-pr7-live-security-implementation.md` (`partial`) | Python 80; Web 277 (22 files); npm audit 0; repository 56/56 | CLOSED / MERGED — IMPLEMENTED_UNEXERCISED | no upstream feed or shared `correlation_key`; stub-only adapter tests |
+| PR8 | Windows standalone runtime | #107 → `f320bbf5` (head `25fb442d`) | `2026-09-09_022203_music_idea3-pr8-windows-standalone.md` (`partial`) | Linux Python 145, Web 292; Windows `c7cdc2b2` build OK and staging-bundle smoke 25/25; final `25fb442d` extracted-ZIP 25/25 owner-reported | HISTORICAL COMPLETED IMPLEMENTATION — NOT FINAL DEPLOYMENT TARGET | `25fb442d` build log, ZIP digest, and smoke transcript NOT FOUND IN REPOSITORY |
+| PR9 | Production runtime preparation: composite Core+Web service | #115 → `2c21cc3e` (head `09b91528`) | `2026-09-11_040839_music_idea3-pr9-production-runtime.md` | at `e5863fc6`: Python 245 passed / 6 skipped; Web 309/309 (24 files); Vite 1,677; npm audit 0; repository 63/63; `PRODUCTION_LIKE_VERIFIED`; negative controls 13/13 | CLOSED / MERGED | `PRODUCTION_DEPLOYED = NO`; systemd not installed; real Telegram delivery NOT VERIFIED |
+
+### Capability inventory on current `main`
+
+| Area | Implementation | Evidence | Maturity | Open / limitation |
+|---|---|---|---|---|
+| Web / Security Center | `web/` React/Vite client and Express API; 11 operational pages plus Login in `web/src/pages/`; `server/security/auth.js`, `csrf.js`, `rateLimit.js`; isolated Demo provider; liveness separate from `/security/api/readiness`; Audit page with bounded export | PR3, PR1, PR2, PR6, PR9 receipts | LOCAL VERIFIED | not server-hosted (PR10) |
+| Core | `aegis_soc/supervisor.py` `issue_command()` is the single command owner; `set_armed()` with `ARMED` default; automatic containment reuses `issue_command()`; RESTORE needs explicit authorization; no shutdown path sends `RESTORE_UPLINK` | PR4 receipt; `tests/test_runtime.py`, `tests/test_controller.py`; PR9 lifecycle tests | LOCAL VERIFIED | final Arch Linux deployment (PR10) |
+| MQTT / protocol | `aegis_soc/security.py` HMAC-SHA256 over action, nonce, and timestamp; firmware `mbedtls` HMAC verify, `MAX_COMMAND_AGE_SEC = 30`, single-use nonce; ACK echoes nonce; command STATUS carries `command_nonce`; `aegis/heartbeat` with 60 s Deadman | PR4 receipt; `tests/test_core.py`, `tests/test_firmware_contract.py`; firmware compile-only; owner physical Deadman (PR4 follow-up, PR5) | SOURCE + LOCAL VERIFIED; physical Deadman owner-observed | final-environment broker/ESP32 baseline (PR10) |
+| Persistence / production security | SQLite `SCHEMA_VERSION = 2` (v1 PR6 + additive v2 PR7), `PRAGMA journal_mode = WAL`, reopen/restart durability, bounded Admin reads, allowlisted sanitization, HTTP 503 on audit-write failure; production `SESSION_SECRET` policy, bcrypt Admin hash, development login disabled in production | PR6, PR7 receipts; PR9 acceptance `PERSISTED_ACROSS_RESTART` | LOCAL VERIFIED | backup/restore documented only (PR12) |
+| Cross-IDEA boundary | `integrationEvents.js` (`ACCESS_DENIED` only, `subject` always `null`); `httpJsonClient.js` GET-only, per-source bearer, redirect rejection, 2.5 s, 256 KiB, `schema_version=1`, 500-event bound; envelope and per-event freshness; `correlate.js` deterministic `correlation_key` within 10 minutes → `CONTAINMENT_CANDIDATE`; Admin + CSRF containment decision, idempotent, 409 on reversal; durable lifecycle audit | PR7 receipts; PR9 negative controls 13/13 | IMPLEMENTED_UNEXERCISED | live feeds and shared key (PR11) |
+| Windows standalone | `windows/` packaging, launcher, external `%LOCALAPPDATA%` data root | PR8 receipt; owner-reported `25fb442d` acceptance | HISTORICAL COMPLETED IMPLEMENTATION | NOT FINAL DEPLOYMENT TARGET; not a PR10 target |
+| PR9 production runtime | `aegis_soc/production_runtime.py` start/stop/restart/status/doctor; Core-then-Web start, Web-then-Core stop, fail-on-child-exit peer cleanup; strict production config; `runtime/service-status.json` separated fields; `deploy/aegis-idea3.service.example`; acceptance and 13-case negative-control drivers; `docs/operations/production-runtime.md` | PR9 receipt | PRODUCTION_LIKE_VERIFIED (loopback) | single-host composite topology; systemd example not installed |
+
+### Hardware evidence — owner-observed, not re-run
+
+The authoritative matrix is "Project-sequence PR5 Final Hardware Closure" below
+and its receipt. Firmware source agrees with the recorded polarity:
+`RELAY_IN = 27`, `RELAY_TRIGGER = LOW`, `RELAY_RELEASE = HIGH`.
+
+```text
+GPIO27 LOW  = LOCKDOWN / CUT
+GPIO27 HIGH = NORMAL / RESTORE
+PHYSICAL_LOCKDOWN_PIN2 = PASS
+PHYSICAL_RESTORE_PIN2 = PASS
+RESET_WINDOW_1B = PASS (powered control circuit only)
+RECONNECT_DOES_NOT_AUTO_RESTORE = PASS
+EXPLICIT_RESTORE_REQUIRED = PASS
+REAL_ETHERNET_RESTORE_BASELINE = PASS
+REAL_ETHERNET_CUT = PASS
+REAL_ETHERNET_RESTORE_RECOVERY = PASS
+SSH_CUT_EFFECT = PASS
+SSH_POST_RESTORE_RECONNECT = PASS
+TWINGATE_DIRECT_BASELINE = PASS
+TWINGATE_CONNECTOR_HEALTH_AFTER_MANUAL_RESTART = PASS
+TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN
+TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY = NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
+MECHANICAL_BREADBOARD_STABILITY = PROTOTYPE LIMITATION
+HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
+```
+
+### Historical and superseded items
+
+| Item | Repository finding | Classification |
+|---|---|---|
+| Dashboard UI Pass / trilingual UI | original checkpoint `eaa605db` on `origin/feature/aegis-security-ui-redesign` is not an ancestor of `main`; its behaviour reached `main` through #85 (`431124ff`) | HISTORICAL — delivered by PR1; old branch receipts intentionally not copied |
+| Overview UI Pass 01 | historical checkpoint `d7f1c57e` is not present in this clone; the #87 receipt records exact source parity with it before merge | HISTORICAL — delivered by PR2 |
+| IDEA1-hosted file-backed IDEA3 status bridge (`AEGIS_IDEA3_STATUS_PATH`, `IDEA1-AEGIS_Drive_LC/server/idea3/status.js`) | merged by #60 (`7a7936bf`), reverted on `main` by `5473e552`; absent from `main` | SUPERSEDED / REVERTED |
+| "Web Runtime Integration Pass 01", old file-backed IDEA3 runtime adapter, old runtime evidence helper | no commit, branch, file, or receipt in any fetched ref | NOT FOUND IN REPOSITORY — no current functionality gap identified |
+| Current runtime integration | `AEGIS_IDEA3_RUNTIME_STATUS_URL` → `web/server/config.js` → `liveProvider.js` HTTP JSON → `normalizeRuntimeStatus()`; PR8/PR9 owners point it at the Core loopback `/v1/core-status` | CURRENT |
+| Same-`sourceIp` correlation heuristic (PR3) | removed by PR7; `correlate.js` no longer references `sourceIp` | SUPERSEDED |
+| In-memory Web audit (PR3) | replaced by durable SQLite (PR6, schema v2 in PR7) | SUPERSEDED |
+| Core-only `deploy/aegis-supervisor.service.example` (PR4) | deleted by PR9; replaced by composite `aegis-idea3.service.example` | SUPERSEDED |
+| Legacy `normalizeIdea1Event` / `normalizeIdea2Event` | still exported by `web/server/domain/normalize.js`; unreachable from `liveProvider` | HISTORICAL CODE — cleanup unscheduled |
+| 2026-09-08 roadmap numbering (PR8 hardware, PR9 Kali, PR10 Windows, PR11 deployment) and the later PR7-merge roadmap (PR10 hardware closure, PR11 Kali) | hardware closure shipped as project PR5 (#117); Windows as PR8; runtime preparation as PR9 | SUPERSEDED — current PR10–PR12 scope below |
+
+### Stale facts corrected by this reconciliation
+
+- PR9 / GitHub PR #115 described as awaiting human review and not merged → MERGED
+  at `2c21cc3e` (top callout, PR5 block, PR9 task, dashboard, remaining work,
+  handoff, and the IDEA3 MOC entry statement).
+- PR9 Current Task, Session Register, and Handoff relabelled as historical.
+- Both older roadmap blocks relabelled SUPERSEDED.
+- Security Center (2026-09-04) section: same-IP correlation, SQLite schema v1,
+  "final real-hardware closure deferred", and "Current" Overview-pass evidence
+  relabelled against later evidence.
+
+### Contradictions outside this note — not edited here
+
+- `AGENTS.md` ownership table and `core/agent-operating-rules.md` still say IDEA3
+  implementation is not established, and `START_HERE.md` still describes IDEA3
+  as design/report state until hardware proof. These are Kla-owned shared
+  surfaces; the PR7 inventory receipt already requested the correction and it
+  remains unresolved.
+- `IDEA3-AEGIS_Lockdown/README.md`, `PROGRESS.md`, and
+  `doc/Content/04_SESSION_HANDOFF.md` still describe PR #115 as awaiting review,
+  and the handoff plus the PR6/PR7 specs and plans still carry the superseded
+  PR8–PR12 numbering. IDEA3-owned; left for a separate source-document update
+  because this task is limited to the canonical Obsidian notes.
+- PR1–PR3 labels differ from merge chronology (see the matrix note).
+- PR9 implemented a **single-host** composite service: one service account, Core
+  and Web under one owner, `AEGIS_BIND_HOST=127.0.0.1`. The PR10 target below
+  splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
+  Server-to-Core boundary exists in source: NOT IMPLEMENTED.
+
+### PR10 — server-hosted deployment: NOT STARTED / OPEN
+
+Target architecture as defined by the owner on 2026-09-11. It has not yet been
+designed in a repository spec or plan:
+
+```text
+AEGIS Server : React static build, Express, SQLite, integration adapters, correlation, accepted-action state
+Arch Linux   : Python Core, Supervisor, Controller, MQTT command ownership, heartbeat
+ESP32        : MQTT client, HMAC, nonce, ACK, STATUS, heartbeat, relay output
+Browser      : never owns MQTT actuation
+```
+
+```text
+SERVER_HOSTED_IDEA3_WEB_DEPLOYMENT = OPEN
+ARCH_LINUX_CORE_FINAL_DEPLOYMENT = OPEN
+REAL_SYSTEMD_INSTALLATION = OPEN (example only)
+SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = OPEN / NOT IMPLEMENTED
+REAL_MQTT_FINAL_ENVIRONMENT_BASELINE = OPEN
+REAL_ESP32_BROKER_BASELINE = OPEN
+REAL_CLIENT_TO_SERVER_IDEA3_ACCESS = OPEN
+RESTART_RECOVERY_BASELINE = OPEN (PR9 proved loopback restart only)
+```
+
+### PR11 — live cross-IDEA and authorized E2E: OPEN
+
+```text
+LIVE_IDEA1_SERVICE_EVENT_FEED = OPEN
+LIVE_IDEA2_SERVICE_EVENT_FEED = OPEN
+SHARED_CORRELATION_KEY = OPEN
+ADMIN_ACCEPTED_TO_CORE = OPEN
+CORE_TO_MQTT_TO_ESP32_E2E = OPEN
+AUTHORIZED_KALI_E2E = OPEN
+PHYSICAL_CUT_E2E = OPEN
+RESTORE_RECOVERY_E2E = OPEN
+```
+
+### PR12 — final acceptance: OPEN
+
+```text
+REBOOT_ACCEPTANCE = OPEN
+BACKUP_RESTORE_ACCEPTANCE = OPEN (documented only)
+ROLLBACK_ACCEPTANCE = OPEN (documented only)
+FINAL_SECURITY_REGRESSION = OPEN
+FINAL_REAL_E2E_RERUN = OPEN
+EVIDENCE_FREEZE = OPEN
+REPORT_BASELINE = OPEN
+PRODUCTION_COMPLETE_DECISION = OPEN
+REAL_TELEGRAM_PRODUCTION_DELIVERY = NOT VERIFIED
+IDEA3_PRODUCTION_COMPLETE = NO
+```
+
+### Current Task
+
+Task: IDEA3 PR10 pre-flight evidence audit and Obsidian reconciliation
+Branch: `docs/idea3-pr10-preflight-evidence-reconciliation`
+Owner: `music`
+PR: opened from this branch against `main`; number recorded in the PR and final report; an agent never merges it
+Current state: CLOSED — documentation-only; human review pending
+Started: 2026-09-11
+Base SHA: `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`
+Production mutation allowed: NO
+Hardware testing: NOT RUN
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S1 | Git, GitHub, source, and receipt audit; canonical reconciliation | CLOSED | this section; vault validation, collaboration-policy tests, `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review | PR10 S1 design |
+
+### Handoff
+
+Next action: human review of this reconciliation PR. Then, under a separately
+authorized task, design the PR10 split-host deployment and the Server-to-Core
+durable accepted-action boundary starting from the PR9 composite runtime. Do not
+deploy, install systemd, contact a broker, ESP32, relay, or network device,
+restore the Windows standalone as the deployment target, or let an agent merge.
 
 ---
 
@@ -24,7 +248,7 @@ edit_policy: owner-writable
 PR5 FINAL HARDWARE CLOSURE = MERGED / OWNER LAB EVIDENCE ACCEPTED
 PR5 PR #117 MERGE COMMIT = 58f19f2051170685757627a6baea90b264a877c4
 PR9_PR115_PR5_GATE = SATISFIED
-PR9 #115 = S7 PASS / S8 CLOSED / READY FOR HUMAN REVIEW
+PR9 #115 = MERGED at 2c21cc3e5843bcd75eb1dd2b7f607a745cce254d (S7 PASS / S8 CLOSED)
 TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN
 TWINGATE_FINAL_RELAY_CYCLE_AUTO_RECOVERY = NOT CLAIMED / NOT CONCLUSIVELY VERIFIED
 MECHANICAL_BREADBOARD_STABILITY = PROTOTYPE LIMITATION
@@ -315,21 +539,21 @@ Implemented and locally verified:
 - canonical evidence states `HEALTHY`, `DEGRADED`, `FAILED`, `UNKNOWN`, `NOT_CONFIGURED`, `STALE`, and `DISABLED`;
 - allowlisted read-only adapters for IDEA1, IDEA2, and IDEA3 runtime data, including malformed/future/stale evidence rejection;
 - same-origin Admin session, CSRF enforcement, login throttling, security headers, and fail-closed production configuration;
-- event deduplication and same-IP correlation within a bounded time window;
+- event deduplication and same-IP correlation within a bounded time window (SUPERSEDED: PR7 replaced the same-`sourceIp` heuristic with deterministic `correlation_key` correlation);
 - clearly isolated Demo mode for UI review;
 - alert acknowledgement, incident notes, bounded audit export, settings validation, and recovery validation as audited server-side actions;
 - architecture-first Overview with an explicit environment/provider/persistence boundary, validated evidence flow, per-IDEA integration contracts, a freshness-aware matrix, and visible production-readiness gaps; runtime ACK and requested mode remain distinct from physical relay proof;
 - conservative `HEALTHY` evidence gating: evidence must be `FRESH` and include a parseable validation timestamp; missing or malformed timestamps fail closed to `UNKNOWN`;
 - desktop/tablet/mobile layouts, light/dark themes, and UI styling derived from IDEA1's design language without modifying IDEA1 source.
 
-Current Overview-pass evidence: affected client regressions pass 31/31; the full web suite passes 102/102 across 15 files; `npm run build` succeeds with 1,677 modules transformed; repository UI detection returns `[]`; and fresh browser QA at desktop and the 390×844 mobile preset finds no document-level horizontal overflow or console errors in Light or Dark themes. At the narrow preset, the Live comparison table scrolls inside its wrapper (241/609) and the Demo table does the same (241/567) rather than overflowing the page.
+Historical Overview-pass evidence (GitHub PR #87): affected client regressions pass 31/31; the full web suite passes 102/102 across 15 files; `npm run build` succeeds with 1,677 modules transformed; repository UI detection returns `[]`; and fresh browser QA at desktop and the 390×844 mobile preset finds no document-level horizontal overflow or console errors in Light or Dark themes. At the narrow preset, the Live comparison table scrolls inside its wrapper (241/609) and the Demo table does the same (241/567) rather than overflowing the page.
 
 Known limitations:
 
 - IDEA1, IDEA2, and IDEA3 live endpoints are not configured or integration-tested in this task;
-- operational snapshot state remains runtime-owned, while Web audit records are durable in SQLite schema version 1 under PR6;
+- operational snapshot state remains runtime-owned, while Web audit records are durable in SQLite (schema version 1 under PR6; additive schema version 2 since PR7);
 - the browser has no MQTT, relay, isolation, broker-secret, signing-secret, or recovery-execution endpoint; Recovery is dry-run validation only;
-- production deployment, gateway routing, external identity provider, live cross-IDEA integration, and final real-hardware closure remain deferred.
+- production deployment, gateway routing, external identity provider, and live cross-IDEA integration remain deferred; final real-hardware closure was later accepted within the PR5 owner-evidence boundary.
 
 ---
 
@@ -409,7 +633,12 @@ Known limitations:
 - Implementation plan:
   `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-08-idea3-pr7-live-security-integration.md`.
 
-### OPEN / NOT PROVEN
+### OPEN / NOT PROVEN — 2026-09-08 roadmap numbering (SUPERSEDED)
+
+> [!warning] Superseded project numbering
+> The PR8–PR12 labels below are the 2026-09-08 plan. Hardware closure later
+> shipped as project PR5 (#117), Windows as PR8, and runtime preparation as PR9.
+> Current PR10–PR12 scope is in "PR10 pre-flight evidence reconciliation".
 
 ```text
 IDEA1_IDEA3_LIVE_EVENT_INTEGRATION = OPEN / PR7 (upstream feed absent)
@@ -573,7 +802,12 @@ IDEA3_PRODUCTION_COMPLETE = NO
 - Implementation plan:
   `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-08-idea3-pr8-windows-standalone.md`.
 
-### CORRECT PROJECT-SEQUENCE ROADMAP
+### PROJECT-SEQUENCE ROADMAP AS OF 2026-09-08 — SUPERSEDED
+
+> [!warning] Superseded roadmap
+> This roadmap placed hardware closure at PR10. It shipped as project PR5
+> (#117) instead. Current PR10–PR12 scope is in "PR10 pre-flight evidence
+> reconciliation".
 
 ```text
 PROJECT PR6 Production Reliability = CLOSED / MERGED
@@ -757,13 +991,13 @@ PR8_RECEIPT = UNCHANGED (historically partial)
   `90-Status/logs/2026-09-09_022203_music_idea3-pr8-windows-standalone.md` keeps
   `status: partial` as recorded at its own checkpoint and is not edited.
 
-## Current Task
+## Historical Task — PR9 Production Runtime (MERGED)
 
 Task: PR9 Production Runtime / Deployment Preparation
 Branch: `feat/idea3-production-runtime-pr9`
 Owner: `music`
-PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — ready for human review; not merged
-Current state: READY FOR HUMAN REVIEW — S1-S8 CLOSED; human review and merge pending
+PR: [#115](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/115) — merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d` (2026-09-10T21:41:47Z)
+Current state: CLOSED / MERGED — S1-S8 CLOSED
 Started: 2026-09-10
 Base SHA: `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8`
 Last implementation checkpoint: `c7a1a7af7bc346b86a96f2f9bcb8a6f9ffce29aa` (Telegram outbound pre-gate)
@@ -804,7 +1038,7 @@ production-like isolated acceptance, an operations runbook, and exact evidence.
 S7 must pass completely before S8 creates the final receipt and requests Ready.
 Met: S7 PASS at `e5863fc6`; S8 CLOSED with one receipt.
 
-## Session Register
+## PR9 Session Register — CLOSED
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
@@ -835,7 +1069,7 @@ here; no evidence below is carried forward from that session.
 | Production deployment | NOT RUN | `PRODUCTION_MUTATION_ALLOWED = NO`; `PRODUCTION_DEPLOYED = NO` |
 | PR5 gate | SATISFIED | PR #117 merged at `58f19f20` |
 | PR5 sync and final acceptance (S7) | CLOSED / PASS | `e5863fc6` |
-| Receipt, Ready, review (S8) | CLOSED / PASS | one receipt; human review and merge pending |
+| Receipt, Ready, review (S8) | CLOSED / PASS | one receipt; PR #115 merged at `2c21cc3e` |
 
 ### Git reconciliation
 
@@ -1251,11 +1485,16 @@ IDEA3_PRODUCTION_COMPLETE = NO
   13-case negative controls, runbook, truth-model and MQTT corrections,
   Telegram outbound pre-gate. S7 — normal post-PR5 main sync and the full gate
   on the merged tree. S8 — canonical reconciliation and one immutable receipt.
-- Remaining: human owner/integration review and human merge of PR #115.
-  Production deployment and every item under "Open after PR9" are outside this
-  task.
+- Remaining for PR9: none — PR #115 was merged by a human reviewer at
+  `2c21cc3e`. Production deployment and every item under "Open after PR9" are
+  outside PR9; current PR10–PR12 scope is in "PR10 pre-flight evidence
+  reconciliation".
 
-## Handoff
+## PR9 Handoff — historical (PR #115 merged)
+
+> [!note] Superseded handoff
+> PR #115 merged at `2c21cc3e`. The current handoff is in "PR10 pre-flight
+> evidence reconciliation".
 
 ### Current branch
 
@@ -1269,7 +1508,7 @@ commit follows it. PR #115 shows the exact pushed head.
 
 ### Current task state
 
-READY FOR HUMAN REVIEW. S1-S8 CLOSED with one final receipt; not merged.
+CLOSED / MERGED. S1-S8 CLOSED with one final receipt; merged through GitHub PR #115 at `2c21cc3e`.
 
 ### Sessions closed
 
@@ -1293,12 +1532,11 @@ artifacts are not yet in canonical documentation.
 
 ### Exact remaining work
 
-Human review and merge of PR #115. A Production deployment would be a
-separately authorized task.
+None for PR9. A Production deployment is a separately authorized PR10 task.
 
 ### Next command / next action
 
-The human reviewer reviews GitHub PR #115.
+See the current Handoff in "PR10 pre-flight evidence reconciliation".
 
 ### Do not do
 
