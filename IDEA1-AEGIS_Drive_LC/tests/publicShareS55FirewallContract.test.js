@@ -793,8 +793,12 @@ test('S5.5-UNIT-CONNECTOR starts only the connector behind the safety gates', ()
   ]) {
     assert.ok(start.includes(`-f ${layer}`), `ExecStart must layer ${layer}`)
   }
-  assert.match(start, /up -d --no-deps --no-build public-share-connector\s*$/,
-    'ExecStart must bring up only public-share-connector, with no dependencies or rebuild')
+  // Since the create-before-start correction the unit STARTS an already-created,
+  // already-validated container; it must never bring one up. The stronger
+  // property is pinned by S5.5-LIFECYCLE-UNIT-STARTS-EXISTING.
+  assert.match(start, /\bstart public-share-connector\s*$/,
+    'ExecStart must start only the already-validated public-share-connector')
+  assert.doesNotMatch(start, /\bup\b/, 'ExecStart must never bring the connector up')
   assert.match(stop, /\bstop public-share-connector\s*$/,
     'ExecStop must stop only public-share-connector')
 

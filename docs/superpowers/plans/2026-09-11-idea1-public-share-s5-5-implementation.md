@@ -633,8 +633,8 @@ Cloudflare edge network (region1 / region2)
     - Private key blocks: `/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/`
       - **Corrected during implementation.** The original
         `/-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/` treated the key type
-        as an ALTERNATIVE to `PRIVATE`, so it only ever matched
-        `-----BEGIN PRIVATE KEY-----` and silently missed every real
+        as an ALTERNATIVE to `PRIVATE`, so it only ever matched the bare
+        PKCS#8 header form and silently missed every real
         `BEGIN RSA PRIVATE KEY`, `BEGIN EC PRIVATE KEY` and
         `BEGIN OPENSSH PRIVATE KEY` header. The key type is a PREFIX of
         `PRIVATE KEY`, not an alternative to it. Proven by the synthetic
