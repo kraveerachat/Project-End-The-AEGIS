@@ -192,7 +192,7 @@ RESTART_RECOVERY_BASELINE = OPEN (PR9 proved loopback restart only)
 Task: IDEA3 PR10 — real Arch Linux Core + server-hosted IDEA3 Web deployment baseline
 Branch: `feat/idea3-pr10-real-deployment`
 Owner: `music`
-PR: not opened (no push or PR authorized)
+PR: GitHub PR #120 — Draft / IN PROGRESS
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
