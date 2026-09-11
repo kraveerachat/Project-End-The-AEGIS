@@ -125,6 +125,7 @@ No Compose-wide stop, recreate, rebuild, or prune operation is permitted.
 | Internet exposure | **NONE** |
 | G5 | **OPEN** |
 | Public Share UI | **OFF** (`PUBLIC_SHARE_UI_ENABLED=false`) |
+| `PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK` | **REQUIRED** — the local lifecycle smoke ran against Docker Compose v2.38.2; Production F0 measures v5.4.0. The create/start/stop capabilities must be re-inspected read-only on Production before mutation authorization. |
 
 Recorded verbatim for downstream gates:
 
@@ -375,6 +376,18 @@ destination, a wrong interface binding, or an unresolved edge bridge.
 
 The edge Linux bridge is resolved dynamically from `docker network inspect`;
 never hard-code `br-<id>` and never use the Docker network name as an interface.
+
+Before any mutation, `apply` runs a fail-closed preflight: the iptables backend
+must report `nf_tables` (Production F0 measures iptables v1.8.11 nf_tables), and
+the `INPUT` and `DOCKER-USER` host chains must already exist. A host that fails
+either check is left completely untouched rather than half-configured.
+
+**Scope boundary.** `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, so
+anything it accepts is authorised for the whole host before Docker and UFW policy
+runs. It therefore contains no blanket established/related accept. Return traffic
+is permitted only toward the two connector addresses, so unrelated forwarded
+traffic falls through to the pre-existing policy untouched, and an established
+connector flow to an unauthorised destination still reaches the terminal deny.
 
 ## systemd lifecycle installation
 

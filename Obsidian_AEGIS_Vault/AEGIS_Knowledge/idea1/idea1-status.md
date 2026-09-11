@@ -333,6 +333,43 @@ and Docker/UFW/systemd fail-closed restart behavior. Any failure blocks
 Production mutation. G5 remains open, public DNS remains absent, Internet
 exposure remains none and the Public Share UI remains off.
 
+### PRE-S5.5-F security correction — firewall established scope
+
+Recorded as a **pre-S5.5-F correction**. It does not reopen or rewrite S5.5-E,
+which remains historically **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY**.
+
+`AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, so anything it accepts is
+authorised for the entire host before Docker and UFW forwarding policy is
+consulted. The chain opened with an unqualified
+`-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`, which therefore granted
+forwarding permission to unrelated containers and networks — outside S5.5's
+scope. Corrected to two destination-scoped return rules, one per connector
+address, so unrelated traffic now falls through untouched while an established
+connector flow to an unauthorised destination still reaches the terminal deny.
+Source-scoping was rejected deliberately: it would let an already-established
+unauthorised flow survive a reconciliation.
+
+`apply` also gained a fail-closed pre-mutation preflight — the iptables backend
+must report `nf_tables` and the `INPUT` and `DOCKER-USER` host chains must
+already exist — so a host that is not ready is left untouched rather than
+half-configured. Staging-chain atomicity is unchanged. GREEN: 24 firewall
+contract tests, 24 pass.
+
+**F0 read-only reconciliation.** `S5_5_F0_CLOUDFLARE_ALLOWLIST_MATCH=PASS`: the
+freshly resolved Production endpoints match `cloudflare-endpoints.json` exactly,
+all 20 on TCP/7844, so the snapshot was deliberately left unchanged rather than
+re-dated. `PRODUCTION_DNS_PATH_MEASURED=NO` still holds — F0 shows containers
+using Docker's `127.0.0.11` resolver with `ExtServers: [host(127.0.0.53)]`,
+which improves the model but does not prove the future connector's runtime DNS
+path; no DNS exception exists.
+`PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK=REQUIRED` — the lifecycle smoke
+ran on Compose v2.38.2 while Production F0 measures v5.4.0, so create/start/stop
+capability must be re-inspected read-only on Production before mutation
+authorization. No Production Compose command was run from this repository.
+
+Production remains UNCHANGED: firewall chains absent, connector absent, egress
+absent, S5.5 systemd units absent, public DNS absent.
+
 ### S5.5 Session Register
 
 | ID | Scope | State | Result / evidence | Remaining | Next |
