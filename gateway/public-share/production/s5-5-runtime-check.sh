@@ -28,6 +28,13 @@ readonly CONNECTOR_EGRESS_IP='172.31.242.2'
 readonly EGRESS_SUBNET='172.31.242.0/29'
 readonly EGRESS_GATEWAY='172.31.242.1'
 readonly EGRESS_BRIDGE='aegis-ps-eg'
+readonly EDGE_SUBNET='172.31.240.0/29'
+readonly EDGE_GATEWAY='172.31.240.1'
+readonly UPSTREAM_SUBNET='172.31.241.0/29'
+readonly UPSTREAM_GATEWAY='172.31.241.1'
+# S5.4 keeps edge and upstream internal and isolated; S5.5 egress is the only
+# routable network in the topology.
+readonly ISOLATED_GATEWAY_MODE='isolated'
 
 # Exactly these two attachments are permitted. Anything else is a violation.
 readonly ALLOWED_NETWORKS="${EDGE_NETWORK} ${EGRESS_NETWORK}"
@@ -78,9 +85,34 @@ network_field() {
     const value = field === "subnet" ? ipam.Subnet
       : field === "gateway" ? ipam.Gateway
       : field === "bridge" ? net?.Options?.["com.docker.network.bridge.name"]
+      : field === "name" ? net?.Name
+      : field === "driver" ? net?.Driver
+      : field === "internal" ? String(net?.Internal === true)
+      : field === "gatewaymode" ? net?.Options?.["com.docker.network.bridge.gateway_mode_ipv4"]
       : ""
     process.stdout.write(String(value ?? ""))
   ' 2>/dev/null
+}
+
+# Pin the canonical network contract. Network IDs and the derived br-<id> name
+# are deliberately NOT pinned: a recreated network legitimately gets new ones,
+# and the edge bridge is resolved dynamically. What must never drift is the
+# topology itself - a network recreated without internal/isolated would still
+# hold the right members at the right addresses while no longer isolating
+# anything.
+expect_network_metadata() {
+  local json="$1" name="$2" internal="$3" subnet="$4" gateway="$5" status=0
+  [ "$(network_field "$json" name)" = "$name" ] \
+    || { fail "network name is not ${name}"; status=1; }
+  [ "$(network_field "$json" driver)" = 'bridge' ] \
+    || { fail "${name} must use the bridge driver"; status=1; }
+  [ "$(network_field "$json" internal)" = "$internal" ] \
+    || { fail "${name} must have internal=${internal}"; status=1; }
+  [ "$(network_field "$json" subnet)" = "$subnet" ] \
+    || { fail "${name} subnet is not ${subnet}"; status=1; }
+  [ "$(network_field "$json" gateway)" = "$gateway" ] \
+    || { fail "${name} gateway is not ${gateway}"; status=1; }
+  return "$status"
 }
 
 require_member_at() {
@@ -96,14 +128,22 @@ check_edge_topology() {
   local json members
   json="$(network_json "$EDGE_NETWORK")" || { fail "network ${EDGE_NETWORK} is absent"; return 1; }
   [ -n "$json" ] || { fail "network ${EDGE_NETWORK} is absent"; return 1; }
+  local status=0
+  expect_network_metadata "$json" "$EDGE_NETWORK" 'true' "$EDGE_SUBNET" "$EDGE_GATEWAY" || status=1
+  [ "$(network_field "$json" gatewaymode)" = "$ISOLATED_GATEWAY_MODE" ] \
+    || { fail "${EDGE_NETWORK} must keep gateway_mode_ipv4=${ISOLATED_GATEWAY_MODE}"; status=1; }
   members="$(network_members "$json")"
-  require_member_at "$members" "$GATEWAY_EDGE_IP" "the S5.4 gateway on ${EDGE_NETWORK}"
+  require_member_at "$members" "$GATEWAY_EDGE_IP" "the S5.4 gateway on ${EDGE_NETWORK}" || status=1
+  return "$status"
 }
 
 check_upstream_topology() {
   local json members status=0
   json="$(network_json "$UPSTREAM_NETWORK")" || { fail "network ${UPSTREAM_NETWORK} is absent"; return 1; }
   [ -n "$json" ] || { fail "network ${UPSTREAM_NETWORK} is absent"; return 1; }
+  expect_network_metadata "$json" "$UPSTREAM_NETWORK" 'true' "$UPSTREAM_SUBNET" "$UPSTREAM_GATEWAY" || status=1
+  [ "$(network_field "$json" gatewaymode)" = "$ISOLATED_GATEWAY_MODE" ] \
+    || { fail "${UPSTREAM_NETWORK} must keep gateway_mode_ipv4=${ISOLATED_GATEWAY_MODE}"; status=1; }
   members="$(network_members "$json")"
   require_member_at "$members" "$GATEWAY_UPSTREAM_IP" "the S5.4 gateway on ${UPSTREAM_NETWORK}" || status=1
   require_member_at "$members" "$DRIVE_UPSTREAM_IP" "drive on ${UPSTREAM_NETWORK}" || status=1
@@ -123,10 +163,7 @@ check_egress_topology() {
     fi
     return 0
   fi
-  [ "$(network_field "$json" subnet)" = "$EGRESS_SUBNET" ] \
-    || { fail "${EGRESS_NETWORK} subnet is not ${EGRESS_SUBNET}"; status=1; }
-  [ "$(network_field "$json" gateway)" = "$EGRESS_GATEWAY" ] \
-    || { fail "${EGRESS_NETWORK} gateway is not ${EGRESS_GATEWAY}"; status=1; }
+  expect_network_metadata "$json" "$EGRESS_NETWORK" 'false' "$EGRESS_SUBNET" "$EGRESS_GATEWAY" || status=1
   [ "$(network_field "$json" bridge)" = "$EGRESS_BRIDGE" ] \
     || { fail "${EGRESS_NETWORK} does not use the stable bridge ${EGRESS_BRIDGE}"; status=1; }
   return "$status"

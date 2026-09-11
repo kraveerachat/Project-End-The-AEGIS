@@ -39,10 +39,14 @@ readonly EGRESS_BRIDGE='aegis-ps-eg'
 readonly DOCKER_USER_CHAIN='DOCKER-USER'
 # Host chains the S5.5 anchors attach to. Both must pre-exist.
 readonly REQUIRED_HOST_CHAINS='INPUT DOCKER-USER'
+# Compose identity of the connector this firewall isolates.
+readonly COMPOSE_PROJECT='aegis-prod'
+readonly COMPOSE_SERVICE='public-share-connector'
 
 # Test seams. Defaults are the real tools and the real sysfs path.
 IPTABLES="${AEGIS_IPTABLES_BIN:-iptables}"
 DOCKER="${AEGIS_DOCKER_BIN:-docker}"
+CONNECTOR_CONTAINER="${AEGIS_CONNECTOR_CONTAINER:-aegis-prod-public-share-connector-1}"
 SYSFS_NET="${AEGIS_SYSFS_NET:-/sys/class/net}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ENDPOINTS_FILE="${AEGIS_ENDPOINTS_FILE:-${SCRIPT_DIR}/cloudflare-endpoints.json}"
@@ -262,6 +266,62 @@ rebuild_chain() {
   fi
 }
 
+# Tearing down isolation while the connector is still running would leave it
+# briefly unfiltered, so removal is refused until the connector is inactive.
+#
+# This guard REFUSES; it never stops a container itself. Stopping the connector
+# is the job of systemd (the connector unit BindsTo/After this one, so it stops
+# first) and of rollback-s5-5.sh. A firewall script that could stop workloads
+# would be a far larger blast radius than this one is allowed to have.
+#
+# Anything that is not positively identified as "the connector is absent" or
+# "the connector is inactive" fails closed.
+require_connector_inactive() {
+  local out rc state
+  out="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>&1)" && rc=0 || rc=$?
+  if [ "${rc}" -ne 0 ]; then
+    case "$out" in
+      *'No such object'*|*'No such container'*)
+        # Already rolled back or never created: removal is safe.
+        return 0 ;;
+      *)
+        die 'cannot determine connector state; refusing to remove S5.5 isolation' ;;
+    esac
+  fi
+
+  state="$(CONTAINER_JSON="$out" node --input-type=commonjs -e '
+    try {
+      const data = JSON.parse(process.env.CONTAINER_JSON)
+      const c = Array.isArray(data) ? data[0] : data
+      const s = c?.State ?? {}
+      const labels = c?.Config?.Labels ?? {}
+      process.stdout.write([
+        labels["com.docker.compose.project"] ?? "",
+        labels["com.docker.compose.service"] ?? "",
+        s.Status ?? "unknown",
+        s.Running === true, s.Restarting === true, s.Paused === true,
+      ].join("|"))
+    } catch { process.exit(1) }
+  ' 2>/dev/null)" || die 'unreadable connector state; refusing to remove S5.5 isolation'
+
+  local project service status running restarting paused
+  IFS='|' read -r project service status running restarting paused <<< "$state"
+
+  # A container that is not this Compose service is not the connector this
+  # firewall isolates, so it does not gate teardown.
+  if [ "$project" != "$COMPOSE_PROJECT" ] || [ "$service" != "$COMPOSE_SERVICE" ]; then
+    return 0
+  fi
+
+  if [ "$running" = 'true' ] || [ "$restarting" = 'true' ] || [ "$paused" = 'true' ]; then
+    die "connector is active (${status}); stop it before removing S5.5 isolation"
+  fi
+  case "$status" in
+    created|exited|dead) return 0 ;;
+    *) die "connector state '${status}' is not a safe stopped state; refusing to remove isolation" ;;
+  esac
+}
+
 # --- subcommands -----------------------------------------------------------
 
 cmd_apply() {
@@ -302,6 +362,11 @@ expect_anchor_first() {
 
 cmd_validate() {
   local endpoints edge_bridge status=0 egress
+  # pre-start treats a successful validate as its firewall safety gate, so a
+  # validate that passed on the wrong backend would let the connector start
+  # against rules nothing consults. validate performs no mutation.
+  require_nft_backend
+  require_host_chains
   endpoints="$(load_endpoints)"
   edge_bridge="$(resolve_edge_bridge)"
   require_interface "$EGRESS_BRIDGE"
@@ -335,6 +400,8 @@ cmd_validate() {
 }
 
 cmd_remove() {
+  # Refuse before touching anything if the connector is still active.
+  require_connector_inactive
   # Remove only what S5.5 owns. Unrelated anchors, chains, Docker chains, UFW
   # chains and builtin policies are left exactly as they are.
   remove_anchor "$DOCKER_USER_CHAIN" "$EGRESS_CHAIN"
