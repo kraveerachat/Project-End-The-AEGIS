@@ -547,6 +547,16 @@ function harness(options = {}) {
   }
   const cleanup = () => rmSync(root, { recursive: true, force: true })
 
+  const rawIptables = () => readFileSync(state, 'utf8')
+  const iptablesChains = () => rawIptables()
+    .split('\n')
+    .filter((l) => l.startsWith('CHAIN|'))
+    .map((l) => l.slice('CHAIN|'.length))
+  const iptablesRules = (chain) => rawIptables()
+    .split('\n')
+    .filter((l) => l.startsWith(`RULE|${chain}|`))
+    .map((l) => l.slice(`RULE|${chain}|`.length))
+
   return {
     run,
     readNftJson,
@@ -554,6 +564,9 @@ function harness(options = {}) {
     readNftLog,
     nftJsonPath,
     nftTextPath,
+    rawIptables,
+    iptablesChains,
+    iptablesRules,
     cleanup,
   }
 }
@@ -822,4 +835,46 @@ test('connector active makes remove refuse', () => {
   } finally {
     h.cleanup()
   }
+})
+
+// ---------------------------------------------------------------------------
+// Spec 7.1 orders the bridge candidate no-commit check BEFORE iptables
+// reconciliation, and spec 9 states: "Preflight/candidate-check failure before
+// mutation: no new mutation." A candidate that fails nft --check must therefore
+// leave BOTH planes untouched, not just the bridge plane.
+// ---------------------------------------------------------------------------
+
+test('candidate-check failure mutates neither plane', () => {
+  const h = harness({ nftCheckFail: true })
+  try {
+    const before = h.rawIptables()
+    const r = h.run('apply')
+    assert.notEqual(r.status, 0, 'apply must fail when the candidate is rejected')
+
+    // Bridge plane untouched.
+    assert.equal(h.readNftJson(), null, 'no bridge table may be committed')
+
+    // iptables plane untouched: no S5.5 chain, no anchor, byte-identical state.
+    assert.equal(h.iptablesChains().includes('AEGIS-PS-EGRESS'), false,
+      'no egress chain may be created when the candidate is rejected')
+    assert.equal(h.iptablesChains().includes('AEGIS-PS-INPUT'), false,
+      'no input chain may be created when the candidate is rejected')
+    assert.equal(h.iptablesRules('DOCKER-USER').length, 0, 'no anchor may be inserted')
+    assert.equal(h.iptablesRules('INPUT').length, 0, 'no anchor may be inserted')
+    assert.equal(h.rawIptables(), before,
+      'a candidate-check failure must leave the iptables ruleset byte-identical')
+  } finally { h.cleanup() }
+})
+
+test('candidate is checked before any mutation begins', () => {
+  // Ordering is observable: the no-commit check must be the first nft write-path
+  // call, and it must happen before any iptables chain is built.
+  const h = harness({ nftCheckFail: true })
+  try {
+    h.run('apply')
+    const log = h.readNftLog()
+    assert.match(log, /--check/, 'the candidate must be checked')
+    assert.doesNotMatch(log, /^(?!.*--check).*-f /m,
+      'no committing nft -f may run once the check has failed')
+  } finally { h.cleanup() }
 })

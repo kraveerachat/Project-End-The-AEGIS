@@ -386,21 +386,40 @@ table ${BRIDGE_FAMILY} ${BRIDGE_TABLE} {
 NFT
 }
 
-bridge_apply() {
-  local edge_bridge="$1" candidate
+# The candidate file is cleaned up on every exit path, including die().
+BRIDGE_CANDIDATE_FILE=''
+cleanup_bridge_candidate() {
+  if [ -n "$BRIDGE_CANDIDATE_FILE" ]; then
+    rm -f "$BRIDGE_CANDIDATE_FILE"
+    BRIDGE_CANDIDATE_FILE=''
+  fi
+  return 0
+}
+
+# Spec 7.1 step 4: build and no-commit-check the bridge candidate, and prove
+# ownership of any pre-existing owned table, BEFORE anything is mutated.
+#
+# Spec 9 requires that a preflight or candidate-check failure performs no new
+# mutation at all. Doing this inside the commit step would have meant a rejected
+# candidate still left the iptables plane rebuilt - a partial policy on a host
+# that was supposed to be untouched.
+bridge_prepare() {
+  local edge_bridge="$1"
   require_bridge_table_owned
-  candidate="$(mktemp "${TMPDIR:-/tmp}/aegis-nft-XXXXXX.nft")"
-  chmod 0600 "$candidate"
-  bridge_candidate "$edge_bridge" > "$candidate"
-  if ! "$NFT" --check -f "$candidate"; then
-    rm -f "$candidate"
-    die 'native bridge candidate failed nft --check'
-  fi
-  if ! "$NFT" -f "$candidate"; then
-    rm -f "$candidate"
-    die 'native bridge firewall transaction failed'
-  fi
-  rm -f "$candidate"
+  BRIDGE_CANDIDATE_FILE="$(mktemp "${TMPDIR:-/tmp}/aegis-nft-XXXXXX.nft")"
+  chmod 0600 "$BRIDGE_CANDIDATE_FILE"
+  bridge_candidate "$edge_bridge" > "$BRIDGE_CANDIDATE_FILE"
+  "$NFT" --check -f "$BRIDGE_CANDIDATE_FILE" \
+    || die 'native bridge candidate failed nft --check'
+}
+
+# Single atomic batch commit of the already-validated candidate.
+bridge_commit() {
+  [ -n "$BRIDGE_CANDIDATE_FILE" ] \
+    || die 'internal error: no prepared bridge candidate to commit'
+  "$NFT" -f "$BRIDGE_CANDIDATE_FILE" \
+    || die 'native bridge firewall transaction failed'
+  cleanup_bridge_candidate
 }
 
 bridge_validate() {
@@ -530,9 +549,13 @@ cmd_apply() {
   egress="$(egress_rules "$endpoints")"
   input="$(input_rules "$edge_bridge")"
 
+  # Candidate check and ownership gate first: a rejected candidate must leave
+  # BOTH enforcement planes untouched.
+  bridge_prepare "$edge_bridge"
+
   rebuild_chain "$EGRESS_CHAIN" "$EGRESS_STAGE" "$DOCKER_USER_CHAIN" "$egress"
   rebuild_chain "$INPUT_CHAIN" "$INPUT_STAGE" 'INPUT' "$input"
-  bridge_apply "$edge_bridge"
+  bridge_commit
   echo "S5.5-FIREWALL=APPLIED (edge bridge ${edge_bridge}, $(printf '%s\n' "$endpoints" | grep -c .) endpoints, native bridge table ${BRIDGE_TABLE})"
 }
 
@@ -649,5 +672,7 @@ main() {
     *) echo "unknown subcommand: ${subcommand}" >&2; usage >&2; exit 1 ;;
   esac
 }
+
+trap cleanup_bridge_candidate EXIT
 
 main "$@"
