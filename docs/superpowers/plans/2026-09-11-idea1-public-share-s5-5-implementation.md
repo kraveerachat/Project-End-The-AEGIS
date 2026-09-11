@@ -16,10 +16,10 @@ guarantees fail-closed isolation, and verifiable through independent rollback
 without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
 the service to the public Internet.
 
-Current checkpoint: S5.5-A, S5.5-B, and S5.5-C are **CLOSED / PASS**. Tasks 1–3
-are complete and accepted at repository commit `41c113b165e3b4250d6c017d375c86764e220447`.
-S5.5-D through S5.5-H remain **NOT STARTED**. No Production mutation has been
-performed.
+Current checkpoint: S5.5-A, S5.5-B, S5.5-C, and S5.5-D are **CLOSED / PASS**
+(S5.5-D repository implementation only). Tasks 1–7 are complete and accepted at
+repository commit `3ffbf32b3e45a1ed80a239cc9ada6a659b0f7517`. S5.5-E through
+S5.5-H remain **NOT STARTED**. No Production mutation has been performed.
 
 ## Canonical Phase Roadmap
 
@@ -28,7 +28,7 @@ performed.
 | **S5.5-A** | Audit / Preflight | Repository audit, worktree bootstrap, read-only Production preflight | **CLOSED / PASS** |
 | **S5.5-B** | Design / Repository Preparation | Owner-approved specification freezing topology, credential, firewall, lifecycle and rollback | **CLOSED / PASS** |
 | **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **CLOSED / PASS** |
-| **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** |
 | **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **REPOSITORY ONLY — NO PROD MUTATION** |
 | **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **REQUIRES EXPLICIT PROD APPROVAL** |
 | **S5.5-G** | Rollback / Persistence | Task 15: Host reboot/daemon restart persistence, drift simulation, and connector-only rollback acceptance | **REQUIRES EXPLICIT PROD APPROVAL** |
@@ -41,10 +41,10 @@ performed.
 | **Task 1** | Pinned `cloudflared` Image Contract | `S5.5-C` | **CLOSED / PASS** | `cloudflared-pin.json`, `verify-cloudflared-image.sh`, `publicShareCloudflaredPin.test.js` |
 | **Task 2** | S5.5 Compose-Model Tests FIRST | `S5.5-C` | **CLOSED / PASS** | `publicShareS55RuntimeContract.test.js` |
 | **Task 3** | S5.5 Compose Overlay via Verified Pin | `S5.5-C` | **CLOSED / PASS** | `docker-compose.s5-5.yml` |
-| **Task 4** | Authoritative Cloudflare Transport Allowlist Gate | `S5.5-D` | NOT STARTED | `cloudflare-endpoints.json`, `verify-cloudflare-endpoints.sh` (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`) |
-| **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | NOT STARTED | `publicShareS55FirewallContract.test.js` |
-| **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | NOT STARTED | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
-| **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | NOT STARTED | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
+| **Task 4** | Authoritative Cloudflare Transport Allowlist Gate | `S5.5-D` | **CLOSED / PASS** | `cloudflare-endpoints.json`, `verify-cloudflare-endpoints.sh` (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`) |
+| **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | **CLOSED / PASS** | `publicShareS55FirewallContract.test.js` |
+| **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | **CLOSED / PASS** | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
+| **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | **CLOSED / PASS** | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
 | **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | NOT STARTED | `s5-5-runtime-check.sh` (`--pre-start`) |
 | **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | NOT STARTED | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
 | **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | NOT STARTED | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |

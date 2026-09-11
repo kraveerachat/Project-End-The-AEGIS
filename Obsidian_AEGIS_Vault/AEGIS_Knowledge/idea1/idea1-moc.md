@@ -55,12 +55,14 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
 - Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
   Gateway, and dedicated edge/upstream networks are active without a host port
-  or Internet route. S5.5-A preflight, the owner-approved S5.5-B design, and
+  or Internet route. S5.5-A preflight, the owner-approved S5.5-B design,
   S5.5-C repository preparation (cloudflared image pin, contract tests, and
-  `docker-compose.s5-5.yml`) are **CLOSED / PASS**; runtime/firewall phases
-  S5.5-D through S5.5-H remain not started and require separate owner approval.
-  No Production deployment occurred: egress network and connector remain absent
-  on Production. Host firewall isolation, public DNS/TLS, external acceptance,
+  `docker-compose.s5-5.yml`), and S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
+  allowlist artifact, firewall contract tests) are **CLOSED / PASS** (S5.5-D
+  repository implementation only); phases S5.5-E through S5.5-H remain not
+  started and require separate owner approval. No Production deployment occurred:
+  egress network and connector remain absent on Production, and the Production
+  firewall remains unchanged / not deployed. Public DNS/TLS, external acceptance,
   and UI activation are not implemented. Public Internet Share therefore
   remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
   [[idea1/idea1-status]] for current task state,
