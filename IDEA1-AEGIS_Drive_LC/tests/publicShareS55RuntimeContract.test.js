@@ -322,13 +322,16 @@ printf '%s\\n' "\$*" >> "\$MOCK_SYSTEMCTL_LOG"
 exit "\${MOCK_SYSTEMCTL_RC:-0}"
 `
 
-function netFixture({ name, id, subnet, gateway, bridgeName, containers = {}, internal = true }) {
+function netFixture({ name, id, subnet, gateway, bridgeName, gatewayMode, containers = {}, internal = true }) {
   return [{
     Name: name,
     Id: id,
     Driver: 'bridge',
     Internal: internal,
-    Options: bridgeName ? { 'com.docker.network.bridge.name': bridgeName } : {},
+    Options: {
+      ...(bridgeName ? { 'com.docker.network.bridge.name': bridgeName } : {}),
+      ...(gatewayMode ? { 'com.docker.network.bridge.gateway_mode_ipv4': gatewayMode } : {}),
+    },
     IPAM: { Config: [{ Subnet: subnet, Gateway: gateway }] },
     Containers: Object.fromEntries(Object.entries(containers).map(([cname, ip]) => [
       `id-${cname}`, { Name: cname, IPv4Address: `${ip}/29` },
@@ -356,13 +359,13 @@ function runtimeHarness(options = {}) {
     aegis_public_share_edge: netFixture({
       name: 'aegis_public_share_edge',
       id: 'c76a975802719cac673e9c4a9ed6d39eb1cd5820d90dcee8e4dfca590a40db50',
-      subnet: '172.31.240.0/29', gateway: '172.31.240.1',
+      subnet: '172.31.240.0/29', gateway: '172.31.240.1', gatewayMode: 'isolated',
       containers: options.edgeContainers ?? { 'aegis-prod-public-share-gateway-1': '172.31.240.2' },
     }),
     aegis_public_share_upstream: netFixture({
       name: 'aegis_public_share_upstream',
       id: 'a96e511142c99f2deb413db8f3c6373927fc716f41f979bf38c8496e28ffe383',
-      subnet: '172.31.241.0/29', gateway: '172.31.241.1',
+      subnet: '172.31.241.0/29', gateway: '172.31.241.1', gatewayMode: 'isolated',
       containers: options.upstreamContainers ?? {
         'aegis-prod-public-share-gateway-1': '172.31.241.2',
         'aegis-prod-drive-1': '172.31.241.3',
@@ -1268,4 +1271,174 @@ test('S5.5-LIFECYCLE-RUNBOOK-BOOTSTRAP documents create-stopped before firewall 
   // The old first-activation mistake must be explicitly forbidden.
   assert.match(text, /never[\s\S]{0,200}up -d[\s\S]{0,120}public-share-connector|up -d[\s\S]{0,80}public-share-connector[\s\S]{0,200}(never|forbidden|must not)/i,
     'the runbook must forbid first-activation via up -d public-share-connector')
+})
+
+// ---------------------------------------------------------------------------
+// PRE-S5.5-F FINAL FAIL-CLOSED HARDENING (network metadata)
+//
+// Membership and fixed IPs were already pinned, but the networks themselves
+// were not. An edge network recreated WITHOUT internal:true or without the
+// isolated gateway mode would still hold the right members at the right
+// addresses while no longer being isolated at all. Both --pre-start and
+// --enforce-drift must fail closed on that.
+//
+// Network IDs and derived br-<id> names are deliberately NOT pinned: they
+// legitimately change when a network is recreated.
+// ---------------------------------------------------------------------------
+
+const ISOLATED = 'com.docker.network.bridge.gateway_mode_ipv4'
+
+function netDoc({ name, subnet, gateway, internal, options = {}, containers = {} }) {
+  return [{
+    Name: name,
+    Id: 'f'.repeat(64),
+    Driver: 'bridge',
+    Internal: internal,
+    Options: options,
+    IPAM: { Config: [{ Subnet: subnet, Gateway: gateway }] },
+    Containers: Object.fromEntries(Object.entries(containers).map(([n, ip]) => [
+      `id-${n}`, { Name: n, IPv4Address: `${ip}/29` },
+    ])),
+  }]
+}
+
+const edgeDoc = (over = {}) => netDoc({
+  name: 'aegis_public_share_edge',
+  subnet: '172.31.240.0/29',
+  gateway: '172.31.240.1',
+  internal: true,
+  options: { [ISOLATED]: 'isolated' },
+  containers: { 'aegis-prod-public-share-gateway-1': '172.31.240.2' },
+  ...over,
+})
+const upstreamDoc = (over = {}) => netDoc({
+  name: 'aegis_public_share_upstream',
+  subnet: '172.31.241.0/29',
+  gateway: '172.31.241.1',
+  internal: true,
+  options: { [ISOLATED]: 'isolated' },
+  containers: {
+    'aegis-prod-public-share-gateway-1': '172.31.241.2',
+    'aegis-prod-drive-1': '172.31.241.3',
+  },
+  ...over,
+})
+const egressDoc = (over = {}) => netDoc({
+  name: 'aegis_public_share_egress',
+  subnet: '172.31.242.0/29',
+  gateway: '172.31.242.1',
+  internal: false,
+  options: { 'com.docker.network.bridge.name': 'aegis-ps-eg' },
+  ...over,
+})
+
+const STOPPED = {
+  connectorNetworks: {
+    aegis_public_share_edge: '172.31.240.3',
+    aegis_public_share_egress: '172.31.242.2',
+  },
+  connectorState: 'created',
+}
+
+// Mutate one field of a fixture document.
+const mutate = (doc, patch) => [{ ...doc[0], ...patch }]
+const withIpam = (doc, subnet, gateway) =>
+  [{ ...doc[0], IPAM: { Config: [{ Subnet: subnet, Gateway: gateway }] } }]
+
+test('S5.5-NET-METADATA-EXACT accepts only the canonical topology', () => {
+  const h = runtimeHarness({
+    ...STOPPED,
+    networks: {
+      aegis_public_share_edge: edgeDoc(),
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const result = h.run('--pre-start')
+    assert.equal(result.status, 0,
+      `the exact canonical topology must pass: ${result.stdout}${result.stderr}`)
+  } finally { h.cleanup() }
+})
+
+test('S5.5-NET-EDGE-DRIFT fails closed on any edge metadata drift', () => {
+  const drifts = {
+    'wrong driver': mutate(edgeDoc(), { Driver: 'macvlan' }),
+    'internal false': mutate(edgeDoc(), { Internal: false }),
+    'wrong subnet': withIpam(edgeDoc(), '172.31.250.0/29', '172.31.240.1'),
+    'wrong gateway': withIpam(edgeDoc(), '172.31.240.0/29', '172.31.240.9'),
+    'missing gateway mode': mutate(edgeDoc(), { Options: {} }),
+    'wrong gateway mode': mutate(edgeDoc(), { Options: { [ISOLATED]: 'nat' } }),
+    'wrong name': mutate(edgeDoc(), { Name: 'somebody_elses_network' }),
+  }
+  for (const [label, doc] of Object.entries(drifts)) {
+    const h = runtimeHarness({ ...STOPPED, networks: { aegis_public_share_edge: doc } })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `edge ${label} must fail closed`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-NET-UPSTREAM-DRIFT fails closed on any upstream metadata drift', () => {
+  const drifts = {
+    'wrong driver': mutate(upstreamDoc(), { Driver: 'overlay' }),
+    'internal false': mutate(upstreamDoc(), { Internal: false }),
+    'wrong subnet': withIpam(upstreamDoc(), '172.31.251.0/29', '172.31.241.1'),
+    'wrong gateway': withIpam(upstreamDoc(), '172.31.241.0/29', '172.31.241.9'),
+    'missing gateway mode': mutate(upstreamDoc(), { Options: {} }),
+    'wrong gateway mode': mutate(upstreamDoc(), { Options: { [ISOLATED]: 'nat' } }),
+  }
+  for (const [label, doc] of Object.entries(drifts)) {
+    const h = runtimeHarness({ ...STOPPED, networks: { aegis_public_share_upstream: doc } })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `upstream ${label} must fail closed`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-NET-EGRESS-DRIFT fails closed on any egress metadata drift', () => {
+  const drifts = {
+    'wrong driver': mutate(egressDoc(), { Driver: 'macvlan' }),
+    'internal true': mutate(egressDoc(), { Internal: true }),
+    'wrong subnet': withIpam(egressDoc(), '172.31.243.0/29', '172.31.242.1'),
+    'wrong gateway': withIpam(egressDoc(), '172.31.242.0/29', '172.31.242.9'),
+    'missing bridge name': mutate(egressDoc(), { Options: {} }),
+    'wrong bridge name': mutate(egressDoc(), { Options: { 'com.docker.network.bridge.name': 'br-other' } }),
+    'wrong name': mutate(egressDoc(), { Name: 'aegis_public_share_egress_v2' }),
+  }
+  for (const [label, doc] of Object.entries(drifts)) {
+    const h = runtimeHarness({ ...STOPPED, networks: { aegis_public_share_egress: doc } })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `egress ${label} must fail closed`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-NET-DRIFT-MODE-ENFORCES-METADATA stops the connector on topology drift', () => {
+  // The same metadata contract must hold for the running connector, not just at
+  // start: a network recreated without isolation is drift.
+  for (const [label, networks] of Object.entries({
+    'edge lost isolation': { aegis_public_share_edge: mutate(edgeDoc(), { Internal: false }) },
+    'upstream lost isolation': { aegis_public_share_upstream: mutate(upstreamDoc(), { Options: {} }) },
+    'egress became internal': { aegis_public_share_egress: mutate(egressDoc(), { Internal: true }) },
+  })) {
+    const h = runtimeHarness({
+      ...STOPPED, connectorState: 'running', connectorRunning: true, networks,
+    })
+    try {
+      const result = h.run('--enforce-drift')
+      assert.notEqual(result.status, 0, `${label} must be detected as drift`)
+      assert.match(h.systemctlCalls(), /stop aegis-public-share-connector\.service/,
+        `${label} must stop the connector`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-NET-IDS-NOT-PINNED network ids and derived bridges are never hard-coded', () => {
+  const code = readFile(runtimeCheck, 'utf8')
+  // A recreated network legitimately gets a new id and a new br-<id>.
+  assert.doesNotMatch(code, /c76a975802719cac|a96e511142c99f2d/,
+    'measured network ids must never be embedded')
+  assert.doesNotMatch(code, /br-c76a97580271|br-a96e511142c9/,
+    'derived bridge names must never be embedded')
 })

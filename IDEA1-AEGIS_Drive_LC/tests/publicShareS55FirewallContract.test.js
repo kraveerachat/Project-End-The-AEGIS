@@ -116,16 +116,29 @@ case "\$op" in
     grep "^RULE|" "\$state" | while IFS='|' read -r _ c r; do echo "-A \$c \$r"; done
     exit 0 ;;
   --version|-V)
-    echo "\${MOCK_IPTABLES_VERSION:-iptables v1.8.11 (nf_tables)}"; exit 0 ;;
+    cat "\$MOCK_IPTABLES_VERSION_FILE"; exit 0 ;;
   *)
     echo "mock iptables: unsupported operation \$op" >&2; exit 2 ;;
 esac
 `
 
 const MOCK_DOCKER = `#!/usr/bin/env bash
-# Disposable mock docker. Returns fixture JSON for 'network inspect'.
+# Disposable mock docker: fixture JSON for 'network inspect', container state for
+# 'inspect', plus a failure mode that is NOT "no such object".
 set -u
-cat "\$MOCK_DOCKER_JSON"
+if [ "\${1:-}" = "network" ]; then cat "\$MOCK_DOCKER_JSON"; exit 0; fi
+if [ "\${1:-}" = "inspect" ]; then
+  if [ "\${MOCK_DOCKER_MODE:-ok}" = "error" ]; then
+    echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2
+    exit 1
+  fi
+  if [ ! -f "\$MOCK_CONNECTOR_JSON" ]; then
+    echo "Error response from daemon: No such object: \${2:-}" >&2
+    exit 1
+  fi
+  cat "\$MOCK_CONNECTOR_JSON"; exit 0
+fi
+exit 0
 `
 
 function harness(options = {}) {
@@ -165,12 +178,41 @@ function harness(options = {}) {
     ?? [bridgeName ?? `br-${networkId.slice(0, 12)}`, EGRESS_BRIDGE]
   for (const iface of present) mkdirSync(path.join(sysfs, iface), { recursive: true })
 
+  // Backend string lives in a file so a scenario can change it mid-test.
+  const versionFile = path.join(root, 'iptables-version')
+  writeFileSync(versionFile, (options.iptablesVersion ?? 'iptables v1.8.11 (nf_tables)') + '\n')
+
+  // Connector fixture. Present and stopped unless the scenario says otherwise;
+  // absent models a rolled-back or never-created connector.
+  const connectorJson = path.join(root, 'connector.json')
+  if (!options.connectorAbsent) {
+    const cstate = options.connectorState ?? 'exited'
+    writeFileSync(connectorJson, JSON.stringify([{
+      Name: '/aegis-prod-public-share-connector-1',
+      State: {
+        Status: cstate,
+        Running: cstate === 'running',
+        Restarting: cstate === 'restarting',
+        Paused: cstate === 'paused',
+        Dead: cstate === 'dead',
+      },
+      Config: {
+        Labels: options.connectorLabels ?? {
+          'com.docker.compose.project': 'aegis-prod',
+          'com.docker.compose.service': 'public-share-connector',
+        },
+      },
+    }]))
+  }
+
   const env = {
     ...process.env,
     MSYS_NO_PATHCONV: '1',
     MOCK_STATE: state,
-    MOCK_IPTABLES_VERSION: options.iptablesVersion ?? 'iptables v1.8.11 (nf_tables)',
+    MOCK_IPTABLES_VERSION_FILE: versionFile,
     MOCK_DOCKER_JSON: dockerJson,
+    MOCK_CONNECTOR_JSON: connectorJson,
+    MOCK_DOCKER_MODE: options.dockerError ? 'error' : 'ok',
     AEGIS_IPTABLES_BIN: iptables,
     AEGIS_DOCKER_BIN: docker,
     AEGIS_SYSFS_NET: sysfs,
@@ -205,7 +247,8 @@ function harness(options = {}) {
   }
   const writeState = (text) => writeFileSync(state, text)
   const cleanup = () => rmSync(root, { recursive: true, force: true })
-  return { run, rules, chains, rawState, snapshot, writeState, cleanup, root, env }
+  const setBackend = (version) => writeFileSync(versionFile, version + '\n')
+  return { run, rules, chains, rawState, snapshot, writeState, setBackend, cleanup, root, env }
 }
 
 const expectedEgressRules = () => {
@@ -1002,4 +1045,139 @@ test('S5.5-FW-HOST-CHAIN-PREFLIGHT refuses to mutate without the required host c
   const code = effectiveSource()
   assert.doesNotMatch(code, /\bufw\b/i, 'the preflight must never drive UFW')
   assert.doesNotMatch(code, /-P\s+(INPUT|FORWARD|OUTPUT)/, 'builtin policies must never be set')
+})
+
+// ---------------------------------------------------------------------------
+// PRE-S5.5-F FINAL FAIL-CLOSED HARDENING (firewall side)
+//
+// A. validate must enforce the nf_tables backend and the required host chains,
+//    because s5-5-runtime-check.sh --pre-start treats a successful validate as
+//    its firewall safety gate. A validate that passes on the wrong backend
+//    would let pre-start approve a start against rules nothing consults.
+//
+// C. remove must refuse while the connector is still active, because the script
+//    exposes `remove` directly and systemd ordering cannot be the only boundary.
+// ---------------------------------------------------------------------------
+
+test('S5.5-FW-VALIDATE-BACKEND fails closed on the wrong backend, mutating nothing', () => {
+  // Build a valid policy on the correct backend first.
+  const good = harness()
+  try {
+    assert.equal(good.run('apply').status, 0)
+    assert.equal(good.run('validate').status, 0, 'nf_tables + valid rules must pass')
+  } finally { good.cleanup() }
+
+  // Same valid state, legacy backend: validate must refuse and change nothing.
+  const legacy = harness()
+  try {
+    assert.equal(legacy.run('apply').status, 0)
+    const before = legacy.snapshot()
+    legacy.setBackend('iptables v1.8.11 (legacy)')
+    const result = legacy.run('validate')
+    assert.equal(result.status, 1, 'validate must fail closed on a non-nft backend')
+    assert.deepEqual(legacy.snapshot(), before, 'validate must never mutate')
+  } finally { legacy.cleanup() }
+})
+
+test('S5.5-FW-VALIDATE-HOST-CHAINS fails closed when a host chain is missing', () => {
+  for (const missing of ['DOCKER-USER', 'INPUT']) {
+    const h = harness()
+    try {
+      assert.equal(h.run('apply').status, 0)
+      assert.equal(h.run('validate').status, 0)
+
+      // Remove the host chain out from under the policy.
+      const state = h.rawState()
+        .split('\n')
+        .filter((line) => line !== `CHAIN|${missing}`)
+        .join('\n')
+      h.writeState(state)
+
+      const before = h.snapshot()
+      const result = h.run('validate')
+      assert.equal(result.status, 1, `validate must fail when ${missing} is absent`)
+      assert.deepEqual(h.snapshot(), before, 'validate must never mutate')
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-FW-REMOVE-REFUSES-ACTIVE-CONNECTOR leaves the firewall intact', () => {
+  for (const state of ['running', 'restarting', 'paused']) {
+    const h = harness({ connectorState: state })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const before = h.snapshot()
+
+      const result = h.run('remove')
+      assert.equal(result.status, 1, `remove must refuse while the connector is ${state}`)
+      assert.deepEqual(h.snapshot(), before,
+        `the firewall must be completely unchanged when remove refuses (${state})`)
+
+      // Isolation must still be intact and provable.
+      assert.equal(h.chains().includes(EGRESS_CHAIN), true, 'egress chain must survive')
+      assert.equal(h.chains().includes(INPUT_CHAIN), true, 'input chain must survive')
+      assert.equal(h.rules('DOCKER-USER').includes(`-j ${EGRESS_CHAIN}`), true, 'anchor must survive')
+      assert.equal(h.run('validate').status, 0, 'the policy must still validate after a refused remove')
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-FW-REMOVE-ALLOWED-WHEN-STOPPED proceeds for stopped or absent connectors', () => {
+  for (const state of ['created', 'exited']) {
+    const h = harness({ connectorState: state })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      assert.equal(h.run('remove').status, 0, `remove must proceed for a ${state} connector`)
+      assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+      assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
+    } finally { h.cleanup() }
+  }
+
+  // Absent connector: rollback and idempotence must still work.
+  const absent = harness({ connectorAbsent: true })
+  try {
+    assert.equal(absent.run('apply').status, 0)
+    assert.equal(absent.run('remove').status, 0, 'remove must proceed when the connector is absent')
+    assert.equal(absent.run('remove').status, 0, 'remove must stay idempotent')
+  } finally { absent.cleanup() }
+})
+
+test('S5.5-FW-REMOVE-FAILS-CLOSED-ON-UNKNOWN-DOCKER-STATE', () => {
+  // A docker failure that is NOT "no such object" must not be read as "absent".
+  const h = harness({ dockerError: true })
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const before = h.snapshot()
+    const result = h.run('remove')
+    assert.equal(result.status, 1,
+      'remove must fail closed when connector state cannot be determined')
+    assert.deepEqual(h.snapshot(), before, 'the firewall must be unchanged')
+  } finally { h.cleanup() }
+
+  // The guard must refuse, never stop containers itself.
+  const code = effectiveSource()
+  assert.doesNotMatch(code, /docker[^\n]*\bstop\b/i, 'firewall.sh must never stop a container')
+  assert.doesNotMatch(code, /docker[^\n]*\bkill\b/i, 'firewall.sh must never kill a container')
+  assert.doesNotMatch(code, /systemctl/i, 'firewall.sh must never drive systemd')
+})
+
+test('S5.5-FW-UNIT-ORDERING-STOPS-CONNECTOR-BEFORE-TEARDOWN', () => {
+  // The direct-invocation guard is the backstop; normal unit lifecycle must
+  // already stop the connector before the firewall unit runs its ExecStop.
+  const connector = parseUnit(connectorUnitPath)
+  const firewall = parseUnit(firewallUnitPath)
+
+  const requires = (connector.Unit.Requires ?? []).join(' ')
+  const bindsTo = (connector.Unit.BindsTo ?? []).join(' ')
+  const after = (connector.Unit.After ?? []).join(' ')
+  assert.match(requires, /aegis-public-share-s5-5-firewall\.service/)
+  assert.match(bindsTo, /aegis-public-share-s5-5-firewall\.service/,
+    'BindsTo makes systemd stop the connector when the firewall unit stops')
+  assert.match(after, /aegis-public-share-s5-5-firewall\.service/,
+    'After means teardown happens in reverse: connector stops first')
+
+  assert.match((firewall.Service.ExecStop ?? []).join(' '), /s5-5-firewall\.sh remove/)
+  // The firewall unit must not depend on the connector, or teardown would loop.
+  assert.equal((firewall.Unit.Requires ?? []).some((r) => r.includes('connector')), false)
+  assert.equal((firewall.Unit.After ?? []).some((r) => r.includes('connector')), false)
 })
