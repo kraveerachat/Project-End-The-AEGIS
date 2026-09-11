@@ -180,7 +180,7 @@ Required metadata, enforced by the pre-start validator:
 | :--- | :--- |
 | Type | **regular file** (never a directory, never a symlink) |
 | Owner | `root` (UID `0`) |
-| Group | GID `65532` |
+| GID | `65532` (group) |
 | Mode | exactly `0440` |
 
 **Why the file must exist first.** Compose applies `create_host_path` to a bind
@@ -202,7 +202,7 @@ sudo install -o root -g 65532 -m 0440 /run/cloudflared-token.tmp \
   /opt/aegis/runtime/public-share/secrets/cloudflared-token
 sudo shred -u /run/cloudflared-token.tmp
 
-# Verify metadata only. This prints type, owner, group and mode - never content.
+# Verify metadata only. This prints type, owner, GID and mode - never content.
 sudo stat -c '%F %u %g %a' /opt/aegis/runtime/public-share/secrets/cloudflared-token
 # expected: regular file 0 65532 440
 ```
@@ -302,8 +302,9 @@ proven to be zero. If any endpoint remains it refuses.
 
 The accepted S5.4 baseline is preserved: `drive`, `public-share-gateway`, the
 database, every volume, the edge/upstream/private networks and private sharing
-are untouched. No `docker compose down`, no prune of any kind, and no volume
-removal is ever performed.
+are untouched. No whole-stack Compose teardown, no prune of any kind, and no
+volume removal is ever performed. The rollback script enforces this, and the
+contract tests assert those operations are absent from it.
 
 ## Verification
 
