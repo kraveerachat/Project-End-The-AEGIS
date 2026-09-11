@@ -57,14 +57,16 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   Gateway, and dedicated edge/upstream networks are active without a host port
   or Internet route. S5.5-A preflight, the owner-approved S5.5-B design,
   S5.5-C repository preparation (cloudflared image pin, contract tests, and
-  `docker-compose.s5-5.yml`), and S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
-  allowlist artifact, firewall contract tests) are **CLOSED / PASS** (S5.5-D
-  repository implementation only); phases S5.5-E through S5.5-H remain not
+  `docker-compose.s5-5.yml`), S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
+  allowlist artifact, firewall contract tests), and S5.5-E lifecycle tooling and
+  security regressions (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`, systemd units,
+  drift timer, and security test suite) are **CLOSED / PASS** (S5.5-D and S5.5-E
+  repository implementation only); phases S5.5-F through S5.5-H remain not
   started and require separate owner approval. No Production deployment occurred:
-  egress network and connector remain absent on Production, and the Production
-  firewall remains unchanged / not deployed. Public DNS/TLS, external acceptance,
-  and UI activation are not implemented. Public Internet Share therefore
-  remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
+  egress network and connector remain absent on Production, the Production
+  firewall remains unchanged, and Production systemd is unchanged. Public DNS/TLS,
+  external acceptance, and UI activation are not implemented. Public Internet Share
+  therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
   [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for the contract,
   [[90-Status/logs/2026-09-11_042000_kla_public-share-s5-4-gateway-networks]]

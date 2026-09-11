@@ -16,9 +16,9 @@ guarantees fail-closed isolation, and verifiable through independent rollback
 without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
 the service to the public Internet.
 
-Current checkpoint: S5.5-A, S5.5-B, S5.5-C, and S5.5-D are **CLOSED / PASS**
-(S5.5-D repository implementation only). Tasks 1–7 are complete and accepted at
-repository commit `3ffbf32b3e45a1ed80a239cc9ada6a659b0f7517`. S5.5-E through
+Current checkpoint: S5.5-A, S5.5-B, S5.5-C, S5.5-D, and S5.5-E are **CLOSED / PASS**
+(S5.5-D and S5.5-E repository implementation only). Tasks 1–13 are complete and accepted at
+repository commit `c711290e22fcca70a16d8ca24628d4f0ea8b8c41`. S5.5-F through
 S5.5-H remain **NOT STARTED**. No Production mutation has been performed.
 
 ## Canonical Phase Roadmap
@@ -29,7 +29,7 @@ S5.5-H remain **NOT STARTED**. No Production mutation has been performed.
 | **S5.5-B** | Design / Repository Preparation | Owner-approved specification freezing topology, credential, firewall, lifecycle and rollback | **CLOSED / PASS** |
 | **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **CLOSED / PASS** |
 | **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** |
-| **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** |
 | **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **REQUIRES EXPLICIT PROD APPROVAL** |
 | **S5.5-G** | Rollback / Persistence | Task 15: Host reboot/daemon restart persistence, drift simulation, and connector-only rollback acceptance | **REQUIRES EXPLICIT PROD APPROVAL** |
 | **S5.5-H** | Final Documentation / Closeout | Task 16: Canonical Obsidian reconciliation and exactly one immutable task receipt | **REPOSITORY ONLY — CLOSEOUT GATE** |
@@ -45,12 +45,12 @@ S5.5-H remain **NOT STARTED**. No Production mutation has been performed.
 | **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | **CLOSED / PASS** | `publicShareS55FirewallContract.test.js` |
 | **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | **CLOSED / PASS** | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
 | **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | **CLOSED / PASS** | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
-| **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | NOT STARTED | `s5-5-runtime-check.sh` (`--pre-start`) |
-| **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | NOT STARTED | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
-| **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | NOT STARTED | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |
-| **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | NOT STARTED | `rollback-s5-5.sh` |
-| **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | NOT STARTED | `publicShareSecurityRegression.test.js` |
-| **Task 13** | Production Runbook Update | `S5.5-E` | NOT STARTED | `gateway/public-share/production/README.md` |
+| **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | **CLOSED / PASS** | `s5-5-runtime-check.sh` (`--pre-start`) |
+| **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | **CLOSED / PASS** | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
+| **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | **CLOSED / PASS** | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |
+| **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | **CLOSED / PASS** | `rollback-s5-5.sh` |
+| **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | **CLOSED / PASS** | `publicShareSecurityRegression.test.js` |
+| **Task 13** | Production Runbook Update | `S5.5-E` | **CLOSED / PASS** | `gateway/public-share/production/README.md` |
 | **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | NOT STARTED | Production verification evidence (positive + negative probes) |
 | **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | NOT STARTED | Production persistence and clean rollback evidence |
 | **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | NOT STARTED | Updated canonical notes, exactly one immutable task receipt |
@@ -537,6 +537,7 @@ Cloudflare edge network (region1 / region2)
 
 - **Canonical Phase:** `S5.5-E`
 - **Goal:** Implement persistent, automated drift enforcement that periodically verifies firewall integrity and connector network attachments, immediately stopping the connector if drift occurs while keeping Gateway and Drive operational.
+- **Process Deviation:** `TASK10_TDD_RED_GREEN=PARTIAL`. Drift behavior was partly introduced during Task 8. At the Task 10 checkpoint, 4 drift tests were already GREEN and 2 unit-file tests were genuinely RED. Final drift behavior is fully tested and GREEN. Unsafe drift stops ONLY `aegis-public-share-connector.service`; it does not stop Gateway, Drive, PostgreSQL, Monitor, Twingate, Docker, or UFW.
 - **Files:**
   - Create: `gateway/public-share/production/systemd/aegis-public-share-drift.service`
   - Create: `gateway/public-share/production/systemd/aegis-public-share-drift.timer`
@@ -671,6 +672,24 @@ Cloudflare edge network (region1 / region2)
 - **Interfaces:**
   - Consumes: Completed S5.5-C, D, E artifacts.
   - Produces: Operational documentation with explicit warnings that Production mutation requires separate authorization.
+- **Lifecycle Stability Correction (Create-Before-Start):**
+  - Defect resolved: Firewall fails closed when `aegis-ps-eg` does not exist, but on first activation the egress network and bridge do not exist before Compose materializes them. In addition, using bring-up (`up`) in systemd `ExecStart` could allow the container to be created/recreated after `ExecStartPre` validation.
+  - Corrected order:
+    1. Secret regular file prepared (`0440`, `root:65532`).
+    2. Exact 4-file Compose model verified.
+    3. `create --no-build --no-recreate --pull missing public-share-connector` creates stopped container and materializes `aegis_public_share_egress` / `aegis-ps-eg`.
+    4. Verify connector is stopped (`Running=false`, `Status=created`).
+    5. Verify exact network attachments and fixed IPs (`172.31.240.3`, `172.31.242.2`).
+    6. Apply firewall (`s5-5-firewall.sh apply`).
+    7. Validate firewall (`s5-5-firewall.sh validate`).
+    8. `s5-5-runtime-check.sh --pre-start` validates that same stopped container.
+    9. Systemd `ExecStart` executes `docker compose ... start public-share-connector` (starting the already-validated object; never `up -d`).
+- **RestartCount Stability Correction:**
+  - `RestartCount` is historical/cumulative metadata and MUST NOT be used as evidence of a current restart loop.
+  - Active-state checks strictly evaluate `State.Status`, `State.Running`, `State.Restarting`, `State.Paused`, `State.Dead`.
+  - Allowed stopped statuses: `created`, `exited`.
+  - `RestartCount` is not extracted, not logged, not consulted, and not a rejection criterion. A container with `Status=exited`, `Running=false`, `Restarting=false`, `Paused=false`, `Dead=false`, `RestartCount>0` passes pre-start when all other safety gates pass.
+  - Active restart loop detection uses `State.Restarting=true` and/or `Status=restarting`.
 - **Granular TDD Steps:**
   1. Add documentation assertions in `publicShareS55RuntimeContract.test.js`:
      - Verifies 4-file Compose order:
