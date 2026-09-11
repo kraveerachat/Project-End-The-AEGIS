@@ -31,6 +31,7 @@ readonly INPUT_STAGE="${INPUT_CHAIN}-NEW"
 readonly CONNECTOR_EDGE_IP='172.31.240.3/32'
 readonly CONNECTOR_EGRESS_IP='172.31.242.2/32'
 readonly GATEWAY_EDGE_IP='172.31.240.2/32'
+readonly EGRESS_SUBNET='172.31.242.0/29'
 readonly GATEWAY_HTTP_PORT='8080'
 readonly TUNNEL_PORT='7844'
 readonly EDGE_NETWORK='aegis_public_share_edge'
@@ -123,10 +124,21 @@ egress_rules() {
 # Host INPUT guard: nothing from either connector address may reach a
 # host-local listener (SSH, Docker API, resolvers, bridge gateway addresses or
 # any other host service), on the connector bridges or any other interface.
+#
+# S5.5 owns the egress network outright, so host INPUT from that whole bridge is
+# denied. The edge network is shared with the S5.4 gateway, so only the
+# connector address is denied there and accepted S5.4 behaviour is untouched.
+# The last two rules are interface-independent, so the guard still holds if the
+# connector ever appears on an unexpected interface.
+#
+# No DNS exception is granted. A connector query to a host resolver, including
+# the bridge gateway address, is denied here; the real Production resolver path
+# must be measured and reconciled before S5.5-F activation.
 input_rules() {
   local edge_bridge="$1"
   echo "-i ${edge_bridge} -s ${CONNECTOR_EDGE_IP} -j DROP"
   echo "-i ${EGRESS_BRIDGE} -s ${CONNECTOR_EGRESS_IP} -j DROP"
+  echo "-i ${EGRESS_BRIDGE} -s ${EGRESS_SUBNET} -j DROP"
   echo "-s ${CONNECTOR_EDGE_IP} -j DROP"
   echo "-s ${CONNECTOR_EGRESS_IP} -j DROP"
 }

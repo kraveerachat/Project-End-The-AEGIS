@@ -490,3 +490,150 @@ test('FIREWALL-ALLOWLIST-GATE apply refuses an unverified allowlist', () => {
     } finally { h2.cleanup() }
   } finally { rmSync(bad, { recursive: true, force: true }) }
 })
+
+// ---------------------------------------------------------------------------
+// TASK 7: host INPUT guard and forwarding isolation, asserted by evaluating the
+// rules the script actually installs against representative packets.
+// ---------------------------------------------------------------------------
+
+// Minimal iptables semantics: first matching rule wins; an unmatched packet
+// falls through, which the DROP-policy Production baseline denies anyway.
+function inCidr(ip, cidr) {
+  const [network, bitsRaw] = cidr.split('/')
+  const bits = Number(bitsRaw ?? 32)
+  const toInt = (a) => a.split('.').reduce((acc, o) => (acc * 256) + Number(o), 0)
+  if (bits === 0) return true
+  const size = 2 ** (32 - bits)
+  const base = Math.floor(toInt(network) / size) * size
+  return toInt(ip) >= base && toInt(ip) < base + size
+}
+
+function evaluate(rules, packet) {
+  for (const rule of rules) {
+    const tokens = rule.split(/\s+/)
+    let matches = true
+    for (let i = 0; i < tokens.length && matches; i += 1) {
+      const flag = tokens[i]
+      const value = tokens[i + 1]
+      if (flag === '-i') matches = packet.iface === value
+      else if (flag === '-s') matches = inCidr(packet.src, value)
+      else if (flag === '-d') matches = inCidr(packet.dst, value)
+      else if (flag === '-p') matches = packet.proto === value
+      else if (flag === '--dport') matches = String(packet.dport) === value
+      else if (flag === '--ctstate') matches = value.split(',').includes(packet.ctstate ?? 'NEW')
+    }
+    if (matches) {
+      const target = tokens[tokens.indexOf('-j') + 1]
+      if (target) return target
+    }
+  }
+  return 'FALLTHROUGH'
+}
+
+const CONNECTOR_EDGE_IP = '172.31.240.3'
+const CONNECTOR_EGRESS_IP = '172.31.242.2'
+
+test('FIREWALL-INPUT-GUARD denies every host-local destination from the connector', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const rules = h.rules(INPUT_CHAIN)
+
+    const hostTargets = [
+      ['edge bridge gateway address', '172.31.240.1', 'tcp', 53],
+      ['egress bridge gateway address', '172.31.242.1', 'udp', 53],
+      ['host SSH', '10.0.0.5', 'tcp', 22],
+      ['host Docker API', '10.0.0.5', 'tcp', 2375],
+      ['host Docker API over TLS', '10.0.0.5', 'tcp', 2376],
+      ['host local resolver', '127.0.0.53', 'udp', 53],
+      ['host administrative listener', '10.0.0.5', 'tcp', 9090],
+      ['unrelated host interface', '192.168.10.10', 'tcp', 443],
+      ['host loopback', '127.0.0.1', 'tcp', 8080],
+    ]
+
+    for (const iface of [DERIVED_EDGE_BRIDGE, EGRESS_BRIDGE, 'eth0']) {
+      for (const src of [CONNECTOR_EDGE_IP, CONNECTOR_EGRESS_IP]) {
+        for (const target of hostTargets) {
+          const [label, dst, proto, dport] = target
+          const verdict = evaluate(rules, { iface, src, dst, proto, dport })
+          assert.equal(verdict, 'DROP',
+            `connector ${src} on ${iface} must not reach ${label} (${dst}:${dport}/${proto})`)
+        }
+      }
+    }
+
+    // The whole S5.5-owned egress network is denied host INPUT, not just .2.
+    assert.equal(
+      evaluate(rules, { iface: EGRESS_BRIDGE, src: '172.31.242.3', dst: '172.31.242.1', proto: 'udp', dport: 53 }),
+      'DROP', 'any egress-network address must be denied host INPUT')
+
+    // The guard must not reach beyond S5.5: the S5.4 gateway keeps its behaviour.
+    assert.notEqual(
+      evaluate(rules, { iface: DERIVED_EDGE_BRIDGE, src: '172.31.240.2', dst: '172.31.240.1', proto: 'tcp', dport: 53 }),
+      'DROP', 'S5.5 must not add a new denial for the S5.4 gateway')
+  } finally { h.cleanup() }
+})
+
+test('FIREWALL-FORWARD-ISOLATION denies private, upstream and non-allowlisted egress', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const rules = h.rules(EGRESS_CHAIN)
+    const allowed = allowlist().endpoints[0].replace('/32', '')
+
+    // Exactly one forwarded path into the estate, and one out to Cloudflare.
+    assert.equal(
+      evaluate(rules, { src: CONNECTOR_EDGE_IP, dst: '172.31.240.2', proto: 'tcp', dport: 8080 }),
+      'ACCEPT', 'the connector must reach the gateway on TCP/8080')
+    assert.equal(
+      evaluate(rules, { src: CONNECTOR_EGRESS_IP, dst: allowed, proto: 'tcp', dport: 7844 }),
+      'ACCEPT', 'the connector must reach a reviewed Cloudflare endpoint on TCP/7844')
+
+    const denied = [
+      ['Drive directly', CONNECTOR_EDGE_IP, '172.31.241.3', 'tcp', 8001],
+      ['Drive from the egress side', CONNECTOR_EGRESS_IP, '172.31.241.3', 'tcp', 8001],
+      ['the upstream subnet', CONNECTOR_EDGE_IP, '172.31.241.2', 'tcp', 8080],
+      ['PostgreSQL', CONNECTOR_EDGE_IP, '172.31.241.3', 'tcp', 5432],
+      ['PostgreSQL anywhere', CONNECTOR_EGRESS_IP, '10.0.0.5', 'tcp', 5432],
+      ['the gateway on another port', CONNECTOR_EDGE_IP, '172.31.240.2', 'tcp', 22],
+      ['the private estate', CONNECTOR_EGRESS_IP, '172.18.0.3', 'tcp', 8001],
+      ['the drive proxy network', CONNECTOR_EGRESS_IP, '172.19.255.3', 'tcp', 8080],
+      ['the VLAN10 network', CONNECTOR_EGRESS_IP, '192.168.10.11', 'tcp', 443],
+      ['UDP/7844 (QUIC)', CONNECTOR_EGRESS_IP, allowed, 'udp', 7844],
+      ['TCP/443 to an allowed endpoint', CONNECTOR_EGRESS_IP, allowed, 'tcp', 443],
+      ['a non-allowlisted Internet host', CONNECTOR_EGRESS_IP, '203.0.113.9', 'tcp', 7844],
+      ['arbitrary Internet HTTPS', CONNECTOR_EGRESS_IP, '1.1.1.1', 'tcp', 443],
+      ['external DNS', CONNECTOR_EGRESS_IP, '1.1.1.1', 'udp', 53],
+    ]
+    for (const entry of denied) {
+      const [label, src, dst, proto, dport] = entry
+      assert.equal(
+        evaluate(rules, { src, dst, proto, dport }), 'DROP',
+        `the connector must not reach ${label} (${dst}:${dport}/${proto})`)
+    }
+
+    // Established return traffic is still accepted, or the tunnel cannot work.
+    assert.equal(
+      evaluate(rules, { src: CONNECTOR_EGRESS_IP, dst: allowed, proto: 'tcp', dport: 7844, ctstate: 'ESTABLISHED' }),
+      'ACCEPT', 'established flows must be accepted')
+  } finally { h.cleanup() }
+})
+
+test('FIREWALL-DNS-FAIL-CLOSED no DNS exception exists in S5.5-D', () => {
+  const text = effectiveSource()
+  assert.doesNotMatch(text, /--dport\s+53\b[^\n]*ACCEPT/, 'no DNS accept may be emitted')
+  assert.doesNotMatch(text, /-p\s+udp[^\n]*53[^\n]*ACCEPT/, 'no UDP/53 accept may be emitted')
+
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const egress = h.rules(EGRESS_CHAIN)
+    for (const dst of ['1.1.1.1', '8.8.8.8', '172.31.242.1', '172.31.240.1']) {
+      for (const proto of ['udp', 'tcp']) {
+        assert.equal(
+          evaluate(egress, { src: CONNECTOR_EGRESS_IP, dst, proto, dport: 53 }), 'DROP',
+          `DNS to ${dst}/${proto} must stay denied until the Production resolver path is measured`)
+      }
+    }
+  } finally { h.cleanup() }
+})
