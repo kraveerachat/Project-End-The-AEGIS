@@ -7,16 +7,51 @@
 ## Goal
 
 Translate the owner-approved S5.5-B specification into an exact, test-driven
-repository implementation plan for PUBLIC-SHARE-7 / S5.5. S5.5 adds an isolated
-Cloudflare connector layer on a dedicated egress bridge network (`172.31.242.0/29`)
-and edge bridge network (`172.31.240.0/29`), enforced by task-owned forwarding
-and host-input firewall chains, orchestrated by systemd units that guarantee
-fail-closed ordering, and verifiable through independent rollback without
-modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing the service
-to the public Internet.
+repository implementation plan for PUBLIC-SHARE-7 / S5.5 across canonical phases
+S5.5-C through S5.5-H. S5.5 adds an isolated Cloudflare connector layer on a
+dedicated egress bridge network (`172.31.242.0/29`) and edge bridge network
+(`172.31.240.0/29`), enforced by task-owned forwarding and host-input firewall
+chains, orchestrated by systemd units with active periodic drift enforcement that
+guarantees fail-closed isolation, and verifiable through independent rollback
+without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
+the service to the public Internet.
 
 At this planning stage, **no runtime implementation is written and no Production
 mutation is performed**.
+
+## Canonical Phase Roadmap
+
+| Canonical Phase | Title | Scope | Execution Safety Boundary |
+| :--- | :--- | :--- | :--- |
+| **S5.5-A** | Audit / Preflight | Repository audit, worktree bootstrap, read-only Production preflight | **CLOSED / PASS** |
+| **S5.5-B** | Design / Repository Preparation | Owner-approved specification freezing topology, credential, firewall, lifecycle and rollback | **CLOSED / PASS** |
+| **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **REQUIRES EXPLICIT PROD APPROVAL** |
+| **S5.5-G** | Rollback / Persistence | Task 15: Host reboot/daemon restart persistence, drift simulation, and connector-only rollback acceptance | **REQUIRES EXPLICIT PROD APPROVAL** |
+| **S5.5-H** | Final Documentation / Closeout | Task 16: Canonical Obsidian reconciliation and exactly one immutable task receipt | **REPOSITORY ONLY — CLOSEOUT GATE** |
+
+## Task-to-Phase Matrix
+
+| Task | Title | Canonical Phase | Primary Outputs |
+| :--- | :--- | :--- | :--- |
+| **Task 1** | Pinned `cloudflared` Image Contract | `S5.5-C` | `cloudflared-pin.json`, `verify-cloudflared-image.sh`, `publicShareCloudflaredPin.test.js` |
+| **Task 2** | S5.5 Compose-Model Tests FIRST | `S5.5-C` | `publicShareS55RuntimeContract.test.js` |
+| **Task 3** | S5.5 Compose Overlay via Verified Pin | `S5.5-C` | `docker-compose.s5-5.yml` |
+| **Task 4** | Authoritative Cloudflare Transport Allowlist Gate | `S5.5-D` | `cloudflare-endpoints.json`, `verify-cloudflare-endpoints.sh` (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`) |
+| **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | `publicShareS55FirewallContract.test.js` |
+| **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
+| **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
+| **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | `s5-5-runtime-check.sh` (`--pre-start`) |
+| **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
+| **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |
+| **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | `rollback-s5-5.sh` |
+| **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | `publicShareSecurityRegression.test.js` |
+| **Task 13** | Production Runbook Update | `S5.5-E` | `gateway/public-share/production/README.md` |
+| **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | Production verification evidence (positive + negative probes) |
+| **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | Production persistence and clean rollback evidence |
+| **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | Updated canonical notes, exactly one immutable task receipt |
 
 ## Architecture
 
@@ -69,6 +104,7 @@ Cloudflare edge network (region1 / region2)
                                         Firewall Enforcement:
                                         1. DOCKER-USER -> AEGIS-PS-EGRESS
                                         2. INPUT -> AEGIS-PS-INPUT
+                                        3. Periodic Drift Timer -> Stop on Drift
 ```
 
 ### Exact Network Topology Matrix
@@ -90,7 +126,7 @@ Cloudflare edge network (region1 / region2)
 - **Container Engine:** Docker Engine 29.7.1+ & Docker Compose v2
 - **Connector Runtime:** Official `cloudflare/cloudflared` (pinned immutable tag@sha256, version >= 2026.5.2)
 - **Host Firewall:** Linux `iptables-nft` (v1.8.11 / nftables kernel backend) using dedicated chains anchored from `DOCKER-USER` and `INPUT`
-- **Host Process Management:** Linux `systemd` (system service units with strict startup dependencies, pre-start checks, and drift remediation)
+- **Host Process Management:** Linux `systemd` (system service units, pre-start checks, and periodic timer-driven drift remediation)
 - **Test Harness:** Node.js 20+ built-in test runner (`node:test`, `node:assert/strict`)
 - **Automation / Scripting:** POSIX Bash (`set -euo pipefail`)
 
@@ -100,43 +136,50 @@ Cloudflare edge network (region1 / region2)
 
 ## Global Constraints
 
-1. **PRODUCTION MUTATION ALLOWED = NO** during repository development. No Docker container, network, firewall rule, systemd unit, or DNS record is created or modified on the live Production server.
+1. **PRODUCTION MUTATION ALLOWED = NO** during repository development phases (S5.5-C, S5.5-D, S5.5-E). No Docker container, network, firewall rule, systemd unit, or DNS record is created or modified on the live Production server until explicit owner authorization for S5.5-F.
 2. **S5.4 Overlay Immutability:** `gateway/public-share/production/docker-compose.s5-4.yml` remains byte-for-byte unchanged (SHA-256 `cc36d08c16731f888f64cb2dcd84f1c9a41b11e9b447aa16ad67405bcdc12819`).
 3. **Separate Overlay:** S5.5 definitions are created strictly in `gateway/public-share/production/docker-compose.s5-5.yml`.
-4. **Credential Secrecy:** Remotely managed tunnel token is delivered exclusively via `--token-file /run/secrets/cloudflared-token` from host path `/opt/aegis/runtime/public-share/secrets/`. No secret token literal, no `TUNNEL_TOKEN` environment variable, and no inline command-line `--token` argument may ever appear in Git, Compose files, test fixtures, logs, shell history, Obsidian notes, or PRs.
-5. **No Public Route / Public DNS:** The public hostname `share.aegistk-pb.com` is configuration-only. Public DNS remains unconfigured, Public Share UI remains OFF (`PUBLIC_SHARE_UI_ENABLED="false"`), and G5 remains OPEN.
-6. **Fail-Closed Default:** If the firewall is absent, partially installed, or drifted, the connector MUST NOT start, or MUST immediately be stopped.
-7. **Obsidian Receipt:** Exactly one task receipt is created at S5.5-H closeout. No final receipt is created during S5.5-C.
+4. **No Fake Digests / No Placeholders:** Pinned image reference is resolved dynamically and stored in `gateway/public-share/production/cloudflared-pin.json`. Task 3 MUST consume that verified pin; substituting any fabricated digest blocks progress.
+5. **Machine-Readable Cloudflare Transport Allowlist:** Firewall rules MUST consume `gateway/public-share/production/cloudflare-endpoints.json` produced only after authoritative verification (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`). Speculative IPs or unrestricted `0.0.0.0/0:7844` are forbidden.
+6. **Credential Secrecy vs. Explanatory Documentation:** Real tokens, private keys, and `TUNNEL_TOKEN` environment variables are strictly forbidden. The security regression scan detects actual secret values and unsafe usage patterns, NOT explanatory text or test assertions.
+7. **Periodic Drift Fail-Closed:** A systemd timer/service validates topology and firewall state every 60s. On unsafe drift, it stops the connector ONLY, leaves the firewall intact, and NEVER stops Gateway or Drive.
+8. **No Public Route / Public DNS:** Public hostname `share.aegistk-pb.com` is configuration-only. Public DNS remains unconfigured, Public Share UI remains OFF (`PUBLIC_SHARE_UI_ENABLED="false"`), and G5 remains OPEN.
+9. **Obsidian Receipt:** Exactly one task receipt is created at S5.5-H closeout. No final receipt is created during S5.5-C, D, E, F, or G.
 
 ---
 
-## Independently Testable Tasks
+## Detailed Task Breakdown
 
 ### TASK 1: Pinned cloudflared Image Contract + Isolated Smoke Verification
 
-- **Goal:** Pin the exact official `cloudflare/cloudflared` image with immutable tag@sha256 digest, verify version floor (>= 2026.5.2), non-root UID/GID `65532:65532`, `--token-file` parameter support, read-only compatibility, and loopback readiness command syntax.
+- **Canonical Phase:** `S5.5-C`
+- **Goal:** Resolve and verify the exact official `cloudflare/cloudflared` image with immutable tag@sha256 digest, verify version floor (>= 2026.5.2), non-root UID/GID `65532:65532`, `--token-file` parameter support, read-only compatibility, and loopback readiness syntax. Record the verified reference in `gateway/public-share/production/cloudflared-pin.json`.
 - **Files:**
+  - Create: `gateway/public-share/production/cloudflared-pin.json`
   - Create: `gateway/public-share/production/verify-cloudflared-image.sh`
   - Create: `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflaredPin.test.js`
 - **Interfaces:**
   - Consumes: Official Cloudflare container image registry metadata / inspect schema.
-  - Produces: Hardened, pinned image reference constant and executable image verification validator.
+  - Produces: Machine-readable `cloudflared-pin.json` containing `image`, `version`, `digest`, `user`, and `entrypointFlags`.
 - **Granular TDD Steps:**
   1. Write failing test in `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflaredPin.test.js`:
-     - Assert pinned image string conforms to `^cloudflare/cloudflared:(202[6-9]\.[0-9]+\.[0-9]+)@sha256:[a-f0-9]{64}$`.
-     - Assert version >= `2026.5.2`.
-     - Assert rejection of `latest`, floating tags, or untagged digests.
-     - Assert image inspection contract expects `Config.User == "65532:65532"`.
-     - Assert entrypoint command flags include `--no-autoupdate`, `--protocol http2`, and `--token-file /run/secrets/cloudflared-token`.
+     - Assert `cloudflared-pin.json` exists and parses as valid JSON.
+     - Assert `image` property matches `^cloudflare/cloudflared:(202[6-9]\.[0-9]+\.[0-9]+)@sha256:[a-f0-9]{64}$`.
+     - Assert `version` >= `2026.5.2`.
+     - Assert `digest` matches `^[a-f0-9]{64}$`.
+     - Assert rejection of `latest`, untagged digests, or floating tags.
+     - Assert `user` is `"65532:65532"`.
+     - Assert `verify-cloudflared-image.sh` passes `--verify-pin` against `cloudflared-pin.json`.
   2. Run exact test command:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareCloudflaredPin.test.js
      ```
-     Expected failure: `MODULE_NOT_FOUND` or assertion error on missing pin constants.
+     Expected failure: `ENOENT: no such file or directory, open '.../cloudflared-pin.json'`.
   3. Write minimal implementation:
-     - Define `CLOUDFLARED_PINNED_IMAGE` constant in `gateway/public-share/production/cloudflared-pin.json` or exported module.
-     - Implement `gateway/public-share/production/verify-cloudflared-image.sh` with flags `--verify-offline` (model check) and `--verify-inspect <image-inspect-json>`.
+     - Query official registry for latest tested release >= 2026.5.2 and resolve its immutable sha256 digest.
+     - Write `gateway/public-share/production/cloudflared-pin.json` with verified fields.
+     - Implement `gateway/public-share/production/verify-cloudflared-image.sh` supporting `--verify-pin` and `--verify-inspect <json>`.
   4. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
@@ -152,26 +195,28 @@ Cloudflare edge network (region1 / region2)
      git diff --check
      ```
   7. Checkpoint commit:
-     `feat(idea1): pin immutable cloudflared image contract`
+     `feat(idea1): pin immutable cloudflared image contract in s5.5-c`
 
 ---
 
 ### TASK 2: S5.5 Compose-Model Tests FIRST
 
+- **Canonical Phase:** `S5.5-C`
 - **Goal:** Write a comprehensive, failing static contract suite for the future `docker-compose.s5-5.yml` before creating the file.
 - **Files:**
   - Create: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`
 - **Interfaces:**
-  - Consumes: `gateway/public-share/production/docker-compose.s5-4.yml`, `gateway/public-share/production/docker-compose.s5-5.yml` (future).
-  - Produces: Enforced contract asserting overlay immutability, network topology, container hardening, credential boundaries, and rollback semantics.
+  - Consumes: `gateway/public-share/production/docker-compose.s5-4.yml`, `gateway/public-share/production/cloudflared-pin.json` (from Task 1).
+  - Produces: Enforced contract asserting overlay immutability, network topology, container hardening, dynamic image pin resolution, and rollback semantics.
 - **Granular TDD Steps:**
   1. Write failing test in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`:
-     - Test `S5.5-OVERLAY-IMMUTABLE`: Reads `docker-compose.s5-4.yml` and verifies its SHA-256 is exactly `cc36d08c16731f888f64cb2dcd84f1c9a41b11e9b447aa16ad67405bcdc12819`.
-     - Test `S5.5-COMPOSE-EXISTS`: Asserts `gateway/public-share/production/docker-compose.s5-5.yml` exists.
-     - Test `S5.5-SERVICE-CONNECTOR`: Asserts service `public-share-connector` is defined; no `container_name` is set; image matches pinned tag@sha256; `user: "65532:65532"`; `read_only: true`; `cap_drop: [ALL]`; `security_opt: [no-new-privileges:true]`; `restart: on-failure:5`; `ports` block is absent; `expose` has no host mapping; networks are strictly `aegis_public_share_edge` (`ipv4_address: 172.31.240.3`) and `aegis_public_share_egress` (`ipv4_address: 172.31.242.2`).
-     - Test `S5.5-NETWORK-EGRESS`: Asserts top-level network `aegis_public_share_egress` has `name: aegis_public_share_egress`, `driver: bridge`, `internal: false`, subnet `172.31.242.0/29`, gateway `172.31.242.1`, `com.docker.network.bridge.name: "aegis-ps-eg"`, `com.docker.network.bridge.enable_ip_masquerade: "true"`.
-     - Test `S5.5-CREDENTIAL-BOUNDS`: Asserts command specifies `--token-file /run/secrets/cloudflared-token`; asserts volume mount `/run/secrets/cloudflared-token:ro`; asserts no token literal, `TUNNEL_TOKEN`, or inline secret exists.
-     - Test `S5.5-GATEWAY-DRIVE-PRESERVED`: Verifies merged model maintains Gateway and Drive topologies identical to S5.4.
+     - Test `S5.5-OVERLAY-IMMUTABLE`: Verifies `docker-compose.s5-4.yml` SHA-256 is exactly `cc36d08c16731f888f64cb2dcd84f1c9a41b11e9b447aa16ad67405bcdc12819`.
+     - Test `S5.5-COMPOSE-EXISTS`: Asserts `docker-compose.s5-5.yml` exists.
+     - Test `S5.5-IMAGE-PIN-CONSUMPTION`: Asserts `public-share-connector` image in `docker-compose.s5-5.yml` matches the verified image reference in `cloudflared-pin.json`.
+     - Test `S5.5-SERVICE-CONNECTOR`: Asserts service `public-share-connector` is defined; no `container_name` is set; `user: "65532:65532"`; `read_only: true`; `cap_drop: [ALL]`; `security_opt: [no-new-privileges:true]`; `restart: on-failure:5`; `ports` block is absent; networks are strictly `aegis_public_share_edge` (`172.31.240.3`) and `aegis_public_share_egress` (`172.31.242.2`).
+     - Test `S5.5-NETWORK-EGRESS`: Asserts network `aegis_public_share_egress` has `name: aegis_public_share_egress`, `driver: bridge`, `internal: false`, subnet `172.31.242.0/29`, gateway `172.31.242.1`, `com.docker.network.bridge.name: "aegis-ps-eg"`, `com.docker.network.bridge.enable_ip_masquerade: "true"`.
+     - Test `S5.5-CREDENTIAL-BOUNDS`: Asserts command specifies `--token-file /run/secrets/cloudflared-token`; asserts volume mount `/run/secrets/cloudflared-token:ro`; asserts no token literal or `TUNNEL_TOKEN` environment variable exists.
+     - Test `S5.5-GATEWAY-DRIVE-PRESERVED`: Verifies Gateway and Drive topologies in merged model remain identical to S5.4.
   2. Run exact test command:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
@@ -183,179 +228,163 @@ Cloudflare edge network (region1 / region2)
      git diff --check
      ```
   4. Checkpoint commit:
-     `test(idea1): add s5.5 runtime compose contract tests`
+     `test(idea1): add s5.5 compose contract tests in s5.5-c`
 
 ---
 
-### TASK 3: Create docker-compose.s5-5.yml Minimally to Satisfy Model Tests
+### TASK 3: Create docker-compose.s5-5.yml Minimally via Verified Pin
 
-- **Goal:** Create `gateway/public-share/production/docker-compose.s5-5.yml` with the exact minimal structure required to pass Task 2 tests.
+- **Canonical Phase:** `S5.5-C`
+- **Goal:** Create `gateway/public-share/production/docker-compose.s5-5.yml` using the exact image reference verified in Task 1 (`cloudflared-pin.json`).
 - **Files:**
   - Create: `gateway/public-share/production/docker-compose.s5-5.yml`
 - **Interfaces:**
-  - Consumes: Task 2 contract specifications.
+  - Consumes: Verified image reference from `gateway/public-share/production/cloudflared-pin.json`.
   - Produces: Valid Compose v2 overlay file for the S5.5 connector and egress network.
+- **Fail-Closed Gate:** If `cloudflared-pin.json` is missing or invalid, Task 3 is **BLOCKED**. No fabricated digest may be substituted.
 - **Granular TDD Steps:**
-  1. Check previous test status: Ensure Task 2 tests are failing on missing file.
-  2. Create `gateway/public-share/production/docker-compose.s5-5.yml`:
-     ```yaml
-     # PUBLIC-SHARE-7 S5.5 Production overlay contract.
-     #
-     # Layers after docker-compose.production.yml, drive-s5-3.yml, and drive-gateway-s5-4.yml.
-     # S5.5 introduces the isolated egress network and pinned cloudflared connector.
-     # Public route, DNS, and UI activation remain strictly absent.
-
-     services:
-       public-share-connector:
-         image: cloudflare/cloudflared:2026.5.2@sha256:7c9e0d1b4a6f8e2d3c5b7a9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a # placeholder replaced by Task 1 pin
-         command:
-           - tunnel
-           - --no-autoupdate
-           - --metrics
-           - 127.0.0.1:20241
-           - --protocol
-           - http2
-           - run
-           - --token-file
-           - /run/secrets/cloudflared-token
-         user: "65532:65532"
-         read_only: true
-         cap_drop:
-           - ALL
-         security_opt:
-           - no-new-privileges:true
-         restart: on-failure:5
-         volumes:
-           - /opt/aegis/runtime/public-share/secrets/cloudflared-token:/run/secrets/cloudflared-token:ro
-         networks:
-           aegis_public_share_edge:
-             ipv4_address: 172.31.240.3
-           aegis_public_share_egress:
-             ipv4_address: 172.31.242.2
-
-     networks:
-       aegis_public_share_edge:
-         external: true
-       aegis_public_share_egress:
-         name: aegis_public_share_egress
-         driver: bridge
-         internal: false
-         driver_opts:
-           com.docker.network.bridge.name: "aegis-ps-eg"
-           com.docker.network.bridge.enable_ip_masquerade: "true"
-         ipam:
-           config:
-             - subnet: 172.31.242.0/29
-               gateway: 172.31.242.1
-     ```
-  3. Run exact test command:
+  1. Confirm Task 2 tests fail on missing file.
+  2. Read verified image reference from `gateway/public-share/production/cloudflared-pin.json`.
+  3. Create `gateway/public-share/production/docker-compose.s5-5.yml` referencing the exact verified image string.
+     - Set `services.public-share-connector.command`:
+       - `tunnel`
+       - `--no-autoupdate`
+       - `--metrics`
+       - `127.0.0.1:20241`
+       - `--protocol`
+       - `http2`
+       - `run`
+       - `--token-file`
+       - `/run/secrets/cloudflared-token`
+     - Set security opts, user `65532:65532`, `read_only: true`, `cap_drop: [ALL]`, `restart: on-failure:5`.
+     - Set networks to edge `.3` and egress `.2`.
+     - Set `networks.aegis_public_share_egress` with bridge `aegis-ps-eg`, masquerade enabled, internal false, subnet `172.31.242.0/29`, gateway `172.31.242.1`.
+  4. Run exact test command:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS55RuntimeContract.test.js
      ```
      Expected output: ALL tests in `publicShareS55RuntimeContract.test.js` PASS.
-  4. Run regression gate:
+  5. Run regression gate:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS54RuntimeContract.test.js
      node --test tests/publicShareGatewayStructure.test.js
      ```
-     Expected output: all S5.4 and gateway structural tests PASS.
-  5. Verify clean diff:
+     Expected output: ALL S5.4 and gateway structural tests PASS.
+  6. Verify clean diff:
      ```bash
      git diff --check
      ```
-  6. Checkpoint commit:
-     `feat(idea1): define s5.5 connector and egress compose overlay`
+  7. Checkpoint commit:
+     `feat(idea1): create s5.5 compose overlay with verified image pin in s5.5-c`
 
 ---
 
-### TASK 4: Firewall Semantic / Model Tests FIRST
+### TASK 4: Authoritative Cloudflare Transport Allowlist Verification Gate
 
-- **Goal:** Write unit and contract tests in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js` to define exact iptables rule ordering, chain names, anchor points, allowlists, and negative deny rules.
+- **Canonical Phase:** `S5.5-D`
+- **Goal:** Verify and snapshot the authoritative Cloudflare Argo Tunnel TCP/7844 destination endpoints into a machine-readable artifact `gateway/public-share/production/cloudflare-endpoints.json` before firewall source is written.
+- **Files:**
+  - Create: `gateway/public-share/production/cloudflare-endpoints.json`
+  - Create: `gateway/public-share/production/verify-cloudflare-endpoints.sh`
+  - Create: `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflareEndpoints.test.js`
+- **Interfaces:**
+  - Consumes: Official Cloudflare documentation and resolved endpoint verification of `region1.v2.argotunnel.com` and `region2.v2.argotunnel.com`.
+  - Produces: Machine-readable allowlist artifact `cloudflare-endpoints.json` and verification gate `CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`.
+- **Implementation Gate:**
+  `CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`
+  Firewall implementation (Task 6) is BLOCKED until this gate passes. Speculative or copied lists are prohibited.
+- **Granular TDD Steps:**
+  1. Write failing test in `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflareEndpoints.test.js`:
+     - Assert `cloudflare-endpoints.json` exists and is valid JSON.
+     - Assert `cloudflare-endpoints.json` contains `endpoints` array of valid IPv4 addresses.
+     - Assert each IP is a valid `/32` host address (no broad CIDRs, no `0.0.0.0/0`).
+     - Assert port is strictly `7844`; assert `protocols` contains only `tcp` (no `udp`, no `443`).
+     - Assert `verify-cloudflare-endpoints.sh --check-schema` exits 0.
+  2. Run test and verify failure:
+     ```bash
+     cd IDEA1-AEGIS_Drive_LC
+     node --test tests/publicShareCloudflareEndpoints.test.js
+     ```
+     Expected failure: `ENOENT: missing cloudflare-endpoints.json`.
+  3. Resolve authoritative endpoints snapshot and generate `gateway/public-share/production/cloudflare-endpoints.json`.
+  4. Implement `gateway/public-share/production/verify-cloudflare-endpoints.sh`.
+  5. Run test and verify PASS:
+     ```bash
+     cd IDEA1-AEGIS_Drive_LC
+     node --test tests/publicShareCloudflareEndpoints.test.js
+     ```
+  6. Run diff check:
+     ```bash
+     git diff --check
+     ```
+  7. Checkpoint commit:
+     `feat(idea1): verify authoritative cloudflare transport allowlist artifact in s5.5-d`
+
+---
+
+### TASK 5: Firewall Semantic / Model Tests FIRST
+
+- **Canonical Phase:** `S5.5-D`
+- **Goal:** Write unit and contract tests in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js` to define exact iptables rule ordering, chain names, anchor points, allowlist consumption from Task 4, and negative deny rules.
 - **Files:**
   - Create: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`
 - **Interfaces:**
-  - Consumes: S5.5-B design spec section 8.
-  - Produces: Formal test suite for firewall script command generation, rule ordering, idempotency, and syntax validation.
+  - Consumes: `gateway/public-share/production/cloudflare-endpoints.json` (from Task 4).
+  - Produces: Formal test suite asserting firewall script rule ordering, idempotency, allowlist fidelity, and fail-closed validation.
 - **Granular TDD Steps:**
   1. Write failing test in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`:
-     - Test `FIREWALL-CHAIN-NAMES`: Asserts custom chain names are exactly `AEGIS-PS-EGRESS` (forwarding) and `AEGIS-PS-INPUT` (host input guard).
+     - Test `FIREWALL-CHAIN-NAMES`: Asserts custom chain names are `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
      - Test `FIREWALL-ANCHOR-JUMPS`: Asserts `DOCKER-USER` jumps to `AEGIS-PS-EGRESS`; `INPUT` jumps to `AEGIS-PS-INPUT`.
-     - Test `FIREWALL-EGRESS-ORDER`: Asserts the exact rule sequence in `AEGIS-PS-EGRESS`:
+     - Test `FIREWALL-ALLOWLIST-CONSUMPTION`: Asserts rules in `AEGIS-PS-EGRESS` match the exact endpoints from `cloudflare-endpoints.json`; fails if any IP is missing or unauthorized.
+     - Test `FIREWALL-ORDERING`:
        1. `-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`
-       2. `-s 172.31.240.3 -d 172.31.240.2 -p tcp --dport 8080 -j ACCEPT` (connector to Gateway)
-       3. Iterates over reviewed Cloudflare region1/region2 IPs: `-s 172.31.242.2 -d <cf-ip> -p tcp --dport 7844 -j ACCEPT`
-       4. DNS path: default deny (or strict measured resolver IP port 53 if enabled; no 0.0.0.0/0:53)
-       5. Terminal drop: `-s 172.31.240.3 -j DROP` and `-s 172.31.242.2 -j DROP` (fail closed)
-     - Test `FIREWALL-INPUT-ORDER`: Asserts `AEGIS-PS-INPUT` drops any packet from source `172.31.240.3` or `172.31.242.2` targeting host listeners (port 22, 5432, 8001, Docker socket).
-     - Test `FIREWALL-SUBCOMMANDS`: Asserts firewall script supports `apply`, `validate`, `remove`.
-     - Test `FIREWALL-NEGATIVE-MATRIX`: Asserts rule generation denies:
-       - connector -> Drive `172.31.241.3:8001`
-       - connector -> upstream network `172.31.241.0/29`
-       - connector -> Postgres `5432`
-       - connector -> host bridge `.1`
-       - connector -> UDP/7844
-       - connector -> TCP/443
-       - connector -> arbitrary external IP (e.g. `8.8.8.8:7844` or `1.1.1.1:80`)
-  2. Run exact test command:
+       2. `-s 172.31.240.3 -d 172.31.240.2 -p tcp --dport 8080 -j ACCEPT`
+       3. Allow rules for reviewed Cloudflare endpoints on TCP/7844 only
+       4. DNS path: default deny (or strict measured resolver destination if validated)
+       5. Terminal drop: `-s 172.31.240.3 -j DROP` and `-s 172.31.242.2 -j DROP`
+     - Test `FIREWALL-SUBCOMMANDS`: Asserts script supports `apply`, `validate`, `remove`.
+  2. Run test command:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS55FirewallContract.test.js
      ```
-     Expected failure: `ENOENT: no such file or directory, open '.../s5-5-firewall.sh'`.
-  3. Verify diff check:
+     Expected failure: missing `s5-5-firewall.sh`.
+  3. Verify clean diff:
      ```bash
      git diff --check
      ```
   4. Checkpoint commit:
-     `test(idea1): add s5.5 firewall contract and negative matrix tests`
+     `test(idea1): add s5.5 firewall contract tests in s5.5-d`
 
 ---
 
-### TASK 5: Implement Task-Owned Firewall Tooling (s5-5-firewall.sh)
+### TASK 6: Implement Task-Owned Firewall Tooling (s5-5-firewall.sh)
 
+- **Canonical Phase:** `S5.5-D`
 - **Goal:** Implement `gateway/public-share/production/s5-5-firewall.sh` supporting idempotent `apply`, strict `validate`, and clean `remove` without altering unrelated UFW or Docker firewall rules.
 - **Files:**
   - Create: `gateway/public-share/production/s5-5-firewall.sh`
 - **Interfaces:**
-  - Consumes: Linux `iptables` CLI, reviewed Cloudflare IP endpoint list.
+  - Consumes: Linux `iptables` CLI, `gateway/public-share/production/cloudflare-endpoints.json`.
   - Produces: Executable Bash script managing only `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
 - **Granular TDD Steps:**
-  1. Check previous test status: Confirm Task 4 tests fail on missing script.
+  1. Confirm Task 5 tests fail on missing script.
   2. Implement `gateway/public-share/production/s5-5-firewall.sh`:
      - Header: `#!/usr/bin/env bash`, `set -euo pipefail`.
-     - Define constants:
-       - `CONNECTOR_EDGE_IP="172.31.240.3"`
-       - `GATEWAY_EDGE_IP="172.31.240.2"`
-       - `CONNECTOR_EGRESS_IP="172.31.242.2"`
-       - `EGRESS_BRIDGE="aegis-ps-eg"`
-       - `CF_ENDPOINTS=( "198.41.192.67" "198.41.192.77" "198.41.192.107" "198.41.192.167" "198.41.192.27" "198.41.200.13" "198.41.200.23" "198.41.200.33" "198.41.200.43" "198.41.200.53" "198.41.200.63" "198.41.200.73" "198.41.200.83" "198.41.200.93" "198.41.200.103" "198.41.200.113" )`
+     - Dynamically parse endpoint IPs from `cloudflare-endpoints.json` (do NOT hard-code a speculative list).
      - Subcommand `apply`:
-       - Create chains `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT` if not present.
-       - Flush chains to avoid stale/duplicate rules.
-       - Insert rules in exact order:
-         - `AEGIS-PS-EGRESS`:
-           1. `-A AEGIS-PS-EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`
-           2. `-A AEGIS-PS-EGRESS -s 172.31.240.3 -d 172.31.240.2 -p tcp --dport 8080 -j ACCEPT`
-           3. Loop through `CF_ENDPOINTS`: `-A AEGIS-PS-EGRESS -s 172.31.242.2 -d "$ip" -p tcp --dport 7844 -j ACCEPT`
-           4. `-A AEGIS-PS-EGRESS -s 172.31.240.3 -j DROP`
-           5. `-A AEGIS-PS-EGRESS -s 172.31.242.2 -j DROP`
-         - `AEGIS-PS-INPUT`:
-           1. `-A AEGIS-PS-INPUT -s 172.31.240.3 -j DROP`
-           2. `-A AEGIS-PS-INPUT -s 172.31.242.2 -j DROP`
-       - Ensure anchors in calling chains:
-         - If `iptables -C DOCKER-USER -j AEGIS-PS-EGRESS` fails, insert at top: `iptables -I DOCKER-USER 1 -j AEGIS-PS-EGRESS`
-         - If `iptables -C INPUT -j AEGIS-PS-INPUT` fails, insert at top: `iptables -I INPUT 1 -j AEGIS-PS-INPUT`
+       - Creates chains `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
+       - Flushes custom chains.
+       - Adds established/related accept, connector->gateway TCP/8080 accept, verified Cloudflare TCP/7844 accepts, and terminal drops.
+       - Adds interface and IP drops to `AEGIS-PS-INPUT`.
+       - Inserts jump rules into `DOCKER-USER` and `INPUT` idempotently.
      - Subcommand `validate`:
-       - Check chains exist (`iptables -L AEGIS-PS-EGRESS -n`, `iptables -L AEGIS-PS-INPUT -n`).
-       - Check jump rules exist in `DOCKER-USER` and `INPUT`.
-       - Verify rule count and ordering.
-       - Exit 0 if completely valid; exit 1 if missing or partial.
+       - Verifies chains, anchor jumps, rule ordering, and counter availability.
+       - Exits 0 on complete valid state; exits 1 on partial, drifted, or missing rules.
      - Subcommand `remove`:
-       - Delete jump rules from `DOCKER-USER` and `INPUT`.
-       - Flush `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
-       - Delete `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT` chains.
+       - Removes jump anchors, flushes custom chains, and deletes chains.
   3. Run test command:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
@@ -367,12 +396,13 @@ Cloudflare edge network (region1 / region2)
      git diff --check
      ```
   5. Checkpoint commit:
-     `feat(idea1): implement s5.5 task-owned firewall tooling`
+     `feat(idea1): implement task-owned s5.5 firewall tooling in s5.5-d`
 
 ---
 
-### TASK 6: Host INPUT Guard Implementation + Negative Tests
+### TASK 7: Host INPUT Guard Implementation + Negative Tests
 
+- **Canonical Phase:** `S5.5-D`
 - **Goal:** Deepen validation of the host `INPUT` guard `AEGIS-PS-INPUT` to guarantee no packet from `172.31.240.3` or `172.31.242.2` can reach host administration services, Docker bridge IPs, SSH, PostgreSQL, or local resolvers without explicit authorization.
 - **Files:**
   - Modify: `gateway/public-share/production/s5-5-firewall.sh`
@@ -381,33 +411,29 @@ Cloudflare edge network (region1 / region2)
   - Consumes: Host interface configuration, input packet filtering rules.
   - Produces: Verified host-input protection layer with automated negative assertions.
 - **Granular TDD Steps:**
-  1. Add negative test cases to `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`:
-     - Assert that any packet from connector edge (`172.31.240.3`) arriving on bridge `aegis_public_share_edge` addressed to gateway IP `172.31.240.1` is dropped.
-     - Assert that any packet from connector egress (`172.31.242.2`) arriving on bridge `aegis-ps-eg` addressed to host IP `172.31.242.1` or host physical IP is dropped.
-     - Assert that DNS queries to host `127.0.0.1` or `172.31.242.1:53` are denied unless exact measured resolver path is explicitly approved.
-  2. Run test and verify failure:
+  1. Add negative test cases in `publicShareS55FirewallContract.test.js`:
+     - Assert drop of connector -> host bridge `.1` (`172.31.240.1`, `172.31.242.1`).
+     - Assert drop of connector -> host physical IP listeners (SSH, Docker API).
+     - Assert drop of connector -> Drive `172.31.241.3:8001`, PostgreSQL `5432`, upstream subnet `172.31.241.0/29`.
+     - Assert drop of connector -> UDP/7844, TCP/443, and non-allowlisted Internet.
+  2. Update `s5-5-firewall.sh` to enforce explicit bridge interface filtering (`-i aegis-ps-eg`, `-i aegis_public_share_edge`).
+  3. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS55FirewallContract.test.js
      ```
-     Expected failure on any missing input guard assertion.
-  3. Update `s5-5-firewall.sh` to enforce interface-level source matching (`-i aegis-ps-eg -s 172.31.242.2 -j DROP`, etc.).
-  4. Run test and verify PASS:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55FirewallContract.test.js
-     ```
-  5. Run diff check:
+  4. Run diff check:
      ```bash
      git diff --check
      ```
-  6. Checkpoint commit:
-     `feat(idea1): harden host input guard and negative firewall rules`
+  5. Checkpoint commit:
+     `feat(idea1): enforce host input guard and negative firewall rules in s5.5-d`
 
 ---
 
-### TASK 7: Connector / Topology Pre-Start Validator
+### TASK 8: Connector / Topology Pre-Start Validator
 
+- **Canonical Phase:** `S5.5-E`
 - **Goal:** Implement `gateway/public-share/production/s5-5-runtime-check.sh` with `--pre-start` mode to inspect topology, firewall validation, and secret file existence/permissions before the connector container is started.
 - **Files:**
   - Create: `gateway/public-share/production/s5-5-runtime-check.sh`
@@ -416,41 +442,30 @@ Cloudflare edge network (region1 / region2)
   - Consumes: Docker network inspect, `s5-5-firewall.sh validate`, host filesystem permissions.
   - Produces: Executable pre-start gate returning 0 only when safe, non-zero on any safety violation.
 - **Granular TDD Steps:**
-  1. Add test cases in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`:
-     - Test `VALIDATOR-PRE-START-CONTRACT`: Asserts script checks:
-       1. `aegis_public_share_edge` exists and contains Gateway `172.31.240.2`.
-       2. `aegis_public_share_upstream` exists and contains Gateway `172.31.241.2` and Drive `172.31.241.3`.
-       3. `aegis_public_share_egress` exists with subnet `172.31.242.0/29`.
-       4. Runs `s5-5-firewall.sh validate` and halts if non-zero.
-       5. Verifies secret token file `/opt/aegis/runtime/public-share/secrets/cloudflared-token` exists, is owned `root:65532` (or root-readable), mode `0440`, and non-empty (without echoing contents).
-       6. Verifies connector is NOT attached to any forbidden network.
-  2. Run test and verify failure:
+  1. Add test cases in `publicShareS55RuntimeContract.test.js`:
+     - Asserts `--pre-start` verifies edge network (Gateway at `.2`), upstream network (Gateway at `.2`, Drive at `.3`), and egress network (`172.31.242.0/29`).
+     - Asserts invocation of `s5-5-firewall.sh validate` and halts on failure.
+     - Asserts verification that `/opt/aegis/runtime/public-share/secrets/cloudflared-token` exists with permissions `0440` and ownership `root:65532` without echoing contents.
+     - Asserts refusal if connector is attached to any forbidden network.
+  2. Implement `gateway/public-share/production/s5-5-runtime-check.sh`.
+  3. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS55RuntimeContract.test.js
      ```
-     Expected failure: missing `s5-5-runtime-check.sh`.
-  3. Implement `gateway/public-share/production/s5-5-runtime-check.sh`:
-     - Provide flags: `--pre-start`, `--runtime`, `--firewall-only`.
-     - Implement fail-closed exit: `exit 1` on any missing check with clear human-readable error.
-     - Never print secret content or token values.
-  4. Run test and verify PASS:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55RuntimeContract.test.js
-     ```
-  5. Run diff check:
+  4. Run diff check:
      ```bash
      git diff --check
      ```
-  6. Checkpoint commit:
-     `feat(idea1): implement s5.5 pre-start topology and safety validator`
+  5. Checkpoint commit:
+     `feat(idea1): implement s5.5 pre-start topology validator in s5.5-e`
 
 ---
 
-### TASK 8: systemd Firewall and Connector Lifecycle Units
+### TASK 9: systemd Firewall and Connector Lifecycle Units
 
-- **Goal:** Create systemd units `aegis-public-share-s5-5-firewall.service` and `aegis-public-share-connector.service` to enforce persistent startup ordering, firewall reconciliation, and fail-closed shutdown on drift.
+- **Canonical Phase:** `S5.5-E`
+- **Goal:** Create systemd units `aegis-public-share-s5-5-firewall.service` and `aegis-public-share-connector.service` to enforce persistent startup ordering, firewall reconciliation, and fail-closed shutdown.
 - **Files:**
   - Create: `gateway/public-share/production/systemd/aegis-public-share-s5-5-firewall.service`
   - Create: `gateway/public-share/production/systemd/aegis-public-share-connector.service`
@@ -459,7 +474,7 @@ Cloudflare edge network (region1 / region2)
   - Consumes: Systemd unit semantics, `s5-5-firewall.sh`, `s5-5-runtime-check.sh`, Docker Compose CLI.
   - Produces: Declarative service definitions enforcing: Docker/UFW ready -> firewall apply -> firewall validate -> pre-start check -> connector start.
 - **Granular TDD Steps:**
-  1. Add unit contract tests in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`:
+  1. Add unit contract tests in `publicShareS55FirewallContract.test.js`:
      - Assert `aegis-public-share-s5-5-firewall.service`:
        - `Type=oneshot`, `RemainAfterExit=yes`
        - `After=docker.service ufw.service`
@@ -469,135 +484,53 @@ Cloudflare edge network (region1 / region2)
        - `Requires=aegis-public-share-s5-5-firewall.service`
        - `After=aegis-public-share-s5-5-firewall.service docker.service`
        - `ExecStartPre=/opt/aegis/runtime/public-share/s5-5-runtime-check.sh --pre-start`
-       - `ExecStart` invokes `docker compose` up for `public-share-connector` only
+       - `ExecStart` starts only `public-share-connector`
        - `ExecStop` stops `public-share-connector`
        - `Restart=on-failure`, `RestartSec=5s`
        - `StartLimitBurst=5`, `StartLimitIntervalSec=60s`
-  2. Run test and verify failure:
+  2. Create unit files in `gateway/public-share/production/systemd/`.
+  3. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
      node --test tests/publicShareS55FirewallContract.test.js
-     ```
-     Expected failure: missing unit files.
-  3. Create `aegis-public-share-s5-5-firewall.service` and `aegis-public-share-connector.service` under `gateway/public-share/production/systemd/`.
-  4. Run test and verify PASS:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55FirewallContract.test.js
-     ```
-  5. Run diff check:
-     ```bash
-     git diff --check
-     ```
-  6. Checkpoint commit:
-     `feat(idea1): define systemd lifecycle units for s5.5 firewall and connector`
-
----
-
-### TASK 9: Rollback Tooling and Independent Verification
-
-- **Goal:** Implement and test automated rollback logic ensuring S5.5 objects can be cleanly removed while preserving S5.4 Gateway, Drive State B, database, and internal sharing.
-- **Files:**
-  - Create: `gateway/public-share/production/rollback-s5-5.sh`
-  - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`
-- **Interfaces:**
-  - Consumes: Docker CLI, `s5-5-firewall.sh remove`.
-  - Produces: Validated, safe rollback script removing only S5.5 components in reverse order.
-- **Granular TDD Steps:**
-  1. Add rollback contract tests in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`:
-     - Assert rollback steps:
-       1. Stop and disable `aegis-public-share-connector.service`.
-       2. Stop and remove container `public-share-connector`.
-       3. Run `s5-5-firewall.sh remove` (removes `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`).
-       4. Verify network `aegis_public_share_egress` has zero endpoints; fail if endpoints remain.
-       5. Remove network `aegis_public_share_egress`.
-       6. Verify `docker-compose.s5-4.yml` services (`drive`, `public-share-gateway`) are NOT stopped or removed.
-       7. Forbid `docker compose down`, `prune`, or volume removal.
-  2. Run test and verify failure:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55RuntimeContract.test.js
-     ```
-     Expected failure: missing rollback script or contract assertions.
-  3. Implement `gateway/public-share/production/rollback-s5-5.sh`:
-     - Implements exact step-by-step removal with strict checks.
-     - Protects against accidental network removal if containers are attached.
-  4. Run test and verify PASS:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55RuntimeContract.test.js
-     ```
-  5. Run diff check:
-     ```bash
-     git diff --check
-     ```
-  6. Checkpoint commit:
-     `feat(idea1): implement s5.5 connector-only rollback tooling`
-
----
-
-### TASK 10: Repository Security Regression and Credential Leakage Checks
-
-- **Goal:** Build an automated security regression test scanning all repository files and staged diffs for secret literals, unapproved ports, and protocol drift.
-- **Files:**
-  - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js`
-- **Interfaces:**
-  - Consumes: Entire `gateway/public-share/production/` tree and repository commit diffs.
-  - Produces: Automated leakage detection and security invariant verification.
-- **Granular TDD Steps:**
-  1. Add checks to `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js`:
-     - Test `SECRET-LITERAL-SCAN`: Regex search across all files in `gateway/public-share/production/` and `docs/superpowers/` for JWT patterns (`eyJ[A-Za-z0-9_-]{10,}`), token placeholders used as real values, `TUNNEL_TOKEN`, `--token [A-Za-z0-9]`, and private keys.
-     - Test `NO-PUBLISHED-PORTS`: Parse all YAML files in `gateway/public-share/production/` and verify no `ports:` key exists.
-     - Test `NO-UDP-7844`: Scan Compose and firewall scripts to assert UDP/7844 is not permitted.
-     - Test `NO-TCP-443`: Scan Compose and firewall scripts to assert TCP/443 is not permitted.
-     - Test `TOKEN-FILE-ONLY`: Verify only `--token-file /run/secrets/cloudflared-token` is referenced.
-  2. Run test command:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareSecurityRegression.test.js
-     ```
-     Expected output: ALL tests PASS.
-  3. Run full security suite:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     npm test
      ```
   4. Run diff check:
      ```bash
      git diff --check
      ```
   5. Checkpoint commit:
-     `test(idea1): enforce credential secrecy and protocol security regression gates`
+     `feat(idea1): define s5.5 systemd firewall and connector units in s5.5-e`
 
 ---
 
-### TASK 11: Production Runbook Update
+### TASK 10: Periodic Drift Fail-Closed Enforcement Timer & Service
 
-- **Goal:** Update `gateway/public-share/production/README.md` to document the 4-file Compose layering order, secret setup procedure, firewall installation, systemd activation, and independent rollback instructions.
+- **Canonical Phase:** `S5.5-E`
+- **Goal:** Implement persistent, automated drift enforcement that periodically verifies firewall integrity and connector network attachments, immediately stopping the connector if drift occurs while keeping Gateway and Drive operational.
 - **Files:**
-  - Modify: `gateway/public-share/production/README.md`
+  - Create: `gateway/public-share/production/systemd/aegis-public-share-drift.service`
+  - Create: `gateway/public-share/production/systemd/aegis-public-share-drift.timer`
+  - Modify: `gateway/public-share/production/s5-5-runtime-check.sh`
+  - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`
 - **Interfaces:**
-  - Consumes: Tasks 1–10 completed artifacts and interfaces.
-  - Produces: Complete, human- and agent-verifiable operational documentation.
+  - Consumes: Systemd timer/service framework, `s5-5-runtime-check.sh --enforce-drift`.
+  - Produces: Periodic fail-closed watchdog stopping `public-share-connector` on any unauthorized attachment or missing firewall rule.
 - **Granular TDD Steps:**
-  1. Write failing documentation test in `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`:
-     - Asserts `gateway/public-share/production/README.md` documents:
-       - Exact 4-file Compose order:
-         1. `/opt/aegis/runtime/docker-compose.production.yml`
-         2. `/opt/aegis/runtime/public-share/drive-s5-3.yml`
-         3. `/opt/aegis/runtime/public-share/drive-gateway-s5-4.yml`
-         4. `/opt/aegis/runtime/public-share/connector-s5-5.yml`
-       - Secret storage path `/opt/aegis/runtime/public-share/secrets/cloudflared-token` with permissions `0440` and ownership `root:65532`.
-       - Explicit warning that Production mutation requires separate owner authorization.
-       - Exact command sequence for firewall `apply`, `validate`, `remove`.
-       - Exact command sequence for S5.5 rollback.
-  2. Run test and verify failure:
-     ```bash
-     cd IDEA1-AEGIS_Drive_LC
-     node --test tests/publicShareS55RuntimeContract.test.js
-     ```
-     Expected failure on README assertions.
-  3. Update `gateway/public-share/production/README.md` to add S5.5 operational sections.
+  1. Add tests in `publicShareS55RuntimeContract.test.js`:
+     - Assert `aegis-public-share-drift.timer`:
+       - `OnBootSec=1min`
+       - `OnUnitActiveSec=60s`
+       - `AccuracySec=15s`
+       - `Unit=aegis-public-share-drift.service`
+     - Assert `aegis-public-share-drift.service`:
+       - `Type=oneshot`
+       - `ExecStart=/opt/aegis/runtime/public-share/s5-5-runtime-check.sh --enforce-drift`
+     - Test Drift Simulation:
+       - On detected drift (missing rule, unauthorized network attachment): asserts script issues `systemctl stop aegis-public-share-connector.service` (or `docker compose stop public-share-connector`).
+       - Asserts Gateway and Drive containers are NEVER targeted for stopping.
+       - Asserts firewall rules are NOT automatically weakened.
+  2. Implement `aegis-public-share-drift.service` and `aegis-public-share-drift.timer`.
+  3. Implement `--enforce-drift` in `s5-5-runtime-check.sh`.
   4. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
@@ -608,52 +541,164 @@ Cloudflare edge network (region1 / region2)
      git diff --check
      ```
   6. Checkpoint commit:
-     `docs(idea1): update production runbook for s5.5 connector and firewall lifecycle`
+     `feat(idea1): implement periodic drift fail-closed enforcement in s5.5-e`
 
 ---
 
-### TASK 12: Canonical Obsidian S5.5-C Checkpoint
+### TASK 11: Connector-Only Rollback Tooling
 
-- **Goal:** Reconcile canonical Obsidian vault notes (`idea1-status.md`, `idea1-public-share-architecture.md`, `idea1-moc.md`) to record the completion of the S5.5-C implementation plan, affirm zero Production mutation, and maintain G5 as OPEN.
+- **Canonical Phase:** `S5.5-E`
+- **Goal:** Implement and test automated rollback logic ensuring S5.5 objects can be cleanly removed while preserving S5.4 Gateway, Drive State B, database, and internal sharing.
 - **Files:**
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md`
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+  - Create: `gateway/public-share/production/rollback-s5-5.sh`
+  - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js`
 - **Interfaces:**
-  - Consumes: Completed plan specification.
-  - Produces: Updated canonical vault state adhering to ownership and collaboration rules.
-- **Granular Steps:**
-  1. Update `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`:
-     - Record S5.5-C state as `IN PROGRESS (PLAN COMPLETE)`.
-     - Update S5.5 Session Register to mark S5.5-C plan closed/pass, awaiting implementation approval.
-     - Reaffirm that `docker-compose.s5-4.yml` is untouched.
-     - Reaffirm that no Production mutation occurred.
-     - Reaffirm G5 remains OPEN, Public Share UI remains OFF, public DNS is unconfigured, and Internet exposure is NONE.
-  2. Update `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md` and `idea1-moc.md` to link to the new plan file.
-  3. Run vault validation:
+  - Consumes: Docker CLI, `s5-5-firewall.sh remove`.
+  - Produces: Validated rollback script removing only S5.5 components in reverse order.
+- **Granular TDD Steps:**
+  1. Add rollback contract tests in `publicShareS55RuntimeContract.test.js`:
+     - Assert rollback steps:
+       1. Stop and disable `aegis-public-share-drift.timer` and `aegis-public-share-connector.service`.
+       2. Stop and remove container `public-share-connector`.
+       3. Run `s5-5-firewall.sh remove`.
+       4. Verify network `aegis_public_share_egress` has zero endpoints; refuse removal if endpoints remain.
+       5. Remove network `aegis_public_share_egress`.
+       6. Verify `drive` and `public-share-gateway` are untouched.
+       7. Forbid `docker compose down`, `prune`, or volume removal.
+  2. Implement `gateway/public-share/production/rollback-s5-5.sh`.
+  3. Run test and verify PASS:
      ```bash
-     node scripts/validate-vault.mjs
+     cd IDEA1-AEGIS_Drive_LC
+     node --test tests/publicShareS55RuntimeContract.test.js
      ```
-     Expected output: `Vault validation passed with 2 warning(s)` (pre-existing canvas warnings).
-  4. Run collaboration policy suite:
+  4. Run diff check:
      ```bash
-     node --test tests/collaborationPolicy.test.mjs
+     git diff --check
      ```
-     Expected output: 24 tests passed, 0 failed.
+  5. Checkpoint commit:
+     `feat(idea1): implement s5.5 connector-only rollback tooling in s5.5-e`
+
+---
+
+### TASK 12: Credential Secrecy and Security Regression Matrix
+
+- **Canonical Phase:** `S5.5-E`
+- **Goal:** Build automated security regression tests scanning repository files and commit diffs for actual credential values and unsafe runtime patterns without false-positive failures on legitimate documentation terminology.
+- **Files:**
+  - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js`
+- **Interfaces:**
+  - Consumes: Repository trees, staged diffs, configuration files.
+  - Produces: Precise secret-leakage detection and protocol enforcement.
+- **Pattern Discrimination Specification:**
+  - Forbidden runtime patterns:
+    - Environment assignment: `/(TUNNEL_TOKEN\s*=\s*\S+|TUNNEL_TOKEN:\s*\S+)/i`
+    - Inline token passing: `/--token\s+(?!file)[A-Za-z0-9_-]{20,}/`
+    - Token/JWT literal payload: `/eyJh[A-Za-z0-9_-]{15,}/`
+    - Private key blocks: `/-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/`
+    - Any tracked file under secret paths: `gateway/public-share/production/secrets/` or `/opt/aegis/runtime/public-share/secrets/`
+  - Permitted documentation patterns:
+    - Explanatory text discussing `TUNNEL_TOKEN` or `--token-file` without credential values
+    - Test assertions verifying rejection of `TUNNEL_TOKEN`
+- **Granular TDD Steps:**
+  1. Add precise regex patterns to `publicShareSecurityRegression.test.js`.
+  2. Verify test PASSES against current design and spec documentation (no false positives).
+  3. Verify test FAILS when synthetic secret values or env keys are introduced into test fixtures.
+  4. Run test suite:
+     ```bash
+     cd IDEA1-AEGIS_Drive_LC
+     node --test tests/publicShareSecurityRegression.test.js
+     ```
+     Expected output: ALL tests PASS.
   5. Run diff check:
      ```bash
      git diff --check
      ```
   6. Checkpoint commit:
-     `docs(idea1): update canonical obsidian notes for s5.5 implementation plan`
+     `test(idea1): implement precise secret scan and security regression matrix in s5.5-e`
 
 ---
 
-## Verification Plan
+### TASK 13: Production Runbook Update
+
+- **Canonical Phase:** `S5.5-E`
+- **Goal:** Update `gateway/public-share/production/README.md` to document the 4-file Compose layering order, secret setup procedure, firewall installation, drift management, and independent rollback.
+- **Files:**
+  - Modify: `gateway/public-share/production/README.md`
+- **Interfaces:**
+  - Consumes: Completed S5.5-C, D, E artifacts.
+  - Produces: Operational documentation with explicit warnings that Production mutation requires separate authorization.
+- **Granular TDD Steps:**
+  1. Add documentation assertions in `publicShareS55RuntimeContract.test.js`:
+     - Verifies 4-file Compose order:
+       1. `docker-compose.production.yml`
+       2. `drive-s5-3.yml`
+       3. `drive-gateway-s5-4.yml`
+       4. `connector-s5-5.yml` (copied byte-for-byte from `docker-compose.s5-5.yml`)
+     - Verifies secret token path `/opt/aegis/runtime/public-share/secrets/cloudflared-token` with permissions `0440` and owner `root:65532`.
+     - Verifies systemd unit installation, drift timer setup, and rollback instructions.
+  2. Update `gateway/public-share/production/README.md`.
+  3. Run test and verify PASS:
+     ```bash
+     cd IDEA1-AEGIS_Drive_LC
+     node --test tests/publicShareS55RuntimeContract.test.js
+     ```
+  4. Run diff check:
+     ```bash
+     git diff --check
+     ```
+  5. Checkpoint commit:
+     `docs(idea1): update production runbook for s5.5 lifecycle and drift guard in s5.5-e`
+
+---
+
+### TASK 14: Production Runtime & Isolation Acceptance (PRODUCTION GATED)
+
+- **Canonical Phase:** `S5.5-F`
+- **Execution Condition:** REQUIRES SEPARATE OWNER AUTHORIZATION. MUST NOT BE EXECUTED DURING REPOSITORY PHASES.
+- **Goal:** Execute owner-authorized Production deployment of the S5.5 connector on `aegis-system` and capture positive and negative isolation evidence.
+- **Verification Evidence Required:**
+  - Connector running on edge `172.31.240.3` and egress `172.31.242.2` only.
+  - Local readiness check (`cloudflared tunnel ready`) passing against `127.0.0.1:20241`.
+  - Gateway reachability (`172.31.240.2:8080`) from connector.
+  - Negative probes from connector namespace confirming refusal to Drive direct, PostgreSQL, upstream subnet, host bridge IPs, UDP/7844, and TCP/443.
+  - Rule counter increments on `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
+- **Checkpoint Commit:**
+  `docs(idea1): record s5.5-f production runtime acceptance evidence`
+
+---
+
+### TASK 15: Production Restart & Rollback Acceptance (PRODUCTION GATED)
+
+- **Canonical Phase:** `S5.5-G`
+- **Execution Condition:** REQUIRES SEPARATE OWNER AUTHORIZATION.
+- **Goal:** Validate restart persistence (host reboot, Docker restart, UFW reload) and execute connector-only rollback to prove S5.4 Gateway and Drive State B remain fully functional.
+- **Verification Evidence Required:**
+  - Docker daemon restart maintains fail-closed firewall ordering.
+  - Systemd drift timer halts connector when an intentional drift is introduced.
+  - Clean execution of `rollback-s5-5.sh` removes only S5.5 objects and restores pristine S5.4 state.
+- **Checkpoint Commit:**
+  `docs(idea1): record s5.5-g restart and rollback acceptance evidence`
+
+---
+
+### TASK 16: Canonical Obsidian Closeout & Final Receipt
+
+- **Canonical Phase:** `S5.5-H`
+- **Goal:** Perform final canonical Obsidian vault reconciliation across all completed evidence and generate exactly ONE immutable task receipt under `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/`.
+- **Files:**
+  - Create: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/YYYY-MM-DD_HHMMSS_kla_public-share-s5-5-cloudflared-egress-isolation.md`
+  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
+  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md`
+  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+- **Receipt Rule:** Exactly one final receipt is created in S5.5-H. No receipt is created in S5.5-C, D, E, F, or G.
+- **Checkpoint Commit:**
+  `docs(idea1): close public share s5.5 connector isolation with final receipt`
+
+---
+
+## Complete Verification Plan
 
 ### Automated Test Gates
-
-Execute from repository root:
 
 ```bash
 # 1. Vault integrity and link validation
@@ -666,26 +711,34 @@ node --test tests/collaborationPolicy.test.mjs
 cd IDEA1-AEGIS_Drive_LC
 node --test tests/publicShareS54RuntimeContract.test.js
 
-# 4. S5.5 runtime contract tests
+# 4. Pinned image contract test
+node --test tests/publicShareCloudflaredPin.test.js
+
+# 5. Authoritative transport allowlist schema test
+node --test tests/publicShareCloudflareEndpoints.test.js
+
+# 6. S5.5 runtime & topology contract tests
 node --test tests/publicShareS55RuntimeContract.test.js
 
-# 5. S5.5 firewall and systemd contract tests
+# 7. S5.5 firewall & systemd contract tests
 node --test tests/publicShareS55FirewallContract.test.js
 
-# 6. Public share security regression matrix
+# 8. Public share security regression matrix (precise regex)
 node --test tests/publicShareSecurityRegression.test.js
 
-# 7. Gateway structural tests
+# 9. Gateway structural tests
 node --test tests/publicShareGatewayStructure.test.js
 
-# 8. Full IDEA1 test suite and build
+# 10. Full IDEA1 test suite and build
 npm test
 npm run build
 ```
 
 ### Manual / Structural Inspection Gates
 
-1. Verify `git diff origin/main...HEAD -- gateway/public-share/production/docker-compose.s5-4.yml` produces no diff.
-2. Verify no file contains token-like strings (`grep -rn "eyJ" gateway/ docs/`).
-3. Verify no task executes any remote Docker, SSH, or Cloudflare commands during S5.5-C.
-4. Verify Draft PR #118 is updated with honest progress report.
+1. Verify `git diff origin/main...HEAD -- gateway/public-share/production/docker-compose.s5-4.yml` produces NO diff.
+2. Verify `cloudflared-pin.json` contains no fabricated placeholder digests.
+3. Verify `cloudflare-endpoints.json` is verified and authoritative before firewall code is committed (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`).
+4. Verify security scan does not reject explanatory documentation.
+5. Verify periodic drift timer and service are tested for fail-closed behavior.
+6. Verify no Production commands are run during repository phases C, D, E.

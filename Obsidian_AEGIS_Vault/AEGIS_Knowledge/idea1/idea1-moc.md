@@ -56,8 +56,8 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
   Gateway, and dedicated edge/upstream networks are active without a host port
   or Internet route. S5.5-A preflight and the owner-approved S5.5-B design are
-  **CLOSED / PASS**; S5.5-C implementation plan is **CLOSED / PASS**;
-  runtime implementation is not started and requires separate approval.
+  **CLOSED / PASS**; implementation plan is established;
+  runtime phases S5.5-C through S5.5-H are not started and require separate approval.
   Egress, real `cloudflared`, host firewall isolation, public DNS/TLS, external
   acceptance, and UI activation are not implemented. Public Internet Share
   therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
