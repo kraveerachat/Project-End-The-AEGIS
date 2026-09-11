@@ -121,9 +121,12 @@ egress_rules() {
   echo "-s ${CONNECTOR_EGRESS_IP} -j DROP"
 }
 
-# Host INPUT guard: nothing from either connector address may reach a
-# host-local listener (SSH, Docker API, resolvers, bridge gateway addresses or
-# any other host service), on the connector bridges or any other interface.
+# Host INPUT guard: nothing from either connector address may reach ANY
+# host-local listener, on the connector bridges or any other interface. The
+# enforcement is the generic source-based deny, not an inventory of
+# destinations; measured listeners (host SSH/HTTP/HTTPS, the service on the
+# default docker bridge, and the resolver stubs) are acceptance evidence only,
+# and the guard holds equally for anything that starts listening later.
 #
 # S5.5 owns the egress network outright, so host INPUT from that whole bridge is
 # denied. The edge network is shared with the S5.4 gateway, so only the
@@ -131,9 +134,15 @@ egress_rules() {
 # The last two rules are interface-independent, so the guard still holds if the
 # connector ever appears on an unexpected interface.
 #
-# No DNS exception is granted. A connector query to a host resolver, including
-# the bridge gateway address, is denied here; the real Production resolver path
-# must be measured and reconciled before S5.5-F activation.
+# The egress bridge is a designed future interface: aegis_public_share_egress
+# does not exist on Production yet. The measured edge and upstream bridges carry
+# no IPv4 host address (internal, gateway_mode_ipv4=isolated), so these rules are
+# a forward-looking guard rather than a description of current host routing.
+#
+# No DNS exception is granted. Host resolver configuration has been measured
+# (systemd-resolved stubs with public uplinks), but the connector/container DNS
+# path has NOT been measured, so every connector DNS query stays denied until
+# that path is measured and reconciled before S5.5-F activation.
 input_rules() {
   local edge_bridge="$1"
   echo "-i ${edge_bridge} -s ${CONNECTOR_EDGE_IP} -j DROP"

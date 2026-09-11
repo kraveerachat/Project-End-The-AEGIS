@@ -35,6 +35,18 @@ const CONNECTOR_EGRESS = '172.31.242.2/32'
 const GATEWAY_EDGE = '172.31.240.2/32'
 const EGRESS_BRIDGE = 'aegis-ps-eg'
 // Measured Production evidence only. The resolver must derive this, never embed it.
+//
+// Read-only preflight measured the edge bridge as br-c76a97580271 and the
+// upstream bridge as br-a96e511142c9. Both carry NO IPv4 host address (IPv6
+// link-local only; internal=true, gateway_mode_ipv4=isolated), so 172.31.240.1
+// is a DESIGNED address and NOT a current Production host-local bridge gateway.
+// aegis_public_share_egress is still ABSENT, so 172.31.242.1 and the bridge
+// aegis-ps-eg are DESIGNED FUTURE topology targets, not measured runtime facts.
+//
+// Measured host listeners: 192.168.10.10 on 22/80/443, 172.18.0.1:18077, and
+// the resolver stubs 127.0.0.53:53 / 127.0.0.54:53. TCP 2375, 2376, 5432, 8001,
+// 8080 and 7844 were NOT observed listening - which is not a claim that the
+// Docker API is absent, only that those TCP ports were not listening.
 const EDGE_NETWORK_ID = 'c76a975802719cac673e9c4a9ed6d39eb1cd5820d90dcee8e4dfca590a40db50'
 const DERIVED_EDGE_BRIDGE = 'br-c76a97580271'
 
@@ -298,8 +310,26 @@ test('FIREWALL-APPLY builds the exact egress policy in order', () => {
 test('FIREWALL-ANCHOR-JUMPS DOCKER-USER and INPUT jump first', () => {
   const h = harness()
   try {
+    // Seed the traversal the Production baseline already has: DOCKER-USER ->
+    // DOCKER-FORWARD, and UFW's chains hanging off INPUT. Our anchors must land
+    // ahead of both, or a permissive UFW rule could be evaluated first.
+    h.writeState(h.rawState()
+      + 'CHAIN|ufw-before-input\n'
+      + 'CHAIN|ufw-after-input\n'
+      + 'RULE|DOCKER-USER|-j DOCKER-FORWARD\n'
+      + 'RULE|INPUT|-j ufw-before-input\n'
+      + 'RULE|INPUT|-j ufw-after-input\n')
+
     assert.equal(h.run('apply').status, 0)
     const dockerUser = h.rules('DOCKER-USER')
+    assert.equal(dockerUser.indexOf(`-j ${EGRESS_CHAIN}`) < dockerUser.indexOf('-j DOCKER-FORWARD'), true,
+      'the egress anchor must precede Docker forwarding')
+
+    const seededInput = h.rules('INPUT')
+    assert.equal(seededInput.indexOf(`-j ${INPUT_CHAIN}`) < seededInput.indexOf('-j ufw-before-input'), true,
+      'the input anchor must precede the existing UFW chains')
+    assert.equal(seededInput.includes('-j ufw-before-input'), true, 'UFW chains must be preserved')
+    assert.equal(seededInput.includes('-j ufw-after-input'), true, 'UFW chains must be preserved')
     assert.equal(dockerUser[0], `-j ${EGRESS_CHAIN}`,
       'the egress anchor must be first in DOCKER-USER, before Docker forwarding')
     assert.equal(dockerUser.filter((r) => r === `-j ${EGRESS_CHAIN}`).length, 1,
@@ -537,17 +567,29 @@ test('FIREWALL-INPUT-GUARD denies every host-local destination from the connecto
     assert.equal(h.run('apply').status, 0)
     const rules = h.rules(INPUT_CHAIN)
 
-    const hostTargets = [
-      ['edge bridge gateway address', '172.31.240.1', 'tcp', 53],
-      ['egress bridge gateway address', '172.31.242.1', 'udp', 53],
-      ['host SSH', '10.0.0.5', 'tcp', 22],
-      ['host Docker API', '10.0.0.5', 'tcp', 2375],
-      ['host Docker API over TLS', '10.0.0.5', 'tcp', 2376],
-      ['host local resolver', '127.0.0.53', 'udp', 53],
-      ['host administrative listener', '10.0.0.5', 'tcp', 9090],
-      ['unrelated host interface', '192.168.10.10', 'tcp', 443],
-      ['host loopback', '127.0.0.1', 'tcp', 8080],
+    // MEASURED: host surfaces actually observed listening on the Production
+    // host by read-only preflight. These are the real acceptance targets.
+    const measuredHostTargets = [
+      ['measured host SSH', '192.168.10.10', 'tcp', 22],
+      ['measured host HTTP', '192.168.10.10', 'tcp', 80],
+      ['measured host HTTPS', '192.168.10.10', 'tcp', 443],
+      ['measured host service on the default docker bridge', '172.18.0.1', 'tcp', 18077],
+      ['measured host stub resolver', '127.0.0.53', 'udp', 53],
+      ['measured host stub resolver (secondary)', '127.0.0.54', 'udp', 53],
     ]
+
+    // SYNTHETIC / MODEL-ONLY: not observed listening on Production. Retained
+    // only to prove the generic source-based deny holds for ANY destination,
+    // including ports that must never be reachable if something later listens.
+    // Their presence here is NOT evidence that such a listener exists.
+    const syntheticHostTargets = [
+      ['SYNTHETIC/MODEL-ONLY unencrypted Docker API port', '192.168.10.10', 'tcp', 2375],
+      ['SYNTHETIC/MODEL-ONLY Docker API TLS port', '192.168.10.10', 'tcp', 2376],
+      ['SYNTHETIC/MODEL-ONLY administrative listener', '192.168.10.10', 'tcp', 9090],
+      ['SYNTHETIC/MODEL-ONLY host loopback service', '127.0.0.1', 'tcp', 8080],
+    ]
+
+    const hostTargets = [...measuredHostTargets, ...syntheticHostTargets]
 
     for (const iface of [DERIVED_EDGE_BRIDGE, EGRESS_BRIDGE, 'eth0']) {
       for (const src of [CONNECTOR_EDGE_IP, CONNECTOR_EGRESS_IP]) {
@@ -560,12 +602,17 @@ test('FIREWALL-INPUT-GUARD denies every host-local destination from the connecto
       }
     }
 
-    // The whole S5.5-owned egress network is denied host INPUT, not just .2.
+    // MODEL-ONLY: aegis_public_share_egress does not exist on Production yet, so
+    // 172.31.242.1 is the DESIGNED FUTURE EGRESS GATEWAY address, not measured
+    // runtime evidence. This asserts the designed topology, not current state.
     assert.equal(
       evaluate(rules, { iface: EGRESS_BRIDGE, src: '172.31.242.3', dst: '172.31.242.1', proto: 'udp', dport: 53 }),
-      'DROP', 'any egress-network address must be denied host INPUT')
+      'DROP', 'any egress-network address must be denied host INPUT (designed future topology)')
 
-    // The guard must not reach beyond S5.5: the S5.4 gateway keeps its behaviour.
+    // The guard must not reach beyond S5.5: the S5.4 gateway keeps its
+    // behaviour. Destination is MODEL-ONLY - the measured edge bridge carries no
+    // IPv4 host address (internal=true, gateway_mode_ipv4=isolated), so
+    // 172.31.240.1 is a designed address, not a Production host-local surface.
     assert.notEqual(
       evaluate(rules, { iface: DERIVED_EDGE_BRIDGE, src: '172.31.240.2', dst: '172.31.240.1', proto: 'tcp', dport: 53 }),
       'DROP', 'S5.5 must not add a new denial for the S5.4 gateway')
@@ -592,7 +639,7 @@ test('FIREWALL-FORWARD-ISOLATION denies private, upstream and non-allowlisted eg
       ['Drive from the egress side', CONNECTOR_EGRESS_IP, '172.31.241.3', 'tcp', 8001],
       ['the upstream subnet', CONNECTOR_EDGE_IP, '172.31.241.2', 'tcp', 8080],
       ['PostgreSQL', CONNECTOR_EDGE_IP, '172.31.241.3', 'tcp', 5432],
-      ['PostgreSQL anywhere', CONNECTOR_EGRESS_IP, '10.0.0.5', 'tcp', 5432],
+      ['SYNTHETIC/MODEL-ONLY PostgreSQL on any host', CONNECTOR_EGRESS_IP, '192.168.10.10', 'tcp', 5432],
       ['the gateway on another port', CONNECTOR_EDGE_IP, '172.31.240.2', 'tcp', 22],
       ['the private estate', CONNECTOR_EGRESS_IP, '172.18.0.3', 'tcp', 8001],
       ['the drive proxy network', CONNECTOR_EGRESS_IP, '172.19.255.3', 'tcp', 8080],
@@ -626,11 +673,24 @@ test('FIREWALL-DNS-FAIL-CLOSED no DNS exception exists in S5.5-D', () => {
   try {
     assert.equal(h.run('apply').status, 0)
     const egress = h.rules(EGRESS_CHAIN)
-    for (const dst of ['1.1.1.1', '8.8.8.8', '172.31.242.1', '172.31.240.1']) {
+    // 8.8.8.8 and 1.1.1.1 are the MEASURED systemd-resolved uplinks on the host;
+    // 127.0.0.53/.54 are the MEASURED host stubs. The two 172.31.x.1 entries are
+    // MODEL-ONLY designed bridge addresses, not measured host surfaces. Host
+    // resolver configuration is measured; the future CONNECTOR/container DNS
+    // path is NOT, so every one of these stays denied.
+    const dnsTargets = [
+      ['MEASURED host uplink resolver', '8.8.8.8'],
+      ['MEASURED host uplink resolver', '1.1.1.1'],
+      ['MEASURED host stub resolver', '127.0.0.53'],
+      ['MEASURED host stub resolver', '127.0.0.54'],
+      ['MODEL-ONLY designed future egress gateway', '172.31.242.1'],
+      ['MODEL-ONLY designed edge address', '172.31.240.1'],
+    ]
+    for (const [label, dst] of dnsTargets) {
       for (const proto of ['udp', 'tcp']) {
         assert.equal(
           evaluate(egress, { src: CONNECTOR_EGRESS_IP, dst, proto, dport: 53 }), 'DROP',
-          `DNS to ${dst}/${proto} must stay denied until the Production resolver path is measured`)
+          `DNS to ${label} ${dst}/${proto} must stay denied until the Production connector resolver path is measured`)
       }
     }
   } finally { h.cleanup() }
