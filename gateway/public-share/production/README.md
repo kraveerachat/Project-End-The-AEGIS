@@ -218,6 +218,139 @@ sudo stat -c '%F %u %g %a' /opt/aegis/runtime/public-share/secrets/cloudflared-t
 - Never pass the token as a command argument; arguments are readable in `/proc`.
 - Rotate the token in Cloudflare if it is ever printed or copied anywhere.
 
+## First activation — bootstrap the connector STOPPED, before the firewall
+
+> **DO NOT EXECUTE WITHOUT SEPARATE S5.5-F OWNER AUTHORIZATION.**
+
+On first activation the egress network, the `aegis-ps-eg` bridge and the
+connector container all do **not** exist. The firewall deliberately fails closed
+when `aegis-ps-eg` is missing, so the connector object must be created *before*
+the firewall is applied. Creating it is what materialises the network and the
+bridge.
+
+The connector is created **stopped**, validated, and only then started. The
+object that is validated is exactly the object that starts — nothing may create
+or recreate a container after validation.
+
+**Never** use the bring-up form `up -d public-share-connector`: that form belongs only to the S5.4 `drive` and `public-share-gateway` steps above.
+It creates and starts in one step, so the container would begin running before
+the firewall exists and before any validation has happened. That form stays
+forbidden for the connector at every stage, and the systemd unit uses `start`
+for the same reason.
+
+### 1. Prepare the credential
+
+Complete the credential preparation section above first. The regular file must
+exist, owned `root`, GID `65532`, mode `0440`, before anything is created.
+
+### 2. Verify the four-layer model
+
+```bash
+sudo docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
+  -f /opt/aegis/runtime/docker-compose.production.yml \
+  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+  -f /opt/aegis/runtime/public-share/connector-s5-5.yml \
+  config --quiet
+```
+
+### 3. Create the connector ONLY, without starting it
+
+```bash
+sudo docker compose \
+  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
+  --project-name aegis-prod \
+  -f /opt/aegis/runtime/docker-compose.production.yml \
+  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
+  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
+  -f /opt/aegis/runtime/public-share/connector-s5-5.yml \
+  create --no-build --no-recreate --pull missing public-share-connector
+```
+
+Why exactly these flags, on Docker Compose v2:
+
+- `create` creates containers without starting them. The bring-up forms and `run` would start the connector at once, as they correctly do for `drive` and `public-share-gateway` in S5.4.
+  `start` is also wrong at this point, because nothing has been created yet for
+  it to start.
+- naming `public-share-connector` scopes the operation to that one service.
+  `create` has no `--no-deps` flag, and none is needed: the connector declares no
+  `depends_on`, so no other service is implied. Verify this stays true if the
+  overlay ever changes.
+- `--no-recreate` protects any existing container from being recreated, so
+  `drive`, `public-share-gateway` and the database cannot be disturbed.
+- `--no-build` guarantees no image is built.
+- `--pull missing` pulls only when the image is absent. The image is pinned by
+  digest, so a pull can only ever fetch that exact image.
+- `--remove-orphans` is deliberately **not** used; it would delete containers not
+  present in these four files.
+- `--force-recreate` is deliberately **not** used.
+
+### 4. Prove the connector exists and is NOT running
+
+```bash
+sudo docker inspect aegis-prod-public-share-connector-1 \
+  --format 'Status={{.State.Status}} Running={{.State.Running}} Restarts={{.RestartCount}}'
+# expected: Status=created Running=false Restarts=0
+```
+
+Do not continue if `Running` is anything but `false`.
+
+### 5. Prove the egress network now exists
+
+```bash
+sudo docker network inspect aegis_public_share_egress \
+  --format '{{.Name}} {{(index .IPAM.Config 0).Subnet}} {{(index .IPAM.Config 0).Gateway}} {{index .Options "com.docker.network.bridge.name"}}'
+# expected: aegis_public_share_egress 172.31.242.0/29 172.31.242.1 aegis-ps-eg
+ip -brief link show aegis-ps-eg
+```
+
+### 6. Prove the exact attachment and fixed addresses
+
+```bash
+sudo docker inspect aegis-prod-public-share-connector-1 \
+  --format '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}={{$cfg.IPAddress}} {{end}}'
+# expected exactly:
+#   aegis_public_share_edge=172.31.240.3 aegis_public_share_egress=172.31.242.2
+sudo docker inspect aegis-prod-public-share-connector-1 \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}}'
+# expected: aegis-prod/public-share-connector
+```
+
+A third network, a wrong address, or a wrong project/service label means stop and
+roll back — do not start the connector.
+
+### 7-8. Apply and validate the firewall
+
+```bash
+sudo /opt/aegis/runtime/public-share/s5-5-firewall.sh apply
+sudo /opt/aegis/runtime/public-share/s5-5-firewall.sh validate
+```
+
+`aegis-ps-eg` now exists, so the fail-closed interface requirement is satisfied
+for the first time.
+
+### 9. Pre-start validation
+
+```bash
+sudo /opt/aegis/runtime/public-share/s5-5-runtime-check.sh --pre-start
+```
+
+This re-verifies the **same stopped container**: it must exist, carry the
+accepted Compose project and service labels, still be stopped, hold exactly the
+edge and egress attachments on their exact fixed addresses, and the credential
+and firewall must pass.
+
+### 10. Start the validated connector through systemd
+
+```bash
+sudo systemctl start aegis-public-share-connector.service
+```
+
+The unit runs the pre-start validator again and then `start public-share-connector`
+— starting the already-validated object rather than creating a new one.
+
 ## Firewall install and validation
 
 ```bash

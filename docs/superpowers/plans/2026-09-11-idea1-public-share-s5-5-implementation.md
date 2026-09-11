@@ -621,10 +621,24 @@ Cloudflare edge network (region1 / region2)
   - Produces: Precise secret-leakage detection and protocol enforcement.
 - **Pattern Discrimination Specification:**
   - Forbidden runtime patterns:
-    - Environment assignment: `/(TUNNEL_TOKEN\s*=\s*\S+|TUNNEL_TOKEN:\s*\S+)/i`
+    - Environment assignment: `/TUNNEL_TOKEN\s*[:=]\s*["']?[A-Za-z0-9_\-.]{20,}/i`
+      - **Corrected during implementation.** The original
+        `/(TUNNEL_TOKEN\s*=\s*\S+|TUNNEL_TOKEN:\s*\S+)/i` accepted any
+        non-space value, so it self-matched this very specification and any
+        prose quoting the pattern. Requiring a token-shaped run of at least 20
+        token characters still detects real assignments while leaving
+        explanatory text and quoted regex alone. Detection is not weakened.
     - Inline token passing: `/--token\s+(?!file)[A-Za-z0-9_-]{20,}/`
     - Token/JWT literal payload: `/eyJh[A-Za-z0-9_-]{15,}/`
-    - Private key blocks: `/-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/`
+    - Private key blocks: `/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/`
+      - **Corrected during implementation.** The original
+        `/-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/` treated the key type
+        as an ALTERNATIVE to `PRIVATE`, so it only ever matched
+        `-----BEGIN PRIVATE KEY-----` and silently missed every real
+        `BEGIN RSA PRIVATE KEY`, `BEGIN EC PRIVATE KEY` and
+        `BEGIN OPENSSH PRIVATE KEY` header. The key type is a PREFIX of
+        `PRIVATE KEY`, not an alternative to it. Proven by the synthetic
+        negative controls in `publicShareSecurityRegression.test.js`.
     - Any tracked file under secret paths: `gateway/public-share/production/secrets/` or `/opt/aegis/runtime/public-share/secrets/`
   - Permitted documentation patterns:
     - Explanatory text discussing `TUNNEL_TOKEN` or `--token-file` without credential values
