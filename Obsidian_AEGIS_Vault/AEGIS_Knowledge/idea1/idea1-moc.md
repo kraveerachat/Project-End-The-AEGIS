@@ -58,12 +58,15 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   or Internet route. S5.5-A preflight, the owner-approved S5.5-B design,
   S5.5-C repository preparation (cloudflared image pin, contract tests, and
   `docker-compose.s5-5.yml`), S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
-  allowlist artifact, firewall contract tests), and S5.5-E lifecycle tooling and
+  allowlist artifact, firewall contract tests), S5.5-E lifecycle tooling and
   security regressions (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`, systemd units,
-  drift timer, and security test suite) are **CLOSED / PASS** (S5.5-D and S5.5-E
-  repository implementation only); phases S5.5-F through S5.5-H remain not
-  started and require separate owner approval. No Production deployment occurred:
-  egress network and connector remain absent on Production, the Production
+  drift timer, and security test suite), pre-S5.5-F security corrections
+  (destination-scoped established return traffic, fail-closed preflight, exact
+  network metadata, and safe teardown identity/state gates; 34/34 firewall,
+  46/46 runtime, 1267/1186/9 full suite), and the clean current-main sync (HEAD
+  `833f32fc`) are **CLOSED / PASS** (repository only); phases S5.5-F through S5.5-H
+  remain not started and require separate owner approval. No Production deployment
+  occurred: egress network and connector remain absent on Production, the Production
   firewall remains unchanged, and Production systemd is unchanged. Public DNS/TLS,
   external acceptance, and UI activation are not implemented. Public Internet Share
   therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use

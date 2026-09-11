@@ -113,10 +113,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` |
 | Owner | `kla` |
 | Starting SHA | `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` — PR #116 / S5.4 merge |
-| Current state | **IN PROGRESS — S5.5-A through S5.5-E CLOSED / PASS (S5.5-D and S5.5-E repository implementation only); S5.5-F through S5.5-H NOT STARTED** |
+| Current state | **IN PROGRESS — S5.5-A through S5.5-E CLOSED / PASS (S5.5-D and S5.5-E repository implementation only); PRE-S5.5-F SECURITY CORRECTIONS CLOSED / PASS (REPOSITORY ONLY); S5.5 PRE-PRODUCTION MAIN SYNC CLOSED / PASS; S5.5-F through S5.5-H NOT STARTED** |
 | Started | 2026-09-11 |
-| Last accepted checkpoint | S5.4 **CLOSED / PASS** at PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` |
-| Production mutation allowed | **NO — no Production mutation has occurred; S5.5-C, S5.5-D, and S5.5-E are repository-only; runtime phases S5.5-F and S5.5-G require separate owner authorisation** |
+| Last accepted checkpoint | S5.4 **CLOSED / PASS** at PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`; S5.5 repository at `833f32fc1779dcee216fabdf70c61d60650fdf4f` (includes main sync from `ba5b9ff58df535774303a7998c069bb33ac848ac`) |
+| Production mutation allowed | **NO — no Production mutation has occurred; S5.5-C, S5.5-D, S5.5-E, pre-F security corrections, and main sync are repository-only; runtime phases S5.5-F and S5.5-G require separate owner authorisation** |
 | Final S5.5 receipt | Deferred until S5.5-H; this in-progress task currently has zero S5.5 receipts |
 
 ### Goal
@@ -391,18 +391,27 @@ Gateway, the isolated gateway mode on edge and upstream, and the `aegis-ps-eg`
 bridge on egress. Network IDs and derived `br-<id>` names remain deliberately
 unpinned, since a recreated network legitimately gets new ones.
 
-**Safe teardown.** `s5-5-firewall.sh remove` refuses while the connector is
-active, identified by Compose project/service labels rather than display name.
-Running, restarting and paused refuse with the firewall completely unchanged;
-created, exited, dead and absent proceed; any Docker failure that is not
-positively "no such object" fails closed. The guard refuses rather than stopping
-anything - stopping the connector stays with systemd ordering and
-`rollback-s5-5.sh`.
+**Safe teardown.** `s5-5-firewall.sh remove` requires positive proof and exact
+Compose identity (`com.docker.compose.project=aegis-prod`,
+`com.docker.compose.service=public-share-connector`). Only positively safe
+existing states permit firewall removal: `created` and `exited`. These refuse:
+`running`, `restarting`, `paused`, `dead`, `removing`, `unknown`, and any
+malformed state, with the firewall completely unchanged. Wrong Compose identity,
+missing Compose identity, or any Docker failure that is not positively "no such
+object" fails closed. A positively absent connector permits removal / is
+idempotent. The guard refuses only — it never stops, kills, or removes a
+container and never drives systemd. Stopping the connector stays with systemd
+ordering (`BindsTo`/`After`) and `rollback-s5-5.sh`.
 
-GREEN: firewall 30/30, runtime 46/46. The previous scope correction is intact -
-no global established accept, destination-scoped return rules, unrelated traffic
-falls through, unauthorised connector established traffic still hits the terminal
-deny, staging-chain atomicity preserved.
+GREEN: firewall contract 34/34 PASS, runtime contract 46/46 PASS. The previous
+scope correction is intact — no global established accept, destination-scoped
+return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`), unrelated traffic
+falls through, unauthorised connector traffic drops, staging-chain atomicity
+preserved. Full IDEA1 test suite: 1267 tests, 1186 pass, 9 fail (0 new failures,
+same nine pre-existing failures). Security regression suite: 21/21 PASS (four
+scanner matches in `publicShareSecurityRegression.test.js` around synthetic
+negative-control fixtures are deliberately fabricated test strings, not credential
+leaks; 0 tracked real secret paths).
 
 **Gate movement.** `PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK=PASS` on
 owner-run read-only F0B evidence (Compose v5.4.0: `create` supports
@@ -412,6 +421,17 @@ service-scoped). That is CLI capability evidence, **not** permission to execute.
 Production remains UNCHANGED: S5.5 chains absent, connector absent, egress
 absent, S5.5 units absent, public DNS absent.
 
+### S5.5 pre-production main sync
+
+Recorded as **CLOSED / PASS**.
+- `PRE_MERGE_HEAD=26c31a8d81f16977e9fdaa509db8e67bfb779706`
+- `ORIGIN_MAIN_SHA=ba5b9ff58df535774303a7998c069bb33ac848ac`
+- `POST_MERGE_HEAD=833f32fc1779dcee216fabdf70c61d60650fdf4f`
+- Merge method: normal `--no-ff` merge (no rebase, no force push).
+- Conflicts: 0.
+- Overlap with IDEA1 / S5.5: NO (origin/main advance contained IDEA3 documentation/status only).
+- S5.5 files touched by merge: 0.
+
 ### S5.5 Session Register
 
 | ID | Scope | State | Result / evidence | Remaining | Next |
@@ -420,8 +440,10 @@ absent, S5.5 units absent, public DNS absent.
 | S5.5-B | Design / Repository Preparation | **CLOSED / PASS** | Owner-approved specification freezes the separate S5.5 overlay, exact topology, pinned connector, token-file boundary, TCP/7844-only HTTP/2 policy, DOCKER-USER + INPUT isolation, systemd lifecycle, fail-closed gates, tests and connector-only rollback; no Production mutation | owner review of written checkpoint; nine gates remain for later implementation | stop; S5.5-C only after separate owner approval |
 | S5.5-C | Egress / Connector Repository Preparation | **CLOSED / PASS** | Task 1 PASS: `cloudflare/cloudflared:2026.9.0@sha256:b7a6db450ae2e2f773d4fbe9ffb48e7b5fc451e17329daab1b4dda5a2487e2cc` verified live (version floor >= 2026.5.2, linux/amd64, UID/GID 65532:65532, `--token-file`, HTTP/2, `--no-autoupdate`, read-only rootfs, loopback readiness syntax) using disposable local container and fake token. Task 2 PASS: RED contract suite recorded first (7 tests, 6 failing with ENOENT on missing overlay). Task 3 PASS: `docker-compose.s5-5.yml` created consuming verified pin; edge `.240.3`, egress `.242.2`, egress subnet `172.31.242.0/29`, gateway `172.31.242.1`, stable bridge `aegis-ps-eg`, no published ports; Compose render passed; S5.4 overlay unchanged; post-implementation token path corrected to `/opt/aegis/runtime/public-share/secrets/cloudflared-token` (container `/run/secrets/cloudflared-token:ro`); checkpoint `41c113b165e3b4250d6c017d375c86764e220447`; no Production mutation | none for S5.5-C (S5.5-E through S5.5-H remain NOT STARTED) | superseded by the S5.5-D checkpoint |
 | S5.5-D | Firewall Implementation | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** | Task 4 PASS: `cloudflare-endpoints.json` snapshot verified from Cloudflare documentation cross-checked against live A-record resolution of both region hostnames - 20 exact `/32` endpoints, TCP/7844 only, UDP/7844 + TCP/443 + `0.0.0.0/0` + broad provider CIDRs explicitly excluded; gate `CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`; artifact self-declares as a dated point-in-time snapshot requiring re-verification. Task 5 PASS: RED recorded first (13 tests, 0 pass, 13 fail). Task 6 PASS: `s5-5-firewall.sh` implements idempotent `apply`, strict `validate`, scoped `remove`; owns only `AEGIS-PS-EGRESS` + `AEGIS-PS-INPUT` and their two anchors; never flushes INPUT/FORWARD/DOCKER-USER/Docker/UFW; consumes the allowlist instead of embedding endpoints; resolves the edge Linux bridge dynamically via `docker network inspect` (honours `com.docker.network.bridge.name`, else derives `br-${ID:0:12}`) and fails closed if the interface is absent; rebuilds via a fully populated staging chain so the terminal deny never lapses. Task 7 PASS: host INPUT guard denies **any** host-local destination from both connector addresses across interfaces - enforcement is the generic source-based deny, not a destination inventory. Acceptance targets use **measured** host surfaces (`192.168.10.10:22/80/443`, `172.18.0.1:18077`, resolver stubs `127.0.0.53:53` and `127.0.0.54:53`); ports not observed listening (2375/2376/9090/8080) are retained only as SYNTHETIC / MODEL-ONLY generic forbidden-port semantics and are **not** evidence that a Docker API or other listener exists. Forwarding isolation is asserted separately (Drive `:8001`, upstream `/29`, PostgreSQL, private/proxy/VLAN, UDP/7844, TCP/443, non-allowlisted Internet all denied). GREEN: 16 tests, 16 pass, 0 fail. Exercised only against a disposable mock iptables/docker; **no rule installed on any host, Production firewall UNCHANGED, connector and egress network still ABSENT** | Production DNS resolver path measurement; real iptables-nft atomicity and restart/persistence acceptance | S5.5-E only after separate owner approval |
-| S5.5-E | Cloudflared Connector / Lifecycle | **IMPLEMENTED / TESTED — REPOSITORY ONLY** | Tasks 8-13 complete. Task 8: `s5-5-runtime-check.sh --pre-start` fail-closed validator (firewall gate first, edge/upstream/egress topology, connector membership, credential metadata). Task 9: firewall + connector systemd units, connector `BindsTo` the firewall unit. Task 10: drift timer (1min boot / 60s / 15s accuracy) stopping ONLY the connector - `TASK10_TDD_RED_GREEN=PARTIAL`, see deviation note below. Task 11: `rollback-s5-5.sh`, reverse order, egress removed only at zero endpoints, no whole-stack teardown or prune. Task 12: credential secrecy matrix; found and fixed two real defects in the plan's documented scan patterns. Task 13: runbook with the four-layer order, credential preparation and explicit non-authorization banner. **Lifecycle correction applied**: first activation now CREATES the connector stopped (which materialises the egress network and `aegis-ps-eg`), then applies/validates the firewall, then re-validates that SAME stopped object, and the unit uses `start` rather than a bring-up so the validated object is the object that starts. Mock-only throughout; **no unit installed, no container created, no rule applied, Production UNCHANGED** | canonical closure / owner review; `PRODUCTION_DNS_PATH_MEASURED=NO`; firewall atomicity and restart persistence unaccepted | S5.5-F only after separate owner approval |
-| S5.5-F | Runtime / Isolation Acceptance | **NOT STARTED** | — | positive and negative probes | after connector runtime exists |
+| S5.5-E | Cloudflared Connector / Lifecycle | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** | Tasks 8-13 complete. Task 8: `s5-5-runtime-check.sh --pre-start` fail-closed validator (firewall gate first, edge/upstream/egress topology, connector membership, credential metadata). Task 9: firewall + connector systemd units, connector `BindsTo` the firewall unit. Task 10: drift timer (1min boot / 60s / 15s accuracy) stopping ONLY the connector - `TASK10_TDD_RED_GREEN=PARTIAL`, see deviation note below. Task 11: `rollback-s5-5.sh`, reverse order, egress removed only at zero endpoints, no whole-stack teardown or prune. Task 12: credential secrecy matrix; found and fixed two real defects in the plan's documented scan patterns. Task 13: runbook with the four-layer order, credential preparation and explicit non-authorization banner. **Lifecycle correction applied**: first activation now CREATES the connector stopped (which materialises the egress network and `aegis-ps-eg`), then applies/validates the firewall, then re-validates that SAME stopped object, and the unit uses `start` rather than a bring-up so the validated object is the object that starts. Mock-only throughout; **no unit installed, no container created, no rule applied, Production UNCHANGED** | canonical closure / owner review; `PRODUCTION_DNS_PATH_MEASURED=NO`; firewall atomicity and restart persistence unaccepted | PRE-S5.5-F security hardening |
+| PRE-S5.5-F | Security Corrections | **CLOSED / PASS — REPOSITORY ONLY** | Destination-scoped established return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`); fail-closed preflight on both `apply` and `validate` requiring `nf_tables` backend and existing `INPUT` and `DOCKER-USER` host chains; exact network metadata pinned in runtime validator (Name, Driver, Internal, Subnet, Gateway, `gateway_mode_ipv4=isolated` on edge/upstream, `aegis-ps-eg` on egress; network IDs and derived `br-<id>` unpinned); teardown safety requiring positive proof, exact Compose identity (`aegis-prod`/`public-share-connector`), only `created`/`exited` permitting removal, and refusing `running`, `restarting`, `paused`, `dead`, `removing`, `unknown`, or malformed state; firewall contract 34/34 PASS, runtime contract 46/46 PASS; full suite 1267/1186/9 (0 new failures); no Production mutation | none | S5.5 pre-production main sync |
+| S5.5 Sync | Main Synchronization | **CLOSED / PASS** | Normal `--no-ff` merge of `origin/main` (`ba5b9ff58df535774303a7998c069bb33ac848ac`) into `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` resulting in `833f32fc1779dcee216fabdf70c61d60650fdf4f`; 0 conflicts, 0 S5.5 files touched (main advance was IDEA3 documentation/status only); no rebase, no force push | none | S5.5-F1 exact production mutation and rollback plan |
+| S5.5-F | Runtime / Isolation Acceptance | **NOT STARTED** | — | positive and negative probes | S5.5-F1 exact production mutation and rollback plan |
 | S5.5-G | Rollback / Persistence | **NOT STARTED** | — | restart and reverse-order rollback evidence | after S5.5-F |
 | S5.5-H | Final Documentation / Closeout | **NOT STARTED** | — | final canonical reconciliation and exactly one S5.5 receipt | after all S5.5 acceptance |
 

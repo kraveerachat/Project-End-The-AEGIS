@@ -17,9 +17,14 @@ without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
 the service to the public Internet.
 
 Current checkpoint: S5.5-A, S5.5-B, S5.5-C, S5.5-D, and S5.5-E are **CLOSED / PASS**
-(S5.5-D and S5.5-E repository implementation only). Tasks 1–13 are complete and accepted at
-repository commit `c711290e22fcca70a16d8ca24628d4f0ea8b8c41`. S5.5-F through
-S5.5-H remain **NOT STARTED**. No Production mutation has been performed.
+(S5.5-D and S5.5-E repository implementation only). Tasks 1–13 are complete.
+Pre-S5.5-F security corrections (destination-scoped established return rules,
+fail-closed preflight on apply/validate, exact canonical network metadata, and
+safe teardown identity/state gates) and clean current-main synchronization are
+**CLOSED / PASS** at repository HEAD `833f32fc1779dcee216fabdf70c61d60650fdf4f`
+(merged from `origin/main` at `ba5b9ff58df535774303a7998c069bb33ac848ac` with 0
+conflicts). S5.5-F through S5.5-H remain **NOT STARTED**. No Production mutation
+has been performed.
 
 ## Canonical Phase Roadmap
 

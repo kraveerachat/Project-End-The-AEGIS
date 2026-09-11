@@ -387,14 +387,16 @@ either check is left completely untouched rather than half-configured.
 firewall safety gate: a `validate` that passed against the wrong backend would
 let the connector start against rules nothing consults.
 
-`remove` **refuses while the connector is active.** The connector is identified
-by its Compose project and service labels, not by display name. A running,
-restarting or paused connector aborts the teardown with the firewall completely
-unchanged; created, exited, dead or absent proceeds. Any Docker failure that is
-not positively "no such object" fails closed. The guard only refuses - it never
-stops a container. Stopping the connector first remains the job of systemd
-ordering (the connector unit `BindsTo`/`After` the firewall unit) and of
-`rollback-s5-5.sh`.
+`remove` **refuses while the connector is active or indeterminate.**
+The connector is identified by exact Compose project and service labels (`aegis-prod`/`public-share-connector`).
+Only positively safe existing states permit removal: `created` and `exited`.
+These refuse with the firewall completely unchanged: `running`, `restarting`, `paused`,
+`dead`, `removing`, `unknown`, and any malformed state. Wrong or missing Compose identity
+fails closed. Any Docker failure or state uncertainty that is not positively "no such object"
+fails closed. A positively absent connector permits removal (idempotent). The guard only
+refuses — it never stops, kills, or removes a container and never drives systemd. Stopping
+the connector first remains the job of systemd ordering (the connector unit `BindsTo`/`After`
+the firewall unit) and of `rollback-s5-5.sh`.
 
 **Scope boundary.** `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, so
 anything it accepts is authorised for the whole host before Docker and UFW policy
