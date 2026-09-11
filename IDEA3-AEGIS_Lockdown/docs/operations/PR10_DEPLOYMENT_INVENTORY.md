@@ -11,7 +11,8 @@ S1_CHECKPOINT         = recorded in the PR10 Session Register (idea3/idea3-statu
 INVENTORY_DATE        = 2026-09-11 (Asia/Bangkok)
 PRODUCTION_MUTATION   = NONE
 HARDWARE_TESTING      = NOT RUN
-SERVER_ACCESS         = ACCESS_NOT_AVAILABLE (no approved network path from the inventory host)
+SERVER_ACCESS         = initial S1 attempt: ACCESS_NOT_AVAILABLE; 2026-09-12: AVAILABLE for read-only inventory (§2A)
+LIVE_SERVER_INVENTORY = PASS (2026-09-12, read-only) — see §2A
 ARCHITECTURE_DECISIONS = D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12) — see §14; not implemented
 S1_STATE              = IN PROGRESS (remaining gates in §15)
 READY_FOR_PR10_S2     = NO
@@ -41,15 +42,16 @@ change.
 | Label | Meaning in this document |
 |---|---|
 | **PROVEN** | Verified during S1 by a direct read-only command, or by reading current source at `895c79ac` |
-| **OBSERVED** | Recorded in canonical notes or receipts by an earlier task. Carried forward, not re-verified live in S1 |
-| **INFERRED** | Reasoned from PROVEN or OBSERVED facts. Must be confirmed before anyone relies on it |
+| **OBSERVED** | Recorded in canonical notes or receipts by an earlier task and carried forward, **except in §2A**, where OBSERVED means seen on the live server during the 2026-09-12 read-only inventory |
+| **INFERRED** | Reasoned from PROVEN or OBSERVED facts. Must be confirmed before anyone relies on it. §2A uses **INFERRED / FEASIBLE** for feasibility conclusions |
+| **PROPOSED** | Owner-accepted architecture (§14) or a candidate value. Not implemented or deployed |
 | **NOT PROVEN** | No evidence was available in S1 |
 | **NOT TESTED** | Deliberately not exercised in S1 |
 
 ## Summary verdict
 
 - **Feasible; architecture decided.** The target architecture is feasible. The owner accepted decisions D1–D8 on 2026-09-12 (§14). No implementation design exists yet, and S1 still has open gates (§15).
-- **Server not inspected live.** The AEGIS Server is unreachable from the inventory host, so every server fact is carried forward from earlier audited documentation.
+- **Live server inventory: PASS.** The AEGIS Server was unreachable during the initial S1 attempt (§2). A read-only live inventory on 2026-09-12 (§2A) found D3 feasible and D5 feasible with conditions. `/security/`, mTLS, and preservation of the real Core source address are not deployed or not proven.
 - **Arch is a candidate Core host, not a ready one.** It is not yet attached to the final AEGIS network segment, and its hardening is not at a production baseline. D6 makes it a dedicated Core appliance; that work is not implemented.
 - **ESP32 network decided, not built.** The recorded ESP32 control-plane history used a temporary lab network outside the AEGIS VLANs. D1 selects a dedicated private access point on the Core host; it is not implemented.
 - **The relay isolates the server's uplink.** A server-hosted Web therefore cannot sit inside the CUT → RESTORE control loop. **Core, broker, and RESTORE authority must survive a server-side CUT.**
@@ -71,7 +73,12 @@ change.
 Draft PR #118 plans Production network changes for IDEA1. Any PR10
 infrastructure step must be sequenced with it (§7).
 
-## 2. AEGIS Server inventory
+## 2. AEGIS Server inventory (initial S1 attempt, 2026-09-11)
+
+> [!note] Superseded for live facts
+> This section records the initial S1 attempt, when no approved path existed.
+> §2A holds the live read-only inventory of 2026-09-12 and takes precedence for
+> every live fact.
 
 **`SERVER_ACCESS = ACCESS_NOT_AVAILABLE`.** The AEGIS Server is unreachable from
 the inventory host, and no approved remote-access path was active. S1 attempted
@@ -101,6 +108,104 @@ Addresses and paths are left to those infrastructure notes.
 | IDEA3 on the server | none deployed | OBSERVED; live NOT PROVEN |
 | Host Node.js / Python for a non-container Web | unknown | NOT PROVEN |
 | Live listeners, routes, and ports | not measurable | **NOT PROVEN** |
+
+## 2A. Live AEGIS Server inventory — 2026-09-12 (read-only) — `LIVE_SERVER_INVENTORY = PASS`
+
+The owner restored an approved remote-access path, and the inventory used three
+evidence sources:
+
+1. read-only, unprivileged SSH reads over that path with the owner's
+   agent-held key;
+2. root-only read-only commands (container/network/volume listing, firewall
+   listing, `nginx -T`, and a HUB log source-class count), run by the owner in
+   their own session and shared only as public-safe classifications;
+3. repository reads, including the PR #118 branch.
+
+Nothing was changed on the server: no Docker, NGINX, firewall, or
+configuration change, no service restart, no MQTT action, and no hardware
+action. Host addresses, software versions, maintenance details, credentials,
+key fingerprints, and certificate material are deliberately not recorded
+here.
+
+In this section, **OBSERVED** means seen on the live server on 2026-09-12.
+
+| Area | Finding | Label |
+|---|---|---|
+| Access | Approved read-only access is available. The unprivileged account has no Docker or passwordless-sudo rights, so the owner ran the root-only reads | OBSERVED |
+| Platform | Ubuntu Server host with Docker Engine and Docker Compose v2. Host maintenance items were observed and referred to the infrastructure owner; they are outside PR10 | OBSERVED |
+| Production services | Six healthy containers: HUB (NGINX), IDEA1 Drive, IDEA2 Monitor, PostgreSQL, the IDEA1 public-share gateway, and the Twingate connector. No MQTT broker, no IDEA3 component, and no IDEA3 path or volume | OBSERVED |
+| HUB entry | The HUB is the **single host-published browser entry**: port 80 redirects to HTTPS and 443 serves TLS, both reached through Docker address translation. Every other container exposes internal ports only. The HUB owns TLS and the browser-facing security headers | OBSERVED |
+| Active routes | `/drive/` and `/monitor/` exist, and `/monitor/internal` returns 404. **`/security/` does not exist.** No mTLS client-certificate route is deployed. The configuration syntax test passed | OBSERVED |
+| Configuration identity | The host runtime NGINX configuration matches the configuration the HUB container loaded at the observed time | OBSERVED |
+| Networks | Internal-only bridge networks exist (IDEA1 public-share edge and upstream). The shared application bridge is `internal=false`, as previously documented. The HUB is attached only to the shared application bridge and the HUB↔Drive proxy network | OBSERVED |
+| IDEA3 network range | A candidate /29 did not overlap any observed live Docker IPv4 subnet. The final allocation belongs to the Kla/integration owner | OBSERVED (no overlap) · PROPOSED (candidate) |
+| Firewall | Backend `nf_tables`; `INPUT DROP`, `FORWARD DROP`, `OUTPUT ACCEPT`. UFW is active, denying incoming and routed traffic by default. Forwarding passes through `DOCKER-USER` before the Docker and UFW forwarding chains | OBSERVED |
+| S5.5 firewall chains | `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, and `AEGIS-PS-INPUT` comes before the UFW input chains | OBSERVED |
+| S5.5 state | **PARTIALLY PRESENT**: the S5.5 egress network exists (no members) and the `AEGIS-PS-*` chains exist, but the connector is not running and no S5.5 runtime file or systemd unit was observed. S5.5 is neither fully deployed nor fully absent. Whether the chains survive a host reboot is NOT PROVEN | OBSERVED · NOT PROVEN |
+| Persistence | Named Docker volumes for the existing stateful services; HUB configuration and certificates as read-only bind mounts; host backups on a dedicated backup mount. One anonymous volume has an unknown owner and must not be touched | OBSERVED |
+| Client sources at the HUB | The last 24 h of HUB logs contained only Docker-gateway and loopback source classes, with no VLAN-sourced class | OBSERVED |
+| Real Core source address at the HUB | Not established; the future Core → HUB path was not exercised | NOT PROVEN |
+| Core → HUB 443 from VLAN 20 | Not tested; the Core host is not yet attached to VLAN 20 | NOT PROVEN (NOT TESTED) |
+
+**Feasibility:**
+
+- **D3 — FEASIBLE** (INFERRED / FEASIBLE). An IDEA3 Web container behind the
+  HUB at `/security/` can follow the live hardened-container and internal-network
+  pattern. The HUB configuration has no conflicting `/security/` route, and no
+  direct public IDEA3 host port is required. Conditions:
+  - Kla/integration ownership of the `/security/` change in the runtime HUB
+    configuration, plus reconciliation of the existing runtime↔Git drift;
+  - a method for attaching the HUB to the dedicated IDEA3 network: recreate the
+    HUB container, or attach the network at runtime (Kla decides);
+  - final subnet allocation;
+  - an IDEA3 Compose overlay;
+  - NGINX as the single CSP owner for `/security/`, following the live `/drive/`
+    pattern.
+
+  The D3 container, network, and route themselves remain PROPOSED.
+- **D5 — FEASIBLE WITH CONDITIONS** (INFERRED / FEASIBLE).
+  - **The route exists.** The HUB HTTPS 443 path exists (OBSERVED).
+  - **mTLS is the primary machine authentication.** It is PROPOSED and not
+    deployed. The running NGINX verifies client certificates per server block,
+    so the design must choose between optional verification on 443 with a
+    check on the machine path, or a separate server name (Kla decides). The
+    client-certificate CA and lifecycle need an owner.
+  - **Source allowlisting is defense-in-depth only.** Preservation of the real
+    Core source address at the HUB is NOT PROVEN and must be verified on the
+    real path at implementation time.
+- **Host firewall** (INFERRED): no conflict is expected for D3/D5 as decided,
+  since they add no host ports or rules. IDEA3 must never insert host rules
+  ahead of the S5.5 anchors.
+- **PR #118:** there is no repository-file overlap (OBSERVED), but runtime
+  coordination is required (INFERRED). The two share:
+  - the Compose project and its overlay stack;
+  - anchor-first firewall ordering;
+  - the address plan;
+  - HUB maintenance windows.
+
+**`DRIFT_FOUND = YES` (all OBSERVED):**
+
+1. The runtime HUB NGINX configuration differs from Git
+   `HUB-AEGIS_Entry/nginx.conf`. The runtime adds an extra resolver timeout, and
+   its `/monitor/` upstream uses the Docker service name through a variable
+   instead of a fixed address.
+2. S5.5 is partially present on the server while PR #118 is still an unmerged
+   Draft. The S5.4 receipt had recorded the egress network as absent.
+3. The server-side repository checkout predates current `main`.
+4. No real client source class was observed at the HUB.
+
+The shared application bridge being `internal=false` was already documented and
+is not new drift.
+
+```text
+LIVE_SERVER_INVENTORY = PASS
+PR10_S1               = IN PROGRESS
+READY_FOR_PR10_S2     = NO
+S2_STARTED            = NO
+PRODUCTION_MUTATION   = NONE
+HARDWARE_TESTING      = NOT RUN
+PRODUCTION_DEPLOYED   = NO
+```
 
 ## 3. Arch Linux inventory (candidate Core host)
 
@@ -184,7 +289,7 @@ bring any of them down without separate explicit authorization.
 
 | Question | Finding | Evidence |
 |---|---|---|
-| Does the current proxy support `/security/`? | **No route exists** in the repository HUB config; live config NOT PROVEN | PROVEN (repo) / NOT PROVEN (live) |
+| Does the current proxy support `/security/`? | **No route exists** in the repository HUB config or in the live NGINX configuration (2026-09-12, §2A) | PROVEN (repo) / OBSERVED (live, §2A) |
 | Is the Vite base compatible? | **Yes**: `base: '/security/'` | PROVEN |
 | Is Express routing compatible? | **Yes, but it differs from Drive/Monitor.** Production Express mounts API and SPA under `/security` itself, so the proxy must **forward the full path without stripping the prefix**, plus a `/security` → `/security/` redirect | PROVEN (source) |
 | Can the HUB reach IDEA3 Web? | **Not as currently built.** Production Web and the PR9 runtime assume **loopback-only access**, and a containerized HUB cannot reach a host-loopback service | PROVEN (source) + INFERRED |
@@ -212,7 +317,10 @@ bring any of them down without separate explicit authorization.
   the runtime HUB config, and possibly Compose. That requires Kla integration
   review, a declaration in the PR, a rollback, and deliberate reconciliation of
   the Git and runtime copies.
-- **PR #118 sequencing remains relevant.**
+- **PR #118 sequencing remains relevant.** On 2026-09-12 S5.5 was observed
+  PARTIALLY PRESENT on the server (§2A): the egress network and `AEGIS-PS-*`
+  firewall chains exist, the connector is not running, and no S5.5 runtime file
+  or systemd unit was observed.
 - The IDEA3 Core must not depend on IDEA2 services. PR9 already starts Core
   with `--no-detector`.
 - Adding the HUB Security card is a later step, after `/security/` is proven.
@@ -270,8 +378,9 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
 - **Arch candidate host (PROVEN):** the default Web port is occupied by a local
   development instance (irrelevant unless Web is placed on this host); the
   control port is free; the broker port is in use by the existing broker.
-- **AEGIS Server:** **`SERVER_AVAILABLE_PORTS` is NOT PROVEN.** A live read-only
-  listener and firewall inventory is an S2 prerequisite.
+- **AEGIS Server (live, 2026-09-12, §2A):** only the HUB publishes host ports
+  (80/443). The IDEA3 candidate host ports are free, and D3/D5 require no direct
+  IDEA3 host port.
 - **Firewall asymmetry:** host-level services and Docker-published services
   interact with the server's host firewall differently (INFERRED). D3 must
   account for this.
@@ -409,19 +518,27 @@ decision stays subject to the remaining S1 gates in §15.
 
 ## 15. Remaining S1 gates and S2 prerequisites
 
-Owner architecture decisions D1–D8 are **done** (§14, 2026-09-12). S1 stays
-IN PROGRESS, and `READY_FOR_PR10_S2 = NO`, until these gates close in order:
+Owner architecture decisions D1–D8 are **done** (§14, 2026-09-12). The
+authorized read-only live AEGIS Server inventory is **done**
+(`LIVE_SERVER_INVENTORY = PASS`, 2026-09-12, §2A).
 
-1. **An authorized read-only live AEGIS Server inventory** by an authorized
-   operator on an approved path. It covers host identity, interfaces and routes,
-   listeners, container/network/volume names and states, host-firewall status,
-   `.env` variable **names** relevant to HUB/Compose, the live-vs-Git HUB NGINX
-   drift, and host runtime availability. Record it in an owner-controlled
-   location, print no values, and publish only conclusions.
-2. **Kla/integration agreement** on the `/security/` machine route (D5), HUB
-   route ownership and the dedicated HUB↔IDEA3 network (D3), firewall impact,
-   and sequencing relative to PR #118.
-3. **Formal reconciliation** of those results into the S1 architecture gate.
+S1 stays IN PROGRESS, and `READY_FOR_PR10_S2 = NO`, until the one remaining
+gate closes: **the Kla/integration-owner decision and its reconciliation for
+the D3/D5 shared infrastructure.** It covers:
+
+- ownership of the `/security/` location and the D5 machine path in the runtime
+  and Git HUB configurations, including the existing runtime↔Git drift;
+- the dedicated HUB↔IDEA3 network: final subnet allocation, and whether the HUB
+  is recreated or attached at runtime;
+- mTLS placement (optional verification on 443 or a separate server name) and
+  CA ownership;
+- confirmation that IDEA3 adds no host firewall rules ahead of the S5.5
+  anchors;
+- sequencing relative to PR #118 / S5.5, whose infrastructure is observed as
+  partially present.
+
+After Kla decides, the decision is formally reconciled into the S1
+architecture gate.
 
 Implementation conditions carried by the decisions, for later sessions rather
 than S1 gates:
@@ -434,6 +551,7 @@ than S1 gates:
 
 ```text
 D1_D8 = DECIDED / OWNER-ACCEPTED
+LIVE_SERVER_INVENTORY = PASS
 S1 = IN PROGRESS
 READY_FOR_PR10_S2 = NO
 S2_STARTED = NO
@@ -460,6 +578,20 @@ HARDWARE_TESTING = NOT RUN
   which was refused. No publish and no AEGIS topic subscription.
 - **Validation:** `git diff --check`, vault validation, and collaboration-policy
   tests (results in the task record).
+- **Live AEGIS Server inventory (2026-09-12, §2A), all read-only:**
+  - **Unprivileged SSH reads:** platform and runtime versions, storage and mount
+    layout, listener bind classes, and systemd unit presence. Also the published
+    host ports (from process arguments), a structural parse of the runtime
+    Compose files that skipped environment and secret keys, existence checks on
+    the S5.5 runtime files, and the repository checkout commit.
+  - **HUB configuration comparison:** a comment-stripped comparison of the
+    runtime HUB NGINX configuration against Git, made through a temporary local
+    scratch copy that was deleted afterwards.
+  - **Owner-run root reads:** container-to-network attachments, network internal
+    flags, the volume list, UFW status, the iptables backend, policies, and
+    chain order, the NAT rules for 80/443, the nft table list, a redacted
+    `nginx -T`, the host-to-container configuration hash comparison, and HUB log
+    source-class counts.
 
 ## 17. Explicit non-actions
 
@@ -481,4 +613,12 @@ HARDWARE_TESTING = NOT RUN
   not signalled.
 - No environment file, firmware secret, credential file, token, or key content
   read or printed.
+- During the 2026-09-12 live inventory, nothing was changed on the server:
+  - no package update or reboot, even though host maintenance items were
+    pending;
+  - no service restart or reload;
+  - no Docker, NGINX, firewall, routing, file, or permission change;
+  - no `.env`, secret, private-key, certificate, or container-environment read;
+  - no SSH configuration or key-material change; the owner's agent-held key was
+    used for signing only.
 - No final receipt, and no merge.

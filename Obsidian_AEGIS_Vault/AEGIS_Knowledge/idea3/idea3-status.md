@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12. S1 remains IN PROGRESS until the live server inventory and the Kla integration agreement are reconciled into the S1 gate. `READY_FOR_PR10_S2 = NO`, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). S1 remains IN PROGRESS until the Kla/integration-owner decision for the D3/D5 shared infrastructure is made and reconciled. `READY_FOR_PR10_S2 = NO`, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -163,7 +163,7 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
 
-### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; S1 gates open)
+### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; Kla gate open)
 
 Target architecture as defined by the owner on 2026-09-11. It has not yet been
 designed in a repository spec or plan; the S1 inventory is
@@ -194,7 +194,7 @@ Branch: `feat/idea3-pr10-real-deployment` (S1 branch; merged through PR #120, re
 Owner: `music`
 PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
 Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` — GitHub PR #121 (docs-only reconciliation; not S2). Its single receipt, `90-Status/logs/2026-09-11_234455_music_idea3-pr10-postmerge-reconciliation.md`, covers the reconciliation only and is not the PR10 final receipt
-Decision-record branch: `docs/idea3-pr10-d1-d8-architecture-decisions` (docs-only record of the owner-accepted D1–D8; not S2)
+Decision-record branch: `docs/idea3-pr10-d1-d8-architecture-decisions` (docs-only record of the owner-accepted D1–D8 and the S1 live-inventory result; not S2)
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
@@ -206,7 +206,8 @@ Hardware testing: NOT RUN
 PR120                     = MERGED (93170862cbf5b5a802042d12c84944abd39d9123) — documentation checkpoint only
 PR10_STATE                = IN PROGRESS
 D1_D8                     = DECIDED / OWNER-ACCEPTED (2026-09-12) — architecture only, not implemented
-S1                        = IN PROGRESS — live server inventory and Kla integration agreement pending (not PASS, not CLOSED)
+LIVE_SERVER_INVENTORY     = PASS (2026-09-12, read-only)
+S1                        = IN PROGRESS — Kla/integration decision and reconciliation for D3/D5 shared infrastructure pending (not PASS, not CLOSED)
 READY_FOR_PR10_S2         = NO
 S2_STARTED                = NO
 PRODUCTION_DEPLOYED       = NO
@@ -221,16 +222,16 @@ Server at `/security/` and the Python Core on an Arch Linux host, joined by a
 durable, authenticated Server → Core accepted-action boundary. Out of scope for
 S1: deployment, systemd, packages, firewall, proxy, Docker, Twingate, broker
 configuration, MQTT actuation, firmware, and IDEA1/IDEA2/HUB source. Acceptance
-for S1: the owner decides the architecture (D1–D8, done 2026-09-12). Then the
-live server inventory and the Kla integration agreement are reconciled into the
-S1 gate.
+for S1: the owner decides the architecture (D1–D8, done 2026-09-12); the live
+server inventory passes (done 2026-09-12); then the Kla/integration decision for
+the D3/D5 shared infrastructure is reconciled into the S1 gate.
 
 S1 findings (public-safe summary; evidence labels are in the inventory document,
 and host-level specifics are deliberately not published):
 
-- `SERVER_ACCESS = ACCESS_NOT_AVAILABLE`. The AEGIS Server is unreachable from
-  the inventory host. Server facts are carried forward from earlier audited
-  documentation; live server port and reverse-proxy inventory remains NOT PROVEN.
+- The initial S1 attempt had `SERVER_ACCESS = ACCESS_NOT_AVAILABLE`. The
+  read-only live AEGIS Server inventory on 2026-09-12 then passed; see "PR10 S1
+  live AEGIS Server inventory" below.
 - The Arch Core host is a CANDIDATE, NOT READY. It is not yet attached to the
   final AEGIS network segment, its hardening is not at a production baseline, and
   it already hosts an MQTT broker and IDEA2-owned services.
@@ -310,17 +311,18 @@ detailed record is §14 of
 | D7 | One unique `action_id` per accepted incident, with terminal single-shot claims. The claim is an atomic `PENDING_DISPATCH → CORE_CLAIMED` transition, and a claimed action is never re-dispatched automatically. A CUT action expires 120 s after acceptance; the Core re-checks expiry before publishing, and expired actions are never published. No valid ACK or no correlated STATUS gives `OUTCOME_UNKNOWN`, which requires human review. No automatic retry. Device STATUS remains the physical-state evidence source. |
 | D8 | Production Web uses a bounded in-memory TTL session store. It keeps the current login, CSRF, and logout semantics and the existing secure cookie policy. The idle timeout is `AEGIS_SESSION_IDLE_MS`, default 30 minutes. The store caps its entries and prunes periodically. No auth session state is persisted to disk, so a container restart invalidates sessions and logs the Admin out. |
 
-The remaining S1 gates, in this order, are:
+The authorized read-only live AEGIS Server inventory is done
+(`LIVE_SERVER_INVENTORY = PASS`, 2026-09-12). The one remaining S1 gate is the
+Kla/integration-owner decision, and its reconciliation, for the D3/D5 shared
+infrastructure. That includes `/security/` ownership in the runtime and Git
+HUB configurations, the HUB↔IDEA3 network and subnet, mTLS placement and CA
+ownership, and sequencing relative to PR #118 / S5.5.
 
-1. an authorized read-only live AEGIS Server inventory;
-2. Kla/integration agreement on the `/security/` machine route, HUB route
-   ownership, and sequencing relative to PR #118;
-3. formal reconciliation of those results into the S1 architecture gate.
-
-Until those close:
+Until it closes:
 
 ```text
 D1_D8 = DECIDED / OWNER-ACCEPTED
+LIVE_SERVER_INVENTORY = PASS
 S1 = IN PROGRESS
 READY_FOR_PR10_S2 = NO
 S2_STARTED = NO
@@ -328,11 +330,49 @@ PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
 
+### PR10 S1 live AEGIS Server inventory — 2026-09-12 (read-only) — PASS
+
+This is a public-safe summary; the full record with evidence labels is §2A of
+`IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`. Evidence
+came from unprivileged read-only SSH reads and root-only read-only reads run by
+the owner. Nothing was changed on the server, and no hardware was touched.
+
+- **OBSERVED:**
+  - The HUB is the single host-published browser entry (80 → HTTPS, 443 TLS).
+    `/drive/` and `/monitor/` exist in the active NGINX; **`/security/` does not
+    exist**; no mTLS client-certificate route is deployed.
+  - The host runtime NGINX configuration matched the HUB container-loaded
+    configuration at the observed time, but it still differs from Git
+    (`DRIFT_FOUND = YES`).
+  - The firewall uses `nf_tables` with `INPUT DROP`, `FORWARD DROP`,
+    `OUTPUT ACCEPT`. `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, and
+    `AEGIS-PS-INPUT` comes before the UFW input chains.
+  - **S5.5 is PARTIALLY PRESENT**: the egress network and `AEGIS-PS-*` chains
+    exist, but the connector is not running and no S5.5 runtime file or systemd
+    unit was observed. It is neither fully deployed nor fully absent.
+  - A candidate IDEA3 /29 did not overlap the observed live Docker IPv4
+    subnets. Final allocation belongs to the Kla/integration owner.
+  - The last 24 h of HUB logs showed only Docker-gateway and loopback source
+    classes.
+- **INFERRED / FEASIBLE:**
+  - **D3 is FEASIBLE**: a hardened IDEA3 container on a dedicated internal
+    network behind the HUB at `/security/`, with no direct public IDEA3 port.
+  - **D5 is FEASIBLE WITH CONDITIONS**: Core → HUB HTTPS 443, with D5 mTLS as
+    the primary machine authentication.
+- **NOT PROVEN:**
+  - preservation of the real Core source address at the HUB, so source
+    allowlisting remains defense-in-depth only;
+  - the Core → HUB path from VLAN 20 (not tested);
+  - whether the S5.5 chains persist across a host reboot.
+- **PROPOSED:** the D3/D5 components, which are not deployed.
+
+`PRODUCTION_MUTATION = NONE`; `HARDWARE_TESTING = NOT RUN`.
+
 ### PR10 Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | MERGED DOCUMENTATION CHECKPOINT (PR #120, `93170862`); D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12); `READY_FOR_PR10_S2 = NO`; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | authorized read-only live server inventory; Kla agreement on the `/security/` machine route, HUB ownership, and sequencing with PR #118; formal reconciliation into the S1 gate | S2 in a new explicitly named task/PR after the S1 gates close and the owner approves the continuation model (see workflow exception) |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | MERGED DOCUMENTATION CHECKPOINT (PR #120, `93170862`); D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12); LIVE SERVER INVENTORY PASS (2026-09-12, read-only); `READY_FOR_PR10_S2 = NO` | Kla/integration decision and reconciliation for the D3/D5 shared infrastructure: `/security/` ownership and runtime↔Git HUB drift, HUB↔IDEA3 network and subnet, mTLS placement and CA ownership, and sequencing with PR #118 / S5.5 | S2 in a new explicitly named task/PR after the S1 gates close and the owner approves the continuation model (see workflow exception) |
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
