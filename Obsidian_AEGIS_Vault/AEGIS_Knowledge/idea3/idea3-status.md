@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 has not started; read "PR10 pre-flight evidence reconciliation — 2026-09-11" first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 S1 (real deployment inventory and architecture gate, read-only) is IN PROGRESS on `feat/idea3-pr10-real-deployment` and awaits owner architecture review; nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -163,10 +163,11 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
 
-### PR10 — server-hosted deployment: NOT STARTED / OPEN
+### PR10 — server-hosted deployment: IN PROGRESS (S1 inventory; owner review pending)
 
 Target architecture as defined by the owner on 2026-09-11. It has not yet been
-designed in a repository spec or plan:
+designed in a repository spec or plan; the S1 inventory is
+`IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`:
 
 ```text
 AEGIS Server : React static build, Express, SQLite, integration adapters, correlation, accepted-action state
@@ -185,6 +186,53 @@ REAL_ESP32_BROKER_BASELINE = OPEN
 REAL_CLIENT_TO_SERVER_IDEA3_ACCESS = OPEN
 RESTART_RECOVERY_BASELINE = OPEN (PR9 proved loopback restart only)
 ```
+
+### PR10 Current Task
+
+Task: IDEA3 PR10 — real Arch Linux Core + server-hosted IDEA3 Web deployment baseline
+Branch: `feat/idea3-pr10-real-deployment`
+Owner: `music`
+PR: not opened (no push or PR authorized)
+Current state: IN PROGRESS
+Started: 2026-09-11
+Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
+Last checkpoint: PUBLIC_SAFE_S1_CHECKPOINT = PENDING (recorded after the public-safe S1 checkpoint commit)
+Production mutation allowed: NO (S1)
+Hardware testing: NOT RUN
+
+Goal: a real, evidence-backed deployment baseline with IDEA3 Web on the AEGIS
+Server at `/security/` and the Python Core on an Arch Linux host, joined by a
+durable, authenticated Server → Core accepted-action boundary. Out of scope for
+S1: deployment, systemd, packages, firewall, proxy, Docker, Twingate, broker
+configuration, MQTT actuation, firmware, and IDEA1/IDEA2/HUB source. Acceptance
+for S1: the owner reviews the inventory and decides D1–D5.
+
+S1 findings (public-safe summary; evidence labels are in the inventory document,
+and host-level specifics are deliberately not published):
+
+- `SERVER_ACCESS = ACCESS_NOT_AVAILABLE`. The AEGIS Server is unreachable from
+  the inventory host. Server facts are carried forward from earlier audited
+  documentation; live server port and reverse-proxy inventory remains NOT PROVEN.
+- The Arch Core host is a CANDIDATE, NOT READY. It is not yet attached to the
+  final AEGIS network segment, its hardening is not at a production baseline, and
+  it already hosts an MQTT broker and IDEA2-owned services.
+- The current MQTT baseline requires production hardening before PR10
+  deployment. Recorded ESP32 sessions used a temporary lab network outside the
+  AEGIS VLANs, so the final ESP32 network is undefined (D1).
+- `/security/` reverse-proxy integration requires design and review (D3). The
+  current production Web assumes loopback-only access, and Express mounts
+  `/security` itself, so a proxy must forward the full path.
+- CUT isolates the whole server, including server-hosted remote access. The
+  Core, broker, RESTORE authority, and post-publish evidence must remain
+  available independently of the relayed server uplink (D2, D4). A durable
+  Server → Core boundary is required, and the browser must not own MQTT
+  actuation.
+
+### PR10 Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | PUBLIC_SAFE_S1_CHECKPOINT = PENDING | PENDING OWNER REVIEW; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | owner review; D1–D5; authorized read-only server inventory | S2 Server → Core boundary design after approval |
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
@@ -214,27 +262,27 @@ REAL_TELEGRAM_PRODUCTION_DELIVERY = NOT VERIFIED
 IDEA3_PRODUCTION_COMPLETE = NO
 ```
 
-### Current Task
+### Pre-flight reconciliation task record — historical
 
 Task: IDEA3 PR10 pre-flight evidence audit and Obsidian reconciliation
 Branch: `docs/idea3-pr10-preflight-evidence-reconciliation`
 Owner: `music`
-PR: opened from this branch against `main`; number recorded in the PR and final report; an agent never merges it
-Current state: CLOSED — documentation-only; human review pending
+PR: GitHub PR #119, merged into `main` at `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
+Current state: CLOSED — documentation-only; merged
 Started: 2026-09-11
 Base SHA: `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`
 Production mutation allowed: NO
 Hardware testing: NOT RUN
 
-### Session Register
+### Pre-flight Session Register — historical
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Git, GitHub, source, and receipt audit; canonical reconciliation | CLOSED | this section; vault validation, collaboration-policy tests, `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review | PR10 S1 design |
+| S1 | Git, GitHub, source, and receipt audit; canonical reconciliation | CLOSED | this section; vault validation, collaboration-policy tests, `git diff --check` | documentation-only commit (SHA in the PR) | PASS | — (merged via #119) | PR10 S1 inventory (see PR10 Current Task above) |
 
-### Handoff
+### Pre-flight handoff — historical (superseded by the PR10 Current Task)
 
-Next action: human review of this reconciliation PR. Then, under a separately
+Next action at that checkpoint: human review of this reconciliation PR. Then, under a separately
 authorized task, design the PR10 split-host deployment and the Server-to-Core
 durable accepted-action boundary starting from the PR9 composite runtime. Do not
 deploy, install systemd, contact a broker, ESP32, relay, or network device,
