@@ -389,13 +389,29 @@ function runtimeHarness(options = {}) {
     writeFileSync(nodePath.join(fixtures, `net-${name}.json`), JSON.stringify(value))
   }
 
-  // Connector container fixture (absent by default at pre-start).
-  if (options.connectorNetworks) {
+  // Connector container fixture. Absent unless the scenario says otherwise,
+  // which models "the bootstrap create has not been run yet".
+  if (options.connectorNetworks || options.networkMode || options.connectorState) {
+    const state = options.connectorState ?? 'created'
     writeFileSync(nodePath.join(fixtures, `ctr-${CONNECTOR_CONTAINER}.json`), JSON.stringify([{
       Name: `/${CONNECTOR_CONTAINER}`,
+      State: {
+        Status: state,
+        Running: options.connectorRunning ?? (state === 'running'),
+        Restarting: state === 'restarting',
+        Paused: state === 'paused',
+        Dead: state === 'dead',
+      },
+      RestartCount: options.connectorRestartCount ?? 0,
+      Config: {
+        Labels: options.connectorLabels ?? {
+          'com.docker.compose.project': 'aegis-prod',
+          'com.docker.compose.service': 'public-share-connector',
+        },
+      },
       HostConfig: { NetworkMode: options.networkMode ?? 'aegis_public_share_edge' },
       NetworkSettings: {
-        Networks: Object.fromEntries(Object.entries(options.connectorNetworks).map(([n, ip]) => [
+        Networks: Object.fromEntries(Object.entries(options.connectorNetworks ?? {}).map(([n, ip]) => [
           n, { IPAddress: ip },
         ])),
       },
@@ -442,7 +458,15 @@ function runtimeHarness(options = {}) {
 }
 
 test('S5.5-PRESTART-HAPPY accepts the complete safe state', () => {
-  const h = runtimeHarness()
+  // Since the create-before-start correction, the "complete safe state" includes
+  // an already-created, still-stopped connector and a materialised egress network.
+  const h = runtimeHarness({
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+    connectorState: 'created',
+  })
   try {
     const result = h.run('--pre-start')
     assert.equal(result.status, 0, `pre-start should accept a safe state: ${result.stdout}${result.stderr}`)
@@ -947,4 +971,251 @@ test('S5.5-RUNBOOK-NOT-AUTHORIZATION gates every Production action', () => {
 
   // No DNS exception may be smuggled in as a documented step.
   assert.doesNotMatch(text, /--dport\s+53[^\n]*ACCEPT/, 'no DNS allow rule may be documented')
+})
+
+// ---------------------------------------------------------------------------
+// S5.5-E LIFECYCLE CORRECTION: create-before-start.
+//
+// The object that is validated must be the object that starts. Pre-start no
+// longer tolerates an absent egress network or an absent connector: by the time
+// it runs, the connector has already been CREATED (stopped) by the authorized
+// bootstrap, which is what materialises the egress network and aegis-ps-eg.
+//
+// Still mock-only: no container is created, no unit installed, no firewall
+// touched, no real token used.
+// ---------------------------------------------------------------------------
+
+// A stopped, correctly-labelled, correctly-attached connector.
+const STOPPED_CONNECTOR = {
+  connectorNetworks: {
+    aegis_public_share_edge: '172.31.240.3',
+    aegis_public_share_egress: '172.31.242.2',
+  },
+  connectorState: 'created',
+  connectorRunning: false,
+  connectorLabels: {
+    'com.docker.compose.project': 'aegis-prod',
+    'com.docker.compose.service': 'public-share-connector',
+  },
+}
+
+test('S5.5-LIFECYCLE-PRESTART-REQUIRES-EGRESS refuses when the egress network is absent', () => {
+  const h = runtimeHarness({ ...STOPPED_CONNECTOR, egress: false })
+  try {
+    const result = h.run('--pre-start')
+    assert.equal(result.status, 1,
+      'pre-start must refuse when aegis_public_share_egress does not exist')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-REQUIRES-CONNECTOR refuses when the connector is absent', () => {
+  // No connectorNetworks => no container fixture => docker inspect fails.
+  const h = runtimeHarness()
+  try {
+    const result = h.run('--pre-start')
+    assert.equal(result.status, 1,
+      'pre-start must refuse when the connector container has not been created')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-REQUIRES-STOPPED refuses any non-stopped state', () => {
+  // The whole point of create-before-start: it must not already be running.
+  for (const state of ['running', 'restarting', 'paused', 'dead', 'removing', 'unknown']) {
+    const h = runtimeHarness({
+      ...STOPPED_CONNECTOR,
+      connectorState: state,
+      connectorRunning: state === 'running',
+    })
+    try {
+      assert.equal(h.run('--pre-start').status, 1,
+        `pre-start must refuse a connector in state '${state}'`)
+    } finally { h.cleanup() }
+  }
+
+  // Running=true must be refused even if the status string looks benign.
+  const lying = runtimeHarness({ ...STOPPED_CONNECTOR, connectorState: 'created', connectorRunning: true })
+  try {
+    assert.equal(lying.run('--pre-start').status, 1,
+      'pre-start must refuse whenever Running is true')
+  } finally { lying.cleanup() }
+
+  // A container caught in a restart loop is not a safe stopped object.
+  const looping = runtimeHarness({
+    ...STOPPED_CONNECTOR, connectorState: 'exited', connectorRestartCount: 3,
+  })
+  try {
+    assert.equal(looping.run('--pre-start').status, 1,
+      'pre-start must refuse a connector in an active restart loop')
+  } finally { looping.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-ACCEPTS-CREATED-AND-EXITED passes only for the approved stopped states', () => {
+  for (const state of ['created', 'exited']) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, connectorState: state })
+    try {
+      const result = h.run('--pre-start')
+      assert.equal(result.status, 0,
+        `pre-start must accept a stopped connector in state '${state}': ${result.stdout}${result.stderr}`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-LABELS binds validation to the accepted project and service', () => {
+  // A container with the right name but the wrong identity must be refused, so
+  // validation cannot be satisfied by a look-alike.
+  const wrongProject = runtimeHarness({
+    ...STOPPED_CONNECTOR,
+    connectorLabels: {
+      'com.docker.compose.project': 'not-aegis-prod',
+      'com.docker.compose.service': 'public-share-connector',
+    },
+  })
+  try {
+    assert.equal(wrongProject.run('--pre-start').status, 1,
+      'pre-start must refuse a container from another Compose project')
+  } finally { wrongProject.cleanup() }
+
+  const wrongService = runtimeHarness({
+    ...STOPPED_CONNECTOR,
+    connectorLabels: {
+      'com.docker.compose.project': 'aegis-prod',
+      'com.docker.compose.service': 'something-else',
+    },
+  })
+  try {
+    assert.equal(wrongService.run('--pre-start').status, 1,
+      'pre-start must refuse a container for another Compose service')
+  } finally { wrongService.cleanup() }
+
+  const noLabels = runtimeHarness({ ...STOPPED_CONNECTOR, connectorLabels: {} })
+  try {
+    assert.equal(noLabels.run('--pre-start').status, 1,
+      'pre-start must refuse a container with no Compose identity labels')
+  } finally { noLabels.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-EXACT-TOPOLOGY pins the stopped object to its exact identity', () => {
+  // A third network on the object that is about to start is a violation.
+  for (const extra of ['aegis_public_share_upstream', 'aegis_internal', 'aegis_drive_proxy',
+    'aegis_vlan10', 'aegis_vlan10_macvlan', 'bridge', 'monitor_net', 'twingate_net', 'unknown_net']) {
+    const h = runtimeHarness({
+      ...STOPPED_CONNECTOR,
+      connectorNetworks: { ...STOPPED_CONNECTOR.connectorNetworks, [extra]: '10.9.9.9' },
+    })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `a third network ${extra} must be refused`)
+    } finally { h.cleanup() }
+  }
+
+  // Exact fixed addresses on the stopped object.
+  for (const [label, networks] of Object.entries({
+    'wrong edge address': {
+      aegis_public_share_edge: '172.31.240.4', aegis_public_share_egress: '172.31.242.2',
+    },
+    'wrong egress address': {
+      aegis_public_share_edge: '172.31.240.3', aegis_public_share_egress: '172.31.242.3',
+    },
+    'missing egress attachment': { aegis_public_share_edge: '172.31.240.3' },
+    'missing edge attachment': { aegis_public_share_egress: '172.31.242.2' },
+  })) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, connectorNetworks: networks })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `${label} must be refused`)
+    } finally { h.cleanup() }
+  }
+
+  // Host / container networking on the stopped object.
+  for (const mode of ['host', 'container:abc123']) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, networkMode: mode })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `${mode} networking must be refused`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-LIFECYCLE-PRESTART-KEEPS-TOKEN-AND-FIREWALL-STRICT', () => {
+  // Correction C: the Task 8 credential contract is unchanged.
+  for (const statLine of ['directory|0|65532|440', 'symbolic link|0|65532|440',
+    'regular file|1000|65532|440', 'regular file|0|0|440', 'regular file|0|65532|444',
+    'regular file|0|65532|640']) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, tokenStat: statLine })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `token metadata '${statLine}' must be refused`)
+    } finally { h.cleanup() }
+  }
+  const missing = runtimeHarness({ ...STOPPED_CONNECTOR, tokenStat: null })
+  try {
+    assert.equal(missing.run('--pre-start').status, 1, 'a missing token file must be refused')
+  } finally { missing.cleanup() }
+
+  // Firewall still gates everything.
+  const badFirewall = runtimeHarness({ ...STOPPED_CONNECTOR, firewallRc: 1 })
+  try {
+    assert.equal(badFirewall.run('--pre-start').status, 1, 'a failing firewall validate must refuse')
+  } finally { badFirewall.cleanup() }
+})
+
+test('S5.5-LIFECYCLE-UNIT-STARTS-EXISTING never creates or recreates at start time', () => {
+  const unit = readFile(nodePath.join(systemdDir, 'aegis-public-share-connector.service'), 'utf8')
+  const execStart = unit.split(/\r?\n/).filter((l) => l.startsWith('ExecStart=')).join('\n')
+  assert.ok(execStart, 'the connector unit must declare ExecStart')
+
+  // It must START the already-validated container.
+  assert.match(execStart, /\bstart public-share-connector\s*$/,
+    'ExecStart must start the already-created, already-validated connector')
+
+  // It must never create, recreate or bring anything up.
+  for (const [pattern, label] of [
+    [/\bup\b/, 'up'],
+    [/\bup -d\b/, 'up -d'],
+    [/\bcreate\b/, 'create'],
+    [/\bdown\b/, 'down'],
+    [/\brun\b/, 'run'],
+    [/--force-recreate/, '--force-recreate'],
+  ]) {
+    assert.doesNotMatch(execStart, pattern,
+      `ExecStart must not use ${label}: a new object could start unvalidated`)
+  }
+
+  // The validated-object guarantee: pre-start still gates, stop stays scoped.
+  const pre = unit.split(/\r?\n/).filter((l) => l.startsWith('ExecStartPre=')).join('\n')
+  assert.match(pre, /s5-5-runtime-check\.sh --pre-start/, 'pre-start must still gate the start')
+  const stop = unit.split(/\r?\n/).filter((l) => l.startsWith('ExecStop=')).join('\n')
+  assert.match(stop, /\bstop public-share-connector\s*$/, 'ExecStop stays service-scoped')
+  assert.doesNotMatch(stop, /\bdown\b/, 'ExecStop must never tear the stack down')
+
+  // Still the accepted project and all four layers.
+  assert.match(execStart, /--project-name aegis-prod\b/)
+  for (const layer of ['docker-compose.production.yml', 'drive-s5-3.yml',
+    'drive-gateway-s5-4.yml', 'connector-s5-5.yml']) {
+    assert.ok(execStart.includes(layer), `ExecStart must keep layer ${layer}`)
+  }
+})
+
+test('S5.5-LIFECYCLE-RUNBOOK-BOOTSTRAP documents create-stopped before firewall apply', () => {
+  const text = readFile(runbookPath, 'utf8')
+
+  // The create-stopped step must exist and be service-scoped.
+  assert.match(text, /create[^\n]*public-share-connector|public-share-connector[^\n]*create/,
+    'the runbook must document a service-scoped Compose create for the connector')
+  assert.match(text, /--project-name aegis-prod/, 'the bootstrap must use the accepted project')
+
+  // Ordering: create-stopped, then prove stopped, then firewall apply.
+  const createAt = text.search(/compose[\s\S]{0,400}?\bcreate\b[^\n]*public-share-connector/)
+  const applyAt = text.indexOf('s5-5-firewall.sh apply')
+  const prestartAt = text.indexOf('s5-5-runtime-check.sh --pre-start')
+  assert.notEqual(createAt, -1, 'the runbook must contain the create step')
+  assert.notEqual(applyAt, -1, 'the runbook must contain firewall apply')
+  assert.ok(createAt < applyAt, 'the connector must be created BEFORE the firewall is applied')
+  assert.ok(applyAt < prestartAt, 'the firewall must be applied before pre-start validation')
+
+  // It must prove the stopped state and the materialised egress before applying.
+  assert.match(text, /Running=false|State\.Running|\bcreated\b/,
+    'the runbook must verify the connector is not running')
+  assert.match(text, /network inspect aegis_public_share_egress/,
+    'the runbook must verify the egress network now exists')
+
+  // The old first-activation mistake must be explicitly forbidden.
+  assert.match(text, /never[\s\S]{0,200}up -d[\s\S]{0,120}public-share-connector|up -d[\s\S]{0,80}public-share-connector[\s\S]{0,200}(never|forbidden|must not)/i,
+    'the runbook must forbid first-activation via up -d public-share-connector')
 })
