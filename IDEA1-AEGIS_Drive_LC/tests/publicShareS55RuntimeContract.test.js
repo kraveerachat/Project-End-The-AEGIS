@@ -603,3 +603,134 @@ test('S5.5-PRESTART-USAGE fails closed on an unknown or missing mode', () => {
     assert.notEqual(h.run('--definitely-not-a-mode').status, 0, 'an unknown mode must fail')
   } finally { h.cleanup() }
 })
+
+// ---------------------------------------------------------------------------
+// S5.5-E TASK 10: periodic drift fail-closed enforcement.
+//
+// The watchdog is driven against the same disposable mocks. systemd is never
+// invoked for real: `systemctl` is a mock that only records its arguments.
+// ---------------------------------------------------------------------------
+
+const driftServicePath = nodePath.join(systemdDir, 'aegis-public-share-drift.service')
+const driftTimerPath = nodePath.join(systemdDir, 'aegis-public-share-drift.timer')
+
+function unitSections(file) {
+  const sections = {}
+  let current = null
+  for (const raw of readFile(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue
+    const header = /^\[(.+)]$/.exec(line)
+    if (header) { current = header[1]; sections[current] ??= {}; continue }
+    const kv = /^([A-Za-z][A-Za-z0-9]*)=(.*)$/.exec(line)
+    if (kv && current) { sections[current][kv[1]] ??= []; sections[current][kv[1]].push(kv[2].trim()) }
+  }
+  return sections
+}
+
+test('S5.5-DRIFT-TIMER runs on the exact approved cadence', () => {
+  const timer = unitSections(driftTimerPath)
+  assert.equal(timer.Timer.OnBootSec[0], '1min')
+  assert.equal(timer.Timer.OnUnitActiveSec[0], '60s')
+  assert.equal(timer.Timer.AccuracySec[0], '15s')
+  assert.equal(timer.Timer.Unit[0], 'aegis-public-share-drift.service')
+  assert.ok(timer.Install, 'the timer needs an [Install] section to be enabled')
+})
+
+test('S5.5-DRIFT-SERVICE is a oneshot that only enforces', () => {
+  const service = unitSections(driftServicePath)
+  assert.equal(service.Service.Type[0], 'oneshot')
+  assert.equal(
+    service.Service.ExecStart[0],
+    '/opt/aegis/runtime/public-share/s5-5-runtime-check.sh --enforce-drift',
+  )
+  // The watchdog must never repair by weakening, nor restart the world.
+  const body = readFile(driftServicePath, 'utf8')
+  for (const forbidden of [/compose[^\n]*\bdown\b/, /\bprune\b/, /iptables/, /\bufw\b/,
+    /systemctl[^\n]*\b(docker|ufw)\b/, /s5-5-firewall\.sh\s+remove/]) {
+    assert.doesNotMatch(body, forbidden, `the drift unit must not run ${forbidden}`)
+  }
+})
+
+test('S5.5-DRIFT-CLEAN does nothing while the state is safe', () => {
+  const h = runtimeHarness({
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+  })
+  try {
+    const result = h.run('--enforce-drift')
+    assert.equal(result.status, 0, `a safe state must not trigger enforcement: ${result.stderr}`)
+    assert.equal(h.systemctlCalls().trim(), '', 'nothing may be stopped while the state is safe')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-DRIFT-STOPS-CONNECTOR-ONLY stops the connector and nothing else', () => {
+  // Each drift class must trigger enforcement.
+  const driftCases = {
+    'firewall policy drift': { firewallRc: 1 },
+    'unauthorized network attachment': {
+      connectorNetworks: {
+        aegis_public_share_edge: '172.31.240.3',
+        aegis_public_share_egress: '172.31.242.2',
+        aegis_public_share_upstream: '172.31.241.4',
+      },
+    },
+    'connector address drift': {
+      connectorNetworks: {
+        aegis_public_share_edge: '172.31.240.9',
+        aegis_public_share_egress: '172.31.242.2',
+      },
+    },
+    'egress topology drift': { egressBridge: 'br-unexpected' },
+    'edge topology drift': { edgeContainers: {} },
+    'credential drift': { tokenStat: 'regular file|0|0|444' },
+  }
+
+  for (const [label, options] of Object.entries(driftCases)) {
+    const h = runtimeHarness(options)
+    try {
+      const result = h.run('--enforce-drift')
+      assert.notEqual(result.status, 0, `${label} must be reported as drift`)
+
+      const calls = h.systemctlCalls()
+      assert.match(calls, /stop aegis-public-share-connector\.service/,
+        `${label} must stop the connector service`)
+
+      // The blast radius is exactly one unit.
+      const stopped = calls.split(/\r?\n/).filter(Boolean)
+      assert.equal(stopped.length, 1, `${label} must issue exactly one systemctl action`)
+      for (const protectedUnit of ['docker', 'ufw', 'postgres', 'drive', 'gateway',
+        'monitor', 'twingate', 'containerd']) {
+        assert.doesNotMatch(calls, new RegExp(protectedUnit, 'i'),
+          `${label} must never target ${protectedUnit}`)
+      }
+      assert.doesNotMatch(calls, /\b(restart|disable|mask)\b/,
+        `${label} must only stop, never restart or disable`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-DRIFT-STOP-FAILURE reports safely instead of escalating', () => {
+  const h = runtimeHarness({ firewallRc: 1, systemctlRc: 1 })
+  try {
+    const result = h.run('--enforce-drift')
+    assert.notEqual(result.status, 0, 'a failed stop must be reported as failure')
+    assert.match(`${result.stdout}${result.stderr}`, /STOP-FAILED/,
+      'the failure must be reported explicitly')
+    // One attempt, then report. No retry storm, no broader action.
+    assert.equal(h.systemctlCalls().split(/\r?\n/).filter(Boolean).length, 1,
+      'a failed stop must not escalate or loop')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-DRIFT-NEVER-WEAKENS-FIREWALL the watchdog only reads firewall state', () => {
+  const code = readFile(runtimeCheck, 'utf8')
+    .split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n')
+  assert.match(code, /s5-5-firewall\.sh|FIREWALL_SCRIPT/, 'it must consult the firewall gate')
+  assert.doesNotMatch(code, /FIREWALL_SCRIPT"?\s+(remove|apply)/,
+    'the watchdog must never apply or remove firewall policy')
+  assert.doesNotMatch(code, /iptables/, 'the watchdog must never drive iptables directly')
+  assert.doesNotMatch(code, /\bufw\b/, 'the watchdog must never drive UFW')
+})
