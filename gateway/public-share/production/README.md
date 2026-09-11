@@ -405,6 +405,51 @@ is permitted only toward the two connector addresses, so unrelated forwarded
 traffic falls through to the pre-existing policy untouched, and an established
 connector flow to an unauthorised destination still reaches the terminal deny.
 
+### Edge-bridge firewall correction (Production root cause and procedure)
+
+#### Production-discovered root cause
+
+During live S5.5-F acceptance, the first isolation matrix established that routed egress was correctly isolated while same-bridge east-west traffic between the connector and Gateway bypassed `DOCKER-USER`:
+
+- `br_netfilter not loaded`
+- `bridge-nf-call-iptables unavailable`
+- `same-bridge Gateway:22 returned ECONNREFUSED`
+- `AEGIS-PS-EGRESS connector-edge DROP counter did not increment`
+- `connector safety-stop returned it to exited/running=false`
+
+Root cause: the Linux kernel on the Production host bridges Layer-2 traffic directly within `aegis_public_share_edge` without invoking iptables bridge-netfilter hooks.
+
+Architectural resolution:
+- **Routed egress** remains enforced by `iptables-nft` (`AEGIS-PS-EGRESS` in `DOCKER-USER` and `AEGIS-PS-INPUT` in `INPUT`).
+- **Same-bridge east-west** isolation is now enforced by a native nftables bridge table (`table bridge aegis_s55_edge`, chain `forward`, hook `forward`, priority 0).
+
+#### Corrected first-start order
+
+Deploying the correction on Production follows this strict order:
+
+1. `connector stopped` (prove `State.Running=false`, state `exited` or `created`)
+2. `install exact reviewed corrected artifacts` (firewall script, runtime check, rollback script, endpoint allowlist)
+3. `nft candidate check + firewall apply` (`nft --check` candidate validation before atomic batch apply)
+4. `full three-plane validate` (iptables routed egress, iptables host input, native bridge table)
+5. `runtime --pre-start` (verify topology, explicit `EnableIPv6=false`, credentials, stopped connector)
+6. `start same connector object via systemd` (`systemctl start aegis-public-share-connector.service`)
+7. `readiness + DNS` (verify tunnel transport readiness and internal container DNS resolution)
+8. `isolation matrix with responsible-plane counters` (verify both routed and bridge DROP counters increment)
+9. `2x live reconcile` (verify firewall validate and pre-start pass while connector is active)
+10. `F1 final evidence review` (checkpoint immutable evidence before any further gate)
+
+#### Strict operational constraints
+
+- Never run `modprobe br_netfilter`
+- Never mutate bridge sysctls (`/proc/sys/net/bridge/bridge-nf-call-*` must not be touched)
+- Public DNS and TLS routes remain strictly forbidden (`NOT CONFIGURED`)
+- Never run `compose down` or whole-stack commands
+- Never recreate the connector container (`aegis-prod-public-share-connector-1` identity must be preserved)
+
+#### Bridge counter evidence rule
+
+For same-bridge negative probes (e.g. connector `172.31.240.3` -> Gateway `172.31.240.2:22`), network endpoint refusal or timeout alone is insufficient to claim pass. Acceptance requires proof that the native bridge DROP counter (`table bridge aegis_s55_edge`) increased during the probe.
+
 ## systemd lifecycle installation
 
 ```bash

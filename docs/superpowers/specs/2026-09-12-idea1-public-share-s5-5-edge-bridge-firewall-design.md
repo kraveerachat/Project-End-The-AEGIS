@@ -1,7 +1,7 @@
 # AEGIS IDEA1 — PUBLIC-SHARE-7 S5.5 Edge-Bridge Firewall Correction Design
 
 Date: 2026-09-12
-Status: CHAT DESIGN APPROVED; WRITTEN SPEC PENDING OWNER REVIEW; IMPLEMENTATION NOT STARTED
+Status: OWNER-APPROVED WRITTEN SPEC / IMPLEMENTATION IN PROGRESS
 Scope: IDEA1 / PUBLIC-SHARE-7 / S5.5-F Production Runtime Acceptance correction
 PR: #118 (`feat/idea1-public-share-s5-5-cloudflared-egress-isolation`)
 
@@ -18,7 +18,7 @@ The owner approved the direction in four explicit chat gates:
 - `APPROVE S5.5 EDGE BRIDGE LIFECYCLE`
 - `APPROVE S5.5 EDGE BRIDGE FINAL DESIGN`
 
-This written specification is a faithful consolidation of those approved design decisions and is now awaiting owner review as a document. No implementation, Production mutation, persistence enablement, public hostname, DNS/TLS route, or PR merge is authorized by this document alone.
+This written specification is an owner-approved consolidation of those approved design decisions, with repository implementation in progress. No live Production mutation, persistence enablement, public hostname, DNS/TLS route, or PR merge is authorized by this document alone.
 
 ## 2. Production evidence and root cause
 
