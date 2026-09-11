@@ -115,6 +115,8 @@ case "\$op" in
     grep "^CHAIN|" "\$state" | while IFS='|' read -r _ c; do echo "-N \$c"; done
     grep "^RULE|" "\$state" | while IFS='|' read -r _ c r; do echo "-A \$c \$r"; done
     exit 0 ;;
+  --version|-V)
+    echo "\${MOCK_IPTABLES_VERSION:-iptables v1.8.11 (nf_tables)}"; exit 0 ;;
   *)
     echo "mock iptables: unsupported operation \$op" >&2; exit 2 ;;
 esac
@@ -139,8 +141,14 @@ function harness(options = {}) {
   writeFileSync(docker, MOCK_DOCKER, { mode: 0o755 })
 
   const state = path.join(root, 'iptables-state')
-  // Seed the builtin chains the Production baseline already has.
-  writeFileSync(state, 'CHAIN|INPUT\nCHAIN|FORWARD\nCHAIN|DOCKER-USER\nCHAIN|DOCKER-FORWARD\n')
+  // Seed the builtin chains the Production baseline already has. A scenario may
+  // omit one to model a host that is not ready for S5.5.
+  const omit = options.omitChains ?? []
+  const seeded = ['INPUT', 'FORWARD', 'DOCKER-USER', 'DOCKER-FORWARD']
+    .filter((chain) => !omit.includes(chain))
+    .map((chain) => 'CHAIN|' + chain)
+    .join('\n')
+  writeFileSync(state, seeded + '\n')
 
   const bridgeName = options.bridgeName ?? null
   const networkId = options.networkId ?? EDGE_NETWORK_ID
@@ -161,6 +169,7 @@ function harness(options = {}) {
     ...process.env,
     MSYS_NO_PATHCONV: '1',
     MOCK_STATE: state,
+    MOCK_IPTABLES_VERSION: options.iptablesVersion ?? 'iptables v1.8.11 (nf_tables)',
     MOCK_DOCKER_JSON: dockerJson,
     AEGIS_IPTABLES_BIN: iptables,
     AEGIS_DOCKER_BIN: docker,
@@ -202,7 +211,8 @@ function harness(options = {}) {
 const expectedEgressRules = () => {
   const { endpoints } = allowlist()
   return [
-    '-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT',
+    `-d ${CONNECTOR_EDGE} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`,
+    `-d ${CONNECTOR_EGRESS} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`,
     `-s ${CONNECTOR_EDGE} -d ${GATEWAY_EDGE} -p tcp --dport 8080 -j ACCEPT`,
     ...endpoints.map((ep) => `-s ${CONNECTOR_EGRESS} -d ${ep} -p tcp --dport 7844 -j ACCEPT`),
     `-s ${CONNECTOR_EDGE} -j DROP`,
@@ -301,7 +311,8 @@ test('FIREWALL-APPLY builds the exact egress policy in order', () => {
       'the egress chain must match the reviewed policy exactly and in order')
 
     const egress = h.rules(EGRESS_CHAIN)
-    assert.equal(egress[0].includes('ESTABLISHED,RELATED'), true, 'conntrack accept comes first')
+    assert.equal(egress[0].includes('ESTABLISHED,RELATED'), true, 'return-direction accepts come first')
+    assert.match(egress[0], /^-d /, 'the first rule must be destination-scoped, never a blanket accept')
     assert.equal(egress.at(-2), `-s ${CONNECTOR_EDGE} -j DROP`, 'terminal deny for the edge address')
     assert.equal(egress.at(-1), `-s ${CONNECTOR_EGRESS} -j DROP`, 'terminal deny for the egress address')
   } finally { h.cleanup() }
@@ -839,4 +850,156 @@ test('S5.5-UNIT-ORDERING firewall precedes the connector and both fail closed', 
     const unit = parseUnit(file)
     assert.ok(unit.Install, `${path.basename(file)} needs an [Install] section to be enabled`)
   }
+})
+
+// ---------------------------------------------------------------------------
+// PRE-S5.5-F SECURITY CORRECTION: established/related scope, and a fail-closed
+// backend/host-chain preflight before any mutation.
+//
+// AEGIS-PS-EGRESS is anchored FIRST in DOCKER-USER, so anything it ACCEPTs is
+// authorised for the whole host before Docker and UFW policy ever runs. A
+// blanket ESTABLISHED,RELATED accept there would silently grant forwarding to
+// every unrelated container on the box. S5.5 may only ever speak for the
+// connector.
+// ---------------------------------------------------------------------------
+
+const BROAD_ESTABLISHED = '-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
+
+test('S5.5-FW-NO-BROAD-ESTABLISHED never globally accepts established forwarding', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const rules = h.rules(EGRESS_CHAIN)
+
+    assert.equal(rules.includes(BROAD_ESTABLISHED), false,
+      'an unqualified ESTABLISHED,RELATED accept authorises unrelated forwarding')
+
+    // Every conntrack accept must be pinned to a connector destination.
+    for (const rule of rules) {
+      if (!/ctstate/.test(rule)) continue
+      assert.match(rule, /-d (172\.31\.240\.3|172\.31\.242\.2)\/32/,
+        `conntrack accept must be scoped to a connector destination: ${rule}`)
+      assert.doesNotMatch(rule, /-d 0\.0\.0\.0\/0/, 'never a default-route conntrack accept')
+      // Scoping by SOURCE would let an already-established unauthorised
+      // connector flow survive a reconciliation.
+      assert.doesNotMatch(rule, /^-s /, 'conntrack accepts must be return-direction, not source-scoped')
+    }
+
+    // The generator must never emit a rule that STARTS with the conntrack match,
+    // i.e. one with no destination scope at all. Qualified "-d <connector> -m
+    // conntrack ..." rules are exactly what we want, so match on the opening.
+    for (const line of effectiveSource().split(/\r?\n/)) {
+      assert.doesNotMatch(line, /echo\s+"-m conntrack/,
+        `the generator must not emit an unqualified established accept: ${line.trim()}`)
+    }
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-RETURN-DIRECTION accepts return traffic toward each connector address', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const rules = h.rules(EGRESS_CHAIN)
+    for (const address of ['172.31.240.3/32', '172.31.242.2/32']) {
+      assert.ok(
+        rules.some((r) => r.includes(`-d ${address}`) && /ctstate ESTABLISHED,RELATED/.test(r) && /-j ACCEPT$/.test(r)),
+        `a return-direction conntrack accept is required for ${address}`,
+      )
+    }
+    // Return rules must precede the terminal drops to be reachable.
+    const firstReturn = rules.findIndex((r) => /ctstate/.test(r))
+    const firstDrop = rules.findIndex((r) => /-j DROP$/.test(r))
+    assert.ok(firstReturn !== -1 && firstReturn < firstDrop, 'return accepts must precede terminal drops')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-SCOPE-SEMANTICS proves the exact allow/deny/fallthrough behaviour', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const rules = h.rules(EGRESS_CHAIN)
+    const allowed = allowlist().endpoints[0].replace('/32', '')
+
+    // 3 + 4: the two authorised forward flows still work.
+    assert.equal(
+      evaluate(rules, { src: '172.31.240.3', dst: '172.31.240.2', proto: 'tcp', dport: 8080 }),
+      'ACCEPT', 'connector -> gateway TCP/8080 must remain accepted')
+    assert.equal(
+      evaluate(rules, { src: '172.31.242.2', dst: allowed, proto: 'tcp', dport: 7844 }),
+      'ACCEPT', 'connector -> reviewed endpoint TCP/7844 must remain accepted')
+
+    // 2: return traffic toward the connector is accepted.
+    assert.equal(
+      evaluate(rules, { src: allowed, dst: '172.31.242.2', proto: 'tcp', ctstate: 'ESTABLISHED' }),
+      'ACCEPT', 'return traffic toward the connector must be accepted')
+    assert.equal(
+      evaluate(rules, { src: '172.31.240.2', dst: '172.31.240.3', proto: 'tcp', ctstate: 'ESTABLISHED' }),
+      'ACCEPT', 'gateway return traffic toward the connector must be accepted')
+
+    // 5: an unauthorised connector-originated flow is dropped even as ESTABLISHED.
+    for (const [label, dst, proto, dport] of [
+      ['a non-allowlisted Internet host', '203.0.113.9', 'tcp', 7844],
+      ['arbitrary HTTPS', '1.1.1.1', 'tcp', 443],
+      ['Drive directly', '172.31.241.3', 'tcp', 8001],
+      ['PostgreSQL', '172.31.241.3', 'tcp', 5432],
+    ]) {
+      assert.equal(
+        evaluate(rules, { src: '172.31.242.2', dst, proto, dport, ctstate: 'ESTABLISHED' }),
+        'DROP', `established connector flow to ${label} must still be dropped`)
+    }
+
+    // 6 + 7: unrelated traffic is neither accepted nor dropped here - it must
+    // fall through to the pre-existing Docker/UFW policy.
+    for (const ctstate of ['ESTABLISHED', 'RELATED', 'NEW']) {
+      assert.equal(
+        evaluate(rules, { src: '172.18.0.7', dst: '172.19.255.9', proto: 'tcp', dport: 443, ctstate }),
+        'FALLTHROUGH', `unrelated ${ctstate} traffic must fall through, not be authorised by S5.5`)
+    }
+    assert.equal(
+      evaluate(rules, { src: '10.4.5.6', dst: '8.8.8.8', proto: 'udp', dport: 53, ctstate: 'ESTABLISHED' }),
+      'FALLTHROUGH', 'unrelated container egress must not be authorised by S5.5')
+
+    // 8: terminal source drops remain.
+    assert.equal(rules.at(-2), '-s 172.31.240.3/32 -j DROP')
+    assert.equal(rules.at(-1), '-s 172.31.242.2/32 -j DROP')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-BACKEND-PREFLIGHT fails closed before any mutation', () => {
+  // Production runs iptables-nft. Mutating an unexpected backend could write
+  // rules into a table that is never consulted, which would look like success.
+  const wrongBackend = harness({ iptablesVersion: 'iptables v1.8.11 (legacy)' })
+  try {
+    const result = wrongBackend.run('apply')
+    assert.equal(result.status, 1, 'a non-nft backend must fail closed')
+    assert.equal(wrongBackend.chains().includes(EGRESS_CHAIN), false,
+      'no chain may be created when the backend check fails')
+    assert.equal(wrongBackend.rules('DOCKER-USER').length, 0, 'no anchor may be inserted')
+  } finally { wrongBackend.cleanup() }
+
+  const nft = harness({ iptablesVersion: 'iptables v1.8.11 (nf_tables)' })
+  try {
+    assert.equal(nft.run('apply').status, 0, 'the nf_tables backend must be accepted')
+  } finally { nft.cleanup() }
+})
+
+test('S5.5-FW-HOST-CHAIN-PREFLIGHT refuses to mutate without the required host chains', () => {
+  for (const missing of ['DOCKER-USER', 'INPUT']) {
+    const h = harness({ omitChains: [missing] })
+    try {
+      const result = h.run('apply')
+      assert.equal(result.status, 1, `a missing ${missing} chain must fail closed`)
+      assert.equal(h.chains().includes(EGRESS_CHAIN), false,
+        `no S5.5 chain may be created when ${missing} is absent`)
+      assert.equal(h.chains().includes(INPUT_CHAIN), false,
+        `no S5.5 chain may be created when ${missing} is absent`)
+      assert.equal(h.chains().some((c) => c.endsWith('-NEW')), false,
+        'no staging chain may be created either')
+    } finally { h.cleanup() }
+  }
+
+  // UFW and builtin policies are never touched by the preflight.
+  const code = effectiveSource()
+  assert.doesNotMatch(code, /\bufw\b/i, 'the preflight must never drive UFW')
+  assert.doesNotMatch(code, /-P\s+(INPUT|FORWARD|OUTPUT)/, 'builtin policies must never be set')
 })
