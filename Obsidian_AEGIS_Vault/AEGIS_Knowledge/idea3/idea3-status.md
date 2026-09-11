@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 S1 (real deployment inventory and architecture gate, read-only) is IN PROGRESS on `feat/idea3-pr10-real-deployment` and awaits owner architecture review; nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. S1 owner architecture review is still pending, `READY_FOR_PR10_S2 = NO`, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -163,7 +163,7 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
 
-### PR10 — server-hosted deployment: IN PROGRESS (S1 inventory; owner review pending)
+### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; owner review pending)
 
 Target architecture as defined by the owner on 2026-09-11. It has not yet been
 designed in a repository spec or plan; the S1 inventory is
@@ -190,15 +190,28 @@ RESTART_RECOVERY_BASELINE = OPEN (PR9 proved loopback restart only)
 ### PR10 Current Task
 
 Task: IDEA3 PR10 — real Arch Linux Core + server-hosted IDEA3 Web deployment baseline
-Branch: `feat/idea3-pr10-real-deployment`
+Branch: `feat/idea3-pr10-real-deployment` (S1 branch; merged through PR #120, receives no further commits)
 Owner: `music`
-PR: GitHub PR #120 — Draft / IN PROGRESS
+PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
+Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` (docs-only reconciliation; not S2)
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
 Last checkpoint: `8250d6942eea0a50266039fad5389adf15a9fb93` (public-safe S1 inventory checkpoint)
 Production mutation allowed: NO (S1)
 Hardware testing: NOT RUN
+
+```text
+PR120                     = MERGED (93170862cbf5b5a802042d12c84944abd39d9123) — documentation checkpoint only
+PR10_STATE                = IN PROGRESS
+S1                        = owner architecture review pending (not PASS, not CLOSED)
+READY_FOR_PR10_S2         = NO
+PRODUCTION_DEPLOYED       = NO
+IDEA3_PRODUCTION_COMPLETE = NO
+PRODUCTION_MUTATION       = NONE
+HARDWARE_TESTING          = NOT RUN
+FINAL_PR10_RECEIPT        = NONE
+```
 
 Goal: a real, evidence-backed deployment baseline with IDEA3 Web on the AEGIS
 Server at `/security/` and the Python Core on an Arch Linux host, joined by a
@@ -228,11 +241,56 @@ and host-level specifics are deliberately not published):
   Server → Core boundary is required, and the browser must not own MQTT
   actuation.
 
+### PR10 workflow exception — premature merge of PR #120
+
+PR #120 was merged by a human while it still represented the S1
+inventory/architecture checkpoint. The merge records the S1 documentation on
+`main` but does not satisfy the PR10 completion gate. PR10 remains IN PROGRESS
+and S2 remains blocked pending the stated prerequisites.
+
+Verified facts (GitHub and Git, 2026-09-11):
+
+- PR #120 was marked Ready at 16:21:33Z and merged at 16:21:40Z. The
+  collaboration-guardrails run on that Ready transition (`34621524129`) failed:
+  "A final Obsidian task receipt is required before Ready/non-Draft review;
+  found 0." Before that, the PR's valid Draft run had passed.
+- Merge commit `93170862cbf5b5a802042d12c84944abd39d9123` has parents
+  `895c79ac` and `54bb6a08`, and its tree is identical to the reviewed head
+  `54bb6a08`. The merge brought in only the three public-safe IDEA3 S1 files:
+  the inventory, this note, and the IDEA3 MOC.
+- No PR10 task receipt exists. None was created, because PR10 has not reached
+  its final handoff.
+
+The merge does **not** mean:
+
+- S1 PASS or S1 CLOSED;
+- PR10 CLOSED;
+- Production deployment;
+- S2 authorization.
+
+The merged S1 documentation is correct and public-safe, so it is kept. No
+revert, reset, or rewrite of `main` is proposed.
+
+**Continuation model — recommended for owner approval, not started:**
+
+- PR10 remains the project-sequence umbrella for the real deployment baseline.
+- The original "one open PR for all PR10 sessions" lifecycle cannot continue,
+  because its PR is already merged. That is the only reason a new PR is needed;
+  PR10 is not complete.
+- Future implementation continues as a new, explicitly named IDEA3 task branch
+  and PR beginning with S2. It must reference PR #120, merge commit
+  `93170862cbf5b5a802042d12c84944abd39d9123`, the S1 inventory, and this
+  reconciliation. It may start only after the S2 prerequisites below are met
+  and the owner approves.
+- The single final PR10 receipt belongs to the PR that performs the PR10 final
+  handoff. It must record PR #120 as a premature human merge of the S1
+  documentation checkpoint.
+
 ### PR10 Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | PENDING OWNER REVIEW; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | owner review; D1–D5; authorized read-only server inventory | S2 Server → Core boundary design after approval |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | MERGED DOCUMENTATION CHECKPOINT (PR #120, `93170862`); OWNER ARCHITECTURE REVIEW STILL PENDING; `READY_FOR_PR10_S2 = NO`; server live inventory BLOCKED (ACCESS_NOT_AVAILABLE) | owner review; D1–D5; authorized read-only server inventory; owner approval of the continuation model | S2 in a new explicitly named task/PR after approval (see workflow exception) |
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
