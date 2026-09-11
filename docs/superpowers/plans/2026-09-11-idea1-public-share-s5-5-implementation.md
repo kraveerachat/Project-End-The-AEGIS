@@ -16,8 +16,10 @@ guarantees fail-closed isolation, and verifiable through independent rollback
 without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
 the service to the public Internet.
 
-At this planning stage, **no runtime implementation is written and no Production
-mutation is performed**.
+Current checkpoint: S5.5-A, S5.5-B, and S5.5-C are **CLOSED / PASS**. Tasks 1–3
+are complete and accepted at repository commit `41c113b165e3b4250d6c017d375c86764e220447`.
+S5.5-D through S5.5-H remain **NOT STARTED**. No Production mutation has been
+performed.
 
 ## Canonical Phase Roadmap
 
@@ -25,7 +27,7 @@ mutation is performed**.
 | :--- | :--- | :--- | :--- |
 | **S5.5-A** | Audit / Preflight | Repository audit, worktree bootstrap, read-only Production preflight | **CLOSED / PASS** |
 | **S5.5-B** | Design / Repository Preparation | Owner-approved specification freezing topology, credential, firewall, lifecycle and rollback | **CLOSED / PASS** |
-| **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **REPOSITORY ONLY — NO PROD MUTATION** |
+| **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **CLOSED / PASS** |
 | **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **REPOSITORY ONLY — NO PROD MUTATION** |
 | **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **REPOSITORY ONLY — NO PROD MUTATION** |
 | **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **REQUIRES EXPLICIT PROD APPROVAL** |
@@ -34,24 +36,24 @@ mutation is performed**.
 
 ## Task-to-Phase Matrix
 
-| Task | Title | Canonical Phase | Primary Outputs |
-| :--- | :--- | :--- | :--- |
-| **Task 1** | Pinned `cloudflared` Image Contract | `S5.5-C` | `cloudflared-pin.json`, `verify-cloudflared-image.sh`, `publicShareCloudflaredPin.test.js` |
-| **Task 2** | S5.5 Compose-Model Tests FIRST | `S5.5-C` | `publicShareS55RuntimeContract.test.js` |
-| **Task 3** | S5.5 Compose Overlay via Verified Pin | `S5.5-C` | `docker-compose.s5-5.yml` |
-| **Task 4** | Authoritative Cloudflare Transport Allowlist Gate | `S5.5-D` | `cloudflare-endpoints.json`, `verify-cloudflare-endpoints.sh` (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`) |
-| **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | `publicShareS55FirewallContract.test.js` |
-| **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
-| **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
-| **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | `s5-5-runtime-check.sh` (`--pre-start`) |
-| **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
-| **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |
-| **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | `rollback-s5-5.sh` |
-| **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | `publicShareSecurityRegression.test.js` |
-| **Task 13** | Production Runbook Update | `S5.5-E` | `gateway/public-share/production/README.md` |
-| **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | Production verification evidence (positive + negative probes) |
-| **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | Production persistence and clean rollback evidence |
-| **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | Updated canonical notes, exactly one immutable task receipt |
+| Task | Title | Canonical Phase | Status | Primary Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Task 1** | Pinned `cloudflared` Image Contract | `S5.5-C` | **CLOSED / PASS** | `cloudflared-pin.json`, `verify-cloudflared-image.sh`, `publicShareCloudflaredPin.test.js` |
+| **Task 2** | S5.5 Compose-Model Tests FIRST | `S5.5-C` | **CLOSED / PASS** | `publicShareS55RuntimeContract.test.js` |
+| **Task 3** | S5.5 Compose Overlay via Verified Pin | `S5.5-C` | **CLOSED / PASS** | `docker-compose.s5-5.yml` |
+| **Task 4** | Authoritative Cloudflare Transport Allowlist Gate | `S5.5-D` | NOT STARTED | `cloudflare-endpoints.json`, `verify-cloudflare-endpoints.sh` (`CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`) |
+| **Task 5** | Firewall Semantic / Model Tests FIRST | `S5.5-D` | NOT STARTED | `publicShareS55FirewallContract.test.js` |
+| **Task 6** | Firewall Apply / Validate / Remove Tooling | `S5.5-D` | NOT STARTED | `s5-5-firewall.sh` (consumes `cloudflare-endpoints.json`) |
+| **Task 7** | Host INPUT Guard & Negative Assertions | `S5.5-D` | NOT STARTED | Negative assertions in `publicShareS55FirewallContract.test.js` & `s5-5-firewall.sh` |
+| **Task 8** | Connector / Topology Pre-Start Validator | `S5.5-E` | NOT STARTED | `s5-5-runtime-check.sh` (`--pre-start`) |
+| **Task 9** | systemd Firewall & Connector Lifecycle Units | `S5.5-E` | NOT STARTED | `aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service` |
+| **Task 10** | Periodic Drift Fail-Closed Enforcement | `S5.5-E` | NOT STARTED | `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`, `s5-5-runtime-check.sh` (`--enforce-drift`) |
+| **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | NOT STARTED | `rollback-s5-5.sh` |
+| **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | NOT STARTED | `publicShareSecurityRegression.test.js` |
+| **Task 13** | Production Runbook Update | `S5.5-E` | NOT STARTED | `gateway/public-share/production/README.md` |
+| **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | NOT STARTED | Production verification evidence (positive + negative probes) |
+| **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | NOT STARTED | Production persistence and clean rollback evidence |
+| **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | NOT STARTED | Updated canonical notes, exactly one immutable task receipt |
 
 ## Architecture
 
@@ -364,24 +366,36 @@ Cloudflare edge network (region1 / region2)
 
 - **Canonical Phase:** `S5.5-D`
 - **Goal:** Implement `gateway/public-share/production/s5-5-firewall.sh` supporting idempotent `apply`, strict `validate`, and clean `remove` without altering unrelated UFW or Docker firewall rules.
+- **S5.5-D Measured Production Preflight Baseline (Read-Only Evidence):**
+  - `aegis_public_share_edge` network ID: `c76a975802719cac673e9c4a9ed6d39eb1cd5820d90dcee8e4dfca590a40db50` -> Observed Linux bridge: `br-c76a97580271`
+  - `aegis_public_share_upstream` network ID: `a96e511142c99f2deb413db8f3c6373927fc716f41f979bf38c8496e28ffe383` -> Observed Linux bridge: `br-a96e511142c9`
+  - Edge members: `aegis-prod-public-share-gateway-1` = `172.31.240.2/29`
+  - Upstream members: `aegis-prod-public-share-gateway-1` = `172.31.241.2/29`, `aegis-prod-drive-1` = `172.31.241.3/29`
+  - Firewall policies: `INPUT` policy DROP, `FORWARD` policy DROP; `FORWARD` traversal: `DOCKER-USER` -> `DOCKER-FORWARD` -> UFW forwarding chains; `DOCKER-USER` currently exists and is empty; `aegis_public_share_egress` absent; connector absent.
+- **Critical Design Reconciliation — Dynamic Edge Linux Bridge Resolution:**
+  - The Docker network name `aegis_public_share_edge` is NOT a Linux network interface name.
+  - Do NOT hard-code `-i aegis_public_share_edge` or `-i br-c76a97580271` (the bridge suffix derives from the Docker network ID and may change if the network is recreated).
+  - Tooling in `s5-5-firewall.sh` must resolve the current edge bridge interface dynamically at runtime from `docker network inspect aegis_public_share_edge` (extracting `com.docker.network.bridge.name` option if configured, or deriving `br-${ID:0:12}` from the inspect JSON ID) and validate that the Linux interface exists before applying rules to `AEGIS-PS-INPUT`.
+  - The egress bridge uses explicitly configured `com.docker.network.bridge.name: "aegis-ps-eg"`, so `-i aegis-ps-eg` is stable and valid.
 - **Files:**
   - Create: `gateway/public-share/production/s5-5-firewall.sh`
 - **Interfaces:**
-  - Consumes: Linux `iptables` CLI, `gateway/public-share/production/cloudflare-endpoints.json`.
+  - Consumes: Linux `iptables` CLI, `gateway/public-share/production/cloudflare-endpoints.json`, `docker network inspect aegis_public_share_edge`.
   - Produces: Executable Bash script managing only `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
 - **Granular TDD Steps:**
   1. Confirm Task 5 tests fail on missing script.
   2. Implement `gateway/public-share/production/s5-5-firewall.sh`:
      - Header: `#!/usr/bin/env bash`, `set -euo pipefail`.
      - Dynamically parse endpoint IPs from `cloudflare-endpoints.json` (do NOT hard-code a speculative list).
+     - Dynamically resolve the Linux bridge interface for `aegis_public_share_edge` via `docker network inspect`.
      - Subcommand `apply`:
        - Creates chains `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
        - Flushes custom chains.
        - Adds established/related accept, connector->gateway TCP/8080 accept, verified Cloudflare TCP/7844 accepts, and terminal drops.
-       - Adds interface and IP drops to `AEGIS-PS-INPUT`.
+       - Adds interface and IP drops to `AEGIS-PS-INPUT` using dynamically resolved edge bridge and stable egress bridge `aegis-ps-eg`.
        - Inserts jump rules into `DOCKER-USER` and `INPUT` idempotently.
      - Subcommand `validate`:
-       - Verifies chains, anchor jumps, rule ordering, and counter availability.
+       - Verifies chains, anchor jumps, rule ordering, interface bindings, and counter availability.
        - Exits 0 on complete valid state; exits 1 on partial, drifted, or missing rules.
      - Subcommand `remove`:
        - Removes jump anchors, flushes custom chains, and deletes chains.
@@ -408,7 +422,7 @@ Cloudflare edge network (region1 / region2)
   - Modify: `gateway/public-share/production/s5-5-firewall.sh`
   - Modify: `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js`
 - **Interfaces:**
-  - Consumes: Host interface configuration, input packet filtering rules.
+  - Consumes: Host interface configuration, dynamic edge bridge resolution, input packet filtering rules.
   - Produces: Verified host-input protection layer with automated negative assertions.
 - **Granular TDD Steps:**
   1. Add negative test cases in `publicShareS55FirewallContract.test.js`:
@@ -416,7 +430,7 @@ Cloudflare edge network (region1 / region2)
      - Assert drop of connector -> host physical IP listeners (SSH, Docker API).
      - Assert drop of connector -> Drive `172.31.241.3:8001`, PostgreSQL `5432`, upstream subnet `172.31.241.0/29`.
      - Assert drop of connector -> UDP/7844, TCP/443, and non-allowlisted Internet.
-  2. Update `s5-5-firewall.sh` to enforce explicit bridge interface filtering (`-i aegis-ps-eg`, `-i aegis_public_share_edge`).
+  2. Update `s5-5-firewall.sh` to enforce explicit bridge interface filtering using stable egress bridge `-i aegis-ps-eg` and dynamically resolved edge Linux bridge (e.g. `br-${ID:0:12}` derived from `docker network inspect aegis_public_share_edge`, NEVER hard-coding `-i aegis_public_share_edge` or a static bridge name).
   3. Run test and verify PASS:
      ```bash
      cd IDEA1-AEGIS_Drive_LC
