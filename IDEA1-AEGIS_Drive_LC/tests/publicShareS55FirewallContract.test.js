@@ -111,7 +111,6 @@ esac
 const MOCK_DOCKER = `#!/usr/bin/env bash
 # Disposable mock docker. Returns fixture JSON for 'network inspect'.
 set -u
-echo "\$*" >> "\$MOCK_DOCKER_LOG"
 cat "\$MOCK_DOCKER_JSON"
 `
 
@@ -151,7 +150,6 @@ function harness(options = {}) {
     MSYS_NO_PATHCONV: '1',
     MOCK_STATE: state,
     MOCK_DOCKER_JSON: dockerJson,
-    MOCK_DOCKER_LOG: path.join(root, 'docker.log'),
     AEGIS_IPTABLES_BIN: iptables,
     AEGIS_DOCKER_BIN: docker,
     AEGIS_SYSFS_NET: sysfs,
