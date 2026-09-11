@@ -1,7 +1,7 @@
 # AEGIS IDEA1 — PUBLIC-SHARE-7 S5.5 Edge-Bridge Firewall Correction Design
 
 Date: 2026-09-12
-Status: OWNER-APPROVED DESIGN; IMPLEMENTATION NOT STARTED
+Status: CHAT DESIGN APPROVED; WRITTEN SPEC PENDING OWNER REVIEW; IMPLEMENTATION NOT STARTED
 Scope: IDEA1 / PUBLIC-SHARE-7 / S5.5-F Production Runtime Acceptance correction
 PR: #118 (`feat/idea1-public-share-s5-5-cloudflared-egress-isolation`)
 
@@ -11,14 +11,14 @@ This design corrects a Production-discovered isolation gap in S5.5 without chang
 
 The existing S5.5 routed/egress firewall remains valid for routed traffic. The correction adds one narrowly scoped native nftables `bridge` enforcement plane for connector-to-Gateway east-west traffic that crosses the shared Docker bridge at Layer 2 and therefore does not traverse the current `FORWARD -> DOCKER-USER -> AEGIS-PS-EGRESS` path on this Production host.
 
-The owner approved the direction in three explicit gates:
+The owner approved the direction in four explicit chat gates:
 
 - `APPROVE S5.5 EDGE BRIDGE NFTABLES DESIGN`
 - `APPROVE S5.5 EDGE BRIDGE ARCHITECTURE`
 - `APPROVE S5.5 EDGE BRIDGE LIFECYCLE`
 - `APPROVE S5.5 EDGE BRIDGE FINAL DESIGN`
 
-No implementation, Production mutation, persistence enablement, public hostname, DNS/TLS route, or PR merge is authorized by this document alone.
+This written specification is a faithful consolidation of those approved design decisions and is now awaiting owner review as a document. No implementation, Production mutation, persistence enablement, public hostname, DNS/TLS route, or PR merge is authorized by this document alone.
 
 ## 2. Production evidence and root cause
 
@@ -408,6 +408,6 @@ At the end of the evidence-gathering sequence that motivated this design:
 
 ## 15. Acceptance boundary
 
-This design is complete when the owner approves this written spec. The next step is to write a detailed implementation plan. No implementation may begin merely because this spec exists.
+This written spec is ready for owner review. After owner approval of this document, the next step is to write a detailed implementation plan. No implementation may begin merely because this spec exists.
 
 After implementation and repository verification, Production redeployment remains a separately controlled operational step within the already-approved S5.5-F correction scope. S5.5-G remains a separate owner-gated phase.
