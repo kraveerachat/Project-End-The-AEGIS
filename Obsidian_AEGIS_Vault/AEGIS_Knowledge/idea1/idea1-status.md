@@ -113,10 +113,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` |
 | Owner | `kla` |
 | Starting SHA | `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` — PR #116 / S5.4 merge |
-| Current state | **IN PROGRESS — S5.5-A and S5.5-B CLOSED / PASS; S5.5-C NOT STARTED** |
+| Current state | **IN PROGRESS — S5.5-A and S5.5-B CLOSED / PASS; S5.5-C Tasks 1-3 COMPLETE / PASS; S5.5-C Tasks 4+ and S5.5-D through S5.5-H NOT STARTED** |
 | Started | 2026-09-11 |
 | Last accepted checkpoint | S5.4 **CLOSED / PASS** at PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` |
-| Production mutation allowed | **NO — S5.5-B design approved; implementation plan established; runtime phases S5.5-C through S5.5-H require separate owner authorisation** |
+| Production mutation allowed | **NO — no Production mutation has occurred; S5.5-C Tasks 1-3 are repository-only; runtime phases S5.5-F and S5.5-G require separate owner authorisation** |
 | Final S5.5 receipt | Deferred until S5.5-H; this in-progress task currently has zero S5.5 receipts |
 
 ### Goal
@@ -189,10 +189,19 @@ mapped across canonical phases S5.5-C through S5.5-H is recorded at
 `docs/superpowers/plans/2026-09-11-idea1-public-share-s5-5-implementation.md`.
 The design preserves the S5.4 overlay unchanged, requires a separate S5.5 overlay,
 and freezes fail-closed network, credential, firewall, lifecycle, validation and
-rollback contracts. S5.5-C through S5.5-H remain **NOT STARTED**. No S5.5 runtime source
-or Production implementation exists yet. Do not describe the egress network,
-connector, firewall isolation, tunnel, public route, or S5.5 itself as implemented,
-deployed, or ready for G5.
+rollback contracts.
+
+S5.5-C **Tasks 1-3 are COMPLETE / PASS** as repository artifacts only: the
+connector image pin is verified against the live registry, the Compose contract
+suite was written and recorded RED first, and
+`gateway/public-share/production/docker-compose.s5-5.yml` now exists. S5.5-C
+Tasks 4+ and S5.5-D through S5.5-H remain **NOT STARTED**.
+
+No S5.5 Production implementation exists. No Docker network, container,
+firewall rule, systemd unit, Cloudflare Tunnel or DNS record has been created,
+and no real tunnel token has been used. Do not describe the egress network,
+connector, firewall isolation, tunnel, public route, or S5.5 itself as deployed,
+running, or ready for G5; only the repository model is proven.
 
 ### S5.5-A Production read-only preflight — CLOSED / PASS
 
@@ -270,7 +279,7 @@ exposure remains none and the Public Share UI remains off.
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | S5.5-A | Audit / Preflight | **CLOSED / PASS** | Repository baseline audit, clean worktree bootstrap, canonical S5.4 reconciliation, and fresh Production read-only firewall/runtime preflight complete; S5.2 firewall assumptions and S5.4 runtime topology match; no Production mutation | none for S5.5-A | completed; superseded by S5.5-B checkpoint |
 | S5.5-B | Design / Repository Preparation | **CLOSED / PASS** | Owner-approved specification freezes the separate S5.5 overlay, exact topology, pinned connector, token-file boundary, TCP/7844-only HTTP/2 policy, DOCKER-USER + INPUT isolation, systemd lifecycle, fail-closed gates, tests and connector-only rollback; no Production mutation | owner review of written checkpoint; nine gates remain for later implementation | stop; S5.5-C only after separate owner approval |
-| S5.5-C | Egress / Connector Repository Preparation | **NOT STARTED** | S5.5 implementation plan prepared and review corrections applied; runtime tasks not started | Tasks 1–3: pinned image, Compose-model tests, S5.5 overlay | after S5.5-B and explicit approval |
+| S5.5-C | Egress / Connector Repository Preparation | **Tasks 1-3 COMPLETE / PASS** | Task 1: `cloudflare/cloudflared:2026.9.0@sha256:b7a6db45...2487e2cc` verified live (version floor, amd64 manifest + config digest, image and effective runtime UID:GID `65532:65532`, `--token-file`, hidden-but-functional `--protocol http2`, `--no-autoupdate`, read-only rootfs with zero tmpfs, readiness syntax) using disposable local containers and a fake token. Task 2: contract suite recorded RED first (tests 7, pass 1, fail 6, ENOENT). Task 3: overlay created from the pin programmatically; GREEN (pass 7, fail 0); merged base+S5.4+S5.5 `docker compose config` renders rc=0; S5.4 overlay byte-identical to `origin/main`; no Production mutation | Tasks 4+ (transport allowlist gate) | S5.5-D only after separate owner approval |
 | S5.5-D | Firewall Implementation | **NOT STARTED** | — | host-enforced isolation | after approved backend-specific design |
 | S5.5-E | Cloudflared Connector | **NOT STARTED** | — | pinned connector without public route | after isolation is installed and verified |
 | S5.5-F | Runtime / Isolation Acceptance | **NOT STARTED** | — | positive and negative probes | after connector runtime exists |
