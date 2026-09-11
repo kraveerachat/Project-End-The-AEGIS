@@ -1,0 +1,65 @@
+# PUBLIC-SHARE-7 S5.5 Production overlay contract.
+#
+# Repository preparation only: this file is not applied by this branch. It
+# layers after the Production Compose file, the S5.3 Drive image-only override
+# and the accepted S5.4 overlay, which stays byte-for-byte unchanged.
+#
+# S5.5 adds exactly one connector and exactly one egress network. It creates no
+# DNS record, no TLS route, no public listener, and does not activate the
+# Public Share UI. The image reference below is the exact pin verified in
+# S5.5-C Task 1 (see cloudflared-pin.json and verify-cloudflared-image.sh);
+# it must never be edited by hand.
+
+x-s5-5-contract:
+  VERIFIED_PIN_SOURCE: gateway/public-share/production/cloudflared-pin.json
+  CONNECTOR_EDGE_IP: 172.31.240.3
+  CONNECTOR_EGRESS_IP: 172.31.242.2
+  EGRESS_TRANSPORT: TCP/7844 outbound only (http2; no UDP/7844, no inbound listener)
+
+services:
+  public-share-connector:
+    image: cloudflare/cloudflared:2026.9.0@sha256:b7a6db450ae2e2f773d4fbe9ffb48e7b5fc451e17329daab1b4dda5a2487e2cc
+    # Verified startup contract. The image entrypoint is
+    # ["cloudflared", "--no-autoupdate"], so these arguments follow it.
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:20241
+      - --protocol
+      - http2
+      - run
+      - --token-file
+      - /run/secrets/cloudflared-token
+    # The credential is supplied only as a read-only file on the Production
+    # host. No token literal and no TUNNEL_TOKEN variable exists anywhere.
+    volumes:
+      - /etc/aegis/public-share/cloudflared-token:/run/secrets/cloudflared-token:ro
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Fail closed: give up after five consecutive failures rather than loop.
+    restart: on-failure:5
+    networks:
+      aegis_public_share_edge:
+        ipv4_address: 172.31.240.3
+      aegis_public_share_egress:
+        ipv4_address: 172.31.242.2
+
+networks:
+  # The only routable network in the Public Share topology. Edge and upstream
+  # remain internal and isolated, and are declared by the S5.4 overlay.
+  aegis_public_share_egress:
+    name: aegis_public_share_egress
+    driver: bridge
+    internal: false
+    driver_opts:
+      com.docker.network.bridge.name: "aegis-ps-eg"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+    ipam:
+      config:
+        - subnet: 172.31.242.0/29
+          gateway: 172.31.242.1

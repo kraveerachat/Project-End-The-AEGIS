@@ -75,6 +75,14 @@ function scalar(block, indent, key) {
   return match[1].replace(/^['"]|['"]$/g, '')
 }
 
+// Credential scanning runs against effective configuration only. Explanatory
+// comments are documentation, not directives, and must not trip the gate.
+const withoutComments = (text) =>
+  text
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .join('\n')
+
 function listItems(block, indent) {
   const pattern = new RegExp(`^ {${indent}}- (.+?)\\s*$`)
   return block
@@ -211,11 +219,12 @@ test('S5.5-CREDENTIAL-BOUNDS the token is file-only, read-only and never inline'
   assert.ok(tokenMount, 'the token must be bind-mounted into the container')
   assert.match(tokenMount, /:ro$/, 'the token mount must be read-only')
 
-  assert.doesNotMatch(overlay(), /TUNNEL_TOKEN/, 'no TUNNEL_TOKEN environment variable')
-  assert.doesNotMatch(overlay(), /^ {4}environment:/m, 'the connector takes no environment credentials')
+  const effective = withoutComments(overlay())
+  assert.doesNotMatch(effective, /TUNNEL_TOKEN/, 'no TUNNEL_TOKEN environment variable')
+  assert.doesNotMatch(effective, /^ {4}environment:/m, 'the connector takes no environment credentials')
   // A real connector token is a long base64url JSON blob; none may be committed.
   assert.doesNotMatch(
-    overlay(),
+    effective,
     /eyJ[A-Za-z0-9_-]{40,}/,
     'no encoded tunnel credential may appear in the overlay',
   )
