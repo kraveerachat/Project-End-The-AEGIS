@@ -370,6 +370,48 @@ authorization. No Production Compose command was run from this repository.
 Production remains UNCHANGED: firewall chains absent, connector absent, egress
 absent, S5.5 systemd units absent, public DNS absent.
 
+### PRE-S5.5-F final fail-closed hardening
+
+Recorded as a **pre-S5.5-F correction**; S5.5-E historical closure is unchanged.
+Three remaining fail-closed gaps were closed before any Production mutation.
+
+**Validate backend gate.** `s5-5-firewall.sh validate` now runs the same
+nf_tables backend and `INPUT`/`DOCKER-USER` host-chain preflight as `apply`,
+while still mutating nothing. `s5-5-runtime-check.sh --pre-start` treats a
+successful validate as its firewall safety gate, so a validate that passed
+against the wrong backend would previously have let the connector start against
+rules the kernel never consults.
+
+**Exact network metadata.** Membership and fixed IPs were pinned, but the
+networks themselves were not. An edge network recreated without `internal:true`
+or without `gateway_mode_ipv4=isolated` would still have held the right members
+at the right addresses while no longer isolating anything. Both `--pre-start`
+and `--enforce-drift` now fail closed on Name, Driver, Internal, Subnet,
+Gateway, the isolated gateway mode on edge and upstream, and the `aegis-ps-eg`
+bridge on egress. Network IDs and derived `br-<id>` names remain deliberately
+unpinned, since a recreated network legitimately gets new ones.
+
+**Safe teardown.** `s5-5-firewall.sh remove` refuses while the connector is
+active, identified by Compose project/service labels rather than display name.
+Running, restarting and paused refuse with the firewall completely unchanged;
+created, exited, dead and absent proceed; any Docker failure that is not
+positively "no such object" fails closed. The guard refuses rather than stopping
+anything - stopping the connector stays with systemd ordering and
+`rollback-s5-5.sh`.
+
+GREEN: firewall 30/30, runtime 46/46. The previous scope correction is intact -
+no global established accept, destination-scoped return rules, unrelated traffic
+falls through, unauthorised connector established traffic still hits the terminal
+deny, staging-chain atomicity preserved.
+
+**Gate movement.** `PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK=PASS` on
+owner-run read-only F0B evidence (Compose v5.4.0: `create` supports
+`--no-build`, `--no-recreate`, `--pull missing`; `start` and `stop` are
+service-scoped). That is CLI capability evidence, **not** permission to execute.
+`PRODUCTION_DNS_PATH_MEASURED=NO` still holds and no DNS exception exists.
+Production remains UNCHANGED: S5.5 chains absent, connector absent, egress
+absent, S5.5 units absent, public DNS absent.
+
 ### S5.5 Session Register
 
 | ID | Scope | State | Result / evidence | Remaining | Next |

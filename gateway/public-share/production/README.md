@@ -125,7 +125,7 @@ No Compose-wide stop, recreate, rebuild, or prune operation is permitted.
 | Internet exposure | **NONE** |
 | G5 | **OPEN** |
 | Public Share UI | **OFF** (`PUBLIC_SHARE_UI_ENABLED=false`) |
-| `PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK` | **REQUIRED** — the local lifecycle smoke ran against Docker Compose v2.38.2; Production F0 measures v5.4.0. The create/start/stop capabilities must be re-inspected read-only on Production before mutation authorization. |
+| `PRODUCTION_COMPOSE_CREATE_CAPABILITY_RECHECK` | **PASS** — owner-run read-only F0B on Production (Compose v5.4.0) confirms `create` supports `--no-build`, `--no-recreate` and `--pull missing`, and that `start` and `stop` are service-scoped. This is CLI capability evidence only, not permission to execute. |
 
 Recorded verbatim for downstream gates:
 
@@ -382,6 +382,20 @@ must report `nf_tables` (Production F0 measures iptables v1.8.11 nf_tables), and
 the `INPUT` and `DOCKER-USER` host chains must already exist. A host that fails
 either check is left completely untouched rather than half-configured.
 
+`validate` runs the same preflight and mutates nothing. This matters because
+`s5-5-runtime-check.sh --pre-start` treats a successful `validate` as its
+firewall safety gate: a `validate` that passed against the wrong backend would
+let the connector start against rules nothing consults.
+
+`remove` **refuses while the connector is active.** The connector is identified
+by its Compose project and service labels, not by display name. A running,
+restarting or paused connector aborts the teardown with the firewall completely
+unchanged; created, exited, dead or absent proceeds. Any Docker failure that is
+not positively "no such object" fails closed. The guard only refuses - it never
+stops a container. Stopping the connector first remains the job of systemd
+ordering (the connector unit `BindsTo`/`After` the firewall unit) and of
+`rollback-s5-5.sh`.
+
 **Scope boundary.** `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, so
 anything it accepts is authorised for the whole host before Docker and UFW policy
 runs. It therefore contains no blanket established/related accept. Return traffic
@@ -417,7 +431,9 @@ sudo /opt/aegis/runtime/public-share/s5-5-runtime-check.sh --pre-start
 ```
 
 Fail-closed: it exits non-zero unless the firewall validates, the edge, upstream
-and (when present) egress topologies match the accepted design, the connector —
+and egress networks match the canonical contract exactly - Name, Driver,
+Internal, Subnet, Gateway, plus `gateway_mode_ipv4=isolated` on edge and
+upstream and the stable `aegis-ps-eg` bridge on egress -  the connector —
 if it exists — is attached to exactly the edge and egress networks on its exact
 fixed addresses, and the credential file passes the metadata checks above. It
 never reads the token contents.
