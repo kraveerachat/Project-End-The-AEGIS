@@ -6,7 +6,7 @@
 #   1. stop + disable the drift timer (so the watchdog cannot fight the rollback)
 #   2. stop + disable the connector service
 #   3. stop + remove ONLY the public-share-connector container
-#   4. remove the S5.5 firewall policy through s5-5-firewall.sh remove
+#   4. remove the S5.5 firewall policy through s5-5-firewall.sh remove (removes task-owned iptables anchors/chains and bridge aegis_s55_edge table)
 #   5. prove aegis_public_share_egress has zero endpoints, then remove it
 #
 # The accepted S5.4 baseline is preserved: drive, public-share-gateway, the
@@ -66,7 +66,7 @@ remove_connector_container() {
 # --- 4: firewall policy ------------------------------------------------------
 
 remove_firewall_policy() {
-  note 'removing the S5.5-owned firewall anchors and chains'
+  note 'removing the S5.5-owned firewall policy (iptables anchors/chains and bridge aegis_s55_edge table)'
   bash "$FIREWALL_SCRIPT" remove >/dev/null 2>&1 \
     || die 'the S5.5 firewall policy could not be removed cleanly'
 }

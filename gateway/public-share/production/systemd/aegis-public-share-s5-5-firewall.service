@@ -1,14 +1,15 @@
 # PUBLIC-SHARE-7 S5.5 firewall lifecycle.
 #
 # Owns ONLY the S5.5 chains AEGIS-PS-EGRESS and AEGIS-PS-INPUT and their two
-# anchors, via s5-5-firewall.sh. It never drives UFW, never restarts Docker and
-# never touches unrelated chains or policies.
+# anchors, and the native bridge aegis_s55_edge table, via s5-5-firewall.sh.
+# It never drives UFW, never restarts Docker and never touches unrelated
+# tables, chains or policies.
 #
 # NOT INSTALLED BY THIS REPOSITORY. Installing, enabling or starting this unit
 # on Production requires separate S5.5-F owner authorization.
 
 [Unit]
-Description=AEGIS Public Share S5.5 connector egress/input firewall policy
+Description=AEGIS Public Share S5.5 connector egress/input/bridge firewall policy
 Documentation=file:///opt/aegis/runtime/public-share/README.md
 After=docker.service ufw.service
 Wants=docker.service

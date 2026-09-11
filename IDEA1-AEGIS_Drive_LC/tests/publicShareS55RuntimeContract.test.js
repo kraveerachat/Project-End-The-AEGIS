@@ -322,8 +322,8 @@ printf '%s\\n' "\$*" >> "\$MOCK_SYSTEMCTL_LOG"
 exit "\${MOCK_SYSTEMCTL_RC:-0}"
 `
 
-function netFixture({ name, id, subnet, gateway, bridgeName, gatewayMode, containers = {}, internal = true }) {
-  return [{
+function netFixture({ name, id, subnet, gateway, bridgeName, gatewayMode, containers = {}, internal = true, enableIPv6 = false }) {
+  const doc = {
     Name: name,
     Id: id,
     Driver: 'bridge',
@@ -336,7 +336,11 @@ function netFixture({ name, id, subnet, gateway, bridgeName, gatewayMode, contai
     Containers: Object.fromEntries(Object.entries(containers).map(([cname, ip]) => [
       `id-${cname}`, { Name: cname, IPv4Address: `${ip}/29` },
     ])),
-  }]
+  }
+  if (enableIPv6 !== undefined) {
+    doc.EnableIPv6 = enableIPv6
+  }
+  return [doc]
 }
 
 function runtimeHarness(options = {}) {
@@ -1288,8 +1292,8 @@ test('S5.5-LIFECYCLE-RUNBOOK-BOOTSTRAP documents create-stopped before firewall 
 
 const ISOLATED = 'com.docker.network.bridge.gateway_mode_ipv4'
 
-function netDoc({ name, subnet, gateway, internal, options = {}, containers = {} }) {
-  return [{
+function netDoc({ name, subnet, gateway, internal, options = {}, containers = {}, enableIPv6 = false }) {
+  const doc = {
     Name: name,
     Id: 'f'.repeat(64),
     Driver: 'bridge',
@@ -1299,7 +1303,11 @@ function netDoc({ name, subnet, gateway, internal, options = {}, containers = {}
     Containers: Object.fromEntries(Object.entries(containers).map(([n, ip]) => [
       `id-${n}`, { Name: n, IPv4Address: `${ip}/29` },
     ])),
-  }]
+  }
+  if (enableIPv6 !== undefined) {
+    doc.EnableIPv6 = enableIPv6
+  }
+  return [doc]
 }
 
 const edgeDoc = (over = {}) => netDoc({
@@ -1441,4 +1449,90 @@ test('S5.5-NET-IDS-NOT-PINNED network ids and derived bridges are never hard-cod
     'measured network ids must never be embedded')
   assert.doesNotMatch(code, /br-c76a97580271|br-a96e511142c9/,
     'derived bridge names must never be embedded')
+})
+
+test('S5.5-NET-EDGE-IPV6-FAIL-CLOSED edge network must explicitly require EnableIPv6=false', () => {
+  // 1. Explicit EnableIPv6: false is accepted by pre-start
+  const happyEdge = edgeDoc({ enableIPv6: false })
+  const hHappy = runtimeHarness({
+    ...STOPPED,
+    networks: {
+      aegis_public_share_edge: happyEdge,
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const res = hHappy.run('--pre-start')
+    assert.equal(res.status, 0, `explicit EnableIPv6: false must pass pre-start: ${res.stderr}`)
+  } finally { hHappy.cleanup() }
+
+  // 2. EnableIPv6: true must fail pre-start
+  const trueEdge = edgeDoc({ enableIPv6: true })
+  const hTrue = runtimeHarness({
+    ...STOPPED,
+    networks: {
+      aegis_public_share_edge: trueEdge,
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const result = hTrue.run('--pre-start')
+    assert.equal(result.status, 1, 'EnableIPv6: true must fail pre-start')
+    assert.match(result.stderr, /EnableIPv6=false/, 'failure message must explain EnableIPv6=false requirement')
+  } finally { hTrue.cleanup() }
+
+  // 3. Missing EnableIPv6 must fail pre-start (invariant cannot be proven)
+  const missingDoc = edgeDoc()
+  delete missingDoc[0].EnableIPv6
+  const hMissing = runtimeHarness({
+    ...STOPPED,
+    networks: {
+      aegis_public_share_edge: missingDoc,
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const result = hMissing.run('--pre-start')
+    assert.equal(result.status, 1, 'missing EnableIPv6 must fail closed')
+    assert.match(result.stderr, /explicitly report EnableIPv6/, 'failure message must explain explicit presence requirement')
+  } finally { hMissing.cleanup() }
+
+  // 4. Drift enforcement must stop the connector if edge has EnableIPv6: true
+  const hDriftTrue = runtimeHarness({
+    ...STOPPED,
+    connectorState: 'running',
+    connectorRunning: true,
+    networks: {
+      aegis_public_share_edge: trueEdge,
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const result = hDriftTrue.run('--enforce-drift')
+    assert.notEqual(result.status, 0, 'EnableIPv6: true must be detected as drift')
+    assert.match(hDriftTrue.systemctlCalls(), /stop aegis-public-share-connector\.service/,
+      'EnableIPv6: true drift must stop the connector')
+  } finally { hDriftTrue.cleanup() }
+
+  // 5. Drift enforcement must stop the connector if edge EnableIPv6 is missing
+  const hDriftMissing = runtimeHarness({
+    ...STOPPED,
+    connectorState: 'running',
+    connectorRunning: true,
+    networks: {
+      aegis_public_share_edge: missingDoc,
+      aegis_public_share_upstream: upstreamDoc(),
+      aegis_public_share_egress: egressDoc(),
+    },
+  })
+  try {
+    const result = hDriftMissing.run('--enforce-drift')
+    assert.notEqual(result.status, 0, 'missing EnableIPv6 must be detected as drift')
+    assert.match(hDriftMissing.systemctlCalls(), /stop aegis-public-share-connector\.service/,
+      'missing EnableIPv6 drift must stop the connector')
+  } finally { hDriftMissing.cleanup() }
 })

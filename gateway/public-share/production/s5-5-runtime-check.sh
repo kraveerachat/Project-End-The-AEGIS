@@ -89,6 +89,8 @@ network_field() {
       : field === "driver" ? net?.Driver
       : field === "internal" ? String(net?.Internal === true)
       : field === "gatewaymode" ? net?.Options?.["com.docker.network.bridge.gateway_mode_ipv4"]
+      : field === "enableipv6" ? String(net?.EnableIPv6 === true)
+      : field === "has-enableipv6" ? String(Object.prototype.hasOwnProperty.call(net ?? {}, "EnableIPv6"))
       : ""
     process.stdout.write(String(value ?? ""))
   ' 2>/dev/null
@@ -132,6 +134,10 @@ check_edge_topology() {
   expect_network_metadata "$json" "$EDGE_NETWORK" 'true' "$EDGE_SUBNET" "$EDGE_GATEWAY" || status=1
   [ "$(network_field "$json" gatewaymode)" = "$ISOLATED_GATEWAY_MODE" ] \
     || { fail "${EDGE_NETWORK} must keep gateway_mode_ipv4=${ISOLATED_GATEWAY_MODE}"; status=1; }
+  [ "$(network_field "$json" has-enableipv6)" = 'true' ] \
+    || { fail "${EDGE_NETWORK} must explicitly report EnableIPv6"; status=1; }
+  [ "$(network_field "$json" enableipv6)" = 'false' ] \
+    || { fail "${EDGE_NETWORK} must keep EnableIPv6=false"; status=1; }
   members="$(network_members "$json")"
   require_member_at "$members" "$GATEWAY_EDGE_IP" "the S5.4 gateway on ${EDGE_NETWORK}" || status=1
   return "$status"
