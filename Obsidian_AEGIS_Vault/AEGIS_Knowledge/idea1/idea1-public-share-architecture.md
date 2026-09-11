@@ -30,20 +30,24 @@ edit_policy: owner-writable
 > activation are **NOT IMPLEMENTED YET**. Internet exposure is **NONE**;
 > Public Internet Share is **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**.
 
-> [!important] S5.5 current state — S5.5-A repository/governance preflight
-> S5.5 is **IN PROGRESS**, limited to its S5.5-A repository/governance session.
-> The repository audit is complete and canonical reconciliation is in progress;
-> the required read-only Production firewall/runtime preflight has not run.
-> `PRODUCTION MUTATION ALLOWED = NO` for this session. No S5.5 Compose source,
+> [!important] S5.5 current state — S5.5-A and S5.5-B closed; no implementation
+> S5.5 is **IN PROGRESS** with S5.5-A and S5.5-B **CLOSED / PASS**. The fresh
+> Production read-only firewall/runtime preflight matched S5.2 assumptions and
+> the accepted S5.4 topology. The owner-approved S5.5-B specification is
+> `docs/superpowers/specs/2026-09-11-idea1-public-share-s5-5-cloudflared-egress-isolation-design.md`.
+> `PRODUCTION MUTATION ALLOWED = NO` for this checkpoint. No S5.5 overlay,
 > egress network, executable firewall policy, connector, tunnel, DNS, TLS,
 > public route, or feature-flag change exists yet.
 >
-> The accepted future S5.5 topology remains egress `172.31.242.0/29`, stable
-> bridge identity `aegis-ps-eg`, and connector egress `172.31.242.2`; the
-> connector may join edge + egress only, while the Gateway remains edge +
-> upstream only. Exact executable firewall commands remain pending the
-> read-only Production preflight and explicit owner approval. See
-> `docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md`.
+> The design preserves `docker-compose.s5-4.yml` unchanged and requires a new
+> `docker-compose.s5-5.yml`. It freezes egress `172.31.242.0/29` / bridge
+> `aegis-ps-eg`, connector edge `.240.3` + egress `.242.2`, TCP/7844-only
+> HTTP/2, a file-delivered tunnel token, `DOCKER-USER` forwarding plus a
+> supplemental INPUT guard, systemd fail-closed activation, and connector-only
+> rollback. Gateway remains edge + upstream; Drive never joins egress. Nine
+> pinned-image, DNS, packet-path, firewall-atomicity and restart gates must pass
+> before any Production mutation. S5.5-C is **NOT STARTED** and requires separate
+> owner approval.
 
 > [!important] Domain and exposure truth
 > `aegistk-pb.com` is **OWNED**. `share.aegistk-pb.com` is the intended

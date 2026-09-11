@@ -113,10 +113,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` |
 | Owner | `kla` |
 | Starting SHA | `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` — PR #116 / S5.4 merge |
-| Current state | **IN PROGRESS — S5.5-A CLOSED / PASS; S5.5-B is next and NOT STARTED** |
+| Current state | **IN PROGRESS — S5.5-A and S5.5-B CLOSED / PASS; S5.5-C NOT STARTED** |
 | Started | 2026-09-11 |
 | Last accepted checkpoint | S5.4 **CLOSED / PASS** at PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` |
-| Production mutation allowed | **NO — current S5.5-A repository/governance session only** |
+| Production mutation allowed | **NO — S5.5-B was design/documentation only; S5.5-C requires separate owner authorisation** |
 | Final S5.5 receipt | Deferred until S5.5-H; this in-progress task currently has zero S5.5 receipts |
 
 ### Goal
@@ -144,7 +144,7 @@ Gateway/Drive boundary and without creating public DNS exposure.
 
 ### Safety boundaries
 
-- `PRODUCTION MUTATION ALLOWED = NO` for S5.5-A.
+- `PRODUCTION MUTATION ALLOWED = NO` for S5.5-B.
 - No Docker Production, firewall/UFW/iptables/nftables, Cloudflare, DNS, tunnel,
   public-listener, or feature-flag mutation is authorised in this session.
 - Later S5.5 Production mutation requires explicit owner approval after a
@@ -182,7 +182,12 @@ hostname only; it has no configured public DNS or TLS route. G5 and G6 remain
 Repository baseline audit, clean-worktree bootstrap, canonical S5.4
 reconciliation, and the Production read-only firewall/runtime preflight are
 complete. S5.5-A is **CLOSED / PASS** with no unresolved load-bearing conflict.
-No S5.5 source implementation exists yet; S5.5-B through S5.5-H remain **NOT
+The owner-approved S5.5 connector/egress/firewall design is now recorded at
+`docs/superpowers/specs/2026-09-11-idea1-public-share-s5-5-cloudflared-egress-isolation-design.md`;
+S5.5-B is **CLOSED / PASS**. The design preserves the S5.4 overlay unchanged,
+requires a separate S5.5 overlay, and freezes fail-closed network, credential,
+firewall, lifecycle, validation and rollback contracts. No S5.5 runtime source
+or Production implementation exists yet; S5.5-C through S5.5-H remain **NOT
 STARTED**. Do not describe the egress network, connector, firewall isolation,
 tunnel, public route, or S5.5 itself as implemented, deployed, or ready for G5.
 
@@ -213,15 +218,55 @@ sysctl, Cloudflare, DNS, tunnel, listener, or feature-flag mutation occurred.
 | Public DNS / Internet | `share.aegistk-pb.com` returned no public DNS answer; Internet exposure remains none; G5 remains open | **MATCH** |
 
 The measured S5.2 firewall/forwarding assumptions and accepted S5.4 runtime
-topology all match. This evidence closes only S5.5-A; it does not authorise or
-perform S5.5-B design work or any Production mutation.
+topology all match. This evidence closes S5.5-A. The owner subsequently and
+separately authorised S5.5-B design/documentation only; no Production mutation
+was authorised or performed.
+
+### S5.5-B owner-approved design — CLOSED / PASS
+
+The accepted design keeps
+`gateway/public-share/production/docker-compose.s5-4.yml` unchanged. A later
+phase may add the isolated overlay
+`gateway/public-share/production/docker-compose.s5-5.yml`, with connector edge
+`172.31.240.3` and NAT-capable egress `172.31.242.2` on
+`aegis_public_share_egress` (`172.31.242.0/29`, gateway `.1`, stable bridge
+`aegis-ps-eg`). The connector joins edge + egress only; Gateway remains edge +
+upstream only; Drive remains on upstream plus its accepted private networks.
+
+The connector design uses an official immutable cloudflared tag/digest,
+non-root `65532:65532` subject to pinned-image proof, a read-only filesystem,
+all capabilities dropped, no-new-privileges, no published port, bounded restart,
+and loopback readiness. A remotely managed tunnel token is supplied only at
+separately authorised activation through `--token-file`; no token may enter
+Git, Compose source, environment variables, inspect arguments, command history,
+logs, Obsidian or receipts. The later origin contract is
+`http://172.31.240.2:8080` with Host `share.aegistk-pb.com`; Gateway trust remains
+the immediate connector `172.31.240.3/32`, never Cloudflare public ranges.
+
+The firewall design pins cloudflared to HTTP/2 and allows only reviewed
+Cloudflare endpoint IPv4 destinations on TCP/7844; UDP/7844 and TCP/443 remain
+unapproved. Forwarded connector traffic is controlled through a task-owned
+chain anchored at `DOCKER-USER`. A supplemental task-owned INPUT guard is
+mandatory because host-local destinations do not traverse `FORWARD`. The
+actual DNS resolver path must be measured before any DNS exception is frozen.
+Systemd-controlled firewall + connector activation is the accepted persistence
+model: firewall validation precedes connector start, unsafe drift stops the
+connector, and rollback removes only the connector, S5.5 firewall additions and
+empty egress network.
+
+Nine implementation-time gates remain mandatory: exact cloudflared version and
+digest; image UID/GID; token-file support; read-only compatibility; readiness
+syntax; Production DNS path; INPUT/FORWARD traversal; atomic firewall changes;
+and Docker/UFW/systemd fail-closed restart behavior. Any failure blocks
+Production mutation. G5 remains open, public DNS remains absent, Internet
+exposure remains none and the Public Share UI remains off.
 
 ### S5.5 Session Register
 
 | ID | Scope | State | Result / evidence | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| S5.5-A | Audit / Preflight | **CLOSED / PASS** | Repository baseline audit, clean worktree bootstrap, canonical S5.4 reconciliation, and fresh Production read-only firewall/runtime preflight complete; S5.2 firewall assumptions and S5.4 runtime topology match; no Production mutation | none for S5.5-A | S5.5-B Design / Repository Preparation in a later explicitly authorised session |
-| S5.5-B | Design / Repository Preparation | **NOT STARTED** | — | reviewed source and rollback design | after S5.5-A |
+| S5.5-A | Audit / Preflight | **CLOSED / PASS** | Repository baseline audit, clean worktree bootstrap, canonical S5.4 reconciliation, and fresh Production read-only firewall/runtime preflight complete; S5.2 firewall assumptions and S5.4 runtime topology match; no Production mutation | none for S5.5-A | completed; superseded by S5.5-B checkpoint |
+| S5.5-B | Design / Repository Preparation | **CLOSED / PASS** | Owner-approved specification freezes the separate S5.5 overlay, exact topology, pinned connector, token-file boundary, TCP/7844-only HTTP/2 policy, DOCKER-USER + INPUT isolation, systemd lifecycle, fail-closed gates, tests and connector-only rollback; no Production mutation | owner review of written checkpoint; nine gates remain for later implementation | stop; S5.5-C only after separate owner approval |
 | S5.5-C | Egress Implementation | **NOT STARTED** | — | egress source/runtime | after S5.5-B and explicit approval |
 | S5.5-D | Firewall Implementation | **NOT STARTED** | — | host-enforced isolation | after approved backend-specific design |
 | S5.5-E | Cloudflared Connector | **NOT STARTED** | — | pinned connector without public route | after isolation is installed and verified |
@@ -348,7 +393,7 @@ IMPLEMENTED.**
 | S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **MERGED / HISTORICAL PARTIAL** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access. Post-S5.2 owner measurement later established Docker 29.7.1 iptables backend, iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny, IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success and TCP/7844 PASS. | `c2fd417c328d34a776b43f749a203a89a5d502d7`; PR #113 merge `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` | **PARTIAL — design frozen; measurement gap subsequently closed by owner** | domain/zone proof; fresh Cloudflare allowlist and exact S5.5 firewall implementation; G5 remains OPEN | superseded by this separately authorised S5.3 task |
 | S5.3 | Production Drive/database preparation and migration 009 | **CLOSED / PASS** | Production pre-mutation gate matched frozen baseline; Backup Agent job `0122772c-640a-45b7-a30b-8a2c70cca942` SUCCESS (integrity PASS); restore verify job `e91750fa-73d6-4759-8e38-98d10b6c1304` SUCCESS (integrity PASS, restore verify PASS); root dump `aegis_drive-pre-009-20260910T102518Z.dump` (size 93161, sha256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries PASS); migration 009 SHA-256 `e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0` applied transactionally, row count (25 total, 0 public) and non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15` preserved, second run idempotent, `drive_app` non-superuser/no ALTER authority; Drive built `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df` tagged `aegis-prod-drive:public-share-50ce6e1638`, rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z`, container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf` recreated on 3 private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`), protected volumes preserved, unrelated services healthy; private smoke/browser PASS, public UI hidden, ANY share create/redeem/revoke PASS (owner-confirmed S5.3), ZONES share PASS (owner-confirmed, corroborated by historical B4 Production Network Scope acceptance), Storage and Audit carried-forward as HISTORICAL_PASS (accepted evidence; not re-executed as new S5.3 browser acceptance); domain ownership OWNED (`aegistk-pb.com` / Cloudflare) | PR #114 | **PASS** | G5/G6 remain OPEN; S5.4/S5.5 remain NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.4 dedicated public networks and gateway deployment |
 | S5.4 | Dedicated Public Share networks + gateway deployment | **CLOSED / PASS** | pre-mutation gate PASSED; Phase A defects corrected (canonical `--env-file`, logical key `aegis_vlan10`, explicit `sudo` boundary; overlay SHA-256 `cc36d08c...`, gateway image `sha256:b61b...`); Phase B attempt 1 failed assertion on stale hard-coded share count (expected 25, actual 27) and cleanly rolled back to S5.3; Phase B v2 Drive State B PASSED (`7ca5cae9...`, 4 networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`, `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`, exact trust `172.19.255.2/32,172.31.241.2/32`, UI false); private regression PASSED (`LOGIN`, `FILES`, `PUBLIC_UI_HIDDEN`, `ANY` lifecycle PASS; `ZONES` historical PASS / not rerun); Phase C Gateway runtime PASSED (`00f2cd8a...`, hardened non-root `101:101`, read-only, edge `172.31.240.2` + upstream `172.31.241.2`, 0 host ports); Phase D-A internal security PASSED (connector `172.31.240.3/32` trust only, CF headers stripped before Drive, negative probes 403/404/405, attribution PASS, rate limit 429 burst PASS); Phase D-B actual public stream PASSED (1 MiB stream HTTP 200, SHA-256 match, hit increment 1, canonical recipient `198.51.100.30`, forged source rejected, browser revoke HTTP 404, `active_public_shares_after_cleanup=0`, token-safe); containers preserved; cloudflared absent; egress absent; host 8080 absent; Internet exposure NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; PR #116 | **PASS** | G5/G6 remain OPEN; S5.5 remains NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.5 isolated cloudflared connector + named tunnel (after human review and authorization) |
-| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **IN PROGRESS — S5.5-A CLOSED / PASS** | repository/canonical preflight complete; fresh Production read-only audit matched S5.2 firewall assumptions and S5.4 topology; root Docker API/containers healthy; egress and `cloudflared` absent; `172.31.242.0/29` collision none; region1/region2 TCP/7844 pass; public DNS no answer; no Production mutation | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` from PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`; Draft PR #118 | **S5.5-A PASS; TASK IN PROGRESS** | S5.5-B through S5.5-H | S5.5-B Design / Repository Preparation after explicit owner direction |
+| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **IN PROGRESS — S5.5-A + S5.5-B CLOSED / PASS** | repository/canonical preflight and Production read-only audit passed; owner-approved S5.5-B specification freezes separate overlay, topology, immutable connector, token-file, TCP/7844 HTTP/2, DOCKER-USER + INPUT, systemd fail-closed lifecycle, test and rollback contracts; no Production mutation | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` from PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`; Draft PR #118 | **S5.5-A/B PASS; TASK IN PROGRESS** | S5.5-C through S5.5-H; nine implementation-time gates | stop for owner review; S5.5-C only after separate approval |
 | G5 | Owner authorises actual Internet exposure | **OPEN** | — | — | — | public hostname activation | only after S5.5 evidence |
 | S5.6 | Public hostname, DNS and TLS activation | NOT STARTED | — | — | — | external security acceptance | requires G5 |
 | S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
@@ -503,15 +548,23 @@ Docker API and container evidence classified it as an environment/context issue,
 not a Production Docker failure. S5.5-A is **CLOSED / PASS**. No Production
 mutation occurred.
 
-**Remaining:** S5.5-B through S5.5-H. No egress network, real `cloudflared`
+**Done in S5.5-B:** owner-approved design specification; immutable S5.4 overlay
+decision; separate S5.5 overlay plan; connector edge/egress topology; immutable
+image, non-root/read-only and token-file boundaries; TCP/7844-only HTTP/2;
+DOCKER-USER plus supplemental INPUT isolation; systemd fail-closed lifecycle;
+implementation gates, test design and connector-only rollback. Documentation
+only; no Production mutation.
+
+**Remaining:** S5.5-C through S5.5-H. No egress network, real `cloudflared`
 connector, S5.5 firewall implementation, tunnel, public DNS/TLS route, or
 Internet exposure exists. G5 and G6 remain OPEN, Public Internet Share remains
 NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED, and the Public Share UI remains OFF
 (`PUBLIC_SHARE_UI_ENABLED=false`). Exactly one final S5.5 receipt remains
 deferred until S5.5-H.
 
-**Next:** S5.5-B — Design / Repository Preparation, only after explicit owner
-direction. Do not begin S5.5-B or any Production mutation in this checkpoint.
+**Next:** stop for owner review. S5.5-C — Egress Implementation may begin only
+after separate explicit owner approval. Do not begin S5.5-C or any Production
+mutation from this checkpoint.
 
 ### Current acceptance reconciliation — 2026-09-06
 

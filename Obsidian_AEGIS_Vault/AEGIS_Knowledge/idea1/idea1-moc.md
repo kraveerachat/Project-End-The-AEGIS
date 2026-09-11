@@ -55,8 +55,9 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
 - Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
   Gateway, and dedicated edge/upstream networks are active without a host port
-  or Internet route. S5.5 is **IN PROGRESS** at repository/governance preflight;
-  egress, real `cloudflared`, host firewall isolation, public DNS/TLS, external
+  or Internet route. S5.5-A preflight and the owner-approved S5.5-B design are
+  **CLOSED / PASS**; S5.5-C is not started and requires separate approval.
+  Egress, real `cloudflared`, host firewall isolation, public DNS/TLS, external
   acceptance, and UI activation are not implemented. Public Internet Share
   therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
   [[idea1/idea1-status]] for current task state,
