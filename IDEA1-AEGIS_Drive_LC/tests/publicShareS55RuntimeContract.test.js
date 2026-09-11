@@ -257,3 +257,349 @@ test('S5.5-GATEWAY-DRIVE-PRESERVED S5.5 does not re-topologize drive or the gate
   assert.doesNotMatch(text, /172\.31\.240\.2/, 'S5.5 must not move the gateway edge address')
   assert.doesNotMatch(text, /PUBLIC_SHARE_UI_ENABLED/, 'S5.5 must not enable the Public Share UI')
 })
+
+// ---------------------------------------------------------------------------
+// S5.5-E TASK 8: connector / topology pre-start validator.
+//
+// Exercised against disposable mocks: a mock docker returning fixture inspect
+// JSON, a mock stat returning fixture file metadata, a mock firewall script and
+// a mock systemctl. Nothing here needs root, touches a real firewall, starts a
+// container, reads a real token, or contacts Production.
+// ---------------------------------------------------------------------------
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync as readFile } from 'node:fs'
+import { tmpdir } from 'node:os'
+import nodePath from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { existsSync as exists } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const productionDir = fileURLToPath(new URL('../../gateway/public-share/production/', import.meta.url))
+const runtimeCheck = nodePath.join(productionDir, 's5-5-runtime-check.sh')
+const rollbackScript = nodePath.join(productionDir, 'rollback-s5-5.sh')
+const systemdDir = nodePath.join(productionDir, 'systemd')
+const runbookPath = nodePath.join(productionDir, 'README.md')
+const bash = process.platform === 'win32' && exists('C:/Program Files/Git/bin/bash.exe')
+  ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
+
+const TOKEN_PATH = '/opt/aegis/runtime/public-share/secrets/cloudflared-token'
+const CONNECTOR_CONTAINER = 'aegis-prod-public-share-connector-1'
+const CONNECTOR_SERVICE = 'aegis-public-share-connector.service'
+
+const MOCK_DOCKER_RUNTIME = `#!/usr/bin/env bash
+# Disposable mock docker: serves fixture JSON, never contacts a daemon.
+set -u
+printf '%s\\n' "\$*" >> "\$MOCK_LOG"
+if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "inspect" ]; then
+  file="\$MOCK_FIXTURES/net-\${3}.json"
+  [ -f "\$file" ] || { echo "Error: No such network: \${3}" >&2; exit 1; }
+  cat "\$file"; exit 0
+fi
+if [ "\${1:-}" = "inspect" ]; then
+  file="\$MOCK_FIXTURES/ctr-\${2}.json"
+  [ -f "\$file" ] || { echo "Error: No such object: \${2}" >&2; exit 1; }
+  cat "\$file"; exit 0
+fi
+if [ "\${1:-}" = "compose" ]; then exit 0; fi
+exit 0
+`
+
+const MOCK_STAT = `#!/usr/bin/env bash
+# Disposable mock stat: returns fixture metadata; never opens file contents.
+set -u
+[ -f "\$MOCK_STAT_FILE" ] || { echo "stat: cannot statx: No such file or directory" >&2; exit 1; }
+cat "\$MOCK_STAT_FILE"
+`
+
+const MOCK_SCRIPT_RC = `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "\$*" >> "\$MOCK_LOG"
+exit "\${MOCK_RC:-0}"
+`
+
+const MOCK_SYSTEMCTL = `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "\$*" >> "\$MOCK_SYSTEMCTL_LOG"
+exit "\${MOCK_SYSTEMCTL_RC:-0}"
+`
+
+function netFixture({ name, id, subnet, gateway, bridgeName, containers = {}, internal = true }) {
+  return [{
+    Name: name,
+    Id: id,
+    Driver: 'bridge',
+    Internal: internal,
+    Options: bridgeName ? { 'com.docker.network.bridge.name': bridgeName } : {},
+    IPAM: { Config: [{ Subnet: subnet, Gateway: gateway }] },
+    Containers: Object.fromEntries(Object.entries(containers).map(([cname, ip]) => [
+      `id-${cname}`, { Name: cname, IPv4Address: `${ip}/29` },
+    ])),
+  }]
+}
+
+function runtimeHarness(options = {}) {
+  const root = mkdtempSync(nodePath.join(tmpdir(), 'aegis-s55-rt-'))
+  const bin = nodePath.join(root, 'bin')
+  const fixtures = nodePath.join(root, 'fixtures')
+  mkdirSync(bin); mkdirSync(fixtures)
+
+  const dockerBin = nodePath.join(bin, 'docker')
+  const statBin = nodePath.join(bin, 'stat')
+  const firewallBin = nodePath.join(bin, 's5-5-firewall.sh')
+  const systemctlBin = nodePath.join(bin, 'systemctl')
+  writeFileSync(dockerBin, MOCK_DOCKER_RUNTIME, { mode: 0o755 })
+  writeFileSync(statBin, MOCK_STAT, { mode: 0o755 })
+  writeFileSync(firewallBin, MOCK_SCRIPT_RC, { mode: 0o755 })
+  writeFileSync(systemctlBin, MOCK_SYSTEMCTL, { mode: 0o755 })
+
+  // Healthy accepted topology by default.
+  const nets = {
+    aegis_public_share_edge: netFixture({
+      name: 'aegis_public_share_edge',
+      id: 'c76a975802719cac673e9c4a9ed6d39eb1cd5820d90dcee8e4dfca590a40db50',
+      subnet: '172.31.240.0/29', gateway: '172.31.240.1',
+      containers: options.edgeContainers ?? { 'aegis-prod-public-share-gateway-1': '172.31.240.2' },
+    }),
+    aegis_public_share_upstream: netFixture({
+      name: 'aegis_public_share_upstream',
+      id: 'a96e511142c99f2deb413db8f3c6373927fc716f41f979bf38c8496e28ffe383',
+      subnet: '172.31.241.0/29', gateway: '172.31.241.1',
+      containers: options.upstreamContainers ?? {
+        'aegis-prod-public-share-gateway-1': '172.31.241.2',
+        'aegis-prod-drive-1': '172.31.241.3',
+      },
+    }),
+  }
+  if (options.egress !== false) {
+    nets.aegis_public_share_egress = netFixture({
+      name: 'aegis_public_share_egress',
+      id: 'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1',
+      subnet: options.egressSubnet ?? '172.31.242.0/29',
+      gateway: options.egressGateway ?? '172.31.242.1',
+      bridgeName: options.egressBridge ?? 'aegis-ps-eg',
+      internal: false,
+      containers: options.egressContainers ?? {},
+    })
+  }
+  for (const [name, value] of Object.entries(nets)) {
+    if (options.networks && options.networks[name] !== undefined) {
+      if (options.networks[name] === null) continue
+      writeFileSync(nodePath.join(fixtures, `net-${name}.json`), JSON.stringify(options.networks[name]))
+      continue
+    }
+    writeFileSync(nodePath.join(fixtures, `net-${name}.json`), JSON.stringify(value))
+  }
+
+  // Connector container fixture (absent by default at pre-start).
+  if (options.connectorNetworks) {
+    writeFileSync(nodePath.join(fixtures, `ctr-${CONNECTOR_CONTAINER}.json`), JSON.stringify([{
+      Name: `/${CONNECTOR_CONTAINER}`,
+      HostConfig: { NetworkMode: options.networkMode ?? 'aegis_public_share_edge' },
+      NetworkSettings: {
+        Networks: Object.fromEntries(Object.entries(options.connectorNetworks).map(([n, ip]) => [
+          n, { IPAddress: ip },
+        ])),
+      },
+    }]))
+  }
+
+  // Token metadata fixture: regular file, root:65532, 0440 by default.
+  const statFile = nodePath.join(fixtures, 'token-stat.txt')
+  if (options.tokenStat !== null) {
+    writeFileSync(statFile, `${options.tokenStat ?? 'regular file|0|65532|440'}\n`)
+  }
+
+  const log = nodePath.join(root, 'mock.log')
+  const systemctlLog = nodePath.join(root, 'systemctl.log')
+  writeFileSync(log, ''); writeFileSync(systemctlLog, '')
+
+  const env = {
+    ...process.env,
+    MSYS_NO_PATHCONV: '1',
+    MOCK_FIXTURES: fixtures,
+    MOCK_LOG: log,
+    MOCK_STAT_FILE: statFile,
+    MOCK_SYSTEMCTL_LOG: systemctlLog,
+    MOCK_RC: String(options.firewallRc ?? 0),
+    MOCK_SYSTEMCTL_RC: String(options.systemctlRc ?? 0),
+    AEGIS_DOCKER_BIN: dockerBin,
+    AEGIS_STAT_BIN: statBin,
+    AEGIS_FIREWALL_SCRIPT: firewallBin,
+    AEGIS_SYSTEMCTL_BIN: systemctlBin,
+    AEGIS_TOKEN_FILE: options.tokenFile ?? TOKEN_PATH,
+    AEGIS_CONNECTOR_CONTAINER: CONNECTOR_CONTAINER,
+  }
+
+  const run = (...args) => spawnSync(bash, [runtimeCheck, ...args], {
+    encoding: 'utf8', timeout: 30000, env,
+  })
+  const runRollback = (...args) => spawnSync(bash, [rollbackScript, ...args], {
+    encoding: 'utf8', timeout: 30000, env,
+  })
+  const mockLog = () => readFile(log, 'utf8')
+  const systemctlCalls = () => readFile(systemctlLog, 'utf8')
+  const cleanup = () => rmSync(root, { recursive: true, force: true })
+  return { run, runRollback, mockLog, systemctlCalls, cleanup, env, root }
+}
+
+test('S5.5-PRESTART-HAPPY accepts the complete safe state', () => {
+  const h = runtimeHarness()
+  try {
+    const result = h.run('--pre-start')
+    assert.equal(result.status, 0, `pre-start should accept a safe state: ${result.stdout}${result.stderr}`)
+    // The firewall gate must actually have been consulted.
+    assert.match(h.mockLog(), /validate/, 's5-5-firewall.sh validate must be invoked')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-PRESTART-FIREWALL halts immediately when firewall validation fails', () => {
+  const h = runtimeHarness({ firewallRc: 1 })
+  try {
+    assert.equal(h.run('--pre-start').status, 1, 'a failing firewall validate must fail the pre-start gate')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-PRESTART-TOPOLOGY requires the accepted edge and upstream topology', () => {
+  // Edge gateway missing from its accepted address.
+  let h = runtimeHarness({ edgeContainers: {} })
+  try {
+    assert.equal(h.run('--pre-start').status, 1, 'missing gateway on edge .2 must fail')
+  } finally { h.cleanup() }
+
+  // Gateway present but at the wrong edge address.
+  h = runtimeHarness({ edgeContainers: { 'aegis-prod-public-share-gateway-1': '172.31.240.4' } })
+  try {
+    assert.equal(h.run('--pre-start').status, 1, 'gateway at the wrong edge address must fail')
+  } finally { h.cleanup() }
+
+  // Drive missing from upstream .3.
+  h = runtimeHarness({ upstreamContainers: { 'aegis-prod-public-share-gateway-1': '172.31.241.2' } })
+  try {
+    assert.equal(h.run('--pre-start').status, 1, 'missing drive on upstream .3 must fail')
+  } finally { h.cleanup() }
+
+  // Edge network absent entirely.
+  h = runtimeHarness({ networks: { aegis_public_share_edge: null } })
+  try {
+    assert.equal(h.run('--pre-start').status, 1, 'a missing edge network must fail closed')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-PRESTART-EGRESS validates egress topology when the network is present', () => {
+  for (const [label, options] of Object.entries({
+    'wrong subnet': { egressSubnet: '172.31.243.0/29' },
+    'wrong gateway': { egressGateway: '172.31.242.9' },
+    'wrong stable bridge name': { egressBridge: 'br-whatever' },
+  })) {
+    const h = runtimeHarness(options)
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `egress with ${label} must fail`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-PRESTART-MEMBERSHIP refuses any forbidden connector attachment', () => {
+  // Exactly edge + egress is the only accepted membership.
+  let h = runtimeHarness({
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+  })
+  try {
+    assert.equal(h.run('--pre-start').status, 0, 'edge + egress membership must be accepted')
+  } finally { h.cleanup() }
+
+  const forbidden = [
+    'aegis_public_share_upstream',
+    'aegis_internal',
+    'aegis_drive_proxy',
+    'aegis_vlan10',
+    'aegis_vlan10_macvlan',
+    'bridge',
+  ]
+  for (const network of forbidden) {
+    const h2 = runtimeHarness({
+      connectorNetworks: {
+        aegis_public_share_edge: '172.31.240.3',
+        aegis_public_share_egress: '172.31.242.2',
+        [network]: '10.1.2.3',
+      },
+    })
+    try {
+      assert.equal(h2.run('--pre-start').status, 1, `attachment to ${network} must be refused`)
+    } finally { h2.cleanup() }
+  }
+
+  // Host networking is never acceptable.
+  const h3 = runtimeHarness({
+    connectorNetworks: { host: '' }, networkMode: 'host',
+  })
+  try {
+    assert.equal(h3.run('--pre-start').status, 1, 'host networking must be refused')
+  } finally { h3.cleanup() }
+
+  // Right networks, wrong fixed addresses.
+  const h4 = runtimeHarness({
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.5',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+  })
+  try {
+    assert.equal(h4.run('--pre-start').status, 1, 'connector must hold its exact fixed addresses')
+  } finally { h4.cleanup() }
+})
+
+test('S5.5-PRESTART-TOKEN enforces regular-file, ownership and mode without reading content', () => {
+  // Happy path is asserted by S5.5-PRESTART-HAPPY; here every unsafe variant.
+  const unsafe = {
+    'a directory at the token path (Compose create_host_path)': 'directory|0|65532|440',
+    'a symlink at the token path': 'symbolic link|0|65532|440',
+    'wrong owner': 'regular file|1000|65532|440',
+    'wrong group': 'regular file|0|0|440',
+    'world readable mode': 'regular file|0|65532|444',
+    'group writable mode': 'regular file|0|65532|460',
+    'mode 0640': 'regular file|0|65532|640',
+    'mode 0400': 'regular file|0|65532|400',
+  }
+  for (const [label, statLine] of Object.entries(unsafe)) {
+    const h = runtimeHarness({ tokenStat: statLine })
+    try {
+      const result = h.run('--pre-start')
+      assert.equal(result.status, 1, `token check must reject ${label}`)
+    } finally { h.cleanup() }
+  }
+
+  // A missing token path must fail closed, never be created.
+  const missing = runtimeHarness({ tokenStat: null })
+  try {
+    assert.equal(missing.run('--pre-start').status, 1, 'a missing token file must fail closed')
+  } finally { missing.cleanup() }
+})
+
+test('S5.5-PRESTART-TOKEN-SECRECY never reads, prints or passes the token', () => {
+  const text = readFile(runtimeCheck, 'utf8')
+  const code = text.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n')
+
+  // The validator may stat the path, but must never open or emit its bytes.
+  for (const forbidden of [/\bcat\b[^\n]*TOKEN/i, /\bhead\b[^\n]*TOKEN/i, /\btail\b[^\n]*TOKEN/i,
+    /\bod\b[^\n]*TOKEN/i, /\bxxd\b[^\n]*TOKEN/i, /sha\d*sum[^\n]*TOKEN/i, /md5sum[^\n]*TOKEN/i,
+    /\bbase64\b[^\n]*TOKEN/i, /\$\(<\s*"?\$\{?TOKEN/i, /read[^\n]*<[^\n]*TOKEN/i]) {
+    assert.doesNotMatch(code, forbidden, `the validator must never read token contents: ${forbidden}`)
+  }
+  assert.doesNotMatch(code, /TUNNEL_TOKEN/, 'the token must never be exported as an environment variable')
+  assert.doesNotMatch(code, /--token\s+[^f]/, 'the token must never be passed as an inline argument')
+
+  // And it must genuinely check type/owner/mode.
+  assert.match(code, /regular file/, 'the validator must require a regular file')
+  assert.match(code, /440/, 'the validator must require mode 0440')
+  assert.match(code, /65532/, 'the validator must require group 65532')
+})
+
+test('S5.5-PRESTART-USAGE fails closed on an unknown or missing mode', () => {
+  const h = runtimeHarness()
+  try {
+    assert.notEqual(h.run().status, 0, 'no mode must fail')
+    assert.notEqual(h.run('--definitely-not-a-mode').status, 0, 'an unknown mode must fail')
+  } finally { h.cleanup() }
+})
