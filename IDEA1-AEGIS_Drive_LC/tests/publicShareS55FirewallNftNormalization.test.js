@@ -1,10 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+
+const shell = process.platform === 'win32' && existsSync('C:/Program Files/Git/bin/bash.exe')
+  ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const production = path.join(root, 'gateway/public-share/production')
@@ -94,12 +97,99 @@ exit 2
 `, { mode: 0o755 })
   chmodSync(docker, 0o755)
 
-  const result = spawnSync('bash', [script, 'validate'], {
+  const nftJson = path.join(dir, 'nft.json')
+  writeFileSync(nftJson, JSON.stringify({
+    nftables: [
+      { metainfo: { version: '1.0.9', release_name: 'Community Plus', json_schema_version: 1 } },
+      { table: { family: 'bridge', name: 'aegis_s55_edge', handle: 1, comment: 'AEGIS-PUBLIC-SHARE-S5.5' } },
+      { chain: { family: 'bridge', table: 'aegis_s55_edge', name: 'forward', handle: 1, type: 'filter', hook: 'forward', prio: 0, policy: 'accept' } },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 2,
+          comment: 'AEGIS-S55 edge connector-to-gateway-http',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.2' } },
+            { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'dport' } }, right: 8080 } },
+            { counter: { packets: 0, bytes: 0 } },
+            { accept: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 3,
+          comment: 'AEGIS-S55 edge gateway-http-return',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.2' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
+            { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'sport' } }, right: 8080 } },
+            { counter: { packets: 0, bytes: 0 } },
+            { accept: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 4,
+          comment: 'AEGIS-S55 edge connector-source-deny',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
+            { counter: { packets: 0, bytes: 0 } },
+            { drop: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 5,
+          comment: 'AEGIS-S55 edge connector-destination-deny',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
+            { counter: { packets: 0, bytes: 0 } },
+            { drop: null },
+          ],
+        },
+      },
+    ],
+  }, null, 2))
+
+  const nft = path.join(bin, 'nft')
+  writeFileSync(nft, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "list" ] && [ "\${2:-}" = "tables" ]; then echo "table bridge aegis_s55_edge"; exit 0; fi
+if [ "\${1:-}" = "-j" ] && [ "\${2:-}" = "list" ] && [ "\${3:-}" = "table" ]; then cat "${nftJson}"; exit 0; fi
+if [ "\${1:-}" = "list" ] && [ "\${2:-}" = "table" ]; then
+  cat <<'NFT'
+table bridge aegis_s55_edge {
+  comment "AEGIS-PUBLIC-SHARE-S5.5"
+  chain forward {
+  }
+}
+NFT
+  exit 0
+fi
+exit 0
+`, { mode: 0o755 })
+  chmodSync(nft, 0o755)
+
+  const result = spawnSync(shell, [script, 'validate'], {
     encoding: 'utf8',
     env: {
       ...process.env,
       AEGIS_IPTABLES_BIN: iptables,
       AEGIS_DOCKER_BIN: docker,
+      AEGIS_NFT_BIN: nft,
       AEGIS_SYSFS_NET: sysfs,
       AEGIS_ENDPOINTS_FILE: allowlistPath,
     },

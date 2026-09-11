@@ -7,7 +7,7 @@
 // root, and no rule is ever installed on this workstation.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -141,6 +141,32 @@ fi
 exit 0
 `
 
+const MOCK_NFT = `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "--check" ]; then exit 0; fi
+if [ "\${1:-}" = "-f" ]; then exit 0; fi
+if [ "\${1:-}" = "list" ] && [ "\${2:-}" = "tables" ]; then
+  echo "table bridge aegis_s55_edge"
+  exit 0
+fi
+if [ "\${1:-}" = "-j" ] && [ "\${2:-}" = "list" ] && [ "\${3:-}" = "table" ]; then
+  cat "\$MOCK_NFT_JSON"
+  exit 0
+fi
+if [ "\${1:-}" = "list" ] && [ "\${2:-}" = "table" ]; then
+  cat <<'NFT'
+table bridge aegis_s55_edge {
+  comment "AEGIS-PUBLIC-SHARE-S5.5"
+  chain forward {
+  }
+}
+NFT
+  exit 0
+fi
+if [ "\${1:-}" = "delete" ]; then exit 0; fi
+exit 0
+`
+
 function harness(options = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'aegis-s55-fw-'))
   const bin = path.join(root, 'bin')
@@ -150,8 +176,13 @@ function harness(options = {}) {
 
   const iptables = path.join(bin, 'iptables')
   const docker = path.join(bin, 'docker')
+  const nft = path.join(bin, 'nft')
   writeFileSync(iptables, MOCK_IPTABLES, { mode: 0o755 })
   writeFileSync(docker, MOCK_DOCKER, { mode: 0o755 })
+  writeFileSync(nft, MOCK_NFT, { mode: 0o755 })
+  chmodSync(iptables, 0o755)
+  chmodSync(docker, 0o755)
+  chmodSync(nft, 0o755)
 
   const state = path.join(root, 'iptables-state')
   // Seed the builtin chains the Production baseline already has. A scenario may
@@ -172,6 +203,74 @@ function harness(options = {}) {
     Driver: 'bridge',
     Options: bridgeName ? { 'com.docker.network.bridge.name': bridgeName } : {},
   }]))
+
+  const resolvedEdge = bridgeName ?? ('br-' + networkId.slice(0, 12))
+  const nftJson = path.join(root, 'nft.json')
+  writeFileSync(nftJson, JSON.stringify({
+    nftables: [
+      { metainfo: { version: '1.0.9', release_name: 'Community Plus', json_schema_version: 1 } },
+      { table: { family: 'bridge', name: 'aegis_s55_edge', handle: 1, comment: 'AEGIS-PUBLIC-SHARE-S5.5' } },
+      { chain: { family: 'bridge', table: 'aegis_s55_edge', name: 'forward', handle: 1, type: 'filter', hook: 'forward', prio: 0, policy: 'accept' } },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 2,
+          comment: 'AEGIS-S55 edge connector-to-gateway-http',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.2' } },
+            { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'dport' } }, right: 8080 } },
+            { counter: { packets: 0, bytes: 0 } },
+            { accept: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 3,
+          comment: 'AEGIS-S55 edge gateway-http-return',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.2' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
+            { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'sport' } }, right: 8080 } },
+            { counter: { packets: 0, bytes: 0 } },
+            { accept: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 4,
+          comment: 'AEGIS-S55 edge connector-source-deny',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
+            { counter: { packets: 0, bytes: 0 } },
+            { drop: null },
+          ],
+        },
+      },
+      {
+        rule: {
+          family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 5,
+          comment: 'AEGIS-S55 edge connector-destination-deny',
+          expr: [
+            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: resolvedEdge } },
+            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
+            { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
+            { counter: { packets: 0, bytes: 0 } },
+            { drop: null },
+          ],
+        },
+      },
+    ],
+  }, null, 2))
 
   // The interfaces the firewall expects to exist on the host.
   const present = options.interfaces
@@ -213,8 +312,10 @@ function harness(options = {}) {
     MOCK_DOCKER_JSON: dockerJson,
     MOCK_CONNECTOR_JSON: connectorJson,
     MOCK_DOCKER_MODE: options.dockerError ? 'error' : 'ok',
+    MOCK_NFT_JSON: nftJson,
     AEGIS_IPTABLES_BIN: iptables,
     AEGIS_DOCKER_BIN: docker,
+    AEGIS_NFT_BIN: nft,
     AEGIS_SYSFS_NET: sysfs,
     AEGIS_ENDPOINTS_FILE: options.endpointsFile ?? allowlistPath,
   }

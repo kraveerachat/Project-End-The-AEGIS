@@ -43,9 +43,16 @@ readonly REQUIRED_HOST_CHAINS='INPUT DOCKER-USER'
 readonly COMPOSE_PROJECT='aegis-prod'
 readonly COMPOSE_SERVICE='public-share-connector'
 
+# Native nftables bridge plane constants
+readonly BRIDGE_FAMILY='bridge'
+readonly BRIDGE_TABLE='aegis_s55_edge'
+readonly BRIDGE_CHAIN='forward'
+readonly BRIDGE_OWNER='AEGIS-PUBLIC-SHARE-S5.5'
+
 # Test seams. Defaults are the real tools and the real sysfs path.
 IPTABLES="${AEGIS_IPTABLES_BIN:-iptables}"
 DOCKER="${AEGIS_DOCKER_BIN:-docker}"
+NFT="${AEGIS_NFT_BIN:-nft}"
 CONNECTOR_CONTAINER="${AEGIS_CONNECTOR_CONTAINER:-aegis-prod-public-share-connector-1}"
 SYSFS_NET="${AEGIS_SYSFS_NET:-/sys/class/net}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -192,6 +199,13 @@ require_host_chains() {
   done
 }
 
+require_nft_bridge_support() {
+  command -v "$NFT" >/dev/null 2>&1 \
+    || die 'nft CLI is required for S5.5 edge-bridge isolation'
+  "$NFT" list tables >/dev/null 2>&1 \
+    || die 'cannot inspect nftables ruleset'
+}
+
 # --- chain primitives ------------------------------------------------------
 
 chain_exists() { "$IPTABLES" -S "$1" >/dev/null 2>&1; }
@@ -326,6 +340,182 @@ require_connector_inactive() {
   esac
 }
 
+# --- bridge primitives -----------------------------------------------------
+
+bridge_table_exists() {
+  "$NFT" list table "$BRIDGE_FAMILY" "$BRIDGE_TABLE" >/dev/null 2>&1
+}
+
+require_bridge_table_owned() {
+  if ! bridge_table_exists; then
+    return 0
+  fi
+  local text
+  text="$("$NFT" list table "$BRIDGE_FAMILY" "$BRIDGE_TABLE" 2>/dev/null)" \
+    || die "cannot inspect pre-existing table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}"
+  case "$text" in
+    *"${BRIDGE_OWNER}"*) ;;
+    *) die "pre-existing table ${BRIDGE_FAMILY} ${BRIDGE_TABLE} is unowned by S5.5; refusing to mutate" ;;
+  esac
+  case "$text" in
+    *"chain ${BRIDGE_CHAIN}"*) ;;
+    *) die "pre-existing table ${BRIDGE_FAMILY} ${BRIDGE_TABLE} lacks expected chain ${BRIDGE_CHAIN}; refusing to mutate" ;;
+  esac
+}
+
+bridge_candidate() {
+  local edge_bridge="$1"
+  if bridge_table_exists; then
+    echo "delete table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}"
+  fi
+  cat <<NFT
+table ${BRIDGE_FAMILY} ${BRIDGE_TABLE} {
+  comment "${BRIDGE_OWNER}"
+  chain ${BRIDGE_CHAIN} {
+    type filter hook forward priority 0; policy accept;
+
+    iifname "${edge_bridge}" oifname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 ip daddr 172.31.240.2 tcp dport 8080 counter accept comment "AEGIS-S55 edge connector-to-gateway-http"
+
+    iifname "${edge_bridge}" oifname "${edge_bridge}" ether type ip ip saddr 172.31.240.2 ip daddr 172.31.240.3 tcp sport 8080 counter accept comment "AEGIS-S55 edge gateway-http-return"
+
+    iifname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-source-deny"
+
+    oifname "${edge_bridge}" ether type ip ip daddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-destination-deny"
+  }
+}
+NFT
+}
+
+bridge_apply() {
+  local edge_bridge="$1" candidate
+  require_bridge_table_owned
+  candidate="$(mktemp "${TMPDIR:-/tmp}/aegis-nft-XXXXXX.nft")"
+  chmod 0600 "$candidate"
+  bridge_candidate "$edge_bridge" > "$candidate"
+  if ! "$NFT" --check -f "$candidate"; then
+    rm -f "$candidate"
+    die 'native bridge candidate failed nft --check'
+  fi
+  if ! "$NFT" -f "$candidate"; then
+    rm -f "$candidate"
+    die 'native bridge firewall transaction failed'
+  fi
+  rm -f "$candidate"
+}
+
+bridge_validate() {
+  local edge_bridge="$1" json
+  bridge_table_exists || { echo "missing table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}" >&2; return 1; }
+  json="$("$NFT" -j list table "$BRIDGE_FAMILY" "$BRIDGE_TABLE" 2>/dev/null)" \
+    || { echo "cannot export JSON for table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}" >&2; return 1; }
+
+  EDGE_BRIDGE="$edge_bridge" NFT_JSON="$json" node --input-type=commonjs -e '
+    const edgeBridge = process.env.EDGE_BRIDGE
+    let data
+    try {
+      data = JSON.parse(process.env.NFT_JSON)
+    } catch {
+      console.error("cannot parse nft JSON")
+      process.exit(1)
+    }
+    const list = data?.nftables
+    if (!Array.isArray(list)) {
+      console.error("nftables property is not an array")
+      process.exit(1)
+    }
+    const tables = list.filter(x => x.table)
+    if (tables.length !== 1) {
+      console.error("expected exactly 1 table, found " + tables.length)
+      process.exit(1)
+    }
+    const t = tables[0].table
+    if (t.family !== "bridge" || t.name !== "aegis_s55_edge" || t.comment !== "AEGIS-PUBLIC-SHARE-S5.5") {
+      console.error("table attributes drifted: " + JSON.stringify(t))
+      process.exit(1)
+    }
+    const chains = list.filter(x => x.chain)
+    if (chains.length !== 1) {
+      console.error("expected exactly 1 chain, found " + chains.length)
+      process.exit(1)
+    }
+    const c = chains[0].chain
+    if (c.family !== "bridge" || c.table !== "aegis_s55_edge" || c.name !== "forward" ||
+        c.type !== "filter" || c.hook !== "forward" || (c.prio !== 0 && c.priority !== 0) ||
+        c.policy !== "accept") {
+      console.error("chain attributes drifted: " + JSON.stringify(c))
+      process.exit(1)
+    }
+    const rules = list.filter(x => x.rule).map(x => x.rule)
+    if (rules.length !== 4) {
+      console.error("expected exactly 4 rules in forward chain, found " + rules.length)
+      process.exit(1)
+    }
+
+    function parseExpr(exprs) {
+      const res = { iifname: null, oifname: null, etherType: null, saddr: null, daddr: null, dport: null, sport: null, action: null }
+      for (const e of (exprs || [])) {
+        if (e.accept !== undefined) res.action = "accept"
+        if (e.drop !== undefined) res.action = "drop"
+        if (e.match) {
+          const { left, right } = e.match
+          if (left?.meta?.key === "iifname") res.iifname = right
+          if (left?.meta?.key === "oifname") res.oifname = right
+          if (left?.payload?.protocol === "ether" && left?.payload?.field === "type") res.etherType = right
+          if (left?.payload?.protocol === "ip" && left?.payload?.field === "saddr") res.saddr = right
+          if (left?.payload?.protocol === "ip" && left?.payload?.field === "daddr") res.daddr = right
+          if (left?.payload?.protocol === "tcp" && left?.payload?.field === "dport") res.dport = Number(right)
+          if (left?.payload?.protocol === "tcp" && left?.payload?.field === "sport") res.sport = Number(right)
+        }
+      }
+      return res
+    }
+
+    const r0 = parseExpr(rules[0].expr)
+    if (rules[0].comment !== "AEGIS-S55 edge connector-to-gateway-http" ||
+        r0.action !== "accept" || r0.iifname !== edgeBridge || r0.oifname !== edgeBridge ||
+        r0.etherType !== "ip" || r0.saddr !== "172.31.240.3" || r0.daddr !== "172.31.240.2" ||
+        r0.dport !== 8080) {
+      console.error("rule 0 drifted: " + JSON.stringify(rules[0]))
+      process.exit(1)
+    }
+
+    const r1 = parseExpr(rules[1].expr)
+    if (rules[1].comment !== "AEGIS-S55 edge gateway-http-return" ||
+        r1.action !== "accept" || r1.iifname !== edgeBridge || r1.oifname !== edgeBridge ||
+        r1.etherType !== "ip" || r1.saddr !== "172.31.240.2" || r1.daddr !== "172.31.240.3" ||
+        r1.sport !== 8080) {
+      console.error("rule 1 drifted: " + JSON.stringify(rules[1]))
+      process.exit(1)
+    }
+
+    const r2 = parseExpr(rules[2].expr)
+    if (rules[2].comment !== "AEGIS-S55 edge connector-source-deny" ||
+        r2.action !== "drop" || r2.iifname !== edgeBridge ||
+        r2.etherType !== "ip" || r2.saddr !== "172.31.240.3") {
+      console.error("rule 2 drifted: " + JSON.stringify(rules[2]))
+      process.exit(1)
+    }
+
+    const r3 = parseExpr(rules[3].expr)
+    if (rules[3].comment !== "AEGIS-S55 edge connector-destination-deny" ||
+        r3.action !== "drop" || r3.oifname !== edgeBridge ||
+        r3.etherType !== "ip" || r3.daddr !== "172.31.240.3") {
+      console.error("rule 3 drifted: " + JSON.stringify(rules[3]))
+      process.exit(1)
+    }
+  ' || { echo "native bridge validation failed for table ${BRIDGE_TABLE}" >&2; return 1; }
+  return 0
+}
+
+bridge_remove() {
+  if ! bridge_table_exists; then
+    return 0
+  fi
+  require_bridge_table_owned
+  "$NFT" delete table "$BRIDGE_FAMILY" "$BRIDGE_TABLE" \
+    || die "failed to delete table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}"
+}
+
 # --- subcommands -----------------------------------------------------------
 
 cmd_apply() {
@@ -333,6 +523,7 @@ cmd_apply() {
   # Resolve and validate everything before touching a single rule.
   require_nft_backend
   require_host_chains
+  require_nft_bridge_support
   endpoints="$(load_endpoints)"
   edge_bridge="$(resolve_edge_bridge)"
   require_interface "$EGRESS_BRIDGE"
@@ -341,7 +532,8 @@ cmd_apply() {
 
   rebuild_chain "$EGRESS_CHAIN" "$EGRESS_STAGE" "$DOCKER_USER_CHAIN" "$egress"
   rebuild_chain "$INPUT_CHAIN" "$INPUT_STAGE" 'INPUT' "$input"
-  echo "S5.5-FIREWALL=APPLIED (edge bridge ${edge_bridge}, $(printf '%s\n' "$endpoints" | grep -c .) endpoints)"
+  bridge_apply "$edge_bridge"
+  echo "S5.5-FIREWALL=APPLIED (edge bridge ${edge_bridge}, $(printf '%s\n' "$endpoints" | grep -c .) endpoints, native bridge table ${BRIDGE_TABLE})"
 }
 
 # iptables-nft re-serializes a few semantically equivalent forms when rules are
@@ -384,6 +576,7 @@ cmd_validate() {
   # against rules nothing consults. validate performs no mutation.
   require_nft_backend
   require_host_chains
+  require_nft_bridge_support
   endpoints="$(load_endpoints)"
   edge_bridge="$(resolve_edge_bridge)"
   require_interface "$EGRESS_BRIDGE"
@@ -392,6 +585,7 @@ cmd_validate() {
   expect_chain "$INPUT_CHAIN" "$(input_rules "$edge_bridge")" || status=1
   expect_anchor_first "$DOCKER_USER_CHAIN" "$EGRESS_CHAIN" || status=1
   expect_anchor_first 'INPUT' "$INPUT_CHAIN" || status=1
+  bridge_validate "$edge_bridge" || status=1
 
   # Explicit negative scans, so a reviewer sees why a drifted chain failed.
   if chain_exists "$EGRESS_CHAIN"; then
@@ -419,6 +613,7 @@ cmd_validate() {
 cmd_remove() {
   # Refuse before touching anything if the connector is still active.
   require_connector_inactive
+  bridge_remove
   # Remove only what S5.5 owns. Unrelated anchors, chains, Docker chains, UFW
   # chains and builtin policies are left exactly as they are.
   remove_anchor "$DOCKER_USER_CHAIN" "$EGRESS_CHAIN"

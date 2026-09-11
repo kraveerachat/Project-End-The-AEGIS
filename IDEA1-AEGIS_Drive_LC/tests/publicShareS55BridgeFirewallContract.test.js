@@ -167,8 +167,15 @@ case "$cmd" in
       echo "Error: Could not commit candidate batch" >&2
       exit 1
     fi
+    to_win() {
+      if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+      else
+        echo "$1"
+      fi
+    }
     # Run parser to update mock state
-    node "$MOCK_NFT_PARSER" "$candidate" "$json_file" "$text_file"
+    node "$MOCK_NFT_PARSER" "$(to_win "$candidate")" "$(to_win "$json_file")" "$(to_win "$text_file")"
     exit 0
     ;;
 
@@ -180,11 +187,18 @@ case "$cmd" in
         exit 1
       fi
       if [ -f "$json_file" ]; then
+        to_win() {
+          if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$1"
+          else
+            echo "$1"
+          fi
+        }
         node -e '
           const data = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
           const t = data.nftables.find(x => x.table)?.table
           if (t) console.log("table " + t.family + " " + t.name)
-        ' "$json_file"
+        ' "$(to_win "$json_file")"
       fi
       exit 0
     fi
@@ -552,7 +566,7 @@ test('apply requires native nft bridge enforcement', () => {
   const h = harness()
   try {
     const r = h.run('apply')
-    assert.equal(r.status, 0)
+    assert.equal(r.status, 0, `apply failed: stdout=${r.stdout} stderr=${r.stderr}`)
     const json = h.readNftJson()
     assert.ok(json, 'native bridge table must be created by apply')
     assert.equal(json.nftables.find((x) => x.table)?.table?.name, TABLE)
