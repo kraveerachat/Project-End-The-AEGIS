@@ -8,7 +8,10 @@ import {
   DISPATCH_EVIDENCE_STAGES,
   DISPATCH_LIST_LIMIT,
   dispatchAuditEntry,
+  dispatchEvidenceAuditEntry,
+  dispatchIncidentOverlay,
   pendingDispatchAction,
+  safeDispatchEvidence,
   validateDispatchListLimit,
 } from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
@@ -446,6 +449,60 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     })
   }
 
+  function evidenceRow(row) {
+    let detail = {}
+    try {
+      const parsed = JSON.parse(row.detail_json)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed
+    } catch {
+      detail = {}
+    }
+    return { sequence: row.sequence, stage: row.stage, observedAt: row.observed_at, receivedAt: row.received_at, detail }
+  }
+
+  function evidenceForAction(actionId) {
+    return database.prepare('SELECT * FROM dispatch_evidence WHERE action_id = ? ORDER BY sequence').all(actionId).map(evidenceRow)
+  }
+
+  function readDispatchEvidence(actionId) {
+    try {
+      return evidenceForAction(actionId)
+    } catch (error) {
+      throw wrap('read dispatch evidence', error)
+    }
+  }
+
+  /**
+   * Append one Core-reported stage for a claimed action (spec §4.7). It is
+   * idempotent by (action_id, sequence): an identical replay is UNCHANGED, and a
+   * different body for the same sequence is a CONFLICT that changes nothing.
+   * Rows are never updated or deleted.
+   */
+  function recordDispatchEvidence(actionId, entry) {
+    const safe = safeDispatchEvidence(entry)
+    if (!safe) throw new TypeError('Dispatch evidence is outside the allowlist')
+    return transaction('record dispatch evidence', () => {
+      const action = database.prepare('SELECT state FROM dispatch_actions WHERE action_id = ?').get(actionId)
+      if (!action) return { status: 'NOT_FOUND', evidence: null }
+      if (action.state !== 'CORE_CLAIMED') return { status: 'NOT_CLAIMED', evidence: null }
+
+      const detailJson = JSON.stringify(safe.detail)
+      const existing = database.prepare('SELECT * FROM dispatch_evidence WHERE action_id = ? AND sequence = ?').get(actionId, safe.sequence)
+      if (existing) {
+        const identical = existing.stage === safe.stage && existing.observed_at === safe.observedAt && existing.detail_json === detailJson
+        return { status: identical ? 'UNCHANGED' : 'CONFLICT', evidence: evidenceRow(existing) }
+      }
+
+      const receivedAt = nowIso(clock)
+      database.prepare(`
+        INSERT INTO dispatch_evidence (action_id, sequence, stage, observed_at, received_at, detail_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(actionId, safe.sequence, safe.stage, safe.observedAt, receivedAt, detailJson)
+      insertAuditRecord(dispatchEvidenceAuditEntry(actionId, safe), receivedAt)
+      return { status: 'RECORDED', evidence: { ...safe, receivedAt } }
+    })
+  }
+
   /**
    * Persist the integration lifecycle for one live cycle.
    *
@@ -588,14 +645,21 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     return { ...DEFAULT_SETTINGS, ...stored }
   }
 
-  function apply(snapshot) {
+  function apply(snapshot, { lastMachineContactAt = null } = {}) {
     try {
       const acknowledgements = new Set(database.prepare('SELECT alert_id FROM alert_acknowledgements').all().map(({ alert_id }) => alert_id))
       const notes = new Map(database.prepare('SELECT incident_id, note FROM incident_notes').all().map(({ incident_id, note }) => [incident_id, note]))
+      const now = new Date(nowIso(clock))
+      const withDispatch = (incident) => {
+        const action = dispatchForIncident(incident.id)
+        return dispatchIncidentOverlay(incident, action, action ? evidenceForAction(action.actionId) : [], { lastMachineContactAt, now })
+      }
       return {
         ...snapshot,
         alerts: snapshot.alerts.map((alert) => acknowledgements.has(alert.id) ? { ...alert, status: 'ACKNOWLEDGED' } : alert),
-        incidents: snapshot.incidents.map((incident) => notes.has(incident.id) ? { ...incident, analystNote: notes.get(incident.id) } : incident),
+        incidents: snapshot.incidents.map((incident) => withDispatch(
+          notes.has(incident.id) ? { ...incident, analystNote: notes.get(incident.id) } : incident,
+        )),
         audit: [...queryAudit({ limit: 250 }), ...snapshot.audit],
         settings: { ...snapshot.settings, policy: { ...snapshot.settings.policy, ...readSettings() } },
       }
@@ -623,6 +687,8 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     readDispatchAction,
     listPendingDispatchActions,
     claimDispatchAction,
+    readDispatchEvidence,
+    recordDispatchEvidence,
     recordIntegrationOutcome,
     schemaVersion,
     updateSettings,

@@ -26,6 +26,7 @@ export function createApp({
   liveProvider = createLiveProvider({ config, clock }),
   repository,
   sessionStore,
+  machineContact = null,
 }) {
   const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
   const app = express()
@@ -105,7 +106,7 @@ export function createApp({
     }
   })
   app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository }))
-  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
+  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository, machineContact }))
   app.use(apiBase, (_req, res) => res.status(404).json({
     error: { code: 'NOT_FOUND', message: 'ไม่พบข้อมูลที่ร้องขอ' },
   }))

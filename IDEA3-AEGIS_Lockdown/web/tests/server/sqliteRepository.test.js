@@ -328,8 +328,8 @@ describe('shared audit contract', () => {
 
     expect(Object.keys(repository).sort()).toEqual([
       'acknowledgeAlert', 'addIncidentNote', 'apply', 'claimDispatchAction', 'close', 'listPendingDispatchActions', 'queryAudit',
-      'readContainmentDecision', 'readDispatchAction', 'recordAction', 'recordContainmentDecision',
-      'recordIntegrationOutcome', 'recordOperationalErrors', 'updateSettings',
+      'readContainmentDecision', 'readDispatchAction', 'readDispatchEvidence', 'recordAction', 'recordContainmentDecision',
+      'recordDispatchEvidence', 'recordIntegrationOutcome', 'recordOperationalErrors', 'updateSettings',
     ])
     repository.recordOperationalErrors([error])
     repository.recordOperationalErrors([error])

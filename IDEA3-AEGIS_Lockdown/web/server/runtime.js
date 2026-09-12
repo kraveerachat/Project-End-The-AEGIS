@@ -53,9 +53,12 @@ export function startServer({
   const dispatchEnabled = config.dispatch?.enabled === true
   const sharedRepository = repository
     ?? (dispatchEnabled ? createSqliteRepository({ path: config.auditDbPath, clock }) : undefined)
-  const app = appFactory({ config, repository: sharedRepository })
+  // One tracker: the machine app records authenticated contact, and the browser
+  // app reads it to show DISPATCH_PENDING or DISPATCH_UNAVAILABLE.
+  const machineContact = dispatchEnabled ? createMachineContactTracker({ clock }) : null
+  const app = appFactory({ config, repository: sharedRepository, machineContact })
   const machineApp = dispatchEnabled
-    ? machineAppFactory({ config, repository: sharedRepository, contact: createMachineContactTracker({ clock }) })
+    ? machineAppFactory({ config, repository: sharedRepository, contact: machineContact })
     : null
   let closePromise = null
 

@@ -9,6 +9,7 @@ import {
   DISPATCH_EVIDENCE_STAGES,
   DISPATCH_TTL_MS,
   assertDispatchable,
+  safeDispatchEvidence,
 } from '../../server/domain/dispatch.js'
 import { AuditPersistenceError } from '../../server/repositories/auditRecords.js'
 import { createMemoryRepository } from '../../server/repositories/memoryRepository.js'
@@ -514,5 +515,105 @@ describe('PR10 S2 dispatch claim — SQLite connections and CUT_UPLINK only', ()
     expect(repository.claimDispatchAction(ACTION_ID, { subject: 'idea3-core' }))
       .toEqual({ status: 'NOT_DISPATCHABLE', dispatch: expect.objectContaining({ state: 'PENDING_DISPATCH', claimedBy: null }) })
     expect(dispatchAudit(repository, 'ACTION_CLAIMED')).toEqual([])
+  })
+})
+
+const EVIDENCE = Object.freeze({ sequence: 1, stage: 'PUBLISHED', observedAt: at(31_000), detail: {} })
+
+function claimedAction(repository) {
+  const { dispatch } = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+  repository.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+  return dispatch.actionId
+}
+
+describe.each(REPOSITORIES)('PR10 S2 dispatch evidence — %s repository', (_name, create) => {
+  it('W12: records evidence append-only for a claimed action, idempotent by sequence', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const actionId = claimedAction(repository)
+    clock.set(at(35_000))
+
+    const recorded = repository.recordDispatchEvidence(actionId, EVIDENCE)
+    const replayed = repository.recordDispatchEvidence(actionId, EVIDENCE)
+    const changed = repository.recordDispatchEvidence(actionId, { ...EVIDENCE, stage: 'DRY_RUN' })
+
+    const stored = { sequence: 1, stage: 'PUBLISHED', observedAt: at(31_000), receivedAt: at(35_000), detail: {} }
+    expect(recorded).toEqual({ status: 'RECORDED', evidence: stored })
+    expect(replayed).toEqual({ status: 'UNCHANGED', evidence: stored })
+    expect(changed).toEqual({ status: 'CONFLICT', evidence: stored })
+    expect(repository.readDispatchEvidence(actionId)).toEqual([stored])
+    expect(dispatchAudit(repository, 'EVIDENCE_RECORDED')).toEqual([expect.objectContaining({
+      outcome: 'SUCCESS', actorRef: 'machine-core', resourceType: 'dispatch_action', resourceId: actionId,
+    })])
+  })
+
+  it('W12: keeps evidence in sequence order whatever the arrival order', () => {
+    const repository = create(mutableClock())
+    const actionId = claimedAction(repository)
+
+    repository.recordDispatchEvidence(actionId, { sequence: 2, stage: 'ACK', observedAt: at(32_000), detail: { ackCode: 'OK' } })
+    repository.recordDispatchEvidence(actionId, EVIDENCE)
+
+    expect(repository.readDispatchEvidence(actionId).map(({ sequence, stage }) => [sequence, stage])).toEqual([[1, 'PUBLISHED'], [2, 'ACK']])
+  })
+
+  it('W12: refuses evidence for an unknown, unclaimed, or expired action', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const pending = repository.recordContainmentDecision(DECISION, { mintDispatch: true }).dispatch
+
+    expect(repository.recordDispatchEvidence('5b0e3c1e-0000-4000-8000-000000000000', EVIDENCE)).toEqual({ status: 'NOT_FOUND', evidence: null })
+    expect(repository.recordDispatchEvidence(pending.actionId, EVIDENCE)).toEqual({ status: 'NOT_CLAIMED', evidence: null })
+    clock.set(at(DISPATCH_TTL_MS))
+    repository.listPendingDispatchActions()
+    expect(repository.recordDispatchEvidence(pending.actionId, EVIDENCE)).toEqual({ status: 'NOT_CLAIMED', evidence: null })
+    expect(repository.readDispatchEvidence(pending.actionId)).toEqual([])
+  })
+
+  it('W12: refuses evidence outside the allowlist before storing anything', () => {
+    const repository = create(mutableClock())
+    const actionId = claimedAction(repository)
+
+    expect(() => repository.recordDispatchEvidence(actionId, { ...EVIDENCE, detail: { nonce: 'a1b2' } })).toThrow(TypeError)
+    expect(repository.readDispatchEvidence(actionId)).toEqual([])
+  })
+})
+
+describe('PR10 S2 dispatch evidence — allowlist', () => {
+  it.each([
+    ['PUBLISHED with no detail', { ...EVIDENCE }],
+    ['DRY_RUN', { ...EVIDENCE, stage: 'DRY_RUN' }],
+    ['an OK ACK', { ...EVIDENCE, stage: 'ACK', detail: { ackCode: 'OK' } }],
+    ['a LOCKDOWN STATUS', { ...EVIDENCE, stage: 'STATUS', detail: { deviceState: 'LOCKDOWN' } }],
+    ['a NORMAL STATUS', { ...EVIDENCE, stage: 'STATUS', detail: { deviceState: 'NORMAL' } }],
+    ['OUTCOME_UNKNOWN with a reason', { ...EVIDENCE, stage: 'OUTCOME_UNKNOWN', detail: { reasonCode: 'ACK_TIMEOUT' } }],
+    ['FAILED with a reason', { ...EVIDENCE, stage: 'FAILED', detail: { reasonCode: 'MQTT_UNAVAILABLE' } }],
+    ['EXPIRED_AT_CORE at the last sequence', { ...EVIDENCE, stage: 'EXPIRED_AT_CORE', sequence: 1000 }],
+  ])('W12: accepts %s', (_case, entry) => {
+    expect(safeDispatchEvidence(entry)).toEqual({
+      sequence: entry.sequence, stage: entry.stage, observedAt: entry.observedAt, detail: entry.detail,
+    })
+  })
+
+  it.each([
+    ['a missing sequence', { ...EVIDENCE, sequence: undefined }],
+    ['sequence 0', { ...EVIDENCE, sequence: 0 }],
+    ['sequence 1001', { ...EVIDENCE, sequence: 1001 }],
+    ['a fractional sequence', { ...EVIDENCE, sequence: 1.5 }],
+    ['an unknown stage', { ...EVIDENCE, stage: 'CONTAINED' }],
+    ['a relay-evidence stage', { ...EVIDENCE, stage: 'RELAY_EVIDENCE' }],
+    ['a non-ISO timestamp', { ...EVIDENCE, observedAt: '12/09/2026 08:00' }],
+    ['an impossible date', { ...EVIDENCE, observedAt: '2026-02-30T08:00:00.000Z' }],
+    ['a nonce in the detail', { ...EVIDENCE, detail: { nonce: 'a1b2' } }],
+    ['an array detail', { ...EVIDENCE, detail: [] }],
+    ['an ACK without an ackCode', { ...EVIDENCE, stage: 'ACK', detail: {} }],
+    ['an ACK that is not OK', { ...EVIDENCE, stage: 'ACK', detail: { ackCode: 'ERROR' } }],
+    ['an ackCode on another stage', { ...EVIDENCE, detail: { ackCode: 'OK' } }],
+    ['a STATUS without a deviceState', { ...EVIDENCE, stage: 'STATUS', detail: {} }],
+    ['an unknown deviceState', { ...EVIDENCE, stage: 'STATUS', detail: { deviceState: 'OPEN' } }],
+    ['a lower-case reasonCode', { ...EVIDENCE, stage: 'FAILED', detail: { reasonCode: 'mqtt_down' } }],
+    ['an extra top-level field', { ...EVIDENCE, executed: true }],
+  ])('W12: refuses %s', (_case, entry) => {
+    expect(safeDispatchEvidence(entry)).toBeNull()
   })
 })

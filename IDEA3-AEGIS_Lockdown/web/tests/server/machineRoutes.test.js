@@ -330,6 +330,202 @@ describe('PR10 S2 machine and browser app isolation', () => {
   })
 })
 
+function report(app, actionId, entry, headers = IDENTITY) {
+  return request(app).post(`${BASE}/dispatch/${actionId}/evidence`).set(headers).send(entry)
+}
+
+const PUBLISHED_EVIDENCE = Object.freeze({ sequence: 1, stage: 'PUBLISHED', observedAt: at(31_000), detail: {} })
+
+describe('PR10 S2 Core evidence', () => {
+  async function claimedAction() {
+    const context = machine()
+    const action = mint(context.repository)
+    await claim(context.app, action.actionId)
+    return { ...context, action }
+  }
+
+  it('W12: records evidence (201), accepts an identical replay (200), and refuses a changed replay (409)', async () => {
+    const { app, repository, action } = await claimedAction()
+
+    const first = await report(app, action.actionId, PUBLISHED_EVIDENCE)
+    const replay = await report(app, action.actionId, PUBLISHED_EVIDENCE)
+    const changed = await report(app, action.actionId, { ...PUBLISHED_EVIDENCE, stage: 'DRY_RUN' })
+
+    expect(first.status).toBe(201)
+    expect(first.body).toEqual({ status: 'RECORDED', sequence: 1, stage: 'PUBLISHED' })
+    expect(replay.status).toBe(200)
+    expect(replay.body).toEqual({ status: 'UNCHANGED', sequence: 1, stage: 'PUBLISHED' })
+    expect(changed.status).toBe(409)
+    expect(changed.body.error.code).toBe('EVIDENCE_CONFLICT')
+    expect(repository.readDispatchEvidence(action.actionId)).toEqual([expect.objectContaining({ sequence: 1, stage: 'PUBLISHED' })])
+  })
+
+  it('W12: refuses evidence for an unknown action (404) or an unclaimed action (409)', async () => {
+    const { app, repository } = machine()
+    const pending = mint(repository)
+
+    const unknown = await report(app, '5b0e3c1e-0000-4000-8000-000000000000', PUBLISHED_EVIDENCE)
+    const unclaimed = await report(app, pending.actionId, PUBLISHED_EVIDENCE)
+
+    expect(unknown.status).toBe(404)
+    expect(unknown.body.error.code).toBe('ACTION_NOT_FOUND')
+    expect(unclaimed.status).toBe(409)
+    expect(unclaimed.body.error.code).toBe('ACTION_NOT_CLAIMED')
+    expect(repository.readDispatchEvidence(pending.actionId)).toEqual([])
+  })
+
+  it.each([
+    ['a missing sequence', { stage: 'PUBLISHED', observedAt: at(31_000), detail: {} }],
+    ['an unknown stage', { ...PUBLISHED_EVIDENCE, stage: 'CONTAINED' }],
+    ['a detail outside the allowlist', { ...PUBLISHED_EVIDENCE, detail: { nonce: 'a1b2' } }],
+    ['an extra field', { ...PUBLISHED_EVIDENCE, physical_evidence: true }],
+  ])('W12: rejects %s with 400 and stores nothing', async (_case, entry) => {
+    const { app, repository, action } = await claimedAction()
+
+    const response = await report(app, action.actionId, entry)
+
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe('EVIDENCE_INVALID')
+    expect(repository.readDispatchEvidence(action.actionId)).toEqual([])
+  })
+
+  it('W12: evidence requires the machine identity like every other machine route', async () => {
+    const { app, repository, action } = await claimedAction()
+
+    const response = await report(app, action.actionId, PUBLISHED_EVIDENCE, { ...IDENTITY, 'X-AEGIS-Client-Verify': 'NONE' })
+
+    expect(response.status).toBe(403)
+    expect(repository.readDispatchEvidence(action.actionId)).toEqual([])
+  })
+})
+
+const CANDIDATE = Object.freeze({
+  id: DECISION.incidentId,
+  state: 'CONTAINMENT_CANDIDATE',
+  severity: 'HIGH',
+  correlationKey: 'zone-a-incident-42',
+  firstSeen: '2026-09-12T07:55:00.000Z',
+  lastSeen: ACCEPTED_AT,
+  idea1Count: 1,
+  idea2Count: 1,
+  evidenceIds: DECISION.evidenceIds,
+  responseState: 'NOT_REQUESTED',
+})
+
+function liveProvider() {
+  return {
+    getSnapshot: async () => ({
+      schemaVersion: 1,
+      mode: 'LIVE',
+      generatedAt: ACCEPTED_AT,
+      overall: { status: 'HEALTHY', evidenceAgeMs: null, eventCount: 0, activeIncidents: 1, highAlerts: 0 },
+      sources: [], events: [], alerts: [], incidents: [CANDIDATE], audit: [], devices: [],
+      runtime: { status: 'UNKNOWN', operationalErrors: [] },
+      operationalErrors: [],
+      settings: { policy: {}, adapters: [], security: {} },
+      provenance: { provider: 'test', liveMerged: false, persistence: 'SQLITE_AUDIT_ONLY' },
+    }),
+  }
+}
+
+async function adminConsole(app) {
+  const agent = request.agent(app)
+  const login = await agent
+    .post('/api/auth/login')
+    .set('Origin', 'http://localhost')
+    .set('Host', 'localhost')
+    .send({ username: 'admin', password: 'correct-horse-battery-staple' })
+  const accept = () => agent
+    .post(`/api/security/incidents/${CANDIDATE.id}/containment`)
+    .set('Origin', 'http://localhost')
+    .set('Host', 'localhost')
+    .set('X-CSRF-Token', login.body.csrfToken)
+    .send({ decision: 'ACCEPT' })
+  const incident = async () => (await agent.get('/api/security/snapshot')).body.incidents.find(({ id }) => id === CANDIDATE.id)
+  return { accept, incident }
+}
+
+function consoleAndMachine(clock = mutableClock()) {
+  const repository = createMemoryRepository({ clock })
+  const contact = createMachineContactTracker({ clock })
+  const config = loadConfig(dispatchEnv())
+  return {
+    clock,
+    repository,
+    browser: createApp({ config, clock, liveProvider: liveProvider(), repository, machineContact: contact }),
+    machineApp: createMachineApp({ config, repository, contact }),
+  }
+}
+
+describe('PR10 S2 dispatch display in the Admin snapshot', () => {
+  it('W13: follows the Core-reported progress, flags OUTCOME_UNKNOWN for review, and never shows Contained', async () => {
+    const { repository, browser, machineApp } = consoleAndMachine()
+    const admin = await adminConsole(browser)
+    await admin.accept()
+    const [pending] = repository.listPendingDispatchActions()
+    const seen = []
+    const observe = async () => {
+      const incident = await admin.incident()
+      seen.push(incident.responseState)
+      return incident
+    }
+
+    expect((await observe()).dispatch).toEqual({
+      actionId: pending.actionId,
+      state: 'PENDING_DISPATCH',
+      expiresAt: at(TTL_MS),
+      humanReviewRequired: false,
+      boundary: { command_requested: true, command_published: false, acknowledged: false, executed: false, physical_evidence: false },
+    })
+    await request(machineApp).get(`${BASE}/dispatch/pending`).set(IDENTITY)
+    await observe()
+    await claim(machineApp, pending.actionId)
+    await observe()
+    await report(machineApp, pending.actionId, PUBLISHED_EVIDENCE)
+    await observe()
+    await report(machineApp, pending.actionId, { sequence: 2, stage: 'ACK', observedAt: at(32_000), detail: { ackCode: 'OK' } })
+    await observe()
+    await report(machineApp, pending.actionId, { sequence: 3, stage: 'STATUS', observedAt: at(33_000), detail: { deviceState: 'LOCKDOWN' } })
+    const correlated = await observe()
+    await report(machineApp, pending.actionId, { sequence: 4, stage: 'OUTCOME_UNKNOWN', observedAt: at(40_000), detail: { reasonCode: 'CORE_RESTART' } })
+    const unknown = await observe()
+
+    expect(seen).toEqual([
+      'DISPATCH_UNAVAILABLE', 'DISPATCH_PENDING', 'CORE_CLAIMED', 'PUBLISHED', 'ACK_RECEIVED', 'STATUS_CORRELATED', 'OUTCOME_UNKNOWN',
+    ])
+    expect(correlated.dispatch.boundary).toEqual({
+      command_requested: true, command_published: true, acknowledged: true, executed: false, physical_evidence: false,
+    })
+    expect(unknown.dispatch.humanReviewRequired).toBe(true)
+    expect(unknown.dispatch.boundary.executed).toBe(false)
+    expect(seen.some((state) => /CONTAIN/.test(state))).toBe(false)
+  })
+
+  it('W13: shows DISPATCH_UNAVAILABLE when the last machine contact is older than 120 s', async () => {
+    const { clock, browser, machineApp } = consoleAndMachine()
+    await request(machineApp).get(`${BASE}/dispatch/pending`).set(IDENTITY)
+    clock.set(at(130_000))
+    const admin = await adminConsole(browser)
+    await admin.accept()
+
+    expect((await admin.incident()).responseState).toBe('DISPATCH_UNAVAILABLE')
+    await request(machineApp).get(`${BASE}/dispatch/pending`).set(IDENTITY)
+    expect((await admin.incident()).responseState).toBe('DISPATCH_PENDING')
+  })
+
+  it('keeps the snapshot incident unchanged while dispatch is disabled (the default)', async () => {
+    const repository = createMemoryRepository({ clock: mutableClock() })
+    const browser = createApp({ config: loadConfig(dispatchEnv({ AEGIS_IDEA3_DISPATCH_ENABLED: 'false' })), clock: mutableClock(), liveProvider: liveProvider(), repository })
+    const admin = await adminConsole(browser)
+    await admin.accept()
+
+    const incident = await admin.incident()
+
+    expect(incident.responseState).toBe('NOT_REQUESTED')
+    expect(incident.dispatch).toBeUndefined()
+  })
+})
+
 // An injected listen() records where each listener would bind; no real port is opened.
 function fakeListen() {
   const calls = []
@@ -390,5 +586,22 @@ describe('PR10 S2 machine listener', () => {
 
     expect(listed.body.actions.map(({ actionId }) => actionId)).toEqual([action.actionId])
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('W13: shares one machine-contact tracker between the machine and browser apps', async () => {
+    const { calls, listen } = fakeListen()
+    const clock = mutableClock()
+    const repository = createMemoryRepository({ clock })
+    const appFactory = (options) => createApp({ ...options, clock, liveProvider: liveProvider() })
+
+    const runtime = await startServer({ config: loadConfig(dispatchEnv()), repository, listen, clock, appFactory })
+    const admin = await adminConsole(calls[0].app)
+    await admin.accept()
+    const before = (await admin.incident()).responseState
+    await request(calls[1].app).get(`${BASE}/dispatch/pending`).set(IDENTITY)
+    const after = (await admin.incident()).responseState
+    await runtime.close()
+
+    expect([before, after]).toEqual(['DISPATCH_UNAVAILABLE', 'DISPATCH_PENDING'])
   })
 })

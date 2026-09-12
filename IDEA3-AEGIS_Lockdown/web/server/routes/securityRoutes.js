@@ -39,7 +39,7 @@ function invalid(res, code = 'REQUEST_INVALID') {
   return res.status(400).json({ error: { code, message: 'ข้อมูลคำขอไม่ถูกต้อง' } })
 }
 
-export function createSecurityRouter({ config, demoProvider, liveProvider, repository }) {
+export function createSecurityRouter({ config, demoProvider, liveProvider, repository, machineContact = null }) {
   const router = Router()
   router.use(requireAdmin)
 
@@ -60,7 +60,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
           })
         }
       }
-      res.json(await repository.apply(snapshot))
+      res.json(await repository.apply(snapshot, { lastMachineContactAt: machineContact?.lastContactAt() ?? null }))
     } catch (error) {
       next(error)
     }
