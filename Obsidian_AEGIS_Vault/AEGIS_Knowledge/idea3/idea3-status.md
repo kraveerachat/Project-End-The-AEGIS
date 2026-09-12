@@ -195,11 +195,11 @@ Owner: `music`
 PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
 Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` — GitHub PR #121 (docs-only reconciliation; not S2). Its single receipt, `90-Status/logs/2026-09-11_234455_music_idea3-pr10-postmerge-reconciliation.md`, covers the reconciliation only and is not the PR10 final receipt
 S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2) — MERGED by a human reviewer at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (2026-09-12). It is immutable and receives no further commits
-S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production). The PR is not yet opened. Its one receipt will be an S2 receipt, not the final PR10 receipt
+S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production) — GitHub Draft PR #123, opened 2026-09-12. It stays Draft; a human reviews and merges it. Its one receipt, `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`, is an S2 receipt, not the final PR10 receipt
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`; S2 Task 9 `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (C6 worker-test gap fix found by NC5); S2 Task 10 full regression bar PASS at `ed9efc4e285ea5e5cf2246b869570da5e6e06298`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`; S2 Task 9 `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (C6 worker-test gap fix found by NC5); S2 Task 10 full regression bar PASS at `ed9efc4e285ea5e5cf2246b869570da5e6e06298`; S2 final implementation/evidence checkpoint `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record, immediately preceding the receipt closeout)
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,8 +214,10 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326; Task 9 PASS at 74eb2c99 — NC1–NC5 observed, NC2 via NC2B, NC5 after the C6 worker-test gap fix; Task 10 PASS — full regression bar at ed9efc4e)
+PR10_S2                   = PASS / CLOSED (2026-09-12; repository-only; LOCAL / SIMULATED; Draft PR #123, stays Draft; Task 11 closeout with one S2 receipt; G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326; Task 9 PASS at 74eb2c99 — NC1–NC5 observed, NC2 via NC2B, NC5 after the C6 worker-test gap fix; Task 10 PASS — full regression bar at ed9efc4e)
 S2_STARTED                = YES (2026-09-12)
+PR10_S2_PR                = #123 (DRAFT — never marked Ready or merged by an agent)
+PR10_S2_RECEIPT           = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md (S2 receipt, not the final PR10 receipt)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 PRODUCTION_MUTATION       = NONE
@@ -344,6 +346,7 @@ S1 = PASS / CLOSED
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2 = YES
 S2_STARTED = YES (2026-09-12; repository-only, non-Production)
+PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; Draft PR #123)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -427,11 +430,48 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS; Task 9 (negative controls NC1–NC5 observed, no residue; NC2 via NC2B; NC5 after the C6 worker-test gap fix) PASS; Task 10 (full regression bar: Python, Web, Ruff, compileall, Vite, npm audit, PR9 drivers, repository, vault, diff, secret and path checks) PASS at `ed9efc4e` — see "S2 Task 0" to "S2 Task 10" below | `ed9efc4e285ea5e5cf2246b869570da5e6e06298` (Task 10 regression HEAD); Task 9 C6 test `74eb2c99`; Task 8 `82a67326`; Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Task 11 of the plan (closeout and Draft PR) | Task 11 (closeout, one S2 receipt, Draft PR; stop before Ready), within the owner-approved final continuation (Tasks 8–11) |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | CLOSED | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS; Task 9 (negative controls NC1–NC5 observed, no residue; NC2 via NC2B; NC5 after the C6 worker-test gap fix) PASS; Task 10 (full regression bar: Python, Web, Ruff, compileall, Vite, npm audit, PR9 drivers, repository, vault, diff, secret and path checks) PASS at `ed9efc4e` ; Task 11 closeout: Draft PR #123 and receipt `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md` — see "S2 Task 0" to "S2 Task 11" below | `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (final implementation/evidence checkpoint, the Task 10 record); Task 10 regression HEAD `ed9efc4e`; Task 9 C6 test `74eb2c99`; Task 8 `82a67326`; Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | PASS — W1–W14, C1–C10, the shared contract, NC1–NC5 (no residue), and the full regression bar; LOCAL / SIMULATED only; no Production change | — (S2 closed); PR10 Production integration not started | Human review of Draft PR #123 (an agent never marks it Ready or merges it). Any next PR10 session needs the owner's explicit approval, and Production work needs its own authorized K1–K12 changes |
+
+### PR10 Task Status Dashboard
+
+| Area | Status | Evidence / Note |
+|---|---|---|
+| S1 inventory + architecture gate | PASS / CLOSED | PR #122 at `b2f61ebf`; S1 receipt |
+| S2 design (G1) | APPROVED | `32545ceb`, by the owner on 2026-09-12 |
+| S2 source implementation (Web + Core) | PASS | W1–W14, C1–C10, the shared contract (Tasks 1–8) |
+| S2 negative controls | PASS | NC1–NC5 observed, no residue (Task 9) |
+| S2 local regression | PASS | full bar at `ed9efc4e` (Task 10) |
+| S2 Pull Request | DRAFT | PR #123; a human reviews and merges it |
+| Shared infrastructure K1–K12 | APPROVED (architecture only) / NOT IMPLEMENTED | each change needs its own authorized review |
+| Production deployment | NOT RUN | `PRODUCTION_CHANGE_AUTHORIZED = NONE` |
+| Hardware / live E2E | NOT RUN | PR11 scope |
+| Final PR10 gate | OPEN | PR10 IN PROGRESS; `IDEA3_PRODUCTION_COMPLETE = NO` |
+
+**Completed:**
+
+- S1 (PASS / CLOSED);
+- S2, Tasks 0–11 (PASS / CLOSED; LOCAL / SIMULATED).
+
+**Remaining:**
+
+- human review and merge of Draft PR #123;
+- the PR10 Production integration, each part owner-approved and
+  Kla-authorized under K1–K12:
+  - HUB `/security/`;
+  - the machine route with mTLS, and the CA;
+  - the IDEA3 network and the Production bind;
+  - the Core host rollout;
+- K12 confirmation (Kla + IDEA1);
+- D6 approval (Pub / IDEA2);
+- PR11 live cross-IDEA E2E;
+- the final PR10 receipt.
+
+**Planned, not started:** any PR10 Production session. It starts only with the
+owner's explicit approval, and never as part of S2.
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–10 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract, and Task 9 (PASS) observed NC1–NC5 with no residue; its NC5 control found and closed a C6 worker-test gap (`74eb2c99`, test-only). Task 10 (PASS) ran the full regression bar at `ed9efc4e`. The owner approved the final continuation (Tasks 8–11); Task 11 remains. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: CLOSED / PASS (2026-09-12) — repository-only, LOCAL / SIMULATED, no Production change; Draft PR #123 awaits human review and stays Draft. G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–11 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract, and Task 9 (PASS) observed NC1–NC5 with no residue; its NC5 control found and closed a C6 worker-test gap (`74eb2c99`, test-only). Task 10 (PASS) ran the full regression bar at `ed9efc4e`. The owner approved the final continuation (Tasks 8–11). Task 11 closed the session: the canonical record, one S2 receipt, and Draft PR #123. PR10 itself stays IN PROGRESS. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
@@ -1410,6 +1450,110 @@ Task 0 harness failure did not recur.
   `npm audit` queried the public npm advisory registry only.
 - **Remaining:** Task 11.
 - **Next:** Task 11 (closeout, one S2 receipt, Draft PR; stop before Ready).
+
+#### S2 Task 11 — closeout and S2 session end (2026-09-12)
+
+- **Final implementation/evidence checkpoint:**
+  `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record). The
+  receipt-bearing closeout commit is recorded in PR #123 and the final report.
+- **Result:** PASS.
+- **Session S2:** CLOSED.
+- **Evidence class:** LOCAL / SIMULATED.
+
+**Work performed.** S2 delivered the approved design and TDD plan across
+Tasks 0–11:
+
+- G1 approved;
+- the Task 0 baseline;
+- the Web schema, minting, the machine app, identity, claim, evidence, and
+  display (Tasks 1–4);
+- the Core ledger, client, and worker (Tasks 5–7);
+- the shared contract (Task 8);
+- the negative controls (Task 9);
+- the full regression bar (Task 10);
+- this closeout (Task 11).
+
+Task 11 itself:
+
+- updated this record: the Current Task state, the register row
+  (CLOSED / PASS), and the new PR10 Task Status Dashboard;
+- updated the MOC entry sentence and the inventory state lines;
+- added the one S2 receipt;
+- opened Draft PR #123 into `main`.
+
+**Implementation details.** See Tasks 1–8 above and the design spec. Dispatch
+is disabled by default on both halves. The machine listener is separate from
+the browser app. The Core publishes only through `supervisor.issue_command`.
+
+**Exact changes (whole S2, against `b2f61ebf`):** 45 paths:
+
+- 42 under `IDEA3-AEGIS_Lockdown/`;
+- `idea3-moc.md` and this note;
+- the receipt
+  `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`.
+
+The receipt lists every path.
+
+**Defects discovered:**
+
+- the Task 4 `ACKED` test's duplicate text, fixed in Task 4;
+- the Task 8 Web RED run failing for the wrong reason (`import.meta.url` under
+  jsdom), fixed in the test;
+- the C6 worker-test gap exposed by NC5 (Task 9);
+- the NC2 plan-exact mutation masked by the claim's expiry sweep (Task 9;
+  limitation recorded, no change).
+
+Environmental (harness), not code:
+
+- the Task 0 acceptance-driver pre-created root;
+- the discarded concurrent PR9 driver collision.
+
+**Fixes applied:** the test fixes above, and `74eb2c99`, which adds the C6
+worker test. No product-source defect was found in Tasks 8–11.
+
+**Tests / evidence:** W1–W14 and C1–C10 PASS; contract Web 9/9 and Core 7/7;
+NC1–NC5 observed. The full bar at `ed9efc4e`:
+
+- Python 334 passed, 6 skipped;
+- Web 493 in 28 files;
+- Ruff and compileall clean;
+- Vite 1,677 modules;
+- npm audit production 0, and full audit only the known dev-only Vitest
+  baseline;
+- PR9 acceptance `PRODUCTION_LIKE_VERIFIED`, and negative controls 13/13;
+- repository 63/63;
+- vault, diff, secret, and path checks pass.
+
+The policy validator passes on the PR #123 body with the final changed paths.
+
+**Result:** PASS.
+
+**Known limitations:** LOCAL / SIMULATED only. These remain unproven:
+
+- real HUB mTLS;
+- the VLAN 20 → 443 path;
+- source-address visibility;
+- the Production bind;
+- clock sync;
+- the real broker, real certificates and keys, and hardware.
+
+Also: the SQL `expires_at > ?` clause is not independently tested; and the
+dev-only Vitest advisory and the `ruff format` drift are pre-existing.
+
+**Remaining work:**
+
+- human review and merge of PR #123;
+- the PR10 Production integration under separately authorized K1–K12 changes;
+- K12 (Kla + IDEA1) and D6 (Pub / IDEA2);
+- PR11;
+- the final PR10 receipt.
+
+**Next session:** none is started. Any next PR10 session needs the owner's
+explicit approval. Completing S2 does not authorize any Production rollout.
+
+- **Hygiene:** files were staged by explicit path. The unrelated
+  `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
+  paths remain untracked and unstaged.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
