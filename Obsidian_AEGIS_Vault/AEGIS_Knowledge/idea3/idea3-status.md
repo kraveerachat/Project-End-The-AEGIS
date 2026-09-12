@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`)
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,7 +427,7 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS — see "S2 Task 0", "S2 Task 1", and "S2 Task 2" below | `3f67cd85440599b3ed63ae138da4b05819efd1ac` (Task 2); Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 3–11 of the plan; W8's claim-410 case and W11's claim side arrive with the claim in Task 3 | Task 3 (machine app, identity, and claim), on the owner's go-ahead |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS — see "S2 Task 0", "S2 Task 1", and "S2 Task 2" below | `94cfb2bfa750244ef6e8546c9f5edb479168e831` (Task 2 coverage follow-up); Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 3–11 of the plan; W8's claim-410 case and W11's claim side arrive with the claim in Task 3 | Task 3 (machine app, identity, and claim), on the owner's go-ahead |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
@@ -717,6 +717,34 @@ LOCAL.
   `config.test.js`.
 - **Deliberate change to an existing test:** the parity key list in
   `sqliteRepository.test.js` now includes the two new repository functions.
+
+**Coverage follow-up (`94cfb2bfa750244ef6e8546c9f5edb479168e831`, tests
+only).** The owner's Task 2 requirement list was checked against the tests,
+and two gaps were closed:
+
+- **Conflict:** an ACCEPT that conflicts with an earlier REJECT mints
+  nothing, in both repositories, and the route returns 409.
+- **Uniqueness:** every minted action gets its own UUID `action_id`.
+
+The behaviour already existed at `3f67cd85`, so these tests could not be seen
+failing against the committed code. Instead, each was shown to detect its
+defect with a temporary source mutation, which was never committed:
+
+- **Late minting on a re-recorded decision:** 5 failures — the three new
+  conflict tests plus the two existing "never mints late" tests.
+- **A fixed, reused `action_id`:** 2 failures. SQLite refused the duplicate
+  key; the memory repository produced 1 distinct ID instead of 3.
+
+Each mutation was restored with `git checkout` and verified identical to the
+commit, and the tests then passed. After the follow-up:
+
+- Vitest 381/381, with 5 new cases;
+- pytest 248 passed, 6 skipped;
+- Ruff and compileall clean; Vite 1,677 modules;
+- PR9 acceptance `PRODUCTION_LIKE_VERIFIED`; negative controls 13/13;
+- repository 63/63;
+- vault, policy, and diff pass;
+- no interaction-scan match; no source change.
 
 **Still open for Task 3:** W8's claim-410 case and W11's claim side, because
 the claim itself is Task 3.
