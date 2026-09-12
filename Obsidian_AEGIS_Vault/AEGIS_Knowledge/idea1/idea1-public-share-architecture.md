@@ -3,7 +3,7 @@ title: IDEA1 Public Share Gateway — Architecture and Threat Model
 tags: [aegis, idea1, share-links, architecture, threat-model, public-gateway, security]
 type: concept
 created: 2026-09-07
-updated: 2026-09-10
+updated: 2026-09-11
 sources: ["[[idea1/idea1-status]]", "[[core/security-architecture]]"]
 owner: kla
 edit_policy: owner-writable
@@ -11,45 +11,77 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!warning] Contract partly delivered; Public Internet Share is still unavailable
-> **PUBLIC-SHARE-1 architecture and PUBLIC-SHARE-2 backend contract are merged.
-> PUBLIC-SHARE-3 gateway source is implemented and verified locally only.
-> PUBLIC-SHARE-6 is COMPLETE: gateway↔Drive integration is proven on an isolated
-> internal address, on a developer machine and now on AEGIS server hardware
-> (16/16, exit 0). Public Internet Share remains NOT IMPLEMENTED and NOT
-> DEPLOYED.** No Production gateway or `aegis_public_share` network exists,
-> migration 009 has not been applied to Production, and no port, DNS, TLS
-> certificate, firewall, NAT, VLAN, managed tunnel or Twingate policy has been
-> changed. The UI still does not offer `scope=public`; **G4 is APPROVED for
-> Option B / Managed Tunnel, while G5 and G6 remain OPEN.**
+> [!success] S5.4 infrastructure accepted; Internet exposure remains absent
+> The Public Share backend contract, managed-edge Gateway, Drive State B,
+> dedicated edge network `172.31.240.0/29`, and dedicated upstream network
+> `172.31.241.0/29` are **IMPLEMENTED / ACCEPTED**. S5.4 is **CLOSED / PASS**
+> through merged PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`.
+> The hardened Production Gateway runs only on edge `172.31.240.2` and upstream
+> `172.31.241.2`; Drive is upstream `172.31.241.3`; connector edge
+> `172.31.240.3` remains reserved. S5.4 also accepted an isolated internal
+> public-scope stream through the Gateway and ended with zero active public
+> shares. See
+> [[90-Status/logs/2026-09-11_042000_kla_public-share-s5-4-gateway-networks]]
+> and `gateway/public-share/production/README.md`.
 >
-> The isolated PUBLIC-SHARE-3 and PUBLIC-SHARE-6 harnesses are source/test
-> evidence, not Production evidence. Every container, network and volume either
-> creates is removed after each runtime run.
+> This is not Internet availability. The repository firewall tooling is
+> **IMPLEMENTED and TESTED**, but the Production firewall remains **UNCHANGED /
+> NOT DEPLOYED**. The egress network and real `cloudflared` connector remain
+> **ABSENT** on Production; public hostname binding, public DNS/TLS route,
+> external 4G/5G acceptance, and Public Share UI activation are **NOT
+> IMPLEMENTED YET**. Internet exposure is **NONE**; Public Internet Share is
+> **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**.
+
+> [!important] S5.5 current state — S5.5-A through S5.5-E, pre-F security corrections, and main sync closed; runtime phases S5.5-F+ NOT STARTED
+> S5.5 is **IN PROGRESS** with S5.5-A, S5.5-B, S5.5-C, S5.5-D, and S5.5-E **CLOSED / PASS**
+> (S5.5-D and S5.5-E repository implementation only), PRE-S5.5-F SECURITY CORRECTIONS **CLOSED / PASS**
+> (repository only), and S5.5 PRE-PRODUCTION MAIN SYNC **CLOSED / PASS**. The fresh Production read-only
+> firewall/runtime preflight matched S5.2 assumptions and the accepted S5.4
+> topology. S5.5-C repository preparation verified the pinned cloudflared image
+> contract and established `docker-compose.s5-5.yml`. S5.5-D repository firewall
+> tooling is **IMPLEMENTED and TESTED** (`s5-5-firewall.sh`, authoritative
+> allowlist snapshot `cloudflare-endpoints.json` with `CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`,
+> and contract tests). S5.5-E repository lifecycle tooling is **IMPLEMENTED and TESTED**
+> (`s5-5-runtime-check.sh` with `--pre-start` and `--enforce-drift`, systemd units,
+> `rollback-s5-5.sh`, security regression suite in `publicShareSecurityRegression.test.js`,
+> and updated runbook in `gateway/public-share/production/README.md`).
 >
-> **PUBLIC-SHARE-7 is IN PROGRESS (2026-09-09).** Its first task — the
-> managed-proxy trust adapter and pre-exposure acceptance (§10.2) — is
-> **COMPLETE and PASSED 20/20** against the real Drive on an isolated topology.
-> Nothing is exposed. The owner approved **G4 Option B / Managed Tunnel** on
-> 2026-09-09 with T-14/T-27 explicitly acknowledged, but no tunnel, domain, DNS,
-> TLS, connector, firewall or Production configuration exists. G5 and G6 remain
-> OPEN.
+> S5.5-E established the create-before-start lifecycle correction (`create --no-build --no-recreate --pull missing public-share-connector`),
+> verified active restart detection using `State.Restarting`/`restarting` rather than cumulative `RestartCount`,
+> implemented drift fail-closed enforcement stopping only `aegis-public-share-connector.service`,
+> and established narrow connector-only rollback preserving the S5.4 baseline.
+>
+> Pre-S5.5-F security hardening established:
+> 1. **Destination-scoped established return traffic**: `-d 172.31.240.3/32` and `-d 172.31.242.2/32` only, with NO broad `-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`; unrelated traffic falls through, and unauthorised connector traffic drops.
+> 2. **Fail-closed preflight**: both `apply` and `validate` require the iptables `nf_tables` backend and existing `INPUT` and `DOCKER-USER` host chains, mutating nothing on preflight failure.
+> 3. **Exact network metadata pinned**: Name, Driver, Internal, Subnet, Gateway, `gateway_mode_ipv4=isolated` on edge/upstream, and `aegis-ps-eg` on egress (Docker network IDs and derived `br-<id>` unpinned).
+> 4. **Teardown safety**: `s5-5-firewall.sh remove` requires positive proof of exact Compose identity (`aegis-prod`/`public-share-connector`) and safe state (`created` or `exited`), refusing `running`, `restarting`, `paused`, `dead`, `removing`, `unknown`, or malformed state, while failing closed on identity mismatch or Docker uncertainty. Positively absent connector allows idempotent removal. The script refuses only and never stops or removes containers.
+> 5. **Main sync**: clean `--no-ff` merge of `origin/main` (`ba5b9ff58df535774303a7998c069bb33ac848ac`) into the branch at `833f32fc1779dcee216fabdf70c61d60650fdf4f` (0 conflicts, 0 S5.5 files touched).
+> 6. **Verified test evidence**: firewall contract 34/34 PASS, runtime contract 46/46 PASS, security regressions 21/21 PASS, full suite 1267/1186/9 (0 new failures, 9 pre-existing).
+>
+> `PRODUCTION MUTATION ALLOWED = NO` for this checkpoint. No Production deployment
+> has occurred: Production firewall remains **UNCHANGED**, Production systemd remains
+> **UNCHANGED**, and the egress network and connector remain **ABSENT** on Production.
+>
+> The design preserves `docker-compose.s5-4.yml` unchanged and adds separate
+> `docker-compose.s5-5.yml`. It freezes egress `172.31.242.0/29` / bridge
+> `aegis-ps-eg`, connector edge `.240.3` + egress `.242.2`, TCP/7844-only
+> HTTP/2, a file-delivered tunnel token, `DOCKER-USER` forwarding plus a
+> supplemental INPUT guard, systemd fail-closed activation with periodic drift
+> enforcement, and connector-only rollback. Gateway remains edge + upstream;
+> Drive never joins egress. S5.5-D tooling resolves the actual edge Linux bridge
+> dynamically via `docker network inspect aegis_public_share_edge` (e.g. `br-${ID:0:12}`),
+> never hard-coding `-i aegis_public_share_edge` or a static bridge name. Host INPUT
+> protection uses generic source-based connector denial. S5.5-F through S5.5-H
+> remain **NOT STARTED** and require separate owner approval.
 
-> [!important] S5.2 G5-readiness design — delivered, execution still blocked
-> The owner-approved candidate Production topology is now frozen as edge
-> `172.31.240.0/29`, upstream `172.31.241.0/29`, and egress
-> `172.31.242.0/29`, subject to a fresh runtime collision check before network
-> creation. Connector isolation is a host-enforced, backend-neutral,
-> default-deny contract; it is explicitly **not** a `DOCKER-USER`-only design.
-> Exact executable firewall commands remain **BLOCKED / PENDING MEASUREMENT**
-> until an owner-run read-only Production preflight establishes the Docker
-> firewall backend, effective iptables/nftables/UFW hooks and priorities, IPv4
-> forwarding, actual bridge interfaces, and connector DNS path. See
-> `docs/superpowers/plans/2026-09-10-idea1-public-share-g5-readiness.md`.
-> Domain ownership and the Cloudflare zone are **NOT VERIFIED**; G5 and G6 stay
-> **OPEN**, and Public Internet Share stays **NOT IMPLEMENTED**.
+> [!important] Domain and exposure truth
+> `aegistk-pb.com` is **OWNED**. `share.aegistk-pb.com` is the intended
+> hostname, but `DNS_PUBLIC_ROUTE = NOT CONFIGURED`,
+> `TLS_PUBLIC_ROUTE = NOT CONFIGURED`, and `INTERNET_EXPOSURE = NONE`.
+> G5 and G6 remain **OPEN**, and the Public Share UI remains **OFF**.
 
-> [!important] Current G4 decision — approved, not deployed
+> [!important] Current G4 decision — architecture approved; public route not deployed
 > **G4 = APPROVED — §13 Option B / Managed Tunnel.** The site is behind measured
 > upstream NAT/CGNAT, inbound forwarding is not practical, and the existing
 > perimeter has no inbound Internet listener. The chosen path is Cloudflare Edge
@@ -1509,12 +1541,12 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | PR | Scope | Produces | Explicitly not included |
 | :--- | :--- | :--- | :--- |
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
-| **PUBLIC-SHARE-2** *(delivered, not deployed)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI change |
-| **PUBLIC-SHARE-3** *(delivered in source, not deployed)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests | Any Production integration or Internet exposure; any DNS, TLS, NAT or tunnel |
+| **PUBLIC-SHARE-2** *(delivered; Production backend/DB prepared in S5.3)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI activation |
+| **PUBLIC-SHARE-3** *(delivered; Production Gateway accepted in S5.4)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests; hardened Gateway now accepted on dedicated edge + upstream networks | Internet exposure; any DNS, TLS, NAT or tunnel |
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
-| **PUBLIC-SHARE-6** *(COMPLETE — internal acceptance passed on server hardware; not deployed)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | Any ingress choice, Internet exposure, or Production change |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — pre-exposure 20/20 PASS; S5.2 readiness design delivered)* | Managed-tunnel trust adapter, pre-exposure acceptance, then owner-gated Production deployment and real external E2E | Delivered adapter/harness, S5.1 Production freeze, and S5.2 candidate topology/trust/isolation design; G4 Option B approved | Production preflight and executable firewall rules, domain/zone proof, G5, actual tunnel/hostname exposure, external acceptance, G6 and UI activation remain open |
+| **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.4 CLOSED/PASS; S5.5-A/B/C/D/E + Pre-F security corrections + main sync CLOSED/PASS in repo)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.3 complete; S5.4 Production Drive State B, edge/upstream networks and Gateway accepted; domain owned; G4 Option B approved; S5.5-C overlay/pin tests closed; S5.5-D firewall tooling implemented and tested in repo; S5.5-E lifecycle, drift timer, rollback, and security regressions closed in repo; pre-S5.5-F destination-scoped established return, fail-closed preflight, exact network metadata, and safe teardown identity/state gates closed in repo; main synced cleanly at 833f32fc | S5.5-F runtime isolation acceptance, S5.5-G rollback; G5, actual tunnel hostname/DNS/TLS exposure, external acceptance, G6 and UI activation remain open |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**

@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-07
+updated: 2026-09-11
 owner: kla
 edit_policy: owner-writable
 ---
@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public External Internet Share architecture, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.5 connector isolation plus later Internet acceptance, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -53,7 +53,28 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - The final Dashboard/Storage/Secure Share source pass still needs controlled Production deployment and owner visual acceptance; existing Production closure is not evidence for the changed layout.
 - `STORAGE-AUTO-2` automatic scheduled execution is **OPEN / UNPROVEN**; current schedule remains disabled, and it closes only after an explicitly approved scheduler-triggered Production run is observed.
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
-- Public External Internet Share remains **NOT IMPLEMENTED / FUTURE ARCHITECTURE**. `scope=any` is not public sharing: it adds no Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS. The accepted design contract — dedicated share-only gateway, `scope=public` as a third explicit value, threat model, ingress decision matrix, and the PUBLIC-SHARE-2..7 sequence — is [[idea1/idea1-public-share-architecture]]; it is architecture only and nothing in it is built or deployed.
+- Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
+  Gateway, and dedicated edge/upstream networks are active without a host port
+  or Internet route. S5.5-A preflight, the owner-approved S5.5-B design,
+  S5.5-C repository preparation (cloudflared image pin, contract tests, and
+  `docker-compose.s5-5.yml`), S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
+  allowlist artifact, firewall contract tests), S5.5-E lifecycle tooling and
+  security regressions (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`, systemd units,
+  drift timer, and security test suite), pre-S5.5-F security corrections
+  (destination-scoped established return traffic, fail-closed preflight, exact
+  network metadata, and safe teardown identity/state gates; 34/34 firewall,
+  46/46 runtime, 1267/1186/9 full suite), and the clean current-main sync (HEAD
+  `833f32fc`) are **CLOSED / PASS** (repository only); phases S5.5-F through S5.5-H
+  remain not started and require separate owner approval. No Production deployment
+  occurred: egress network and connector remain absent on Production, the Production
+  firewall remains unchanged, and Production systemd is unchanged. Public DNS/TLS,
+  external acceptance, and UI activation are not implemented. Public Internet Share
+  therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
+  [[idea1/idea1-status]] for current task state,
+  [[idea1/idea1-public-share-architecture]] for the contract,
+  [[90-Status/logs/2026-09-11_042000_kla_public-share-s5-4-gateway-networks]]
+  for immutable S5.4 evidence, and
+  `gateway/public-share/production/README.md` for the Production runbook.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.
 

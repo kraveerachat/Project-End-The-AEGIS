@@ -1,0 +1,17 @@
+# PUBLIC-SHARE-7 S5.5 drift enforcement cadence.
+#
+# NOT INSTALLED BY THIS REPOSITORY. Installing, enabling or starting this timer
+# on Production requires separate S5.5-F owner authorization.
+
+[Unit]
+Description=Periodic AEGIS Public Share S5.5 connector drift enforcement
+Documentation=file:///opt/aegis/runtime/public-share/README.md
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+AccuracySec=15s
+Unit=aegis-public-share-drift.service
+
+[Install]
+WantedBy=timers.target
