@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { DISPATCH_LIST_LIMIT, dispatchAuditEntry, pendingDispatchAction, validateDispatchListLimit } from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
 import {
   DEFAULT_SETTINGS,
@@ -17,6 +19,7 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
   const audit = []
   const activeOperationalErrors = new Set()
   const containmentDecisions = new Map()
+  const dispatchActions = new Map()
   const activeIntegrationMarkers = new Set()
   const correlatedIncidents = new Set()
   const settings = { ...DEFAULT_SETTINGS }
@@ -38,6 +41,28 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
     ))
   }
 
+  function dispatchForIncident(incidentId) {
+    for (const action of dispatchActions.values()) {
+      if (action.incidentId === incidentId) return { ...action }
+    }
+    return null
+  }
+
+  function expirePastDueDispatch(now) {
+    for (const action of dispatchActions.values()) {
+      if (action.state === 'PENDING_DISPATCH' && action.expiresAt <= now) {
+        action.state = 'EXPIRED'
+        appendAudit(dispatchAuditEntry('ACTION_EXPIRED', action, 'system'))
+      }
+    }
+  }
+
+  function byAcceptance(left, right) {
+    if (left.acceptedAt !== right.acceptedAt) return left.acceptedAt < right.acceptedAt ? -1 : 1
+    if (left.actionId === right.actionId) return 0
+    return left.actionId < right.actionId ? -1 : 1
+  }
+
   return {
     acknowledgeAlert(id) {
       acknowledgedAlerts.add(id)
@@ -50,17 +75,43 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
     recordAction(entry) {
       return appendAudit(entry)
     },
-    recordContainmentDecision(decision) {
+    recordContainmentDecision(decision, { mintDispatch = false } = {}) {
       const safe = safeContainmentDecision(decision)
       const existing = containmentDecisions.get(safe.incidentId)
       if (existing) {
-        return { status: existing.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...existing, audit: null }
+        return {
+          status: existing.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT',
+          ...existing,
+          audit: null,
+          dispatch: dispatchForIncident(safe.incidentId),
+        }
       }
       containmentDecisions.set(safe.incidentId, safe)
-      return { status: 'RECORDED', ...safe, audit: appendAudit(containmentAuditEntry(safe)) }
+      const audit = appendAudit(containmentAuditEntry(safe))
+      let dispatch = null
+      if (mintDispatch && safe.decision === 'ACCEPT') {
+        dispatch = pendingDispatchAction({ actionId: randomUUID(), incidentId: safe.incidentId, acceptedAt: audit.timestamp })
+        dispatchActions.set(dispatch.actionId, { ...dispatch })
+        appendAudit(dispatchAuditEntry('ACTION_MINTED', dispatch, 'session-admin'))
+      }
+      return { status: 'RECORDED', ...safe, audit, dispatch }
     },
     readContainmentDecision(incidentId) {
       return containmentDecisions.get(incidentId) ?? null
+    },
+    readDispatchAction(actionId) {
+      const action = dispatchActions.get(actionId)
+      return action ? { ...action } : null
+    },
+    listPendingDispatchActions({ limit = DISPATCH_LIST_LIMIT } = {}) {
+      validateDispatchListLimit(limit)
+      const now = clock().toISOString()
+      expirePastDueDispatch(now)
+      return [...dispatchActions.values()]
+        .filter((action) => action.state === 'PENDING_DISPATCH' && action.expiresAt > now)
+        .sort(byAcceptance)
+        .slice(0, limit)
+        .map((action) => ({ ...action }))
     },
     recordIntegrationOutcome({ sources = [], conflicts = [], incidents = [] } = {}) {
       const recorded = []

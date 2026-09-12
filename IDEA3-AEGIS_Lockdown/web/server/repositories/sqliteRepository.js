@@ -1,7 +1,16 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { DISPATCH_ACTIONS, DISPATCH_ACTION_STATES, DISPATCH_EVIDENCE_STAGES } from '../domain/dispatch.js'
+import {
+  DISPATCH_ACTIONS,
+  DISPATCH_ACTION_STATES,
+  DISPATCH_EVIDENCE_STAGES,
+  DISPATCH_LIST_LIMIT,
+  dispatchAuditEntry,
+  pendingDispatchAction,
+  validateDispatchListLimit,
+} from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
 import {
   AuditPersistenceError,
@@ -285,20 +294,47 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     }
   }
 
+  function dispatchRow(row) {
+    return {
+      actionId: row.action_id,
+      incidentId: row.incident_id,
+      action: row.action,
+      state: row.state,
+      acceptedAt: row.accepted_at,
+      expiresAt: row.expires_at,
+      claimedAt: row.claimed_at,
+      claimedBy: row.claimed_by,
+    }
+  }
+
+  function dispatchForIncident(incidentId) {
+    const row = database.prepare('SELECT * FROM dispatch_actions WHERE incident_id = ?').get(incidentId)
+    return row ? dispatchRow(row) : null
+  }
+
   /**
    * Record one durable Admin containment decision.
    *
    * Repeating the same decision is idempotent and writes no second audit row; the
    * opposite decision conflicts and leaves the stored decision unchanged, so an
    * accepted candidate can never be silently reversed.
+   *
+   * With `mintDispatch`, a newly recorded ACCEPT also mints its one pending
+   * CUT_UPLINK dispatch action in the same transaction. A repeat or conflict
+   * returns the existing action (or none) and never mints late.
    */
-  function recordContainmentDecision(decision) {
+  function recordContainmentDecision(decision, { mintDispatch = false } = {}) {
     return transaction('record containment decision', () => {
       const safe = safeContainmentDecision(decision)
       const existing = database.prepare('SELECT * FROM containment_decisions WHERE incident_id = ?').get(safe.incidentId)
       if (existing) {
         const stored = containmentDecisionRow(existing)
-        return { status: stored.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...stored, audit: null }
+        return {
+          status: stored.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT',
+          ...stored,
+          audit: null,
+          dispatch: dispatchForIncident(safe.incidentId),
+        }
       }
 
       const occurredAt = nowIso(clock)
@@ -317,7 +353,66 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
         occurredAt,
         audit.databaseId,
       )
-      return { status: 'RECORDED', ...safe, audit: audit.record }
+
+      let dispatch = null
+      if (mintDispatch && safe.decision === 'ACCEPT') {
+        dispatch = pendingDispatchAction({ actionId: randomUUID(), incidentId: safe.incidentId, acceptedAt: occurredAt })
+        const minted = insertAuditRecord(dispatchAuditEntry('ACTION_MINTED', dispatch, 'session-admin'), occurredAt)
+        database.prepare(`
+          INSERT INTO dispatch_actions (action_id, incident_id, action, state, accepted_at, expires_at, audit_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          dispatch.actionId,
+          dispatch.incidentId,
+          dispatch.action,
+          dispatch.state,
+          dispatch.acceptedAt,
+          dispatch.expiresAt,
+          minted.databaseId,
+        )
+      }
+      return { status: 'RECORDED', ...safe, audit: audit.record, dispatch }
+    })
+  }
+
+  /** Returns the stored action; expiry is applied by the list and claim paths (§4.3). */
+  function readDispatchAction(actionId) {
+    try {
+      const row = database.prepare('SELECT * FROM dispatch_actions WHERE action_id = ?').get(actionId)
+      return row ? dispatchRow(row) : null
+    } catch (error) {
+      throw wrap('read dispatch action', error)
+    }
+  }
+
+  function expirePastDueDispatch(now) {
+    const due = database.prepare(
+      "SELECT * FROM dispatch_actions WHERE state = 'PENDING_DISPATCH' AND expires_at <= ? ORDER BY accepted_at, action_id",
+    ).all(now)
+    const expire = database.prepare(
+      "UPDATE dispatch_actions SET state = 'EXPIRED' WHERE action_id = ? AND state = 'PENDING_DISPATCH'",
+    )
+    for (const row of due) {
+      insertAuditRecord(dispatchAuditEntry('ACTION_EXPIRED', dispatchRow(row), 'system'), now)
+      expire.run(row.action_id)
+    }
+  }
+
+  /**
+   * Expire every past-due pending action, then return the unexpired pending
+   * actions, oldest first. An expired action is never listed again.
+   */
+  function listPendingDispatchActions({ limit = DISPATCH_LIST_LIMIT } = {}) {
+    validateDispatchListLimit(limit)
+    return transaction('list pending dispatch actions', () => {
+      const now = nowIso(clock)
+      expirePastDueDispatch(now)
+      return database.prepare(`
+        SELECT * FROM dispatch_actions
+        WHERE state = 'PENDING_DISPATCH' AND expires_at > ?
+        ORDER BY accepted_at, action_id
+        LIMIT ?
+      `).all(now, limit).map(dispatchRow)
     })
   }
 
@@ -495,6 +590,8 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     addIncidentNote,
     recordContainmentDecision,
     readContainmentDecision,
+    readDispatchAction,
+    listPendingDispatchActions,
     recordIntegrationOutcome,
     schemaVersion,
     updateSettings,

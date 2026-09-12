@@ -54,6 +54,17 @@ export function containmentDecisionRecord({ incident, decision, state }) {
   }
 }
 
-export function containmentResponse(incidentId, state) {
-  return { incident_id: incidentId, state, ...containmentBoundary() }
+/**
+ * With PR10 S2 dispatch, the only stage the server can mark is the request: a
+ * minted pending CUT_UPLINK action. Publish, ACK, execution, and physical
+ * evidence stay Core-owned, so they remain false here.
+ */
+export function containmentResponse(incidentId, state, dispatch = null) {
+  const response = { incident_id: incidentId, state, ...containmentBoundary() }
+  if (!dispatch) return response
+  return {
+    ...response,
+    command_requested: true,
+    dispatch: { action_id: dispatch.actionId, state: dispatch.state, expires_at: dispatch.expiresAt },
+  }
 }

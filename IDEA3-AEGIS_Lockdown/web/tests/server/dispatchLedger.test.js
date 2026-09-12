@@ -8,7 +8,10 @@ import {
   DISPATCH_ACTION_STATES,
   DISPATCH_EVIDENCE_STAGES,
   DISPATCH_TTL_MS,
+  assertDispatchable,
 } from '../../server/domain/dispatch.js'
+import { AuditPersistenceError } from '../../server/repositories/auditRecords.js'
+import { createMemoryRepository } from '../../server/repositories/memoryRepository.js'
 import { AUDIT_SCHEMA_VERSION, createSqliteRepository } from '../../server/repositories/sqliteRepository.js'
 
 const opened = []
@@ -214,5 +217,192 @@ describe('PR10 S2 dispatch schema v3', () => {
       claimed_by: null,
     }))
     expect(pendingRow()).toEqual(beforeRestart)
+  })
+})
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const REJECTION = Object.freeze({ ...SECOND_DECISION, decision: 'REJECT', state: 'CONTAINMENT_REJECTED' })
+
+function mutableClock(iso = ACCEPTED_AT) {
+  let now = new Date(iso)
+  const clock = () => new Date(now)
+  clock.set = (value) => { now = new Date(value) }
+  return clock
+}
+
+function at(offsetMs) {
+  return new Date(Date.parse(ACCEPTED_AT) + offsetMs).toISOString()
+}
+
+function dispatchAudit(repository, action) {
+  return repository.queryAudit({ limit: 250 }).filter((row) => row.category === 'DISPATCH' && row.action === action)
+}
+
+const REPOSITORIES = [
+  ['SQLite', (clock) => {
+    const repository = createSqliteRepository({ path: databasePath(), clock })
+    opened.push(repository)
+    return repository
+  }],
+  ['memory', (clock) => createMemoryRepository({ clock })],
+]
+
+describe.each(REPOSITORIES)('PR10 S2 dispatch minting — %s repository', (_name, create) => {
+  it('W4: mints exactly one CUT_UPLINK action with a 120 s expiry for an enabled acceptance', () => {
+    const repository = create(mutableClock())
+
+    const stored = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+
+    expect(stored.status).toBe('RECORDED')
+    expect(stored.dispatch).toEqual({
+      actionId: expect.stringMatching(UUID_V4),
+      incidentId: DECISION.incidentId,
+      action: 'CUT_UPLINK',
+      state: 'PENDING_DISPATCH',
+      acceptedAt: ACCEPTED_AT,
+      expiresAt: EXPIRES_AT,
+      claimedAt: null,
+      claimedBy: null,
+    })
+    expect(stored.dispatch.actionId).not.toBe(DECISION.incidentId)
+    expect(repository.readDispatchAction(stored.dispatch.actionId)).toEqual(stored.dispatch)
+    expect(repository.listPendingDispatchActions()).toEqual([stored.dispatch])
+    expect(dispatchAudit(repository, 'ACTION_MINTED')).toEqual([expect.objectContaining({
+      outcome: 'SUCCESS',
+      actorRef: 'session-admin',
+      resourceType: 'dispatch_action',
+      resourceId: stored.dispatch.actionId,
+    })])
+  })
+
+  it('W4: mints nothing for a rejection or while dispatch is not enabled', () => {
+    const repository = create(mutableClock())
+
+    expect(repository.recordContainmentDecision(DECISION).dispatch).toBeNull()
+    expect(repository.recordContainmentDecision(REJECTION, { mintDispatch: true }).dispatch).toBeNull()
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(dispatchAudit(repository, 'ACTION_MINTED')).toEqual([])
+  })
+
+  it('W5: returns the same action for a repeated or conflicting decision and never mints a second one', () => {
+    const repository = create(mutableClock())
+
+    const first = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+    const repeated = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+    const reversed = repository.recordContainmentDecision({ ...DECISION, decision: 'REJECT', state: 'CONTAINMENT_REJECTED' }, { mintDispatch: true })
+
+    expect(repeated).toEqual(expect.objectContaining({ status: 'UNCHANGED', dispatch: first.dispatch }))
+    expect(reversed).toEqual(expect.objectContaining({ status: 'CONFLICT', dispatch: first.dispatch }))
+    expect(repository.listPendingDispatchActions()).toEqual([first.dispatch])
+    expect(dispatchAudit(repository, 'ACTION_MINTED')).toHaveLength(1)
+  })
+
+  it('W5: never mints late for an acceptance that was recorded while dispatch was disabled', () => {
+    const repository = create(mutableClock())
+
+    repository.recordContainmentDecision(DECISION)
+    const retried = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+
+    expect(retried).toEqual(expect.objectContaining({ status: 'UNCHANGED', dispatch: null }))
+    expect(repository.listPendingDispatchActions()).toEqual([])
+  })
+
+  it('W8: keeps an action pending before 120 s and expires it at 120 s, auditing the expiry once', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const { dispatch } = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+
+    clock.set(at(DISPATCH_TTL_MS - 1))
+    expect(repository.listPendingDispatchActions().map(({ actionId }) => actionId)).toEqual([dispatch.actionId])
+
+    clock.set(at(DISPATCH_TTL_MS))
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(repository.readDispatchAction(dispatch.actionId).state).toBe('EXPIRED')
+
+    clock.set(at(DISPATCH_TTL_MS + 1))
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(dispatchAudit(repository, 'ACTION_EXPIRED')).toEqual([expect.objectContaining({
+      outcome: 'SUCCESS', resourceType: 'dispatch_action', resourceId: dispatch.actionId,
+    })])
+  })
+
+  it('W8: lists only unexpired pending actions, oldest first, at most ten', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const minted = []
+    for (let index = 0; index < 13; index += 1) {
+      clock.set(at(index * 1_000))
+      const incidentId = `inc-${String(index).padStart(4, '0')}-dispatch`
+      minted.push(repository.recordContainmentDecision({ ...DECISION, incidentId }, { mintDispatch: true }).dispatch.actionId)
+    }
+
+    // At 121.5 s the first two actions (accepted at 0 s and 1 s) are past due.
+    clock.set(at(DISPATCH_TTL_MS + 1_500))
+    const listed = repository.listPendingDispatchActions()
+
+    expect(listed.map(({ actionId }) => actionId)).toEqual(minted.slice(2, 12))
+    expect(listed.every(({ state }) => state === 'PENDING_DISPATCH')).toBe(true)
+    expect(minted.slice(0, 2).map((actionId) => repository.readDispatchAction(actionId).state)).toEqual(['EXPIRED', 'EXPIRED'])
+    for (const limit of [0, 11, 1.5]) {
+      expect(() => repository.listPendingDispatchActions({ limit })).toThrow(RangeError)
+    }
+  })
+
+  it('reports no action for an unknown action id', () => {
+    expect(create(mutableClock()).readDispatchAction('5b0e3c1e-0000-4000-8000-000000000000')).toBeNull()
+  })
+})
+
+describe('PR10 S2 dispatch minting — CUT_UPLINK only', () => {
+  it('W11: the domain guard accepts CUT_UPLINK and refuses RESTORE_UPLINK or anything else', () => {
+    expect(() => assertDispatchable('CUT_UPLINK')).not.toThrow()
+    for (const action of ['RESTORE_UPLINK', 'cut_uplink', '', undefined, null]) {
+      expect(() => assertDispatchable(action)).toThrow(/CUT_UPLINK/)
+    }
+  })
+})
+
+describe('PR10 S2 dispatch minting — SQLite atomicity and restart', () => {
+  it('W4: an injected minting failure writes neither the decision nor the action, and a clean retry mints once', () => {
+    const path = databasePath()
+    const repository = open(path)
+    const mutation = new DatabaseSync(path)
+    mutation.exec("CREATE TRIGGER reject_dispatch BEFORE INSERT ON dispatch_actions BEGIN SELECT RAISE(ABORT, 'forced mint failure'); END")
+
+    expect(() => repository.recordContainmentDecision(DECISION, { mintDispatch: true })).toThrow(AuditPersistenceError)
+    mutation.exec('DROP TRIGGER reject_dispatch')
+    mutation.close()
+
+    expect(repository.readContainmentDecision(DECISION.incidentId)).toBeNull()
+    expect(repository.queryAudit({ limit: 10 })).toEqual([])
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(repository.recordContainmentDecision(DECISION, { mintDispatch: true }).status).toBe('RECORDED')
+    expect(repository.listPendingDispatchActions()).toHaveLength(1)
+  })
+
+  it('W14/W5: a minted action survives restarts, is re-read rather than re-minted, and stays pending until it expires', () => {
+    const path = databasePath()
+    const clock = mutableClock()
+    const first = createSqliteRepository({ path, clock })
+    opened.push(first)
+    const { dispatch } = first.recordContainmentDecision(DECISION, { mintDispatch: true })
+    first.close()
+
+    clock.set(at(60_000))
+    const reopened = createSqliteRepository({ path, clock })
+    opened.push(reopened)
+    expect(reopened.readDispatchAction(dispatch.actionId)).toEqual(dispatch)
+    expect(reopened.recordContainmentDecision(DECISION, { mintDispatch: true })).toEqual(expect.objectContaining({
+      status: 'UNCHANGED', dispatch,
+    }))
+    expect(reopened.listPendingDispatchActions()).toEqual([dispatch])
+    reopened.close()
+
+    clock.set(at(DISPATCH_TTL_MS + 1))
+    const later = createSqliteRepository({ path, clock })
+    opened.push(later)
+    expect(later.listPendingDispatchActions()).toEqual([])
+    expect(later.readDispatchAction(dispatch.actionId).state).toBe('EXPIRED')
+    expect(dispatchAudit(later, 'ACTION_MINTED')).toHaveLength(1)
   })
 })

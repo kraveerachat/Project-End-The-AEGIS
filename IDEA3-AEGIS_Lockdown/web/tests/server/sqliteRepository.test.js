@@ -327,9 +327,9 @@ describe('shared audit contract', () => {
     const error = createOperationalError('MQTT_DISCONNECTED', { occurredAt: '2026-09-08T00:59:00.000Z' })
 
     expect(Object.keys(repository).sort()).toEqual([
-      'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'queryAudit', 'readContainmentDecision',
-      'recordAction', 'recordContainmentDecision', 'recordIntegrationOutcome', 'recordOperationalErrors',
-      'updateSettings',
+      'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'listPendingDispatchActions', 'queryAudit',
+      'readContainmentDecision', 'readDispatchAction', 'recordAction', 'recordContainmentDecision',
+      'recordIntegrationOutcome', 'recordOperationalErrors', 'updateSettings',
     ])
     repository.recordOperationalErrors([error])
     repository.recordOperationalErrors([error])
