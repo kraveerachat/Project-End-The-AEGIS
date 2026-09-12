@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; awaiting owner review)
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12)
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1: design + TDD plan; source not started)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; source not started)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,11 +427,11 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1: design spec + TDD plan (documentation only; no source changed); `git diff --check`, vault and Draft policy validation pass | `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (G1: design + plan, with the machine-listener topology and configurable-bind clarifications — AWAITING OWNER REVIEW; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | G1 owner review; then Tasks 0–11 of the plan | G1 owner review — no source change before explicit approval |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline recorded at `640cebc9` (see "S2 Task 0" below); no source changed | `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (G1: design + plan, with the machine-listener topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 1–11 of the plan; owner decision on the pre-existing dev-only `vitest` advisory | Task 1 (Web schema v3 and dispatch domain), only on the owner's explicit go-ahead |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` is AWAITING OWNER REVIEW. It is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline is recorded below; Task 1 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
@@ -523,6 +523,81 @@ plan, and the canonical IDEA3 notes.
   K5 Core pulls.
 - **Before any rollout:** K12 (Kla + IDEA1).
 - **Separately owned:** D6 (Pub/IDEA2).
+
+#### S2 Task 0 — regression baseline (2026-09-12)
+
+**Measured at:** `640cebc92d96aec8a5d4c39525559e9ab9bdc57d`, the approved G1
+head. Its source tree matches `origin/main` `b2f61ebf`; only documentation
+differs. No source changed. Evidence class: LOCAL.
+
+**Environment:**
+
+- Arch Linux, kernel 7.2.3-arch1-2, x86_64.
+- A task-local venv outside the repository, with Python 3.14.7 and the
+  `requirements-dev.txt` pins (pytest 9.1.1, ruff 0.16.3, paho-mqtt 2.1.0).
+- Node v24.16.0 and npm 11.13.0; the Web dependencies come from the committed
+  lockfile through `npm ci` (264 packages).
+- `web/node_modules` and `web/dist` are gitignored, and Python bytecode was
+  redirected outside the tree.
+
+| Suite | Command | Exit | Result |
+|---|---|---|---|
+| Python full | `python -m pytest -p no:cacheprovider -q` | 0 | 245 passed, 6 skipped; matches PR9. All 6 skips are in `tests/test_windows_launcher.py`: "PowerShell 7 is required to execute the bundle staging contract" |
+| Ruff | `ruff check --no-cache aegis_soc tests windows deploy detector.py sim_auto_detector.py server_admin.py` | 0 | all checks passed |
+| compileall | `python -m compileall -q aegis_soc deploy windows detector.py server_admin.py sim_auto_detector.py tests` | 0 | pass |
+| Web full | `npx vitest run` | 0 | 309 passed in 24 files; matches PR9 |
+| Web build | `npx vite build` | 0 | 1,677 modules |
+| npm audit, PR9 form | `npm audit --omit=dev --offline` | 0 | 0 vulnerabilities |
+| npm audit, production deps online | `npm audit --omit=dev` | 0 | 0 vulnerabilities |
+| npm audit, full online | `npm audit` | 1 | 2 moderate — PRE-EXISTING, dev-only (see below) |
+| PR9 acceptance driver | `python deploy/production-like-acceptance.py --data-root <new disposable path with spaces>` | 0 | `PRODUCTION_LIKE_VERIFIED`, on the rerun (see the harness note) |
+| PR9 negative-control driver | `python deploy/production-like-negative-controls.py --data-root <empty disposable path with spaces>` | 0 | 13/13 PASS |
+| Repository | `node --test --test-concurrency=1 tests/*.test.mjs` | 0 | 63 passed; matches PR9 |
+| Vault, policy, diff | vault validator; policy validator (Draft event); `git diff --check origin/main HEAD` | 0 | pass (2 known canvas warnings) |
+
+**Acceptance-driver details:**
+
+- 2 generations; Web `READY`;
+- audit `PERSISTED_ACROSS_RESTART`;
+- IDEA1, IDEA2, and MQTT `NOT_CONFIGURED`; ESP32 and physical evidence
+  `UNKNOWN`;
+- 3 processes per generation, 0 surviving;
+- control token `ABSENT`; owner-only permissions; final `STOPPED`;
+- `productionMutation = false`.
+
+**Pre-existing finding (not introduced by S2):**
+
+- **Package:** `vitest@3.2.7`, a direct devDependency, via
+  `@vitest/mocker@3.2.7`.
+- **Advisory:** GHSA-82fw-gwwq-j7x9, moderate — path traversal / arbitrary file
+  read via a mocker redirect. It affects versions `>=2.1.0 <4.1.11`.
+- **Fix:** vitest 5.0.0, a semver-major upgrade.
+- **Impact:** production dependencies are unaffected; `npm audit --omit=dev`
+  finds 0.
+- **Classification:** pre-existing at the base; dev tooling only.
+- **S2 handling:** S2 does not upgrade it, because that is out of scope. The
+  S2 audit bar is therefore: 0 production-dependency vulnerabilities and no new
+  finding against this baseline.
+- **Owner decision needed:** whether the upgrade becomes a separate IDEA3
+  task.
+
+**Harness note (failed run kept):**
+
+- **Failure:** the first acceptance-driver run failed with
+  `group/world-accessible paths: .`.
+- **Cause:** the harness had pre-created the data root under umask 022, giving
+  mode 0755. The driver creates a missing root with mode 0700
+  (`validate_data_root`) but does not change an existing one.
+- **Classification:** environmental / harness, not a code defect.
+- **Rerun:** on a missing path, which the driver created with mode 0700, the
+  run passed. No source changed between the runs.
+
+**Residue:**
+
+- 0 runtime processes before and after each driver run.
+- No new loopback listeners.
+- Disposable roots and bytecode removed.
+- `git status --short` clean.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
