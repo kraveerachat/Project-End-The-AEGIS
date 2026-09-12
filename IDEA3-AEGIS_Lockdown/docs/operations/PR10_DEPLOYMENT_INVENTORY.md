@@ -19,7 +19,8 @@ KLA_REVIEW_PACKAGE    = K1–K12 APPROVED (Kla integration approval; architectur
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2     = YES
 S2_STARTED            = YES (2026-09-12) — task branch feat/idea3-pr10-s2-server-core-boundary; repository-only, non-Production
-PR10_S2               = PASS / CLOSED (2026-09-12) — LOCAL / SIMULATED evidence only; Draft PR #123; no Production change
+PR10_S2               = PASS / CLOSED (2026-09-12) — LOCAL / SIMULATED evidence only; PR #123 merged at d903327e (human merge); no Production change
+PR11                  = NOT STARTED / NEXT (read-only preflight first, on the owner's instruction)
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 PRODUCTION_DEPLOYED   = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -578,7 +579,7 @@ S1 = PASS / CLOSED
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2 = YES
 S2_STARTED = YES (2026-09-12; repository-only, non-Production)
-PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; Draft PR #123)
+PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; PR #123 merged at d903327e)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -596,7 +597,7 @@ S1 = PASS / CLOSED
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2 = YES
 S2_STARTED = YES (2026-09-12; repository-only, non-Production)
-PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; Draft PR #123)
+PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; PR #123 merged at d903327e)
 ```
 
 This package covers the D3/D5 shared infrastructure. On 2026-09-12 the owner
@@ -646,8 +647,9 @@ PR #122 (2026-09-12T07:58:33Z, no review text) and merged it at `b2f61ebf`.
   continuation model (S2 runs in a new, explicitly named task/PR). That
   approval was given on 2026-09-12. S2 ran on
   `feat/idea3-pr10-s2-server-core-boundary` and passed and closed on
-  2026-09-12. It is repository-only, with LOCAL / SIMULATED evidence, and is
-  in Draft PR #123. No Production change was made.
+  2026-09-12. It is repository-only, with LOCAL / SIMULATED evidence, and a
+  human reviewer merged it through PR #123 at `d903327e`. No Production change
+  was made.
 - **External dependencies remain separately owned:**
   - K12 needs Kla + IDEA1 confirmation before any PR10 Production rollout;
   - D6 needs separate Pub/IDEA2 approval for IDEA2 co-residence.

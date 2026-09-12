@@ -12,15 +12,198 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is now IN PROGRESS on `feat/idea3-pr10-s2-server-core-boundary`. No Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **NOT STARTED**; its next step is the Phase 0 read-only preflight, and only on the owner's instruction. Read "IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12" and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## PR10 pre-flight evidence reconciliation — 2026-09-11
+## IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12
 
 > [!important] Current IDEA3 truth — read this section first
+> This is a documentation-only audit on
+> `docs/idea3-pr10-pr11-evidence-reconciliation`, from `origin/main`
+> `d903327e56a744de3a535f105797a53f0dccebaf`. Every claim below was checked
+> against Git ancestry, GitHub PR metadata, current source and tests, and the
+> immutable S1/S2 receipts. No Production system, hardware, broker, or network
+> device was touched. Older sections of this note remain as dated history.
+
+### Verified Git and GitHub state
+
+```text
+CURRENT_MAIN        = d903327e56a744de3a535f105797a53f0dccebaf (merge of GitHub PR #123; its tree is identical to S2 head ef2efc94)
+PR122_S1_CLOSEOUT   = MERGED 2026-09-12T07:58:41Z at b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95 (kraveerachat APPROVED 07:58:33Z; human merge)
+PR123_S2            = MERGED 2026-09-12T16:03:34Z at d903327e56a744de3a535f105797a53f0dccebaf (kraveerachat APPROVED 16:03:27Z; human merge; head ef2efc94f64a0cf24017bc4b22fe763564720e51; collaboration-guardrails pass)
+S2_COMMITS          = 30 in b2f61ebf..ef2efc94: 10 implementation/test commits and 20 documentation commits (design, plan, G1, per-task records, closeout)
+S1_RECEIPT          = 90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md
+S2_RECEIPT          = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md (exactly one)
+OTHER_OPEN_PRS      = PR #118 (IDEA1 S5.5, Draft) — not IDEA3
+```
+
+### Current high-level state
+
+```text
+PR10_S1                       = PASS / CLOSED
+PR10_S2                       = PASS / CLOSED (PR #123 merged)
+PR10                          = IN PROGRESS
+PR11                          = NOT STARTED / NEXT
+S2_REPOSITORY_IMPLEMENTATION  = COMPLETE (SOURCE IMPLEMENTED + LOCAL VERIFIED; LOCAL / SIMULATED evidence)
+PRODUCTION_INTEGRATION        = INCOMPLETE (NOT STARTED)
+PRODUCTION_CHANGE_AUTHORIZED  = NONE
+PRODUCTION_DEPLOYED           = NO
+IDEA3_PRODUCTION_COMPLETE     = NO
+REAL_SERVER_CORE_MTLS         = NOT PROVEN
+REAL_MQTT_ESP32_PR11_E2E      = NOT PROVEN
+REAL_CUT_VIA_SERVER_CORE_PATH = NOT PROVEN
+NEXT_ACTION                   = PR11 Phase 0 — read-only preflight / dependency gate, only on the owner's instruction
+```
+
+The evidence distinctions are preserved everywhere:
+
+```text
+Requested != Published != ACK != Executed != Relay Confirmation != Physical Evidence
+Admin Accepted != MQTT Published
+MQTT Connected != ESP32 Online
+ESP32 Online != Relay Success
+Relay LED != Ethernet Continuity
+Ethernet Continuity != Real Traffic Isolation
+Protocol STATUS != Direct Electrical Relay Proof
+Repository implemented != Production deployed
+Local/simulated test != Live Production evidence
+Architecture approved != Production mutation authorized
+```
+
+### Completed and closed — verified
+
+| Topic | What changed | Tested by | Result | Evidence class | Checkpoint / merge | Receipt / test path |
+|---|---|---|---|---|---|---|
+| S1 D1–D8 | owner-accepted architecture: D1 ESP32 AP; D2 MQTT hardening; D3 Web container at `/security/`; D4 Core-local RESTORE CLI; D5 Core pull via HUB 443 + mTLS; D6 Core appliance; D7 claim model; D8 in-memory session store | none (architecture only) | DECIDED / OWNER-ACCEPTED | ARCHITECTURE | `ea2414f4`; PR #122 → `b2f61ebf` | inventory §14; S1 receipt |
+| S1 live server inventory | read-only inventory of the AEGIS Server | read-only SSH, plus root reads run by the owner | PASS | LIVE READ-ONLY | PR #122 → `b2f61ebf` | inventory §2A; S1 receipt |
+| S1 K1–K12 | integration decisions for the D3/D5 shared infrastructure | none | APPROVED (architecture/integration only; no mutation authorized) | ARCHITECTURE | PR #122 → `b2f61ebf` | inventory §15A; S1 receipt |
+| S2 Task 0 | regression baseline | full suites | recorded: Vitest 3.2.7; 2 moderate dev-only advisories; production audit 0 | LOCAL | `640cebc9` | "S2 Task 0" below |
+| S2 Task 1 | Web schema v3 (`dispatch_actions`, `dispatch_evidence`); additive v2 → v3 migration; readiness only at v3; unknown version fails closed | W1, W2, W3, W14 | PASS | LOCAL | `677acbe6` | `web/tests/server/dispatchLedger.test.js`, `sqliteRepository.test.js`, `productionRuntime.test.js` |
+| S2 Task 2 | Admin ACCEPT mints one `CUT_UPLINK` action (UUID, 120 s) in the decision's transaction. Reject, conflict, Demo Mode, dispatch disabled, and an injected failure mint nothing; there is no RESTORE path | W4, W5, W8, W11, W14 | PASS | LOCAL | `3f67cd85`; coverage `94cfb2bf` | `dispatchLedger.test.js`, `containmentAcceptance.test.js` |
+| S2 Task 3 | separate machine app (no session, login, CSRF, static, or browser route; `trust proxy` off); identity guard (pinned peer, verify `SUCCESS`, single-CN subject, no Cookie or Origin, forwarded headers ignored); atomic single-shot claim with expiry first; 200/404/410/409; disabled by default; Production bind deferred | W6, W7, W9, W10 (completes W8, W11) | PASS | LOCAL | `5cae52e3` | `web/tests/server/machineRoutes.test.js` |
+| S2 Task 4 | append-only, allowlisted, idempotent evidence ingest (a conflicting replay gets 409); dispatch state in the Admin snapshot and Dashboard; never "Contained"; `OUTCOME_UNKNOWN` visible; Thai/English/Chinese labels | W12, W13 | PASS | LOCAL | `93143422` | `machineRoutes.test.js`, `status.test.js`, `web/tests/client/dashboardDispatch.test.jsx` |
+| S2 Task 5 | Core dispatch ledger at `<data root>/data/core-dispatch.sqlite3`, separate from the Core audit DB: claim intent, replay guard, nonce, ACK/STATUS correlation, forward-only states, outbox, `CUT_UPLINK` only | C3, C4, C6 (storage for C1, C5, C7) | PASS | LOCAL | `9f0f7930` | `tests/test_dispatch_ledger.py` |
+| S2 Task 6 | Core dispatch client: `list_pending`, `claim`, `report`; failures `NETWORK`/`CREDENTIAL`/`SERVER`/`PROTOCOL`; permanent rejection separate from transient failure; https-only | C2, C7, C8 (fake transports, patched urllib) | PASS | SIMULATED | `ba07feb4` | `tests/test_dispatch_client.py` |
+| S2 Task 7 | Core dispatch worker: Core pulls; durable intent before the claim; Core-clock expiry recheck; publishes only through `issue_command`; never RESTORE; nonce correlation; timeout → `OUTCOME_UNKNOWN`; no redispatch; durable outbox; credential pause; disabled by default | C1–C10 | PASS | LOCAL / SIMULATED | `1e4af697` | `tests/test_dispatch_boundary.py` |
+| S2 Task 8 | shared contract `tests/fixtures/dispatch-contract.json`, read by both suites | Web 9/9; Core 7/7 | PASS — no mismatch | LOCAL | `82a67326` | `web/tests/server/dispatchContract.test.js`, `tests/test_dispatch_contract.py` |
+| S2 Task 9 | negative controls NC1–NC5 | see the findings below | PASS — all observed (NC2 via NC2B; NC5 after the fix) | LOCAL | `74eb2c99` (C6 test) | "S2 Task 9" below |
+| S2 Task 10 | full regression bar | see the historical results below | PASS | LOCAL / SIMULATED | tested at `ed9efc4e` | "S2 Task 10" below |
+| S2 Task 11 | closeout, one receipt, PR | policy, vault, diff | PASS; PR #123 merged | DOCUMENTATION | `ef2efc94` → merge `d903327e` | S2 receipt |
+| PR5 hardware (historical) | owner-observed lab matrix | owner observation | PASS within its stated scope | HISTORICAL HARDWARE | PR #117 → `58f19f20` | "Project-sequence PR5 Final Hardware Closure" below |
+
+**Capability added by S2:** the Server → Core durable accepted-action boundary
+(Web schema v3 and machine app; Core ledger, client, and worker). Its maturity
+is SOURCE IMPLEMENTED + LOCAL VERIFIED. It is **disabled by default on both
+halves** and **not deployed**.
+
+### Historical S2 results — preserved (at `ed9efc4e`)
+
+```text
+PYTHON          = 334 passed, 6 skipped (the 6 PowerShell 7 skips)
+WEB             = 493/493 in 28 files
+RUFF            = PASS (ruff check)
+COMPILEALL      = PASS
+VITE            = PASS (1,677 modules)
+NPM_AUDIT_PROD  = 0 vulnerabilities
+NPM_AUDIT_FULL  = 2 moderate — known dev-only Vitest baseline (GHSA-82fw-gwwq-j7x9)
+PR9_ACCEPTANCE  = PRODUCTION_LIKE_VERIFIED
+PR9_NEGATIVE    = 13/13
+REPOSITORY      = 63/63
+VAULT           = PASS (2 known canvas warnings)
+POLICY          = PASS
+DIFF_CHECK      = PASS
+```
+
+**CURRENT REVALIDATION** (not S2 historical evidence). This reconciliation ran
+it at `d903327e` on 2026-09-12 23:19 +07:00, in a local Arch Linux checkout:
+
+- `python -m pytest -p no:cacheprovider -q`: 334 passed, 6 skipped;
+- `npx vitest run`: 493 passed in 28 files;
+- `node --test --test-concurrency=1 tests/*.test.mjs`: 63/63.
+
+The counts are identical to the historical ones, as expected for an identical
+tree. No live or destructive test was run.
+
+### Defects, findings, and fixes
+
+| Finding | Classification | Resolution |
+|---|---|---|
+| `vitest@3.2.7` via `@vitest/mocker`: GHSA-82fw-gwwq-j7x9, 2 moderate advisories | PRE-EXISTING; dev-only | The owner accepted it on 2026-09-12. Production dependencies have 0. The upgrade (Vitest 5) is out of S2 scope |
+| NC2: removing only the SQL `expires_at > ?` claim clause left W8 green | test-design finding | The in-transaction expiry sweep is the primary guard. NC2B (the clause plus the sweep) failed W8, so the expiry invariant is proven. The SQL clause itself is **not independently proven**; it is kept as defence in depth |
+| NC5: removing the worker's `CUT_UPLINK` filter left 52/52 tests green | coverage gap in C6, introduced by S2 Task 7 | Test-only fix `74eb2c99` (3 parametrized non-CUT cases). The rerun observed the mutation. No broken mutation was committed |
+| Task 4 `ACKED` test had duplicated text | test defect | fixed in Task 4 (rows are read by label) |
+| Task 8's first Web RED failed for the wrong reason (`import.meta.url` under jsdom) | test defect | fixed in the test; the RED then showed `ENOENT` |
+| Task 0 acceptance driver failed on a pre-created 0755 data root | ENVIRONMENTAL (harness) | rerun on a missing path; no source change |
+| A concurrent PR9 driver collision | ENVIRONMENTAL (harness) | discarded; the drivers were rerun one at a time |
+| `ruff format --check` drift in `tests/test_dispatch_boundary.py` | **introduced by S2**: the file was added by `1e4af697` (Task 7) and already failed the check there. The S2 receipt and the Task 11 block called it "pre-existing", which this reconciliation corrects | outside the Ruff bar (`ruff check` passes); left unchanged; no source edit in this audit |
+
+### Documentation gaps found and corrected by this reconciliation
+
+- **PR #123 described as Draft or awaiting review → MERGED at `d903327e`.**
+  Corrected in:
+  - this note: the top callout, PR10 Current Task, the S1 gate state block,
+    the Session Register, the dashboard, and the S2 state line;
+  - the IDEA3 MOC entry sentence;
+  - the inventory state lines.
+- **Superseded claims corrected:**
+  - "S2 IN PROGRESS" and "not yet designed in a repository spec or plan";
+  - `SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = OPEN / NOT IMPLEMENTED`
+    → SOURCE IMPLEMENTED + LOCAL VERIFIED, not deployed;
+  - the 2026-09-11 "NOT IMPLEMENTED" note, which now has a dated superseded
+    note.
+- **PR11:** changed from `OPEN` to **NOT STARTED / NEXT**. The Phase 0–8
+  roadmap is recorded as planned and not executed, and the full not-proven
+  list is kept visible.
+- **Added:** a PR10 Handoff block (workflow §16), and the S2 capability row
+  (above).
+- **The `ruff format` drift classification** was corrected (see the findings
+  table).
+- **Architecture items that were implicit are now explicit:** D2 MQTT
+  TLS/signing, the D4 CLI, and the D8 session store are architecture only and
+  **not implemented**.
+- **Verified with no gap:** D1–D8, the live inventory, K1–K12 (including K4's
+  "Kla allocates the final value; re-check it immediately before the network
+  is created"), W1–W14, C1–C10, the contract, NC1–NC5, the historical S2
+  counts, and the PR5 hardware semantics.
+
+### Contradictions outside this note
+
+- **Kla-owned shared notes (not edited here):** `AGENTS.md` (ownership table),
+  `core/agent-operating-rules.md`, and `START_HERE.md` still describe IDEA3 as
+  design/report only, with implementation not established. The repository
+  implementation now spans PR3–PR9 and PR10 S2.
+  `summaries/08_Outstanding_Items_Consolidated.md` lists no IDEA3 items. This
+  task's receipt carries the integration request.
+- **IDEA3-owned source documents** were aligned in this same task, before
+  merge, without rewriting their history:
+  - `IDEA3-AEGIS_Lockdown/README.md` and `PROGRESS.md` now open with
+    current-state headers that match this note;
+  - `IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md` now opens with a
+    "HISTORICAL / SUPERSEDED HANDOFF" block that points to the PR10 Handoff
+    below.
+
+### Reconciliation task record
+
+Task: IDEA3 PR10/PR11 Git ↔ Obsidian evidence reconciliation (documentation only)
+Branch: `docs/idea3-pr10-pr11-evidence-reconciliation`
+Owner: `music`
+PR: the Draft PR opened from this branch; its number is recorded in the PR and the final report
+Current state: PASS (documentation checkpoint; awaiting human review)
+Started: 2026-09-12
+Base SHA: `d903327e56a744de3a535f105797a53f0dccebaf`
+Production mutation allowed: NO
+Hardware testing: NOT RUN
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| R1 | Git, GitHub, source, test, and receipt audit; canonical IDEA3 reconciliation; alignment of the IDEA3-owned README, PROGRESS, and historical handoff headers | PASS | this section; current revalidation; vault and policy validation; `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review and merge | PR11 Phase 0 on the owner's instruction |
+
+## PR10 pre-flight evidence reconciliation — 2026-09-11
+
+> [!note] Historical (2026-09-11) — superseded as the entry point by the 2026-09-12 reconciliation above
 > Documentation-only audit on `docs/idea3-pr10-preflight-evidence-reconciliation`
 > from `origin/main` `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`. Every fact here
 > was re-checked against Git ancestry, GitHub PR metadata, current source, and
@@ -162,12 +345,17 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   and Web under one owner, `AEGIS_BIND_HOST=127.0.0.1`. The PR10 target below
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
+  *Superseded 2026-09-12:* PR10 S2 (PR #123, merge `d903327e`) implemented the
+  Server → Core boundary in the repository, with LOCAL / SIMULATED evidence.
+  It is not deployed.
 
-### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED; S2 IN PROGRESS)
+### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED; S2 PASS / CLOSED via PR #123; PR11 NOT STARTED)
 
-Target architecture as defined by the owner on 2026-09-11. It has not yet been
-designed in a repository spec or plan; the S1 inventory is
-`IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`:
+Target architecture as defined by the owner on 2026-09-11. The S1 inventory is
+`IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`. S2 then
+designed and implemented the Server → Core boundary in the repository. Its
+spec and plan are under `IDEA3-AEGIS_Lockdown/docs/superpowers/`, and it was
+merged through PR #123.
 
 ```text
 AEGIS Server : React static build, Express, SQLite, integration adapters, correlation, accepted-action state
@@ -180,7 +368,7 @@ Browser      : never owns MQTT actuation
 SERVER_HOSTED_IDEA3_WEB_DEPLOYMENT = OPEN
 ARCH_LINUX_CORE_FINAL_DEPLOYMENT = OPEN
 REAL_SYSTEMD_INSTALLATION = OPEN (example only)
-SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = OPEN / NOT IMPLEMENTED
+SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = SOURCE IMPLEMENTED + LOCAL VERIFIED (S2, PR #123); NOT DEPLOYED; live mTLS path NOT PROVEN
 REAL_MQTT_FINAL_ENVIRONMENT_BASELINE = OPEN
 REAL_ESP32_BROKER_BASELINE = OPEN
 REAL_CLIENT_TO_SERVER_IDEA3_ACCESS = OPEN
@@ -195,12 +383,13 @@ Owner: `music`
 PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
 Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` — GitHub PR #121 (docs-only reconciliation; not S2). Its single receipt, `90-Status/logs/2026-09-11_234455_music_idea3-pr10-postmerge-reconciliation.md`, covers the reconciliation only and is not the PR10 final receipt
 S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2) — MERGED by a human reviewer at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (2026-09-12). It is immutable and receives no further commits
-S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production) — GitHub Draft PR #123, opened 2026-09-12. It stays Draft; a human reviews and merges it. Its one receipt, `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`, is an S2 receipt, not the final PR10 receipt
+S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production) — GitHub PR #123, MERGED by a human reviewer at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12T16:03:34Z). It is immutable and receives no further commits. Its one receipt, `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`, is an S2 receipt, not the final PR10 receipt
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`; S2 Task 9 `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (C6 worker-test gap fix found by NC5); S2 Task 10 full regression bar PASS at `ed9efc4e285ea5e5cf2246b869570da5e6e06298`; S2 final implementation/evidence checkpoint `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record, immediately preceding the receipt closeout)
-Production mutation allowed: NO (S1, S2)
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`; S2 Task 9 `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (C6 worker-test gap fix found by NC5); S2 Task 10 full regression bar PASS at `ed9efc4e285ea5e5cf2246b869570da5e6e06298`; S2 final implementation/evidence checkpoint `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record, immediately preceding the receipt closeout); S2 merge `d903327e56a744de3a535f105797a53f0dccebaf` (PR #123, human merge)
+Reconciliation task branch: `docs/idea3-pr10-pr11-evidence-reconciliation` — a documentation-only Git ↔ Obsidian evidence reconciliation after the PR #123 merge. It is a separate task, not a PR10 session; see the reconciliation section at the top
+Production mutation allowed: NO (S1, S2, reconciliation)
 Hardware testing: NOT RUN
 
 ```text
@@ -214,10 +403,11 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = PASS / CLOSED (2026-09-12; repository-only; LOCAL / SIMULATED; Draft PR #123, stays Draft; Task 11 closeout with one S2 receipt; G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326; Task 9 PASS at 74eb2c99 — NC1–NC5 observed, NC2 via NC2B, NC5 after the C6 worker-test gap fix; Task 10 PASS — full regression bar at ed9efc4e)
+PR10_S2                   = PASS / CLOSED (2026-09-12; repository-only; LOCAL / SIMULATED; PR #123 MERGED at d903327e (human merge); Task 11 closeout with one S2 receipt; G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326; Task 9 PASS at 74eb2c99 — NC1–NC5 observed, NC2 via NC2B, NC5 after the C6 worker-test gap fix; Task 10 PASS — full regression bar at ed9efc4e)
 S2_STARTED                = YES (2026-09-12)
-PR10_S2_PR                = #123 (DRAFT — never marked Ready or merged by an agent)
+PR10_S2_PR                = #123 (MERGED 2026-09-12T16:03:34Z by a human reviewer at d903327e; an agent never marked it Ready or merged it)
 PR10_S2_RECEIPT           = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md (S2 receipt, not the final PR10 receipt)
+PR11                      = NOT STARTED / NEXT (Phase 0 read-only preflight, only on the owner's instruction)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 PRODUCTION_MUTATION       = NONE
@@ -346,7 +536,8 @@ S1 = PASS / CLOSED
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2 = YES
 S2_STARTED = YES (2026-09-12; repository-only, non-Production)
-PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; Draft PR #123)
+PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; PR #123 merged at d903327e)
+PR11 = NOT STARTED / NEXT
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -430,7 +621,7 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | CLOSED | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS; Task 9 (negative controls NC1–NC5 observed, no residue; NC2 via NC2B; NC5 after the C6 worker-test gap fix) PASS; Task 10 (full regression bar: Python, Web, Ruff, compileall, Vite, npm audit, PR9 drivers, repository, vault, diff, secret and path checks) PASS at `ed9efc4e` ; Task 11 closeout: Draft PR #123 and receipt `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md` — see "S2 Task 0" to "S2 Task 11" below | `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (final implementation/evidence checkpoint, the Task 10 record); Task 10 regression HEAD `ed9efc4e`; Task 9 C6 test `74eb2c99`; Task 8 `82a67326`; Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | PASS — W1–W14, C1–C10, the shared contract, NC1–NC5 (no residue), and the full regression bar; LOCAL / SIMULATED only; no Production change | — (S2 closed); PR10 Production integration not started | Human review of Draft PR #123 (an agent never marks it Ready or merges it). Any next PR10 session needs the owner's explicit approval, and Production work needs its own authorized K1–K12 changes |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | CLOSED | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS; Task 9 (negative controls NC1–NC5 observed, no residue; NC2 via NC2B; NC5 after the C6 worker-test gap fix) PASS; Task 10 (full regression bar: Python, Web, Ruff, compileall, Vite, npm audit, PR9 drivers, repository, vault, diff, secret and path checks) PASS at `ed9efc4e` ; Task 11 closeout: PR #123 (MERGED by a human reviewer at `d903327e`, 2026-09-12) and receipt `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md` — see "S2 Task 0" to "S2 Task 11" below | `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (final implementation/evidence checkpoint, the Task 10 record); Task 10 regression HEAD `ed9efc4e`; Task 9 C6 test `74eb2c99`; Task 8 `82a67326`; Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | PASS — W1–W14, C1–C10, the shared contract, NC1–NC5 (no residue), and the full regression bar; LOCAL / SIMULATED only; no Production change | — (S2 closed); PR10 Production integration not started | PR11 Phase 0 — read-only preflight / dependency gate, only on the owner's instruction (PR #123 is merged at `d903327e`). Production work needs its own authorized K1–K12 changes |
 
 ### PR10 Task Status Dashboard
 
@@ -441,20 +632,23 @@ at `b2f61ebf`.
 | S2 source implementation (Web + Core) | PASS | W1–W14, C1–C10, the shared contract (Tasks 1–8) |
 | S2 negative controls | PASS | NC1–NC5 observed, no residue (Task 9) |
 | S2 local regression | PASS | full bar at `ed9efc4e` (Task 10) |
-| S2 Pull Request | DRAFT | PR #123; a human reviews and merges it |
+| S2 Pull Request | MERGED | PR #123 → `d903327e` (human merge 2026-09-12; head `ef2efc94`) |
 | Shared infrastructure K1–K12 | APPROVED (architecture only) / NOT IMPLEMENTED | each change needs its own authorized review |
 | Production deployment | NOT RUN | `PRODUCTION_CHANGE_AUTHORIZED = NONE` |
-| Hardware / live E2E | NOT RUN | PR11 scope |
+| PR11 live cross-IDEA / authorized E2E | NOT STARTED / NEXT | Phase 0 read-only preflight, only on the owner's instruction |
+| Hardware / live E2E | NOT RUN (only the historical PR5 lab evidence exists) | PR11 scope |
 | Final PR10 gate | OPEN | PR10 IN PROGRESS; `IDEA3_PRODUCTION_COMPLETE = NO` |
 
 **Completed:**
 
 - S1 (PASS / CLOSED);
-- S2, Tasks 0–11 (PASS / CLOSED; LOCAL / SIMULATED).
+- S2, Tasks 0–11 (PASS / CLOSED; LOCAL / SIMULATED), merged through PR #123
+  at `d903327e`.
 
 **Remaining:**
 
-- human review and merge of Draft PR #123;
+- PR11 Phase 0, the read-only preflight / dependency gate (needs the owner's
+  instruction);
 - the PR10 Production integration, each part owner-approved and
   Kla-authorized under K1–K12:
   - HUB `/security/`;
@@ -466,12 +660,53 @@ at `b2f61ebf`.
 - PR11 live cross-IDEA E2E;
 - the final PR10 receipt.
 
-**Planned, not started:** any PR10 Production session. It starts only with the
-owner's explicit approval, and never as part of S2.
+**Planned, not started:** PR11 Phases 0–8 (see "PR11 — live cross-IDEA and
+authorized E2E" below) and any PR10 Production session. Each starts only with
+the owner's explicit approval. Production phases also need their own
+authorized K1–K12 changes.
+
+### PR10 Handoff — after the PR #123 merge (2026-09-12)
+
+- **Current branch:** `main` carries S1 and S2. The S2 branch
+  `feat/idea3-pr10-s2-server-core-boundary` is merged and receives no further
+  commits. The documentation-only reconciliation runs on
+  `docs/idea3-pr10-pr11-evidence-reconciliation`.
+- **Current HEAD:** `origin/main` is
+  `d903327e56a744de3a535f105797a53f0dccebaf`, the PR #123 merge.
+- **Current task state:** PR10 IN PROGRESS; S1 and S2 PASS / CLOSED; PR11 NOT
+  STARTED / NEXT.
+- **Sessions closed:** S1 (PR #122 → `b2f61ebf`) and S2 (PR #123 →
+  `d903327e`).
+- **Session currently open:** none for PR10.
+- **Verified evidence:** see "IDEA3 Git ↔ Obsidian evidence reconciliation —
+  2026-09-12" at the top of this note.
+- **Known issues:**
+  - the SQL `expires_at > ?` claim clause is not independently tested (NC2);
+  - the dev-only Vitest advisory;
+  - `ruff format` drift in an S2 test file (outside the Ruff bar);
+  - the Kla-owned shared notes still describe IDEA3 implementation as not
+    established;
+  - S5.5 is only partially present, and PR #118 is still a Draft.
+- **Exact remaining work:**
+  - PR11 Phases 0–8;
+  - the PR10 Production integration under K1–K12;
+  - K12 (Kla + IDEA1);
+  - D6 (Pub / IDEA2);
+  - the final PR10 receipt.
+- **Next action:** PR11 Phase 0, the read-only preflight / dependency gate —
+  only after the owner's instruction.
+- **Do not do:**
+  - mutate Production;
+  - use SSH or Twingate without explicit authorization;
+  - change NGINX, Docker, the firewall, VLAN, router, broker, ESP32, relay, or
+    certificates;
+  - perform a real CUT or RESTORE;
+  - treat architecture approval as authorization for a Production change;
+  - let an agent merge a PR.
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: CLOSED / PASS (2026-09-12) — repository-only, LOCAL / SIMULATED, no Production change; Draft PR #123 awaits human review and stays Draft. G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–11 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract, and Task 9 (PASS) observed NC1–NC5 with no residue; its NC5 control found and closed a C6 worker-test gap (`74eb2c99`, test-only). Task 10 (PASS) ran the full regression bar at `ed9efc4e`. The owner approved the final continuation (Tasks 8–11). Task 11 closed the session: the canonical record, one S2 receipt, and Draft PR #123. PR10 itself stays IN PROGRESS. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: CLOSED / PASS (2026-09-12) — repository-only, LOCAL / SIMULATED, no Production change; A human reviewer merged GitHub PR #123 at `d903327e` (2026-09-12). G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–11 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract, and Task 9 (PASS) observed NC1–NC5 with no residue; its NC5 control found and closed a C6 worker-test gap (`74eb2c99`, test-only). Task 10 (PASS) ran the full regression bar at `ed9efc4e`. The owner approved the final continuation (Tasks 8–11). Task 11 closed the session: the canonical record, one S2 receipt, and PR #123 (Draft at closeout; a human reviewer merged it afterwards). PR10 itself stays IN PROGRESS. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
@@ -1459,6 +1694,10 @@ Task 0 harness failure did not recur.
 - **Result:** PASS.
 - **Session S2:** CLOSED.
 - **Evidence class:** LOCAL / SIMULATED.
+- **Post-merge** (recorded by the 2026-09-12 evidence reconciliation): a human
+  reviewer approved and merged PR #123 at
+  `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12T16:03:34Z). The merged
+  tree equals `ef2efc94`.
 
 **Work performed.** S2 delivered the approved design and TDD plan across
 Tasks 0–11:
@@ -1537,8 +1776,10 @@ The policy validator passes on the PR #123 body with the final changed paths.
 - clock sync;
 - the real broker, real certificates and keys, and hardware.
 
-Also: the SQL `expires_at > ?` clause is not independently tested; and the
-dev-only Vitest advisory and the `ruff format` drift are pre-existing.
+Also, the SQL `expires_at > ?` clause is not independently tested, and the
+dev-only Vitest advisory is pre-existing. (*Corrected by the 2026-09-12
+reconciliation:* the `ruff format` drift was introduced by S2 itself — the test
+file was added in `1e4af697` — and is outside the Ruff bar.)
 
 **Remaining work:**
 
@@ -1555,18 +1796,69 @@ explicit approval. Completing S2 does not authorize any Production rollout.
   `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
   paths remain untracked and unstaged.
 
-### PR11 — live cross-IDEA and authorized E2E: OPEN
+### PR11 — live cross-IDEA and authorized E2E: NOT STARTED / NEXT
+
+PR11 is the live phase. **Nothing below has been executed.** Each phase starts
+only on the owner's instruction. Every Production-mutating phase also needs its
+own reviewed, authorized change under K1–K12.
 
 ```text
+PR11                          = NOT STARTED / NEXT
 LIVE_IDEA1_SERVICE_EVENT_FEED = OPEN
 LIVE_IDEA2_SERVICE_EVENT_FEED = OPEN
-SHARED_CORRELATION_KEY = OPEN
-ADMIN_ACCEPTED_TO_CORE = OPEN
-CORE_TO_MQTT_TO_ESP32_E2E = OPEN
-AUTHORIZED_KALI_E2E = OPEN
-PHYSICAL_CUT_E2E = OPEN
-RESTORE_RECOVERY_E2E = OPEN
+SHARED_CORRELATION_KEY        = OPEN
+ADMIN_ACCEPTED_TO_CORE        = OPEN LIVE (repository boundary SOURCE IMPLEMENTED + LOCAL VERIFIED by S2)
+CORE_TO_MQTT_TO_ESP32_E2E     = OPEN
+AUTHORIZED_KALI_E2E           = OPEN
+PHYSICAL_CUT_E2E              = OPEN (a real CUT through the new Server → Core path is NOT PROVEN)
+RESTORE_RECOVERY_E2E          = OPEN
 ```
+
+**Not proven / open.** These stay open until real evidence exists:
+
+- **S5.5 (K3/K12):** its final live state and reboot persistence, with PR #118
+  still a Draft; also the disposition of the pending server reboot.
+- **HUB edge:**
+  - HUB NGINX Git↔runtime reconciliation (K1);
+  - the Production `/security/` route (K2).
+- **IDEA3 on the server (D3, K4, K5, K7):** the Production IDEA3 container, the
+  dedicated IDEA3 Docker network, and the HUB network attachment.
+- **Machine route security (K9, K10):** the machine SNI block and a real mTLS
+  CA and client certificate.
+- **Core network path (D6, K8, K11):** the Core on VLAN 20, source-IP
+  behaviour, and a real Core → HUB 443 connection.
+- **MQTT and ESP32 (D2):** real MQTT TLS, ACL, and credentials, and real ESP32
+  signed ACK/STATUS.
+- **Architecture only, not implemented:** the Core-local RESTORE CLI (D4) and
+  the D8 session store.
+- **Physical results:** a real CUT through the new Server → Core path, and real
+  physical network isolation.
+- **Server outage:** evidence behaviour while the server is unreachable (tested
+  locally only, via the C7 outbox).
+- **Recovery:** RESTORE, post-restore connectivity, service recovery,
+  rollback, and reboot persistence.
+- **Final gates:** final Production acceptance and final PR10 completion.
+
+Historical PR5 hardware evidence stays separate and is not PR11 evidence:
+
+- GPIO27 LOW = CUT / LOCKDOWN; GPIO27 HIGH = RESTORE / NORMAL;
+- `TOTAL_CONTROL_POWER_LOSS_FAIL_SECURE = NOT PROVEN`;
+- Twingate recovery after relay cycling was not conclusively proven;
+- the breadboard prototype was mechanically unstable.
+
+**Planned roadmap (not executed):**
+
+| Phase | Scope | Gate |
+|---|---|---|
+| 0 — Read-only preflight | latest `main`; canonical status; S1/S2 receipts; D1–D8; K1–K12; S5.5 / PR #118; live NGINX baseline; pending reboot; Core and hardware readiness; a dependency matrix labelled READY / BLOCKED / NOT PROVEN / OWNER APPROVAL REQUIRED | owner instruction; read-only |
+| 1 — Integration-owner readiness | K1 baseline; K3/K12 S5.5 and reboot; K4 subnet; K5 network; K7 HUB recreate plan; K8 VLAN 20 → 443; K9 machine SNI; K10 CA and certificate process; D6 IDEA2 co-residence | Kla, Pub, and IDEA1 decisions |
+| 2 — Controlled server integration | Production IDEA3 container; dedicated internal network; HUB attach; `/security/`; security-header parity; machine SNI; mTLS; no new public port | a separately authorized Production change |
+| 3 — Core live integration | approved VLAN 20; real HTTPS 443; real mTLS; machine identity; connect → list → claim/dry-run → evidence round trip; no CUT until the dry run passes | authorization |
+| 4 — MQTT / ESP32 authorized E2E | real MQTT TLS; ACL and credentials; ESP32 connectivity; signed ACK/STATUS; nonce, timestamp, and replay checks | authorization |
+| 5 — Controlled CUT E2E | Admin accepts → action → Core pulls → claim → expiry check → publish CUT → ESP32 validates → relay → ACK → STATUS → server evidence → Dashboard, with independent physical verification | explicit authorization |
+| 6 — Post-CUT / recovery | Core and local MQTT survive; evidence is kept during the server outage; no silent retry; a truthful outcome; RESTORE stays local and human-confirmed; uplink, server, HUB, and Twingate recovery; idempotent evidence reconciliation | explicit authorization |
+| 7 — Rollback / reboot / persistence | container restart; HUB recreate; firewall and S5.5 coexistence; reboot persistence; certificate expiry and failure; dispatch-disabled safety; rollback | authorization |
+| 8 — Closeout | regression; live evidence inventory; Production change record; the final PR11 receipt; Draft PR; human review and merge | human merge |
 
 ### PR12 — final acceptance: OPEN
 
