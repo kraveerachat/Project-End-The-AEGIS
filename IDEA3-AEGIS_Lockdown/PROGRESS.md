@@ -1,16 +1,35 @@
 # AEGIS IDEA 3 — สรุปความคืบหน้า
 
-> อัปเดตล่าสุด: 11 กันยายน 2569 (2026-09-11)
+> อัปเดตล่าสุด: 13 กันยายน 2569 (2026-09-13)
 >
-> Current shared-repository track: IDEA3 PR9 — Production Runtime / Deployment Preparation (GitHub PR #115)
+> **Current status.** This block agrees with
+> `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`, which is
+> authoritative:
 >
-> Publication branch: `feat/idea3-production-runtime-pr9`
+> ```text
+> CURRENT_MAIN                 = d903327e56a744de3a535f105797a53f0dccebaf (GitHub PR #123 merge)
+> PR9                          = MERGED (GitHub PR #115 at 2c21cc3e) — historical completed repository phase
+> PR10_S1                      = PASS / CLOSED (GitHub PR #122 at b2f61ebf)
+> PR10_S2                      = PASS / CLOSED (GitHub PR #123 at d903327e; LOCAL / SIMULATED evidence; not deployed)
+> PR10                         = IN PROGRESS
+> PR11                         = NOT STARTED / NEXT (Phase 0 read-only dependency/preflight gate; owner instruction required)
+> PRODUCTION_CHANGE_AUTHORIZED = NONE
+> PRODUCTION_DEPLOYED          = NO
+> IDEA3_PRODUCTION_COMPLETE    = NO
+> ```
 >
-> PR5 Final Hardware Closure: **MERGED** through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4` (owner lab evidence accepted)
+> **Historical header (2026-09-11), kept as recorded:**
+> - track: IDEA3 PR9 — Production Runtime / Deployment Preparation (GitHub
+>   PR #115, branch `feat/idea3-production-runtime-pr9`);
+> - PR5 Final Hardware Closure: **MERGED** through GitHub PR #117 at
+>   `58f19f2051170685757627a6baea90b264a877c4` (owner lab evidence accepted);
+> - `PR9_PR115_PR5_GATE = SATISFIED`; `PR9_S7 = PASS`;
+>   `PR9_S8 = CLOSED / READY FOR HUMAN REVIEW` at that time. PR #115 was later
+>   merged by a human reviewer.
 >
-> `PR9_PR115_PR5_GATE = SATISFIED`; `PR9_S7 = PASS`; `PR9_S8 = CLOSED / READY FOR HUMAN REVIEW`
->
-> `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`
+> The PR5, PR4, and earlier sections below are dated historical evidence. PR5
+> is still the latest owner-observed hardware evidence; no later hardware test
+> has been run.
 >
 > หลักการบันทึกสถานะ:
 > - ระบุว่า **PASS / Confirmed** เฉพาะสิ่งที่ทดสอบจริงแล้ว

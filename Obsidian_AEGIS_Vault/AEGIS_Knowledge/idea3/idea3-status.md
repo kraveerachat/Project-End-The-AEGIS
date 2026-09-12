@@ -169,17 +169,21 @@ tree. No live or destructive test was run.
   is created"), W1–W14, C1–C10, the contract, NC1–NC5, the historical S2
   counts, and the PR5 hardware semantics.
 
-### Contradictions outside this note — not edited here
+### Contradictions outside this note
 
-- **Kla-owned shared notes:** `AGENTS.md` (ownership table),
+- **Kla-owned shared notes (not edited here):** `AGENTS.md` (ownership table),
   `core/agent-operating-rules.md`, and `START_HERE.md` still describe IDEA3 as
   design/report only, with implementation not established. The repository
   implementation now spans PR3–PR9 and PR10 S2.
   `summaries/08_Outstanding_Items_Consolidated.md` lists no IDEA3 items. This
   task's receipt carries the integration request.
-- **IDEA3-owned source documents** are outside this canonical-note task and
-  were not edited (see this task's receipt for which still carry stale
-  status).
+- **IDEA3-owned source documents** were aligned in this same task, before
+  merge, without rewriting their history:
+  - `IDEA3-AEGIS_Lockdown/README.md` and `PROGRESS.md` now open with
+    current-state headers that match this note;
+  - `IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md` now opens with a
+    "HISTORICAL / SUPERSEDED HANDOFF" block that points to the PR10 Handoff
+    below.
 
 ### Reconciliation task record
 
@@ -195,7 +199,7 @@ Hardware testing: NOT RUN
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| R1 | Git, GitHub, source, test, and receipt audit; canonical IDEA3 reconciliation | PASS | this section; current revalidation; vault and policy validation; `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review and merge | PR11 Phase 0 on the owner's instruction |
+| R1 | Git, GitHub, source, test, and receipt audit; canonical IDEA3 reconciliation; alignment of the IDEA3-owned README, PROGRESS, and historical handoff headers | PASS | this section; current revalidation; vault and policy validation; `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review and merge | PR11 Phase 0 on the owner's instruction |
 
 ## PR10 pre-flight evidence reconciliation — 2026-09-11
 

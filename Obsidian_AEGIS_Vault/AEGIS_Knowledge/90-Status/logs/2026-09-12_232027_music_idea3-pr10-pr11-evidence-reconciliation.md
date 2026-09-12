@@ -70,6 +70,39 @@ IDEA3_PRODUCTION_COMPLETE = NO
   - a new top "Current IDEA3 truth" reconciliation section. The 2026-09-11
     section is relabelled historical.
 
+### Amendment before merge — IDEA3 source-document alignment
+
+On 2026-09-13, before PR #124 left Draft, the same task aligned three
+IDEA3-owned documents whose top sections contradicted the canonical truth. It
+did this without rewriting their historical bodies:
+
+- **`IDEA3-AEGIS_Lockdown/README.md`:** the header said the current track was
+  PR9 and that PR #115 was not merged. It now opens with a current-state
+  header:
+  - PR10 IN PROGRESS; S1 and S2 PASS / CLOSED (PR #123 at `d903327e`, LOCAL /
+    SIMULATED);
+  - PR9 merged and historical;
+  - PR11 NOT STARTED / NEXT;
+  - no Production deployment.
+- **`IDEA3-AEGIS_Lockdown/PROGRESS.md`:** the header said the current track was
+  PR9 / PR #115. It now opens with a current-status block that matches
+  `idea3/idea3-status.md`. The 2026-09-11 header is kept as a dated historical
+  line, and the PR5/PR9 sections and measured results are unchanged.
+- **`IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md`:** it pointed at
+  the obsolete `codex/autonomous-runtime` handoff of 2026-09-02. It now opens
+  with a "HISTORICAL / SUPERSEDED HANDOFF" block that points to "PR10 Handoff —
+  after the PR #123 merge (2026-09-12)" in `idea3/idea3-status.md`. The old
+  body is preserved unchanged.
+
+This receipt was newly added by this still-unmerged task, so it was corrected
+in place (workflow §11). It remains the task's only receipt.
+
+```text
+NEGATIVE_CONTROLS          = NOT APPLICABLE — documentation-only reconciliation; no runtime/security invariant was mutated
+PRODUCTION_SAFETY_EVIDENCE = No Production mutation. No hardware, broker, network, firewall, container, or runtime change. The current revalidation is local repository evidence only
+FINAL_TASK_STATE           = PASS / PR-READY, pending the required human review and human merge
+```
+
 ### Governance decision on the receipt
 
 `AGENTS.md` §1/§7 and workflow §17 treat this post-merge reconciliation as a
@@ -90,6 +123,11 @@ a receipt before Ready. The earlier documentation reconciliations #119 and
   entry sentence.
 - `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` — state
   lines only (PR #123 merged; PR11 NOT STARTED).
+- `IDEA3-AEGIS_Lockdown/README.md` — the current-state header only.
+- `IDEA3-AEGIS_Lockdown/PROGRESS.md` — the current-status block at the top; the
+  old header is kept as a dated historical line.
+- `IDEA3-AEGIS_Lockdown/doc/Content/04_SESSION_HANDOFF.md` — the "HISTORICAL /
+  SUPERSEDED HANDOFF" block at the top only.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-12_232027_music_idea3-pr10-pr11-evidence-reconciliation.md`
   — this receipt.
 
@@ -102,8 +140,10 @@ No runtime, application, or test source changed. No older receipt was edited.
 - `node scripts/validate-collaboration-policy.mjs` (Draft event with the final
   body and changed paths) — pass.
 - `git diff --check origin/main` — pass.
-- Changed-path check — pass: 3 IDEA3 documentation paths plus this receipt; no
-  source, test, or configuration path.
+- Changed-path check — pass: 6 IDEA3-owned documentation paths plus this
+  receipt; no source, test, configuration, IDEA1, IDEA2, shared/Core, or
+  infrastructure path.
+- `git diff --cached --check` — pass.
 - Secret scan of the added lines (private-key blocks, cloud/GitHub/Slack token
   formats, quoted secret assignments) — pass, no hits.
 - Git and GitHub reads: `git log`, `git show`, `git diff`, `git rev-list
@@ -154,10 +194,10 @@ No runtime, application, or test source changed. No older receipt was edited.
 - **Carried-forward evidence:** the S1 live-inventory facts are the 2026-09-12
   read-only observations. They were not re-observed, and the live server may
   have changed since.
-- **IDEA3-owned source documents:** `IDEA3-AEGIS_Lockdown/README.md`,
-  `PROGRESS.md`, and `doc/Content/04_SESSION_HANDOFF.md` are outside this
-  canonical-note task and were not edited. Their staleness is listed in this
-  task's final report.
+- **Carried-forward revalidation:** the CURRENT REVALIDATION counts (334
+  passed / 6 skipped, 493/493, 63/63) come from the same executable source
+  tree. The 2026-09-13 amendment changed documentation only, so nothing was
+  re-run for it.
 - **Merge provenance:** PR #123 was merged by a human reviewer
   (`kraveerachat`). No agent marked it Ready or merged it.
 - **Next action:** PR11 Phase 0, the read-only preflight / dependency gate —
