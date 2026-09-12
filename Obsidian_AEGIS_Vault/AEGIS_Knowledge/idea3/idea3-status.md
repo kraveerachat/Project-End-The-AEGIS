@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`)
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS — see "S2 Task 0", "S2 Task 1", and "S2 Task 2" below | `94cfb2bfa750244ef6e8546c9f5edb479168e831` (Task 2 coverage follow-up); Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 3–11 of the plan; W8's claim-410 case and W11's claim side arrive with the claim in Task 3 | Task 3 (machine app, identity, and claim), on the owner's go-ahead |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS — see "S2 Task 0" to "S2 Task 3" below | `5cae52e392ece0d5c3aee45259c161598e1154ae` (Task 3); Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 4–11 of the plan | Task 4 (evidence ingest and display), only on the owner's explicit approval of the Task 3 checkpoint |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), and Task 2 (`3f67cd85`, PASS) are recorded below; Task 3 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), and Task 3 (`5cae52e3`, PASS) are recorded below; Task 4 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -767,6 +767,96 @@ the claim itself is Task 3.
 - **Defects found:** none.
 - **Remaining:** Tasks 3–11.
 - **Next:** Task 3, on the owner's go-ahead.
+
+#### S2 Task 3 — machine app, identity, and claim (2026-09-12)
+
+Checkpoint: `5cae52e392ece0d5c3aee45259c161598e1154ae`. Result: PASS
+(W6, W7, W9, W10; completes W8's claim-410 case and W11's claim side).
+Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change.
+
+- `machineRoutes.test.js` failed to load, because `createMachineApp.js` did
+  not exist.
+- 11 repository claim tests failed with "`claimDispatchAction` is not a
+  function".
+- The parity key list failed for the same reason.
+
+The browser-side W10 test is a guard test: it would already have passed
+before this change, because the browser app never served machine routes.
+
+**Behaviour:**
+
+- **Separate machine app** (`web/server/createMachineApp.js`):
+  - no session, auth, CSRF, static, or Admin route;
+  - exact-case `/api/machine/v1` prefix (`/security/api/machine/v1` in
+    production);
+  - 8 KB strict JSON; `Cache-Control: no-store`; no cookie;
+  - it refuses to build unless dispatch is enabled.
+- **Identity guard** (`web/server/security/machineIdentity.js`). Every request
+  must pass it first:
+  - no `Cookie` and no `Origin` header;
+  - the socket peer equals the pinned trusted proxy, and forwarded headers are
+    ignored;
+  - `X-AEGIS-Client-Verify` is exactly `SUCCESS`; a duplicated header is
+    refused;
+  - the DN has exactly one CN equal to the expected subject; escaped,
+    multi-valued, and duplicate CNs are refused.
+
+  A rejection returns 403 and writes no state. An authenticated request
+  records machine contact, which Task 4's display will use.
+- **Routes** (`web/server/routes/machineRoutes.js`):
+  - list the unexpired pending `CUT_UPLINK` actions;
+  - claim one with an atomic single-shot `PENDING_DISPATCH → CORE_CLAIMED`,
+    in one transaction that expires past-due actions first. It returns 200
+    claimed, 404 unknown, 410 expired, 409 already claimed or not
+    dispatchable, and 400 for a malformed id or body.
+
+  Listing and claiming re-check the action, so a non-`CUT_UPLINK` row, forced
+  in past the schema CHECK, is never listed or claimed.
+- **Runtime** (`web/server/runtime.js`, `index.js`): the machine listener
+  starts only when dispatch is enabled. It binds the configured
+  `AEGIS_IDEA3_DISPATCH_HOST` and `…_PORT` through an injectable `listen()`,
+  and shares one repository with the browser app, closed exactly once. With
+  dispatch disabled, the PR9 startup is unchanged.
+
+**Files beyond the plan's Task 3 list:** both repositories
+(`claimDispatchAction`, because the claim is a repository transaction per spec
+§4.6) and `runtime.js`, where server startup actually lives. The parity key
+list in `sqliteRepository.test.js` changed deliberately for
+`claimDispatchAction`.
+
+**Topology:**
+
+- The listener tests use an injected `listen()` and open no port.
+- The loopback trusted peer and bind address are local fixtures, not the
+  Production topology. The Production bind, network, and HUB wiring stay
+  deferred to K4/K5/K7.
+
+| Suite | Result |
+|---|---|
+| Vitest | 422/422 in 26 files (+41 against the Task 2 follow-up) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver (dispatch disabled) | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:**
+  - the added lines contain no MQTT, subprocess, SSH, Twingate, or hardware
+    call;
+  - the only listener is the runtime's `app.listen` hook, the same call PR9
+    made, used by the machine listener only when dispatch is enabled;
+  - tests use a fake `listen()` or supertest's local loopback server;
+  - two `PRAGMA ignore_check_constraints` statements act on temporary test
+    databases.
+- **Hygiene:** no injected-defect strings remain in the source.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 4–11.
+- **Next:** Task 4, on the owner's explicit approval.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
