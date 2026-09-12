@@ -264,36 +264,54 @@ check_connector_membership() {
     host|container:*) fail "connector must never use ${mode} networking"; status=1 ;;
   esac
 
-  networks="$(CONTAINER_JSON="$json" node --input-type=commonjs -e '
+  # Attachment set and fixed addresses are validated in ONE JSON pass. A stopped
+  # container keeps its configured attachment but Docker clears the live endpoint
+  # fields (IPAddress, Gateway, EndpointID) until it runs, so the evidence differs
+  # by mode:
+  #   pre-start (strict, object is stopped): the configured static address,
+  #     NetworkSettings.Networks.<net>.IPAMConfig.IPv4Address
+  #   drift (object is running):              the live assigned address,
+  #     NetworkSettings.Networks.<net>.IPAddress, with NO fallback to the
+  #     configured value - a missing live endpoint is drift, not intent.
+  # Empty fields are never serialised through whitespace-separated columns.
+  local verdict
+  verdict="$(CONTAINER_JSON="$json" S55_STRICT="$required" \
+    S55_ALLOWED_NETWORKS="$ALLOWED_NETWORKS" S55_EDGE_NETWORK="$EDGE_NETWORK" S55_EGRESS_NETWORK="$EGRESS_NETWORK" \
+    S55_CONNECTOR_EDGE_IP="$CONNECTOR_EDGE_IP" S55_CONNECTOR_EGRESS_IP="$CONNECTOR_EGRESS_IP" \
+    node --input-type=commonjs -e '
     const data = JSON.parse(process.env.CONTAINER_JSON)
     const c = Array.isArray(data) ? data[0] : data
-    const nets = c?.NetworkSettings?.Networks ?? {}
-    for (const [name, value] of Object.entries(nets)) {
-      process.stdout.write(`${name} ${value?.IPAddress ?? ""}\n`)
+    const strict = process.env.S55_STRICT === "1"
+    const nets = c?.NetworkSettings?.Networks
+    const failures = []
+    const attached = (nets && typeof nets === "object") ? Object.keys(nets).sort() : []
+    const expected = process.env.S55_ALLOWED_NETWORKS.split(/\s+/).filter(Boolean).sort()
+    if (attached.join(" ") !== expected.join(" ")) {
+      failures.push(`connector attachments must be exactly [${expected.join(" ")}], found [${attached.join(" ")}]`)
     }
-  ' 2>/dev/null)"
-
-  local attached
-  attached="$(printf '%s\n' "$networks" | awk 'NF { print $1 }' | sort | tr '\n' ' ')"
-  local expected
-  expected="$(printf '%s\n' $ALLOWED_NETWORKS | sort | tr '\n' ' ')"
-  if [ "$attached" != "$expected" ]; then
-    fail "connector attachments must be exactly [${expected% }], found [${attached% }]"
-    status=1
+    const fixed = {
+      [process.env.S55_EDGE_NETWORK]: process.env.S55_CONNECTOR_EDGE_IP,
+      [process.env.S55_EGRESS_NETWORK]: process.env.S55_CONNECTOR_EGRESS_IP,
+    }
+    for (const [name, want] of Object.entries(fixed)) {
+      const net = nets?.[name]
+      if (!net || typeof net !== "object") continue // already reported as an attachment failure
+      const got = strict ? net?.IPAMConfig?.IPv4Address : net?.IPAddress
+      if (typeof got !== "string" || got !== want) {
+        failures.push(`connector must hold ${want} on ${name} (${strict ? "configured IPAMConfig.IPv4Address" : "live IPAddress"})`)
+      }
+    }
+    process.stdout.write(failures.length === 0 ? "OK" : failures.join("\n"))
+  ' 2>/dev/null)" || verdict=''
+  if [ -z "$verdict" ]; then
+    fail 'cannot evaluate connector network settings'
+    return 1
   fi
-
-  local name ip
-  while read -r name ip; do
-    [ -n "$name" ] || continue
-    case "$name" in
-      "$EDGE_NETWORK")
-        [ "$ip" = "$CONNECTOR_EDGE_IP" ] \
-          || { fail "connector must hold ${CONNECTOR_EDGE_IP} on ${EDGE_NETWORK}"; status=1; } ;;
-      "$EGRESS_NETWORK")
-        [ "$ip" = "$CONNECTOR_EGRESS_IP" ] \
-          || { fail "connector must hold ${CONNECTOR_EGRESS_IP} on ${EGRESS_NETWORK}"; status=1; } ;;
-    esac
-  done <<< "$networks"
+  if [ "$verdict" != 'OK' ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && { fail "$line"; status=1; }
+    done <<< "$verdict"
+  fi
   return "$status"
 }
 

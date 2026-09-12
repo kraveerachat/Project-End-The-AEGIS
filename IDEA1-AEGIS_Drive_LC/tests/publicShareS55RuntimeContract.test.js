@@ -418,9 +418,17 @@ function runtimeHarness(options = {}) {
       },
       HostConfig: { NetworkMode: options.networkMode ?? 'aegis_public_share_edge' },
       NetworkSettings: {
-        Networks: Object.fromEntries(Object.entries(options.connectorNetworks ?? {}).map(([n, ip]) => [
-          n, { IPAddress: ip },
-        ])),
+        // Docker keeps the configured attachment on a stopped container but clears
+        // the live endpoint fields, so the realistic shape depends on state:
+        //   stopped (created/exited): IPAddress "" and IPAMConfig.IPv4Address kept
+        //   running:                  IPAddress assigned and IPAMConfig.IPv4Address kept
+        // A string value renders that state-appropriate shape; an object value is
+        // used verbatim so a test can pin any combination explicitly.
+        Networks: Object.fromEntries(Object.entries(options.connectorNetworks ?? {}).map(([n, value]) => {
+          if (value !== null && typeof value === 'object') return [n, value]
+          const live = state === 'running' || options.connectorRunning === true
+          return [n, { IPAddress: live ? value : '', IPAMConfig: { IPv4Address: value } }]
+        })),
       },
     }]))
   }
@@ -684,7 +692,11 @@ test('S5.5-DRIFT-SERVICE is a oneshot that only enforces', () => {
 })
 
 test('S5.5-DRIFT-CLEAN does nothing while the state is safe', () => {
+  // Drift validates the RUNNING connector: live addresses are assigned. (A
+  // stopped object has no live endpoint and is correctly reported as drift.)
   const h = runtimeHarness({
+    connectorState: 'running',
+    connectorRunning: true,
     connectorNetworks: {
       aegis_public_share_edge: '172.31.240.3',
       aegis_public_share_egress: '172.31.242.2',
@@ -1535,4 +1547,170 @@ test('S5.5-NET-EDGE-IPV6-FAIL-CLOSED edge network must explicitly require Enable
     assert.match(hDriftMissing.systemctlCalls(), /stop aegis-public-share-connector\.service/,
       'missing EnableIPv6 drift must stop the connector')
   } finally { hDriftMissing.cleanup() }
+})
+
+// ---------------------------------------------------------------------------
+// Production-discovered (2026-09-12): a STOPPED connector carries its static
+// addresses only in NetworkSettings.Networks.<net>.IPAMConfig.IPv4Address; the
+// live IPAddress / Gateway / EndpointID fields are empty until it runs. The
+// pre-start gate validates a stopped object, so it must read the configured
+// address. Drift enforcement validates a running object and must keep reading
+// the live address with no fallback to configured intent.
+// ---------------------------------------------------------------------------
+
+const PRODUCTION_STOPPED_NETWORKS = {
+  aegis_public_share_edge: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+  aegis_public_share_egress: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+}
+
+test('S5.5-PRESTART-STOPPED-IPAM pre-start accepts stopped connector whose static addresses are retained in IPAMConfig while live IPAddress fields are empty', () => {
+  for (const state of ['created', 'exited']) {
+    const h = runtimeHarness({
+      ...STOPPED_CONNECTOR, connectorState: state, connectorNetworks: PRODUCTION_STOPPED_NETWORKS,
+    })
+    try {
+      const r = h.run('--pre-start')
+      assert.equal(r.status, 0, `${state}: stopped connector with configured static addresses must pass pre-start; stderr=${r.stderr}`)
+      assert.match(r.stdout, /S5\.5-RUNTIME=PRESTART-OK/)
+      assert.doesNotMatch(r.stderr, /connector must hold/)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-PRESTART-STOPPED-IPAM negative: stopped connector with wrong or missing configured address is refused', () => {
+  const cases = {
+    'wrong configured edge address': {
+      aegis_public_share_edge: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.240.4' } },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+    'wrong configured egress address': {
+      aegis_public_share_edge: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.242.3' } },
+    },
+    'missing IPAMConfig on edge': {
+      aegis_public_share_edge: { IPAddress: '' },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+    'missing IPv4Address inside IPAMConfig on egress': {
+      aegis_public_share_edge: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: {} },
+    },
+    'IPAMConfig null on both': {
+      aegis_public_share_edge: { IPAddress: '', IPAMConfig: null },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: null },
+    },
+  }
+  for (const [label, networks] of Object.entries(cases)) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, connectorNetworks: networks })
+    try {
+      const r = h.run('--pre-start')
+      assert.equal(r.status, 1, `${label} must be refused`)
+      assert.match(r.stderr, /connector must hold 172\.31\.24[02]\.[23] on aegis_public_share_(edge|egress) \(configured IPAMConfig\.IPv4Address\)/,
+        `${label}: refusal must name the configured-address evidence`)
+      assert.match(r.stderr, /PRESTART-REFUSED/)
+    } finally { h.cleanup() }
+  }
+
+  // A live IPAddress on a stopped object is NOT a substitute for the configured
+  // address: pre-start reads configured intent only.
+  const hLiveOnly = runtimeHarness({
+    ...STOPPED_CONNECTOR,
+    connectorNetworks: {
+      aegis_public_share_edge: { IPAddress: '172.31.240.3' },
+      aegis_public_share_egress: { IPAddress: '172.31.242.2' },
+    },
+  })
+  try {
+    const r = hLiveOnly.run('--pre-start')
+    assert.equal(r.status, 1, 'a stopped object without configured addresses must be refused even if live fields are populated')
+  } finally { hLiveOnly.cleanup() }
+})
+
+test('S5.5-PRESTART-STOPPED-IPAM negative: stopped connector with a forbidden third network is refused even with exact configured addresses', () => {
+  for (const extra of ['aegis_public_share_upstream', 'aegis_internal', 'aegis_drive_proxy',
+    'aegis_vlan10', 'aegis_vlan10_macvlan', 'bridge', 'monitor_net', 'twingate_net']) {
+    const h = runtimeHarness({
+      ...STOPPED_CONNECTOR,
+      connectorNetworks: {
+        ...PRODUCTION_STOPPED_NETWORKS,
+        [extra]: { IPAddress: '', IPAMConfig: { IPv4Address: '10.9.9.9' } },
+      },
+    })
+    try {
+      const r = h.run('--pre-start')
+      assert.equal(r.status, 1, `third network ${extra} must be refused`)
+      assert.match(r.stderr, /connector attachments must be exactly \[aegis_public_share_edge aegis_public_share_egress\]/)
+    } finally { h.cleanup() }
+  }
+
+  // Networks missing or malformed entirely: fail closed, never pass.
+  for (const [label, opts] of Object.entries({
+    'no networks object': { connectorNetworks: {} },
+  })) {
+    const h = runtimeHarness({ ...STOPPED_CONNECTOR, ...opts })
+    try {
+      assert.equal(h.run('--pre-start').status, 1, `${label} must be refused`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-DRIFT-LIVE-IP drift keeps validating the live IPAddress and never falls back to IPAMConfig', () => {
+  const RUNNING = { ...STOPPED_CONNECTOR, connectorState: 'running', connectorRunning: true }
+
+  // Baseline: running connector with correct live and configured addresses is OK.
+  const hOk = runtimeHarness({
+    ...RUNNING,
+    connectorNetworks: {
+      aegis_public_share_edge: { IPAddress: '172.31.240.3', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAddress: '172.31.242.2', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+  })
+  try {
+    const r = hOk.run('--enforce-drift')
+    assert.equal(r.status, 0, `running connector with exact live addresses must pass drift; stderr=${r.stderr}`)
+    assert.doesNotMatch(hOk.systemctlCalls(), /stop/)
+  } finally { hOk.cleanup() }
+
+  // Configured intent correct but live address wrong => drift, connector stopped.
+  const hWrong = runtimeHarness({
+    ...RUNNING,
+    connectorNetworks: {
+      aegis_public_share_edge: { IPAddress: '172.31.240.9', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAddress: '172.31.242.2', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+  })
+  try {
+    const r = hWrong.run('--enforce-drift')
+    assert.equal(r.status, 1, 'wrong live edge address must be drift even when IPAMConfig is correct')
+    assert.match(r.stderr, /connector must hold 172\.31\.240\.3 on aegis_public_share_edge \(live IPAddress\)/)
+    assert.match(hWrong.systemctlCalls(), /stop aegis-public-share-connector\.service/)
+  } finally { hWrong.cleanup() }
+
+  // Configured intent correct but live address EMPTY => drift, connector stopped.
+  // (A missing live endpoint on a running object is a broken attachment, not intent.)
+  const hEmpty = runtimeHarness({
+    ...RUNNING,
+    connectorNetworks: {
+      aegis_public_share_edge: { IPAddress: '172.31.240.3', IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAddress: '', IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+  })
+  try {
+    const r = hEmpty.run('--enforce-drift')
+    assert.equal(r.status, 1, 'empty live egress address must be drift even when IPAMConfig is correct')
+    assert.match(r.stderr, /connector must hold 172\.31\.242\.2 on aegis_public_share_egress \(live IPAddress\)/)
+    assert.match(hEmpty.systemctlCalls(), /stop aegis-public-share-connector\.service/)
+  } finally { hEmpty.cleanup() }
+
+  // Live address absent entirely (field missing) => drift.
+  const hAbsent = runtimeHarness({
+    ...RUNNING,
+    connectorNetworks: {
+      aegis_public_share_edge: { IPAMConfig: { IPv4Address: '172.31.240.3' } },
+      aegis_public_share_egress: { IPAMConfig: { IPv4Address: '172.31.242.2' } },
+    },
+  })
+  try {
+    assert.equal(hAbsent.run('--enforce-drift').status, 1, 'absent live address fields must be drift')
+  } finally { hAbsent.cleanup() }
 })
