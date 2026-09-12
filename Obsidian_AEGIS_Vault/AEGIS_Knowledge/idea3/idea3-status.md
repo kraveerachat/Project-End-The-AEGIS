@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS — see "S2 Task 0" and "S2 Task 1" below | `677acbe635f4e79173b97f9c035bbef6195060e1` (Task 1); G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 2–11 of the plan | Task 2 (minting at acceptance, expiry, CUT-only), on the owner's go-ahead |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS — see "S2 Task 0", "S2 Task 1", and "S2 Task 2" below | `3f67cd85440599b3ed63ae138da4b05819efd1ac` (Task 2); Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 3–11 of the plan; W8's claim-410 case and W11's claim side arrive with the claim in Task 3 | Task 3 (machine app, identity, and claim), on the owner's go-ahead |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Task 1 (`677acbe6`, PASS) are recorded below; Task 2 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), and Task 2 (`3f67cd85`, PASS) are recorded below; Task 3 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 committed at `677acbe6`
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -659,6 +659,86 @@ expiry.
 - **Defects found:** none.
 - **Remaining:** Tasks 2–11.
 - **Next:** Task 2, on the owner's go-ahead.
+
+#### S2 Task 2 — dispatch action at Admin acceptance (2026-09-12)
+
+Checkpoint: `3f67cd85440599b3ed63ae138da4b05819efd1ac`. Result: PASS
+(W4, W5, W14; W8 and W11 for the repository and route side). Evidence class:
+LOCAL.
+
+**Work performed (test-first):** RED was observed before each source change.
+
+- 24 dispatch, acceptance, and parity tests failed, because the repository
+  functions and the CUT-only guard did not exist and the route minted nothing.
+- The 37 configuration tests failed, because there was no dispatch
+  configuration yet.
+
+**Behaviour:**
+
+- **Minting:** with dispatch enabled, a newly recorded ACCEPT mints exactly
+  one pending `CUT_UPLINK` action. It has a random UUID, and `expires_at` is
+  the acceptance time + 120 s. It is written in the same transaction as the
+  decision and its audit row, and an injected failure rolls back both.
+- **Nothing is minted** for:
+  - a rejection;
+  - a repeat or a conflict (the existing action is returned instead);
+  - Demo Mode;
+  - dispatch disabled;
+  - an acceptance first recorded while dispatch was disabled (never late).
+- **Listing and expiry:** listing expires past-due pending actions once (an
+  audited `ACTION_EXPIRED`), then returns the unexpired pending actions,
+  oldest first, at most ten. Reading returns the stored state; expiry is
+  applied by the list path now, and by the claim path from Task 3.
+- **Response:** the acceptance response adds `dispatch` and sets only
+  `command_requested`. Publish, ACK, execution, and physical evidence stay
+  false.
+- **Default:** dispatch is disabled by default, so the PR7/PR9 acceptance
+  response is unchanged.
+
+**Configuration (supporting tests):**
+
+- The enable flag accepts only `true` or `false`.
+- The internal port must differ from `PORT`.
+- The trusted proxy must be one IP address.
+- The machine subject must be a lower-case name.
+- `AEGIS_IDEA3_DISPATCH_HOST` comes from configuration:
+  - one specific IP literal; unspecified and IPv4-mapped forms are rejected;
+  - defaults to `127.0.0.1` outside production;
+  - in production, an explicit non-loopback value is required.
+- The browser listener stays loopback-only.
+- `.env.example` gains the keys, empty or `false`.
+
+**Exact changes:**
+
+- **Source:** `web/server/domain/dispatch.js`, `domain/containment.js`,
+  `repositories/sqliteRepository.js`, `repositories/memoryRepository.js`,
+  `routes/securityRoutes.js`, `config.js`, and `.env.example`.
+- **Tests:** `dispatchLedger.test.js`, `containmentAcceptance.test.js`, and
+  `config.test.js`.
+- **Deliberate change to an existing test:** the parity key list in
+  `sqliteRepository.test.js` now includes the two new repository functions.
+
+**Still open for Task 3:** W8's claim-410 case and W11's claim side, because
+the claim itself is Task 3.
+
+| Suite | Result |
+|---|---|
+| Vitest | 376/376 in 25 files (+60 against Task 1) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production or hardware interaction:** a scan of the added lines found
+  no network, MQTT, subprocess, or hardware call. The only matches were a
+  test's SQLite trigger statements on a temporary database.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 3–11.
+- **Next:** Task 3, on the owner's go-ahead.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
