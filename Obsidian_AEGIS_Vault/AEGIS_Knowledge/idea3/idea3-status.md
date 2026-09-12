@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS — see "S2 Task 0" to "S2 Task 3" below | `5cae52e392ece0d5c3aee45259c161598e1154ae` (Task 3); Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 4–11 of the plan | Task 4 (evidence ingest and display), only on the owner's explicit approval of the Task 3 checkpoint |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side — see "S2 Task 0" to "S2 Task 4" below | `9314342256f27230e5345ce6be87167086dbe162` (Task 4); Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 5–11 of the plan (Core side, shared contract fixture, negative controls, regression, closeout) | Task 5 (Core dispatch ledger), only on the owner's explicit approval of the Task 4 checkpoint |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), and Task 3 (`5cae52e3`, PASS) are recorded below; Task 4 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), Task 3 (`5cae52e3`, PASS), and Task 4 (`93143422`, PASS) are recorded below; Task 5 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -857,6 +857,96 @@ list in `sqliteRepository.test.js` changed deliberately for
 - **Defects found:** none.
 - **Remaining:** Tasks 4–11.
 - **Next:** Task 4, on the owner's explicit approval.
+
+#### S2 Task 4 — evidence ingest and dispatch display (2026-09-12)
+
+Checkpoint: `9314342256f27230e5345ce6be87167086dbe162`. Result: PASS (W12,
+W13). With Tasks 1–3, every Web-side case W1–W14 is now covered. Evidence
+class: LOCAL.
+
+**Work performed (test-first):** RED was observed before each source change.
+
+- **Server:** 56 failures, because `safeDispatchEvidence`, `dispatchDisplay`,
+  and the evidence repository functions did not exist, and the snapshot had
+  no overlay (it still read `NOT_REQUESTED`).
+- **UI:** 5 of 6 client tests failed, because the new labels and the
+  `isAcknowledgedIncident` helper did not exist.
+- **The sixth client test, a guard for the demo's `ACKED` state,** failed
+  because of a defect in the test itself: the same text appears twice in the
+  spotlight. The test was fixed to read each fact row by its label. This guard
+  passes both before and after the change.
+
+**Behaviour:**
+
+- **Evidence ingest** (`POST …/dispatch/:actionId/evidence`, machine app,
+  identity required). It records one allowlisted Core-reported stage for a
+  claimed action.
+  - It is append-only and idempotent by `(action_id, sequence)`.
+  - It returns 201 recorded, 200 for an identical replay, 409 for a changed
+    replay or an unclaimed action, 404 unknown, and 400 outside the allowlist.
+  - Only stable codes are stored: `ackCode` `OK` (ACK only), `deviceState`
+    (STATUS only), and `reasonCode`, with canonical ISO timestamps and no
+    nonce or other field.
+- **Display.** The Admin snapshot overlays each incident that has an action
+  with a `responseState` and a `dispatch` summary (state, expiry,
+  human-review flag, and the containment boundary). Precedence:
+  - terminal states first (`OUTCOME_UNKNOWN`, `FAILED`, `EXPIRED_AT_CORE`,
+    `EXPIRED`, including a past-due pending action);
+  - then `STATUS_CORRELATED` (a LOCKDOWN STATUS only), `ACK_RECEIVED`,
+    `PUBLISHED` or `DRY_RUN_ONLY`, and `CORE_CLAIMED`;
+  - finally `DISPATCH_PENDING`, or `DISPATCH_UNAVAILABLE` when there has been
+    no authenticated machine contact in the last 120 s.
+- **No false claims:**
+  - `OUTCOME_UNKNOWN` is flagged for human review;
+  - no state reads "Contained";
+  - evidence is never promoted, so `executed` and `physical_evidence` stay
+    false for every combination of evidence (exhaustive test).
+- **Contact tracker:** the runtime shares one machine-contact tracker between
+  the machine and browser apps.
+- **Dashboard:**
+  - acknowledgement uses an explicit allowlist (`ACKED`, `ACKNOWLEDGED`,
+    `ACK_RECEIVED`, `STATUS_CORRELATED`) instead of a substring match on
+    "ACK";
+  - when an incident has a dispatch action, acknowledgement follows its ACK
+    evidence instead;
+  - the new states have Thai, English, and Chinese labels, in key parity.
+- **Default:** with dispatch disabled, the snapshot and PR9 behaviour are
+  unchanged.
+
+**Refinement for owner review:** spec §4.8 names only the allowlist. When an
+incident has a dispatch action, the Dashboard follows its recorded ACK
+evidence instead. As a result, `OUTCOME_UNKNOWN` after a real ACK still shows
+as acknowledged.
+
+**Files beyond the plan's Task 4 list:**
+
+- `createApp.js`, `securityRoutes.js`, and `runtime.js` carry the contact
+  tracker to the browser app.
+- The UI tests are in a new `tests/client/dashboardDispatch.test.jsx` rather
+  than `status.test.js`.
+- The parity key list changed deliberately for the two evidence functions.
+
+| Suite | Result |
+|---|---|
+| Vitest | 484/484 in 27 files (+62 against Task 3) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver (dispatch disabled) | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:** the added lines
+  contain no MQTT, subprocess, SSH, Twingate, network, or hardware call. The
+  scan matched only test data (a `MQTT_UNAVAILABLE` reason code and a refused
+  `RELAY_EVIDENCE` stage) and the fake `listen()`.
+- **Hygiene:** no injected-defect strings remain in the source.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none in the product; one test-construction defect,
+  fixed as described above.
+- **Remaining:** Tasks 5–11.
+- **Next:** Task 5, on the owner's explicit approval.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
