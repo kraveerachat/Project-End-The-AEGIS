@@ -54,6 +54,15 @@ decision D7, and the IDEA3 side of decision D5.
   - no SSH;
   - no IDEA1, IDEA2, or shared path.
 - **Stop rule:** if a non-IDEA3 path becomes necessary, stop and report.
+- **Topology (spec §4.4):**
+  - `AEGIS_IDEA3_DISPATCH_PORT` is an application/container-internal listener
+    port. No new host-published port is created.
+  - HUB/NGINX on HTTPS 443 stays the only external entry.
+  - In Production, the machine listener is reachable only over the HUB↔IDEA3
+    internal network, and must not be bound only to container loopback.
+  - Production bind and network wiring are deferred to K4/K5/K7 (and D3).
+  - Loopback listeners and addresses in tests are local fixtures, not the
+    Production topology.
 - **Commits and merges:**
   - each task ends with an implementation/evidence commit, followed by a
     documentation commit that records its SHA in the S2 Session Register
@@ -208,7 +217,9 @@ residue check.
   - `web/server/routes/machineRoutes.js`;
   - `web/server/security/machineIdentity.js`.
 - **Modify:** `web/server/index.js` (one shared repository and contact
-  tracker; machine listener only when enabled).
+  tracker; machine listener only when enabled, on the application-internal
+  `AEGIS_IDEA3_DISPATCH_PORT`; tests bind loopback, a local fixture rather
+  than the Production topology).
 - **Tests:** create `web/tests/server/machineRoutes.test.js`.
 
 - [ ] RED: identity negatives first (W9), then the claim (W6, W7), then
@@ -225,9 +236,9 @@ residue check.
   - the repositories (evidence and `apply()` overlay);
   - `web/server/domain/dispatch.js`;
   - `web/server/routes/machineRoutes.js`;
-  - `web/src/lib/dashboard.js` and/or `web/src/pages/DashboardPage.jsx`
-    (acknowledgement allowlist);
-  - `web/src/lib/i18n.js`.
+  - UI files, only if W13 requires them: `web/src/lib/dashboard.js` and/or
+    `web/src/pages/DashboardPage.jsx` (acknowledgement allowlist), and
+    `web/src/lib/i18n.js` (labels).
 - **Tests:** `dispatchLedger.test.js`, `machineRoutes.test.js`,
   `status.test.js`.
 

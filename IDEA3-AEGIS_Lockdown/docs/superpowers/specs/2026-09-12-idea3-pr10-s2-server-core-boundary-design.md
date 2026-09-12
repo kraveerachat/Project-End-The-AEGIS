@@ -72,7 +72,8 @@ Production change.
   - D1/D2 access point, broker TLS/ACL, and ESP32 signing;
   - D6 host work.
 - **Runtime and edge files:** Core-only systemd owner or unit; Compose
-  overlays; NGINX files.
+  overlays; NGINX files; the Production bind address, network attachment, and
+  HUB wiring of the machine listener (K4/K5/K7, D3).
 - **Integration:** PR11 feeds; any IDEA1, IDEA2, HUB, shared, or
   infrastructure file.
 - **Production and hardware:** every Production, hardware, certificate,
@@ -205,8 +206,37 @@ row, then returns it.
 
 ### 4.4 Machine listener and route contract
 
-The machine API runs as a **separate Express app on a separate loopback
-port**, not on the browser app. It is started only when dispatch is enabled.
+The machine API runs as a **separate Express app on a separate listener port
+inside the IDEA3 Web application** (in Production, inside the IDEA3
+container), not on the browser app. It is started only when dispatch is
+enabled.
+
+**Topology (D5, K5).** The separate listener isolates machine code inside the
+application. It does not change the approved network topology:
+
+- **No new host-published port.** `AEGIS_IDEA3_DISPATCH_PORT` is an
+  application/container-internal listener port. It must never appear in a host
+  port mapping, a Compose `ports:` entry, or a firewall rule.
+- **Reachable only through the HUB.** In the later Production topology, the
+  machine listener is reachable only from the HUB container, over the
+  dedicated HUB↔IDEA3 internal Docker network. Under K5 that network is
+  `internal: true`, not attachable, and has only the HUB and IDEA3 Web as
+  members.
+- **One external entry.** HUB/NGINX remains the only external/server entry
+  point, on HTTPS 443 (D5, K8). The Core reaches the machine route only through
+  the HUB's machine SNI block (K9).
+- **Production bind.** The Production machine listener must bind to an
+  address the HUB container can reach on that internal network. It must not be
+  bound only to `127.0.0.1` inside the IDEA3 container, because the HUB
+  container could not reach it there.
+- **Wiring deferred.** The exact Production bind address, network attachment,
+  and HUB upstream wiring are deferred to the separately authorized K4/K5/K7
+  Production work, together with the D3 container work. S2 changes no Compose,
+  Docker, network, or NGINX file.
+- **Local tests are not the Production topology.** S2 tests bind both
+  listeners to loopback and use a loopback address as the trusted-peer
+  placeholder. These are local fixtures only. They are not evidence about the
+  Production topology and must not be mistaken for it.
 
 - **Browser app isolation:** the browser app never mounts machine routes, and
   the machine app mounts no session, auth, CSRF, static, or Admin routes.
@@ -317,23 +347,28 @@ FAILED | OUTCOME_UNKNOWN | EXPIRED | EXPIRED_AT_CORE        (terminal)
 - **Never "Contained":** no stage, label, or combination produces a
   "Contained" state.
 - **Human review:** `OUTCOME_UNKNOWN` is labelled as requiring human review.
-- **UI change:** the dashboard's acknowledgement label changes from substring
-  matching to an explicit allowlist (`ACK_RECEIVED`, `STATUS_CORRELATED`).
-- **Labels:** i18n labels are added for each new state.
+- **UI files, only if W13 requires them:** W13 may show that the current
+  substring match mislabels a dispatch state; for example,
+  `STATUS_CORRELATED` contains no `ACK` substring. In that case the dashboard's
+  acknowledgement label changes to an explicit allowlist (`ACK_RECEIVED`,
+  `STATUS_CORRELATED`), and i18n labels are added for the new states.
 
 ### 4.9 Web configuration
 
 | Key | Default | Rule |
 |---|---|---|
 | `AEGIS_IDEA3_DISPATCH_ENABLED` | `false` | only `true` or `false`; any other value throws |
-| `AEGIS_IDEA3_DISPATCH_PORT` | — | required when enabled; a positive integer different from `PORT` |
+| `AEGIS_IDEA3_DISPATCH_PORT` | — | required when enabled; a positive integer different from `PORT`. An application/container-internal listener port, never host-published (§4.4) |
 | `AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY` | — | required when enabled; one IP literal (`net.isIP`) |
 | `AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT` | — | required when enabled; `^[a-z0-9][a-z0-9-]{0,62}$` |
 
-- **Bind host:** the existing loopback-only bind rule is unchanged, so an
-  enabled machine listener is loopback-only.
-- **Real HUB peer:** accepting a real HUB peer requires the D3
-  container/bind work, which is out of S2.
+- **Bind host in S2:** S2 does not change the bind-host rule. Both listeners
+  use the existing validated `AEGIS_BIND_HOST`, which is loopback-only; this is
+  the local and test configuration.
+- **Production bind (deferred):** serving a real HUB peer requires the IDEA3
+  listeners to bind to the container's address on the dedicated internal
+  network, not to container loopback (§4.4). Changing the bind-host rule
+  belongs to the separately authorized D3 and K4/K5/K7 work, not to S2.
 - **`.env.example`:** gains these keys empty or `false`, with comments. Real
   values are never committed.
 
@@ -522,7 +557,8 @@ authorized Kla change:
 - **Machine SNI block (K9).** It:
   - requires `ssl_verify_client on`;
   - trusts only the IDEA3 machine-client CA (K10);
-  - proxies only `/security/api/machine/v1/` to the IDEA3 **machine port**;
+  - proxies only `/security/api/machine/v1/` to the IDEA3 container-internal
+    **machine port**, over the dedicated HUB↔IDEA3 internal network (K5);
   - returns 404 for everything else;
   - overwrites `X-AEGIS-Client-Verify` with `$ssl_client_verify` and
     `X-AEGIS-Client-DN` with `$ssl_client_s_dn`;
@@ -533,6 +569,9 @@ authorized Kla change:
   - clears both identity headers.
 - **Trusted peer (K4/K5).** The IDEA3 trusted peer is the HUB's pinned
   address on the dedicated internal network; Kla supplies the final value.
+- **No new server port (D5).** HUB/NGINX stays the only external/server entry
+  point, on HTTPS 443. The IDEA3 machine port is never host-published. The
+  exact bind, address, and network wiring belong to the later K4/K5/K7 change.
 
 ## 8. Inherited K1–K12 constraints
 
@@ -541,9 +580,9 @@ authorized Kla change:
 | K1 | IDEA3 supplies the §7 contract and edits no NGINX |
 | K2 | the machine prefix `/security/api/machine/` is fixed here for the browser-block 404. The Helmet header enumeration is D3 work and out of S2 |
 | K3, K12 | S2 proceeds only because it is non-Production; the rollout stays blocked until K12 is confirmed |
-| K4 | the trusted peer is configuration; tests use a loopback placeholder |
-| K5 | the server never calls the Core; the Core pulls (compatible with `internal: true`) |
-| K6, K7, K8 | untouched by S2 |
+| K4 | the trusted peer is configuration. Tests use a loopback placeholder, which is a local fixture and not the Production topology |
+| K5 | the server never calls the Core; the Core pulls (compatible with `internal: true`). The machine listener is reachable only over the dedicated HUB↔IDEA3 internal network, with no host-published port |
+| K6, K7, K8 | untouched by S2. The machine listener's Production bind and HUB wiring are deferred to the K7 change (with K4/K5); under K8, HUB 443 stays the only machine route |
 | K9 | identity comes only from HUB-set headers from the pinned peer, and requires `SUCCESS` and the expected subject |
 | K10 | expected subject placeholder `idea3-core`; the client only loads configured paths; credential problems pause dispatch |
 | K11 | no IP allowlist in IDEA3; mTLS is primary |
@@ -594,7 +633,10 @@ authorized Kla change:
 These are proposed in this design and are confirmed or changed at G1:
 
 1. **Separate machine listener** (§4.4) rather than a path under the browser
-   app, so browser traffic cannot reach machine code.
+   app, so browser traffic cannot reach machine code. It is a
+   container-internal port, reachable only over the HUB↔IDEA3 internal
+   network. It adds no host-published port, and HUB 443 remains the only
+   entry.
 2. **Dispatch minting only when enabled;** default off, so PR9 and PR7
    behaviour is unchanged.
 3. **A `DISARMED` Core does not claim;** the action expires and is shown as
@@ -616,7 +658,8 @@ These are proposed in this design and are confirmed or changed at G1:
   - the VLAN 20 → 443 path;
   - real-source visibility;
   - edge 404 for machine-path case variants.
-- **Web hosting:** the D3 container bind and a real HUB peer.
+- **Web hosting:** the D3 container bind; the machine listener's Production
+  bind and network wiring (K4/K5/K7); a real HUB peer.
 - **Clocks:** server NTP; clock sync between the server and the Core.
 - **Credentials:** the real certificate lifecycle and CRL behaviour.
 - **Hardware:** real MQTT/ESP32 ACK and STATUS under dispatch.
