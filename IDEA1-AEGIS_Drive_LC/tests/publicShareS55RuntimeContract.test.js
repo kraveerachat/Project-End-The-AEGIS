@@ -290,15 +290,29 @@ const MOCK_DOCKER_RUNTIME = `#!/usr/bin/env bash
 set -u
 printf '%s\\n' "\$*" >> "\$MOCK_LOG"
 printf 'docker %s\\n' "\$*" >> "\$MOCK_TRACE_LOG"
+# Failure injection: one exact call fails the way an unreachable daemon does,
+# i.e. with an error that is NOT a positive "no such object" report.
+if [ -n "\${MOCK_DOCKER_FAIL_CALL:-}" ] && [ "\$*" = "\$MOCK_DOCKER_FAIL_CALL" ]; then
+  echo "Error response from daemon: dial unix /var/run/docker.sock: connect: connection refused" >&2
+  exit 1
+fi
 if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "inspect" ]; then
   file="\$MOCK_FIXTURES/net-\${3}.json"
   [ -f "\$file" ] || { echo "Error: No such network: \${3}" >&2; exit 1; }
   cat "\$file"; exit 0
 fi
+if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "rm" ]; then
+  # Like the daemon: a removed network is gone for later inspects.
+  rm -f "\$MOCK_FIXTURES/net-\${3}.json"; exit 0
+fi
 if [ "\${1:-}" = "inspect" ]; then
   file="\$MOCK_FIXTURES/ctr-\${2}.json"
   [ -f "\$file" ] || { echo "Error: No such object: \${2}" >&2; exit 1; }
   cat "\$file"; exit 0
+fi
+if [ "\${1:-}" = "rm" ]; then
+  # Like the daemon: a removed container is gone for later inspects.
+  rm -f "\$MOCK_FIXTURES/ctr-\${2}.json"; exit 0
 fi
 if [ "\${1:-}" = "compose" ]; then exit 0; fi
 exit 0
@@ -456,6 +470,7 @@ function runtimeHarness(options = {}) {
     MOCK_STAT_FILE: statFile,
     MOCK_SYSTEMCTL_LOG: systemctlLog,
     MOCK_SYSTEMCTL_FAIL_CALL: options.systemctlFailCall ?? '',
+    MOCK_DOCKER_FAIL_CALL: options.dockerFailCall ?? '',
     MOCK_RC: String(options.firewallRc ?? 0),
     MOCK_SYSTEMCTL_RC: String(options.systemctlRc ?? 0),
     AEGIS_DOCKER_BIN: dockerBin,
@@ -893,25 +908,161 @@ test('S5.5-ROLLBACK-ORDER reverses the lifecycle narrowly', () => {
   } finally { h.cleanup() }
 })
 
-test('S5.5-ROLLBACK-FIREWALL-LIFECYCLE fails closed on stop or disable failure', () => {
-  for (const action of ['stop', 'disable']) {
+test('S5.5-ROLLBACK-LIFECYCLE fails closed when any task-owned systemd lifecycle call fails', () => {
+  // Every task-owned activation S5.5 installed must be provably removed or the
+  // rollback must refuse to report completion: a swallowed disable leaves the
+  // unit enabled, and a later boot brings the S5.5 lifecycle back through the
+  // connector -> firewall unit dependency even though rollback said COMPLETE.
+  //
+  // For each call: the failure must abort with a nonzero exit, never print
+  // COMPLETE, and never progress into the destructive stages that follow it.
+  const lifecycle = [
+    // [failing systemctl call, stages that must NOT have run afterwards]
+    ['stop aegis-public-share-drift.timer', ['container', 'firewallPolicy', 'egress']],
+    ['disable aegis-public-share-drift.timer', ['container', 'firewallPolicy', 'egress']],
+    ['stop aegis-public-share-drift.service', ['container', 'firewallPolicy', 'egress']],
+    ['stop aegis-public-share-connector.service', ['container', 'firewallPolicy', 'egress']],
+    ['disable aegis-public-share-connector.service', ['container', 'firewallPolicy', 'egress']],
+    ['stop aegis-public-share-s5-5-firewall.service', ['firewallPolicy', 'egress']],
+    ['disable aegis-public-share-s5-5-firewall.service', ['firewallPolicy', 'egress']],
+  ]
+  const stageEvidence = {
+    container: [/docker rm aegis-prod-public-share-connector-1/, 'the connector container must not be removed'],
+    firewallPolicy: [/firewall\.sh remove|(^|\n)remove(\n|$)/, 'the firewall policy must not be removed'],
+    egress: [/network rm aegis_public_share_egress/, 'the egress network must not be removed'],
+  }
+  // Collect every swallowed failure so one run reports the full set.
+  const swallowed = []
+  for (const [failingCall, blockedStages] of lifecycle) {
     const h = runtimeHarness({
       egressContainers: {},
       connectorNetworks: {
         aegis_public_share_edge: '172.31.240.3',
         aegis_public_share_egress: '172.31.242.2',
       },
-      systemctlFailCall: `${action} aegis-public-share-s5-5-firewall.service`,
+      systemctlFailCall: failingCall,
     })
     try {
       const result = h.runRollback()
-      assert.notEqual(result.status, 0, `rollback must fail closed when firewall ${action} fails`)
-      assert.doesNotMatch(result.stdout, /S5\.5-ROLLBACK=COMPLETE/,
-        'an incomplete firewall lifecycle rollback must never report completion')
-      assert.doesNotMatch(h.mockLog(), /network rm aegis_public_share_egress/,
-        'rollback must not remove the egress network after firewall lifecycle failure')
+      if (result.status === 0 || /S5\.5-ROLLBACK=COMPLETE/.test(result.stdout)) {
+        swallowed.push(`systemctl ${failingCall} -> exit ${result.status}, last stdout line: ${result.stdout.trim().split('\n').pop()}`)
+        continue
+      }
+      assert.match(result.stderr, /S5\.5-ROLLBACK=FAIL/, `"systemctl ${failingCall}" failure must be reported`)
+      assert.match(result.stderr, new RegExp(failingCall.split(' ')[1].replace(/\./g, '\\.')),
+        `the failure report must name the unit for "systemctl ${failingCall}"`)
+      const evidence = h.traceCalls() + '\n' + h.mockLog()
+      for (const stage of blockedStages) {
+        const [pattern, why] = stageEvidence[stage]
+        assert.doesNotMatch(evidence, pattern, `after "systemctl ${failingCall}" failed, ${why}`)
+      }
     } finally { h.cleanup() }
   }
+  assert.deepEqual(swallowed, [],
+    'these task-owned lifecycle failures were swallowed while rollback reported success')
+})
+
+test('S5.5-ROLLBACK-LIFECYCLE issues all seven task-owned lifecycle calls and completes when systemd reports success', () => {
+  // systemctl stop/disable on an installed unit that is already inactive or
+  // disabled exits 0, which is what the stateless mock models; fail-closed
+  // handling must not turn that success into a refusal, and every task-owned
+  // activation must be addressed by name.
+  const h = runtimeHarness({
+    egressContainers: {},
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+  })
+  try {
+    const first = h.runRollback()
+    assert.equal(first.status, 0, `first rollback must complete: ${first.stderr}`)
+    assert.match(first.stdout, /S5\.5-ROLLBACK=COMPLETE/)
+    const calls = h.systemctlCalls()
+    for (const call of [
+      'stop aegis-public-share-drift.timer', 'disable aegis-public-share-drift.timer',
+      'stop aegis-public-share-drift.service',
+      'stop aegis-public-share-connector.service', 'disable aegis-public-share-connector.service',
+      'stop aegis-public-share-s5-5-firewall.service', 'disable aegis-public-share-s5-5-firewall.service',
+    ]) {
+      assert.ok(calls.split('\n').includes(call), `rollback must issue "systemctl ${call}"`)
+    }
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-CONTAINER-REMOVAL fails closed when the connector container is not proven removed', () => {
+  // docker stop succeeding but docker rm failing leaves an EXITED container,
+  // which every later gate treats as a safe state: the firewall remove accepts
+  // an exited connector, the egress network counts only live endpoints, and the
+  // rollback would print COMPLETE with task-owned S5.5 state still on the host.
+  const h = runtimeHarness({
+    egressContainers: {},
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+    dockerFailCall: 'rm aegis-prod-public-share-connector-1',
+  })
+  try {
+    const result = h.runRollback()
+    assert.notEqual(result.status, 0, 'rollback must fail closed when the connector container survives docker rm')
+    assert.doesNotMatch(result.stdout, /S5\.5-ROLLBACK=COMPLETE/, 'an unremoved connector must never report completion')
+    assert.match(result.stderr, /S5\.5-ROLLBACK=FAIL:.*aegis-prod-public-share-connector-1/,
+      'the failure must name the container that is still present')
+    const evidence = h.traceCalls() + '\n' + h.mockLog()
+    assert.doesNotMatch(evidence, /systemctl (stop|disable) aegis-public-share-s5-5-firewall\.service/,
+      'the firewall lifecycle must not be torn down while the connector object still exists')
+    assert.doesNotMatch(evidence, /(^|\n)remove(\n|$)/, 'the firewall policy must not be removed')
+    assert.doesNotMatch(evidence, /network rm aegis_public_share_egress/, 'the egress network must not be removed')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-INSPECT-ERRORS treat only a positive "no such object" as absence', () => {
+  // A daemon error while probing the container or the egress network is not
+  // proof that the object is gone. Reading it as "already absent" would let the
+  // rollback skip removal and still report COMPLETE.
+  const cases = {
+    'connector inspect daemon error': {
+      dockerFailCall: 'inspect aegis-prod-public-share-connector-1',
+      blocked: [/systemctl (stop|disable) aegis-public-share-s5-5-firewall\.service/, /(^|\n)remove(\n|$)/, /network rm aegis_public_share_egress/],
+    },
+    'egress network inspect daemon error': {
+      dockerFailCall: 'network inspect aegis_public_share_egress',
+      blocked: [/network rm aegis_public_share_egress/],
+    },
+  }
+  for (const [label, { dockerFailCall, blocked }] of Object.entries(cases)) {
+    const h = runtimeHarness({
+      egressContainers: {},
+      connectorNetworks: {
+        aegis_public_share_edge: '172.31.240.3',
+        aegis_public_share_egress: '172.31.242.2',
+      },
+      dockerFailCall,
+    })
+    try {
+      const result = h.runRollback()
+      assert.notEqual(result.status, 0, `${label}: rollback must fail closed`)
+      assert.doesNotMatch(result.stdout, /S5\.5-ROLLBACK=COMPLETE/, `${label}: must never report completion`)
+      assert.match(result.stderr, /S5\.5-ROLLBACK=FAIL/, `${label}: must report the failure`)
+      assert.doesNotMatch(result.stdout, /already absent/, `${label}: a daemon error must not be reported as absence`)
+      const evidence = h.traceCalls() + '\n' + h.mockLog()
+      for (const pattern of blocked) {
+        assert.doesNotMatch(evidence, pattern, `${label}: later destructive stage ${pattern} must not run`)
+      }
+    } finally { h.cleanup() }
+  }
+
+  // Positive absence is still the expected idempotent path: no container fixture
+  // and no egress fixture => "already absent" and COMPLETE.
+  const hAbsent = runtimeHarness({ egress: false })
+  try {
+    const result = hAbsent.runRollback()
+    assert.equal(result.status, 0, `positively absent objects must not block rollback: ${result.stderr}`)
+    assert.match(result.stdout, /connector container .* is already absent/)
+    assert.match(result.stdout, /network aegis_public_share_egress is already absent/)
+    assert.match(result.stdout, /S5\.5-ROLLBACK=COMPLETE/)
+  } finally { hAbsent.cleanup() }
 })
 
 test('S5.5-ROLLBACK-EGRESS-ENDPOINTS refuses to remove a network still in use', () => {

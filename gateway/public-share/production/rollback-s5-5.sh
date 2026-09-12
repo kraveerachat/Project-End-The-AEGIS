@@ -39,23 +39,49 @@ die() { echo "S5.5-ROLLBACK=FAIL: $*" >&2; exit 1; }
 # never be "handled" by reaching for a broader cleanup.
 quietly() { "$@" >/dev/null 2>&1 || true; }
 
+# Task-owned systemd activation is different: it must be PROVABLY removed or a
+# later boot re-creates the S5.5 lifecycle through the unit dependencies while
+# this rollback has already claimed COMPLETE. systemd treats stop/disable of an
+# installed unit that is already inactive/disabled as success, so idempotence
+# is preserved; any other failure aborts before the next stage.
+required_systemctl() {
+  "$SYSTEMCTL" "$1" "$2" >/dev/null 2>&1 || die "failed to $1 $2"
+}
+
 # --- 1 + 2: lifecycle -------------------------------------------------------
 
 stop_lifecycle() {
   note 'stopping the drift timer before anything else'
-  quietly "$SYSTEMCTL" stop "$DRIFT_TIMER"
-  quietly "$SYSTEMCTL" disable "$DRIFT_TIMER"
-  quietly "$SYSTEMCTL" stop "$DRIFT_SERVICE"
+  required_systemctl stop "$DRIFT_TIMER"
+  required_systemctl disable "$DRIFT_TIMER"
+  required_systemctl stop "$DRIFT_SERVICE"
 
   note 'stopping the connector service'
-  quietly "$SYSTEMCTL" stop "$CONNECTOR_SERVICE"
-  quietly "$SYSTEMCTL" disable "$CONNECTOR_SERVICE"
+  required_systemctl stop "$CONNECTOR_SERVICE"
+  required_systemctl disable "$CONNECTOR_SERVICE"
 }
 
 # --- 3: connector container only --------------------------------------------
 
+# Docker is asked whether an object exists; only its positive "no such ..."
+# answer counts as absence. Any other failure (daemon unreachable, permission,
+# timeout) is unknown state and must fail closed rather than read as "gone".
+#   returns 0 -> object exists, 1 -> positively absent, dies otherwise
+object_exists() {
+  local err
+  if err="$("$DOCKER" "$@" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+  case "$err" in
+    # docker inspect: "Error: No such object: X"; docker network inspect (daemon
+    # form): "Error response from daemon: network X not found".
+    *"No such object"*|*"No such container"*|*"No such network"*|*"network "*" not found"*) return 1 ;;
+  esac
+  die "cannot inspect $* : ${err:-unknown docker error}"
+}
+
 remove_connector_container() {
-  if ! "$DOCKER" inspect "$CONNECTOR_CONTAINER" >/dev/null 2>&1; then
+  if ! object_exists inspect "$CONNECTOR_CONTAINER"; then
     note "connector container ${CONNECTOR_CONTAINER} is already absent"
     return 0
   fi
@@ -63,6 +89,13 @@ remove_connector_container() {
   quietly "$DOCKER" stop "$CONNECTOR_CONTAINER"
   # No -v: S5.5 owns no volume, and none may be destroyed here.
   quietly "$DOCKER" rm "$CONNECTOR_CONTAINER"
+  # Removal must be PROVEN: a stopped-but-present connector passes every later
+  # gate (the firewall remove accepts an exited connector and the egress network
+  # counts only live endpoints), so without this check rollback could report
+  # COMPLETE with task-owned S5.5 state still on the host.
+  if object_exists inspect "$CONNECTOR_CONTAINER"; then
+    die "connector container ${CONNECTOR_CONTAINER} still exists after removal"
+  fi
 }
 
 # --- 4: firewall lifecycle ---------------------------------------------------
@@ -71,10 +104,8 @@ stop_firewall_lifecycle() {
   note 'stopping the task-owned S5.5 firewall service'
   # systemd treats an already inactive/disabled installed unit as success.
   # Any other failure must block completion or S5.5 could return after reboot.
-  "$SYSTEMCTL" stop "$FIREWALL_SERVICE" >/dev/null 2>&1 \
-    || die "failed to stop ${FIREWALL_SERVICE}"
-  "$SYSTEMCTL" disable "$FIREWALL_SERVICE" >/dev/null 2>&1 \
-    || die "failed to disable ${FIREWALL_SERVICE}"
+  required_systemctl stop "$FIREWALL_SERVICE"
+  required_systemctl disable "$FIREWALL_SERVICE"
 }
 
 # --- 5: firewall policy ------------------------------------------------------
@@ -97,10 +128,12 @@ egress_endpoint_count() {
 
 remove_egress_network() {
   local json count
-  if ! json="$("$DOCKER" network inspect "$EGRESS_NETWORK" 2>/dev/null)" || [ -z "$json" ]; then
+  if ! object_exists network inspect "$EGRESS_NETWORK"; then
     note "network ${EGRESS_NETWORK} is already absent"
     return 0
   fi
+  json="$("$DOCKER" network inspect "$EGRESS_NETWORK" 2>/dev/null)" && [ -n "$json" ] \
+    || die "cannot read ${EGRESS_NETWORK} after it was found present"
   count="$(egress_endpoint_count "$json")"
   [ -n "$count" ] || die "could not determine ${EGRESS_NETWORK} endpoint count"
   if [ "$count" != '0' ]; then
