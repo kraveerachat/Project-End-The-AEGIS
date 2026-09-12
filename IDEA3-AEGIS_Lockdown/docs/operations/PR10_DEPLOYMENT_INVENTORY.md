@@ -14,7 +14,8 @@ HARDWARE_TESTING      = NOT RUN
 SERVER_ACCESS         = initial S1 attempt: ACCESS_NOT_AVAILABLE; 2026-09-12: AVAILABLE for read-only inventory (§2A)
 LIVE_SERVER_INVENTORY = PASS (2026-09-12, read-only) — see §2A
 ARCHITECTURE_DECISIONS = D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12) — see §14; not implemented
-S1_STATE              = IN PROGRESS (remaining gates in §15)
+S1_STATE              = IN PROGRESS (remaining gate in §15)
+KLA_REVIEW_PACKAGE    = K1–K12 ACCEPTED FOR OWNER REVIEW; KLA APPROVAL PENDING — see §15A
 READY_FOR_PR10_S2     = NO
 S2_STARTED            = NO
 PRODUCTION_DEPLOYED   = NO
@@ -540,6 +541,12 @@ the D3/D5 shared infrastructure.** It covers:
 After Kla decides, the decision is formally reconciled into the S1
 architecture gate.
 
+The decision set is prepared as the **K1–K12 review package** (§15A). On
+2026-09-12 the owner accepted every K-decision for owner review.
+**Kla's integration approval is still pending, and it remains the S1 gate.**
+These decisions authorize no Production change, and the PR10 Production
+rollout stays blocked.
+
 Implementation conditions carried by the decisions, for later sessions rather
 than S1 gates:
 
@@ -552,12 +559,61 @@ than S1 gates:
 ```text
 D1_D8 = DECIDED / OWNER-ACCEPTED
 LIVE_SERVER_INVENTORY = PASS
+KLA_DECISIONS_K1_K12 = ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING
 S1 = IN PROGRESS
 READY_FOR_PR10_S2 = NO
 S2_STARTED = NO
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
+
+## 15A. Kla / integration-owner review package K1–K12
+
+```text
+KLA_DECISIONS_K1_K12 = ACCEPTED FOR OWNER REVIEW (2026-09-12) / KLA APPROVAL PENDING
+PRODUCTION_CHANGE_AUTHORIZED = NONE
+PR10_PRODUCTION_ROLLOUT = BLOCKED
+LIVE_SERVER_INVENTORY = PASS
+S1 = IN PROGRESS (Kla integration approval is the S1 gate)
+READY_FOR_PR10_S2 = NO
+S2_STARTED = NO
+```
+
+This package covers the D3/D5 shared infrastructure. On 2026-09-12 the
+owner accepted the recommended direction of every K-decision **for owner
+review**.
+
+- **No K-decision is Kla-approved yet.** Kla's integration approval is still
+  required.
+- **No Production change is authorized.** Every item is architecture only: no
+  NGINX, Compose, network, firewall, certificate, router, or DNS change has
+  been made.
+- **Owner-accepted decisions are unchanged.** D1–D8 (§14) are not reopened.
+- **Evidence labels** follow §2A.
+- **Public safety:** addresses and names below are placeholders or
+  descriptions. The final values belong in Kla's infrastructure records.
+
+| ID | Subject | Accepted direction (for owner review) | Key implementation conditions | Material NOT PROVEN | Status |
+|---|---|---|---|---|---|
+| **K1** | Ownership of the shared HUB NGINX configuration | **Kla is the single editor and integration owner** of the HUB NGINX configuration in Git and Production. The existing Git↔runtime drift is reconciled first; after that, Git is the source of truth. `/security/` is added only on that baseline. IDEA3 supplies the route contract, the CSP/security policy, and the tests, and never edits the shared HUB runtime itself | the drift reconciliation comes first; the change is a Kla-reviewed infrastructure change | — | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K2** | The `/security/` location contract | `/security` redirects to `/security/`. `/security/` proxies to the IDEA3 container over the full path with no prefix rewrite, and IDEA3 has no direct public host port. HUB NGINX owns the browser-facing security headers and CSP, using the single-hop proxy-header contract with the original `Host` preserved for IDEA3's CSRF Origin check. `Cache-Control: no-store` may pass through from IDEA3. The D5 machine sub-path returns **404** on the browser block. Routing tests and CSP/header-parity tests are added | **before claiming single header ownership, enumerate every security-related response header IDEA3/Helmet actually emits, and have the edge suppress or intentionally own each one** (do not assume a fixed list) | UI compatibility with the strict HUB CSP (especially `style-src` without `'unsafe-inline'`); runtime routing; session-cookie and CSRF Origin behaviour through the HUB; refusal of every machine-path case variant | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K3** | Sequencing relative to PR #118 / S5.5 | S5.5 reaches a stable, validated state, or is formally rolled back, **before** the PR10 D3/D5 Production rollout. The PR10 rollout is a separate Kla-reviewed change, never in the same maintenance window as any S5.5 step. Each change keeps an independent rollback. PR10 work that doesn't touch Production (source, tests, S2 design once S1 closes) may continue in parallel | the pending host reboot is scheduled outside both windows; K12 confirmation comes before the PR10 rollout | S5.5's final state and timeline; S5.5 chain persistence across reboot; that S5.5's planned bridge table leaves an IDEA3 bridge untouched | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K4** | The IDEA3 Docker subnet | Allocate the candidate `/29` that did not overlap the observed live subnets and sits next to the S5.x public-share allocations. Host order: gateway `.1`, HUB `.2` (pinned trusted proxy), IDEA3 Web `.3`, `.4`–`.6` reserved. It is recorded in the infrastructure address plan through Kla's change, and IDEA3 trusts exactly the HUB's pinned address | Kla allocates the final value; re-check it immediately before the network is created | collisions with networks Kla plans but hasn't recorded; still free at rollout | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K5** | Dedicated IDEA3 network ownership and membership | `internal: true`, not attachable, **only the HUB and IDEA3 Web** as members. IDEA3 Web joins no other network (not the shared application bridge, the HUB↔Drive proxy network, the VLAN macvlan, or any S5.x network). It is defined in an IDEA3 production Compose overlay. Music owns the IDEA3 service; Kla owns the network, its address plan, and the HUB's membership. Any later cross-network need is a new reviewed decision | isolation is by membership, because same-bridge traffic isn't filtered by iptables on this host (PR #118 repository evidence) | IDEA3 Web's future outbound needs (`internal: true` blocks them); S5.5 bridge-table interaction; runtime behaviour | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K6** | Server firewall rules around the S5.5 anchors | PR10 adds **no** server host firewall or UFW rules (none in `INPUT`, `FORWARD`, `DOCKER-USER`, or nftables). It never modifies, reorders, or flushes S5.5's chains, anchors, or planned bridge table. Any future IDEA3 need is a separate Kla-owned change in its own chain, appended after the S5.5 anchors, with its own validation and rollback, and must not trip S5.5's drift checks | — | S5.5's future bridge table and drift checks versus the IDEA3 bridge and HUB 443; chain persistence (K12); the VLAN 20 → 443 path (K8) | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K7** | How the HUB joins the IDEA3 network | A **managed Compose recreate**: the network is added to the HUB in a reviewed overlay, and the canonical Compose file order is updated to include that overlay. Validate the rendered model first. Start IDEA3 Web first, then recreate only the HUB, in an announced Kla-run window separate from S5.5 and the reboot. Verify afterwards: HUB health and networks, `/drive/`, `/monitor/`, `/monitor/internal` 404, `/security` redirect and proxy, machine-path 404 on the browser block. Rollback returns to the previous file list and recreates only the HUB. Runtime attach is for emergencies only | every task's `up` must use the same canonical file list | recreate duration and user impact; a clean HUB return on three networks with its bind mounts; the exact overlay syntax until K1; operator procedures using the new list | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K8** | The Core → HUB HTTPS 443 machine route | HUB 443 is the **only** machine route, with no new server port. Kla confirms the router allows VLAN 20 → server:443. The machine route is served on its own block (K9). The path runs from the Core (VLAN 20) through the router's inter-VLAN routing and the server's relayed uplink to Docker's 443 translation and the HUB. It is unavailable during a CUT, as designed, and D7 and D4 cover that | implementation-time acceptance test from VLAN 20: TLS handshake succeeds, a valid Core certificate is accepted, a missing or wrong one is rejected, browsers get 404 on the machine path | VLAN 20 → 443 reachability; the router rule; latency and reliability; real-source visibility (K11) | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K9** | Server name and mTLS enforcement | A **separate SNI server block** for the machine route with `ssl_verify_client on`. It uses a Kla-chosen internal machine name (placeholder `<idea3-core>.aegis.internal`) with its own server certificate from the internal CA. The browser block stays `server_name _` as `default_server`. The machine block proxies only the D5 path; everything else returns 404. NGINX sets the verified-identity headers itself, overwriting client copies. IDEA3 accepts them only from the HUB's pinned address and requires `SUCCESS` | the Core resolves the machine name via a hosts entry on the Core host (Music) or router DNS (Kla) | name resolution from the Core; coexistence with the `default_server` block; the machine server certificate (not issued); PKI directory contents (not inspected) | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K10** | The machine-client CA and its lifecycle | A **dedicated IDEA3 machine-client CA** that issues only `clientAuth` certificates (path length 0), separate from the browser server CA and the D2 MQTT CA. The HUB's machine block trusts only this CA. **Kla holds the CA key offline, not on the AEGIS Server.** The Core generates its own key and CSR, and the key never leaves the Core. Kla signs a certificate valid about 90 days, renewed around day 60 with a brief overlap | expiry is monitored, and it only pauses dispatch, never causing a CUT; revocation uses a Kla-maintained local CRL loaded by the HUB (`ssl_crl`), IDEA3's expected-subject check, and short lifetimes | existing PKI contents; final lifetime and rotation steps; the HUB's CRL reload behaviour; expiry monitoring (not built) | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K11** | Source-IP allowlisting | **mTLS is mandatory and primary.** Source allowlisting is optional defence-in-depth only, and never blocks S1 or S2 readiness. It is enabled only when all of these hold: the Core has its fixed VLAN 20 address (D6); a Core-host test shows the HUB's machine-block log recording that address, not the Docker gateway; the result holds after a HUB recreate; the evidence is recorded first. It lives only in NGINX's machine block (`allow <core>/32; deny all;`), never in the host firewall. If the real source isn't preserved: no HUB allowlist, **never allowlist the Docker gateway address**, rely on mTLS on the separate block, and optionally a Kla router rule permitting only VLAN 20 → server:443 | — | real-source preservation on the VLAN 20 → 443 path; whether a router rule is wanted; allowlist behaviour | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| **K12** | Intent and persistence of the partial S5.5 state (owners: Kla + IDEA1) | Kla and IDEA1 confirm in writing whether the partial live S5.5 state is intended, and whether the `AEGIS-PS-*` chains survive a host reboot (no S5.5 systemd unit was observed, so the boot-time re-apply mechanism is unknown). Both answers are recorded before any PR10 Production rollout. The pending reboot is scheduled outside the S5.5 and PR10 windows, with the chains re-checked afterwards. PR10 work that doesn't touch Production may continue | S5.5 truth: egress network present, `AEGIS-PS-*` chains present and anchored, connector not running, no S5.5 runtime file or systemd unit observed; neither fully deployed nor fully absent | that the partial state is intended; chain persistence across reboot; S5.5's final state and timeline; the effect of pending updates | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+
+**After Kla approves:** the approval is reconciled into §15 and into the
+`idea3/idea3-status.md` S1 row, with evidence and a checkpoint. S2 readiness
+additionally requires the owner's approval of the continuation model (S2 runs
+in a new, explicitly named task/PR). Implementation-time checks, such as the
+VLAN 20 → 443 path, source-address visibility, and Pub's approval for IDEA2
+co-residence (D6), do not gate S1.
 
 ## 16. Commands executed (all read-only)
 

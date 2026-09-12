@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). S1 remains IN PROGRESS until the Kla/integration-owner decision for the D3/D5 shared infrastructure is made and reconciled. `READY_FOR_PR10_S2 = NO`, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The K1–K12 Kla review package for the D3/D5 shared infrastructure has been accepted for owner review; Kla's integration approval is pending and remains the S1 gate. S1 remains IN PROGRESS, `READY_FOR_PR10_S2 = NO`, no Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -207,7 +207,8 @@ PR120                     = MERGED (93170862cbf5b5a802042d12c84944abd39d9123) �
 PR10_STATE                = IN PROGRESS
 D1_D8                     = DECIDED / OWNER-ACCEPTED (2026-09-12) — architecture only, not implemented
 LIVE_SERVER_INVENTORY     = PASS (2026-09-12, read-only)
-S1                        = IN PROGRESS — Kla/integration decision and reconciliation for D3/D5 shared infrastructure pending (not PASS, not CLOSED)
+KLA_DECISIONS_K1_K12      = ACCEPTED FOR OWNER REVIEW (2026-09-12) / KLA APPROVAL PENDING
+S1                        = IN PROGRESS — Kla integration approval of K1–K12 and its reconciliation pending (not PASS, not CLOSED)
 READY_FOR_PR10_S2         = NO
 S2_STARTED                = NO
 PRODUCTION_DEPLOYED       = NO
@@ -318,11 +319,16 @@ infrastructure. That includes `/security/` ownership in the runtime and Git
 HUB configurations, the HUB↔IDEA3 network and subnet, mTLS placement and CA
 ownership, and sequencing relative to PR #118 / S5.5.
 
+That decision set is prepared as the K1–K12 review package (see "PR10 S1 Kla
+review package K1–K12" below). It has been accepted for owner review; Kla's
+integration approval is pending.
+
 Until it closes:
 
 ```text
 D1_D8 = DECIDED / OWNER-ACCEPTED
 LIVE_SERVER_INVENTORY = PASS
+KLA_DECISIONS_K1_K12 = ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING
 S1 = IN PROGRESS
 READY_FOR_PR10_S2 = NO
 S2_STARTED = NO
@@ -368,11 +374,38 @@ the owner. Nothing was changed on the server, and no hardware was touched.
 
 `PRODUCTION_MUTATION = NONE`; `HARDWARE_TESTING = NOT RUN`.
 
+### PR10 S1 Kla review package K1–K12 — ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING
+
+On 2026-09-12 the owner accepted the recommended direction of every K-decision
+for the D3/D5 shared infrastructure **for owner review**. **None is
+Kla-approved yet**; Kla's integration approval remains the S1 gate.
+
+- These decisions authorize **no Production change**, and the PR10 Production
+  rollout stays **blocked**.
+- `LIVE_SERVER_INVENTORY = PASS`.
+- The full package, with implementation conditions and NOT PROVEN items, is
+  §15A of `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`.
+
+| K | Subject | Accepted direction (summary) | Status |
+|---|---|---|---|
+| K1 | HUB NGINX ownership | Kla is the single editor in Git and Production; reconcile the Git↔runtime drift first; `/security/` only after that baseline; IDEA3 supplies the contract, policy, and tests | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K2 | `/security/` contract | Redirect, full-path proxy, no host port; NGINX owns the headers and CSP; single-hop headers with `Host` preserved; machine path 404 on the browser block; parity tests; enumerate every Helmet header first | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K3 | Sequencing with PR #118 / S5.5 | S5.5 stable or rolled back first; separate windows and rollbacks; non-Production work continues | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K4 | IDEA3 subnet | The non-colliding candidate `/29`: HUB `.2` pinned, IDEA3 Web `.3`; Kla allocates and records it | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K5 | IDEA3 network | `internal: true`, not attachable, HUB and IDEA3 Web only; Music owns the service; Kla owns the network and the HUB's membership | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K6 | Server firewall | PR10 adds no server firewall or UFW rules; never touches the S5.5 chains; any future rule is a separate Kla change after the S5.5 anchors | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K7 | HUB network join | Managed Compose recreate of the HUB only; canonical file order updated; validated, announced window; rollback to the previous list | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K8 | Machine route | HUB 443 only; router allows VLAN 20 → 443; acceptance test from VLAN 20 | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K9 | mTLS server name | Separate SNI block with a required client certificate; browser block stays `default_server`; verified identity headers only from the HUB | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K10 | Machine-client CA | Dedicated `clientAuth` CA; Kla holds the key offline; Core key stays on the Core; ~90-day certificates; local CRL plus subject check | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K11 | Source allowlisting | mTLS primary; allowlist optional and only once real source is proven; never the Docker gateway address | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+| K12 | Partial S5.5 state (Kla + IDEA1) | Confirm the intent and reboot persistence in writing before any PR10 rollout; reboot outside both windows | ACCEPTED FOR OWNER REVIEW / KLA APPROVAL PENDING |
+
 ### PR10 Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | MERGED DOCUMENTATION CHECKPOINT (PR #120, `93170862`); D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12); LIVE SERVER INVENTORY PASS (2026-09-12, read-only); `READY_FOR_PR10_S2 = NO` | Kla/integration decision and reconciliation for the D3/D5 shared infrastructure: `/security/` ownership and runtime↔Git HUB drift, HUB↔IDEA3 network and subnet, mTLS placement and CA ownership, and sequencing with PR #118 / S5.5 | S2 in a new explicitly named task/PR after the S1 gates close and the owner approves the continuation model (see workflow exception) |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | IN PROGRESS | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`; `git diff --check`; vault validation | `8250d6942eea0a50266039fad5389adf15a9fb93` | MERGED DOCUMENTATION CHECKPOINT (PR #120, `93170862`); D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12); LIVE SERVER INVENTORY PASS (2026-09-12, read-only); K1–K12 ACCEPTED FOR OWNER REVIEW (2026-09-12), KLA APPROVAL PENDING; `READY_FOR_PR10_S2 = NO` | Kla integration approval of the K1–K12 package for the D3/D5 shared infrastructure, then its formal reconciliation into the S1 gate | S2 in a new explicitly named task/PR after the S1 gates close and the owner approves the continuation model (see workflow exception) |
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
