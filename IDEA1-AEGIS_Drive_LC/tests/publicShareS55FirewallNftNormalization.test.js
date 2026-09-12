@@ -108,8 +108,8 @@ exit 2
           family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 2,
           comment: 'AEGIS-S55 edge connector-to-gateway-http',
           expr: [
-            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'ibrname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'obrname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.2' } },
             { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'dport' } }, right: 8080 } },
@@ -123,8 +123,8 @@ exit 2
           family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 3,
           comment: 'AEGIS-S55 edge gateway-http-return',
           expr: [
-            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'ibrname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'obrname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.2' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
             { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'sport' } }, right: 8080 } },
@@ -138,7 +138,7 @@ exit 2
           family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 4,
           comment: 'AEGIS-S55 edge connector-source-deny',
           expr: [
-            { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'ibrname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
             { counter: { packets: 0, bytes: 0 } },
             { drop: null },
@@ -150,7 +150,7 @@ exit 2
           family: 'bridge', table: 'aegis_s55_edge', chain: 'forward', handle: 5,
           comment: 'AEGIS-S55 edge connector-destination-deny',
           expr: [
-            { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
+            { match: { op: '==', left: { meta: { key: 'obrname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
             { counter: { packets: 0, bytes: 0 } },
             { drop: null },

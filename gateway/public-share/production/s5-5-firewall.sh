@@ -368,19 +368,23 @@ bridge_candidate() {
   if bridge_table_exists; then
     echo "delete table ${BRIDGE_FAMILY} ${BRIDGE_TABLE}"
   fi
+  # In the bridge forward hook a frame's iifname/oifname are the veth bridge
+  # PORTS it enters and leaves on. The policy binds to the Docker bridge MASTER,
+  # so the bridge-master selectors ibrname/obrname are required; iifname/oifname
+  # keyed on the master name never match a forwarded frame.
   cat <<NFT
 table ${BRIDGE_FAMILY} ${BRIDGE_TABLE} {
   comment "${BRIDGE_OWNER}"
   chain ${BRIDGE_CHAIN} {
     type filter hook forward priority 0; policy accept;
 
-    iifname "${edge_bridge}" oifname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 ip daddr 172.31.240.2 tcp dport 8080 counter accept comment "AEGIS-S55 edge connector-to-gateway-http"
+    ibrname "${edge_bridge}" obrname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 ip daddr 172.31.240.2 tcp dport 8080 counter accept comment "AEGIS-S55 edge connector-to-gateway-http"
 
-    iifname "${edge_bridge}" oifname "${edge_bridge}" ether type ip ip saddr 172.31.240.2 ip daddr 172.31.240.3 tcp sport 8080 counter accept comment "AEGIS-S55 edge gateway-http-return"
+    ibrname "${edge_bridge}" obrname "${edge_bridge}" ether type ip ip saddr 172.31.240.2 ip daddr 172.31.240.3 tcp sport 8080 counter accept comment "AEGIS-S55 edge gateway-http-return"
 
-    iifname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-source-deny"
+    ibrname "${edge_bridge}" ether type ip ip saddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-source-deny"
 
-    oifname "${edge_bridge}" ether type ip ip daddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-destination-deny"
+    obrname "${edge_bridge}" ether type ip ip daddr 172.31.240.3 counter drop comment "AEGIS-S55 edge connector-destination-deny"
   }
 }
 NFT
@@ -471,12 +475,14 @@ bridge_validate() {
     }
 
     function parseExpr(exprs) {
-      const res = { iifname: null, oifname: null, etherType: null, saddr: null, daddr: null, dport: null, sport: null, action: null }
+      const res = { ibrname: null, obrname: null, iifname: null, oifname: null, etherType: null, saddr: null, daddr: null, dport: null, sport: null, action: null }
       for (const e of (exprs || [])) {
         if (e.accept !== undefined) res.action = "accept"
         if (e.drop !== undefined) res.action = "drop"
         if (e.match) {
           const { left, right } = e.match
+          if (left?.meta?.key === "ibrname") res.ibrname = right
+          if (left?.meta?.key === "obrname") res.obrname = right
           if (left?.meta?.key === "iifname") res.iifname = right
           if (left?.meta?.key === "oifname") res.oifname = right
           if (left?.payload?.protocol === "ether" && left?.payload?.field === "type") res.etherType = right
@@ -491,10 +497,20 @@ bridge_validate() {
       }
       return res
     }
+    // The canonical policy binds bridge MASTERS only. A bridge-PORT selector on
+    // any rule - alone (the pre-correction shape that matched nothing) or mixed
+    // with a master selector - is an ambiguous representation and is drift.
+    for (let i = 0; i < rules.length; i++) {
+      const p = parseExpr(rules[i].expr)
+      if (p.iifname !== null || p.oifname !== null) {
+        console.error("rule " + i + " drifted: bridge-port selector iifname/oifname is not the bridge-master policy: " + JSON.stringify(rules[i]))
+        process.exit(1)
+      }
+    }
 
     const r0 = parseExpr(rules[0].expr)
     if (rules[0].comment !== "AEGIS-S55 edge connector-to-gateway-http" ||
-        r0.action !== "accept" || r0.iifname !== edgeBridge || r0.oifname !== edgeBridge ||
+        r0.action !== "accept" || r0.ibrname !== edgeBridge || r0.obrname !== edgeBridge ||
         r0.etherType !== "ip" || r0.saddr !== "172.31.240.3" || r0.daddr !== "172.31.240.2" ||
         r0.dport !== 8080) {
       console.error("rule 0 drifted: " + JSON.stringify(rules[0]))
@@ -503,7 +519,7 @@ bridge_validate() {
 
     const r1 = parseExpr(rules[1].expr)
     if (rules[1].comment !== "AEGIS-S55 edge gateway-http-return" ||
-        r1.action !== "accept" || r1.iifname !== edgeBridge || r1.oifname !== edgeBridge ||
+        r1.action !== "accept" || r1.ibrname !== edgeBridge || r1.obrname !== edgeBridge ||
         r1.etherType !== "ip" || r1.saddr !== "172.31.240.2" || r1.daddr !== "172.31.240.3" ||
         r1.sport !== 8080) {
       console.error("rule 1 drifted: " + JSON.stringify(rules[1]))
@@ -512,7 +528,7 @@ bridge_validate() {
 
     const r2 = parseExpr(rules[2].expr)
     if (rules[2].comment !== "AEGIS-S55 edge connector-source-deny" ||
-        r2.action !== "drop" || r2.iifname !== edgeBridge ||
+        r2.action !== "drop" || r2.ibrname !== edgeBridge || r2.obrname !== null ||
         r2.etherType !== "ip" || r2.saddr !== "172.31.240.3") {
       console.error("rule 2 drifted: " + JSON.stringify(rules[2]))
       process.exit(1)
@@ -520,7 +536,7 @@ bridge_validate() {
 
     const r3 = parseExpr(rules[3].expr)
     if (rules[3].comment !== "AEGIS-S55 edge connector-destination-deny" ||
-        r3.action !== "drop" || r3.oifname !== edgeBridge ||
+        r3.action !== "drop" || r3.obrname !== edgeBridge || r3.ibrname !== null ||
         r3.etherType !== "ip" || r3.daddr !== "172.31.240.3") {
       console.error("rule 3 drifted: " + JSON.stringify(rules[3]))
       process.exit(1)

@@ -305,13 +305,26 @@ for (const rawLine of lines) {
   if (line.startsWith('//') || line.startsWith('#')) continue
 
   const expr = []
-  const iif = line.match(/iifname\\s+"([^"]+)"/)
+  // Bridge-PORT selectors (iifname/oifname match the veth port a frame enters or
+  // leaves on) and bridge-MASTER selectors (ibrname/obrname match the Linux bridge
+  // the port belongs to) are different nft meta keys. Real nft keeps them
+  // distinct in JSON and so does this mock: the distinction is the defect being
+  // guarded against, so neither is ever mapped onto the other here.
+  const iif = line.match(/(?<![a-z])iifname\\s+"([^"]+)"/)
   if (iif) {
     expr.push({ match: { op: '==', left: { meta: { key: 'iifname' } }, right: iif[1] } })
   }
-  const oif = line.match(/oifname\\s+"([^"]+)"/)
+  const oif = line.match(/(?<![a-z])oifname\\s+"([^"]+)"/)
   if (oif) {
     expr.push({ match: { op: '==', left: { meta: { key: 'oifname' } }, right: oif[1] } })
+  }
+  const ibr = line.match(/(?<![a-z])ibrname\\s+"([^"]+)"/)
+  if (ibr) {
+    expr.push({ match: { op: '==', left: { meta: { key: 'ibrname' } }, right: ibr[1] } })
+  }
+  const obr = line.match(/(?<![a-z])obrname\\s+"([^"]+)"/)
+  if (obr) {
+    expr.push({ match: { op: '==', left: { meta: { key: 'obrname' } }, right: obr[1] } })
   }
   const saddr = line.match(/ip\\s+saddr\\s+([0-9.]+)/)
   const daddr = line.match(/ip\\s+daddr\\s+([0-9.]+)/)
@@ -972,5 +985,151 @@ test('bridge validate still accepts nft JSON that keeps an explicit ether type i
     assert.match(rVal.stdout, /S5\.5-FIREWALL=VALID/)
   } finally {
     h.cleanup()
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Production-discovered (2026-09-12, F3): frames crossing the bridge forward
+// hook carry the veth bridge PORT as iifname/oifname, not the bridge master.
+// Rules keyed on iifname/oifname "<edge bridge>" therefore never matched (all
+// four counters stayed 0 while Gateway:8080 connected). Binding the policy to
+// the dynamically resolved Docker bridge MASTER needs the bridge-master
+// selectors ibrname/obrname. The validator must require that representation and
+// must reject the old port-selector shape instead of reporting it VALID.
+// ---------------------------------------------------------------------------
+
+// The default harness derives the edge bridge from EDGE_NETWORK_ID exactly as
+// the script does, so this is the expected master name in candidate and JSON.
+const HARNESS_EDGE_BRIDGE = `br-${EDGE_NETWORK_ID.slice(0, 12)}`
+
+const metaKeys = (rule) => rule.expr.filter((e) => e.match?.left?.meta?.key).map((e) => e.match.left.meta.key)
+
+function swapMetaKey(rule, from, to) {
+  for (const e of rule.expr) {
+    if (e.match?.left?.meta?.key === from) e.match.left.meta.key = to
+  }
+}
+
+test('native bridge candidate binds Docker bridge master with ibrname/obrname rather than iifname/oifname', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const text = h.readNftText()
+    assert.ok(text, 'candidate text must be preserved by the mock')
+    const B = HARNESS_EDGE_BRIDGE
+    const esc = (ip) => ip.replace(/\./g, '\\.')
+    assert.match(text, new RegExp(`ibrname "${B}" obrname "${B}" ether type ip ip saddr ${esc(CONNECTOR)} ip daddr ${esc(GATEWAY)} tcp dport 8080 counter accept`),
+      'connector -> gateway HTTP must bind both bridge masters')
+    assert.match(text, new RegExp(`ibrname "${B}" obrname "${B}" ether type ip ip saddr ${esc(GATEWAY)} ip daddr ${esc(CONNECTOR)} tcp sport 8080 counter accept`),
+      'gateway HTTP return must bind both bridge masters')
+    assert.match(text, new RegExp(`ibrname "${B}" ether type ip ip saddr ${esc(CONNECTOR)} counter drop`),
+      'connector source deny must bind the ingress bridge master')
+    assert.match(text, new RegExp(`obrname "${B}" ether type ip ip daddr ${esc(CONNECTOR)} counter drop`),
+      'connector destination deny must bind the egress bridge master')
+    assert.doesNotMatch(text, /(?<![a-z])iifname/, 'candidate must not use the bridge-port selector iifname')
+    assert.doesNotMatch(text, /(?<![a-z])oifname/, 'candidate must not use the bridge-port selector oifname')
+
+    // And the committed JSON carries the same distinction.
+    const rules = h.readNftJson().nftables.filter((x) => x.rule).map((x) => x.rule)
+    assert.deepEqual(metaKeys(rules[0]), ['ibrname', 'obrname'])
+    assert.deepEqual(metaKeys(rules[1]), ['ibrname', 'obrname'])
+    assert.deepEqual(metaKeys(rules[2]), ['ibrname'])
+    assert.deepEqual(metaKeys(rules[3]), ['obrname'])
+  } finally { h.cleanup() }
+})
+
+test('bridge validate rejects the legacy iifname/oifname bridge-port shape even when everything else is exact', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const json = h.readNftJson()
+    for (const x of json.nftables) {
+      if (!x.rule) continue
+      swapMetaKey(x.rule, 'ibrname', 'iifname')
+      swapMetaKey(x.rule, 'obrname', 'oifname')
+    }
+    // Every rule is now the Production F3 shape: addresses, ports, comments and
+    // actions exact, selectors keyed on the bridge PORT.
+    const rules = json.nftables.filter((x) => x.rule).map((x) => x.rule)
+    assert.deepEqual(metaKeys(rules[0]), ['iifname', 'oifname'])
+    assert.deepEqual(metaKeys(rules[2]), ['iifname'])
+    assert.deepEqual(metaKeys(rules[3]), ['oifname'])
+    writeFileSync(h.nftJsonPath, JSON.stringify(json, null, 2))
+
+    const v = h.run('validate')
+    assert.notEqual(v.status, 0, 'the ineffective bridge-port shape must be INVALID, not a false-positive VALID')
+    assert.match(v.stderr + v.stdout, /rule 0 drifted|INVALID/i)
+    assert.doesNotMatch(v.stdout, /S5\.5-FIREWALL=VALID/)
+  } finally { h.cleanup() }
+})
+
+test('bridge validate accepts the canonical ibrname/obrname bridge-master representation built from a fixture', () => {
+  const h = harness()
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const B = HARNESS_EDGE_BRIDGE
+    const meta = (key) => ({ match: { op: '==', left: { meta: { key } }, right: B } })
+    const ip = (field, right) => ({ match: { op: '==', left: { payload: { protocol: 'ip', field } }, right } })
+    const tcp = (field, right) => ({ match: { op: '==', left: { payload: { protocol: 'tcp', field } }, right } })
+    const counter = { counter: { packets: 0, bytes: 0 } }
+    const base = { family: FAMILY, table: TABLE, chain: CHAIN }
+    // Real-nft canonical form: the redundant "ether type ip" is folded into the
+    // IPv4 payload matches, exactly as Production serialised it.
+    const fixture = {
+      nftables: [
+        { metainfo: { version: '1.0.9', release_name: 'Old Doc Yak #3', json_schema_version: 1 } },
+        { table: { family: FAMILY, name: TABLE, handle: 1, comment: OWNER } },
+        { chain: { family: FAMILY, table: TABLE, name: CHAIN, handle: 1, type: 'filter', hook: 'forward', prio: 0, policy: 'accept' } },
+        { rule: { ...base, handle: 2, comment: 'AEGIS-S55 edge connector-to-gateway-http',
+          expr: [meta('ibrname'), meta('obrname'), ip('saddr', CONNECTOR), ip('daddr', GATEWAY), tcp('dport', 8080), counter, { accept: null }] } },
+        { rule: { ...base, handle: 3, comment: 'AEGIS-S55 edge gateway-http-return',
+          expr: [meta('ibrname'), meta('obrname'), ip('saddr', GATEWAY), ip('daddr', CONNECTOR), tcp('sport', 8080), counter, { accept: null }] } },
+        { rule: { ...base, handle: 4, comment: 'AEGIS-S55 edge connector-source-deny',
+          expr: [meta('ibrname'), ip('saddr', CONNECTOR), counter, { drop: null }] } },
+        { rule: { ...base, handle: 5, comment: 'AEGIS-S55 edge connector-destination-deny',
+          expr: [meta('obrname'), ip('daddr', CONNECTOR), counter, { drop: null }] } },
+      ],
+    }
+    writeFileSync(h.nftJsonPath, JSON.stringify(fixture, null, 2))
+    const v = h.run('validate')
+    assert.equal(v.status, 0, `canonical bridge-master fixture must be VALID: ${v.stderr}`)
+    assert.match(v.stdout, /S5\.5-FIREWALL=VALID/)
+  } finally { h.cleanup() }
+})
+
+test('bridge validate rejects wrong, missing or mixed bridge-master selectors', () => {
+  const B = HARNESS_EDGE_BRIDGE
+  const findMeta = (rule, key) => rule.expr.find((e) => e.match?.left?.meta?.key === key)
+  const cases = {
+    'wrong ibrname on rule 0': (rules) => { findMeta(rules[0], 'ibrname').match.right = 'br-deadbeef0000' },
+    'wrong obrname on rule 1': (rules) => { findMeta(rules[1], 'obrname').match.right = 'br-deadbeef0000' },
+    'wrong ibrname on connector source deny': (rules) => { findMeta(rules[2], 'ibrname').match.right = 'br-deadbeef0000' },
+    'wrong obrname on connector destination deny': (rules) => { findMeta(rules[3], 'obrname').match.right = 'br-deadbeef0000' },
+    'missing ibrname on connector source deny': (rules) => { rules[2].expr = rules[2].expr.filter((e) => e.match?.left?.meta?.key !== 'ibrname') },
+    'missing obrname on connector destination deny': (rules) => { rules[3].expr = rules[3].expr.filter((e) => e.match?.left?.meta?.key !== 'obrname') },
+    'mixed iifname + obrname on rule 0': (rules) => { swapMetaKey(rules[0], 'ibrname', 'iifname') },
+    'mixed ibrname + oifname on rule 1': (rules) => { swapMetaKey(rules[1], 'obrname', 'oifname') },
+    'extra port selector alongside exact masters on rule 0': (rules) => {
+      rules[0].expr.unshift({ match: { op: '==', left: { meta: { key: 'iifname' } }, right: 'vethce50d8d' } })
+    },
+    'port selector added to source deny in addition to master': (rules) => {
+      rules[2].expr.unshift({ match: { op: '==', left: { meta: { key: 'iifname' } }, right: B } })
+    },
+    'source deny bound by obrname instead of ibrname': (rules) => { swapMetaKey(rules[2], 'ibrname', 'obrname') },
+    'destination deny bound by ibrname instead of obrname': (rules) => { swapMetaKey(rules[3], 'obrname', 'ibrname') },
+  }
+  for (const [label, mutate] of Object.entries(cases)) {
+    const h = harness()
+    try {
+      assert.equal(h.run('apply').status, 0)
+      assert.equal(h.run('validate').status, 0, `${label}: baseline must validate before tampering`)
+      const json = h.readNftJson()
+      const rules = json.nftables.filter((x) => x.rule).map((x) => x.rule)
+      mutate(rules)
+      writeFileSync(h.nftJsonPath, JSON.stringify(json, null, 2))
+      const v = h.run('validate')
+      assert.notEqual(v.status, 0, `${label} must be INVALID`)
+      assert.match(v.stderr + v.stdout, /rule [0-3] drifted|INVALID/i, `${label}: must report drift`)
+    } finally { h.cleanup() }
   }
 })
