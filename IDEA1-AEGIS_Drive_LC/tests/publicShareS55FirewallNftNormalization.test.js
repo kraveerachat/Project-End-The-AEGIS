@@ -110,7 +110,6 @@ exit 2
           expr: [
             { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.2' } },
             { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'dport' } }, right: 8080 } },
@@ -126,7 +125,6 @@ exit 2
           expr: [
             { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
             { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.2' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
             { match: { op: '==', left: { payload: { protocol: 'tcp', field: 'sport' } }, right: 8080 } },
@@ -141,7 +139,6 @@ exit 2
           comment: 'AEGIS-S55 edge connector-source-deny',
           expr: [
             { match: { op: '==', left: { meta: { key: 'iifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: '172.31.240.3' } },
             { counter: { packets: 0, bytes: 0 } },
             { drop: null },
@@ -154,7 +151,6 @@ exit 2
           comment: 'AEGIS-S55 edge connector-destination-deny',
           expr: [
             { match: { op: '==', left: { meta: { key: 'oifname' } }, right: EDGE_BRIDGE } },
-            { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } },
             { match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: '172.31.240.3' } },
             { counter: { packets: 0, bytes: 0 } },
             { drop: null },

@@ -486,6 +486,9 @@ bridge_validate() {
           if (left?.payload?.protocol === "tcp" && left?.payload?.field === "sport") res.sport = Number(right)
         }
       }
+      if (res.etherType === null && (res.saddr !== null || res.daddr !== null)) {
+        res.etherType = "ip"
+      }
       return res
     }
 

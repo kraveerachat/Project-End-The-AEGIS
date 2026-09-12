@@ -313,15 +313,17 @@ for (const rawLine of lines) {
   if (oif) {
     expr.push({ match: { op: '==', left: { meta: { key: 'oifname' } }, right: oif[1] } })
   }
+  const saddr = line.match(/ip\\s+saddr\\s+([0-9.]+)/)
+  const daddr = line.match(/ip\\s+daddr\\s+([0-9.]+)/)
   const eth = line.match(/ether\\s+type\\s+([a-zA-Z0-9_]+)/)
-  if (eth) {
+  // Real nft JSON canonicalization: when IPv4 payload matches (ip saddr / ip daddr)
+  // are present, nft suppresses the redundant ether type ip match expression in JSON.
+  if (eth && !(eth[1] === 'ip' && (saddr || daddr))) {
     expr.push({ match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: eth[1] } })
   }
-  const saddr = line.match(/ip\\s+saddr\\s+([0-9.]+)/)
   if (saddr) {
     expr.push({ match: { op: '==', left: { payload: { protocol: 'ip', field: 'saddr' } }, right: saddr[1] } })
   }
-  const daddr = line.match(/ip\\s+daddr\\s+([0-9.]+)/)
   if (daddr) {
     expr.push({ match: { op: '==', left: { payload: { protocol: 'ip', field: 'daddr' } }, right: daddr[1] } })
   }
@@ -693,19 +695,29 @@ test('exact forward and reverse HTTP rules plus terminal drops', () => {
     assert.ok(r2.some((e) => e.match?.left?.payload?.field === 'daddr' && e.match?.right === CONNECTOR))
     assert.ok(r2.some((e) => e.match?.left?.payload?.field === 'sport' && e.match?.right === 8080))
 
-    // Rule 3: connector source deny (ether type ip)
+    // Rule 3: connector source deny
     assert.equal(rules[2].comment, 'AEGIS-S55 edge connector-source-deny')
     const r3 = rules[2].expr
     assert.ok(r3.some((e) => e.drop !== undefined))
     assert.ok(r3.some((e) => e.match?.left?.payload?.field === 'saddr' && e.match?.right === CONNECTOR))
-    assert.ok(r3.some((e) => e.match?.left?.payload?.protocol === 'ether' && e.match?.right === 'ip'))
 
-    // Rule 4: connector destination deny (ether type ip)
+    // Rule 4: connector destination deny
     assert.equal(rules[3].comment, 'AEGIS-S55 edge connector-destination-deny')
     const r4 = rules[3].expr
     assert.ok(r4.some((e) => e.drop !== undefined))
     assert.ok(r4.some((e) => e.match?.left?.payload?.field === 'daddr' && e.match?.right === CONNECTOR))
-    assert.ok(r4.some((e) => e.match?.left?.payload?.protocol === 'ether' && e.match?.right === 'ip'))
+
+    // Candidate text proves all 4 generated rules explicitly contain 'ether type ip'
+    const candidateText = h.readNftText()
+    assert.ok(candidateText, 'candidate text must be preserved in mock')
+    assert.match(candidateText, /ether\s+type\s+ip\s+ip\s+saddr\s+172\.31\.240\.3\s+ip\s+daddr\s+172\.31\.240\.2\s+tcp\s+dport\s+8080/,
+      'connector -> gateway rule must explicitly scope ether type ip')
+    assert.match(candidateText, /ether\s+type\s+ip\s+ip\s+saddr\s+172\.31\.240\.2\s+ip\s+daddr\s+172\.31\.240\.3\s+tcp\s+sport\s+8080/,
+      'gateway -> connector rule must explicitly scope ether type ip')
+    assert.match(candidateText, /ether\s+type\s+ip\s+ip\s+saddr\s+172\.31\.240\.3\s+counter\s+drop/,
+      'connector source DROP must explicitly scope ether type ip')
+    assert.match(candidateText, /ether\s+type\s+ip\s+ip\s+daddr\s+172\.31\.240\.3\s+counter\s+drop/,
+      'connector destination DROP must explicitly scope ether type ip')
   } finally {
     h.cleanup()
   }
@@ -716,14 +728,15 @@ test('ARP is not denied by terminal rules', () => {
   try {
     const r = h.run('apply')
     assert.equal(r.status, 0)
-    const json = h.readNftJson()
-    assert.ok(json)
-    const rules = json.nftables.filter((x) => x.rule).map((x) => x.rule)
-    const dropRules = rules.filter((r) => r.expr.some((e) => e.drop !== undefined))
-    assert.equal(dropRules.length, 2)
-    for (const dr of dropRules) {
-      const hasEtherIp = dr.expr.some((e) => e.match?.left?.payload?.protocol === 'ether' && e.match?.right === 'ip')
-      assert.ok(hasEtherIp, 'terminal drop rule must explicitly match ether type ip so ARP is not dropped')
+    const candidateText = h.readNftText()
+    assert.ok(candidateText, 'candidate text must be present')
+    const dropLines = candidateText
+      .split('\n')
+      .filter((line) => line.includes('counter drop'))
+    assert.equal(dropLines.length, 2, 'must have exactly 2 terminal drop rules in candidate')
+    for (const line of dropLines) {
+      assert.match(line, /ether\s+type\s+ip/,
+        'terminal drop rule in candidate must explicitly match ether type ip so ARP is not dropped')
     }
   } finally {
     h.cleanup()
@@ -877,4 +890,87 @@ test('candidate is checked before any mutation begins', () => {
     assert.doesNotMatch(log, /^(?!.*--check).*-f /m,
       'no committing nft -f may run once the check has failed')
   } finally { h.cleanup() }
+})
+
+test('bridge validate accepts real nft JSON canonicalization that omits redundant ether type ip when IPv4 payload matches prove the family', () => {
+  const h = harness()
+  try {
+    const rApply = h.run('apply')
+    assert.equal(rApply.status, 0, `apply failed: stdout=${rApply.stdout} stderr=${rApply.stderr}`)
+    const json = h.readNftJson()
+    assert.ok(json, 'native bridge table must be created')
+    const rules = json.nftables.filter((x) => x.rule).map((x) => x.rule)
+    assert.equal(rules.length, 4, 'must have 4 rules')
+    for (const r of rules) {
+      assert.equal(
+        r.expr.some((e) => e.match?.left?.payload?.protocol === 'ether' && e.match?.left?.payload?.field === 'type'),
+        false,
+        'canonical nft JSON must omit redundant ether type ip when IP payload matches are present'
+      )
+    }
+    const rVal = h.run('validate')
+    assert.equal(rVal.status, 0, `validate failed: stdout=${rVal.stdout} stderr=${rVal.stderr}`)
+    assert.match(rVal.stdout, /S5\.5-FIREWALL=VALID/)
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('bridge validate still rejects rules lacking required IPv4 semantics or evidence', () => {
+  const h = harness()
+  try {
+    const rApply = h.run('apply')
+    assert.equal(rApply.status, 0, `apply failed: ${rApply.stderr}`)
+
+    // Corrupt rule 2 (connector-source-deny) by stripping the IPv4 saddr match,
+    // leaving no etherType and no IP payload match
+    const json = h.readNftJson()
+    const r2 = json.nftables.find((x) => x.rule?.comment === 'AEGIS-S55 edge connector-source-deny')?.rule
+    assert.ok(r2)
+    r2.expr = r2.expr.filter((e) => e.match?.left?.payload?.field !== 'saddr')
+    writeFileSync(h.nftJsonPath, JSON.stringify(json, null, 2))
+
+    const v1 = h.run('validate')
+    assert.notEqual(v1.status, 0, 'validator must reject rule when IPv4 evidence is missing')
+    assert.match(v1.stderr + v1.stdout, /rule 2 drifted|INVALID/i)
+
+    // Test explicit non-IP etherType (e.g., arp)
+    const json2 = h.readNftJson()
+    const r0 = json2.nftables.find((x) => x.rule?.comment === 'AEGIS-S55 edge connector-to-gateway-http')?.rule
+    assert.ok(r0)
+    r0.expr.unshift({ match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'arp' } })
+    writeFileSync(h.nftJsonPath, JSON.stringify(json2, null, 2))
+
+    const v2 = h.run('validate')
+    assert.notEqual(v2.status, 0, 'validator must reject rule when etherType is explicitly non-IP')
+    assert.match(v2.stderr + v2.stdout, /rule 0 drifted|INVALID/i)
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('bridge validate still accepts nft JSON that keeps an explicit ether type ip match', () => {
+  // Older nft builds serialize the redundant ether-type match instead of folding it
+  // into the IPv4 payload match. Both serializations describe the same rule and
+  // must validate identically; only a non-IP or absent family proof may fail.
+  const h = harness()
+  try {
+    const rApply = h.run('apply')
+    assert.equal(rApply.status, 0, `apply failed: ${rApply.stderr}`)
+    const json = h.readNftJson()
+    const rules = json.nftables.filter((x) => x.rule).map((x) => x.rule)
+    assert.equal(rules.length, 4)
+    for (const r of rules) {
+      const firstPayload = r.expr.findIndex((e) => e.match?.left?.payload?.protocol === 'ip')
+      assert.notEqual(firstPayload, -1, 'every rule carries an IPv4 payload match')
+      r.expr.splice(firstPayload, 0, { match: { op: '==', left: { payload: { protocol: 'ether', field: 'type' } }, right: 'ip' } })
+    }
+    writeFileSync(h.nftJsonPath, JSON.stringify(json, null, 2))
+
+    const rVal = h.run('validate')
+    assert.equal(rVal.status, 0, `validate failed: stdout=${rVal.stdout} stderr=${rVal.stderr}`)
+    assert.match(rVal.stdout, /S5\.5-FIREWALL=VALID/)
+  } finally {
+    h.cleanup()
+  }
 })
