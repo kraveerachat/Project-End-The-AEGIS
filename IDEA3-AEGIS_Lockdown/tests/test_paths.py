@@ -84,6 +84,13 @@ def test_runtime_paths_keep_all_mutable_files_under_external_root(tmp_path):
     )
 
 
+def test_runtime_paths_keep_the_core_dispatch_ledger_beside_but_apart_from_the_core_audit(tmp_path):
+    paths = RuntimePaths.from_environment(env={"AEGIS_DATA_DIR": str(tmp_path)}, platform="linux")
+
+    assert paths.dispatch_db == tmp_path.resolve() / "data" / "core-dispatch.sqlite3"
+    assert paths.dispatch_db != paths.core_db
+
+
 def test_dotenv_adds_values_without_overriding_process_environment(tmp_path):
     dotenv = tmp_path / ".env"
     dotenv.write_text(

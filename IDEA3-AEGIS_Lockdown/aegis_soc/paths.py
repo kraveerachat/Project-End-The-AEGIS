@@ -74,6 +74,11 @@ class RuntimePaths:
     runtime_dir: Path
     log_dir: Path
 
+    @property
+    def dispatch_db(self) -> Path:
+        """The Core dispatch ledger: beside, but apart from, the hash-chained Core audit."""
+        return self.root / "data" / "core-dispatch.sqlite3"
+
     @classmethod
     def from_environment(
         cls,
