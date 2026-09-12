@@ -210,6 +210,21 @@ def test_c3_replayed_action_is_never_claimed_or_published_again(ledger, clock):
     assert supervisor.calls == []
 
 
+@pytest.mark.parametrize("action", ["RESTORE_UPLINK", "cut_uplink", ""])
+def test_c6_a_non_cut_uplink_pending_action_is_refused_without_claim_or_publish(ledger, clock, action):
+    client = FakeClient(actions=[pending(OTHER_ACTION_ID, action=action), pending()])
+    supervisor = FakeSupervisor()
+    worker = DispatchWorker(supervisor, ledger, client, wall_clock=clock)
+
+    worker.start()
+    worker.tick()
+
+    assert ledger.get(OTHER_ACTION_ID) is None
+    assert ("claim", OTHER_ACTION_ID) not in client.calls
+    assert [call[0] for call in supervisor.calls] == ["CUT_UPLINK"]
+    assert ledger.get(ACTION_ID)["state"] == "PUBLISHED"
+
+
 @pytest.mark.parametrize("claim_status", ["NOT_FOUND", "EXPIRED", "ALREADY_CLAIMED", "NOT_DISPATCHABLE"])
 def test_rejected_claim_is_terminal_and_never_published(ledger, clock, claim_status):
     client = FakeClient(actions=[pending()], claim=ClaimResult(claim_status))
