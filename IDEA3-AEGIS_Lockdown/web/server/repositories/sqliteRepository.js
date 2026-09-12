@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { DISPATCH_ACTIONS, DISPATCH_ACTION_STATES, DISPATCH_EVIDENCE_STAGES } from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
 import {
   AuditPersistenceError,
@@ -15,10 +16,18 @@ import {
   validateAuditLimit,
 } from './auditRecords.js'
 
-const SCHEMA_VERSION = 2
-// v1 -> v2 is purely additive: it introduces containment_decisions and leaves
-// every v1 table and audit row untouched.
-const MIGRATABLE_VERSIONS = new Set([1])
+export const AUDIT_SCHEMA_VERSION = 3
+// Every step is purely additive: v1 -> v2 introduced containment_decisions, and
+// v2 -> v3 introduces the PR10 S2 dispatch tables. No earlier table or row is
+// touched.
+const MIGRATABLE_VERSIONS = new Set([1, 2])
+
+function sqlValues(values) {
+  return values.map((value) => {
+    if (!/^[A-Z_]+$/.test(value)) throw new Error('Dispatch vocabulary must be upper-case identifiers')
+    return `'${value}'`
+  }).join(', ')
+}
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS schema_meta (
@@ -78,6 +87,27 @@ const SCHEMA = `
     decided_at TEXT NOT NULL,
     audit_id INTEGER NOT NULL REFERENCES audit_log(id)
   );
+  CREATE TABLE IF NOT EXISTS dispatch_actions (
+    action_id TEXT PRIMARY KEY,
+    incident_id TEXT NOT NULL UNIQUE REFERENCES containment_decisions(incident_id),
+    action TEXT NOT NULL CHECK (action IN (${sqlValues(DISPATCH_ACTIONS)})),
+    state TEXT NOT NULL CHECK (state IN (${sqlValues(DISPATCH_ACTION_STATES)})),
+    accepted_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    claimed_at TEXT,
+    claimed_by TEXT,
+    audit_id INTEGER NOT NULL REFERENCES audit_log(id)
+  );
+  CREATE TABLE IF NOT EXISTS dispatch_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id TEXT NOT NULL REFERENCES dispatch_actions(action_id),
+    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 1000),
+    stage TEXT NOT NULL CHECK (stage IN (${sqlValues(DISPATCH_EVIDENCE_STAGES)})),
+    observed_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    detail_json TEXT NOT NULL,
+    UNIQUE (action_id, sequence)
+  );
 `
 
 function wrap(operation, error) {
@@ -132,12 +162,12 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     database.exec('BEGIN IMMEDIATE')
     try {
       database.exec(SCHEMA)
-      database.prepare('INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, ?)').run(SCHEMA_VERSION)
+      database.prepare('INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, ?)').run(AUDIT_SCHEMA_VERSION)
       const metadata = database.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get()
       const storedVersion = Number(metadata?.version)
-      if (storedVersion !== SCHEMA_VERSION) {
+      if (storedVersion !== AUDIT_SCHEMA_VERSION) {
         if (!MIGRATABLE_VERSIONS.has(storedVersion)) throw new Error('Unsupported audit schema version')
-        database.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(SCHEMA_VERSION)
+        database.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(AUDIT_SCHEMA_VERSION)
       }
       database.exec('COMMIT')
     } catch (error) {

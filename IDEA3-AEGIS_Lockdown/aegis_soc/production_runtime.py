@@ -19,6 +19,10 @@ from pathlib import Path
 from .paths import RuntimePaths, application_root, load_dotenv
 from .windows_launcher import LauncherRuntime, doctor_command, stop_command
 
+# The Web audit schema shipped with this Core owner. Readiness reported at any
+# other version is treated as DEGRADED rather than silently accepted.
+WEB_AUDIT_SCHEMA_VERSION = 3
+
 
 def _absolute_path(name: str, value: str | None, *, required: bool = True) -> Path | None:
     raw = (value or "").strip()
@@ -254,7 +258,7 @@ class ProductionRuntime(LauncherRuntime):
                 if (
                     candidate.get("status") == "READY"
                     and candidate.get("audit") == "READY"
-                    and candidate.get("schemaVersion") == 2
+                    and candidate.get("schemaVersion") == WEB_AUDIT_SCHEMA_VERSION
                 ):
                     readiness = candidate
             except (OSError, TypeError, ValueError, urllib.error.URLError):

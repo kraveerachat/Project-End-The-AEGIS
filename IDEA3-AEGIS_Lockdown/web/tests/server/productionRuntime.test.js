@@ -55,7 +55,7 @@ describe('production Web runtime', () => {
     expect(health.body).toEqual({ status: 'ok' })
   })
 
-  it('reports ready only after the schema-v2 audit repository probe succeeds', async () => {
+  it('reports ready only after the schema-v3 audit repository probe succeeds', async () => {
     const root = staticDirectory()
     const app = createApp({ config: productionConfig(root) })
 
@@ -65,9 +65,22 @@ describe('production Web runtime', () => {
     expect(readiness.body).toEqual({
       status: 'READY',
       audit: 'READY',
-      schemaVersion: 2,
+      schemaVersion: 3,
     })
     app.locals.close()
+  })
+
+  it('W3: reports degraded for a repository at any schema version other than v3', async () => {
+    for (const version of [2, 4]) {
+      const root = staticDirectory()
+      const repository = { schemaVersion: () => version, close() {} }
+      const app = createApp({ config: productionConfig(root), repository })
+
+      const readiness = await request(app).get('/security/api/readiness')
+
+      expect(readiness.status).toBe(503)
+      expect(readiness.body).toEqual({ status: 'DEGRADED', audit: 'DEGRADED' })
+    }
   })
 
   it('reports degraded when the audit repository readiness probe fails', async () => {
