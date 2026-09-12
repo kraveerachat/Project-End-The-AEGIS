@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-11
+updated: 2026-09-12
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. S2 has not started, and `READY_FOR_PR10_S2 = NO` until the owner explicitly approves the continuation model. No Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is now IN PROGRESS on `feat/idea3-pr10-s2-server-core-boundary`. No Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -163,7 +163,7 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
 
-### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED)
+### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED; S2 IN PROGRESS)
 
 Target architecture as defined by the owner on 2026-09-11. It has not yet been
 designed in a repository spec or plan; the S1 inventory is
@@ -194,12 +194,13 @@ Branch: `feat/idea3-pr10-real-deployment` (S1 branch; merged through PR #120, re
 Owner: `music`
 PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
 Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` — GitHub PR #121 (docs-only reconciliation; not S2). Its single receipt, `90-Status/logs/2026-09-11_234455_music_idea3-pr10-postmerge-reconciliation.md`, covers the reconciliation only and is not the PR10 final receipt
-S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2)
+S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2) — MERGED by a human reviewer at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (2026-09-12). It is immutable and receives no further commits
+S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production). The PR is not yet opened. Its one receipt will be an S2 receipt, not the final PR10 receipt
 Current state: IN PROGRESS
 Started: 2026-09-11
-Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
-Last checkpoint: `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head; earlier public-safe inventory checkpoint `8250d694`)
-Production mutation allowed: NO (S1)
+Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); the S2 G1 checkpoint is recorded in the PR10 Session Register
+Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
 ```text
@@ -211,8 +212,10 @@ KLA_DECISIONS_K1_K12      = APPROVED (2026-09-12)
 KLA_INTEGRATION_APPROVAL  = APPROVED (architecture/integration only)
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
-READY_FOR_PR10_S2         = NO — awaiting explicit owner continuation approval
-S2_STARTED                = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2         = YES
+PR10_S2                   = IN PROGRESS (G1: design + TDD plan; source not started)
+S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 PRODUCTION_MUTATION       = NONE
@@ -257,7 +260,8 @@ and host-level specifics are deliberately not published):
 PR #120 was merged by a human while it still represented the S1
 inventory/architecture checkpoint. The merge records the S1 documentation on
 `main` but does not satisfy the PR10 completion gate. PR10 remains IN PROGRESS
-and S2 remains blocked pending the stated prerequisites.
+and S2 was blocked pending the stated prerequisites. The owner approved the
+continuation on 2026-09-12.
 
 Verified facts (GitHub and Git, 2026-09-11):
 
@@ -282,7 +286,7 @@ The merge does **not** mean:
 The merged S1 documentation is correct and public-safe, so it is kept. No
 revert, reset, or rewrite of `main` is proposed.
 
-**Continuation model — recommended for owner approval, not started:**
+**Continuation model — APPROVED by the owner on 2026-09-12:**
 
 - PR10 remains the project-sequence umbrella for the real deployment baseline.
 - The original "one open PR for all PR10 sessions" lifecycle cannot continue,
@@ -296,6 +300,8 @@ revert, reset, or rewrite of `main` is proposed.
 - The single final PR10 receipt belongs to the PR that performs the PR10 final
   handoff. It must record PR #120 as a premature human merge of the S1
   documentation checkpoint.
+- S2 started on 2026-09-12 as the new task branch
+  `feat/idea3-pr10-s2-server-core-boundary`; see "PR10 Session S2" below.
 
 ### PR10 architecture decisions D1–D8 — owner-accepted 2026-09-12
 
@@ -335,8 +341,9 @@ KLA_DECISIONS_K1_K12 = APPROVED
 KLA_INTEGRATION_APPROVAL = APPROVED
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1 = PASS / CLOSED
-READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
-S2_STARTED = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2 = YES
+S2_STARTED = YES (2026-09-12; repository-only, non-Production)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -385,7 +392,9 @@ On 2026-09-12 the owner accepted the recommended direction of every K-decision
 for the D3/D5 shared infrastructure for owner review. The IDEA3 owner then
 reported Kla's integration approval of K1–K12 the same day, which closed the S1
 gate. **Provenance:** relayed by the IDEA3 owner; no approval comment or review
-was on PR #122 at closeout.
+was on PR #122 at closeout. After closeout, Kla's GitHub account submitted an
+APPROVED review of PR #122 (2026-09-12T07:58:33Z, no review text) and merged it
+at `b2f61ebf`.
 
 - **Scope:** the approval is **architecture/integration only** and authorizes
   **no Production change**. Every future shared-infrastructure change needs its
@@ -417,7 +426,98 @@ was on PR #122 at closeout.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 in a new explicitly named task/PR, only after the owner explicitly approves the continuation model (`READY_FOR_PR10_S2 = NO` until then) |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1: design spec + TDD plan (documentation only; no source changed) | G1 checkpoint pending | pending | G1 owner review; then Tasks 0–11 of the plan | G1 owner review — no source change before explicit approval |
+
+### PR10 Session S2 — Server → Core durable accepted-action boundary
+
+State: IN PROGRESS (G1 — design and TDD plan; source not started)
+Started: 2026-09-12
+Branch: `feat/idea3-pr10-s2-server-core-boundary`
+Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
+Production mutation allowed: NO
+Evidence class: LOCAL / SIMULATED only
+
+**Continuation references:**
+
+- PR #120 and merge commit `93170862cbf5b5a802042d12c84944abd39d9123`, the
+  premature S1 documentation checkpoint;
+- the S1 inventory,
+  `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`;
+- PR #121, the post-merge reconciliation;
+- PR #122 (`b2f61ebf`), the S1 closeout.
+
+**Plan:** the owner approved the kickoff definition on 2026-09-12. The work
+runs in this order:
+
+1. write the design spec and TDD plan;
+2. **G1 owner review — stop;**
+3. baseline the regression suites;
+4. implement the Web schema v3, minting, machine app, and evidence;
+5. implement the Core ledger, client, and worker;
+6. add the shared contract fixture;
+7. run the negative controls NC1–NC5;
+8. run the full regression;
+9. canonical closeout with one S2 receipt;
+10. open a Draft PR and stop before Ready.
+
+- **Spec:**
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-12-idea3-pr10-s2-server-core-boundary-design.md`
+- **Plan:**
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-12-idea3-pr10-s2-server-core-boundary.md`
+
+**Why:** `SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = OPEN / NOT
+IMPLEMENTED`. Inventory §13.3 defines the boundary constraints for S2, and D7
+defines the claim model.
+
+**Scope:** limited to the §13.3 boundary, D7, and the IDEA3 side of D5.
+
+- **Web:**
+  - additive schema v3;
+  - Admin acceptance mints one `action_id` with a 120 s TTL;
+  - atomic single-shot claim;
+  - machine identity (pinned HUB peer + verified mTLS headers + expected
+    subject);
+  - append-only reconciliation;
+  - dispatch status display.
+- **Core:**
+  - durable dispatch ledger;
+  - dispatch client;
+  - claim → publish only through `issue_command`;
+  - reconciliation outbox;
+  - credential pause.
+- **Default:** both halves are disabled by default.
+
+**Expected changes:** only IDEA3 paths, as listed in the plan: Web server,
+tests, dashboard/i18n, Core modules and tests, `.env.example`, the spec and
+plan, and the canonical IDEA3 notes.
+
+**Expected evidence:**
+
+- W1–W14, C1–C10, and NC1–NC5;
+- the regression suites against the Task 0 baseline;
+- the PR9 drivers (`PRODUCTION_LIKE_VERIFIED`, 13/13);
+- vault, policy, diff, and secret checks.
+
+**Safety / Do-not-touch:**
+
+- **Production:** no Production deployment or Production database migration.
+- **Edge and network:** no live HUB, NGINX, Docker, Compose, or network
+  change; no firewall, UFW, or nftables change; no router, VLAN, or Twingate
+  change.
+- **Credentials:** no real certificate or CA issuance or installation.
+- **Hardware:** no firmware flashing; no hardware CUT/RESTORE.
+- **Other owners:** no IDEA1, IDEA2, or shared-infrastructure mutation.
+- **Access:** no SSH to the server or the Core host.
+- **Deferred:** every Production-facing K1–K12 action.
+
+**Dependencies:**
+
+- **Inherited K constraints:** K2 machine-path 404 contract, K4 pinned peer,
+  K9 identity headers, K10 subject and credential pause, K11 no allowlist,
+  K5 Core pulls.
+- **Before any rollout:** K12 (Kla + IDEA1).
+- **Separately owned:** D6 (Pub/IDEA2).
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 

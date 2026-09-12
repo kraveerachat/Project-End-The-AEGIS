@@ -16,8 +16,9 @@ LIVE_SERVER_INVENTORY = PASS (2026-09-12, read-only) — see §2A
 ARCHITECTURE_DECISIONS = D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12) — see §14; not implemented
 S1_STATE              = PASS / CLOSED (2026-09-12) — see §15
 KLA_REVIEW_PACKAGE    = K1–K12 APPROVED (Kla integration approval; architecture/integration only) — see §15A
-READY_FOR_PR10_S2     = NO — awaiting explicit owner continuation approval
-S2_STARTED            = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2     = YES
+S2_STARTED            = YES (2026-09-12) — task branch feat/idea3-pr10-s2-server-core-boundary; repository-only, non-Production
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 PRODUCTION_DEPLOYED   = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -202,8 +203,8 @@ is not new drift.
 ```text
 LIVE_SERVER_INVENTORY = PASS
 PR10_S1               = IN PROGRESS (at inventory time; S1 later closed — see §15)
-READY_FOR_PR10_S2     = NO
-S2_STARTED            = NO
+READY_FOR_PR10_S2     = NO (at inventory time)
+S2_STARTED            = NO (at inventory time)
 PRODUCTION_MUTATION   = NONE
 HARDWARE_TESTING      = NOT RUN
 PRODUCTION_DEPLOYED   = NO
@@ -551,8 +552,11 @@ in §15A).
 - **The approval is architecture/integration only.** It authorizes no
   Production change. Every PR10 Production change still needs its own
   reviewed, authorized change.
-- **S2 has not started.** `READY_FOR_PR10_S2 = NO` until the owner explicitly
-  approves the continuation model (S2 in a new, explicitly named task/PR).
+- **S2 readiness.** Until 2026-09-12, `READY_FOR_PR10_S2 = NO` pending the
+  owner's continuation approval. The owner approved the continuation model on
+  2026-09-12. S2 then started as the new task branch
+  `feat/idea3-pr10-s2-server-core-boundary`; it is repository-only and
+  non-Production.
 
 Implementation conditions carried by the decisions, for later sessions rather
 than S1 gates:
@@ -570,8 +574,9 @@ KLA_DECISIONS_K1_K12 = APPROVED
 KLA_INTEGRATION_APPROVAL = APPROVED (architecture/integration only)
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1 = PASS / CLOSED
-READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
-S2_STARTED = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2 = YES
+S2_STARTED = YES (2026-09-12; repository-only, non-Production)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -586,8 +591,9 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 PR10_PRODUCTION_ROLLOUT = BLOCKED (each change needs its own reviewed authorization)
 LIVE_SERVER_INVENTORY = PASS
 S1 = PASS / CLOSED
-READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
-S2_STARTED = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2 = YES
+S2_STARTED = YES (2026-09-12; repository-only, non-Production)
 ```
 
 This package covers the D3/D5 shared infrastructure. On 2026-09-12 the owner
@@ -597,7 +603,8 @@ integration approval of K1–K12 on 2026-09-12.**
 
 **Provenance:** the approval was relayed by the IDEA3 owner in the working
 session. No approval comment or review had been recorded on PR #122 at
-closeout.
+closeout. After closeout, Kla's GitHub account submitted an APPROVED review of
+PR #122 (2026-09-12T07:58:33Z, no review text) and merged it at `b2f61ebf`.
 
 - **Scope: architecture/integration only.** K1–K12 are the agreed contract for
   later PR10 work.
@@ -634,7 +641,8 @@ closeout.
 
 - **S2 readiness** additionally requires the owner's explicit approval of the
   continuation model (S2 runs in a new, explicitly named task/PR). That
-  approval has not been given.
+  approval was given on 2026-09-12. S2 is in progress on
+  `feat/idea3-pr10-s2-server-core-boundary`.
 - **External dependencies remain separately owned:**
   - K12 needs Kla + IDEA1 confirmation before any PR10 Production rollout;
   - D6 needs separate Pub/IDEA2 approval for IDEA2 co-residence.
