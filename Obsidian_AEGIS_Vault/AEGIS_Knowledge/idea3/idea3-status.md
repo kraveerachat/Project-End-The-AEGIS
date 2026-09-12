@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS — see "S2 Task 0" to "S2 Task 6" below | `ba07feb4295dea6d881a30a7d94c48ef003c1464` (Task 6); Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 7–11 of the plan (Core worker, shared contract fixture, negative controls, regression, closeout) | Task 7 (Core dispatch worker and supervisor integration), the final task in owner-approved Batch B |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS — see "S2 Task 0" to "S2 Task 7" below | `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14` (Task 7); Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 8–11 of the plan (shared contract fixture, negative controls, regression, closeout) | STOP for owner review at the Batch B boundary; do not start Task 8 without continuation approval |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), Task 3 (`5cae52e3`, PASS), Task 4 (`93143422`, PASS), Task 5 (`9f0f7930`, PASS), and Task 6 (`ba07feb4`, PASS) are recorded below; Task 7 is next and is the last task in the owner-approved Batch B. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–7 are recorded below; Task 7 (`1e4af697`, PASS) completes C1–C10 and closes the owner-approved Batch B execution window. Tasks 8–11 remain. This session stops for owner review before Task 8. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`, Task 5 at `9f0f7930`, Task 6 at `ba07feb4`
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`, Task 5 at `9f0f7930`, Task 6 at `ba07feb4`, Task 7 at `1e4af697`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -1078,6 +1078,81 @@ so they were preserved rather than rewritten.
   next approved task only.
 - **Remaining:** Tasks 7–11.
 - **Next:** Task 7, the final task in Batch B.
+
+#### S2 Task 7 — Core dispatch worker and supervisor integration (2026-09-12)
+
+Checkpoint: `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`. Result: PASS; C1–C10
+are now covered across Tasks 5–7. Evidence class: LOCAL / SIMULATED.
+
+**Work performed (test-first):** RED was observed before source existed:
+`tests/test_dispatch_boundary.py` failed collection because
+`aegis_soc.dispatch_worker` did not exist. The first GREEN implementation passed
+20 tests; four safety/configuration cases brought the focused suite to 24. An
+independent review then found that network/credential failure could return
+before local timeout evaluation. Two new tests failed in that exact combination;
+timeout evaluation was made network-independent, and the final focused suite
+passed 26/26. The reviewer rechecked the fix and reported no remaining finding.
+
+**C1–C10 coverage:**
+
+- **C1/C3:** claim intent is committed before the remote claim; restart turns
+  every unresolved action into `OUTCOME_UNKNOWN`; replay never claims or
+  publishes again.
+- **C2:** the Core skips already-expired actions and rechecks the conservative
+  expiry deadline after claim, immediately before publish.
+- **C4/C5:** only supervisor-correlated nonces reach the ledger; ACK and STATUS
+  remain separate evidence stages; missing ACK/STATUS becomes
+  `OUTCOME_UNKNOWN` without retry, including while credentials or the report
+  route are unavailable.
+- **C6/C9:** only `CUT_UPLINK` reaches the existing
+  `AegisSupervisor.issue_command` owner; the worker has no MQTT/controller
+  publisher and never passes RESTORE authorization.
+- **C7:** outbox evidence is delivered in durable sequence order; network
+  failure retains it, identical later delivery is accepted, and definitive 4xx
+  rejection is retained and not resent.
+- **C8:** missing credential files or TLS/identity failures set
+  `PAUSED_CREDENTIAL` before claim/publish. Configuration uses the approved
+  `AEGIS_CORE_DISPATCH_*` keys and reloads an mTLS context only when a request
+  is attempted.
+- **C10:** `AEGIS_CORE_DISPATCH_ENABLED` defaults to disabled, so the supervisor
+  constructs no worker and the established PR9 behaviour remains unchanged.
+
+**Exact changes** (the approved Task 7 list only):
+
+- new `aegis_soc/dispatch_worker.py`;
+- modified `aegis_soc/supervisor.py` for the optional worker, loop tick, restart
+  recovery, correlated callback forwarding, and close;
+- new `tests/test_dispatch_boundary.py`.
+
+| Suite | Result |
+|---|---|
+| focused Task 7 pytest | 26/26 |
+| full Python pytest | 324 passed, 6 skipped |
+| Ruff, compileall | clean |
+| Vitest | 484/484 |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED`; 2 generations; 0 surviving |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass (two known pre-existing Canvas warnings) |
+
+**Driver isolation note:** one intentionally discarded run launched the PR9
+acceptance and negative-control process drivers concurrently. Their global
+residue checks observed the other driver's loopback processes, so the negative
+driver reported 3 failures. No product source was changed for that result. Both
+drivers were rerun separately in fresh disposable roots and passed; all roots
+were removed and the isolated final runs reported zero surviving processes.
+
+- **Boundaries:** no Twingate, SSH, Production, real MQTT, real certificate/key,
+  hardware, IDEA1, IDEA2, shared runtime, firmware, gateway, Compose, or network
+  mutation occurred. ACK and protocol-correlated STATUS are not electrical or
+  physical proof.
+- **Hygiene:** no secret, certificate, key, database, or runtime log was added;
+  the unrelated `.agents/skills/obsidian/` and
+  `.agents/skills/vibe_coding_obsidian_sync/` paths remained untracked and
+  unstaged.
+- **Remaining:** Tasks 8, 9, 10, and 11.
+- **Next:** STOP FOR OWNER REVIEW. Do not begin Task 8 in this session.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
