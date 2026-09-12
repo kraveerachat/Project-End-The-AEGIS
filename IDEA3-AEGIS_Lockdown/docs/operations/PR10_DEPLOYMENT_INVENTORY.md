@@ -1,7 +1,7 @@
 # IDEA3 PR10 — Real Deployment Inventory and Architecture Gate (S1)
 
 ```text
-DOCUMENT_STATE        = DRAFT — S1 deliverable for owner architecture review (public-safe edition)
+DOCUMENT_STATE        = S1 deliverable (public-safe edition); D1–D8 owner-accepted; K1–K12 Kla-approved; S1 PASS / CLOSED 2026-09-12
 TASK                  = PR10 real Arch Linux Core + server-hosted IDEA3 Web deployment baseline
 SESSION               = S1 — real infrastructure inventory + architecture gate
 AREA / OWNER          = idea3 / music
@@ -11,8 +11,14 @@ S1_CHECKPOINT         = recorded in the PR10 Session Register (idea3/idea3-statu
 INVENTORY_DATE        = 2026-09-11 (Asia/Bangkok)
 PRODUCTION_MUTATION   = NONE
 HARDWARE_TESTING      = NOT RUN
-SERVER_ACCESS         = ACCESS_NOT_AVAILABLE (no approved network path from the inventory host)
-READY_FOR_PR10_S2     = NO
+SERVER_ACCESS         = initial S1 attempt: ACCESS_NOT_AVAILABLE; 2026-09-12: AVAILABLE for read-only inventory (§2A)
+LIVE_SERVER_INVENTORY = PASS (2026-09-12, read-only) — see §2A
+ARCHITECTURE_DECISIONS = D1–D8 DECIDED / OWNER-ACCEPTED (2026-09-12) — see §14; not implemented
+S1_STATE              = PASS / CLOSED (2026-09-12) — see §15
+KLA_REVIEW_PACKAGE    = K1–K12 APPROVED (Kla integration approval; architecture/integration only) — see §15A
+READY_FOR_PR10_S2     = NO — awaiting explicit owner continuation approval
+S2_STARTED            = NO
+PRODUCTION_CHANGE_AUTHORIZED = NONE
 PRODUCTION_DEPLOYED   = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 ```
@@ -38,17 +44,18 @@ change.
 | Label | Meaning in this document |
 |---|---|
 | **PROVEN** | Verified during S1 by a direct read-only command, or by reading current source at `895c79ac` |
-| **OBSERVED** | Recorded in canonical notes or receipts by an earlier task. Carried forward, not re-verified live in S1 |
-| **INFERRED** | Reasoned from PROVEN or OBSERVED facts. Must be confirmed before anyone relies on it |
+| **OBSERVED** | Recorded in canonical notes or receipts by an earlier task and carried forward, **except in §2A**, where OBSERVED means seen on the live server during the 2026-09-12 read-only inventory |
+| **INFERRED** | Reasoned from PROVEN or OBSERVED facts. Must be confirmed before anyone relies on it. §2A uses **INFERRED / FEASIBLE** for feasibility conclusions |
+| **PROPOSED** | Owner-accepted architecture (§14) or a candidate value. Not implemented or deployed |
 | **NOT PROVEN** | No evidence was available in S1 |
 | **NOT TESTED** | Deliberately not exercised in S1 |
 
 ## Summary verdict
 
-- **Feasible, blocked on decisions.** The target architecture is feasible, but decisions D1–D4 (§14) block it and no design exists yet.
-- **Server not inspected live.** The AEGIS Server is unreachable from the inventory host, so every server fact is carried forward from earlier audited documentation.
-- **Arch is a candidate Core host, not a ready one.** It is not yet attached to the final AEGIS network segment, and its hardening is not at a production baseline.
-- **ESP32 network undefined.** The recorded ESP32 control-plane history used a temporary lab network outside the AEGIS VLANs, so the final ESP32 network attachment is undefined.
+- **Feasible; architecture decided.** The target architecture is feasible. The owner accepted decisions D1–D8 on 2026-09-12 (§14). No implementation design exists yet. S1 is PASS / CLOSED (§15) after Kla's integration approval of K1–K12 (§15A); that approval authorizes no Production change.
+- **Live server inventory: PASS.** The AEGIS Server was unreachable during the initial S1 attempt (§2). A read-only live inventory on 2026-09-12 (§2A) found D3 feasible and D5 feasible with conditions. `/security/`, mTLS, and preservation of the real Core source address are not deployed or not proven.
+- **Arch is a candidate Core host, not a ready one.** It is not yet attached to the final AEGIS network segment, and its hardening is not at a production baseline. D6 makes it a dedicated Core appliance; that work is not implemented.
+- **ESP32 network decided, not built.** The recorded ESP32 control-plane history used a temporary lab network outside the AEGIS VLANs. D1 selects a dedicated private access point on the Core host; it is not implemented.
 - **The relay isolates the server's uplink.** A server-hosted Web therefore cannot sit inside the CUT → RESTORE control loop. **Core, broker, and RESTORE authority must survive a server-side CUT.**
 
 ---
@@ -68,7 +75,12 @@ change.
 Draft PR #118 plans Production network changes for IDEA1. Any PR10
 infrastructure step must be sequenced with it (§7).
 
-## 2. AEGIS Server inventory
+## 2. AEGIS Server inventory (initial S1 attempt, 2026-09-11)
+
+> [!note] Superseded for live facts
+> This section records the initial S1 attempt, when no approved path existed.
+> §2A holds the live read-only inventory of 2026-09-12 and takes precedence for
+> every live fact.
 
 **`SERVER_ACCESS = ACCESS_NOT_AVAILABLE`.** The AEGIS Server is unreachable from
 the inventory host, and no approved remote-access path was active. S1 attempted
@@ -98,6 +110,104 @@ Addresses and paths are left to those infrastructure notes.
 | IDEA3 on the server | none deployed | OBSERVED; live NOT PROVEN |
 | Host Node.js / Python for a non-container Web | unknown | NOT PROVEN |
 | Live listeners, routes, and ports | not measurable | **NOT PROVEN** |
+
+## 2A. Live AEGIS Server inventory — 2026-09-12 (read-only) — `LIVE_SERVER_INVENTORY = PASS`
+
+The owner restored an approved remote-access path, and the inventory used three
+evidence sources:
+
+1. read-only, unprivileged SSH reads over that path with the owner's
+   agent-held key;
+2. root-only read-only commands (container/network/volume listing, firewall
+   listing, `nginx -T`, and a HUB log source-class count), run by the owner in
+   their own session and shared only as public-safe classifications;
+3. repository reads, including the PR #118 branch.
+
+Nothing was changed on the server: no Docker, NGINX, firewall, or
+configuration change, no service restart, no MQTT action, and no hardware
+action. Host addresses, software versions, maintenance details, credentials,
+key fingerprints, and certificate material are deliberately not recorded
+here.
+
+In this section, **OBSERVED** means seen on the live server on 2026-09-12.
+
+| Area | Finding | Label |
+|---|---|---|
+| Access | Approved read-only access is available. The unprivileged account has no Docker or passwordless-sudo rights, so the owner ran the root-only reads | OBSERVED |
+| Platform | Ubuntu Server host with Docker Engine and Docker Compose v2. Host maintenance items were observed and referred to the infrastructure owner; they are outside PR10 | OBSERVED |
+| Production services | Six healthy containers: HUB (NGINX), IDEA1 Drive, IDEA2 Monitor, PostgreSQL, the IDEA1 public-share gateway, and the Twingate connector. No MQTT broker, no IDEA3 component, and no IDEA3 path or volume | OBSERVED |
+| HUB entry | The HUB is the **single host-published browser entry**: port 80 redirects to HTTPS and 443 serves TLS, both reached through Docker address translation. Every other container exposes internal ports only. The HUB owns TLS and the browser-facing security headers | OBSERVED |
+| Active routes | `/drive/` and `/monitor/` exist, and `/monitor/internal` returns 404. **`/security/` does not exist.** No mTLS client-certificate route is deployed. The configuration syntax test passed | OBSERVED |
+| Configuration identity | The host runtime NGINX configuration matches the configuration the HUB container loaded at the observed time | OBSERVED |
+| Networks | Internal-only bridge networks exist (IDEA1 public-share edge and upstream). The shared application bridge is `internal=false`, as previously documented. The HUB is attached only to the shared application bridge and the HUB↔Drive proxy network | OBSERVED |
+| IDEA3 network range | A candidate /29 did not overlap any observed live Docker IPv4 subnet. The final allocation belongs to the Kla/integration owner | OBSERVED (no overlap) · PROPOSED (candidate) |
+| Firewall | Backend `nf_tables`; `INPUT DROP`, `FORWARD DROP`, `OUTPUT ACCEPT`. UFW is active, denying incoming and routed traffic by default. Forwarding passes through `DOCKER-USER` before the Docker and UFW forwarding chains | OBSERVED |
+| S5.5 firewall chains | `AEGIS-PS-EGRESS` is anchored first in `DOCKER-USER`, and `AEGIS-PS-INPUT` comes before the UFW input chains | OBSERVED |
+| S5.5 state | **PARTIALLY PRESENT**: the S5.5 egress network exists (no members) and the `AEGIS-PS-*` chains exist, but the connector is not running and no S5.5 runtime file or systemd unit was observed. S5.5 is neither fully deployed nor fully absent. Whether the chains survive a host reboot is NOT PROVEN | OBSERVED · NOT PROVEN |
+| Persistence | Named Docker volumes for the existing stateful services; HUB configuration and certificates as read-only bind mounts; host backups on a dedicated backup mount. One anonymous volume has an unknown owner and must not be touched | OBSERVED |
+| Client sources at the HUB | The last 24 h of HUB logs contained only Docker-gateway and loopback source classes, with no VLAN-sourced class | OBSERVED |
+| Real Core source address at the HUB | Not established; the future Core → HUB path was not exercised | NOT PROVEN |
+| Core → HUB 443 from VLAN 20 | Not tested; the Core host is not yet attached to VLAN 20 | NOT PROVEN (NOT TESTED) |
+
+**Feasibility:**
+
+- **D3 — FEASIBLE** (INFERRED / FEASIBLE). An IDEA3 Web container behind the
+  HUB at `/security/` can follow the live hardened-container and internal-network
+  pattern. The HUB configuration has no conflicting `/security/` route, and no
+  direct public IDEA3 host port is required. Conditions:
+  - Kla/integration ownership of the `/security/` change in the runtime HUB
+    configuration, plus reconciliation of the existing runtime↔Git drift;
+  - a method for attaching the HUB to the dedicated IDEA3 network: recreate the
+    HUB container, or attach the network at runtime (Kla decides);
+  - final subnet allocation;
+  - an IDEA3 Compose overlay;
+  - NGINX as the single CSP owner for `/security/`, following the live `/drive/`
+    pattern.
+
+  The D3 container, network, and route themselves remain PROPOSED.
+- **D5 — FEASIBLE WITH CONDITIONS** (INFERRED / FEASIBLE).
+  - **The route exists.** The HUB HTTPS 443 path exists (OBSERVED).
+  - **mTLS is the primary machine authentication.** It is PROPOSED and not
+    deployed. The running NGINX verifies client certificates per server block,
+    so the design must choose between optional verification on 443 with a
+    check on the machine path, or a separate server name (Kla decides). The
+    client-certificate CA and lifecycle need an owner.
+  - **Source allowlisting is defense-in-depth only.** Preservation of the real
+    Core source address at the HUB is NOT PROVEN and must be verified on the
+    real path at implementation time.
+- **Host firewall** (INFERRED): no conflict is expected for D3/D5 as decided,
+  since they add no host ports or rules. IDEA3 must never insert host rules
+  ahead of the S5.5 anchors.
+- **PR #118:** there is no repository-file overlap (OBSERVED), but runtime
+  coordination is required (INFERRED). The two share:
+  - the Compose project and its overlay stack;
+  - anchor-first firewall ordering;
+  - the address plan;
+  - HUB maintenance windows.
+
+**`DRIFT_FOUND = YES` (all OBSERVED):**
+
+1. The runtime HUB NGINX configuration differs from Git
+   `HUB-AEGIS_Entry/nginx.conf`. The runtime adds an extra resolver timeout, and
+   its `/monitor/` upstream uses the Docker service name through a variable
+   instead of a fixed address.
+2. S5.5 is partially present on the server while PR #118 is still an unmerged
+   Draft. The S5.4 receipt had recorded the egress network as absent.
+3. The server-side repository checkout predates current `main`.
+4. No real client source class was observed at the HUB.
+
+The shared application bridge being `internal=false` was already documented and
+is not new drift.
+
+```text
+LIVE_SERVER_INVENTORY = PASS
+PR10_S1               = IN PROGRESS (at inventory time; S1 later closed — see §15)
+READY_FOR_PR10_S2     = NO
+S2_STARTED            = NO
+PRODUCTION_MUTATION   = NONE
+HARDWARE_TESTING      = NOT RUN
+PRODUCTION_DEPLOYED   = NO
+```
 
 ## 3. Arch Linux inventory (candidate Core host)
 
@@ -140,7 +250,9 @@ NTP, a wired NIC). Before acting as the Core host it needs:
 3. A dedicated unprivileged service account and a project venv with pinned
    dependencies.
 4. Host and broker hardening to a production baseline (D2, D6).
-5. A decision on sharing the host with IDEA2 services and workstation use (D6).
+5. The D6 tenancy rules applied (decided 2026-09-12): a dedicated Core appliance
+   with no personal desktop use; IDEA2 stays only if separately approved,
+   unprivileged, isolated, and kept off the ESP32 AP/control boundary.
 6. A deliberate host identity.
 
 Python 3.14 against the IDEA3 suite: **NOT TESTED**.
@@ -179,7 +291,7 @@ bring any of them down without separate explicit authorization.
 
 | Question | Finding | Evidence |
 |---|---|---|
-| Does the current proxy support `/security/`? | **No route exists** in the repository HUB config; live config NOT PROVEN | PROVEN (repo) / NOT PROVEN (live) |
+| Does the current proxy support `/security/`? | **No route exists** in the repository HUB config or in the live NGINX configuration (2026-09-12, §2A) | PROVEN (repo) / OBSERVED (live, §2A) |
 | Is the Vite base compatible? | **Yes**: `base: '/security/'` | PROVEN |
 | Is Express routing compatible? | **Yes, but it differs from Drive/Monitor.** Production Express mounts API and SPA under `/security` itself, so the proxy must **forward the full path without stripping the prefix**, plus a `/security` → `/security/` redirect | PROVEN (source) |
 | Can the HUB reach IDEA3 Web? | **Not as currently built.** Production Web and the PR9 runtime assume **loopback-only access**, and a containerized HUB cannot reach a host-loopback service | PROVEN (source) + INFERRED |
@@ -207,7 +319,10 @@ bring any of them down without separate explicit authorization.
   the runtime HUB config, and possibly Compose. That requires Kla integration
   review, a declaration in the PR, a rollback, and deliberate reconciliation of
   the Git and runtime copies.
-- **PR #118 sequencing remains relevant.**
+- **PR #118 sequencing remains relevant.** On 2026-09-12 S5.5 was observed
+  PARTIALLY PRESENT on the server (§2A): the egress network and `AEGIS-PS-*`
+  firewall chains exist, the connector is not running, and no S5.5 runtime file
+  or systemd unit was observed.
 - The IDEA3 Core must not depend on IDEA2 services. PR9 already starts Core
   with `--no-detector`.
 - Adding the HUB Security card is a later step, after `/security/` is proven.
@@ -265,8 +380,9 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
 - **Arch candidate host (PROVEN):** the default Web port is occupied by a local
   development instance (irrelevant unless Web is placed on this host); the
   control port is free; the broker port is in use by the existing broker.
-- **AEGIS Server:** **`SERVER_AVAILABLE_PORTS` is NOT PROVEN.** A live read-only
-  listener and firewall inventory is an S2 prerequisite.
+- **AEGIS Server (live, 2026-09-12, §2A):** only the HUB publishes host ports
+  (80/443). The IDEA3 candidate host ports are free, and D3/D5 require no direct
+  IDEA3 host port.
 - **Firewall asymmetry:** host-level services and Docker-published services
   interact with the server's host firewall differently (INFERRED). D3 must
   account for this.
@@ -325,11 +441,11 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
 |---|---|---|
 | Server: React + Express + SQLite + adapters + correlation + accepted-action state | source ready except the dispatch ledger; proxied hosting needs source and HUB/infra changes | **FEASIBLE after changes (D3)** |
 | Arch: Python Core, Supervisor, Controller, MQTT ownership, heartbeat | Core source ready; the PR9 owner always starts Core **and** Web, so a Core-only owner and unit are needed; host preparation required | **FEASIBLE after Core-only runtime work and host preparation** |
-| ESP32: MQTT, HMAC, nonce, ACK, STATUS, heartbeat, relay | contract proven in the lab; final network undefined; reflash needed | **BLOCKED ON D1** |
+| ESP32: MQTT, HMAC, nonce, ACK, STATUS, heartbeat, relay | contract proven in the lab; final network decided (D1: Core-host private AP); reflash needed | **DECIDED (D1, D2) — implementation pending** |
 | Browser never owns MQTT | true today | **SATISFIED** |
-| Broker placement | not specified by the target | **DECISION D2** |
+| Broker placement | Core host, AP-only plus loopback, TLS (D2) | **DECIDED (D2) — implementation pending** |
 
-### 13.2 Recommended PR10 topology (for owner review — not implemented)
+### 13.2 Accepted PR10 topology (owner-accepted D1–D8 — not implemented)
 
 ```text
                 AEGIS Server (VLAN 10) — behind the relayed uplink: CUT isolates all of it
@@ -355,58 +471,175 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
 - **Core pulls; the server never calls into the Core host.** The Core host
   exposes no inbound HTTP listener, the server's atomic SQLite update
   implements "Core Claimed", and a server outage does not stop heartbeats.
-- **Web packaging (D3), recommended: a container on a dedicated HUB↔IDEA3
+- **Web packaging (D3), decided: a hardened container on a dedicated HUB↔IDEA3
   network.** This mirrors the proven IDEA1 proxy pattern and avoids host-firewall
-  asymmetry. It is pending Kla review.
+  asymmetry. The HUB and Compose changes still need Kla review before
+  implementation.
 
 ### 13.3 Server → Core boundary constraints for S2
 
 **A durable, authenticated Server → Core boundary is required.**
+
+Decisions D4, D5, and D7 (§14) resolve the choices this table left open. §14 is
+authoritative for them.
 
 | Constraint | Requirement | Basis |
 |---|---|---|
 | Durable action ID | the server mints an immutable `action_id` at Admin acceptance, stored durably (schema v3) before it is claimable. It is distinct from the incident ID and the firmware nonce | acceptance writes only `containment_decisions` today (PROVEN) |
 | Idempotency | one dispatch per accepted decision, enforced by a unique constraint. Core persists every claimed `action_id`, never republishes for a replayed claim, and records `action_id → nonce` | 409 on reversal (PROVEN); Core pending state is in-memory (PROVEN) |
 | Freshness / TTL | a server-issued expiry. Expired actions become `EXPIRED`, are never claimable, and are never published late. Core re-checks expiry on its own synchronized clock; the ESP32 still enforces 30 s | firmware contract (PROVEN) |
-| Claim semantics | atomic compare-and-set `PENDING_DISPATCH → CLAIMED` if still pending and unexpired. Recommend **terminal** claims: no auto re-dispatch after an unknown publish outcome | INFERRED |
+| Claim semantics | **decided (D7):** atomic `PENDING_DISPATCH → CORE_CLAIMED` only while pending and unexpired; terminal single-shot claims; a claimed action is never re-dispatched automatically; TTL 120 s from acceptance | owner decision |
 | Duplicate / concurrent claims | the second claimant receives a conflict. Only one registered, authenticated Core identity may claim. The Core-side instance lock covers one data root, not multiple hosts | PROVEN + INFERRED |
 | Restart behaviour | Core reloads its ledger. Claimed-but-unpublished becomes `OUTCOME_UNKNOWN` and is never silently republished; RESTORE is never auto-retried. Server restart keeps pending actions until expiry. No restart path sends `RESTORE_UPLINK` | PROVEN (no-RESTORE-on-shutdown) |
 | Authentication | no cross-host channel exists today (PROVEN). Requires a dedicated machine credential over TLS, bound to the Core identity and rotatable. Never the Admin session, HMAC key, broker credential, or IDEA1/IDEA2 tokens | PROVEN + requirement |
-| Transport route | via the HUB with an edge guard, or a dedicated server endpoint (D5) | INFERRED |
+| Transport route | **decided (D5):** HUB HTTPS 443 on a dedicated machine path under `/security/`, with an edge guard limited to the Core host and an mTLS client certificate; no new published server port | owner decision |
 | Failure behaviour | Core or dispatch unavailability shows `DISPATCH_PENDING`/`UNAVAILABLE` and never "Contained". Failure never publishes and never degrades into auto-RESTORE | fail-secure rule |
 | **Post-publish evidence under CUT** | the server is isolated after CUT, so **Core owns ACK/STATUS/relay evidence durably** and reconciles it back to the server, append-only, after connectivity returns | §12.7 |
-| **RESTORE authority** | cannot originate from the server Web during LOCKDOWN. It must be Core-local or out-of-band (D4) | §12.7 |
+| **RESTORE authority** | cannot originate from the server Web during LOCKDOWN. **Decided (D4):** an authenticated, audited Core-local CLI only | §12.7 + owner decision |
 | Audit ownership | Server: Candidate → Admin Accepted → Pending Dispatch (plus mirrored reconciliation). Core: Claimed → Published → ACK → STATUS. Relay and physical network evidence remain separate evidence classes, never auto-promoted | evidence model |
 | Lifecycle vocabulary | `CANDIDATE → ADMIN_ACCEPTED → PENDING_DISPATCH → CORE_CLAIMED → PUBLISHED → ACK → STATUS → RELAY_EVIDENCE → PHYSICAL_NETWORK_EVIDENCE`, plus `EXPIRED`, `REJECTED`, `OUTCOME_UNKNOWN`, `FAILED`. Today's `containmentBoundary()` false fields stay false until the owning side records evidence | PROVEN (`domain/containment.js`) |
-| Actions in scope | recommend `CUT_UPLINK` dispatch only; RESTORE stays Core-local (D4) | INFERRED |
+| Actions in scope | **decided (D4, D7):** `CUT_UPLINK` dispatch only; RESTORE stays Core-local | owner decision |
 
-## 14. Unresolved architecture decisions
+## 14. Architecture decisions D1–D8 — DECIDED / OWNER-ACCEPTED (2026-09-12)
 
-| ID | Decision | Why it blocks | Owner |
+The owner accepted this decision set on 2026-09-12. It is architecture only:
+nothing here is implemented, installed, configured, deployed, or flashed.
+Implementation belongs to later, separately authorized PR10 sessions. Every
+decision stays subject to the remaining S1 gates in §15.
+
+| ID | Topic | Accepted decision | Implementation dependencies |
 |---|---|---|---|
-| **D1** | Final ESP32 network: Wi-Fi attachment and segment, a path to the Core independent of the relayed uplink, and reflash scope | no AEGIS Wi-Fi is inventoried; history is on a temporary lab network | Music + Kla |
-| **D2** | Broker host and production hardening (recommended: Core side) | the broker must survive a server CUT, and the current baseline is not production-hardened | Music (+ Kla) |
-| **D3** | IDEA3 Web packaging and `/security/` reverse-proxy topology (container on a dedicated network recommended), CSP owner, cookie scope, trusted-proxy identity | the current Web assumes loopback-only access | Music (source) + Kla (HUB/infra) |
-| **D4** | RESTORE authority during LOCKDOWN (Core-local vs out-of-band) | the server is unreachable during CUT | Music |
-| **D5** | Server↔Core transport (via the HUB with an edge guard, or a dedicated endpoint) and credential type | no cross-host channel exists | Music + Kla |
-| **D6** | Core host identity, tenancy (IDEA2 co-residence, workstation use), hardening, and segment | the Core host becomes a whole-server availability dependency | Music (+ Pub, + Kla) |
-| **D7** | Claim-model details: TTL, terminal vs lease, `OUTCOME_UNKNOWN`, reconciliation | defines schema v3 and the Core ledger | Music |
-| **D8** | Server Web session store (in-memory vs durable) | restart logs Admins out | Music |
+| **D1** | Final ESP32 network | The Core host runs a dedicated private Wi-Fi access point for the ESP32 only. Nothing is forwarded or routed from that AP. The ESP32 reaches the Core and MQTT directly, and the Core provides the ESP32's local time source. No new AP hardware and no new VLAN. | Core-host AP and time service; ESP32 reflash with new network, broker endpoint, and local time source |
+| **D2** | Broker location and hardening | The MQTT broker runs on the Arch Core host. It listens only on the ESP32 AP address plus loopback for local Core access. Separate Core and ESP32 credentials, a per-topic ACL, and no anonymous access. The host firewall blocks MQTT from the wired/uplink side. MQTT runs over TLS, and the ESP32 verifies the broker certificate against a pinned private CA. The ESP32 signs ACK and STATUS, and the Core verifies the signed ACK and STATUS. | broker, CA, and certificate lifecycle with expiry monitoring (an expired certificate would stop heartbeats and trigger a Deadman CUT); firmware signing plus Core verification in the same reflash |
+| **D3** | IDEA3 Web packaging and `/security/` topology | IDEA3 Web runs as a hardened container on a dedicated internal network behind HUB/NGINX at `/security/`, with no direct public host port. NGINX is the single owner of browser-facing security headers and CSP, and parity tests verify the intended IDEA3 policy. The full path is forwarded, IDEA3 trusts one pinned proxy, and the session cookie is scoped to `/security`. | IDEA3 container build and trusted-proxy source work; HUB/Compose change needs Kla review |
+| **D4** | RESTORE authority during LOCKDOWN | RESTORE is authorized only through an authenticated and audited Core-local CLI (for example `aegisctl restore`), from the console or approved Management-VLAN SSH. It goes through the Core's single command owner, is never automatic, and requires explicit operator confirmation, reason, and incident context. There is no Telegram or Web recovery authority. | new CLI with a strong salted, slow-hash secret replacing the current PIN hash; durable Core audit, reconciled to the server afterwards |
+| **D5** | Server↔Core transport and credential | The Core pulls, claims, and reports server dispatch actions through HUB HTTPS 443 on a dedicated machine path under `/security/`. A HUB edge guard restricts the route to the Core host and hides it from normal users, and an mTLS client certificate authenticates the Core to the machine endpoint. No new dedicated published server port. | route ownership needs Kla/infrastructure review before implementation; client-certificate lifecycle (expiry stops dispatch but does not cause a CUT) |
+| **D6** | Core host identity, tenancy, and segment | The current Arch laptop becomes a dedicated Core appliance: personal desktop use stops; it gets a dedicated service account and production hardening; sleep, suspend, and lid-suspend are disabled during implementation; the host firewall denies by default; maintenance uses controlled windows because Core downtime can trigger a Deadman CUT. Its wired segment is VLAN 20 via switch port 3, and its Wi-Fi is reserved for the D1 access point. IDEA2 may remain only if separately approved, unprivileged, isolated, and kept off the ESP32 AP/control boundary. | host preparation; Pub approval if IDEA2 remains; Kla awareness for the VLAN 20 attachment |
+| **D7** | Claim model | One unique `action_id` per accepted incident, with terminal single-shot claims. The claim is an atomic `PENDING_DISPATCH → CORE_CLAIMED` transition, and a claimed action is never re-dispatched automatically. A CUT action expires 120 s after acceptance; the Core re-checks expiry before publishing, and expired actions are never published. No valid ACK or no correlated STATUS gives `OUTCOME_UNKNOWN`, which requires human review. No automatic retry. Device STATUS remains the physical-state evidence source. Reconciliation is Core → server, append-only and idempotent by `action_id`. | additive Web schema v3 dispatch ledger; durable Core claim ledger |
+| **D8** | Server Web session store | Production Web uses a bounded in-memory TTL session store. It keeps the current login, CSRF, and logout semantics and the existing secure cookie policy. The idle timeout is `AEGIS_SESSION_IDLE_MS`, default 30 minutes. The store caps its entries and prunes periodically. No auth session state is persisted to disk, so a container restart invalidates sessions and logs the Admin out. | small IDEA3 session store replacing the default MemoryStore |
 
-## 15. S2 prerequisites
+## 15. S1 gates (closed 2026-09-12) and S2 prerequisites
 
-1. Owner architecture review of this document and decisions D1–D8 (at minimum D1–D5).
-2. **A live, read-only AEGIS Server inventory** by an authorized operator on an
-   approved path, covering host identity, interfaces and routes, listeners,
-   container/network/volume names and states, host-firewall status, `.env`
-   variable **names** relevant to HUB/Compose, the live-vs-Git HUB NGINX drift,
-   and host runtime availability. Record it in an owner-controlled location,
-   print no values, and publish only conclusions.
-3. Kla integration agreement on `/security/` route ownership, the dedicated
-   network, firewall impact, and sequencing with Draft PR #118.
-4. Pub acknowledgement if the Core shares a host with IDEA2 services (D6).
-5. Core host attached to the chosen AEGIS segment; reachability re-measured.
-6. The S2 session record opened in `idea3/idea3-status.md` before its first mutation.
+Owner architecture decisions D1–D8 are **done** (§14, 2026-09-12). The
+authorized read-only live AEGIS Server inventory is **done**
+(`LIVE_SERVER_INVENTORY = PASS`, 2026-09-12, §2A).
+
+Until 2026-09-12, S1 stayed IN PROGRESS with `READY_FOR_PR10_S2 = NO` while
+one gate remained: **the Kla/integration-owner decision and its reconciliation
+for the D3/D5 shared infrastructure.** It covered:
+
+- ownership of the `/security/` location and the D5 machine path in the runtime
+  and Git HUB configurations, including the existing runtime↔Git drift;
+- the dedicated HUB↔IDEA3 network: final subnet allocation, and whether the HUB
+  is recreated or attached at runtime;
+- mTLS placement (optional verification on 443 or a separate server name) and
+  CA ownership;
+- confirmation that IDEA3 adds no host firewall rules ahead of the S5.5
+  anchors;
+- sequencing relative to PR #118 / S5.5, whose infrastructure is observed as
+  partially present.
+
+After Kla decides, the decision is formally reconciled into the S1
+architecture gate.
+
+The decision set was prepared as the **K1–K12 review package** (§15A). On
+2026-09-12 the owner accepted every K-decision for owner review, and the IDEA3
+owner then reported Kla's integration approval of K1–K12 (scope and provenance
+in §15A).
+
+- **The S1 gate is closed: `PR10_S1 = PASS / CLOSED`.**
+- **The approval is architecture/integration only.** It authorizes no
+  Production change. Every PR10 Production change still needs its own
+  reviewed, authorized change.
+- **S2 has not started.** `READY_FOR_PR10_S2 = NO` until the owner explicitly
+  approves the continuation model (S2 in a new, explicitly named task/PR).
+
+Implementation conditions carried by the decisions, for later sessions rather
+than S1 gates:
+
+- Pub approval if IDEA2 remains on the Core host (D6).
+- The Core host attached to VLAN 20 via port 3, with reachability re-measured
+  (D6).
+- The S2 session record opened in `idea3/idea3-status.md` before its first
+  mutation.
+
+```text
+D1_D8 = DECIDED / OWNER-ACCEPTED
+LIVE_SERVER_INVENTORY = PASS
+KLA_DECISIONS_K1_K12 = APPROVED
+KLA_INTEGRATION_APPROVAL = APPROVED (architecture/integration only)
+PRODUCTION_CHANGE_AUTHORIZED = NONE
+S1 = PASS / CLOSED
+READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
+S2_STARTED = NO
+PRODUCTION_MUTATION = NONE
+HARDWARE_TESTING = NOT RUN
+```
+
+## 15A. Kla / integration-owner review package K1–K12 — APPROVED (2026-09-12)
+
+```text
+KLA_DECISIONS_K1_K12 = APPROVED (owner-accepted 2026-09-12; Kla integration approval reported 2026-09-12)
+KLA_INTEGRATION_APPROVAL = APPROVED
+APPROVAL_SCOPE = ARCHITECTURE / INTEGRATION ONLY
+PRODUCTION_CHANGE_AUTHORIZED = NONE
+PR10_PRODUCTION_ROLLOUT = BLOCKED (each change needs its own reviewed authorization)
+LIVE_SERVER_INVENTORY = PASS
+S1 = PASS / CLOSED
+READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
+S2_STARTED = NO
+```
+
+This package covers the D3/D5 shared infrastructure. On 2026-09-12 the owner
+accepted the recommended direction of every K-decision for owner review; at
+that point Kla's approval was pending. **The IDEA3 owner then reported Kla's
+integration approval of K1–K12 on 2026-09-12.**
+
+**Provenance:** the approval was relayed by the IDEA3 owner in the working
+session. No approval comment or review had been recorded on PR #122 at
+closeout.
+
+- **Scope: architecture/integration only.** K1–K12 are the agreed contract for
+  later PR10 work.
+- **No Production change is authorized.** No NGINX, Compose, network,
+  firewall, certificate, router, DNS, VLAN, Twingate, or deployment change is
+  authorized, and none has been made.
+- **Each future change needs its own approval.** Every future
+  shared-infrastructure change still needs its own reviewed, authorized
+  change.
+- **IDEA3 still does not edit shared surfaces.** It does not edit another
+  owner's runtime or shared surface just because K1–K12 are approved.
+- **Owner-accepted decisions are unchanged.** D1–D8 (§14) are not reopened.
+- **Evidence labels** follow §2A.
+- **Public safety:** addresses and names below are placeholders or
+  descriptions. The final values belong in Kla's infrastructure records.
+
+| ID | Subject | Accepted direction (for owner review) | Key implementation conditions | Material NOT PROVEN | Status |
+|---|---|---|---|---|---|
+| **K1** | Ownership of the shared HUB NGINX configuration | **Kla is the single editor and integration owner** of the HUB NGINX configuration in Git and Production. The existing Git↔runtime drift is reconciled first; after that, Git is the source of truth. `/security/` is added only on that baseline. IDEA3 supplies the route contract, the CSP/security policy, and the tests, and never edits the shared HUB runtime itself | the drift reconciliation comes first; the change is a Kla-reviewed infrastructure change | — | APPROVED (architecture/integration only) |
+| **K2** | The `/security/` location contract | `/security` redirects to `/security/`. `/security/` proxies to the IDEA3 container over the full path with no prefix rewrite, and IDEA3 has no direct public host port. HUB NGINX owns the browser-facing security headers and CSP, using the single-hop proxy-header contract with the original `Host` preserved for IDEA3's CSRF Origin check. `Cache-Control: no-store` may pass through from IDEA3. The D5 machine sub-path returns **404** on the browser block. Routing tests and CSP/header-parity tests are added | **before claiming single header ownership, enumerate every security-related response header IDEA3/Helmet actually emits, and have the edge suppress or intentionally own each one** (do not assume a fixed list) | UI compatibility with the strict HUB CSP (especially `style-src` without `'unsafe-inline'`); runtime routing; session-cookie and CSRF Origin behaviour through the HUB; refusal of every machine-path case variant | APPROVED (architecture/integration only) |
+| **K3** | Sequencing relative to PR #118 / S5.5 | S5.5 reaches a stable, validated state, or is formally rolled back, **before** the PR10 D3/D5 Production rollout. The PR10 rollout is a separate Kla-reviewed change, never in the same maintenance window as any S5.5 step. Each change keeps an independent rollback. PR10 work that doesn't touch Production (source, tests, S2 design once S1 closes) may continue in parallel | the pending host reboot is scheduled outside both windows; K12 confirmation comes before the PR10 rollout | S5.5's final state and timeline; S5.5 chain persistence across reboot; that S5.5's planned bridge table leaves an IDEA3 bridge untouched | APPROVED (architecture/integration only) |
+| **K4** | The IDEA3 Docker subnet | Allocate the candidate `/29` that did not overlap the observed live subnets and sits next to the S5.x public-share allocations. Host order: gateway `.1`, HUB `.2` (pinned trusted proxy), IDEA3 Web `.3`, `.4`–`.6` reserved. It is recorded in the infrastructure address plan through Kla's change, and IDEA3 trusts exactly the HUB's pinned address | Kla allocates the final value; re-check it immediately before the network is created | collisions with networks Kla plans but hasn't recorded; still free at rollout | APPROVED (architecture/integration only) |
+| **K5** | Dedicated IDEA3 network ownership and membership | `internal: true`, not attachable, **only the HUB and IDEA3 Web** as members. IDEA3 Web joins no other network (not the shared application bridge, the HUB↔Drive proxy network, the VLAN macvlan, or any S5.x network). It is defined in an IDEA3 production Compose overlay. Music owns the IDEA3 service; Kla owns the network, its address plan, and the HUB's membership. Any later cross-network need is a new reviewed decision | isolation is by membership, because same-bridge traffic isn't filtered by iptables on this host (PR #118 repository evidence) | IDEA3 Web's future outbound needs (`internal: true` blocks them); S5.5 bridge-table interaction; runtime behaviour | APPROVED (architecture/integration only) |
+| **K6** | Server firewall rules around the S5.5 anchors | PR10 adds **no** server host firewall or UFW rules (none in `INPUT`, `FORWARD`, `DOCKER-USER`, or nftables). It never modifies, reorders, or flushes S5.5's chains, anchors, or planned bridge table. Any future IDEA3 need is a separate Kla-owned change in its own chain, appended after the S5.5 anchors, with its own validation and rollback, and must not trip S5.5's drift checks | — | S5.5's future bridge table and drift checks versus the IDEA3 bridge and HUB 443; chain persistence (K12); the VLAN 20 → 443 path (K8) | APPROVED (architecture/integration only) |
+| **K7** | How the HUB joins the IDEA3 network | A **managed Compose recreate**: the network is added to the HUB in a reviewed overlay, and the canonical Compose file order is updated to include that overlay. Validate the rendered model first. Start IDEA3 Web first, then recreate only the HUB, in an announced Kla-run window separate from S5.5 and the reboot. Verify afterwards: HUB health and networks, `/drive/`, `/monitor/`, `/monitor/internal` 404, `/security` redirect and proxy, machine-path 404 on the browser block. Rollback returns to the previous file list and recreates only the HUB. Runtime attach is for emergencies only | every task's `up` must use the same canonical file list | recreate duration and user impact; a clean HUB return on three networks with its bind mounts; the exact overlay syntax until K1; operator procedures using the new list | APPROVED (architecture/integration only) |
+| **K8** | The Core → HUB HTTPS 443 machine route | HUB 443 is the **only** machine route, with no new server port. Kla confirms the router allows VLAN 20 → server:443. The machine route is served on its own block (K9). The path runs from the Core (VLAN 20) through the router's inter-VLAN routing and the server's relayed uplink to Docker's 443 translation and the HUB. It is unavailable during a CUT, as designed, and D7 and D4 cover that | implementation-time acceptance test from VLAN 20: TLS handshake succeeds, a valid Core certificate is accepted, a missing or wrong one is rejected, browsers get 404 on the machine path | VLAN 20 → 443 reachability; the router rule; latency and reliability; real-source visibility (K11) | APPROVED (architecture/integration only) |
+| **K9** | Server name and mTLS enforcement | A **separate SNI server block** for the machine route with `ssl_verify_client on`. It uses a Kla-chosen internal machine name (placeholder `<idea3-core>.aegis.internal`) with its own server certificate from the internal CA. The browser block stays `server_name _` as `default_server`. The machine block proxies only the D5 path; everything else returns 404. NGINX sets the verified-identity headers itself, overwriting client copies. IDEA3 accepts them only from the HUB's pinned address and requires `SUCCESS` | the Core resolves the machine name via a hosts entry on the Core host (Music) or router DNS (Kla) | name resolution from the Core; coexistence with the `default_server` block; the machine server certificate (not issued); PKI directory contents (not inspected) | APPROVED (architecture/integration only) |
+| **K10** | The machine-client CA and its lifecycle | A **dedicated IDEA3 machine-client CA** that issues only `clientAuth` certificates (path length 0), separate from the browser server CA and the D2 MQTT CA. The HUB's machine block trusts only this CA. **Kla holds the CA key offline, not on the AEGIS Server.** The Core generates its own key and CSR, and the key never leaves the Core. Kla signs a certificate valid about 90 days, renewed around day 60 with a brief overlap | expiry is monitored, and it only pauses dispatch, never causing a CUT; revocation uses a Kla-maintained local CRL loaded by the HUB (`ssl_crl`), IDEA3's expected-subject check, and short lifetimes | existing PKI contents; final lifetime and rotation steps; the HUB's CRL reload behaviour; expiry monitoring (not built) | APPROVED (architecture/integration only) |
+| **K11** | Source-IP allowlisting | **mTLS is mandatory and primary.** Source allowlisting is optional defence-in-depth only, and never blocks S1 or S2 readiness. It is enabled only when all of these hold: the Core has its fixed VLAN 20 address (D6); a Core-host test shows the HUB's machine-block log recording that address, not the Docker gateway; the result holds after a HUB recreate; the evidence is recorded first. It lives only in NGINX's machine block (`allow <core>/32; deny all;`), never in the host firewall. If the real source isn't preserved: no HUB allowlist, **never allowlist the Docker gateway address**, rely on mTLS on the separate block, and optionally a Kla router rule permitting only VLAN 20 → server:443 | — | real-source preservation on the VLAN 20 → 443 path; whether a router rule is wanted; allowlist behaviour | APPROVED (architecture/integration only) |
+| **K12** | Intent and persistence of the partial S5.5 state (owners: Kla + IDEA1) | Kla and IDEA1 confirm in writing whether the partial live S5.5 state is intended, and whether the `AEGIS-PS-*` chains survive a host reboot (no S5.5 systemd unit was observed, so the boot-time re-apply mechanism is unknown). Both answers are recorded before any PR10 Production rollout. The pending reboot is scheduled outside the S5.5 and PR10 windows, with the chains re-checked afterwards. PR10 work that doesn't touch Production may continue | S5.5 truth: egress network present, `AEGIS-PS-*` chains present and anchored, connector not running, no S5.5 runtime file or systemd unit observed; neither fully deployed nor fully absent | that the partial state is intended; chain persistence across reboot; S5.5's final state and timeline; the effect of pending updates | APPROVED (architecture/integration only) |
+
+**Reconciliation:** Kla's approval is recorded here, in §15, and in the
+`idea3/idea3-status.md` S1 row, and S1 is closed.
+
+- **S2 readiness** additionally requires the owner's explicit approval of the
+  continuation model (S2 runs in a new, explicitly named task/PR). That
+  approval has not been given.
+- **External dependencies remain separately owned:**
+  - K12 needs Kla + IDEA1 confirmation before any PR10 Production rollout;
+  - D6 needs separate Pub/IDEA2 approval for IDEA2 co-residence.
+- **Implementation-time checks stay NOT PROVEN** until then: the VLAN 20 → 443
+  path, source-address visibility, and CSP compatibility.
 
 ## 16. Commands executed (all read-only)
 
@@ -427,6 +660,20 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
   which was refused. No publish and no AEGIS topic subscription.
 - **Validation:** `git diff --check`, vault validation, and collaboration-policy
   tests (results in the task record).
+- **Live AEGIS Server inventory (2026-09-12, §2A), all read-only:**
+  - **Unprivileged SSH reads:** platform and runtime versions, storage and mount
+    layout, listener bind classes, and systemd unit presence. Also the published
+    host ports (from process arguments), a structural parse of the runtime
+    Compose files that skipped environment and secret keys, existence checks on
+    the S5.5 runtime files, and the repository checkout commit.
+  - **HUB configuration comparison:** a comment-stripped comparison of the
+    runtime HUB NGINX configuration against Git, made through a temporary local
+    scratch copy that was deleted afterwards.
+  - **Owner-run root reads:** container-to-network attachments, network internal
+    flags, the volume list, UFW status, the iptables backend, policies, and
+    chain order, the NAT rules for 80/443, the nft table list, a redacted
+    `nginx -T`, the host-to-container configuration hash comparison, and HUB log
+    source-class counts.
 
 ## 17. Explicit non-actions
 
@@ -448,4 +695,12 @@ firmware/hardware action outside S1 and needs a separately approved PR10 step
   not signalled.
 - No environment file, firmware secret, credential file, token, or key content
   read or printed.
+- During the 2026-09-12 live inventory, nothing was changed on the server:
+  - no package update or reboot, even though host maintenance items were
+    pending;
+  - no service restart or reload;
+  - no Docker, NGINX, firewall, routing, file, or permission change;
+  - no `.env`, secret, private-key, certificate, or container-environment read;
+  - no SSH configuration or key-material change; the owner's agent-held key was
+    used for signing only.
 - No final receipt, and no merge.
