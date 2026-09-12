@@ -336,6 +336,19 @@ describe('PR10 S2 dispatch action at acceptance', () => {
     expect(repository.listPendingDispatchActions()).toEqual([])
   })
 
+  it('W5: an acceptance that conflicts with an earlier rejection returns 409 and mints nothing', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    await decide(agent, csrfToken, { decision: 'REJECT' })
+    const conflicting = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+
+    expect(conflicting.status).toBe(409)
+    expect(conflicting.body.error.code).toBe('CONTAINMENT_DECISION_CONFLICT')
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(mintedAudit(repository)).toEqual([])
+  })
+
   it('W4: mints nothing while Demo Mode is active', async () => {
     const { repository, app } = dispatchApp()
     const { agent, csrfToken } = await adminAgent(app)

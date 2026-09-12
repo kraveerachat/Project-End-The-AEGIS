@@ -284,6 +284,18 @@ describe.each(REPOSITORIES)('PR10 S2 dispatch minting — %s repository', (_name
     expect(dispatchAudit(repository, 'ACTION_MINTED')).toEqual([])
   })
 
+  it('W4: gives every minted action its own unique action_id', () => {
+    const repository = create(mutableClock())
+
+    const actionIds = ['inc-unique-0001', 'inc-unique-0002', 'inc-unique-0003'].map((incidentId) => (
+      repository.recordContainmentDecision({ ...DECISION, incidentId }, { mintDispatch: true }).dispatch.actionId
+    ))
+
+    expect(new Set(actionIds).size).toBe(3)
+    expect(actionIds.every((actionId) => UUID_V4.test(actionId))).toBe(true)
+    expect(repository.listPendingDispatchActions().map(({ actionId }) => actionId).sort()).toEqual([...actionIds].sort())
+  })
+
   it('W5: returns the same action for a repeated or conflicting decision and never mints a second one', () => {
     const repository = create(mutableClock())
 
@@ -305,6 +317,17 @@ describe.each(REPOSITORIES)('PR10 S2 dispatch minting — %s repository', (_name
 
     expect(retried).toEqual(expect.objectContaining({ status: 'UNCHANGED', dispatch: null }))
     expect(repository.listPendingDispatchActions()).toEqual([])
+  })
+
+  it('W5: mints nothing for an acceptance that conflicts with an earlier rejection', () => {
+    const repository = create(mutableClock())
+
+    repository.recordContainmentDecision({ ...DECISION, decision: 'REJECT', state: 'CONTAINMENT_REJECTED' }, { mintDispatch: true })
+    const conflicting = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+
+    expect(conflicting).toEqual(expect.objectContaining({ status: 'CONFLICT', dispatch: null }))
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(dispatchAudit(repository, 'ACTION_MINTED')).toEqual([])
   })
 
   it('W8: keeps an action pending before 120 s and expires it at 120 s, auditing the expiry once', () => {
