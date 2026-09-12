@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,11 +427,11 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS — see "S2 Task 0" to "S2 Task 7" below | `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14` (Task 7); Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 8–11 of the plan (shared contract fixture, negative controls, regression, closeout) | STOP for owner review at the Batch B boundary; do not start Task 8 without continuation approval |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS — see "S2 Task 0" to "S2 Task 8" below | `82a67326facc358f466423e2912ebe055eee9866` (Task 8); Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 9–11 of the plan (negative controls, regression, closeout) | Task 9 (NC1–NC5), within the owner-approved final continuation (Tasks 8–11) |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–7 are recorded below; Task 7 (`1e4af697`, PASS) completes C1–C10 and closes the owner-approved Batch B execution window. Tasks 8–11 remain. This session stops for owner review before Task 8. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–8 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, and Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract. The owner approved the final continuation (Tasks 8–11); Tasks 9–11 remain. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
@@ -1153,6 +1153,90 @@ were removed and the isolated final runs reported zero surviving processes.
   unstaged.
 - **Remaining:** Tasks 8, 9, 10, and 11.
 - **Next:** STOP FOR OWNER REVIEW. Do not begin Task 8 in this session.
+
+#### S2 Task 8 — shared Web↔Core contract fixture (2026-09-12)
+
+Checkpoint: `82a67326facc358f466423e2912ebe055eee9866`. Result: PASS. The
+owner approved the final continuation (Tasks 8–11) on 2026-09-12. Evidence
+class: LOCAL / SIMULATED.
+
+**Work performed (test-first):** both contract suites were written before
+the fixture existed. RED was then observed for the right reason on each side:
+
+- pytest failed collection with `FileNotFoundError`;
+- Vitest failed with `ENOENT`;
+
+both for `tests/fixtures/dispatch-contract.json`.
+
+The first Web RED run failed for a different reason: "The URL must be of
+scheme file". Under the jsdom Vitest environment, `import.meta.url` is not a
+`file:` URL, so this was a defect in the test itself. It was fixed by
+resolving the path from `process.cwd()`, as the other server tests do, and the
+Web RED then showed `ENOENT`.
+
+The fixture was then added, and both suites passed without any product-source
+change. **No Web/Core contract mismatch was found.**
+
+**What the contract pins**
+(`IDEA3-AEGIS_Lockdown/tests/fixtures/dispatch-contract.json`):
+
+- **Actions:** `CUT_UPLINK` only (`RESTORE_UPLINK` never), UUIDv4 action ids,
+  the fixed 120 000 ms expiry, and the server states.
+- **Evidence format:** canonical millisecond UTC timestamps, the seven
+  evidence stages, sequences 1–1000, and the detail allowlist.
+- **Machine route:** the paths (`/api/machine/v1`, and
+  `/security/api/machine/v1` in production), the response keys, and every
+  claim refusal, report outcome, and identity rejection, each with the Core
+  result it maps to.
+- **Core output:** the exact set of 12 evidence entries the Core emits.
+- **Evidence ladder:** no evidence ever implies `executed` or
+  `physical_evidence`.
+
+**How both sides consume it:**
+
+- **Core → Web:**
+  - The Core test drives the real ledger and worker (fake client, fake
+    supervisor, injected clock) through every outcome. Those are: publish,
+    dry run, ACK, NORMAL and LOCKDOWN STATUS, a non-OK ACK, the ACK and STATUS
+    timeouts, a lost claim response, MQTT unavailable, expiry at the Core,
+    and restart.
+  - It requires the emitted evidence to equal the contract set exactly, and
+    to stay within the allowlist.
+  - The Web test requires the server's evidence validator to accept every one
+    of those entries.
+- **Web → Core:**
+  - The Web test requires the machine app to answer with the contract's
+    paths, response keys, statuses, and codes, including under the
+    production base path.
+  - The Core test requires its client to parse the contract's example
+    bodies, to use the contract paths, and to map every status and code to
+    the contract's Core result.
+
+**Exact changes:**
+
+- new `tests/fixtures/dispatch-contract.json`;
+- new `tests/test_dispatch_contract.py`;
+- new `web/tests/server/dispatchContract.test.js`.
+
+No product source or configuration changed.
+
+| Suite | Result |
+|---|---|
+| Contract tests | Web 9/9; Core 7/7 |
+| pytest | 331 passed, 6 skipped (+7) |
+| Vitest | 493/493 in 28 files (+9, +1 file) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| `git diff --check` | pass |
+
+- **No Production, hardware, or network interaction:** the fixture is test
+  data only. Every test uses temporary SQLite files, fakes, and supertest's
+  local loopback server.
+- **Hygiene:** files were staged by explicit path. The unrelated
+  `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
+  paths remain untracked and unstaged.
+- **Remaining:** Tasks 9–11.
+- **Next:** Task 9 (negative controls NC1–NC5).
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
