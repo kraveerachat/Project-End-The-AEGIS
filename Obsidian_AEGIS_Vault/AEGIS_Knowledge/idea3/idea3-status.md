@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12)
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; source not started)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline recorded at `640cebc9` (see "S2 Task 0" below); no source changed | `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (G1: design + plan, with the machine-listener topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 1–11 of the plan; owner decision on the pre-existing dev-only `vitest` advisory | Task 1 (Web schema v3 and dispatch domain), only on the owner's explicit go-ahead |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS — see "S2 Task 0" and "S2 Task 1" below | `677acbe635f4e79173b97f9c035bbef6195060e1` (Task 1); G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 2–11 of the plan | Task 2 (minting at acceptance, expiry, CUT-only), on the owner's go-ahead |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline is recorded below; Task 1 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Task 1 (`677acbe6`, PASS) are recorded below; Task 2 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source not started
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 committed at `677acbe6`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -578,8 +578,8 @@ differs. No source changed. Evidence class: LOCAL.
 - **S2 handling:** S2 does not upgrade it, because that is out of scope. The
   S2 audit bar is therefore: 0 production-dependency vulnerabilities and no new
   finding against this baseline.
-- **Owner decision needed:** whether the upgrade becomes a separate IDEA3
-  task.
+- **Owner decision (2026-09-12):** accepted as a known dev-only finding. No
+  separate upgrade task is opened.
 
 **Harness note (failed run kept):**
 
@@ -598,6 +598,67 @@ differs. No source changed. Evidence class: LOCAL.
 - No new loopback listeners.
 - Disposable roots and bytecode removed.
 - `git status --short` clean.
+
+#### S2 Task 1 — Web schema v3 and dispatch domain (2026-09-12)
+
+Checkpoint: `677acbe635f4e79173b97f9c035bbef6195060e1`. Result: PASS
+(W1, W2, W3, W14). Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change:
+
+- the new suite could not load, because there was no dispatch module yet;
+- the schema and readiness still reported v2;
+- the Core accepted a v2 Web and rejected a v3 Web.
+
+GREEN followed with the minimum change.
+
+**Exact changes:**
+
+- **New `web/server/domain/dispatch.js`:** the vocabulary (`CUT_UPLINK`
+  only; `PENDING_DISPATCH` / `CORE_CLAIMED` / `EXPIRED`; the seven Core
+  evidence stages) and the fixed 120 s TTL.
+- **`web/server/repositories/sqliteRepository.js`:**
+  - exports `AUDIT_SCHEMA_VERSION = 3`;
+  - adds `dispatch_actions` and `dispatch_evidence`, whose CHECK lists are
+    built from the domain module;
+  - v1 and v2 databases migrate additively; unknown versions still fail
+    closed.
+- **`web/server/createApp.js`:** readiness requires v3.
+- **Cross-component v2 → v3 contract.** This is the same deliberate change,
+  applied to files that were not in the plan's Task 1 file list:
+  - `aegis_soc/production_runtime.py` (`WEB_AUDIT_SCHEMA_VERSION = 3`);
+  - the `tests/test_production_runtime.py` fixtures;
+  - the readiness assertion in `deploy/production-like-acceptance.py`.
+
+  Without them the composite runtime would report DEGRADED and the PR9 driver
+  would fail.
+- **Tests:**
+  - new `web/tests/server/dispatchLedger.test.js` (W1 ×3, W2, W14);
+  - `sqliteRepository.test.js`: v2 → v3 expectations; the v1 fixtures also
+    drop the new tables; W3 for unknown versions 0, 4, and 99;
+  - `productionRuntime.test.js`: v3 readiness; W3 for v2 and v4 → 503;
+  - `test_production_runtime.py`: v3 fixtures; a stale version (2, 4, or
+    none) → DEGRADED.
+
+**Not added yet (by design):** there is no minting, claim, or read API; that
+starts in Task 2. W14 uses a SQL fixture until minting exists, and W8 covers
+expiry.
+
+| Suite | Result against the Task 0 baseline |
+|---|---|
+| Vitest | 316/316 in 25 files (+7 tests, +1 file) |
+| pytest | 248 passed, 6 skipped (+3 parametrized cases; the same 6 PowerShell 7 skips) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED`, with the v3 readiness contract |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 2–11.
+- **Next:** Task 2, on the owner's go-ahead.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
