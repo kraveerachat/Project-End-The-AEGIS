@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -214,7 +214,7 @@ PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
 OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2         = YES
-PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422)
+PR10_S2                   = IN PROGRESS (G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930)
 S2_STARTED                = YES (2026-09-12)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
@@ -427,16 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side — see "S2 Task 0" to "S2 Task 4" below | `9314342256f27230e5345ce6be87167086dbe162` (Task 4); Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 5–11 of the plan (Core side, shared contract fixture, negative controls, regression, closeout) | Task 5 (Core dispatch ledger), only on the owner's explicit approval of the Task 4 checkpoint |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS — see "S2 Task 0" to "S2 Task 5" below | `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d` (Task 5); Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | Tasks 6–11 of the plan (Core client and worker, shared contract fixture, negative controls, regression, closeout) | Task 6 (Core dispatch client), within the owner-approved Batch B (Tasks 5–7) |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), Task 3 (`5cae52e3`, PASS), and Task 4 (`93143422`, PASS) are recorded below; Task 5 has not started. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline, Task 1 (`677acbe6`, PASS), Task 2 (`3f67cd85`, PASS), Task 3 (`5cae52e3`, PASS), Task 4 (`93143422`, PASS), and Task 5 (`9f0f7930`, PASS) are recorded below; Task 6 is next in the owner-approved Batch B. The G1 checkpoint is the design + TDD plan, plus two clarifications:
 
 - **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
 - **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
 
-Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`, Task 5 at `9f0f7930`
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
@@ -913,10 +913,15 @@ class: LOCAL.
 - **Default:** with dispatch disabled, the snapshot and PR9 behaviour are
   unchanged.
 
-**Refinement for owner review:** spec §4.8 names only the allowlist. When an
-incident has a dispatch action, the Dashboard follows its recorded ACK
-evidence instead. As a result, `OUTCOME_UNKNOWN` after a real ACK still shows
-as acknowledged.
+**Refinement — ACCEPTED by the owner (2026-09-12):** spec §4.8 names only
+the allowlist. When an incident has a dispatch action, the Dashboard follows
+its recorded valid ACK evidence instead. As a result, `OUTCOME_UNKNOWN` after
+a real ACK still shows as acknowledged.
+
+- ACK means acknowledgement/receipt only.
+- It never implies execution, relay confirmation, physical evidence, or
+  successful containment.
+- Incidents without a dispatch action keep the fixed-state behaviour.
 
 **Files beyond the plan's Task 4 list:**
 
@@ -947,6 +952,79 @@ as acknowledged.
   fixed as described above.
 - **Remaining:** Tasks 5–11.
 - **Next:** Task 5, on the owner's explicit approval.
+
+#### S2 Task 5 — Core dispatch ledger (2026-09-12)
+
+Checkpoint: `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`. Result: PASS (C3,
+C4, C6 at the storage level; storage for C1, C5, C7). The owner approved
+Batch B (Tasks 5–7) on 2026-09-12. Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change.
+
+- The ledger tests failed to import, because `aegis_soc.dispatch_ledger` did
+  not exist.
+- The path and child-environment tests failed with "`RuntimePaths` object has
+  no attribute `dispatch_db`".
+
+Two more ledger tests were added to the same failing file before the module
+existed: a repeated STATUS is recorded once, and a LOCKDOWN STATUS that
+arrives before the ACK is still correlated.
+
+**Behaviour:**
+
+- **Separate ledger file:** `<data root>/data/core-dispatch.sqlite3`. The
+  hash-chained Core audit database is untouched.
+- **Replay guard:** the claim intent is committed before any claim, and a
+  replayed action id is refused, including after reopening.
+- **Forward-only transitions:** `CLAIM_REQUESTED → CLAIMED → PUBLISHED →
+  ACK_RECEIVED → STATUS_CORRELATED`, with terminal `DRY_RUN_ONLY`, `FAILED`,
+  `EXPIRED_AT_CORE`, `CLAIM_REJECTED`, and `OUTCOME_UNKNOWN`.
+- **Nonce correlation:**
+  - the nonce stays Core-local, and ACK and STATUS correlate by nonce only;
+    a mismatched nonce is ignored;
+  - a non-OK ACK becomes `OUTCOME_UNKNOWN`;
+  - a repeated STATUS is recorded once, so periodic device status cannot
+    exhaust the server's 1000-sequence limit;
+  - a LOCKDOWN STATUS that arrives before the ACK is correlated once the ACK
+    arrives.
+- **CUT_UPLINK only:** enforced by a code check and a schema CHECK.
+- **Outbox:** each reported stage appends one row in the server's evidence
+  format (canonical `…sssZ` timestamps and allowlisted detail codes).
+  Delivery and rejection dispositions are kept.
+- **Recovery and timeouts:** restart recovery and stale-stage timeouts mark
+  `OUTCOME_UNKNOWN`, without retry.
+- **Threads:** the worker loop and the MQTT callbacks run on different
+  threads, so one lock serializes ledger access.
+- **Paths:**
+  - `RuntimePaths.dispatch_db` is a property derived from the data root, so
+    existing constructors and equality tests are unchanged;
+  - `AEGIS_CORE_DISPATCH_DB_PATH` is passed in the Core's child environment.
+
+**Exact changes** (all in the plan's Task 5 list):
+
+- new `aegis_soc/dispatch_ledger.py` and `tests/test_dispatch_ledger.py`;
+- `aegis_soc/paths.py` and `aegis_soc/production_runtime.py`;
+- new tests in `tests/test_paths.py` and `tests/test_production_runtime.py`.
+
+| Suite | Result |
+|---|---|
+| pytest | 268 passed, 6 skipped (+20: 18 ledger, 1 path, 1 child environment) |
+| Ruff, compileall | clean |
+| Vitest | 484/484 (unchanged) |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:**
+  - the ledger is local SQLite only, and the tests use temporary paths;
+  - no MQTT, network, subprocess, SSH, Twingate, or hardware call was added;
+  - the scan matched only a comment, a docstring, and test reason codes.
+- **Residue:** no stray database files in the repository; 0 runtime
+  processes; disposable roots removed.
+- **Remaining:** Tasks 6–11.
+- **Next:** Task 6, part of Batch B.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 
