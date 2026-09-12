@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { DISPATCH_LIST_LIMIT, dispatchAuditEntry, pendingDispatchAction, validateDispatchListLimit } from '../domain/dispatch.js'
+import {
+  DISPATCH_ACTIONS,
+  DISPATCH_LIST_LIMIT,
+  dispatchAuditEntry,
+  pendingDispatchAction,
+  validateDispatchListLimit,
+} from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
 import {
   DEFAULT_SETTINGS,
@@ -108,10 +114,27 @@ export function createMemoryRepository({ clock = () => new Date() } = {}) {
       const now = clock().toISOString()
       expirePastDueDispatch(now)
       return [...dispatchActions.values()]
-        .filter((action) => action.state === 'PENDING_DISPATCH' && action.expiresAt > now)
+        .filter((action) => action.state === 'PENDING_DISPATCH' && action.expiresAt > now && DISPATCH_ACTIONS.includes(action.action))
         .sort(byAcceptance)
         .slice(0, limit)
         .map((action) => ({ ...action }))
+    },
+    claimDispatchAction(actionId, { subject } = {}) {
+      if (typeof subject !== 'string' || subject.length === 0) {
+        throw new TypeError('A machine subject is required to claim a dispatch action')
+      }
+      const now = clock().toISOString()
+      expirePastDueDispatch(now)
+      const action = dispatchActions.get(actionId)
+      if (!action) return { status: 'NOT_FOUND', dispatch: null }
+      if (!DISPATCH_ACTIONS.includes(action.action)) return { status: 'NOT_DISPATCHABLE', dispatch: { ...action } }
+      if (action.state === 'EXPIRED') return { status: 'EXPIRED', dispatch: { ...action } }
+      if (action.state !== 'PENDING_DISPATCH') return { status: 'ALREADY_CLAIMED', dispatch: { ...action } }
+      action.state = 'CORE_CLAIMED'
+      action.claimedAt = now
+      action.claimedBy = subject
+      appendAudit(dispatchAuditEntry('ACTION_CLAIMED', action, 'machine-core'))
+      return { status: 'CLAIMED', dispatch: { ...action } }
     },
     recordIntegrationOutcome({ sources = [], conflicts = [], incidents = [] } = {}) {
       const recorded = []

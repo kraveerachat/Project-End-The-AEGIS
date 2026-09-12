@@ -429,3 +429,90 @@ describe('PR10 S2 dispatch minting — SQLite atomicity and restart', () => {
     expect(dispatchAudit(later, 'ACTION_MINTED')).toHaveLength(1)
   })
 })
+
+describe.each(REPOSITORIES)('PR10 S2 dispatch claim — %s repository', (_name, create) => {
+  it('W6: claims a pending action once, recording the subject and time', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const { dispatch } = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+    clock.set(at(30_000))
+
+    const claimed = repository.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+
+    expect(claimed).toEqual({
+      status: 'CLAIMED',
+      dispatch: { ...dispatch, state: 'CORE_CLAIMED', claimedAt: at(30_000), claimedBy: 'idea3-core' },
+    })
+    expect(repository.readDispatchAction(dispatch.actionId)).toEqual(claimed.dispatch)
+    expect(dispatchAudit(repository, 'ACTION_CLAIMED')).toEqual([expect.objectContaining({
+      actorRef: 'machine-core', resourceId: dispatch.actionId,
+    })])
+  })
+
+  it('W7: a second or replayed claim is refused as already claimed and changes nothing', () => {
+    const repository = create(mutableClock())
+    const { dispatch } = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+    const first = repository.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+
+    const second = repository.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+
+    expect(second).toEqual({ status: 'ALREADY_CLAIMED', dispatch: first.dispatch })
+    expect(dispatchAudit(repository, 'ACTION_CLAIMED')).toHaveLength(1)
+  })
+
+  it('W8: a past-due action is expired by the claim itself and never claimed', () => {
+    const clock = mutableClock()
+    const repository = create(clock)
+    const { dispatch } = repository.recordContainmentDecision(DECISION, { mintDispatch: true })
+    clock.set(at(DISPATCH_TTL_MS))
+
+    const claimed = repository.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+
+    expect(claimed).toEqual({ status: 'EXPIRED', dispatch: expect.objectContaining({ state: 'EXPIRED', claimedBy: null }) })
+    expect(dispatchAudit(repository, 'ACTION_EXPIRED')).toHaveLength(1)
+    expect(dispatchAudit(repository, 'ACTION_CLAIMED')).toEqual([])
+  })
+
+  it('reports an unknown action as not found', () => {
+    expect(create(mutableClock()).claimDispatchAction('5b0e3c1e-0000-4000-8000-000000000000', { subject: 'idea3-core' }))
+      .toEqual({ status: 'NOT_FOUND', dispatch: null })
+  })
+})
+
+describe('PR10 S2 dispatch claim — SQLite connections and CUT_UPLINK only', () => {
+  it('W7: of two repository connections on one database file, exactly one claim wins', () => {
+    const path = databasePath()
+    const clock = mutableClock()
+    const first = createSqliteRepository({ path, clock })
+    const second = createSqliteRepository({ path, clock })
+    opened.push(first, second)
+    const { dispatch } = first.recordContainmentDecision(DECISION, { mintDispatch: true })
+
+    const winner = first.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+    const loser = second.claimDispatchAction(dispatch.actionId, { subject: 'idea3-core' })
+
+    expect(winner.status).toBe('CLAIMED')
+    expect(loser).toEqual({ status: 'ALREADY_CLAIMED', dispatch: winner.dispatch })
+    expect(dispatchAudit(second, 'ACTION_CLAIMED')).toHaveLength(1)
+  })
+
+  it('W11: a stored non-CUT_UPLINK action is never listed and never claimed', () => {
+    const path = databasePath()
+    const repository = open(path)
+    repository.recordContainmentDecision(DECISION)
+    inspect(path, (database) => {
+      // Bypass the schema CHECK only to prove the list and claim paths re-check the action.
+      database.exec('PRAGMA ignore_check_constraints = 1')
+      const auditId = database.prepare('SELECT id FROM audit_log ORDER BY id DESC LIMIT 1').get().id
+      database.prepare(`
+        INSERT INTO dispatch_actions (action_id, incident_id, action, state, accepted_at, expires_at, audit_id)
+        VALUES (?, ?, 'RESTORE_UPLINK', 'PENDING_DISPATCH', ?, ?, ?)
+      `).run(ACTION_ID, DECISION.incidentId, ACCEPTED_AT, EXPIRES_AT, auditId)
+    })
+
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(repository.claimDispatchAction(ACTION_ID, { subject: 'idea3-core' }))
+      .toEqual({ status: 'NOT_DISPATCHABLE', dispatch: expect.objectContaining({ state: 'PENDING_DISPATCH', claimedBy: null }) })
+    expect(dispatchAudit(repository, 'ACTION_CLAIMED')).toEqual([])
+  })
+})

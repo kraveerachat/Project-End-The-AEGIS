@@ -409,10 +409,40 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
       expirePastDueDispatch(now)
       return database.prepare(`
         SELECT * FROM dispatch_actions
-        WHERE state = 'PENDING_DISPATCH' AND expires_at > ?
+        WHERE state = 'PENDING_DISPATCH' AND expires_at > ? AND action IN (${sqlValues(DISPATCH_ACTIONS)})
         ORDER BY accepted_at, action_id
         LIMIT ?
       `).all(now, limit).map(dispatchRow)
+    })
+  }
+
+  /**
+   * Atomic single-shot claim (D7, spec §4.6). Past-due actions are expired
+   * first. Then one unexpired pending CUT_UPLINK action moves to CORE_CLAIMED.
+   * A second or replayed claim is refused, and a claimed action is never
+   * claimed again.
+   */
+  function claimDispatchAction(actionId, { subject } = {}) {
+    if (typeof subject !== 'string' || subject.length === 0) {
+      throw new TypeError('A machine subject is required to claim a dispatch action')
+    }
+    return transaction('claim dispatch action', () => {
+      const now = nowIso(clock)
+      expirePastDueDispatch(now)
+      const select = database.prepare('SELECT * FROM dispatch_actions WHERE action_id = ?')
+      const row = select.get(actionId)
+      if (!row) return { status: 'NOT_FOUND', dispatch: null }
+      if (!DISPATCH_ACTIONS.includes(row.action)) return { status: 'NOT_DISPATCHABLE', dispatch: dispatchRow(row) }
+      if (row.state === 'EXPIRED') return { status: 'EXPIRED', dispatch: dispatchRow(row) }
+
+      const claimed = database.prepare(`
+        UPDATE dispatch_actions SET state = 'CORE_CLAIMED', claimed_at = ?, claimed_by = ?
+        WHERE action_id = ? AND state = 'PENDING_DISPATCH' AND expires_at > ?
+      `).run(now, subject, actionId, now)
+      const current = dispatchRow(select.get(actionId))
+      if (claimed.changes !== 1) return { status: 'ALREADY_CLAIMED', dispatch: current }
+      insertAuditRecord(dispatchAuditEntry('ACTION_CLAIMED', current, 'machine-core'), now)
+      return { status: 'CLAIMED', dispatch: current }
     })
   }
 
@@ -592,6 +622,7 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     readContainmentDecision,
     readDispatchAction,
     listPendingDispatchActions,
+    claimDispatchAction,
     recordIntegrationOutcome,
     schemaVersion,
     updateSettings,
