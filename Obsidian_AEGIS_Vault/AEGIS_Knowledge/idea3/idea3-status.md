@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-11
+updated: 2026-09-12
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. S2 has not started, and `READY_FOR_PR10_S2 = NO` until the owner explicitly approves the continuation model. No Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is now IN PROGRESS on `feat/idea3-pr10-s2-server-core-boundary`. No Production change is authorized, and nothing is deployed. Read "PR10 pre-flight evidence reconciliation — 2026-09-11" and the PR10 Current Task below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -163,7 +163,7 @@ HARDWARE_RERUN_IN_THIS_RECONCILIATION = NO
   splits Web (AEGIS Server) from Core (Arch Linux). No split-host or
   Server-to-Core boundary exists in source: NOT IMPLEMENTED.
 
-### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED)
+### PR10 — server-hosted deployment: IN PROGRESS (S1 documentation merged via PR #120; D1–D8 owner-accepted; live server inventory PASS; K1–K12 Kla-approved; S1 PASS / CLOSED; S2 IN PROGRESS)
 
 Target architecture as defined by the owner on 2026-09-11. It has not yet been
 designed in a repository spec or plan; the S1 inventory is
@@ -194,12 +194,13 @@ Branch: `feat/idea3-pr10-real-deployment` (S1 branch; merged through PR #120, re
 Owner: `music`
 PR: GitHub PR #120 — MERGED by a human reviewer at `93170862cbf5b5a802042d12c84944abd39d9123` (2026-09-11T16:21:40Z) while PR10 was still IN PROGRESS; see "PR10 workflow exception" below
 Workflow-recovery branch: `docs/idea3-pr10-postmerge-reconciliation` — GitHub PR #121 (docs-only reconciliation; not S2). Its single receipt, `90-Status/logs/2026-09-11_234455_music_idea3-pr10-postmerge-reconciliation.md`, covers the reconciliation only and is not the PR10 final receipt
-S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2)
+S1 closeout branch: `docs/idea3-pr10-d1-d8-architecture-decisions` — GitHub PR #122 (docs-only: D1–D8, the S1 live inventory, the K1–K12 package and its Kla approval, and the S1 closeout receipt; not S2) — MERGED by a human reviewer at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (2026-09-12). It is immutable and receives no further commits
+S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and PR for PR10 S2 (repository-only, non-Production) — GitHub Draft PR #123, opened 2026-09-12. It stays Draft; a human reviews and merges it. Its one receipt, `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`, is an S2 receipt, not the final PR10 receipt
 Current state: IN PROGRESS
 Started: 2026-09-11
-Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b`
-Last checkpoint: `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head; earlier public-safe inventory checkpoint `8250d694`)
-Production mutation allowed: NO (S1)
+Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; APPROVED by the owner 2026-09-12); S2 Task 1 `677acbe635f4e79173b97f9c035bbef6195060e1`; S2 Task 2 `3f67cd85440599b3ed63ae138da4b05819efd1ac` (coverage follow-up `94cfb2bfa750244ef6e8546c9f5edb479168e831`); S2 Task 3 `5cae52e392ece0d5c3aee45259c161598e1154ae`; S2 Task 4 `9314342256f27230e5345ce6be87167086dbe162`; S2 Task 5 `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`; S2 Task 6 `ba07feb4295dea6d881a30a7d94c48ef003c1464`; S2 Task 7 `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`; S2 Task 8 `82a67326facc358f466423e2912ebe055eee9866`; S2 Task 9 `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (C6 worker-test gap fix found by NC5); S2 Task 10 full regression bar PASS at `ed9efc4e285ea5e5cf2246b869570da5e6e06298`; S2 final implementation/evidence checkpoint `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record, immediately preceding the receipt closeout)
+Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
 ```text
@@ -211,8 +212,12 @@ KLA_DECISIONS_K1_K12      = APPROVED (2026-09-12)
 KLA_INTEGRATION_APPROVAL  = APPROVED (architecture/integration only)
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1                        = PASS / CLOSED (2026-09-12)
-READY_FOR_PR10_S2         = NO — awaiting explicit owner continuation approval
-S2_STARTED                = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2         = YES
+PR10_S2                   = PASS / CLOSED (2026-09-12; repository-only; LOCAL / SIMULATED; Draft PR #123, stays Draft; Task 11 closeout with one S2 receipt; G1 APPROVED 2026-09-12; Task 0 baseline recorded; Task 1 PASS at 677acbe6; Task 2 PASS at 3f67cd85, coverage follow-up 94cfb2bf; Task 3 PASS at 5cae52e3; Task 4 PASS at 93143422; Task 5 PASS at 9f0f7930; Task 6 PASS at ba07feb4; Task 7 PASS at 1e4af697; Task 8 PASS at 82a67326; Task 9 PASS at 74eb2c99 — NC1–NC5 observed, NC2 via NC2B, NC5 after the C6 worker-test gap fix; Task 10 PASS — full regression bar at ed9efc4e)
+S2_STARTED                = YES (2026-09-12)
+PR10_S2_PR                = #123 (DRAFT — never marked Ready or merged by an agent)
+PR10_S2_RECEIPT           = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md (S2 receipt, not the final PR10 receipt)
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 PRODUCTION_MUTATION       = NONE
@@ -257,7 +262,8 @@ and host-level specifics are deliberately not published):
 PR #120 was merged by a human while it still represented the S1
 inventory/architecture checkpoint. The merge records the S1 documentation on
 `main` but does not satisfy the PR10 completion gate. PR10 remains IN PROGRESS
-and S2 remains blocked pending the stated prerequisites.
+and S2 was blocked pending the stated prerequisites. The owner approved the
+continuation on 2026-09-12.
 
 Verified facts (GitHub and Git, 2026-09-11):
 
@@ -282,7 +288,7 @@ The merge does **not** mean:
 The merged S1 documentation is correct and public-safe, so it is kept. No
 revert, reset, or rewrite of `main` is proposed.
 
-**Continuation model — recommended for owner approval, not started:**
+**Continuation model — APPROVED by the owner on 2026-09-12:**
 
 - PR10 remains the project-sequence umbrella for the real deployment baseline.
 - The original "one open PR for all PR10 sessions" lifecycle cannot continue,
@@ -296,6 +302,8 @@ revert, reset, or rewrite of `main` is proposed.
 - The single final PR10 receipt belongs to the PR that performs the PR10 final
   handoff. It must record PR #120 as a premature human merge of the S1
   documentation checkpoint.
+- S2 started on 2026-09-12 as the new task branch
+  `feat/idea3-pr10-s2-server-core-boundary`; see "PR10 Session S2" below.
 
 ### PR10 architecture decisions D1–D8 — owner-accepted 2026-09-12
 
@@ -335,8 +343,10 @@ KLA_DECISIONS_K1_K12 = APPROVED
 KLA_INTEGRATION_APPROVAL = APPROVED
 PRODUCTION_CHANGE_AUTHORIZED = NONE
 S1 = PASS / CLOSED
-READY_FOR_PR10_S2 = NO — awaiting explicit owner continuation approval
-S2_STARTED = NO
+OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
+READY_FOR_PR10_S2 = YES
+S2_STARTED = YES (2026-09-12; repository-only, non-Production)
+PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; Draft PR #123)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -385,7 +395,9 @@ On 2026-09-12 the owner accepted the recommended direction of every K-decision
 for the D3/D5 shared infrastructure for owner review. The IDEA3 owner then
 reported Kla's integration approval of K1–K12 the same day, which closed the S1
 gate. **Provenance:** relayed by the IDEA3 owner; no approval comment or review
-was on PR #122 at closeout.
+was on PR #122 at closeout. After closeout, Kla's GitHub account submitted an
+APPROVED review of PR #122 (2026-09-12T07:58:33Z, no review text) and merged it
+at `b2f61ebf`.
 
 - **Scope:** the approval is **architecture/integration only** and authorizes
   **no Production change**. Every future shared-infrastructure change needs its
@@ -417,7 +429,1131 @@ was on PR #122 at closeout.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 in a new explicitly named task/PR, only after the owner explicitly approves the continuation model (`READY_FOR_PR10_S2 = NO` until then) |
+| S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | CLOSED | G1 design spec + TDD plan APPROVED by the owner (2026-09-12); Task 0 regression baseline at `640cebc9`; Task 1 (W1, W2, W3, W14) PASS; Task 2 (W4, W5, W14; W8 and W11 repository/route side) PASS; Task 3 (W6, W7, W9, W10; completes W8 and W11) PASS; Task 4 (W12, W13) PASS, which completes W1–W14 on the Web side; Task 5 (C3, C4, C6; storage for C1, C5, C7) PASS; Task 6 (C2, C7, C8 transport; typed list/claim/report client) PASS; Task 7 completes C1–C10 with worker/supervisor orchestration PASS; Task 8 (shared Web↔Core contract fixture) PASS; Task 9 (negative controls NC1–NC5 observed, no residue; NC2 via NC2B; NC5 after the C6 worker-test gap fix) PASS; Task 10 (full regression bar: Python, Web, Ruff, compileall, Vite, npm audit, PR9 drivers, repository, vault, diff, secret and path checks) PASS at `ed9efc4e` ; Task 11 closeout: Draft PR #123 and receipt `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md` — see "S2 Task 0" to "S2 Task 11" below | `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (final implementation/evidence checkpoint, the Task 10 record); Task 10 regression HEAD `ed9efc4e`; Task 9 C6 test `74eb2c99`; Task 8 `82a67326`; Task 7 `1e4af697`; Task 6 `ba07feb4`; Task 5 `9f0f7930`; Task 4 `93143422`; Task 3 `5cae52e3`; Task 2 coverage `94cfb2bf`; Task 2 `3f67cd85`; Task 1 `677acbe6`; G1 `32545ceb` (design + plan with the topology and configurable-bind clarifications — APPROVED by the owner 2026-09-12; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | PASS — W1–W14, C1–C10, the shared contract, NC1–NC5 (no residue), and the full regression bar; LOCAL / SIMULATED only; no Production change | — (S2 closed); PR10 Production integration not started | Human review of Draft PR #123 (an agent never marks it Ready or merges it). Any next PR10 session needs the owner's explicit approval, and Production work needs its own authorized K1–K12 changes |
+
+### PR10 Task Status Dashboard
+
+| Area | Status | Evidence / Note |
+|---|---|---|
+| S1 inventory + architecture gate | PASS / CLOSED | PR #122 at `b2f61ebf`; S1 receipt |
+| S2 design (G1) | APPROVED | `32545ceb`, by the owner on 2026-09-12 |
+| S2 source implementation (Web + Core) | PASS | W1–W14, C1–C10, the shared contract (Tasks 1–8) |
+| S2 negative controls | PASS | NC1–NC5 observed, no residue (Task 9) |
+| S2 local regression | PASS | full bar at `ed9efc4e` (Task 10) |
+| S2 Pull Request | DRAFT | PR #123; a human reviews and merges it |
+| Shared infrastructure K1–K12 | APPROVED (architecture only) / NOT IMPLEMENTED | each change needs its own authorized review |
+| Production deployment | NOT RUN | `PRODUCTION_CHANGE_AUTHORIZED = NONE` |
+| Hardware / live E2E | NOT RUN | PR11 scope |
+| Final PR10 gate | OPEN | PR10 IN PROGRESS; `IDEA3_PRODUCTION_COMPLETE = NO` |
+
+**Completed:**
+
+- S1 (PASS / CLOSED);
+- S2, Tasks 0–11 (PASS / CLOSED; LOCAL / SIMULATED).
+
+**Remaining:**
+
+- human review and merge of Draft PR #123;
+- the PR10 Production integration, each part owner-approved and
+  Kla-authorized under K1–K12:
+  - HUB `/security/`;
+  - the machine route with mTLS, and the CA;
+  - the IDEA3 network and the Production bind;
+  - the Core host rollout;
+- K12 confirmation (Kla + IDEA1);
+- D6 approval (Pub / IDEA2);
+- PR11 live cross-IDEA E2E;
+- the final PR10 receipt.
+
+**Planned, not started:** any PR10 Production session. It starts only with the
+owner's explicit approval, and never as part of S2.
+
+### PR10 Session S2 — Server → Core durable accepted-action boundary
+
+State: CLOSED / PASS (2026-09-12) — repository-only, LOCAL / SIMULATED, no Production change; Draft PR #123 awaits human review and stays Draft. G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` was APPROVED by the owner on 2026-09-12. The Task 0 regression baseline and Tasks 1–11 are recorded below. Task 7 (`1e4af697`, PASS) completed C1–C10, Task 8 (`82a67326`, PASS) pins the shared Web↔Core contract, and Task 9 (PASS) observed NC1–NC5 with no residue; its NC5 control found and closed a C6 worker-test gap (`74eb2c99`, test-only). Task 10 (PASS) ran the full regression bar at `ed9efc4e`. The owner approved the final continuation (Tasks 8–11). Task 11 closed the session: the canonical record, one S2 receipt, and Draft PR #123. PR10 itself stays IN PROGRESS. The G1 checkpoint is the design + TDD plan, plus two clarifications:
+
+- **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
+- **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
+
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source: Task 1 at `677acbe6`, Task 2 at `3f67cd85`, Task 3 at `5cae52e3`, Task 4 at `93143422`, Task 5 at `9f0f7930`, Task 6 at `ba07feb4`, Task 7 at `1e4af697`
+Started: 2026-09-12
+Branch: `feat/idea3-pr10-s2-server-core-boundary`
+Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
+Production mutation allowed: NO
+Evidence class: LOCAL / SIMULATED only
+
+**Continuation references:**
+
+- PR #120 and merge commit `93170862cbf5b5a802042d12c84944abd39d9123`, the
+  premature S1 documentation checkpoint;
+- the S1 inventory,
+  `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md`;
+- PR #121, the post-merge reconciliation;
+- PR #122 (`b2f61ebf`), the S1 closeout.
+
+**Plan:** the owner approved the kickoff definition on 2026-09-12. The work
+runs in this order:
+
+1. write the design spec and TDD plan;
+2. **G1 owner review — stop;**
+3. baseline the regression suites;
+4. implement the Web schema v3, minting, machine app, and evidence;
+5. implement the Core ledger, client, and worker;
+6. add the shared contract fixture;
+7. run the negative controls NC1–NC5;
+8. run the full regression;
+9. canonical closeout with one S2 receipt;
+10. open a Draft PR and stop before Ready.
+
+- **Spec:**
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-12-idea3-pr10-s2-server-core-boundary-design.md`
+- **Plan:**
+  `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-12-idea3-pr10-s2-server-core-boundary.md`
+
+**Why:** `SERVER_TO_CORE_DURABLE_ACCEPTED_ACTION_BOUNDARY = OPEN / NOT
+IMPLEMENTED`. Inventory §13.3 defines the boundary constraints for S2, and D7
+defines the claim model.
+
+**Scope:** limited to the §13.3 boundary, D7, and the IDEA3 side of D5.
+
+- **Web:**
+  - additive schema v3;
+  - Admin acceptance mints one `action_id` with a 120 s TTL;
+  - atomic single-shot claim;
+  - machine identity (pinned HUB peer + verified mTLS headers + expected
+    subject);
+  - append-only reconciliation;
+  - dispatch status display.
+- **Core:**
+  - durable dispatch ledger;
+  - dispatch client;
+  - claim → publish only through `issue_command`;
+  - reconciliation outbox;
+  - credential pause.
+- **Default:** both halves are disabled by default.
+
+**Expected changes:** only IDEA3 paths, as listed in the plan: Web server,
+tests, dashboard/i18n, Core modules and tests, `.env.example`, the spec and
+plan, and the canonical IDEA3 notes.
+
+**Expected evidence:**
+
+- W1–W14, C1–C10, and NC1–NC5;
+- the regression suites against the Task 0 baseline;
+- the PR9 drivers (`PRODUCTION_LIKE_VERIFIED`, 13/13);
+- vault, policy, diff, and secret checks.
+
+**Safety / Do-not-touch:**
+
+- **Production:** no Production deployment or Production database migration.
+- **Edge and network:** no live HUB, NGINX, Docker, Compose, or network
+  change; no firewall, UFW, or nftables change; no router, VLAN, or Twingate
+  change.
+- **Credentials:** no real certificate or CA issuance or installation.
+- **Hardware:** no firmware flashing; no hardware CUT/RESTORE.
+- **Other owners:** no IDEA1, IDEA2, or shared-infrastructure mutation.
+- **Access:** no SSH to the server or the Core host.
+- **Deferred:** every Production-facing K1–K12 action.
+
+**Dependencies:**
+
+- **Inherited K constraints:** K2 machine-path 404 contract, K4 pinned peer,
+  K9 identity headers, K10 subject and credential pause, K11 no allowlist,
+  K5 Core pulls.
+- **Before any rollout:** K12 (Kla + IDEA1).
+- **Separately owned:** D6 (Pub/IDEA2).
+
+#### S2 Task 0 — regression baseline (2026-09-12)
+
+**Measured at:** `640cebc92d96aec8a5d4c39525559e9ab9bdc57d`, the approved G1
+head. Its source tree matches `origin/main` `b2f61ebf`; only documentation
+differs. No source changed. Evidence class: LOCAL.
+
+**Environment:**
+
+- Arch Linux, kernel 7.2.3-arch1-2, x86_64.
+- A task-local venv outside the repository, with Python 3.14.7 and the
+  `requirements-dev.txt` pins (pytest 9.1.1, ruff 0.16.3, paho-mqtt 2.1.0).
+- Node v24.16.0 and npm 11.13.0; the Web dependencies come from the committed
+  lockfile through `npm ci` (264 packages).
+- `web/node_modules` and `web/dist` are gitignored, and Python bytecode was
+  redirected outside the tree.
+
+| Suite | Command | Exit | Result |
+|---|---|---|---|
+| Python full | `python -m pytest -p no:cacheprovider -q` | 0 | 245 passed, 6 skipped; matches PR9. All 6 skips are in `tests/test_windows_launcher.py`: "PowerShell 7 is required to execute the bundle staging contract" |
+| Ruff | `ruff check --no-cache aegis_soc tests windows deploy detector.py sim_auto_detector.py server_admin.py` | 0 | all checks passed |
+| compileall | `python -m compileall -q aegis_soc deploy windows detector.py server_admin.py sim_auto_detector.py tests` | 0 | pass |
+| Web full | `npx vitest run` | 0 | 309 passed in 24 files; matches PR9 |
+| Web build | `npx vite build` | 0 | 1,677 modules |
+| npm audit, PR9 form | `npm audit --omit=dev --offline` | 0 | 0 vulnerabilities |
+| npm audit, production deps online | `npm audit --omit=dev` | 0 | 0 vulnerabilities |
+| npm audit, full online | `npm audit` | 1 | 2 moderate — PRE-EXISTING, dev-only (see below) |
+| PR9 acceptance driver | `python deploy/production-like-acceptance.py --data-root <new disposable path with spaces>` | 0 | `PRODUCTION_LIKE_VERIFIED`, on the rerun (see the harness note) |
+| PR9 negative-control driver | `python deploy/production-like-negative-controls.py --data-root <empty disposable path with spaces>` | 0 | 13/13 PASS |
+| Repository | `node --test --test-concurrency=1 tests/*.test.mjs` | 0 | 63 passed; matches PR9 |
+| Vault, policy, diff | vault validator; policy validator (Draft event); `git diff --check origin/main HEAD` | 0 | pass (2 known canvas warnings) |
+
+**Acceptance-driver details:**
+
+- 2 generations; Web `READY`;
+- audit `PERSISTED_ACROSS_RESTART`;
+- IDEA1, IDEA2, and MQTT `NOT_CONFIGURED`; ESP32 and physical evidence
+  `UNKNOWN`;
+- 3 processes per generation, 0 surviving;
+- control token `ABSENT`; owner-only permissions; final `STOPPED`;
+- `productionMutation = false`.
+
+**Pre-existing finding (not introduced by S2):**
+
+- **Package:** `vitest@3.2.7`, a direct devDependency, via
+  `@vitest/mocker@3.2.7`.
+- **Advisory:** GHSA-82fw-gwwq-j7x9, moderate — path traversal / arbitrary file
+  read via a mocker redirect. It affects versions `>=2.1.0 <4.1.11`.
+- **Fix:** vitest 5.0.0, a semver-major upgrade.
+- **Impact:** production dependencies are unaffected; `npm audit --omit=dev`
+  finds 0.
+- **Classification:** pre-existing at the base; dev tooling only.
+- **S2 handling:** S2 does not upgrade it, because that is out of scope. The
+  S2 audit bar is therefore: 0 production-dependency vulnerabilities and no new
+  finding against this baseline.
+- **Owner decision (2026-09-12):** accepted as a known dev-only finding. No
+  separate upgrade task is opened.
+
+**Harness note (failed run kept):**
+
+- **Failure:** the first acceptance-driver run failed with
+  `group/world-accessible paths: .`.
+- **Cause:** the harness had pre-created the data root under umask 022, giving
+  mode 0755. The driver creates a missing root with mode 0700
+  (`validate_data_root`) but does not change an existing one.
+- **Classification:** environmental / harness, not a code defect.
+- **Rerun:** on a missing path, which the driver created with mode 0700, the
+  run passed. No source changed between the runs.
+
+**Residue:**
+
+- 0 runtime processes before and after each driver run.
+- No new loopback listeners.
+- Disposable roots and bytecode removed.
+- `git status --short` clean.
+
+#### S2 Task 1 — Web schema v3 and dispatch domain (2026-09-12)
+
+Checkpoint: `677acbe635f4e79173b97f9c035bbef6195060e1`. Result: PASS
+(W1, W2, W3, W14). Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change:
+
+- the new suite could not load, because there was no dispatch module yet;
+- the schema and readiness still reported v2;
+- the Core accepted a v2 Web and rejected a v3 Web.
+
+GREEN followed with the minimum change.
+
+**Exact changes:**
+
+- **New `web/server/domain/dispatch.js`:** the vocabulary (`CUT_UPLINK`
+  only; `PENDING_DISPATCH` / `CORE_CLAIMED` / `EXPIRED`; the seven Core
+  evidence stages) and the fixed 120 s TTL.
+- **`web/server/repositories/sqliteRepository.js`:**
+  - exports `AUDIT_SCHEMA_VERSION = 3`;
+  - adds `dispatch_actions` and `dispatch_evidence`, whose CHECK lists are
+    built from the domain module;
+  - v1 and v2 databases migrate additively; unknown versions still fail
+    closed.
+- **`web/server/createApp.js`:** readiness requires v3.
+- **Cross-component v2 → v3 contract.** This is the same deliberate change,
+  applied to files that were not in the plan's Task 1 file list:
+  - `aegis_soc/production_runtime.py` (`WEB_AUDIT_SCHEMA_VERSION = 3`);
+  - the `tests/test_production_runtime.py` fixtures;
+  - the readiness assertion in `deploy/production-like-acceptance.py`.
+
+  Without them the composite runtime would report DEGRADED and the PR9 driver
+  would fail.
+- **Tests:**
+  - new `web/tests/server/dispatchLedger.test.js` (W1 ×3, W2, W14);
+  - `sqliteRepository.test.js`: v2 → v3 expectations; the v1 fixtures also
+    drop the new tables; W3 for unknown versions 0, 4, and 99;
+  - `productionRuntime.test.js`: v3 readiness; W3 for v2 and v4 → 503;
+  - `test_production_runtime.py`: v3 fixtures; a stale version (2, 4, or
+    none) → DEGRADED.
+
+**Not added yet (by design):** there is no minting, claim, or read API; that
+starts in Task 2. W14 uses a SQL fixture until minting exists, and W8 covers
+expiry.
+
+| Suite | Result against the Task 0 baseline |
+|---|---|
+| Vitest | 316/316 in 25 files (+7 tests, +1 file) |
+| pytest | 248 passed, 6 skipped (+3 parametrized cases; the same 6 PowerShell 7 skips) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED`, with the v3 readiness contract |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 2–11.
+- **Next:** Task 2, on the owner's go-ahead.
+
+#### S2 Task 2 — dispatch action at Admin acceptance (2026-09-12)
+
+Checkpoint: `3f67cd85440599b3ed63ae138da4b05819efd1ac`. Result: PASS
+(W4, W5, W14; W8 and W11 for the repository and route side). Evidence class:
+LOCAL.
+
+**Work performed (test-first):** RED was observed before each source change.
+
+- 24 dispatch, acceptance, and parity tests failed, because the repository
+  functions and the CUT-only guard did not exist and the route minted nothing.
+- The 37 configuration tests failed, because there was no dispatch
+  configuration yet.
+
+**Behaviour:**
+
+- **Minting:** with dispatch enabled, a newly recorded ACCEPT mints exactly
+  one pending `CUT_UPLINK` action. It has a random UUID, and `expires_at` is
+  the acceptance time + 120 s. It is written in the same transaction as the
+  decision and its audit row, and an injected failure rolls back both.
+- **Nothing is minted** for:
+  - a rejection;
+  - a repeat or a conflict (the existing action is returned instead);
+  - Demo Mode;
+  - dispatch disabled;
+  - an acceptance first recorded while dispatch was disabled (never late).
+- **Listing and expiry:** listing expires past-due pending actions once (an
+  audited `ACTION_EXPIRED`), then returns the unexpired pending actions,
+  oldest first, at most ten. Reading returns the stored state; expiry is
+  applied by the list path now, and by the claim path from Task 3.
+- **Response:** the acceptance response adds `dispatch` and sets only
+  `command_requested`. Publish, ACK, execution, and physical evidence stay
+  false.
+- **Default:** dispatch is disabled by default, so the PR7/PR9 acceptance
+  response is unchanged.
+
+**Configuration (supporting tests):**
+
+- The enable flag accepts only `true` or `false`.
+- The internal port must differ from `PORT`.
+- The trusted proxy must be one IP address.
+- The machine subject must be a lower-case name.
+- `AEGIS_IDEA3_DISPATCH_HOST` comes from configuration:
+  - one specific IP literal; unspecified and IPv4-mapped forms are rejected;
+  - defaults to `127.0.0.1` outside production;
+  - in production, an explicit non-loopback value is required.
+- The browser listener stays loopback-only.
+- `.env.example` gains the keys, empty or `false`.
+
+**Exact changes:**
+
+- **Source:** `web/server/domain/dispatch.js`, `domain/containment.js`,
+  `repositories/sqliteRepository.js`, `repositories/memoryRepository.js`,
+  `routes/securityRoutes.js`, `config.js`, and `.env.example`.
+- **Tests:** `dispatchLedger.test.js`, `containmentAcceptance.test.js`, and
+  `config.test.js`.
+- **Deliberate change to an existing test:** the parity key list in
+  `sqliteRepository.test.js` now includes the two new repository functions.
+
+**Coverage follow-up (`94cfb2bfa750244ef6e8546c9f5edb479168e831`, tests
+only).** The owner's Task 2 requirement list was checked against the tests,
+and two gaps were closed:
+
+- **Conflict:** an ACCEPT that conflicts with an earlier REJECT mints
+  nothing, in both repositories, and the route returns 409.
+- **Uniqueness:** every minted action gets its own UUID `action_id`.
+
+The behaviour already existed at `3f67cd85`, so these tests could not be seen
+failing against the committed code. Instead, each was shown to detect its
+defect with a temporary source mutation, which was never committed:
+
+- **Late minting on a re-recorded decision:** 5 failures — the three new
+  conflict tests plus the two existing "never mints late" tests.
+- **A fixed, reused `action_id`:** 2 failures. SQLite refused the duplicate
+  key; the memory repository produced 1 distinct ID instead of 3.
+
+Each mutation was restored with `git checkout` and verified identical to the
+commit, and the tests then passed. After the follow-up:
+
+- Vitest 381/381, with 5 new cases;
+- pytest 248 passed, 6 skipped;
+- Ruff and compileall clean; Vite 1,677 modules;
+- PR9 acceptance `PRODUCTION_LIKE_VERIFIED`; negative controls 13/13;
+- repository 63/63;
+- vault, policy, and diff pass;
+- no interaction-scan match; no source change.
+
+**Still open for Task 3:** W8's claim-410 case and W11's claim side, because
+the claim itself is Task 3.
+
+| Suite | Result |
+|---|---|
+| Vitest | 376/376 in 25 files (+60 against Task 1) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production or hardware interaction:** a scan of the added lines found
+  no network, MQTT, subprocess, or hardware call. The only matches were a
+  test's SQLite trigger statements on a temporary database.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 3–11.
+- **Next:** Task 3, on the owner's go-ahead.
+
+#### S2 Task 3 — machine app, identity, and claim (2026-09-12)
+
+Checkpoint: `5cae52e392ece0d5c3aee45259c161598e1154ae`. Result: PASS
+(W6, W7, W9, W10; completes W8's claim-410 case and W11's claim side).
+Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change.
+
+- `machineRoutes.test.js` failed to load, because `createMachineApp.js` did
+  not exist.
+- 11 repository claim tests failed with "`claimDispatchAction` is not a
+  function".
+- The parity key list failed for the same reason.
+
+The browser-side W10 test is a guard test: it would already have passed
+before this change, because the browser app never served machine routes.
+
+**Behaviour:**
+
+- **Separate machine app** (`web/server/createMachineApp.js`):
+  - no session, auth, CSRF, static, or Admin route;
+  - exact-case `/api/machine/v1` prefix (`/security/api/machine/v1` in
+    production);
+  - 8 KB strict JSON; `Cache-Control: no-store`; no cookie;
+  - it refuses to build unless dispatch is enabled.
+- **Identity guard** (`web/server/security/machineIdentity.js`). Every request
+  must pass it first:
+  - no `Cookie` and no `Origin` header;
+  - the socket peer equals the pinned trusted proxy, and forwarded headers are
+    ignored;
+  - `X-AEGIS-Client-Verify` is exactly `SUCCESS`; a duplicated header is
+    refused;
+  - the DN has exactly one CN equal to the expected subject; escaped,
+    multi-valued, and duplicate CNs are refused.
+
+  A rejection returns 403 and writes no state. An authenticated request
+  records machine contact, which Task 4's display will use.
+- **Routes** (`web/server/routes/machineRoutes.js`):
+  - list the unexpired pending `CUT_UPLINK` actions;
+  - claim one with an atomic single-shot `PENDING_DISPATCH → CORE_CLAIMED`,
+    in one transaction that expires past-due actions first. It returns 200
+    claimed, 404 unknown, 410 expired, 409 already claimed or not
+    dispatchable, and 400 for a malformed id or body.
+
+  Listing and claiming re-check the action, so a non-`CUT_UPLINK` row, forced
+  in past the schema CHECK, is never listed or claimed.
+- **Runtime** (`web/server/runtime.js`, `index.js`): the machine listener
+  starts only when dispatch is enabled. It binds the configured
+  `AEGIS_IDEA3_DISPATCH_HOST` and `…_PORT` through an injectable `listen()`,
+  and shares one repository with the browser app, closed exactly once. With
+  dispatch disabled, the PR9 startup is unchanged.
+
+**Files beyond the plan's Task 3 list:** both repositories
+(`claimDispatchAction`, because the claim is a repository transaction per spec
+§4.6) and `runtime.js`, where server startup actually lives. The parity key
+list in `sqliteRepository.test.js` changed deliberately for
+`claimDispatchAction`.
+
+**Topology:**
+
+- The listener tests use an injected `listen()` and open no port.
+- The loopback trusted peer and bind address are local fixtures, not the
+  Production topology. The Production bind, network, and HUB wiring stay
+  deferred to K4/K5/K7.
+
+| Suite | Result |
+|---|---|
+| Vitest | 422/422 in 26 files (+41 against the Task 2 follow-up) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver (dispatch disabled) | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:**
+  - the added lines contain no MQTT, subprocess, SSH, Twingate, or hardware
+    call;
+  - the only listener is the runtime's `app.listen` hook, the same call PR9
+    made, used by the machine listener only when dispatch is enabled;
+  - tests use a fake `listen()` or supertest's local loopback server;
+  - two `PRAGMA ignore_check_constraints` statements act on temporary test
+    databases.
+- **Hygiene:** no injected-defect strings remain in the source.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none.
+- **Remaining:** Tasks 4–11.
+- **Next:** Task 4, on the owner's explicit approval.
+
+#### S2 Task 4 — evidence ingest and dispatch display (2026-09-12)
+
+Checkpoint: `9314342256f27230e5345ce6be87167086dbe162`. Result: PASS (W12,
+W13). With Tasks 1–3, every Web-side case W1–W14 is now covered. Evidence
+class: LOCAL.
+
+**Work performed (test-first):** RED was observed before each source change.
+
+- **Server:** 56 failures, because `safeDispatchEvidence`, `dispatchDisplay`,
+  and the evidence repository functions did not exist, and the snapshot had
+  no overlay (it still read `NOT_REQUESTED`).
+- **UI:** 5 of 6 client tests failed, because the new labels and the
+  `isAcknowledgedIncident` helper did not exist.
+- **The sixth client test, a guard for the demo's `ACKED` state,** failed
+  because of a defect in the test itself: the same text appears twice in the
+  spotlight. The test was fixed to read each fact row by its label. This guard
+  passes both before and after the change.
+
+**Behaviour:**
+
+- **Evidence ingest** (`POST …/dispatch/:actionId/evidence`, machine app,
+  identity required). It records one allowlisted Core-reported stage for a
+  claimed action.
+  - It is append-only and idempotent by `(action_id, sequence)`.
+  - It returns 201 recorded, 200 for an identical replay, 409 for a changed
+    replay or an unclaimed action, 404 unknown, and 400 outside the allowlist.
+  - Only stable codes are stored: `ackCode` `OK` (ACK only), `deviceState`
+    (STATUS only), and `reasonCode`, with canonical ISO timestamps and no
+    nonce or other field.
+- **Display.** The Admin snapshot overlays each incident that has an action
+  with a `responseState` and a `dispatch` summary (state, expiry,
+  human-review flag, and the containment boundary). Precedence:
+  - terminal states first (`OUTCOME_UNKNOWN`, `FAILED`, `EXPIRED_AT_CORE`,
+    `EXPIRED`, including a past-due pending action);
+  - then `STATUS_CORRELATED` (a LOCKDOWN STATUS only), `ACK_RECEIVED`,
+    `PUBLISHED` or `DRY_RUN_ONLY`, and `CORE_CLAIMED`;
+  - finally `DISPATCH_PENDING`, or `DISPATCH_UNAVAILABLE` when there has been
+    no authenticated machine contact in the last 120 s.
+- **No false claims:**
+  - `OUTCOME_UNKNOWN` is flagged for human review;
+  - no state reads "Contained";
+  - evidence is never promoted, so `executed` and `physical_evidence` stay
+    false for every combination of evidence (exhaustive test).
+- **Contact tracker:** the runtime shares one machine-contact tracker between
+  the machine and browser apps.
+- **Dashboard:**
+  - acknowledgement uses an explicit allowlist (`ACKED`, `ACKNOWLEDGED`,
+    `ACK_RECEIVED`, `STATUS_CORRELATED`) instead of a substring match on
+    "ACK";
+  - when an incident has a dispatch action, acknowledgement follows its ACK
+    evidence instead;
+  - the new states have Thai, English, and Chinese labels, in key parity.
+- **Default:** with dispatch disabled, the snapshot and PR9 behaviour are
+  unchanged.
+
+**Refinement — ACCEPTED by the owner (2026-09-12):** spec §4.8 names only
+the allowlist. When an incident has a dispatch action, the Dashboard follows
+its recorded valid ACK evidence instead. As a result, `OUTCOME_UNKNOWN` after
+a real ACK still shows as acknowledged.
+
+- ACK means acknowledgement/receipt only.
+- It never implies execution, relay confirmation, physical evidence, or
+  successful containment.
+- Incidents without a dispatch action keep the fixed-state behaviour.
+
+**Files beyond the plan's Task 4 list:**
+
+- `createApp.js`, `securityRoutes.js`, and `runtime.js` carry the contact
+  tracker to the browser app.
+- The UI tests are in a new `tests/client/dashboardDispatch.test.jsx` rather
+  than `status.test.js`.
+- The parity key list changed deliberately for the two evidence functions.
+
+| Suite | Result |
+|---|---|
+| Vitest | 484/484 in 27 files (+62 against Task 3) |
+| pytest | 248 passed, 6 skipped (unchanged) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver (dispatch disabled) | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:** the added lines
+  contain no MQTT, subprocess, SSH, Twingate, network, or hardware call. The
+  scan matched only test data (a `MQTT_UNAVAILABLE` reason code and a refused
+  `RELAY_EVIDENCE` stage) and the fake `listen()`.
+- **Hygiene:** no injected-defect strings remain in the source.
+- **Residue:** 0 runtime processes; disposable roots removed.
+- **Defects found:** none in the product; one test-construction defect,
+  fixed as described above.
+- **Remaining:** Tasks 5–11.
+- **Next:** Task 5, on the owner's explicit approval.
+
+#### S2 Task 5 — Core dispatch ledger (2026-09-12)
+
+Checkpoint: `9f0f7930f02c5d3b81a4495fa2bc444a3b3ee17d`. Result: PASS (C3,
+C4, C6 at the storage level; storage for C1, C5, C7). The owner approved
+Batch B (Tasks 5–7) on 2026-09-12. Evidence class: LOCAL.
+
+**Work performed (test-first):** RED was observed before any source change.
+
+- The ledger tests failed to import, because `aegis_soc.dispatch_ledger` did
+  not exist.
+- The path and child-environment tests failed with "`RuntimePaths` object has
+  no attribute `dispatch_db`".
+
+Two more ledger tests were added to the same failing file before the module
+existed: a repeated STATUS is recorded once, and a LOCKDOWN STATUS that
+arrives before the ACK is still correlated.
+
+**Behaviour:**
+
+- **Separate ledger file:** `<data root>/data/core-dispatch.sqlite3`. The
+  hash-chained Core audit database is untouched.
+- **Replay guard:** the claim intent is committed before any claim, and a
+  replayed action id is refused, including after reopening.
+- **Forward-only transitions:** `CLAIM_REQUESTED → CLAIMED → PUBLISHED →
+  ACK_RECEIVED → STATUS_CORRELATED`, with terminal `DRY_RUN_ONLY`, `FAILED`,
+  `EXPIRED_AT_CORE`, `CLAIM_REJECTED`, and `OUTCOME_UNKNOWN`.
+- **Nonce correlation:**
+  - the nonce stays Core-local, and ACK and STATUS correlate by nonce only;
+    a mismatched nonce is ignored;
+  - a non-OK ACK becomes `OUTCOME_UNKNOWN`;
+  - a repeated STATUS is recorded once, so periodic device status cannot
+    exhaust the server's 1000-sequence limit;
+  - a LOCKDOWN STATUS that arrives before the ACK is correlated once the ACK
+    arrives.
+- **CUT_UPLINK only:** enforced by a code check and a schema CHECK.
+- **Outbox:** each reported stage appends one row in the server's evidence
+  format (canonical `…sssZ` timestamps and allowlisted detail codes).
+  Delivery and rejection dispositions are kept.
+- **Recovery and timeouts:** restart recovery and stale-stage timeouts mark
+  `OUTCOME_UNKNOWN`, without retry.
+- **Threads:** the worker loop and the MQTT callbacks run on different
+  threads, so one lock serializes ledger access.
+- **Paths:**
+  - `RuntimePaths.dispatch_db` is a property derived from the data root, so
+    existing constructors and equality tests are unchanged;
+  - `AEGIS_CORE_DISPATCH_DB_PATH` is passed in the Core's child environment.
+
+**Exact changes** (all in the plan's Task 5 list):
+
+- new `aegis_soc/dispatch_ledger.py` and `tests/test_dispatch_ledger.py`;
+- `aegis_soc/paths.py` and `aegis_soc/production_runtime.py`;
+- new tests in `tests/test_paths.py` and `tests/test_production_runtime.py`.
+
+| Suite | Result |
+|---|---|
+| pytest | 268 passed, 6 skipped (+20: 18 ledger, 1 path, 1 child environment) |
+| Ruff, compileall | clean |
+| Vitest | 484/484 (unchanged) |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass |
+
+- **No Production, hardware, or network interaction:**
+  - the ledger is local SQLite only, and the tests use temporary paths;
+  - no MQTT, network, subprocess, SSH, Twingate, or hardware call was added;
+  - the scan matched only a comment, a docstring, and test reason codes.
+- **Residue:** no stray database files in the repository; 0 runtime
+  processes; disposable roots removed.
+- **Remaining:** Tasks 6–11.
+- **Next:** Task 6, part of Batch B.
+
+#### S2 Task 6 — Core dispatch client (2026-09-12)
+
+Checkpoint: `ba07feb4295dea6d881a30a7d94c48ef003c1464`. Result: PASS (C2,
+C7, C8 at the transport/client level). Evidence class: LOCAL / SIMULATED.
+
+**Preserved continuation work:** the handoff-provided untracked
+`aegis_soc/dispatch_client.py` and `tests/test_dispatch_client.py` were inspected
+before editing. Their implementation and 30-test suite were valid and complete,
+so they were preserved rather than rewritten.
+
+**Behaviour:**
+
+- `DispatchClient` exposes typed `list_pending`, `claim`, and `report` results
+  for the approved machine-route contract.
+- Action ids are restricted to lower-case UUIDv4 syntax, timestamps use the
+  canonical millisecond UTC format, and malformed responses fail as
+  `PROTOCOL` without a local side effect.
+- The default transport is HTTPS-only `urllib` with a supplied mTLS
+  `SSLContext`; missing, relative, or nonexistent CA/certificate/key paths are
+  refused before TLS key loading.
+- Failures are separated into `NETWORK`, `CREDENTIAL`, `SERVER`, and
+  `PROTOCOL`; a definitive report 4xx becomes `REJECTED`, so evidence is not
+  retried forever.
+- Tests inject a fake transport or patch `urlopen`; no real route, certificate,
+  key, Production service, broker, SSH, Twingate, or hardware was contacted.
+
+**Exact changes** (the plan's Task 6 list only):
+
+- new `aegis_soc/dispatch_client.py`;
+- new `tests/test_dispatch_client.py`.
+
+| Suite | Result |
+|---|---|
+| focused dispatch-client pytest | 30/30 |
+| full Python pytest | 298 passed, 6 skipped |
+| Ruff, compileall | clean |
+| Vitest | 484/484 |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED` |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass (two known pre-existing Canvas warnings) |
+
+- **Hygiene:** no certificate, key, database, or log artifact was created in
+  the repository; the unrelated local `.agents/skills/obsidian/` and
+  `.agents/skills/vibe_coding_obsidian_sync/` paths remained untracked and
+  unstaged.
+- **Residue:** both disposable PR9 driver roots and redirected bytecode were
+  removed; the temporary pinned test environment remains under `/tmp` for the
+  next approved task only.
+- **Remaining:** Tasks 7–11.
+- **Next:** Task 7, the final task in Batch B.
+
+#### S2 Task 7 — Core dispatch worker and supervisor integration (2026-09-12)
+
+Checkpoint: `1e4af6976d407cdafe55d9cfb3f17be0fddbbd14`. Result: PASS; C1–C10
+are now covered across Tasks 5–7. Evidence class: LOCAL / SIMULATED.
+
+**Work performed (test-first):** RED was observed before source existed:
+`tests/test_dispatch_boundary.py` failed collection because
+`aegis_soc.dispatch_worker` did not exist. The first GREEN implementation passed
+20 tests; four safety/configuration cases brought the focused suite to 24. An
+independent review then found that network/credential failure could return
+before local timeout evaluation. Two new tests failed in that exact combination;
+timeout evaluation was made network-independent, and the final focused suite
+passed 26/26. The reviewer rechecked the fix and reported no remaining finding.
+
+**C1–C10 coverage:**
+
+- **C1/C3:** claim intent is committed before the remote claim; restart turns
+  every unresolved action into `OUTCOME_UNKNOWN`; replay never claims or
+  publishes again.
+- **C2:** the Core skips already-expired actions and rechecks the conservative
+  expiry deadline after claim, immediately before publish.
+- **C4/C5:** only supervisor-correlated nonces reach the ledger; ACK and STATUS
+  remain separate evidence stages; missing ACK/STATUS becomes
+  `OUTCOME_UNKNOWN` without retry, including while credentials or the report
+  route are unavailable.
+- **C6/C9:** only `CUT_UPLINK` reaches the existing
+  `AegisSupervisor.issue_command` owner; the worker has no MQTT/controller
+  publisher and never passes RESTORE authorization.
+- **C7:** outbox evidence is delivered in durable sequence order; network
+  failure retains it, identical later delivery is accepted, and definitive 4xx
+  rejection is retained and not resent.
+- **C8:** missing credential files or TLS/identity failures set
+  `PAUSED_CREDENTIAL` before claim/publish. Configuration uses the approved
+  `AEGIS_CORE_DISPATCH_*` keys and reloads an mTLS context only when a request
+  is attempted.
+- **C10:** `AEGIS_CORE_DISPATCH_ENABLED` defaults to disabled, so the supervisor
+  constructs no worker and the established PR9 behaviour remains unchanged.
+
+**Exact changes** (the approved Task 7 list only):
+
+- new `aegis_soc/dispatch_worker.py`;
+- modified `aegis_soc/supervisor.py` for the optional worker, loop tick, restart
+  recovery, correlated callback forwarding, and close;
+- new `tests/test_dispatch_boundary.py`.
+
+| Suite | Result |
+|---|---|
+| focused Task 7 pytest | 26/26 |
+| full Python pytest | 324 passed, 6 skipped |
+| Ruff, compileall | clean |
+| Vitest | 484/484 |
+| Vite build | 1,677 modules |
+| PR9 acceptance driver | `PRODUCTION_LIKE_VERIFIED`; 2 generations; 0 surviving |
+| PR9 negative controls | 13/13 |
+| Repository | 63/63 |
+| Vault, policy, diff | pass (two known pre-existing Canvas warnings) |
+
+**Driver isolation note:** one intentionally discarded run launched the PR9
+acceptance and negative-control process drivers concurrently. Their global
+residue checks observed the other driver's loopback processes, so the negative
+driver reported 3 failures. No product source was changed for that result. Both
+drivers were rerun separately in fresh disposable roots and passed; all roots
+were removed and the isolated final runs reported zero surviving processes.
+
+- **Boundaries:** no Twingate, SSH, Production, real MQTT, real certificate/key,
+  hardware, IDEA1, IDEA2, shared runtime, firmware, gateway, Compose, or network
+  mutation occurred. ACK and protocol-correlated STATUS are not electrical or
+  physical proof.
+- **Hygiene:** no secret, certificate, key, database, or runtime log was added;
+  the unrelated `.agents/skills/obsidian/` and
+  `.agents/skills/vibe_coding_obsidian_sync/` paths remained untracked and
+  unstaged.
+- **Remaining:** Tasks 8, 9, 10, and 11.
+- **Next:** STOP FOR OWNER REVIEW. Do not begin Task 8 in this session.
+
+#### S2 Task 8 — shared Web↔Core contract fixture (2026-09-12)
+
+Checkpoint: `82a67326facc358f466423e2912ebe055eee9866`. Result: PASS. The
+owner approved the final continuation (Tasks 8–11) on 2026-09-12. Evidence
+class: LOCAL / SIMULATED.
+
+**Work performed (test-first):** both contract suites were written before
+the fixture existed. RED was then observed for the right reason on each side:
+
+- pytest failed collection with `FileNotFoundError`;
+- Vitest failed with `ENOENT`;
+
+both for `tests/fixtures/dispatch-contract.json`.
+
+The first Web RED run failed for a different reason: "The URL must be of
+scheme file". Under the jsdom Vitest environment, `import.meta.url` is not a
+`file:` URL, so this was a defect in the test itself. It was fixed by
+resolving the path from `process.cwd()`, as the other server tests do, and the
+Web RED then showed `ENOENT`.
+
+The fixture was then added, and both suites passed without any product-source
+change. **No Web/Core contract mismatch was found.**
+
+**What the contract pins**
+(`IDEA3-AEGIS_Lockdown/tests/fixtures/dispatch-contract.json`):
+
+- **Actions:** `CUT_UPLINK` only (`RESTORE_UPLINK` never), UUIDv4 action ids,
+  the fixed 120 000 ms expiry, and the server states.
+- **Evidence format:** canonical millisecond UTC timestamps, the seven
+  evidence stages, sequences 1–1000, and the detail allowlist.
+- **Machine route:** the paths (`/api/machine/v1`, and
+  `/security/api/machine/v1` in production), the response keys, and every
+  claim refusal, report outcome, and identity rejection, each with the Core
+  result it maps to.
+- **Core output:** the exact set of 12 evidence entries the Core emits.
+- **Evidence ladder:** no evidence ever implies `executed` or
+  `physical_evidence`.
+
+**How both sides consume it:**
+
+- **Core → Web:**
+  - The Core test drives the real ledger and worker (fake client, fake
+    supervisor, injected clock) through every outcome. Those are: publish,
+    dry run, ACK, NORMAL and LOCKDOWN STATUS, a non-OK ACK, the ACK and STATUS
+    timeouts, a lost claim response, MQTT unavailable, expiry at the Core,
+    and restart.
+  - It requires the emitted evidence to equal the contract set exactly, and
+    to stay within the allowlist.
+  - The Web test requires the server's evidence validator to accept every one
+    of those entries.
+- **Web → Core:**
+  - The Web test requires the machine app to answer with the contract's
+    paths, response keys, statuses, and codes, including under the
+    production base path.
+  - The Core test requires its client to parse the contract's example
+    bodies, to use the contract paths, and to map every status and code to
+    the contract's Core result.
+
+**Exact changes:**
+
+- new `tests/fixtures/dispatch-contract.json`;
+- new `tests/test_dispatch_contract.py`;
+- new `web/tests/server/dispatchContract.test.js`.
+
+No product source or configuration changed.
+
+| Suite | Result |
+|---|---|
+| Contract tests | Web 9/9; Core 7/7 |
+| pytest | 331 passed, 6 skipped (+7) |
+| Vitest | 493/493 in 28 files (+9, +1 file) |
+| Ruff, compileall | clean |
+| Vite build | 1,677 modules |
+| `git diff --check` | pass |
+
+- **No Production, hardware, or network interaction:** the fixture is test
+  data only. Every test uses temporary SQLite files, fakes, and supertest's
+  local loopback server.
+- **Hygiene:** files were staged by explicit path. The unrelated
+  `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
+  paths remain untracked and unstaged.
+- **Remaining:** Tasks 9–11.
+- **Next:** Task 9 (negative controls NC1–NC5).
+
+#### S2 Task 9 — negative controls NC1–NC5 (2026-09-12)
+
+Checkpoint: `74eb2c99d0c6887ae614a6a75075adcd556e0d56` (test-only C6 gap
+fix). Result: PASS. Evidence class: LOCAL / SIMULATED.
+
+**Method.** Each control temporarily broke exactly one invariant, as the
+plan's negative-control table defines it:
+
+- **Apply:** a scratch script outside the repository applied the mutation. It
+  refused to write unless every anchor occurred exactly once.
+- **Observe:** the named tests ran against the mutated source.
+- **Restore:** the source was restored immediately with
+  `git checkout -- <file>`, and `git diff --quiet` proved there was no
+  residue in that file.
+- **Rerun:** the same tests were run again on the restored source.
+
+The controls ran one at a time, never concurrently. No injected defect was
+committed.
+
+| Control | Mutation (temporary) | Mutated run | Restored run | Verdict |
+|---|---|---|---|---|
+| NC1 unique dispatch | `dispatch_actions.incident_id` loses `UNIQUE`, and the existing-decision branch of both repositories mints a second action (duplicate guard removed) | 9 W5 tests FAIL: 7 in `dispatchLedger.test.js` (SQLite and memory, including W14/W5 restart) and 2 in `containmentAcceptance.test.js` — e.g. "expected [ …, … ] to have a length of 1 but got 2" | 9/9 PASS | OBSERVED |
+| NC2 expiry (plan-exact) | `AND expires_at > ?` and its parameter removed from the claim `UPDATE` | 7/7 W8 PASS | 7/7 PASS | NOT OBSERVED — see below |
+| NC2B expiry (gap closure) | NC2, plus the claim's in-transaction `expirePastDueDispatch(now)` sweep removed | SQLite "W8: a past-due action is expired by the claim itself and never claimed" FAILS — `{ status: 'CLAIMED' }` instead of `{ status: 'EXPIRED' }` | 7/7 PASS | OBSERVED |
+| NC3 machine identity | the subject comparison removed from the machine identity guard | 6 of 17 W9 FAIL, each "expected 200 to be 403": missing subject, wrong subject, escaped subject, multi-valued RDN, duplicate CN, no CN. The peer, verify, cookie, and Origin cases still pass, as expected | 17/17 PASS | OBSERVED |
+| NC4 claim-before-publish | `begin_claim` moved to after `issue_command` | C1 test FAILS: event order `claim`, `issue_command`, `begin_claim` instead of `begin_claim`, `claim`, `issue_command` | 1/1 PASS | OBSERVED |
+| NC5 RESTORE rejection (first run) | the worker's `candidate.action == "CUT_UPLINK"` filter removed | 52/52 C6-bearing Core tests PASS (boundary, contract, ledger, and the runtime shutdown test) | 52/52 PASS | NOT OBSERVED — coverage gap, fixed |
+| NC5 RESTORE rejection (after the fix) | the same mutation | 3 new C6 cases FAIL with `ValueError: Only CUT_UPLINK can be dispatched`; 52 pass | 55/55 PASS | OBSERVED |
+
+**NC2 finding (no code change).** The claim transaction first expires every
+past-due action, using the same `now`, and only then runs the conditional
+`UPDATE`. A past-due action is therefore already `EXPIRED` and refused (410)
+before the `UPDATE` runs. The `expires_at > ?` clause is a redundant second
+guard, so removing it alone cannot change any outcome. NC2B shows that W8
+does guard the claim-expiry invariant. The known limitation: the SQL clause
+is not independently tested. It is kept as defence in depth.
+
+**NC5 finding (test-only fix, `74eb2c99`).** The approved C6 row requires "a
+non-`CUT_UPLINK` pending action is refused" at the worker. No Core worker test
+fed one in:
+
+- the Core client only checks that `action` is a string;
+- the worker filter is the first guard;
+- the ledger's `begin_claim` is the second.
+
+With the filter removed, nothing would be claimed or published: `begin_claim`
+raises `ValueError` for any non-`CUT_UPLINK` action. But the tick would raise
+instead of skipping the action cleanly, and no test noticed.
+
+The fix adds
+`test_c6_a_non_cut_uplink_pending_action_is_refused_without_claim_or_publish`,
+parametrized over `RESTORE_UPLINK`, `cut_uplink`, and `""`. Each case is
+followed by a valid `CUT_UPLINK`, so the test also proves the valid action is
+still claimed and published exactly once. The test passes on the real code
+(3/3) and fails under the NC5 mutation.
+
+W11 is on the Web half, so it cannot observe a Core worker mutation. W11
+itself was proved in Tasks 2–3 and stays in the regression suite. Task 7's
+C1–C10 PASS record stands, with this C6 gap now closed. No product source
+changed in Task 9.
+
+**Exact changes:**
+
+- `tests/test_dispatch_boundary.py` — +15 lines, one parametrized test.
+
+**Checks:**
+
+- `tests/test_dispatch_boundary.py`: 29 passed.
+- `ruff check`: clean.
+- `ruff format --check` flags this file, but the same drift already exists at
+  `HEAD` before Task 9 (none of it in the new lines). It is not part of the
+  repository's Ruff bar (`ruff check`), and it was left unchanged.
+- After all controls:
+  - `git status --short` showed only the two unrelated untracked
+    `.agents/skills/` paths;
+  - `git diff` was empty;
+  - `git diff --check` passed.
+
+- **No Production, hardware, or network interaction:** every run used
+  temporary SQLite files, fakes, and supertest's local loopback server.
+- **Hygiene:** files were staged by explicit path. The unrelated
+  `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
+  paths remain untracked and unstaged.
+- **Remaining:** Tasks 10–11.
+- **Next:** Task 10 (full regression bar).
+
+#### S2 Task 10 — full regression bar (2026-09-12)
+
+Tested HEAD: `ed9efc4e285ea5e5cf2246b869570da5e6e06298` (the Task 9
+record). Result: PASS. Evidence class: LOCAL / SIMULATED.
+
+**Order.** The unit suites ran first. The two PR9 drivers then ran one at a
+time, never concurrently with each other, after the unit suites had
+finished. Dispatch stayed disabled on both halves: no `AEGIS_*` variable was
+set in the environment.
+
+| Suite | Command | Exit | Result | Against the Task 0 baseline |
+|---|---|---|---|---|
+| Python full | `python -m pytest -p no:cacheprovider -q` | 0 | 334 passed, 6 skipped | 245 → 334 (+89) |
+| Ruff | `ruff check --no-cache aegis_soc tests windows deploy detector.py sim_auto_detector.py server_admin.py` | 0 | all checks passed | unchanged |
+| compileall | `python -m compileall -q aegis_soc deploy windows detector.py server_admin.py sim_auto_detector.py tests` | 0 | pass | unchanged |
+| Web full | `npx vitest run` | 0 | 493 passed in 28 files | 309 in 24 → 493 in 28 (+184 tests, +4 files) |
+| Web build | `npx vite build` | 0 | 1,677 modules (`dist` is gitignored) | unchanged |
+| npm audit, PR9 form | `npm audit --omit=dev --offline` | 0 | 0 vulnerabilities | unchanged |
+| npm audit, production deps online | `npm audit --omit=dev` | 0 | 0 vulnerabilities | unchanged |
+| npm audit, full online | `npm audit` | 1 | 2 moderate | the same baseline advisory only |
+| PR9 acceptance driver | `python deploy/production-like-acceptance.py --data-root <missing disposable path with spaces>` | 0 | `PRODUCTION_LIKE_VERIFIED` on the first run | unchanged |
+| PR9 negative-control driver | `python deploy/production-like-negative-controls.py --data-root <missing disposable path with spaces>` | 0 | 13 cases, 0 failed, `PASS` | unchanged |
+| Repository | `node --test --test-concurrency=1 tests/*.test.mjs` | 0 | 63 passed, 0 failed (includes the collaboration-policy tests) | unchanged |
+| Vault | `node scripts/validate-vault.mjs` | 0 | pass (2 known canvas warnings) | unchanged |
+| Diff | `git diff --check origin/main HEAD` | 0 | pass | — |
+
+The Python skips are the same 6 as the baseline: all in
+`tests/test_windows_launcher.py`, "PowerShell 7 is required to execute the
+bundle staging contract".
+
+**Count changes, explained:**
+
+- **Python +89:** every one is a new S2 Core test, recorded per task in the
+  Task 5–9 blocks. The latest are Task 8 (+7, the contract) and Task 9 (+3,
+  the C6 worker refusal). No test was removed, and no new skip appeared.
+- **Web +184 and +4 files:** the new files are `dispatchLedger.test.js`,
+  `machineRoutes.test.js`, `dispatchContract.test.js`, and
+  `client/dashboardDispatch.test.jsx`. The changes to existing suites
+  (`config`, `containmentAcceptance`, `productionRuntime`, `sqliteRepository`,
+  `status`) are the deliberate schema-v3 and dispatch expectations recorded
+  in Tasks 1–4.
+
+**npm audit.** The only finding is the known dev-only baseline advisory:
+GHSA-82fw-gwwq-j7x9 (moderate), `vitest` via `@vitest/mocker`. Production
+dependencies have 0. There is no new finding, and Vitest was not upgraded.
+
+**Acceptance driver details:**
+
+- 2 generations; Web `READY`;
+- audit `PERSISTED_ACROSS_RESTART`;
+- IDEA1, IDEA2, and MQTT `NOT_CONFIGURED`; ESP32 and physical evidence
+  `UNKNOWN`;
+- 3 processes per generation, 0 surviving;
+- control token `ABSENT`; owner-only permissions; final `STOPPED`;
+- `productionMutation = false`.
+
+Each driver created its own data root, which was not pre-created, so the
+Task 0 harness failure did not recur.
+
+**Governance and hygiene:**
+
+- **Changed paths (`git diff --name-status origin/main HEAD`):** 44 files, all
+  under `IDEA3-AEGIS_Lockdown/` (42) or
+  `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/` (2). None is in IDEA1, IDEA2,
+  HUB, NGINX, Docker/Compose, firewall, Twingate, or `.github`. There are no
+  key, certificate, SQLite, or `.env` files.
+- **Secret scan:** every added line was checked for private-key blocks, cloud,
+  GitHub, and Slack token formats, and quoted secret assignments. The only
+  hits are the existing test-fixture password `correct-horse-battery-staple`
+  (`AEGIS_IDEA3_DEV_PASSWORD` in the Web tests, 15 occurrences already on
+  `origin/main`). It is not a credential.
+- **Processes:** 0 runtime processes before, between, and after the drivers,
+  and no new TCP listeners.
+- **Cleanup:** the disposable data roots and the scratch bytecode prefix were
+  removed. The gitignored in-repository `__pycache__/` directories (from
+  earlier S2 runs) and `.ruff_cache/` were also removed.
+- **Tree:** `git status --short` shows only the two unrelated untracked
+  `.agents/skills/` paths.
+- **Policy validator:** it runs on the final Draft PR body and changed-path
+  list in Task 11.
+
+- **No Production, hardware, or network interaction:** no Twingate, SSH, live
+  server, real MQTT broker, real certificate or key, or hardware. The online
+  `npm audit` queried the public npm advisory registry only.
+- **Remaining:** Task 11.
+- **Next:** Task 11 (closeout, one S2 receipt, Draft PR; stop before Ready).
+
+#### S2 Task 11 — closeout and S2 session end (2026-09-12)
+
+- **Final implementation/evidence checkpoint:**
+  `7d6e216f1d3e15964cbffc4d9396fce5db8150c4` (the Task 10 record). The
+  receipt-bearing closeout commit is recorded in PR #123 and the final report.
+- **Result:** PASS.
+- **Session S2:** CLOSED.
+- **Evidence class:** LOCAL / SIMULATED.
+
+**Work performed.** S2 delivered the approved design and TDD plan across
+Tasks 0–11:
+
+- G1 approved;
+- the Task 0 baseline;
+- the Web schema, minting, the machine app, identity, claim, evidence, and
+  display (Tasks 1–4);
+- the Core ledger, client, and worker (Tasks 5–7);
+- the shared contract (Task 8);
+- the negative controls (Task 9);
+- the full regression bar (Task 10);
+- this closeout (Task 11).
+
+Task 11 itself:
+
+- updated this record: the Current Task state, the register row
+  (CLOSED / PASS), and the new PR10 Task Status Dashboard;
+- updated the MOC entry sentence and the inventory state lines;
+- added the one S2 receipt;
+- opened Draft PR #123 into `main`.
+
+**Implementation details.** See Tasks 1–8 above and the design spec. Dispatch
+is disabled by default on both halves. The machine listener is separate from
+the browser app. The Core publishes only through `supervisor.issue_command`.
+
+**Exact changes (whole S2, against `b2f61ebf`):** 45 paths:
+
+- 42 under `IDEA3-AEGIS_Lockdown/`;
+- `idea3-moc.md` and this note;
+- the receipt
+  `90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md`.
+
+The receipt lists every path.
+
+**Defects discovered:**
+
+- the Task 4 `ACKED` test's duplicate text, fixed in Task 4;
+- the Task 8 Web RED run failing for the wrong reason (`import.meta.url` under
+  jsdom), fixed in the test;
+- the C6 worker-test gap exposed by NC5 (Task 9);
+- the NC2 plan-exact mutation masked by the claim's expiry sweep (Task 9;
+  limitation recorded, no change).
+
+Environmental (harness), not code:
+
+- the Task 0 acceptance-driver pre-created root;
+- the discarded concurrent PR9 driver collision.
+
+**Fixes applied:** the test fixes above, and `74eb2c99`, which adds the C6
+worker test. No product-source defect was found in Tasks 8–11.
+
+**Tests / evidence:** W1–W14 and C1–C10 PASS; contract Web 9/9 and Core 7/7;
+NC1–NC5 observed. The full bar at `ed9efc4e`:
+
+- Python 334 passed, 6 skipped;
+- Web 493 in 28 files;
+- Ruff and compileall clean;
+- Vite 1,677 modules;
+- npm audit production 0, and full audit only the known dev-only Vitest
+  baseline;
+- PR9 acceptance `PRODUCTION_LIKE_VERIFIED`, and negative controls 13/13;
+- repository 63/63;
+- vault, diff, secret, and path checks pass.
+
+The policy validator passes on the PR #123 body with the final changed paths.
+
+**Result:** PASS.
+
+**Known limitations:** LOCAL / SIMULATED only. These remain unproven:
+
+- real HUB mTLS;
+- the VLAN 20 → 443 path;
+- source-address visibility;
+- the Production bind;
+- clock sync;
+- the real broker, real certificates and keys, and hardware.
+
+Also: the SQL `expires_at > ?` clause is not independently tested; and the
+dev-only Vitest advisory and the `ruff format` drift are pre-existing.
+
+**Remaining work:**
+
+- human review and merge of PR #123;
+- the PR10 Production integration under separately authorized K1–K12 changes;
+- K12 (Kla + IDEA1) and D6 (Pub / IDEA2);
+- PR11;
+- the final PR10 receipt.
+
+**Next session:** none is started. Any next PR10 session needs the owner's
+explicit approval. Completing S2 does not authorize any Production rollout.
+
+- **Hygiene:** files were staged by explicit path. The unrelated
+  `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
+  paths remain untracked and unstaged.
 
 ### PR11 — live cross-IDEA and authorized E2E: OPEN
 

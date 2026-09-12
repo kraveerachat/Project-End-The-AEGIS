@@ -10,7 +10,7 @@ import { createRateLimiter } from './security/rateLimit.js'
 import { createDemoProvider } from './providers/demoProvider.js'
 import { createLiveProvider } from './providers/liveProvider.js'
 import { AuditPersistenceError } from './repositories/auditRecords.js'
-import { createSqliteRepository } from './repositories/sqliteRepository.js'
+import { AUDIT_SCHEMA_VERSION, createSqliteRepository } from './repositories/sqliteRepository.js'
 
 function isLoopbackAddress(address) {
   if (typeof address !== 'string') return false
@@ -26,6 +26,7 @@ export function createApp({
   liveProvider = createLiveProvider({ config, clock }),
   repository,
   sessionStore,
+  machineContact = null,
 }) {
   const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
   const app = express()
@@ -98,14 +99,14 @@ export function createApp({
   app.get(`${apiBase}/readiness`, (_req, res) => {
     try {
       const schemaVersion = appRepository.schemaVersion()
-      if (schemaVersion !== 2) throw new Error('unsupported audit schema')
+      if (schemaVersion !== AUDIT_SCHEMA_VERSION) throw new Error('unsupported audit schema')
       return res.json({ status: 'READY', audit: 'READY', schemaVersion })
     } catch {
       return res.status(503).json({ status: 'DEGRADED', audit: 'DEGRADED' })
     }
   })
   app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository }))
-  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository }))
+  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository, machineContact }))
   app.use(apiBase, (_req, res) => res.status(404).json({
     error: { code: 'NOT_FOUND', message: 'ไม่พบข้อมูลที่ร้องขอ' },
   }))

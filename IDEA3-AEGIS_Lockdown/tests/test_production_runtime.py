@@ -173,6 +173,18 @@ def _core_status(*, broker="UNKNOWN", device="UNKNOWN"):
     }
 
 
+def test_child_environment_points_the_core_at_its_own_dispatch_ledger(tmp_path):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+
+    child_environment = settings.child_environment(
+        {}, core_status_url="http://127.0.0.1:18103/v1/core-status"
+    )
+
+    assert settings.paths.dispatch_db == settings.paths.root / "data" / "core-dispatch.sqlite3"
+    assert settings.paths.dispatch_db != settings.paths.core_db
+    assert child_environment["AEGIS_CORE_DISPATCH_DB_PATH"] == str(settings.paths.dispatch_db)
+
+
 def test_service_snapshot_separates_process_health_audit_readiness_and_physical_truth(
     tmp_path,
 ):
@@ -182,7 +194,7 @@ def test_service_snapshot_separates_process_health_audit_readiness_and_physical_
         readiness_probe=lambda _url: {
             "status": "READY",
             "audit": "READY",
-            "schemaVersion": 2,
+            "schemaVersion": 3,
         },
         core_status_reader=lambda: _core_status(),
     )
@@ -220,6 +232,29 @@ def test_service_snapshot_degrades_when_web_or_audit_is_unavailable(tmp_path):
     assert snapshot["physicalEvidence"] == "UNKNOWN"
 
 
+@pytest.mark.parametrize("web_schema_version", [2, 4, None])
+def test_service_snapshot_rejects_a_web_audit_schema_other_than_v3(
+    tmp_path, web_schema_version
+):
+    settings = ProductionSettings.from_environment(_environment(tmp_path))
+    runtime = ProductionRuntime(
+        settings,
+        readiness_probe=lambda _url: {
+            "status": "READY",
+            "audit": "READY",
+            "schemaVersion": web_schema_version,
+        },
+        core_status_reader=lambda: _core_status(),
+    )
+    runtime.children = {"core": _Process(), "web": _Process()}
+
+    snapshot = runtime.snapshot()
+
+    assert snapshot["audit"] == "DEGRADED"
+    assert snapshot["serviceReadiness"] == "DEGRADED"
+    assert snapshot["status"] == "DEGRADED"
+
+
 @pytest.mark.parametrize(
     ("configured", "broker", "expected"),
     [
@@ -241,7 +276,7 @@ def test_service_snapshot_preserves_core_mqtt_evidence_truth(
         readiness_probe=lambda _url: {
             "status": "READY",
             "audit": "READY",
-            "schemaVersion": 2,
+            "schemaVersion": 3,
         },
         core_status_reader=lambda: _core_status(broker=broker),
     )
@@ -267,7 +302,7 @@ def test_service_snapshot_reports_configured_but_unprobed_feeds_as_unknown(tmp_p
 
     def readiness_probe(url):
         probed.append(url)
-        return {"status": "READY", "audit": "READY", "schemaVersion": 2}
+        return {"status": "READY", "audit": "READY", "schemaVersion": 3}
 
     runtime = ProductionRuntime(
         settings,

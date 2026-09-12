@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe('SQLite audit repository', () => {
-  it('creates schema version 2, the required tables, WAL storage, and parent directories', () => {
+  it('creates schema version 3, the required tables, WAL storage, and parent directories', () => {
     const database = testDatabase()
     const repository = openRepository({ path: database.path, clock: fixedClock() })
 
@@ -55,10 +55,10 @@ describe('SQLite audit repository', () => {
     const journalMode = inspection.prepare('PRAGMA journal_mode').get().journal_mode
     inspection.close()
 
-    expect(schemaRows).toEqual([{ singleton: 1, version: 2 }])
+    expect(schemaRows).toEqual([{ singleton: 1, version: 3 }])
     expect(tables).toEqual(expect.arrayContaining([
       'schema_meta', 'audit_log', 'alert_acknowledgements', 'incident_notes', 'settings', 'active_operational_errors',
-      'containment_decisions', 'integration_lifecycle', 'correlated_incidents',
+      'containment_decisions', 'integration_lifecycle', 'correlated_incidents', 'dispatch_actions', 'dispatch_evidence',
     ]))
     expect(journalMode).toBe('wal')
     expect(repository.queryAudit({ limit: 10 })).toEqual([])
@@ -188,6 +188,21 @@ describe('SQLite audit repository', () => {
     expect(() => createSqliteRepository({ path: incompatiblePath, clock: fixedClock() })).toThrow(AuditPersistenceError)
   })
 
+  it('W3: refuses to open an unknown schema version and leaves the file untouched', () => {
+    for (const version of [0, 4, 99]) {
+      const database = testDatabase()
+      openRepository({ path: database.path, clock: fixedClock() }).close()
+      const tamper = new DatabaseSync(database.path)
+      tamper.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(version)
+      tamper.close()
+
+      expect(() => createSqliteRepository({ path: database.path, clock: fixedClock() })).toThrow(AuditPersistenceError)
+      const check = new DatabaseSync(database.path)
+      expect(check.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get().version).toBe(version)
+      check.close()
+    }
+  })
+
   it('wraps transaction failures and rolls back the durable acknowledgement', () => {
     const database = testDatabase()
     const repository = openRepository({ path: database.path, clock: fixedClock() })
@@ -312,9 +327,9 @@ describe('shared audit contract', () => {
     const error = createOperationalError('MQTT_DISCONNECTED', { occurredAt: '2026-09-08T00:59:00.000Z' })
 
     expect(Object.keys(repository).sort()).toEqual([
-      'acknowledgeAlert', 'addIncidentNote', 'apply', 'close', 'queryAudit', 'readContainmentDecision',
-      'recordAction', 'recordContainmentDecision', 'recordIntegrationOutcome', 'recordOperationalErrors',
-      'updateSettings',
+      'acknowledgeAlert', 'addIncidentNote', 'apply', 'claimDispatchAction', 'close', 'listPendingDispatchActions', 'queryAudit',
+      'readContainmentDecision', 'readDispatchAction', 'readDispatchEvidence', 'recordAction', 'recordContainmentDecision',
+      'recordDispatchEvidence', 'recordIntegrationOutcome', 'recordOperationalErrors', 'updateSettings',
     ])
     repository.recordOperationalErrors([error])
     repository.recordOperationalErrors([error])
@@ -402,13 +417,15 @@ describe('durable containment decisions and additive schema v2', () => {
     expect(stored).not.toMatch(/Alice Example|must-not-leak|cam-02\.jpg/)
   })
 
-  it('migrates a schema v1 database to v2 additively and keeps every v1 audit row', () => {
+  it('migrates a schema v1 database to v3 additively and keeps every v1 audit row', () => {
     const { path } = testDatabase()
     const legacy = openRepository({ path, clock: fixedClock() })
     legacy.recordAction({ category: 'ALERT', action: 'LEGACY_V1_ROW', outcome: 'SUCCESS' })
     legacy.close()
 
     const database = new DatabaseSync(path)
+    database.exec('DROP TABLE IF EXISTS dispatch_evidence')
+    database.exec('DROP TABLE IF EXISTS dispatch_actions')
     database.exec('DROP TABLE IF EXISTS containment_decisions')
     database.prepare('UPDATE schema_meta SET version = 1 WHERE singleton = 1').run()
     database.close()
@@ -417,10 +434,10 @@ describe('durable containment decisions and additive schema v2', () => {
 
     expect(migrated.queryAudit({ limit: 10 }).map((row) => row.action)).toContain('LEGACY_V1_ROW')
     expect(migrated.recordContainmentDecision(decision)).toEqual(expect.objectContaining({ status: 'RECORDED' }))
-    expect(migrated.schemaVersion()).toBe(2)
+    expect(migrated.schemaVersion()).toBe(3)
   })
 
-  it('survives a standalone restart cycle: v1 auth audit migrates to v2 and is recovered', () => {
+  it('survives a standalone restart cycle: v1 auth audit migrates to v3 and is recovered', () => {
     const { path } = testDatabase()
     const first = openRepository({ path, clock: fixedClock('2026-09-09T01:00:00.000Z') })
     first.recordAction({
@@ -431,6 +448,8 @@ describe('durable containment decisions and additive schema v2', () => {
 
     // Force the durable file back to schema v1 the way a pre-upgrade install would look.
     const legacy = new DatabaseSync(path)
+    legacy.exec('DROP TABLE IF EXISTS dispatch_evidence')
+    legacy.exec('DROP TABLE IF EXISTS dispatch_actions')
     legacy.exec('DROP TABLE IF EXISTS containment_decisions')
     legacy.exec('DROP TABLE IF EXISTS integration_lifecycle')
     legacy.exec('DROP TABLE IF EXISTS correlated_incidents')
@@ -438,7 +457,7 @@ describe('durable containment decisions and additive schema v2', () => {
     legacy.close()
 
     const migrated = openRepository({ path, clock: fixedClock('2026-09-09T02:00:00.000Z') })
-    expect(migrated.schemaVersion()).toBe(2)
+    expect(migrated.schemaVersion()).toBe(3)
     migrated.close()
 
     const reopened = openRepository({ path, clock: fixedClock('2026-09-09T03:00:00.000Z') })
@@ -447,7 +466,7 @@ describe('durable containment decisions and additive schema v2', () => {
     expect(audit).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'AUTH', action: 'LOGIN', outcome: 'FAILURE', actorRef: 'anonymous' }),
     ]))
-    expect(reopened.schemaVersion()).toBe(2)
+    expect(reopened.schemaVersion()).toBe(3)
   })
 
   it('keeps the durable audit file outside the installed payload directory', () => {

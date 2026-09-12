@@ -16,6 +16,19 @@ const runtimeIssueMessageKeys = Object.freeze({
   DEVICE_OFFLINE: 'issue.runtime.deviceOffline',
 })
 
+const ACKNOWLEDGED_RESPONSE_STATES = new Set(['ACKED', 'ACKNOWLEDGED', 'ACK_RECEIVED', 'STATUS_CORRELATED'])
+
+/**
+ * An incident counts as acknowledged only through an explicit allowlist of
+ * response states or, for a PR10 dispatch action, through its recorded ACK
+ * evidence. A substring match on "ACK" is never enough.
+ */
+export function isAcknowledgedIncident(incident = {}) {
+  const boundary = incident?.dispatch?.boundary
+  if (boundary) return boundary.acknowledged === true
+  return ACKNOWLEDGED_RESPONSE_STATES.has(incident?.responseState)
+}
+
 export function evidenceStatus(value = {}) {
   if (value.freshness === 'STALE') return 'STALE'
   return Object.hasOwn(statusPriority, value.status) ? value.status : 'UNKNOWN'
