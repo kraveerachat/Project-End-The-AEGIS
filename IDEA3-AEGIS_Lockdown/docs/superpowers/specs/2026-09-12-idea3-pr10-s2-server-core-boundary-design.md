@@ -72,8 +72,9 @@ Production change.
   - D1/D2 access point, broker TLS/ACL, and ESP32 signing;
   - D6 host work.
 - **Runtime and edge files:** Core-only systemd owner or unit; Compose
-  overlays; NGINX files; the Production bind address, network attachment, and
-  HUB wiring of the machine listener (K4/K5/K7, D3).
+  overlays; NGINX files; the Production value of the machine listener's bind
+  address (`AEGIS_IDEA3_DISPATCH_HOST`), its network attachment, and its HUB
+  wiring (K4/K5/K7, D3).
 - **Integration:** PR11 feeds; any IDEA1, IDEA2, HUB, shared, or
   infrastructure file.
 - **Production and hardware:** every Production, hardware, certificate,
@@ -225,14 +226,25 @@ application. It does not change the approved network topology:
 - **One external entry.** HUB/NGINX remains the only external/server entry
   point, on HTTPS 443 (D5, K8). The Core reaches the machine route only through
   the HUB's machine SNI block (K9).
-- **Production bind.** The Production machine listener must bind to an
-  address the HUB container can reach on that internal network. It must not be
-  bound only to `127.0.0.1` inside the IDEA3 container, because the HUB
-  container could not reach it there.
-- **Wiring deferred.** The exact Production bind address, network attachment,
-  and HUB upstream wiring are deferred to the separately authorized K4/K5/K7
-  Production work, together with the D3 container work. S2 changes no Compose,
-  Docker, network, or NGINX file.
+- **Bind address from configuration.** The machine listener binds to the
+  address in `AEGIS_IDEA3_DISPATCH_HOST` (§4.9). The implementation must not
+  hard-code loopback as the only possible bind address.
+  - **Local and test default:** outside production, the address may default
+    to `127.0.0.1`. That default is for local and test execution only.
+  - **Production requirement:** later authorized Production work binds the
+    listener to the IDEA3 container's interface on the dedicated HUB↔IDEA3
+    internal network, which the HUB container can reach. It must not be bound
+    only to `127.0.0.1` inside the IDEA3 container, because the HUB container
+    could not reach it there.
+  - **Not selected in S2:** S2 neither selects nor deploys the Production
+    bind value.
+- **Wiring deferred.** These are deferred to the separately authorized
+  K4/K5/K7 Production work, together with the D3 container work:
+  - the Production value of `AEGIS_IDEA3_DISPATCH_HOST`;
+  - the network attachment;
+  - the HUB upstream wiring.
+
+  S2 changes no Compose, Docker, network, or NGINX file.
 - **Local tests are not the Production topology.** S2 tests bind both
   listeners to loopback and use a loopback address as the trusted-peer
   placeholder. These are local fixtures only. They are not evidence about the
@@ -359,16 +371,20 @@ FAILED | OUTCOME_UNKNOWN | EXPIRED | EXPIRED_AT_CORE        (terminal)
 |---|---|---|
 | `AEGIS_IDEA3_DISPATCH_ENABLED` | `false` | only `true` or `false`; any other value throws |
 | `AEGIS_IDEA3_DISPATCH_PORT` | — | required when enabled; a positive integer different from `PORT`. An application/container-internal listener port, never host-published (§4.4) |
+| `AEGIS_IDEA3_DISPATCH_HOST` | `127.0.0.1`, outside production only | the machine listener's bind address. It must be one specific IP literal (`net.isIP`); the unspecified addresses `0.0.0.0` and `::` are rejected, so the listener binds exactly one interface. In production with dispatch enabled, it must be set explicitly and a loopback value is rejected (§4.4). No Production value is selected in S2 |
 | `AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY` | — | required when enabled; one IP literal (`net.isIP`) |
 | `AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT` | — | required when enabled; `^[a-z0-9][a-z0-9-]{0,62}$` |
 
-- **Bind host in S2:** S2 does not change the bind-host rule. Both listeners
-  use the existing validated `AEGIS_BIND_HOST`, which is loopback-only; this is
-  the local and test configuration.
-- **Production bind (deferred):** serving a real HUB peer requires the IDEA3
-  listeners to bind to the container's address on the dedicated internal
-  network, not to container loopback (§4.4). Changing the bind-host rule
-  belongs to the separately authorized D3 and K4/K5/K7 work, not to S2.
+- **Browser listener:** S2 does not change the browser listener's bind rule;
+  it keeps the existing loopback-only `AEGIS_BIND_HOST`. Changing that rule is
+  D3 work, not S2.
+- **Machine listener:** binds to `AEGIS_IDEA3_DISPATCH_HOST`, never to a
+  hard-coded address. Local and test execution use the `127.0.0.1` default,
+  which is a local fixture and not the Production topology.
+- **Production value (deferred):** the Production value is the IDEA3
+  container's interface on the dedicated HUB↔IDEA3 internal network. It is
+  selected and deployed only by the separately authorized K4/K5/K7 work (with
+  D3), not by S2.
 - **`.env.example`:** gains these keys empty or `false`, with comments. Real
   values are never committed.
 
@@ -636,7 +652,9 @@ These are proposed in this design and are confirmed or changed at G1:
    app, so browser traffic cannot reach machine code. It is a
    container-internal port, reachable only over the HUB↔IDEA3 internal
    network. It adds no host-published port, and HUB 443 remains the only
-   entry.
+   entry. Its bind address comes from configuration
+   (`AEGIS_IDEA3_DISPATCH_HOST`, local default `127.0.0.1`); no Production
+   value is selected in S2.
 2. **Dispatch minting only when enabled;** default off, so PR9 and PR7
    behaviour is unchanged.
 3. **A `DISARMED` Core does not claim;** the action expires and is shown as
@@ -650,6 +668,10 @@ These are proposed in this design and are confirmed or changed at G1:
 8. **Header names** `X-AEGIS-Client-Verify` and `X-AEGIS-Client-DN`, and the
    path prefix `/security/api/machine/v1`.
 9. **One action in flight at a time,** at most one per worker tick.
+10. **Dispatch-host validation:** `AEGIS_IDEA3_DISPATCH_HOST` must be one
+    specific IP literal, and the unspecified addresses are rejected. In
+    production it must be set explicitly, and loopback is rejected, so a
+    Production listener can never silently fall back to container loopback.
 
 ## 12. Known limitations (NOT PROVEN until later authorized work)
 
@@ -658,8 +680,11 @@ These are proposed in this design and are confirmed or changed at G1:
   - the VLAN 20 → 443 path;
   - real-source visibility;
   - edge 404 for machine-path case variants.
-- **Web hosting:** the D3 container bind; the machine listener's Production
-  bind and network wiring (K4/K5/K7); a real HUB peer.
+- **Web hosting:**
+  - the D3 container bind;
+  - the Production value of `AEGIS_IDEA3_DISPATCH_HOST`;
+  - the network wiring (K4/K5/K7);
+  - a real HUB peer.
 - **Clocks:** server NTP; clock sync between the server and the Core.
 - **Credentials:** the real certificate lifecycle and CRL behaviour.
 - **Hardware:** real MQTT/ESP32 ACK and STATUS under dispatch.

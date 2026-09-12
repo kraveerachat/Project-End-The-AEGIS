@@ -60,7 +60,11 @@ decision D7, and the IDEA3 side of decision D5.
   - HUB/NGINX on HTTPS 443 stays the only external entry.
   - In Production, the machine listener is reachable only over the HUB↔IDEA3
     internal network, and must not be bound only to container loopback.
-  - Production bind and network wiring are deferred to K4/K5/K7 (and D3).
+  - The machine listener's bind address comes from `AEGIS_IDEA3_DISPATCH_HOST`;
+    loopback is never hard-coded as the only possible bind address. Local and
+    test execution may use the `127.0.0.1` default.
+  - The Production bind value is neither selected nor deployed in S2. It is
+    deferred, with the network wiring, to K4/K5/K7 (and D3).
   - Loopback listeners and addresses in tests are local fixtures, not the
     Production topology.
 - **Commits and merges:**
@@ -200,7 +204,14 @@ residue check.
 - **Tests:**
   - `dispatchLedger.test.js`;
   - `containmentAcceptance.test.js`;
-  - `config.test.js` (key validation).
+  - `config.test.js` (key validation). This includes `AEGIS_IDEA3_DISPATCH_HOST`:
+    - the `127.0.0.1` default outside production;
+    - a non-loopback RFC 5737 documentation address is accepted;
+    - hostnames, the unspecified addresses, and invalid values are rejected;
+    - production with dispatch enabled requires an explicit non-loopback
+      value.
+
+    These are supporting config tests, not new W IDs.
 
 - [ ] RED, then GREEN, per test.
 - [ ] Existing acceptance tests stay green with dispatch disabled; the
@@ -217,9 +228,11 @@ residue check.
   - `web/server/routes/machineRoutes.js`;
   - `web/server/security/machineIdentity.js`.
 - **Modify:** `web/server/index.js` (one shared repository and contact
-  tracker; machine listener only when enabled, on the application-internal
-  `AEGIS_IDEA3_DISPATCH_PORT`; tests bind loopback, a local fixture rather
-  than the Production topology).
+  tracker). The machine listener starts only when enabled. It listens on the
+  application-internal `AEGIS_IDEA3_DISPATCH_PORT` and the configured
+  `AEGIS_IDEA3_DISPATCH_HOST`, never a hard-coded address. A test with an
+  injected `listen` proves the configured host and port are used. Tests bind
+  loopback, which is a local fixture rather than the Production topology.
 - **Tests:** create `web/tests/server/machineRoutes.test.js`.
 
 - [ ] RED: identity negatives first (W9), then the claim (W6, W7), then
