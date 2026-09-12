@@ -199,7 +199,7 @@ S2 task branch: `feat/idea3-pr10-s2-server-core-boundary` — the new task and P
 Current state: IN PROGRESS
 Started: 2026-09-11
 Base SHA: `895c79ac8ab9b39f322919fabc9facfdc34ba20b` (PR10 start); S2 base `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`
-Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `f1c5c1e117c04198fdff8aa0856eab617b27314d` (design + TDD plan with the topology clarification; awaiting owner review)
+Last checkpoint: S1 `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed S1 pre-closeout head); S2 G1 `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (design + TDD plan with the topology and configurable-bind clarifications; awaiting owner review)
 Production mutation allowed: NO (S1, S2)
 Hardware testing: NOT RUN
 
@@ -427,11 +427,16 @@ at `b2f61ebf`.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Real infrastructure inventory + architecture gate (read-only) | CLOSED | `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (§2A, §14, §15, §15A); PR #122 checks; `git diff --check`; vault validation; receipt `90-Status/logs/2026-09-12_141734_music_idea3-pr10-s1-architecture-gate.md` | `ea2414f44445b9c090e0794ea086e098913d5a45` (reviewed pre-closeout head; earlier `8250d694`) | PASS — D1–D8 DECIDED / OWNER-ACCEPTED; LIVE SERVER INVENTORY PASS; K1–K12 KLA-APPROVED (architecture/integration only, 2026-09-12); PR #120 remains a merged documentation checkpoint; no Production change authorized | — (S1 closed) | S2 — the owner approved the continuation model on 2026-09-12; new task branch `feat/idea3-pr10-s2-server-core-boundary` |
-| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1: design spec + TDD plan (documentation only; no source changed); `git diff --check`, vault and Draft policy validation pass | `f1c5c1e117c04198fdff8aa0856eab617b27314d` (G1: design + plan, including the machine-listener topology clarification — AWAITING OWNER REVIEW; initial G1 `6076ef85`) | pending | G1 owner review; then Tasks 0–11 of the plan | G1 owner review — no source change before explicit approval |
+| S2 | Server → Core durable accepted-action boundary (repository-only: design, TDD plan, source, tests; non-Production) | IN PROGRESS | G1: design spec + TDD plan (documentation only; no source changed); `git diff --check`, vault and Draft policy validation pass | `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` (G1: design + plan, with the machine-listener topology and configurable-bind clarifications — AWAITING OWNER REVIEW; earlier G1 checkpoints `6076ef85`, `f1c5c1e1`) | pending | G1 owner review; then Tasks 0–11 of the plan | G1 owner review — no source change before explicit approval |
 
 ### PR10 Session S2 — Server → Core durable accepted-action boundary
 
-State: IN PROGRESS — G1 checkpoint `f1c5c1e117c04198fdff8aa0856eab617b27314d` is AWAITING OWNER REVIEW. It is the design + TDD plan, plus the clarification that the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network, with its wiring deferred to K4/K5/K7. The initial G1 was `6076ef85`. Source not started
+State: IN PROGRESS — G1 checkpoint `32545cebcba8bd8ed9f7a60a930a5e622d8aa717` is AWAITING OWNER REVIEW. It is the design + TDD plan, plus two clarifications:
+
+- **Topology:** the machine listener is container-internal, has no host-published port, and is reachable only over the HUB↔IDEA3 internal network.
+- **Bind address:** it comes from `AEGIS_IDEA3_DISPATCH_HOST`. Local and test runs default to `127.0.0.1`; loopback is never hard-coded; the Production value is not selected in S2 and is deferred to K4/K5/K7.
+
+Earlier G1 checkpoints: `6076ef85`, `f1c5c1e1`. Source not started
 Started: 2026-09-12
 Branch: `feat/idea3-pr10-s2-server-core-boundary`
 Starting SHA: `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95` (merge of GitHub PR #122)
