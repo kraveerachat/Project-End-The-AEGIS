@@ -289,6 +289,7 @@ const MOCK_DOCKER_RUNTIME = `#!/usr/bin/env bash
 # Disposable mock docker: serves fixture JSON, never contacts a daemon.
 set -u
 printf '%s\\n' "\$*" >> "\$MOCK_LOG"
+printf 'docker %s\\n' "\$*" >> "\$MOCK_TRACE_LOG"
 if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "inspect" ]; then
   file="\$MOCK_FIXTURES/net-\${3}.json"
   [ -f "\$file" ] || { echo "Error: No such network: \${3}" >&2; exit 1; }
@@ -319,6 +320,8 @@ exit "\${MOCK_RC:-0}"
 const MOCK_SYSTEMCTL = `#!/usr/bin/env bash
 set -u
 printf '%s\\n' "\$*" >> "\$MOCK_SYSTEMCTL_LOG"
+printf 'systemctl %s\\n' "\$*" >> "\$MOCK_TRACE_LOG"
+[ -z "\${MOCK_SYSTEMCTL_FAIL_CALL:-}" ] || [ "\$*" != "\$MOCK_SYSTEMCTL_FAIL_CALL" ] || exit 1
 exit "\${MOCK_SYSTEMCTL_RC:-0}"
 `
 
@@ -441,15 +444,18 @@ function runtimeHarness(options = {}) {
 
   const log = nodePath.join(root, 'mock.log')
   const systemctlLog = nodePath.join(root, 'systemctl.log')
-  writeFileSync(log, ''); writeFileSync(systemctlLog, '')
+  const traceLog = nodePath.join(root, 'trace.log')
+  writeFileSync(log, ''); writeFileSync(systemctlLog, ''); writeFileSync(traceLog, '')
 
   const env = {
     ...process.env,
     MSYS_NO_PATHCONV: '1',
     MOCK_FIXTURES: fixtures,
     MOCK_LOG: log,
+    MOCK_TRACE_LOG: traceLog,
     MOCK_STAT_FILE: statFile,
     MOCK_SYSTEMCTL_LOG: systemctlLog,
+    MOCK_SYSTEMCTL_FAIL_CALL: options.systemctlFailCall ?? '',
     MOCK_RC: String(options.firewallRc ?? 0),
     MOCK_SYSTEMCTL_RC: String(options.systemctlRc ?? 0),
     AEGIS_DOCKER_BIN: dockerBin,
@@ -468,8 +474,9 @@ function runtimeHarness(options = {}) {
   })
   const mockLog = () => readFile(log, 'utf8')
   const systemctlCalls = () => readFile(systemctlLog, 'utf8')
+  const traceCalls = () => readFile(traceLog, 'utf8')
   const cleanup = () => rmSync(root, { recursive: true, force: true })
-  return { run, runRollback, mockLog, systemctlCalls, cleanup, env, root }
+  return { run, runRollback, mockLog, systemctlCalls, traceCalls, cleanup, env, root }
 }
 
 test('S5.5-PRESTART-HAPPY accepts the complete safe state', () => {
@@ -828,23 +835,49 @@ test('S5.5-ROLLBACK-ORDER reverses the lifecycle narrowly', () => {
 
     const systemctl = h.systemctlCalls()
     const docker = h.mockLog()
+    const trace = h.traceCalls()
 
     // 1-2. Drift lifecycle and connector service are stopped and disabled first.
     assert.match(systemctl, /stop aegis-public-share-drift\.timer/)
     assert.match(systemctl, /disable aegis-public-share-drift\.timer/)
     assert.match(systemctl, /stop aegis-public-share-connector\.service/)
     assert.match(systemctl, /disable aegis-public-share-connector\.service/)
+    assert.match(
+      systemctl,
+      /stop aegis-public-share-s5-5-firewall\.service/,
+      'rollback must stop the task-owned firewall service',
+    )
+    assert.match(
+      systemctl,
+      /disable aegis-public-share-s5-5-firewall\.service/,
+      'rollback must disable task-owned firewall persistence',
+    )
 
     // Reverse order: the timer must be stopped before the connector, so the
-    // watchdog cannot fight the rollback.
+    // watchdog cannot fight the rollback. Firewall lifecycle removal follows
+    // the connector lifecycle, preventing a later boot from restoring S5.5.
+    const driftStop = systemctl.indexOf('stop aegis-public-share-drift.timer')
+    const connectorStop = systemctl.indexOf('stop aegis-public-share-connector.service')
+    const firewallStop = systemctl.indexOf('stop aegis-public-share-s5-5-firewall.service')
     assert.ok(
-      systemctl.indexOf('stop aegis-public-share-drift.timer')
-        < systemctl.indexOf('stop aegis-public-share-connector.service'),
+      driftStop < connectorStop,
       'the drift timer must be stopped before the connector',
+    )
+    assert.ok(
+      connectorStop < firewallStop,
+      'the connector lifecycle must stop before the firewall lifecycle',
     )
 
     // 3. Only the connector container is removed.
     assert.match(docker, /rm .*public-share-connector|stop .*public-share-connector/)
+    const connectorRemove = trace.indexOf('docker rm aegis-prod-public-share-connector-1')
+    const tracedFirewallStop = trace.indexOf('systemctl stop aegis-public-share-s5-5-firewall.service')
+    assert.notEqual(connectorRemove, -1, 'the connector container must be removed')
+    assert.notEqual(tracedFirewallStop, -1, 'the firewall lifecycle stop must be traced')
+    assert.ok(
+      connectorRemove < tracedFirewallStop,
+      'the connector container must be removed before the firewall lifecycle stops',
+    )
 
     // 4. Firewall policy is removed through the owning tool only.
     assert.match(h.mockLog(), /remove/, 's5-5-firewall.sh remove must be invoked')
@@ -858,6 +891,27 @@ test('S5.5-ROLLBACK-ORDER reverses the lifecycle narrowly', () => {
       'the egress network must be inspected before it is removed',
     )
   } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-FIREWALL-LIFECYCLE fails closed on stop or disable failure', () => {
+  for (const action of ['stop', 'disable']) {
+    const h = runtimeHarness({
+      egressContainers: {},
+      connectorNetworks: {
+        aegis_public_share_edge: '172.31.240.3',
+        aegis_public_share_egress: '172.31.242.2',
+      },
+      systemctlFailCall: `${action} aegis-public-share-s5-5-firewall.service`,
+    })
+    try {
+      const result = h.runRollback()
+      assert.notEqual(result.status, 0, `rollback must fail closed when firewall ${action} fails`)
+      assert.doesNotMatch(result.stdout, /S5\.5-ROLLBACK=COMPLETE/,
+        'an incomplete firewall lifecycle rollback must never report completion')
+      assert.doesNotMatch(h.mockLog(), /network rm aegis_public_share_egress/,
+        'rollback must not remove the egress network after firewall lifecycle failure')
+    } finally { h.cleanup() }
+  }
 })
 
 test('S5.5-ROLLBACK-EGRESS-ENDPOINTS refuses to remove a network still in use', () => {

@@ -6,8 +6,9 @@
 #   1. stop + disable the drift timer (so the watchdog cannot fight the rollback)
 #   2. stop + disable the connector service
 #   3. stop + remove ONLY the public-share-connector container
-#   4. remove the S5.5 firewall policy through s5-5-firewall.sh remove (removes task-owned iptables anchors/chains and bridge aegis_s55_edge table)
-#   5. prove aegis_public_share_egress has zero endpoints, then remove it
+#   4. stop + disable the task-owned S5.5 firewall service
+#   5. remove the S5.5 firewall policy through s5-5-firewall.sh remove (removes task-owned iptables anchors/chains and bridge aegis_s55_edge table)
+#   6. prove aegis_public_share_egress has zero endpoints, then remove it
 #
 # The accepted S5.4 baseline is preserved: drive, public-share-gateway, the
 # database, every volume, the edge/upstream/private networks and all internal
@@ -21,6 +22,7 @@ set -euo pipefail
 
 readonly EGRESS_NETWORK='aegis_public_share_egress'
 readonly CONNECTOR_SERVICE='aegis-public-share-connector.service'
+readonly FIREWALL_SERVICE='aegis-public-share-s5-5-firewall.service'
 readonly DRIFT_TIMER='aegis-public-share-drift.timer'
 readonly DRIFT_SERVICE='aegis-public-share-drift.service'
 
@@ -63,7 +65,19 @@ remove_connector_container() {
   quietly "$DOCKER" rm "$CONNECTOR_CONTAINER"
 }
 
-# --- 4: firewall policy ------------------------------------------------------
+# --- 4: firewall lifecycle ---------------------------------------------------
+
+stop_firewall_lifecycle() {
+  note 'stopping the task-owned S5.5 firewall service'
+  # systemd treats an already inactive/disabled installed unit as success.
+  # Any other failure must block completion or S5.5 could return after reboot.
+  "$SYSTEMCTL" stop "$FIREWALL_SERVICE" >/dev/null 2>&1 \
+    || die "failed to stop ${FIREWALL_SERVICE}"
+  "$SYSTEMCTL" disable "$FIREWALL_SERVICE" >/dev/null 2>&1 \
+    || die "failed to disable ${FIREWALL_SERVICE}"
+}
+
+# --- 5: firewall policy ------------------------------------------------------
 
 remove_firewall_policy() {
   note 'removing the S5.5-owned firewall policy (iptables anchors/chains and bridge aegis_s55_edge table)'
@@ -71,7 +85,7 @@ remove_firewall_policy() {
     || die 'the S5.5 firewall policy could not be removed cleanly'
 }
 
-# --- 5: egress network, only when provably empty -----------------------------
+# --- 6: egress network, only when provably empty -----------------------------
 
 egress_endpoint_count() {
   NETWORK_JSON="$1" node --input-type=commonjs -e '
@@ -106,6 +120,7 @@ main() {
 
   stop_lifecycle
   remove_connector_container
+  stop_firewall_lifecycle
   remove_firewall_policy
   remove_egress_network
 
