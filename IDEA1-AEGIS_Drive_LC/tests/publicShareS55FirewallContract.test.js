@@ -133,7 +133,7 @@ if [ "\${1:-}" = "inspect" ]; then
     exit 1
   fi
   if [ ! -f "\$MOCK_CONNECTOR_JSON" ]; then
-    echo "Error response from daemon: No such object: \${2:-}" >&2
+    printf '%s\\n' "\$MOCK_DOCKER_ABSENCE_ERROR" >&2
     exit 1
   fi
   cat "\$MOCK_CONNECTOR_JSON"; exit 0
@@ -308,6 +308,8 @@ function harness(options = {}) {
     MOCK_DOCKER_JSON: dockerJson,
     MOCK_CONNECTOR_JSON: connectorJson,
     MOCK_DOCKER_MODE: options.dockerError ? 'error' : 'ok',
+    MOCK_DOCKER_ABSENCE_ERROR: options.dockerAbsenceError
+      ?? 'Error response from daemon: No such object: aegis-prod-public-share-connector-1',
     MOCK_NFT_JSON: nftJson,
     AEGIS_IPTABLES_BIN: iptables,
     AEGIS_DOCKER_BIN: docker,
@@ -1370,6 +1372,43 @@ test('S5.5-FW-TEARDOWN-ABSENT stays idempotent for a genuinely absent connector'
     assert.equal(h.run('remove').status, 0, 'remove must stay idempotent')
     assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
   } finally { h.cleanup() }
+})
+
+test('S5.5-FW-TEARDOWN-ABSENCE-ERROR-CASING accepts exact lowercase Production absence', () => {
+  const h = harness({
+    connectorAbsent: true,
+    dockerAbsenceError: 'error: no such object: aegis-prod-public-share-connector-1',
+  })
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const first = h.run('remove')
+    assert.equal(first.status, 0,
+      `the exact Production absence response must permit teardown: ${first.stderr}`)
+    assert.match(first.stdout, /S5\.5-FIREWALL=REMOVED/)
+    assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+    assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
+    assert.equal(h.run('remove').status, 0, 'repeated remove must remain idempotent')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-TEARDOWN-ABSENCE-CLASSIFIER rejects compound and wrong-target errors', () => {
+  const errors = [
+    'permission denied while decoding response: no such object metadata',
+    'error: no such object: some-other-container',
+  ]
+
+  for (const error of errors) {
+    const h = harness({ connectorAbsent: true, dockerAbsenceError: error })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const before = h.snapshot()
+      const result = h.run('remove')
+      assert.notEqual(result.status, 0, `unknown Docker error must fail closed: ${error}`)
+      assert.match(result.stderr, /S5\.5-FIREWALL=FAIL/)
+      assert.deepEqual(h.snapshot(), before,
+        `firewall teardown must not mutate on unknown Docker error: ${error}`)
+    } finally { h.cleanup() }
+  }
 })
 
 test('S5.5-FW-TEARDOWN-REFUSES-ONLY never stops or kills anything', () => {

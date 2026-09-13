@@ -291,11 +291,16 @@ rebuild_chain() {
 # Anything that is not positively identified as "the connector is absent" or
 # "the connector is inactive" fails closed.
 require_connector_inactive() {
-  local out rc state
+  local out rc state normalized normalized_target
   out="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>&1)" && rc=0 || rc=$?
   if [ "${rc}" -ne 0 ]; then
-    case "$out" in
-      *'No such object'*|*'No such container'*)
+    normalized="${out,,}"
+    normalized_target="${CONNECTOR_CONTAINER,,}"
+    case "$normalized" in
+      "error: no such object: ${normalized_target}"|\
+      "error: no such container: ${normalized_target}"|\
+      "error response from daemon: no such object: ${normalized_target}"|\
+      "error response from daemon: no such container: ${normalized_target}")
         # Already rolled back or never created: removal is safe.
         return 0 ;;
       *)
