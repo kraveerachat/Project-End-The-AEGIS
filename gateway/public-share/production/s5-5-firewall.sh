@@ -291,10 +291,22 @@ rebuild_chain() {
 # Anything that is not positively identified as "the connector is absent" or
 # "the connector is inactive" fails closed.
 require_connector_inactive() {
-  local out rc state normalized normalized_target
-  out="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>&1)" && rc=0 || rc=$?
+  local out err rc state normalized normalized_target stderr_file
+  stderr_file="$(mktemp "${TMPDIR:-/tmp}/aegis-docker-inspect-stderr-XXXXXX")" \
+    || die 'cannot create temporary Docker inspect stderr capture'
+  if out="$("$DOCKER" inspect "$CONNECTOR_CONTAINER" 2>"$stderr_file")"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if ! err="$(cat -- "$stderr_file")"; then
+    rm -f -- "$stderr_file"
+    die 'cannot read temporary Docker inspect stderr capture'
+  fi
+  rm -f -- "$stderr_file" \
+    || die 'cannot remove temporary Docker inspect stderr capture'
   if [ "${rc}" -ne 0 ]; then
-    normalized="${out,,}"
+    normalized="${err,,}"
     normalized_target="${CONNECTOR_CONTAINER,,}"
     case "$normalized" in
       "error: no such object: ${normalized_target}"|\

@@ -128,6 +128,11 @@ const MOCK_DOCKER = `#!/usr/bin/env bash
 set -u
 if [ "\${1:-}" = "network" ]; then cat "\$MOCK_DOCKER_JSON"; exit 0; fi
 if [ "\${1:-}" = "inspect" ]; then
+  if [ "\${MOCK_DOCKER_MODE:-ok}" = "streams" ]; then
+    printf '%s' "\${MOCK_DOCKER_INSPECT_STDOUT:-}"
+    printf '%s' "\${MOCK_DOCKER_INSPECT_STDERR:-}" >&2
+    exit "\${MOCK_DOCKER_INSPECT_RC:-1}"
+  fi
   if [ "\${MOCK_DOCKER_MODE:-ok}" = "error" ]; then
     echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2
     exit 1
@@ -307,7 +312,10 @@ function harness(options = {}) {
     MOCK_IPTABLES_VERSION_FILE: versionFile,
     MOCK_DOCKER_JSON: dockerJson,
     MOCK_CONNECTOR_JSON: connectorJson,
-    MOCK_DOCKER_MODE: options.dockerError ? 'error' : 'ok',
+    MOCK_DOCKER_MODE: options.dockerInspect ? 'streams' : options.dockerError ? 'error' : 'ok',
+    MOCK_DOCKER_INSPECT_STDOUT: options.dockerInspect?.stdout ?? '',
+    MOCK_DOCKER_INSPECT_STDERR: options.dockerInspect?.stderr ?? '',
+    MOCK_DOCKER_INSPECT_RC: String(options.dockerInspect?.rc ?? 1),
     MOCK_DOCKER_ABSENCE_ERROR: options.dockerAbsenceError
       ?? 'Error response from daemon: No such object: aegis-prod-public-share-connector-1',
     MOCK_NFT_JSON: nftJson,
@@ -1299,6 +1307,18 @@ const EXACT_LABELS = {
   'com.docker.compose.service': 'public-share-connector',
 }
 
+const STOPPED_CONNECTOR_INSPECT = JSON.stringify([{
+  Name: '/aegis-prod-public-share-connector-1',
+  State: {
+    Status: 'exited',
+    Running: false,
+    Restarting: false,
+    Paused: false,
+    Dead: false,
+  },
+  Config: { Labels: EXACT_LABELS },
+}])
+
 test('S5.5-FW-TEARDOWN-IDENTITY fails closed on any identity drift', () => {
   const drifts = {
     'wrong project label': {
@@ -1388,6 +1408,78 @@ test('S5.5-FW-TEARDOWN-ABSENCE-ERROR-CASING accepts exact lowercase Production a
     assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
     assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
     assert.equal(h.run('remove').status, 0, 'repeated remove must remain idempotent')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-TEARDOWN-STDOUT-STDERR-SEPARATION accepts absent connector when Docker emits stdout noise plus exact stderr absence', () => {
+  const h = harness({
+    dockerInspect: {
+      stdout: '[]\n',
+      stderr: 'error: no such object: aegis-prod-public-share-connector-1\n',
+      rc: 1,
+    },
+  })
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const first = h.run('remove')
+    assert.equal(first.status, 0,
+      `exact stderr absence must permit teardown despite stdout noise: ${first.stderr}`)
+    assert.match(first.stdout, /S5\.5-FIREWALL=REMOVED/)
+    assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+    assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
+    assert.equal(h.run('remove').status, 0, 'repeated remove must remain idempotent')
+  } finally { h.cleanup() }
+})
+
+test('S5.5-FW-TEARDOWN-STDOUT-STDERR-AUTHORITY failed inspect classifies only stderr', () => {
+  const cases = [
+    {
+      label: 'stdout JSON noise cannot override unknown stderr',
+      stdout: '[]\n',
+      stderr: 'permission denied while decoding response\n',
+    },
+    {
+      label: 'absence-looking stdout cannot override unknown stderr',
+      stdout: 'error: no such object: aegis-prod-public-share-connector-1\n',
+      stderr: 'permission denied\n',
+    },
+    {
+      label: 'wrong-target stderr cannot prove connector absence',
+      stdout: '[]\n',
+      stderr: 'error: no such object: some-other-container\n',
+    },
+  ]
+
+  for (const fixture of cases) {
+    const h = harness({ dockerInspect: { ...fixture, rc: 1 } })
+    try {
+      assert.equal(h.run('apply').status, 0)
+      const before = h.snapshot()
+      const result = h.run('remove')
+      assert.notEqual(result.status, 0, fixture.label)
+      assert.match(result.stderr, /S5\.5-FIREWALL=FAIL/)
+      assert.deepEqual(h.snapshot(), before,
+        `firewall teardown must not mutate: ${fixture.label}`)
+    } finally { h.cleanup() }
+  }
+})
+
+test('S5.5-FW-TEARDOWN-STDOUT-STDERR-SUCCESS parses only stdout JSON when inspect succeeds', () => {
+  const h = harness({
+    dockerInspect: {
+      stdout: `${STOPPED_CONNECTOR_INSPECT}\n`,
+      stderr: 'warning/noise\n',
+      rc: 0,
+    },
+  })
+  try {
+    assert.equal(h.run('apply').status, 0)
+    const result = h.run('remove')
+    assert.equal(result.status, 0,
+      `stderr noise must not poison successful container JSON: ${result.stderr}`)
+    assert.match(result.stdout, /S5\.5-FIREWALL=REMOVED/)
+    assert.equal(h.chains().includes(EGRESS_CHAIN), false, 'egress chain removed')
+    assert.equal(h.chains().includes(INPUT_CHAIN), false, 'input chain removed')
   } finally { h.cleanup() }
 })
 
