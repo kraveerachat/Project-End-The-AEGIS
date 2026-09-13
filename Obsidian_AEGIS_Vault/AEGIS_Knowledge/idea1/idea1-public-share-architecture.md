@@ -25,8 +25,8 @@ edit_policy: owner-writable
 > and `gateway/public-share/production/README.md`.
 >
 > This is not Internet availability. The repository firewall tooling is
-> **IMPLEMENTED and TESTED**, but the Production firewall remains **UNCHANGED /
-> NOT DEPLOYED**. The egress network and real `cloudflared` connector remain
+> **IMPLEMENTED and TESTED**, and the Production firewall was verified and **ROLLED BACK**
+> to the S5.4 baseline (S5.5 is CLOSED / PASS). The egress network and real `cloudflared` connector are
 > **ABSENT** on Production; public hostname binding, public DNS/TLS route,
 > external 4G/5G acceptance, and Public Share UI activation are **NOT
 > IMPLEMENTED YET**. Internet exposure is **NONE**; Public Internet Share is
@@ -37,10 +37,10 @@ edit_policy: owner-writable
 > - **S5.5-A through S5.5-E**: Preflight, architecture specification, pinned connector container (`cloudflare/cloudflared:2026.9.0`), egress overlay (`docker-compose.s5-5.yml`), firewall tooling (`s5-5-firewall.sh`), lifecycle scripts (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`), systemd units, drift timer, and test contracts were fully implemented and verified in the repository.
 > - **Pre-S5.5-F Security Hardening**: Implemented destination-scoped established return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`), fail-closed preflights, exact network metadata enforcement, and strict teardown safety gates.
 > - **S5.5-F Production Runtime & Isolation Acceptance**: Deployed on Production following the create-before-start sequence. Fixed an iptables-nft / nft JSON formatting issue where redundant `ether type ip` matches were omitted by nft (resolved via TDD in `e961d659`). Verified positive probes (outbound tunnel to Cloudflare over TCP/7844, connector loopback metrics, edge Gateway connectivity) and negative probes (Drive, PostgreSQL, host physical listeners, non-allowlisted IP/ports strictly blocked).
-> - **S5.5-G Production Persistence & Rollback Acceptance**: Verified systemd restart persistence and drift enforcement. Discovered and resolved rollback classifier and inspect stream issues via TDD (`f371893e`, `f687c3a5`, `0eb85aac`). Executed clean reverse-order rollback, removing the connector, egress network, S5.5 firewall additions, and systemd units.
+> - **S5.5-G Production Persistence & Rollback Acceptance**: Verified systemd restart persistence and drift enforcement. Discovered and resolved rollback classifier and inspect stream issues via TDD (`f371893e`, `f687c3a5`, `0eb85aac`). Executed clean reverse-order rollback, removing the connector, egress network, S5.5 firewall additions, and making task-owned S5.5 systemd activation inactive/disabled.
 > - **S5.5-H Pre-Merge Reconciliation & Final Verification**: Synchronized with `origin/main`, verified all frozen runtime source file hashes, verified full test suite passing (`NEW_FAILURES=0`), updated all canonical docs, and produced the immutable final receipt.
 >
-> **Current Production State**: The S5.4 baseline (Gateway and Drive State B) is running healthy. Connector is **ABSENT**, egress network is **ABSENT**, S5.5 firewall additions are **REMOVED**, and systemd units are **DISABLED/REMOVED**. Token content was never read or persisted. Internet exposure is **NONE**; Public Share UI remains **OFF**; Public Internet Share remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future G5/G6 phases).
+> **Current Production State**: The S5.4 baseline (Gateway and Drive State B) is running healthy. Connector is **ABSENT**, egress network is **ABSENT**, S5.5 firewall additions are **REMOVED**, and task-owned S5.5 systemd activation is **INACTIVE/DISABLED**. Token content was never read or persisted. Internet exposure is **NONE**; Public Share UI remains **OFF**; Public Internet Share remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G5/G6 gates phases).
 >
 > Refer to [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]] for the authoritative S5.5 receipt.
 
@@ -1323,7 +1323,7 @@ and was corrected — asserting `Connection refused` first, accepting a timeout,
 rejecting any HTTP response, and adding PUBLIC-SHARE-3's ARP corroboration.
 
 **Pre-exposure managed-tunnel acceptance = PASS.** ⚠️ This closes the adapter
-task only. **PUBLIC-SHARE-7 overall = IN PROGRESS**, real Internet acceptance =
+task only. **PUBLIC-SHARE-7 overall = IN PROGRESS (S5.5 is CLOSED / PASS)**, real Internet acceptance =
 **NOT RUN**, **G4 is APPROVED for Option B**, **G5 and G6 remain OPEN**, and
 `Public Internet Share = NOT IMPLEMENTED`.
 

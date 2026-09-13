@@ -70,7 +70,7 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   reconciliation, main synchronization, and final repository verification completed.
   Final Production state: S5.4 baseline active, Internet exposure NONE, Public
   Share UI OFF, token content not read. Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future G5/G6 phases).
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G5/G6 gates phases).
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
   [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]

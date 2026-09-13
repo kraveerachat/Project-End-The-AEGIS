@@ -18,13 +18,12 @@ edit_policy: append-by-new-file
 - Implemented and verified lifecycle and drift enforcement tooling (`gateway/public-share/production/s5-5-runtime-check.sh`), systemd units (`aegis-public-share-s5-5-firewall.service`, `aegis-public-share-connector.service`, `aegis-public-share-drift.service`, `aegis-public-share-drift.timer`), and automated connector-only rollback script (`gateway/public-share/production/rollback-s5-5.sh`).
 - Verified Production deployment and egress isolation (S5.5-F): connector attached strictly to edge + egress; resolved live iptables-nft / nft JSON formatting anomaly where redundant `ether type ip` matches were omitted by nft (fixed via TDD commit `e961d659`); verified positive tunnel and loopback metrics connectivity; verified negative egress isolation probes blocking access to Drive, PostgreSQL, host physical listeners, and non-allowlisted destinations.
 - Verified Production restart persistence and clean reverse-order rollback (S5.5-G): verified service restart survival and drift monitoring; resolved rollback absence classification, case-normalization, and inspect stream separation defects via TDD commits (`f371893e`, `f687c3a5`, `0eb85aac`); executed clean reverse-order rollback on Production, cleanly restoring the S5.4 Gateway and Drive State B baseline.
-- Completed S5.5-H pre-merge closeout: synchronized cleanly with `origin/main` (`46f531ca020200ac3ca33a84853bb7dcaaeead59`), confirmed zero changes to frozen runtime source and contract blobs, verified full test suite passing with zero new failures, reconciled all canonical documentation, and prepared PR #118 for human owner review and merge.
+- Completed S5.5-H pre-merge closeout: synchronized cleanly with `origin/main` (`46f531ca020200ac3ca33a84853bb7dcaaeead59`), confirmed zero changes to frozen runtime source and contract blobs, completed the full regression bar with zero NEW failures; accepted historical failures remained unchanged, reconciled all canonical documentation, and prepared PR #118 for human owner review and merge.
 
 ## Source files changed
 
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflareEndpoints.test.js` — contract tests for authoritative Cloudflare transport endpoint allowlist.
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflaredPin.test.js` — contract test verifying cloudflared image pin schema, hash, and non-root user.
-- `IDEA1-AEGIS_Drive_LC/tests/publicShareS54RuntimeContract.test.js` — baseline regression suite verifying S5.4 Gateway/Drive runtime topology.
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareS55BridgeFirewallContract.test.js` — bridge-level firewall contract tests for edge isolation.
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js` — firewall contract tests covering apply, validate, remove, staging atomicity, and destination-scoped return.
 - `IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallNftNormalization.test.js` — tests verifying nft JSON rule normalization and handling of omitted `ether type ip` matches.
@@ -55,17 +54,16 @@ edit_policy: append-by-new-file
 
 - `node scripts/validate-vault.mjs` — pass: 0 errors, 2 pre-existing canvas warnings.
 - `node --test tests/collaborationPolicy.test.mjs` — pass: 24 tests, 24 passed, 0 failed.
-- `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS54RuntimeContract.test.js` — pass: 7 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflaredPin.test.js` — pass: 1 test passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareCloudflareEndpoints.test.js` — pass: 5 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS55RuntimeContract.test.js` — pass: 46 tests passed.
-- `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js` — pass: 34 tests passed.
+- `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallContract.test.js` — pass: 39 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS55BridgeFirewallContract.test.js` — pass: 6 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareS55FirewallNftNormalization.test.js` — pass: 10 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` — pass: 21 tests passed.
 - `node --test IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayStructure.test.js` — pass: 12 tests passed.
 - `npm run build` (in `IDEA1-AEGIS_Drive_LC`) — pass: client build completed with 0 errors.
-- `npm test` (in `IDEA1-AEGIS_Drive_LC`) — pass: full suite executed (NEW_FAILURES=0, pre-existing failures only).
+- `npm test` (in `IDEA1-AEGIS_Drive_LC`) — COMPLETED WITH ACCEPTED HISTORICAL FAILURES; NEW_FAILURES=0 (AUTOLOCK-5, PS6-ENV-4 through PS6-ENV-8, stage B diagnostic/upload client remain).
 - `git diff --check` — pass: zero whitespace or git diff check errors.
 
 ## Canonical notes updated
@@ -100,7 +98,7 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Final Production state: connector container absent, egress network absent, S5.5 firewall additions removed, systemd units disabled and removed; S5.4 Gateway and Drive State B baseline active and healthy.
-- Public DNS/TLS route remains unconfigured; Internet exposure remains NONE; Public Share UI remains OFF. Public Internet Share remains NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED (pending future G5/G6 phases).
+- Final Production state: connector container absent, egress network absent, S5.5 firewall additions removed, task-owned S5.5 systemd activation inactive/disabled; S5.4 Gateway and Drive State B baseline active and healthy.
+- Public DNS/TLS route remains unconfigured; Internet exposure remains NONE; Public Share UI remains OFF. Public Internet Share remains NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED (pending future global Public Share G5/G6 gates phases).
 - Tunnel token content was never read or persisted into repository or logs.
 - Pre-existing IDEA1 test suite failures (AUTOLOCK-5, PS6-ENV-4 through PS6-ENV-8, stage B diagnostic/upload client) remain unchanged (`NEW_FAILURES=0`).
