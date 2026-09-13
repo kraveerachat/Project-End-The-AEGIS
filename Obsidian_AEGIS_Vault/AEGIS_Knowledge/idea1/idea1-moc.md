@@ -69,15 +69,19 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   and restoring S5.4 Gateway and Drive State B baseline; S5.5-H pre-merge canonical
   reconciliation, main synchronization, and final repository verification completed.
   Final Production state after S5.5: S5.4 baseline restored. Under approved G5,
-  S5.6 (Cloudflare Public Activation) is IN PROGRESS: S5.6-A/B/C CLOSED / PASS
-  (isolated connector runtime restored and verified, negative isolation passed,
-  PostgreSQL C1 harness attribution confirmed terminal deny, 0 routes, DNS NXDOMAIN,
-  Internet exposure NONE, UI OFF, G6 OPEN). Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G6 gate and external acceptance).
+  S5.6 (Cloudflare Public Activation) phases S5.6-A through S5.6-H are **CLOSED / PASS**:
+  single approved public hostname route `share.aegistk-pb.com` active (Published application
+  targeting `http://172.31.240.2:8080`), Cloudflare managed tunnel HEALTHY with 1 active replica,
+  public DNS active via Anycast proxies, minimum TLS 1.2 enforced, hostname-scoped HTTP->HTTPS 308 redirect active,
+  public default-deny smoke verified, live connector runtime active and isolated, and emergency rollback script verified executable.
+  Public Share UI remains OFF, GLOBAL PUBLIC SHARE G6 remains OPEN, and Public Internet Share remains
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future S5.7 security verification, S5.8 external 4G/5G acceptance, and G6 decision).
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
+  [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]
+  for the final immutable S5.6 receipt,
   [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]
-  for the final immutable S5.5 receipt, and
+  for the historical S5.5 receipt, and
   `gateway/public-share/production/README.md` for the Production runbook.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.

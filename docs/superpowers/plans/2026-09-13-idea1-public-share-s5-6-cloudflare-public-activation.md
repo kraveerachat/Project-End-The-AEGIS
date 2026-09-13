@@ -13,7 +13,7 @@ redemption while keeping the Public Share UI completely disabled (`PUBLIC_SHARE_
 preserving the accepted S5.4 Gateway and Drive State B runtime baseline, keeping GLOBAL
 PUBLIC SHARE G6 **OPEN**, and never exposing private surfaces, database, or management planes.
 
-Current checkpoint: S5.6-A/B/C are **CLOSED / PASS**; S5.6-D is **NOT STARTED** (pending explicit ChatGPT Cloudflare route mutation gate).
+Current checkpoint: S5.6-A through S5.6-H are **CLOSED / PASS** (completed and verified by fresh Human Owner evidence across Production, Cloudflare Control Plane, Public DNS, TLS termination, and Public Edge smoke).
 The Human Owner has approved **GLOBAL PUBLIC SHARE G5 = APPROVED** following the verified
 merge of S5.5 (PR #118). S5.5 technical implementation is closed and verified, and its
 connector runtime has been restored and verified under strict isolation gates in S5.6-B/C.
@@ -96,8 +96,7 @@ Authoritative specifications governing S5.6:
 - Internet exposure `NONE`.
 - Public Share UI `OFF`.
 
-**S5.6-A/B/C CURRENT VERIFICATION:** `CLOSED / PASS` (proven by fresh Human Owner evidence; positive and negative isolation matrix validated; zero cross-boundary leaks; PostgreSQL probe harness attribution diagnostic C1 confirmed AEGIS-PS-EGRESS terminal deny; connector runtime active/isolated; tunnel healthy; public routes = 0; public DNS = NXDOMAIN; Internet exposure = NONE; UI = OFF; G6 = OPEN).
-**S5.6-D CURRENT STATE:** `NOT STARTED` (pending explicit ChatGPT Cloudflare control-plane mutation gate).
+**S5.6 CURRENT VERIFICATION:** `CLOSED / PASS` across all phases S5.6-A through S5.6-H (proven by fresh Human Owner evidence; public hostname route active on Cloudflare for `share.aegistk-pb.com`; public DNS active with Cloudflare proxy addresses; TLS 1.2/1.3 enforced with minimum TLS 1.2; hostname-scoped HTTP -> HTTPS 308 active; public default-deny validated; zero cross-boundary leaks; connector runtime active/isolated; tunnel healthy with 1 active replica, 1 route; Public Share UI remains OFF; G6 remains OPEN; rollback script verified executable; Public Internet Share not yet externally accepted).
 
 ## G5/G6 Gate Contract
 
@@ -254,17 +253,19 @@ All acceptance claims in S5.6 must be classified under the following rigorous ev
 - **Prerequisites**: S5.6-A, S5.6-B, and S5.6-C all PASS.
 - **Execution Steps**:
   1. In Cloudflare Zero Trust Dashboard -> Networks -> Tunnels -> select named AEGIS tunnel.
-  2. Add Public Hostname:
+  2. Add Public Hostname (Published application):
+     - Route type: Published application
      - Subdomain: `share`
-     - Domain: `aegistk-pb.com`
-     - Path: leave blank (root route for this hostname only)
-     - Type: `HTTP`
-     - URL: `172.31.240.2:8080` (or `public-share-gateway:8080` as mapped in connector network context)
-  3. Additional Settings:
-     - HTTP Settings: Preserve headers, No TLS Verify (internal HTTP hop).
+     - Domain: `aegistk-pb.com` (hostname `share.aegistk-pb.com`)
+     - Path: blank (root route for this hostname only)
+     - Service Type: `HTTP`
+     - URL: `http://172.31.240.2:8080`
+  3. Additional Application Settings:
+     - Using defaults (internal hop is plain HTTP; No TLS Verify was not configured).
   4. Save Hostname.
-  5. Record non-secret metadata: Tunnel ID, hostname, target URL, timestamp.
-- **Pass Criteria**: Hostname entry active in Cloudflare; Cloudflare automatically creates/manages DNS CNAME to `<tunnel-id>.cfargotunnel.com`.
+  5. Record non-secret metadata: Tunnel ID, hostname `share.aegistk-pb.com`, target URL, timestamp.
+- **Pass Criteria**: Hostname entry active in Cloudflare; tunnel status HEALTHY with 1 active replica, 1 route; Cloudflare proxies traffic via Anycast edge.
+- **Execution Outcome**: CLOSED / PASS. Cloudflare Zero Trust Published application route created; 0 wildcards, 0 root-domain routes, 0 alternate hostnames.
 - **Stop / Fail Criteria**: Misconfiguration, attempt to add wildcard, or tunnel connection drop. Immediate rollback: delete Public Hostname route.
 
 ---
@@ -311,6 +312,24 @@ All acceptance claims in S5.6 must be classified under the following rigorous ev
 - **Pass Criteria**: Trusted certificate with valid SAN; TLS 1.2+ enforced; automatic HTTPS redirect active.
 - **Stop / Fail Criteria**: Untrusted cert, TLS handshake error, or plaintext HTTP serving application content.
 
+> [!important] Execution Deviation & Owner Hardening Mutations in S5.6-F
+> The plan originally assumed S5.6-F would be purely read-only verification.
+> However, initial verification revealed two security-hardening gaps:
+> 1. Plaintext HTTP (`http://share.aegistk-pb.com/`) returned HTTP 404 without redirecting to HTTPS (`Always Use HTTPS = OFF`).
+> 2. Minimum TLS Version was configured to default `TLS 1.0`, accepting deprecated TLS 1.0 and 1.1 handshakes.
+>
+> Following explicit scoped ChatGPT mutation gates, the Human Owner applied two authorized Cloudflare mutations:
+> 1. **Hostname-scoped Single Redirect Rule** (`AEGIS Share HTTP to HTTPS`): wildcard `http://share.aegistk-pb.com/*` -> `https://share.aegistk-pb.com/${1}` with `308 Permanent Redirect` and query string preservation.
+> 2. **Zone-level Minimum TLS Version**: elevated from `TLS 1.0` to `TLS 1.2`.
+>
+> Post-remediation verification confirmed:
+> - Plaintext HTTP requests return `308 Permanent Redirect` to HTTPS (preserving path and query parameters).
+> - TLS 1.0 and TLS 1.1 connections are strictly rejected (`curl exit=35`).
+> - TLS 1.2 and TLS 1.3 handshakes pass cleanly (`curl exit=0`).
+> - Certificate SAN covers `share.aegistk-pb.com` and `*.aegistk-pb.com` (Let's Encrypt, valid 2026-09-10 to 2026-12-09).
+> - Standard `curl` verification succeeds without `-k`. (Note: SslStream callback during metadata inspection accepted the cert for inspection purposes only; real trust chain validated via normal curl).
+> Outcome: S5.6-F CLOSED / PASS.
+
 ---
 
 ### S5.6-G — Immediate Public Default-Deny Smoke
@@ -335,6 +354,8 @@ All acceptance claims in S5.6 must be classified under the following rigorous ev
      - Probe nonexistent share redemption path: `GET https://share.aegistk-pb.com/s/invalid-token-probe` -> Expect clean Gateway/Drive 404 response without leaking stack trace or server tokens.
 - **Pass Criteria**: All unapproved paths return 404/403/405; zero private services or administrative endpoints exposed; no server headers or internal IP leakage.
 - **Stop / Fail Criteria**: Any private interface leakage, internal path response, or server information disclosure.
+- **Execution Outcome**: CLOSED / PASS. Unapproved paths (`/`, `/drive/`, `/api/`, `/healthz`, `/monitor/`, `/internal/`) returned 404; invalid Host returned 403; forbidden methods (PUT/DELETE/PATCH) returned 405; nonexistent share token returned safe 404 'Link unavailable'; zero internal IPs or infrastructure tokens leaked. Server header `cloudflare` is expected public-edge metadata.
+- **Evidence Limitation**: REAL_EXTERNAL_ACCEPTANCE=NOT_YET_FULLY_PROVEN (no real bearer share token was used in smoke; Twingate-OFF Wi-Fi and 4G/5G external client acceptance deferred to future S5.8).
 
 ---
 
@@ -361,6 +382,8 @@ All acceptance claims in S5.6 must be classified under the following rigorous ev
      - Run full vault and collaboration policy validation.
      - Mark PR #126 Ready for Human Review.
 - **Pass Criteria**: Single immutable receipt added; canonical notes reconciled; policy and guardrail tests pass.
+- **Execution Outcome**: CLOSED / PASS. Single immutable receipt added: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation.md`.
+- **Rollback Readiness & Claim Boundary**: Fresh evidence confirms rollback artifact executable at `/opt/aegis/runtime/public-share/rollback-s5-5.sh` (SHA256: `a8c5be430b6c97d1b9e891eb4ad1a930a0580d2165b89ae44fdb200dc30923a7`). However, S5.6 did NOT destructively re-run the rollback after public activation. Therefore: `S5_6_ROLLBACK_REHEARSAL=NOT_RUN`, `ROLLBACK_UNDER_2_MINUTES=NOT_REPROVEN`. Historical S5.5 clean rollback serves as design background only.
 
 ---
 
