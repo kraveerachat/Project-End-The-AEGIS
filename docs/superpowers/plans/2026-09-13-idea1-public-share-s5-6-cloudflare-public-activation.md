@@ -85,9 +85,19 @@ Authoritative specifications governing S5.6:
 - Git Branch: `feat/idea1-public-share-s5-6-cloudflare-public-activation`
 - PR: `#126` (Draft)
 - Current Main SHA: `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`
-- Production Runtime: S5.4 Gateway (`172.31.240.2`, `172.31.241.2`) and Drive State B (`172.31.241.3`) healthy; connector absent; egress network absent; S5.5 firewall chains absent; systemd S5.5 activation inactive/disabled.
-- Public DNS: `share.aegistk-pb.com` unconfigured / unrouted.
-- Internet Exposure: `NONE`.
+
+**EXPECTED / CARRIED-FORWARD ACCEPTED BASELINE:**
+
+- S5.4 Gateway + Drive State B healthy at the accepted S5.5 final rollback.
+- Connector absent.
+- Egress network absent.
+- S5.5 firewall additions removed.
+- Task-owned activation inactive/disabled.
+- Public DNS/TLS route absent.
+- Internet exposure `NONE`.
+- Public Share UI `OFF`.
+
+**S5.6-A CURRENT VERIFICATION:** `NOT YET RE-PROVEN BY FRESH HUMAN OWNER EVIDENCE`.
 
 ## G5/G6 Gate Contract
 
@@ -97,9 +107,13 @@ Authoritative specifications governing S5.6:
 
 ## Secret Handling
 
-- The Cloudflare Tunnel token is supplied exclusively as a root-owned, mode `0400`/`0600` secret file on the Production host at `/opt/aegis/runtime/public-share/secrets/cloudflared-token`.
+- The Cloudflare Tunnel token is supplied exclusively at the host path `/opt/aegis/runtime/public-share/secrets/cloudflared-token` with this exact accepted S5.5 metadata contract:
+  - Type: regular file, never a directory, never a symlink.
+  - UID: `0` (`root`).
+  - GID: `65532`.
+  - Mode: exactly `0440`.
 - The secret file is bind-mounted read-only into the connector container at `/run/secrets/cloudflared-token:ro`.
-- Validation commands must check presence, ownership, file size, and non-empty status using metadata assertions (`stat -c "%a %u %g %s"`, `test -s`), never `cat`, `head`, `echo`, or `od`.
+- The validator checks metadata only. It must never read, print, or hash token contents.
 - In all reports, receipts, and plans, public URLs must use `https://share.aegistk-pb.com/s/[REDACTED]`.
 
 ## Evidence Classes
@@ -189,18 +203,19 @@ All acceptance claims in S5.6 must be classified under the following rigorous ev
 - **Prerequisites**: S5.6-A PASS.
 - **Execution Steps**:
   1. Verify Production checkout and overlay files match reviewed repository HEAD.
-  2. Validate token secret file metadata (`stat` check for existence and permissions; contents untouched).
+  2. Validate the token secret host path as a regular non-symlink file with exact UID `0`, GID `65532`, and mode `0440`; inspect metadata only and never read, print, or hash its contents.
   3. Execute create-before-start sequence via Compose overlay `docker-compose.s5-5.yml`:
-     - Create `public-share-connector` container in stopped state (materialises `aegis-ps-eg` bridge).
-     - Prove container is stopped and joined to edge (`172.31.240.3`) and egress (`172.31.242.2`).
+     - Create only `public-share-connector` in stopped state through the reviewed four-layer Compose command from the Production runbook (materialises `aegis-ps-eg` bridge).
+     - Prove the container has the exact accepted Compose identity, remains stopped, and is joined only to edge (`172.31.240.3`) and egress (`172.31.242.2`).
   4. Apply S5.5 firewall additions via `s5-5-firewall.sh apply`:
      - Creates `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT` chains.
      - Enforces TCP/7844 outbound-only allowlist to the 20 reviewed Cloudflare `/32` endpoints.
      - Terminal deny on all other egress; denies host-local physical destinations.
   5. Validate firewall configuration via `s5-5-firewall.sh validate`.
   6. Execute pre-start validation check: `s5-5-runtime-check.sh --pre-start`.
-  7. Start connector container (`docker start aegis-prod-public-share-connector-1` or via systemd unit `aegis-public-share-connector.service`).
+  7. Start the already-created connector only through `sudo systemctl start aegis-public-share-connector.service`. The unit executes `s5-5-runtime-check.sh --pre-start` again, then runs the reviewed four-layer `docker compose ... start public-share-connector` command.
   8. Enable and start drift timer: `systemctl enable --now aegis-public-share-drift.timer`.
+- **Forbidden Connector Activation Paths**: Never use `docker start`, `docker compose up`, `docker compose run`, or `--force-recreate` for connector activation.
 - **Pass Criteria**: Connector running and healthy; establishes outbound HTTP/2 tunnel to Cloudflare over TCP/7844; firewall chains intact; drift timer active; public DNS/hostname remains unconfigured.
 - **Stop / Fail Criteria**: Any failure during apply/validate, connector crash-loop, or egress reachability outside the allowlist. Trigger immediate `rollback-s5-5.sh`.
 
