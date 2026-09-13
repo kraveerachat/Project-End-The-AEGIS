@@ -32,48 +32,17 @@ edit_policy: owner-writable
 > IMPLEMENTED YET**. Internet exposure is **NONE**; Public Internet Share is
 > **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**.
 
-> [!important] S5.5 current state — S5.5-A through S5.5-E, pre-F security corrections, and main sync closed; runtime phases S5.5-F+ NOT STARTED
-> S5.5 is **IN PROGRESS** with S5.5-A, S5.5-B, S5.5-C, S5.5-D, and S5.5-E **CLOSED / PASS**
-> (S5.5-D and S5.5-E repository implementation only), PRE-S5.5-F SECURITY CORRECTIONS **CLOSED / PASS**
-> (repository only), and S5.5 PRE-PRODUCTION MAIN SYNC **CLOSED / PASS**. The fresh Production read-only
-> firewall/runtime preflight matched S5.2 assumptions and the accepted S5.4
-> topology. S5.5-C repository preparation verified the pinned cloudflared image
-> contract and established `docker-compose.s5-5.yml`. S5.5-D repository firewall
-> tooling is **IMPLEMENTED and TESTED** (`s5-5-firewall.sh`, authoritative
-> allowlist snapshot `cloudflare-endpoints.json` with `CLOUDFLARE_TRANSPORT_ALLOWLIST=VERIFIED`,
-> and contract tests). S5.5-E repository lifecycle tooling is **IMPLEMENTED and TESTED**
-> (`s5-5-runtime-check.sh` with `--pre-start` and `--enforce-drift`, systemd units,
-> `rollback-s5-5.sh`, security regression suite in `publicShareSecurityRegression.test.js`,
-> and updated runbook in `gateway/public-share/production/README.md`).
+> [!important] S5.5 current state — S5.5-A through S5.5-H CLOSED / PASS; Production verified and cleanly rolled back to S5.4 baseline
+> S5.5 (Cloudflared Egress Isolation) is **CLOSED / PASS** across all phases S5.5-A through S5.5-H:
+> - **S5.5-A through S5.5-E**: Preflight, architecture specification, pinned connector container (`cloudflare/cloudflared:2026.9.0`), egress overlay (`docker-compose.s5-5.yml`), firewall tooling (`s5-5-firewall.sh`), lifecycle scripts (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`), systemd units, drift timer, and test contracts were fully implemented and verified in the repository.
+> - **Pre-S5.5-F Security Hardening**: Implemented destination-scoped established return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`), fail-closed preflights, exact network metadata enforcement, and strict teardown safety gates.
+> - **S5.5-F Production Runtime & Isolation Acceptance**: Deployed on Production following the create-before-start sequence. Fixed an iptables-nft / nft JSON formatting issue where redundant `ether type ip` matches were omitted by nft (resolved via TDD in `e961d659`). Verified positive probes (outbound tunnel to Cloudflare over TCP/7844, connector loopback metrics, edge Gateway connectivity) and negative probes (Drive, PostgreSQL, host physical listeners, non-allowlisted IP/ports strictly blocked).
+> - **S5.5-G Production Persistence & Rollback Acceptance**: Verified systemd restart persistence and drift enforcement. Discovered and resolved rollback classifier and inspect stream issues via TDD (`f371893e`, `f687c3a5`, `0eb85aac`). Executed clean reverse-order rollback, removing the connector, egress network, S5.5 firewall additions, and systemd units.
+> - **S5.5-H Pre-Merge Reconciliation & Final Verification**: Synchronized with `origin/main`, verified all frozen runtime source file hashes, verified full test suite passing (`NEW_FAILURES=0`), updated all canonical docs, and produced the immutable final receipt.
 >
-> S5.5-E established the create-before-start lifecycle correction (`create --no-build --no-recreate --pull missing public-share-connector`),
-> verified active restart detection using `State.Restarting`/`restarting` rather than cumulative `RestartCount`,
-> implemented drift fail-closed enforcement stopping only `aegis-public-share-connector.service`,
-> and established narrow connector-only rollback preserving the S5.4 baseline.
+> **Current Production State**: The S5.4 baseline (Gateway and Drive State B) is running healthy. Connector is **ABSENT**, egress network is **ABSENT**, S5.5 firewall additions are **REMOVED**, and systemd units are **DISABLED/REMOVED**. Token content was never read or persisted. Internet exposure is **NONE**; Public Share UI remains **OFF**; Public Internet Share remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future G5/G6 phases).
 >
-> Pre-S5.5-F security hardening established:
-> 1. **Destination-scoped established return traffic**: `-d 172.31.240.3/32` and `-d 172.31.242.2/32` only, with NO broad `-m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`; unrelated traffic falls through, and unauthorised connector traffic drops.
-> 2. **Fail-closed preflight**: both `apply` and `validate` require the iptables `nf_tables` backend and existing `INPUT` and `DOCKER-USER` host chains, mutating nothing on preflight failure.
-> 3. **Exact network metadata pinned**: Name, Driver, Internal, Subnet, Gateway, `gateway_mode_ipv4=isolated` on edge/upstream, and `aegis-ps-eg` on egress (Docker network IDs and derived `br-<id>` unpinned).
-> 4. **Teardown safety**: `s5-5-firewall.sh remove` requires positive proof of exact Compose identity (`aegis-prod`/`public-share-connector`) and safe state (`created` or `exited`), refusing `running`, `restarting`, `paused`, `dead`, `removing`, `unknown`, or malformed state, while failing closed on identity mismatch or Docker uncertainty. Positively absent connector allows idempotent removal. The script refuses only and never stops or removes containers.
-> 5. **Main sync**: clean `--no-ff` merge of `origin/main` (`ba5b9ff58df535774303a7998c069bb33ac848ac`) into the branch at `833f32fc1779dcee216fabdf70c61d60650fdf4f` (0 conflicts, 0 S5.5 files touched).
-> 6. **Verified test evidence**: firewall contract 34/34 PASS, runtime contract 46/46 PASS, security regressions 21/21 PASS, full suite 1267/1186/9 (0 new failures, 9 pre-existing).
->
-> `PRODUCTION MUTATION ALLOWED = NO` for this checkpoint. No Production deployment
-> has occurred: Production firewall remains **UNCHANGED**, Production systemd remains
-> **UNCHANGED**, and the egress network and connector remain **ABSENT** on Production.
->
-> The design preserves `docker-compose.s5-4.yml` unchanged and adds separate
-> `docker-compose.s5-5.yml`. It freezes egress `172.31.242.0/29` / bridge
-> `aegis-ps-eg`, connector edge `.240.3` + egress `.242.2`, TCP/7844-only
-> HTTP/2, a file-delivered tunnel token, `DOCKER-USER` forwarding plus a
-> supplemental INPUT guard, systemd fail-closed activation with periodic drift
-> enforcement, and connector-only rollback. Gateway remains edge + upstream;
-> Drive never joins egress. S5.5-D tooling resolves the actual edge Linux bridge
-> dynamically via `docker network inspect aegis_public_share_edge` (e.g. `br-${ID:0:12}`),
-> never hard-coding `-i aegis_public_share_edge` or a static bridge name. Host INPUT
-> protection uses generic source-based connector denial. S5.5-F through S5.5-H
-> remain **NOT STARTED** and require separate owner approval.
+> Refer to [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]] for the authoritative S5.5 receipt.
 
 > [!important] Domain and exposure truth
 > `aegistk-pb.com` is **OWNED**. `share.aegistk-pb.com` is the intended

@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.5 connector isolation plus later Internet acceptance, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share later Internet acceptance (G5/G6), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -55,25 +55,26 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
 - Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
   Gateway, and dedicated edge/upstream networks are active without a host port
-  or Internet route. S5.5-A preflight, the owner-approved S5.5-B design,
-  S5.5-C repository preparation (cloudflared image pin, contract tests, and
-  `docker-compose.s5-5.yml`), S5.5-D repository firewall tooling (`s5-5-firewall.sh`,
-  allowlist artifact, firewall contract tests), S5.5-E lifecycle tooling and
-  security regressions (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`, systemd units,
-  drift timer, and security test suite), pre-S5.5-F security corrections
-  (destination-scoped established return traffic, fail-closed preflight, exact
-  network metadata, and safe teardown identity/state gates; 34/34 firewall,
-  46/46 runtime, 1267/1186/9 full suite), and the clean current-main sync (HEAD
-  `833f32fc`) are **CLOSED / PASS** (repository only); phases S5.5-F through S5.5-H
-  remain not started and require separate owner approval. No Production deployment
-  occurred: egress network and connector remain absent on Production, the Production
-  firewall remains unchanged, and Production systemd is unchanged. Public DNS/TLS,
-  external acceptance, and UI activation are not implemented. Public Internet Share
-  therefore remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. Use
-  [[idea1/idea1-status]] for current task state,
-  [[idea1/idea1-public-share-architecture]] for the contract,
-  [[90-Status/logs/2026-09-11_042000_kla_public-share-s5-4-gateway-networks]]
-  for immutable S5.4 evidence, and
+  or Internet route. S5.5 (Cloudflared Egress Isolation) phases S5.5-A through
+  S5.5-H are **CLOSED / PASS**: S5.5-A through S5.5-E repository design,
+  firewall tooling, and lifecycle scripts were implemented and tested; S5.5-F
+  Production runtime deployment and isolation acceptance verified live connector
+  routing, egress nftables filtering, destination-scoped established return, and
+  negative egress isolation probes (nft JSON canonicalization bug discovered and
+  fixed via TDD); S5.5-G Production restart persistence and rollback acceptance
+  cleanly verified service restart survival and complete rollback (rollback
+  absence classification and inspect stream separation bugs discovered and fixed
+  via TDD); clean rollback fully verified on Production, leaving connector absent,
+  egress network removed, S5.5 firewall additions removed, systemd units disabled,
+  and restoring S5.4 Gateway and Drive State B baseline; S5.5-H pre-merge canonical
+  reconciliation, main synchronization, and final repository verification completed.
+  Final Production state: S5.4 baseline active, Internet exposure NONE, Public
+  Share UI OFF, token content not read. Public Internet Share remains
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future G5/G6 phases).
+  Use [[idea1/idea1-status]] for current task state,
+  [[idea1/idea1-public-share-architecture]] for architecture,
+  [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]
+  for the final immutable S5.5 receipt, and
   `gateway/public-share/production/README.md` for the Production runbook.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.

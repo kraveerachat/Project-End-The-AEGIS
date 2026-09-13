@@ -16,15 +16,20 @@ guarantees fail-closed isolation, and verifiable through independent rollback
 without modifying the accepted S5.4 Gateway/Drive runtime baseline or exposing
 the service to the public Internet.
 
-Current checkpoint: S5.5-A, S5.5-B, S5.5-C, S5.5-D, and S5.5-E are **CLOSED / PASS**
-(S5.5-D and S5.5-E repository implementation only). Tasks 1–13 are complete.
-Pre-S5.5-F security corrections (destination-scoped established return rules,
-fail-closed preflight on apply/validate, exact canonical network metadata, and
-safe teardown identity/state gates) and clean current-main synchronization are
-**CLOSED / PASS** at repository HEAD `833f32fc1779dcee216fabdf70c61d60650fdf4f`
-(merged from `origin/main` at `ba5b9ff58df535774303a7998c069bb33ac848ac` with 0
-conflicts). S5.5-F through S5.5-H remain **NOT STARTED**. No Production mutation
-has been performed.
+Current checkpoint: S5.5-A through S5.5-G are **CLOSED / PASS**. Tasks 1–15 are
+complete. Task 14 (S5.5-F Production Runtime & Isolation Acceptance) is **CLOSED /
+PASS** on owner-supplied Production evidence (native bridge table `aegis_s55_edge`,
+iptables chains `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`, verified traffic forwarding
+and isolation, with real nft JSON canonicalization bugfix incorporated). Task 15
+(S5.5-G Production Restart & Rollback Acceptance) is **CLOSED / PASS** on owner-supplied
+Production evidence (systemd drift watchdog verified; rollback defect in Docker
+absence classification and firewall inspect streams fixed via TDD commits `f371893e`,
+`f687c3a5`, and `0eb85aac`; clean rollback successfully executed restoring S5.4
+Gateway and Drive State B baseline). Task 16 (S5.5-H Final Documentation / Closeout)
+is **CLOSED / PASS** via this final reconciliation, single immutable receipt, fresh
+test verification, and clean main synchronization. S5.5 connector, egress network,
+and firewall additions are cleanly rolled back; the accepted S5.4 baseline remains.
+Public DNS/TLS is not configured; Internet exposure is NONE; Public Share UI is OFF.
 
 ## Canonical Phase Roadmap
 
@@ -33,11 +38,11 @@ has been performed.
 | **S5.5-A** | Audit / Preflight | Repository audit, worktree bootstrap, read-only Production preflight | **CLOSED / PASS** |
 | **S5.5-B** | Design / Repository Preparation | Owner-approved specification freezing topology, credential, firewall, lifecycle and rollback | **CLOSED / PASS** |
 | **S5.5-C** | Egress / Connector Repository Preparation | Tasks 1–3: Pinned image verification, Compose-model tests FIRST, minimal S5.5 overlay with verified pin | **CLOSED / PASS** |
-| **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** |
-| **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **CLOSED / PASS — REPOSITORY IMPLEMENTATION ONLY** |
-| **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **REQUIRES EXPLICIT PROD APPROVAL** |
-| **S5.5-G** | Rollback / Persistence | Task 15: Host reboot/daemon restart persistence, drift simulation, and connector-only rollback acceptance | **REQUIRES EXPLICIT PROD APPROVAL** |
-| **S5.5-H** | Final Documentation / Closeout | Task 16: Canonical Obsidian reconciliation and exactly one immutable task receipt | **REPOSITORY ONLY — CLOSEOUT GATE** |
+| **S5.5-D** | Firewall Implementation | Tasks 4–7: Authoritative allowlist verification gate, firewall model tests FIRST, task-owned firewall tooling, host INPUT guard | **CLOSED / PASS** |
+| **S5.5-E** | Cloudflared Connector / Lifecycle | Tasks 8–13: Pre-start validator, systemd units, periodic drift enforcement, rollback tooling, security regressions, runbook | **CLOSED / PASS** |
+| **S5.5-F** | Runtime / Isolation Acceptance | Task 14: Separately authorised Production runtime deployment, positive reachability, and negative isolation probes | **CLOSED / PASS** |
+| **S5.5-G** | Rollback / Persistence | Task 15: Host reboot/daemon restart persistence, drift simulation, and connector-only rollback acceptance | **CLOSED / PASS** |
+| **S5.5-H** | Final Documentation / Closeout | Task 16: Canonical Obsidian reconciliation and exactly one immutable task receipt | **CLOSED / PASS — REPOSITORY CLOSEOUT GATE** |
 
 ## Task-to-Phase Matrix
 
@@ -56,9 +61,9 @@ has been performed.
 | **Task 11** | Connector-Only Rollback Tooling | `S5.5-E` | **CLOSED / PASS** | `rollback-s5-5.sh` |
 | **Task 12** | Credential Secrecy & Security Regressions | `S5.5-E` | **CLOSED / PASS** | `publicShareSecurityRegression.test.js` |
 | **Task 13** | Production Runbook Update | `S5.5-E` | **CLOSED / PASS** | `gateway/public-share/production/README.md` |
-| **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | NOT STARTED | Production verification evidence (positive + negative probes) |
-| **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | NOT STARTED | Production persistence and clean rollback evidence |
-| **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | NOT STARTED | Updated canonical notes, exactly one immutable task receipt |
+| **Task 14** | Production Runtime & Isolation Acceptance | `S5.5-F` | **CLOSED / PASS** | Production verification evidence (positive + negative probes) |
+| **Task 15** | Production Restart & Rollback Acceptance | `S5.5-G` | **CLOSED / PASS** | Production persistence and clean rollback evidence |
+| **Task 16** | Canonical Obsidian Closeout & Final Receipt | `S5.5-H` | **CLOSED / PASS** | Updated canonical notes, exactly one immutable task receipt |
 
 ## Architecture
 
@@ -719,48 +724,58 @@ Cloudflare edge network (region1 / region2)
 
 ---
 
-### TASK 14: Production Runtime & Isolation Acceptance (PRODUCTION GATED)
+### TASK 14: Production Runtime & Isolation Acceptance
 
 - **Canonical Phase:** `S5.5-F`
-- **Execution Condition:** REQUIRES SEPARATE OWNER AUTHORIZATION. MUST NOT BE EXECUTED DURING REPOSITORY PHASES.
-- **Goal:** Execute owner-authorized Production deployment of the S5.5 connector on `aegis-system` and capture positive and negative isolation evidence.
-- **Verification Evidence Required:**
-  - Connector running on edge `172.31.240.3` and egress `172.31.242.2` only.
-  - Local readiness check (`cloudflared tunnel ready`) passing against `127.0.0.1:20241`.
-  - Gateway reachability (`172.31.240.2:8080`) from connector.
-  - Negative probes from connector namespace confirming refusal to Drive direct, PostgreSQL, upstream subnet, host bridge IPs, UDP/7844, and TCP/443.
-  - Rule counter increments on `AEGIS-PS-EGRESS` and `AEGIS-PS-INPUT`.
-- **Checkpoint Commit:**
-  `docs(idea1): record s5.5-f production runtime acceptance evidence`
+- **Status:** **CLOSED / PASS** (based on accepted owner-supplied Production evidence).
+- **Execution Summary:**
+  - Owner authorized and executed Production deployment of the S5.5 connector on `aegis-system`.
+  - Connector deployed running on edge `172.31.240.3` and egress `172.31.242.2` only.
+  - Native nftables bridge table `aegis_s55_edge` installed and verified.
+  - Live validation exposed real nft JSON canonicalization (omission of redundant `ether type ip` when IP payload matches are present); validator fix implemented via TDD and confirmed.
+  - Traffic forwarding (TCP 8080 forward/return) and negative isolation probes (refusal to Drive direct, PostgreSQL, upstream subnet, host bridge IPs, UDP/7844, and TCP/443) verified.
+- **Checkpoint Commits:**
+  - `e961d659 fix(idea1): accept real nft canonical JSON in S5.5 bridge validate`
+  - `af2e8f71 fix(idea1): validate stopped connector by configured static address at pre-start`
+  - `5cb36bca fix(idea1): bind S5.5 native bridge rules to the bridge master with ibrname/obrname`
 
 ---
 
-### TASK 15: Production Restart & Rollback Acceptance (PRODUCTION GATED)
+### TASK 15: Production Restart & Rollback Acceptance
 
 - **Canonical Phase:** `S5.5-G`
-- **Execution Condition:** REQUIRES SEPARATE OWNER AUTHORIZATION.
-- **Goal:** Validate restart persistence (host reboot, Docker restart, UFW reload) and execute connector-only rollback to prove S5.4 Gateway and Drive State B remain fully functional.
-- **Verification Evidence Required:**
-  - Docker daemon restart maintains fail-closed firewall ordering.
-  - Systemd drift timer halts connector when an intentional drift is introduced.
-  - Clean execution of `rollback-s5-5.sh` removes only S5.5 objects and restores pristine S5.4 state.
-- **Checkpoint Commit:**
-  `docs(idea1): record s5.5-g restart and rollback acceptance evidence`
+- **Status:** **CLOSED / PASS** (based on accepted owner-supplied Production evidence).
+- **Execution Summary:**
+  - Validated systemd drift watchdog and restart persistence.
+  - Rollback executed using fail-closed behavior.
+  - Production exposed defect in Docker absence classification and inspect output stream separation; corrected via TDD:
+    - G6 rollback absence classifier correction (`f371893ea83b05cae5adae04cd2053b15be7d199`)
+    - Firewall Docker absence case-normalization correction (`f687c3a577d27187f0fde97faa30eb98db1b565e`)
+    - Final stdout/stderr separation correction (`0eb85aac0acf7e5c3c1a4f2e2c7e24ac2a7ede4e`)
+  - Failures aborted safely without broadening cleanup; connector was not unnecessarily recreated.
+  - Final rollback cleanly executed, removing S5.5 connector, egress network, and task-owned firewall rules, leaving the S5.4 Gateway and Drive State B baseline intact and fully operational.
+- **Checkpoint Commits:**
+  - `99e40941 fix(public-share): disable firewall lifecycle during s5.5 rollback`
+  - `dd847cce fix(public-share): fail closed on rollback lifecycle errors`
+  - `f371893e fix(public-share): handle docker absence errors case-insensitively`
+  - `f687c3a5 fix(public-share): normalize firewall docker absence errors`
+  - `0eb85aac fix(public-share): separate docker inspect output streams`
 
 ---
 
 ### TASK 16: Canonical Obsidian Closeout & Final Receipt
 
 - **Canonical Phase:** `S5.5-H`
+- **Status:** **CLOSED / PASS**
 - **Goal:** Perform final canonical Obsidian vault reconciliation across all completed evidence and generate exactly ONE immutable task receipt under `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/`.
 - **Files:**
-  - Create: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/YYYY-MM-DD_HHMMSS_kla_public-share-s5-5-cloudflared-egress-isolation.md`
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md`
-  - Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
-- **Receipt Rule:** Exactly one final receipt is created in S5.5-H. No receipt is created in S5.5-C, D, E, F, or G.
-- **Checkpoint Commit:**
-  `docs(idea1): close public share s5.5 connector isolation with final receipt`
+  - Created: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation.md`
+  - Modified: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`
+  - Modified: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md`
+  - Modified: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md`
+  - Modified: `docs/superpowers/plans/2026-09-11-idea1-public-share-s5-5-implementation.md`
+- **Receipt Rule:** Exactly one final receipt is created in S5.5-H (`2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation.md`).
+- **Final Result:** S5.5-A through S5.5-H CLOSED / PASS. Branch synchronized with current `origin/main`. PR #118 ready for human review and merge.
 
 ---
 
