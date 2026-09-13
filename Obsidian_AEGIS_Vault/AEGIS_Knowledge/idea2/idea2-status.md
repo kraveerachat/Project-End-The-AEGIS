@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-06
+updated: 2026-09-13
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,60 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current Task
+
+Task: IDEA2 LR1 current-main reconciliation, CP3 Machine A cryptographic identity
+Branch: `codex/idea2-lr1-current-main-reconciliation`
+Owner: Pub
+PR: Not created
+Current state: PLANNED — CP3-S1 specification validated locally and awaiting human review; implementation not started
+Started: 2026-09-13
+Last checkpoint: `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` — CP2 physical-camera authority
+Production mutation allowed: NO
+
+### Goal
+
+Add a dedicated Machine A Identity Agent that owns the Ed25519 application key,
+authenticates outbound to Monitor, and signs heartbeat/ingest requests while the
+interactive Detection Engine retains webcam and AI ownership without receiving
+the key.
+
+### Scope
+
+CP3-S1 records the approved Windows identity, DPAPI, named-pipe, challenge,
+Agent-session, request-proof, replay, rotation, physical-provenance, and
+Detector B transition design. Runtime implementation has not started.
+
+### Out of scope
+
+Browser/local-machine association remains CP4. Operator demand, logical producer
+ownership, camera activation/release, multi-tab reference counting, and SOC
+passive lifecycle remain CP5. No UI, camera hardware, model, training,
+Production, Docker, network, or live database change is part of CP3-S1.
+
+### Safety boundaries
+
+The browser never owns machine identity. Machine A's private application key
+remains local to the dedicated Agent service identity, is unrelated to SSH, and
+must not reach the browser, Detection Engine, logs, tests, receipts, or Git.
+Authentication, heartbeat, and renewal create no camera demand.
+
+### Acceptance criteria
+
+The CP3-S1 specification must contain no unresolved placeholders or secrets,
+must preserve Detector B through an explicit per-Node transition, must retain
+the existing physical-camera/logical-alias contract, and must pass repository
+Vault/document and Git diff validation before its documentation checkpoint.
+
+## Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
+| CP3-S0 | Read-only repository and runtime-auth reconnaissance | CLOSED | CP2 registry/key-version/physical-camera foundation exists; runtime still uses shared key/body identity; no Agent auth/session/DPAPI path exists | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | freshness comparison | CP3-S0.5 |
+| CP3-S0.5 | Fetch and inspect newer `origin/main` for CP3 overlap | CLOSED | fetched `origin/main` `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`; 69 newer commits do not touch IDEA2/CP3 interfaces | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS — no reconciliation required | architecture specification | CP3-S1 |
+| CP3-S1 | Dedicated Identity Agent and authenticated ingest architecture | PASS | 25-section specification; Vault validation PASS with two pre-existing Canvas warnings; governance document tests 63/63; placeholder, secret-material, and Git diff checks PASS | this documentation checkpoint | PASS — design only | human specification review and implementation plan | stop for human review |
 
 ## Detector B real-machine acceptance (2026-09-06)
 
