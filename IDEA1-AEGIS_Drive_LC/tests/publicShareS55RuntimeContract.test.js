@@ -298,7 +298,7 @@ if [ -n "\${MOCK_DOCKER_FAIL_CALL:-}" ] && [ "\$*" = "\$MOCK_DOCKER_FAIL_CALL" ]
 fi
 if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "inspect" ]; then
   file="\$MOCK_FIXTURES/net-\${3}.json"
-  [ -f "\$file" ] || { echo "Error: No such network: \${3}" >&2; exit 1; }
+  [ -f "\$file" ] || { printf '%s\\n' "\$MOCK_DOCKER_NETWORK_ABSENCE_ERROR" >&2; exit 1; }
   cat "\$file"; exit 0
 fi
 if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "rm" ]; then
@@ -307,7 +307,7 @@ if [ "\${1:-}" = "network" ] && [ "\${2:-}" = "rm" ]; then
 fi
 if [ "\${1:-}" = "inspect" ]; then
   file="\$MOCK_FIXTURES/ctr-\${2}.json"
-  [ -f "\$file" ] || { echo "Error: No such object: \${2}" >&2; exit 1; }
+  [ -f "\$file" ] || { printf '%s\\n' "\$MOCK_DOCKER_OBJECT_ABSENCE_ERROR" >&2; exit 1; }
   cat "\$file"; exit 0
 fi
 if [ "\${1:-}" = "rm" ]; then
@@ -471,6 +471,10 @@ function runtimeHarness(options = {}) {
     MOCK_SYSTEMCTL_LOG: systemctlLog,
     MOCK_SYSTEMCTL_FAIL_CALL: options.systemctlFailCall ?? '',
     MOCK_DOCKER_FAIL_CALL: options.dockerFailCall ?? '',
+    MOCK_DOCKER_OBJECT_ABSENCE_ERROR: options.dockerObjectAbsenceError
+      ?? `Error: No such object: ${CONNECTOR_CONTAINER}`,
+    MOCK_DOCKER_NETWORK_ABSENCE_ERROR: options.dockerNetworkAbsenceError
+      ?? 'Error: No such network: aegis_public_share_egress',
     MOCK_RC: String(options.firewallRc ?? 0),
     MOCK_SYSTEMCTL_RC: String(options.systemctlRc ?? 0),
     AEGIS_DOCKER_BIN: dockerBin,
@@ -1063,6 +1067,80 @@ test('S5.5-ROLLBACK-INSPECT-ERRORS treat only a positive "no such object" as abs
     assert.match(result.stdout, /network aegis_public_share_egress is already absent/)
     assert.match(result.stdout, /S5\.5-ROLLBACK=COMPLETE/)
   } finally { hAbsent.cleanup() }
+})
+
+test('S5.5-ROLLBACK-ABSENCE-ERROR-CASING accepts lowercase Production container absence', () => {
+  const h = runtimeHarness({
+    egressContainers: {},
+    dockerObjectAbsenceError: 'error: no such object: aegis-prod-public-share-connector-1',
+  })
+  try {
+    const result = h.runRollback()
+    assert.equal(result.status, 0,
+      `the exact Production absence response must remain idempotent: ${result.stderr}`)
+    assert.match(result.stdout, /connector container .* is already absent/)
+    assert.match(result.stdout, /S5\.5-ROLLBACK=COMPLETE/)
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-ABSENCE-ERROR-CASING accepts lowercase Docker network absence', () => {
+  const h = runtimeHarness({
+    egress: false,
+    connectorNetworks: {
+      aegis_public_share_edge: '172.31.240.3',
+      aegis_public_share_egress: '172.31.242.2',
+    },
+    dockerNetworkAbsenceError: 'error response from daemon: network aegis_public_share_egress not found',
+  })
+  try {
+    const result = h.runRollback()
+    assert.equal(result.status, 0,
+      `a lowercase positive network absence must remain idempotent: ${result.stderr}`)
+    assert.match(result.stdout, /network aegis_public_share_egress is already absent/)
+    assert.match(result.stdout, /S5\.5-ROLLBACK=COMPLETE/)
+  } finally { h.cleanup() }
+})
+
+test('S5.5-ROLLBACK-INSPECT-ERRORS reject compound responses containing absence phrases', () => {
+  const cases = {
+    'compound container error': {
+      options: {
+        egressContainers: {},
+        dockerObjectAbsenceError: 'permission denied while decoding response: no such object metadata',
+      },
+      blocked: [
+        /systemctl (stop|disable) aegis-public-share-s5-5-firewall\.service/,
+        /(^|\n)remove(\n|$)/,
+        /network rm aegis_public_share_egress/,
+      ],
+    },
+    'compound network error': {
+      options: {
+        egress: false,
+        connectorNetworks: {
+          aegis_public_share_edge: '172.31.240.3',
+          aegis_public_share_egress: '172.31.242.2',
+        },
+        dockerNetworkAbsenceError: 'timeout while reading network aegis_public_share_egress not found trailer',
+      },
+      blocked: [/network rm aegis_public_share_egress/],
+    },
+  }
+
+  for (const [label, { options, blocked }] of Object.entries(cases)) {
+    const h = runtimeHarness(options)
+    try {
+      const result = h.runRollback()
+      assert.notEqual(result.status, 0, `${label}: an unknown Docker error must fail closed`)
+      assert.doesNotMatch(result.stdout, /S5\.5-ROLLBACK=COMPLETE/, `${label}: must never report completion`)
+      assert.doesNotMatch(result.stdout, /already absent/, `${label}: must not be classified as absence`)
+      assert.match(result.stderr, /S5\.5-ROLLBACK=FAIL/, `${label}: must report the failure`)
+      const evidence = h.traceCalls() + '\n' + h.mockLog()
+      for (const pattern of blocked) {
+        assert.doesNotMatch(evidence, pattern, `${label}: later destructive stage ${pattern} must not run`)
+      }
+    } finally { h.cleanup() }
+  }
 })
 
 test('S5.5-ROLLBACK-EGRESS-ENDPOINTS refuses to remove a network still in use', () => {

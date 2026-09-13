@@ -68,14 +68,22 @@ stop_lifecycle() {
 # timeout) is unknown state and must fail closed rather than read as "gone".
 #   returns 0 -> object exists, 1 -> positively absent, dies otherwise
 object_exists() {
-  local err
+  local err normalized target normalized_target
   if err="$("$DOCKER" "$@" 2>&1 >/dev/null)"; then
     return 0
   fi
-  case "$err" in
+  normalized="${err,,}"
+  target="${!#}"
+  normalized_target="${target,,}"
+  case "$normalized" in
     # docker inspect: "Error: No such object: X"; docker network inspect (daemon
-    # form): "Error response from daemon: network X not found".
-    *"No such object"*|*"No such container"*|*"No such network"*|*"network "*" not found"*) return 1 ;;
+    # form): "Error response from daemon: network X not found". Match the whole
+    # normalized response and the requested target so unrelated failures that
+    # merely contain an absence phrase cannot be mistaken for proof of absence.
+    "error: no such object: ${normalized_target}"|\
+    "error: no such container: ${normalized_target}"|\
+    "error: no such network: ${normalized_target}"|\
+    "error response from daemon: network ${normalized_target} not found") return 1 ;;
   esac
   die "cannot inspect $* : ${err:-unknown docker error}"
 }
