@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "contract": "PUBLIC-SHARE-7 S5.5 Cloudflare transport allowlist",
+  "snapshotType": "reviewed-point-in-time-snapshot",
+  "snapshotUtc": "2026-09-11T10:44:51Z",
+  "reviewNote": "Point-in-time snapshot, NOT an eternal Cloudflare IP contract. Cloudflare may change these addresses at any time and DNS answers rotate. Re-verify this snapshot against current Cloudflare documentation and a fresh resolution of both region hostnames before S5.5-F Production activation and at every later firewall change.",
+  "transport": {
+    "ipVersion": "ipv4",
+    "protocols": [
+      "tcp"
+    ],
+    "port": 7844,
+    "note": "cloudflared is pinned to --protocol http2, which uses TCP/7844 only. Cloudflare documents TCP and UDP on 7844; S5.5 deliberately allows TCP only and never opens QUIC."
+  },
+  "excluded": [
+    {
+      "transport": "udp/7844",
+      "reason": "QUIC transport is not used; --protocol http2 is pinned, so UDP/7844 stays denied"
+    },
+    {
+      "transport": "tcp/443",
+      "reason": "the connector needs no outbound HTTPS; TCP/443 stays denied"
+    },
+    {
+      "transport": "0.0.0.0/0",
+      "reason": "no broad Internet egress; only the reviewed /32 endpoints are reachable"
+    },
+    {
+      "transport": "cloudflare-provider-cidrs",
+      "reason": "broad published Cloudflare ranges are not used; only exact tunnel endpoints"
+    },
+    {
+      "transport": "udp/53,tcp/53",
+      "reason": "no DNS exception in S5.5-D; the Production resolver path must be measured before S5.5-F"
+    }
+  ],
+  "regions": [
+    {
+      "hostname": "region1.v2.argotunnel.com",
+      "endpoints": [
+        "198.41.192.107/32",
+        "198.41.192.167/32",
+        "198.41.192.227/32",
+        "198.41.192.27/32",
+        "198.41.192.37/32",
+        "198.41.192.47/32",
+        "198.41.192.57/32",
+        "198.41.192.67/32",
+        "198.41.192.7/32",
+        "198.41.192.77/32"
+      ]
+    },
+    {
+      "hostname": "region2.v2.argotunnel.com",
+      "endpoints": [
+        "198.41.200.113/32",
+        "198.41.200.13/32",
+        "198.41.200.193/32",
+        "198.41.200.23/32",
+        "198.41.200.233/32",
+        "198.41.200.33/32",
+        "198.41.200.43/32",
+        "198.41.200.53/32",
+        "198.41.200.63/32",
+        "198.41.200.73/32"
+      ]
+    }
+  ],
+  "endpoints": [
+    "198.41.192.107/32",
+    "198.41.192.167/32",
+    "198.41.192.227/32",
+    "198.41.192.27/32",
+    "198.41.192.37/32",
+    "198.41.192.47/32",
+    "198.41.192.57/32",
+    "198.41.192.67/32",
+    "198.41.192.7/32",
+    "198.41.192.77/32",
+    "198.41.200.113/32",
+    "198.41.200.13/32",
+    "198.41.200.193/32",
+    "198.41.200.23/32",
+    "198.41.200.233/32",
+    "198.41.200.33/32",
+    "198.41.200.43/32",
+    "198.41.200.53/32",
+    "198.41.200.63/32",
+    "198.41.200.73/32"
+  ],
+  "provenance": {
+    "reviewedBy": "S5.5-D Task 4 repository review",
+    "sources": [
+      {
+        "method": "official-documentation",
+        "detail": "Cloudflare One docs, Tunnel with firewall: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/ documents port 7844 for region1.v2.argotunnel.com and region2.v2.argotunnel.com and lists these exact IPv4 addresses."
+      },
+      {
+        "method": "dns-resolution",
+        "detail": "Local read-only A-record resolution of region1.v2.argotunnel.com and region2.v2.argotunnel.com returned exactly these 20 addresses (10 per region), matching the documented list with no extra or missing entry."
+      },
+      {
+        "method": "cross-check",
+        "detail": "Documentation list and live resolution agreed exactly; no address was inferred, guessed, or copied from an earlier plan draft."
+      }
+    ]
+  }
+}
