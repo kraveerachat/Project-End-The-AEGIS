@@ -105,52 +105,61 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — PUBLIC-SHARE-7 / S5.5 — Cloudflared / Egress / Firewall Isolation
+## Current Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 
 | Field | Current value |
 | :--- | :--- |
-| Task | `PUBLIC-SHARE-7 / S5.5 — Cloudflared / Egress / Firewall Isolation` |
-| Branch | `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` |
+| Task | `PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS` |
+| Branch | `feat/idea1-public-share-s5-6-cloudflare-public-activation` |
 | Owner | `kla` |
-| Starting SHA | `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c` — PR #116 / S5.4 merge |
-| Current state | **CLOSED / PASS (S5.5-A through S5.5-H CLOSED / PASS; PR #118 ready for owner review and merge; Production mutation completed and cleanly rolled back; S5.4 Gateway/Drive baseline restored; Internet exposure NONE; Public Share UI OFF)** |
-| Started | 2026-09-11 |
-| Last accepted checkpoint | S5.5-H closeout at PR #118 head; S5.4 Gateway and Drive State B baseline active on Production |
-| Production mutation allowed | **NO — S5.5 Production runtime and rollback acceptance completed; clean rollback verified; Production restored to S5.4 baseline; no further Production mutation allowed** |
-| Final S5.5 receipt | `[[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]` |
+| Starting SHA | `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` — PR #118 / S5.5 merge |
+| Current state | **IN PROGRESS — PRE-EXPOSURE / READ-ONLY PREFLIGHT (G5 = APPROVED; S5.6-A read-only preflight; Production mutation NOT ALLOWED; Cloudflare mutation NOT ALLOWED; Internet exposure NONE; Public Share UI OFF; G6 = OPEN; Public Internet Share NOT EXTERNALLY ACCEPTED)** |
+| Started | 2026-09-13 |
+| Last accepted checkpoint | S5.5 merge (`99a6f916`); S5.4 Gateway and Drive State B baseline active on Production; S5.5 rolled back cleanly |
+| Production mutation allowed | **NO — S5.6-A read-only preflight; later mutation requires ChatGPT gate** |
+| Final S5.6 receipt | Pending — task still Draft/in progress |
 
 ### Goal
 
-Add an isolated Cloudflare connector layer while preserving the accepted S5.4
-Gateway/Drive boundary and without creating public DNS exposure.
+Activate the single approved Cloudflare named-tunnel hostname route (`share.aegistk-pb.com`)
+and public DNS; verify public TLS without activating the Public Share UI or bypassing G6.
+
+### G5 decision — APPROVED by Human Owner
+
+The Human Owner has explicitly approved **GLOBAL PUBLIC SHARE G5 = APPROVED** following the
+verified completion and merge of S5.5 (PR #118). This authorises preparation and execution
+of the real Internet-exposure phase beginning with S5.6 under controlled gates.
+GLOBAL PUBLIC SHARE G6 remains **OPEN**; the Public Share UI remains **OFF**; Public Internet
+Share remains **NOT EXTERNALLY ACCEPTED**.
 
 ### Scope
 
-- S5.5 repository design and documentation.
-- Dedicated egress Docker network `172.31.242.0/29` with stable bridge identity
-  `aegis-ps-eg` and future connector address `172.31.242.2`.
-- One `cloudflared` connector attached only to edge + egress; the Gateway
-  remains attached only to edge + upstream.
-- Host-enforced firewall isolation, connector runtime acceptance, and
-  rollback/persistence acceptance after separately authorised Production work.
+- S5.6-A: Bootstrap / fresh read-only baseline / Cloudflare inventory.
+- S5.6-B: Restore accepted S5.5 connector + firewall + lifecycle runtime WITHOUT a public hostname route.
+- S5.6-C: Pre-exposure isolation re-verification.
+- S5.6-D: Activate the single approved Cloudflare hostname route (`share.aegistk-pb.com`).
+- S5.6-E: Public DNS verification.
+- S5.6-F: Public TLS / HTTPS verification.
+- S5.6-G: Immediate public default-deny smoke verification.
+- S5.6-H: S5.6 evidence reconciliation / closeout / rollback readiness.
 
 ### Out of scope
 
-- Activating the public hostname `share.aegistk-pb.com`, creating a public DNS
-  route, or enabling a public TLS route.
-- Internet-recipient or 4G/5G acceptance, bypassing G5, enabling the Public
-  Share UI, or beginning S5.6+.
-- Unrelated MikroTik, Twingate, HUB, Monitor, PostgreSQL, or Drive behavior changes.
+- Activating the Public Share UI (`PUBLIC_SHARE_UI_ENABLED=true` remains OFF).
+- GLOBAL PUBLIC SHARE G6 authorization (G6 remains OPEN).
+- S5.11 UI enablement.
+- Wildcard hostnames or multiple tunnels.
+- Direct Drive or Gateway host-port exposure.
+- Arbitrary Cloudflare configuration changes.
 
 ### Safety boundaries
 
-- `PRODUCTION MUTATION ALLOWED = NO` for S5.5-B.
-- No Docker Production, firewall/UFW/iptables/nftables, Cloudflare, DNS, tunnel,
-  public-listener, or feature-flag mutation is authorised in this session.
-- Later S5.5 Production mutation requires explicit owner approval after a
-  read-only Production preflight and review of exact rollback and persistence.
-- Credentials, tunnel tokens, `.env` contents, private keys, raw share tokens,
-  and public bearer URLs must never enter Git, chat, screenshots, or logs.
+- `PRODUCTION MUTATION ALLOWED = NO` during S5.6-A.
+- `CLOUDFLARE MUTATION ALLOWED = NO` during S5.6-A.
+- S5.6 must never expose Drive directly, Gateway host port, PostgreSQL, Monitor, HUB, host SSH, Twingate, private API, internal Docker networks, or management networks.
+- Only intended recipient path: Internet -> Cloudflare Edge -> Managed Tunnel -> isolated cloudflared connector -> Public Share Gateway -> Drive.
+- Credentials, tunnel tokens, `.env` contents, private keys, raw share tokens must never enter Git, chat, screenshots, or logs.
+
 
 ### Accepted S5.4 baseline
 
@@ -466,6 +475,12 @@ Owner-authorized restart persistence and clean reverse-order rollback verified o
 - Exactly one final immutable S5.5 task receipt created at `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation.md`.
 - PR #118 body reconciled with complete historical and verified evidence; ready for human owner review and merge.
 
+### S5.6 Session Register
+
+| ID | Scope | State | Result / evidence | Remaining | Next |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| S5.6-A | Pre-Exposure Preflight / G5 Record | **IN PROGRESS** | G5 approved by owner; repository bootstrap on new branch `feat/idea1-public-share-s5-6-cloudflare-public-activation` from main `99a6f916`; Draft PR #126 opened; canonical docs reconciled; read-only preflight unproven in local sandbox | Cloudflare/Production read-only preflight by owner | S5.6-B connector restoration gate |
+
 ### S5.5 Session Register
 
 | ID | Scope | State | Result / evidence | Remaining | Next |
@@ -479,7 +494,7 @@ Owner-authorized restart persistence and clean reverse-order rollback verified o
 | S5.5 Sync | Main Synchronization | **CLOSED / PASS** | Normal `--no-ff` merge of `origin/main` (`ba5b9ff58df535774303a7998c069bb33ac848ac`) into branch at `833f32fc1779dcee216fabdf70c61d60650fdf4f`; 0 conflicts, 0 S5.5 files touched | none | completed |
 | S5.5-F | Runtime / Isolation Acceptance | **CLOSED / PASS** | Production deployment and egress isolation accepted: live connector routing, egress nftables filtering, destination-scoped established return, and negative egress isolation probes verified; nft JSON canonicalization bug discovered and fixed via TDD (`e961d659`) | none | completed |
 | S5.5-G | Rollback / Persistence | **CLOSED / PASS** | Production restart persistence and clean rollback accepted: restart survival verified; rollback defects resolved via TDD (absence classification `f371893e`, case-normalization `f687c3a5`, inspect stream separation `0eb85aac`); multi-stage fail-closed continuation resulting in clean rollback restoring S5.4 Gateway and Drive State B baseline | none | completed |
-| S5.5-H | Final Documentation / Closeout | **CLOSED / PASS** | Synchronized with `origin/main` (`46f531ca020200ac3ca33a84853bb7dcaaeead59`); frozen runtime hashes verified; full verification suite pass; canonical docs reconciled; final immutable S5.5 receipt created (`[[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]`); PR #118 ready for owner review and merge | none | Human review & merge |
+| S5.5-H | Final Documentation / Closeout | **CLOSED / PASS** | Synchronized with `origin/main` (`46f531ca020200ac3ca33a84853bb7dcaaeead59`); frozen runtime hashes verified; full verification suite pass; canonical docs reconciled; final immutable S5.5 receipt created (`[[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]`); PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | none | completed |
 
 ## Historical Task — PUBLIC-SHARE-7 S5.3 Production Drive/Database Preparation
 
@@ -597,12 +612,12 @@ IMPLEMENTED.**
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | S5.1 | Production freeze + deployment/rollback plan; documentation only | **MERGED / HISTORICAL PASS** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault validation PASS with two pre-existing owner-data canvas warnings; actual Draft PR body/file-list validation PASS; Ready simulation without a receipt rejected; GitHub Collaboration guardrails run `34394947958` SUCCESS | `2118b96f8601566c08a7a9c0f6ea92f4dbcd2dee`; PR #111 merge `618543ee0d88613a651305962b5ed64c8593c2e5` | **PASS** | No retroactive receipt; historical governance-transition outcome | superseded by separately governed S5.2 task |
-| S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **MERGED / HISTORICAL PARTIAL** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access. Post-S5.2 owner measurement later established Docker 29.7.1 iptables backend, iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny, IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success and TCP/7844 PASS. | `c2fd417c328d34a776b43f749a203a89a5d502d7`; PR #113 merge `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` | **PARTIAL — design frozen; measurement gap subsequently closed by owner** | domain/zone proof; fresh Cloudflare allowlist and exact S5.5 firewall implementation; G5 is APPROVED | superseded by this separately authorised S5.3 task |
+| S5.2 | G5 readiness design: candidate subnets, trust, connector isolation, probes, rollback and exact next-mutation scope | **MERGED / HISTORICAL PARTIAL** | root governance **63/63 PASS**; focused collaboration policy **24/24 PASS**; vault PASS with two pre-existing warnings; repository subnet scan found no tracked collision; one final S5.2 receipt; no Production access. Post-S5.2 owner measurement later established Docker 29.7.1 iptables backend, iptables-nft compatibility, effective `DOCKER-USER`, FORWARD DROP, UFW routed deny, IPv4 forwarding, systemd-resolved uplinks, Cloudflare region DNS success and TCP/7844 PASS. | `c2fd417c328d34a776b43f749a203a89a5d502d7`; PR #113 merge `50ce6e1638c6bcdb2a378a3cee660050b9cb41d8` | **PARTIAL — design frozen; measurement gap subsequently closed by owner** | domain/zone proof; fresh Cloudflare allowlist and exact S5.5 firewall implementation; G5 remains OPEN | superseded by this separately authorised S5.3 task |
 | S5.3 | Production Drive/database preparation and migration 009 | **CLOSED / PASS** | Production pre-mutation gate matched frozen baseline; Backup Agent job `0122772c-640a-45b7-a30b-8a2c70cca942` SUCCESS (integrity PASS); restore verify job `e91750fa-73d6-4759-8e38-98d10b6c1304` SUCCESS (integrity PASS, restore verify PASS); root dump `aegis_drive-pre-009-20260910T102518Z.dump` (size 93161, sha256 `2310220d37c3a2af9f2e63c5b4e1bbd44bdb9cffb59a0e69555516cc5383ae2c`, restore list 106 entries PASS); migration 009 SHA-256 `e5e7d166b2e4fda37a4c330507d8a4b04061c98faf4f681da6d66b59f70c0fa0` applied transactionally, row count (25 total, 0 public) and non-secret digest `dd83d35c0e62b34ed42b41cbad037e760e2d4e70a1eb1f3eafde92376dd1af15` preserved, second run idempotent, `drive_app` non-superuser/no ALTER authority; Drive built `sha256:04d2f81478fdb0d4284433cfd2d07197c9175d61425216565405a46f914766df` tagged `aegis-prod-drive:public-share-50ce6e1638`, rollback tag `aegis-prod-drive:rollback-pre-public-share-s5-3-20260910t102946z`, container `ef4305e74e177f2a068200c02c5360671ff793524ca91583021f4b315907abdf` recreated on 3 private networks (`172.19.255.3`, `172.18.0.3`, `192.168.10.11`), protected volumes preserved, unrelated services healthy; private smoke/browser PASS, public UI hidden, ANY share create/redeem/revoke PASS (owner-confirmed S5.3), ZONES share PASS (owner-confirmed, corroborated by historical B4 Production Network Scope acceptance), Storage and Audit carried-forward as HISTORICAL_PASS (accepted evidence; not re-executed as new S5.3 browser acceptance); domain ownership OWNED (`aegistk-pb.com` / Cloudflare) | PR #114 | **PASS** | global Public Share G5/G6 gates remain OPEN; S5.4/S5.5 remain NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.4 dedicated public networks and gateway deployment |
 | S5.4 | Dedicated Public Share networks + gateway deployment | **CLOSED / PASS** | pre-mutation gate PASSED; Phase A defects corrected (canonical `--env-file`, logical key `aegis_vlan10`, explicit `sudo` boundary; overlay SHA-256 `cc36d08c...`, gateway image `sha256:b61b...`); Phase B attempt 1 failed assertion on stale hard-coded share count (expected 25, actual 27) and cleanly rolled back to S5.3; Phase B v2 Drive State B PASSED (`7ca5cae9...`, 4 networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`, `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`, exact trust `172.19.255.2/32,172.31.241.2/32`, UI false); private regression PASSED (`LOGIN`, `FILES`, `PUBLIC_UI_HIDDEN`, `ANY` lifecycle PASS; `ZONES` historical PASS / not rerun); Phase C Gateway runtime PASSED (`00f2cd8a...`, hardened non-root `101:101`, read-only, edge `172.31.240.2` + upstream `172.31.241.2`, 0 host ports); Phase D-A internal security PASSED (connector `172.31.240.3/32` trust only, CF headers stripped before Drive, negative probes 403/404/405, attribution PASS, rate limit 429 burst PASS); Phase D-B actual public stream PASSED (1 MiB stream HTTP 200, SHA-256 match, hit increment 1, canonical recipient `198.51.100.30`, forged source rejected, browser revoke HTTP 404, `active_public_shares_after_cleanup=0`, token-safe); containers preserved; cloudflared absent; egress absent; host 8080 absent; Internet exposure NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; PR #116 | **PASS** | global Public Share G5/G6 gates remain OPEN; S5.5 remains NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.5 isolated cloudflared connector + named tunnel (after human review and authorization) |
-| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation` from PR #116 merge `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`; Draft PR #118 | **CLOSED / PASS** | none within S5.5 | global Public Share G5 / hostname-DNS-TLS exposure / external acceptance according to broader PUBLIC-SHARE plan. |
-| G5 | Owner authorises actual Internet exposure | **APPROVED** | — | — | — | public hostname activation | only after S5.5 evidence |
-| S5.6 | Public hostname, DNS and TLS activation | **IN PROGRESS — PRE-EXPOSURE / READ-ONLY PREFLIGHT** | — | — | — | external security acceptance | requires G5 |
+| S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation`; PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | **CLOSED / PASS** | none within S5.5 | global Public Share G5 approved; proceeding to S5.6 |
+| G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
+| S5.6 | Public hostname, DNS and TLS activation | **IN PROGRESS** | S5.6-A bootstrap and read-only preflight | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; Draft PR #126 | **IN PROGRESS** | read-only preflight verification by owner, then S5.6-B through S5.6-H | S5.6-B |
 | S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
 | S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
 | S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
@@ -648,7 +663,7 @@ No value below was reproduced from Windows in S5.1.
 | Public gateway & connector | Absent; no Public Share networks created; `cloudflared` not installed; no public listeners |
 | Domain ownership | `DOMAIN_OWNERSHIP=OWNED`, `DOMAIN=aegistk-pb.com`, `REGISTRAR=Cloudflare`. Proves ownership only; NO DNS/tunnel/TLS route activated |
 | Private regression | HTTP 200/401 `PASS`; HUB login `PASS`; Files `PASS`; public UI hidden (Internet card not ready / not selectable); ANY share lifecycle `PASS` (classification: owner-confirmed S5.3); ZONES share `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance) |
-| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = CLOSED / PASS (S5.5-A/B/C/D/E CLOSED / PASS, repository only; S5.5-A through S5.5-H = CLOSED / PASS), G5 = APPROVED, G6 = OPEN, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED, UI = OFF |
+| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = MERGED / CLOSED / PASS through PR #118 at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`, G5 = APPROVED, S5.6 = IN PROGRESS, G6 = OPEN, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED, UI = OFF |
 
 ### S5.4 Production runtime acceptance — 2026-09-11
 
@@ -1409,7 +1424,7 @@ something source can assert. It must be designed and reviewed before G5.
 - **Real Cloudflare tunnel = NOT RUN**
 - **Public DNS / external TLS = NOT RUN**
 - **Twingate-OFF 4G/5G external acceptance = NOT RUN**
-- **G5 = APPROVED**
+- **G5 = OPEN**
 - **G6 = OPEN**
 - **Public Internet Share = NOT IMPLEMENTED**
 
