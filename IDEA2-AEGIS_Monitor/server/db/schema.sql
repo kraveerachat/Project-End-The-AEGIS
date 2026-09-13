@@ -44,6 +44,84 @@ CREATE TABLE IF NOT EXISTS cameras (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Detection-node registration is server-side authority. camera_id remains a
+-- nullable legacy logical alias; physical_cameras owns physical identity.
+CREATE TABLE IF NOT EXISTS detection_nodes (
+  node_id                TEXT PRIMARY KEY,
+  camera_id              TEXT REFERENCES cameras(id) ON DELETE RESTRICT,
+  public_key             TEXT NOT NULL,
+  public_key_fingerprint TEXT NOT NULL UNIQUE,
+  key_version            INTEGER NOT NULL CHECK (key_version > 0),
+  active                 BOOLEAN NOT NULL DEFAULT TRUE,
+  registered_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS node_request_nonces (
+  node_id      TEXT NOT NULL REFERENCES detection_nodes(node_id) ON DELETE CASCADE,
+  nonce_digest TEXT NOT NULL,
+  observed_at  TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (node_id, nonce_digest)
+);
+
+CREATE INDEX IF NOT EXISTS node_request_nonces_expires_at_idx
+  ON node_request_nonces (observed_at);
+
+-- One globally unique physical camera is registered to one Detection Node.
+CREATE TABLE IF NOT EXISTS physical_cameras (
+  physical_camera_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  node_id             TEXT NOT NULL UNIQUE REFERENCES detection_nodes(node_id) ON DELETE RESTRICT,
+  active              BOOLEAN NOT NULL DEFAULT TRUE,
+  registered_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Logical aliases are policy and cannot move the node's physical camera.
+CREATE TABLE IF NOT EXISTS node_camera_alias_policy (
+  node_id          TEXT PRIMARY KEY REFERENCES detection_nodes(node_id) ON DELETE CASCADE,
+  mode             TEXT NOT NULL CHECK (mode IN ('fixed', 'account')),
+  fixed_camera_id  TEXT REFERENCES cameras(id) ON DELETE RESTRICT,
+  CHECK (
+    (mode = 'fixed' AND fixed_camera_id IS NOT NULL) OR
+    (mode = 'account' AND fixed_camera_id IS NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS node_account_camera_alias (
+  node_id            TEXT NOT NULL REFERENCES detection_nodes(node_id) ON DELETE CASCADE,
+  user_id            BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  logical_camera_id  TEXT NOT NULL REFERENCES cameras(id) ON DELETE RESTRICT,
+  PRIMARY KEY (node_id, user_id)
+);
+
+-- Schema primitives only; producer lifecycle is implemented in a later checkpoint.
+CREATE TABLE IF NOT EXISTS camera_producer_epochs (
+  producer_generation BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  logical_camera_id    TEXT NOT NULL REFERENCES cameras(id) ON DELETE RESTRICT,
+  physical_camera_id   BIGINT NOT NULL REFERENCES physical_cameras(physical_camera_id) ON DELETE RESTRICT,
+  node_id              TEXT NOT NULL REFERENCES detection_nodes(node_id) ON DELETE RESTRICT,
+  acquired_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lease_expires_at     TIMESTAMPTZ NOT NULL,
+  released_at          TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS camera_producer_epochs_active_logical_idx
+  ON camera_producer_epochs (logical_camera_id)
+  WHERE released_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS camera_producer_epochs_active_physical_idx
+  ON camera_producer_epochs (physical_camera_id)
+  WHERE released_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS camera_producer_demands (
+  producer_generation  BIGINT NOT NULL REFERENCES camera_producer_epochs(producer_generation) ON DELETE CASCADE,
+  demand_owner_id      TEXT NOT NULL,
+  session_binding_hash TEXT NOT NULL,
+  lease_expires_at     TIMESTAMPTZ NOT NULL,
+  released_at          TIMESTAMPTZ,
+  PRIMARY KEY (producer_generation, demand_owner_id)
+);
+
 -- ── camera_assignment — หัวใจของ Scoped View ────────────────────────────────
 -- ⚠️ ตารางนี้เป็นของ IDEA2 เท่านั้น (ห้ามอยู่ใต้ IDEA1 เด็ดขาด)
 --    ทุก endpoint ที่ CCTV-Operator เรียก ต้อง JOIN ผ่านตารางนี้ "ฝั่งเซิร์ฟเวอร์"
@@ -64,6 +142,8 @@ CREATE TABLE IF NOT EXISTS detections (
   frame_id    TEXT NOT NULL,                   -- กลุ่มของคนในเฟรมเดียวกัน
   at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   camera_id   TEXT NOT NULL REFERENCES cameras(id),
+  physical_camera_id BIGINT REFERENCES physical_cameras(physical_camera_id),
+  producer_generation BIGINT REFERENCES camera_producer_epochs(producer_generation),
   faces_in_frame INTEGER NOT NULL DEFAULT 1,
   result      TEXT NOT NULL CHECK (result IN ('Authorized', 'Unknown')),
   matched_name TEXT,                           -- ชื่อที่ระบบจดจำได้ (NULL เมื่อ Unknown)
@@ -80,6 +160,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   type       TEXT NOT NULL,
   title      TEXT NOT NULL,
   camera_id  TEXT NOT NULL REFERENCES cameras(id),
+  physical_camera_id BIGINT REFERENCES physical_cameras(physical_camera_id),
+  producer_generation BIGINT REFERENCES camera_producer_epochs(producer_generation),
   snapshot_path TEXT,
   telegram_sent BOOLEAN NOT NULL DEFAULT FALSE,
   acked      BOOLEAN NOT NULL DEFAULT FALSE,   -- Acknowledge = การเขียนเดียวที่อนุญาตใน console
@@ -122,10 +204,31 @@ CREATE TABLE IF NOT EXISTS camera_heartbeat (
 --    และ node ที่ตายก็พา URL ของมันออกจากระบบไปด้วย (ไม่มี config ค้างให้ proxy ตามผี)
 ALTER TABLE camera_heartbeat ADD COLUMN IF NOT EXISTS stream_url TEXT;
 
+-- Physical-keyed telemetry is liveness/provenance only, never identity authority.
+CREATE TABLE IF NOT EXISTS physical_camera_heartbeat (
+  physical_camera_id BIGINT PRIMARY KEY REFERENCES physical_cameras(physical_camera_id) ON DELETE CASCADE,
+  node_id            TEXT NOT NULL REFERENCES detection_nodes(node_id) ON DELETE RESTRICT,
+  last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  camera_connected   BOOLEAN NOT NULL DEFAULT FALSE,
+  camera_reconnects  INTEGER NOT NULL DEFAULT 0,
+  capture_fps        NUMERIC(6,2),
+  detect_fps         NUMERIC(6,2),
+  latency_ms         NUMERIC(8,2),
+  latency_ms_avg     NUMERIC(8,2),
+  uptime_s           NUMERIC(12,1),
+  frames_captured    BIGINT,
+  segments_written   INTEGER,
+  nas_last_status    TEXT,
+  nas_pending        INTEGER,
+  stream_url         TEXT
+);
+
 -- ── clips — บันทึกต่อเนื่องตัดเป็นช่วง ~10 นาที (interval-based, ไม่ใช่ detection-triggered) ──
 CREATE TABLE IF NOT EXISTS clips (
   id            BIGSERIAL PRIMARY KEY,
   camera_id     TEXT NOT NULL REFERENCES cameras(id),
+  physical_camera_id BIGINT REFERENCES physical_cameras(physical_camera_id),
+  producer_generation BIGINT REFERENCES camera_producer_epochs(producer_generation),
   started_at    TIMESTAMPTZ NOT NULL,
   duration_sec  INTEGER NOT NULL DEFAULT 600,
   file_path     TEXT NOT NULL,

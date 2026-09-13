@@ -1,4 +1,5 @@
-# AEGIS Monitor (IDEA2) — server/cli/manage_users.py dependencies
+# AEGIS Monitor (IDEA2) — SSH-only administration CLI dependencies
 # Local/SSH-host tooling only — never installed into the app's container image.
 psycopg2-binary>=2.9,<3.0
 bcrypt>=4.1,<5.0
+cryptography>=42,<51
