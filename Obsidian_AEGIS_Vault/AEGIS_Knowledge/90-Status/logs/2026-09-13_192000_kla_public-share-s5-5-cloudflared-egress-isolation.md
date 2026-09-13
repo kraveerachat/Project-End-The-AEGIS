@@ -69,7 +69,7 @@ edit_policy: append-by-new-file
 ## Canonical notes updated
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md` — updated lines 43 and 56-77: S5.5-A through S5.5-H marked CLOSED / PASS; recorded Production execution and clean reverse-order rollback restoring S5.4 Gateway and Drive State B baseline; linked authoritative S5.5 receipt.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — updated S5.5 status table to CLOSED / PASS; added detailed narrative for S5.5-F (nft JSON bug and positive/negative probes), S5.5-G (restart persistence, rollback bugs, and clean rollback restoring S5.4 baseline), and S5.5-H (pre-merge closeout and receipt); updated Session Register table.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — updated S5.5 status table to CLOSED / PASS; added detailed narrative for S5.5-F (nft JSON bug and positive/negative probes), S5.5-G (MULTI-STAGE FAIL-CLOSED CONTINUATION, restart persistence, rollback bugs, and clean rollback restoring S5.4 baseline), and S5.5-H (pre-merge closeout and receipt); updated Session Register table.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md` — updated callout to record complete S5.5-A through S5.5-H closure, verified Production deployment and clean rollback, and active S5.4 baseline.
 
 ## Shared surfaces touched
