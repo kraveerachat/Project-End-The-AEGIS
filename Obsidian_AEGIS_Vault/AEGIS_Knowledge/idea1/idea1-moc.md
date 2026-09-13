@@ -68,9 +68,12 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   egress network removed, S5.5 firewall additions removed, systemd units disabled,
   and restoring S5.4 Gateway and Drive State B baseline; S5.5-H pre-merge canonical
   reconciliation, main synchronization, and final repository verification completed.
-  Final Production state: S5.4 baseline active, Internet exposure NONE, Public
-  Share UI OFF, token content not read. Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G5/G6 gates phases).
+  Final Production state after S5.5: S5.4 baseline restored. Under approved G5,
+  S5.6 (Cloudflare Public Activation) is IN PROGRESS: S5.6-A/B/C CLOSED / PASS
+  (isolated connector runtime restored and verified, negative isolation passed,
+  PostgreSQL C1 harness attribution confirmed terminal deny, 0 routes, DNS NXDOMAIN,
+  Internet exposure NONE, UI OFF, G6 OPEN). Public Internet Share remains
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G6 gate and external acceptance).
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
   [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]

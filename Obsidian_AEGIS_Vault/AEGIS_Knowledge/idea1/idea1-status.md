@@ -113,10 +113,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-public-share-s5-6-cloudflare-public-activation` |
 | Owner | `kla` |
 | Starting SHA | `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` — PR #118 / S5.5 merge |
-| Current state | **IN PROGRESS (S5.6-A CLOSED / PASS; S5.6-B CLOSED / PASS; S5.6-C NOT STARTED; G5 = APPROVED; connector runtime ACTIVE / ISOLATED; Cloudflare tunnel HEALTHY / 1 active replica; routes = 0; public DNS NXDOMAIN; Internet exposure NONE; UI OFF; G6 = OPEN; Public Internet Share NOT EXTERNALLY ACCEPTED)** |
+| Current state | **IN PROGRESS (S5.6-A/B/C CLOSED / PASS; S5.6-D NOT STARTED; G5 = APPROVED; pre-exposure isolation PASS; zero cross-boundary leaks; connector runtime ACTIVE / ISOLATED; Cloudflare tunnel HEALTHY / 1 active replica; routes = 0; public DNS NXDOMAIN; Internet exposure NONE; UI OFF; G6 = OPEN; Public Internet Share NOT EXTERNALLY ACCEPTED)** |
 | Started | 2026-09-13 |
-| Last accepted checkpoint | S5.6-B Production runtime restoration CLOSED / PASS; S5.5 isolated connector runtime active; tunnel transport HEALTHY; 0 public routes |
-| Production mutation allowed | **NO — S5.6-B closed; S5.6-C test traffic only; later mutations require ChatGPT gate** |
+| Last accepted checkpoint | S5.6-C Pre-exposure isolation verification CLOSED / PASS; positive & negative isolation matrix proven; PostgreSQL probe harness attribution diagnostic C1 confirmed AEGIS-PS-EGRESS terminal deny; connector runtime active/isolated; tunnel transport HEALTHY; 0 public routes |
+| Production mutation allowed | **NO — S5.6-C closed; S5.6-D Cloudflare mutation requires explicit ChatGPT gate** |
 | Final S5.6 receipt | Pending — task still Draft/in progress |
 
 ### Goal
@@ -181,7 +181,43 @@ Verified on 2026-09-14 via fresh Human Owner Production, Cloudflare control-plan
 - **Cloudflare Control Plane (Read-Only)**: Managed tunnel `AEGIS-PUBLIC-SHARE` transitioned to `STATUS=HEALTHY`, active replicas = `1`, routes = `0`. Zero public hostname routes created (`PUBLIC_HOSTNAME_ROUTE_EXISTS=NO`). Cloudflare control plane was NOT mutated in S5.6-B (`CLOUDFLARE_MUTATED_IN_S5_6_B=NO`). Zero tokens or credentials captured.
 - **Public DNS & Exposure**: `share.aegistk-pb.com` queried via Cloudflare and Google DoH; both return `NXDOMAIN` (Status=3) across A, AAAA, and CNAME. Public Internet exposure remains `NONE` (`PUBLIC_INTERNET_EXPOSURE=NONE`). Public Share UI remains `OFF` (`PUBLIC_SHARE_UI_ENABLED=false`).
 - **Protected Services Intact**: Drive, Gateway, Monitor, HUB, PostgreSQL, and Twingate all healthy. Zero protected services recreated. Protected volumes preserved.
-- **Current State**: S5.6-A and S5.6-B are **CLOSED / PASS**. S5.6-C is **NOT STARTED**. G5 is **APPROVED**. G6 remains **OPEN**. Public Share UI remains **OFF**. Internet exposure remains **NONE**. Public Internet Share remains **NOT EXTERNALLY ACCEPTED**.
+- **Current State**: S5.6-A and S5.6-B are **CLOSED / PASS**. S5.6-C is **CLOSED / PASS**. S5.6-D is **NOT STARTED**. G5 is **APPROVED**. G6 remains **OPEN**. Public Share UI remains **OFF**. Internet exposure remains **NONE**. Public Internet Share remains **NOT EXTERNALLY ACCEPTED**.
+
+### S5.6-C Pre-exposure isolation verification — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner Production network isolation probe evidence:
+- **Positive Matrix**:
+  - Connector loopback readiness endpoint returned HTTP 200 with `readyConnections=4`. PASS.
+  - Connector -> Gateway (`172.31.240.2:8080`): HTTP transport succeeded; Gateway returned expected default-deny HTTP 404; native bridge `aegis_s55_edge` HTTP ACCEPT counter delta = +6. PASS.
+  - Gateway -> Drive (`172.31.241.3:8001/healthz`): returned HTTP 200 (`service="aegis-drive"`, `ok=true`, `db="postgres"`, `application=true`, `metadata=true`, `storage=true`). PASS.
+- **Negative Isolation Matrix**:
+  - Same-bridge Connector -> Gateway SSH (`172.31.240.2:22`): `BLOCKED:TIMEOUT`; native bridge connector-source-deny delta = +3. PASS.
+  - Connector -> Drive direct (`172.31.241.3:8001`): `BLOCKED:TIMEOUT`; `AEGIS-PS-EGRESS` policy DROP delta = +3. PASS.
+  - Connector -> host physical SSH (`192.168.10.10:22`): `BLOCKED:TIMEOUT`; `AEGIS-PS-EGRESS` policy DROP delta = +3. PASS.
+  - Connector -> non-allowlisted public (`1.1.1.1:7844`): `BLOCKED:TIMEOUT`; `AEGIS-PS-EGRESS` policy DROP delta = +3. PASS.
+  - Connector -> reviewed Cloudflare endpoint wrong port (`198.41.192.7:443`): `BLOCKED:TIMEOUT`; `AEGIS-PS-EGRESS` policy DROP delta = +3. PASS.
+  - Connector -> public TCP/80: `BLOCKED:TIMEOUT`; `AEGIS-PS-EGRESS` policy DROP delta = +3. PASS.
+  - Connector -> Cloudflare UDP/7844: terminal egress DROP delta = +1. PASS.
+  - Connector -> public DNS UDP/53: terminal egress DROP delta = +1. PASS.
+- **PostgreSQL Probe Attribution Correction (Diagnostic C1)**:
+  - Initial S5.6-C batch observed actual PostgreSQL probe (`172.18.0.5:5432`): `BLOCKED:TIMEOUT`, but first test harness reported `POLICY_DROP_DELTA=0`. This initially blocked S5.6-C closeout because enforcement attribution was unproven.
+  - Human Owner safely stopped the connector via `systemctl stop aegis-public-share-connector.service` (no network or firewall rollback performed).
+  - Diagnostic S5.6-C1 inspected connector routing table (`default via 172.31.242.1 dev eth1`; `172.18.0.5 via 172.31.242.1 dev eth1 src 172.31.242.2`).
+  - Fresh diagnostic confirmed: `ACTUAL_POSTGRES_RESULT=BLOCKED:TIMEOUT`, `ACTUAL_EGRESS_DROP_DELTA=4`, `ACTUAL_INPUT_DROP_DELTA=0`, `ACTUAL_BRIDGE_SOURCE_DROP_DELTA=0`. Isolation is strictly enforced by `AEGIS-PS-EGRESS` terminal deny.
+  - Upstream security probe (`172.31.241.3:5432`) also confirmed `BLOCKED:TIMEOUT` with `AEGIS-PS-EGRESS` DROP delta = +3.
+  - Original issue classified as `PROBE_HARNESS_FALSE_NEGATIVE`, NOT a `SECURITY_ISOLATION_FAILURE`. `CROSS_BOUNDARY_LEAK=NO`. PostgreSQL was never reachable.
+- **Trust Invariants & Host Exposure**:
+  - Gateway: `PUBLIC_SHARE_EDGE_MODE=cloudflare`, `PUBLIC_SHARE_EDGE_PROXY_CIDR=172.31.240.3/32`.
+  - Drive: `TRUSTED_PROXY_CIDRS=172.19.255.2/32,172.31.241.2/32`, `PUBLIC_SHARE_GATEWAY_CIDR=172.31.241.2/32`, `PUBLIC_SHARE_UI_ENABLED=false`. Connector was NOT added directly to Drive trusted proxies.
+  - Host port exposure: Gateway and connector `PortBindings={}` (zero host port exposure).
+- **Final Safety State**:
+  - `s5-5-firewall.sh validate` PASSED.
+  - Connector running healthy (`Running=true`, `Restarting=false`, `RestartCount=0`).
+  - Protected services healthy (Drive, Gateway, Monitor, HUB, PostgreSQL, Twingate).
+  - Cloudflare public routes = 0 (`PUBLIC_HOSTNAME_ROUTE_EXISTS=NO`).
+  - Public DNS for `share.aegistk-pb.com` = `NXDOMAIN`.
+  - Internet exposure = `NONE`. Public Share UI = `OFF`.
+- **Current State**: S5.6-A, S5.6-B, and S5.6-C are **CLOSED / PASS**. S5.6-D is **NOT STARTED**. G5 is **APPROVED**. G6 remains **OPEN**. Public Share UI remains **OFF**. Internet exposure remains **NONE**. Public Internet Share remains **NOT EXTERNALLY ACCEPTED**.
 
 
 
@@ -505,7 +541,8 @@ Owner-authorized restart persistence and clean reverse-order rollback verified o
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | S5.6-A | Pre-Exposure Preflight / G5 Record | **CLOSED / PASS** | Fresh Human Owner evidence verified: Cloudflare zone `aegistk-pb.com` Active; managed tunnel `AEGIS-PUBLIC-SHARE` exists, DOWN, 0 replicas, 0 routes; Cloudflare DNS 0 records; public DoH (Cloudflare + Google) returns NXDOMAIN; Production healthy (Drive, Gateway, Postgres, Monitor, HUB, Twingate); S5.4 edge/upstream intact; S5.5 connector/egress/firewall/systemd absent/disabled; volumes present; UI false; Production checkout `/opt/aegis/Project-End-The-AEGIS` at `2806373b` classified INTENTIONALLY STALE (not mutated); zero unexpected public exposure | none | completed |
 | S5.6-B | Restore Accepted S5.5 Runtime | **CLOSED / PASS** | Frozen release checkout `/opt/aegis/releases/public-share/99a6f916...` verified byte-for-byte; token file mode `0440` root:65532 validated (unopened); connector container created stopped and hardened (non-root 65532, read-only, cap_drop ALL, 0 host ports, edge `172.31.240.3`, egress `172.31.242.2`); firewall apply & validate passed (nf_tables backend, 20 Cloudflare endpoints allowlisted over TCP/7844, terminal deny, bridge table `aegis_s55_edge` active); pre-start OK; connector started via systemd unit; tunnel transport healthy (HTTP 200, readyConnections=4); drift watchdog timer enabled and proven; Cloudflare tunnel HEALTHY with 1 active replica, 0 routes; public DNS NXDOMAIN; public exposure NONE; UI OFF; protected services healthy | none | S5.6-C — Pre-Exposure Isolation Re-Verification |
-| S5.6-C | Pre-Exposure Isolation Re-Verification | **NOT STARTED** | Pending explicit ChatGPT isolation verification gate; test traffic only | isolation probe execution | S5.6-D — Public Hostname Route Activation |
+| S5.6-C | Pre-Exposure Isolation Re-Verification | **CLOSED / PASS** | Fresh Human Owner evidence verified: loopback readiness HTTP 200 (readyConnections=4); connector -> gateway 172.31.240.2:8080 HTTP 404 default-deny (bridge HTTP ACCEPT delta +6); gateway -> drive healthz ok=true (service="aegis-drive", ok=true, db="postgres", application=true, metadata=true, storage=true); negative isolation probes verified (bridge SSH :22 blocked delta +3; direct drive :8001 blocked delta +3; host SSH 192.168.10.10:22 blocked delta +3; 1.1.1.1:7844 blocked delta +3; 198.41.192.7:443 blocked delta +3; TCP/80 blocked delta +3; Cloudflare UDP/7844 terminal DROP delta +1; public DNS UDP/53 terminal DROP delta +1); Postgres probe 172.18.0.5:5432 harness attribution diagnostic C1 confirmed blocked timeout via AEGIS-PS-EGRESS terminal deny (drop delta 4, egress source 172.31.242.2; classified PROBE_HARNESS_FALSE_NEGATIVE, cross-boundary leak NO); trust invariants intact (Gateway trusts only connector /32, Drive trusts only HUB/Gateway /32); 0 host port bindings; firewall validate PASS; connector healthy (0 restarts); protected services healthy; routes = 0; DNS NXDOMAIN; Internet exposure NONE; UI OFF | none | S5.6-D — Public Hostname Route Activation |
+| S5.6-D | Public Hostname Route Activation | **NOT STARTED** | Pending explicit ChatGPT Cloudflare control-plane mutation gate | Cloudflare Zero Trust public hostname route creation | S5.6-E — Public DNS Verification |
 
 ### S5.5 Session Register
 
@@ -643,7 +680,7 @@ IMPLEMENTED.**
 | S5.4 | Dedicated Public Share networks + gateway deployment | **CLOSED / PASS** | pre-mutation gate PASSED; Phase A defects corrected (canonical `--env-file`, logical key `aegis_vlan10`, explicit `sudo` boundary; overlay SHA-256 `cc36d08c...`, gateway image `sha256:b61b...`); Phase B attempt 1 failed assertion on stale hard-coded share count (expected 25, actual 27) and cleanly rolled back to S5.3; Phase B v2 Drive State B PASSED (`7ca5cae9...`, 4 networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`, `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`, exact trust `172.19.255.2/32,172.31.241.2/32`, UI false); private regression PASSED (`LOGIN`, `FILES`, `PUBLIC_UI_HIDDEN`, `ANY` lifecycle PASS; `ZONES` historical PASS / not rerun); Phase C Gateway runtime PASSED (`00f2cd8a...`, hardened non-root `101:101`, read-only, edge `172.31.240.2` + upstream `172.31.241.2`, 0 host ports); Phase D-A internal security PASSED (connector `172.31.240.3/32` trust only, CF headers stripped before Drive, negative probes 403/404/405, attribution PASS, rate limit 429 burst PASS); Phase D-B actual public stream PASSED (1 MiB stream HTTP 200, SHA-256 match, hit increment 1, canonical recipient `198.51.100.30`, forged source rejected, browser revoke HTTP 404, `active_public_shares_after_cleanup=0`, token-safe); containers preserved; cloudflared absent; egress absent; host 8080 absent; Internet exposure NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; PR #116 | **PASS** | global Public Share G5/G6 gates remain OPEN; S5.5 remains NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.5 isolated cloudflared connector + named tunnel (after human review and authorization) |
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation`; PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | **CLOSED / PASS** | none within S5.5 | global Public Share G5 approved; proceeding to S5.6 |
 | G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
-| S5.6 | Public hostname, DNS and TLS activation | **IN PROGRESS** | S5.6-A/B CLOSED / PASS (S5.5 isolated connector runtime restored; tunnel transport HEALTHY with 1 replica; 0 public routes; public DNS NXDOMAIN; Internet exposure NONE); S5.6-C pending isolation gate | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; Draft PR #126 | **IN PROGRESS** | S5.6-C through S5.6-H | S5.6-C — Pre-Exposure Isolation Re-Verification |
+| S5.6 | Public hostname, DNS and TLS activation | **IN PROGRESS** | S5.6-A/B/C CLOSED / PASS (S5.5 isolated connector runtime active; positive & negative isolation matrix PASS; Postgres diagnostic C1 proved terminal deny; tunnel transport HEALTHY with 1 replica; 0 public routes; public DNS NXDOMAIN; Internet exposure NONE); S5.6-D pending Cloudflare mutation gate | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; Draft PR #126 | **IN PROGRESS** | S5.6-D through S5.6-H | S5.6-D — Public Hostname Route Activation |
 | S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
 | S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
 | S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |

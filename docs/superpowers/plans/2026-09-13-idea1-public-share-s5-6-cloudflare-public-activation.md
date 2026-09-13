@@ -13,11 +13,10 @@ redemption while keeping the Public Share UI completely disabled (`PUBLIC_SHARE_
 preserving the accepted S5.4 Gateway and Drive State B runtime baseline, keeping GLOBAL
 PUBLIC SHARE G6 **OPEN**, and never exposing private surfaces, database, or management planes.
 
-Current checkpoint: S5.6-A is **IN PROGRESS — PRE-EXPOSURE / READ-ONLY PREFLIGHT**.
+Current checkpoint: S5.6-A/B/C are **CLOSED / PASS**; S5.6-D is **NOT STARTED** (pending explicit ChatGPT Cloudflare route mutation gate).
 The Human Owner has approved **GLOBAL PUBLIC SHARE G5 = APPROVED** following the verified
-merge of S5.5 (PR #118). S5.5 technical implementation is closed and verified, but its
-connector runtime was rolled back to S5.4 baseline on Production. Therefore S5.6 re-establishes
-the reviewed S5.5 runtime under controlled gates before activating the public route.
+merge of S5.5 (PR #118). S5.5 technical implementation is closed and verified, and its
+connector runtime has been restored and verified under strict isolation gates in S5.6-B/C.
 
 ## Architecture
 
@@ -97,7 +96,8 @@ Authoritative specifications governing S5.6:
 - Internet exposure `NONE`.
 - Public Share UI `OFF`.
 
-**S5.6-A CURRENT VERIFICATION:** `NOT YET RE-PROVEN BY FRESH HUMAN OWNER EVIDENCE`.
+**S5.6-A/B/C CURRENT VERIFICATION:** `CLOSED / PASS` (proven by fresh Human Owner evidence; positive and negative isolation matrix validated; zero cross-boundary leaks; PostgreSQL probe harness attribution diagnostic C1 confirmed AEGIS-PS-EGRESS terminal deny; connector runtime active/isolated; tunnel healthy; public routes = 0; public DNS = NXDOMAIN; Internet exposure = NONE; UI = OFF; G6 = OPEN).
+**S5.6-D CURRENT STATE:** `NOT STARTED` (pending explicit ChatGPT Cloudflare control-plane mutation gate).
 
 ## G5/G6 Gate Contract
 
