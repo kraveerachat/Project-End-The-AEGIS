@@ -6,6 +6,11 @@ const runtime = await startServer({ config })
 let shuttingDown = false
 
 process.stdout.write(`AEGIS IDEA3 Security Center listening on http://${config.bindHost}:${config.port}${config.webBasePath}/\n`)
+if (runtime.machineServer) {
+  process.stdout.write(
+    `AEGIS IDEA3 machine dispatch listener on ${config.dispatch.host}:${config.dispatch.port} (application-internal; never host-published)\n`,
+  )
+}
 
 async function shutdown(signal) {
   if (shuttingDown) return

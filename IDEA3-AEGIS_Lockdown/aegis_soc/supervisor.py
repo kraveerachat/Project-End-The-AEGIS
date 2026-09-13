@@ -20,6 +20,7 @@ from pathlib import Path
 from . import config
 from . import database as db
 from .controller import AegisCommandController
+from .dispatch_worker import build_dispatch_worker_from_environment
 from .mqtt_client import MQTTManager
 from .platform_lock import AlreadyRunningError, ExclusiveFileLock
 from .runtime import RuntimeSettings, RuntimeState, RuntimeStatus
@@ -154,8 +155,18 @@ class ChildProcessSupervisor:
             self._output_handle = None
 
 
+_DEFAULT_DISPATCH_WORKER = object()
+
+
 class AegisSupervisor:
-    def __init__(self, settings: RuntimeSettings, *, mqtt_manager=None, monotonic=time.monotonic):
+    def __init__(
+        self,
+        settings: RuntimeSettings,
+        *,
+        mqtt_manager=None,
+        monotonic=time.monotonic,
+        dispatch_worker=_DEFAULT_DISPATCH_WORKER,
+    ):
         self.settings = settings
         self.mqtt = mqtt_manager or MQTTManager()
         self.controller = AegisCommandController(self.mqtt, dry_run=settings.dry_run)
@@ -176,6 +187,11 @@ class AegisSupervisor:
         self.instance_lock = InstanceLock(settings)
         self.children = ChildProcessSupervisor(settings, self.log_event)
         self._event_logger = self._build_event_logger()
+        self.dispatch_worker = (
+            build_dispatch_worker_from_environment(self)
+            if dispatch_worker is _DEFAULT_DISPATCH_WORKER
+            else dispatch_worker
+        )
 
     def _build_event_logger(self):
         logger = logging.getLogger(f"aegis_supervisor.{id(self)}")
@@ -281,6 +297,8 @@ class AegisSupervisor:
             physical["observed_state"] = state
             if state == physical["expected_state"]:
                 physical["physical_confirmed_at"] = self.monotonic()
+            if self.dispatch_worker is not None:
+                self.dispatch_worker.on_status(state, command_nonce)
 
         elif physical and state in ("NORMAL", "LOCKDOWN"):
             self.log_event(
@@ -349,6 +367,8 @@ class AegisSupervisor:
             detail=detail,
             nonce=nonce,
         )
+        if self.dispatch_worker is not None:
+            self.dispatch_worker.on_ack(ack, nonce)
 
     def _on_attacker(self, ip: str) -> None:
         try:
@@ -381,6 +401,10 @@ class AegisSupervisor:
         self.mqtt.status_callback = self._on_status
         self.mqtt.ack_callback = self._on_ack
         self.mqtt.attacker_callback = self._on_attacker
+
+    def _tick_dispatch(self) -> None:
+        if self.dispatch_worker is not None:
+            self.dispatch_worker.tick()
 
     def evaluate_state(self, now: float | None = None) -> RuntimeState:
         now = self.monotonic() if now is None else now
@@ -463,6 +487,8 @@ class AegisSupervisor:
 
             db.init_db()
             self.bind_callbacks()
+            if self.dispatch_worker is not None:
+                self.dispatch_worker.start()
             if not self.settings.dry_run:
                 self.mqtt.start()
             self.children.start_all()
@@ -475,6 +501,7 @@ class AegisSupervisor:
                         and self.controller.send_heartbeat()):
                     self.last_heartbeat_at = now
                 self.status.components = self.children.poll(now)
+                self._tick_dispatch()
                 state = self.evaluate_state(now)
                 detail = {
                     RuntimeState.RUNNING: "runtime healthy" if not self.settings.dry_run else "safe dry-run active",
@@ -494,6 +521,8 @@ class AegisSupervisor:
             self.stop_requested = True
             self.children.stop_all()
             self.mqtt.stop()
+            if self.dispatch_worker is not None:
+                self.dispatch_worker.close()
             # Deliberately no RESTORE_UPLINK on any shutdown path.
             if self.status.state != RuntimeState.FAILED:
                 self.transition(RuntimeState.SHUTDOWN, "supervisor stopped; uplink state unchanged")

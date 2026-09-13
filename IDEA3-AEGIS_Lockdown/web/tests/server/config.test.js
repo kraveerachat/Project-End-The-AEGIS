@@ -231,3 +231,101 @@ describe('configuration boundaries', () => {
       .toThrow(/AEGIS_WEB_STATIC_DIR/)
   })
 })
+
+// Local test fixture values only. The loopback trusted peer and bind address are
+// not the Production topology (spec §4.4). RFC 5737/3849 documentation
+// addresses stand in for any non-loopback value.
+const DISPATCH_ENABLED = Object.freeze({
+  AEGIS_IDEA3_DISPATCH_ENABLED: 'true',
+  AEGIS_IDEA3_DISPATCH_PORT: '18103',
+  AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY: '127.0.0.1',
+  AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT: 'idea3-core',
+})
+
+function dispatchTestEnv(overrides = {}) {
+  return { NODE_ENV: 'test', ...DISPATCH_ENABLED, ...overrides }
+}
+
+describe('PR10 S2 dispatch configuration', () => {
+  it('is disabled by default in every environment', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }).dispatch).toEqual({ enabled: false })
+    expect(loadConfig(productionConfig()).dispatch).toEqual({ enabled: false })
+    expect(loadConfig({ NODE_ENV: 'test', AEGIS_IDEA3_DISPATCH_ENABLED: 'false' }).dispatch).toEqual({ enabled: false })
+    expect(loadConfig({ NODE_ENV: 'test', AEGIS_IDEA3_DISPATCH_ENABLED: '' }).dispatch).toEqual({ enabled: false })
+  })
+
+  it('accepts a complete enabled configuration and defaults the local bind address to 127.0.0.1', () => {
+    const { dispatch } = loadConfig(dispatchTestEnv())
+
+    expect(dispatch).toEqual({
+      enabled: true,
+      host: '127.0.0.1',
+      port: 18103,
+      trustedProxy: '127.0.0.1',
+      expectedSubject: 'idea3-core',
+    })
+    expect(Object.isFrozen(dispatch)).toBe(true)
+  })
+
+  it.each(['yes', 'TRUE', '1', ' true', 'on'])('rejects the ambiguous enable value %j', (value) => {
+    expect(() => loadConfig({ NODE_ENV: 'test', AEGIS_IDEA3_DISPATCH_ENABLED: value }))
+      .toThrow(/AEGIS_IDEA3_DISPATCH_ENABLED/)
+  })
+
+  it.each([
+    'AEGIS_IDEA3_DISPATCH_PORT',
+    'AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY',
+    'AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT',
+  ])('requires %s when dispatch is enabled', (key) => {
+    expect(() => loadConfig(dispatchTestEnv({ [key]: undefined }))).toThrow(new RegExp(key))
+  })
+
+  it.each(['0', '-1', '65536', '18103.5', 'abc', '8003'])('rejects the dispatch port %j', (port) => {
+    expect(() => loadConfig(dispatchTestEnv({ AEGIS_IDEA3_DISPATCH_PORT: port })))
+      .toThrow(/AEGIS_IDEA3_DISPATCH_PORT/)
+  })
+
+  it.each(['hub.internal', '192.0.2.2/32', '999.0.2.2', '192.0.2.2:443'])('rejects the trusted proxy %j', (proxy) => {
+    expect(() => loadConfig(dispatchTestEnv({ AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY: proxy })))
+      .toThrow(/AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY/)
+  })
+
+  it.each(['IDEA3-CORE', '-idea3', 'idea3_core', 'cn=idea3-core', 'a'.repeat(64)])('rejects the expected subject %j', (subject) => {
+    expect(() => loadConfig(dispatchTestEnv({ AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT: subject })))
+      .toThrow(/AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT/)
+  })
+
+  it.each(['192.0.2.10', '2001:db8::10'])('accepts the non-loopback documentation bind address %j', (host) => {
+    expect(loadConfig(dispatchTestEnv({ AEGIS_IDEA3_DISPATCH_HOST: host })).dispatch.host).toBe(host)
+  })
+
+  it.each([
+    'localhost',
+    'idea3.internal',
+    '0.0.0.0',
+    '::',
+    '0:0:0:0:0:0:0:0',
+    '::ffff:127.0.0.1',
+    '192.0.2.10:18103',
+    '192.0.2.0/24',
+  ])('rejects the bind address %j', (host) => {
+    expect(() => loadConfig(dispatchTestEnv({ AEGIS_IDEA3_DISPATCH_HOST: host })))
+      .toThrow(/AEGIS_IDEA3_DISPATCH_HOST/)
+  })
+
+  it('requires an explicit non-loopback bind address in production', () => {
+    const production = (overrides) => loadConfig(productionConfig({ ...DISPATCH_ENABLED, ...overrides }))
+
+    expect(() => production({})).toThrow(/AEGIS_IDEA3_DISPATCH_HOST/)
+    for (const host of ['127.0.0.1', '127.1.2.3', '::1', '0:0:0:0:0:0:0:1']) {
+      expect(() => production({ AEGIS_IDEA3_DISPATCH_HOST: host })).toThrow(/AEGIS_IDEA3_DISPATCH_HOST/)
+    }
+    expect(production({ AEGIS_IDEA3_DISPATCH_HOST: '192.0.2.10' }).dispatch.host).toBe('192.0.2.10')
+  })
+
+  it('leaves the browser listener loopback-only while dispatch is enabled', () => {
+    const config = loadConfig(productionConfig({ ...DISPATCH_ENABLED, AEGIS_IDEA3_DISPATCH_HOST: '192.0.2.10' }))
+
+    expect(config.bindHost).toBe('127.0.0.1')
+  })
+})

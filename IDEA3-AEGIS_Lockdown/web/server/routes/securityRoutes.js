@@ -39,7 +39,7 @@ function invalid(res, code = 'REQUEST_INVALID') {
   return res.status(400).json({ error: { code, message: 'ข้อมูลคำขอไม่ถูกต้อง' } })
 }
 
-export function createSecurityRouter({ config, demoProvider, liveProvider, repository }) {
+export function createSecurityRouter({ config, demoProvider, liveProvider, repository, machineContact = null }) {
   const router = Router()
   router.use(requireAdmin)
 
@@ -60,7 +60,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
           })
         }
       }
-      res.json(await repository.apply(snapshot))
+      res.json(await repository.apply(snapshot, { lastMachineContactAt: machineContact?.lastContactAt() ?? null }))
     } catch (error) {
       next(error)
     }
@@ -121,6 +121,10 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
    * This is the end of the PR7 boundary. It reads the current live correlation,
    * writes one durable decision, and returns every downstream command and physical
    * stage as not reached. It publishes nothing and touches no hardware path.
+   *
+   * When PR10 S2 dispatch is enabled, a newly recorded acceptance also mints one
+   * pending CUT_UPLINK dispatch action in the same transaction. The route still
+   * publishes nothing; only the Core can claim and publish it.
    */
   router.post('/incidents/:id/containment', async (req, res, next) => {
     try {
@@ -141,6 +145,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
 
       const stored = await repository.recordContainmentDecision(
         containmentDecisionRecord({ incident, decision: body.data.decision, state: evaluation.state }),
+        { mintDispatch: config.dispatch?.enabled === true },
       )
       if (stored.status === 'CONFLICT') {
         return res.status(409).json({
@@ -148,7 +153,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
         })
       }
 
-      return res.json({ containment: containmentResponse(incident.id, stored.state), audit: stored.audit })
+      return res.json({ containment: containmentResponse(incident.id, stored.state, stored.dispatch), audit: stored.audit })
     } catch (error) {
       next(error)
     }

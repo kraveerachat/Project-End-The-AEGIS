@@ -1,6 +1,19 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  DISPATCH_ACTIONS,
+  DISPATCH_ACTION_STATES,
+  DISPATCH_EVIDENCE_STAGES,
+  DISPATCH_LIST_LIMIT,
+  dispatchAuditEntry,
+  dispatchEvidenceAuditEntry,
+  dispatchIncidentOverlay,
+  pendingDispatchAction,
+  safeDispatchEvidence,
+  validateDispatchListLimit,
+} from '../domain/dispatch.js'
 import { operationalErrorFingerprint } from '../domain/operationalErrors.js'
 import {
   AuditPersistenceError,
@@ -15,10 +28,18 @@ import {
   validateAuditLimit,
 } from './auditRecords.js'
 
-const SCHEMA_VERSION = 2
-// v1 -> v2 is purely additive: it introduces containment_decisions and leaves
-// every v1 table and audit row untouched.
-const MIGRATABLE_VERSIONS = new Set([1])
+export const AUDIT_SCHEMA_VERSION = 3
+// Every step is purely additive: v1 -> v2 introduced containment_decisions, and
+// v2 -> v3 introduces the PR10 S2 dispatch tables. No earlier table or row is
+// touched.
+const MIGRATABLE_VERSIONS = new Set([1, 2])
+
+function sqlValues(values) {
+  return values.map((value) => {
+    if (!/^[A-Z_]+$/.test(value)) throw new Error('Dispatch vocabulary must be upper-case identifiers')
+    return `'${value}'`
+  }).join(', ')
+}
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS schema_meta (
@@ -78,6 +99,27 @@ const SCHEMA = `
     decided_at TEXT NOT NULL,
     audit_id INTEGER NOT NULL REFERENCES audit_log(id)
   );
+  CREATE TABLE IF NOT EXISTS dispatch_actions (
+    action_id TEXT PRIMARY KEY,
+    incident_id TEXT NOT NULL UNIQUE REFERENCES containment_decisions(incident_id),
+    action TEXT NOT NULL CHECK (action IN (${sqlValues(DISPATCH_ACTIONS)})),
+    state TEXT NOT NULL CHECK (state IN (${sqlValues(DISPATCH_ACTION_STATES)})),
+    accepted_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    claimed_at TEXT,
+    claimed_by TEXT,
+    audit_id INTEGER NOT NULL REFERENCES audit_log(id)
+  );
+  CREATE TABLE IF NOT EXISTS dispatch_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id TEXT NOT NULL REFERENCES dispatch_actions(action_id),
+    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 1000),
+    stage TEXT NOT NULL CHECK (stage IN (${sqlValues(DISPATCH_EVIDENCE_STAGES)})),
+    observed_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    detail_json TEXT NOT NULL,
+    UNIQUE (action_id, sequence)
+  );
 `
 
 function wrap(operation, error) {
@@ -132,12 +174,12 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     database.exec('BEGIN IMMEDIATE')
     try {
       database.exec(SCHEMA)
-      database.prepare('INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, ?)').run(SCHEMA_VERSION)
+      database.prepare('INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, ?)').run(AUDIT_SCHEMA_VERSION)
       const metadata = database.prepare('SELECT version FROM schema_meta WHERE singleton = 1').get()
       const storedVersion = Number(metadata?.version)
-      if (storedVersion !== SCHEMA_VERSION) {
+      if (storedVersion !== AUDIT_SCHEMA_VERSION) {
         if (!MIGRATABLE_VERSIONS.has(storedVersion)) throw new Error('Unsupported audit schema version')
-        database.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(SCHEMA_VERSION)
+        database.prepare('UPDATE schema_meta SET version = ? WHERE singleton = 1').run(AUDIT_SCHEMA_VERSION)
       }
       database.exec('COMMIT')
     } catch (error) {
@@ -255,20 +297,47 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     }
   }
 
+  function dispatchRow(row) {
+    return {
+      actionId: row.action_id,
+      incidentId: row.incident_id,
+      action: row.action,
+      state: row.state,
+      acceptedAt: row.accepted_at,
+      expiresAt: row.expires_at,
+      claimedAt: row.claimed_at,
+      claimedBy: row.claimed_by,
+    }
+  }
+
+  function dispatchForIncident(incidentId) {
+    const row = database.prepare('SELECT * FROM dispatch_actions WHERE incident_id = ?').get(incidentId)
+    return row ? dispatchRow(row) : null
+  }
+
   /**
    * Record one durable Admin containment decision.
    *
    * Repeating the same decision is idempotent and writes no second audit row; the
    * opposite decision conflicts and leaves the stored decision unchanged, so an
    * accepted candidate can never be silently reversed.
+   *
+   * With `mintDispatch`, a newly recorded ACCEPT also mints its one pending
+   * CUT_UPLINK dispatch action in the same transaction. A repeat or conflict
+   * returns the existing action (or none) and never mints late.
    */
-  function recordContainmentDecision(decision) {
+  function recordContainmentDecision(decision, { mintDispatch = false } = {}) {
     return transaction('record containment decision', () => {
       const safe = safeContainmentDecision(decision)
       const existing = database.prepare('SELECT * FROM containment_decisions WHERE incident_id = ?').get(safe.incidentId)
       if (existing) {
         const stored = containmentDecisionRow(existing)
-        return { status: stored.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT', ...stored, audit: null }
+        return {
+          status: stored.decision === safe.decision ? 'UNCHANGED' : 'CONFLICT',
+          ...stored,
+          audit: null,
+          dispatch: dispatchForIncident(safe.incidentId),
+        }
       }
 
       const occurredAt = nowIso(clock)
@@ -287,7 +356,150 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
         occurredAt,
         audit.databaseId,
       )
-      return { status: 'RECORDED', ...safe, audit: audit.record }
+
+      let dispatch = null
+      if (mintDispatch && safe.decision === 'ACCEPT') {
+        dispatch = pendingDispatchAction({ actionId: randomUUID(), incidentId: safe.incidentId, acceptedAt: occurredAt })
+        const minted = insertAuditRecord(dispatchAuditEntry('ACTION_MINTED', dispatch, 'session-admin'), occurredAt)
+        database.prepare(`
+          INSERT INTO dispatch_actions (action_id, incident_id, action, state, accepted_at, expires_at, audit_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          dispatch.actionId,
+          dispatch.incidentId,
+          dispatch.action,
+          dispatch.state,
+          dispatch.acceptedAt,
+          dispatch.expiresAt,
+          minted.databaseId,
+        )
+      }
+      return { status: 'RECORDED', ...safe, audit: audit.record, dispatch }
+    })
+  }
+
+  /** Returns the stored action; expiry is applied by the list and claim paths (§4.3). */
+  function readDispatchAction(actionId) {
+    try {
+      const row = database.prepare('SELECT * FROM dispatch_actions WHERE action_id = ?').get(actionId)
+      return row ? dispatchRow(row) : null
+    } catch (error) {
+      throw wrap('read dispatch action', error)
+    }
+  }
+
+  function expirePastDueDispatch(now) {
+    const due = database.prepare(
+      "SELECT * FROM dispatch_actions WHERE state = 'PENDING_DISPATCH' AND expires_at <= ? ORDER BY accepted_at, action_id",
+    ).all(now)
+    const expire = database.prepare(
+      "UPDATE dispatch_actions SET state = 'EXPIRED' WHERE action_id = ? AND state = 'PENDING_DISPATCH'",
+    )
+    for (const row of due) {
+      insertAuditRecord(dispatchAuditEntry('ACTION_EXPIRED', dispatchRow(row), 'system'), now)
+      expire.run(row.action_id)
+    }
+  }
+
+  /**
+   * Expire every past-due pending action, then return the unexpired pending
+   * actions, oldest first. An expired action is never listed again.
+   */
+  function listPendingDispatchActions({ limit = DISPATCH_LIST_LIMIT } = {}) {
+    validateDispatchListLimit(limit)
+    return transaction('list pending dispatch actions', () => {
+      const now = nowIso(clock)
+      expirePastDueDispatch(now)
+      return database.prepare(`
+        SELECT * FROM dispatch_actions
+        WHERE state = 'PENDING_DISPATCH' AND expires_at > ? AND action IN (${sqlValues(DISPATCH_ACTIONS)})
+        ORDER BY accepted_at, action_id
+        LIMIT ?
+      `).all(now, limit).map(dispatchRow)
+    })
+  }
+
+  /**
+   * Atomic single-shot claim (D7, spec §4.6). Past-due actions are expired
+   * first. Then one unexpired pending CUT_UPLINK action moves to CORE_CLAIMED.
+   * A second or replayed claim is refused, and a claimed action is never
+   * claimed again.
+   */
+  function claimDispatchAction(actionId, { subject } = {}) {
+    if (typeof subject !== 'string' || subject.length === 0) {
+      throw new TypeError('A machine subject is required to claim a dispatch action')
+    }
+    return transaction('claim dispatch action', () => {
+      const now = nowIso(clock)
+      expirePastDueDispatch(now)
+      const select = database.prepare('SELECT * FROM dispatch_actions WHERE action_id = ?')
+      const row = select.get(actionId)
+      if (!row) return { status: 'NOT_FOUND', dispatch: null }
+      if (!DISPATCH_ACTIONS.includes(row.action)) return { status: 'NOT_DISPATCHABLE', dispatch: dispatchRow(row) }
+      if (row.state === 'EXPIRED') return { status: 'EXPIRED', dispatch: dispatchRow(row) }
+
+      const claimed = database.prepare(`
+        UPDATE dispatch_actions SET state = 'CORE_CLAIMED', claimed_at = ?, claimed_by = ?
+        WHERE action_id = ? AND state = 'PENDING_DISPATCH' AND expires_at > ?
+      `).run(now, subject, actionId, now)
+      const current = dispatchRow(select.get(actionId))
+      if (claimed.changes !== 1) return { status: 'ALREADY_CLAIMED', dispatch: current }
+      insertAuditRecord(dispatchAuditEntry('ACTION_CLAIMED', current, 'machine-core'), now)
+      return { status: 'CLAIMED', dispatch: current }
+    })
+  }
+
+  function evidenceRow(row) {
+    let detail = {}
+    try {
+      const parsed = JSON.parse(row.detail_json)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed
+    } catch {
+      detail = {}
+    }
+    return { sequence: row.sequence, stage: row.stage, observedAt: row.observed_at, receivedAt: row.received_at, detail }
+  }
+
+  function evidenceForAction(actionId) {
+    return database.prepare('SELECT * FROM dispatch_evidence WHERE action_id = ? ORDER BY sequence').all(actionId).map(evidenceRow)
+  }
+
+  function readDispatchEvidence(actionId) {
+    try {
+      return evidenceForAction(actionId)
+    } catch (error) {
+      throw wrap('read dispatch evidence', error)
+    }
+  }
+
+  /**
+   * Append one Core-reported stage for a claimed action (spec §4.7). It is
+   * idempotent by (action_id, sequence): an identical replay is UNCHANGED, and a
+   * different body for the same sequence is a CONFLICT that changes nothing.
+   * Rows are never updated or deleted.
+   */
+  function recordDispatchEvidence(actionId, entry) {
+    const safe = safeDispatchEvidence(entry)
+    if (!safe) throw new TypeError('Dispatch evidence is outside the allowlist')
+    return transaction('record dispatch evidence', () => {
+      const action = database.prepare('SELECT state FROM dispatch_actions WHERE action_id = ?').get(actionId)
+      if (!action) return { status: 'NOT_FOUND', evidence: null }
+      if (action.state !== 'CORE_CLAIMED') return { status: 'NOT_CLAIMED', evidence: null }
+
+      const detailJson = JSON.stringify(safe.detail)
+      const existing = database.prepare('SELECT * FROM dispatch_evidence WHERE action_id = ? AND sequence = ?').get(actionId, safe.sequence)
+      if (existing) {
+        const identical = existing.stage === safe.stage && existing.observed_at === safe.observedAt && existing.detail_json === detailJson
+        return { status: identical ? 'UNCHANGED' : 'CONFLICT', evidence: evidenceRow(existing) }
+      }
+
+      const receivedAt = nowIso(clock)
+      database.prepare(`
+        INSERT INTO dispatch_evidence (action_id, sequence, stage, observed_at, received_at, detail_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(actionId, safe.sequence, safe.stage, safe.observedAt, receivedAt, detailJson)
+      insertAuditRecord(dispatchEvidenceAuditEntry(actionId, safe), receivedAt)
+      return { status: 'RECORDED', evidence: { ...safe, receivedAt } }
     })
   }
 
@@ -433,14 +645,21 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     return { ...DEFAULT_SETTINGS, ...stored }
   }
 
-  function apply(snapshot) {
+  function apply(snapshot, { lastMachineContactAt = null } = {}) {
     try {
       const acknowledgements = new Set(database.prepare('SELECT alert_id FROM alert_acknowledgements').all().map(({ alert_id }) => alert_id))
       const notes = new Map(database.prepare('SELECT incident_id, note FROM incident_notes').all().map(({ incident_id, note }) => [incident_id, note]))
+      const now = new Date(nowIso(clock))
+      const withDispatch = (incident) => {
+        const action = dispatchForIncident(incident.id)
+        return dispatchIncidentOverlay(incident, action, action ? evidenceForAction(action.actionId) : [], { lastMachineContactAt, now })
+      }
       return {
         ...snapshot,
         alerts: snapshot.alerts.map((alert) => acknowledgements.has(alert.id) ? { ...alert, status: 'ACKNOWLEDGED' } : alert),
-        incidents: snapshot.incidents.map((incident) => notes.has(incident.id) ? { ...incident, analystNote: notes.get(incident.id) } : incident),
+        incidents: snapshot.incidents.map((incident) => withDispatch(
+          notes.has(incident.id) ? { ...incident, analystNote: notes.get(incident.id) } : incident,
+        )),
         audit: [...queryAudit({ limit: 250 }), ...snapshot.audit],
         settings: { ...snapshot.settings, policy: { ...snapshot.settings.policy, ...readSettings() } },
       }
@@ -465,6 +684,11 @@ export function createSqliteRepository({ path, clock = () => new Date() }) {
     addIncidentNote,
     recordContainmentDecision,
     readContainmentDecision,
+    readDispatchAction,
+    listPendingDispatchActions,
+    claimDispatchAction,
+    readDispatchEvidence,
+    recordDispatchEvidence,
     recordIntegrationOutcome,
     schemaVersion,
     updateSettings,

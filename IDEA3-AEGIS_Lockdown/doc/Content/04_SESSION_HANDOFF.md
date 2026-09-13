@@ -1,5 +1,32 @@
 # AEGIS IDEA3 — LIVE SESSION HANDOFF
 
+> [!warning] HISTORICAL / SUPERSEDED HANDOFF
+> This notice was added on 2026-09-13. The handoff below dates from
+> 2026-09-02, before the current task and session workflow, and these parts of
+> it are obsolete:
+> - its branch (`codex/autonomous-runtime`);
+> - its HEAD (`d438dd7e`);
+> - its workspace path;
+> - its active objective.
+>
+> **Do not resume `codex/autonomous-runtime` from this file.**
+>
+> The authoritative continuation record is
+> `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` → "PR10 Handoff —
+> after the PR #123 merge (2026-09-12)".
+>
+> Current truth:
+> - `main` is at `967b90408672b583bc41692279a7d27bb4b1e09f` (GitHub PR #124); the
+>   PR10 S2 code merged through GitHub PR #123 at `d903327e`;
+> - PR10 S1 is PASS / CLOSED;
+> - PR10 S2 is PASS / CLOSED, with LOCAL / SIMULATED evidence only;
+> - PR10 is still IN PROGRESS;
+> - PR11 is IN PROGRESS: Phase 0 is PASS / EVIDENCE COMPLETE (2026-09-13), and
+>   only non-mutating Phase 1 planning is allowed;
+> - there is no Production deployment.
+>
+> Everything below is preserved unchanged as historical content.
+
 > This file is intentionally maintained by Codex. It is the persistent bridge between Codex conversations.
 > Update it proactively before context gets tight and after every major milestone.
 

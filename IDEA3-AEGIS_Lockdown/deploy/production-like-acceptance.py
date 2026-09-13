@@ -284,8 +284,8 @@ def _exercise_generation(base_url: str, password: str, *, first: bool) -> None:
 
     readiness = _wait_for_json(f"{base_url}/api/readiness", expected_status=200)
     _require(
-        readiness == {"status": "READY", "audit": "READY", "schemaVersion": 2},
-        "schema-v2 readiness contract failed",
+        readiness == {"status": "READY", "audit": "READY", "schemaVersion": 3},
+        "schema-v3 readiness contract failed",
     )
     cookie, csrf = _login(base_url, password)
     headers = _authenticated_headers(base_url, cookie)

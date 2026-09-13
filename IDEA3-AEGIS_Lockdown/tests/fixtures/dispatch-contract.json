@@ -1,0 +1,124 @@
+{
+  "contractVersion": 1,
+  "description": "PR10 S2 shared Web <-> Core dispatch contract. Read by the Web (Vitest) and Core (pytest) suites. Test fixture only: LOCAL / SIMULATED; not a Production configuration.",
+  "action": {
+    "dispatchable": ["CUT_UPLINK"],
+    "neverDispatchable": ["RESTORE_UPLINK"],
+    "ttlMs": 120000,
+    "actionIdPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    "validActionIds": ["5b0e3c1e-8f6a-4c2d-9b7e-2f1a0c9d8e7f"],
+    "invalidActionIds": [
+      "not-a-uuid",
+      "5B0E3C1E-8F6A-4C2D-9B7E-2F1A0C9D8E7F",
+      "5b0e3c1e-8f6a-1c2d-9b7e-2f1a0c9d8e7f"
+    ]
+  },
+  "serverStates": ["PENDING_DISPATCH", "CORE_CLAIMED", "EXPIRED"],
+  "timestamps": {
+    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+    "valid": ["2026-09-12T08:00:31.000Z", "2026-12-31T23:59:59.999Z"],
+    "invalid": [
+      "2026-09-12T08:00:31Z",
+      "2026-09-12 08:00:31.000",
+      "2026-09-12T08:00:31.000+00:00",
+      "2026-02-30T08:00:00.000Z"
+    ]
+  },
+  "evidence": {
+    "stages": ["PUBLISHED", "DRY_RUN", "ACK", "STATUS", "OUTCOME_UNKNOWN", "EXPIRED_AT_CORE", "FAILED"],
+    "sequence": { "min": 1, "max": 1000 },
+    "detailAllowlist": {
+      "ackCode": ["OK"],
+      "deviceState": ["NORMAL", "LOCKDOWN"],
+      "reasonCodePattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "coreEmitted": [
+      { "stage": "PUBLISHED", "detail": {} },
+      { "stage": "DRY_RUN", "detail": {} },
+      { "stage": "ACK", "detail": { "ackCode": "OK" } },
+      { "stage": "STATUS", "detail": { "deviceState": "NORMAL" } },
+      { "stage": "STATUS", "detail": { "deviceState": "LOCKDOWN" } },
+      { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "ACK_NOT_OK" } },
+      { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "ACK_TIMEOUT" } },
+      { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "STATUS_TIMEOUT" } },
+      { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "CLAIM_UNCERTAIN" } },
+      { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "CORE_RESTART" } },
+      { "stage": "FAILED", "detail": { "reasonCode": "MQTT_UNAVAILABLE" } },
+      { "stage": "EXPIRED_AT_CORE", "detail": {} }
+    ],
+    "invalidEntries": [
+      { "sequence": 0, "stage": "PUBLISHED", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {} },
+      { "sequence": 1, "stage": "CONTAINED", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {} },
+      { "sequence": 1, "stage": "RELAY_EVIDENCE", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {} },
+      { "sequence": 1, "stage": "ACK", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {} },
+      { "sequence": 1, "stage": "ACK", "observedAt": "2026-09-12T08:00:31.000Z", "detail": { "ackCode": "ERROR" } },
+      { "sequence": 1, "stage": "STATUS", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {} },
+      { "sequence": 1, "stage": "PUBLISHED", "observedAt": "2026-09-12T08:00:31.000Z", "detail": { "nonce": "a1b2c3d4" } },
+      { "sequence": 1, "stage": "PUBLISHED", "observedAt": "2026-09-12T08:00:31.000Z", "detail": { "ackCode": "OK" } },
+      { "sequence": 1, "stage": "OUTCOME_UNKNOWN", "observedAt": "2026-09-12T08:00:31.000Z", "detail": { "reasonCode": "ack_timeout" } },
+      { "sequence": 1, "stage": "PUBLISHED", "observedAt": "2026-09-12T08:00:31.000Z", "detail": {}, "executed": true }
+    ]
+  },
+  "machineRoute": {
+    "basePath": "/api/machine/v1",
+    "productionBasePath": "/security/api/machine/v1",
+    "listPending": {
+      "method": "GET",
+      "path": "/dispatch/pending",
+      "responseKeys": ["actions"],
+      "actionKeys": ["actionId", "action", "acceptedAt", "expiresAt"]
+    },
+    "claim": {
+      "method": "POST",
+      "path": "/dispatch/{actionId}/claim",
+      "requestBody": {},
+      "successStatus": 200,
+      "successKeys": ["actionId", "action", "state", "claimedAt", "expiresAt"],
+      "successState": "CORE_CLAIMED",
+      "refusals": [
+        { "status": 404, "code": "ACTION_NOT_FOUND", "coreResult": "NOT_FOUND" },
+        { "status": 410, "code": "ACTION_EXPIRED", "coreResult": "EXPIRED" },
+        { "status": 409, "code": "ACTION_ALREADY_CLAIMED", "coreResult": "ALREADY_CLAIMED" },
+        { "status": 409, "code": "ACTION_NOT_DISPATCHABLE", "coreResult": "NOT_DISPATCHABLE" }
+      ]
+    },
+    "report": {
+      "method": "POST",
+      "path": "/dispatch/{actionId}/evidence",
+      "outcomes": [
+        { "status": 201, "serverStatus": "RECORDED", "coreResult": "RECORDED" },
+        { "status": 200, "serverStatus": "UNCHANGED", "coreResult": "UNCHANGED" },
+        { "status": 409, "code": "EVIDENCE_CONFLICT", "coreResult": "REJECTED" },
+        { "status": 409, "code": "ACTION_NOT_CLAIMED", "coreResult": "REJECTED" },
+        { "status": 404, "code": "ACTION_NOT_FOUND", "coreResult": "REJECTED" },
+        { "status": 400, "code": "EVIDENCE_INVALID", "coreResult": "REJECTED" }
+      ]
+    },
+    "identityRejected": { "status": 403, "code": "MACHINE_IDENTITY_INVALID", "coreReason": "CREDENTIAL" },
+    "edgeIdentityHeaders": {
+      "verify": "X-AEGIS-Client-Verify",
+      "verifySuccess": "SUCCESS",
+      "subjectDn": "X-AEGIS-Client-DN"
+    }
+  },
+  "examples": {
+    "listPending": {
+      "actions": [
+        {
+          "actionId": "5b0e3c1e-8f6a-4c2d-9b7e-2f1a0c9d8e7f",
+          "action": "CUT_UPLINK",
+          "acceptedAt": "2026-09-12T08:00:00.000Z",
+          "expiresAt": "2026-09-12T08:02:00.000Z"
+        }
+      ]
+    },
+    "claimSuccess": {
+      "actionId": "5b0e3c1e-8f6a-4c2d-9b7e-2f1a0c9d8e7f",
+      "action": "CUT_UPLINK",
+      "state": "CORE_CLAIMED",
+      "claimedAt": "2026-09-12T08:00:30.000Z",
+      "expiresAt": "2026-09-12T08:02:00.000Z"
+    }
+  },
+  "neverImpliedByEvidence": ["executed", "physical_evidence"]
+}

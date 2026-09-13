@@ -1,9 +1,20 @@
 # AEGIS IDEA 3 — Cyber-Physical Lockdown
 
-> **Current track:** IDEA3 `PR9` Production Runtime / Deployment Preparation; branch `feat/idea3-production-runtime-pr9`
+> **Current state (updated 2026-09-13):** IDEA3 PR10, the real deployment baseline, is **IN PROGRESS**. `main` is at `967b90408672b583bc41692279a7d27bb4b1e09f`, the GitHub PR #124 merge (the PR10 S2 code merged through PR #123 at `d903327e`).
+> **PR10 S1:** PASS / CLOSED (GitHub PR #122 at `b2f61ebf`). **PR10 S2:** PASS / CLOSED — the repository-only Server → Core accepted-action boundary, merged through GitHub PR #123 at `d903327e`. Its evidence is LOCAL / SIMULATED only; dispatch is disabled by default and nothing is deployed.
+> **PR9:** MERGED (GitHub PR #115 at `2c21cc3e`). It is a historical, completed repository phase; its `PRODUCTION_LIKE_VERIFIED` result is local loopback/dry-run evidence only.
+> **PR11** (live cross-IDEA and authorized E2E) is **IN PROGRESS**: its Phase 0 read-only preflight is PASS / EVIDENCE COMPLETE (2026-09-13). **Next:** Phase 1 non-mutating readiness planning only, on the owner's instruction. Phase 2 and later stay BLOCKED.
 > **PR5 gate:** SATISFIED — GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
-> **Status:** S7 post-PR5 sync and final local acceptance PASS; S8 closeout recorded; GitHub PR #115 is for human review and is not merged
-> **Safety boundary:** `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only. Production deployment, real Telegram delivery, total-control-power-loss fail-secure behavior, final relay-cycle Twingate auto-recovery, and deployment-grade prototype mechanics remain unproven; `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`
+> **Safety boundary:** `PRODUCTION_CHANGE_AUTHORIZED = NONE`; `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`. These remain unproven:
+> - Production deployment and real Server ↔ Core mTLS;
+> - real MQTT TLS and ESP32 signed-evidence E2E;
+> - a real CUT through the new Server → Core path;
+> - real Telegram delivery;
+> - total-control-power-loss fail-secure behavior;
+> - final relay-cycle Twingate auto-recovery;
+> - deployment-grade prototype mechanics.
+>
+> **Authoritative status:** `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`. The dated sections below are historical evidence, recorded as observed at the time.
 
 AEGIS IDEA 3 เป็นระบบ **Cyber-Physical Active Defense** สำหรับตรวจจับภัยคุกคามทางไซเบอร์และตอบโต้ด้วยการตัด Uplink ทางกายภาพผ่าน ESP32 + Relay โดยออกแบบให้ทำงานร่วมกับ AEGIS IDEA 1 และ IDEA 2 ใน Production Integration Phase
 

@@ -9,7 +9,7 @@ import { Panel } from '../components/Panel.jsx'
 import { StatusBadge } from '../components/StatusBadge.jsx'
 import {
   activeRuntimeModes, dashboardIssues, engineState, engineStatus, evidenceStatus,
-  recommendedActions, runtimeComponent,
+  isAcknowledgedIncident, recommendedActions, runtimeComponent,
 } from '../lib/dashboard.js'
 import { formatCount, formatDateTime, formatEvidenceAge } from '../lib/format.js'
 import { makeT, normalizeLanguage, statusLabel } from '../lib/i18n.js'
@@ -29,6 +29,16 @@ const valueKeys = Object.freeze({
   NOT_ACKNOWLEDGED: 'value.notAcknowledged',
   RUNNING: 'value.running',
   STOPPED: 'value.stopped',
+  DISPATCH_PENDING: 'value.dispatchPending',
+  DISPATCH_UNAVAILABLE: 'value.dispatchUnavailable',
+  CORE_CLAIMED: 'value.coreClaimed',
+  PUBLISHED: 'value.published',
+  DRY_RUN_ONLY: 'value.dryRunOnly',
+  ACK_RECEIVED: 'value.acked',
+  STATUS_CORRELATED: 'value.statusCorrelated',
+  OUTCOME_UNKNOWN: 'value.outcomeUnknown',
+  EXPIRED: 'value.dispatchExpired',
+  EXPIRED_AT_CORE: 'value.expiredAtCore',
 })
 
 const runtimeModeKeys = Object.freeze({
@@ -158,7 +168,7 @@ function IncidentSpotlight({ incident, snapshotTimestamp, onNavigate, language, 
   if (!incident) return <div className="empty-state dashboard-empty"><span className="aegis-hatch" aria-hidden="true" /><p>{t('incident.empty')}</p></div>
 
   const sources = [incident.idea1Count ? 'IDEA1' : null, incident.idea2Count ? 'IDEA2' : null].filter(Boolean).join(' + ') || statusLabel('UNKNOWN', language)
-  const acknowledged = String(incident.responseState).includes('ACK') ? t('value.acked') : t('value.notAcknowledged')
+  const acknowledged = isAcknowledgedIncident(incident) ? t('value.acked') : t('value.notAcknowledged')
   const severity = incident.severity || 'INFO'
   return (
     <article className="incident-focus">

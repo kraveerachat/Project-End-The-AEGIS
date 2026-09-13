@@ -47,9 +47,9 @@ function liveProviderWith(incidents) {
   }
 }
 
-function buildApp({ incidents = [CANDIDATE], repository = createMemoryRepository({ clock: () => NOW }) } = {}) {
+function buildApp({ incidents = [CANDIDATE], repository = createMemoryRepository({ clock: () => NOW }), env = {} } = {}) {
   return createApp({
-    config: config(),
+    config: config(env),
     clock: () => NOW,
     demoProvider: createDemoProvider({ clock: () => NOW }),
     liveProvider: liveProviderWith(incidents),
@@ -264,5 +264,135 @@ describe('containment acceptance route', () => {
       const imports = [...source.matchAll(/from\s+'([^']+)'/g)].map(([, specifier]) => specifier)
       expect(imports.some((specifier) => /mqtt|broker|firmware|controller|command|paho|serial/i.test(specifier))).toBe(false)
     }
+  })
+})
+
+// Local test fixture values only; the loopback trusted peer is not the Production topology.
+const DISPATCH_ENV = Object.freeze({
+  AEGIS_IDEA3_DISPATCH_ENABLED: 'true',
+  AEGIS_IDEA3_DISPATCH_PORT: '18103',
+  AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY: '127.0.0.1',
+  AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT: 'idea3-core',
+})
+
+function dispatchApp(options = {}) {
+  const repository = createMemoryRepository({ clock: () => NOW })
+  return { repository, app: buildApp({ repository, env: DISPATCH_ENV, ...options }) }
+}
+
+function mintedAudit(repository) {
+  return repository.queryAudit({ limit: 50 }).filter((row) => row.category === 'DISPATCH' && row.action === 'ACTION_MINTED')
+}
+
+describe('PR10 S2 dispatch action at acceptance', () => {
+  it('W4: an enabled acceptance mints one CUT_UPLINK action and reports only the request stage', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    const response = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+    const pending = repository.listPendingDispatchActions()
+
+    expect(response.status).toBe(200)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].action).toBe('CUT_UPLINK')
+    expect(response.body.containment).toEqual({
+      incident_id: CANDIDATE.id,
+      state: 'CONTAINMENT_ACCEPTED',
+      command_requested: true,
+      command_published: false,
+      acknowledged: false,
+      executed: false,
+      physical_evidence: false,
+      dispatch: {
+        action_id: pending[0].actionId,
+        state: 'PENDING_DISPATCH',
+        expires_at: '2026-09-08T08:02:00.000Z',
+      },
+    })
+  })
+
+  it('W5: a repeated acceptance returns the same action and mints no second one', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    const first = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+    const second = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+
+    expect(second.status).toBe(200)
+    expect(second.body.containment).toEqual(first.body.containment)
+    expect(repository.listPendingDispatchActions()).toHaveLength(1)
+    expect(mintedAudit(repository)).toHaveLength(1)
+  })
+
+  it('W4: mints nothing for a rejection', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    const response = await decide(agent, csrfToken, { decision: 'REJECT' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.containment).toEqual(expect.objectContaining({ state: 'CONTAINMENT_REJECTED', command_requested: false }))
+    expect(response.body.containment.dispatch).toBeUndefined()
+    expect(repository.listPendingDispatchActions()).toEqual([])
+  })
+
+  it('W5: an acceptance that conflicts with an earlier rejection returns 409 and mints nothing', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    await decide(agent, csrfToken, { decision: 'REJECT' })
+    const conflicting = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+
+    expect(conflicting.status).toBe(409)
+    expect(conflicting.body.error.code).toBe('CONTAINMENT_DECISION_CONFLICT')
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(mintedAudit(repository)).toEqual([])
+  })
+
+  it('W4: mints nothing while Demo Mode is active', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+    await agent
+      .post('/api/security/demo-mode')
+      .set('Origin', 'http://localhost')
+      .set('Host', 'localhost')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ enabled: true })
+
+    const response = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+
+    expect(response.status).toBe(409)
+    expect(repository.listPendingDispatchActions()).toEqual([])
+  })
+
+  it('W11: offers no way to request another action; a RESTORE request is refused and mints nothing', async () => {
+    const { repository, app } = dispatchApp()
+    const { agent, csrfToken } = await adminAgent(app)
+
+    const response = await decide(agent, csrfToken, { decision: 'ACCEPT', action: 'RESTORE_UPLINK' })
+
+    expect(response.status).toBe(400)
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(repository.readContainmentDecision(CANDIDATE.id)).toBeNull()
+  })
+
+  it('keeps the PR7/PR9 acceptance behaviour unchanged while dispatch is disabled (the default)', async () => {
+    const repository = createMemoryRepository({ clock: () => NOW })
+    const { agent, csrfToken } = await adminAgent(buildApp({ repository }))
+
+    const response = await decide(agent, csrfToken, { decision: 'ACCEPT' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.containment).toEqual({
+      incident_id: CANDIDATE.id,
+      state: 'CONTAINMENT_ACCEPTED',
+      command_requested: false,
+      command_published: false,
+      acknowledged: false,
+      executed: false,
+      physical_evidence: false,
+    })
+    expect(repository.listPendingDispatchActions()).toEqual([])
+    expect(mintedAudit(repository)).toEqual([])
   })
 })
