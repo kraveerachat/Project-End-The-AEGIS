@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-12
+updated: 2026-09-14
 owner: music
 edit_policy: owner-writable
 ---
@@ -24,8 +24,8 @@ Task: Complete the IDEA3 Tkinter desktop as an authenticated, dual-theme,
 trilingual enterprise SOC console
 Branch: `feat/idea3-python-uxui-refresh`
 Owner: `music`
-PR: Draft/pending publication on the same task branch
-Current state: IN PROGRESS
+PR: Pending publication/update on the same task branch
+Current state: IMPLEMENTED AND LOCALLY VERIFIED — READY FOR OWNER/PR REVIEW
 Started: 2026-09-14
 Starting SHA: `25e8b60b12e40f086deb99c08b977e4fb36b4959`
 Production mutation allowed: NO
@@ -59,14 +59,49 @@ and light themes plus English/Thai/Chinese presentation.
 - Focused tests, full regression, compile, Ruff, diff, and available safe visual
   checks are recorded honestly.
 
+### Implemented outcome
+
+- The application now starts on a local Admin Login surface with the official
+  AEGIS logo, masked PIN, generic failure, cleared PIN input, language/theme
+  controls, and no credential persistence or logging.
+- Authentication opens one state-preserving SOC shell with Overview,
+  Incidents, Devices, Lockdown, Recovery, Audit Log, Diagnostics, and Settings;
+  Logout returns to Login without reconstructing controller/runtime state.
+- Dark/light and English/Thai/Chinese presentation cover all new UI chrome.
+  Only allow-listed language/theme preferences persist beside the runtime DB.
+- Destructive controls live on the dedicated Lockdown page and still invoke the
+  existing separate PIN/CONFIRM/controller/ACK path. Desktop login grants no
+  dangerous-action authorization.
+- Incident, audit, device, and diagnostic views use existing SQLite/runtime
+  evidence or explicit UNKNOWN / NOT CONFIGURED / NO EVIDENCE states. No
+  telemetry, incident severity, ACK, relay, or physical verification is
+  fabricated.
+- Safe visual inspection passed for Login and all authenticated pages in both
+  palettes, including a 1366x768 run with vertical workspace scrolling and no
+  primary-shell horizontal scrolling.
+
+### Verification closeout
+
+```text
+FOCUSED_TESTS = 66 passed
+FULL_TESTS_SANDBOX = 396 passed, 6 skipped, 4 loopback-socket permission failures
+FULL_TESTS_WITH_LOCALHOST_PERMISSION = 400 passed, 6 skipped
+RUFF = PASS
+COMPILEALL = PASS
+GIT_DIFF_CHECK = PASS
+VISUAL_QA = PASS (safe local Tkinter, lab + dry-run + auto-contain off)
+REAL_MQTT / HARDWARE / CUT / RESTORE / PRODUCTION_MUTATION = NONE
+PROTECTED_CONTROL_FILES_CHANGED = NO
+```
+
 ### Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PYUX-S1 | Baseline audit, approved design, and TDD plan | IN PROGRESS | focused baseline 42/42; full baseline 372 passed, 6 skipped, 4 sandbox-loopback failures | `25e8b60b` + planning checkpoint pending | baseline source stable; environment limitation recorded | implementation and closeout | PYUX-S2 auth/theme |
-| PYUX-S2 | Auth/session and dual-theme foundation | NOT STARTED | pending | — | pending | login/shell | execute TDD plan |
-| PYUX-S3 | Login/logout and multi-page SOC console | NOT STARTED | pending | — | pending | polish/verification | after PYUX-S2 |
-| PYUX-S4 | Visual QA, regression, documentation, receipt, PR | NOT STARTED | pending | — | pending | human review | after PYUX-S3 |
+| PYUX-S1 | Baseline audit, approved design, and TDD plan | CLOSED | focused baseline 42/42; full baseline limitation recorded | `afcb2c66` | PASS | none | PYUX-S2 |
+| PYUX-S2 | Auth/session and dual-theme foundation | CLOSED | auth/theme/branding TDD; palette contrast checks | `55f3c8de` | PASS | none | PYUX-S3 |
+| PYUX-S3 | Login/logout and multi-page SOC console | CLOSED | 66 focused tests; Ruff; compile; dual-theme page captures | `28027947` | PASS | none | PYUX-S4 |
+| PYUX-S4 | Visual QA, regression, documentation, receipt, PR | CLOSING | full suite 400 passed, 6 skipped; 1366x768 visual QA; protected diff empty | final closeout commit | PASS | owner/PR review and human merge | publish branch and PR |
 
 Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-14-idea3-python-desktop-uxui-refresh-design.md`
 

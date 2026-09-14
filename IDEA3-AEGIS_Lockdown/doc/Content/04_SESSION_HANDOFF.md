@@ -1,5 +1,29 @@
 # AEGIS IDEA3 — LIVE SESSION HANDOFF
 
+> [!important] CURRENT HANDOFF — Python Desktop UX/UI Refresh (2026-09-14)
+> The current task is `feat/idea3-python-uxui-refresh`, starting from the
+> authoritative continuation SHA `25e8b60b12e40f086deb99c08b977e4fb36b4959`.
+> Implementation checkpoints are `afcb2c66` (design/plan), `55f3c8de`
+> (Admin session and dual-theme foundation), and `28027947` (Login/Logout and
+> all eight authenticated SOC pages).
+>
+> Local verification is complete: 66 focused tests passed; the full Python
+> suite passed with 400 tests and 6 skips when localhost-only ControlServer
+> tests were allowed; Ruff, compileall, and diff checks passed. Safe Tkinter
+> visual inspection covered Login plus every page in dark/light and at
+> 1366x768. No real MQTT, hardware, CUT, RESTORE, or Production mutation was
+> performed.
+>
+> The desktop login remains separate from CUT/RESTORE authorization. Protected
+> control, MQTT, security, supervisor, runtime, configuration, communications,
+> and firmware files are unchanged. Missing operational evidence still renders
+> UNKNOWN / NOT CONFIGURED / NO EVIDENCE.
+>
+> Resume by reading the current source and
+> `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` → "Current Task —
+> Python Desktop UX/UI Refresh (2026-09-14)". The only remaining action is
+> owner/PR review and human merge; do not deploy or merge from an agent session.
+
 > [!warning] HISTORICAL / SUPERSEDED HANDOFF
 > This notice was added on 2026-09-13. The handoff below dates from
 > 2026-09-02, before the current task and session workflow, and these parts of
