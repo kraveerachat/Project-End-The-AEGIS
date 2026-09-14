@@ -3,6 +3,7 @@ logs/
 *.db
 *.log
 .env
+ui_language.json
 firmware/src/secrets.h
 firmware/.pio/
 web/node_modules/

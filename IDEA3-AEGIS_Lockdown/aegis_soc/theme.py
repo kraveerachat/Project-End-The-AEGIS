@@ -13,6 +13,7 @@ part of this slice.
 """
 import tkinter as tk
 
+from .branding import resolve_logo_path
 from .presentation import (
     STATUS_CRITICAL,
     STATUS_HEALTHY,
@@ -179,6 +180,37 @@ def make_hint(parent, text):
                     wraplength=288, justify="left")
 
 
+LOGO_MAX_HEIGHT_PX = 32
+
+
+def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX):
+    """Best-effort logo loader for the header brand block.
+
+    Returns a tk.PhotoImage, or None if no usable asset is available -- a
+    missing file, an unresolved path (branding.resolve_logo_path() found
+    nothing), or any load/format error. Callers MUST fall back to
+    text-only branding when this returns None, and MUST keep a reference
+    to the returned image alive (e.g. on the owning widget/instance) for as
+    long as it is displayed, since Tkinter does not keep PhotoImage objects
+    alive on its own.
+    """
+    resolved = path if path is not None else resolve_logo_path()
+    if not resolved:
+        return None
+    try:
+        image = tk.PhotoImage(file=resolved)
+    except Exception:
+        return None
+    height = image.height()
+    if height > max_height > 0:
+        factor = max(1, round(height / max_height))
+        try:
+            image = image.subsample(factor, factor)
+        except Exception:
+            return None
+    return image
+
+
 # ---------------------------------------------------------------------------
 # Slice 1 presentation widgets. Business/control logic stays in gui.py; these
 # widgets only render values handed to them and never publish MQTT, touch the
@@ -186,15 +218,23 @@ def make_hint(parent, text):
 # ---------------------------------------------------------------------------
 
 class StatusBadge(tk.Frame):
-    """A compact status chip: a colored dot plus a short text label. Never
-    relies on color alone -- the text always names the actual state."""
+    """A compact status chip: a colored dot plus a short text label, in a
+    subtly bordered pill so it reads as a distinct control rather than
+    floating text. Never relies on color alone -- the text always names the
+    actual state."""
 
     def __init__(self, parent, text="", status=STATUS_UNKNOWN, **kwargs):
-        super().__init__(parent, bg=kwargs.pop("bg", COLOR_PANEL), **kwargs)
-        self._dot = tk.Label(self, text="●", font=FONT_BADGE, bg=self["bg"],
+        outer_bg = kwargs.pop("bg", COLOR_PANEL)
+        super().__init__(parent, bg=outer_bg, **kwargs)
+        self._chip = tk.Frame(self, bg=COLOR_SURFACE_ELEVATED, highlightthickness=1,
+                               highlightbackground=COLOR_BORDER)
+        self._chip.pack()
+        inner = tk.Frame(self._chip, bg=COLOR_SURFACE_ELEVATED)
+        inner.pack(padx=(SPACE_SM, SPACE_SM), pady=3)
+        self._dot = tk.Label(inner, text="●", font=FONT_BADGE, bg=COLOR_SURFACE_ELEVATED,
                               fg=status_color(status))
         self._dot.pack(side="left", padx=(0, 4))
-        self._label = tk.Label(self, text=text, font=FONT_BADGE, bg=self["bg"], fg=COLOR_TEXT)
+        self._label = tk.Label(inner, text=text, font=FONT_BADGE, bg=COLOR_SURFACE_ELEVATED, fg=COLOR_TEXT)
         self._label.pack(side="left")
 
     def update_status(self, text, status):
@@ -227,26 +267,35 @@ class MetricCard(Card):
 
 
 class NavigationItem(tk.Frame):
-    """One row in the left navigation rail. `enabled=False` renders it as a
-    reachable-but-placeholder item (never claims functionality that does not
-    exist yet); it still invokes `command` so the workspace can show an
-    explicit EmptyState rather than doing nothing."""
+    """One row in the left navigation rail, with a left accent bar marking
+    the selected item (the same visual language MetricCard/Card use for
+    status) rather than relying on background color alone. `enabled=False`
+    renders it as a reachable-but-placeholder item (never claims
+    functionality that does not exist yet); it still invokes `command` so
+    the workspace can show an explicit EmptyState rather than doing
+    nothing."""
 
-    def __init__(self, parent, text, command=None, selected=False, enabled=True, **kwargs):
+    BAR_WIDTH = 3
+
+    def __init__(self, parent, text, command=None, selected=False, enabled=True, suffix="", **kwargs):
         bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
-        super().__init__(parent, bg=bg, cursor="hand2" if command else "arrow", **kwargs)
+        super().__init__(parent, bg=COLOR_PANEL, cursor="hand2" if command else "arrow", **kwargs)
+        self._bar = tk.Frame(self, bg=COLOR_ACCENT if selected else COLOR_PANEL, width=self.BAR_WIDTH)
+        self._bar.pack(side="left", fill="y")
+        self._row = tk.Frame(self, bg=bg)
+        self._row.pack(side="left", fill="both", expand=True)
         fg = COLOR_TEXT if (selected or enabled) else COLOR_MUTED
-        suffix = "" if enabled else "  · soon"
-        self._label = tk.Label(self, text=f"{text}{suffix}", font=FONT_NAV_ITEM, fg=fg, bg=bg,
-                                anchor="w", padx=SPACE_MD, pady=SPACE_SM)
+        self._label = tk.Label(self._row, text=f"{text}{suffix}", font=FONT_NAV_ITEM, fg=fg, bg=bg,
+                                anchor="w", padx=SPACE_MD, pady=SPACE_SM + 2)
         self._label.pack(fill="x")
         if command:
-            self._label.bind("<Button-1>", lambda _e: command())
-            self.bind("<Button-1>", lambda _e: command())
+            for widget in (self, self._row, self._label):
+                widget.bind("<Button-1>", lambda _e: command())
 
     def set_selected(self, selected):
         bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
-        self.config(bg=bg)
+        self._bar.config(bg=COLOR_ACCENT if selected else COLOR_PANEL)
+        self._row.config(bg=bg)
         self._label.config(bg=bg)
 
 
