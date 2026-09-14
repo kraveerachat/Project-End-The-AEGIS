@@ -540,11 +540,14 @@ F5="$F4 -f /opt/aegis/runtime/idea3/idea3-phase2.yml"
    `sudo docker compose -p aegis-prod $F5 config --services` (expect the
    existing services plus `idea3-web` only). Place the overlay byte-identical to
    Git; record its SHA-256.
-4. **Build** the immutable image from a web tree identical to the commit named in
-   the overlay tag: `git diff --quiet <tag-sha> HEAD -- IDEA3-AEGIS_Lockdown/web`,
-   then `sudo docker build --build-arg NODE_IMAGE=node:22-alpine@sha256:<verified>
-   -t aegis-idea3-web:pr11-phase2-<tag-sha> IDEA3-AEGIS_Lockdown/web`. Record
-   the image ID and the base digest.
+4. **Build** the immutable image from image inputs identical to the commit named
+   in the overlay tag (`dbc9ad92cd3e`; `web/tests/` is outside the build
+   context): `git diff --quiet dbc9ad92cd3e HEAD -- IDEA3-AEGIS_Lockdown/web
+   ':(exclude)IDEA3-AEGIS_Lockdown/web/tests'` must succeed, then
+   `sudo docker build --build-arg NODE_IMAGE=node:22-alpine@sha256:<verified>
+   -t aegis-idea3-web:pr11-phase2-dbc9ad92cd3e IDEA3-AEGIS_Lockdown/web`.
+   Record the image ID and the base digest. Any later change to the image
+   inputs must update the overlay tag first.
 5. **Start IDEA3 Web first:** `sudo docker compose -p aegis-prod $F5 up -d --no-deps idea3-web`
    (this creates `aegis_idea3_internal`).
 6. **Require readiness `READY`:**

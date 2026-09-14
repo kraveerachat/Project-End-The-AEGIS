@@ -137,8 +137,9 @@ closed on unsupported syntax:
   files, passes `loadConfig` in production for Phase 2A (dispatch disabled)
   and Phase 2B (dispatch enabled).
 
-The image tag names the reviewed web-tree commit. It is set in the overlay
-after the last `web/` change of this task.
+The image tag names the image-input checkpoint `dbc9ad92cd3e`: `web/`
+excluding `web/tests/`, which `.dockerignore` keeps out of the build context.
+Any later change to the image inputs must update the tag.
 
 ## Verification bar (Task 9 of the handoff)
 
