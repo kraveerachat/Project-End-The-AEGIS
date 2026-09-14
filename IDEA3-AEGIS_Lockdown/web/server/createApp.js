@@ -7,6 +7,7 @@ import helmet from 'helmet'
 import { createAuthRouter } from './routes/authRoutes.js'
 import { createSecurityRouter } from './routes/securityRoutes.js'
 import { createRateLimiter } from './security/rateLimit.js'
+import { createBoundedSessionStore } from './security/sessionStore.js'
 import { createDemoProvider } from './providers/demoProvider.js'
 import { createLiveProvider } from './providers/liveProvider.js'
 import { AuditPersistenceError } from './repositories/auditRecords.js'
@@ -29,15 +30,23 @@ export function createApp({
   machineContact = null,
 }) {
   const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
+  // PR10 D8: a bounded in-memory TTL store unless a caller supplies its own.
+  const appSessionStore = sessionStore ?? createBoundedSessionStore({ idleMs: config.sessionIdleMs })
+  // PR11 Phase 2 (design §4.3): proxied mode trusts exactly one pinned HUB.
+  const trustedProxy = config.webTrustedProxy ?? null
   const app = express()
   let closed = false
+  app.locals.sessionStore = appSessionStore
   app.locals.close = () => {
     if (closed) return
     appRepository.close()
+    if (!sessionStore) appSessionStore.close()
     closed = true
   }
   app.disable('x-powered-by')
-  app.set('trust proxy', false)
+  // Only the pinned HUB address may supply X-Forwarded-For/-Proto. Any other
+  // peer's forwarded headers are ignored; loopback mode trusts no proxy at all.
+  app.set('trust proxy', trustedProxy ?? false)
 
   app.use(helmet({
     contentSecurityPolicy: {
@@ -59,12 +68,12 @@ export function createApp({
     next()
   })
   app.use(express.json({ limit: '32kb', strict: true }))
-  if (config.production) {
+  if (config.production && trustedProxy === null) {
     // Browsers treat localhost as a trustworthy Secure-cookie origin even over
     // HTTP. express-session does not model that exception, so tell only the
     // session middleware that a request proven to arrive over loopback is secure.
     // The server remains bound to a validated loopback address and no external
-    // X-Forwarded-Proto value is trusted.
+    // X-Forwarded-Proto value is trusted. Proxied mode never installs this.
     app.use((req, _res, next) => {
       if (isLoopbackAddress(req.socket.remoteAddress)) {
         req.headers['x-forwarded-proto'] = 'https'
@@ -78,15 +87,20 @@ export function createApp({
     resave: false,
     saveUninitialized: false,
     rolling: true,
+    store: appSessionStore,
     cookie: {
       httpOnly: true,
       sameSite: 'strict',
       secure: config.production,
       maxAge: config.sessionIdleMs,
+      // D3: the shared HUB origin also serves /drive/ and /monitor/, so the
+      // IDEA3 session cookie is never sent outside the IDEA3 base path.
+      path: config.webBasePath || '/',
     },
   }
-  if (config.production) sessionOptions.proxy = true
-  if (sessionStore) sessionOptions.store = sessionStore
+  // In proxied mode express-session defers to req.secure, which Express derives
+  // from X-Forwarded-Proto only when the socket peer is the pinned HUB.
+  if (config.production && trustedProxy === null) sessionOptions.proxy = true
   app.use(session(sessionOptions))
 
   const loginLimiter = createRateLimiter({

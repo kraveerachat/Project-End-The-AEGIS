@@ -136,7 +136,7 @@ and lets systemd's bounded `Restart=on-failure` policy decide whether to restart
 - `GET http://localhost:8003/security/api/health` proves only that Express can
   answer a liveness request.
 - `GET http://localhost:8003/security/api/readiness` returns HTTP 200 `READY`
-  only when the schema-v2 audit repository probe succeeds; audit failure returns
+  only when the schema-v3 audit repository probe succeeds; audit failure returns
   HTTP 503 `DEGRADED`.
 - `production_runtime status` reads `runtime/service-status.json` and separates
   process health, service readiness, audit, MQTT, IDEA1, IDEA2, ESP32, and
@@ -202,3 +202,49 @@ rotating the Admin password hash requires a new login; rotating integration
 tokens requires the upstream owner; rotating MQTT/HMAC material requires a
 separately authorized device/broker rollout. Never reuse a human session cookie
 as an integration credential.
+
+## Container runtime behind the HUB (PR11 Phase 2 — prepared, not deployed)
+
+This section describes the D3 server packaging prepared in PR11 Phase 2. It is
+repository preparation only: no image has been built on the AEGIS Server, no
+container or network exists there, and `PRODUCTION_MUTATION_AUTHORIZED = NO`.
+The design and the full Production package (read-only evidence, the 17-step
+sequence, and rollback) are in
+`docs/superpowers/specs/2026-09-15-idea3-pr11-phase2-server-integration-design.md`.
+
+The container runs only the Node/Express Web. The Python Core stays on the Core
+host (D6) and is not part of this image.
+
+- **Image:** `web/Dockerfile`, built with `web/` as the context. Production
+  dependencies only; application files are root-owned; the process runs as
+  `node` (UID/GID 1000) and can write only `/var/lib/aegis-idea3/data`. Build
+  with a digest-pinned `NODE_IMAGE` and record the image ID.
+- **Compose overlay:** `deploy/docker-compose.pr11-phase2.yml`, copied
+  unchanged to `/opt/aegis/runtime/idea3/idea3-phase2.yml` and appended as the
+  fifth canonical Compose file. The network and HUB-membership stanzas are
+  Kla-owned and need Kla's integration review.
+- **Network:** `aegis_idea3_internal` (`172.31.243.0/29`, internal, not
+  attachable). The HUB is `.2`, IDEA3 Web `.3`. No host port is published.
+- **Proxied browser listener:** `AEGIS_WEB_TRUSTED_PROXY=172.31.243.2` and
+  `AEGIS_BIND_HOST=172.31.243.3`. Only the pinned HUB may supply
+  `X-Forwarded-For`/`X-Forwarded-Proto`. The Secure session cookie is issued
+  only when the HUB forwards `X-Forwarded-Proto: https`, and it is scoped to
+  `Path=/security`.
+- **Secrets:** `SESSION_SECRET_FILE` and `AEGIS_IDEA3_ADMIN_PASSWORD_HASH_FILE`
+  point at Compose file secrets. The host files
+  `/opt/aegis/runtime/idea3/secrets/session-secret` and `admin-password-hash`
+  must exist before start, be readable by UID 1000 only (for example owner
+  `1000:1000`, mode `0400`), and never be printed. A missing or unreadable
+  file fails closed at startup.
+- **Sessions (D8):** an in-memory, bounded TTL store. A container restart logs
+  the Admin out; no session state is written to disk.
+- **Readiness:** `http://172.31.243.3:8003/security/api/readiness` is the
+  container health check. `READY` requires the schema-v3 audit database on the
+  `aegis_idea3_web_data` volume.
+- **Dispatch:** disabled in Phase 2A. Phase 2B sets
+  `AEGIS_IDEA3_DISPATCH_ENABLED=true`, which starts the machine listener on
+  `172.31.243.3:8004`, only after the K9/K10 certificate evidence exists.
+
+Rollback removes only the IDEA3 container and, after zero-endpoint proof, the
+IDEA3 network. It preserves the data volume, never sends `RESTORE_UPLINK`, and
+never runs `docker compose down`.

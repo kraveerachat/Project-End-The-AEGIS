@@ -1,0 +1,15 @@
+# AEGIS IDEA3 Web image build context (PR11 Phase 2, design §4.7).
+# Secrets, local runtime state, tests, and dependencies never enter the image.
+node_modules
+dist
+coverage
+tests
+.env
+.env.*
+.aegis-runtime
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite-*
+**/*.sqlite3-*
+**/*.db
+*.log
