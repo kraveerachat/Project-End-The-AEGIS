@@ -24,7 +24,7 @@ Task: Complete the IDEA3 Tkinter desktop as an authenticated, dual-theme,
 trilingual enterprise SOC console
 Branch: `feat/idea3-python-uxui-refresh`
 Owner: `music`
-PR: Pending publication/update on the same task branch
+PR: GitHub PR #129 — OPEN / Ready for review
 Current state: IMPLEMENTED AND LOCALLY VERIFIED — READY FOR OWNER/PR REVIEW
 Started: 2026-09-14
 Starting SHA: `25e8b60b12e40f086deb99c08b977e4fb36b4959`
@@ -101,7 +101,7 @@ PROTECTED_CONTROL_FILES_CHANGED = NO
 | PYUX-S1 | Baseline audit, approved design, and TDD plan | CLOSED | focused baseline 42/42; full baseline limitation recorded | `afcb2c66` | PASS | none | PYUX-S2 |
 | PYUX-S2 | Auth/session and dual-theme foundation | CLOSED | auth/theme/branding TDD; palette contrast checks | `55f3c8de` | PASS | none | PYUX-S3 |
 | PYUX-S3 | Login/logout and multi-page SOC console | CLOSED | 66 focused tests; Ruff; compile; dual-theme page captures | `28027947` | PASS | none | PYUX-S4 |
-| PYUX-S4 | Visual QA, regression, documentation, receipt, PR | CLOSING | full suite 400 passed, 6 skipped; 1366x768 visual QA; protected diff empty | final closeout commit | PASS | owner/PR review and human merge | publish branch and PR |
+| PYUX-S4 | Visual QA, regression, documentation, receipt, PR | CLOSED | full suite 400 passed, 6 skipped; 1366x768 visual QA; protected diff empty; PR #129 guardrail PASS | `bda644ff` + PR metadata update | PASS | owner/PR review and human merge | review PR #129; do not agent-merge |
 
 Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-14-idea3-python-desktop-uxui-refresh-design.md`
 

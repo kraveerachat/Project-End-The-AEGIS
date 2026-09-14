@@ -13,6 +13,9 @@
 > visual inspection covered Login plus every page in dark/light and at
 > 1366x768. No real MQTT, hardware, CUT, RESTORE, or Production mutation was
 > performed.
+> GitHub PR #129 is OPEN / Ready for review and its collaboration guardrail
+> passed. CODEOWNERS requested `kraveerachat` and `pubpup2006p-design`; Music's
+> GitHub username remains unrecorded.
 >
 > The desktop login remains separate from CUT/RESTORE authorization. Protected
 > control, MQTT, security, supervisor, runtime, configuration, communications,
@@ -22,7 +25,8 @@
 > Resume by reading the current source and
 > `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` → "Current Task —
 > Python Desktop UX/UI Refresh (2026-09-14)". The only remaining action is
-> owner/PR review and human merge; do not deploy or merge from an agent session.
+> owner review of GitHub PR #129 and an eventual human merge; do not deploy or
+> merge from an agent session.
 
 > [!warning] HISTORICAL / SUPERSEDED HANDOFF
 > This notice was added on 2026-09-13. The handoff below dates from
