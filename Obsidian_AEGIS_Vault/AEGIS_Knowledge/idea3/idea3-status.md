@@ -18,6 +18,62 @@ edit_policy: owner-writable
 
 ---
 
+## Current Task — Python Desktop UX/UI Refresh (2026-09-14)
+
+Task: Complete the IDEA3 Tkinter desktop as an authenticated, dual-theme,
+trilingual enterprise SOC console
+Branch: `feat/idea3-python-uxui-refresh`
+Owner: `music`
+PR: Draft/pending publication on the same task branch
+Current state: IN PROGRESS
+Started: 2026-09-14
+Starting SHA: `25e8b60b12e40f086deb99c08b977e4fb36b4959`
+Production mutation allowed: NO
+
+### Goal
+
+Finish Admin Login, Overview, Incidents, Devices, Lockdown, Recovery, Audit
+Log, Diagnostics, and Settings in the existing Tkinter application, with dark
+and light themes plus English/Thai/Chinese presentation.
+
+### Scope
+
+- `IDEA3-AEGIS_Lockdown/aegis_soc/` presentation/auth/session modules;
+- focused Python desktop tests and official logo assets already on this branch;
+- IDEA3-owned design, plan, handoff, canonical status, and final receipt.
+
+### Out of scope / safety boundaries
+
+- No Production mutation, live MQTT, hardware, relay, CUT, or RESTORE test.
+- No change to controller, MQTT, security, supervisor, runtime, configuration,
+  communications, firmware, protocol, ACK, Dead Man, or audit semantics.
+- Desktop login is not CUT/RESTORE authorization and never caches dangerous
+  action approval.
+- Missing evidence remains UNKNOWN / NOT CONFIGURED / NO EVIDENCE.
+
+### Acceptance criteria
+
+- All nine surfaces work in Tkinter at the source/local-verification boundary.
+- Theme and language rebuilds preserve the same runtime/controller/evidence state.
+- UI preferences contain no credentials or secrets.
+- Focused tests, full regression, compile, Ruff, diff, and available safe visual
+  checks are recorded honestly.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PYUX-S1 | Baseline audit, approved design, and TDD plan | IN PROGRESS | focused baseline 42/42; full baseline 372 passed, 6 skipped, 4 sandbox-loopback failures | `25e8b60b` + planning checkpoint pending | baseline source stable; environment limitation recorded | implementation and closeout | PYUX-S2 auth/theme |
+| PYUX-S2 | Auth/session and dual-theme foundation | NOT STARTED | pending | — | pending | login/shell | execute TDD plan |
+| PYUX-S3 | Login/logout and multi-page SOC console | NOT STARTED | pending | — | pending | polish/verification | after PYUX-S2 |
+| PYUX-S4 | Visual QA, regression, documentation, receipt, PR | NOT STARTED | pending | — | pending | human review | after PYUX-S3 |
+
+Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-14-idea3-python-desktop-uxui-refresh-design.md`
+
+Plan: `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-14-idea3-python-desktop-uxui-refresh.md`
+
+---
+
 ## IDEA3 PR11 Phase 0 closeout — 2026-09-13
 
 > [!important] Current IDEA3 truth — read this section first
