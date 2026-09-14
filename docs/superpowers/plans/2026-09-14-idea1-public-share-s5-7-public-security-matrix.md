@@ -331,13 +331,34 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 **Boundary:** Class 0 only. Finite public surface list. Bounded `GET` / `HEAD` requests. Short timeout. No authentication.
 
-- [ ] Test bounded default-deny surface list:
-  - Root: `/`
-  - Drive application surfaces: `/drive/`, `/api/`, `/api/audit`, `/healthz`
-  - Administrative surfaces: `/admin`, `/settings`, `/login`
-  - Internal/Monitor surfaces: `/monitor/`, `/internal/`
-- [ ] Verify default-deny response (`403` or `404`); verify no private origin IP, stack trace, or internal service information leaked.
-- [ ] Record structured metadata per row; confirm boundary attribution (Cloudflare edge vs Gateway).
+- [x] Test bounded default-deny surface list (Root: `/`, Drive: `/drive/`, `/api/`, `/api/audit`, `/healthz`, Admin: `/admin`, `/settings`, `/login`, Internal: `/monitor/`, `/internal/`) — **PASS (all 10 paths tested via GET and HEAD, total 20 requests)**.
+- [x] Verify default-deny response (`403` or `404`); verify no private origin IP, stack trace, or internal service information leaked — **PASS (all 20 returned HTTP 404, CURL_EXIT=0, zero leaks)**.
+- [x] Record structured metadata per row; confirm boundary attribution (Cloudflare edge vs Gateway) — **PASS (PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED)**.
+
+#### Accepted S5.7-B Evidence Summary (Verified by Human Owner 2026-09-14):
+- **Execution Status**: COMPLETE / PASS.
+- **UTC Window**: `2026-09-14T14:51:56Z` through `2026-09-14T14:51:59Z`.
+- **PR SHA Used**: `a5ff07b0a12d139c0b544fe5392439dffcbc4ac3`.
+- **Request Budget & Methods**: Total 20 requests (10 GET, 10 HEAD) across 10 finite paths (`/`, `/drive/`, `/api/`, `/api/audit`, `/healthz`, `/admin`, `/settings`, `/login`, `/monitor/`, `/internal/`).
+- **Authentication**: NONE. **Redirect Following**: NO (`REDIRECT_FOLLOWED=NO`).
+- **Response Codes**: All 20 requests returned HTTP `404` (`CURL_EXIT=0`).
+- **Hygiene & Information Leak Checks**:
+  - `PRIVATE_IP_LEAK=NO` (no private CIDRs in response)
+  - `STACK_TRACE_LEAK=NO` (no traces or internal exceptions)
+  - `DATABASE_ERROR_LEAK=NO` (no SQL errors or DB schema details)
+  - `CONTAINER_NAME_LEAK=NO` (no `aegis-prod-*` strings)
+  - `INTERNAL_PATH_LEAK=NO` (no internal file paths disclosed)
+  - `X_POWERED_BY=<none>` (header absent)
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`
+  - `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`
+  - `Server=cloudflare`, `CF-RAY` present on all 20 responses.
+- **Attribution Analysis**:
+  - `PUBLIC_DEFAULT_DENY=PASS`
+  - `CLOUDFLARE_PATH_OBSERVED=YES`
+  - `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED`
+  - *Attribution boundary*: `Server: cloudflare` and `CF-RAY` establish traversal through the Cloudflare edge, but do not independently identify whether the 404 originated at Cloudflare edge or was proxied from the Public Share Gateway. This attribution limitation is NOT a S5.7-B security failure.
+- **Failures**: `SECURITY_CRITICAL_FAILURES=0`.
+- **Outcome**: S5.7-B is **CLOSED / ACCEPTED**.
 
 ### Task 3 — S5.7-C: HTTP method / Host / forwarding-header abuse
 
@@ -419,11 +440,13 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Current Status & Next Gate
 
-At this S5.7-A documentation checkpoint:
+At this S5.7-B documentation checkpoint:
 - S5.7 is **IN PROGRESS**
-- S5.7-A is **CLOSED / ACCEPTED** (all A1–A12 checks verified by Human Owner; procedure corrected for firewall unit name)
-- S5.7-B is **NEXT** (public surface / boundary enumeration)
-- S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
+- S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
+- S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
+- S5.7-C is **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
+- S5.7-D is **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
+- `NEXT` = Implement local disposable prerequisites for S5.7-C/D using Codex or Claude Code (`LOCAL_TEST_PREREQUISITE_IMPLEMENTATION`)
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
 - `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
@@ -431,4 +454,4 @@ At this S5.7-A documentation checkpoint:
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `S5.7-B Public Surface / Boundary Enumeration`.
+**Next Gate:** `LOCAL_TEST_PREREQUISITE_IMPLEMENTATION` (Codex / Claude Code).

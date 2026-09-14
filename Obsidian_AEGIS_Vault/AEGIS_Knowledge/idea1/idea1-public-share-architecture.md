@@ -11,25 +11,20 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!important] Current PUBLIC-SHARE-7 state — S5.7-A CLOSED / ACCEPTED
+> [!important] Current PUBLIC-SHARE-7 state — S5.7-A & S5.7-B CLOSED / ACCEPTED
 > S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
 > `fe75bc53c1fd3a3103708470dfb7111996b80eff`. S5.7 is **IN PROGRESS** on
 > branch `feat/idea1-public-share-s5-7-public-security-matrix`. S5.7-A (Fresh
-> Read-Only Preflight) is **CLOSED / ACCEPTED** on 2026-09-14 with verified Human
-> Owner evidence: Cloudflare tunnel HEALTHY with 1 replica and 1 route
-> (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`), public DNS Anycast
-> resolution without private origin IP, TLS 1.0/1.1 rejected and TLS 1.2/1.3 passed,
-> HTTP->HTTPS 308 redirect on `http://share.aegistk-pb.com/` without following,
-> systemd units (`aegis-public-share-s5-5-firewall.service` corrected,
-> `aegis-public-share-connector.service`, `aegis-public-share-drift.timer`) active/enabled,
-> firewall valid, all 7 protected containers running/healthy, connector runtime
-> isolated (`PortBindings={}`, `User=65532:65532`, `ReadonlyRootfs=true`,
-> `CapDrop=["ALL"]`), Gateway `PortBindings={}`, connector readiness exit 0, and
-> frozen release SHA `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`. UI direct runtime
-> proof was NOT TESTED under the secret-safe inspection boundary. S5.7-B is **NEXT**;
-> S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. G5 is **APPROVED**; G6 remains
-> **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS** and real external acceptance is
-> **NOT YET FULLY PROVEN**. `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
+> Read-Only Preflight) is **CLOSED / ACCEPTED** on 2026-09-14. S5.7-B (Public
+> Surface / Boundary Enumeration) is **CLOSED / ACCEPTED** on 2026-09-14 with verified
+> Human Owner evidence across 10 finite paths and 20 requests (GET and HEAD): all 20
+> returned HTTP 404 with zero private IP, stack trace, database, or container name
+> leaks; `Server: cloudflare` and `CF-RAY` confirmed edge traversal. Attribution is
+> accurately recorded: `PUBLIC_DEFAULT_DENY=PASS`, `CLOUDFLARE_PATH_OBSERVED=YES`,
+> `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED` (not a failure). S5.7-C/D remain
+> **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. Next: implement local disposable
+> prerequisites using Codex or Claude Code. G5 is **APPROVED**; G6 remains **OPEN**;
+> PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 > `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`,
 > and UI mutation is **NOT AUTHORIZED**. See [[idea1/idea1-status]] and
 > `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`.
@@ -1539,7 +1534,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A CLOSED / ACCEPTED; S5.7-B NEXT)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`); S5.7-A Fresh Read-Only Preflight CLOSED / ACCEPTED with verified Human Owner evidence (tunnel HEALTHY/1 replica/1 route, public DNS Anycast, TLS 1.0/1.1 rejected, TLS 1.2/1.3 passed, HTTP->HTTPS 308 redirect, systemd firewall/connector/drift active/enabled, firewall VALID, all 7 protected containers running/healthy, connector isolated, Gateway PortBindings={}, readiness exit 0, release SHA 99a6f916; UI runtime proof NOT TESTED due to secret-safe boundary; zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`). | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-B public surface enumeration is next; S5.7-C/D blocked by local test prerequisite; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A & S5.7-B CLOSED / ACCEPTED; S5.7-C/D BLOCKED_BY_LOCAL_TEST_PREREQUISITE)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`); S5.7-A Fresh Preflight CLOSED / ACCEPTED; S5.7-B Public Surface Enumeration CLOSED / ACCEPTED with verified Human Owner evidence (10 paths, 20 requests GET/HEAD all returned 404, CURL_EXIT 0, zero leaks, PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED; zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`). | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-C/D blocked by local test prerequisite; next is local test prerequisite implementation (Codex/Claude); external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**

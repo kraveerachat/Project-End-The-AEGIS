@@ -115,9 +115,9 @@ edit_policy: owner-writable
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
 | Synchronized with main | `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`) |
-| Current state | **IN PROGRESS / S5.7-A CLOSED / ACCEPTED**; S5.7-B **NEXT** |
+| Current state | **IN PROGRESS / S5.7-A & S5.7-B CLOSED / ACCEPTED**; S5.7-C/D **BLOCKED_BY_LOCAL_TEST_PREREQUISITE** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7-A Fresh Read-Only Preflight CLOSED / ACCEPTED; firewall unit procedure corrected; S5.7-B next |
+| Last checkpoint | S5.7-B Public Surface Enumeration CLOSED / ACCEPTED; 20/20 requests returned HTTP 404; zero leaks; PUBLIC_DEFAULT_DENY=PASS, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED; local test prerequisites next |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
 | Test audit side effect allowed | **NO** |
@@ -125,7 +125,7 @@ edit_policy: owner-writable
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **S5.7-B Public Surface / Boundary Enumeration** (S5.7-C/D BLOCKED_BY_LOCAL_TEST_PREREQUISITE) |
+| Next gate | **LOCAL_TEST_PREREQUISITE_IMPLEMENTATION** for S5.7-C/D (Codex / Claude Code) |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
@@ -135,8 +135,8 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A is complete and accepted. S5.7-B is next. S5.7-C/D remain blocked by local
-test prerequisites.
+S5.7-A and S5.7-B are complete and accepted. S5.7-C/D remain blocked pending local
+disposable test implementation.
 
 ### Out of scope and safety boundaries
 
@@ -156,6 +156,7 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **CLOSED / PASS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Initial bootstrap plan and Draft PR #130 created | Planning only | Plan hardening, S5.7-A through H; one final receipt at H | Plan review |
 | S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **CLOSED / PASS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | Closed / Accepted | S5.7-A through H; one final receipt at H | Procedure hardening |
 | S5.7-A | Fresh read-only preflight, Cloudflare/DNS/TLS/Production inspection | **CLOSED / PASS** | Human Owner verified evidence: Cloudflare tunnel HEALTHY/1 replica/1 published route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`); DNS Anycast proxies (no private origin IP); TLS 1.0/1.1 rejected, TLS 1.2/1.3 passed; HTTP->HTTPS 308 on `http://share.aegistk-pb.com/`; systemd firewall (s5-5 unit), connector, drift active/enabled; firewall VALID; all 7 protected containers running/healthy; connector runtime isolated with PortBindings={}, User 65532:65532, ReadonlyRootfs, CapDrop ALL; Gateway PortBindings={}; connector readiness EXIT 0; release SHA 99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7; UI fresh runtime proof NOT TESTED (boundary-governed) | S5.7-A documentation checkpoint | Closed / Accepted | S5.7-B through H; one final receipt at H | S5.7-B public surface enumeration |
+| S5.7-B | Public surface / boundary enumeration (10 paths, GET+HEAD = 20 requests) | **CLOSED / PASS** | Human Owner verified: 20/20 returned HTTP 404, CURL_EXIT 0, zero IP/stack/DB/container leaks; Server: cloudflare, CF-RAY present; PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED (attribution boundary) | S5.7-B documentation checkpoint | Closed / Accepted | S5.7-C through H; one final receipt at H | Local test prerequisite implementation for S5.7-C/D (Codex/Claude) |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -178,7 +179,23 @@ Verified on 2026-09-14 via fresh Human Owner read-only Cloudflare, DNS, TLS, and
 - **Frozen Release Directory**: Git rev-parse on `/opt/aegis/releases/public-share/99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` confirmed exact commit `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`. PASS.
 - **Public Share UI Direct Runtime Proof**: `PUBLIC_SHARE_UI_FRESH_DIRECT_RUNTIME_PROOF=NOT TESTED`. Fresh direct runtime proof was intentionally not obtained because unrestricted container environment/config inspection is prohibited by the S5.7 secret-safe inspection boundary. Retain governance truth only: G5=APPROVED, G6=OPEN, PUBLIC_SHARE_UI_MUTATION_ALLOWED=NO.
 - **Security-Critical Failures**: `SECURITY_CRITICAL_FAILURES=0`.
-- **Current State**: S5.7-A is **CLOSED / ACCEPTED**. S5.7-B is **NEXT**. S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. G5 is **APPROVED**. G6 remains **OPEN**. Public Share UI remains **OFF**. Final receipt count remains 0.
+- **Current State**: S5.7-A is **CLOSED / ACCEPTED**.
+
+### S5.7-B Public surface / boundary enumeration — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner public edge probing:
+- **Execution Window**: `2026-09-14T14:51:56Z` through `2026-09-14T14:51:59Z`.
+- **Probe SHA**: `a5ff07b0a12d139c0b544fe5392439dffcbc4ac3`.
+- **Scope & Budget**: Exactly 20 requests across 10 finite paths (`/`, `/drive/`, `/api/`, `/api/audit`, `/healthz`, `/admin`, `/settings`, `/login`, `/monitor/`, `/internal/`) using `GET` (10) and `HEAD` (10). No authentication; no redirect following.
+- **Results**: All 20 requests returned HTTP `404` with `CURL_EXIT=0`.
+- **Response Hygiene**: Zero private IP leaks (`PRIVATE_IP_LEAK=NO`), zero stack traces (`STACK_TRACE_LEAK=NO`), zero database errors (`DATABASE_ERROR_LEAK=NO`), zero container names (`CONTAINER_NAME_LEAK=NO`), zero internal paths (`INTERNAL_PATH_LEAK=NO`), no `X-Powered-By`. `APPLICATION_SIDE_EFFECT_EXPECTED=NO`, `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`. All responses carried `Server: cloudflare` and `CF-RAY`.
+- **Attribution Model**:
+  - `PUBLIC_DEFAULT_DENY=PASS`
+  - `CLOUDFLARE_PATH_OBSERVED=YES`
+  - `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED`
+  - *Attribution boundary*: `Server: cloudflare` and `CF-RAY` prove traversal through the Cloudflare edge, but do not independently distinguish whether the 404 was generated at Cloudflare edge or proxied from Gateway. This attribution limitation is not a security defect.
+- **Security-Critical Failures**: `SECURITY_CRITICAL_FAILURES=0`.
+- **Current State**: S5.7-A and S5.7-B are **CLOSED / ACCEPTED**. S5.7-C and S5.7-D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. Next: implement local disposable prerequisites using Codex or Claude Code.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 
