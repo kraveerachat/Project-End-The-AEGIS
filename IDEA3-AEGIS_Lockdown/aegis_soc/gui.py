@@ -14,16 +14,15 @@ from tkinter import messagebox, scrolledtext, simpledialog
 
 from . import comms, config
 from . import database as db
+from . import presentation as pres
 from .controller import AegisCommandController
 from .mqtt_client import MQTTManager
 from .theme import (
     COLOR_ACCENT,
     COLOR_BG,
-    COLOR_BLUE,
     COLOR_BORDER,
     COLOR_DANGER,
     COLOR_DANGER_HL,
-    COLOR_GOOD,
     COLOR_MUTED,
     COLOR_PANEL,
     COLOR_PANEL_ALT,
@@ -35,14 +34,22 @@ from .theme import (
     COLOR_WARN_HL,
     FONT_BTN,
     FONT_BTN_SM,
+    FONT_CLOCK,
     FONT_HINT,
     FONT_MONO,
     FONT_SUB,
     FONT_TITLE,
     LEVEL_COLORS,
-    Card,
+    NAV_WIDTH,
+    STATUS_WARNING,
+    EmptyState,
+    EvidenceRow,
+    MetricCard,
+    NavigationItem,
+    PageHeader,
     ScrollFrame,
     Section,
+    StatusBadge,
     make_hint,
 )
 from .wizard import IncidentRecoveryWizard
@@ -51,6 +58,35 @@ FILTER_ALL = "ทั้งหมด"
 FILTER_WARN = "WARN ขึ้นไป"
 FILTER_CRIT = "เฉพาะ CRITICAL"
 _LEVEL_RANK = {"INFO": 0, "WARN": 1, "CRITICAL": 2}
+RECENT_ACTIVITY_LIMIT = 8
+
+# Static MetricCard labels, keyed the same way as the Metric objects
+# presentation.py produces. MetricCard.update() only ever changes the
+# value/status/helper text, never the label, so the human-readable label
+# must be correct from construction time.
+METRIC_LABELS = {
+    "health": "System Health",
+    "uplink": "Uplink",
+    "broker": "MQTT Broker",
+    "esp32": "ESP32",
+    "mode": "System Mode",
+    "deadman": "Dead Man",
+    "incidents": "Open Incidents",
+    "today": "Today",
+}
+
+# Left-nav items for Slice 1. Only "Overview" is a real implemented page;
+# every other entry is an explicit, reachable placeholder that shows an
+# EmptyState instead of claiming functionality this slice does not build.
+NAV_ITEMS = (
+    ("overview", "Overview", True),
+    ("incidents", "Incidents", False),
+    ("devices", "Devices", False),
+    ("lockdown", "Lockdown", False),
+    ("recovery", "Recovery", False),
+    ("audit", "Audit Log", False),
+    ("diagnostics", "Diagnostics", False),
+)
 
 
 class AegisAdminGUI:
@@ -72,9 +108,14 @@ class AegisAdminGUI:
         self.last_heartbeat_sent_ts = time.time()
         self.log_buffer = []              # (message, level) ทุกบรรทัด เพื่อกรองใหม่ได้
 
-        self.root.title("AEGIS IDEA 3 — Cyber-Physical SOC Command Center")
-        self.root.geometry("1120x780")
-        self.root.minsize(1000, 680)
+        self.nav_items = {}          # key -> NavigationItem widget
+        self.active_page = "overview"
+        self.metric_cards = {}       # key -> MetricCard widget
+        self.activity_rows = []      # list of EvidenceRow widgets currently shown
+
+        self.root.title("AEGIS IDEA 3 — Security Operations Console")
+        self.root.geometry("1366x768")
+        self.root.minsize(1024, 700)
         self.root.config(bg=COLOR_BG)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -85,7 +126,7 @@ class AegisAdminGUI:
         self._emit_startup_warnings()
 
     # =========================================================
-    # UI BUILD
+    # UI BUILD — app shell (header, left nav, workspace, footer)
     # =========================================================
     def _build_ui(self):
         self.root.grid_rowconfigure(1, weight=1)
@@ -93,17 +134,19 @@ class AegisAdminGUI:
         self.root.grid_columnconfigure(1, weight=1)
         self._build_header()
 
-        wrap = tk.Frame(self.root, bg=COLOR_BG, width=364)
-        wrap.grid(row=1, column=0, sticky="nsw", padx=(16, 8), pady=(0, 8))
-        wrap.grid_propagate(False)
-        scroll = ScrollFrame(wrap)
-        scroll.pack(fill="both", expand=True)
-        self._build_sidebar(scroll.inner)
+        nav_wrap = tk.Frame(self.root, bg=COLOR_PANEL, width=NAV_WIDTH,
+                             highlightbackground=COLOR_BORDER, highlightthickness=1)
+        nav_wrap.grid(row=1, column=0, sticky="nsw", padx=(16, 8), pady=(0, 8))
+        nav_wrap.grid_propagate(False)
+        self._build_nav(nav_wrap)
 
-        main = tk.Frame(self.root, bg=COLOR_BG)
-        main.grid(row=1, column=1, sticky="nsew", padx=(8, 16), pady=(0, 8))
-        self._build_main_panel(main)
+        self.workspace = tk.Frame(self.root, bg=COLOR_BG)
+        self.workspace.grid(row=1, column=1, sticky="nsew", padx=(8, 16), pady=(0, 8))
+        self.workspace.grid_rowconfigure(0, weight=1)
+        self.workspace.grid_columnconfigure(0, weight=1)
+
         self._build_footer()
+        self._show_page("overview")
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=COLOR_PANEL, highlightbackground=COLOR_BORDER, highlightthickness=1)
@@ -111,136 +154,118 @@ class AegisAdminGUI:
 
         left = tk.Frame(header, bg=COLOR_PANEL)
         left.pack(side="left", fill="y", padx=16, pady=12)
-        tk.Label(left, text="🛡️  AEGIS IDEA 3", font=FONT_TITLE, fg=COLOR_ACCENT, bg=COLOR_PANEL).pack(anchor="w")
-        tk.Label(left, text="Cyber-Physical Lockdown · Security Operations Center", font=FONT_SUB,
+        tk.Label(left, text="AEGIS / IDEA3", font=FONT_TITLE, fg=COLOR_ACCENT, bg=COLOR_PANEL).pack(anchor="w")
+        tk.Label(left, text="Security Operations Console", font=FONT_SUB,
                  fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w", pady=(2, 0))
 
         right = tk.Frame(header, bg=COLOR_PANEL)
         right.pack(side="right", fill="y", padx=16, pady=10)
-        self.lbl_clock = tk.Label(right, text="--:--:--", font=("Segoe UI", 16, "bold"),
+        self.lbl_clock = tk.Label(right, text="--:--:--", font=FONT_CLOCK,
                                   fg=COLOR_TEXT, bg=COLOR_PANEL)
         self.lbl_clock.pack(anchor="e")
         badges = tk.Frame(right, bg=COLOR_PANEL)
-        badges.pack(anchor="e", pady=(2, 0))
-        self.lbl_conn = tk.Label(badges, text="🟡 broker…", font=("Segoe UI", 8, "bold"),
-                                 fg=COLOR_WARN_HL, bg=COLOR_PANEL)
-        self.lbl_conn.pack(side="left", padx=(0, 10))
-        self.lbl_device = tk.Label(badges, text="⚪ ESP32: ยังไม่พบ", font=("Segoe UI", 8, "bold"),
-                                   fg=COLOR_MUTED, bg=COLOR_PANEL)
-        self.lbl_device.pack(side="left")
+        badges.pack(anchor="e", pady=(4, 0))
+        self.badge_mode = StatusBadge(badges, text="ARMED", status=pres.STATUS_HEALTHY, bg=COLOR_PANEL)
+        self.badge_mode.pack(side="left", padx=(0, 12))
+        self.badge_broker = StatusBadge(badges, text="BROKER: UNKNOWN", status=pres.STATUS_UNKNOWN, bg=COLOR_PANEL)
+        self.badge_broker.pack(side="left", padx=(0, 12))
+        self.badge_esp32 = StatusBadge(badges, text="ESP32: UNKNOWN", status=pres.STATUS_UNKNOWN, bg=COLOR_PANEL)
+        self.badge_esp32.pack(side="left")
 
-    def _build_sidebar(self, parent):
-        # ---- System control: ARM / DISARM ----
-        self.sys_section = Section(parent, "🎚️ โหมดระบบ (SYSTEM CONTROL)", accent=COLOR_SUCCESS)
-        self.sys_section.pack(fill="x", pady=(0, 10))
-        self.card_mode = Card(self.sys_section.body, accent=COLOR_SUCCESS)
-        self.card_mode.pack(fill="x", pady=(0, 6))
-        self.lbl_mode = tk.Label(self.card_mode.body, text="🟢 ARMED — เฝ้าระวัง", font=("Segoe UI", 13, "bold"),
-                                 fg=COLOR_GOOD, bg=COLOR_PANEL)
-        self.lbl_mode.pack(anchor="w", padx=12, pady=(8, 2))
-        tk.Label(self.card_mode.body, text="ARMED = ระบบเฝ้าระวังและพร้อมตอบโต้เต็มรูปแบบ",
-                 font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL, wraplength=290,
-                 justify="left").pack(anchor="w", padx=12, pady=(0, 8))
-        self.btn_arm = tk.Button(self.sys_section.body, text="🔧  สลับเป็นโหมดซ่อมบำรุง (DISARM)", font=FONT_BTN_SM,
+    def _build_nav(self, parent):
+        for key, label, enabled in NAV_ITEMS:
+            item = NavigationItem(parent, label, command=lambda k=key: self._show_page(k),
+                                   selected=(key == self.active_page), enabled=enabled)
+            item.pack(fill="x")
+            self.nav_items[key] = item
+
+    def _show_page(self, key):
+        self.active_page = key
+        for item_key, item in self.nav_items.items():
+            item.set_selected(item_key == key)
+        for child in self.workspace.winfo_children():
+            child.destroy()
+
+        if key == "overview":
+            self._build_overview_page(self.workspace)
+        else:
+            label = dict((k, label) for k, label, _enabled in NAV_ITEMS)[key]
+            EmptyState(
+                self.workspace,
+                title=label,
+                message="This view is not implemented in this slice. "
+                        "It will arrive in a later Slice of the IDEA3 Python UX/UI refresh.",
+            ).grid(row=0, column=0, sticky="nsew")
+
+    # ---------------------------------------------------------
+    # Overview page
+    # ---------------------------------------------------------
+    def _build_overview_page(self, parent):
+        scroll = ScrollFrame(parent)
+        scroll.grid(row=0, column=0, sticky="nsew")
+        page = scroll.inner
+
+        badge_text = "DRY RUN" if config.DRY_RUN else "LIVE"
+        badge_status = STATUS_WARNING if config.DRY_RUN else pres.STATUS_HEALTHY
+        badge_note = "Hardware commands will not be published." if config.DRY_RUN else None
+        PageHeader(page, "AEGIS IDEA3", subtitle="Security Operations Console",
+                   badge_text=badge_text, badge_status=badge_status,
+                   badge_note=badge_note).pack(anchor="w", fill="x", padx=16, pady=(16, 12))
+
+        grid = tk.Frame(page, bg=COLOR_BG)
+        grid.pack(fill="x", padx=16, pady=(0, 12))
+        for col in range(4):
+            grid.grid_columnconfigure(col, weight=1, uniform="metric")
+
+        for index, (metric_key, label) in enumerate(METRIC_LABELS.items()):
+            row, col = divmod(index, 4)
+            card = MetricCard(grid, label=label, status=pres.STATUS_UNKNOWN)
+            card.grid(row=row, column=col, sticky="nsew", padx=6, pady=6)
+            self.metric_cards[metric_key] = card
+        self._refresh_overview_metrics()
+
+        controls = Section(page, "Operational Controls", accent=COLOR_DANGER)
+        controls.pack(fill="x", padx=16, pady=(0, 12))
+        row1 = tk.Frame(controls.body, bg=COLOR_PANEL)
+        row1.pack(fill="x")
+        self.btn_arm = tk.Button(row1, text="Switch to DISARMED (maintenance)", font=FONT_BTN_SM,
                                  fg="white", bg=COLOR_WARN, activebackground=COLOR_WARN_HL, bd=0,
                                  height=2, cursor="hand2", command=self.toggle_arm)
-        self.btn_arm.pack(fill="x")
-        make_hint(self.sys_section.body, "โหมดซ่อมบำรุงจะปิดปุ่มตัดเน็ตชั่วคราว (กันสั่งพลาดตอนแก้ระบบ) "
-                                         "แต่ยังส่ง heartbeat อยู่ ESP32 จึงไม่ตัดเน็ตเอง").pack(anchor="w", pady=(4, 0))
-
-        # ---- Live telemetry ----
-        tel = Section(parent, "⚡ สถานะระบบสด (LIVE TELEMETRY)", accent=COLOR_ACCENT)
-        tel.pack(fill="x", pady=(0, 10))
-        self.card_uplink = Card(tel.body, accent=COLOR_ACCENT)
-        self.card_uplink.pack(fill="x", pady=(0, 6))
-        tk.Label(self.card_uplink.body, text="สถานะ UPLINK", font=("Segoe UI", 8), fg=COLOR_MUTED,
-                 bg=COLOR_PANEL).pack(anchor="w", padx=12, pady=(8, 0))
-        self.lbl_uplink = tk.Label(self.card_uplink.body, text="🟢  NORMAL", font=("Segoe UI", 14, "bold"),
-                                   fg=COLOR_ACCENT, bg=COLOR_PANEL)
-        self.lbl_uplink.pack(anchor="w", padx=12, pady=(0, 8))
-
-        row = tk.Frame(tel.body, bg=COLOR_PANEL)
-        row.pack(fill="x")
-        self.card_rssi = Card(row, accent=COLOR_GOOD)
-        self.card_rssi.pack(side="left", fill="both", expand=True, padx=(0, 4))
-        tk.Label(self.card_rssi.body, text="📶 RSSI", font=("Segoe UI", 8), fg=COLOR_MUTED,
-                 bg=COLOR_PANEL).pack(anchor="w", padx=10, pady=(8, 0))
-        self.lbl_rssi = tk.Label(self.card_rssi.body, text="-- dBm", font=("Segoe UI", 12, "bold"),
-                                 fg=COLOR_GOOD, bg=COLOR_PANEL)
-        self.lbl_rssi.pack(anchor="w", padx=10, pady=(0, 8))
-        self.card_heap = Card(row, accent=COLOR_PURPLE)
-        self.card_heap.pack(side="left", fill="both", expand=True, padx=(4, 0))
-        tk.Label(self.card_heap.body, text="💾 Free Heap", font=("Segoe UI", 8), fg=COLOR_MUTED,
-                 bg=COLOR_PANEL).pack(anchor="w", padx=10, pady=(8, 0))
-        self.lbl_heap = tk.Label(self.card_heap.body, text="-- B", font=("Segoe UI", 12, "bold"),
-                                 fg=COLOR_PURPLE, bg=COLOR_PANEL)
-        self.lbl_heap.pack(anchor="w", padx=10, pady=(0, 8))
-
-        self.card_deadman = Card(tel.body, accent=COLOR_GOOD)
-        self.card_deadman.pack(fill="x", pady=(6, 0))
-        tk.Label(self.card_deadman.body, text="🐕‍🦺 DEAD MAN'S SWITCH", font=("Segoe UI", 8), fg=COLOR_MUTED,
-                 bg=COLOR_PANEL).pack(anchor="w", padx=12, pady=(8, 0))
-        self.lbl_deadman = tk.Label(self.card_deadman.body, text="60s", font=("Segoe UI", 20, "bold"),
-                                    fg=COLOR_GOOD, bg=COLOR_PANEL)
-        self.lbl_deadman.pack(anchor="w", padx=12)
-        tk.Label(self.card_deadman.body, text="เวลาก่อน ESP32 ตัด uplink เอง ถ้าไม่ได้รับ heartbeat",
-                 font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL, wraplength=290,
-                 justify="left").pack(anchor="w", padx=12, pady=(0, 8))
-
-        # ---- Operational controls ----
-        ctl = Section(parent, "🕹️ ควบคุมการทำงาน (ต้องใส่ PIN)", accent=COLOR_DANGER)
-        ctl.pack(fill="x", pady=(0, 10))
-        self.btn_cut = tk.Button(ctl.body, text="🛑  ตัดเน็ตฉุกเฉิน (CUT_UPLINK)", font=FONT_BTN, fg="white",
+        self.btn_arm.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.btn_recovery = tk.Button(row1, text="Open Incident Recovery Wizard", font=FONT_BTN_SM,
+                                      fg="white", bg=COLOR_WARN, activebackground=COLOR_WARN_HL, bd=0,
+                                      height=2, cursor="hand2", command=self.open_recovery_wizard)
+        self.btn_recovery.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        row2 = tk.Frame(controls.body, bg=COLOR_PANEL)
+        row2.pack(fill="x", pady=(8, 0))
+        self.btn_cut = tk.Button(row2, text="CUT_UPLINK (emergency isolation)", font=FONT_BTN, fg="white",
                                  bg=COLOR_DANGER, activebackground=COLOR_DANGER_HL, activeforeground="white",
                                  height=2, bd=0, cursor="hand2", command=self.on_cut_clicked)
-        self.btn_cut.pack(fill="x")
-        make_hint(ctl.body, "ต้องใส่ PIN + พิมพ์ CONFIRM ยืนยันซ้ำ "
-                            "(จะถาม IP ผู้โจมตีเพื่อบล็อก UFW + แนบ Telegram)").pack(anchor="w", pady=(4, 8))
-        self.btn_restore = tk.Button(ctl.body, text="✅  คืนค่าระบบปกติ (RESTORE_UPLINK)", font=FONT_BTN,
+        self.btn_cut.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.btn_restore = tk.Button(row2, text="RESTORE_UPLINK", font=FONT_BTN,
                                      fg="white", bg=COLOR_SUCCESS, activebackground=COLOR_SUCCESS_HL,
                                      activeforeground="white", height=2, bd=0, cursor="hand2",
                                      command=self.on_restore_clicked)
-        self.btn_restore.pack(fill="x")
-        make_hint(ctl.body, "สั่งต่อสาย Uplink กลับ หลังจัดการภัยเรียบร้อยแล้ว").pack(anchor="w", pady=(4, 0))
+        self.btn_restore.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        make_hint(controls.body, "CUT/RESTORE require PIN authentication and typed CONFIRM; "
+                                 "behavior is unchanged from the previous console.").pack(anchor="w", pady=(8, 0))
 
-        # ---- Recovery ----
-        rec = Section(parent, "🧯 กู้คืนหลังเหตุการณ์ (INCIDENT RECOVERY)", accent=COLOR_WARN)
-        rec.pack(fill="x")
-        self.btn_recovery = tk.Button(rec.body, text="🧯  เปิด Incident Recovery Wizard", font=FONT_BTN,
-                                      fg="white", bg=COLOR_WARN, activebackground=COLOR_WARN_HL, bd=0,
-                                      height=2, cursor="hand2", command=self.open_recovery_wizard)
-        self.btn_recovery.pack(fill="x")
-        make_hint(rec.body, "ตัวช่วยไล่กู้คืน 5 ขั้น (ข้อ 5.4) และปิดเหตุการณ์แบบ Closed-Loop").pack(anchor="w", pady=(4, 0))
+        activity = Section(page, "Recent Activity", accent=COLOR_ACCENT)
+        activity.pack(fill="x", padx=16, pady=(0, 12))
+        self.activity_body = activity.body
+        header_row = EvidenceRow(self.activity_body, "TIME", "SEVERITY", "EVENT", "SOURCE", header=True)
+        header_row.pack(fill="x", anchor="w")
+        self.activity_rows = []
+        self._refresh_recent_activity()
 
-    def _build_main_panel(self, parent):
-        parent.grid_rowconfigure(1, weight=1)
-        parent.grid_columnconfigure(0, weight=1)
-
-        # ---- Incident banner + legend ----
-        top = Section(parent, "📊 ภาพรวมสถานการณ์ (SITUATION OVERVIEW)", accent=COLOR_BLUE)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        self.card_incident = Card(top.body, accent=COLOR_SUCCESS)
-        self.card_incident.pack(fill="x")
-        self.lbl_incident = tk.Label(self.card_incident.body, text="✅ ไม่มีเหตุการณ์เปิดอยู่",
-                                     font=("Segoe UI", 11, "bold"), fg=COLOR_GOOD, bg=COLOR_PANEL)
-        self.lbl_incident.pack(anchor="w", padx=12, pady=(8, 2))
-        self.lbl_incident_sub = tk.Label(self.card_incident.body, text="วันนี้: 0 เหตุการณ์",
-                                         font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL)
-        self.lbl_incident_sub.pack(anchor="w", padx=12, pady=(0, 8))
-        legend = ("🟢 NORMAL = ปกติ   🔴 LOCKDOWN = ตัด uplink แล้ว   ⏳ นับถอยหลัง = เวลาก่อนตัดอัตโนมัติ   |   "
-                  "การโจมตีทดสอบใช้ Kali ยิงจากภายนอก — โปรแกรมนี้เฝ้าระวัง+ตอบโต้เท่านั้น")
-        tk.Label(top.body, text=legend, font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL,
-                 justify="left", anchor="w", wraplength=660).pack(anchor="w", fill="x", pady=(8, 0))
-
-        # ---- Log ----
-        logsec = Section(parent, "📋 บันทึกเหตุการณ์เรียลไทม์ (AUDIT LOG & TELEMETRY)", accent=COLOR_ACCENT)
-        logsec.grid(row=1, column=0, sticky="nsew")
+        logsec = Section(page, "Full Activity Log", accent=COLOR_PURPLE)
+        logsec.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         logsec.body.grid_rowconfigure(1, weight=1)
         logsec.body.grid_columnconfigure(0, weight=1)
 
         filt = tk.Frame(logsec.body, bg=COLOR_PANEL)
         filt.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        tk.Label(filt, text="กรองระดับ:", font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(side="left")
+        tk.Label(filt, text="Filter:", font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(side="left")
         self.filter_var = tk.StringVar(value=FILTER_ALL)
         om = tk.OptionMenu(filt, self.filter_var, FILTER_ALL, FILTER_WARN, FILTER_CRIT,
                            command=lambda _=None: self._redraw_log())
@@ -251,16 +276,107 @@ class AegisAdminGUI:
 
         self.log_box = scrolledtext.ScrolledText(logsec.body, bg=COLOR_PANEL_ALT, fg=COLOR_TEXT,
                                                  font=FONT_MONO, bd=0, insertbackground=COLOR_TEXT,
-                                                 highlightthickness=1, highlightbackground=COLOR_BORDER)
+                                                 highlightthickness=1, highlightbackground=COLOR_BORDER,
+                                                 height=10)
         self.log_box.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
         for lvl, col in LEVEL_COLORS.items():
             self.log_box.tag_config(lvl, foreground=col)
-        self.log_box.insert(tk.END, "[SOC] ระบบพร้อมปฏิบัติการ...\n", "INFO")
+        for message, level in self.log_buffer:
+            if self._passes_filter(level):
+                self.log_box.insert(tk.END, f"{message}\n", level)
+        if not self.log_buffer:
+            self.log_box.insert(tk.END, "[SOC] Ready.\n", "INFO")
 
-        self.btn_verify = tk.Button(logsec.body, text="🔒  ตรวจสอบความสมบูรณ์ของ Log", font=FONT_BTN_SM,
+        self.btn_verify = tk.Button(logsec.body, text="Verify Log Integrity", font=FONT_BTN_SM,
                                     fg="white", bg=COLOR_PURPLE, activebackground=COLOR_ACCENT,
                                     command=self.verify_log_integrity, bd=0, cursor="hand2", height=1)
-        self.btn_verify.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        self.btn_verify.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
+        self._sync_arm_controls()
+        self.refresh_incident_banner()
+
+    def _refresh_overview_metrics(self):
+        if "health" not in self.metric_cards:
+            return
+        seconds_since_seen = self.mqtt.seconds_since_device()
+        broker_connected = getattr(self, "_broker_connected", None)
+        uplink_state = getattr(self, "_last_uplink_state", None)
+        rssi = getattr(self, "_last_rssi", None)
+        heap = getattr(self, "_last_heap", None)
+        remaining = max(0.0, config.DEADMAN_TIMEOUT_SEC - (time.time() - self.last_heartbeat_sent_ts))
+
+        metrics = {
+            "health": pres.system_health_metric(broker_connected, seconds_since_seen, config.DEVICE_OFFLINE_SEC),
+            "uplink": pres.uplink_metric(uplink_state),
+            "broker": pres.broker_metric(broker_connected),
+            "esp32": pres.esp32_metric(seconds_since_seen, config.DEVICE_OFFLINE_SEC, rssi, heap),
+            "mode": pres.mode_metric(self.armed),
+            "deadman": pres.deadman_metric(remaining),
+            "incidents": pres.incidents_metric(self._safe_open_incident()),
+            "today": pres.today_metric(self._safe_incidents_today()),
+        }
+        for key, metric in metrics.items():
+            card = self.metric_cards.get(key)
+            if card is not None:
+                card.update(metric.value, metric.status, metric.helper)
+
+    def _refresh_recent_activity(self):
+        if not hasattr(self, "activity_body"):
+            return
+        for row in self.activity_rows:
+            row.destroy()
+        self.activity_rows = []
+        try:
+            rows = pres.build_activity_rows(db.fetch_all_logs(), limit=RECENT_ACTIVITY_LIMIT)
+        except Exception as e:
+            print(f"recent activity error: {e}")
+            rows = []
+        if not rows:
+            empty = tk.Label(self.activity_body, text="No activity recorded yet.", font=FONT_HINT,
+                             fg=COLOR_MUTED, bg=COLOR_PANEL)
+            empty.pack(anchor="w", pady=(4, 0))
+            self.activity_rows.append(empty)
+            return
+        for row in rows:
+            widget = EvidenceRow(self.activity_body, row.time, row.severity, row.event, row.source)
+            widget.pack(fill="x", anchor="w")
+            self.activity_rows.append(widget)
+
+    def _safe_open_incident(self):
+        try:
+            return db.get_open_incident()
+        except Exception as e:
+            print(f"incident lookup error: {e}")
+            return None
+
+    def _safe_incidents_today(self):
+        try:
+            return db.count_incidents_today()
+        except Exception as e:
+            print(f"incident count error: {e}")
+            return 0
+
+    def _sync_arm_controls(self):
+        """Re-apply the current armed/locked state to whichever Operational
+        Controls widgets exist right now (they are rebuilt on every page
+        switch back to Overview)."""
+        if not hasattr(self, "btn_arm"):
+            return
+        if self.armed:
+            self.btn_arm.config(text="Switch to DISARMED (maintenance)", bg=COLOR_WARN,
+                                activebackground=COLOR_WARN_HL)
+        else:
+            self.btn_arm.config(text="Switch to ARMED (return to watch)", bg=COLOR_SUCCESS,
+                                activebackground=COLOR_SUCCESS_HL)
+        if self.locked:
+            for b in (self.btn_cut, self.btn_restore, self.btn_arm, self.btn_recovery):
+                b.config(state="disabled")
+        else:
+            self.btn_restore.config(state="normal")
+            self.btn_arm.config(state="normal")
+            self.btn_recovery.config(state="normal")
+            self.btn_cut.config(state="normal" if self.armed else "disabled")
+
     def _build_footer(self):
         footer = tk.Frame(self.root, bg=COLOR_PANEL, highlightbackground=COLOR_BORDER, highlightthickness=1)
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 16))
@@ -279,21 +395,13 @@ class AegisAdminGUI:
         self.root.after(1000, self._tick_clock)
 
     def _tick_monitors(self):
-        # Dead Man's Switch: นับจาก heartbeat ที่ "ส่งสำเร็จ" ล่าสุด
-        remaining = max(0, config.DEADMAN_TIMEOUT_SEC - (time.time() - self.last_heartbeat_sent_ts))
-        self.lbl_deadman.config(text=f"{remaining:.0f}s")
-        col = COLOR_DANGER_HL if remaining <= 10 else (COLOR_WARN_HL if remaining <= 30 else COLOR_GOOD)
-        self.lbl_deadman.config(fg=col)
-        self.card_deadman.set_accent(col)
-
         # Device liveness (ESP32 ยังส่งข้อความอยู่ไหม)
         s = self.mqtt.seconds_since_device()
-        if s is None:
-            self.lbl_device.config(text="⚪ ESP32: ยังไม่พบ", fg=COLOR_MUTED)
-        elif s <= config.DEVICE_OFFLINE_SEC:
-            self.lbl_device.config(text=f"🟢 ESP32: ออนไลน์ ({s:.0f}s)", fg=COLOR_SUCCESS_HL)
-        else:
-            self.lbl_device.config(text=f"🔴 ESP32: ออฟไลน์ ({s:.0f}s)", fg=COLOR_DANGER_HL)
+        esp32 = pres.esp32_metric(s, config.DEVICE_OFFLINE_SEC,
+                                  getattr(self, "_last_rssi", None), getattr(self, "_last_heap", None))
+        self.badge_esp32.update_status(f"ESP32: {esp32.value}", esp32.status)
+
+        self._refresh_overview_metrics()
 
         # ACK timeout: ส่งคำสั่งแล้วไม่มี ACK ตอบภายในเวลา
         if self.pending_cmd and (time.time() - self.pending_cmd["ts"]) > config.ACK_TIMEOUT_SEC:
@@ -312,32 +420,25 @@ class AegisAdminGUI:
     # MQTT CALLBACKS (เรียกผ่าน root.after จาก main → thread-safe)
     # =========================================================
     def set_broker_state(self, connected):
-        if connected:
-            self.lbl_conn.config(text="🟢 broker เชื่อมต่อ", fg=COLOR_SUCCESS_HL)
-        else:
-            self.lbl_conn.config(text="🔴 broker หลุด · กำลังต่อใหม่…", fg=COLOR_DANGER_HL)
+        self._broker_connected = bool(connected)
+        metric = pres.broker_metric(self._broker_connected)
+        self.badge_broker.update_status(f"BROKER: {metric.value}", metric.status)
+        self._refresh_overview_metrics()
 
     def on_status(self, state, rssi, heap):
         prev = getattr(self, "_last_uplink_state", None)   # สถานะครั้งก่อน
         changed = (prev != state)                          # เปลี่ยนไหม
         self._last_uplink_state = state
+        self._last_rssi = rssi
+        self._last_heap = heap
 
-        if state == "LOCKDOWN":
-            self.lbl_uplink.config(text="🔴  LOCKED DOWN", fg=COLOR_DANGER_HL)
-            self.card_uplink.set_accent(COLOR_DANGER_HL)
-            if changed:                                    # ← เล่นเสียงเฉพาะตอนเพิ่งเปลี่ยนเป็น LOCKDOWN
-                self.trigger_alarm(config.SOUND_LOCKDOWN)
+        if state == "LOCKDOWN" and changed:
+            self.trigger_alarm(config.SOUND_LOCKDOWN)
             self.refresh_incident_banner()
-        elif state == "NORMAL":
-            self.lbl_uplink.config(text="🟢  NORMAL", fg=COLOR_ACCENT)
-            self.card_uplink.set_accent(COLOR_ACCENT)
-            if changed:                                    # ← เล่นเสียงเฉพาะตอนเพิ่งกลับเป็น NORMAL
-                self.trigger_alarm(config.SOUND_RESTORE)
-        else:
-            self.lbl_uplink.config(text=f"⚪  {state}", fg=COLOR_MUTED)
-            self.card_uplink.set_accent(COLOR_MUTED)
-        self.lbl_rssi.config(text=f"{rssi} dBm")
-        self.lbl_heap.config(text=f"{heap} B")
+        elif state == "NORMAL" and changed:
+            self.trigger_alarm(config.SOUND_RESTORE)
+
+        self._refresh_overview_metrics()
 
     def on_ack(self, ack, detail, nonce):
         """จับคู่ ACK กับคำสั่งที่รออยู่ด้วย nonce"""
@@ -365,10 +466,11 @@ class AegisAdminGUI:
     # =========================================================
     def log_message(self, message, level="INFO"):
         self.log_buffer.append((message, level))
-        if self._passes_filter(level):
+        if hasattr(self, "log_box") and self._passes_filter(level):
             self.log_box.insert(tk.END, f"{message}\n", level)
             self.log_box.see(tk.END)
         db.log_to_file_only(message, level)      # ← เพิ่มบรรทัดนี้: บันทึกลงไฟล์ทุกครั้ง
+        self._refresh_recent_activity()
 
     def _passes_filter(self, level):
         f = self.filter_var.get() if hasattr(self, "filter_var") else FILTER_ALL
@@ -391,17 +493,7 @@ class AegisAdminGUI:
     # =========================================================
     def refresh_incident_banner(self):
         try:
-            inc = db.get_open_incident()
-            n = db.count_incidents_today()
-            self.lbl_incident_sub.config(text=f"วันนี้: {n} เหตุการณ์")
-            if inc:
-                ip = inc.get("attacker_ip") or "ไม่ทราบ"
-                self.lbl_incident.config(text=f"⚠️ Incident #{inc['id']} เปิดอยู่ ({inc['state']}) · IP: {ip}",
-                                         fg=COLOR_WARN_HL)
-                self.card_incident.set_accent(COLOR_WARN_HL)
-            else:
-                self.lbl_incident.config(text="✅ ไม่มีเหตุการณ์เปิดอยู่", fg=COLOR_GOOD)
-                self.card_incident.set_accent(COLOR_SUCCESS)
+            self._refresh_overview_metrics()
         except Exception as e:
             print(f"banner error: {e}")
 
@@ -418,21 +510,14 @@ class AegisAdminGUI:
             return
         self.pin_attempts = 0
         self.armed = not self.armed
+        mode_metric = pres.mode_metric(self.armed)
+        self.badge_mode.update_status(mode_metric.value, mode_metric.status)
+        self._sync_arm_controls()
+        self._refresh_overview_metrics()
         if self.armed:
-            self.lbl_mode.config(text="🟢 ARMED — เฝ้าระวัง", fg=COLOR_GOOD)
-            self.card_mode.set_accent(COLOR_SUCCESS)
-            self.sys_section.config(highlightbackground=COLOR_BORDER)
-            self.btn_arm.config(text="🔧  สลับเป็นโหมดซ่อมบำรุง (DISARM)", bg=COLOR_WARN,
-                                activebackground=COLOR_WARN_HL)
-            self.btn_cut.config(state="normal")
             self.log_message(f"[{time.strftime('%H:%M:%S')}] [ARMED] เข้าสู่โหมดเฝ้าระวังปกติ", db.INFO)
             db.log_event("MODE_CHANGE", "System ARMED", db.INFO)
         else:
-            self.lbl_mode.config(text="🔧 DISARMED — ซ่อมบำรุง", fg=COLOR_WARN_HL)
-            self.card_mode.set_accent(COLOR_WARN_HL)
-            self.btn_arm.config(text="🟢  กลับสู่โหมดเฝ้าระวัง (ARM)", bg=COLOR_SUCCESS,
-                                activebackground=COLOR_SUCCESS_HL)
-            self.btn_cut.config(state="disabled")
             self.log_message(f"[{time.strftime('%H:%M:%S')}] [DISARMED] เข้าสู่โหมดซ่อมบำรุง — ปิดปุ่มตัดเน็ตชั่วคราว",
                              db.WARN)
             db.log_event("MODE_CHANGE", "System DISARMED (maintenance)", db.WARN)
@@ -454,8 +539,7 @@ class AegisAdminGUI:
 
     def _lock_controls(self):
         self.locked = True
-        for b in (self.btn_cut, self.btn_restore, self.btn_arm, self.btn_recovery):
-            b.config(state="disabled")
+        self._sync_arm_controls()
         self.log_message(f"[{time.strftime('%H:%M:%S')}] [CRITICAL] ใส่ PIN ผิดครบ "
                          f"{config.MAX_PIN_ATTEMPTS} ครั้ง — ล็อกการควบคุม 60 วินาที", db.CRITICAL)
         db.log_event("SECURITY_ALERT", "Controls locked (too many wrong PIN)", db.CRITICAL)
@@ -465,10 +549,10 @@ class AegisAdminGUI:
     def _unlock_controls(self):
         self.locked = False
         self.pin_attempts = 0
-        self.btn_restore.config(state="normal")
-        self.btn_arm.config(state="normal")
-        self.btn_recovery.config(state="normal")
-        self.btn_cut.config(state="normal" if self.armed else "disabled")
+        # The Operational Controls buttons only exist while the Overview page
+        # is the active workspace (they are rebuilt on every navigation);
+        # _sync_arm_controls() safely no-ops if they are not present right now.
+        self._sync_arm_controls()
         self.log_message(f"[{time.strftime('%H:%M:%S')}] [INFO] ปลดล็อกการควบคุมแล้ว", db.INFO)
 
     def _auth(self, prompt="กรุณาใส่ Admin PIN:"):
@@ -627,7 +711,7 @@ class AegisAdminGUI:
         cmd = parts[0].lower()
 
         if cmd in ("/status", "/hello", "/help"):
-            state = "🔴 LOCKDOWN" if "LOCK" in self.lbl_uplink.cget("text") else "🟢 NORMAL"
+            state = "🔴 LOCKDOWN" if getattr(self, "_last_uplink_state", None) == "LOCKDOWN" else "🟢 NORMAL"
             mode = "ARMED" if self.armed else "DISARMED"
             comms.send_telegram_reply(
                 f"🛡️ AEGIS สถานะปัจจุบัน\n"

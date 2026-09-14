@@ -1,29 +1,84 @@
 """
 AEGIS IDEA 3 — Theme & reusable widgets (สี ฟอนต์ การ์ด)
 แยกออกมาเพื่อให้ gui.py และ wizard.py ใช้ร่วมกันโดยไม่เกิด circular import
+
+Slice 1 UX/UI refresh: adds a small design-token system (semantic status
+colors, typography scale, spacing/control-height tokens) plus a handful of
+reusable presentation widgets (StatusBadge, MetricCard, NavigationItem,
+PageHeader, EvidenceRow, EmptyState) for the new app-shell layout in gui.py.
+
+Every name that existed before this refresh keeps its exact meaning and
+call signature -- wizard.py imports several of them directly and is not
+part of this slice.
 """
 import tkinter as tk
 
-COLOR_BG        = "#0b1220"
-COLOR_PANEL     = "#151f32"
+from .presentation import (
+    STATUS_CRITICAL,
+    STATUS_HEALTHY,
+    STATUS_NEUTRAL,
+    STATUS_UNKNOWN,
+    STATUS_WARNING,
+)
+
+# ---------------------------------------------------------------------------
+# Legacy color/font names (kept byte-for-byte compatible with wizard.py).
+# Values are tuned toward a restrained enterprise SOC palette; semantics are
+# unchanged (COLOR_DANGER still means real danger, COLOR_SUCCESS still means
+# healthy/safe, etc).
+# ---------------------------------------------------------------------------
+COLOR_BG        = "#0b1220"   # app background: near-black navy
+COLOR_PANEL     = "#151f32"   # surface
 COLOR_PANEL_ALT = "#0a0f1a"
-COLOR_BORDER    = "#263349"
+COLOR_BORDER    = "#263349"   # subtle slate border
 COLOR_TEXT      = "#e2e8f0"
 COLOR_MUTED     = "#7c8aa5"
-COLOR_ACCENT    = "#38bdf8"
-COLOR_DANGER    = "#dc2626"
+COLOR_ACCENT    = "#38bdf8"   # primary blue/cyan
+COLOR_DANGER    = "#dc2626"   # critical / destructive red -- never decorative
 COLOR_DANGER_HL = "#ef4444"
-COLOR_SUCCESS   = "#16a34a"
+COLOR_SUCCESS   = "#16a34a"   # healthy green
 COLOR_SUCCESS_HL= "#22c55e"
 COLOR_GOOD      = "#4ade80"
-COLOR_WARN      = "#d97706"
+COLOR_WARN      = "#d97706"   # warning amber
 COLOR_WARN_HL   = "#f59e0b"
 COLOR_PURPLE    = "#c084fc"
 COLOR_BLUE      = "#2563eb"
 COLOR_BLUE_HL   = "#3b82f6"
 COLOR_GREY      = "#94a3b8"
 
-# สีของ log ตามระดับความรุนแรง
+# ---------------------------------------------------------------------------
+# New semantic tokens for Slice 1.
+# ---------------------------------------------------------------------------
+COLOR_SURFACE          = COLOR_PANEL
+COLOR_SURFACE_ELEVATED = "#1c2942"   # slightly lighter than COLOR_SURFACE
+COLOR_UNKNOWN          = "#64748b"   # slate/blue-gray for "insufficient evidence"
+
+# Status keys (STATUS_HEALTHY etc.) live in presentation.py so that module
+# has no tkinter dependency; this table just maps them to actual colors.
+STATUS_COLORS = {
+    STATUS_HEALTHY:  COLOR_SUCCESS_HL,
+    STATUS_WARNING:  COLOR_WARN_HL,
+    STATUS_CRITICAL: COLOR_DANGER_HL,
+    STATUS_UNKNOWN:  COLOR_UNKNOWN,
+    STATUS_NEUTRAL:  COLOR_ACCENT,
+}
+
+# Severity labels (as stored in audit_logs.level) reuse the same palette so
+# the Recent Activity / log views stay visually consistent with the metric
+# cards above them.
+SEVERITY_STATUS = {
+    "INFO": STATUS_NEUTRAL,
+    "WARN": STATUS_WARNING,
+    "CRITICAL": STATUS_CRITICAL,
+}
+
+
+def status_color(status):
+    return STATUS_COLORS.get(status, COLOR_UNKNOWN)
+
+
+# สีของ log ตามระดับความรุนแรง (kept for the existing ScrolledText tag_config
+# call sites; values now derive from the shared status palette).
 LEVEL_COLORS = {"INFO": "#7dd3fc", "WARN": COLOR_WARN_HL, "CRITICAL": COLOR_DANGER_HL}
 
 FONT_TITLE   = ("Segoe UI", 15, "bold")
@@ -33,6 +88,27 @@ FONT_BTN     = ("Segoe UI", 10, "bold")
 FONT_BTN_SM  = ("Segoe UI", 9, "bold")
 FONT_HINT    = ("Segoe UI", 8)
 FONT_MONO    = ("Consolas", 9)
+
+# New typography scale for the app-shell / Overview page.
+FONT_PAGE_TITLE   = ("Segoe UI", 18, "bold")
+FONT_PAGE_SUBTITLE= ("Segoe UI", 10)
+FONT_METRIC_VALUE = ("Segoe UI", 20, "bold")
+FONT_METRIC_LABEL = ("Segoe UI", 9)
+FONT_METRIC_HELPER= ("Segoe UI", 8)
+FONT_NAV_ITEM     = ("Segoe UI", 10)
+FONT_BADGE        = ("Segoe UI", 8, "bold")
+FONT_CLOCK        = ("Segoe UI", 14, "bold")
+
+# Spacing tokens (px).
+SPACE_XS = 4
+SPACE_SM = 8
+SPACE_MD = 12
+SPACE_LG = 16
+SPACE_XL = 24
+
+# Layout tokens.
+NAV_WIDTH = 232
+CONTROL_HEIGHT = 2   # existing tk.Button "height" convention (text lines)
 
 
 class Card(tk.Frame):
@@ -62,6 +138,12 @@ class Section(tk.Frame):
         tk.Frame(self, bg=COLOR_BORDER, height=1).pack(fill="x")
         self.body = tk.Frame(self, bg=COLOR_PANEL)
         self.body.pack(fill="both", expand=True, padx=12, pady=8)
+
+
+# SectionCard is the Slice 1 name for the same pattern as Section; kept as a
+# thin alias so new code can use the vocabulary from the design brief without
+# a second implementation to maintain.
+SectionCard = Section
 
 
 class ScrollFrame(tk.Frame):
@@ -95,3 +177,125 @@ class ScrollFrame(tk.Frame):
 def make_hint(parent, text):
     return tk.Label(parent, text=text, font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL,
                     wraplength=288, justify="left")
+
+
+# ---------------------------------------------------------------------------
+# Slice 1 presentation widgets. Business/control logic stays in gui.py; these
+# widgets only render values handed to them and never publish MQTT, touch the
+# controller, or issue commands themselves.
+# ---------------------------------------------------------------------------
+
+class StatusBadge(tk.Frame):
+    """A compact status chip: a colored dot plus a short text label. Never
+    relies on color alone -- the text always names the actual state."""
+
+    def __init__(self, parent, text="", status=STATUS_UNKNOWN, **kwargs):
+        super().__init__(parent, bg=kwargs.pop("bg", COLOR_PANEL), **kwargs)
+        self._dot = tk.Label(self, text="●", font=FONT_BADGE, bg=self["bg"],
+                              fg=status_color(status))
+        self._dot.pack(side="left", padx=(0, 4))
+        self._label = tk.Label(self, text=text, font=FONT_BADGE, bg=self["bg"], fg=COLOR_TEXT)
+        self._label.pack(side="left")
+
+    def update_status(self, text, status):
+        self._label.config(text=text)
+        self._dot.config(fg=status_color(status))
+
+
+class MetricCard(Card):
+    """A single Overview summary card: label, large value, and an optional
+    helper line. Built on top of Card so the colored accent bar continues to
+    carry the semantic status."""
+
+    def __init__(self, parent, label, value="--", status=STATUS_UNKNOWN, helper="", **kwargs):
+        super().__init__(parent, accent=status_color(status), **kwargs)
+        tk.Label(self.body, text=label, font=FONT_METRIC_LABEL, fg=COLOR_MUTED,
+                 bg=COLOR_PANEL).pack(anchor="w", padx=SPACE_MD, pady=(SPACE_SM, 0))
+        self._value_label = tk.Label(self.body, text=value, font=FONT_METRIC_VALUE,
+                                      fg=status_color(status), bg=COLOR_PANEL)
+        self._value_label.pack(anchor="w", padx=SPACE_MD, pady=(0, 2))
+        self._helper_label = tk.Label(self.body, text=helper, font=FONT_METRIC_HELPER,
+                                       fg=COLOR_MUTED, bg=COLOR_PANEL, wraplength=200,
+                                       justify="left")
+        self._helper_label.pack(anchor="w", padx=SPACE_MD, pady=(0, SPACE_SM))
+
+    def update(self, value, status, helper=""):
+        color = status_color(status)
+        self._value_label.config(text=value, fg=color)
+        self._helper_label.config(text=helper)
+        self.set_accent(color)
+
+
+class NavigationItem(tk.Frame):
+    """One row in the left navigation rail. `enabled=False` renders it as a
+    reachable-but-placeholder item (never claims functionality that does not
+    exist yet); it still invokes `command` so the workspace can show an
+    explicit EmptyState rather than doing nothing."""
+
+    def __init__(self, parent, text, command=None, selected=False, enabled=True, **kwargs):
+        bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
+        super().__init__(parent, bg=bg, cursor="hand2" if command else "arrow", **kwargs)
+        fg = COLOR_TEXT if (selected or enabled) else COLOR_MUTED
+        suffix = "" if enabled else "  · soon"
+        self._label = tk.Label(self, text=f"{text}{suffix}", font=FONT_NAV_ITEM, fg=fg, bg=bg,
+                                anchor="w", padx=SPACE_MD, pady=SPACE_SM)
+        self._label.pack(fill="x")
+        if command:
+            self._label.bind("<Button-1>", lambda _e: command())
+            self.bind("<Button-1>", lambda _e: command())
+
+    def set_selected(self, selected):
+        bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
+        self.config(bg=bg)
+        self._label.config(bg=bg)
+
+
+class PageHeader(tk.Frame):
+    """Page title + subtitle + an optional environment badge (e.g. DRY RUN)."""
+
+    def __init__(self, parent, title, subtitle="", badge_text=None, badge_status=STATUS_NEUTRAL,
+                 badge_note=None, **kwargs):
+        super().__init__(parent, bg=COLOR_BG, **kwargs)
+        top = tk.Frame(self, bg=COLOR_BG)
+        top.pack(fill="x", anchor="w")
+        tk.Label(top, text=title, font=FONT_PAGE_TITLE, fg=COLOR_TEXT, bg=COLOR_BG).pack(side="left")
+        if badge_text:
+            badge = StatusBadge(top, text=badge_text, status=badge_status, bg=COLOR_BG)
+            badge.pack(side="left", padx=(SPACE_MD, 0))
+        if subtitle:
+            tk.Label(self, text=subtitle, font=FONT_PAGE_SUBTITLE, fg=COLOR_MUTED,
+                     bg=COLOR_BG).pack(anchor="w", pady=(2, 0))
+        if badge_note:
+            tk.Label(self, text=badge_note, font=FONT_HINT, fg=status_color(badge_status),
+                     bg=COLOR_BG).pack(anchor="w", pady=(4, 0))
+
+
+class EvidenceRow(tk.Frame):
+    """One row of the Recent Activity table: TIME | SEVERITY | EVENT | SOURCE."""
+
+    SEVERITY_COLUMN = 1
+
+    def __init__(self, parent, time_text, severity, event_text, source, header=False, **kwargs):
+        super().__init__(parent, bg=COLOR_PANEL, **kwargs)
+        widths = (10, 10, 42, 12)
+        values = (time_text, severity, event_text, source)
+        font = FONT_METRIC_LABEL if header else FONT_HINT
+        default_color = COLOR_MUTED if header else COLOR_TEXT
+        severity_color = COLOR_MUTED if header else status_color(SEVERITY_STATUS.get(severity, STATUS_NEUTRAL))
+        for index, (value, width) in enumerate(zip(values, widths)):
+            fg = severity_color if index == self.SEVERITY_COLUMN else default_color
+            tk.Label(self, text=value, font=font, fg=fg, bg=COLOR_PANEL, width=width,
+                     anchor="w", justify="left").pack(side="left", padx=(0, SPACE_SM))
+
+
+class EmptyState(tk.Frame):
+    """Shown for navigation placeholders that are not implemented yet. Must
+    never claim behavior the application does not have."""
+
+    def __init__(self, parent, title, message, **kwargs):
+        super().__init__(parent, bg=COLOR_BG, **kwargs)
+        wrap = tk.Frame(self, bg=COLOR_BG)
+        wrap.pack(expand=True)
+        tk.Label(wrap, text=title, font=FONT_PAGE_TITLE, fg=COLOR_MUTED, bg=COLOR_BG).pack(pady=(SPACE_XL, SPACE_SM))
+        tk.Label(wrap, text=message, font=FONT_PAGE_SUBTITLE, fg=COLOR_MUTED, bg=COLOR_BG,
+                 wraplength=420, justify="center").pack()
