@@ -11,7 +11,24 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!success] S5.4 infrastructure accepted; Internet exposure remains absent
+> [!important] Current PUBLIC-SHARE-7 state — S5.7 planning bootstrap
+> S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
+> `fe75bc53c1fd3a3103708470dfb7111996b80eff`. At its accepted closeout,
+> the single `share.aegistk-pb.com` Published application route targeted
+> `http://172.31.240.2:8080`; Cloudflare tunnel was HEALTHY with one replica
+> and one route; proxied public DNS, minimum TLS 1.2, TLS 1.0/1.1 rejection,
+> TLS 1.2/1.3 success, and hostname-scoped HTTP→HTTPS 308 were verified.
+> Connector isolation, firewall, and drift enforcement were active; Public
+> Share UI remained **OFF**. These are **carried-forward S5.6 observations**, not
+> fresh S5.7 Production or public-edge evidence. S5.7 is **IN PROGRESS /
+> PLANNING**; S5.7-A fresh read-only preflight is **NOT STARTED**. G5 is
+> **APPROVED**; G6 remains **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS** and
+> real external acceptance is **NOT YET FULLY PROVEN**. Production, Cloudflare,
+> DNS, TLS, and UI mutation are **NOT AUTHORIZED** by this bootstrap.
+> See [[idea1/idea1-status]] and
+> `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`.
+
+> [!success] Historical S5.4/S5.5 checkpoint — Internet exposure was absent then
 > The Public Share backend contract, managed-edge Gateway, Drive State B,
 > dedicated edge network `172.31.240.0/29`, and dedicated upstream network
 > `172.31.241.0/29` are **IMPLEMENTED / ACCEPTED**. S5.4 is **CLOSED / PASS**
@@ -32,7 +49,7 @@ edit_policy: owner-writable
 > IMPLEMENTED YET**. Internet exposure is **NONE**; Public Internet Share is
 > **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**.
 
-> [!important] S5.5 current state — S5.5-A through S5.5-H CLOSED / PASS; Production verified and cleanly rolled back to S5.4 baseline
+> [!important] Historical S5.5 closeout — S5.5-A through S5.5-H CLOSED / PASS; Production was cleanly rolled back to S5.4 baseline
 > S5.5 (Cloudflared Egress Isolation) is **CLOSED / PASS** across all phases S5.5-A through S5.5-H:
 > - **S5.5-A through S5.5-E**: Preflight, architecture specification, pinned connector container (`cloudflare/cloudflared:2026.9.0`), egress overlay (`docker-compose.s5-5.yml`), firewall tooling (`s5-5-firewall.sh`), lifecycle scripts (`s5-5-runtime-check.sh`, `rollback-s5-5.sh`), systemd units, drift timer, and test contracts were fully implemented and verified in the repository.
 > - **Pre-S5.5-F Security Hardening**: Implemented destination-scoped established return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`), fail-closed preflights, exact network metadata enforcement, and strict teardown safety gates.
@@ -40,17 +57,18 @@ edit_policy: owner-writable
 > - **S5.5-G Production Persistence & Rollback Acceptance (MULTI-STAGE FAIL-CLOSED CONTINUATION)**: Verified systemd restart persistence and drift enforcement. Discovered and resolved rollback classifier and inspect stream issues via TDD (`f371893e`, `f687c3a5`, `0eb85aac`). Executed clean reverse-order rollback, removing the connector, egress network, S5.5 firewall additions, and making task-owned S5.5 systemd activation inactive/disabled.
 > - **S5.5-H Pre-Merge Reconciliation & Final Verification**: Synchronized with `origin/main`, verified all frozen runtime source file hashes, verified full test suite passing (`NEW_FAILURES=0`), updated all canonical docs, and produced the immutable final receipt.
 >
-> **Current Production State**: The S5.4 baseline (Gateway and Drive State B) is running healthy. Connector is **ABSENT**, egress network is **ABSENT**, S5.5 firewall additions are **REMOVED**, and task-owned S5.5 systemd activation is **INACTIVE/DISABLED**. Token content was never read or persisted. Internet exposure is **NONE**; Public Share UI remains **OFF**; Public Internet Share remains **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future global Public Share G5/G6 gates phases).
+> **Production State at S5.5 rollback (historical, superseded by S5.6)**: The S5.4 baseline (Gateway and Drive State B) was running healthy. Connector was **ABSENT**, egress network was **ABSENT**, S5.5 firewall additions were **REMOVED**, and task-owned S5.5 systemd activation was **INACTIVE/DISABLED**. Token content was never read or persisted. Internet exposure was **NONE**; Public Share UI was **OFF**; Public Internet Share was **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** at that checkpoint.
 >
 > Refer to [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]] for the authoritative S5.5 receipt.
 
-> [!important] Domain and exposure truth
-> `aegistk-pb.com` is **OWNED**. `share.aegistk-pb.com` is the intended
-> hostname, but `DNS_PUBLIC_ROUTE = NOT CONFIGURED`,
-> `TLS_PUBLIC_ROUTE = NOT CONFIGURED`, and `INTERNET_EXPOSURE = NONE`.
-> G5 and G6 remain **OPEN**, and the Public Share UI remains **OFF**.
+> [!important] Historical pre-exposure domain checkpoint (superseded by S5.6)
+> `aegistk-pb.com` was **OWNED** and `share.aegistk-pb.com` was the intended
+> hostname. At this earlier checkpoint `DNS_PUBLIC_ROUTE = NOT CONFIGURED`,
+> `TLS_PUBLIC_ROUTE = NOT CONFIGURED`, and `INTERNET_EXPOSURE = NONE`;
+> G5 and G6 were **OPEN** and the Public Share UI was **OFF**. Current route,
+> gate, and UI truth is in the S5.7 callout above.
 
-> [!important] Current G4 decision — architecture approved; public route not deployed
+> [!important] Historical G4 decision — architecture approved before public-route deployment
 > **G4 = APPROVED — §13 Option B / Managed Tunnel.** The site is behind measured
 > upstream NAT/CGNAT, inbound forwarding is not practical, and the existing
 > perimeter has no inbound Internet listener. The chosen path is Cloudflare Edge
@@ -139,7 +157,7 @@ modes are production-verified and **must not regress**.
 > shape with the B4.3 evidence above, which is what the repository itself
 > records. This note does not merge the two into a single claim.
 
-### 2.3 Public Internet sharing today
+### 2.3 Public Internet sharing at the original design baseline (historical)
 
 ```text
 Public Internet Share = NOT IMPLEMENTED
@@ -1515,7 +1533,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.4 CLOSED / PASS; S5.5 CLOSED / PASS; G5 APPROVED; S5.6 CLOSED / PASS)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 CLOSED / PASS (single approved public hostname route share.aegistk-pb.com active; Cloudflare tunnel HEALTHY with 1 replica, 1 route; public DNS propagated; TLS 1.2/1.3 with min TLS 1.2; HTTP->HTTPS 308 redirect; public default-deny PASS; connector runtime ACTIVE / ISOLATED; rollback script executable; receipt [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]). | global Public Share G5 = APPROVED; S5.6 CLOSED / PASS; S5.7 pre-public security verification is next; external 4G/5G acceptance (S5.8), and global Public Share G6 / UI activation remain open. |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7 IN PROGRESS / PLANNING)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff` (single approved public hostname route share.aegistk-pb.com active; Cloudflare tunnel HEALTHY with 1 replica, 1 route; public DNS propagated; TLS 1.2/1.3 with min TLS 1.2; HTTP->HTTPS 308 redirect; public default-deny PASS; connector runtime ACTIVE / ISOLATED; rollback script executable; receipt [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]). S5.7 plan bootstrapped only; no fresh A evidence or Internet security probes. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-A fresh read-only preflight is next; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**

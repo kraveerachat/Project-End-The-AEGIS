@@ -105,9 +105,62 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
+## Current Task — PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix
 
 | Field | Current value |
+| :--- | :--- |
+| Task | `PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix` |
+| Branch | `feat/idea1-public-share-s5-7-public-security-matrix` |
+| Owner | `kla` |
+| PR | Draft S5.7 PR to `main`; number assigned after bootstrap push |
+| Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
+| Current state | **IN PROGRESS / PLANNING**; S5.7-A fresh read-only preflight **NOT STARTED** |
+| Started | 2026-09-14 |
+| Last checkpoint | S5.6 **MERGED / CLOSED / PASS** at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 bootstrap documentation checkpoint pending |
+| Production mutation allowed | **NO** |
+| Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
+| Public Share UI | **OFF** (`PUBLIC_SHARE_UI_ENABLED=false` at accepted S5.6 closeout; fresh S5.7 evidence pending) |
+| Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
+| S5.7 final receipt | **NONE — Draft task in progress; create exactly one at final S5.7 closeout only** |
+
+### Goal and scope
+
+Plan and, only after a separate ChatGPT gate, conduct bounded public Internet
+security verification of the share-only boundary. The eight-phase plan is
+`docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`:
+S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
+abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
+G strict matrix consolidation; H evidence reconciliation and one final receipt.
+This bootstrap creates the plan, canonical pointers, and a Draft PR only.
+
+### Out of scope and safety boundaries
+
+No Production, Cloudflare, DNS, TLS, redirect, connector, firewall, systemd,
+Docker, or Public Share UI mutation. No Internet probes in this bootstrap; no
+real bearer/share token, brute force, high-rate fuzzing, DoS, or real user data.
+S5.8 owns Twingate-OFF Wi-Fi/4G/5G external acceptance; S5.9 owns 64 MiB,
+SHA-256, interruption, slow-client, and concurrency acceptance; S5.10 owns
+full rollback/private regression; S5.11 owns final restoration/UI after G6.
+If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
+
+### S5.7 bootstrap session register and handoff
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **IN PROGRESS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Documentation checkpoint to be recorded as Draft PR head after push | Planning only | S5.7-A through H; one final receipt at H | ChatGPT review before S5.7-A read-only preflight |
+
+**Carried-forward S5.6 baseline, not fresh S5.7 PASS:** the public Published
+application route for `share.aegistk-pb.com` targeted
+`http://172.31.240.2:8080`, Cloudflare tunnel was HEALTHY with one replica and
+one route, public DNS was active/proxied, TLS minimum 1.2 and same-host HTTP→HTTPS
+308 were accepted, connector/firewall/drift were active/valid, and UI was OFF.
+S5.6 rollback artifact was ready, but fresh full rollback rehearsal was **NOT
+RUN** and under-two-minute rollback was **NOT REPROVEN**. S5.7-A must freshly
+recheck the applicable live state before any security matrix work.
+
+## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
+
+| Field | S5.6 closeout value |
 | :--- | :--- |
 | Task | `PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS` |
 | Branch | `feat/idea1-public-share-s5-6-cloudflare-public-activation` |
@@ -760,8 +813,8 @@ IMPLEMENTED.**
 | S5.4 | Dedicated Public Share networks + gateway deployment | **CLOSED / PASS** | pre-mutation gate PASSED; Phase A defects corrected (canonical `--env-file`, logical key `aegis_vlan10`, explicit `sudo` boundary; overlay SHA-256 `cc36d08c...`, gateway image `sha256:b61b...`); Phase B attempt 1 failed assertion on stale hard-coded share count (expected 25, actual 27) and cleanly rolled back to S5.3; Phase B v2 Drive State B PASSED (`7ca5cae9...`, 4 networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`, `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`, exact trust `172.19.255.2/32,172.31.241.2/32`, UI false); private regression PASSED (`LOGIN`, `FILES`, `PUBLIC_UI_HIDDEN`, `ANY` lifecycle PASS; `ZONES` historical PASS / not rerun); Phase C Gateway runtime PASSED (`00f2cd8a...`, hardened non-root `101:101`, read-only, edge `172.31.240.2` + upstream `172.31.241.2`, 0 host ports); Phase D-A internal security PASSED (connector `172.31.240.3/32` trust only, CF headers stripped before Drive, negative probes 403/404/405, attribution PASS, rate limit 429 burst PASS); Phase D-B actual public stream PASSED (1 MiB stream HTTP 200, SHA-256 match, hit increment 1, canonical recipient `198.51.100.30`, forged source rejected, browser revoke HTTP 404, `active_public_shares_after_cleanup=0`, token-safe); containers preserved; cloudflared absent; egress absent; host 8080 absent; Internet exposure NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; PR #116 | **PASS** | global Public Share G5/G6 gates remain OPEN; S5.5 remains NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.5 isolated cloudflared connector + named tunnel (after human review and authorization) |
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation`; PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | **CLOSED / PASS** | none within S5.5 | global Public Share G5 approved; proceeding to S5.6 |
 | G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
-| S5.6 | Public hostname, DNS and TLS activation | **CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 | **CLOSED / PASS** | none within S5.6 | S5.7 Pre-public security verification over public Internet |
-| S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
+| S5.6 | Public hostname, DNS and TLS activation | **MERGED / CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 merged at `fe75bc53c1fd3a3103708470dfb7111996b80eff` | **PASS** | none within S5.6 | S5.7 Public Internet Security Matrix |
+| S5.7 | Public Internet Security Matrix | **IN PROGRESS / PLANNING** | Isolated branch and documentation bootstrap; fresh S5.7-A evidence not yet gathered; no Internet security probes run | branch `feat/idea1-public-share-s5-7-public-security-matrix`; Draft PR pending | **NOT TESTED** | S5.7-A through H; one final receipt only at H | ChatGPT review before S5.7-A fresh read-only preflight |
 | S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
 | S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
 | S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
