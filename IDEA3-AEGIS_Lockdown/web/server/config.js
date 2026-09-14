@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
@@ -30,6 +31,27 @@ function validateProductionPasswordHash(passwordHash) {
   if (!match || cost < 12 || cost > 31) {
     throw new Error('AEGIS_IDEA3_ADMIN_PASSWORD_HASH does not satisfy the production bcrypt policy')
   }
+}
+
+// PR11 Phase 2 (design §4.6). A container receives its secrets as read-only
+// files, so they never appear in a rendered Compose model or `docker inspect`.
+// Errors name the variable only and never contain the file content.
+function secretValue(env, name) {
+  const fileName = `${name}_FILE`
+  const direct = env[name]
+  const file = env[fileName]
+  const hasDirect = typeof direct === 'string' && direct !== ''
+  if (typeof file !== 'string' || file === '') return hasDirect ? direct : null
+
+  if (hasDirect) throw new Error(`Set only one of ${name} and ${fileName}`)
+  if (!path.isAbsolute(file)) throw new Error(`${fileName} must be an absolute path`)
+  let content
+  try {
+    content = readFileSync(file, 'utf8')
+  } catch {
+    throw new Error(`${fileName} could not be read`)
+  }
+  return content.replace(/\r?\n$/, '')
 }
 
 function integrationCredential(value) {
@@ -131,6 +153,13 @@ function ipLiteral(name, value) {
   return { address, family: family === 4 ? 'ipv4' : 'ipv6' }
 }
 
+function sameAddress(left, right) {
+  const family = (address) => (net.isIP(address) === 6 ? 'ipv6' : 'ipv4')
+  const list = new net.BlockList()
+  list.addAddress(left, family(left))
+  return list.check(right, family(right))
+}
+
 function dispatchPort(value, webPort) {
   if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) {
     throw new Error('AEGIS_IDEA3_DISPATCH_PORT must be a positive integer port')
@@ -173,12 +202,39 @@ function dispatchConfig(env, { production, webPort }) {
   })
 }
 
+// PR11 Phase 2 proxied browser listener (design §4.2, D3). Without a trusted
+// proxy the browser listener stays loopback-only, unchanged. With one, the
+// listener binds exactly one non-loopback interface on the dedicated HUB<->IDEA3
+// network, and only the pinned HUB address is trusted for forwarded headers.
+function webTrustedProxy(value) {
+  if (value === undefined || value === null || value === '') return null
+  const { address, family } = ipLiteral('AEGIS_WEB_TRUSTED_PROXY', value)
+  if (UNSPECIFIED_ADDRESSES.check(address, family)) {
+    throw new Error('AEGIS_WEB_TRUSTED_PROXY must name one proxy address, not an unspecified address')
+  }
+  return address
+}
+
+function proxiedBindHost(value, trustedProxy) {
+  if (typeof value !== 'string' || value === '') {
+    throw new Error('AEGIS_BIND_HOST must be set explicitly when AEGIS_WEB_TRUSTED_PROXY is set')
+  }
+  const { address, family } = ipLiteral('AEGIS_BIND_HOST', value)
+  if (UNSPECIFIED_ADDRESSES.check(address, family) || LOOPBACK_ADDRESSES.check(address, family)) {
+    throw new Error('AEGIS_BIND_HOST must name one non-loopback interface when AEGIS_WEB_TRUSTED_PROXY is set')
+  }
+  if (sameAddress(trustedProxy, address)) {
+    throw new Error('AEGIS_BIND_HOST must differ from AEGIS_WEB_TRUSTED_PROXY')
+  }
+  return address
+}
+
 export function loadConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || 'development'
   const production = nodeEnv === 'production'
-  const sessionSecret = env.SESSION_SECRET || ''
+  const sessionSecret = secretValue(env, 'SESSION_SECRET') || ''
   const username = env.AEGIS_IDEA3_ADMIN_USER || 'admin'
-  const passwordHash = env.AEGIS_IDEA3_ADMIN_PASSWORD_HASH || null
+  const passwordHash = secretValue(env, 'AEGIS_IDEA3_ADMIN_PASSWORD_HASH') || null
   const allowDevelopmentLogin = !production && env.AEGIS_ALLOW_DEV_LOGIN === 'true'
   const developmentPassword = allowDevelopmentLogin
     ? env.AEGIS_IDEA3_DEV_PASSWORD || null
@@ -196,7 +252,14 @@ export function loadConfig(env = process.env) {
   const basePath = webBasePath(env.AEGIS_WEB_BASE_PATH, production)
   const staticDir = staticDirectory(env.AEGIS_WEB_STATIC_DIR, production)
   const port = configuredPositiveInteger('PORT', env.PORT, 8003, production)
+  const trustedProxy = webTrustedProxy(env.AEGIS_WEB_TRUSTED_PROXY)
+  const bindHost = trustedProxy === null
+    ? loopbackHost(env.AEGIS_BIND_HOST)
+    : proxiedBindHost(env.AEGIS_BIND_HOST, trustedProxy)
   const dispatch = dispatchConfig(env, { production, webPort: port })
+  if (dispatch.enabled && trustedProxy !== null && !sameAddress(trustedProxy, dispatch.trustedProxy)) {
+    throw new Error('AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY must equal AEGIS_WEB_TRUSTED_PROXY (one pinned proxy)')
+  }
 
   return Object.freeze({
     nodeEnv,
@@ -212,7 +275,8 @@ export function loadConfig(env = process.env) {
     auditDbPath: auditDatabasePath(env.AEGIS_IDEA3_AUDIT_DB_PATH, nodeEnv),
     webBasePath: basePath,
     staticDir,
-    bindHost: loopbackHost(env.AEGIS_BIND_HOST),
+    bindHost,
+    webTrustedProxy: trustedProxy,
     dispatch,
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
     maxEvidenceAgeMs: configuredPositiveInteger(
