@@ -95,10 +95,11 @@ If `origin/main` advances during S5.7:
 4. **Current Status:**
    - S5.6 merge baseline: `fe75bc53c1fd3a3103708470dfb7111996b80eff`
    - Reviewed `origin/main` advancement 1: `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (IDEA2-only, normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`)
-   - Reviewed `origin/main` advancement 2: `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` (IDEA3 PR #127 docs only, zero IDEA1/Gateway overlap)
-   - Merge-base before second reconciliation: `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`
-   - Normal merge commit: `c53208a64ca3b4147a0207d15d59dc9492a2f884`
-   - Status: `MAIN_RECONCILED=YES` (both reconciliations verified cleanly, zero conflicts).
+   - Reviewed `origin/main` advancement 2: `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` (IDEA3 PR #127 docs only, zero IDEA1/Gateway overlap, normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884`)
+   - Reviewed `origin/main` advancement 3: `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (IDEA3 PR #131 docs only, zero IDEA1/Gateway runtime overlap)
+   - Merge-base before third reconciliation: `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
+   - Normal merge commit: `17b1165a295a24a66ee04330ece81aead6c788fc`
+   - Status: `MAIN_RECONCILED=YES` (all three reconciliations verified cleanly, zero conflicts).
 
 ---
 
@@ -372,20 +373,56 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ### Task 3 — S5.7-C: HTTP method / Host / forwarding-header abuse
 
-**Boundary:** Class 1 for share target; local test prerequisite required before live execution. `POST_LIVE_PROBE_DEFAULT=PROHIBITED`.
+**Boundary:** Class 1 for share target; explicitly authorized single finite batch; local test prerequisite completed. `POST=PROHIBITED`, `CONNECT=PROHIBITED`.
 
 - [x] Verify local test prerequisite passed (Finding B & C: local TRACE test passing in Gateway suite) — **PASS** (implemented in commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` in `publicShareGatewayRuntime.test.js`; `PS3-RUNTIME-5=PASS` with zero upstream contact).
-- [ ] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget before sending live requests to `/s/invalid-token-probe`.
-- [ ] Execute bounded method matrix against `/s/invalid-token-probe`: `GET`, `HEAD`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`. (`POST` prohibited by default; `CONNECT` strictly prohibited).
-- [ ] Test Host header variations:
-  - Approved hostname (`share.aegistk-pb.com`)
-  - Approved hostname with standard HTTPS port (`share.aegistk-pb.com:443`)
-  - Case variations (`SHARE.AEGISTK-PB.COM`)
-  - Unrelated/invalid Host (`unapproved-host.example.invalid`, `172.31.240.2`)
-  - Keep `TLS SNI = share.aegistk-pb.com` when intentionally testing only the HTTP Host representation.
-  - Distinguish incoming Host representation from canonical upstream Host. Verify invalid Host confers no access.
-- [ ] Test spoofed forwarding headers: `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`, `CF-Connecting-IP` using documentation-range IPs (`198.51.100.0/24`). Verify headers do not bypass Gateway or alter trust.
-- [ ] Record structured metadata per row.
+- [x] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget before sending live requests to `/s/invalid-token-probe` — **PASS** (explicitly authorized by Human Owner / ChatGPT: budget=17, hard max audit rows=9, POST/CONNECT prohibited, audit cleanup prohibited).
+- [x] Execute bounded method matrix against `/s/invalid-token-probe`: `GET`, `HEAD`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE` (`POST` prohibited; `CONNECT` strictly prohibited) — **PASS** (C01 GET: 404; C02-C07 HEAD, PUT, PATCH, DELETE, OPTIONS, TRACE: 405; all CURL_EXIT=0).
+- [x] Test Host header variations (Approved hostname `share.aegistk-pb.com`, standard port `:443`, case variation `SHARE.AEGISTK-PB.COM`, unapproved host `unapproved-host.example.invalid`, IP Host `172.31.240.2`; TLS SNI preserved) — **PASS** (C08 :443: 404; C09 uppercase: 404; C10 unapproved: 403; C11 IP host: 403; invalid Host confers zero access; all CURL_EXIT=0).
+- [x] Test spoofed forwarding headers (`Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`, `CF-Connecting-IP` using `198.51.100.77`) — **PASS** (C12-C16: 404; C17 CF-Connecting-IP: 403; spoofed headers do not bypass Gateway or alter trust; spoof IP 198.51.100.77 was NOT persisted; SPOOF_DELTA=0; all CURL_EXIT=0).
+- [x] Record structured metadata per row; verify audit side-effect limits and attribution boundaries — **PASS** (Audit delta 8 <= hard max 9; all 8 target rows DENIED; zero leaks; temporary authorization revoked).
+
+#### Accepted S5.7-C Evidence Summary (Verified by Human Owner 2026-09-14):
+- **Execution Window**: UTC `2026-09-14T20:24:46Z` through `2026-09-14T20:24:54Z`.
+- **Target URL**: `https://share.aegistk-pb.com/s/invalid-token-probe` (synthetic token, no auth, no redirect follow).
+- **Requests Executed**: Exactly 17 of 17 planned requests (`S5_7_C_WINDOWS_BATCH=COMPLETE`).
+- **HTTP Method Matrix (C01–C07)**:
+  - C01 GET (default Host): HTTP `404`, CURL_EXIT 0, `Server: cloudflare`, CF-RAY present, Location absent.
+  - C02 HEAD: HTTP `405`, CURL_EXIT 0.
+  - C03 PUT: HTTP `405`, CURL_EXIT 0.
+  - C04 PATCH: HTTP `405`, CURL_EXIT 0.
+  - C05 DELETE: HTTP `405`, CURL_EXIT 0.
+  - C06 OPTIONS: HTTP `405`, CURL_EXIT 0.
+  - C07 TRACE: HTTP `405`, CURL_EXIT 0.
+- **Host Header Matrix (C08–C11)**:
+  - C08 GET (`Host: share.aegistk-pb.com:443`): HTTP `404`, CURL_EXIT 0.
+  - C09 GET (`Host: SHARE.AEGISTK-PB.COM`): HTTP `404`, CURL_EXIT 0.
+  - C10 GET (`Host: unapproved-host.example.invalid`): HTTP `403`, CURL_EXIT 0.
+  - C11 GET (`Host: 172.31.240.2`): HTTP `403`, CURL_EXIT 0.
+- **Forwarding Header Matrix (C12–C17)**:
+  - C12 GET (`Forwarded: for=198.51.100.77;proto=http;host=unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C13 GET (`X-Forwarded-For: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C14 GET (`X-Forwarded-Host: unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C15 GET (`X-Forwarded-Proto: http`): HTTP `404`, CURL_EXIT 0.
+  - C16 GET (`X-Real-IP: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C17 GET (`CF-Connecting-IP: 198.51.100.77`): HTTP `403`, CURL_EXIT 0.
+- **General Response Hygiene**: All 17 requests: no curl transport error, no redirect, no 2xx/3xx, no 5xx, `Server: cloudflare`, CF-RAY present, zero leaks under bounded checks.
+- **Audit Verification (Before vs After)**:
+  - Before (2026-09-14T20:14:09Z): `BASELINE_GLOBAL_MAX_AUDIT_ID=847`, `BASELINE_TEST_TARGET_COUNT=1`, `BASELINE_TEST_SPOOF_SOURCE_COUNT=0`.
+  - After (2026-09-14T20:27:40Z): `AFTER_GLOBAL_MAX_AUDIT_ID=855`, `GLOBAL_NEW_ROWS=8`, `TARGET_DELTA=8`, `HARD_MAX_AUDIT_ROWS=9` (`AUDIT_LIMIT=PASS`).
+  - Target Rows 848–855: Exactly 8 new rows, all `SHARE_REDEEM` with outcome `DENIED` (`NEW_TARGET_DENIED_ROWS=8`, `NEW_TARGET_NON_DENIED_ROWS=0`). All recorded with `spoof_source=NO`.
+  - Spoof Persistence: `BASELINE_SPOOF_COUNT=0`, `AFTER_SPOOF_COUNT=0`, `SPOOF_DELTA=0`, `SPOOF_SOURCE_PERSISTED=NO`.
+  - Consistent Reaching Requests: The 8 audit events correspond to requests C01, C08, C09, C12, C13, C14, C15, C16 (no over-claim of exact row-to-request mapping beyond reasonable timestamps/order).
+  - Non-Reaching Requests: C02–C07, C10, C11, C17 generated zero target `SHARE_REDEEM` rows.
+  - C17 Note: No `SHARE_REDEEM` audit row was created; rejection layer is not claimed uniquely between Cloudflare edge and Gateway.
+  - Safe Test Evidence: Audit rows 848–855 are intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Safety**:
+  - `PRODUCTION_CONFIGURATION_MUTATION=NO`
+  - `CLOUDFLARE_MUTATION=NO`
+  - `POST_PROHIBITED=YES`
+  - `CONNECT_PROHIBITED=YES`
+  - Temporary authorizations REVOKED: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+- **Outcome**: S5.7-C is **CLOSED / ACCEPTED / PASS**.
 
 ### Task 4 — S5.7-D: Path normalization / traversal matrix
 
@@ -450,19 +487,15 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Current Status & Next Gate
 
-At this S5.7 C/D local prerequisite and main reconciliation checkpoint:
+At this S5.7-C live security matrix documentation checkpoint:
 - S5.7 is **IN PROGRESS**
 - S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
 - S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
-- S5.7-C/D local test prerequisites are **COMPLETE / ACCEPTED** (`LOCAL_TEST_PREREQUISITE=PASS`, commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932`; TRACE, double-encoded traversal, encoded slash, encoded backslash, duplicate slash pass in Gateway runtime suite with zero upstream contact)
-- Canonical full regression: full regression bar completed; `NEW_FAILURES=0`; accepted historical failures unchanged (`TOTAL_TESTS=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`)
-- Non-canonical runner incident investigated: `NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`
-- Main reconciled to `origin/main` (`90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` via normal merge `c53208a64ca3b4147a0207d15d59dc9492a2f884`)
-- S5.7-C live execution is **BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE** (no live C probe executed)
-- S5.7-D live execution is **BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE** (no live D probe executed)
-- `NEXT` = Request human owner / ChatGPT authorization for test audit side effects (`TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`)
-- `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
-- `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
+- S5.7-C is **CLOSED / ACCEPTED** (live method/Host/header matrix: 17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation)
+- S5.7-D local test prerequisites are **COMPLETE / ACCEPTED** (`7f628fb1...`, Gateway runtime suite passing, full regression NEW_FAILURES=0)
+- S5.7-D live execution is **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED** (gated; requires separate explicit authorization)
+- Main reconciled to `origin/main` (`c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge `17b1165a295a24a66ee04330ece81aead6c788fc`)
+- Temporary S5.7-C audit authorizations **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
 - `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `POST_LIVE_PROBE_DEFAULT=PROHIBITED`
@@ -472,4 +505,4 @@ At this S5.7 C/D local prerequisite and main reconciliation checkpoint:
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`.
+**Next Gate:** `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`.

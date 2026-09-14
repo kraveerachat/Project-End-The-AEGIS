@@ -114,18 +114,18 @@ edit_policy: owner-writable
 | Owner | `kla` |
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
-| Synchronized with main | `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (merge commit `2f73d080...`); `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` (normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884`) |
-| Current state | **IN PROGRESS / S5.7-A & S5.7-B CLOSED / ACCEPTED**; S5.7-C/D **LOCAL_PREREQUISITE_COMPLETE / LIVE_EXECUTION_NOT_YET_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)** |
+| Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`) |
+| Current state | **IN PROGRESS / S5.7-A, S5.7-B & S5.7-C CLOSED / ACCEPTED**; S5.7-D **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7 C/D local prerequisites VERIFIED / ACCEPTED (`7f628fb1...`, full regression NEW_FAILURES=0); main reconciled (`c53208a6...`); live C/D blocked by audit side effect gate |
+| Last checkpoint | S5.7-C Live Security Matrix CLOSED / ACCEPTED (17/17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation); temporary C authorization revoked; S5.7-D unauthorized |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
-| Test audit side effect allowed | **NO** |
-| Live Class 1 security probes allowed | **NO** |
+| Test audit side effect allowed | **NO (temporary S5.7-C authorization revoked; S5.7-D not authorized)** |
+| Live Class 1 security probes allowed | **NO (temporary S5.7-C authorization revoked; S5.7-D not authorized)** |
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION** for S5.7-C/D live probes |
+| Next gate | **S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION** |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
@@ -135,9 +135,9 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A and S5.7-B are complete and accepted. S5.7-C/D local test prerequisites are
-complete and verified (`7f628fb1...`). Live C/D execution remains blocked pending
-test audit side effect authorization.
+S5.7-A, S5.7-B, and S5.7-C are complete and accepted. S5.7-D local test prerequisites are
+complete and verified (`7f628fb1...`). S5.7-D live execution remains blocked pending
+a new explicit audit side effect authorization gate.
 
 ### Out of scope and safety boundaries
 
@@ -158,7 +158,8 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **CLOSED / PASS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | Closed / Accepted | S5.7-A through H; one final receipt at H | Procedure hardening |
 | S5.7-A | Fresh read-only preflight, Cloudflare/DNS/TLS/Production inspection | **CLOSED / PASS** | Human Owner verified evidence: Cloudflare tunnel HEALTHY/1 replica/1 published route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`); DNS Anycast proxies (no private origin IP); TLS 1.0/1.1 rejected, TLS 1.2/1.3 passed; HTTP->HTTPS 308 on `http://share.aegistk-pb.com/`; systemd firewall (s5-5 unit), connector, drift active/enabled; firewall VALID; all 7 protected containers running/healthy; connector runtime isolated with PortBindings={}, User 65532:65532, ReadonlyRootfs, CapDrop ALL; Gateway PortBindings={}; connector readiness EXIT 0; release SHA 99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7; UI fresh runtime proof NOT TESTED (boundary-governed) | S5.7-A documentation checkpoint | Closed / Accepted | S5.7-B through H; one final receipt at H | S5.7-B public surface enumeration |
 | S5.7-B | Public surface / boundary enumeration (10 paths, GET+HEAD = 20 requests) | **CLOSED / PASS** | Human Owner verified: 20/20 returned HTTP 404, CURL_EXIT 0, zero IP/stack/DB/container leaks; Server: cloudflare, CF-RAY present; PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED (attribution boundary) | S5.7-B documentation checkpoint | Closed / Accepted | S5.7-C through H; one final receipt at H | S5.7 C/D local prerequisites |
-| S5.7 C/D local prerequisites & main reconciliation | Local Gateway runtime tests for TRACE, double-encoded traversal, encoded slash/backslash, duplicate slash; full regression; main reconciliation (`90efbc8e`) | **CLOSED / PASS** | Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` (diff +6/-3 in `publicShareGatewayRuntime.test.js`, zero prod/gateway change); 18/18 Gateway runtime tests pass with zero upstream contact; canonical `npm test` (1309 total, 1228 pass, 9 fail, 72 skip: full regression bar completed, NEW_FAILURES=0, accepted historical failures unchanged); non-canonical `--test-force-exit` investigated and classified RUNNER_ARTIFACT; normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884` into main `90efbc8e` (IDEA3 docs only, zero overlap); guardrails CI pass | Local prerequisite & reconciliation checkpoint | Closed / Accepted | S5.7-C through H live execution; one final receipt at H | TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION for S5.7-C/D live probes |
+| S5.7 C/D local prerequisites & main reconciliation | Local Gateway runtime tests for TRACE, double-encoded traversal, encoded slash/backslash, duplicate slash; full regression; main reconciliation (`90efbc8e`) | **CLOSED / PASS** | Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` (diff +6/-3 in `publicShareGatewayRuntime.test.js`, zero prod/gateway change); 18/18 Gateway runtime tests pass with zero upstream contact; canonical `npm test` (1309 total, 1228 pass, 9 fail, 72 skip: full regression bar completed, NEW_FAILURES=0, accepted historical failures unchanged); non-canonical `--test-force-exit` investigated and classified RUNNER_ARTIFACT; normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884` into main `90efbc8e` (IDEA3 docs only, zero overlap); guardrails CI pass | Local prerequisite & reconciliation checkpoint | Closed / Accepted | S5.7-C through H live execution; one final receipt at H | TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION for S5.7-C |
+| S5.7-C Live method / Host / forwarding-header security matrix | Bounded Class-1 method, Host variation, and forwarding-header spoofing matrix against `/s/invalid-token-probe` | **CLOSED / PASS** | Human Owner verified live execution (17 requests, UTC 2026-09-14T20:24:46Z–20:24:54Z); C01 GET 404; C02–C07 (HEAD/PUT/PATCH/DELETE/OPTIONS/TRACE) 405; C08–C09 404; C10–C11 (unapproved/IP Host) 403; C12–C16 404; C17 (CF-Connecting-IP) 403; zero 2xx/3xx/5xx/curl errors; audit delta 8 <= hard max 9 (IDs 848–855 all SHARE_REDEEM/DENIED); spoof delta 0; no config mutation; temporary authorization revoked | S5.7-C documentation checkpoint | Closed / Accepted | S5.7-D through H; one final receipt at H | S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -233,13 +234,48 @@ Verified on 2026-09-15 via local test prerequisite implementation and canonical 
   - Verification: `validate-vault` PASS, `collaborationPolicy` PASS (24/24), `git diff --check` PASS, exact-head CI run 34877956261 PASS.
 - **Current State & Required Transition**:
   - `LOCAL_TEST_PREREQUISITE=PASS`.
-  - S5.7-C/D State: **LOCAL_PREREQUISITE_COMPLETE / LIVE_EXECUTION_NOT_YET_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)**.
-  - Next Gate: **TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION**.
-  - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+  - S5.7-C State: **CLOSED / ACCEPTED**.
+  - S5.7-D State: **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)**.
+  - Next Gate: **S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION**.
+  - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO` (revoked), `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO` (revoked).
   - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`.
   - `POST_LIVE_PROBE_DEFAULT=PROHIBITED`, `CONNECT=STRICTLY_PROHIBITED`.
   - `G5=APPROVED`, `G6=OPEN`.
-  - Do NOT claim C or D live testing has passed; no C/D live request has been executed yet.
+
+### S5.7-C Live method / Host / forwarding-header security matrix — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database audit evidence:
+- **Authorization & Boundary**: Explicitly authorized single finite batch (`TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES_FOR_S5_7_C_ONLY`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=YES_FOR_S5_7_C_ONLY`, budget=17, hard max audit rows=9, POST/CONNECT prohibited, audit cleanup prohibited, config mutation prohibited).
+- **Execution Window**: UTC `2026-09-14T20:24:46Z` through `2026-09-14T20:24:54Z`.
+- **Target URL**: `https://share.aegistk-pb.com/s/invalid-token-probe` (synthetic token, no auth, no redirect follow).
+- **Execution & Results (17/17 completed)**:
+  - C01 GET (default Host): HTTP `404`, CURL_EXIT 0, Location absent.
+  - C02–C07 (HEAD, PUT, PATCH, DELETE, OPTIONS, TRACE): HTTP `405`, CURL_EXIT 0.
+  - C08 GET (`Host: share.aegistk-pb.com:443`): HTTP `404`, CURL_EXIT 0.
+  - C09 GET (`Host: SHARE.AEGISTK-PB.COM`): HTTP `404`, CURL_EXIT 0.
+  - C10 GET (`Host: unapproved-host.example.invalid`): HTTP `403`, CURL_EXIT 0.
+  - C11 GET (`Host: 172.31.240.2`): HTTP `403`, CURL_EXIT 0.
+  - C12 GET (`Forwarded: for=198.51.100.77;proto=http;host=unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C13 GET (`X-Forwarded-For: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C14 GET (`X-Forwarded-Host: unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C15 GET (`X-Forwarded-Proto: http`): HTTP `404`, CURL_EXIT 0.
+  - C16 GET (`X-Real-IP: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C17 GET (`CF-Connecting-IP: 198.51.100.77`): HTTP `403`, CURL_EXIT 0.
+  - General: Zero curl transport errors, zero redirects, zero 2xx/3xx, zero 5xx, `Server: cloudflare`, CF-RAY present on all 17 responses, zero information leaks.
+- **Audit Verification (PostgreSQL `aegis_drive` DB)**:
+  - Baseline: Max ID 847, test target count 1, test spoof count 0 (at 20:14:09Z).
+  - Post-execution: Max ID 855, test target count 9, test spoof count 0 (at 20:27:40Z).
+  - Target delta: Exactly 8 new rows (`HARD_MAX_AUDIT_ROWS=9` satisfied, `AUDIT_LIMIT=PASS`).
+  - Target rows 848–855: All 8 are `SHARE_REDEEM` with outcome `DENIED` and `spoof_source=NO`.
+  - Reaching Requests: The 8 audit rows are consistent with requests C01, C08, C09, C12, C13, C14, C15, C16. (Exact row-to-request mapping is not overclaimed).
+  - Non-Reaching Requests: C02–C07, C10, C11, C17 produced zero target `SHARE_REDEEM` rows.
+  - Layer Attribution Caveat: No over-attribution between Cloudflare edge and Gateway solely from HTTP 403/404/405. For C17, no `SHARE_REDEEM` row was created; rejection layer is not claimed uniquely.
+  - Forwarding Spoof Protection: `198.51.100.77` was NOT persisted as source IP (`SPOOF_DELTA=0`, `SPOOF_SOURCE_PERSISTED=NO`).
+  - Test Evidence Preservation: Audit rows 848–855 are intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Permissions**:
+  - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+  - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+  - S5.7-D remains **NOT AUTHORIZED**. Next Gate: `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 
