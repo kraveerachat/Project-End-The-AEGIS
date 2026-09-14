@@ -527,12 +527,47 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ### Task 6 — S5.7-F: Information leakage / response hygiene
 
-**Boundary:** Read-only inspection of response headers and bounded bodies gathered in B–E.
+**Boundary:** Read-only inspection of response headers and bounded bodies gathered in B–E. Zero new network requests.
 
-- [ ] Check for private IP CIDRs (`172.31.*`, `172.18.*`, `192.168.*`, `10.*`), database errors, stack traces, internal paths, container names (`aegis-prod-*`), `X-Powered-By`.
-- [ ] Confirm `Server: cloudflare` is treated as expected edge metadata, not origin leak.
-- [ ] Redact any sensitive material locally; never commit secrets to Git or Obsidian.
-- [ ] Record structured metadata per row.
+- [x] Check for private IP CIDRs (`172.31.*`, `172.18.*`, `192.168.*`, `10.*`), database errors, stack traces, internal paths, container names (`aegis-prod-*`), `X-Powered-By` — **PASS** (zero leaks detected across 47 accepted requests in B [20 reqs], C [17 reqs], D [8 reqs], and E [2 reqs]).
+- [x] Confirm `Server: cloudflare` is treated as expected edge metadata, not origin leak — **PASS** (`Server: cloudflare` and `CF-RAY` present across B–E confirmed as expected edge traversal metadata, not internal/origin disclosures).
+- [x] Redact any sensitive material locally; never commit secrets to Git or Obsidian — **PASS** (zero secrets, bearer tokens, or user credentials present in test traces or docs; user-supplied query in E02 preserved as inert data).
+- [x] Record structured metadata per row — **PASS** (14-field aggregate metadata model recorded for F review, explicitly referencing B–E provenance with `NOT_APPLICABLE` semantics for aggregate fields).
+
+#### Accepted S5.7-F Evidence Summary (Reviewed 2026-09-15):
+- **Evidence Provenance & Scope**: Read-only inspection and consolidation of response headers and bounded bodies already gathered and accepted across S5.7-B (20 requests), S5.7-C (17 requests), S5.7-D (8 requests), and S5.7-E (2 requests) — total 47 live HTTP requests.
+- **New Live Requests**: Exactly `0` (`NEW_LIVE_REQUESTS=0`). No new network activity, no probe reruns, no Production access, no database access.
+- **Leakage Class Review**:
+  1. *Private IP / origin disclosure*: `NO LEAK DETECTED` across all 47 requests. Special case E02: query parameter `ip=172.31.240.2` preserved in Location header is expected inert user data, not private-origin disclosure (scanner intentionally excluded Location query preservation).
+  2. *Database / SQL errors*: `NO LEAK DETECTED` (no SQL syntax, schema details, or error codes).
+  3. *Stack traces / exceptions*: `NO LEAK DETECTED` (no language/runtime stack traces or unhandled exception messages).
+  4. *Internal file paths*: `NO LEAK DETECTED` (no `/opt/aegis`, `node_modules`, or host file path disclosures).
+  5. *Container / internal service names*: `NO LEAK DETECTED` (no `aegis-prod-*`, `aegis_drive`, or internal container names).
+  6. *X-Powered-By / framework disclosure*: `NO LEAK DETECTED` (`X-Powered-By` absent on all responses).
+  7. *Unsafe reflection*: `NO LEAK DETECTED` (`BODY_REFLECTS_UNESCAPED_INPUT=False` on all inspected bodies).
+  8. *Redirect Location handling*: Preserved approved HTTPS authority `https://share.aegistk-pb.com/...` exclusively on authorized redirect probes (E01, E02); absent on all other 45 requests; no open redirect.
+  9. *Expected Cloudflare metadata*: `Server: cloudflare` and `CF-RAY` present on all 47 responses confirmed as expected edge metadata, not origin leaks.
+- **Structured 14-Field Metadata (Aggregate Evidence Model)**:
+  - `OBSERVED_LAYER=Cloudflare Edge / Bounded Evidence Consolidation`
+  - `ATTRIBUTION_BASIS=Accepted S5.7-B through S5.7-E response headers and bodies`
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`
+  - `APPLICATION_SIDE_EFFECT_OBSERVED=NONE`
+  - `VANTAGE_POINT=Local Evidence Consolidation (Evidence derived from External Windows client)`
+  - `UTC_TIMESTAMP=2026-09-15T04:25:00Z`
+  - `PR_SHA=11dd451c7bcba5e70fb22173e7571b69bf803633`
+  - `METHOD=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `RAW_TARGET=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `HOST_OR_AUTHORITY=share.aegistk-pb.com`
+  - `SNI=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `REDIRECT_FOLLOWED=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `CLIENT_NORMALIZATION=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `CLOUDFLARE_NORMALIZATION_KNOWN=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+- **Accepted Security Interpretation**:
+  - *Scoped statement*: "No information leak was detected within the bounded leak classes and response evidence actually inspected in S5.7-B through S5.7-E."
+  - Attribution limitations from B–E are fully preserved.
+  - Zero secrets, tokens, or credentials copied into docs.
+  - `RUNTIME_SOURCE_CHANGED=NO`, `GATEWAY_CHANGED=NO`, `PRODUCTION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+- **Outcome**: S5.7-F is **CLOSED / ACCEPTED / PASS**.
 
 ### Task 7 — S5.7-G: Security matrix consolidation
 
@@ -566,7 +601,8 @@ At this S5.7-E URL / query / redirect safety documentation checkpoint:
 - S5.7-C is **CLOSED / ACCEPTED** (live method/Host/header matrix: 17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation)
 - S5.7-D is **CLOSED / ACCEPTED** (live path normalization matrix: 8 GET requests, all HTTP 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 generated 0 audit rows, no traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN, zero config mutation)
 - S5.7-E is **CLOSED / ACCEPTED** (URL/query/redirect safety: 2 Class-0 GET requests, both HTTP 308 to approved HTTPS authority, path/query preserved, no open redirect, no private-origin disclosure, zero config mutation)
-- S5.7-F is **NEXT** (information leakage / response hygiene; read-only inspection of headers/bodies from B–E; not started)
+- S5.7-F is **CLOSED / ACCEPTED** (information leakage / response hygiene: read-only inspection of 47 responses from B–E; zero private IP, DB error, stack trace, internal path, container name, or X-Powered-By leaks; Server: cloudflare and CF-RAY edge metadata confirmed; E02 query IP is inert user data; zero new live requests; zero mutations)
+- S5.7-G is **NEXT** (security matrix consolidation; 14 metadata fields per row with NOT_APPLICABLE semantics; not started)
 - Main reconciled to `origin/main` (`c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge `17b1165a295a24a66ee04330ece81aead6c788fc`)
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
 - `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
@@ -579,4 +615,4 @@ At this S5.7-E URL / query / redirect safety documentation checkpoint:
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE`.
+**Next Gate:** `S5.7-G SECURITY MATRIX CONSOLIDATION`.

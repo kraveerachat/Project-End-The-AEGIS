@@ -11,7 +11,7 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!important] Current PUBLIC-SHARE-7 state — S5.7-A, S5.7-B, S5.7-C, S5.7-D & S5.7-E CLOSED / ACCEPTED; S5.7-F NEXT
+> [!important] Current PUBLIC-SHARE-7 state — S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E & S5.7-F CLOSED / ACCEPTED; S5.7-G NEXT
 > S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
 > `fe75bc53c1fd3a3103708470dfb7111996b80eff`. S5.7 is **IN PROGRESS** on
 > branch `feat/idea1-public-share-s5-7-public-security-matrix`. S5.7-A (Fresh
@@ -36,8 +36,13 @@ edit_policy: owner-writable
 > `share.aegistk-pb.com`; query parameters preserved; no open redirect; no private-origin disclosure; body input
 > unescaped reflection `False`; E01 client target UNPROVEN / normalization UNKNOWN; E02 normalization NONE;
 > `REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED`; zero config mutation.
+> S5.7-F (Information Leakage / Response Hygiene) is **CLOSED / ACCEPTED** on 2026-09-15:
+> read-only inspection of 47 responses across B–E (20 in B, 17 in C, 8 in D, 2 in E); zero private IP,
+> database error, stack trace, internal path, container name, or X-Powered-By leaks detected; `Server: cloudflare`
+> and `CF-RAY` confirmed as expected edge traversal metadata; E02 query IP is inert user data; no unsafe reflection;
+> zero new live requests; zero configuration or runtime mutations.
 > Main branch reconciled to `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`.
-> Next gate: `S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE`. G5 is **APPROVED**;
+> Next gate: `S5.7-G SECURITY MATRIX CONSOLIDATION`. G5 is **APPROVED**;
 > G6 remains **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 > `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`,
 > and UI mutation is **NOT AUTHORIZED**. See [[idea1/idea1-status]] and
@@ -1548,7 +1553,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A, S5.7-B, S5.7-C, S5.7-D & S5.7-E CLOSED / ACCEPTED; S5.7-F NEXT)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6...`, `90efbc8e...`, `c448dfb9...` via `17b1165a...`); S5.7-A Preflight PASS; S5.7-B Surface PASS (20 reqs all 404); S5.7-C Method/Host/Header PASS (17 reqs, audit delta 8 <= 9); S5.7-D Path Normalization PASS (8 reqs all 404, audit delta 1 <= 8); S5.7-E Redirect Safety PASS (2 reqs both 308 to approved HTTPS authority, no open redirect, zero leaks); zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-F information leakage / response hygiene next; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E & S5.7-F CLOSED / ACCEPTED; S5.7-G NEXT)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6...`, `90efbc8e...`, `c448dfb9...` via `17b1165a...`); S5.7-A Preflight PASS; S5.7-B Surface PASS (20 reqs all 404); S5.7-C Method/Host/Header PASS (17 reqs, audit delta 8 <= 9); S5.7-D Path Normalization PASS (8 reqs all 404, audit delta 1 <= 8); S5.7-E Redirect Safety PASS (2 reqs both 308 to approved HTTPS authority, no open redirect, zero leaks); S5.7-F Leakage Hygiene PASS (47 reqs from B–E evaluated, zero leaks detected); zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-G security matrix consolidation next; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
