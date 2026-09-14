@@ -443,10 +443,20 @@ class EvidenceRow(tk.Frame):
 
     SEVERITY_COLUMN = 1
 
-    def __init__(self, parent, time_text, severity, event_text, source, header=False, **kwargs):
+    def __init__(
+        self,
+        parent,
+        time_text,
+        severity,
+        event_text,
+        source,
+        header=False,
+        widths=None,
+        **kwargs,
+    ):
         palette = get_palette()
         super().__init__(parent, bg=palette.panel, **kwargs)
-        widths = (10, 10, 42, 12)
+        widths = widths or (10, 10, 42, 12)
         values = (time_text, severity, event_text, source)
         font = FONT_METRIC_LABEL if header else FONT_HINT
         default_color = palette.muted if header else palette.text

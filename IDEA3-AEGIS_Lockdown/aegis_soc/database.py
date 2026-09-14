@@ -225,6 +225,21 @@ def count_incidents_today():
     return n
 
 
+def fetch_incidents(limit=100):
+    """Return the newest incident records for read-only operator views."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, opened_at, closed_at, state, attacker_ip, summary "
+            "FROM incidents ORDER BY id DESC LIMIT ?",
+            (max(1, int(limit)),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def fetch_all_logs():
     conn = _connect()
     c = conn.cursor()

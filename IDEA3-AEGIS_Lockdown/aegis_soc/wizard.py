@@ -6,9 +6,9 @@ import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
-from . import config
+from . import config, i18n
 from . import database as db
-from . import i18n
+from . import theme as ui_theme
 from .theme import (
     COLOR_ACCENT,
     COLOR_BG,
@@ -25,6 +25,24 @@ from .theme import (
     FONT_BTN_SM,
     Card,
 )
+
+
+def _sync_palette_aliases():
+    palette = ui_theme.get_palette()
+    globals().update(
+        COLOR_ACCENT=palette.accent,
+        COLOR_BG=palette.background,
+        COLOR_BLUE=palette.blue,
+        COLOR_BLUE_HL=palette.blue_highlight,
+        COLOR_DANGER=palette.danger,
+        COLOR_DANGER_HL=palette.danger_highlight,
+        COLOR_MUTED=palette.muted,
+        COLOR_PANEL=palette.panel,
+        COLOR_SUCCESS=palette.success,
+        COLOR_SUCCESS_HL=palette.success_highlight,
+        COLOR_TEXT=palette.text,
+        COLOR_WARN=palette.warn,
+    )
 
 
 class IncidentRecoveryWizard(tk.Toplevel):
@@ -44,6 +62,7 @@ class IncidentRecoveryWizard(tk.Toplevel):
     ]
 
     def __init__(self, gui):
+        _sync_palette_aliases()
         super().__init__(gui.root)
         self.gui = gui
         self.status_labels = []
@@ -87,7 +106,15 @@ class IncidentRecoveryWizard(tk.Toplevel):
         row = tk.Frame(body, bg=COLOR_PANEL)
         row.pack(fill="x", padx=12, pady=(6, 10))
         if extra == "ip_entry":
-            self.ip_entry = tk.Entry(row, font=("Consolas", 10), width=18)
+            self.ip_entry = tk.Entry(
+                row,
+                font=("Consolas", 10),
+                width=18,
+                fg=COLOR_TEXT,
+                bg=ui_theme.get_palette().panel_alt,
+                insertbackground=COLOR_TEXT,
+                relief="flat",
+            )
             self.ip_entry.pack(side="left")
             self._ip_placeholder = i18n.t("recovery.step2_placeholder")
             if self.gui.mqtt.last_attacker_ip:
@@ -98,7 +125,16 @@ class IncidentRecoveryWizard(tk.Toplevel):
                       activebackground=COLOR_DANGER_HL, bd=0, cursor="hand2",
                       command=command).pack(side="left", padx=(8, 0))
         elif extra == "lessons_text":
-            self.lessons_text = tk.Text(body, height=3, width=60, font=("Segoe UI", 9))
+            self.lessons_text = tk.Text(
+                body,
+                height=3,
+                width=60,
+                font=("Segoe UI", 9),
+                fg=COLOR_TEXT,
+                bg=ui_theme.get_palette().panel_alt,
+                insertbackground=COLOR_TEXT,
+                relief="flat",
+            )
             self.lessons_text.pack(anchor="w", padx=12, pady=(0, 6))
             tk.Button(body, text=i18n.t("recovery.step5_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_SUCCESS,
                       activebackground=COLOR_SUCCESS_HL, bd=0, cursor="hand2",
