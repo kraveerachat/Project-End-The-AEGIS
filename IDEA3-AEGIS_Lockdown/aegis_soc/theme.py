@@ -12,7 +12,9 @@ call signature -- wizard.py imports several of them directly and is not
 part of this slice.
 """
 import tkinter as tk
+from dataclasses import dataclass
 
+from . import theme_state
 from .branding import resolve_logo_path
 from .presentation import (
     STATUS_CRITICAL,
@@ -21,6 +23,101 @@ from .presentation import (
     STATUS_UNKNOWN,
     STATUS_WARNING,
 )
+
+
+@dataclass(frozen=True)
+class Palette:
+    name: str
+    background: str
+    panel: str
+    panel_alt: str
+    surface_elevated: str
+    border: str
+    text: str
+    muted: str
+    accent: str
+    danger: str
+    danger_highlight: str
+    success: str
+    success_highlight: str
+    good: str
+    warn: str
+    warn_highlight: str
+    purple: str
+    blue: str
+    blue_highlight: str
+    grey: str
+    unknown: str
+    status_colors: dict[str, str]
+    level_colors: dict[str, str]
+
+
+def _palette(name, *, background, panel, panel_alt, elevated, border, text, muted,
+             accent, danger, danger_highlight, success, success_highlight, good,
+             warn, warn_highlight, purple, blue, blue_highlight, grey, unknown):
+    status_colors = {
+        STATUS_HEALTHY: success_highlight,
+        STATUS_WARNING: warn_highlight,
+        STATUS_CRITICAL: danger_highlight,
+        STATUS_UNKNOWN: unknown,
+        STATUS_NEUTRAL: accent,
+    }
+    return Palette(
+        name=name,
+        background=background,
+        panel=panel,
+        panel_alt=panel_alt,
+        surface_elevated=elevated,
+        border=border,
+        text=text,
+        muted=muted,
+        accent=accent,
+        danger=danger,
+        danger_highlight=danger_highlight,
+        success=success,
+        success_highlight=success_highlight,
+        good=good,
+        warn=warn,
+        warn_highlight=warn_highlight,
+        purple=purple,
+        blue=blue,
+        blue_highlight=blue_highlight,
+        grey=grey,
+        unknown=unknown,
+        status_colors=status_colors,
+        level_colors={"INFO": accent, "WARN": warn_highlight, "CRITICAL": danger_highlight},
+    )
+
+
+PALETTES = {
+    "dark": _palette(
+        "dark",
+        background="#08111f", panel="#111c2e", panel_alt="#0a1424",
+        elevated="#192840", border="#2b3d58", text="#f1f5f9",
+        muted="#a9b7cc", accent="#60a5fa", danger="#b91c1c",
+        danger_highlight="#ef4444", success="#15803d",
+        success_highlight="#22c55e", good="#4ade80", warn="#b45309",
+        warn_highlight="#f59e0b", purple="#a78bfa", blue="#2563eb",
+        blue_highlight="#3b82f6", grey="#a9b7cc", unknown="#8292aa",
+    ),
+    "light": _palette(
+        "light",
+        background="#edf2f7", panel="#ffffff", panel_alt="#e5ecf4",
+        elevated="#f4f7fb", border="#cbd6e3", text="#13213a",
+        muted="#52657f", accent="#2563eb", danger="#b91c1c",
+        danger_highlight="#dc2626", success="#15803d",
+        success_highlight="#16803b", good="#15803d", warn="#a45108",
+        warn_highlight="#b45309", purple="#6d28d9", blue="#1d4ed8",
+        blue_highlight="#2563eb", grey="#52657f", unknown="#64748b",
+    ),
+}
+
+
+def get_palette(name=None):
+    """Return the selected immutable palette; unknown values fail to dark."""
+
+    selected = theme_state.get_theme() if name is None else name
+    return PALETTES.get(selected, PALETTES["dark"])
 
 # ---------------------------------------------------------------------------
 # Legacy color/font names (kept byte-for-byte compatible with wizard.py).
@@ -75,7 +172,8 @@ SEVERITY_STATUS = {
 
 
 def status_color(status):
-    return STATUS_COLORS.get(status, COLOR_UNKNOWN)
+    palette = get_palette()
+    return palette.status_colors.get(status, palette.unknown)
 
 
 # สีของ log ตามระดับความรุนแรง (kept for the existing ScrolledText tag_config
@@ -113,15 +211,25 @@ CONTROL_HEIGHT = 2   # existing tk.Button "height" convention (text lines)
 
 
 class Card(tk.Frame):
-    """การ์ดพื้นหลังเข้ม มีแถบสีคาดซ้ายบอกความหมาย"""
-    def __init__(self, parent, accent=COLOR_ACCENT, **kwargs):
-        super().__init__(parent, bg=COLOR_BORDER, **kwargs)
-        self.inner = tk.Frame(self, bg=COLOR_PANEL)
-        self.inner.pack(fill="both", expand=True, padx=(0, 1), pady=1)
-        self.bar = tk.Frame(self.inner, bg=accent, width=4)
-        self.bar.pack(side="left", fill="y")
-        self.body = tk.Frame(self.inner, bg=COLOR_PANEL)
-        self.body.pack(side="left", fill="both", expand=True)
+    """Theme-aware elevated surface with a restrained semantic top rule."""
+
+    def __init__(self, parent, accent=None, **kwargs):
+        palette = get_palette()
+        accent = accent or palette.accent
+        super().__init__(
+            parent,
+            bg=palette.panel,
+            highlightbackground=palette.border,
+            highlightthickness=1,
+            bd=0,
+            **kwargs,
+        )
+        self.inner = tk.Frame(self, bg=palette.panel)
+        self.inner.pack(fill="both", expand=True)
+        self.bar = tk.Frame(self.inner, bg=accent, height=2)
+        self.bar.pack(side="top", fill="x")
+        self.body = tk.Frame(self.inner, bg=palette.panel)
+        self.body.pack(side="top", fill="both", expand=True)
 
     def set_accent(self, color):
         self.bar.config(bg=color)
@@ -129,15 +237,19 @@ class Card(tk.Frame):
 
 class Section(tk.Frame):
     """กล่อง section มีหัวข้อคาดบน"""
-    def __init__(self, parent, title, accent=COLOR_ACCENT, **kwargs):
-        super().__init__(parent, bg=COLOR_PANEL, highlightbackground=COLOR_BORDER,
+    def __init__(self, parent, title, accent=None, **kwargs):
+        palette = get_palette()
+        accent = accent or palette.accent
+        super().__init__(parent, bg=palette.panel, highlightbackground=palette.border,
                           highlightthickness=1, bd=0, **kwargs)
-        head = tk.Frame(self, bg=COLOR_PANEL)
+        head = tk.Frame(self, bg=palette.panel)
         head.pack(fill="x", padx=12, pady=(8, 5))
-        tk.Frame(head, bg=accent, width=3, height=14).pack(side="left", padx=(0, 8))
-        tk.Label(head, text=title, font=FONT_SECTION, fg=COLOR_TEXT, bg=COLOR_PANEL).pack(side="left")
-        tk.Frame(self, bg=COLOR_BORDER, height=1).pack(fill="x")
-        self.body = tk.Frame(self, bg=COLOR_PANEL)
+        tk.Label(head, text="●", font=FONT_BADGE, fg=accent, bg=palette.panel).pack(
+            side="left", padx=(0, 8)
+        )
+        tk.Label(head, text=title, font=FONT_SECTION, fg=palette.text, bg=palette.panel).pack(side="left")
+        tk.Frame(self, bg=palette.border, height=1).pack(fill="x")
+        self.body = tk.Frame(self, bg=palette.panel)
         self.body.pack(fill="both", expand=True, padx=12, pady=8)
 
 
@@ -150,12 +262,13 @@ SectionCard = Section
 class ScrollFrame(tk.Frame):
     """กล่องเลื่อนแนวตั้ง — ใส่เนื้อหาจริงใน self.inner"""
     def __init__(self, parent, **kwargs):
-        super().__init__(parent, bg=COLOR_BG, **kwargs)
-        self.canvas = tk.Canvas(self, bg=COLOR_BG, highlightthickness=0, bd=0)
+        palette = get_palette()
+        super().__init__(parent, bg=palette.background, **kwargs)
+        self.canvas = tk.Canvas(self, bg=palette.background, highlightthickness=0, bd=0)
         self.vsb = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview,
-                                width=10, troughcolor=COLOR_BG, bg=COLOR_BORDER,
-                                activebackground=COLOR_MUTED, bd=0, relief="flat")
-        self.inner = tk.Frame(self.canvas, bg=COLOR_BG)
+                                width=10, troughcolor=palette.background, bg=palette.border,
+                                activebackground=palette.muted, bd=0, relief="flat")
+        self.inner = tk.Frame(self.canvas, bg=palette.background)
         self.inner.bind("<Configure>",
                         lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self._win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
@@ -176,14 +289,15 @@ class ScrollFrame(tk.Frame):
 
 
 def make_hint(parent, text):
-    return tk.Label(parent, text=text, font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL,
+    palette = get_palette()
+    return tk.Label(parent, text=text, font=FONT_HINT, fg=palette.muted, bg=palette.panel,
                     wraplength=288, justify="left")
 
 
 LOGO_MAX_HEIGHT_PX = 40   # within the requested ~36-48px header target
 
 
-def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX):
+def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX, theme_name=None):
     """Best-effort logo loader for the header brand block.
 
     Returns a tk.PhotoImage, or None if no usable asset is available -- a
@@ -194,7 +308,7 @@ def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX):
     long as it is displayed, since Tkinter does not keep PhotoImage objects
     alive on its own.
     """
-    resolved = path if path is not None else resolve_logo_path()
+    resolved = path if path is not None else resolve_logo_path(theme=theme_name or theme_state.get_theme())
     if not resolved:
         return None
     try:
@@ -224,17 +338,18 @@ class StatusBadge(tk.Frame):
     actual state."""
 
     def __init__(self, parent, text="", status=STATUS_UNKNOWN, **kwargs):
-        outer_bg = kwargs.pop("bg", COLOR_PANEL)
+        palette = get_palette()
+        outer_bg = kwargs.pop("bg", palette.panel)
         super().__init__(parent, bg=outer_bg, **kwargs)
-        self._chip = tk.Frame(self, bg=COLOR_SURFACE_ELEVATED, highlightthickness=1,
-                               highlightbackground=COLOR_BORDER)
+        self._chip = tk.Frame(self, bg=palette.surface_elevated, highlightthickness=1,
+                               highlightbackground=palette.border)
         self._chip.pack()
-        inner = tk.Frame(self._chip, bg=COLOR_SURFACE_ELEVATED)
+        inner = tk.Frame(self._chip, bg=palette.surface_elevated)
         inner.pack(padx=(SPACE_SM, SPACE_SM), pady=3)
-        self._dot = tk.Label(inner, text="●", font=FONT_BADGE, bg=COLOR_SURFACE_ELEVATED,
+        self._dot = tk.Label(inner, text="●", font=FONT_BADGE, bg=palette.surface_elevated,
                               fg=status_color(status))
         self._dot.pack(side="left", padx=(0, 4))
-        self._label = tk.Label(inner, text=text, font=FONT_BADGE, bg=COLOR_SURFACE_ELEVATED, fg=COLOR_TEXT)
+        self._label = tk.Label(inner, text=text, font=FONT_BADGE, bg=palette.surface_elevated, fg=palette.text)
         self._label.pack(side="left")
 
     def update_status(self, text, status):
@@ -248,14 +363,15 @@ class MetricCard(Card):
     carry the semantic status."""
 
     def __init__(self, parent, label, value="--", status=STATUS_UNKNOWN, helper="", **kwargs):
+        palette = get_palette()
         super().__init__(parent, accent=status_color(status), **kwargs)
-        tk.Label(self.body, text=label, font=FONT_METRIC_LABEL, fg=COLOR_MUTED,
-                 bg=COLOR_PANEL).pack(anchor="w", padx=SPACE_MD, pady=(SPACE_SM, 0))
+        tk.Label(self.body, text=label, font=FONT_METRIC_LABEL, fg=palette.muted,
+                 bg=palette.panel).pack(anchor="w", padx=SPACE_MD, pady=(SPACE_SM, 0))
         self._value_label = tk.Label(self.body, text=value, font=FONT_METRIC_VALUE,
-                                      fg=status_color(status), bg=COLOR_PANEL)
+                                      fg=status_color(status), bg=palette.panel)
         self._value_label.pack(anchor="w", padx=SPACE_MD, pady=(0, 2))
         self._helper_label = tk.Label(self.body, text=helper, font=FONT_METRIC_HELPER,
-                                       fg=COLOR_MUTED, bg=COLOR_PANEL, wraplength=200,
+                                       fg=palette.muted, bg=palette.panel, wraplength=200,
                                        justify="left")
         self._helper_label.pack(anchor="w", padx=SPACE_MD, pady=(0, SPACE_SM))
 
@@ -278,13 +394,15 @@ class NavigationItem(tk.Frame):
     BAR_WIDTH = 3
 
     def __init__(self, parent, text, command=None, selected=False, enabled=True, suffix="", **kwargs):
-        bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
-        super().__init__(parent, bg=COLOR_PANEL, cursor="hand2" if command else "arrow", **kwargs)
-        self._bar = tk.Frame(self, bg=COLOR_ACCENT if selected else COLOR_PANEL, width=self.BAR_WIDTH)
+        palette = get_palette()
+        self._palette = palette
+        bg = palette.surface_elevated if selected else palette.panel
+        super().__init__(parent, bg=palette.panel, cursor="hand2" if command else "arrow", **kwargs)
+        self._bar = tk.Frame(self, bg=palette.accent if selected else palette.panel, width=self.BAR_WIDTH)
         self._bar.pack(side="left", fill="y")
         self._row = tk.Frame(self, bg=bg)
         self._row.pack(side="left", fill="both", expand=True)
-        fg = COLOR_TEXT if (selected or enabled) else COLOR_MUTED
+        fg = palette.text if (selected or enabled) else palette.muted
         self._label = tk.Label(self._row, text=f"{text}{suffix}", font=FONT_NAV_ITEM, fg=fg, bg=bg,
                                 anchor="w", padx=SPACE_MD, pady=SPACE_SM + 2)
         self._label.pack(fill="x")
@@ -293,8 +411,8 @@ class NavigationItem(tk.Frame):
                 widget.bind("<Button-1>", lambda _e: command())
 
     def set_selected(self, selected):
-        bg = COLOR_SURFACE_ELEVATED if selected else COLOR_PANEL
-        self._bar.config(bg=COLOR_ACCENT if selected else COLOR_PANEL)
+        bg = self._palette.surface_elevated if selected else self._palette.panel
+        self._bar.config(bg=self._palette.accent if selected else self._palette.panel)
         self._row.config(bg=bg)
         self._label.config(bg=bg)
 
@@ -304,19 +422,20 @@ class PageHeader(tk.Frame):
 
     def __init__(self, parent, title, subtitle="", badge_text=None, badge_status=STATUS_NEUTRAL,
                  badge_note=None, **kwargs):
-        super().__init__(parent, bg=COLOR_BG, **kwargs)
-        top = tk.Frame(self, bg=COLOR_BG)
+        palette = get_palette()
+        super().__init__(parent, bg=palette.background, **kwargs)
+        top = tk.Frame(self, bg=palette.background)
         top.pack(fill="x", anchor="w")
-        tk.Label(top, text=title, font=FONT_PAGE_TITLE, fg=COLOR_TEXT, bg=COLOR_BG).pack(side="left")
+        tk.Label(top, text=title, font=FONT_PAGE_TITLE, fg=palette.text, bg=palette.background).pack(side="left")
         if badge_text:
-            badge = StatusBadge(top, text=badge_text, status=badge_status, bg=COLOR_BG)
+            badge = StatusBadge(top, text=badge_text, status=badge_status, bg=palette.background)
             badge.pack(side="left", padx=(SPACE_MD, 0))
         if subtitle:
-            tk.Label(self, text=subtitle, font=FONT_PAGE_SUBTITLE, fg=COLOR_MUTED,
-                     bg=COLOR_BG).pack(anchor="w", pady=(2, 0))
+            tk.Label(self, text=subtitle, font=FONT_PAGE_SUBTITLE, fg=palette.muted,
+                     bg=palette.background).pack(anchor="w", pady=(2, 0))
         if badge_note:
             tk.Label(self, text=badge_note, font=FONT_HINT, fg=status_color(badge_status),
-                     bg=COLOR_BG).pack(anchor="w", pady=(4, 0))
+                     bg=palette.background).pack(anchor="w", pady=(4, 0))
 
 
 class EvidenceRow(tk.Frame):
@@ -325,15 +444,16 @@ class EvidenceRow(tk.Frame):
     SEVERITY_COLUMN = 1
 
     def __init__(self, parent, time_text, severity, event_text, source, header=False, **kwargs):
-        super().__init__(parent, bg=COLOR_PANEL, **kwargs)
+        palette = get_palette()
+        super().__init__(parent, bg=palette.panel, **kwargs)
         widths = (10, 10, 42, 12)
         values = (time_text, severity, event_text, source)
         font = FONT_METRIC_LABEL if header else FONT_HINT
-        default_color = COLOR_MUTED if header else COLOR_TEXT
-        severity_color = COLOR_MUTED if header else status_color(SEVERITY_STATUS.get(severity, STATUS_NEUTRAL))
+        default_color = palette.muted if header else palette.text
+        severity_color = palette.muted if header else status_color(SEVERITY_STATUS.get(severity, STATUS_NEUTRAL))
         for index, (value, width) in enumerate(zip(values, widths)):
             fg = severity_color if index == self.SEVERITY_COLUMN else default_color
-            tk.Label(self, text=value, font=font, fg=fg, bg=COLOR_PANEL, width=width,
+            tk.Label(self, text=value, font=font, fg=fg, bg=palette.panel, width=width,
                      anchor="w", justify="left").pack(side="left", padx=(0, SPACE_SM))
 
 
@@ -342,9 +462,10 @@ class EmptyState(tk.Frame):
     never claim behavior the application does not have."""
 
     def __init__(self, parent, title, message, **kwargs):
-        super().__init__(parent, bg=COLOR_BG, **kwargs)
-        wrap = tk.Frame(self, bg=COLOR_BG)
+        palette = get_palette()
+        super().__init__(parent, bg=palette.background, **kwargs)
+        wrap = tk.Frame(self, bg=palette.background)
         wrap.pack(expand=True)
-        tk.Label(wrap, text=title, font=FONT_PAGE_TITLE, fg=COLOR_MUTED, bg=COLOR_BG).pack(pady=(SPACE_XL, SPACE_SM))
-        tk.Label(wrap, text=message, font=FONT_PAGE_SUBTITLE, fg=COLOR_MUTED, bg=COLOR_BG,
+        tk.Label(wrap, text=title, font=FONT_PAGE_TITLE, fg=palette.muted, bg=palette.background).pack(pady=(SPACE_XL, SPACE_SM))
+        tk.Label(wrap, text=message, font=FONT_PAGE_SUBTITLE, fg=palette.muted, bg=palette.background,
                  wraplength=420, justify="center").pack()

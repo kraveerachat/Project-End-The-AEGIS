@@ -19,20 +19,23 @@ rather than an IDEA3-specific one.
 import os
 from pathlib import Path
 
-DEFAULT_LOGO_RELATIVE_PATH = os.path.join("assets", "logo", "aegis-mark-light-ink.png")
+THEME_LOGO_FILENAMES = {
+    "dark": "aegis-mark-light-ink.png",
+    "light": "aegis-mark-dark-ink.png",
+}
+DEFAULT_LOGO_RELATIVE_PATH = os.path.join("assets", "logo", THEME_LOGO_FILENAMES["dark"])
 
 
 def _package_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def resolve_logo_path(env=None, base_dir=None):
+def resolve_logo_path(env=None, base_dir=None, theme="dark"):
     """Return an absolute path to a real, existing logo file, or None.
 
     Resolution order:
       1. AEGIS_LOGO_PATH environment variable, if set and the file exists.
-      2. <base_dir or package root>/assets/logo/aegis-mark-light-ink.png,
-         if it exists.
+      2. The official mark variant for the selected dark/light surface.
 
     Never raises; a missing, unreadable, or unset asset simply returns None
     so callers can fall back to text-only branding.
@@ -46,7 +49,8 @@ def resolve_logo_path(env=None, base_dir=None):
         return None
 
     root = Path(base_dir) if base_dir is not None else _package_root()
-    default_path = root / DEFAULT_LOGO_RELATIVE_PATH
+    filename = THEME_LOGO_FILENAMES.get(theme, THEME_LOGO_FILENAMES["dark"])
+    default_path = root / "assets" / "logo" / filename
     if default_path.is_file():
         return str(default_path.resolve())
     return None

@@ -27,6 +27,28 @@ def test_resolve_logo_path_finds_the_default_asset_when_present(tmp_path):
     assert resolved == str(logo_file.resolve())
 
 
+def test_resolve_logo_path_selects_the_dark_ink_mark_for_light_theme(tmp_path):
+    logo_dir = tmp_path / "assets" / "logo"
+    logo_dir.mkdir(parents=True)
+    logo_file = logo_dir / "aegis-mark-dark-ink.png"
+    logo_file.write_bytes(b"light theme mark")
+
+    resolved = branding.resolve_logo_path(env={}, base_dir=tmp_path, theme="light")
+
+    assert resolved == str(logo_file.resolve())
+
+
+def test_resolve_logo_path_selects_the_light_ink_mark_for_dark_theme(tmp_path):
+    logo_dir = tmp_path / "assets" / "logo"
+    logo_dir.mkdir(parents=True)
+    logo_file = logo_dir / "aegis-mark-light-ink.png"
+    logo_file.write_bytes(b"dark theme mark")
+
+    resolved = branding.resolve_logo_path(env={}, base_dir=tmp_path, theme="dark")
+
+    assert resolved == str(logo_file.resolve())
+
+
 def test_resolve_logo_path_prefers_env_override(tmp_path):
     override_file = tmp_path / "custom-logo.png"
     override_file.write_bytes(b"custom")
@@ -70,3 +92,13 @@ def test_official_logo_asset_ships_in_this_repository():
     assert resolved is not None
     assert resolved.endswith("aegis-mark-light-ink.png")
     assert os.path.isfile(resolved)
+
+
+def test_both_official_theme_logo_assets_ship_in_this_repository():
+    dark_surface = branding.resolve_logo_path(env={}, theme="dark")
+    light_surface = branding.resolve_logo_path(env={}, theme="light")
+
+    assert dark_surface.endswith("aegis-mark-light-ink.png")
+    assert light_surface.endswith("aegis-mark-dark-ink.png")
+    assert os.path.isfile(dark_surface)
+    assert os.path.isfile(light_surface)
