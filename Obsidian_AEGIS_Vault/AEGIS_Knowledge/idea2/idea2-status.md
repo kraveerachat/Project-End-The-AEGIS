@@ -20,7 +20,7 @@ edit_policy: owner-writable
 Task: IDEA2 Camera-First Slice 1, Machine A browser-to-physical-camera association
 Branch: `feat/idea2-camera-first-machine-association`
 Owner: Pub
-PR: Not created
+PR: [#128](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/128) — Draft; Pub owner and Kla integration review requested
 Current state: PLANNED — Camera-First Slice 1 design is approved and its five-task bounded TDD plan is validated; runtime implementation has not started; CP3 runtime remains paused
 Started: 2026-09-14
 Last checkpoint: `03cafc19fb884cb6331e642d3673a272a89e81f5` — approved Camera-First Slice 1 machine-association design
