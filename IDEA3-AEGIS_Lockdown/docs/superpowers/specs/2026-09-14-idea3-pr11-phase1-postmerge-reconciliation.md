@@ -17,13 +17,14 @@ PR11 Phase 1 owner-decision package. It fulfilled that documentation purpose;
 this reconciliation must not be interpreted as an implementation-failure
 report for PR #127.
 
-Music owns the IDEA3 decision package and its internal checklist. Music has not
-yet supplied the K1, K2, K3, K4, K5, K7, K9, K10, K12, or D6 values. Kla and
-Pub are reviewers, not manual template authors. Their normal GitHub reviews are
-the acceptance gate after Music records the package: `APPROVE` accepts the
-recorded integration decision package, while `REQUEST_CHANGES` asks Music to
-correct it. Neither review outcome authorizes Production mutation. The final
-Phase 1 receipt was not created.
+Music owns the IDEA3 decision package and its internal checklist. On 2026-09-15,
+Music supplied the complete K1, K2, K3, K4, K5, K7, K9, K10, K12, and D6
+architecture/integration decisions recorded below. Kla and Pub are reviewers,
+not manual template authors. Their normal GitHub reviews are the acceptance
+gate: `APPROVE` accepts the recorded integration decision package, while
+`REQUEST_CHANGES` asks Music to correct it. Neither review outcome authorizes
+Production mutation. Runtime evidence remains separate from decision
+completion.
 
 Therefore:
 
@@ -32,19 +33,19 @@ BASE_MAIN                             = 90efbc8ec95aa026ca7dd8f12f8de91a99d1645b
 PR127                                = MERGED
 PR11_PHASE1A                         = PASS
 PR11_PHASE1B                         = PASS
-MUSIC_DECISION_PACKAGE                = PENDING
-MUSIC_DECISIONS_REQUIRED              = K1/K2/K3/K4/K5/K7/K9/K10/K12/D6
+MUSIC_DECISION_PACKAGE                = COMPLETE
+MUSIC_DECISIONS_REQUIRED              = NONE
 KLA_REVIEW_GATE                       = PENDING
 PUB_REVIEW_GATE                       = PENDING
 FINAL_PHASE1_RECEIPT_COUNT            = 0
-PR11_PHASE1_CLOSEOUT                  = INCOMPLETE
-PHASE2                                = BLOCKED
+PR11_PHASE1_CLOSEOUT                  = IN PROGRESS (receipt pending)
+PHASE2                                = BLOCKED / PENDING PREREQUISITES
 PRODUCTION_MUTATION_AUTHORIZED        = NO
 IDEA3_PRODUCTION_DEPLOYED             = NO
 ```
 
-This follow-up workstream exists solely to let Music record the decision
-package and reconcile the evidence required for Phase 1 closeout.
+This follow-up workstream now reconciles the completed Music decision package
+and the evidence required for Phase 1 closeout.
 
 `Architecture Approved != Production Mutation Authorized`
 
@@ -65,101 +66,213 @@ No IDEA1 or IDEA2 file, historical receipt, governance script, shared runtime
 surface, Production configuration, or IDEA3 Python/Web UX/UI file is in scope.
 Reference to another owner's system does not transfer ownership.
 
-## Music-owned decision worksheet
+## Music-owned decision package — complete 2026-09-15
 
-Music must replace each `PENDING_MUSIC_DECISION` value below with an explicit
-allowed outcome. `DEFER` may be recorded only when Music explicitly chooses it.
-Do not infer a value from earlier architecture notes or a reviewer identity.
+These are architecture/integration decisions. They do not prove that later
+runtime prerequisites passed and do not authorize Production mutation.
 
-```text
-K1_RECONCILIATION_METHOD = PENDING_MUSIC_DECISION
-Allowed: SAME_ARTIFACT_HASH / MARKER_LEVEL / DEFER
-
-K2_ROUTE_CONTRACT_RECONFIRMED = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / DEFER
-
-K3_CURRENT_WINDOW_RULE = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / MODIFY=<exact rule>
-
-K3_ROLLBACK_RELATION = PENDING_MUSIC_DECISION
-Allowed: INDEPENDENT / SHARED_RISK
-
-K3_PUBLIC_SHARE_PROTECTION = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / MODIFY=<exact rule>
-
-K4_IDEA3_SUBNET = PENDING_MUSIC_DECISION
-Allowed: <CIDR> / DEFER
-
-K5_NETWORK_TOPOLOGY_RECONFIRMED = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / DEFER
-
-K7_HUB_RECREATE_PLAN_RECONFIRMED = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / DEFER
-
-K7_ROLLBACK_OWNER = PENDING_MUSIC_DECISION
-Allowed: <owner> / DEFER
-
-K9_MACHINE_ROUTE_RECONFIRMED = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / DEFER
-
-K9_MACHINE_SNI = PENDING_MUSIC_DECISION
-Allowed: <hostname> / DEFER
-
-K10_DEDICATED_CLIENT_CA = PENDING_MUSIC_DECISION
-Allowed: YES / NO / DEFER
-
-K10_CA_KEY_CUSTODIAN = PENDING_MUSIC_DECISION
-Allowed: <owner> / DEFER
-
-K10_CORE_KEY_CUSTODIAN = PENDING_MUSIC_DECISION
-Allowed: <owner> / DEFER
-
-K10_CERT_VALIDITY_POLICY = PENDING_MUSIC_DECISION
-Allowed: <policy> / DEFER
-
-K10_EXPIRY_BEHAVIOR = PENDING_MUSIC_DECISION
-Allowed: PAUSE_DISPATCH / MODIFY=<behavior> / DEFER
-
-K12_REBOOT_PERSISTENCE_DISPOSITION = PENDING_MUSIC_DECISION
-Allowed: VERIFY_AT_NEXT_PLANNED_REBOOT /
-         SCHEDULE_SEPARATELY_AUTHORIZED_REBOOT_WINDOW /
-         DEFER_AND_KEEP_PHASE2_BLOCKED
-```
-
-The K12 disposition records how evidence should be obtained. It does not
-schedule or authorize a reboot.
-
-### D6 — Music-owned decision with Pub review
-
-Music must record:
+### K1 — Git/runtime reconciliation
 
 ```text
-D6_IDEA2_CORE_CORESIDENCE = PENDING_MUSIC_DECISION
-Allowed: APPROVE / REJECT / DEFER
+K1_RECONCILIATION_METHOD = SAME_ARTIFACT_HASH
+K1_LIVE_ARTIFACT_COMPARISON = NOT YET PERFORMED
 ```
 
-If Music selects `APPROVE`, Music must also record the proposed constraints for
-Pub to review:
+Before any Phase 2 Production mutation, compare the live
+`/etc/nginx/conf.d/default.conf` artifact against Git
+`HUB-AEGIS_Entry/nginx.conf` using equivalent content/hash evidence. Do not
+claim that comparison passed until it is actually performed.
+
+### K2 — browser route contract
 
 ```text
-D6_ALLOWED_IDEA2_SERVICES = PENDING_MUSIC_DECISION
-Allowed: <services>
-
-D6_RESOURCE_LIMITS_REQUIRED = PENDING_MUSIC_DECISION
-Allowed: YES / NO
-
-D6_PORT_NETWORK_CONSTRAINTS = PENDING_MUSIC_DECISION
-Allowed: <constraints>
-
-D6_RESTART_ORDER_CONSTRAINTS = PENDING_MUSIC_DECISION
-Allowed: <constraints>
-
-D6_FAILURE_ISOLATION_REQUIREMENTS = PENDING_MUSIC_DECISION
-Allowed: <constraints>
+K2_ROUTE_CONTRACT_RECONFIRMED = APPROVE
 ```
 
-This preserves IDEA2 ownership by requesting Pub's normal GitHub review without
-modifying IDEA2 files or requiring Pub to author the IDEA3 worksheet.
+Accepted contract:
+
+- HUB NGINX owns `/security/`;
+- no new public host port;
+- prefix behavior is explicit;
+- HUB owns security headers;
+- browser and machine-authentication routes remain separate;
+- no browser fallback enters the machine-authentication path.
+
+### K3 — Production window and shared rollback risk
+
+```text
+K3_CURRENT_WINDOW_RULE = APPROVE
+K3_ROLLBACK_RELATION = SHARED_RISK
+K3_PUBLIC_SHARE_PROTECTION = APPROVE
+```
+
+No IDEA3 Production mutation may occur while IDEA1 has an active Production
+mutation or verification window. IDEA3 and IDEA1 remain logically separate,
+but HUB, NGINX, and host-level integration make rollback a shared Production
+risk, so mutation windows must be coordinated.
+
+Absent a separate reviewed cross-IDEA authorization, IDEA3 must not modify:
+
+- the Public Share connector;
+- the Public Share egress network;
+- the Public Share firewall policy;
+- the Public Share public route.
+
+### K4 — IDEA3 Docker subnet
+
+```text
+K4_IDEA3_SUBNET = 172.31.243.0/29
+K4_LIVE_COLLISION_RECHECK = REQUIRED BEFORE NETWORK CREATION
+```
+
+Before Phase 2 creates the network, perform a fresh read-only collision check
+against Docker networks, host routes, Production Compose definitions, and known
+planned/reserved infrastructure ranges. If a collision exists, stop and return
+to the decision gate; do not silently choose another subnet.
+
+Current known exclusions:
+
+```text
+172.31.240.0/29
+172.31.241.0/29
+172.31.242.0/29
+172.19.255.0/29
+172.18.0.0/16
+192.168.10.0/24
+```
+
+### K5 — dedicated IDEA3 network topology
+
+```text
+K5_NETWORK_TOPOLOGY_RECONFIRMED = APPROVE
+```
+
+Accepted topology:
+
+- dedicated IDEA3 Docker network with `internal: true`;
+- only HUB and IDEA3 Web are members;
+- IDEA3 Web has no public host port;
+- no Public Share connector, Drive, Monitor, or PostgreSQL membership;
+- no additional membership without separate review.
+
+### K7 — HUB recreate and rollback
+
+```text
+K7_HUB_RECREATE_PLAN_RECONFIRMED = APPROVE
+K7_ROLLBACK_OWNER = kraveerachat
+```
+
+Accepted model:
+
+- use a validated Compose overlay;
+- prepare rollback before mutation;
+- start IDEA3 Web before recreating HUB;
+- recreate HUB only;
+- keep IDEA1 and IDEA3 Production mutation windows separate;
+- verify HUB health and existing routes after recreation;
+- rollback recreates HUB only using the previous canonical file list;
+- runtime network attachment is emergency-only, not normal deployment.
+
+The rollback owner assignment is proposed for review and does not authorize a
+Production action. Kla may use `REQUEST_CHANGES` if it is unacceptable.
+
+### K9 — machine SNI and mTLS route
+
+```text
+K9_MACHINE_ROUTE_RECONFIRMED = APPROVE
+K9_MACHINE_SNI = idea3-core.aegis.internal
+K9_DNS_AND_CERTIFICATE_EVIDENCE = NOT YET PROVEN
+```
+
+Accepted architecture:
+
+- separate machine SNI server block with `ssl_verify_client on`;
+- mTLS is required and the block serves the machine path only;
+- every other path on the machine block returns `404`;
+- the browser/default server remains separate;
+- HUB overwrites trusted identity headers;
+- IDEA3 accepts identity only from the trusted HUB boundary.
+
+Before Phase 2/3 use, verify the name does not collide with existing internal
+DNS/SNI, ensure the server certificate includes it, and provide controlled Core
+resolution through an approved hosts entry or internal DNS. DNS and certificate
+issuance are not claimed complete.
+
+### K10 — dedicated client CA and custody
+
+```text
+K10_DEDICATED_CLIENT_CA = YES
+K10_CA_KEY_CUSTODIAN = kraveerachat
+K10_CORE_KEY_CUSTODIAN = music
+K10_CERT_VALIDITY_POLICY = approximately 90 days; renew around day 60 with a short overlap
+K10_EXPIRY_BEHAVIOR = PAUSE_DISPATCH
+K10_CERTIFICATE_ISSUANCE = NOT YET PERFORMED
+```
+
+The dedicated IDEA3 machine-client CA is `clientAuth` only and separate from
+the browser/server CA and MQTT CA. The CA private key remains offline and must
+not be stored on the AEGIS Production Server. The Core private key is generated
+and stored on Core and must not leave Core.
+
+Certificate expiry or invalid machine identity fails closed for dispatch. It
+must not automatically CUT, automatically RESTORE, bypass mTLS, or fall back to
+browser authentication.
+
+### K12 — reboot-persistence evidence disposition
+
+```text
+K12_REBOOT_PERSISTENCE_DISPOSITION = VERIFY_AT_NEXT_PLANNED_REBOOT
+K12_REBOOT_PERSISTENCE = NOT PROVEN
+```
+
+Do not reboot now and do not schedule a reboot merely because of this decision.
+At the next separately planned and authorized Production reboot, verify the
+relevant Docker networks, HUB/runtime state, Public Share state, firewall
+persistence, and applicable IDEA3 prerequisites, then record that evidence
+separately.
+
+### D6 — IDEA2 co-residence with Pub review
+
+```text
+D6_IDEA2_CORE_CORESIDENCE = APPROVE
+D6_ALLOWED_IDEA2_SERVICES = aegis-detection-engine.service, aegis-detection-tunnel.service
+D6_RESOURCE_LIMITS_REQUIRED = YES
+D6_RUNTIME_BEHAVIOR = NOT TESTED
+```
+
+IDEA2 may retain only its approved existing service ports and tunnel behavior.
+It must not bind to the future private ESP32 AP for service exposure; join the
+IDEA3 internal Docker network; modify IDEA3 routing, MQTT security policy, or
+firewall state; or reuse IDEA3 credentials, certificates, data roots, or
+secrets. Any new IDEA2 listener or port requires separate IDEA2 review. IDEA3
+Core uses its own service user, runtime/data root, credentials, certificates,
+logs, and state.
+
+IDEA2 and IDEA3 services must remain independently restartable. Neither restart
+may restart the other, and no cross-system automatic restart chain is allowed.
+Both may use `network-online.target` where appropriate, but neither becomes a
+hard availability dependency of the other without separate review.
+
+Failure isolation requires separate systemd units, process ownership, writable
+runtime/data directories, credentials, and secrets, with no cross-kill
+behavior. IDEA2 failure/restart loops must not trigger IDEA3 CUT/RESTORE, and
+IDEA3 failure/restart loops must not terminate IDEA2. Resource controls must
+prevent either workload from exhausting the Core host; actual resource-limit
+values must be measured and validated before Phase 3 Production installation.
+Pub may use `APPROVE` or `REQUEST_CHANGES` during human review. This PR modifies
+no IDEA2 file.
+
+## Decision completion versus runtime evidence
+
+```text
+MUSIC_DECISION_PACKAGE_COMPLETE = YES
+RUNTIME_NOT_YET_PROVEN = K1/K4/K8/K9/K10/K12/D6
+PRODUCTION_MUTATION_AUTHORIZED = NO
+```
+
+Specifically, K1 artifact comparison, K4 collision recheck, K8 VLAN20 path,
+K9 DNS/certificate evidence, K10 certificate issuance, K12 reboot persistence,
+and D6 co-residence runtime behavior remain later evidence gates.
 
 ## Review and checklist model
 
@@ -177,21 +290,21 @@ modifying IDEA2 files or requiring Pub to author the IDEA3 worksheet.
 
 ## Phase 1 closeout gate
 
-Phase 1 closeout remains incomplete until Music records all required decisions
-and the resulting closeout evidence is reconciled. Only then may the one final
-Phase 1 receipt be created. Kla and Pub review the recorded package through the
-normal GitHub review workflow.
+Music has recorded all required decisions. Phase 1 closeout remains in progress
+until validation passes and the one final Phase 1 receipt is created. Kla and
+Pub review the recorded package through the normal GitHub review workflow.
 
 Until that gate closes:
 
 ```text
-FINAL_PHASE1_RECEIPT_COUNT     = 0
-PR11_PHASE1_CLOSEOUT           = INCOMPLETE
-PHASE2                         = BLOCKED
+MUSIC_DECISION_PACKAGE_COMPLETE = YES
+FINAL_PHASE1_RECEIPT_COUNT      = 0
+PR11_PHASE1_CLOSEOUT            = IN PROGRESS (receipt pending)
+PHASE2                          = BLOCKED / PENDING PREREQUISITES
 PRODUCTION_MUTATION_AUTHORIZED = NO
 IDEA3_PRODUCTION_DEPLOYED      = NO
 ```
 
 The future final receipt is immutable closeout evidence. It is not created by
-this post-merge reconciliation checkpoint while Music decisions remain
-pending.
+the decision/evidence checkpoint; it is created only after that checkpoint is
+validated and committed.

@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; post-merge reconciliation is now in progress under the Music-owned workflow. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 decisions and final Phase 1 receipt remain pending. Kla and Pub are normal GitHub reviewers. Phase 2 and later stay BLOCKED. Read "IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14," "IDEA3 PR11 Phase 0 closeout — 2026-09-13," and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; post-merge reconciliation is in progress under the Music-owned workflow. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded, and the final Phase 1 receipt is pending validation. Kla and Pub are normal GitHub reviewers. Phase 2 and later stay BLOCKED on pre-mutation prerequisites. Read "IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14," "IDEA3 PR11 Phase 0 closeout — 2026-09-13," and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -23,12 +23,13 @@ edit_policy: owner-writable
 > [!important] Current IDEA3 truth — post-merge reconciliation in progress
 > PR #127 merged the Phase 1 owner-decision package at
 > `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`. Music owns the IDEA3 decision
-> package and checklist; the required K1, K2, K3, K4, K5, K7, K9, K10, K12,
-> and D6 values remain pending Music's decision. Kla and Pub are normal GitHub
-> reviewers: `APPROVE` accepts Music's recorded package and `REQUEST_CHANGES`
-> asks Music to correct it. Reviewer acceptance does not authorize Production
-> mutation. The final Phase 1 receipt is not recorded. This documentation-only
-> follow-up is not Phase 2.
+> package and checklist. Music recorded the complete K1, K2, K3, K4, K5, K7,
+> K9, K10, K12, and D6 architecture/integration decisions on 2026-09-15. Kla
+> and Pub are normal GitHub reviewers: `APPROVE` accepts Music's recorded
+> package and `REQUEST_CHANGES` asks Music to correct it. Reviewer acceptance
+> does not authorize Production mutation. The final Phase 1 receipt is pending
+> validation. This documentation-only follow-up is not Phase 2, and Phase 2
+> remains blocked on its pre-mutation prerequisites.
 
 ```text
 BASE_MAIN                              = 90efbc8ec95aa026ca7dd8f12f8de91a99d1645b
@@ -36,25 +37,50 @@ PR127                                 = MERGED
 PR11_PHASE1A                          = PASS
 PR11_PHASE1B                          = PASS
 PR11_PHASE1_POSTMERGE_RECONCILIATION  = IN PROGRESS
-MUSIC_DECISION_PACKAGE                 = PENDING
-MUSIC_DECISIONS_REQUIRED               = K1/K2/K3/K4/K5/K7/K9/K10/K12/D6
+MUSIC_DECISION_PACKAGE                 = COMPLETE
+MUSIC_DECISIONS_REQUIRED               = NONE
 KLA_REVIEW_GATE                        = PENDING
 PUB_REVIEW_GATE                        = PENDING
 FINAL_PHASE1_RECEIPT                   = PENDING
-PR11_PHASE1_CLOSEOUT                   = INCOMPLETE
-PHASE2                                 = BLOCKED
+PR11_PHASE1_CLOSEOUT                   = IN PROGRESS (receipt pending)
+PHASE2                                 = BLOCKED / PENDING PREREQUISITES
 PRODUCTION_MUTATION_AUTHORIZED         = NO
 IDEA3_PRODUCTION_DEPLOYED              = NO
 ```
 
-Outstanding Music decisions:
+Recorded Music decisions:
 
-- K1, K2, K3, K4, K5, K7, K9, K10, K12, and D6.
+```text
+K1_RECONCILIATION_METHOD               = SAME_ARTIFACT_HASH
+K2_ROUTE_CONTRACT_RECONFIRMED          = APPROVE
+K3_CURRENT_WINDOW_RULE                 = APPROVE
+K3_ROLLBACK_RELATION                   = SHARED_RISK
+K3_PUBLIC_SHARE_PROTECTION             = APPROVE
+K4_IDEA3_SUBNET                        = 172.31.243.0/29
+K5_NETWORK_TOPOLOGY_RECONFIRMED        = APPROVE
+K7_HUB_RECREATE_PLAN_RECONFIRMED       = APPROVE
+K7_ROLLBACK_OWNER                      = kraveerachat
+K9_MACHINE_ROUTE_RECONFIRMED           = APPROVE
+K9_MACHINE_SNI                         = idea3-core.aegis.internal
+K10_DEDICATED_CLIENT_CA                = YES
+K10_CA_KEY_CUSTODIAN                   = kraveerachat
+K10_CORE_KEY_CUSTODIAN                 = music
+K10_CERT_VALIDITY_POLICY               = approximately 90 days; renew around day 60 with a short overlap
+K10_EXPIRY_BEHAVIOR                    = PAUSE_DISPATCH
+K12_REBOOT_PERSISTENCE_DISPOSITION     = VERIFY_AT_NEXT_PLANNED_REBOOT
+D6_IDEA2_CORE_CORESIDENCE              = APPROVE
+D6_ALLOWED_IDEA2_SERVICES              = aegis-detection-engine.service, aegis-detection-tunnel.service
+D6_RESOURCE_LIMITS_REQUIRED            = YES
+```
+
+Runtime evidence remains separate: K1 comparison, K4 collision recheck, K8
+VLAN20 path, K9 DNS/certificate evidence, K10 certificate issuance, K12 reboot
+persistence, and D6 co-residence behavior are not yet proven.
 
 Use
 `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-14-idea3-pr11-phase1-postmerge-reconciliation.md`
-for the exact Music-owned decision worksheet. Do not create the final Phase 1
-receipt until Music records the complete decision package.
+for the detailed Music-owned decision package and D6 isolation constraints.
+Create the final Phase 1 receipt only after the decision checkpoint validates.
 
 `Architecture/integration acceptance != Production mutation authorization`
 remains binding.
