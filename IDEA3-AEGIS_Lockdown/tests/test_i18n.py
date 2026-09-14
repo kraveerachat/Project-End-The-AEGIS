@@ -133,3 +133,53 @@ def test_every_string_table_entry_has_all_three_languages():
         if not set(i18n.LANGUAGES).issubset(entry)
     }
     assert missing == {}, f"Incomplete translations: {missing}"
+
+
+def test_notification_center_keys_are_localized_in_all_languages():
+    keys = (
+        "notif.button_label", "notif.panel_title", "notif.empty", "notif.ack_button",
+        "notif.ack_all_button", "notif.severity_info", "notif.severity_warning",
+        "notif.severity_critical", "notif.security_alert_title", "notif.security_alert_message",
+        "notif.security_alert_message_unknown", "notif.broker_disconnected_title",
+        "notif.esp32_offline_title", "notif.lockdown_engaged_title", "notif.normal_restored_title",
+        "notif.audit_invalid_title",
+    )
+    for key in keys:
+        for code in i18n.LANGUAGES:
+            i18n.set_language(code)
+            assert i18n.t(key) != key
+
+
+def test_security_alert_message_formats_source_ip_without_translating_it():
+    i18n.set_language("en")
+    assert "203.0.113.5" in i18n.t("notif.security_alert_message", source_ip="203.0.113.5")
+    i18n.set_language("th")
+    assert "203.0.113.5" in i18n.t("notif.security_alert_message", source_ip="203.0.113.5")
+    i18n.set_language("zh")
+    assert "203.0.113.5" in i18n.t("notif.security_alert_message", source_ip="203.0.113.5")
+
+
+def test_overview_banner_keys_exist_for_all_languages():
+    keys = (
+        "overview.banner_active_title", "overview.banner_incident_label",
+        "overview.banner_source_ip_label", "overview.banner_empty_title",
+        "overview.banner_empty_message",
+    )
+    for key in keys:
+        for code in i18n.LANGUAGES:
+            i18n.set_language(code)
+            assert i18n.t(key) != key
+
+
+def test_devices_staleness_keys_exist_for_all_languages():
+    for code in i18n.LANGUAGES:
+        i18n.set_language(code)
+        assert i18n.t("devices.stale_badge") != "devices.stale_badge"
+        assert "3" in i18n.t("devices.last_seen_seconds_ago", seconds=3)
+
+
+def test_diagnostics_section_grouping_keys_exist_for_all_languages():
+    for key in ("diagnostics.section_connectivity", "diagnostics.section_security", "diagnostics.section_data"):
+        for code in i18n.LANGUAGES:
+            i18n.set_language(code)
+            assert i18n.t(key) != key

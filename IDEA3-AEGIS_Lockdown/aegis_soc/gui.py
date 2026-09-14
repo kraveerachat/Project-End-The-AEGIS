@@ -14,6 +14,7 @@ from tkinter import messagebox, scrolledtext, simpledialog
 
 from . import comms, config, i18n, theme_state
 from . import database as db
+from . import notifications as notif
 from . import presentation as pres
 from . import theme as ui_theme
 from .auth import DesktopSession
@@ -161,6 +162,17 @@ class AegisAdminGUI:
         self.session = DesktopSession()
         self.login_view = None
 
+        # Presentation-only, session-local notification center -- see
+        # notifications.py's module docstring. Never persisted, never a
+        # source of authorization, never mutates incident/containment state.
+        self.notifications = notif.NotificationCenter()
+        self._notif_button = None
+        self._notif_badge = None
+        self._notif_panel = None
+        self._toast_window = None
+        self._broker_disconnect_notified = False
+        self._esp32_offline_notified = False
+
         self.nav_items = {}          # key -> NavigationItem widget
         self.active_page = "overview"
         self.metric_cards = {}       # key -> MetricCard widget
@@ -217,6 +229,13 @@ class AegisAdminGUI:
     def _clear_root(self):
         for child in list(self.root.winfo_children()):
             child.destroy()
+        # Every notification widget above was a child of root (the header
+        # button directly, the panel/toast as Toplevels) and is now
+        # destroyed; drop the stale references. self.notifications itself
+        # (the actual data) is untouched -- only the widgets are gone.
+        self._notif_button = None
+        self._notif_panel = None
+        self._toast_window = None
 
     def _show_login(self):
         _sync_palette_aliases()
@@ -281,6 +300,20 @@ class AegisAdminGUI:
         self.lbl_clock.pack(side="left", padx=(0, 10))
         self._build_language_selector(top_row)
         self._build_theme_selector(top_row)
+        self._notif_button = tk.Button(
+            top_row,
+            text=self._notification_button_text(),
+            font=FONT_HINT,
+            fg=COLOR_TEXT,
+            bg=COLOR_PANEL_ALT,
+            activebackground=COLOR_BORDER,
+            activeforeground=COLOR_TEXT,
+            bd=0,
+            cursor="hand2",
+            command=self._show_notification_panel,
+        )
+        self._notif_button.pack(side="left", padx=(8, 0), ipadx=8, ipady=5)
+        self._refresh_notification_indicator()
         tk.Button(
             top_row,
             text=i18n.t("session.logout"),
@@ -347,6 +380,183 @@ class AegisAdminGUI:
             self._rebuild_ui()
         else:
             self._show_login()
+
+    # =========================================================
+    # NOTIFICATION CENTER (presentation-only; see notifications.py)
+    # =========================================================
+    def _notification_button_text(self):
+        label = i18n.t("notif.button_label")
+        count = self.notifications.unread_count()
+        return f"{label} ({count})" if count else label
+
+    def _refresh_notification_indicator(self):
+        """Safe to call at any time (pre-login, mid-rebuild, or with no
+        header currently built) -- every widget touch is guarded."""
+        if self._notif_button is not None and self._notif_button.winfo_exists():
+            critical = self.notifications.critical_unread_count()
+            unread = self.notifications.unread_count()
+            if critical:
+                bg, fg = COLOR_DANGER, "white"
+            elif unread:
+                bg, fg = COLOR_WARN, "white"
+            else:
+                bg, fg = COLOR_PANEL_ALT, COLOR_TEXT
+            self._notif_button.config(
+                text=self._notification_button_text(), bg=bg, fg=fg, activebackground=bg,
+            )
+        if self._notif_panel is not None and self._notif_panel.winfo_exists():
+            self._build_notification_panel_contents(self._notif_panel)
+
+    _SEVERITY_KEYS = {
+        notif.SEVERITY_INFO: "notif.severity_info",
+        notif.SEVERITY_WARNING: "notif.severity_warning",
+        notif.SEVERITY_CRITICAL: "notif.severity_critical",
+    }
+    _SEVERITY_STATUS = {
+        notif.SEVERITY_INFO: pres.STATUS_NEUTRAL,
+        notif.SEVERITY_WARNING: pres.STATUS_WARNING,
+        notif.SEVERITY_CRITICAL: pres.STATUS_CRITICAL,
+    }
+    _NAV_BUTTON_KEYS = {
+        notif.NAV_LOCKDOWN: "notif.go_to_lockdown_button",
+        notif.NAV_INCIDENTS: "notif.open_incidents_button",
+        notif.NAV_AUDIT: "notif.review_audit_button",
+    }
+
+    def _show_notification_panel(self):
+        if self._notif_panel is not None and self._notif_panel.winfo_exists():
+            self._notif_panel.lift()
+            self._notif_panel.focus_force()
+            return
+        panel = tk.Toplevel(self.root)
+        panel.title(i18n.t("notif.panel_title"))
+        panel.configure(bg=COLOR_BG)
+        panel.geometry("420x480")
+        panel.transient(self.root)
+        panel.protocol("WM_DELETE_WINDOW", self._close_notification_panel)
+        self._notif_panel = panel
+        self._build_notification_panel_contents(panel)
+
+    def _close_notification_panel(self):
+        if self._notif_panel is not None and self._notif_panel.winfo_exists():
+            self._notif_panel.destroy()
+        self._notif_panel = None
+
+    def _build_notification_panel_contents(self, panel):
+        for child in panel.winfo_children():
+            child.destroy()
+        header = tk.Frame(panel, bg=COLOR_PANEL)
+        header.pack(fill="x")
+        tk.Label(header, text=i18n.t("notif.panel_title"), font=FONT_BTN, fg=COLOR_TEXT,
+                 bg=COLOR_PANEL).pack(side="left", padx=12, pady=10)
+        tk.Button(
+            header, text=i18n.t("notif.ack_all_button"), font=FONT_HINT, fg=COLOR_TEXT,
+            bg=COLOR_PANEL_ALT, activebackground=COLOR_BORDER, bd=0, cursor="hand2",
+            command=self._acknowledge_all_notifications,
+        ).pack(side="right", padx=12, pady=10)
+
+        scroll = ScrollFrame(panel)
+        scroll.pack(fill="both", expand=True)
+        body = scroll.inner
+        items = self.notifications.all()
+        if not items:
+            make_hint(body, i18n.t("notif.empty")).pack(anchor="w", padx=12, pady=12)
+            return
+        for item in items:
+            self._build_notification_row(body, item)
+
+    def _build_notification_row(self, parent, item):
+        status = self._SEVERITY_STATUS[item.severity]
+        card = Section(parent, i18n.t(item.title_key), accent=ui_theme.status_color(status))
+        card.pack(fill="x", padx=10, pady=6)
+        StatusBadge(card.body, text=i18n.t(self._SEVERITY_KEYS[item.severity]), status=status,
+                    bg=COLOR_PANEL).pack(anchor="w")
+        tk.Label(card.body, text=i18n.t(item.message_key, **item.format_kwargs), font=FONT_HINT,
+                 fg=COLOR_TEXT, bg=COLOR_PANEL, wraplength=360, justify="left").pack(anchor="w", pady=(4, 4))
+        tk.Label(card.body, text=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item.timestamp)),
+                 font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w")
+        row = tk.Frame(card.body, bg=COLOR_PANEL)
+        row.pack(fill="x", pady=(6, 0))
+        if not item.acknowledged:
+            tk.Button(
+                row, text=i18n.t("notif.ack_button"), font=FONT_HINT, fg="white", bg=COLOR_BLUE,
+                activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                command=lambda nid=item.id: self._acknowledge_notification(nid),
+            ).pack(side="left")
+        label_key = self._NAV_BUTTON_KEYS.get(item.navigation_target)
+        if label_key:
+            tk.Button(
+                row, text=i18n.t(label_key), font=FONT_HINT, fg=COLOR_TEXT, bg=COLOR_PANEL_ALT,
+                activebackground=COLOR_BORDER, bd=0, cursor="hand2",
+                command=lambda target=item.navigation_target: self._navigate_from_notification(target),
+            ).pack(side="left", padx=(6, 0))
+
+    def _acknowledge_notification(self, notification_id):
+        self.notifications.acknowledge(notification_id)
+        self._refresh_notification_indicator()
+
+    def _acknowledge_all_notifications(self):
+        self.notifications.acknowledge_all()
+        self._refresh_notification_indicator()
+
+    def _navigate_from_notification(self, target):
+        self._close_notification_panel()
+        self._dismiss_toast()
+        if self.session.authenticated:
+            self._show_page(target)
+
+    def _show_security_toast(self, ip):
+        """Non-blocking, auto-dismissing security alert toast. Never
+        offers CUT/RESTORE and never authorizes anything -- navigation
+        buttons only change which page is shown."""
+        if not self.session.authenticated:
+            return
+        self._dismiss_toast()
+        toast = tk.Toplevel(self.root)
+        toast.overrideredirect(True)
+        toast.configure(bg=COLOR_PANEL, highlightbackground=COLOR_DANGER, highlightthickness=2)
+        toast.attributes("-topmost", True)
+        self._toast_window = toast
+        body = tk.Frame(toast, bg=COLOR_PANEL)
+        body.pack(padx=14, pady=12)
+        tk.Label(body, text=i18n.t("notif.security_alert_title"), font=FONT_BTN, fg=COLOR_DANGER_HL,
+                 bg=COLOR_PANEL).pack(anchor="w")
+        source_text = ip if ip else i18n.t("notif.source_unknown")
+        tk.Label(body, text=f"{i18n.t('notif.toast_source_label')}: {source_text}", font=FONT_HINT,
+                 fg=COLOR_TEXT, bg=COLOR_PANEL).pack(anchor="w", pady=(4, 0))
+        tk.Label(body, text=f"{i18n.t('notif.toast_timestamp_label')}: {time.strftime('%H:%M:%S')}",
+                 font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w")
+        if not config.AUTO_CONTAIN:
+            tk.Label(body, text=i18n.t("notif.containment_manual_note"), font=FONT_HINT, fg=COLOR_WARN_HL,
+                     bg=COLOR_PANEL, wraplength=280, justify="left").pack(anchor="w", pady=(6, 0))
+        row = tk.Frame(body, bg=COLOR_PANEL)
+        row.pack(fill="x", pady=(8, 0))
+        tk.Button(
+            row, text=i18n.t("notif.open_incidents_button"), font=FONT_HINT, fg="white", bg=COLOR_BLUE,
+            activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+            command=lambda: self._navigate_from_notification(notif.NAV_INCIDENTS),
+        ).pack(side="left")
+        tk.Button(
+            row, text=i18n.t("notif.go_to_lockdown_button"), font=FONT_HINT, fg="white", bg=COLOR_WARN,
+            activebackground=COLOR_WARN_HL, bd=0, cursor="hand2",
+            command=lambda: self._navigate_from_notification(notif.NAV_LOCKDOWN),
+        ).pack(side="left", padx=(6, 0))
+        tk.Button(
+            row, text=i18n.t("notif.close_button"), font=FONT_HINT, fg=COLOR_TEXT, bg=COLOR_PANEL_ALT,
+            activebackground=COLOR_BORDER, bd=0, cursor="hand2",
+            command=self._dismiss_toast,
+        ).pack(side="left", padx=(6, 0))
+        toast.update_idletasks()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        root_w = self.root.winfo_width()
+        width = toast.winfo_reqwidth()
+        toast.geometry(f"+{root_x + max(0, root_w - width - 24)}+{root_y + 60}")
+        toast.after(12000, self._dismiss_toast)
+
+    def _dismiss_toast(self):
+        if self._toast_window is not None and self._toast_window.winfo_exists():
+            self._toast_window.destroy()
+        self._toast_window = None
 
     def _build_nav(self, parent):
         for key, label_key, enabled in NAV_ITEMS:
@@ -428,6 +638,10 @@ class AegisAdminGUI:
                    badge_text=i18n.t(badge_key), badge_status=badge_status,
                    badge_note=badge_note).pack(anchor="w", fill="x", padx=16, pady=(20, 16))
 
+        self.incident_banner_slot = tk.Frame(page, bg=COLOR_BG)
+        self.incident_banner_slot.pack(fill="x", padx=16, pady=(0, 16))
+        self._refresh_incident_banner_widget()
+
         grid = tk.Frame(page, bg=COLOR_BG)
         grid.pack(fill="x", padx=16, pady=(0, 16))
         for col in range(4):
@@ -479,7 +693,19 @@ class AegisAdminGUI:
             print(f"incident list error: {error}")
             self.incident_records = []
         if not self.incident_records:
-            make_hint(section.body, i18n.t("incidents.empty")).pack(anchor="w", pady=(10, 4))
+            wrap = tk.Frame(section.body, bg=COLOR_PANEL)
+            wrap.pack(fill="x", pady=(10, 4))
+            tk.Label(wrap, text=i18n.t("incidents.empty_title"), font=FONT_BTN, fg=COLOR_MUTED,
+                     bg=COLOR_PANEL).pack(anchor="w")
+            tk.Label(wrap, text=i18n.t("incidents.empty"), font=FONT_HINT, fg=COLOR_TEXT,
+                     bg=COLOR_PANEL, wraplength=520, justify="left").pack(anchor="w", pady=(4, 2))
+            tk.Label(wrap, text=i18n.t("incidents.empty_hint"), font=FONT_HINT, fg=COLOR_MUTED,
+                     bg=COLOR_PANEL, wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
+            tk.Button(
+                wrap, text=i18n.t("incidents.empty_review_audit_button"), font=FONT_HINT, fg=COLOR_TEXT,
+                bg=COLOR_PANEL_ALT, activebackground=COLOR_BORDER, bd=0, cursor="hand2",
+                command=lambda: self._show_page("audit"),
+            ).pack(anchor="w")
             return
         palette = ui_theme.get_palette()
         self.incident_listbox = tk.Listbox(
@@ -578,15 +804,28 @@ class AegisAdminGUI:
         evidence = Section(page, i18n.t("devices.evidence_title"), accent=COLOR_ACCENT)
         evidence.pack(fill="x", padx=16, pady=(0, 20))
         esp32_status_metric = metrics[1]
+        if seconds is not None:
+            # The absolute time is arithmetic derived from the same
+            # real evidence (now - seconds_since_seen), never fabricated;
+            # showing both absolute and relative matches how an operator
+            # actually reads staleness.
+            absolute_text = time.strftime("%H:%M:%S", time.localtime(time.time() - seconds))
+            relative_text = i18n.t("devices.last_seen_seconds_ago", seconds=seconds)
+            if esp32_status_metric.status == pres.STATUS_CRITICAL:
+                relative_text = f"{relative_text} · {i18n.t('devices.stale_badge')}"
+            last_seen_text = f"{absolute_text}  ({relative_text})"
+        else:
+            last_seen_text = i18n.t("status.unknown")
         self._add_fact(
             evidence.body,
             i18n.t("devices.last_seen"),
-            f"{seconds:.0f}s" if seconds is not None else i18n.t("status.unknown"),
+            last_seen_text,
             # Reuse the same staleness-aware status esp32_metric() already
             # computed above (seconds_since_seen vs. DEVICE_OFFLINE_SEC) --
             # a numeric "seconds ago" value existing is not, by itself,
             # evidence of health. A stale last-seen timestamp must not
-            # render as a healthy/green status.
+            # render as a healthy/green status. UNKNOWN (never-seen) stays
+            # visually neutral rather than alarming red.
             status=esp32_status_metric.status,
         )
         self._add_fact(
@@ -634,7 +873,21 @@ class AegisAdminGUI:
             _localize_status_value(esp32.value),
             status=esp32.status,
         )
+        open_incident = self._safe_open_incident()
+        self._add_fact(
+            readiness.body,
+            i18n.t("lockdown.active_incident_label"),
+            f"#{open_incident['id']}" if open_incident else i18n.t("lockdown.no_active_incident"),
+            status=pres.STATUS_CRITICAL if open_incident else pres.STATUS_HEALTHY,
+        )
+        self._add_fact(
+            readiness.body,
+            i18n.t("lockdown.pending_command_label"),
+            self.pending_cmd["action"] if self.pending_cmd else i18n.t("lockdown.no_pending_command"),
+            status=pres.STATUS_WARNING if self.pending_cmd else pres.STATUS_HEALTHY,
+        )
         make_hint(readiness.body, i18n.t("lockdown.evidence_note")).pack(anchor="w", pady=(8, 0))
+        make_hint(readiness.body, i18n.t("lockdown.readiness_disclaimer")).pack(anchor="w", pady=(4, 0))
 
         controls = Section(page, i18n.t("controls.section_title"), accent=COLOR_DANGER)
         controls.pack(fill="x", padx=16, pady=(0, 20))
@@ -831,19 +1084,30 @@ class AegisAdminGUI:
 
     def _build_diagnostics_page(self, parent):
         page = self._new_page(parent, "diagnostics.title", "diagnostics.subtitle")
+
         runtime = Section(page, i18n.t("diagnostics.runtime_title"), accent=COLOR_ACCENT)
         runtime.pack(fill="x", padx=16, pady=(0, 16))
-        facts = (
-            ("diagnostics.profile", os.getenv("AEGIS_PROFILE", i18n.t("status.unknown"))),
-            ("diagnostics.dry_run", self._yes_no(config.DRY_RUN)),
-            ("diagnostics.auto_contain", self._yes_no(config.AUTO_CONTAIN)),
-            ("diagnostics.broker_config", self._configured(config.BROKER_CONFIGURED)),
-            ("diagnostics.mqtt_auth", self._configured(bool(config.MQTT_USER and config.MQTT_PASS))),
-            ("diagnostics.hmac", self._configured(config.SECRET_KEY != config.DEMO_SECRET)),
-            ("diagnostics.admin_pin", self._configured(config.ADMIN_PIN_CONFIGURED)),
-        )
-        for label_key, value in facts:
-            self._add_fact(runtime.body, i18n.t(label_key), value)
+        self._add_fact(runtime.body, i18n.t("diagnostics.profile"),
+                        os.getenv("AEGIS_PROFILE", i18n.t("status.unknown")))
+        self._add_fact(runtime.body, i18n.t("diagnostics.dry_run"), self._yes_no(config.DRY_RUN))
+        self._add_fact(runtime.body, i18n.t("diagnostics.auto_contain"), self._yes_no(config.AUTO_CONTAIN))
+
+        connectivity = Section(page, i18n.t("diagnostics.section_connectivity"), accent=COLOR_BLUE)
+        connectivity.pack(fill="x", padx=16, pady=(0, 16))
+        self._add_fact(connectivity.body, i18n.t("diagnostics.broker_config"),
+                        self._configured(config.BROKER_CONFIGURED))
+        self._add_fact(connectivity.body, i18n.t("diagnostics.mqtt_auth"),
+                        self._configured(bool(config.MQTT_USER and config.MQTT_PASS)))
+
+        security = Section(page, i18n.t("diagnostics.section_security"), accent=COLOR_WARN)
+        security.pack(fill="x", padx=16, pady=(0, 16))
+        self._add_fact(security.body, i18n.t("diagnostics.hmac"),
+                        self._configured(config.SECRET_KEY != config.DEMO_SECRET))
+        self._add_fact(security.body, i18n.t("diagnostics.admin_pin"),
+                        self._configured(config.ADMIN_PIN_CONFIGURED))
+
+        data = Section(page, i18n.t("diagnostics.section_data"), accent=COLOR_PURPLE)
+        data.pack(fill="x", padx=16, pady=(0, 20))
         try:
             audit_ok, _audit_message = db.verify_chain()
             audit_value = i18n.t("diagnostics.audit_valid" if audit_ok else "diagnostics.audit_invalid")
@@ -851,13 +1115,10 @@ class AegisAdminGUI:
         except Exception:
             audit_value = i18n.t("status.unknown")
             audit_status = pres.STATUS_UNKNOWN
-        self._add_fact(
-            runtime.body,
-            i18n.t("diagnostics.database"),
-            self._configured(os.path.exists(config.DB_PATH)),
-        )
-        self._add_fact(runtime.body, i18n.t("diagnostics.audit_chain"), audit_value, status=audit_status)
-        make_hint(runtime.body, i18n.t("diagnostics.no_secrets")).pack(anchor="w", pady=(10, 2))
+        self._add_fact(data.body, i18n.t("diagnostics.database"),
+                        self._configured(os.path.exists(config.DB_PATH)))
+        self._add_fact(data.body, i18n.t("diagnostics.audit_chain"), audit_value, status=audit_status)
+        make_hint(data.body, i18n.t("diagnostics.no_secrets")).pack(anchor="w", pady=(10, 2))
 
     def _configured(self, value):
         return i18n.t("diagnostics.configured" if value else "diagnostics.not_configured")
@@ -994,6 +1255,15 @@ class AegisAdminGUI:
                 i18n.t("badge.esp32_prefix") + _localize_status_value(esp32.value),
                 esp32.status,
             )
+        # Notify only on a genuine online->offline transition (never on the
+        # initial UNKNOWN-because-never-seen state, and only once per
+        # outage), reset once evidence is fresh again.
+        if esp32.status == pres.STATUS_CRITICAL and not self._esp32_offline_notified:
+            self._esp32_offline_notified = True
+            self.notifications.notify_esp32_offline()
+            self._refresh_notification_indicator()
+        elif esp32.status != pres.STATUS_CRITICAL:
+            self._esp32_offline_notified = False
 
         self._refresh_overview_metrics()
 
@@ -1014,6 +1284,7 @@ class AegisAdminGUI:
     # MQTT CALLBACKS (เรียกผ่าน root.after จาก main → thread-safe)
     # =========================================================
     def set_broker_state(self, connected):
+        was_connected = getattr(self, "_broker_connected", None)
         self._broker_connected = bool(connected)
         metric = pres.broker_metric(self._broker_connected)
         if self.session.authenticated and hasattr(self, "badge_broker") and self.badge_broker.winfo_exists():
@@ -1021,6 +1292,15 @@ class AegisAdminGUI:
                 i18n.t("badge.broker_prefix") + _localize_status_value(metric.value),
                 metric.status,
             )
+        # Notify only on a genuine connected->disconnected transition (not
+        # every callback while already known-disconnected), and reset the
+        # flag once reconnected so a later drop notifies again.
+        if not self._broker_connected and was_connected is True and not self._broker_disconnect_notified:
+            self._broker_disconnect_notified = True
+            self.notifications.notify_broker_disconnected()
+            self._refresh_notification_indicator()
+        elif self._broker_connected:
+            self._broker_disconnect_notified = False
         self._refresh_overview_metrics()
 
     def on_status(self, state, rssi, heap):
@@ -1033,8 +1313,13 @@ class AegisAdminGUI:
         if state == "LOCKDOWN" and changed:
             self.trigger_alarm(config.SOUND_LOCKDOWN)
             self.refresh_incident_banner()
+            self.notifications.notify_lockdown_engaged()
+            self._refresh_notification_indicator()
         elif state == "NORMAL" and changed:
             self.trigger_alarm(config.SOUND_RESTORE)
+            if prev == "LOCKDOWN":
+                self.notifications.notify_normal_restored()
+                self._refresh_notification_indicator()
 
         self._refresh_overview_metrics()
 
@@ -1111,8 +1396,54 @@ class AegisAdminGUI:
     def refresh_incident_banner(self):
         try:
             self._refresh_overview_metrics()
+            self._refresh_incident_banner_widget()
         except Exception as e:
             print(f"banner error: {e}")
+
+    def _refresh_incident_banner_widget(self):
+        """Rebuilds the Overview page's active-incident banner from real
+        incident evidence only. Safe to call whether or not Overview is
+        currently the visible page (self-guards on the slot's existence)."""
+        if not hasattr(self, "incident_banner_slot") or not self.incident_banner_slot.winfo_exists():
+            return
+        for child in self.incident_banner_slot.winfo_children():
+            child.destroy()
+        incident = self._safe_open_incident()
+        if incident is None:
+            empty = Section(self.incident_banner_slot, i18n.t("overview.banner_empty_title"), accent=COLOR_MUTED)
+            empty.pack(fill="x")
+            tk.Label(empty.body, text=i18n.t("overview.banner_empty_message"), font=FONT_HINT,
+                     fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w")
+            return
+        banner = Section(self.incident_banner_slot, i18n.t("overview.banner_active_title"), accent=COLOR_DANGER)
+        banner.pack(fill="x")
+        source_ip = incident.get("attacker_ip")
+        self._add_fact(banner.body, i18n.t("overview.banner_incident_label"),
+                        f"#{incident['id']}", status=pres.STATUS_CRITICAL)
+        self._add_fact(banner.body, i18n.t("overview.banner_source_ip_label"),
+                        source_ip or i18n.t("incidents.no_evidence"),
+                        status=pres.STATUS_CRITICAL if source_ip else pres.STATUS_UNKNOWN)
+        self._add_fact(banner.body, i18n.t("overview.banner_state_label"),
+                        incident.get("state") or i18n.t("status.unknown"), status=pres.STATUS_CRITICAL)
+        self._add_fact(banner.body, i18n.t("overview.banner_opened_label"),
+                        incident.get("opened_at") or "—", status=pres.STATUS_NEUTRAL)
+        row = tk.Frame(banner.body, bg=COLOR_PANEL)
+        row.pack(fill="x", pady=(6, 0))
+        tk.Button(
+            row, text=i18n.t("overview.banner_open_incident_button"), font=FONT_HINT, fg="white",
+            bg=COLOR_BLUE, activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+            command=lambda: self._show_page("incidents"),
+        ).pack(side="left")
+        tk.Button(
+            row, text=i18n.t("overview.banner_review_evidence_button"), font=FONT_HINT, fg=COLOR_TEXT,
+            bg=COLOR_PANEL_ALT, activebackground=COLOR_BORDER, bd=0, cursor="hand2",
+            command=lambda: self._show_page("audit"),
+        ).pack(side="left", padx=(6, 0))
+        tk.Button(
+            row, text=i18n.t("overview.banner_go_lockdown_button"), font=FONT_HINT, fg="white",
+            bg=COLOR_WARN, activebackground=COLOR_WARN_HL, bd=0, cursor="hand2",
+            command=lambda: self._show_page("lockdown"),
+        ).pack(side="left", padx=(6, 0))
 
     # =========================================================
     # ARM / DISARM
@@ -1286,6 +1617,18 @@ class AegisAdminGUI:
 
     def on_attacker_detected(self, ip):
      """ถูกเรียกเมื่อ detector ส่ง IP ผู้โจมตีมา → ตัดเน็ตอัตโนมัติ"""
+     # Presentation-only: surface a security notification/toast for the
+     # detection evidence itself, independent of whether auto-containment
+     # actually fires below -- an operator needs to know a detection
+     # happened even when AEGIS_AUTO_CONTAIN is off or the system is
+     # DISARMED. This never changes self.mqtt.last_attacker_ip, never
+     # issues a command, and never counts as containment.
+     open_incident = self._safe_open_incident()
+     self.notifications.notify_attacker_detected(
+         ip, incident_id=open_incident["id"] if open_incident else None
+     )
+     self._refresh_notification_indicator()
+     self._show_security_toast(ip)
      if not config.AUTO_CONTAIN:
         self.log_message(
             f"[{time.strftime('%H:%M:%S')}] [DETECTOR] พบผู้โจมตี {ip} "
@@ -1412,6 +1755,8 @@ class AegisAdminGUI:
             messagebox.showinfo(i18n.t("log.integrity_title"), msg)
         else:
             messagebox.showerror(i18n.t("log.integrity_tamper_title"), msg)
+            self.notifications.notify_audit_integrity_invalid()
+            self._refresh_notification_indicator()
 
     # =========================================================
     # MISC

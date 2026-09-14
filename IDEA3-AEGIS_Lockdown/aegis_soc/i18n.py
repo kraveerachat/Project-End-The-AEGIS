@@ -479,6 +479,127 @@ STRINGS = {
         "th": "ปิด Incident #{incident_id} เรียบร้อยแล้ว",
         "zh": "事件 #{incident_id} 已成功关闭",
     },
+
+    # --- Notification center (header bell + panel + toast) ---
+    "notif.button_label": {"en": "Alerts", "th": "แจ้งเตือน", "zh": "警报"},
+    "notif.panel_title": {"en": "Notifications", "th": "การแจ้งเตือน", "zh": "通知"},
+    "notif.empty": {
+        "en": "No unread notifications.",
+        "th": "ไม่มีการแจ้งเตือนที่ยังไม่ได้อ่าน",
+        "zh": "没有未读通知。",
+    },
+    "notif.unread_count": {"en": "{count} unread", "th": "ยังไม่อ่าน {count} รายการ", "zh": "{count} 条未读"},
+    "notif.ack_button": {"en": "Acknowledge", "th": "รับทราบ", "zh": "确认"},
+    "notif.ack_all_button": {"en": "Acknowledge All", "th": "รับทราบทั้งหมด", "zh": "全部确认"},
+    "notif.close_button": {"en": "Close", "th": "ปิด", "zh": "关闭"},
+    "notif.severity_info": {"en": "INFO", "th": "ข้อมูล", "zh": "信息"},
+    "notif.severity_warning": {"en": "WARNING", "th": "คำเตือน", "zh": "警告"},
+    "notif.severity_critical": {"en": "CRITICAL", "th": "วิกฤต", "zh": "严重"},
+    "notif.go_to_lockdown_button": {"en": "Go to Lockdown", "th": "ไปที่ล็อกดาวน์", "zh": "前往锁定页面"},
+    "notif.open_incidents_button": {"en": "Open Incidents", "th": "เปิดหน้าล่าเหตุการณ์", "zh": "打开事件页面"},
+    "notif.review_audit_button": {"en": "Review Audit Log", "th": "ตรวจสอบบันทึกการตรวจสอบ", "zh": "查看审计日志"},
+    "notif.containment_manual_note": {
+        "en": "Automatic containment is disabled. Containment requires a manual operator action.",
+        "th": "การกักกันอัตโนมัติปิดอยู่ ต้องดำเนินการกักกันด้วยตนเองโดยผู้ปฏิบัติงาน",
+        "zh": "自动遏制已禁用。遏制需要操作员手动执行。",
+    },
+    "notif.toast_timestamp_label": {"en": "Detection evidence received", "th": "ได้รับหลักฐานการตรวจจับ", "zh": "收到检测证据"},
+    "notif.toast_source_label": {"en": "Source IP", "th": "IP ต้นทาง", "zh": "来源 IP"},
+    "notif.source_unknown": {"en": "UNKNOWN", "th": "ไม่ทราบ", "zh": "未知"},
+    "notif.broker_disconnected_title": {
+        "en": "MQTT Broker Disconnected",
+        "th": "การเชื่อมต่อ MQTT Broker ขาดหาย",
+        "zh": "MQTT 代理已断开",
+    },
+    "notif.broker_disconnected_message": {
+        "en": "The console lost its connection to the MQTT broker.",
+        "th": "คอนโซลขาดการเชื่อมต่อกับ MQTT Broker",
+        "zh": "控制台与 MQTT 代理的连接已断开。",
+    },
+    "notif.esp32_offline_title": {"en": "ESP32 Evidence Stale", "th": "หลักฐาน ESP32 ไม่เป็นปัจจุบัน", "zh": "ESP32 证据已过期"},
+    "notif.esp32_offline_message": {
+        "en": "No message has been received from the ESP32 within the configured offline threshold.",
+        "th": "ไม่ได้รับข้อความจาก ESP32 ภายในเวลาที่กำหนดว่าออฟไลน์",
+        "zh": "在设定的离线阈值时间内未收到来自 ESP32 的消息。",
+    },
+    "notif.security_alert_title": {"en": "Security Alert", "th": "การแจ้งเตือนความปลอดภัย", "zh": "安全警报"},
+    "notif.security_alert_message": {
+        "en": "Detection evidence received. Source IP: {source_ip}",
+        "th": "ได้รับหลักฐานการตรวจจับ IP ต้นทาง: {source_ip}",
+        "zh": "已收到检测证据。来源 IP：{source_ip}",
+    },
+    "notif.security_alert_message_unknown": {
+        "en": "Detection evidence received. Source IP is not known.",
+        "th": "ได้รับหลักฐานการตรวจจับ แต่ไม่ทราบ IP ต้นทาง",
+        "zh": "已收到检测证据，但来源 IP 未知。",
+    },
+    "notif.lockdown_engaged_title": {"en": "Uplink Lockdown Reported", "th": "รายงานล็อกดาวน์อัปลิงก์", "zh": "报告上行链路锁定"},
+    "notif.lockdown_engaged_message": {
+        "en": "The device reported an uplink state transition to LOCKDOWN.",
+        "th": "อุปกรณ์รายงานการเปลี่ยนสถานะอัปลิงก์เป็น LOCKDOWN",
+        "zh": "设备报告上行链路状态转为 LOCKDOWN。",
+    },
+    "notif.normal_restored_title": {"en": "Uplink Normal Reported", "th": "รายงานอัปลิงก์กลับสู่ปกติ", "zh": "报告上行链路恢复正常"},
+    "notif.normal_restored_message": {
+        "en": "The device reported an uplink state transition to NORMAL.",
+        "th": "อุปกรณ์รายงานการเปลี่ยนสถานะอัปลิงก์เป็น NORMAL",
+        "zh": "设备报告上行链路状态转为 NORMAL。",
+    },
+    "notif.audit_invalid_title": {"en": "Audit Chain Integrity Failure", "th": "ลูกโซ่บันทึกตรวจสอบไม่สมบูรณ์", "zh": "审计链完整性失败"},
+    "notif.audit_invalid_message": {
+        "en": "The audit hash chain failed verification. Review the Audit Log immediately.",
+        "th": "การตรวจสอบลูกโซ่แฮชของบันทึกล้มเหลว กรุณาตรวจสอบบันทึกการตรวจสอบทันที",
+        "zh": "审计哈希链验证失败。请立即查看审计日志。",
+    },
+
+    # --- Overview: active security incident banner ---
+    "overview.banner_active_title": {"en": "ACTIVE SECURITY INCIDENT", "th": "เหตุการณ์ความปลอดภัยที่กำลังเกิดขึ้น", "zh": "活跃安全事件"},
+    "overview.banner_incident_label": {"en": "Incident", "th": "เหตุการณ์", "zh": "事件"},
+    "overview.banner_source_ip_label": {"en": "Source IP", "th": "IP ต้นทาง", "zh": "来源 IP"},
+    "overview.banner_state_label": {"en": "State", "th": "สถานะ", "zh": "状态"},
+    "overview.banner_opened_label": {"en": "Opened", "th": "เปิดเมื่อ", "zh": "开启时间"},
+    "overview.banner_open_incident_button": {"en": "Open Incident", "th": "เปิดดูเหตุการณ์", "zh": "打开事件"},
+    "overview.banner_review_evidence_button": {"en": "Review Evidence", "th": "ตรวจสอบหลักฐาน", "zh": "查看证据"},
+    "overview.banner_go_lockdown_button": {"en": "Go to Lockdown", "th": "ไปที่ล็อกดาวน์", "zh": "前往锁定页面"},
+    "overview.banner_empty_title": {"en": "No Active Incidents", "th": "ไม่มีเหตุการณ์ที่กำลังเกิดขึ้น", "zh": "没有活跃事件"},
+    "overview.banner_empty_message": {
+        "en": "No open security incident is currently recorded.",
+        "th": "ขณะนี้ไม่มีเหตุการณ์ความปลอดภัยที่เปิดอยู่ในบันทึก",
+        "zh": "当前没有记录的未结安全事件。",
+    },
+    "overview.section_system": {"en": "System", "th": "ระบบ", "zh": "系统"},
+    "overview.section_connectivity": {"en": "Connectivity", "th": "การเชื่อมต่อ", "zh": "连接状态"},
+    "overview.section_safety": {"en": "Safety", "th": "ความปลอดภัย", "zh": "安全性"},
+
+    # --- Devices: staleness presentation ---
+    "devices.last_seen_age": {"en": "Evidence age", "th": "อายุของหลักฐาน", "zh": "证据时效"},
+    "devices.last_seen_seconds_ago": {"en": "{seconds:.0f}s ago", "th": "{seconds:.0f} วินาทีที่แล้ว", "zh": "{seconds:.0f} 秒前"},
+    "devices.stale_badge": {"en": "STALE", "th": "ไม่เป็นปัจจุบัน", "zh": "已过期"},
+
+    # --- Incidents: improved empty state ---
+    "incidents.empty_title": {"en": "NO ACTIVE INCIDENTS", "th": "ไม่มีเหตุการณ์ที่กำลังเกิดขึ้น", "zh": "没有活跃事件"},
+    "incidents.empty_hint": {
+        "en": "Security alerts and incident evidence will appear here when detected.",
+        "th": "การแจ้งเตือนความปลอดภัยและหลักฐานเหตุการณ์จะปรากฏที่นี่เมื่อตรวจพบ",
+        "zh": "检测到安全警报和事件证据时将显示在此处。",
+    },
+    "incidents.empty_review_audit_button": {"en": "Review Audit Log", "th": "ตรวจสอบบันทึกการตรวจสอบ", "zh": "查看审计日志"},
+
+    # --- Lockdown: readiness disclaimer + additional facts ---
+    "lockdown.readiness_disclaimer": {
+        "en": "Containment readiness summarizes available evidence. It does not guarantee physical isolation.",
+        "th": "ความพร้อมด้านการกักกันสรุปจากหลักฐานที่มีอยู่ ไม่ได้รับประกันการแยกระบบทางกายภาพ",
+        "zh": "遏制就绪状态基于现有证据总结，并不保证物理隔离。",
+    },
+    "lockdown.active_incident_label": {"en": "Active Incident", "th": "เหตุการณ์ที่กำลังเกิดขึ้น", "zh": "活跃事件"},
+    "lockdown.no_active_incident": {"en": "NONE", "th": "ไม่มี", "zh": "无"},
+    "lockdown.pending_command_label": {"en": "Pending Command", "th": "คำสั่งที่รอดำเนินการ", "zh": "待处理命令"},
+    "lockdown.no_pending_command": {"en": "NONE", "th": "ไม่มี", "zh": "无"},
+
+    # --- Diagnostics: grouped sections ---
+    "diagnostics.section_connectivity": {"en": "Connectivity Configuration", "th": "การตั้งค่าการเชื่อมต่อ", "zh": "连接配置"},
+    "diagnostics.section_security": {"en": "Security Configuration", "th": "การตั้งค่าความปลอดภัย", "zh": "安全配置"},
+    "diagnostics.section_data": {"en": "Data Integrity", "th": "ความสมบูรณ์ของข้อมูล", "zh": "数据完整性"},
 }
 
 
