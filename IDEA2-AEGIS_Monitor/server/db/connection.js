@@ -41,6 +41,120 @@ export async function withTransaction(fn) {
   }
 }
 
+export function detectionNodeFromRow(row) {
+  if (!row) return null
+  return {
+    nodeId: row.node_id,
+    cameraId: row.camera_id ?? null,
+    publicKey: row.public_key,
+    publicKeyFingerprint: row.public_key_fingerprint,
+    keyVersion: row.key_version,
+    active: row.active,
+  }
+}
+
+export function uniqueDetectionNodeFromRows(rows) {
+  return rows?.length === 1 ? detectionNodeFromRow(rows[0]) : null
+}
+
+export function physicalCameraFromRow(row) {
+  if (!row) return null
+  const physicalCameraId = Number(row.physical_camera_id)
+  if (!Number.isSafeInteger(physicalCameraId) || physicalCameraId <= 0) return null
+  return {
+    physicalCameraId,
+    nodeId: row.node_id,
+    active: row.active,
+  }
+}
+
+export function aliasPolicyFromRow(row) {
+  if (!row) return null
+  return {
+    nodeId: row.node_id,
+    mode: row.mode,
+    fixedCameraId: row.fixed_camera_id ?? null,
+  }
+}
+
+export function accountAliasFromRow(row) {
+  if (!row) return null
+  return {
+    nodeId: row.node_id,
+    userId: row.user_id,
+    logicalCameraId: row.logical_camera_id,
+  }
+}
+
+/** Authoritative registration lookup. Heartbeat data is never consulted. */
+export async function getDetectionNode(nodeId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, active
+       FROM detection_nodes WHERE node_id = $1 LIMIT 1`,
+    [nodeId],
+  )
+  return detectionNodeFromRow(rows[0])
+}
+
+export async function getActiveDetectionNode(nodeId) {
+  const node = await getDetectionNode(nodeId)
+  return node?.active ? node : null
+}
+
+/** Legacy logical-camera lookup for migration compatibility; ambiguity fails closed. */
+export async function getDetectionNodeForCamera(cameraId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, active
+       FROM detection_nodes WHERE camera_id = $1 LIMIT 2`,
+    [cameraId],
+  )
+  return uniqueDetectionNodeFromRows(rows)
+}
+
+export async function getPhysicalCameraForNode(nodeId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT physical_camera_id, node_id, active
+       FROM physical_cameras WHERE node_id = $1 LIMIT 1`,
+    [nodeId],
+  )
+  return physicalCameraFromRow(rows[0])
+}
+
+export async function getPhysicalCamera(physicalCameraId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT physical_camera_id, node_id, active
+       FROM physical_cameras WHERE physical_camera_id = $1 LIMIT 1`,
+    [physicalCameraId],
+  )
+  return physicalCameraFromRow(rows[0])
+}
+
+export async function getNodeAliasPolicy(nodeId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT node_id, mode, fixed_camera_id
+       FROM node_camera_alias_policy WHERE node_id = $1 LIMIT 1`,
+    [nodeId],
+  )
+  return aliasPolicyFromRow(rows[0])
+}
+
+export async function getNodeAccountAlias(nodeId, userId) {
+  if (!pool) return null
+  const { rows } = await pool.query(
+    `SELECT node_id, user_id, logical_camera_id
+       FROM node_account_camera_alias
+      WHERE node_id = $1 AND user_id = $2
+      LIMIT 1`,
+    [nodeId, userId],
+  )
+  return accountAliasFromRow(rows[0])
+}
+
 // ── dev fallback (ไม่มี DATABASE_URL) — security model เหมือนโหมดจริงทุกอย่าง ──
 const DEV_USERS = DATABASE_URL
   ? []
