@@ -115,9 +115,9 @@ edit_policy: owner-writable
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
 | Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`) |
-| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E & S5.7-F CLOSED / ACCEPTED; S5.7-G NEXT (NOT STARTED)** |
+| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F & S5.7-G CLOSED / ACCEPTED; S5.7-H NEXT (NOT STARTED)** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7-F Information Leakage / Response Hygiene CLOSED / ACCEPTED (read-only inspection of 47 responses from B–E; zero private IP, DB error, stack trace, internal path, container, or X-Powered-By leaks; Server: cloudflare and CF-RAY edge metadata confirmed; E02 query IP is inert user data; no new live requests; zero mutations); S5.7-G next |
+| Last checkpoint | S5.7-G Strict Security Matrix Consolidation CLOSED / ACCEPTED (75 total rows: 74 PASS, 0 FAIL, 1 NOT TESTED; all 14 metadata fields verified per row; attribution boundaries preserved; zero mutations; zero new requests); S5.7-H next |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
 | Test audit side effect allowed | **NO** |
@@ -125,7 +125,7 @@ edit_policy: owner-writable
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **S5.7-G SECURITY MATRIX CONSOLIDATION** |
+| Next gate | **S5.7-H FINAL RECONCILIATION / CLOSEOUT** |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
@@ -135,8 +135,8 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, and S5.7-F are complete and accepted. S5.7-G is next
-(security matrix consolidation across all 14 metadata fields with NOT_APPLICABLE semantics; not started).
+S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F, and S5.7-G are complete and accepted. S5.7-H is next
+(final evidence reconciliation, single immutable receipt creation, and closeout; not started).
 
 ### Out of scope and safety boundaries
 
@@ -162,6 +162,7 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7-D Live path normalization / traversal security matrix | Bounded Class-1 path traversal and encoded-character probes against `/s/...` targets | **CLOSED / PASS** | Human Owner verified live execution (8 GET requests, UTC 2026-09-14T20:53:14Z–20:53:19Z); all 8 returned HTTP 404, CURL_EXIT 0; zero IP/stack/DB/container leaks; audit delta 1 <= hard max 8 (row 856 DENIED for canonical D01); D02–D08 produced zero SHARE_REDEEM rows; client percent-hex case canonicalization documented for D03/D04/D07/D08; GATEWAY_RAW_RECEIPT=NOT_PROVEN; temporary authorization revoked | S5.7-D documentation checkpoint | Closed / Accepted | S5.7-E through H; one final receipt at H | S5.7-E URL / QUERY / REDIRECT SAFETY |
 | S5.7-E Live URL / query / redirect safety security matrix | Bounded Class-0 HTTP -> HTTPS redirect and query parameter safety probes against non-share path | **CLOSED / PASS** | Human Owner verified Class-0 live execution (2 GET requests, UTC 2026-09-14T21:08:00Z–21:08:01Z); E01 and E02 returned HTTP 308 with Location strictly https://share.aegistk-pb.com/...; no redirect to unapproved host or IP; inert query parameters preserved; no body reflection; no private origin disclosure; E01 client target UNPROVEN / normalization UNKNOWN; E02 normalization NONE; REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED; zero config mutation | S5.7-E documentation checkpoint | Closed / Accepted | S5.7-F through H; one final receipt at H | S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE |
 | S5.7-F Information leakage / response hygiene review | Read-only inspection and consolidation of response headers and bounded bodies across accepted B–E evidence | **CLOSED / PASS** | Read-only review of 47 responses across S5.7-B (20), C (17), D (8), and E (2); zero private IP, database error, stack trace, internal path, container name, or X-Powered-By leaks detected; Server: cloudflare and CF-RAY treated as expected edge metadata; E02 query IP is inert user data; no unsafe reflection; new live requests = 0; zero configuration or runtime mutations | S5.7-F documentation checkpoint | Closed / Accepted | S5.7-G through H; one final receipt at H | S5.7-G SECURITY MATRIX CONSOLIDATION |
+| S5.7-G Strict security matrix consolidation | Consolidation of all accepted A–F evidence into strict 7-column schema with 14 metadata fields per row | **CLOSED / PASS** | 75 rows total (74 PASS, 0 FAIL, 1 NOT TESTED); all 14 metadata fields present on every row with NOT_APPLICABLE semantics; statuses strictly PASS/FAIL/NOT TESTED; attribution boundaries preserved; zero new live requests; zero configuration or runtime mutations | S5.7-G documentation checkpoint | Closed / Accepted | S5.7-H; one final receipt at H | S5.7-H FINAL RECONCILIATION / CLOSEOUT |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -384,7 +385,37 @@ Reviewed on 2026-09-15 via read-only inspection and consolidation of accepted re
   - Attribution limitations from B–E are fully preserved.
   - Zero secrets, tokens, or credentials copied into docs.
   - `RUNTIME_SOURCE_CHANGED=NO`, `GATEWAY_CHANGED=NO`, `PRODUCTION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
-- **Outcome**: S5.7-F is **CLOSED / ACCEPTED / PASS**. S5.7-G is **NEXT** (`S5_7_G_STATE=NOT_STARTED`). Next Gate: `S5.7-G SECURITY MATRIX CONSOLIDATION`.
+- **Outcome**: S5.7-F is **CLOSED / ACCEPTED / PASS**.
+
+### S5.7-G Strict security matrix consolidation — CLOSED / PASS
+
+Consolidated on 2026-09-15 from accepted S5.7-A through S5.7-F evidence without new network activity:
+- **Authorization & Boundary**: Documentation consolidation only (`NEW_LIVE_REQUESTS=0`, `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`). Zero new network requests, zero probe reruns, zero Production or database access.
+- **Consolidated Matrix Metrics**:
+  - `MATRIX_ROW_COUNT=75`
+  - `MATRIX_PASS_COUNT=74`
+  - `MATRIX_FAIL_COUNT=0`
+  - `MATRIX_NOT_TESTED_COUNT=1`
+  - `ALL_ROWS_HAVE_14_METADATA_FIELDS=YES`
+  - `STATUS_VOCABULARY_VALID=YES` (strictly `PASS`, `FAIL`, `NOT TESTED`)
+  - `ATTRIBUTION_BOUNDARIES_PRESERVED=YES`
+  - `SECURITY_ATTACK_CLASS_FAILURES=0`
+  - `POST_DEFECT_RERUN_POLICY=NOT_APPLICABLE(NO_SECURITY_ATTACK_CLASS_FAIL)`
+- **Coverage Summary (75 Total Rows)**:
+  - *S5.7-A Fresh Read-Only Preflight*: 13 rows (A01–A12 `PASS`; A-UI direct runtime proof preserved as `NOT TESTED` under secret-safe boundary).
+  - *Local Prerequisites*: 6 rows (P01–P05 Gateway runtime test suite passing 18/18 with zero upstream contact; P06 full canonical regression bar completed with 1228 passed, 0 new failures).
+  - *S5.7-B Public Surface Enumeration*: 20 rows (10 finite paths, GET and HEAD; all 20 returned HTTP 404, CURL_EXIT 0, zero leaks).
+  - *S5.7-C Method / Host / Forwarding Matrix*: 17 rows (C01–C17; 8 confirmed DENIED audit rows within budget; spoof source delta 0; all fail-closed).
+  - *S5.7-D Path Normalization Matrix*: 8 rows (D01–D08; all HTTP 404, CURL_EXIT 0, zero leaks; only canonical D01 generated audit row 856; client case canonicalization documented; Gateway raw receipt NOT PROVEN).
+  - *S5.7-E URL / Query / Redirect Safety*: 2 rows (E01–E02; both returned HTTP 308 to approved HTTPS authority; no open redirect; inert query parameters preserved; redirect layer NOT_UNIQUELY_ATTRIBUTED).
+  - *S5.7-F Information Leakage / Response Hygiene*: 9 aggregate review rows (F01–F09; zero leaks detected across all defined classes in inspected B–E responses).
+- **Attribution & Known Limitations Preserved**:
+  - Cloudflare edge traversal proven across public responses; Gateway rejection attribution for edge-terminated responses remains NOT TESTED.
+  - Gateway raw receipt for live traversal/encoded probes remains NOT PROVEN; local Gateway harness remains canonical raw-path evidence.
+  - Redirect generation layer remains NOT_UNIQUELY_ATTRIBUTED between Cloudflare edge and origin.
+  - Direct container runtime proof of UI state remains NOT TESTED under secret-safe boundary; governance truth (G5 APPROVED, G6 OPEN, UI OFF) retained.
+- **Canonical Table Location**: The complete 75-row Markdown matrix is maintained in `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md` under Task 7.
+- **Outcome**: S5.7-G is **CLOSED / ACCEPTED / PASS**. S5.7-H is **NEXT** (`S5_7_H_STATE=NOT_STARTED`). Next Gate: `S5.7-H FINAL RECONCILIATION / CLOSEOUT`.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 

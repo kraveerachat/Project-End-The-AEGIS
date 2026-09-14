@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS; S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E & S5.7-F CLOSED / ACCEPTED; S5.7-G NEXT; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS; S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F & S5.7-G CLOSED / ACCEPTED; S5.7-H NEXT; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -89,8 +89,11 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   UNKNOWN, E02 normalization NONE, REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED); S5.7-F (Information Leakage / Response Hygiene)
   is **CLOSED / ACCEPTED** on 2026-09-15 (read-only response hygiene and information leakage review across 47 accepted responses in B–E; zero private IP,
   database error, stack trace, internal path, container name, or X-Powered-By leaks detected; Server: cloudflare and CF-RAY treated as expected edge metadata;
-  E02 private IP is inert query data; zero new live requests; zero configuration or runtime mutations); main branch reconciled to `c448dfb9...`
-  via normal merge `17b1165a`; S5.7-G is **NEXT** (security matrix consolidation; not started); final receipt count remains 0 (`FINAL_S5_7_RECEIPT_COUNT=0`).
+  E02 private IP is inert query data; zero new live requests; zero configuration or runtime mutations); S5.7-G (Strict Security Matrix Consolidation)
+  is **CLOSED / ACCEPTED** on 2026-09-15 (all 75 accepted rows consolidated under strict 7-column schema with 14 metadata fields per row: 74 PASS, 0 FAIL,
+  1 NOT TESTED for UI direct runtime proof; attribution boundaries preserved; zero new live requests; zero configuration or runtime mutations);
+  main branch reconciled to `c448dfb9...` via normal merge `17b1165a`; S5.7-H is **NEXT** (final reconciliation and receipt; not started);
+  final receipt count remains 0 (`FINAL_S5_7_RECEIPT_COUNT=0`).
   `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
   `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are **NOT AUTHORIZED**;
   S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.
