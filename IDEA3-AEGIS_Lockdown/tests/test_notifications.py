@@ -186,3 +186,61 @@ def test_no_notification_field_encodes_attack_classification():
     n = center.notify_attacker_detected("203.0.113.9")
     allowed_kwarg_keys = {"source_ip"}
     assert set(n.format_kwargs.keys()) <= allowed_kwarg_keys
+
+
+# ----------------------------------------------------------------------
+# containment_mode_key -- configuration context only, never an execution
+# or success claim.
+# ----------------------------------------------------------------------
+
+def test_containment_mode_key_manual_when_auto_contain_disabled():
+    assert notif.containment_mode_key(False) == "notif.containment_manual"
+
+
+def test_containment_mode_key_automatic_when_auto_contain_enabled():
+    assert notif.containment_mode_key(True) == "notif.containment_automatic"
+
+
+def test_containment_mode_key_is_a_pure_function_of_its_argument():
+    # Calling it repeatedly with the same input must never drift -- there
+    # is no hidden global state, no timestamp, nothing evidence-fabricating.
+    for _ in range(5):
+        assert notif.containment_mode_key(False) == "notif.containment_manual"
+        assert notif.containment_mode_key(True) == "notif.containment_automatic"
+
+
+# ----------------------------------------------------------------------
+# notification_panel_height -- adaptive, capped window sizing.
+# ----------------------------------------------------------------------
+
+def test_panel_height_is_compact_for_zero_notifications():
+    assert notif.notification_panel_height(0) == notif.PANEL_MIN_HEIGHT
+
+
+def test_panel_height_is_compact_for_negative_count_defensive():
+    assert notif.notification_panel_height(-1) == notif.PANEL_MIN_HEIGHT
+
+
+def test_panel_height_grows_with_notification_count():
+    one = notif.notification_panel_height(1)
+    two = notif.notification_panel_height(2)
+    five = notif.notification_panel_height(5)
+    assert notif.PANEL_MIN_HEIGHT <= one < two < five
+
+
+def test_panel_height_never_exceeds_desktop_safe_maximum():
+    for count in (10, 50, 500, 10_000):
+        assert notif.notification_panel_height(count) == notif.PANEL_MAX_HEIGHT
+
+
+def test_panel_height_never_below_minimum_or_above_maximum_for_any_count():
+    for count in range(-5, 60):
+        height = notif.notification_panel_height(count)
+        assert notif.PANEL_MIN_HEIGHT <= height <= notif.PANEL_MAX_HEIGHT
+
+
+def test_panel_max_height_stays_usable_at_1366x768():
+    # A hard requirement from the task: the panel must remain usable at
+    # 1366x768 -- leave meaningful room for the taskbar/title bar/other
+    # chrome rather than consuming the entire vertical resolution.
+    assert notif.PANEL_MAX_HEIGHT < 768

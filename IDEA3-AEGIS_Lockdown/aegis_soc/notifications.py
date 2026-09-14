@@ -198,3 +198,45 @@ class NotificationCenter:
             message_key="notif.audit_invalid_message",
             navigation_target=NAV_AUDIT,
         )
+
+
+def containment_mode_key(auto_contain: bool) -> str:
+    """Return the i18n key naming the current containment mode, derived
+    purely from the existing AEGIS_AUTO_CONTAIN configuration flag.
+
+    This is configuration context only -- it never claims containment has
+    actually executed, succeeded, or that isolation was verified. It only
+    distinguishes "an operator must act" (manual) from "the system may
+    act on its own" (automatic), which is a fact about current
+    configuration, not a claim about this specific alert's outcome.
+    """
+    return "notif.containment_automatic" if auto_contain else "notif.containment_manual"
+
+
+# ----------------------------------------------------------------------
+# Notification Center window sizing (pure; no tkinter dependency here so
+# the growth/cap logic itself stays headlessly testable). gui.py applies
+# the returned pixel height to the actual Toplevel.
+# ----------------------------------------------------------------------
+PANEL_WIDTH = 420
+PANEL_MIN_HEIGHT = 160
+PANEL_MAX_HEIGHT = 640
+PANEL_HEADER_HEIGHT = 56
+PANEL_ROW_HEIGHT = 132
+
+
+def notification_panel_height(count: int) -> int:
+    """Window height (px) for the notification panel given how many
+    notifications it will render.
+
+    Zero or a small count stays compact (no large unused dark area);
+    height grows with content up to a desktop-safe maximum so the panel
+    remains usable at 1366x768; a scroll region (built by the caller)
+    keeps every notification reachable beyond that cap regardless of
+    count. Width is not touched here (kept fixed so Thai/Chinese text
+    that already fits is never at risk of new clipping).
+    """
+    if count <= 0:
+        return PANEL_MIN_HEIGHT
+    content_height = PANEL_HEADER_HEIGHT + count * PANEL_ROW_HEIGHT
+    return max(PANEL_MIN_HEIGHT, min(PANEL_MAX_HEIGHT, content_height))

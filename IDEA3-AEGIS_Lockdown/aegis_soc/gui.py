@@ -406,6 +406,8 @@ class AegisAdminGUI:
             )
         if self._notif_panel is not None and self._notif_panel.winfo_exists():
             self._build_notification_panel_contents(self._notif_panel)
+            height = notif.notification_panel_height(len(self.notifications.all()))
+            self._notif_panel.geometry(f"{notif.PANEL_WIDTH}x{height}")
 
     _SEVERITY_KEYS = {
         notif.SEVERITY_INFO: "notif.severity_info",
@@ -431,7 +433,8 @@ class AegisAdminGUI:
         panel = tk.Toplevel(self.root)
         panel.title(i18n.t("notif.panel_title"))
         panel.configure(bg=COLOR_BG)
-        panel.geometry("420x480")
+        height = notif.notification_panel_height(len(self.notifications.all()))
+        panel.geometry(f"{notif.PANEL_WIDTH}x{height}")
         panel.transient(self.root)
         panel.protocol("WM_DELETE_WINDOW", self._close_notification_panel)
         self._notif_panel = panel
@@ -475,6 +478,8 @@ class AegisAdminGUI:
                  fg=COLOR_TEXT, bg=COLOR_PANEL, wraplength=360, justify="left").pack(anchor="w", pady=(4, 4))
         tk.Label(card.body, text=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item.timestamp)),
                  font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w")
+        if item.category == notif.CATEGORY_SECURITY_ALERT:
+            self._add_containment_context_line(card.body)
         row = tk.Frame(card.body, bg=COLOR_PANEL)
         row.pack(fill="x", pady=(6, 0))
         if not item.acknowledged:
@@ -490,6 +495,18 @@ class AegisAdminGUI:
                 activebackground=COLOR_BORDER, bd=0, cursor="hand2",
                 command=lambda target=item.navigation_target: self._navigate_from_notification(target),
             ).pack(side="left", padx=(6, 0))
+
+    def _add_containment_context_line(self, parent):
+        """Configuration context only -- see notifications.containment_mode_key.
+        Never claims containment executed, succeeded, or was verified;
+        only names whether the system may act on its own (Automatic) or
+        an operator must (Manual)."""
+        key = notif.containment_mode_key(config.AUTO_CONTAIN)
+        fg = COLOR_TEXT if config.AUTO_CONTAIN else COLOR_WARN_HL
+        tk.Label(
+            parent, text=f"{i18n.t('notif.containment_label')} {i18n.t(key)}", font=FONT_HINT,
+            fg=fg, bg=COLOR_PANEL,
+        ).pack(anchor="w", pady=(4, 0))
 
     def _acknowledge_notification(self, notification_id):
         self.notifications.acknowledge(notification_id)
@@ -526,6 +543,7 @@ class AegisAdminGUI:
                  fg=COLOR_TEXT, bg=COLOR_PANEL).pack(anchor="w", pady=(4, 0))
         tk.Label(body, text=f"{i18n.t('notif.toast_timestamp_label')}: {time.strftime('%H:%M:%S')}",
                  font=FONT_HINT, fg=COLOR_MUTED, bg=COLOR_PANEL).pack(anchor="w")
+        self._add_containment_context_line(body)
         if not config.AUTO_CONTAIN:
             tk.Label(body, text=i18n.t("notif.containment_manual_note"), font=FONT_HINT, fg=COLOR_WARN_HL,
                      bg=COLOR_PANEL, wraplength=280, justify="left").pack(anchor="w", pady=(6, 0))

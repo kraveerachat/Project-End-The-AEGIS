@@ -183,3 +183,17 @@ def test_diagnostics_section_grouping_keys_exist_for_all_languages():
         for code in i18n.LANGUAGES:
             i18n.set_language(code)
             assert i18n.t(key) != key
+
+
+def test_containment_mode_keys_are_localized_and_distinct_in_all_languages():
+    for code in i18n.LANGUAGES:
+        i18n.set_language(code)
+        label = i18n.t("notif.containment_label")
+        manual = i18n.t("notif.containment_manual")
+        automatic = i18n.t("notif.containment_automatic")
+        assert label != "notif.containment_label"
+        assert manual != "notif.containment_manual"
+        assert automatic != "notif.containment_automatic"
+        # Manual and Automatic must never render as the same word --
+        # this is the whole point of the containment-mode context line.
+        assert manual != automatic
