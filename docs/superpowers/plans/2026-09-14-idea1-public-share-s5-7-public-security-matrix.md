@@ -94,9 +94,11 @@ If `origin/main` advances during S5.7:
    - **FORBIDDEN:** `git rebase`, `git commit --amend`, `git reset --hard`, `git push --force`.
 4. **Current Status:**
    - S5.6 merge baseline: `fe75bc53c1fd3a3103708470dfb7111996b80eff`
-   - Reviewed `origin/main` advancement: `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (IDEA2-only)
-   - Normal merge commit: `2f73d08062c5a066943c4eafca0908d9d0985d1e`
-   - Status: `MAIN_RECONCILED=YES`.
+   - Reviewed `origin/main` advancement 1: `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (IDEA2-only, normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`)
+   - Reviewed `origin/main` advancement 2: `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` (IDEA3 PR #127 docs only, zero IDEA1/Gateway overlap)
+   - Merge-base before second reconciliation: `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`
+   - Normal merge commit: `c53208a64ca3b4147a0207d15d59dc9492a2f884`
+   - Status: `MAIN_RECONCILED=YES` (both reconciliations verified cleanly, zero conflicts).
 
 ---
 
@@ -135,18 +137,26 @@ Live probes are categorized into three strict risk classes:
 **Finding B (Raw Request Target Preservation):**
 The repository already contains raw-request-target-preserving test harnesses in existing Node HTTP tests (primarily `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js` using raw `node:http`). Do **NOT** invent a new harness. Existing patterns must be reused.
 
-**Finding C (Local Coverage Gaps):**
-Relevant local disposable tests do not yet cover all planned:
-- `TRACE` method fail-closed handling
-- Double-encoded traversal (`/s/%252e%252e%252f...`)
-- Encoded slash (`/s/%2f...`)
-- Encoded backslash (`/s/%5c...`)
-- Duplicate slash (`/s//...`)
+**Finding C (Local Coverage Gaps — Resolved):**
+The local coverage gaps for planned S5.7-C/D edge cases have been implemented and verified in the Gateway runtime test harness (`IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js`):
+- `TRACE` method fail-closed handling (`PS3-RUNTIME-5`)
+- Double-encoded traversal: `/s/%252e%252e%252fhealthz` (`PS3-RUNTIME-6`)
+- Encoded slash: `/s/%2finvalid-token-probe` (`PS3-RUNTIME-6`)
+- Encoded backslash: `/s/%5cinvalid-token-probe` (`PS3-RUNTIME-6`)
+- Duplicate slash: `/s//invalid-token-probe` (`PS3-RUNTIME-6`)
 
-**Prerequisite Gate:**
-Before running live public C or D probes against `share.aegistk-pb.com`, these edge cases must be implemented and pass in the local disposable Gateway/Express test suites.
-- Tests must assert: expected fail-closed behavior, zero upstream contact where applicable, and raw request target preservation.
-- **Implementation Boundary:** These test suites will be implemented by **Codex or Claude Code** under a separate ChatGPT code-change gate. Gemini docs tasks do **NOT** implement tests.
+**Prerequisite Verification Evidence (Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932`):**
+- **Status:** `LOCAL_TEST_PREREQUISITE=PASS` / `COMPLETE / ACCEPTED`.
+- **Targeted Scope:** Diff was +6 / -3 exclusively in `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js`. Production source changed: `NO`. Gateway config changed: `NO`.
+- **Harness & Invariants:** Uses raw `node:http` to preserve byte-exact request targets without client-side normalization (`RAW_REQUEST_TARGET_HARNESS=node:http`). All forbidden paths assert `ZERO_UPSTREAM_CONTACT_ASSERTED=YES`.
+- **Gateway Runtime Suite Result:** 18 passed, 0 failed (`PS3-RUNTIME-5=PASS`, `PS3-RUNTIME-6=PASS`). These tests cover existing secure behavior; no production remediation was required.
+- **Canonical Full Regression:** Canonical command `npm test` completed:
+  `TOTAL_TESTS=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`.
+  Full regression bar completed; `NEW_FAILURES=0`; accepted historical failures unchanged (`AUTOLOCK-5`, `PS6-ENV-4` through `PS6-ENV-8`, `publicShareStageBDiagnostics`, `publicShareStageBUploadClient`).
+- **Non-Canonical Runner Incident Investigation:** An earlier run invoked the non-canonical command `node --test --test-concurrency=1 --test-force-exit "tests/**/*.test.js"`, causing three phantom whole-file failures on Windows/Node 24 (`contentSecurityPolicy.test.js`, `healthTelemetry.test.js`, `trustedProxy.test.js`). Investigation confirmed that each file passes individually, all three pass serially together, and all three pass inside canonical `npm test`. `--test-force-exit` reproduces a libuv forced-exit abort in Node. Classified: `NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`. Do not add `--test-force-exit` to package.json or repository test scripts.
+
+**Current Transition:**
+Local test prerequisites for S5.7-C and S5.7-D are complete. Live C and D execution remains blocked pending explicit human owner / ChatGPT authorization for test audit side effects (`TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`).
 
 ---
 
@@ -364,7 +374,7 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 **Boundary:** Class 1 for share target; local test prerequisite required before live execution. `POST_LIVE_PROBE_DEFAULT=PROHIBITED`.
 
-- [ ] Verify local test prerequisite passed (Finding B & C: local TRACE test passing in Gateway suite).
+- [x] Verify local test prerequisite passed (Finding B & C: local TRACE test passing in Gateway suite) — **PASS** (implemented in commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` in `publicShareGatewayRuntime.test.js`; `PS3-RUNTIME-5=PASS` with zero upstream contact).
 - [ ] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget before sending live requests to `/s/invalid-token-probe`.
 - [ ] Execute bounded method matrix against `/s/invalid-token-probe`: `GET`, `HEAD`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`. (`POST` prohibited by default; `CONNECT` strictly prohibited).
 - [ ] Test Host header variations:
@@ -381,7 +391,7 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 **Boundary:** Class 1; local test prerequisite required before live execution. Finite path list.
 
-- [ ] Verify local test prerequisite passed (Finding C: double-encoded traversal, encoded slash, encoded backslash, duplicate slash passing in local tests with raw request preservation).
+- [x] Verify local test prerequisite passed (Finding C: double-encoded traversal, encoded slash, encoded backslash, duplicate slash passing in local tests with raw request preservation) — **PASS** (implemented in commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` in `publicShareGatewayRuntime.test.js`; `PS3-RUNTIME-6=PASS` for `/s/%252e%252e%252fhealthz`, `/s/%2finvalid-token-probe`, `/s/%5cinvalid-token-probe`, `/s//invalid-token-probe` with `ZERO_UPSTREAM_CONTACT_ASSERTED=YES` and `RAW_REQUEST_TARGET_HARNESS=node:http`).
 - [ ] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget.
 - [ ] Execute finite path list:
   - `/s/invalid-token-probe`
@@ -440,18 +450,26 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Current Status & Next Gate
 
-At this S5.7-B documentation checkpoint:
+At this S5.7 C/D local prerequisite and main reconciliation checkpoint:
 - S5.7 is **IN PROGRESS**
 - S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
 - S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
-- S5.7-C is **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
-- S5.7-D is **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
-- `NEXT` = Implement local disposable prerequisites for S5.7-C/D using Codex or Claude Code (`LOCAL_TEST_PREREQUISITE_IMPLEMENTATION`)
-- `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
-- `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
+- S5.7-C/D local test prerequisites are **COMPLETE / ACCEPTED** (`LOCAL_TEST_PREREQUISITE=PASS`, commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932`; TRACE, double-encoded traversal, encoded slash, encoded backslash, duplicate slash pass in Gateway runtime suite with zero upstream contact)
+- Canonical full regression: full regression bar completed; `NEW_FAILURES=0`; accepted historical failures unchanged (`TOTAL_TESTS=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`)
+- Non-canonical runner incident investigated: `NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`
+- Main reconciled to `origin/main` (`90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` via normal merge `c53208a64ca3b4147a0207d15d59dc9492a2f884`)
+- S5.7-C live execution is **BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE** (no live C probe executed)
+- S5.7-D live execution is **BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE** (no live D probe executed)
+- `NEXT` = Request human owner / ChatGPT authorization for test audit side effects (`TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`)
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
 - `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
+- `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
+- `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
+- `POST_LIVE_PROBE_DEFAULT=PROHIBITED`
+- `CONNECT=STRICTLY_PROHIBITED`
+- `G5=APPROVED`
+- `G6=OPEN`
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `LOCAL_TEST_PREREQUISITE_IMPLEMENTATION` (Codex / Claude Code).
+**Next Gate:** `TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`.

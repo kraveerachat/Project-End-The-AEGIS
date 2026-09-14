@@ -11,7 +11,7 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!important] Current PUBLIC-SHARE-7 state — S5.7-A & S5.7-B CLOSED / ACCEPTED
+> [!important] Current PUBLIC-SHARE-7 state — S5.7-A & S5.7-B CLOSED / ACCEPTED; S5.7-C/D LOCAL PREREQUISITES COMPLETE
 > S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
 > `fe75bc53c1fd3a3103708470dfb7111996b80eff`. S5.7 is **IN PROGRESS** on
 > branch `feat/idea1-public-share-s5-7-public-security-matrix`. S5.7-A (Fresh
@@ -21,10 +21,16 @@ edit_policy: owner-writable
 > returned HTTP 404 with zero private IP, stack trace, database, or container name
 > leaks; `Server: cloudflare` and `CF-RAY` confirmed edge traversal. Attribution is
 > accurately recorded: `PUBLIC_DEFAULT_DENY=PASS`, `CLOUDFLARE_PATH_OBSERVED=YES`,
-> `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED` (not a failure). S5.7-C/D remain
-> **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. Next: implement local disposable
-> prerequisites using Codex or Claude Code. G5 is **APPROVED**; G6 remains **OPEN**;
-> PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
+> `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED` (not a failure).
+> S5.7-C/D local test prerequisites are **COMPLETE / ACCEPTED** (`LOCAL_TEST_PREREQUISITE=PASS`,
+> commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932`; TRACE, double-encoded traversal,
+> encoded slash/backslash, duplicate slash covered in Gateway runtime suite with zero upstream
+> contact; canonical `npm test` full regression bar completed with `NEW_FAILURES=0`).
+> Main branch reconciled to `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` via normal merge
+> commit `c53208a64ca3b4147a0207d15d59dc9492a2f884`.
+> S5.7-C/D live execution remains **BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE**; no live C/D request
+> has been executed yet. Next gate: `TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`. G5 is **APPROVED**;
+> G6 remains **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 > `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`,
 > and UI mutation is **NOT AUTHORIZED**. See [[idea1/idea1-status]] and
 > `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`.
@@ -1534,7 +1540,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A & S5.7-B CLOSED / ACCEPTED; S5.7-C/D BLOCKED_BY_LOCAL_TEST_PREREQUISITE)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`); S5.7-A Fresh Preflight CLOSED / ACCEPTED; S5.7-B Public Surface Enumeration CLOSED / ACCEPTED with verified Human Owner evidence (10 paths, 20 requests GET/HEAD all returned 404, CURL_EXIT 0, zero leaks, PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED; zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`). | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-C/D blocked by local test prerequisite; next is local test prerequisite implementation (Codex/Claude); external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A & S5.7-B CLOSED / ACCEPTED; S5.7-C/D LOCAL_PREREQUISITE_COMPLETE / LIVE_EXECUTION_NOT_YET_AUTHORIZED)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6...` and `90efbc8e...` via `c53208a6...`); S5.7-A Fresh Preflight CLOSED / ACCEPTED; S5.7-B Public Surface Enumeration CLOSED / ACCEPTED (10 paths, 20 requests GET/HEAD all 404, zero leaks); S5.7-C/D local test prerequisites PASS (`7f628fb1...`, full regression NEW_FAILURES=0); zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-C/D live execution blocked by audit side effect gate; next gate: `TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION`; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
