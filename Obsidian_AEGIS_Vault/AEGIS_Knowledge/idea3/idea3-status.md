@@ -49,7 +49,7 @@ PR: not opened yet; a Draft PR states the runtime gates and Production authoriza
 Current state: IN PROGRESS
 Started: 2026-09-15
 Base SHA: `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`
-Last checkpoint: — (recorded after the implementation checkpoint)
+Last checkpoint: `f574365a` (final P2-R1 implementation/evidence checkpoint)
 Production mutation allowed: NO
 
 - **Goal:** prepare, test-first, every IDEA3-owned repository change the D3
@@ -81,13 +81,60 @@ Plan:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P2-R1 | Repository preparation: branch repair, design, plan, TDD source, container and overlay artifacts | IN PROGRESS | baseline Web 493/493 at `c448dfb9`; K1 Git hash and K4 repository scan re-verified | — | pending | plan T1–T9 | continue P2-R1 |
+| P2-R1 | Repository preparation: branch repair, design, plan, TDD source, container and overlay artifacts | PASS | Web 545/545 (baseline 493); NC1–NC4 observed and restored, no residue; overlay parsed by the strict test reader and by `yaml` 2.9.1; K1 Git hash and K4 repository scan re-verified | `f574365a` (final implementation/evidence checkpoint); `dbc9ad92` (image-input checkpoint named by the overlay tag); `c2f82136` (source); `adbd19ec` (design, plan, record) | PASS — LOCAL / STATIC only; nothing built, rendered, or deployed | human review of the Draft PR; Music's 2A/2B staging confirmation; Kla review of IR-1 to IR-6 | P2-E1, in Music's read-only session |
 | P2-E1 | Owner-run read-only Production evidence (design §6.1) | NOT STARTED | — | — | — | K1 live hash, K4 live recheck, HUB Compose labels, Public Share baseline | in Music's read-only session |
 | P2-A | Phase 2A Production window (browser route) | BLOCKED | — | — | — | IDEA1 window closed; IR-1 and IR-5 accepted; K1 PASS; K4 live PASS; Music's authorization | — |
 | P2-B | Phase 2B Production window (machine route, mTLS) | BLOCKED | — | — | — | P2-A; IR-2 and IR-6; K9 DNS/certificate and K10 issuance evidence | — |
 
 Staging into 2A and 2B is the design's recommendation (§4.9) and awaits
 Music's confirmation.
+
+### P2-R1 results — 2026-09-15 (LOCAL / STATIC evidence only)
+
+```text
+BRANCH_REPAIRED              = YES (stale local branch, base 9ea9bbfc, 0 unique commits, renamed to
+                               local/idea3-pr11-phase2-stale-base-20260915; task branch recreated from c448dfb9)
+WEB_SUITE                    = npx vitest run: 30 files, 545 passed, 0 failed (baseline 28 files, 493 at c448dfb9)
+                               environment = local Arch Linux checkout, Node v24.16.0; source_sha = f574365a
+NEW_TESTS                    = P2-C1–C3 config; P2-A1–A7 proxied runtime and header inventory;
+                               P2-S1–S6 D8 store; P2-D1–D5 image and overlay contract
+NEGATIVE_CONTROLS            = NC1 express-session trusts X-Forwarded-Proto from any peer -> P2-A3 failed
+                               NC2 cookie Path removed -> P2-A1 and the loopback cookie-scope test failed
+                               NC3 trust proxy = true -> P2-A3 and P2-A4 failed
+                               NC4 one-pinned-proxy check removed -> P2-C2 failed
+                               each restored with git checkout; residue = none; final 120/120
+OVERLAY_YAML                 = strict test reader PASS; independent parse with yaml 2.9.1 PASS
+IMAGE_BUILD / CONTAINER_RUN  = NOT RUN (no Docker daemon or compose plugin locally)
+COMPOSE_RENDER               = NOT RUN (Production package step 3)
+PYTHON_SUITE                 = 8 failed, 326 passed, 6 skipped (tests/test_mqtt_client.py). Identical on the unmodified
+                               c448dfb9 tree in the same interpreter (system Python 3.14.7, paho-mqtt 1.6.1):
+                               PRE-EXISTING / ENVIRONMENTAL, not introduced; no Python source changed
+COLLABORATION_POLICY_TESTS   = 24 passed, 0 failed
+K1_GIT_ARTIFACT              = blob 5028b6afe49742fd6d4c36eab48691c24e00be2f; SHA-256 ac70bfba…68c6 (re-verified); live NOT PROVEN
+K4_REPOSITORY_COLLISION_SCAN = PASS; live recheck NOT PROVEN
+CHANGED_PATHS                = 16 at f574365a, all IDEA3-owned; IDEA1 0; IDEA2 0; shared 0; historical receipts 0; binaries 0
+SECRET_SCAN                  = added-line hits are test fixtures and /run/secrets paths only; no key, certificate, or credential material
+PR129                        = CLOSED, not merged. Its only overlapping path is this canonical note (new section and two
+                               one-line pointers edited here); no PR #129 source, test, or receipt touched
+INTEGRATION_CHANGE_REQUIRED  = YES (design §5: IR-1 to IR-6)
+PRODUCTION_MUTATION          = NONE
+```
+
+Known limitations:
+
+- The login rate limit keys on the client address the HUB forwards. Phase 0
+  saw only Docker-gateway sources at the HUB, so every browser may share one
+  bucket (five failures lock login for 15 minutes). Real-source preservation
+  is the K11 question; IDEA3 cannot fix it alone.
+- Through the HUB, a login without `X-Forwarded-Proto: https` returns 200 and
+  records a successful login but issues no cookie, so the session is unusable.
+  This fails closed.
+- UI compatibility with a stricter edge `style-src` (without `'unsafe-inline'`)
+  is NOT PROVEN.
+- The overlay image tag names the image-input checkpoint `dbc9ad92cd3e`. Any
+  later image-input change must update it.
+- The HUB Compose service name `hub`, the project name `aegis-prod`, and the
+  four-file order are NOT PROVEN until the P2-E1 evidence confirms them.
 
 ## IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14
 
