@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS; S5.7-A, S5.7-B & S5.7-C CLOSED / ACCEPTED; S5.7-D local prerequisites PASS / live probes BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS; S5.7-A, S5.7-B, S5.7-C & S5.7-D CLOSED / ACCEPTED; S5.7-E NEXT; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -80,10 +80,11 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   (20/20 requests returned 404, zero leaks, PUBLIC_DEFAULT_DENY=PASS, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED);
   S5.7-C (Method / Host / Forwarding-Header Live Matrix) is **CLOSED / ACCEPTED** on 2026-09-14 with verified Human Owner
   evidence (17 requests, 8 confirmed DENIED audit rows <= hard max 9, spoof source persistence 0, zero config mutation,
-  temporary authorization revoked); S5.7-D local test prerequisites are **COMPLETE / ACCEPTED** (`7f628fb1...`);
-  main branch reconciled to `c448dfb9...` via normal merge `17b1165a`; S5.7-D live execution remains
-  **NOT AUTHORIZED** (blocked pending new explicit audit authorization); next gate is
-  `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`; final receipt count remains 0 (`FINAL_S5_7_RECEIPT_COUNT=0`).
+  temporary authorization revoked); S5.7-D (Path Normalization / Traversal Live Matrix) is **CLOSED / ACCEPTED** on
+  2026-09-14 with verified Human Owner evidence (8 GET requests all 404, audit delta 1 <= hard max 8, only D01 generated
+  DENIED row, D02–D08 produced zero audit rows, no traversal to internal endpoints, client case canonicalization documented,
+  GATEWAY_RAW_RECEIPT=NOT_PROVEN, temporary authorization revoked); main branch reconciled to `c448dfb9...` via normal merge
+  `17b1165a`; S5.7-E is **NEXT** (URL / query / redirect safety; not started); final receipt count remains 0 (`FINAL_S5_7_RECEIPT_COUNT=0`).
   `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
   `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are **NOT AUTHORIZED**;
   S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.

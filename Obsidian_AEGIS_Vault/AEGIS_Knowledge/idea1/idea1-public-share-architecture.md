@@ -11,7 +11,7 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!important] Current PUBLIC-SHARE-7 state — S5.7-A, S5.7-B & S5.7-C CLOSED / ACCEPTED; S5.7-D LOCAL PREREQUISITES COMPLETE / LIVE NOT AUTHORIZED
+> [!important] Current PUBLIC-SHARE-7 state — S5.7-A, S5.7-B, S5.7-C & S5.7-D CLOSED / ACCEPTED; S5.7-E NEXT
 > S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
 > `fe75bc53c1fd3a3103708470dfb7111996b80eff`. S5.7 is **IN PROGRESS** on
 > branch `feat/idea1-public-share-s5-7-public-security-matrix`. S5.7-A (Fresh
@@ -24,12 +24,15 @@ edit_policy: owner-writable
 > 2026-09-14 with verified Human Owner evidence: 17/17 bounded requests executed; invalid synthetic
 > share path produced 8 confirmed `SHARE_REDEEM` / `DENIED` audit rows (within hard max 9); unapproved Host
 > and IP Host fail-closed externally (403); spoofed forwarding headers did not bypass Gateway or alter trust
-> (`198.51.100.77` was not persisted, `SPOOF_DELTA=0`); zero configuration mutation; temporary C audit permissions
-> revoked. Layer attribution remains conservative (no over-attribution between Cloudflare edge and Gateway).
-> S5.7-D local test prerequisites are **COMPLETE / ACCEPTED** (`7f628fb1...`); S5.7-D live execution remains
-> **NOT AUTHORIZED** (blocked pending new explicit audit authorization gate).
+> (`198.51.100.77` was not persisted, `SPOOF_DELTA=0`); zero configuration mutation; temporary C audit permissions revoked.
+> S5.7-D (Path Normalization / Traversal Live Matrix) is **CLOSED / ACCEPTED** on 2026-09-14 with verified
+> Human Owner evidence: 8/8 GET raw-path probes returned HTTP `404`, CURL_EXIT 0; audit delta 1 <= hard max 8
+> (only canonical D01 generated DENIED `SHARE_REDEEM` row 856; D02–D08 produced 0 audit rows); zero evidence of traversal
+> reaching Drive redemption; client percent-hex case canonicalization documented for D03/D04/D07/D08; `GATEWAY_RAW_RECEIPT=NOT_PROVEN`
+> (local Gateway test prerequisite `7f628fb1...` remains evidence for raw Gateway behavior); zero config mutation;
+> temporary D audit permissions revoked.
 > Main branch reconciled to `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`.
-> Next gate: `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`. G5 is **APPROVED**;
+> Next gate: `S5.7-E URL / QUERY / REDIRECT SAFETY`. G5 is **APPROVED**;
 > G6 remains **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 > `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`,
 > and UI mutation is **NOT AUTHORIZED**. See [[idea1/idea1-status]] and
@@ -1540,7 +1543,7 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A, S5.7-B & S5.7-C CLOSED / ACCEPTED; S5.7-D LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6...`, `90efbc8e...`, `c448dfb9...` via `17b1165a...`); S5.7-A Preflight PASS; S5.7-B Surface Enumeration PASS (20 requests all 404); S5.7-C Method/Host/Header Live Matrix PASS (17 requests, audit delta 8 <= 9, 8 DENIED rows, spoof persistence 0, temporary authorization revoked); zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-D live execution unauthorized (blocked by audit side effect gate); next gate: `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
+| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A, S5.7-B, S5.7-C & S5.7-D CLOSED / ACCEPTED; S5.7-E NEXT)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 branch synchronized with main (`13d8fef6...`, `90efbc8e...`, `c448dfb9...` via `17b1165a...`); S5.7-A Preflight PASS; S5.7-B Surface PASS (20 reqs all 404); S5.7-C Method/Host/Header PASS (17 reqs, audit delta 8 <= 9); S5.7-D Path Normalization PASS (8 reqs all 404, audit delta 1 <= 8, zero traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN); zero new receipts: `FINAL_S5_7_RECEIPT_COUNT=0`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; S5.7-E URL/query/redirect safety next; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**

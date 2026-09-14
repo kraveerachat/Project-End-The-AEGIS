@@ -115,17 +115,17 @@ edit_policy: owner-writable
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
 | Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`) |
-| Current state | **IN PROGRESS / S5.7-A, S5.7-B & S5.7-C CLOSED / ACCEPTED**; S5.7-D **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)** |
+| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C & S5.7-D CLOSED / ACCEPTED; S5.7-E NEXT (NOT STARTED)** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7-C Live Security Matrix CLOSED / ACCEPTED (17/17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation); temporary C authorization revoked; S5.7-D unauthorized |
+| Last checkpoint | S5.7-D Live Path Normalization CLOSED / ACCEPTED (8/8 GET requests returned 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 zero audit rows, Gateway raw receipt NOT_PROVEN, temporary D authorization revoked); S5.7-E next |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
-| Test audit side effect allowed | **NO (temporary S5.7-C authorization revoked; S5.7-D not authorized)** |
-| Live Class 1 security probes allowed | **NO (temporary S5.7-C authorization revoked; S5.7-D not authorized)** |
+| Test audit side effect allowed | **NO (temporary S5.7-C & S5.7-D authorizations revoked)** |
+| Live Class 1 security probes allowed | **NO (temporary S5.7-C & S5.7-D authorizations revoked)** |
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION** |
+| Next gate | **S5.7-E URL / QUERY / REDIRECT SAFETY** |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
@@ -135,9 +135,8 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A, S5.7-B, and S5.7-C are complete and accepted. S5.7-D local test prerequisites are
-complete and verified (`7f628fb1...`). S5.7-D live execution remains blocked pending
-a new explicit audit side effect authorization gate.
+S5.7-A, S5.7-B, S5.7-C, and S5.7-D are complete and accepted. S5.7-E is next
+(Class 0 URL, query parameter, and HTTP->HTTPS redirect safety; not started).
 
 ### Out of scope and safety boundaries
 
@@ -160,6 +159,7 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7-B | Public surface / boundary enumeration (10 paths, GET+HEAD = 20 requests) | **CLOSED / PASS** | Human Owner verified: 20/20 returned HTTP 404, CURL_EXIT 0, zero IP/stack/DB/container leaks; Server: cloudflare, CF-RAY present; PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED (attribution boundary) | S5.7-B documentation checkpoint | Closed / Accepted | S5.7-C through H; one final receipt at H | S5.7 C/D local prerequisites |
 | S5.7 C/D local prerequisites & main reconciliation | Local Gateway runtime tests for TRACE, double-encoded traversal, encoded slash/backslash, duplicate slash; full regression; main reconciliation (`90efbc8e`) | **CLOSED / PASS** | Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` (diff +6/-3 in `publicShareGatewayRuntime.test.js`, zero prod/gateway change); 18/18 Gateway runtime tests pass with zero upstream contact; canonical `npm test` (1309 total, 1228 pass, 9 fail, 72 skip: full regression bar completed, NEW_FAILURES=0, accepted historical failures unchanged); non-canonical `--test-force-exit` investigated and classified RUNNER_ARTIFACT; normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884` into main `90efbc8e` (IDEA3 docs only, zero overlap); guardrails CI pass | Local prerequisite & reconciliation checkpoint | Closed / Accepted | S5.7-C through H live execution; one final receipt at H | TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION for S5.7-C |
 | S5.7-C Live method / Host / forwarding-header security matrix | Bounded Class-1 method, Host variation, and forwarding-header spoofing matrix against `/s/invalid-token-probe` | **CLOSED / PASS** | Human Owner verified live execution (17 requests, UTC 2026-09-14T20:24:46Z–20:24:54Z); C01 GET 404; C02–C07 (HEAD/PUT/PATCH/DELETE/OPTIONS/TRACE) 405; C08–C09 404; C10–C11 (unapproved/IP Host) 403; C12–C16 404; C17 (CF-Connecting-IP) 403; zero 2xx/3xx/5xx/curl errors; audit delta 8 <= hard max 9 (IDs 848–855 all SHARE_REDEEM/DENIED); spoof delta 0; no config mutation; temporary authorization revoked | S5.7-C documentation checkpoint | Closed / Accepted | S5.7-D through H; one final receipt at H | S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION |
+| S5.7-D Live path normalization / traversal security matrix | Bounded Class-1 path traversal and encoded-character probes against `/s/...` targets | **CLOSED / PASS** | Human Owner verified live execution (8 GET requests, UTC 2026-09-14T20:53:14Z–20:53:19Z); all 8 returned HTTP 404, CURL_EXIT 0; zero IP/stack/DB/container leaks; audit delta 1 <= hard max 8 (row 856 DENIED for canonical D01); D02–D08 produced zero SHARE_REDEEM rows; client percent-hex case canonicalization documented for D03/D04/D07/D08; GATEWAY_RAW_RECEIPT=NOT_PROVEN; temporary authorization revoked | S5.7-D documentation checkpoint | Closed / Accepted | S5.7-E through H; one final receipt at H | S5.7-E URL / QUERY / REDIRECT SAFETY |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -275,7 +275,44 @@ Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database a
 - **Governance & Permissions**:
   - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
   - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
-  - S5.7-D remains **NOT AUTHORIZED**. Next Gate: `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`.
+  - S5.7-D is **CLOSED / ACCEPTED**.
+
+### S5.7-D Live path normalization / traversal matrix — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database audit evidence:
+- **Authorization & Boundary**: Explicitly authorized single finite batch (`REQUEST_BUDGET=8`, `METHOD=GET_ONLY`, `HARD_MAX_AUDIT_ROWS=8`, POST/CONNECT prohibited, audit cleanup prohibited, config mutation prohibited).
+- **Execution Window**: UTC `2026-09-14T20:53:14Z` through `2026-09-14T20:53:19Z` (`S5_7_D_WINDOWS_BATCH=COMPLETE`).
+- **Requests & HTTP Results (8/8 completed)**:
+  - D01 GET `/s/invalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D02 GET `/s/../healthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/../healthz`, `CLIENT_NORMALIZATION=NONE`
+  - D03 GET `/s/%2e%2e/healthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E/healthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D04 GET `/s/%2e%2e%2fhealthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E%2Fhealthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D05 GET `/s/%252e%252e%252fhealthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%252e%252e%252fhealthz`, `CLIENT_NORMALIZATION=NONE`
+  - D06 GET `/s//invalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s//invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D07 GET `/s/%2finvalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2Finvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D08 GET `/s/%5cinvalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%5Cinvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - General: All 8 returned HTTP `404` with `CURL_EXIT=0`. `Server: cloudflare` and `CF-RAY` present on all 8 responses; zero redirects, zero 2xx/3xx/5xx, zero detected information leaks.
+- **Client Normalization Analysis**:
+  - PowerShell `-eq` is case-insensitive; previous `CLIENT_TARGET_MATCH=True` must not be interpreted as byte-exact equality for percent-encoded rows.
+  - Rows D03, D04, D07, D08 exhibited percent-hex case canonicalization to uppercase (`%2E%2E`, `%2E%2E%2F`, `%2F`, `%5C`).
+  - This client-side case transformation is documented as `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED` and is NOT a security failure.
+- **Attribution & Gateway Raw Receipt**:
+  - `GATEWAY_RAW_RECEIPT=NOT_PROVEN`.
+  - `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+  - Do NOT uniquely attribute the 404s to Gateway vs Cloudflare edge without direct evidence.
+  - Local Gateway test prerequisite (`publicShareGatewayRuntime.test.js`, commit `7f628fb1...`) remains the evidence proving raw Gateway fail-closed behavior with zero upstream contact.
+- **Audit Verification (PostgreSQL `aegis_drive` DB)**:
+  - Baseline (20:43:08Z): Max ID 855, test target count 9, share redeem count 46.
+  - Post-execution (20:54:43Z): Max ID 856, test target count 10, share redeem count 47.
+  - Target delta: Exactly 1 row (`HARD_MAX_AUDIT_ROWS=8` satisfied, `AUDIT_LIMIT=PASS`).
+  - Safe new row: `856|2026-09-14T20:53:14Z|DENIED|expected_target=YES`.
+  - D01 canonical synthetic token reached Drive and generated one DENIED `SHARE_REDEEM` row.
+  - D02–D08 generated zero new `SHARE_REDEEM` rows. No evidence that malformed/traversal paths reached Drive share redemption.
+  - Test Evidence Preservation: Audit row 856 is intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Next Gate**:
+  - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+  - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+  - S5.7-D is **CLOSED / ACCEPTED**. S5.7-E is **NEXT** (`S5_7_E_STATE=NOT_STARTED`). Next Gate: `S5.7-E URL / QUERY / REDIRECT SAFETY`.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 

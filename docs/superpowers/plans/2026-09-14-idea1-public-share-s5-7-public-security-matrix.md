@@ -426,21 +426,59 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ### Task 4 — S5.7-D: Path normalization / traversal matrix
 
-**Boundary:** Class 1; local test prerequisite required before live execution. Finite path list.
+**Boundary:** Class 1; explicitly authorized single finite batch; local test prerequisite completed. `METHOD=GET_ONLY`, `POST=PROHIBITED`, `CONNECT=PROHIBITED`.
 
 - [x] Verify local test prerequisite passed (Finding C: double-encoded traversal, encoded slash, encoded backslash, duplicate slash passing in local tests with raw request preservation) — **PASS** (implemented in commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` in `publicShareGatewayRuntime.test.js`; `PS3-RUNTIME-6=PASS` for `/s/%252e%252e%252fhealthz`, `/s/%2finvalid-token-probe`, `/s/%5cinvalid-token-probe`, `/s//invalid-token-probe` with `ZERO_UPSTREAM_CONTACT_ASSERTED=YES` and `RAW_REQUEST_TARGET_HARNESS=node:http`).
-- [ ] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget.
-- [ ] Execute finite path list:
-  - `/s/invalid-token-probe`
-  - `/s/../healthz`
-  - `/s/%2e%2e/healthz`
-  - `/s/%2e%2e%2fhealthz`
-  - `/s/%252e%252e%252fhealthz`
-  - `/s//invalid-token-probe`
-  - `/s/%2finvalid-token-probe`
-  - `/s/%5cinvalid-token-probe`
-- [ ] Capture `INTENDED_RAW_TARGET`, `CLIENT_SENT_TARGET`, `OBSERVED_LAYER`, `NORMALIZATION_KNOWN`. If Gateway raw receipt is unproven, mark Gateway result `NOT TESTED`.
-- [ ] Record structured metadata per row; verify no traversal reaches internal endpoints.
+- [x] Obtain explicit `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` gate with finite request budget — **PASS** (explicitly authorized by Human Owner / ChatGPT: budget=8, method=GET_ONLY, hard max audit rows=8, POST/CONNECT prohibited, audit cleanup prohibited).
+- [x] Execute finite path list (8 GET-only probes) — **PASS** (all 8 returned HTTP `404`, CURL_EXIT 0, `Server: cloudflare`, CF-RAY present):
+  - D01: `GET /s/invalid-token-probe` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D02: `GET /s/../healthz` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/../healthz`, `CLIENT_NORMALIZATION=NONE`
+  - D03: `GET /s/%2e%2e/healthz` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E/healthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D04: `GET /s/%2e%2e%2fhealthz` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E%2Fhealthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D05: `GET /s/%252e%252e%252fhealthz` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%252e%252e%252fhealthz`, `CLIENT_NORMALIZATION=NONE`
+  - D06: `GET /s//invalid-token-probe` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s//invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D07: `GET /s/%2finvalid-token-probe` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2Finvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D08: `GET /s/%5cinvalid-token-probe` -> HTTP 404, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%5Cinvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+- [x] Capture `INTENDED_RAW_TARGET`, `CLIENT_SENT_TARGET`, `OBSERVED_LAYER`, `NORMALIZATION_KNOWN`. If Gateway raw receipt is unproven, mark Gateway result `NOT TESTED` — **PASS** (`GATEWAY_RAW_RECEIPT=NOT_PROVEN`, `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`; local Gateway test prerequisite remains the evidence for raw Gateway behavior; client percent-hex case canonicalization documented for D03/D04/D07/D08 due to PowerShell case-insensitivity; not a security failure).
+- [x] Record structured metadata per row; verify no traversal reaches internal endpoints — **PASS** (Zero traversal to internal endpoints; D01 canonical synthetic token reached Drive generating 1 DENIED `SHARE_REDEEM` row; D02–D08 generated 0 `SHARE_REDEEM` rows; external responses all fail-closed HTTP 404; audit delta 1 <= 8; audit row 856 preserved; temporary D permissions revoked).
+
+#### Accepted S5.7-D Evidence Summary (Verified by Human Owner 2026-09-14):
+- **Execution Window**: UTC `2026-09-14T20:53:14Z` through `2026-09-14T20:53:19Z`.
+- **Requests Executed**: Exactly 8 of 8 planned GET-only requests (`S5_7_D_WINDOWS_BATCH=COMPLETE`).
+- **Path Probes & Responses (D01–D08)**:
+  - All 8 requests returned HTTP `404` with `CURL_EXIT=0`.
+  - `Server: cloudflare` and `CF-RAY` present on all 8 responses; Location header absent.
+  - Zero curl transport errors, zero redirects, zero 2xx/3xx, zero 5xx, zero information leaks.
+- **Client Normalization & Raw Target Capture**:
+  - D01: `CLIENT_SENT_TARGET=/s/invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D02: `CLIENT_SENT_TARGET=/s/../healthz`, `CLIENT_NORMALIZATION=NONE`
+  - D03: `CLIENT_SENT_TARGET=/s/%2E%2E/healthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D04: `CLIENT_SENT_TARGET=/s/%2E%2E%2Fhealthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D05: `CLIENT_SENT_TARGET=/s/%252e%252e%252fhealthz`, `CLIENT_NORMALIZATION=NONE`
+  - D06: `CLIENT_SENT_TARGET=/s//invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D07: `CLIENT_SENT_TARGET=/s/%2Finvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D08: `CLIENT_SENT_TARGET=/s/%5Cinvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - *Client normalization note*: PowerShell `-eq` is case-insensitive; previous `CLIENT_TARGET_MATCH=True` must not be interpreted as byte-exact equality for percent-encoded rows. Percent-hex case canonicalization to uppercase is an artifact of the client tool and is NOT a security failure.
+- **Attribution & Gateway Raw Receipt**:
+  - `GATEWAY_RAW_RECEIPT=NOT_PROVEN`.
+  - `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+  - Do NOT uniquely attribute the 404s to Gateway vs Cloudflare edge without direct evidence.
+  - Local Gateway test prerequisite (`publicShareGatewayRuntime.test.js` from commit `7f628fb1...`) remains the canonical evidence for raw Gateway fail-closed behavior with zero upstream contact.
+- **Audit Verification (PostgreSQL `aegis_drive` DB)**:
+  - Baseline (20:43:08Z): Max ID 855, test target count 9, share redeem count 46.
+  - Post-execution (20:54:43Z): Max ID 856, test target count 10, share redeem count 47.
+  - Target delta: Exactly 1 row (`HARD_MAX_AUDIT_ROWS=8` satisfied, `AUDIT_LIMIT=PASS`).
+  - Safe new row: `856|2026-09-14T20:53:14Z|DENIED|expected_target=YES`.
+  - Reaching request: Canonical synthetic token D01 reached Drive and generated one DENIED `SHARE_REDEEM` row.
+  - Non-reaching requests: D02–D08 generated zero new `SHARE_REDEEM` rows (`NEW_OTHER_SHARE_REDEEM_ROWS=0`). No evidence that malformed/traversal paths reached the Drive share-redemption path.
+  - Test Evidence Preservation: Audit row 856 is intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Safety**:
+  - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
+  - `CLOUDFLARE_MUTATION=NO`
+  - `POST_PROHIBITED=YES`
+  - `CONNECT_PROHIBITED=YES`
+  - Temporary authorizations REVOKED: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+- **Outcome**: S5.7-D is **CLOSED / ACCEPTED / PASS**.
 
 ### Task 5 — S5.7-E: URL / query / redirect safety
 
@@ -487,15 +525,15 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Current Status & Next Gate
 
-At this S5.7-C live security matrix documentation checkpoint:
+At this S5.7-D live path normalization documentation checkpoint:
 - S5.7 is **IN PROGRESS**
 - S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
 - S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
 - S5.7-C is **CLOSED / ACCEPTED** (live method/Host/header matrix: 17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation)
-- S5.7-D local test prerequisites are **COMPLETE / ACCEPTED** (`7f628fb1...`, Gateway runtime suite passing, full regression NEW_FAILURES=0)
-- S5.7-D live execution is **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED** (gated; requires separate explicit authorization)
+- S5.7-D is **CLOSED / ACCEPTED** (live path normalization matrix: 8 GET requests, all HTTP 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 generated 0 audit rows, no traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN, client percent-hex case canonicalization documented for D03/D04/D07/D08, zero config mutation)
+- S5.7-E is **NEXT** (URL / query / redirect safety; Class 0 redirect check; not started)
 - Main reconciled to `origin/main` (`c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge `17b1165a295a24a66ee04330ece81aead6c788fc`)
-- Temporary S5.7-C audit authorizations **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
+- Temporary S5.7-C and S5.7-D audit authorizations **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
 - `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `POST_LIVE_PROBE_DEFAULT=PROHIBITED`
@@ -505,4 +543,4 @@ At this S5.7-C live security matrix documentation checkpoint:
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION`.
+**Next Gate:** `S5.7-E URL / QUERY / REDIRECT SAFETY`.
