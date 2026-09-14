@@ -99,7 +99,7 @@ If `origin/main` advances during S5.7:
    - Reviewed `origin/main` advancement 3: `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (IDEA3 PR #131 docs only, zero IDEA1/Gateway runtime overlap)
    - Merge-base before third reconciliation: `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
    - Normal merge commit: `17b1165a295a24a66ee04330ece81aead6c788fc`
-   - Reviewed `origin/main` advancement 4: `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` (IDEA3 PR #132 docs only, zero IDEA1/Gateway runtime overlap)
+   - Reviewed `origin/main` advancement 4: `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` (IDEA3 PR #132 repository-only preparation (source/tests/container artifacts/docs within IDEA3 scope), zero IDEA1/Gateway runtime overlap, no Production mutation)
    - Normal merge commit: `2bcafca30736ab685339da0bd4ff9e3a239108ff`
    - Status: `MAIN_RECONCILED=YES` (all four reconciliations verified cleanly, zero conflicts).
 
