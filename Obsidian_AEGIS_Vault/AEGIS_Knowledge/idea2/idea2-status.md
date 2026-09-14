@@ -18,7 +18,7 @@ edit_policy: owner-writable
 ## Current Task
 
 Task: IDEA2 Camera-First Slice 1, Machine A browser-to-physical-camera association
-Branch: `codex/idea2-lr1-current-main-reconciliation`
+Branch: `feat/idea2-camera-first-machine-association`
 Owner: Pub
 PR: Not created
 Current state: PLANNED — Camera-First Slice 1 design is approved and its five-task bounded TDD plan is validated; runtime implementation has not started; CP3 runtime remains paused

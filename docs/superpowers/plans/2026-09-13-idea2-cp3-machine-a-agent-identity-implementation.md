@@ -15,7 +15,7 @@
 
 ## Global Constraints
 
-- Work only on `codex/idea2-lr1-current-main-reconciliation`; use coherent commits on this branch and never push directly to `main`.
+- Work only on `feat/idea2-camera-first-machine-association`; use coherent commits on this branch and never push directly to `main`.
 - Migrations 001–003 remain byte-identical. Migration 004 is additive and idempotent; it must not drop, truncate, recreate, or rewrite existing rows.
 - Challenge TTL is 60 seconds. Agent session TTL is 10 minutes. Renewal begins with 2 minutes remaining.
 - Request timestamps accept exactly `now - 30_000 <= timestamp_ms <= now + 10_000`; both boundaries pass.

@@ -15,7 +15,7 @@
 
 ## Global Constraints
 
-- Work only on `codex/idea2-lr1-current-main-reconciliation`; keep one branch and one eventual Pull Request. Every reviewed task is committed and pushed to this branch, never to `main`.
+- Work only on `feat/idea2-camera-first-machine-association`; keep one branch and one eventual Pull Request. Every reviewed task is committed and pushed to this branch, never to `main`.
 - Machine identity fixes the physical source: A→physical A, B→physical B, C→physical C. Account policy fixes the logical alias: `operator`→`CAM-01`, `operator2`→`CAM-02`. Route code uses live user IDs and policy rows, not hardcoded usernames.
 - The browser may relay public challenge/assertion data but never supplies Node, physical-camera, or logical-alias authority. Client IP, hostname, User-Agent, storage, query strings, unsigned headers, heartbeat, and `camera_assignment` are non-authoritative.
 - The only Slice 1 proof domain is `AEGIS-BROWSER-NODE-ASSOCIATION-V1`. CP3 authentication/ingest domains, Agent sessions, outbound transport, and named-pipe operations remain paused.
