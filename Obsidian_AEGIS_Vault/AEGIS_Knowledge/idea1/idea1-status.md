@@ -115,42 +115,38 @@ edit_policy: owner-writable
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
 | Synchronized with main | `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`) |
-| Current state | **IN PROGRESS / PLAN RECONCILIATION**; S5.7-A fresh read-only preflight **NOT STARTED** |
+| Current state | **IN PROGRESS / S5.7-A CLOSED / ACCEPTED**; S5.7-B **NEXT** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7 plan hardening and main reconciliation checkpoint; branch synchronized with current origin/main (`13d8fef6`); plan updated with 18 review findings; mutation categories split |
+| Last checkpoint | S5.7-A Fresh Read-Only Preflight CLOSED / ACCEPTED; firewall unit procedure corrected; S5.7-B next |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
 | Test audit side effect allowed | **NO** |
-| Live public security probes allowed | **NO** |
+| Live Class 1 security probes allowed | **NO** |
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
-| Public Share UI | **OFF** (`PUBLIC_SHARE_UI_ENABLED=false` at accepted S5.6 closeout; fresh S5.7 evidence pending) |
+| Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **INDEPENDENT_CORRECTED_PLAN_REVIEW** before S5.7-A |
+| Next gate | **S5.7-B Public Surface / Boundary Enumeration** (S5.7-C/D BLOCKED_BY_LOCAL_TEST_PREREQUISITE) |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
 
-Plan and, only after a separate ChatGPT gate, conduct bounded public Internet
-security verification of the share-only boundary. The eight-phase plan is
-`docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`:
+Conduct bounded public Internet security verification of the share-only boundary at
+`share.aegistk-pb.com` through an eight-phase plan:
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-This checkpoint reconciles the S5.7 plan with 18 authoritative review findings,
-synchronizes the branch with current `origin/main` (`13d8fef6`), splits mutation
-categories, clarifies the audit-side-effect model, establishes probe risk classes,
-and sets the next gate to `INDEPENDENT_CORRECTED_PLAN_REVIEW`.
+S5.7-A is complete and accepted. S5.7-B is next. S5.7-C/D remain blocked by local
+test prerequisites.
 
 ### Out of scope and safety boundaries
 
 No Production configuration mutation, Cloudflare, DNS, TLS, redirect, connector, firewall,
 systemd, Docker, database, or Public Share UI mutation. `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
-`LIVE_PUBLIC_SECURITY_PROBES_ALLOWED=NO`. No Internet probes in this checkpoint; no
-real bearer/share token, brute force, high-rate fuzzing, DoS, or real user data.
-S5.8 owns Twingate-OFF Wi-Fi/4G/5G external acceptance; S5.9 owns 64 MiB,
-SHA-256, interruption, slow-client, and concurrency acceptance; S5.10 owns
-full rollback/private regression; S5.11 owns final restoration/UI after G6.
+`LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`. No real bearer/share token, brute force,
+high-rate fuzzing, DoS, or real user data. S5.8 owns Twingate-OFF Wi-Fi/4G/5G external
+acceptance; S5.9 owns 64 MiB, SHA-256, interruption, slow-client, and concurrency
+acceptance; S5.10 owns full rollback/private regression; S5.11 owns final restoration/UI after G6.
 If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 
 ### S5.7 session register and handoff
@@ -158,16 +154,31 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **CLOSED / PASS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Initial bootstrap plan and Draft PR #130 created | Planning only | Plan hardening, S5.7-A through H; one final receipt at H | Plan review |
-| S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **IN PROGRESS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | In progress | S5.7-A through H; one final receipt at H | INDEPENDENT_CORRECTED_PLAN_REVIEW before S5.7-A |
+| S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **CLOSED / PASS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | Closed / Accepted | S5.7-A through H; one final receipt at H | Procedure hardening |
+| S5.7-A | Fresh read-only preflight, Cloudflare/DNS/TLS/Production inspection | **CLOSED / PASS** | Human Owner verified evidence: Cloudflare tunnel HEALTHY/1 replica/1 published route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`); DNS Anycast proxies (no private origin IP); TLS 1.0/1.1 rejected, TLS 1.2/1.3 passed; HTTP->HTTPS 308 on `http://share.aegistk-pb.com/`; systemd firewall (s5-5 unit), connector, drift active/enabled; firewall VALID; all 7 protected containers running/healthy; connector runtime isolated with PortBindings={}, User 65532:65532, ReadonlyRootfs, CapDrop ALL; Gateway PortBindings={}; connector readiness EXIT 0; release SHA 99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7; UI fresh runtime proof NOT TESTED (boundary-governed) | S5.7-A documentation checkpoint | Closed / Accepted | S5.7-B through H; one final receipt at H | S5.7-B public surface enumeration |
 
-**Carried-forward S5.6 baseline, not fresh S5.7 PASS:** the public Published
-application route for `share.aegistk-pb.com` targeted
-`http://172.31.240.2:8080`, Cloudflare tunnel was HEALTHY with one replica and
-one route, public DNS was active/proxied, TLS minimum 1.2 and same-host HTTP→HTTPS
-308 were accepted, connector/firewall/drift were active/valid, and UI was OFF.
-S5.6 rollback artifact was ready, but fresh full rollback rehearsal was **NOT
-RUN** and under-two-minute rollback was **NOT REPROVEN**. S5.7-A must freshly
-recheck the applicable live state before any security matrix work.
+### S5.7-A Fresh read-only preflight — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner read-only Cloudflare, DNS, TLS, and Production evidence:
+- **Repository Preflight**: Worktree clean on `feat/idea1-public-share-s5-7-public-security-matrix`. HEAD verified. PASS.
+- **Cloudflare Control Plane (Read-Only)**: Zone `aegistk-pb.com` is `Active`. Managed tunnel `AEGIS-PUBLIC-SHARE` is `Healthy`, `activeReplicas=1`. Published application routes = 1: hostname `share.aegistk-pb.com`, service `http://172.31.240.2:8080`, path `<blank>`. Wildcard routes = `NO`, root domain routes = `NO`, alternate public share hostnames = `NO`. Zero secrets/tokens captured. PASS.
+- **Public DNS**: Cloudflare DoH (`1.1.1.1`) and Google DoH (`8.8.8.8`) agreed. A records: `104.21.40.88`, `172.67.183.68`. AAAA records: `2606:4700:3031::6815:2858`, `2606:4700:3037::ac43:b744`. Private origin IP is NOT visible (`PRIVATE_ORIGIN_IP_VISIBLE=NO`). PASS.
+- **Public TLS Handshake**: TLS 1.0 rejected with TLS alert protocol version (PASS). TLS 1.1 rejected with TLS alert protocol version (PASS). TLS 1.2 passed. TLS 1.3 passed. PASS.
+- **HTTP -> HTTPS Redirect**: `GET http://share.aegistk-pb.com/` (redirect not followed) returned HTTP 308 with `Location: https://share.aegistk-pb.com/`. Observed layer: Cloudflare Edge. PASS.
+- **Systemd Service & Timer Units (Procedure Corrected)**:
+  - Initial query used the wrong unit name `aegis-public-share-firewall.service` and produced `inactive / not-found`.
+  - Fresh retry against the correct unit name `aegis-public-share-s5-5-firewall.service` proved `active / enabled`.
+  - `aegis-public-share-connector.service` is `active / enabled`.
+  - `aegis-public-share-drift.timer` is `active / enabled`. PASS.
+- **Firewall Validation**: `sudo /opt/aegis/runtime/public-share/s5-5-firewall.sh validate` returned `S5.5-FIREWALL=VALID`. PASS.
+- **Protected Containers Status**: `sudo docker ps --format '{{.Names}}\t{{.Status}}'` confirmed running/healthy for all 7 protected containers: connector running, public-share-gateway healthy, drive healthy, monitor healthy, hub healthy, postgres healthy, twingate healthy. PASS.
+- **Connector Runtime Isolation**: `aegis-prod-public-share-connector-1` allowlisted projections confirmed: `Status=running`, `Running=true`, `Restarting=false`, `RestartCount=0`, `aegis_public_share_edge=172.31.240.3`, `aegis_public_share_egress=172.31.242.2`, `PortBindings={}`, `User=65532:65532`, `ReadonlyRootfs=true`, `CapDrop=["ALL"]`, `SecurityOpt=["no-new-privileges:true"]`, `RestartPolicy=on-failure`, `MaxRetry=5`. PASS.
+- **Gateway Host-Port Absence**: `aegis-prod-public-share-gateway-1` projection confirmed `PortBindings={}`. PASS.
+- **Connector Readiness**: Executed inside container via `sudo docker exec aegis-prod-public-share-connector-1 cloudflared tunnel --metrics 127.0.0.1:20241 ready`; returned `EXIT=0`. PASS.
+- **Frozen Release Directory**: Git rev-parse on `/opt/aegis/releases/public-share/99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` confirmed exact commit `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`. PASS.
+- **Public Share UI Direct Runtime Proof**: `PUBLIC_SHARE_UI_FRESH_DIRECT_RUNTIME_PROOF=NOT TESTED`. Fresh direct runtime proof was intentionally not obtained because unrestricted container environment/config inspection is prohibited by the S5.7 secret-safe inspection boundary. Retain governance truth only: G5=APPROVED, G6=OPEN, PUBLIC_SHARE_UI_MUTATION_ALLOWED=NO.
+- **Security-Critical Failures**: `SECURITY_CRITICAL_FAILURES=0`.
+- **Current State**: S5.7-A is **CLOSED / ACCEPTED**. S5.7-B is **NEXT**. S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**. G5 is **APPROVED**. G6 remains **OPEN**. Public Share UI remains **OFF**. Final receipt count remains 0.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 

@@ -253,8 +253,8 @@ If any security-critical `FAIL` is discovered during live or local testing:
 - **Cloudflare Control Plane (Read-Only via Owner)**: tunnel status, replica count, hostname route inspection
 - **Public Edge / DNS**: DoH queries (`1.1.1.1`, `8.8.8.8`), TLS handshake validation (TLS 1.0/1.1/1.2/1.3), non-following HTTP redirect check against `http://share.aegistk-pb.com/`
 - **Production Host Systemd / Firewall (Read-Only via Owner)**:
-  - `systemctl is-active aegis-public-share-firewall.service`
-  - `systemctl is-enabled aegis-public-share-firewall.service`
+  - `systemctl is-active aegis-public-share-s5-5-firewall.service` (Procedure Correction: corrected from incorrect unit name `aegis-public-share-firewall.service` which produced inactive/not-found)
+  - `systemctl is-enabled aegis-public-share-s5-5-firewall.service`
   - `systemctl is-active aegis-public-share-connector.service`
   - `systemctl is-enabled aegis-public-share-connector.service`
   - `systemctl is-active aegis-public-share-drift.timer`
@@ -305,11 +305,27 @@ If any security-critical `FAIL` is discovered during live or local testing:
   - Database write commands
   - Cloudflare, DNS, TLS, or UI mutations
 
-- [ ] Verify branch/HEAD, clean worktree, current `origin/main`, and merge ancestry (`git merge-base --is-ancestor origin/main HEAD`).
-- [ ] Obtain fresh **read-only** Cloudflare control-plane evidence: tunnel `HEALTHY`, 1 replica, exactly one approved route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`).
-- [ ] Obtain fresh public DNS and edge evidence: proxied A/AAAA, TLS 1.0/1.1 rejected, TLS 1.2/1.3 accepted, HTTP -> HTTPS 308 redirect on `http://share.aegistk-pb.com/` without following.
-- [ ] Obtain fresh **read-only** Production evidence using allowlisted projections only: connector running/isolated, firewall valid, drift timer active, protected services intact, connector readiness proven via internal container command, `PUBLIC_SHARE_UI_ENABLED=false`.
-- [ ] Confirm G5 **APPROVED** and G6 **OPEN**. Mark each check `PASS`, `FAIL`, or `NOT TESTED` with structured 14-field metadata using `NOT_APPLICABLE(<reason>)` where relevant.
+- [x] Verify branch/HEAD, clean worktree, current `origin/main`, and merge ancestry (`git merge-base --is-ancestor origin/main HEAD`) — **PASS**.
+- [x] Obtain fresh **read-only** Cloudflare control-plane evidence: tunnel `HEALTHY`, 1 replica, exactly one approved route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`) — **PASS**.
+- [x] Obtain fresh public DNS and edge evidence: proxied A/AAAA, TLS 1.0/1.1 rejected, TLS 1.2/1.3 accepted, HTTP -> HTTPS 308 redirect on `http://share.aegistk-pb.com/` without following — **PASS**.
+- [x] Obtain fresh **read-only** Production evidence using allowlisted projections only: connector running/isolated, firewall valid, drift timer active, protected services intact, connector readiness proven via internal container command — **PASS**.
+- [x] Confirm G5 **APPROVED** and G6 **OPEN**; mark each check with structured 14-field metadata; `PUBLIC_SHARE_UI_FRESH_DIRECT_RUNTIME_PROOF=NOT TESTED` (governance preserved) — **PASS**.
+
+#### Accepted S5.7-A Evidence Summary (Verified by Human Owner 2026-09-14):
+- **A1 Repository Preflight**: PASS. Branch clean on `feat/idea1-public-share-s5-7-public-security-matrix`.
+- **A2 Cloudflare Control Plane**: PASS. Zone `aegistk-pb.com` Active; tunnel `AEGIS-PUBLIC-SHARE` Healthy (activeReplicas=1); 1 Published application route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`, path <blank>); Wildcard=NO, Root=NO, Alternate=NO.
+- **A3 Public DNS**: PASS. Cloudflare DoH and Google DoH agreed: A (104.21.40.88, 172.67.183.68), AAAA (2606:4700:3031::6815:2858, 2606:4700:3037::ac43:b744). PRIVATE_ORIGIN_IP_VISIBLE=NO.
+- **A4 Public TLS**: PASS. TLS 1.0/1.1 rejected with TLS alert protocol version. TLS 1.2/1.3 passed.
+- **A5 HTTP -> HTTPS Redirect**: PASS. GET `http://share.aegistk-pb.com/` returned HTTP 308 with Location `https://share.aegistk-pb.com/` (redirect not followed; observed layer: Cloudflare Edge).
+- **A6 Systemd Services (Procedure Corrected)**: PASS. Initial query used incorrect unit name `aegis-public-share-firewall.service` producing `inactive / not-found`. Fresh retry against correct unit `aegis-public-share-s5-5-firewall.service` proved `active / enabled`. `aegis-public-share-connector.service` active/enabled; `aegis-public-share-drift.timer` active/enabled.
+- **A7 Firewall Validation**: PASS. `s5-5-firewall.sh validate` returned `S5.5-FIREWALL=VALID`.
+- **A8 Protected Containers**: PASS. All 7 protected containers running/healthy: connector running, public-share-gateway healthy, drive healthy, monitor healthy, hub healthy, postgres healthy, twingate healthy.
+- **A9 Connector Runtime**: PASS. Status=running, Running=true, Restarting=false, RestartCount=0, aegis_public_share_edge=172.31.240.3, aegis_public_share_egress=172.31.242.2, PortBindings={}, User=65532:65532, ReadonlyRootfs=true, CapDrop=["ALL"], SecurityOpt=["no-new-privileges:true"], RestartPolicy=on-failure, MaxRetry=5.
+- **A10 Gateway Host-Port Absence**: PASS. Gateway PortBindings={}.
+- **A11 Connector Readiness**: PASS. Executed inside container (`cloudflared tunnel --metrics 127.0.0.1:20241 ready`); exit code 0.
+- **A12 Frozen Release Directory**: PASS. Git rev-parse on `/opt/aegis/releases/public-share/99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` verified commit `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`.
+- **Public Share UI Direct Runtime Proof**: `PUBLIC_SHARE_UI_FRESH_DIRECT_RUNTIME_PROOF=NOT TESTED`. Reason: Fresh direct runtime proof was intentionally not obtained because unrestricted container environment/config inspection is prohibited by the S5.7 secret-safe inspection boundary. Retain governance truth only: G5=APPROVED, G6=OPEN, PUBLIC_SHARE_UI_MUTATION_ALLOWED=NO. Do not claim UI disabled as freshly proven runtime evidence.
+- **Outcome**: S5.7-A is **CLOSED / ACCEPTED**. S5_7_A_ACCEPTED_TO_PROCEED=YES. SECURITY_CRITICAL_FAILURES=0.
 
 ### Task 2 — S5.7-B: Public surface / boundary enumeration
 
@@ -401,17 +417,18 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ---
 
-## Bootstrap & Next Gate
+## Current Status & Next Gate
 
-At this procedure hardening checkpoint:
-- S5.7 is **IN PROGRESS / PROCEDURE HARDENING**
-- S5.7-A is **NOT STARTED**
+At this S5.7-A documentation checkpoint:
+- S5.7 is **IN PROGRESS**
+- S5.7-A is **CLOSED / ACCEPTED** (all A1–A12 checks verified by Human Owner; procedure corrected for firewall unit name)
+- S5.7-B is **NEXT** (public surface / boundary enumeration)
 - S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
 - `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
-- `LIVE_PUBLIC_SECURITY_PROBES_ALLOWED=NO`
+- `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
 - `FINAL_S5_7_RECEIPT_COUNT=0`
+- PR #130 remains **DRAFT**
 
-**Next Gate:** `CHATGPT_FINAL_S5_7_A_REVIEW`.
-No S5.7-A execution or public security probe is run by this checkpoint.
+**Next Gate:** `S5.7-B Public Surface / Boundary Enumeration`.

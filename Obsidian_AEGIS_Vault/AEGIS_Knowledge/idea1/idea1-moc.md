@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS / PLAN RECONCILIATION; S5.7-A fresh read-only preflight NOT STARTED; G5 APPROVED; G6 OPEN; UI OFF; next gate INDEPENDENT_CORRECTED_PLAN_REVIEW), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix IN PROGRESS; S5.7-A CLOSED / ACCEPTED; S5.7-B NEXT; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -75,13 +75,13 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   public DNS active via Anycast proxies, minimum TLS 1.2 enforced, hostname-scoped HTTP->HTTPS 308 redirect active,
   public default-deny smoke verified, live connector runtime active and isolated, and emergency rollback script verified executable.
   Public Share UI remains OFF, GLOBAL PUBLIC SHARE G6 remains OPEN, and Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. S5.7 is **IN PROGRESS / PLAN RECONCILIATION**; its plan is
-  `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`, branch is synchronized
-  with current main (`13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`), and next gate is
-  **INDEPENDENT_CORRECTED_PLAN_REVIEW before S5.7-A fresh read-only preflight**. S5.7 has no fresh Production/public-edge
-  evidence and no final receipt yet (`FINAL_S5_7_RECEIPT_COUNT=0`). `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
-  `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and `LIVE_PUBLIC_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are
-  **NOT AUTHORIZED**; S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. S5.7 is **IN PROGRESS**; S5.7-A (Fresh Read-Only Preflight) is
+  **CLOSED / ACCEPTED** on 2026-09-14 with verified Human Owner evidence; firewall unit procedure was corrected
+  to `aegis-public-share-s5-5-firewall.service`; UI direct runtime proof was NOT TESTED under secret-safe inspection boundary;
+  S5.7-B is **NEXT**; S5.7-C/D remain **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**; final receipt count remains 0 (`FINAL_S5_7_RECEIPT_COUNT=0`).
+  `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
+  `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are **NOT AUTHORIZED**;
+  S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
   [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]
