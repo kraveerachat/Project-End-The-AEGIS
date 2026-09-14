@@ -12,15 +12,288 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **NOT STARTED**; its next step is the Phase 0 read-only preflight, and only on the owner's instruction. Read "IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12" and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Only non-mutating Phase 1 readiness planning is allowed; Phase 2 and later stay BLOCKED. Read "IDEA3 PR11 Phase 0 closeout — 2026-09-13" and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12
+## IDEA3 PR11 Phase 0 closeout — 2026-09-13
 
 > [!important] Current IDEA3 truth — read this section first
+> This is the documentation-only closeout of the PR11 Phase 0 read-only
+> preflight, on `docs/idea3-pr11-phase0-closeout` from `origin/main`
+> `967b90408672b583bc41692279a7d27bb4b1e09f`.
+> - **Phase 0A** audited the repository and GitHub.
+> - **Phase 0B** collected live read-only evidence: the owner's read-only server
+>   session (SSH over Twingate), and the agent's local, unprivileged reads of
+>   the candidate Core host.
+>
+> No Production, Docker, NGINX, firewall, network, systemd, MQTT, or hardware
+> state was changed. Older sections of this note are dated history.
+
+### Owner gate decision (2026-09-13)
+
+```text
+PR11_PHASE0A                           = PASS
+PR11_PHASE0B                           = PASS (read-only evidence complete)
+PR11_PHASE0                            = EVIDENCE COMPLETE
+PR11                                   = IN PROGRESS
+PHASE1_NON_MUTATING_READINESS_PLANNING = ALLOWED
+PHASE2                                 = BLOCKED
+PHASE3                                 = BLOCKED
+PHASE4_PLUS                            = BLOCKED
+PRODUCTION_CHANGE_AUTHORIZED           = NONE
+PRODUCTION_MUTATION                    = NONE
+IDEA3_PRODUCTION_DEPLOYED              = NO
+```
+
+Phase 1 allows planning only. It authorizes no Production change and no
+Phase 2 work.
+
+### Verified Git and GitHub state
+
+```text
+CURRENT_MAIN = 967b90408672b583bc41692279a7d27bb4b1e09f (merge of GitHub PR #124, 2026-09-12T18:02:36Z, human merge)
+PR10_S2_CODE = merged through GitHub PR #123 at d903327e; PR #124 changed documentation only
+PR118        = OPEN / Draft (IDEA1 S5.5); head f687c3a5 (updated 2026-09-13T08:07:11Z)
+```
+
+PR #118's newest commits change only the S5.5 rollback and firewall-lifecycle
+scripts and their tests; one of them is "disable firewall lifecycle during s5.5
+rollback". Its IDEA1 status note still says "no Production mutation has
+occurred", with S5.5-F to S5.5-H NOT STARTED. No link between these commits and
+the live state below is inferred.
+
+### Access and mutation flags (Phase 0B)
+
+```text
+SERVER_ACCESS              = SSH_OVER_TWINGATE (owner-run read-only session)
+CORE_ACCESS                = LOCAL_CONSOLE (candidate Arch Core host; unprivileged; no sudo)
+AGENT_SERVER_ACCESS        = HTTPS GET/HEAD and a TLS handshake over the existing Twingate client; one refused non-interactive SSH attempt (no session)
+PRODUCTION_CONFIG_MUTATION = NO
+DOCKER / NGINX / FIREWALL / NETWORK / SYSTEMD CHANGED = NO
+MQTT_COMMAND_SENT          = NO
+ESP32_FLASHED_OR_RESET     = NO
+RELAY_ACTUATED             = NO
+REBOOT_PERFORMED           = NO
+```
+
+### Production observations (Phase 0B)
+
+All observations here are OBSERVED unless labelled otherwise.
+
+- **Server:** booted 2026-09-12 17:32:29 UTC. No reboot is required.
+- **Containers running and healthy:**
+  - `aegis-prod-public-share-gateway-1`
+  - `aegis-prod-drive-1`
+  - `aegis-prod-monitor-1`
+  - `aegis-prod-hub-1`
+  - `aegis-prod-postgres-1`
+  - `twingate-aegis-connector-02`
+
+  There is no public-share connector (cloudflared) container, and no IDEA3
+  container.
+- **Firewall:** UFW is active. Defaults: INPUT DROP, FORWARD DROP, OUTPUT
+  ACCEPT. `AEGIS-PS-INPUT` is the first custom INPUT anchor, before the UFW
+  chains, and DOCKER-USER jumps to `AEGIS-PS-EGRESS`.
+- **NGINX runtime:**
+  - `/drive/` and `/monitor/` are present;
+  - `/security/` is absent — the agent's HTTP 200 for it is the HUB fallback
+    page, byte-identical to `/`;
+  - there is no machine SNI block and no `ssl_verify_client`;
+  - `nginx -T` digest: `a6ff6420ed77363cb9a056d261a45c9b67cf40074bdc7b283184cf306281e69a`.
+- **HUB TLS (agent):** TLS 1.3; certificate CN=aegis.internal, issued by
+  "AEGIS Internal Root CA", valid until 2027-08-16.
+
+Live AEGIS Docker networks:
+
+| Network | Subnet |
+|---|---|
+| `aegis_drive_proxy` | 172.19.255.0/29 |
+| `aegis_internal` | 172.18.0.0/16 |
+| `aegis_public_share_edge` | 172.31.240.0/29 |
+| `aegis_public_share_upstream` | 172.31.241.0/29 |
+| `aegis_public_share_egress` | 172.31.242.0/29 |
+| `aegis_vlan10_macvlan` | 192.168.10.0/24 |
+
+K4 still needs Kla to allocate and approve the final IDEA3 /29. The live
+network inventory above is input for Kla's collision re-check; it is not an
+allocation.
+
+**IDEA3 in Production:** there is no IDEA3 container, no IDEA3 Docker network,
+no `/security/` route, no machine SNI block, no `ssl_verify_client`, and no
+machine mTLS. `IDEA3_PRODUCTION_DEPLOYED = NO`.
+
+### S5.5 — owned by Kla and IDEA1
+
+```text
+S5.5_PRODUCTION                         = PARTIALLY_PRESENT / INCOMPLETE
+aegis_public_share_egress               = 172.31.242.0/29; 0 members; created 2026-09-11T19:46:23Z
+EGRESS_NETWORK_REBOOT_PERSISTENCE       = OBSERVED
+AEGIS-PS-INPUT / AEGIS-PS-EGRESS        = OBSERVED
+FIREWALL_LATEST_BOOT_APPLY_AND_VALIDATE = OBSERVED (S5.5-FIREWALL=APPLIED; S5.5-FIREWALL=VALID)
+aegis-public-share-s5-5-firewall.service = failed / disabled (a later stop path refused to remove the isolation because the connector state could not be determined)
+CONNECTOR_CONTAINER                     = ABSENT
+aegis-public-share-connector.service    = inactive / disabled
+aegis-public-share-drift.timer          = inactive / disabled
+FULL_S5.5_DEPLOYMENT                    = NOT PROVEN
+FULL_S5.5_REBOOT_PERSISTENCE            = NOT PROVEN
+DEPLOYMENT_PROVENANCE                   = NOT PROVEN
+K3                                      = BLOCKED
+K12                                     = CONFLICT / OWNER RESOLUTION REQUIRED (Kla + IDEA1)
+```
+
+INFERRED risk: while the firewall unit stays disabled, nothing observed would
+re-apply the S5.5 chains at the next boot.
+
+The conflict: the live Production state contradicts PR #118 ("no Production
+mutation has occurred"; S5.5-F and S5.5-G NOT STARTED and requiring explicit
+Production approval) and `main`'s IDEA1 status (`S5_5=NOT_STARTED`).
+
+**Artifact-to-source mapping** (read-only; a source match shows compatibility
+and plausible origin only — not who deployed it, when, or which version):
+
+| Artifact | Source on `main` | Source on PR #118 | Match |
+|---|---|---|---|
+| `aegis_public_share_egress` | SOURCE_ABSENT (the S5.4 plan reserves the subnet; the S5.4 receipt records it absent) | `docker-compose.s5-5.yml` (bridge, internal false, bridge name `aegis-ps-eg`, 172.31.242.0/29, gateway .1) | EXACT_MATCH (name and subnet); other attributes NOT_PROVEN |
+| `AEGIS-PS-INPUT` / `AEGIS-PS-EGRESS` | SOURCE_ABSENT | `s5-5-firewall.sh` (two owned chains; jump anchors in INPUT and DOCKER-USER) | SEMANTIC_MATCH (names and anchors); chain bodies NOT_PROVEN |
+| `S5.5-FIREWALL=VALID` | SOURCE_ABSENT | `s5-5-firewall.sh`, line 648 | EXACT_MATCH |
+| `S5.5-FIREWALL=APPLIED` | SOURCE_ABSENT | `s5-5-firewall.sh`, line 578 (the source appends runtime details) | SEMANTIC_MATCH |
+| the stop-path refusal | SOURCE_ABSENT | `s5-5-firewall.sh`, line 302 | SEMANTIC_MATCH (the live text was provided as a paraphrase) |
+| `aegis-public-share-s5-5-firewall.service` | SOURCE_ABSENT | `systemd/` | SEMANTIC_MATCH (behaviour); unit content NOT_PROVEN |
+| `aegis-public-share-connector.service` | SOURCE_ABSENT | `systemd/` | NOT_PROVEN (content not compared) |
+| `aegis-public-share-drift.timer` | SOURCE_ABSENT | `systemd/` | NOT_PROVEN (content not compared) |
+| `aegis-public-share-drift.service` | SOURCE_ABSENT | `systemd/` | SOURCE_PRESENT_BUT_RUNTIME_NOT_PROVEN |
+
+### K1 — HUB NGINX Git/runtime baseline
+
+```text
+K1_RUNTIME_ROUTE_STATE                   = OBSERVED
+K1_EXACT_GIT_RUNTIME_TEXT_RECONCILIATION = NOT PROVEN
+LIVE_NGINX_T_DIGEST                      = a6ff6420ed77363cb9a056d261a45c9b67cf40074bdc7b283184cf306281e69a (identity marker only)
+K1                                       = BLOCKED (Kla)
+```
+
+- **Why exact reconciliation is not provable.** The live digest covers the
+  full expanded `nginx -T` output of the image-built HUB:
+  - the nginx:alpine base configuration;
+  - `COPY nginx.conf /etc/nginx/conf.d/default.conf`.
+
+  Git holds only the default.conf source (`HUB-AEGIS_Entry/nginx.conf`,
+  unchanged since 2026-08-29), so the two hashes are different artifacts and
+  must not be compared directly. The repository has no earlier `nginx -T`
+  digest from the same command to compare with either.
+- **What stays historical.** The S1 drift markers stay HISTORICAL: at runtime,
+  an extra `resolver_timeout`, and `/monitor/` routed through a Docker-name
+  variable instead of Git's fixed address.
+- **What would prove it.** Hash the `/etc/nginx/conf.d/default.conf` section of
+  the same live `nginx -T` output and compare it with the Git file.
+
+### Core host and D2
+
+These come from the candidate Arch Core host, read locally and unprivileged.
+
+- **K8 — BLOCKED.** The Core is not on VLAN 20. Its Wi-Fi is a client on a
+  non-AEGIS LAN, and its wired interface is down.
+- **D1 — BLOCKED.** There is no ESP32 access point and no time server:
+  - hostapd is absent;
+  - dnsmasq is disabled;
+  - nothing serves NTP (systemd-timesyncd is only a synchronized client).
+- **D6 — BLOCKED:**
+  - an active graphical desktop session;
+  - sleep and lid-suspend at their defaults;
+  - UFW `ENABLED=no`;
+  - sshd listening on all interfaces, with password authentication not
+    explicitly disabled;
+  - the IDEA2 services active, without a recorded Pub approval.
+- **CORE-RT — BLOCKED.** No IDEA3 unit, install, or Core process exists, and
+  dispatch is not configured live.
+- **D2 — BLOCKED:**
+  - the live broker is MQTT on 1883, plain, on all interfaces, with no TLS and
+    no ACL;
+  - anonymous access is disabled;
+  - the ESP32 and local clients share the same broker username (observed);
+  - in the repository, the firmware uses a plain 1883 client;
+  - inbound HMAC verification of commands exists;
+  - signing of outbound ACK/STATUS is NOT IMPLEMENTED.
+- **ESP32:** no broker session since 2026-09-11 00:00:50 +07.
+
+### Deferred / not proven after Phase 0
+
+- **Hardware visual inspection** (ESP32 power, wiring against PR5, mechanics):
+  owner-only; NOT PROVEN.
+- **K8/K11 live check:** DEFERRED. The Core is not on VLAN 20, and there is no
+  Kla authorization.
+- **The Core's runtime firewall ruleset:** NOT PROVEN (no sudo).
+- **Still NOT PROVEN:** real mTLS, MQTT TLS, signed evidence, and a real CUT
+  through the Server → Core path. The historical PR5 hardware evidence is not
+  PR11 evidence.
+
+### Dependency matrix after Phase 0
+
+| ID | State | Owner | Blocks |
+|---|---|---|---|
+| K1 | BLOCKED (runtime routes OBSERVED; exact text NOT PROVEN) | Kla | Phase 2 |
+| K2 | BLOCKED (`/security/` absent) | Kla (+ Music contract) | Phase 2 |
+| K3 | BLOCKED | Kla + IDEA1 | Phases 2–7 |
+| K12 | CONFLICT / OWNER RESOLUTION REQUIRED | Kla + IDEA1 | any Production rollout |
+| Reboot | READY for now (none pending; latest boot 2026-09-12 17:32:29 UTC) | Kla | — |
+| K4 | OWNER APPROVAL REQUIRED (live inventory OBSERVED) | Kla | Phase 2 |
+| K5 | NOT PROVEN (absent) | Kla / Music | Phase 2 |
+| K6 | READY (constraint) | Kla | — |
+| K7 | OWNER APPROVAL REQUIRED | Kla | Phase 2 |
+| K8 | BLOCKED | Kla / Music | Phase 3 |
+| K9 | NOT PROVEN (absent) | Kla | Phases 2–3 |
+| K10 | OWNER APPROVAL REQUIRED | Kla | Phase 3 |
+| K11 | NOT PROVEN (deferred) | Kla | optional allowlist |
+| D1 | BLOCKED | Music | Phase 4 |
+| D2 | BLOCKED | Music | Phase 4 |
+| D3 / D8 | NOT PROVEN (not implemented) | Music | Phase 2 |
+| D4 | NOT PROVEN (not implemented) | Music | Phases 5–6 |
+| D6 | BLOCKED | Music + Pub | Phases 3–4 |
+| CORE-RT | BLOCKED | Music | Phase 3 |
+| CORE (dispatch source) | READY (repository only; disabled by default) | Music | — |
+| S5.5 | CONFLICT (partially present) | Kla + IDEA1 | K3 / K12 |
+| HW | NOT PROVEN | Music | Phases 4–6 |
+
+### Corrections recorded by this closeout
+
+- **Phase 0B underclaims corrected, using the owner's read-only server
+  evidence:**
+  - `SERVER_ACCESS = SSH_OVER_TWINGATE`;
+  - `SERVER_REBOOT_REQUIRED = OBSERVED NO`;
+  - the six Production containers are OBSERVED running and healthy;
+  - UFW is OBSERVED active;
+  - the live network inventory is OBSERVED.
+- **Stale current-state text corrected:**
+  - CURRENT_MAIN is `967b9040` in `README.md`, `PROGRESS.md`, the
+    `04_SESSION_HANDOFF.md` supersession block, and the PR10 Handoff;
+  - the 2026-09-12 reconciliation task record now shows PR #124 as merged;
+  - PR11 is IN PROGRESS, with Phase 0 complete, wherever it appears.
+- **Not edited:** historical receipts. They stay immutable.
+
+### PR11 Phase 0 closeout task record
+
+Task: IDEA3 PR11 Phase 0 documentation closeout (documentation only)
+Branch: `docs/idea3-pr11-phase0-closeout`
+Owner: `music`
+PR: the Draft PR opened from this branch; its number is recorded in the PR and the final report
+Current state: PASS (documentation checkpoint; awaiting human review)
+Started: 2026-09-13
+Base SHA: `967b90408672b583bc41692279a7d27bb4b1e09f`
+Production mutation allowed: NO
+Receipt: `90-Status/logs/2026-09-13_162617_music_idea3-pr11-phase0-closeout.md`
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P0A | Repository and GitHub read-only preflight | CLOSED | this section; Git and GitHub reads | base `967b9040` (read-only; no commit) | PASS | — | P0B |
+| P0B | Live read-only preflight (owner-run server session; local Core) | CLOSED | this section | read-only (no commit) | PASS | deferred: hardware visual, K8/K11, Core ruleset | Phase 1 planning |
+| P0-DOC | Phase 0 documentation closeout | PASS | this section; vault and policy validation; `git diff --check` | documentation commit (SHA in the PR) | PASS | human review and merge | Phase 1 non-mutating readiness planning, on the owner's instruction |
+
+## IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12
+
+> [!note] Historical (2026-09-12) — superseded as the entry point by the 2026-09-13 PR11 Phase 0 closeout above
 > This is a documentation-only audit on
 > `docs/idea3-pr10-pr11-evidence-reconciliation`, from `origin/main`
 > `d903327e56a744de3a535f105797a53f0dccebaf`. Every claim below was checked
@@ -31,7 +304,7 @@ edit_policy: owner-writable
 ### Verified Git and GitHub state
 
 ```text
-CURRENT_MAIN        = d903327e56a744de3a535f105797a53f0dccebaf (merge of GitHub PR #123; its tree is identical to S2 head ef2efc94)
+MAIN_AT_AUDIT       = d903327e56a744de3a535f105797a53f0dccebaf (merge of GitHub PR #123; its tree is identical to S2 head ef2efc94). Current main: see "IDEA3 PR11 Phase 0 closeout — 2026-09-13"
 PR122_S1_CLOSEOUT   = MERGED 2026-09-12T07:58:41Z at b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95 (kraveerachat APPROVED 07:58:33Z; human merge)
 PR123_S2            = MERGED 2026-09-12T16:03:34Z at d903327e56a744de3a535f105797a53f0dccebaf (kraveerachat APPROVED 16:03:27Z; human merge; head ef2efc94f64a0cf24017bc4b22fe763564720e51; collaboration-guardrails pass)
 S2_COMMITS          = 30 in b2f61ebf..ef2efc94: 10 implementation/test commits and 20 documentation commits (design, plan, G1, per-task records, closeout)
@@ -40,7 +313,7 @@ S2_RECEIPT          = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-serve
 OTHER_OPEN_PRS      = PR #118 (IDEA1 S5.5, Draft) — not IDEA3
 ```
 
-### Current high-level state
+### High-level state at that audit (superseded 2026-09-13)
 
 ```text
 PR10_S1                       = PASS / CLOSED
@@ -190,8 +463,8 @@ tree. No live or destructive test was run.
 Task: IDEA3 PR10/PR11 Git ↔ Obsidian evidence reconciliation (documentation only)
 Branch: `docs/idea3-pr10-pr11-evidence-reconciliation`
 Owner: `music`
-PR: the Draft PR opened from this branch; its number is recorded in the PR and the final report
-Current state: PASS (documentation checkpoint; awaiting human review)
+PR: GitHub PR #124 — MERGED by a human reviewer at `967b90408672b583bc41692279a7d27bb4b1e09f` (2026-09-12T18:02:36Z; head `5ed829ce`)
+Current state: CLOSED / PASS (documentation-only; merged)
 Started: 2026-09-12
 Base SHA: `d903327e56a744de3a535f105797a53f0dccebaf`
 Production mutation allowed: NO
@@ -199,7 +472,7 @@ Hardware testing: NOT RUN
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| R1 | Git, GitHub, source, test, and receipt audit; canonical IDEA3 reconciliation; alignment of the IDEA3-owned README, PROGRESS, and historical handoff headers | PASS | this section; current revalidation; vault and policy validation; `git diff --check` | documentation-only commit (SHA in the PR) | PASS | human review and merge | PR11 Phase 0 on the owner's instruction |
+| R1 | Git, GitHub, source, test, and receipt audit; canonical IDEA3 reconciliation; alignment of the IDEA3-owned README, PROGRESS, and historical handoff headers | CLOSED | this section; current revalidation; vault and policy validation; `git diff --check` | `bd37d176`, amendment `5ed829ce`; merged at `967b9040` (PR #124) | PASS | — | PR11 Phase 0 (completed 2026-09-13; see the closeout section at the top) |
 
 ## PR10 pre-flight evidence reconciliation — 2026-09-11
 
@@ -407,7 +680,7 @@ PR10_S2                   = PASS / CLOSED (2026-09-12; repository-only; LOCAL / 
 S2_STARTED                = YES (2026-09-12)
 PR10_S2_PR                = #123 (MERGED 2026-09-12T16:03:34Z by a human reviewer at d903327e; an agent never marked it Ready or merged it)
 PR10_S2_RECEIPT           = 90-Status/logs/2026-09-12_225232_music_idea3-pr10-s2-server-core-boundary.md (S2 receipt, not the final PR10 receipt)
-PR11                      = NOT STARTED / NEXT (Phase 0 read-only preflight, only on the owner's instruction)
+PR11                      = IN PROGRESS — Phase 0 PASS / EVIDENCE COMPLETE (2026-09-13); Phase 1 non-mutating readiness planning ALLOWED; Phase 2+ BLOCKED
 PRODUCTION_DEPLOYED       = NO
 IDEA3_PRODUCTION_COMPLETE = NO
 PRODUCTION_MUTATION       = NONE
@@ -537,7 +810,7 @@ OWNER_CONTINUATION_APPROVAL = APPROVED (2026-09-12)
 READY_FOR_PR10_S2 = YES
 S2_STARTED = YES (2026-09-12; repository-only, non-Production)
 PR10_S2 = PASS / CLOSED (2026-09-12; LOCAL / SIMULATED; PR #123 merged at d903327e)
-PR11 = NOT STARTED / NEXT
+PR11 = IN PROGRESS (Phase 0 PASS / EVIDENCE COMPLETE, 2026-09-13)
 PRODUCTION_MUTATION = NONE
 HARDWARE_TESTING = NOT RUN
 ```
@@ -635,7 +908,7 @@ at `b2f61ebf`.
 | S2 Pull Request | MERGED | PR #123 → `d903327e` (human merge 2026-09-12; head `ef2efc94`) |
 | Shared infrastructure K1–K12 | APPROVED (architecture only) / NOT IMPLEMENTED | each change needs its own authorized review |
 | Production deployment | NOT RUN | `PRODUCTION_CHANGE_AUTHORIZED = NONE` |
-| PR11 live cross-IDEA / authorized E2E | NOT STARTED / NEXT | Phase 0 read-only preflight, only on the owner's instruction |
+| PR11 live cross-IDEA / authorized E2E | IN PROGRESS — Phase 0 PASS / EVIDENCE COMPLETE | Phase 1 non-mutating readiness planning allowed; Phase 2+ BLOCKED |
 | Hardware / live E2E | NOT RUN (only the historical PR5 lab evidence exists) | PR11 scope |
 | Final PR10 gate | OPEN | PR10 IN PROGRESS; `IDEA3_PRODUCTION_COMPLETE = NO` |
 
@@ -647,8 +920,8 @@ at `b2f61ebf`.
 
 **Remaining:**
 
-- PR11 Phase 0, the read-only preflight / dependency gate (needs the owner's
-  instruction);
+- PR11 Phase 1, non-mutating readiness planning (allowed; not started), then
+  Phases 2–8 (BLOCKED);
 - the PR10 Production integration, each part owner-approved and
   Kla-authorized under K1–K12:
   - HUB `/security/`;
@@ -660,41 +933,49 @@ at `b2f61ebf`.
 - PR11 live cross-IDEA E2E;
 - the final PR10 receipt.
 
-**Planned, not started:** PR11 Phases 0–8 (see "PR11 — live cross-IDEA and
-authorized E2E" below) and any PR10 Production session. Each starts only with
+**Planned, not started:** PR11 Phases 1–8 (see "PR11 — live cross-IDEA and
+authorized E2E" below; Phase 0 is complete) and any PR10 Production session. Each starts only with
 the owner's explicit approval. Production phases also need their own
 authorized K1–K12 changes.
 
 ### PR10 Handoff — after the PR #123 merge (2026-09-12)
 
-- **Current branch:** `main` carries S1 and S2. The S2 branch
-  `feat/idea3-pr10-s2-server-core-boundary` is merged and receives no further
-  commits. The documentation-only reconciliation runs on
-  `docs/idea3-pr10-pr11-evidence-reconciliation`.
+Updated 2026-09-13 after the PR11 Phase 0 closeout.
+
+- **Current branch:** `main` carries S1, S2, and the PR #124 reconciliation.
+  The S2 and reconciliation branches are merged and receive no further
+  commits. The PR11 Phase 0 documentation closeout runs on
+  `docs/idea3-pr11-phase0-closeout`.
 - **Current HEAD:** `origin/main` is
-  `d903327e56a744de3a535f105797a53f0dccebaf`, the PR #123 merge.
-- **Current task state:** PR10 IN PROGRESS; S1 and S2 PASS / CLOSED; PR11 NOT
-  STARTED / NEXT.
+  `967b90408672b583bc41692279a7d27bb4b1e09f`, the PR #124 merge. The PR10 S2
+  code merged through PR #123 at `d903327e`.
+- **Current task state:** PR10 IN PROGRESS; S1 and S2 PASS / CLOSED; PR11 IN
+  PROGRESS, with Phase 0 PASS / EVIDENCE COMPLETE.
 - **Sessions closed:** S1 (PR #122 → `b2f61ebf`) and S2 (PR #123 →
   `d903327e`).
 - **Session currently open:** none for PR10.
-- **Verified evidence:** see "IDEA3 Git ↔ Obsidian evidence reconciliation —
-  2026-09-12" at the top of this note.
+- **Verified evidence:** "IDEA3 PR11 Phase 0 closeout — 2026-09-13" (current)
+  and "IDEA3 Git ↔ Obsidian evidence reconciliation — 2026-09-12" (history),
+  both at the top of this note.
 - **Known issues:**
   - the SQL `expires_at > ?` claim clause is not independently tested (NC2);
   - the dev-only Vitest advisory;
   - `ruff format` drift in an S2 test file (outside the Ruff bar);
   - the Kla-owned shared notes still describe IDEA3 implementation as not
     established;
-  - S5.5 is only partially present, and PR #118 is still a Draft.
+  - S5.5 is PARTIALLY PRESENT / INCOMPLETE in Production and in CONFLICT with
+    PR #118 and main (K12, owner resolution required);
+  - K1 exact Git/runtime text reconciliation is NOT PROVEN;
+  - D1, D2, D6, CORE-RT, and K8 are BLOCKED.
 - **Exact remaining work:**
-  - PR11 Phases 0–8;
+  - PR11 Phases 1–8 (Phase 0 is complete);
   - the PR10 Production integration under K1–K12;
   - K12 (Kla + IDEA1);
   - D6 (Pub / IDEA2);
   - the final PR10 receipt.
-- **Next action:** PR11 Phase 0, the read-only preflight / dependency gate —
-  only after the owner's instruction.
+- **Next action:** PR11 Phase 1 — non-mutating readiness planning only, on
+  the owner's instruction. Phases 2, 3, and 4+ stay BLOCKED, and no Production
+  change is authorized.
 - **Do not do:**
   - mutate Production;
   - use SSH or Twingate without explicit authorization;
@@ -1796,14 +2077,16 @@ explicit approval. Completing S2 does not authorize any Production rollout.
   `.agents/skills/obsidian/` and `.agents/skills/vibe_coding_obsidian_sync/`
   paths remain untracked and unstaged.
 
-### PR11 — live cross-IDEA and authorized E2E: NOT STARTED / NEXT
+### PR11 — live cross-IDEA and authorized E2E: IN PROGRESS (Phase 0 EVIDENCE COMPLETE)
 
-PR11 is the live phase. **Nothing below has been executed.** Each phase starts
-only on the owner's instruction. Every Production-mutating phase also needs its
-own reviewed, authorized change under K1–K12.
+PR11 is the live phase. **Phase 0, the read-only preflight, is complete**: see
+"IDEA3 PR11 Phase 0 closeout — 2026-09-13" at the top. **Phases 1–8 below
+have not been executed.** Each phase starts only on the owner's instruction.
+Every Production-mutating phase also needs its own reviewed, authorized change
+under K1–K12.
 
 ```text
-PR11                          = NOT STARTED / NEXT
+PR11                          = IN PROGRESS (PHASE0 = EVIDENCE COMPLETE; PHASE1 = NON-MUTATING PLANNING ALLOWED; PHASE2+ = BLOCKED)
 LIVE_IDEA1_SERVICE_EVENT_FEED = OPEN
 LIVE_IDEA2_SERVICE_EVENT_FEED = OPEN
 SHARED_CORRELATION_KEY        = OPEN
@@ -1816,8 +2099,10 @@ RESTORE_RECOVERY_E2E          = OPEN
 
 **Not proven / open.** These stay open until real evidence exists:
 
-- **S5.5 (K3/K12):** its final live state and reboot persistence, with PR #118
-  still a Draft; also the disposition of the pending server reboot.
+- **S5.5 (K3/K12):** PARTIALLY PRESENT / INCOMPLETE in Production (Phase 0B).
+  Full deployment and full reboot persistence are NOT PROVEN, and it is in
+  CONFLICT with PR #118 and main, so owner resolution is required. The server
+  was rebooted at 2026-09-12 17:32:29 UTC, and no reboot is pending (OBSERVED).
 - **HUB edge:**
   - HUB NGINX Git↔runtime reconciliation (K1);
   - the Production `/security/` route (K2).
@@ -1850,8 +2135,8 @@ Historical PR5 hardware evidence stays separate and is not PR11 evidence:
 
 | Phase | Scope | Gate |
 |---|---|---|
-| 0 — Read-only preflight | latest `main`; canonical status; S1/S2 receipts; D1–D8; K1–K12; S5.5 / PR #118; live NGINX baseline; pending reboot; Core and hardware readiness; a dependency matrix labelled READY / BLOCKED / NOT PROVEN / OWNER APPROVAL REQUIRED | owner instruction; read-only |
-| 1 — Integration-owner readiness | K1 baseline; K3/K12 S5.5 and reboot; K4 subnet; K5 network; K7 HUB recreate plan; K8 VLAN 20 → 443; K9 machine SNI; K10 CA and certificate process; D6 IDEA2 co-residence | Kla, Pub, and IDEA1 decisions |
+| 0 — Read-only preflight | latest `main`; canonical status; S1/S2 receipts; D1–D8; K1–K12; S5.5 / PR #118; live NGINX baseline; pending reboot; Core and hardware readiness; a dependency matrix labelled READY / BLOCKED / NOT PROVEN / OWNER APPROVAL REQUIRED | owner instruction; read-only — **PASS / EVIDENCE COMPLETE (2026-09-13)** |
+| 1 — Integration-owner readiness | K1 baseline; K3/K12 S5.5 and reboot; K4 subnet; K5 network; K7 HUB recreate plan; K8 VLAN 20 → 443; K9 machine SNI; K10 CA and certificate process; D6 IDEA2 co-residence | Kla, Pub, and IDEA1 decisions; non-mutating readiness planning ALLOWED (owner gate 2026-09-13) |
 | 2 — Controlled server integration | Production IDEA3 container; dedicated internal network; HUB attach; `/security/`; security-header parity; machine SNI; mTLS; no new public port | a separately authorized Production change |
 | 3 — Core live integration | approved VLAN 20; real HTTPS 443; real mTLS; machine identity; connect → list → claim/dry-run → evidence round trip; no CUT until the dry run passes | authorization |
 | 4 — MQTT / ESP32 authorized E2E | real MQTT TLS; ACL and credentials; ESP32 connectivity; signed ACK/STATUS; nonce, timestamp, and replay checks | authorization |

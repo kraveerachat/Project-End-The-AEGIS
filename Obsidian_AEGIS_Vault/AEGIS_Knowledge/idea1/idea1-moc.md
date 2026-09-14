@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-07
+updated: 2026-09-11
 owner: kla
 edit_policy: owner-writable
 ---
@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public External Internet Share architecture, and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 CLOSED / PASS (S5.7 pre-public Internet security verification next; G6 remains OPEN; UI remains OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -53,7 +53,36 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
 - The final Dashboard/Storage/Secure Share source pass still needs controlled Production deployment and owner visual acceptance; existing Production closure is not evidence for the changed layout.
 - `STORAGE-AUTO-2` automatic scheduled execution is **OPEN / UNPROVEN**; current schedule remains disabled, and it closes only after an explicitly approved scheduler-triggered Production run is observed.
 - Real RAID1 is **DEFERRED / FUTURE HARDWARE** and requires a dedicated erasable disk pair plus explicit authorization.
-- Public External Internet Share remains **NOT IMPLEMENTED / FUTURE ARCHITECTURE**. `scope=any` is not public sharing: it adds no Share-layer CIDR restriction, but the recipient still needs a valid route to AEGIS. The accepted design contract — dedicated share-only gateway, `scope=public` as a third explicit value, threat model, ingress decision matrix, and the PUBLIC-SHARE-2..7 sequence — is [[idea1/idea1-public-share-architecture]]; it is architecture only and nothing in it is built or deployed.
+- Public Share S5.4 infrastructure is **ACCEPTED**: Drive State B, the hardened
+  Gateway, and dedicated edge/upstream networks are active without a host port
+  or Internet route. S5.5 (Cloudflared Egress Isolation) phases S5.5-A through
+  S5.5-H are **CLOSED / PASS**: S5.5-A through S5.5-E repository design,
+  firewall tooling, and lifecycle scripts were implemented and tested; S5.5-F
+  Production runtime deployment and isolation acceptance verified live connector
+  routing, egress nftables filtering, destination-scoped established return, and
+  negative egress isolation probes (nft JSON canonicalization bug discovered and
+  fixed via TDD); S5.5-G Production restart persistence and rollback acceptance
+  cleanly verified service restart survival and complete rollback (rollback
+  absence classification and inspect stream separation bugs discovered and fixed
+  via TDD); clean rollback fully verified on Production, leaving connector absent,
+  egress network removed, S5.5 firewall additions removed, systemd units disabled,
+  and restoring S5.4 Gateway and Drive State B baseline; S5.5-H pre-merge canonical
+  reconciliation, main synchronization, and final repository verification completed.
+  Final Production state after S5.5: S5.4 baseline restored. Under approved G5,
+  S5.6 (Cloudflare Public Activation) phases S5.6-A through S5.6-H are **CLOSED / PASS**:
+  single approved public hostname route `share.aegistk-pb.com` active (Published application
+  targeting `http://172.31.240.2:8080`), Cloudflare managed tunnel HEALTHY with 1 active replica,
+  public DNS active via Anycast proxies, minimum TLS 1.2 enforced, hostname-scoped HTTP->HTTPS 308 redirect active,
+  public default-deny smoke verified, live connector runtime active and isolated, and emergency rollback script verified executable.
+  Public Share UI remains OFF, GLOBAL PUBLIC SHARE G6 remains OPEN, and Public Internet Share remains
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future S5.7 security verification, S5.8 external 4G/5G acceptance, and G6 decision).
+  Use [[idea1/idea1-status]] for current task state,
+  [[idea1/idea1-public-share-architecture]] for architecture,
+  [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]
+  for the final immutable S5.6 receipt,
+  [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]
+  for the historical S5.5 receipt, and
+  `gateway/public-share/production/README.md` for the Production runbook.
 - Twingate control-plane telemetry remains **NOT MEASURED**.
 - Real 20–30 GB transfer acceptance and Production 32 GiB enablement remain **NOT TESTED / NOT ACCEPTED**.
 

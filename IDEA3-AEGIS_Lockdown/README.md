@@ -1,9 +1,9 @@
 # AEGIS IDEA 3 — Cyber-Physical Lockdown
 
-> **Current state (updated 2026-09-13):** IDEA3 PR10, the real deployment baseline, is **IN PROGRESS**. `main` is at `d903327e56a744de3a535f105797a53f0dccebaf`, the GitHub PR #123 merge.
+> **Current state (updated 2026-09-13):** IDEA3 PR10, the real deployment baseline, is **IN PROGRESS**. `main` is at `967b90408672b583bc41692279a7d27bb4b1e09f`, the GitHub PR #124 merge (the PR10 S2 code merged through PR #123 at `d903327e`).
 > **PR10 S1:** PASS / CLOSED (GitHub PR #122 at `b2f61ebf`). **PR10 S2:** PASS / CLOSED — the repository-only Server → Core accepted-action boundary, merged through GitHub PR #123 at `d903327e`. Its evidence is LOCAL / SIMULATED only; dispatch is disabled by default and nothing is deployed.
 > **PR9:** MERGED (GitHub PR #115 at `2c21cc3e`). It is a historical, completed repository phase; its `PRODUCTION_LIKE_VERIFIED` result is local loopback/dry-run evidence only.
-> **Next:** PR11 (live cross-IDEA and authorized E2E) is **NOT STARTED / NEXT**. Its first step is the Phase 0 read-only dependency/preflight gate, and only on the owner's instruction.
+> **PR11** (live cross-IDEA and authorized E2E) is **IN PROGRESS**: its Phase 0 read-only preflight is PASS / EVIDENCE COMPLETE (2026-09-13). **Next:** Phase 1 non-mutating readiness planning only, on the owner's instruction. Phase 2 and later stay BLOCKED.
 > **PR5 gate:** SATISFIED — GitHub PR #117 merged at `58f19f2051170685757627a6baea90b264a877c4`; owner lab evidence is accepted for RJ45 continuity, powered reset-window behavior, and real Ethernet CUT/RESTORE
 > **Safety boundary:** `PRODUCTION_CHANGE_AUTHORIZED = NONE`; `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`. These remain unproven:
 > - Production deployment and real Server ↔ Core mTLS;

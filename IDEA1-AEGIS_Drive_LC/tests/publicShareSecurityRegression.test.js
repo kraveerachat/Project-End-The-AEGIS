@@ -695,3 +695,117 @@ test('PS5-AUD-1 a public redemption is attributed to the recipient, not the gate
 })
 
 console.log(`[public share security regression] database mode: ${DB_MODE}`)
+
+// ---------------------------------------------------------------------------
+// §S5.5 CREDENTIAL SECRECY MATRIX (S5.5-E Task 12)
+//
+// The connector's tunnel token is a bearer credential: anything holding it can
+// serve the tunnel. These tests scan the tracked S5.5 surface for ACTUAL
+// credential material while deliberately permitting the explanatory prose that
+// discusses TUNNEL_TOKEN and --token-file, so documentation is never punished
+// for naming what it forbids.
+//
+// No real Cloudflare token is used anywhere. Every positive detection case is a
+// synthetic fixture built in-memory from obviously fake material.
+// ---------------------------------------------------------------------------
+import { readFileSync as readSync, existsSync as existsSyncS55 } from 'node:fs'
+import { fileURLToPath as toPathS55 } from 'node:url'
+import { execFileSync } from 'node:child_process'
+
+const REPO_ROOT_S55 = toPathS55(new URL('../../', import.meta.url))
+const S55_DIR = path.join(REPO_ROOT_S55, 'gateway', 'public-share', 'production')
+
+// Forbidden runtime patterns: actual credential material or unsafe injection.
+const FORBIDDEN_PATTERNS = [
+  // The value must look like actual credential material. Requiring a
+  // token-shaped run of at least 20 token characters keeps the scanner from
+  // firing on prose or on a quoted regex that merely names TUNNEL_TOKEN.
+  ['env assignment', /TUNNEL_TOKEN\s*[:=]\s*["']?[A-Za-z0-9_\-.]{20,}/i],
+  ['inline token argument', /--token\s+(?!file)[A-Za-z0-9_-]{20,}/],
+  ['token/JWT literal payload', /eyJh[A-Za-z0-9_-]{15,}/],
+  // Real headers are "BEGIN <TYPE> PRIVATE KEY", so the key type is a prefix of
+  // PRIVATE KEY rather than an alternative to it; treating it as an alternative
+  // would miss every RSA/EC/OPENSSH private key.
+  ['private key block', /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/],
+]
+
+const scan = (text) => FORBIDDEN_PATTERNS
+  .filter(([, pattern]) => pattern.test(text))
+  .map(([label]) => label)
+
+// Files S5.5 actually tracks, read from git so untracked scratch is excluded.
+const trackedS55Files = () => execFileSync('git',
+  ['ls-files', 'gateway/public-share/production', 'docs/superpowers'],
+  { cwd: REPO_ROOT_S55, encoding: 'utf8' })
+  .split(/\r?\n/).filter(Boolean)
+
+test('PS5-S55-SECRET-1 no tracked S5.5 file carries real credential material', () => {
+  const offenders = []
+  for (const relative of trackedS55Files()) {
+    const absolute = path.join(REPO_ROOT_S55, relative)
+    if (!existsSyncS55(absolute)) continue
+    const hits = scan(readSync(absolute, 'utf8'))
+    if (hits.length) offenders.push(`${relative}: ${hits.join(', ')}`)
+  }
+  assert.deepEqual(offenders, [], `credential material found in tracked files:\n${offenders.join('\n')}`)
+})
+
+test('PS5-S55-SECRET-2 the scanner catches synthetic bad material', () => {
+  // Negative controls. Every one of these is fabricated, not a real credential.
+  const mustFail = {
+    'environment assignment': 'TUNNEL_TOKEN=aaaabbbbccccddddeeeeffff0000',
+    'compose env mapping': '      TUNNEL_TOKEN: aaaabbbbccccddddeeeeffff0000',
+    'inline --token': 'cloudflared tunnel run --token AAAABBBBCCCCDDDDEEEEFFFF0000',
+    'JWT-shaped payload': 'eyJhIjoiMDAwMCIsInQiOiIwMDAwIiwicyI6IjAwMDAifQ',
+    'private key block': '-----BEGIN OPENSSH PRIVATE KEY-----',
+    'RSA key block': '-----BEGIN RSA PRIVATE KEY-----',
+  }
+  for (const [label, fixture] of Object.entries(mustFail)) {
+    assert.notDeepEqual(scan(fixture), [], `the scanner must reject ${label}`)
+  }
+})
+
+test('PS5-S55-SECRET-3 explanatory documentation is not punished', () => {
+  // Real prose from the S5.5 artifacts must remain scannable-clean.
+  const mustPass = [
+    'No token literal and no TUNNEL_TOKEN variable exists anywhere.',
+    'the connector must read its token from a file via --token-file',
+    'assert.doesNotMatch(effective, /TUNNEL_TOKEN/, "no TUNNEL_TOKEN environment variable")',
+    '- --token-file',
+    '- /run/secrets/cloudflared-token',
+    'Set `--token-file /run/secrets/cloudflared-token`; never pass `--token`.',
+    'reason: "no TUNNEL_TOKEN environment variable may be set"',
+  ]
+  for (const fixture of mustPass) {
+    assert.deepEqual(scan(fixture), [], `explanatory text must pass: ${fixture}`)
+  }
+})
+
+test('PS5-S55-SECRET-4 no secret file is tracked under any secrets path', () => {
+  const tracked = execFileSync('git', ['ls-files'], { cwd: REPO_ROOT_S55, encoding: 'utf8' })
+    .split(/\r?\n/).filter(Boolean)
+  const secretish = tracked.filter((file) =>
+    /(^|\/)secrets\//.test(file) || /cloudflared-token$/.test(file))
+  assert.deepEqual(secretish, [], `no credential file may be tracked: ${secretish.join(', ')}`)
+})
+
+test('PS5-S55-SECRET-5 the S5.5 runtime surface injects the token only as a read-only file', () => {
+  const overlay = readSync(path.join(S55_DIR, 'docker-compose.s5-5.yml'), 'utf8')
+  const effective = overlay.split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith('#')).join('\n')
+
+  // File-only injection, read-only, and never through the environment.
+  assert.match(effective, /--token-file/, 'the token must be supplied as a file')
+  assert.doesNotMatch(effective, /^\s+environment:/m, 'the connector takes no environment block')
+  assert.match(effective, /cloudflared-token:ro/, 'the credential mount must be read-only')
+  assert.deepEqual(scan(effective), [], 'the overlay must carry no credential material')
+
+  // The validator and lifecycle tooling must never surface the token either.
+  for (const file of ['s5-5-runtime-check.sh', 'rollback-s5-5.sh', 's5-5-firewall.sh']) {
+    const text = readSync(path.join(S55_DIR, file), 'utf8')
+    const code = text.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n')
+    assert.deepEqual(scan(code), [], `${file} must carry no credential material`)
+    assert.doesNotMatch(code, /\b(cat|head|tail|od|xxd|base64|sha\d*sum|md5sum)\b[^\n]*TOKEN/i,
+      `${file} must never read the token's bytes`)
+  }
+})

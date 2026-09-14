@@ -1,0 +1,15 @@
+{
+  "image": "cloudflare/cloudflared:2026.9.0@sha256:b7a6db450ae2e2f773d4fbe9ffb48e7b5fc451e17329daab1b4dda5a2487e2cc",
+  "version": "2026.9.0",
+  "digest": "b7a6db450ae2e2f773d4fbe9ffb48e7b5fc451e17329daab1b4dda5a2487e2cc",
+  "configDigest": "74a25005583550adb080f07893aba535d2d91742e54dea5900e4712355a42347",
+  "platform": "linux/amd64",
+  "user": "65532:65532",
+  "entrypointFlags": [
+    "tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241",
+    "--protocol", "http2", "run", "--token-file", "/run/secrets/cloudflared-token"
+  ],
+  "readinessCommand": ["cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"],
+  "readOnly": true,
+  "tmpfs": []
+}

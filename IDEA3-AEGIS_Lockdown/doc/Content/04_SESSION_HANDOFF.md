@@ -16,11 +16,13 @@
 > after the PR #123 merge (2026-09-12)".
 >
 > Current truth:
-> - `main` contains GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf`;
+> - `main` is at `967b90408672b583bc41692279a7d27bb4b1e09f` (GitHub PR #124); the
+>   PR10 S2 code merged through GitHub PR #123 at `d903327e`;
 > - PR10 S1 is PASS / CLOSED;
 > - PR10 S2 is PASS / CLOSED, with LOCAL / SIMULATED evidence only;
 > - PR10 is still IN PROGRESS;
-> - PR11 is NOT STARTED / NEXT;
+> - PR11 is IN PROGRESS: Phase 0 is PASS / EVIDENCE COMPLETE (2026-09-13), and
+>   only non-mutating Phase 1 planning is allowed;
 > - there is no Production deployment.
 >
 > Everything below is preserved unchanged as historical content.
