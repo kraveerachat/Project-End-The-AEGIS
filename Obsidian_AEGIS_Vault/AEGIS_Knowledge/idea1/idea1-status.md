@@ -115,17 +115,17 @@ edit_policy: owner-writable
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
 | Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`) |
-| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C & S5.7-D CLOSED / ACCEPTED; S5.7-E NEXT (NOT STARTED)** |
+| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C, S5.7-D & S5.7-E CLOSED / ACCEPTED; S5.7-F NEXT (NOT STARTED)** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7-D Live Path Normalization CLOSED / ACCEPTED (8/8 GET requests returned 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 zero audit rows, Gateway raw receipt NOT_PROVEN, temporary D authorization revoked); S5.7-E next |
+| Last checkpoint | S5.7-E URL / Query / Redirect Safety CLOSED / ACCEPTED (2/2 Class-0 GET requests returned HTTP 308 to same approved HTTPS authority, path/query preserved, no open redirect, no private IP disclosure, redirect generation layer NOT_UNIQUELY_ATTRIBUTED); S5.7-F next |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
-| Test audit side effect allowed | **NO (temporary S5.7-C & S5.7-D authorizations revoked)** |
-| Live Class 1 security probes allowed | **NO (temporary S5.7-C & S5.7-D authorizations revoked)** |
+| Test audit side effect allowed | **NO** |
+| Live Class 1 security probes allowed | **NO** |
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **S5.7-E URL / QUERY / REDIRECT SAFETY** |
+| Next gate | **S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE** |
 | S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
@@ -135,8 +135,8 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A, S5.7-B, S5.7-C, and S5.7-D are complete and accepted. S5.7-E is next
-(Class 0 URL, query parameter, and HTTP->HTTPS redirect safety; not started).
+S5.7-A, S5.7-B, S5.7-C, S5.7-D, and S5.7-E are complete and accepted. S5.7-F is next
+(read-only response hygiene and information leakage analysis across all responses gathered in B–E; not started).
 
 ### Out of scope and safety boundaries
 
@@ -160,6 +160,7 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7 C/D local prerequisites & main reconciliation | Local Gateway runtime tests for TRACE, double-encoded traversal, encoded slash/backslash, duplicate slash; full regression; main reconciliation (`90efbc8e`) | **CLOSED / PASS** | Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` (diff +6/-3 in `publicShareGatewayRuntime.test.js`, zero prod/gateway change); 18/18 Gateway runtime tests pass with zero upstream contact; canonical `npm test` (1309 total, 1228 pass, 9 fail, 72 skip: full regression bar completed, NEW_FAILURES=0, accepted historical failures unchanged); non-canonical `--test-force-exit` investigated and classified RUNNER_ARTIFACT; normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884` into main `90efbc8e` (IDEA3 docs only, zero overlap); guardrails CI pass | Local prerequisite & reconciliation checkpoint | Closed / Accepted | S5.7-C through H live execution; one final receipt at H | TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION for S5.7-C |
 | S5.7-C Live method / Host / forwarding-header security matrix | Bounded Class-1 method, Host variation, and forwarding-header spoofing matrix against `/s/invalid-token-probe` | **CLOSED / PASS** | Human Owner verified live execution (17 requests, UTC 2026-09-14T20:24:46Z–20:24:54Z); C01 GET 404; C02–C07 (HEAD/PUT/PATCH/DELETE/OPTIONS/TRACE) 405; C08–C09 404; C10–C11 (unapproved/IP Host) 403; C12–C16 404; C17 (CF-Connecting-IP) 403; zero 2xx/3xx/5xx/curl errors; audit delta 8 <= hard max 9 (IDs 848–855 all SHARE_REDEEM/DENIED); spoof delta 0; no config mutation; temporary authorization revoked | S5.7-C documentation checkpoint | Closed / Accepted | S5.7-D through H; one final receipt at H | S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION |
 | S5.7-D Live path normalization / traversal security matrix | Bounded Class-1 path traversal and encoded-character probes against `/s/...` targets | **CLOSED / PASS** | Human Owner verified live execution (8 GET requests, UTC 2026-09-14T20:53:14Z–20:53:19Z); all 8 returned HTTP 404, CURL_EXIT 0; zero IP/stack/DB/container leaks; audit delta 1 <= hard max 8 (row 856 DENIED for canonical D01); D02–D08 produced zero SHARE_REDEEM rows; client percent-hex case canonicalization documented for D03/D04/D07/D08; GATEWAY_RAW_RECEIPT=NOT_PROVEN; temporary authorization revoked | S5.7-D documentation checkpoint | Closed / Accepted | S5.7-E through H; one final receipt at H | S5.7-E URL / QUERY / REDIRECT SAFETY |
+| S5.7-E Live URL / query / redirect safety security matrix | Bounded Class-0 HTTP -> HTTPS redirect and query parameter safety probes against non-share path | **CLOSED / PASS** | Human Owner verified Class-0 live execution (2 GET requests, UTC 2026-09-14T21:08:00Z–21:08:01Z); E01 and E02 returned HTTP 308 with Location strictly https://share.aegistk-pb.com/...; no redirect to unapproved host or IP; inert query parameters preserved; no body reflection; no private origin disclosure; E01 client target UNPROVEN / normalization UNKNOWN; E02 normalization NONE; REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED; zero config mutation | S5.7-E documentation checkpoint | Closed / Accepted | S5.7-F through H; one final receipt at H | S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -312,7 +313,40 @@ Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database a
 - **Governance & Next Gate**:
   - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
   - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
-  - S5.7-D is **CLOSED / ACCEPTED**. S5.7-E is **NEXT** (`S5_7_E_STATE=NOT_STARTED`). Next Gate: `S5.7-E URL / QUERY / REDIRECT SAFETY`.
+  - S5.7-D is **CLOSED / ACCEPTED**.
+
+### S5.7-E Live URL / query / redirect safety — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner Class-0 live probing:
+- **Authorization & Boundary**: Class 0 only (`REQUEST_BUDGET=2`, `METHOD=GET_ONLY`, `NON_SHARE_PATH_ONLY=YES`, `REDIRECT_FOLLOWING=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`, `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `CLOUDFLARE_DNS_TLS_MUTATION_ALLOWED=NO`, POST/CONNECT prohibited).
+- **Execution Window**: UTC `2026-09-14T21:08:00Z` through `2026-09-14T21:08:01Z` (`S5_7_E_CLASS0_BATCH=COMPLETE`).
+- **Probes & Results (2/2 completed)**:
+  - **E01**: `GET /redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - `CLIENT_SENT_TARGET=UNPROVEN`, `CLIENT_NORMALIZATION=UNKNOWN` *(Trace parser failed to capture request-line target; absence of proof is not proof of normalization, so script-produced PATH_NORMALIZED is corrected to UNKNOWN)*.
+    - Location scheme (HTTPS), host (`share.aegistk-pb.com`), port, path, and query semantics OK.
+    - Body unescaped input reflection: `False`; unexpected leaks: `False`.
+  - **E02**: `GET /redirect-safety-probe?ip=172.31.240.2`
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?ip=172.31.240.2`
+    - `CLIENT_SENT_TARGET=/redirect-safety-probe?ip=172.31.240.2`, `CLIENT_NORMALIZATION=NONE`.
+    - Location scheme (HTTPS), host (`share.aegistk-pb.com`), port, path, and query semantics OK.
+    - Body unescaped input reflection: `False`; unexpected leaks: `False`.
+- **Attribution & Metadata**:
+  - `OBSERVED_LAYER=Cloudflare Edge`, `ATTRIBUTION_BASIS=Server_cloudflare+CF-RAY`.
+  - `REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED` *(Cloudflare edge traversal proven, but exact component generating the redirect is not uniquely attributed)*.
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`, `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`.
+  - `VANTAGE_POINT=External Windows client`, `METHOD=GET`, `HOST_OR_AUTHORITY=share.aegistk-pb.com`, `SNI=NOT_APPLICABLE(PLAINTEXT_HTTP_REQUEST)`, `REDIRECT_FOLLOWED=NO`, `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+- **Accepted Security Interpretation**:
+  - Both requests returned HTTP 308 to approved HTTPS authority `share.aegistk-pb.com`.
+  - No open redirect; no redirect to `unapproved.example.invalid` or `172.31.240.2`.
+  - User-supplied URL and private-IP-looking query values remained inert query data preserved in Location.
+  - Private IP in query parameter is not private-origin disclosure.
+  - No unescaped reflection in body; no unexpected leak in headers/body.
+  - No redirect followed; zero Production/Cloudflare/DNS/TLS mutation.
+  - Zero audit side effects; no Class 1 share-redemption path exercised.
+- **Outcome**: S5.7-E is **CLOSED / ACCEPTED / PASS**. S5.7-F is **NEXT** (`S5_7_F_STATE=NOT_STARTED`). Next Gate: `S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE`.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 

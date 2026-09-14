@@ -483,13 +483,47 @@ If any security-critical `FAIL` is discovered during live or local testing:
 ### Task 5 — S5.7-E: URL / query / redirect safety
 
 **Boundary & Classification Clarification:**
-- **Class 0 Scope**: A Class 0 HTTP->HTTPS redirect check can prove only: redirect status, HTTPS scheme, approved authority/host, and path/query preservation behavior. It does **NOT** prove share authorization behavior.
-- **Class 1 Scope**: Any S5.7-E test requiring a request to `/s/<synthetic-id>` is Class 1 and strictly requires `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` before execution. No such gate is granted now.
+- **Class 0 Scope**: Class 0 only. Bounded non-share HTTP -> HTTPS 308 redirect and query evaluation. No Class 1 `/s/<synthetic-id>` share-redemption request was authorized or executed. `METHOD=GET_ONLY`, `REDIRECT_FOLLOWING=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
 
-- [ ] Test same-host HTTP -> HTTPS 308 redirect with inert query parameters on non-share path (e.g. `?url=https://unapproved.example.invalid`, `?ip=172.31.240.2`).
-- [ ] Evaluate `Location.scheme`, `Location.authority`, `Location.host`. Verify authority remains strictly `share.aegistk-pb.com` and no open redirect or private origin disclosure occurs.
-- [ ] Verify query data does not alter authorization or reflect unescaped payloads.
-- [ ] Record structured 14-field metadata per row.
+- [x] Test same-host HTTP -> HTTPS 308 redirect with inert query parameters on non-share path (`?url=https%3A%2F%2Funapproved.example.invalid`, `?ip=172.31.240.2`) — **PASS** (both E01 and E02 returned HTTP `308`, CURL_EXIT 0, `Server: cloudflare`, CF-RAY present).
+- [x] Evaluate `Location.scheme`, `Location.authority`, `Location.host`. Verify authority remains strictly `share.aegistk-pb.com` and no open redirect or private origin disclosure occurs — **PASS** (both Location headers strictly targeted `https://share.aegistk-pb.com/...`; no redirect to `unapproved.example.invalid` or `172.31.240.2`; query preservation inside Location is expected and is not an open redirect; private IP appearing only as the supplied query value is not private-origin disclosure).
+- [x] Verify query data does not alter authorization or reflect unescaped payloads — **PASS** (body did not reflect unescaped input; zero unexpected leaks detected; no share-redemption path exercised).
+- [x] Record structured 14-field metadata per row — **PASS** (E01 client target UNPROVEN / normalization UNKNOWN due to trace parser limitation; E02 exact client target `/redirect-safety-probe?ip=172.31.240.2`, normalization NONE; redirect generation layer recorded as `REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED`).
+
+#### Accepted S5.7-E Evidence Summary (Verified by Human Owner 2026-09-14):
+- **Execution Window**: UTC `2026-09-14T21:08:00Z` through `2026-09-14T21:08:01Z`.
+- **Scope & Budget**: Exactly 2 Class-0 GET requests against non-share path `/redirect-safety-probe` (`S5_7_E_CLASS0_BATCH=COMPLETE`).
+- **Probes & Results (E01–E02)**:
+  - **E01**:
+    - `RAW_TARGET=/redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - `CLIENT_SENT_TARGET=UNPROVEN`
+    - `CLIENT_NORMALIZATION=UNKNOWN` *(Trace parser failed to capture the request-line target; absence of proof is not proof of normalization, so script-produced `PATH_NORMALIZED` is corrected to `UNKNOWN`)*.
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - `LOCATION_SCHEME_OK=True` (HTTPS), `LOCATION_HOST_OK=True` (`share.aegistk-pb.com`), `LOCATION_PORT_OK=True`, `LOCATION_PATH_OK=True`, `LOCATION_QUERY_SEMANTICS_OK=True`.
+    - `BODY_REFLECTS_UNESCAPED_INPUT=False`, `UNEXPECTED_LEAK=False`.
+  - **E02**:
+    - `RAW_TARGET=/redirect-safety-probe?ip=172.31.240.2`
+    - `CLIENT_SENT_TARGET=/redirect-safety-probe?ip=172.31.240.2`
+    - `CLIENT_NORMALIZATION=NONE`
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?ip=172.31.240.2`
+    - `LOCATION_SCHEME_OK=True` (HTTPS), `LOCATION_HOST_OK=True` (`share.aegistk-pb.com`), `LOCATION_PORT_OK=True`, `LOCATION_PATH_OK=True`, `LOCATION_QUERY_SEMANTICS_OK=True`.
+    - `BODY_REFLECTS_UNESCAPED_INPUT=False`, `UNEXPECTED_LEAK=False`.
+- **Attribution & Metadata**:
+  - `OBSERVED_LAYER=Cloudflare Edge`, `ATTRIBUTION_BASIS=Server_cloudflare+CF-RAY`.
+  - `REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED` *(Cloudflare edge traversal proven, but exact component generating the redirect is not uniquely attributed)*.
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`, `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`.
+  - `SNI=NOT_APPLICABLE(PLAINTEXT_HTTP_REQUEST)`, `REDIRECT_FOLLOWED=NO`, `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+- **Accepted Security Interpretation**:
+  - Both requests returned HTTP 308 to approved HTTPS authority `share.aegistk-pb.com`.
+  - No open redirect; no redirect to `unapproved.example.invalid` or `172.31.240.2`.
+  - User-supplied URL and private-IP-looking query values remained inert query data preserved in Location.
+  - Private IP in query parameter is not private-origin disclosure.
+  - No unescaped reflection in body; no unexpected leak in headers/body.
+  - No redirect followed; zero Production/Cloudflare/DNS/TLS mutation.
+  - Zero audit side effects; no Class 1 share-redemption path exercised.
+- **Outcome**: S5.7-E is **CLOSED / ACCEPTED / PASS**.
 
 ### Task 6 — S5.7-F: Information leakage / response hygiene
 
@@ -525,15 +559,17 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Current Status & Next Gate
 
-At this S5.7-D live path normalization documentation checkpoint:
+At this S5.7-E URL / query / redirect safety documentation checkpoint:
 - S5.7 is **IN PROGRESS**
 - S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
 - S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
 - S5.7-C is **CLOSED / ACCEPTED** (live method/Host/header matrix: 17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation)
-- S5.7-D is **CLOSED / ACCEPTED** (live path normalization matrix: 8 GET requests, all HTTP 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 generated 0 audit rows, no traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN, client percent-hex case canonicalization documented for D03/D04/D07/D08, zero config mutation)
-- S5.7-E is **NEXT** (URL / query / redirect safety; Class 0 redirect check; not started)
+- S5.7-D is **CLOSED / ACCEPTED** (live path normalization matrix: 8 GET requests, all HTTP 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 generated 0 audit rows, no traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN, zero config mutation)
+- S5.7-E is **CLOSED / ACCEPTED** (URL/query/redirect safety: 2 Class-0 GET requests, both HTTP 308 to approved HTTPS authority, path/query preserved, no open redirect, no private-origin disclosure, zero config mutation)
+- S5.7-F is **NEXT** (information leakage / response hygiene; read-only inspection of headers/bodies from B–E; not started)
 - Main reconciled to `origin/main` (`c448dfb914d2480f81fbc35abfbc8e5633dd3a38` via normal merge `17b1165a295a24a66ee04330ece81aead6c788fc`)
-- Temporary S5.7-C and S5.7-D audit authorizations **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
+- `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
+- `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
 - `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `POST_LIVE_PROBE_DEFAULT=PROHIBITED`
@@ -543,4 +579,4 @@ At this S5.7-D live path normalization documentation checkpoint:
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 - PR #130 remains **DRAFT**
 
-**Next Gate:** `S5.7-E URL / QUERY / REDIRECT SAFETY`.
+**Next Gate:** `S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE`.
