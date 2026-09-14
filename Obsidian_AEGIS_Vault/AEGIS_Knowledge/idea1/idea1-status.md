@@ -112,16 +112,21 @@ edit_policy: owner-writable
 | Task | `PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix` |
 | Branch | `feat/idea1-public-share-s5-7-public-security-matrix` |
 | Owner | `kla` |
-| PR | Draft S5.7 PR to `main`; number assigned after bootstrap push |
+| PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
-| Current state | **IN PROGRESS / PLANNING**; S5.7-A fresh read-only preflight **NOT STARTED** |
+| Synchronized with main | `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a` (normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`) |
+| Current state | **IN PROGRESS / PLAN RECONCILIATION**; S5.7-A fresh read-only preflight **NOT STARTED** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.6 **MERGED / CLOSED / PASS** at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 bootstrap documentation checkpoint pending |
-| Production mutation allowed | **NO** |
+| Last checkpoint | S5.7 plan hardening and main reconciliation checkpoint; branch synchronized with current origin/main (`13d8fef6`); plan updated with 18 review findings; mutation categories split |
+| Production configuration mutation allowed | **NO** |
+| Test-induced application side effect allowed | **NO** |
+| Test audit side effect allowed | **NO** |
+| Live public security probes allowed | **NO** |
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (`PUBLIC_SHARE_UI_ENABLED=false` at accepted S5.6 closeout; fresh S5.7 evidence pending) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| S5.7 final receipt | **NONE — Draft task in progress; create exactly one at final S5.7 closeout only** |
+| Next gate | **INDEPENDENT_CORRECTED_PLAN_REVIEW** before S5.7-A |
+| S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
 
 ### Goal and scope
 
@@ -131,23 +136,29 @@ security verification of the share-only boundary. The eight-phase plan is
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-This bootstrap creates the plan, canonical pointers, and a Draft PR only.
+This checkpoint reconciles the S5.7 plan with 18 authoritative review findings,
+synchronizes the branch with current `origin/main` (`13d8fef6`), splits mutation
+categories, clarifies the audit-side-effect model, establishes probe risk classes,
+and sets the next gate to `INDEPENDENT_CORRECTED_PLAN_REVIEW`.
 
 ### Out of scope and safety boundaries
 
-No Production, Cloudflare, DNS, TLS, redirect, connector, firewall, systemd,
-Docker, or Public Share UI mutation. No Internet probes in this bootstrap; no
+No Production configuration mutation, Cloudflare, DNS, TLS, redirect, connector, firewall,
+systemd, Docker, database, or Public Share UI mutation. `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
+`TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
+`LIVE_PUBLIC_SECURITY_PROBES_ALLOWED=NO`. No Internet probes in this checkpoint; no
 real bearer/share token, brute force, high-rate fuzzing, DoS, or real user data.
 S5.8 owns Twingate-OFF Wi-Fi/4G/5G external acceptance; S5.9 owns 64 MiB,
 SHA-256, interruption, slow-client, and concurrency acceptance; S5.10 owns
 full rollback/private regression; S5.11 owns final restoration/UI after G6.
 If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 
-### S5.7 bootstrap session register and handoff
+### S5.7 session register and handoff
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **IN PROGRESS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Documentation checkpoint to be recorded as Draft PR head after push | Planning only | S5.7-A through H; one final receipt at H | ChatGPT review before S5.7-A read-only preflight |
+| S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **CLOSED / PASS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Initial bootstrap plan and Draft PR #130 created | Planning only | Plan hardening, S5.7-A through H; one final receipt at H | Plan review |
+| S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **IN PROGRESS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | In progress | S5.7-A through H; one final receipt at H | INDEPENDENT_CORRECTED_PLAN_REVIEW before S5.7-A |
 
 **Carried-forward S5.6 baseline, not fresh S5.7 PASS:** the public Published
 application route for `share.aegistk-pb.com` targeted
