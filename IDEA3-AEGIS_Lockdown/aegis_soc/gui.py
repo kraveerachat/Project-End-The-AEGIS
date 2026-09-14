@@ -159,7 +159,6 @@ class AegisAdminGUI:
         self.last_heartbeat_sent_ts = time.time()
         self.log_buffer = []              # (message, level) ทุกบรรทัด เพื่อกรองใหม่ได้
         self.session = DesktopSession()
-        self._background_started = False
         self.login_view = None
 
         self.nav_items = {}          # key -> NavigationItem widget
@@ -174,6 +173,22 @@ class AegisAdminGUI:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._show_login()
+        # Heartbeat/clock/ACK-timeout monitoring must run for the whole
+        # process lifetime, independent of desktop UI login state -- the
+        # Dead Man's Switch heartbeat and ACK-timeout logging are safety
+        # behavior, not merely UI updates, and Telegram-issued CUT/RESTORE
+        # commands can be pending before anyone ever opens the desktop
+        # shell. Starting these only after first login (as this file did
+        # previously) would silently stop heartbeats while the console
+        # sits at the login screen, which could trigger a spurious
+        # ESP32-side Dead Man's Switch lockdown. _tick_clock()/
+        # _tick_monitors() already guard every widget touch behind
+        # `self.session.authenticated and hasattr(...) and .winfo_exists()`,
+        # so they are safe to run before any login.
+        self._start_background_heartbeat()
+        self._tick_clock()
+        self._tick_monitors()
+        self._emit_startup_warnings()
 
     # =========================================================
     # UI BUILD — app shell (header, left nav, workspace, footer)
@@ -221,12 +236,6 @@ class AegisAdminGUI:
         self._clear_root()
         self._build_ui()
         db.log_event("AUTH_LOGIN", "Desktop Admin authenticated", db.INFO)
-        if not self._background_started:
-            self._background_started = True
-            self._start_background_heartbeat()
-            self._tick_clock()
-            self._tick_monitors()
-            self._emit_startup_warnings()
 
     def _logout(self):
         if self.session.authenticated:
@@ -568,11 +577,17 @@ class AegisAdminGUI:
             card.grid(row=0, column=column, sticky="nsew", padx=8, pady=8)
         evidence = Section(page, i18n.t("devices.evidence_title"), accent=COLOR_ACCENT)
         evidence.pack(fill="x", padx=16, pady=(0, 20))
+        esp32_status_metric = metrics[1]
         self._add_fact(
             evidence.body,
             i18n.t("devices.last_seen"),
             f"{seconds:.0f}s" if seconds is not None else i18n.t("status.unknown"),
-            status=pres.STATUS_HEALTHY if seconds is not None else pres.STATUS_UNKNOWN,
+            # Reuse the same staleness-aware status esp32_metric() already
+            # computed above (seconds_since_seen vs. DEVICE_OFFLINE_SEC) --
+            # a numeric "seconds ago" value existing is not, by itself,
+            # evidence of health. A stale last-seen timestamp must not
+            # render as a healthy/green status.
+            status=esp32_status_metric.status,
         )
         self._add_fact(
             evidence.body,
