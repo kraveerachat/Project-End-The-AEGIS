@@ -24,7 +24,8 @@ edit_policy: owner-writable
 > PR11 Phase 2 repository-only preparation is IN PROGRESS on
 > `feat/idea3-pr11-phase2-server-integration`, created from `origin/main`
 > `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (the PR #131 merge). No Production
-> system is changed. Production mutation is not authorized. The IDEA1 S5.7
+> repository-preparation task is COMPLETE for PR #132. No Production system is
+> changed. Production mutation is not authorized. The IDEA1 S5.7
 > Production verification window (Draft PR #130) is active, so no IDEA3
 > Production step may overlap it. Older sections below are dated history.
 
@@ -33,11 +34,16 @@ CURRENT_MAIN                    = c448dfb914d2480f81fbc35abfbc8e5633dd3a38
 PR131                           = MERGED (human merge; kraveerachat APPROVED)
 KLA_PHASE1_REVIEW               = APPROVED (GitHub review on PR #131)
 PUB_D6_REVIEW                   = NOT RECORDED (residual Phase 3/4 integration gate)
-PHASE2_STATE                    = REPOSITORY PREPARATION IN PROGRESS / PRODUCTION BLOCKED
+PR132_TASK                      = PHASE2 REPOSITORY PREPARATION
+PR132_REPOSITORY_PREPARATION    = COMPLETE
+PR132_TASK_RECEIPT              = 90-Status/logs/2026-09-15_034159_music_idea3-pr11-phase2-repository-preparation.md
+PR132_TASK_RECEIPT_COUNT        = 1
+PHASE2_RUNTIME_COMPLETE         = NO
+PHASE2_STATE                    = BLOCKED / PENDING RUNTIME PREREQUISITES
 K3_CURRENT_IDEA1_WINDOW         = ACTIVE (Draft PR #130, IDEA1 S5.7)
 PRODUCTION_MUTATION_AUTHORIZED  = NO
 IDEA3_PRODUCTION_DEPLOYED       = NO
-FINAL_PHASE2_RECEIPT_COUNT      = 0
+FINAL_PHASE2_RUNTIME_RECEIPT_COUNT = 0
 ```
 
 ### Current Task
@@ -45,8 +51,8 @@ FINAL_PHASE2_RECEIPT_COUNT      = 0
 Task: IDEA3 PR11 Phase 2 — server integration, repository preparation
 Branch: `feat/idea3-pr11-phase2-server-integration`
 Owner: `music`
-PR: not opened yet; a Draft PR states the runtime gates and Production authorization as pending
-Current state: IN PROGRESS
+PR: GitHub PR #132 — repository-preparation closeout complete; pending Kla's normal human review
+Current state: COMPLETE / PR-READY (repository preparation only)
 Started: 2026-09-15
 Base SHA: `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`
 Last checkpoint: `f574365a` (final P2-R1 implementation/evidence checkpoint)
@@ -62,7 +68,7 @@ Production mutation allowed: NO
   plan, and this record.
 - **Out of scope:** any Production command; HUB/NGINX, network, firewall,
   certificate, DNS, IDEA1, IDEA2, Public Share, and PR #129 files; certificate,
-  key, or CA generation; the final Phase 2 receipt; marking a PR Ready; merging.
+  key, or CA generation; a Phase 2 runtime receipt; merging.
 - **Safety boundaries:** `Reference != Ownership`. A shared change becomes an
   integration request (design §5, IR-1 to IR-6), never an edit. The Kla-owned
   stanzas inside the IDEA3 overlay (the network and the HUB membership)
@@ -81,13 +87,14 @@ Plan:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P2-R1 | Repository preparation: branch repair, design, plan, TDD source, container and overlay artifacts | PASS | Web 545/545 (baseline 493); NC1–NC4 observed and restored, no residue; overlay parsed by the strict test reader and by `yaml` 2.9.1; K1 Git hash and K4 repository scan re-verified | `f574365a` (final implementation/evidence checkpoint); `dbc9ad92` (image-input checkpoint named by the overlay tag); `c2f82136` (source); `adbd19ec` (design, plan, record) | PASS — LOCAL / STATIC only; nothing built, rendered, or deployed | human review of the Draft PR; Music's 2A/2B staging confirmation; Kla review of IR-1 to IR-6 | P2-E1, in Music's read-only session |
+| P2-R1 | Repository preparation: branch repair, design, plan, TDD source, container and overlay artifacts | CLOSED | Web 545/545 (baseline 493); NC1–NC4 observed and restored, no residue; overlay parsed by the strict test reader and by `yaml` 2.9.1; K1 Git hash and K4 repository scan re-verified; closeout self-audit at `8b030e26`; one task receipt | `f574365a` (final implementation/evidence checkpoint); `dbc9ad92` (image-input checkpoint named by the overlay tag); `c2f82136` (source); `adbd19ec` (design, plan, record) | PASS — REPOSITORY PREPARATION COMPLETE; LOCAL / STATIC only; Phase 2 runtime incomplete | Kla review of PR #132 and IR-1 to IR-6; every runtime prerequisite remains pending | P2-E1 only in a separately authorized Music-owned read-only session |
 | P2-E1 | Owner-run read-only Production evidence (design §6.1) | NOT STARTED | — | — | — | K1 live hash, K4 live recheck, HUB Compose labels, Public Share baseline | in Music's read-only session |
 | P2-A | Phase 2A Production window (browser route) | BLOCKED | — | — | — | IDEA1 window closed; IR-1 and IR-5 accepted; K1 PASS; K4 live PASS; Music's authorization | — |
 | P2-B | Phase 2B Production window (machine route, mTLS) | BLOCKED | — | — | — | P2-A; IR-2 and IR-6; K9 DNS/certificate and K10 issuance evidence | — |
 
-Staging into 2A and 2B is the design's recommendation (§4.9) and awaits
-Music's confirmation.
+The repository package preserves the design's 2A/2B staging recommendation
+(§4.9). Any runtime use still requires a separate Music authorization and the
+applicable Kla-owned integration acceptance.
 
 ### P2-R1 results — 2026-09-15 (LOCAL / STATIC evidence only)
 
@@ -112,13 +119,34 @@ PYTHON_SUITE                 = 8 failed, 326 passed, 6 skipped (tests/test_mqtt_
 COLLABORATION_POLICY_TESTS   = 24 passed, 0 failed
 K1_GIT_ARTIFACT              = blob 5028b6afe49742fd6d4c36eab48691c24e00be2f; SHA-256 ac70bfba…68c6 (re-verified); live NOT PROVEN
 K4_REPOSITORY_COLLISION_SCAN = PASS; live recheck NOT PROVEN
-CHANGED_PATHS                = 16 at f574365a, all IDEA3-owned; IDEA1 0; IDEA2 0; shared 0; historical receipts 0; binaries 0
+CHANGED_PATHS                = 16 before closeout, all IDEA3-owned; final closeout adds exactly one Music receipt;
+                               IDEA1 0; IDEA2 0; HUB 0; infrastructure canonical 0; shared runtime 0;
+                               historical receipts modified 0; binaries 0
 SECRET_SCAN                  = added-line hits are test fixtures and /run/secrets paths only; no key, certificate, or credential material
 PR129                        = CLOSED, not merged. Its only overlapping path is this canonical note (new section and two
                                one-line pointers edited here); no PR #129 source, test, or receipt touched
 INTEGRATION_CHANGE_REQUIRED  = YES (design §5: IR-1 to IR-6)
 PRODUCTION_MUTATION          = NONE
 ```
+
+### PR #132 repository-preparation closeout
+
+```text
+REPOSITORY_PREPARATION_COMPLETE = YES
+PHASE2_RUNTIME_COMPLETE          = NO
+PHASE2                           = BLOCKED / PENDING RUNTIME PREREQUISITES
+PRODUCTION_MUTATION_AUTHORIZED   = NO
+IDEA3_PRODUCTION_DEPLOYED        = NO
+PYTHON_BASELINE_COMPARISON       = PRE_EXISTING_ENVIRONMENTAL_FAILURES
+NEW_PYTHON_REGRESSIONS           = 0
+REVIEWER_CHECKLIST               = COMPLETE (agent self-check; Kla human review remains)
+```
+
+The one PR #132 task receipt is
+`90-Status/logs/2026-09-15_034159_music_idea3-pr11-phase2-repository-preparation.md`.
+It closes repository preparation only. K1, K3, K4 live, K7, K9, K10, K12,
+Kla's shared integration acceptance, and owner-run Production evidence remain
+pending. Pub D6 review remains NOT RECORDED as a later Phase 3/4 gate.
 
 Known limitations:
 
