@@ -1,4 +1,51 @@
-# manage_users.py — AEGIS Monitor (IDEA2) account provisioning
+# AEGIS Monitor (IDEA2) SSH-only administration
+
+## Detection-node registration (`manage_nodes.py`)
+
+The server-side registry separates Detection Node identity, globally unique
+physical-camera identity, and logical camera aliases. Heartbeat data is
+telemetry only and cannot register a node, move physical-camera authority, or
+change alias policy.
+
+Only an Ed25519 public key in canonical SubjectPublicKeyInfo PEM form is
+accepted. Never copy a node private key to the Monitor host or pass private-key
+material to this CLI.
+
+```bash
+python3 manage_nodes.py register \
+  --node-id edge-node-new \
+  --camera-id CAMERA-ALREADY-PROVISIONED \
+  --public-key /secure/path/node-identity-public.pem
+
+python3 manage_nodes.py list
+python3 manage_nodes.py disable --node-id edge-node-new
+python3 manage_nodes.py rotate-key \
+  --node-id edge-node-new \
+  --public-key /secure/path/replacement-public.pem
+```
+
+`register` creates the node, a server-generated physical-camera identity, and
+its initial logical-alias policy in one transaction. `list` prints only the
+fingerprint and registration metadata; it does not print the stored public-key
+payload. Apply migrations 001–003 through the reviewed deployment process
+before using this CLI. These source tests do not authorize running migrations
+or registration commands against Production.
+
+Account policy remains independent from physical identity:
+
+```bash
+python3 manage_nodes.py reconcile-account-aliases \
+  --node-id edge-node-a \
+  --node-id edge-node-b \
+  --account-alias operator=CAM-01 \
+  --account-alias operator2=CAM-02 \
+  --dry-run
+```
+
+Removing `--dry-run` is a separate reviewed administrative action. Changing
+logical aliases must not change any node's physical-camera registration.
+
+## Operator account provisioning (`manage_users.py`)
 
 SSH-only CLI for creating `CCTV-Operator` and `SOC-Responder` accounts and
 assigning cameras. This is the **only** supported way to provision real

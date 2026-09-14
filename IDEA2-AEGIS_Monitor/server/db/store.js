@@ -150,6 +150,26 @@ export async function streamSourceFor(cameraId) {
   }
 }
 
+/** Physical-camera stream source primitive; logical producer choice comes later. */
+export async function streamSourceForPhysicalCamera(physicalCameraId) {
+  if (!usingPostgres) return null
+  if (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) return null
+  const { rows } = await query(
+    `SELECT stream_url, camera_connected,
+            EXTRACT(EPOCH FROM (now() - last_seen_at)) * 1000 AS age_ms
+       FROM physical_camera_heartbeat WHERE physical_camera_id = $1`,
+    [physicalCameraId],
+  )
+  if (rows.length === 0) return null
+  const row = rows[0]
+  if (!row.stream_url) return null
+  return {
+    url: row.stream_url,
+    ageMs: Math.round(Number(row.age_ms)),
+    cameraConnected: row.camera_connected,
+  }
+}
+
 /**
  * สถานะ Edge link รวมของ "ขอบเขตกล้องที่ผู้เรียกเห็น"
  * - ไม่มี heartbeat เลย (engine ไม่เคยยิงมา / ยังไม่ได้รัน) → lost + lastFrameAt = null
