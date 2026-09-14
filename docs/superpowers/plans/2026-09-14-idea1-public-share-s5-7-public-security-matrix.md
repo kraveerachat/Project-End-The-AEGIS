@@ -678,28 +678,53 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 **Boundary:** Documentation and final receipt creation.
 
-- [ ] Verify all S5.7 evidence accepted by ChatGPT + Human Owner.
-- [ ] Reconcile canonical status notes (`idea1-status.md`, `idea1-public-share-architecture.md`, `idea1-moc.md`).
-- [ ] Create exactly **ONE** immutable final receipt:
-  `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/YYYY-MM-DD_HHMMSS_kla_public-share-s5-7-public-security-matrix.md`
-- [ ] Run validation suite (`validate-vault.mjs`, `collaborationPolicy.test.mjs`, `git diff --check`).
-- [ ] Update PR #130 body, mark Ready, await human merge. (PR must remain Draft until S5.7-H closeout).
+- [x] Verify all S5.7 evidence accepted by ChatGPT + Human Owner — **PASS** (all evidence across S5.7-A through S5.7-G verified and accepted).
+- [x] Reconcile canonical status notes (`idea1-status.md`, `idea1-public-share-architecture.md`, `idea1-moc.md`) — **PASS** (all canonical documents updated to S5.7 CLOSED / ACCEPTED).
+- [x] Create exactly **ONE** immutable final receipt:
+  `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix.md` — **PASS** (exactly one final receipt created; `FINAL_S5_7_RECEIPT_COUNT=1`).
+- [x] Run validation suite (`validate-vault.mjs`, `collaborationPolicy.test.mjs`, `git diff --check`) — **PASS** (all policy tests pass, vault validation pass, zero diff errors).
+- [x] Update PR #130 body, mark Ready, await human merge. (PR must remain Draft until S5.7-H closeout) — **PASS** (PR body reconciled with immutable receipt path; ready for human review).
+
+#### Accepted S5.7-H Closeout Summary Metrics:
+- `S5_7_STATE=CLOSED_ACCEPTED`
+- `MATRIX_ROW_COUNT=75`
+- `MATRIX_PASS_COUNT=74`
+- `MATRIX_FAIL_COUNT=0`
+- `MATRIX_NOT_TESTED_COUNT=1` (Row `A-UI-DIRECT-RUNTIME` under secret-safe inspection boundary)
+- `TIMESTAMP_PROVENANCE_AUDIT=PASS`
+- `FUTURE_TIMESTAMP_COUNT=0`
+- `UNSUPPORTED_EXACT_TIMESTAMP_COUNT=0`
+- `FULL_REGRESSION_BAR=COMPLETED` (`TOTAL=1309`, `PASS=1228`, `FAIL=9`, `SKIP=72`; `NEW_FAILURES=0`; accepted historical failures unchanged)
+- `SECURITY_ATTACK_CLASS_FAILURES=0`
+- `POST_DEFECT_RERUN_POLICY=NOT_APPLICABLE(NO_SECURITY_ATTACK_CLASS_FAIL)`
+- `FINAL_S5_7_RECEIPT_COUNT=1`
+- `PRODUCTION_CONFIGURATION_MUTATION=NO`
+- `CLOUDFLARE_MUTATION=NO`
+- `DNS_MUTATION=NO`
+- `TLS_MUTATION=NO`
+- `UI_MUTATION=NO`
+- `G5=APPROVED`
+- `G6=OPEN`
+- `PUBLIC_SHARE_UI=OFF`
+- `PUBLIC_SHARE_7_STATE=IN_PROGRESS`
+- `OUTCOME`: S5.7 is **CLOSED / ACCEPTED / PASS**.
 
 ---
 
 ## Current Status & Next Gate
 
-At this S5.7-G evidence timestamp provenance correction checkpoint:
-- S5.7 is **IN PROGRESS**
-- S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified)
+At this S5.7-H final reconciliation and closeout checkpoint:
+- S5.7 is **CLOSED / ACCEPTED**
+- S5.7-A is **CLOSED / ACCEPTED** (preflight & runtime verified; UI direct runtime proof NOT TESTED under secret-safe boundary)
 - S5.7-B is **CLOSED / ACCEPTED** (public surface default-deny verified across 10 paths, 20 requests, 404 on all, zero leaks)
 - S5.7-C is **CLOSED / ACCEPTED** (live method/Host/header matrix: 17 requests, audit delta 8 <= 9, 8 new SHARE_REDEEM DENIED rows, spoof persistence 0, zero config mutation)
 - S5.7-D is **CLOSED / ACCEPTED** (live path normalization matrix: 8 GET requests, all HTTP 404, audit delta 1 <= 8, only canonical D01 generated DENIED row, D02–D08 generated 0 audit rows, no traversal to internal endpoints, GATEWAY_RAW_RECEIPT=NOT_PROVEN, zero config mutation)
 - S5.7-E is **CLOSED / ACCEPTED** (URL/query/redirect safety: 2 Class-0 GET requests, both HTTP 308 to approved HTTPS authority, path/query preserved, no open redirect, no private-origin disclosure, zero config mutation)
 - S5.7-F is **CLOSED / ACCEPTED** (information leakage / response hygiene: read-only inspection of 47 responses from B–E; zero private IP, DB error, stack trace, internal path, container name, or X-Powered-By leaks; Server: cloudflare and CF-RAY edge metadata confirmed; E02 query IP is inert user data; zero new live requests; zero mutations)
 - S5.7-G is **CLOSED / ACCEPTED** (strict security matrix consolidation: 75 rows total, 74 PASS, 0 FAIL, 1 NOT TESTED; all 14 metadata fields populated per row with NOT_APPLICABLE semantics; attribution boundaries preserved; zero mutations; timestamp provenance audit passed)
-- S5.7-H is **NEXT** (final reconciliation / exactly one receipt / closeout; not started)
+- S5.7-H is **CLOSED / ACCEPTED** (canonical evidence reconciliation, single immutable receipt created, validation passed, PR #130 ready for human review)
 - Main reconciled to `origin/main` (`509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` via normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff`)
+- Exactly one immutable final task receipt created: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix.md` (`FINAL_S5_7_RECEIPT_COUNT=1`)
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
 - `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
@@ -708,7 +733,7 @@ At this S5.7-G evidence timestamp provenance correction checkpoint:
 - `CONNECT=STRICTLY_PROHIBITED`
 - `G5=APPROVED`
 - `G6=OPEN`
-- `FINAL_S5_7_RECEIPT_COUNT=0`
-- PR #130 remains **DRAFT**
+- `PUBLIC_SHARE_UI=OFF`
+- PUBLIC-SHARE-7 remains **IN PROGRESS** (S5.8 through S5.12 remain open)
 
-**Next Gate:** `S5.7-H FINAL RECONCILIATION / CLOSEOUT`.
+**Next Gate:** `HUMAN REVIEW & MERGE OF PR #130; THEN S5.8 TWINGATE-OFF WI-FI + 4G/5G EXTERNAL ACCEPTANCE`.

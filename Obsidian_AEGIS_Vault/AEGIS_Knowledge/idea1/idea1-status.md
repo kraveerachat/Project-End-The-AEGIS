@@ -114,10 +114,10 @@ edit_policy: owner-writable
 | Owner | `kla` |
 | PR | Draft PR #130 to `main` |
 | Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
-| Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (normal merge commit `17b1165a295a24a66ee04330ece81aead6c788fc`) |
-| Current state | **IN PROGRESS / S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F & S5.7-G CLOSED / ACCEPTED; S5.7-H NEXT (NOT STARTED)** |
+| Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb9...; 509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` (normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff`) |
+| Current state | **CLOSED / ACCEPTED (S5.7-A through S5.7-H CLOSED / ACCEPTED; G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; 75-row strict security matrix accepted: 74 PASS, 0 FAIL, 1 NOT TESTED; one final receipt created; PUBLIC-SHARE-7 IN PROGRESS; S5.8 next after human merge)** |
 | Started | 2026-09-14 |
-| Last checkpoint | S5.7-G Strict Security Matrix Consolidation CLOSED / ACCEPTED (75 total rows: 74 PASS, 0 FAIL, 1 NOT TESTED; all 14 metadata fields verified per row; attribution boundaries preserved; zero mutations; zero new requests); S5.7-H next |
+| Last checkpoint | S5.7-H Final evidence reconciliation, single receipt, and PR #130 closeout CLOSED / ACCEPTED; one immutable receipt created; full regression bar completed (NEW_FAILURES=0, accepted historical failures unchanged); guardrails CI PASS; PR #130 ready for human review |
 | Production configuration mutation allowed | **NO** |
 | Test-induced application side effect allowed | **NO** |
 | Test audit side effect allowed | **NO** |
@@ -125,8 +125,8 @@ edit_policy: owner-writable
 | Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
 | Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
 | Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
-| Next gate | **S5.7-H FINAL RECONCILIATION / CLOSEOUT** |
-| S5.7 final receipt | **NONE — Draft task in progress; FINAL_S5_7_RECEIPT_COUNT=0; create exactly one at final S5.7 closeout only** |
+| Next gate | **HUMAN REVIEW & MERGE OF PR #130; THEN S5.8 TWINGATE-OFF WI-FI + 4G/5G EXTERNAL ACCEPTANCE** |
+| S5.7 final receipt | [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]] |
 
 ### Goal and scope
 
@@ -135,8 +135,8 @@ Conduct bounded public Internet security verification of the share-only boundary
 S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
 abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
 G strict matrix consolidation; H evidence reconciliation and one final receipt.
-S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F, and S5.7-G are complete and accepted. S5.7-H is next
-(final evidence reconciliation, single immutable receipt creation, and closeout; not started).
+S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F, S5.7-G, and S5.7-H are complete and accepted.
+S5.7 is CLOSED / ACCEPTED with one final receipt. PUBLIC-SHARE-7 remains IN PROGRESS; S5.8 is next after human merge.
 
 ### Out of scope and safety boundaries
 
@@ -163,6 +163,7 @@ If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
 | S5.7-E Live URL / query / redirect safety security matrix | Bounded Class-0 HTTP -> HTTPS redirect and query parameter safety probes against non-share path | **CLOSED / PASS** | Human Owner verified Class-0 live execution (2 GET requests, UTC 2026-09-14T21:08:00Z–21:08:01Z); E01 and E02 returned HTTP 308 with Location strictly https://share.aegistk-pb.com/...; no redirect to unapproved host or IP; inert query parameters preserved; no body reflection; no private origin disclosure; E01 client target UNPROVEN / normalization UNKNOWN; E02 normalization NONE; REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED; zero config mutation | S5.7-E documentation checkpoint | Closed / Accepted | S5.7-F through H; one final receipt at H | S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE |
 | S5.7-F Information leakage / response hygiene review | Read-only inspection and consolidation of response headers and bounded bodies across accepted B–E evidence | **CLOSED / PASS** | Read-only review of 47 responses across S5.7-B (20), C (17), D (8), and E (2); zero private IP, database error, stack trace, internal path, container name, or X-Powered-By leaks detected; Server: cloudflare and CF-RAY treated as expected edge metadata; E02 query IP is inert user data; no unsafe reflection; new live requests = 0; zero configuration or runtime mutations | S5.7-F documentation checkpoint | Closed / Accepted | S5.7-G through H; one final receipt at H | S5.7-G SECURITY MATRIX CONSOLIDATION |
 | S5.7-G Strict security matrix consolidation | Consolidation of all accepted A–F evidence into strict 7-column schema with 14 metadata fields per row | **CLOSED / PASS** | 75 rows total (74 PASS, 0 FAIL, 1 NOT TESTED); all 14 metadata fields present on every row with NOT_APPLICABLE semantics; statuses strictly PASS/FAIL/NOT TESTED; attribution boundaries preserved; zero new live requests; zero configuration or runtime mutations | S5.7-G documentation checkpoint | Closed / Accepted | S5.7-H; one final receipt at H | S5.7-H FINAL RECONCILIATION / CLOSEOUT |
+| S5.7-H Final reconciliation / closeout | Canonical documentation updates, single immutable receipt creation, and PR #130 closeout | **CLOSED / PASS** | Canonical status notes reconciled; exactly one immutable S5.7 final receipt created; 75-row matrix (74 PASS, 0 FAIL, 1 NOT TESTED); timestamp provenance audit PASS; 0 future timestamps; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); guardrails CI PASS; PR #130 marked Ready for human review | S5.7-H closeout checkpoint | Closed / Accepted | None within S5.7; S5.8 next after human merge | HUMAN MERGE ONLY |
 
 ### S5.7-A Fresh read-only preflight — CLOSED / PASS
 
@@ -415,7 +416,20 @@ Consolidated on 2026-09-15 from accepted S5.7-A through S5.7-F evidence without 
   - Redirect generation layer remains NOT_UNIQUELY_ATTRIBUTED between Cloudflare edge and origin.
   - Direct container runtime proof of UI state remains NOT TESTED under secret-safe boundary; governance truth (G5 APPROVED, G6 OPEN, UI OFF) retained.
 - **Canonical Table Location**: The complete 75-row Markdown matrix is maintained in `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md` under Task 7.
-- **Outcome**: S5.7-G is **CLOSED / ACCEPTED / PASS**. S5.7-H is **NEXT** (`S5_7_H_STATE=NOT_STARTED`). Next Gate: `S5.7-H FINAL RECONCILIATION / CLOSEOUT`.
+- **Outcome**: S5.7-G is **CLOSED / ACCEPTED / PASS**. S5.7-H is **CLOSED / ACCEPTED / PASS**. Next Gate: `HUMAN REVIEW & MERGE OF PR #130; THEN S5.8`.
+
+### S5.7-H Evidence reconciliation, single receipt & closeout — CLOSED / PASS
+
+Verified on 2026-09-15:
+- **Canonical Evidence Reconciliation**: Verified all accepted evidence from S5.7-A through S5.7-G across plan and canonical Obsidian notes.
+- **Strict Matrix Metrics**: Exactly 75 rows (74 PASS, 0 FAIL, 1 NOT TESTED). Row `A-UI-DIRECT-RUNTIME` remains `NOT TESTED` under secret-safe boundary.
+- **Timestamp Provenance**: Validated against pre-G baseline (`7cf60e8bf4fc6c242fd1218ba6853be87233f16c`). Future timestamps = 0; unsupported exact timestamps = 0; timestamp provenance audit = PASS.
+- **Main Synchronization**: Synchronized with `origin/main` at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` via normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff` (IDEA3 PR #132 repository-only preparation, zero IDEA1/Gateway runtime overlap, no Production mutation).
+- **Regression Bar**: Full regression bar completed; NEW_FAILURES=0; accepted historical failures unchanged (`TOTAL=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`). Non-canonical `--test-force-exit` investigated and classified as runner artifact (`NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`). Security attack-class failures = 0 (`POST_DEFECT_RERUN_POLICY=NOT_APPLICABLE(NO_SECURITY_ATTACK_CLASS_FAIL)`).
+- **Immutable Receipt**: Exactly one immutable task receipt created: `[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`.
+- **Zero Mutations in H**: Zero runtime source, Gateway, Production, Cloudflare, DNS, TLS, or database mutations. Zero new live requests.
+- **Governance**: G5 APPROVED; G6 OPEN; Public Share UI OFF; PUBLIC-SHARE-7 remains IN PROGRESS.
+- **Outcome**: S5.7 is **CLOSED / ACCEPTED / PASS**. Next after human review and merge: `S5.8 Twingate-OFF Wi-Fi + 4G/5G external acceptance`.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
 
@@ -1073,7 +1087,7 @@ IMPLEMENTED.**
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation`; PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | **CLOSED / PASS** | none within S5.5 | global Public Share G5 approved; proceeding to S5.6 |
 | G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
 | S5.6 | Public hostname, DNS and TLS activation | **MERGED / CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 merged at `fe75bc53c1fd3a3103708470dfb7111996b80eff` | **PASS** | none within S5.6 | S5.7 Public Internet Security Matrix |
-| S5.7 | Public Internet Security Matrix | **IN PROGRESS / PLANNING** | Isolated branch and documentation bootstrap; fresh S5.7-A evidence not yet gathered; no Internet security probes run | branch `feat/idea1-public-share-s5-7-public-security-matrix`; Draft PR pending | **NOT TESTED** | S5.7-A through H; one final receipt only at H | ChatGPT review before S5.7-A fresh read-only preflight |
+| S5.7 | Public Internet Security Matrix | **CLOSED / PASS** | S5.7-A through S5.7-H accepted; 75 strict matrix rows (74 PASS, 0 FAIL, 1 NOT TESTED under secret-safe boundary); all 14 metadata fields present; attribution boundaries preserved; timestamp provenance verified; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); exactly one immutable receipt; UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-7-public-security-matrix`; PR #130 | **PASS** | none within S5.7 | Human merge of PR #130; S5.8 external acceptance |
 | S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
 | S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
 | S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
@@ -1118,7 +1132,7 @@ No value below was reproduced from Windows in S5.1.
 | Public gateway & connector | Absent; no Public Share networks created; `cloudflared` not installed; no public listeners |
 | Domain ownership | `DOMAIN_OWNERSHIP=OWNED`, `DOMAIN=aegistk-pb.com`, `REGISTRAR=Cloudflare`. Proves ownership only; NO DNS/tunnel/TLS route activated |
 | Private regression | HTTP 200/401 `PASS`; HUB login `PASS`; Files `PASS`; public UI hidden (Internet card not ready / not selectable); ANY share lifecycle `PASS` (classification: owner-confirmed S5.3); ZONES share `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance) |
-| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = MERGED / CLOSED / PASS through PR #118 at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`, G5 = APPROVED, S5.6 = CLOSED / PASS, G6 = OPEN, Public Share UI = OFF, PUBLIC-SHARE-7 = IN PROGRESS, S5.7 = NEXT, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED |
+| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = MERGED / CLOSED / PASS through PR #118 at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`, G5 = APPROVED, S5.6 = CLOSED / PASS, S5.7 = CLOSED / PASS, G6 = OPEN, Public Share UI = OFF, PUBLIC-SHARE-7 = IN PROGRESS, S5.8 = NEXT, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED |
 
 ### S5.4 Production runtime acceptance — 2026-09-11
 
