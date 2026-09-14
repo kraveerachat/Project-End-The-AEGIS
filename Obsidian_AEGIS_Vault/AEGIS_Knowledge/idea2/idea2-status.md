@@ -21,9 +21,9 @@ Task: IDEA2 Camera-First Slice 1, Machine A browser-to-physical-camera associati
 Branch: `codex/idea2-lr1-current-main-reconciliation`
 Owner: Pub
 PR: Not created
-Current state: DESIGN — Camera-First Slice 1 is the active priority; CP3 design/plan are preserved and CP3 runtime implementation is paused
+Current state: PLANNED — Camera-First Slice 1 design is approved and its five-task bounded TDD plan is validated; runtime implementation has not started; CP3 runtime remains paused
 Started: 2026-09-14
-Last checkpoint: `22a55755fe0b0d9c6c00493ecbf3f8e1ea6f4fab` — validated CP3 implementation plan before Camera-First reprioritization
+Last checkpoint: `03cafc19fb884cb6331e642d3673a272a89e81f5` — approved Camera-First Slice 1 machine-association design
 Production mutation allowed: NO
 
 ### Goal
@@ -35,12 +35,13 @@ and routing the authorized logical alias to the existing Engine stream.
 
 ### Scope
 
-Camera-First Slice 1 covers the minimum CP3-compatible Identity Agent browser
-association, Monitor proof verification, server-side session-to-Node binding,
-account logical-alias validation, physical stream-source resolution, and the
-Machine A capture-on-demand acceptance gate. CP3's approved identity and ingest
-design plus implementation plan remain preserved; CP3 runtime work is paused,
-not cancelled. No Slice 1 runtime implementation has started.
+Camera-First Slice 1 is planned as five reviewable TDD tasks: Monitor proof and
+challenge verification; the minimum CP3-compatible Identity Agent loopback
+association endpoint; server-side session binding plus invisible browser
+orchestration; account-alias authorization plus physical stream routing; and
+full regression plus Machine A acceptance preparation. CP3's approved identity
+and ingest design plus implementation plan remain preserved; CP3 runtime work
+is paused, not cancelled. No Slice 1 runtime implementation has started.
 
 ### Out of scope
 
@@ -75,6 +76,7 @@ Vault/document, secret, and Git validation before each checkpoint.
 | CP3-S1 | Dedicated Identity Agent and authenticated ingest architecture | CLOSED | 25-section specification; Vault validation PASS with two pre-existing Canvas warnings; governance document tests 63/63; placeholder, secret-material, and Git diff checks PASS; explicit human approval received | `8323eb8432164c4b012b8dfb8bb6cdfb2d5013fa` | PASS — design only | implementation planning | CP3-S2 |
 | CP3-S2 | Detailed TDD implementation and human-runtime-gate planning | PASS | 17 reviewable tasks; exact file/interface maps; H1–H10; spec coverage, placeholder, interface, Vault, governance, secret, and Git checks | this documentation checkpoint | PASS — planning only; source not started | human plan review and implementation authorization | stop for human review |
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
+| CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
 
 ## Detector B real-machine acceptance (2026-09-06)
 
