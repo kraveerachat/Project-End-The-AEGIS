@@ -599,6 +599,33 @@ STRINGS = {
     "lockdown.pending_command_label": {"en": "Pending Command", "th": "คำสั่งที่รอดำเนินการ", "zh": "待处理命令"},
     "lockdown.no_pending_command": {"en": "NONE", "th": "ไม่มี", "zh": "无"},
 
+    # --- Metric helper lines ---
+    # presentation.py deliberately stays English-only (its exact strings are
+    # asserted by tests and it has no i18n dependency), so the display layer
+    # localizes these the same way it already localizes status values.
+    "helper.insufficient_evidence": {
+        "en": "Insufficient evidence", "th": "หลักฐานไม่เพียงพอ", "zh": "证据不足",
+    },
+    "helper.no_broker_evidence": {
+        "en": "No broker evidence yet", "th": "ยังไม่มีหลักฐานจากบรอกเกอร์", "zh": "尚无代理证据",
+    },
+    "helper.no_device_evidence": {
+        "en": "No device evidence yet", "th": "ยังไม่มีหลักฐานจากอุปกรณ์", "zh": "尚无设备证据",
+    },
+    "helper.no_status_evidence": {
+        "en": "No status evidence yet", "th": "ยังไม่มีหลักฐานสถานะ", "zh": "尚无状态证据",
+    },
+    "helper.last_seen_ago": {
+        "en": "last seen {seconds}s ago", "th": "พบล่าสุดเมื่อ {seconds} วินาทีที่แล้ว", "zh": "最近 {seconds} 秒前出现",
+    },
+    "helper.rssi": {"en": "RSSI {rssi} dBm", "th": "RSSI {rssi} dBm", "zh": "RSSI {rssi} dBm"},
+    "helper.heap": {"en": "heap {heap} B", "th": "หน่วยความจำว่าง {heap} B", "zh": "堆内存 {heap} B"},
+
+    # --- Navigation grouping captions ---
+    "nav.group_monitor": {"en": "Monitor", "th": "เฝ้าระวัง", "zh": "监控"},
+    "nav.group_respond": {"en": "Respond", "th": "ตอบสนอง", "zh": "响应"},
+    "nav.group_system": {"en": "System", "th": "ระบบ", "zh": "系统"},
+
     # --- Diagnostics: grouped sections ---
     "diagnostics.section_connectivity": {"en": "Connectivity Configuration", "th": "การตั้งค่าการเชื่อมต่อ", "zh": "连接配置"},
     "diagnostics.section_security": {"en": "Security Configuration", "th": "การตั้งค่าความปลอดภัย", "zh": "安全配置"},

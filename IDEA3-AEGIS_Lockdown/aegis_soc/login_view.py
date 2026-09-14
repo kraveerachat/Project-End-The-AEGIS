@@ -54,6 +54,13 @@ class LoginView(tk.Frame):
             self._return_binding = None
         super().destroy()
 
+    # Below this canvas width the brand column is dropped and the sign-in
+    # card stands alone, so the card is never clipped on a small console.
+    COMPACT_WIDTH = 980
+    BRAND_WIDTH = 420
+    FORM_WIDTH = 420
+    COLUMN_GAP = 48
+
     def _build(self):
         self.canvas = tk.Canvas(
             self,
@@ -64,35 +71,77 @@ class LoginView(tk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", self._draw_circuit)
 
-        stage = tk.Frame(self.canvas, bg=self.palette.background)
-        self._stage_window = self.canvas.create_window(0, 0, anchor="center", window=stage)
-        self.canvas.bind(
-            "<Configure>",
-            lambda event: self.canvas.coords(self._stage_window, event.width / 2, event.height / 2),
-            add="+",
-        )
+        self._stage = tk.Frame(self.canvas, bg=self.palette.background)
+        self._stage_window = self.canvas.create_window(0, 0, anchor="center", window=self._stage)
+        self._compact = None
+        self.canvas.bind("<Configure>", self._on_canvas_resize, add="+")
 
-        brand = tk.Frame(stage, bg=self.palette.background, width=440, height=520)
-        brand.grid(row=0, column=0, sticky="nsew", padx=(0, 48))
-        brand.grid_propagate(False)
-        self._build_brand(brand)
+        # Both columns share one grid row with sticky="nsew" so the brand
+        # block and the card are the same height and share a baseline,
+        # instead of two independently sized boxes that only looked aligned
+        # at one specific window size.
+        self._brand = tk.Frame(self._stage, bg=self.palette.background)
+        self._brand.grid(row=0, column=0, sticky="nsew", padx=(0, self.COLUMN_GAP))
+        self._width_strut(self._brand, self.BRAND_WIDTH, self.palette.background)
+        self._build_brand(self._brand)
 
-        form = tk.Frame(
-            stage,
+        self._form = tk.Frame(
+            self._stage,
             bg=self.palette.panel,
-            width=440,
-            height=560,
             highlightbackground=self.palette.border,
             highlightthickness=1,
             bd=0,
         )
-        form.grid(row=0, column=1, sticky="nsew")
-        form.grid_propagate(False)
-        self._build_form(form)
+        self._form.grid(row=0, column=1, sticky="nsew")
+        self._width_strut(self._form, self.FORM_WIDTH, self.palette.panel)
+        self._build_form(self._form)
+        self._stage.grid_rowconfigure(0, weight=1)
+
+    @staticmethod
+    def _width_strut(parent, width, background):
+        """Pin a column's width without pinning its height.
+
+        grid_propagate(False) would lock both axes, which is what left the
+        card padded out to a fixed height with dead space below the form.
+        A zero-height strut sets the minimum width and lets the height
+        follow the content.
+        """
+        strut = tk.Frame(parent, bg=background, width=width, height=0)
+        strut.pack(fill="x")
+        return strut
+
+    def _on_canvas_resize(self, event):
+        self.canvas.coords(self._stage_window, event.width / 2, event.height / 2)
+        self._apply_layout(event.width)
+
+    def _apply_layout(self, width):
+        """Re-flow between the two-column and single-column arrangements.
+
+        Only the arrangement changes -- every field, control, and binding is
+        the same object in both, so nothing is rebuilt and no entry loses
+        what the operator has already typed.
+        """
+        compact = width < self.COMPACT_WIDTH
+        if compact != self._compact:
+            self._compact = compact
+            if compact:
+                self._brand.grid_remove()
+                self._form.grid_configure(row=0, column=0)
+            else:
+                self._form.grid_configure(row=0, column=1)
+                self._brand.grid()
+            if compact:
+                self._compact_brand.pack(fill="x", pady=(24, 0), before=self._title)
+            else:
+                self._compact_brand.pack_forget()
+
 
     def _build_brand(self, parent):
         block = tk.Frame(parent, bg=self.palette.background)
-        block.place(relx=0.0, rely=0.5, anchor="w")
+        # expand=True centres the block against whatever height the row
+        # takes from the sign-in card beside it, so the two columns share a
+        # vertical centre at every window size.
+        block.pack(anchor="w", expand=True)
         self._logo_image = load_logo_image(max_height=92)
         if self._logo_image is not None:
             tk.Label(block, image=self._logo_image, bg=self.palette.background).pack(anchor="w")
@@ -116,47 +165,71 @@ class LoginView(tk.Frame):
             font=FONT_PAGE_SUBTITLE,
             fg=self.palette.muted,
             bg=self.palette.background,
-            wraplength=390,
+            wraplength=self.BRAND_WIDTH - 30,
             justify="left",
         ).pack(anchor="w")
 
     def _build_form(self, parent):
         body = tk.Frame(parent, bg=self.palette.panel)
-        body.pack(fill="both", expand=True, padx=44, pady=38)
+        body.pack(fill="both", expand=True, padx=40, pady=32)
 
         utility = tk.Frame(body, bg=self.palette.panel)
         utility.pack(fill="x")
         self._build_language_selector(utility)
         self._build_theme_selector(utility)
 
+        # Shown only in the single-column arrangement, where the brand
+        # column is hidden and the card would otherwise carry no mark.
+        self._compact_brand = tk.Frame(body, bg=self.palette.panel)
+        self._compact_logo_image = load_logo_image(max_height=40)
+        if self._compact_logo_image is not None:
+            tk.Label(self._compact_brand, image=self._compact_logo_image,
+                     bg=self.palette.panel).pack(side="left", padx=(0, 10))
         tk.Label(
+            self._compact_brand,
+            text="AEGIS",
+            font=("Segoe UI", 20, "bold"),
+            fg=self.palette.text,
+            bg=self.palette.panel,
+        ).pack(side="left")
+
+        self._title = tk.Label(
             body,
             text=i18n.t("login.title"),
             font=("Segoe UI", 24, "bold"),
             fg=self.palette.text,
             bg=self.palette.panel,
-        ).pack(anchor="w", pady=(42, 4))
+        )
+        self._title.pack(anchor="w", pady=(34, 4))
         tk.Label(
             body,
             text=i18n.t("login.subtitle"),
             font=FONT_PAGE_SUBTITLE,
             fg=self.palette.muted,
             bg=self.palette.panel,
-            wraplength=340,
+            wraplength=self.FORM_WIDTH - 90,
             justify="left",
-        ).pack(anchor="w", pady=(0, 28))
+        ).pack(anchor="w", pady=(0, 24))
 
         self.admin_entry = self._field(body, "login.admin_id", masked=False)
         self.pin_entry = self._field(body, "login.pin", masked=True)
+        # Height is reserved whether or not a message is showing, so a
+        # failed attempt never shifts the Sign In button out from under
+        # the pointer.
+        status_slot = tk.Frame(body, bg=self.palette.panel, height=30)
+        status_slot.pack(fill="x", pady=(2, 8))
+        status_slot.pack_propagate(False)
         self.status_label = tk.Label(
-            body,
+            status_slot,
             text="",
             font=FONT_HINT,
             fg=self.palette.danger_highlight,
             bg=self.palette.panel,
             anchor="w",
+            justify="left",
+            wraplength=self.FORM_WIDTH - 90,
         )
-        self.status_label.pack(fill="x", pady=(4, 10))
+        self.status_label.pack(fill="both", expand=True)
 
         tk.Button(
             body,
@@ -199,13 +272,21 @@ class LoginView(tk.Frame):
             insertbackground=self.palette.text,
             selectbackground=self.palette.accent,
             relief="flat",
-            highlightthickness=1,
+            highlightthickness=2,
             highlightbackground=self.palette.border,
             highlightcolor=self.palette.accent,
             show="•" if masked else "",
         )
-        entry.pack(fill="x", ipady=10, pady=(0, 18))
+        entry.pack(fill="x", ipady=9, pady=(0, 16))
+        # Clear a previous failure as soon as the operator starts a new
+        # attempt, so a stale error is never read as a fresh one.
+        entry.bind("<KeyPress>", self._clear_status, add="+")
         return entry
+
+    def _clear_status(self, _event=None):
+        label = getattr(self, "status_label", None)
+        if label is not None and label.winfo_exists() and label.cget("text"):
+            label.config(text="")
 
     def _build_language_selector(self, parent):
         names = dict(i18n.available_languages())

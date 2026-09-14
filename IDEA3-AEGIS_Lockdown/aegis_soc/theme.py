@@ -15,7 +15,7 @@ import tkinter as tk
 from dataclasses import dataclass
 
 from . import theme_state
-from .branding import resolve_logo_path
+from .branding import resolve_logo_path, resolve_scaled_logo_path
 from .presentation import (
     STATUS_CRITICAL,
     STATUS_HEALTHY,
@@ -103,7 +103,9 @@ PALETTES = {
     "light": _palette(
         "light",
         background="#edf2f7", panel="#ffffff", panel_alt="#e5ecf4",
-        elevated="#f4f7fb", border="#cbd6e3", text="#13213a",
+        # Distinct enough from `panel` that a selected or hovered navigation
+        # row is visible on light surfaces, not only on dark ones.
+        elevated="#e3ebf5", border="#cbd6e3", text="#13213a",
         muted="#52657f", accent="#2563eb", danger="#b91c1c",
         danger_highlight="#dc2626", success="#15803d",
         success_highlight="#16803b", good="#15803d", warn="#a45108",
@@ -288,10 +290,36 @@ class ScrollFrame(tk.Frame):
             self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
 
-def make_hint(parent, text):
+HINT_MIN_WRAP = 288   # never wrap narrower than the previous fixed value
+
+
+def bind_wraplength(label, container=None, padding=32, minimum=HINT_MIN_WRAP):
+    """Let a wrapping Label use the width it is actually given.
+
+    Fixed `wraplength` values force text to wrap into a narrow ribbon on a
+    wide console while still overflowing a narrow one. This re-wraps the
+    label whenever its container is resized, never below `minimum` so the
+    layout is never worse than the previous fixed behavior.
+    """
+
+    target = container if container is not None else label.master
+
+    def _resize(event):
+        width = event.width - padding
+        if width > minimum:
+            label.config(wraplength=width)
+
+    target.bind("<Configure>", _resize, add="+")
+    return label
+
+
+def make_hint(parent, text, *, responsive=True):
     palette = get_palette()
-    return tk.Label(parent, text=text, font=FONT_HINT, fg=palette.muted, bg=palette.panel,
-                    wraplength=288, justify="left")
+    label = tk.Label(parent, text=text, font=FONT_HINT, fg=palette.muted, bg=palette.panel,
+                     wraplength=HINT_MIN_WRAP, justify="left")
+    if responsive:
+        bind_wraplength(label, parent)
+    return label
 
 
 LOGO_MAX_HEIGHT_PX = 40   # within the requested ~36-48px header target
@@ -308,7 +336,15 @@ def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX, theme_name=None):
     long as it is displayed, since Tkinter does not keep PhotoImage objects
     alive on its own.
     """
-    resolved = path if path is not None else resolve_logo_path(theme=theme_name or theme_state.get_theme())
+    theme = theme_name or theme_state.get_theme()
+    if path is None:
+        # Prefer a pre-scaled variant of the same official mark. PhotoImage
+        # can only downscale by integer subsampling, which discards pixels
+        # instead of averaging them and reduces this mark's fine line work
+        # to noise; the shipped variants were box-filtered offline instead.
+        resolved = resolve_scaled_logo_path(max_height, theme=theme) or resolve_logo_path(theme=theme)
+    else:
+        resolved = path
     if not resolved:
         return None
     try:
@@ -374,6 +410,10 @@ class MetricCard(Card):
                                        fg=palette.muted, bg=palette.panel, wraplength=200,
                                        justify="left")
         self._helper_label.pack(anchor="w", padx=SPACE_MD, pady=(0, SPACE_SM))
+        # Helper lines carry the evidence behind the value ("last seen 12s
+        # ago - RSSI -58 dBm"). Wrapping them at a fixed 200px broke them
+        # over three lines in a card twice that wide.
+        bind_wraplength(self._helper_label, self, padding=2 * SPACE_MD, minimum=180)
 
     def update(self, value, status, helper=""):
         color = status_color(status)
@@ -396,12 +436,15 @@ class NavigationItem(tk.Frame):
     def __init__(self, parent, text, command=None, selected=False, enabled=True, suffix="", **kwargs):
         palette = get_palette()
         self._palette = palette
+        self._selected = selected
+        self._hovered = False
         bg = palette.surface_elevated if selected else palette.panel
         super().__init__(parent, bg=palette.panel, cursor="hand2" if command else "arrow", **kwargs)
         self._bar = tk.Frame(self, bg=palette.accent if selected else palette.panel, width=self.BAR_WIDTH)
         self._bar.pack(side="left", fill="y")
         self._row = tk.Frame(self, bg=bg)
         self._row.pack(side="left", fill="both", expand=True)
+        self._enabled = enabled
         fg = palette.text if (selected or enabled) else palette.muted
         self._label = tk.Label(self._row, text=f"{text}{suffix}", font=FONT_NAV_ITEM, fg=fg, bg=bg,
                                 anchor="w", padx=SPACE_MD, pady=SPACE_SM + 2)
@@ -409,12 +452,49 @@ class NavigationItem(tk.Frame):
         if command:
             for widget in (self, self._row, self._label):
                 widget.bind("<Button-1>", lambda _e: command())
+                widget.bind("<Enter>", self._on_enter)
+                widget.bind("<Leave>", self._on_leave)
+
+    # Hover feedback: a navigation rail with no pointer response reads as
+    # static text rather than as controls. Purely visual -- it never changes
+    # which page is active; only a click does.
+    def _on_enter(self, _event=None):
+        self._hovered = True
+        self._apply()
+
+    def _on_leave(self, _event=None):
+        self._hovered = False
+        self._apply()
+
+    def _apply(self):
+        palette = self._palette
+        if self._selected:
+            bg, bar = palette.surface_elevated, palette.accent
+        elif self._hovered:
+            bg, bar = palette.surface_elevated, palette.border
+        else:
+            bg, bar = palette.panel, palette.panel
+        self._bar.config(bg=bar)
+        self._row.config(bg=bg)
+        fg = palette.text if (self._selected or self._enabled) else palette.muted
+        self._label.config(bg=bg, fg=fg)
 
     def set_selected(self, selected):
-        bg = self._palette.surface_elevated if selected else self._palette.panel
-        self._bar.config(bg=self._palette.accent if selected else self._palette.panel)
-        self._row.config(bg=bg)
-        self._label.config(bg=bg)
+        self._selected = selected
+        self._apply()
+
+
+class NavSectionLabel(tk.Label):
+    """A quiet grouping caption above a run of NavigationItems. Purely an
+    information-architecture cue -- it is not itself selectable."""
+
+    def __init__(self, parent, text, **kwargs):
+        palette = get_palette()
+        # Indent to match NavigationItem's label, which sits after the
+        # selection bar, so captions and items share one left edge.
+        super().__init__(parent, text=text.upper(), font=FONT_BADGE, fg=palette.muted,
+                         bg=palette.panel, anchor="w",
+                         padx=SPACE_MD + NavigationItem.BAR_WIDTH, **kwargs)
 
 
 class PageHeader(tk.Frame):
@@ -439,9 +519,25 @@ class PageHeader(tk.Frame):
 
 
 class EvidenceRow(tk.Frame):
-    """One row of the Recent Activity table: TIME | SEVERITY | EVENT | SOURCE."""
+    """One row of the Recent Activity table: TIME | SEVERITY | EVENT | SOURCE.
+
+    Columns are laid out on a grid with pixel minimums rather than by
+    packing fixed character widths. Character widths are measured in the
+    widget's own font, so the header (which is set slightly larger than the
+    data rows to read as a header) drifted out of alignment with the rows
+    beneath it. Pixel minimums are font-independent, and giving the EVENT
+    column the spare width lets the table use the full panel instead of
+    ending halfway across a wide console.
+    """
 
     SEVERITY_COLUMN = 1
+    # Roughly the previous character widths, converted to pixels once so
+    # header and data rows resolve to identical column positions.
+    COLUMN_MIN_PX = (78, 78, 200, 96)
+    # Leftover width goes to an empty trailing column rather than to any of
+    # the four real ones, so the columns stay adjacent and scannable instead
+    # of SOURCE drifting to the far edge of a wide console.
+    SPACER_COLUMN = 4
 
     def __init__(
         self,
@@ -456,15 +552,30 @@ class EvidenceRow(tk.Frame):
     ):
         palette = get_palette()
         super().__init__(parent, bg=palette.panel, **kwargs)
-        widths = widths or (10, 10, 42, 12)
+        minimums = self._minimums(widths)
         values = (time_text, severity, event_text, source)
         font = FONT_METRIC_LABEL if header else FONT_HINT
         default_color = palette.muted if header else palette.text
         severity_color = palette.muted if header else status_color(SEVERITY_STATUS.get(severity, STATUS_NEUTRAL))
-        for index, (value, width) in enumerate(zip(values, widths)):
+        for index, (value, minimum) in enumerate(zip(values, minimums)):
             fg = severity_color if index == self.SEVERITY_COLUMN else default_color
-            tk.Label(self, text=value, font=font, fg=fg, bg=palette.panel, width=width,
-                     anchor="w", justify="left").pack(side="left", padx=(0, SPACE_SM))
+            self.grid_columnconfigure(index, minsize=minimum, weight=0)
+            tk.Label(self, text=value, font=font, fg=fg, bg=palette.panel,
+                     anchor="w", justify="left").grid(
+                row=0, column=index, sticky="w", padx=(0, SPACE_SM))
+        self.grid_columnconfigure(self.SPACER_COLUMN, weight=1)
+
+    @classmethod
+    def _minimums(cls, widths):
+        """Accept the legacy character-width tuple and convert it, so the
+        existing incident-timeline call site keeps its wider TIME column."""
+        if not widths:
+            return cls.COLUMN_MIN_PX
+        approx_char_px = 7
+        return tuple(
+            max(minimum, chars * approx_char_px)
+            for chars, minimum in zip(widths, cls.COLUMN_MIN_PX)
+        )
 
 
 class EmptyState(tk.Frame):

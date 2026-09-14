@@ -6,6 +6,7 @@ Log แบ่งระดับความรุนแรง + กรอง, In
 import csv
 import ipaddress
 import os
+import re
 import subprocess
 import threading
 import time
@@ -47,21 +48,40 @@ from .theme import (
     FONT_TITLE,
     LEVEL_COLORS,
     NAV_WIDTH,
+    SPACE_MD,
+    SPACE_SM,
     STATUS_WARNING,
     EvidenceRow,
     MetricCard,
     NavigationItem,
+    NavSectionLabel,
     PageHeader,
     ScrollFrame,
     Section,
     StatusBadge,
+    bind_wraplength,
     load_logo_image,
     make_hint,
 )
 from .wizard import IncidentRecoveryWizard
 
 _LEVEL_RANK = {"INFO": 0, "WARN": 1, "CRITICAL": 2}
+
+# The recovery step titles are stored with their own "1. "/"2. " prefix (in
+# every language) because the Recovery Wizard renders them as a plain list.
+# The Recovery page already shows a numbered badge beside each step, so the
+# prefix would print the number twice. Stripped at display time only: the
+# stored strings and the wizard's use of them are untouched.
+_STEP_NUMBER_PREFIX = re.compile(r"^\s*\d+\.\s*")
+
+
+def _strip_step_number(title):
+    return _STEP_NUMBER_PREFIX.sub("", title)
 RECENT_ACTIVITY_LIMIT = 8
+# The log box scrolls internally, so this is a viewport height, not a cap
+# on how much log is reachable. Sized to fit the supported minimum window
+# alongside the sections above it.
+LOG_BOX_LINES = 16
 
 # Static MetricCard labels, keyed the same way as the Metric objects
 # presentation.py produces, resolved through i18n at build/refresh time.
@@ -90,6 +110,16 @@ NAV_ITEMS = (
     ("settings", "nav.settings", True),
 )
 
+# Presentation-only grouping of the same eight pages above, so the rail reads
+# as "what am I watching / what can I do / what backs it up" rather than as
+# one undifferentiated list. Adds no page and removes none; NAV_ITEMS stays
+# the single source of truth for which workspaces exist.
+NAV_GROUPS = (
+    ("nav.group_monitor", ("overview", "incidents", "devices")),
+    ("nav.group_respond", ("lockdown", "recovery")),
+    ("nav.group_system", ("audit", "diagnostics", "settings")),
+)
+
 # presentation.py returns a fixed, stable English vocabulary for status
 # values (e.g. "CONNECTED", "LOCKDOWN") -- these are canonical identifiers,
 # not prose, and presentation.py itself stays English-only and untranslated
@@ -110,9 +140,50 @@ _STATUS_VALUE_KEYS = {
 }
 
 
+# presentation.py returns English helper lines for the same reason it returns
+# English status words: its exact output is asserted by tests and it carries
+# no i18n dependency. The display layer translates them here, exactly as it
+# already does for status values, so a Thai or Chinese console does not show
+# English explanatory text under localized metric values.
+_HELPER_KEYS = {
+    "Insufficient evidence": "helper.insufficient_evidence",
+    "No broker evidence yet": "helper.no_broker_evidence",
+    "No device evidence yet": "helper.no_device_evidence",
+    "No status evidence yet": "helper.no_status_evidence",
+}
+
+
 def _localize_status_value(value):
     key = _STATUS_VALUE_KEYS.get(value)
     return i18n.t(key) if key else value
+
+
+def _localize_helper(helper):
+    """Translate a known static helper line; pass anything else through.
+
+    Helper lines built from real evidence (incident ids, IP addresses) are
+    identifiers, not prose, and are deliberately left exactly as produced.
+    """
+    key = _HELPER_KEYS.get(helper)
+    return i18n.t(key) if key else helper
+
+
+def _device_helper(seconds_since_seen, rssi=None, heap=None):
+    """Localized equivalent of esp32_metric()'s dynamic helper line.
+
+    Built from the same evidence values the caller already passed to
+    presentation.esp32_metric(), so the two never disagree; only the
+    surrounding words differ by language, and the measurements themselves
+    are reproduced unchanged.
+    """
+    if seconds_since_seen is None:
+        return i18n.t("helper.no_device_evidence")
+    parts = [i18n.t("helper.last_seen_ago", seconds=f"{seconds_since_seen:.0f}")]
+    if rssi is not None:
+        parts.append(i18n.t("helper.rssi", rssi=rssi))
+    if heap is not None:
+        parts.append(i18n.t("helper.heap", heap=heap))
+    return " · ".join(parts)
 
 
 def _sync_palette_aliases():
@@ -577,12 +648,17 @@ class AegisAdminGUI:
         self._toast_window = None
 
     def _build_nav(self, parent):
-        for key, label_key, enabled in NAV_ITEMS:
-            suffix = i18n.t("nav.soon_suffix") if not enabled else ""
-            item = NavigationItem(parent, i18n.t(label_key), command=lambda k=key: self._show_page(k),
-                                   selected=(key == self.active_page), enabled=enabled, suffix=suffix)
-            item.pack(fill="x")
-            self.nav_items[key] = item
+        definitions = {key: (label_key, enabled) for key, label_key, enabled in NAV_ITEMS}
+        for group_index, (group_key, page_keys) in enumerate(NAV_GROUPS):
+            NavSectionLabel(parent, i18n.t(group_key)).pack(
+                fill="x", pady=(SPACE_MD if group_index else SPACE_SM + 2, 2))
+            for key in page_keys:
+                label_key, enabled = definitions[key]
+                suffix = i18n.t("nav.soon_suffix") if not enabled else ""
+                item = NavigationItem(parent, i18n.t(label_key), command=lambda k=key: self._show_page(k),
+                                       selected=(key == self.active_page), enabled=enabled, suffix=suffix)
+                item.pack(fill="x")
+                self.nav_items[key] = item
 
     def _show_page(self, key):
         self.active_page = key
@@ -603,6 +679,42 @@ class AegisAdminGUI:
         }
         builders.get(key, self._build_overview_page)(self.workspace)
 
+    # Below this workspace width the two-column page layouts fold back to a
+    # single column, so a narrow console never squeezes a label/value pair
+    # into a column too small to read.
+    TWO_COLUMN_MIN_PX = 1080
+
+    def _reflow_columns(self, container, widgets, *, gap=16, bottom=16):
+        """Lay `widgets` out in two columns when there is room, one when not.
+
+        Several workspaces hold a handful of short evidence sections. Stacked
+        full-width they left most of a wide console empty and pushed the last
+        section below the fold; forced into two columns they would be
+        unreadable on the minimum supported window. This picks between the
+        two whenever the container is resized, and rebuilds nothing -- the
+        section widgets are the same objects in both arrangements.
+        """
+
+        def apply(_event=None):
+            if not container.winfo_exists():
+                return
+            columns = 2 if container.winfo_width() >= self.TWO_COLUMN_MIN_PX else 1
+            if getattr(container, "_aegis_columns", None) == columns:
+                return
+            container._aegis_columns = columns
+            for index in range(2):
+                container.grid_columnconfigure(
+                    index, weight=1 if index < columns else 0, uniform="reflow" if columns == 2 else "",
+                )
+            for index, widget in enumerate(widgets):
+                row, column = divmod(index, columns)
+                left = gap if column else 0
+                widget.grid(row=row, column=column, sticky="nsew",
+                            padx=(left, 0), pady=(0, bottom))
+
+        container.bind("<Configure>", apply, add="+")
+        apply()
+
     def _new_page(self, parent, title_key, subtitle_key, *, badge=False):
         scroll = ScrollFrame(parent)
         scroll.grid(row=0, column=0, sticky="nsew")
@@ -619,19 +731,27 @@ class AegisAdminGUI:
         ).pack(anchor="w", fill="x", padx=16, pady=(20, 16))
         return page
 
+    # Label column width in pixels rather than characters: a character count
+    # is measured in the label's own font, so the same "24" produced a very
+    # different column in English, Thai, and Chinese and the value column
+    # never lined up between them.
+    FACT_LABEL_MIN_PX = 190
+
     def _add_fact(self, parent, label, value, *, status=pres.STATUS_NEUTRAL):
         palette = ui_theme.get_palette()
         row = tk.Frame(parent, bg=palette.panel)
         row.pack(fill="x", pady=3)
+        row.grid_columnconfigure(0, minsize=self.FACT_LABEL_MIN_PX, weight=0)
+        row.grid_columnconfigure(1, weight=1)
         tk.Label(
             row,
             text=label,
             font=FONT_HINT,
             fg=palette.muted,
             bg=palette.panel,
-            width=24,
             anchor="w",
-        ).pack(side="left")
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", padx=(0, SPACE_MD))
         tk.Label(
             row,
             text=value,
@@ -639,7 +759,8 @@ class AegisAdminGUI:
             fg=ui_theme.status_color(status),
             bg=palette.panel,
             anchor="w",
-        ).pack(side="left", fill="x", expand=True)
+            justify="left",
+        ).grid(row=0, column=1, sticky="w")
 
     # ---------------------------------------------------------
     # Overview page
@@ -715,10 +836,14 @@ class AegisAdminGUI:
             wrap.pack(fill="x", pady=(10, 4))
             tk.Label(wrap, text=i18n.t("incidents.empty_title"), font=FONT_BTN, fg=COLOR_MUTED,
                      bg=COLOR_PANEL).pack(anchor="w")
-            tk.Label(wrap, text=i18n.t("incidents.empty"), font=FONT_HINT, fg=COLOR_TEXT,
-                     bg=COLOR_PANEL, wraplength=520, justify="left").pack(anchor="w", pady=(4, 2))
-            tk.Label(wrap, text=i18n.t("incidents.empty_hint"), font=FONT_HINT, fg=COLOR_MUTED,
-                     bg=COLOR_PANEL, wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
+            body = tk.Label(wrap, text=i18n.t("incidents.empty"), font=FONT_HINT, fg=COLOR_TEXT,
+                             bg=COLOR_PANEL, wraplength=520, justify="left")
+            body.pack(anchor="w", pady=(4, 2))
+            bind_wraplength(body, wrap, minimum=520)
+            hint = tk.Label(wrap, text=i18n.t("incidents.empty_hint"), font=FONT_HINT, fg=COLOR_MUTED,
+                            bg=COLOR_PANEL, wraplength=520, justify="left")
+            hint.pack(anchor="w", pady=(0, 8))
+            bind_wraplength(hint, wrap, minimum=520)
             tk.Button(
                 wrap, text=i18n.t("incidents.empty_review_audit_button"), font=FONT_HINT, fg=COLOR_TEXT,
                 bg=COLOR_PANEL_ALT, activebackground=COLOR_BORDER, bd=0, cursor="hand2",
@@ -810,13 +935,18 @@ class AegisAdminGUI:
             pres.uplink_metric(getattr(self, "_last_uplink_state", None)),
         )
         labels = ("metric.broker", "metric.esp32", "metric.uplink")
-        for column, (metric, label_key) in enumerate(zip(metrics, labels)):
+        helpers = (
+            _localize_helper(metrics[0].helper),
+            _device_helper(seconds, getattr(self, "_last_rssi", None), getattr(self, "_last_heap", None)),
+            _localize_helper(metrics[2].helper),
+        )
+        for column, (metric, label_key, helper) in enumerate(zip(metrics, labels, helpers)):
             card = MetricCard(
                 grid,
                 label=i18n.t(label_key),
                 value=_localize_status_value(metric.value),
                 status=metric.status,
-                helper=metric.helper,
+                helper=helper,
             )
             card.grid(row=0, column=column, sticky="nsew", padx=8, pady=8)
         evidence = Section(page, i18n.t("devices.evidence_title"), accent=COLOR_ACCENT)
@@ -990,13 +1120,13 @@ class AegisAdminGUI:
             text.pack(side="left", fill="x", expand=True)
             tk.Label(
                 text,
-                text=i18n.t(f"recovery.step{index}_title"),
+                text=_strip_step_number(i18n.t(f"recovery.step{index}_title")),
                 font=FONT_BTN_SM,
                 fg=COLOR_TEXT,
                 bg=COLOR_PANEL,
                 anchor="w",
             ).pack(fill="x")
-            tk.Label(
+            description = tk.Label(
                 text,
                 text=i18n.t(f"recovery.step{index}_desc"),
                 font=FONT_HINT,
@@ -1005,7 +1135,9 @@ class AegisAdminGUI:
                 anchor="w",
                 justify="left",
                 wraplength=780,
-            ).pack(fill="x")
+            )
+            description.pack(fill="x")
+            bind_wraplength(description, steps.body, padding=80, minimum=520)
         tk.Button(
             page,
             text=i18n.t("controls.recovery_button"),
@@ -1073,6 +1205,22 @@ class AegisAdminGUI:
             cursor="hand2",
             command=self.export_audit_log,
         ).pack(side="right")
+        # Verify sits beside Export in the toolbar. It used to live below a
+        # fixed 24-line log box, which pushed it past the bottom of the
+        # workspace at the supported window sizes -- an integrity check the
+        # operator could not reach without scrolling past the whole log.
+        tk.Button(
+            toolbar,
+            text=i18n.t("log.verify_button"),
+            font=FONT_BTN_SM,
+            fg=COLOR_TEXT,
+            bg=COLOR_PANEL_ALT,
+            activebackground=COLOR_BORDER,
+            activeforeground=COLOR_TEXT,
+            command=self.verify_log_integrity,
+            bd=0,
+            cursor="hand2",
+        ).pack(side="right", padx=(0, 8))
         self.log_box = scrolledtext.ScrolledText(
             logsec.body,
             bg=COLOR_PANEL_ALT,
@@ -1082,50 +1230,41 @@ class AegisAdminGUI:
             insertbackground=COLOR_TEXT,
             highlightthickness=1,
             highlightbackground=COLOR_BORDER,
-            height=24,
+            height=LOG_BOX_LINES,
         )
-        self.log_box.pack(fill="both", expand=True, pady=(0, 10))
+        self.log_box.pack(fill="both", expand=True)
         for level, color in LEVEL_COLORS.items():
             self.log_box.tag_config(level, foreground=color)
         self._redraw_log()
-        tk.Button(
-            logsec.body,
-            text=i18n.t("log.verify_button"),
-            font=FONT_BTN_SM,
-            fg="white",
-            bg=COLOR_BLUE,
-            activebackground=COLOR_BLUE_HL,
-            command=self.verify_log_integrity,
-            bd=0,
-            cursor="hand2",
-        ).pack(fill="x")
 
     def _build_diagnostics_page(self, parent):
         page = self._new_page(parent, "diagnostics.title", "diagnostics.subtitle")
 
-        runtime = Section(page, i18n.t("diagnostics.runtime_title"), accent=COLOR_ACCENT)
-        runtime.pack(fill="x", padx=16, pady=(0, 16))
+        grid = tk.Frame(page, bg=COLOR_BG)
+        grid.pack(fill="x", padx=16, pady=(0, 4))
+
+        runtime = Section(grid, i18n.t("diagnostics.runtime_title"), accent=COLOR_ACCENT)
         self._add_fact(runtime.body, i18n.t("diagnostics.profile"),
                         os.getenv("AEGIS_PROFILE", i18n.t("status.unknown")))
-        self._add_fact(runtime.body, i18n.t("diagnostics.dry_run"), self._yes_no(config.DRY_RUN))
-        self._add_fact(runtime.body, i18n.t("diagnostics.auto_contain"), self._yes_no(config.AUTO_CONTAIN))
+        # DRY RUN on and AUTO_CONTAIN off are both already surfaced as
+        # warnings elsewhere in this console (the page badge and the
+        # containment context line); matching that here keeps one meaning
+        # per color rather than introducing a second convention.
+        self._add_fact(runtime.body, i18n.t("diagnostics.dry_run"), self._yes_no(config.DRY_RUN),
+                        status=pres.STATUS_WARNING if config.DRY_RUN else pres.STATUS_HEALTHY)
+        self._add_fact(runtime.body, i18n.t("diagnostics.auto_contain"), self._yes_no(config.AUTO_CONTAIN),
+                        status=pres.STATUS_HEALTHY if config.AUTO_CONTAIN else pres.STATUS_WARNING)
 
-        connectivity = Section(page, i18n.t("diagnostics.section_connectivity"), accent=COLOR_BLUE)
-        connectivity.pack(fill="x", padx=16, pady=(0, 16))
-        self._add_fact(connectivity.body, i18n.t("diagnostics.broker_config"),
-                        self._configured(config.BROKER_CONFIGURED))
-        self._add_fact(connectivity.body, i18n.t("diagnostics.mqtt_auth"),
-                        self._configured(bool(config.MQTT_USER and config.MQTT_PASS)))
+        connectivity = Section(grid, i18n.t("diagnostics.section_connectivity"), accent=COLOR_BLUE)
+        self._add_configured_fact(connectivity.body, "diagnostics.broker_config", config.BROKER_CONFIGURED)
+        self._add_configured_fact(connectivity.body, "diagnostics.mqtt_auth",
+                                   bool(config.MQTT_USER and config.MQTT_PASS))
 
-        security = Section(page, i18n.t("diagnostics.section_security"), accent=COLOR_WARN)
-        security.pack(fill="x", padx=16, pady=(0, 16))
-        self._add_fact(security.body, i18n.t("diagnostics.hmac"),
-                        self._configured(config.SECRET_KEY != config.DEMO_SECRET))
-        self._add_fact(security.body, i18n.t("diagnostics.admin_pin"),
-                        self._configured(config.ADMIN_PIN_CONFIGURED))
+        security = Section(grid, i18n.t("diagnostics.section_security"), accent=COLOR_WARN)
+        self._add_configured_fact(security.body, "diagnostics.hmac", config.SECRET_KEY != config.DEMO_SECRET)
+        self._add_configured_fact(security.body, "diagnostics.admin_pin", config.ADMIN_PIN_CONFIGURED)
 
-        data = Section(page, i18n.t("diagnostics.section_data"), accent=COLOR_PURPLE)
-        data.pack(fill="x", padx=16, pady=(0, 20))
+        data = Section(grid, i18n.t("diagnostics.section_data"), accent=COLOR_PURPLE)
         try:
             audit_ok, _audit_message = db.verify_chain()
             audit_value = i18n.t("diagnostics.audit_valid" if audit_ok else "diagnostics.audit_invalid")
@@ -1133,35 +1272,53 @@ class AegisAdminGUI:
         except Exception:
             audit_value = i18n.t("status.unknown")
             audit_status = pres.STATUS_UNKNOWN
-        self._add_fact(data.body, i18n.t("diagnostics.database"),
-                        self._configured(os.path.exists(config.DB_PATH)))
+        self._add_configured_fact(data.body, "diagnostics.database", os.path.exists(config.DB_PATH))
         self._add_fact(data.body, i18n.t("diagnostics.audit_chain"), audit_value, status=audit_status)
         make_hint(data.body, i18n.t("diagnostics.no_secrets")).pack(anchor="w", pady=(10, 2))
+        self._reflow_columns(grid, (runtime, connectivity, security, data))
 
     def _configured(self, value):
         return i18n.t("diagnostics.configured" if value else "diagnostics.not_configured")
+
+    def _add_configured_fact(self, parent, label_key, value):
+        """A readiness fact that actually reads as one.
+
+        CONFIGURED and NOT CONFIGURED previously rendered in the identical
+        neutral color, so nothing on the page distinguished a satisfied
+        prerequisite from a missing one at a glance. The underlying check is
+        unchanged -- only whether the answer is visible as a status.
+        """
+        self._add_fact(
+            parent,
+            i18n.t(label_key),
+            self._configured(value),
+            status=pres.STATUS_HEALTHY if value else pres.STATUS_WARNING,
+        )
 
     def _yes_no(self, value):
         return i18n.t("common.yes" if value else "common.no")
 
     def _build_settings_page(self, parent):
         page = self._new_page(parent, "settings.title", "settings.subtitle")
-        preferences = Section(page, i18n.t("settings.preferences_title"), accent=COLOR_ACCENT)
-        preferences.pack(fill="x", padx=16, pady=(0, 16))
+        grid = tk.Frame(page, bg=COLOR_BG)
+        grid.pack(fill="x", padx=16, pady=(0, 4))
+
+        preferences = Section(grid, i18n.t("settings.preferences_title"), accent=COLOR_ACCENT)
         controls = tk.Frame(preferences.body, bg=COLOR_PANEL)
         controls.pack(anchor="w")
         self._build_language_selector(controls)
         self._build_theme_selector(controls)
         make_hint(preferences.body, i18n.t("settings.persist_note")).pack(anchor="w", pady=(10, 2))
-        session = Section(page, i18n.t("settings.session_title"), accent=COLOR_SUCCESS_HL)
-        session.pack(fill="x", padx=16, pady=(0, 20))
+
+        session = Section(grid, i18n.t("settings.session_title"), accent=COLOR_SUCCESS_HL)
         self._add_fact(session.body, i18n.t("settings.admin_id"), self.session.admin_id or "—")
         signed_in = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.session.authenticated_at or 0))
         self._add_fact(session.body, i18n.t("settings.signed_in"), signed_in)
-        about = Section(page, i18n.t("settings.about_title"), accent=COLOR_ACCENT)
-        about.pack(fill="x", padx=16, pady=(0, 20))
+
+        about = Section(grid, i18n.t("settings.about_title"), accent=COLOR_ACCENT)
         self._add_fact(about.body, i18n.t("settings.product"), "AEGIS IDEA3")
         make_hint(about.body, i18n.t("settings.about_text")).pack(anchor="w", pady=(8, 2))
+        self._reflow_columns(grid, (preferences, session, about))
 
     def _refresh_overview_metrics(self):
         if "health" not in self.metric_cards:
@@ -1183,10 +1340,15 @@ class AegisAdminGUI:
             "incidents": pres.incidents_metric(self._safe_open_incident()),
             "today": pres.today_metric(self._safe_incidents_today()),
         }
+        helpers = {"esp32": _device_helper(seconds_since_seen, rssi, heap)}
         for key, metric in metrics.items():
             card = self.metric_cards.get(key)
             if card is not None:
-                card.update(_localize_status_value(metric.value), metric.status, metric.helper)
+                card.update(
+                    _localize_status_value(metric.value),
+                    metric.status,
+                    helpers.get(key, _localize_helper(metric.helper)),
+                )
 
     def _refresh_recent_activity(self):
         if not hasattr(self, "activity_body") or not self.activity_body.winfo_exists():

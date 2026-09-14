@@ -23,6 +23,15 @@ THEME_LOGO_FILENAMES = {
     "dark": "aegis-mark-light-ink.png",
     "light": "aegis-mark-dark-ink.png",
 }
+
+# Pre-scaled copies of the same official marks, box-filtered offline to the
+# exact sizes the UI renders at. tkinter.PhotoImage can only downscale by
+# integer subsampling (it drops pixels rather than averaging them), which
+# turns this mark's fine line texture into visual noise. Shipping the sizes
+# we actually display keeps the mark legible without adding an imaging
+# dependency at runtime. The full-resolution originals stay authoritative:
+# these are additive, and a missing variant simply falls back to them.
+SCALED_LOGO_SIZES = (40, 96)
 DEFAULT_LOGO_RELATIVE_PATH = os.path.join("assets", "logo", THEME_LOGO_FILENAMES["dark"])
 
 
@@ -53,4 +62,32 @@ def resolve_logo_path(env=None, base_dir=None, theme="dark"):
     default_path = root / "assets" / "logo" / filename
     if default_path.is_file():
         return str(default_path.resolve())
+    return None
+
+
+def resolve_scaled_logo_path(max_height, env=None, base_dir=None, theme="dark"):
+    """Return a pre-scaled variant of the official mark, or None.
+
+    Picks the smallest shipped size that still covers `max_height`, so the
+    image is never upscaled. Returns None when an AEGIS_LOGO_PATH override
+    is in force (a custom asset has no pre-scaled variants), when no shipped
+    size is large enough, or when the variant file is absent -- callers then
+    fall back to resolve_logo_path() and the original scaling behavior.
+    """
+    values = os.environ if env is None else env
+    if (values.get("AEGIS_LOGO_PATH") or "").strip():
+        return None
+    try:
+        target = int(max_height)
+    except (TypeError, ValueError):
+        return None
+    candidates = [size for size in SCALED_LOGO_SIZES if size >= target]
+    if not candidates:
+        return None
+    filename = THEME_LOGO_FILENAMES.get(theme, THEME_LOGO_FILENAMES["dark"])
+    stem = filename.removesuffix(".png")
+    root = Path(base_dir) if base_dir is not None else _package_root()
+    scaled_path = root / "assets" / "logo" / f"{stem}-{min(candidates)}.png"
+    if scaled_path.is_file():
+        return str(scaled_path.resolve())
     return None
