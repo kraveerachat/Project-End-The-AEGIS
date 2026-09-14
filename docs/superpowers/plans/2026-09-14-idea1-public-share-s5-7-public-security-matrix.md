@@ -161,24 +161,49 @@ Cloudflare-edge responses do not automatically prove Gateway behavior, and Drive
 4. **Host Header Attribution:** Distinguish incoming Host representations (port representation, case variation) from the Gateway's configured canonical upstream Host.
 5. **Redirect Safety:** A same-host HTTP -> HTTPS 308 redirect that preserves query strings is **NOT** an open redirect. Redirect safety evaluates `Location.scheme`, `Location.authority`, and `Location.host`. User-supplied query parameters looking like URLs or IP addresses are inert data.
 
-### Mandatory Structured Evidence Metadata:
-Every row in the consolidation matrix must contain:
+### 14 Metadata Fields & NOT_APPLICABLE Semantics:
+Every row in the consolidation matrix must contain the 14 metadata fields:
 ```text
-OBSERVED_LAYER=<Cloudflare Edge | Public Share Gateway | Drive Application | Resolver>
-ATTRIBUTION_BASIS=<Header fingerprint | Response body | Connector logs | Firewall counter>
-APPLICATION_SIDE_EFFECT_EXPECTED=<YES | NO>
-APPLICATION_SIDE_EFFECT_OBSERVED=<NONE | AUDIT_ROW_CONFIRMED | UNCHECKED>
-VANTAGE_POINT=<External IPv4/v6 | Twingate Off | Location>
-UTC_TIMESTAMP=<YYYY-MM-DDTHH:MM:SSZ>
-PR_SHA=<git-commit-sha>
-METHOD=<GET | HEAD | POST | PUT | etc.>
-RAW_TARGET=<exact-raw-target-sent>
-HOST_OR_AUTHORITY=<exact-host-header>
-SNI=<exact-tls-sni>
-REDIRECT_FOLLOWED=<YES | NO>
-CLIENT_NORMALIZATION=<NONE | PATH_NORMALIZED>
-CLOUDFLARE_NORMALIZATION_KNOWN=<YES | NO | UNKNOWN>
+1.  OBSERVED_LAYER=<Cloudflare Edge | Public Share Gateway | Drive Application | Resolver | Host OS>
+2.  ATTRIBUTION_BASIS=<Header fingerprint | Response body | Connector logs | Firewall counter | Process status>
+3.  APPLICATION_SIDE_EFFECT_EXPECTED=<YES | NO>
+4.  APPLICATION_SIDE_EFFECT_OBSERVED=<NONE | AUDIT_ROW_CONFIRMED | UNCHECKED>
+5.  VANTAGE_POINT=<External IPv4/v6 | Twingate Off | Host Local | Control Plane>
+6.  UTC_TIMESTAMP=<YYYY-MM-DDTHH:MM:SSZ>
+7.  PR_SHA=<git-commit-sha>
+8.  METHOD=<GET | HEAD | POST | PUT | etc. | NOT_APPLICABLE(...)>
+9.  RAW_TARGET=<exact-raw-target-sent | NOT_APPLICABLE(...)>
+10. HOST_OR_AUTHORITY=<exact-host-header | NOT_APPLICABLE(...)>
+11. SNI=<exact-tls-sni | NOT_APPLICABLE(...)>
+12. REDIRECT_FOLLOWED=<YES | NO | NOT_APPLICABLE(...)>
+13. CLIENT_NORMALIZATION=<NONE | PATH_NORMALIZED | NOT_APPLICABLE(...)>
+14. CLOUDFLARE_NORMALIZATION_KNOWN=<YES | NO | UNKNOWN | NOT_APPLICABLE(...)>
 ```
+
+#### Non-HTTP Evidence & NOT_APPLICABLE Semantics:
+The 14-field model is a superset used across all S5.7 evidence categories. For non-HTTP or non-redemption evidence where specific fields have no semantic meaning, fields must **NOT** be fabricated with fake HTTP data or left blank. Use the explicit syntax:
+`NOT_APPLICABLE(<reason>)`
+
+Examples:
+- **Public DNS query**:
+  `METHOD=NOT_APPLICABLE(DNS_QUERY)`
+  `RAW_TARGET=NOT_APPLICABLE(DNS_QUERY)`
+  `SNI=NOT_APPLICABLE(DNS_QUERY)`
+  `REDIRECT_FOLLOWED=NOT_APPLICABLE(DNS_QUERY)`
+- **TLS protocol handshake**:
+  `METHOD=NOT_APPLICABLE(TLS_HANDSHAKE)`
+  `RAW_TARGET=NOT_APPLICABLE(TLS_HANDSHAKE)`
+  `REDIRECT_FOLLOWED=NOT_APPLICABLE(TLS_HANDSHAKE)`
+- **Production systemctl / Docker runtime observation**:
+  `METHOD=NOT_APPLICABLE(PRODUCTION_RUNTIME_OBSERVATION)`
+  `RAW_TARGET=NOT_APPLICABLE(PRODUCTION_RUNTIME_OBSERVATION)`
+  `HOST_OR_AUTHORITY=NOT_APPLICABLE(PRODUCTION_RUNTIME_OBSERVATION)`
+  `SNI=NOT_APPLICABLE(PRODUCTION_RUNTIME_OBSERVATION)`
+- **Governance observation**:
+  `METHOD=NOT_APPLICABLE(GOVERNANCE)`
+  `RAW_TARGET=NOT_APPLICABLE(GOVERNANCE)`
+
+If a field is applicable to the test type but evidence could not be gathered, do **NOT** mark it `NOT_APPLICABLE`. Use `UNKNOWN / UNPROVEN` to signify an applicable but unestablished fact.
 
 Allowed status values are **ONLY**: `PASS`, `FAIL`, `NOT TESTED`.
 
@@ -221,25 +246,70 @@ If any security-critical `FAIL` is discovered during live or local testing:
 ### Task 1 — S5.7-A: Bootstrap / fresh read-only preflight
 
 **Boundary:** Class 0 only. Strictly read-only. Does **NOT** send `/s/invalid-token-probe` or any share-redemption request.
-**Authorized Command Scope:**
-- Repository: `git status --short`, `git rev-parse HEAD`, `git rev-parse origin/main`, `git merge-base --is-ancestor`
-- Cloudflare Control Plane (Read-Only via Owner): tunnel status, replica count, hostname route inspection
-- Public Edge / DNS: DoH queries (`1.1.1.1`, `8.8.8.8`), TLS handshake validation, HTTP redirect check
-- Production Host (Read-Only via Owner):
-  - `systemctl is-active <unit>`
-  - `systemctl is-enabled <unit>`
-  - `docker inspect <container>`
-  - `docker ps`
-  - Approved connector readiness inspection (`http://127.0.0.1:20241/ready` / `cloudflared tunnel --metrics 127.0.0.1:20241 ready`)
-  - `s5-5-firewall.sh validate`
-  - Read-only `git rev-parse`
-- **FORBIDDEN:** `systemctl start/stop/restart/enable/disable`, `docker start/stop/restart/up/create/rm`, firewall apply/remove, rollback scripts, Compose mutations, database writes, Cloudflare mutations, DNS/TLS mutations.
+**Fixed Redirect Target for S5.7-A:** Use fixed non-share URL `http://share.aegistk-pb.com/` without following redirects automatically. Record status, Location header, scheme, authority, and host. Expected: HTTP 308 redirect to `https://share.aegistk-pb.com/` (same approved hostname over HTTPS). Do not send any `/s/...` path during S5.7-A.
+
+**Authorized Command Scope & Allowlisted Projections:**
+- **Repository**: `git status --short`, `git rev-parse HEAD`, `git rev-parse origin/main`, `git merge-base --is-ancestor origin/main HEAD`
+- **Cloudflare Control Plane (Read-Only via Owner)**: tunnel status, replica count, hostname route inspection
+- **Public Edge / DNS**: DoH queries (`1.1.1.1`, `8.8.8.8`), TLS handshake validation (TLS 1.0/1.1/1.2/1.3), non-following HTTP redirect check against `http://share.aegistk-pb.com/`
+- **Production Host Systemd / Firewall (Read-Only via Owner)**:
+  - `systemctl is-active aegis-public-share-firewall.service`
+  - `systemctl is-enabled aegis-public-share-firewall.service`
+  - `systemctl is-active aegis-public-share-connector.service`
+  - `systemctl is-enabled aegis-public-share-connector.service`
+  - `systemctl is-active aegis-public-share-drift.timer`
+  - `systemctl is-enabled aegis-public-share-drift.timer`
+  - `sudo /opt/aegis/runtime/public-share/s5-5-firewall.sh validate`
+  - Read-only `git rev-parse` on frozen release directory
+- **Production Container Status (Protected Services)**:
+  - `sudo docker ps --format '{{.Names}}\t{{.Status}}'` (proves running/healthy for `aegis-prod-public-share-gateway-1`, `aegis-prod-drive-1`, `aegis-prod-monitor-1`, `aegis-prod-hub-1`, postgres, twingate, and connector)
+- **Allowlisted Docker Inspect Projections (NO Full Inspect Output)**:
+  - `FULL_DOCKER_INSPECT_OUTPUT=PROHIBITED`
+  - `CONFIG_ENV_INSPECTION=PROHIBITED`
+  - `CONFIG_CMD_DUMP=PROHIBITED`
+  - `TOKEN_FILE_CONTENT_READ=PROHIBITED`
+  - `SECRET_ENVIRONMENT_OUTPUT=PROHIBITED`
+  - Allowlisted projection commands for `aegis-prod-public-share-connector-1`:
+    ```bash
+    sudo docker inspect aegis-prod-public-share-connector-1 \
+      --format 'Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} RestartCount={{.RestartCount}}'
+
+    sudo docker inspect aegis-prod-public-share-connector-1 \
+      --format '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}={{$cfg.IPAddress}} {{end}}'
+
+    sudo docker inspect aegis-prod-public-share-connector-1 \
+      --format 'PortBindings={{json .HostConfig.PortBindings}}'
+
+    sudo docker inspect aegis-prod-public-share-connector-1 \
+      --format 'User={{.Config.User}} ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} RestartPolicy={{.HostConfig.RestartPolicy.Name}} MaxRetry={{.HostConfig.RestartPolicy.MaximumRetryCount}}'
+    ```
+  - Allowlisted projection for Gateway host-port absence:
+    ```bash
+    sudo docker inspect aegis-prod-public-share-gateway-1 \
+      --format 'PortBindings={{json .HostConfig.PortBindings}}'
+    ```
+- **Connector Readiness Inspection Context**:
+  - The connector metrics listener (`127.0.0.1:20241`) is bound **inside** the container/network namespace and is not host-published. Host-loopback requests (e.g. host `curl`) are **NOT** authorized and must not be used as evidence.
+  - Authorized execution command:
+    ```bash
+    sudo docker exec aegis-prod-public-share-connector-1 \
+      cloudflared tunnel --metrics 127.0.0.1:20241 ready
+    ```
+  - `DOCKER_EXEC_AUTHORIZED_FOR_S5_7_A = ONLY_THE_EXACT_CLOUDFLARED_READINESS_COMMAND_ABOVE`
+  - All other `docker exec` commands remain unauthorized. If readiness fails, record `FAIL` / `NOT TESTED`; do not restart or modify the container.
+- **FORBIDDEN COMMANDS**:
+  - `systemctl start`, `systemctl stop`, `systemctl restart`, `systemctl enable`, `systemctl disable`, `systemctl enable --now`
+  - `s5-5-firewall.sh apply`, `s5-5-firewall.sh remove`
+  - Rollback scripts execution
+  - `docker start`, `docker stop`, `docker restart`, `docker up`, `docker create`, `docker rm`, Compose mutations
+  - Database write commands
+  - Cloudflare, DNS, TLS, or UI mutations
 
 - [ ] Verify branch/HEAD, clean worktree, current `origin/main`, and merge ancestry (`git merge-base --is-ancestor origin/main HEAD`).
 - [ ] Obtain fresh **read-only** Cloudflare control-plane evidence: tunnel `HEALTHY`, 1 replica, exactly one approved route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`).
-- [ ] Obtain fresh public DNS and edge evidence: proxied A/AAAA, TLS 1.0/1.1 rejected, TLS 1.2/1.3 accepted, HTTP -> HTTPS 308 redirect to same host.
-- [ ] Obtain fresh **read-only** Production evidence: connector running and isolated, firewall valid, drift timer active, protected services intact, `PUBLIC_SHARE_UI_ENABLED=false`.
-- [ ] Confirm G5 **APPROVED** and G6 **OPEN**. Mark each check `PASS`, `FAIL`, or `NOT TESTED`.
+- [ ] Obtain fresh public DNS and edge evidence: proxied A/AAAA, TLS 1.0/1.1 rejected, TLS 1.2/1.3 accepted, HTTP -> HTTPS 308 redirect on `http://share.aegistk-pb.com/` without following.
+- [ ] Obtain fresh **read-only** Production evidence using allowlisted projections only: connector running/isolated, firewall valid, drift timer active, protected services intact, connector readiness proven via internal container command, `PUBLIC_SHARE_UI_ENABLED=false`.
+- [ ] Confirm G5 **APPROVED** and G6 **OPEN**. Mark each check `PASS`, `FAIL`, or `NOT TESTED` with structured 14-field metadata using `NOT_APPLICABLE(<reason>)` where relevant.
 
 ### Task 2 — S5.7-B: Public surface / boundary enumeration
 
@@ -264,7 +334,8 @@ If any security-critical `FAIL` is discovered during live or local testing:
   - Approved hostname (`share.aegistk-pb.com`)
   - Approved hostname with standard HTTPS port (`share.aegistk-pb.com:443`)
   - Case variations (`SHARE.AEGISTK-PB.COM`)
-  - Unrelated/invalid Host (`attacker.com`, `172.31.240.2`)
+  - Unrelated/invalid Host (`unapproved-host.example.invalid`, `172.31.240.2`)
+  - Keep `TLS SNI = share.aegistk-pb.com` when intentionally testing only the HTTP Host representation.
   - Distinguish incoming Host representation from canonical upstream Host. Verify invalid Host confers no access.
 - [ ] Test spoofed forwarding headers: `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`, `CF-Connecting-IP` using documentation-range IPs (`198.51.100.0/24`). Verify headers do not bypass Gateway or alter trust.
 - [ ] Record structured metadata per row.
@@ -289,12 +360,14 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ### Task 5 — S5.7-E: URL / query / redirect safety
 
-**Boundary:** Class 0 for redirect/query checks; Class 1 if query appended to share route.
+**Boundary & Classification Clarification:**
+- **Class 0 Scope**: A Class 0 HTTP->HTTPS redirect check can prove only: redirect status, HTTPS scheme, approved authority/host, and path/query preservation behavior. It does **NOT** prove share authorization behavior.
+- **Class 1 Scope**: Any S5.7-E test requiring a request to `/s/<synthetic-id>` is Class 1 and strictly requires `TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES` before execution. No such gate is granted now.
 
-- [ ] Test same-host HTTP -> HTTPS 308 redirect with inert query parameters (e.g. `?url=https://attacker.com`, `?ip=172.31.240.2`).
+- [ ] Test same-host HTTP -> HTTPS 308 redirect with inert query parameters on non-share path (e.g. `?url=https://unapproved.example.invalid`, `?ip=172.31.240.2`).
 - [ ] Evaluate `Location.scheme`, `Location.authority`, `Location.host`. Verify authority remains strictly `share.aegistk-pb.com` and no open redirect or private origin disclosure occurs.
 - [ ] Verify query data does not alter authorization or reflect unescaped payloads.
-- [ ] Record structured metadata per row.
+- [ ] Record structured 14-field metadata per row.
 
 ### Task 6 — S5.7-F: Information leakage / response hygiene
 
@@ -311,7 +384,7 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 - [ ] Consolidate all rows under exact columns:
   `TEST | REQUEST | EXPECTED | ACTUAL | STATUS | EVIDENCE | SECURITY_BOUNDARY`
-- [ ] Ensure all 12 mandatory structured metadata fields are populated in every `EVIDENCE` entry.
+- [ ] Ensure all 14 metadata fields are populated in every `EVIDENCE` entry, applying `NOT_APPLICABLE(<reason>)` semantics for non-HTTP evidence categories.
 - [ ] Ensure allowed statuses are strictly `PASS`, `FAIL`, `NOT TESTED`.
 - [ ] If any attack class failed, ensure post-defect rerun policy was followed.
 
@@ -330,13 +403,15 @@ If any security-critical `FAIL` is discovered during live or local testing:
 
 ## Bootstrap & Next Gate
 
-At this plan reconciliation checkpoint:
-- S5.7 is **IN PROGRESS / PLAN RECONCILIATION**
+At this procedure hardening checkpoint:
+- S5.7 is **IN PROGRESS / PROCEDURE HARDENING**
 - S5.7-A is **NOT STARTED**
+- S5.7-C/D are **BLOCKED_BY_LOCAL_TEST_PREREQUISITE**
 - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`
+- `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`
 - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`
 - `LIVE_PUBLIC_SECURITY_PROBES_ALLOWED=NO`
 - `FINAL_S5_7_RECEIPT_COUNT=0`
 
-**Next Gate:** `INDEPENDENT_CORRECTED_PLAN_REVIEW`.
-No public security probe is run by this checkpoint.
+**Next Gate:** `CHATGPT_FINAL_S5_7_A_REVIEW`.
+No S5.7-A execution or public security probe is run by this checkpoint.
