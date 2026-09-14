@@ -12,15 +12,86 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers. Phase 2 and later stay BLOCKED on pre-mutation prerequisites. Read "IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14," "IDEA3 PR11 Phase 0 closeout — 2026-09-13," and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. Phase 2 Production work and later phases stay BLOCKED on pre-mutation prerequisites; Phase 2 repository-only preparation is IN PROGRESS on `feat/idea3-pr11-phase2-server-integration`. Read "IDEA3 PR11 Phase 2 server integration — repository preparation — 2026-09-15," "IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14," "IDEA3 PR11 Phase 0 closeout — 2026-09-13," and the PR10 Handoff below first. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
+## IDEA3 PR11 Phase 2 server integration — repository preparation — 2026-09-15
+
+> [!important] Current IDEA3 truth — read this section first
+> PR11 Phase 2 repository-only preparation is IN PROGRESS on
+> `feat/idea3-pr11-phase2-server-integration`, created from `origin/main`
+> `c448dfb914d2480f81fbc35abfbc8e5633dd3a38` (the PR #131 merge). No Production
+> system is changed. Production mutation is not authorized. The IDEA1 S5.7
+> Production verification window (Draft PR #130) is active, so no IDEA3
+> Production step may overlap it. Older sections below are dated history.
+
+```text
+CURRENT_MAIN                    = c448dfb914d2480f81fbc35abfbc8e5633dd3a38
+PR131                           = MERGED (human merge; kraveerachat APPROVED)
+KLA_PHASE1_REVIEW               = APPROVED (GitHub review on PR #131)
+PUB_D6_REVIEW                   = NOT RECORDED (residual Phase 3/4 integration gate)
+PHASE2_STATE                    = REPOSITORY PREPARATION IN PROGRESS / PRODUCTION BLOCKED
+K3_CURRENT_IDEA1_WINDOW         = ACTIVE (Draft PR #130, IDEA1 S5.7)
+PRODUCTION_MUTATION_AUTHORIZED  = NO
+IDEA3_PRODUCTION_DEPLOYED       = NO
+FINAL_PHASE2_RECEIPT_COUNT      = 0
+```
+
+### Current Task
+
+Task: IDEA3 PR11 Phase 2 — server integration, repository preparation
+Branch: `feat/idea3-pr11-phase2-server-integration`
+Owner: `music`
+PR: not opened yet; a Draft PR states the runtime gates and Production authorization as pending
+Current state: IN PROGRESS
+Started: 2026-09-15
+Base SHA: `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`
+Last checkpoint: — (recorded after the implementation checkpoint)
+Production mutation allowed: NO
+
+- **Goal:** prepare, test-first, every IDEA3-owned repository change the D3
+  `/security/` container integration needs, and write exact integration
+  requests for the shared changes other owners hold.
+- **Scope:** the IDEA3 Web proxied-listener mode and trusted-proxy boundary;
+  the `/security`-scoped session cookie; the D8 bounded session store;
+  file-sourced secrets; `web/Dockerfile` and `web/.dockerignore`; the IDEA3
+  Compose overlay; `.env.example` and the runtime runbook; the design, the
+  plan, and this record.
+- **Out of scope:** any Production command; HUB/NGINX, network, firewall,
+  certificate, DNS, IDEA1, IDEA2, Public Share, and PR #129 files; certificate,
+  key, or CA generation; the final Phase 2 receipt; marking a PR Ready; merging.
+- **Safety boundaries:** `Reference != Ownership`. A shared change becomes an
+  integration request (design §5, IR-1 to IR-6), never an edit. The Kla-owned
+  stanzas inside the IDEA3 overlay (the network and the HUB membership)
+  require Kla's integration review.
+- **Acceptance for this session:** the design and plan are recorded; the source
+  changes pass their new tests and the full Web suite; `git diff --check`, vault
+  validation, and the collaboration-policy tests pass; the ownership, secret,
+  binary, and historical-receipt checks pass.
+
+Design:
+`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-15-idea3-pr11-phase2-server-integration-design.md`.
+Plan:
+`IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-09-15-idea3-pr11-phase2-server-integration.md`.
+
+### Phase 2 Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P2-R1 | Repository preparation: branch repair, design, plan, TDD source, container and overlay artifacts | IN PROGRESS | baseline Web 493/493 at `c448dfb9`; K1 Git hash and K4 repository scan re-verified | — | pending | plan T1–T9 | continue P2-R1 |
+| P2-E1 | Owner-run read-only Production evidence (design §6.1) | NOT STARTED | — | — | — | K1 live hash, K4 live recheck, HUB Compose labels, Public Share baseline | in Music's read-only session |
+| P2-A | Phase 2A Production window (browser route) | BLOCKED | — | — | — | IDEA1 window closed; IR-1 and IR-5 accepted; K1 PASS; K4 live PASS; Music's authorization | — |
+| P2-B | Phase 2B Production window (machine route, mTLS) | BLOCKED | — | — | — | P2-A; IR-2 and IR-6; K9 DNS/certificate and K10 issuance evidence | — |
+
+Staging into 2A and 2B is the design's recommendation (§4.9) and awaits
+Music's confirmation.
+
 ## IDEA3 PR11 Phase 1 post-merge reconciliation — 2026-09-14
 
-> [!important] Current IDEA3 truth — Phase 1 decision documentation closed
+> [!note] Phase 1 decision documentation closed (2026-09-14) — superseded as the entry point by the Phase 2 section above. Kla approved PR #131 before its human merge at `c448dfb9`; Pub's review was not recorded.
 > PR #127 merged the Phase 1 owner-decision package at
 > `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`. Music owns the IDEA3 decision
 > package and checklist. Music recorded the complete K1, K2, K3, K4, K5, K7,
