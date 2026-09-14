@@ -22,3 +22,5 @@ windows/cache/
 windows/build/
 windows/dist/
 windows/out/
+
+ui_theme.json
