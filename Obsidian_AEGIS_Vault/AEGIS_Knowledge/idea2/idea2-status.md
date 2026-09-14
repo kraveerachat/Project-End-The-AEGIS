@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-06
+updated: 2026-09-14
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,69 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current Task
+
+Task: IDEA2 Camera-First Slice 1, Machine A browser-to-physical-camera association
+Branch: `feat/idea2-camera-first-machine-association`
+Owner: Pub
+PR: [#128](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/128) — Draft; Pub owner and Kla integration review requested
+Current state: PLANNED — Camera-First Slice 1 design is approved and its five-task bounded TDD plan is validated; runtime implementation has not started; CP3 runtime remains paused
+Started: 2026-09-14
+Last checkpoint: `03cafc19fb884cb6331e642d3673a272a89e81f5` — approved Camera-First Slice 1 machine-association design
+Production mutation allowed: NO
+
+### Goal
+
+Get Machine A's existing physical camera onto the authenticated Monitor web flow
+by binding an Operator's server-side browser session to a cryptographically
+verified local Node, resolving that Node's physical camera from the registry,
+and routing the authorized logical alias to the existing Engine stream.
+
+### Scope
+
+Camera-First Slice 1 is planned as five reviewable TDD tasks: Monitor proof and
+challenge verification; the minimum CP3-compatible Identity Agent loopback
+association endpoint; server-side session binding plus invisible browser
+orchestration; account-alias authorization plus physical stream routing; and
+full regression plus Machine A acceptance preparation. CP3's approved identity
+and ingest design plus implementation plan remain preserved; CP3 runtime work
+is paused, not cancelled. No Slice 1 runtime implementation has started.
+
+### Out of scope
+
+CP3 authenticated heartbeat/detection/alert/clip ingest, producer leases and
+epochs, full logical-alias ownership, multi-tab reference counting, final SOC
+passive remediation, multi-machine Production rollout, UI redesign, camera
+hardware, model, training, and biometric changes remain outside Slice 1.
+
+### Safety boundaries
+
+The browser never owns Node or physical-camera identity. Machine A's private
+application key remains local to the dedicated Agent service identity, is
+unrelated to SSH, and must not reach the browser, Detection Engine, logs, tests,
+receipts, or Git. Login and association create no camera demand. Production,
+camera core, model, training, and biometric source remain unchanged.
+
+### Acceptance criteria
+
+The Slice 1 design and later implementation plan must preserve the exact A/B/C
+physical-camera plus account-alias contract, use a proof domain distinct from
+CP3 ingest, fail closed in strict mode, preserve CP3, defer CP5/SOC completion,
+leave protected camera/model/training paths unchanged, and pass repository
+Vault/document, secret, and Git validation before each checkpoint.
+
+## Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
+| CP3-S0 | Read-only repository and runtime-auth reconnaissance | CLOSED | CP2 registry/key-version/physical-camera foundation exists; runtime still uses shared key/body identity; no Agent auth/session/DPAPI path exists | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | freshness comparison | CP3-S0.5 |
+| CP3-S0.5 | Fetch and inspect newer `origin/main` for CP3 overlap | CLOSED | fetched `origin/main` `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`; 69 newer commits do not touch IDEA2/CP3 interfaces | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS — no reconciliation required | architecture specification | CP3-S1 |
+| CP3-S1 | Dedicated Identity Agent and authenticated ingest architecture | CLOSED | 25-section specification; Vault validation PASS with two pre-existing Canvas warnings; governance document tests 63/63; placeholder, secret-material, and Git diff checks PASS; explicit human approval received | `8323eb8432164c4b012b8dfb8bb6cdfb2d5013fa` | PASS — design only | implementation planning | CP3-S2 |
+| CP3-S2 | Detailed TDD implementation and human-runtime-gate planning | PASS | 17 reviewable tasks; exact file/interface maps; H1–H10; spec coverage, placeholder, interface, Vault, governance, secret, and Git checks | this documentation checkpoint | PASS — planning only; source not started | human plan review and implementation authorization | stop for human review |
+| CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
+| CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
 
 ## Detector B real-machine acceptance (2026-09-06)
 
