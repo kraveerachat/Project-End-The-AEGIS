@@ -133,7 +133,7 @@ Live probes are categorized into three strict risk classes:
 ## 5. Local Test Prerequisites Before Live Probes (Findings B & C)
 
 **Finding B (Raw Request Target Preservation):**
-The repository already contains raw-request-target-preserving test harnesses in existing Node HTTP tests. Do **NOT** invent a new harness. Existing patterns must be reused.
+The repository already contains raw-request-target-preserving test harnesses in existing Node HTTP tests (primarily `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js` using raw `node:http`). Do **NOT** invent a new harness. Existing patterns must be reused.
 
 **Finding C (Local Coverage Gaps):**
 Relevant local disposable tests do not yet cover all planned:
@@ -205,8 +205,10 @@ If any security-critical `FAIL` is discovered during live or local testing:
 | :--- | :--- |
 | `gateway/public-share/nginx.conf.template` | Reviewed Gateway route, Host, method, and raw-path policy; read-only unless a defect gate authorizes a fix. |
 | `gateway/public-share/production/README.md` | Historical/reviewed procedure reference; read-only reference, not execution authority. |
+| `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js` | Opt-in disposable real-Gateway runtime harness. Uses raw `node:http` rather than `fetch` specifically so traversal/raw request targets can reach the Gateway without client-side normalization. Primary harness for the planned TRACE and encoded/raw-path Gateway regression deltas. |
+| `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` | Recipient-facing / Drive security regression matrix covering refusal indistinguishability, audit behavior, token/password secrecy, security headers, attribution and related application-layer invariants. Useful for application behavior, but not the primary Gateway raw-request-target harness. |
 | `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayStructure.test.js` | Existing local Gateway structural contracts. |
-| `IDEA1-AEGIS_Drive_LC/tests/publicShareSecurityRegression.test.js` | Existing local raw-target-preserving negative test harness. |
+| `IDEA1-AEGIS_Drive_LC/tests/publicShareManagedTunnelIntegration.test.js` | Existing local managed-ingress / connector trust-boundary harness. |
 | `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` | Live task/session register, evidence classification, and closeout records. |
 | `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md` | Canonical architecture, trust boundaries, and phase status. |
 | `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md` | Area-level status and MOC entry. |
@@ -228,7 +230,7 @@ If any security-critical `FAIL` is discovered during live or local testing:
   - `systemctl is-enabled <unit>`
   - `docker inspect <container>`
   - `docker ps`
-  - Approved connector readiness inspection (`127.0.0.1:2000/ready`)
+  - Approved connector readiness inspection (`http://127.0.0.1:20241/ready` / `cloudflared tunnel --metrics 127.0.0.1:20241 ready`)
   - `s5-5-firewall.sh validate`
   - Read-only `git rev-parse`
 - **FORBIDDEN:** `systemctl start/stop/restart/enable/disable`, `docker start/stop/restart/up/create/rm`, firewall apply/remove, rollback scripts, Compose mutations, database writes, Cloudflare mutations, DNS/TLS mutations.
