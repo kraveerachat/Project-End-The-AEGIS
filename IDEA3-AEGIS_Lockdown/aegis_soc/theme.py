@@ -180,7 +180,7 @@ def make_hint(parent, text):
                     wraplength=288, justify="left")
 
 
-LOGO_MAX_HEIGHT_PX = 32
+LOGO_MAX_HEIGHT_PX = 40   # within the requested ~36-48px header target
 
 
 def load_logo_image(path=None, max_height=LOGO_MAX_HEIGHT_PX):

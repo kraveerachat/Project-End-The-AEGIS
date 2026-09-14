@@ -6,17 +6,15 @@ requires tkinter. This module only decides *which path* to try, so the
 decision itself stays headlessly testable -- consistent with the
 presentation.py split from the Slice 1 UX/UI refresh.
 
-No logo asset ships with this repository today: every existing brand asset
-folder (IDEA1-AEGIS_Drive_LC/public/assets/logo, IDEA2-AEGIS_Monitor/public/
-assets/logo, HUB-AEGIS_Entry/public/assets/logo) contains only a
-PUT-LOGOS-HERE.md placeholder describing the shared AEGIS mark convention
-(aegis-mark-dark-ink.png for light surfaces, aegis-mark-light-ink.png for
-dark surfaces, square, transparent background, never stretched/glowed/
-shadowed) -- and IDEA3 had no logo folder at all before this change. Since
-this desktop console is dark-surface-only, it looks for the same
-light-ink mark other AEGIS surfaces already use, so a single shared PNG
-drop-in works across the whole product rather than requiring an
-IDEA3-specific asset.
+The official AEGIS mark ships at IDEA1-AEGIS_Drive_LC/public/assets/logo,
+IDEA2-AEGIS_Monitor/public/assets/logo, and HUB-AEGIS_Entry/public/assets/
+logo (aegis-mark-dark-ink.png for light surfaces, aegis-mark-light-ink.png
+for dark surfaces; square, transparent background, never stretched/glowed/
+shadowed). IDEA3-AEGIS_Lockdown/assets/logo now carries byte-identical
+copies of both files. Since this desktop console is dark-surface-only, it
+looks for the light-ink mark other AEGIS surfaces already use for dark
+backgrounds, keeping the whole product on one shared, official asset
+rather than an IDEA3-specific one.
 """
 import os
 from pathlib import Path
@@ -33,7 +31,8 @@ def resolve_logo_path(env=None, base_dir=None):
 
     Resolution order:
       1. AEGIS_LOGO_PATH environment variable, if set and the file exists.
-      2. <base_dir or package root>/assets/logo/aegis-logo.png, if it exists.
+      2. <base_dir or package root>/assets/logo/aegis-mark-light-ink.png,
+         if it exists.
 
     Never raises; a missing, unreadable, or unset asset simply returns None
     so callers can fall back to text-only branding.

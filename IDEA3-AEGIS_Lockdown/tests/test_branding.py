@@ -1,11 +1,15 @@
 """Focused tests for aegis_soc.branding -- pure logo path resolution.
 
-No logo asset ships with this repository (only PUT-LOGOS-HERE.md
-placeholders exist for the other AEGIS surfaces, and IDEA3 previously had
-no logo folder at all), so these tests exercise the graceful-missing-asset
-path plus the override/discovery logic, without needing tkinter or a real
-image file for most cases.
+The official aegis-mark-light-ink.png / aegis-mark-dark-ink.png assets
+(byte-identical to the copies already used by IDEA1/IDEA2/HUB) now ship at
+IDEA3-AEGIS_Lockdown/assets/logo/. Most cases here still use an isolated
+tmp_path so they exercise the override/discovery logic in full, including
+the graceful-missing-asset path, without depending on the real files;
+test_official_logo_asset_ships_in_this_repository below is the one test
+that intentionally checks the real, current repository state.
 """
+import os
+
 from aegis_soc import branding
 
 
@@ -57,8 +61,12 @@ def test_default_logo_relative_path_matches_shared_aegis_mark_convention():
     assert branding.DEFAULT_LOGO_RELATIVE_PATH.endswith("aegis-mark-light-ink.png")
 
 
-def test_no_real_logo_asset_ships_in_this_repository():
-    """Documents the actual current state honestly: resolving against the
-    real IDEA3 package root finds nothing, because no logo file has been
-    provided (only this task's new PUT-LOGO-HERE.md placeholder exists)."""
-    assert branding.resolve_logo_path(env={}) is None
+def test_official_logo_asset_ships_in_this_repository():
+    """Documents the actual current state honestly: the official
+    aegis-mark-light-ink.png (byte-identical to the copies already used by
+    IDEA1/IDEA2/HUB) now ships at IDEA3's default logo path, so resolution
+    against the real IDEA3 package root succeeds."""
+    resolved = branding.resolve_logo_path(env={})
+    assert resolved is not None
+    assert resolved.endswith("aegis-mark-light-ink.png")
+    assert os.path.isfile(resolved)
