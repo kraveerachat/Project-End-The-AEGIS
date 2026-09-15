@@ -1,0 +1,18 @@
+#!/usr/sbin/nft -f
+# AEGIS IDEA3 AP isolation — TEMPLATE, NOT DEPLOYED.
+# Merge only after live discovery and human review. This fragment deliberately
+# contains no bridge, routing, address translation, or non-AP interface rule.
+
+table inet aegis_idea3 {
+    chain input {
+        type filter hook input priority filter; policy accept;
+
+        iifname "<AEGIS_AP_INTERFACE>" udp dport 123 ip saddr <AEGIS_AP_SUBNET> accept
+        iifname "<AEGIS_AP_INTERFACE>" tcp dport 8883 ip saddr <AEGIS_AP_SUBNET> accept
+        iifname "<AEGIS_AP_INTERFACE>" drop
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+}
