@@ -13,13 +13,15 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import config
 from . import database as db
-from .controller import AegisCommandController
+from . import local_restore as lr
+from .controller import AegisCommandController, CommandResult
 from .dispatch_worker import (
     ACTIVE,
     DISABLED,
@@ -165,6 +167,7 @@ class ChildProcessSupervisor:
 
 _DEFAULT_DISPATCH_WORKER = object()
 _DEFAULT_PROTOCOL = object()
+_DEFAULT_RESTORE_CREDENTIAL = object()
 
 # Status detail never claims physical or relay proof (evidence ladder, design §12).
 STATE_DETAIL = {
@@ -187,23 +190,44 @@ class AegisSupervisor:
         protocol=_DEFAULT_PROTOCOL,
         clock=None,
         restore_origins: frozenset[str] = frozenset(),
+        restore_credential=_DEFAULT_RESTORE_CREDENTIAL,
     ):
         self.settings = settings
         if settings.profile == "production" and restore_origins:
-            raise ValueError("production has no RESTORE origin until the D4 Core-local CLI exists")
+            raise ValueError("production RESTORE authority is available only through the D4 local gate")
+        if restore_credential is _DEFAULT_RESTORE_CREDENTIAL:
+            restore_credential = None
+            if config.RESTORE_CREDENTIAL_FILE and lr.local_restore_supported():
+                try:
+                    restore_credential = lr.RestoreCredential.load(config.RESTORE_CREDENTIAL_FILE)
+                except lr.CredentialError:
+                    # RuntimeSettings.preflight() reports the controlled startup
+                    # failure without turning a bad file into a restart traceback.
+                    restore_credential = None
+        if restore_credential is not None and restore_origins:
+            raise ValueError("D4 RESTORE authority cannot be combined with caller-provided origins")
+        d4_enabled = restore_credential is not None and lr.local_restore_supported()
+        effective_restore_origins = frozenset({lr.CONTROLLER_ORIGIN}) if d4_enabled else restore_origins
         self.protocol = (
             build_protocol_context_from_environment() if protocol is _DEFAULT_PROTOCOL else protocol
         )
         self.clock = clock or (self.protocol.clock if self.protocol is not None else TrustedClock())
         self.mqtt = mqtt_manager or MQTTManager(protocol=self.protocol)
-        # The headless Core never restores on its own: its RESTORE allowlist is
-        # empty unless a future D4 Core-local CLI supplies an audited origin.
+        # The headless Core never restores on its own. D4 exposes one internal
+        # origin only after a private local gate has authenticated and audited.
         self.controller = AegisCommandController(
             self.mqtt,
             dry_run=settings.dry_run,
             protocol=self.protocol,
-            restore_origins=restore_origins,
+            restore_origins=effective_restore_origins,
         )
+        self.restore_credential = restore_credential if d4_enabled else None
+        self.local_restore = None
+        self._command_lock = threading.RLock()
+        self._containment_count_lock = threading.Lock()
+        self._containment_count = 0
+        self._containment_pending = threading.Event()
+        self._deferred_cut = None
         self.monotonic = monotonic
         self.started_at = monotonic()
         self.last_heartbeat_at = 0.0
@@ -268,35 +292,109 @@ class AegisSupervisor:
         not_after: float | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state."""
-        result = self.controller.issue(
-            action,
-            description,
-            critical=critical,
-            origin=origin,
-            authorize_restore=authorize_restore,
-            not_after=not_after,
+        containment = action == "CUT_UPLINK"
+        if containment:
+            with self._containment_count_lock:
+                self._containment_count += 1
+                self._containment_pending.set()
+        try:
+            with self._command_lock:
+                if action == "RESTORE_UPLINK" and self._containment_pending.is_set():
+                    detail = "RESTORE_UPLINK rejected: fail-secure containment is pending"
+                    db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+                    return CommandResult(
+                        action,
+                        False,
+                        False,
+                        self.controller.dry_run,
+                        None,
+                        detail,
+                        reason_code="CONTAINMENT_PENDING",
+                    )
+                if self.pending_command is not None:
+                    if action == "CUT_UPLINK" and self.pending_command.get("action") == "RESTORE_UPLINK":
+                        self._deferred_cut = self._deferred_cut or {
+                            "description": description,
+                            "critical": critical,
+                            "origin": origin,
+                            "not_after": not_after,
+                        }
+                        detail = "CUT_UPLINK queued behind the in-flight RESTORE_UPLINK"
+                        db.log_event("COMMAND_QUEUED", f"{detail} (origin={origin})", db.CRITICAL)
+                        return CommandResult(
+                            action,
+                            True,
+                            False,
+                            self.controller.dry_run,
+                            None,
+                            detail,
+                            reason_code="CUT_QUEUED",
+                        )
+                    detail = f"{action} rejected: another relay command is awaiting ACK"
+                    db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+                    return CommandResult(
+                        action,
+                        False,
+                        False,
+                        self.controller.dry_run,
+                        None,
+                        detail,
+                        reason_code="COMMAND_PENDING",
+                    )
+                result = self.controller.issue(
+                    action,
+                    description,
+                    critical=critical,
+                    origin=origin,
+                    authorize_restore=authorize_restore,
+                    not_after=not_after,
+                )
+                if result.sent:
+                    self.pending_command = {
+                        "action": result.action,
+                        "sent_at": self.monotonic(),
+                        "nonce": result.nonce,
+                    }
+                    self.awaiting_physical_confirmation = {
+                        "action": result.action,
+                        "nonce": result.nonce,
+                        "expected_state": (
+                            "LOCKDOWN"
+                            if result.action == "CUT_UPLINK"
+                            else "NORMAL"
+                        ),
+                        "observed_state": None,
+                        "acknowledged_at": None,
+                        "physical_confirmed_at": None,
+                        "physical_timeout_at": None,
+                    }
+                    self.ack_timed_out = False
+                return result
+        finally:
+            if containment:
+                with self._containment_count_lock:
+                    self._containment_count -= 1
+                    if self._containment_count == 0:
+                        self._containment_pending.clear()
+
+    def _drain_deferred_cut_locked(self) -> None:
+        queued, self._deferred_cut = self._deferred_cut, None
+        if queued is None:
+            return
+        result = self.issue_command("CUT_UPLINK", **queued)
+        self.log_event(
+            "CRITICAL" if result.sent else "ERROR",
+            "deferred_containment",
+            sent=result.sent,
+            reason_code=result.reason_code,
+            origin=queued["origin"],
         )
-        if result.sent:
-            self.pending_command = {
-                "action": result.action,
-                "sent_at": self.monotonic(),
-                "nonce": result.nonce,
-            }
-            self.awaiting_physical_confirmation = {
-                "action": result.action,
-                "nonce": result.nonce,
-                "expected_state": (
-                    "LOCKDOWN"
-                    if result.action == "CUT_UPLINK"
-                    else "NORMAL"
-                ),
-                "observed_state": None,
-                "acknowledged_at": None,
-                "physical_confirmed_at": None,
-                "physical_timeout_at": None,
-            }
-            self.ack_timed_out = False
-        return result
+
+    @contextmanager
+    def command_guard(self):
+        """Serialize state checks and publication across every Core command source."""
+        with self._command_lock:
+            yield
 
     def _protocol_active(self) -> bool:
         return self.protocol is not None and not self.controller.legacy
@@ -347,6 +445,10 @@ class AegisSupervisor:
         self.status.broker = "CONNECTED" if connected else "DISCONNECTED"
 
     def _on_status(self, state, rssi, heap, command_nonce="") -> None:
+        with self._command_lock:
+            self._handle_status(state, rssi, heap, command_nonce)
+
+    def _handle_status(self, state, rssi, heap, command_nonce="") -> None:
         self.status.device = "ONLINE"
         if state in {"NORMAL", "LOCKDOWN"}:
             self.status.uplink = state
@@ -389,6 +491,10 @@ class AegisSupervisor:
         )
 
     def _on_ack(self, ack, detail, nonce) -> None:
+        with self._command_lock:
+            self._handle_ack(ack, detail, nonce)
+
+    def _handle_ack(self, ack, detail, nonce) -> None:
         if not self.pending_command:
             self.log_event(
                 "WARNING",
@@ -434,6 +540,7 @@ class AegisSupervisor:
         )
         if self.dispatch_worker is not None:
             self.dispatch_worker.on_ack(ack, nonce)
+        self._drain_deferred_cut_locked()
 
     def _on_attacker(self, ip: str) -> None:
         try:
@@ -467,6 +574,26 @@ class AegisSupervisor:
         self.mqtt.ack_callback = self._on_ack
         self.mqtt.attacker_callback = self._on_attacker
 
+    def start_local_restore(self) -> None:
+        if self.local_restore is not None or self.restore_credential is None:
+            return
+        gate = lr.LocalRestoreGate(
+            self,
+            self.restore_credential,
+            allowed_uid=os.geteuid(),
+            audit=db.log_event,
+            audit_strict=db.log_event_strict,
+            monotonic=self.monotonic,
+        )
+        server = lr.LocalRestoreServer(self.settings.runtime_dir / lr.CHANNEL_NAME, gate)
+        server.start()
+        self.local_restore = server
+
+    def stop_local_restore(self) -> None:
+        server, self.local_restore = self.local_restore, None
+        if server is not None:
+            server.close()
+
     def _tick_dispatch(self) -> None:
         if self.dispatch_worker is None:
             self.status.dispatch = DISABLED
@@ -483,13 +610,15 @@ class AegisSupervisor:
         now = self.monotonic() if now is None else now
         if self.stop_requested:
             return RuntimeState.SHUTDOWN
-        if (self.pending_command
-                and now - self.pending_command["sent_at"] > config.ACK_TIMEOUT_SEC):
-            action = self.pending_command["action"]
-            self.pending_command = None
-            self.ack_timed_out = True
-            self.log_event("ERROR", "command_ack_timeout", action=action,
-                           timeout_sec=config.ACK_TIMEOUT_SEC)
+        with self._command_lock:
+            if (self.pending_command
+                    and now - self.pending_command["sent_at"] > config.ACK_TIMEOUT_SEC):
+                action = self.pending_command["action"]
+                self.pending_command = None
+                self.ack_timed_out = True
+                self.log_event("ERROR", "command_ack_timeout", action=action,
+                               timeout_sec=config.ACK_TIMEOUT_SEC)
+                self._drain_deferred_cut_locked()
         physical = self.awaiting_physical_confirmation
         if (
             physical
@@ -554,7 +683,7 @@ class AegisSupervisor:
             signal.signal(signal.SIGINT, self._request_stop)
             signal.signal(signal.SIGTERM, self._request_stop)
             self.transition(RuntimeState.PREFLIGHT, "validating runtime configuration")
-            errors, warnings = self.settings.preflight()
+            errors, warnings = self.settings.preflight(protocol_configured=self.protocol)
             for warning in warnings:
                 self.log_event("WARNING", "preflight_warning", message=warning)
             if errors:
@@ -565,6 +694,7 @@ class AegisSupervisor:
             db.init_db()
             self.bind_callbacks()
             self.recover_protocol_state()
+            self.start_local_restore()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -596,6 +726,7 @@ class AegisSupervisor:
             return 1
         finally:
             self.stop_requested = True
+            self.stop_local_restore()
             self.children.stop_all()
             self.mqtt.stop()
             if self.dispatch_worker is not None:

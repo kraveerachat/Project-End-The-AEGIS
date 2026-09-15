@@ -433,3 +433,68 @@ sequence. It must not reopen plaintext MQTT, disable certificate validation,
 replay a command, or issue RESTORE. If safety cannot be established, hold or
 enter fail-secure CUT and classify the command outcome as unknown; recovery is a
 separately authorized D4 operation.
+
+### D4 Core-local RESTORE provisioning and use — not run
+
+The repository now has an optional, local-only D4 channel. It stays disabled
+unless `AEGIS_RESTORE_CREDENTIAL_FILE` names a valid private scrypt credential.
+The example Core environment uses
+`/etc/aegis-idea3/credentials/restore.credential`. The example service runs as
+`User=aegis-idea3`, creates `/run/aegis-idea3` with mode `0700`, and makes
+`/etc/aegis-idea3` read-only inside the unit. The socket refuses a runtime
+directory that is not Core-owned or is group/world writable.
+
+The commands in this subsection are a future operator procedure and were
+**NOT RUN** by repository work. During a separately authorized maintenance
+window, keep the service stopped, generate the hash through an interactive
+terminal, and install it with the exact ownership/mode required by Core:
+
+```bash
+sudo systemctl stop aegis-idea3-core.service
+sudo install -d -o aegis-idea3 -g aegis-idea3 -m 0700 /run/aegis-idea3-credential-staging
+sudo -u aegis-idea3 /opt/aegis-idea3/current/aegisctl restore-credential \
+  --output /run/aegis-idea3-credential-staging/restore.credential
+sudo install -d -o root -g aegis-idea3 -m 0750 /etc/aegis-idea3/credentials
+sudo install -o aegis-idea3 -g aegis-idea3 -m 0600 \
+  /run/aegis-idea3-credential-staging/restore.credential \
+  /etc/aegis-idea3/credentials/restore.credential
+sudo rm /run/aegis-idea3-credential-staging/restore.credential
+sudo rmdir /run/aegis-idea3-credential-staging
+sudo systemctl start aegis-idea3-core.service
+```
+
+The credential command prompts twice and refuses non-interactive input,
+short/mismatched secrets, symlinks, or an existing output. Never put either the
+plaintext secret or generated hash in `core.env`, Git, shell history, logs, or a
+task receipt. The persistent credential must be a regular mode-`0600` file owned
+by `aegis-idea3`; its parent remains root-managed. Startup fails closed if the
+configured file is missing, malformed, unsafe, or unreadable.
+
+After an operator independently verifies that Core reports `LOCKDOWN`, the
+future local invocation is:
+
+```bash
+sudo -u aegis-idea3 /opt/aegis-idea3/current/aegisctl restore \
+  --reason "planned maintenance complete; local inspection recorded" \
+  --wait 30
+```
+
+The command requires an interactive terminal, prompts for the operator secret,
+and requires the exact confirmation `RESTORE UPLINK`. The printable reason is
+bounded to 12–240 characters. `--wait` is bounded to 0–300 seconds; evidence
+polling is read-only and never resends the command.
+
+Exit codes are evidence-sensitive:
+
+| Code | Meaning |
+|---|---|
+| `0` | With no wait, Core accepted and published once. With wait, the device reported correlated `NORMAL`. This is still not relay or physical proof. |
+| `1` | The Core-local channel was unavailable. Before the first request this means nothing was sent; during evidence polling it does not change the prior outcome. |
+| `2` | Local validation/refusal, authentication failure, disabled/dry-run authority, or another known pre-publication failure. |
+| `3` | With wait, the device rejected the command, reported a contradictory/non-NORMAL state, or did not resolve before the deadline. RESTORE was not resent. |
+| `4` | `OUTCOME_UNKNOWN`: the connection or handler crossed an uncertain boundary. Do not re-run or retry automatically; reconcile durable evidence first. |
+
+The CLI prints requested, published, ACK, executed, relay-confirmation, and
+physical-evidence rungs separately. Protocol ACK/STATUS never becomes physical
+evidence. There is no Web, browser API, machine dispatch, Telegram, reconnect,
+restart, certificate/time recovery, heartbeat, or shutdown/startup RESTORE path.

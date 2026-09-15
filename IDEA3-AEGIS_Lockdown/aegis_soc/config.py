@@ -77,6 +77,7 @@ P1_DEVICE_ID = os.getenv("AEGIS_P1_DEVICE_ID", "").strip()
 P1_C2D_KEY_FILE = os.getenv("AEGIS_P1_C2D_KEY_FILE", "").strip()
 P1_D2C_KEY_FILE = os.getenv("AEGIS_P1_D2C_KEY_FILE", "").strip()
 CORE_PROTOCOL_DB_PATH = os.getenv("AEGIS_CORE_PROTOCOL_DB_PATH", "").strip()
+RESTORE_CREDENTIAL_FILE = os.getenv("AEGIS_RESTORE_CREDENTIAL_FILE", "").strip()
 
 # ---- MQTT Topics (legacy v0 lab mode only; v1 topics come from protocol_v1) ----
 TOPIC_CMD = "aegis/lockdown/cmd"

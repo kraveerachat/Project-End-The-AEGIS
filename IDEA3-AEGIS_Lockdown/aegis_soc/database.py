@@ -79,50 +79,29 @@ def _compute_hash(timestamp, level, event_type, details, prev_hash):
     data = f"{timestamp}|{level}|{event_type}|{details}|{prev_hash}"
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
-def log_event(event_type, details, level=INFO, incident_id=None):
+def _append_event(event_type, details, level=INFO, incident_id=None):
     t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _AUDIT_WRITE_LOCK:
+        conn = _connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            prev_hash = _get_last_hash(conn)
+            row_hash = _compute_hash(t_str, level, event_type, details, prev_hash)
+            conn.execute(
+                "INSERT INTO audit_logs "
+                "(timestamp, level, event_type, details, incident_id, hash) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (t_str, level, event_type, details, incident_id, row_hash),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-    try:
-        with _AUDIT_WRITE_LOCK:
-            conn = _connect()
 
-            try:
-                conn.execute("BEGIN IMMEDIATE")
-
-                prev_hash = _get_last_hash(conn)
-                row_hash = _compute_hash(
-                    t_str,
-                    level,
-                    event_type,
-                    details,
-                    prev_hash,
-                )
-
-                conn.execute(
-                    "INSERT INTO audit_logs "
-                    "(timestamp, level, event_type, details, incident_id, hash) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        t_str,
-                        level,
-                        event_type,
-                        details,
-                        incident_id,
-                        row_hash,
-                    ),
-                )
-
-                conn.commit()
-
-            except Exception:
-                conn.rollback()
-                raise
-
-            finally:
-                conn.close()
-
-    except Exception as e:
-        print(f"DB Error: {e}")
+def _emit_event(event_type, details, level):
 
     _logger.log(
         _LEVEL_MAP.get(level, logging.INFO),
@@ -131,6 +110,21 @@ def log_event(event_type, details, level=INFO, incident_id=None):
 
     if event_type in _OPS_ALERT_EVENTS:
         comms.send_ops_alert(event_type, details)
+
+
+def log_event_strict(event_type, details, level=INFO, incident_id=None):
+    """Append a durable audit row or raise before the caller takes action."""
+    _append_event(event_type, details, level, incident_id)
+    _emit_event(event_type, details, level)
+
+
+def log_event(event_type, details, level=INFO, incident_id=None):
+    """Best-effort legacy logger; safety gates use ``log_event_strict``."""
+    try:
+        _append_event(event_type, details, level, incident_id)
+    except Exception as error:
+        print(f"DB Error: {error}")
+    _emit_event(event_type, details, level)
 
 def verify_chain():
     """ตรวจสอบความสมบูรณ์ของ hash chain ทั้งหมด

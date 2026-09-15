@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import config
 from .paths import RuntimePaths
-from .protocol_runtime import protocol_configuration_errors
+from .protocol_runtime import protocol_configuration_errors, protocol_db_problem
 
 
 class RuntimeState(StrEnum):
@@ -143,7 +143,12 @@ class RuntimeSettings:
     def lock_path(self) -> Path:
         return self.runtime_dir / "supervisor.lock"
 
-    def preflight(self, *, platform: str | None = None) -> tuple[list[str], list[str]]:
+    def preflight(
+        self,
+        *,
+        platform: str | None = None,
+        protocol_configured=None,
+    ) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         warnings: list[str] = []
         capabilities = platform_capabilities(platform)
@@ -193,7 +198,17 @@ class RuntimeSettings:
             else:
                 warnings.append("legacy v0 lab protocol selected: device evidence is unsigned; lab use only")
         elif not self.dry_run:
-            errors.extend(protocol_configuration_errors(runtime_dir=self.runtime_dir))
+            if protocol_configured is None:
+                errors.extend(protocol_configuration_errors(runtime_dir=self.runtime_dir))
+            else:
+                try:
+                    store_path = Path(protocol_configured.store.path)
+                except (AttributeError, TypeError):
+                    errors.append("Protocol v1 injected context has no durable store path")
+                else:
+                    problem = protocol_db_problem(store_path, runtime_dir=self.runtime_dir)
+                    if problem is not None:
+                        errors.append(f"Protocol v1 store: {problem}")
         if self.profile == "production":
             errors.extend(_production_mqtt_errors())
         elif not self.dry_run and not config.MQTT_TLS:
@@ -209,6 +224,19 @@ class RuntimeSettings:
             warnings.append("dry-run active: relay commands and heartbeats will not be published")
         if not self.auto_contain:
             warnings.append("auto-containment disabled: detector events are monitor-only")
+
+        if not config.RESTORE_CREDENTIAL_FILE:
+            warnings.append("D4 Core-local RESTORE is unavailable: no credential file is configured")
+        else:
+            try:
+                from .local_restore import RestoreCredential, local_restore_supported
+
+                if not local_restore_supported(platform):
+                    warnings.append("D4 Core-local RESTORE is unavailable on this platform")
+                else:
+                    RestoreCredential.load(config.RESTORE_CREDENTIAL_FILE)
+            except Exception as error:
+                errors.append(f"D4 Core-local RESTORE credential is unsafe: {type(error).__name__}")
 
         for path in (self.runtime_dir, self.log_dir, Path(config.DB_PATH).resolve().parent,
                      Path(config.LOG_PATH).resolve().parent):
