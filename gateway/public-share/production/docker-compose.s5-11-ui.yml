@@ -1,0 +1,8 @@
+# PUBLIC-SHARE S5.11 final UI activation overlay.
+# Apply LAST, only after G6 approval and accepted public-path restoration.
+# This overlay changes only the Drive UI availability signal.
+
+services:
+  drive:
+    environment:
+      PUBLIC_SHARE_UI_ENABLED: "true"

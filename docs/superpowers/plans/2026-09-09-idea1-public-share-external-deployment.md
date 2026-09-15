@@ -380,6 +380,20 @@ obtaining the explicit mutation/gate authority named above. Every session record
 exact source SHA, environment, commands, pass/fail/skip counts, cleanup, limitations
 and next action in the canonical Current Task/Session Register.
 
+#### Final accepted outcome — 2026-09-16
+
+- [x] S5.4–S5.7 completed under their recorded receipts and canonical evidence.
+- [x] S5.8 accepted Windows Wi-Fi with Twingate off and mobile cellular with no Twingate, including public create/redeem integrity, revoke, and post-revoke refusal.
+- [x] S5.9 accepted deterministic 64 MiB exact SHA-256, interrupted recovery, slow path, four concurrent recipients, and cleanup. It does not prove 20–30 GB or a Production 32 GiB ceiling.
+- [x] S5.10 accepted public-route removal, external absence, connector/firewall/Gateway removal, Drive private-only state, and private login/Files/`any`/health/volume regression. `zones` denial from the Twingate vantage was expected and is not claimed as a regression.
+- [x] G6 was approved by the Human Owner.
+- [x] S5.11 restored the accepted public route and enabled `PUBLIC_SHARE_UI_ENABLED=true` last through `gateway/public-share/production/docker-compose.s5-11-ui.yml`; Windows, mobile, public revoke, and private Twingate flows passed.
+- [x] Final audit preserved attribution limits: public IPv4 and IPv6 redemption passed; one IPv6 `DENIED` audit row has cause **NOT PROVEN**.
+- [x] P6 verifier incident classified as **FALSE-NEGATIVE / WRONG DATABASE TARGET**: the failed verifier queried `aegis_db`; read-only diagnosis established canonical `aegis_drive` contains `shares` and scope CHECK `any, zones, public, vlan, subnet`. Migration 009 was not rerun.
+- [x] S5.12 repository closeout: current `origin/main` merged normally without overlap; focused Public Share application/security suite passed `125 total / 119 pass / 0 fail / 6 skip`; canonical `npm test` completed `1309 total / 1228 pass / 9 fail / 72 skip` with `NEW_FAILURES=0` and the accepted historical failures unchanged; production build passed; canonical notes reconciled; one immutable final receipt created.
+
+S5.12 performs no Production or Cloudflare mutation, uses no real share or tunnel token, and authorises no follow-on runtime action. Human review and merge are the only next steps.
+
 ## 14. S5.1 verification and stop point
 
 Run from repository root:

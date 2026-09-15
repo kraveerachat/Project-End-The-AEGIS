@@ -3,7 +3,7 @@ title: IDEA1 AEGIS Drive LC MOC
 tags: [aegis, idea1, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-11
+updated: 2026-09-16
 owner: kla
 edit_policy: owner-writable
 ---
@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix CLOSED / ACCEPTED; S5.7-A through S5.7-H CLOSED / ACCEPTED; S5.8 next after human merge; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share PUBLIC-SHARE-7 human review/merge after S5.8–S5.12 acceptance (G5/G6 APPROVED; S5.11 public path and UI ON), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -74,17 +74,18 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   targeting `http://172.31.240.2:8080`), Cloudflare managed tunnel HEALTHY with 1 active replica,
   public DNS active via Anycast proxies, minimum TLS 1.2 enforced, hostname-scoped HTTP->HTTPS 308 redirect active,
   public default-deny smoke verified, live connector runtime active and isolated, and emergency rollback script verified executable.
-  Public Share UI remains OFF, GLOBAL PUBLIC SHARE G6 remains OPEN, and Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. S5.7 (Public Internet Security Matrix) is **CLOSED / ACCEPTED**;
+  S5.7 (Public Internet Security Matrix) is **CLOSED / ACCEPTED**;
   S5.7-A through S5.7-H are **CLOSED / ACCEPTED** on 2026-09-15 with 75 strict matrix rows (74 PASS, 0 FAIL, 1 NOT TESTED
   for UI direct runtime proof under secret-safe boundary); attribution boundaries preserved; timestamp provenance verified;
   full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); main synchronized to `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`
   via normal merge `2bcafca30736ab685339da0bd4ff9e3a239108ff` (IDEA3 PR #132 repository-only preparation, zero IDEA1/Gateway runtime overlap, no Production mutation);
   exactly one immutable final receipt created (`[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`, `FINAL_S5_7_RECEIPT_COUNT=1`).
-  `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
-  `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are **NOT AUTHORIZED**;
-  G5 is **APPROVED**; G6 remains **OPEN**; Public Share UI remains **OFF**; PUBLIC-SHARE-7 remains **IN PROGRESS**;
-  human review and merge of PR #130 is required; S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.
+  S5.8 and S5.9 are **CLOSED / PASS** on accepted owner evidence; S5.10 rollback/private regression is **CLOSED / PASS**;
+  G6 is **APPROVED**; S5.11 is **CLOSED / PASS** with the public route restored and Public Share UI **ON**;
+  S5.12 repository verification is **PASS** and PUBLIC-SHARE-7 is ready for human review/merge. One IPv6
+  `DENIED` audit cause remains **NOT PROVEN**; 20–30 GB / Production 32 GiB scale remains **NOT TESTED / NOT ACCEPTED**.
+  The P6 verifier incident is a false-negative from querying `aegis_db`; read-only evidence established canonical
+  `aegis_drive` contains `shares` with scopes `any, zones, public, vlan, subnet`; migration 009 was not rerun.
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
   [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]
