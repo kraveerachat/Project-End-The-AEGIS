@@ -15,8 +15,8 @@ edit_policy: append-by-new-file
 - Closed the repository side of PUBLIC-SHARE-7 after accepted S5.8–S5.11 Human Owner evidence and fresh S5.12 repository verification.
 - Final branch: `feat/idea1-public-share-s5-8-external-client-acceptance`.
 - Starting repository checkpoint: `22c00ff73d30eaf83332c2b49b0a8bfd109849b8`.
-- Current-main reconciliation: normal merge of `origin/main` at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`; merge checkpoint `7c3f0bc99aecab62197b229bdbb6e4af44b8b304`; no conflict and no incoming IDEA1/Public Share overlap.
-- Final closeout commit: the commit that first adds this immutable receipt; resolve it with `git log -1 -- Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-16_043452_kla_public-share-s5-12-final-closeout.md`. The exact SHA is reported in the final handoff and PR.
+- Current-main reconciliation: normal merge of `origin/main` at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55` (checkpoint `7c3f0bc99aecab62197b229bdbb6e4af44b8b304`), followed by a second normal merge after PRs #139/#140 advanced main to `505dcdfbb6ad902ef8c72ec2d47145a836a8567b` (checkpoint `12a8bb0b8085c3e429c54de1900135ea99bd8010`). Both merges were conflict-free and contained no IDEA1/Public Share overlap.
+- Final documentation/receipt checkpoint: `577925b2883e79eab734b85be778b4082b5765a4`; subsequent current-main reconciliation is `12a8bb0b8085c3e429c54de1900135ea99bd8010`. The final pushed head is reported in the handoff and PR after the same-task reconciliation commit.
 - S5.8 = PASS; S5.9 = PASS; S5.10 = PASS; G6 = APPROVED; S5.11 = CLOSED / PASS; S5.12 repository verification = PASS.
 - Public Share UI is ON through the narrow S5.11 overlay. PUBLIC-SHARE-7 is ready for human review/merge.
 
@@ -60,7 +60,7 @@ edit_policy: append-by-new-file
 ## Verification evidence
 
 - `git fetch origin` — pass; current main resolved before reconciliation.
-- `git merge --no-edit origin/main` — pass; normal merge, no conflicts, no IDEA1/Public Share overlap.
+- `git merge --no-edit origin/main` — pass twice as main advanced during closeout; checkpoints `7c3f0bc99aecab62197b229bdbb6e4af44b8b304` and `12a8bb0b8085c3e429c54de1900135ea99bd8010`; no conflicts and no IDEA1/Public Share overlap.
 - `node --test --test-concurrency=1 tests/publicShareGatewayRuntime.test.js tests/publicShareSecurityRegression.test.js tests/publicShareBackend.test.js tests/publicShareConfig.test.js tests/shareRedemption.test.js tests/shareOwnershipAuthorization.test.js tests/shareScopeTruthUi.test.js tests/trustedProxy.test.js` — pass: 125 total, 119 passed, 0 failed, 6 skipped.
 - `npm test` — accepted baseline: 1,309 total, 1,228 passed, 9 accepted historical failures, 72 skipped; `NEW_FAILURES=0`; exact identities unchanged.
 - `npm run build` — pass: Vite built successfully, 2,681 modules transformed; existing chunk-size advisory only.

@@ -113,7 +113,7 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-public-share-s5-8-external-client-acceptance` |
 | Owner | `kla` |
 | Repository starting checkpoint | `22c00ff73d30eaf83332c2b49b0a8bfd109849b8` — S5.11 UI overlay checkpoint |
-| Main reconciliation | Normal merge of `origin/main` at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`; merge checkpoint `7c3f0bc99aecab62197b229bdbb6e4af44b8b304`; no conflict and no incoming IDEA1/Public Share overlap |
+| Main reconciliation | Normal merges of `origin/main` at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55` (checkpoint `7c3f0bc99aecab62197b229bdbb6e4af44b8b304`) and, after PRs #139/#140 advanced main, `505dcdfbb6ad902ef8c72ec2d47145a836a8567b` (checkpoint `12a8bb0b8085c3e429c54de1900135ea99bd8010`); no conflicts and no incoming IDEA1/Public Share overlap |
 | Current state | **S5.8 PASS; S5.9 PASS; S5.10 PASS; G6 APPROVED; S5.11 CLOSED / PASS; S5.12 repository verification PASS; PUBLIC-SHARE-7 ready for human review** |
 | Public Share UI | **ON** through the S5.11 Drive-only overlay `gateway/public-share/production/docker-compose.s5-11-ui.yml` (`PUBLIC_SHARE_UI_ENABLED=true`) |
 | Public route | **ACTIVE / ACCEPTED** — `share.aegistk-pb.com` -> `http://172.31.240.2:8080`; HTTPS root default-deny 404; HTTP root redirect 308 |
