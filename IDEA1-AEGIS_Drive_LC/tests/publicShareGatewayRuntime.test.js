@@ -289,7 +289,10 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
       '/login', '/admin', '/admin/users', '/settings', '/internal', '/healthz',
       '/monitor', '/monitor/', '/API/', '/Drive/', '/HEALTHZ', '/Monitor/',
       '/s/', '/s/token/../api', '/s/token/../../api', '/s/token/extra',
-      '/s/token=', '/s/token.', '/s/%2e%2e/api', '/static/app.js', '/anything.txt',
+      '/s/token=', '/s/token.', '/s/%2e%2e/api',
+      '/s/%252e%252e%252fhealthz', '/s/%2finvalid-token-probe',
+      '/s/%5cinvalid-token-probe', '/s//invalid-token-probe',
+      '/static/app.js', '/anything.txt',
     ]
     const responses = await gatewayRequests(forbidden.map((path) => ({ path })))
     for (const [index, response] of responses.entries()) {
@@ -300,9 +303,9 @@ test('PS3-RUNTIME dedicated gateway enforces the complete share-only boundary', 
     assert.equal((await recorder()).count, 0)
   })
 
-  await t.test('PS3-RUNTIME-6 PUT, PATCH, DELETE, OPTIONS and HEAD stop before Drive', async () => {
+  await t.test('PS3-RUNTIME-6 PUT, PATCH, DELETE, OPTIONS, HEAD and TRACE stop before Drive', async () => {
     await resetRecorder()
-    const methods = ['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']
+    const methods = ['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'TRACE']
     const responses = await gatewayRequests(methods.map((method) => ({ path: '/s/MethodToken', method })))
     for (const [index, response] of responses.entries()) {
       assert.equal(response.status, 405, methods[index])

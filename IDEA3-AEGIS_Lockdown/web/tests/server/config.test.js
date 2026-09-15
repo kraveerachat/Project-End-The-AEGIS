@@ -1,5 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { loadConfig } from '../../server/config.js'
 
 // AEGIS_WEB_STATIC_DIR is resolved with node:path, whose semantics are
@@ -327,5 +329,137 @@ describe('PR10 S2 dispatch configuration', () => {
     const config = loadConfig(productionConfig({ ...DISPATCH_ENABLED, AEGIS_IDEA3_DISPATCH_HOST: '192.0.2.10' }))
 
     expect(config.bindHost).toBe('127.0.0.1')
+  })
+})
+
+// PR11 Phase 2 (design §4.2). RFC 5737/3849 documentation addresses stand in for
+// the Production HUB (.2) and IDEA3 Web (.3) values.
+const PROXIED = Object.freeze({
+  AEGIS_WEB_TRUSTED_PROXY: '192.0.2.2',
+  AEGIS_BIND_HOST: '192.0.2.3',
+})
+
+describe('PR11 Phase 2 proxied browser listener', () => {
+  it('P2-C1a: keeps loopback mode unchanged when no trusted proxy is configured', () => {
+    for (const trustedProxy of [undefined, '']) {
+      const config = loadConfig(productionConfig({ AEGIS_WEB_TRUSTED_PROXY: trustedProxy }))
+
+      expect(config.webTrustedProxy).toBeNull()
+      expect(config.bindHost).toBe('127.0.0.1')
+    }
+    expect(() => loadConfig(productionConfig({ AEGIS_BIND_HOST: '192.0.2.3' }))).toThrow(/AEGIS_BIND_HOST/)
+  })
+
+  it.each([
+    ['192.0.2.2', '192.0.2.3'],
+    ['2001:db8::2', '2001:db8::3'],
+  ])('P2-C1b: accepts the trusted proxy %j with the explicit bind address %j', (trustedProxy, bindHost) => {
+    const config = loadConfig(productionConfig({ AEGIS_WEB_TRUSTED_PROXY: trustedProxy, AEGIS_BIND_HOST: bindHost }))
+
+    expect(config.webTrustedProxy).toBe(trustedProxy)
+    expect(config.bindHost).toBe(bindHost)
+  })
+
+  it('P2-C1b: requires an explicit bind address in proxied mode', () => {
+    expect(() => loadConfig(productionConfig({ AEGIS_WEB_TRUSTED_PROXY: '192.0.2.2' }))).toThrow(/AEGIS_BIND_HOST/)
+    expect(() => loadConfig({ NODE_ENV: 'test', AEGIS_WEB_TRUSTED_PROXY: '192.0.2.2' })).toThrow(/AEGIS_BIND_HOST/)
+  })
+
+  it.each([
+    '127.0.0.1',
+    '127.1.2.3',
+    '::1',
+    '0.0.0.0',
+    '::',
+    '192.0.2.0/29',
+    '192.0.2.3:8003',
+    'idea3-web',
+    '::ffff:192.0.2.3',
+    '192.0.2.2',
+  ])('P2-C1b: rejects the proxied bind address %j', (bindHost) => {
+    expect(() => loadConfig(productionConfig({ ...PROXIED, AEGIS_BIND_HOST: bindHost }))).toThrow(/AEGIS_BIND_HOST/)
+  })
+
+  it.each([
+    '0.0.0.0',
+    '::',
+    '192.0.2.0/29',
+    'hub',
+    '192.0.2.2:443',
+    '::ffff:192.0.2.2',
+  ])('P2-C1c: rejects the trusted proxy %j', (trustedProxy) => {
+    expect(() => loadConfig(productionConfig({ ...PROXIED, AEGIS_WEB_TRUSTED_PROXY: trustedProxy })))
+      .toThrow(/AEGIS_WEB_TRUSTED_PROXY/)
+  })
+
+  it('P2-C2: requires one pinned proxy when dispatch is enabled in proxied mode', () => {
+    const env = (dispatchTrustedProxy) => productionConfig({
+      ...PROXIED,
+      ...DISPATCH_ENABLED,
+      AEGIS_IDEA3_DISPATCH_HOST: '192.0.2.3',
+      AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY: dispatchTrustedProxy,
+    })
+
+    expect(() => loadConfig(env('192.0.2.9'))).toThrow(/AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY/)
+    expect(loadConfig(env('192.0.2.2')).dispatch.trustedProxy).toBe('192.0.2.2')
+  })
+})
+
+describe('PR11 Phase 2 file-sourced secrets', () => {
+  const directories = []
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+  })
+
+  function secretFile(content) {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aegis-secret-'))
+    directories.push(directory)
+    const file = path.join(directory, 'secret')
+    writeFileSync(file, content)
+    return file
+  }
+
+  it('P2-C3: reads both production secrets from files and removes one trailing newline', () => {
+    const config = loadConfig(productionConfig({
+      SESSION_SECRET: undefined,
+      AEGIS_IDEA3_ADMIN_PASSWORD_HASH: undefined,
+      SESSION_SECRET_FILE: secretFile(`${STRONG_SESSION_SECRET}\n`),
+      AEGIS_IDEA3_ADMIN_PASSWORD_HASH_FILE: secretFile(`${BCRYPT_HASH}\n`),
+    }))
+
+    expect(config.sessionSecret).toBe(STRONG_SESSION_SECRET)
+    expect(config.auth.passwordHash).toBe(BCRYPT_HASH)
+  })
+
+  it('P2-C3: applies the production secret policy to a file value', () => {
+    const weakSecret = 'lowercase-only-session-secret-value'
+    const error = configurationError(productionConfig({
+      SESSION_SECRET: undefined,
+      SESSION_SECRET_FILE: secretFile(weakSecret),
+    }))
+
+    expect(error.message).toMatch(/SESSION_SECRET/)
+    expect(error.message).not.toContain(weakSecret)
+  })
+
+  it.each([
+    ['SESSION_SECRET', STRONG_SESSION_SECRET],
+    ['AEGIS_IDEA3_ADMIN_PASSWORD_HASH', BCRYPT_HASH],
+  ])('P2-C3: rejects setting both %s and its _FILE form', (name, value) => {
+    expect(() => loadConfig(productionConfig({ [name]: value, [`${name}_FILE`]: secretFile(value) })))
+      .toThrow(new RegExp(`${name}_FILE`))
+  })
+
+  it('P2-C3: fails closed for a relative, missing, or directory path without echoing the content', () => {
+    const existing = secretFile(STRONG_SESSION_SECRET)
+    const directory = path.dirname(existing)
+
+    for (const candidate of ['secret', './secret', path.join(directory, 'missing'), directory]) {
+      const error = configurationError(productionConfig({ SESSION_SECRET: undefined, SESSION_SECRET_FILE: candidate }))
+
+      expect(error.message).toMatch(/SESSION_SECRET_FILE/)
+      expect(error.message).not.toContain(STRONG_SESSION_SECRET)
+    }
   })
 })

@@ -245,9 +245,9 @@ rather than reporting healthy.
 
 See `windows/README.md` for layout, build, smoke, backup, upgrade, and rollback.
 
-## Server Production Runtime (PR9)
+## Historical Composite Runtime (PR9 compatibility)
 
-`python -m aegis_soc.production_runtime start` owns Python Core and the
+`python -m aegis_soc.production_runtime start` historically owns Python Core and the
 Node/Express Security Center as one foreground service. It validates an immutable
 payload plus an absolute external `AEGIS_DATA_DIR`, starts Core before Web, stops
 Web before Core, fails and cleans the peer when either child exits, and never
@@ -259,12 +259,31 @@ deliberately different: health is process liveness, while readiness requires a
 successful schema-v2 audit probe. The service status keeps process, audit, MQTT,
 IDEA1, IDEA2, ESP32, and physical evidence states separate.
 
-The hardened unit is an uninstalled example at
+The historical, uninstalled composite unit remains at
 [`deploy/aegis-idea3.service.example`](deploy/aegis-idea3.service.example). See
 [`docs/operations/production-runtime.md`](docs/operations/production-runtime.md)
-for the external layout, configuration, lifecycle, diagnosis, backup/restore,
-upgrade, rollback, and secret-rotation procedure. This PR9 phase does not deploy
-the unit or access Production/hardware.
+for its compatibility boundary. It is not the PR11 Phase 3 installation
+candidate and must not be used to start a second Production Web process.
+
+## Core Production Runtime (PR11 Phase 3 — repository preparation)
+
+The Phase 3 architecture makes systemd own only the existing headless Python
+supervisor. PR132's container remains the sole Production Web owner. The new,
+uninstalled [`deploy/aegis-idea3-core.service.example`](deploy/aegis-idea3-core.service.example)
+runs `aegis_soc.supervisor` directly with production/live/headless and explicit
+no-detector/no-voice arguments; it starts no Web, GUI, or detector process.
+
+Core configuration and certificates live under `/etc/aegis-idea3`, durable
+SQLite state under `/var/lib/aegis-idea3/data`, ephemeral lock/PID/status state
+under `/run/aegis-idea3`, and logs under `/var/log/aegis-idea3`. The dispatch
+ledger is fixed at `/var/lib/aegis-idea3/data/core-dispatch.sqlite3`, never
+under `/run`. Dispatch remains disabled by default. Credential or network
+failure pauses/degrades dispatch without an automatic CUT; restart recovery
+never redispatches uncertain work; stop/restart never sends RESTORE.
+
+This repository preparation installs nothing and authorizes no Production
+mutation. See [`docs/operations/production-runtime.md`](docs/operations/production-runtime.md)
+for the future evidence package and guarded installation boundary.
 
 ## Architecture
 
@@ -878,10 +897,11 @@ Important safety behavior:
 
 Configuration keys are documented in [`.env.example`](.env.example). Voice is
 independently selectable, but preflight currently rejects `--voice` because this
-repository has no executable voice adapter yet. The server service example at
-[`deploy/aegis-idea3.service.example`](deploy/aegis-idea3.service.example) owns
-both Core and Web; review its installation paths and permissions before enabling
-it.
+repository has no executable voice adapter yet. The PR9 example at
+[`deploy/aegis-idea3.service.example`](deploy/aegis-idea3.service.example) is a
+historical composite artifact. The current Core-only installation candidate is
+[`deploy/aegis-idea3-core.service.example`](deploy/aegis-idea3-core.service.example),
+and neither example is installed by repository work.
 
 The supervisor writes rotating structured events to `logs/aegis-events.jsonl`,
 combined child output to `logs/aegis-components.log`, daemon console output to

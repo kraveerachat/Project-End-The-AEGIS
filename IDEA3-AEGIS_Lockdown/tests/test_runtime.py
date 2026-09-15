@@ -1175,6 +1175,7 @@ class TestSafeRuntimeProjection:
             "schemaVersion": 1,
             "generatedAt": "2026-08-29T10:40:00.000Z",
             "status": "HEALTHY",
+            "dispatch": "DISABLED",
             "components": {
                 "broker": "CONNECTED",
                 "device": "ONLINE",
@@ -1200,6 +1201,32 @@ class TestSafeRuntimeProjection:
             assert leaked not in rendered
         assert "detail" not in projection
         assert "pid" not in projection
+
+    def test_p3_c10_dispatch_pause_is_allowlisted_degraded_without_detail(self):
+        document = self._status().__dict__ | {
+            "dispatch": "PAUSED_CREDENTIAL",
+            "dispatch_error": "expired /etc/aegis-idea3/pki/idea3-core-client.key",
+            "physicalEvidence": "CONTAINED",
+        }
+
+        projection = safe_status_projection(document)
+        rendered = json.dumps(projection)
+
+        assert projection["status"] == "DEGRADED"
+        assert projection["dispatch"] == "PAUSED_CREDENTIAL"
+        assert "DISPATCH_PAUSED" in projection["issues"]
+        assert "dispatch_error" not in projection
+        assert "physicalEvidence" not in projection
+        assert "expired" not in rendered
+        assert "idea3-core-client.key" not in rendered
+
+    def test_p3_c10_unknown_dispatch_state_fails_closed(self):
+        document = self._status().__dict__ | {"dispatch": "CONTAINED"}
+
+        projection = safe_status_projection(document)
+
+        assert projection["dispatch"] == "UNKNOWN"
+        assert "CONTAINED" not in json.dumps(projection)
 
     @pytest.mark.parametrize(
         ("state", "expected"),
