@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -153,6 +154,16 @@ class DispatchWorker:
         )
         if action is None:
             return
+        guard = getattr(self.supervisor, "command_guard", None)
+        with guard() if guard is not None else nullcontext():
+            # A RESTORE or local CUT may have taken ownership while the pending
+            # list was in flight. Never claim a server action unless claim and
+            # publication still own the same supervisor command boundary.
+            if self.supervisor.pending_command is not None or self.ledger.in_flight():
+                return
+            self._claim_and_issue(action)
+
+    def _claim_and_issue(self, action) -> None:
         if not self.ledger.begin_claim(action.action_id, action.action, action.expires_at):
             return
 
@@ -188,11 +199,10 @@ class DispatchWorker:
             self.ledger.mark_dry_run(action.action_id, result.nonce)
         elif reason_code == "EXPIRED_AT_CORE":
             self.ledger.mark_expired_at_core(action.action_id)
+        elif reason_code in {"CORE_TIME_UNTRUSTED", "COMMAND_PENDING"}:
+            self.ledger.mark_failed(action.action_id, reason_code)
         else:
-            # Nothing crossed the point of no return. CORE_TIME_UNTRUSTED means only
-            # "not sent"; every other pre-publish failure keeps MQTT_UNAVAILABLE.
-            failure = "CORE_TIME_UNTRUSTED" if reason_code == "CORE_TIME_UNTRUSTED" else "MQTT_UNAVAILABLE"
-            self.ledger.mark_failed(action.action_id, failure)
+            self.ledger.mark_failed(action.action_id, "MQTT_UNAVAILABLE")
 
     def on_ack(self, ack: str, nonce: str) -> None:
         self.ledger.record_ack(nonce, ack)

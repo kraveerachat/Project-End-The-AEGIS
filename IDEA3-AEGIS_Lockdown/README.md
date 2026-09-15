@@ -582,8 +582,11 @@ python3 server_admin.py
 ```text
 /status
 /cut <PIN>
-/restore <PIN>
+/restore <PIN>  # legacy documentation only; current Core policy refuses this path
 ```
+
+D4 does not grant Telegram RESTORE authority. The only current RESTORE entry
+point is the authenticated Core-local `aegisctl restore` flow documented below.
 
 Security:
 
@@ -869,6 +872,43 @@ Additional lifecycle commands:
 ./aegisctl restart --profile lab --dry-run
 ./aegisctl test
 ```
+
+### D4 Core-local RESTORE
+
+D4 is disabled when `AEGIS_RESTORE_CREDENTIAL_FILE` is blank. A repository
+checkout contains no credential. An operator must first provision a private
+scrypt credential outside Git, then the Core process must load it at startup.
+The production example uses
+`/etc/aegis-idea3/credentials/restore.credential`; see
+[`docs/operations/production-runtime.md`](docs/operations/production-runtime.md)
+for the stopped-service ownership and mode procedure.
+
+Run the request from an interactive terminal as the same operating-system UID
+as Core:
+
+```bash
+sudo -u aegis-idea3 /opt/aegis-idea3/current/aegisctl restore \
+  --reason "planned maintenance complete; local inspection recorded" \
+  --wait 30
+```
+
+The CLI prompts for the operator secret and then requires the exact typed text
+`RESTORE UPLINK`. It sends one request only. The reason must be printable,
+12–240 characters, and contain no control, surrogate, or bidirectional-format
+characters. `--wait` accepts 0–300 seconds and performs read-only evidence
+queries; it never resends RESTORE.
+
+Exit status is `0` for accepted publication when `--wait 0` is used, or only
+after device-reported `NORMAL` when waiting. Status `1` means the local channel
+is unavailable, `2` means validation/refusal or a known pre-publication failure,
+`3` means rejected, contradictory, or deadline-expired device evidence, and `4`
+means `OUTCOME_UNKNOWN`; status `4` must never be retried automatically.
+
+Output preserves the evidence ladder: requested, published, ACK, executed,
+relay confirmation, and physical evidence. Protocol ACK/STATUS can populate
+protocol evidence but is never labeled relay confirmation or physical evidence.
+Web, browser, dispatch, Telegram, reconnect, restart, recovery, and heartbeat
+paths have no D4 RESTORE authority.
 
 Profiles:
 
