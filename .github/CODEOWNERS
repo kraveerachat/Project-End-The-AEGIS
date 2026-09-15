@@ -1,38 +1,38 @@
 # Two review-capable accounts are listed on every protected surface so a Pull
 # Request author is never the only CODEOWNER and therefore never self-deadlocks.
-* @kraveerachat @pubpup2006p-design
+* @kraveerachat @pubpup2006p-design @Kittipat050871
 
 # Governance and enforcement rules.
-/.github/ @kraveerachat @pubpup2006p-design
-/AGENTS.md @kraveerachat @pubpup2006p-design
-/CLAUDE.md @kraveerachat @pubpup2006p-design
-/GEMINI.md @kraveerachat @pubpup2006p-design
-/CONTRIBUTING.md @kraveerachat @pubpup2006p-design
-/scripts/validate-collaboration-policy.mjs @kraveerachat @pubpup2006p-design
-/scripts/validate-vault.mjs @kraveerachat @pubpup2006p-design
-/tests/collaborationPolicy.test.mjs @kraveerachat @pubpup2006p-design
-/tests/vaultStructure.test.mjs @kraveerachat @pubpup2006p-design
+/.github/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/AGENTS.md @kraveerachat @pubpup2006p-design @Kittipat050871
+/CLAUDE.md @kraveerachat @pubpup2006p-design @Kittipat050871
+/GEMINI.md @kraveerachat @pubpup2006p-design @Kittipat050871
+/CONTRIBUTING.md @kraveerachat @pubpup2006p-design @Kittipat050871
+/scripts/validate-collaboration-policy.mjs @kraveerachat @pubpup2006p-design @Kittipat050871
+/scripts/validate-vault.mjs @kraveerachat @pubpup2006p-design @Kittipat050871
+/tests/collaborationPolicy.test.mjs @kraveerachat @pubpup2006p-design @Kittipat050871
+/tests/vaultStructure.test.mjs @kraveerachat @pubpup2006p-design @Kittipat050871
 
 # Application ownership and review routing. Functional ownership is enforced by
-# PR metadata and Obsidian owner fields; both accounts can provide the required review.
-/IDEA1-AEGIS_Drive_LC/ @kraveerachat @pubpup2006p-design
-/IDEA2-AEGIS_CCTV-Operator/ @kraveerachat @pubpup2006p-design
-/IDEA2-AEGIS_Monitor/ @kraveerachat @pubpup2006p-design
-/AEGIS_Camera/ @kraveerachat @pubpup2006p-design
-/IDEA3-AEGIS_Lockdown/ @kraveerachat @pubpup2006p-design
+# PR metadata and Obsidian owner fields; all three accounts can provide the required review.
+/IDEA1-AEGIS_Drive_LC/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/IDEA2-AEGIS_CCTV-Operator/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/IDEA2-AEGIS_Monitor/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/AEGIS_Camera/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/IDEA3-AEGIS_Lockdown/ @kraveerachat @pubpup2006p-design @Kittipat050871
 
 # Shared integration surfaces.
-/HUB-AEGIS_Entry/ @kraveerachat @pubpup2006p-design
-/gateway/ @kraveerachat @pubpup2006p-design
-/postgres/ @kraveerachat @pubpup2006p-design
-/shared/ @kraveerachat @pubpup2006p-design
-/docker-compose.yml @kraveerachat @pubpup2006p-design
+/HUB-AEGIS_Entry/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/gateway/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/postgres/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/shared/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/docker-compose.yml @kraveerachat @pubpup2006p-design @Kittipat050871
 
 # Knowledge-base ownership boundaries.
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/ @kraveerachat @pubpup2006p-design
-/Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/ @kraveerachat @pubpup2006p-design
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/core/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/ @kraveerachat @pubpup2006p-design @Kittipat050871
+/Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/ @kraveerachat @pubpup2006p-design @Kittipat050871
