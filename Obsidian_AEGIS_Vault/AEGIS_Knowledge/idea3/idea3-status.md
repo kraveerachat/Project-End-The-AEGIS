@@ -25,7 +25,8 @@ edit_policy: owner-writable
 > repository-only continuation. Phase 4 Protocol v1 implementation is in
 > progress on `feat/idea3-pr11-phase4-protocol-v1`. No live machine, broker,
 > board, key, certificate, access point, CUT, or RESTORE was touched. Older
-> sections below are dated history.
+> sections below are dated history. Phase 4 repository preparation is complete
+> on its task branch with local/static/compile evidence; it is not deployed.
 
 ```text
 CURRENT_MAIN                      = 2742be27d9a904cf73378724ea831d9ef385948b
@@ -36,7 +37,8 @@ PR130                             = MERGED at 7022641 -> K3 = REPOSITORY_CONFLIC
 PHASE3_REPOSITORY_PREPARATION     = COMPLETE
 PHASE3_RUNTIME_COMPLETE           = NO
 PHASE2_RUNTIME_COMPLETE           = NO
-PHASE4_REPOSITORY_IMPLEMENTATION  = AUTHORIZED — G1 APPROVED 2026-09-15 (autonomous repository continuation)
+PHASE4_REPOSITORY_PREPARATION     = COMPLETE (LOCAL / STATIC / COMPILE VERIFIED; pending Draft PR review)
+PHASE4_RUNTIME_COMPLETE           = NO
 OD_2_DISPOSITION                  = ACCEPTED_CONSERVATIVE_REPOSITORY_DEFAULT (Music continuation validation order)
 OD_3_DISPOSITION                  = ACCEPTED_CONSERVATIVE_REPOSITORY_DEFAULT (v1 default; legacy v0 non-production lab opt-in only)
 PHASE4_LIVE_ALLOWED               = NO
@@ -49,11 +51,11 @@ IDEA3_PRODUCTION_DEPLOYED         = NO
 Task: IDEA3 PR11 Phase 4 Protocol v1 — repository implementation
 Branch: `feat/idea3-pr11-phase4-protocol-v1`
 Owner: `music`
-PR: not opened
-Current state: IN PROGRESS — P4-R1 repository implementation (G1 approved)
+PR: Draft to be opened after closeout push
+Current state: COMPLETE — repository preparation; live rollout blocked
 Started: 2026-09-15
 Base SHA: `2742be27d9a904cf73378724ea831d9ef385948b`
-Last checkpoint: the G1 documentation commit (its SHA is recorded at the next checkpoint)
+Last checkpoint: final closeout commit containing this record (SHA in Git history); preceding checkpoint `e8c3b830`
 Production mutation allowed: NO
 
 - **Goal:** implement and locally prove Protocol v1: the signed fixed-array
@@ -83,7 +85,7 @@ Plan:
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | P4-G1 | Clean-base verification, Step 0 baseline, reconciliation, design, TDD plan | CLOSED | clean base at `2742be27`; baseline below; vault PASS; node 63/63; `git diff --check` PASS; Music G1 approval with OD-1 to OD-7 dispositions (design §18) | G1 documentation commit (SHA recorded at the next checkpoint) | PASS — G1 APPROVED | — | P4-R1 |
-| P4-R1 | Repository implementation, Tasks 0–16 of the plan | IN PROGRESS | per-task RED/GREEN recorded in the plan | — | — | all plan tasks | continue autonomously |
+| P4-R1 | Repository implementation, Tasks 0–16 of the plan | CLOSED | Protocol/vector/store/time/Core/firmware/broker/AP suites; both full Python bars; Web 545/545; 14/14 mutations detected; production-like 13/13 + acceptance; PlatformIO compile; vault/policy PASS | `e8c3b830` plus final closeout commit | PASS — LOCAL / STATIC / COMPILE VERIFIED | live and hardware evidence only | human Draft PR review; no live action |
 | P4-L1 | Live broker, firmware, key, and certificate cutover | BLOCKED | — | — | — | Phase 2/3 runtime, D1/D6 host config, D4 recovery path, explicit authorization | — |
 
 ### P4-G1 baseline (E-LOCAL, re-proved on `2742be27`)
@@ -106,6 +108,23 @@ R13, R15, R16, and R18 closeouts, and current source. At G1 approval Music
 supplied the binding validation order. Local time confidence comes before
 HMAC, and ACK carries an authenticated device timestamp. Design §18 records
 this together with every OD disposition.
+
+### Phase 4 repository evidence boundary
+
+`PHASE4_REPOSITORY_PREPARATION = COMPLETE`. System Python passed 733 tests
+with 7 skips; the pinned Core environment passed 734 with 6 skips; Web passed
+545; repository policy passed 63; all 14 temporary Phase 4 safety mutations
+were detected; the inherited production-like controls passed 13/13 and their
+acceptance ended `PRODUCTION_LIKE_VERIFIED`. The isolated TLS broker test passed,
+and an ESP32 compile-only build succeeded at 14.3% RAM and 70.0% flash. No real
+key/certificate was created, no firmware was flashed, and no live broker,
+network, systemd, board, relay, CUT, or RESTORE action occurred.
+
+Evidence classes: Python/Web/broker/negative controls are **LOCAL VERIFIED**;
+deployment templates and ACLs are **STATIC ONLY**; firmware is **COMPILE
+VERIFIED** plus host-native parity; physical and Production checks are **SKIP /
+NOT AUTHORIZED**. `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_ALLOWED = NO`,
+`PRODUCTION_MUTATION_AUTHORIZED = NO`, and `IDEA3_PRODUCTION_DEPLOYED = NO`.
 
 ## IDEA3 PR11 Phase 3 Core Live — repository preparation — 2026-09-15
 

@@ -61,7 +61,6 @@ def test_firmware_requires_trusted_time_before_mqtt_connect():
 
 
 def test_firmware_has_fixed_identity_topics_qos0_and_nonretained_publish():
-    source = _source()
     connect = _function("connectMQTT")
     assert "random(" not in connect
     assert "deviceId.c_str()" in connect

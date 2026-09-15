@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 NTP = ROOT / "deploy/chrony/aegis-idea3-chrony.conf.example"
 SYSCTL = ROOT / "deploy/network/aegis-idea3-sysctl.conf.example"
