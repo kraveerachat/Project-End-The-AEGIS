@@ -499,7 +499,13 @@ def write_configuration(
         "AEGIS_BROKER_PORT=",
         "AEGIS_MQTT_USER=",
         "AEGIS_MQTT_PASS=",
-        "AEGIS_HMAC_SECRET=",
+        "AEGIS_MQTT_TLS=true",
+        "AEGIS_MQTT_CA_FILE=",
+        "AEGIS_PROTOCOL_MODE=v1",
+        "AEGIS_P1_DEVICE_ID=",
+        "AEGIS_P1_C2D_KEY_FILE=",
+        "AEGIS_P1_D2C_KEY_FILE=",
+        f"AEGIS_CORE_PROTOCOL_DB_PATH={settings.paths.protocol_db}",
     ]
     _atomic_write_file(config_path, "\n".join(lines) + "\n")
     return config_path

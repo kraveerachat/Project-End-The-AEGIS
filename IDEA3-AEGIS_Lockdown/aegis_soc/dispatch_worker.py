@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,6 +81,10 @@ class DispatchWorker:
         self.status = ACTIVE
         return True
 
+    def _time_trusted(self) -> bool:
+        check = getattr(self.supervisor, "protocol_time_trusted", None)
+        return True if check is None else bool(check())
+
     def _handle_unavailable(self, error: DispatchUnavailable) -> None:
         self.status = PAUSED_CREDENTIAL if error.reason == "CREDENTIAL" else UNAVAILABLE
 
@@ -119,6 +124,11 @@ class DispatchWorker:
         )
         if not credentials_ready or not outbox_delivered:
             return
+        if not self._time_trusted():
+            # No trusted Core time: no claim and no dispatch CUT (R7). The device
+            # dead-man switch still fails secure on its own, separately.
+            self.status = UNAVAILABLE
+            return
         if self.supervisor.status.armed != "ARMED":
             return
         if self.supervisor.pending_command is not None or self.ledger.in_flight():
@@ -144,6 +154,16 @@ class DispatchWorker:
         )
         if action is None:
             return
+        guard = getattr(self.supervisor, "command_guard", None)
+        with guard() if guard is not None else nullcontext():
+            # A RESTORE or local CUT may have taken ownership while the pending
+            # list was in flight. Never claim a server action unless claim and
+            # publication still own the same supervisor command boundary.
+            if self.supervisor.pending_command is not None or self.ledger.in_flight():
+                return
+            self._claim_and_issue(action)
+
+    def _claim_and_issue(self, action) -> None:
         if not self.ledger.begin_claim(action.action_id, action.action, action.expires_at):
             return
 
@@ -170,11 +190,17 @@ class DispatchWorker:
             f"server dispatch action {action.action_id}",
             critical=True,
             origin="server-dispatch",
+            not_after=deadline,
         )
+        reason_code = getattr(result, "reason_code", None)
         if result.sent and result.nonce:
             self.ledger.mark_published(action.action_id, result.nonce)
         elif result.dry_run:
             self.ledger.mark_dry_run(action.action_id, result.nonce)
+        elif reason_code == "EXPIRED_AT_CORE":
+            self.ledger.mark_expired_at_core(action.action_id)
+        elif reason_code in {"CORE_TIME_UNTRUSTED", "COMMAND_PENDING"}:
+            self.ledger.mark_failed(action.action_id, reason_code)
         else:
             self.ledger.mark_failed(action.action_id, "MQTT_UNAVAILABLE")
 

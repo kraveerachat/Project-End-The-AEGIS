@@ -46,11 +46,11 @@ Explicit Recovery
 
 ฟังก์ชันหลักที่ยืนยันจาก source และ automated tests ใน shared-repository track นี้:
 
-- HMAC-SHA256 command authentication
-- Nonce Anti-Replay
-- Timestamp Window 30 วินาที
-- MQTT username/password authentication
-- ESP32 firmware contract สำหรับ HMAC, nonce, timestamp, ACK nonce และ correlated STATUS
+- Protocol v1 HMAC-SHA256 in both directions with independent per-device keys
+- Durable per-device command sequence and Core ACK/STATUS replay protection
+- Authenticated timestamp windows with bounded trusted-time holdover
+- CA-verified MQTT TLS and distinct Core/device broker identities
+- ESP32 firmware contract for persist-before-actuation and signed correlated ACK/STATUS
 - Dead Man's Switch 60 วินาที
 - Secure Boot Grace Period 90 วินาที
 - Explicit Recovery — Heartbeat กลับมาแล้วไม่ Auto-Unlock
@@ -79,7 +79,7 @@ Explicit Recovery
 - deployment-grade strain relief and secure PCB/interconnect for the breadboard prototype
 - Production VLAN Integration
 - IDEA 1 / IDEA 2 Integration
-- Production MQTT TLS
+- Production MQTT TLS live rollout (repository contract is prepared only)
 - systemd/watchdog deployment acceptance
 - overall IDEA3 production acceptance
 
@@ -369,13 +369,15 @@ AEGIS_IDEA3/
 
 | Topic | Direction | Purpose |
 |---|---|---|
-| `aegis/lockdown/cmd` | SOC → ESP32 | Secure CUT / RESTORE command |
-| `aegis/lockdown/ack` | ESP32 → SOC | Command acknowledgement |
-| `aegis/heartbeat` | SOC → ESP32 | Liveness heartbeat |
-| `aegis/status` | ESP32 → SOC | Device / lockdown status |
-| `aegis/attacker_ip` | Detector → SOC | Detected attacker IP |
+| `aegis/idea3/v1/<device_id>/command` | Core → ESP32 | Signed CUT / explicitly authorized RESTORE |
+| `aegis/idea3/v1/<device_id>/heartbeat` | Core → ESP32 | Signed liveness heartbeat |
+| `aegis/idea3/v1/<device_id>/ack` | ESP32 → Core | Signed command acknowledgement |
+| `aegis/idea3/v1/<device_id>/status` | ESP32 → Core | Signed device-reported relay state |
 
-Production Integration ควรรักษา MQTT contract ชุดนี้ไว้เพื่อให้ IDEA 2 สามารถส่ง attacker event เข้า IDEA 3 ได้โดยไม่ต้องเปลี่ยน SOC logic หลัก
+Production uses only exact per-device topics, TLS port 8883, distinct broker
+identities, QoS 0, clean sessions, and non-retained messages. The historical
+topics—including `aegis/attacker_ip`—exist only in explicit
+`legacy-v0-lab` mode, which Production preflight refuses.
 
 ---
 
@@ -383,37 +385,24 @@ Production Integration ควรรักษา MQTT contract ชุดนี้
 
 ### Secure Command
 
-คำสั่งที่ส่งไป ESP32 ประกอบด้วย:
+Protocol v1 uses a fixed JSON array and signs canonical length-prefixed fields;
+raw JSON bytes are never signed. C2D and D2C use independently generated keys.
 
 ```text
-action
-nonce
-timestamp
-HMAC-SHA256 signature
+[version, kind, device_id, ...kind fields..., signature]
 ```
 
 ESP32 ตรวจตามลำดับ:
 
 ```text
-JSON
- ↓
-Timestamp
- ↓
-Nonce
- ↓
-HMAC
- ↓
-Execute
- ↓
-ACK
+parse/schema/identity → require local trusted time → verify HMAC
+→ authenticated timestamp/replay/sequence → persist sequence → GPIO
+→ signed ACK / STATUS
 ```
 
-ค่าปัจจุบัน:
-
-```text
-MAX_COMMAND_AGE_SEC = 30
-NONCE_HISTORY_SIZE  = 20
-```
+An authenticated ACK is not execution, relay confirmation, or physical
+evidence. Periodic STATUS never confirms a command merely because its reported
+state matches.
 
 ---
 
@@ -593,8 +582,11 @@ python3 server_admin.py
 ```text
 /status
 /cut <PIN>
-/restore <PIN>
+/restore <PIN>  # legacy documentation only; current Core policy refuses this path
 ```
+
+D4 does not grant Telegram RESTORE authority. The only current RESTORE entry
+point is the authenticated Core-local `aegisctl restore` flow documented below.
 
 Security:
 
@@ -815,12 +807,17 @@ WiFi
 
 ```dotenv
 AEGIS_BROKER_IP=127.0.0.1
-AEGIS_BROKER_PORT=1883
+AEGIS_BROKER_PORT=8883
 
-AEGIS_MQTT_USER=aegis
+AEGIS_MQTT_USER=idea3-core
 AEGIS_MQTT_PASS=<mqtt-password>
-
-AEGIS_HMAC_SECRET=<shared-hmac-secret>
+AEGIS_MQTT_TLS=true
+AEGIS_MQTT_CA_FILE=/absolute/path/to/mqtt-ca.pem
+AEGIS_PROTOCOL_MODE=v1
+AEGIS_P1_DEVICE_ID=<provisioned-device-id>
+AEGIS_P1_C2D_KEY_FILE=/run/credentials/<unit>/p1-c2d-key
+AEGIS_P1_D2C_KEY_FILE=/run/credentials/<unit>/p1-d2c-key
+AEGIS_CORE_PROTOCOL_DB_PATH=/var/lib/aegis-idea3/data/core-protocol.sqlite3
 AEGIS_ADMIN_PIN=<admin-pin>
 
 AEGIS_TG_TOKEN=<telegram-token>
@@ -843,17 +840,16 @@ src/secrets.h
 src/secrets.h.example
 ```
 
-Secret หลัก:
+`secrets.h.example` holds only public bootstrap material:
 
 ```text
-SECRET_WIFI_SSID
-SECRET_WIFI_PASSWORD
-SECRET_HMAC_KEY
-SECRET_MQTT_USER
-SECRET_MQTT_PASS
+SECRET_MQTT_CA_CERT
+SECRET_NTP_SERVER
 ```
 
-> `src/secrets.h` ต้องไม่ Commit
+Device identity, Wi-Fi/broker credentials, independent HMAC keys, and the
+accepted command-sequence high-water mark live in versioned NVS. Never commit
+`src/secrets.h`, generated certificates, or provisioned values.
 
 ---
 
@@ -876,6 +872,43 @@ Additional lifecycle commands:
 ./aegisctl restart --profile lab --dry-run
 ./aegisctl test
 ```
+
+### D4 Core-local RESTORE
+
+D4 is disabled when `AEGIS_RESTORE_CREDENTIAL_FILE` is blank. A repository
+checkout contains no credential. An operator must first provision a private
+scrypt credential outside Git, then the Core process must load it at startup.
+The production example uses
+`/etc/aegis-idea3/credentials/restore.credential`; see
+[`docs/operations/production-runtime.md`](docs/operations/production-runtime.md)
+for the stopped-service ownership and mode procedure.
+
+Run the request from an interactive terminal as the same operating-system UID
+as Core:
+
+```bash
+sudo -u aegis-idea3 /opt/aegis-idea3/current/aegisctl restore \
+  --reason "planned maintenance complete; local inspection recorded" \
+  --wait 30
+```
+
+The CLI prompts for the operator secret and then requires the exact typed text
+`RESTORE UPLINK`. It sends one request only. The reason must be printable,
+12–240 characters, and contain no control, surrogate, or bidirectional-format
+characters. `--wait` accepts 0–300 seconds and performs read-only evidence
+queries; it never resends RESTORE.
+
+Exit status is `0` for accepted publication when `--wait 0` is used, or only
+after device-reported `NORMAL` when waiting. Status `1` means the local channel
+is unavailable, `2` means validation/refusal or a known pre-publication failure,
+`3` means rejected, contradictory, or deadline-expired device evidence, and `4`
+means `OUTCOME_UNKNOWN`; status `4` must never be retried automatically.
+
+Output preserves the evidence ladder: requested, published, ACK, executed,
+relay confirmation, and physical evidence. Protocol ACK/STATUS can populate
+protocol evidence but is never labeled relay confirmation or physical evidence.
+Web, browser, dispatch, Telegram, reconnect, restart, recovery, and heartbeat
+paths have no D4 RESTORE authority.
 
 Profiles:
 

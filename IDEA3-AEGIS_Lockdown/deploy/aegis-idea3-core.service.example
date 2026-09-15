@@ -25,6 +25,7 @@ RuntimeDirectoryMode=0700
 LogsDirectory=aegis-idea3
 LogsDirectoryMode=0700
 ReadWritePaths=/var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3
+# D4 reads its hashed credential below /etc; the service must not provision or replace it.
 ReadOnlyPaths=/etc/aegis-idea3
 
 NoNewPrivileges=true

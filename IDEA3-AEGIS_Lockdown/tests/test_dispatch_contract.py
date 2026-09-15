@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -91,6 +93,13 @@ class FakeSupervisor:
 SENT = CommandResult("CUT_UPLINK", True, True, False, "contract-nonce", "SENT")
 DRY_RUN = CommandResult("CUT_UPLINK", True, False, True, "contract-nonce", "WOULD_SEND")
 NOT_SENT = CommandResult("CUT_UPLINK", False, False, False, None, "MQTT unavailable")
+# PR11 Phase 4 (OD-7): trust lost between claim and publish means only "not sent".
+NOT_SENT_TIME = CommandResult(
+    "CUT_UPLINK", False, False, False, None, "Core time is not trusted", reason_code="CORE_TIME_UNTRUSTED",
+)
+NOT_SENT_PENDING = CommandResult(
+    "CUT_UPLINK", False, False, False, None, "another command is pending", reason_code="COMMAND_PENDING",
+)
 
 
 def _run_worker(tmp_path, name, *, command=SENT, claim=None, claim_offset=100.0, after=None):
@@ -139,6 +148,7 @@ def _core_emitted_entries(tmp_path):
     entries += _run_worker(tmp_path, "status-timeout", after=status_timeout)
     entries += _run_worker(tmp_path, "dry-run", command=DRY_RUN)
     entries += _run_worker(tmp_path, "not-sent", command=NOT_SENT)
+    entries += _run_worker(tmp_path, "core-time-untrusted", command=NOT_SENT_TIME)
     entries += _run_worker(tmp_path, "claim-uncertain", claim=DispatchUnavailable("NETWORK"))
     entries += _run_worker(tmp_path, "expired-at-core", claim_offset=0.0)
 
@@ -230,6 +240,44 @@ def test_the_core_emits_exactly_the_contract_evidence_set_and_nothing_outside_th
                 assert reason.fullmatch(value)
             else:
                 assert value in allow[key]
+
+
+def test_command_contention_is_not_falsely_reported_as_mqtt_unavailable(tmp_path):
+    [entry] = _run_worker(tmp_path, "command-pending", command=NOT_SENT_PENDING)
+    assert entry["stage"] == "FAILED"
+    assert entry["detail"] == {"reasonCode": "COMMAND_PENDING"}
+
+
+def test_dispatch_rechecks_the_single_command_owner_before_claiming(tmp_path):
+    clock = Clock()
+    ledger = DispatchLedger(tmp_path / "dispatch-contention.sqlite3", wall_clock=clock)
+    action = PendingAction(ACTION_ID_VALUE, "CUT_UPLINK", "2026-09-12T08:00:00.000Z", clock.now + 100.0)
+    client = FakeClient(action, ClaimResult("CLAIMED", clock.now + 100.0))
+    supervisor = FakeSupervisor(SENT)
+    command_lock = threading.Lock()
+
+    @contextmanager
+    def command_guard():
+        with command_lock:
+            yield
+
+    supervisor.command_guard = command_guard
+    worker = DispatchWorker(supervisor, ledger, client, wall_clock=clock)
+    command_lock.acquire()
+    thread = threading.Thread(target=worker.tick)
+    thread.start()
+    try:
+        thread.join(0.1)
+        assert thread.is_alive(), "dispatch did not join the supervisor command boundary"
+        supervisor.pending_command = {"action": "RESTORE_UPLINK", "nonce": "restore-nonce"}
+    finally:
+        command_lock.release()
+        thread.join(2)
+
+    try:
+        assert ledger.get(ACTION_ID_VALUE) is None
+    finally:
+        ledger.close()
 
 
 def test_the_core_client_parses_the_pinned_web_responses_and_uses_the_pinned_paths():

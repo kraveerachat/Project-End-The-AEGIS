@@ -1,0 +1,10 @@
+user idea3-core
+topic write aegis/idea3/v1/device-id/command
+topic write aegis/idea3/v1/device-id/heartbeat
+topic read aegis/idea3/v1/device-id/ack
+topic read aegis/idea3/v1/device-id/status
+user idea3-dev-device-id
+topic read aegis/idea3/v1/device-id/command
+topic read aegis/idea3/v1/device-id/heartbeat
+topic write aegis/idea3/v1/device-id/ack
+topic write aegis/idea3/v1/device-id/status

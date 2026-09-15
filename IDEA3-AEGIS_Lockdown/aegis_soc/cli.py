@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import signal
@@ -11,6 +12,8 @@ import sys
 import time
 from pathlib import Path
 
+from . import config
+from . import local_restore as lr
 from .runtime import RuntimeSettings, read_status
 
 
@@ -177,6 +180,112 @@ def command_test(args) -> int:
     return subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=root, check=False).returncode
 
 
+def _print_restore_result(response) -> None:
+    print(f"RESTORE result: {response.get('code', 'INVALID_RESPONSE')}")
+    detail = response.get("detail")
+    if detail:
+        print(detail)
+    evidence = response.get("evidence") or {}
+    for rung in ("requested", "published", "ack", "executed", "relay_confirmation", "physical_evidence"):
+        print(f"{rung}: {evidence.get(rung, 'UNKNOWN')}")
+    print("Protocol ACK/STATUS is not physical evidence.")
+
+
+def command_restore(
+    args,
+    *,
+    isatty=None,
+    read_secret=getpass.getpass,
+    read_line=input,
+    send=lr.send_request,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+) -> int:
+    isatty = sys.stdin.isatty if isatty is None else isatty
+    problem = lr.reason_problem(args.reason)
+    if problem:
+        print(f"RESTORE refused: {problem}", file=sys.stderr)
+        return 2
+    if not isatty():
+        print("RESTORE refused: an interactive local terminal is required", file=sys.stderr)
+        return 2
+    secret = read_secret("Local RESTORE operator secret: ")
+    if not secret:
+        print("RESTORE refused: operator authentication is required", file=sys.stderr)
+        return 2
+    typed = read_line(f"Type {lr.CONFIRMATION!r} exactly to continue: ")
+    if typed != lr.CONFIRMATION:
+        print("RESTORE refused: confirmation did not match", file=sys.stderr)
+        return 2
+    if args.wait < 0 or args.wait > 300:
+        print("RESTORE refused: --wait must be between 0 and 300 seconds", file=sys.stderr)
+        return 2
+    path = RuntimeSettings.from_profile("development").runtime_dir / lr.CHANNEL_NAME
+    try:
+        response = send(path, lr.restore_request(secret, typed, args.reason), timeout=5)
+    except lr.ChannelUnavailable:
+        print("Core-local RESTORE unavailable; nothing was sent", file=sys.stderr)
+        return 1
+    except lr.OutcomeUnknown:
+        print("OUTCOME_UNKNOWN: the result was lost; do not re-run RESTORE", file=sys.stderr)
+        return 4
+    _print_restore_result(response)
+    if response.get("code") == "OUTCOME_UNKNOWN":
+        print("OUTCOME_UNKNOWN: do not re-run RESTORE", file=sys.stderr)
+        return 4
+    if not response.get("ok"):
+        return 2
+    if not args.wait:
+        return 0
+
+    msg_id = response.get("msg_id")
+    deadline = monotonic() + args.wait
+    while monotonic() < deadline:
+        sleep(min(1.0, max(0.0, deadline - monotonic())))
+        try:
+            evidence = send(path, lr.evidence_request(msg_id), timeout=5)
+        except lr.ChannelUnavailable:
+            print("Evidence channel unavailable; the published outcome is unchanged", file=sys.stderr)
+            return 1
+        except lr.OutcomeUnknown:
+            print("OUTCOME_UNKNOWN while reading evidence; RESTORE was not resent", file=sys.stderr)
+            return 4
+        _print_restore_result(evidence)
+        ladder = evidence.get("evidence") or {}
+        if str(ladder.get("ack", "")).startswith("REJECTED"):
+            return 3
+        if ladder.get("executed") == "DEVICE_REPORTED_NORMAL":
+            return 0
+        if ladder.get("executed") != "NOT_OBSERVED":
+            print("RESTORE did not produce a device-reported NORMAL state", file=sys.stderr)
+            return 3
+    print("PENDING: RESTORE evidence deadline reached; command was not resent", file=sys.stderr)
+    return 3
+
+
+def command_restore_credential(args, *, isatty=None, read_secret=getpass.getpass) -> int:
+    isatty = sys.stdin.isatty if isatty is None else isatty
+    if not isatty():
+        print("Credential provisioning requires an interactive local terminal", file=sys.stderr)
+        return 2
+    target = args.output or config.RESTORE_CREDENTIAL_FILE
+    if not target:
+        print("Credential output path is required", file=sys.stderr)
+        return 2
+    first = read_secret("New local RESTORE operator secret: ")
+    second = read_secret("Repeat local RESTORE operator secret: ")
+    if first != second or not isinstance(first, str) or len(first) < lr.SECRET_MIN_CHARS:
+        print("Credential refused: secrets must match and meet the minimum length", file=sys.stderr)
+        return 2
+    try:
+        lr.write_credential(target, first)
+    except (FileExistsError, OSError, ValueError):
+        print("Credential refused: output exists or cannot be written safely", file=sys.stderr)
+        return 2
+    print(f"Private local RESTORE credential written to {target}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aegisctl", description="AEGIS IDEA3 autonomous runtime")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -201,6 +310,13 @@ def build_parser() -> argparse.ArgumentParser:
     logs.set_defaults(handler=command_logs)
     test = sub.add_parser("test")
     test.set_defaults(handler=command_test)
+    restore = sub.add_parser("restore", help="request one authenticated Core-local RESTORE")
+    restore.add_argument("--reason")
+    restore.add_argument("--wait", type=float, default=0.0)
+    restore.set_defaults(handler=command_restore)
+    credential = sub.add_parser("restore-credential", help="provision a private local RESTORE credential")
+    credential.add_argument("--output")
+    credential.set_defaults(handler=command_restore_credential)
     return parser
 
 
