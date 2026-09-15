@@ -13,12 +13,15 @@ edit_policy: owner-writable
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
-newest section is Music's final approve-only K1/K3/K7 owner-decision package
-(2026-09-16). Kla accepts it with an APPROVED review, which may have an empty
-body, or rejects it with REQUEST_CHANGES. Until then K1/K3/K7 stay
-`PENDING_KLA`. The proposed K7 HUB model is the single base Compose file,
-because owner-run rendered-hash evidence showed that the Monitor and Public
-Share overlays do not change the HUB service. Nothing in Production changed.
+newest section is Music's approve-only K3/K7 pre-mutation owner package
+(2026-09-16). Owner-run read-only evidence explained why the running HUB's
+config-hash differs from the current base Compose: the base pinned the HUB's
+`aegis_internal` address on 2026-09-12, and Phase 2A adds only the IDEA3
+network. Music proposes accepting the current base HUB semantics for the next
+HUB recreate. K3 is not proven clear, so Kla is asked to confirm in writing that
+the IDEA1 window is closed. Before that, PR #139 merged at `8cf917bf` with Kla's
+APPROVED review, so the K1/K3/K7 decisions are accepted. Nothing in Production
+changed, and Stage B is not allowed.
 Next is the D4 Core-local RESTORE repository implementation, merged as PR #138
 at `3fd8d4d1`. It is COMPLETE and LOCAL VERIFIED and was never run live. Web,
 Telegram, and automatic RESTORE remain unavailable. PR #137 merged at
