@@ -1,336 +1,360 @@
-/*
- * ============================================================
- *  AEGIS IDEA 3 - Secure MQTT Lockdown Controller (Full Version)
- * ============================================================
- */
-
 #include <Arduino.h>
-#include <WiFi.h>
+#include <Preferences.h>
 #include <PubSubClient.h>
-#include <mbedtls/md.h>
-#include <ArduinoJson.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <esp_sntp.h>
+#include <esp_system.h>
 #include <time.h>
+
+#include "aegis_protocol.h"
 #include "secrets.h"
-// ========== ตั้งค่า ==========
-const char* WIFI_SSID     = SECRET_WIFI_SSID;
-const char* WIFI_PASSWORD = SECRET_WIFI_PASSWORD;
-const char* HMAC_SECRET   = SECRET_HMAC_KEY;
 
-const char* MQTT_BROKER = "172.20.10.2";
-const int   MQTT_PORT   = 1883;
+constexpr int MQTT_PORT = 8883;
+constexpr int RELAY_IN = 27;
+constexpr int LED_GREEN = 32;
+constexpr int LED_RED = 33;
+constexpr int RELAY_RELEASE = HIGH;
+constexpr int RELAY_TRIGGER = LOW;
+constexpr unsigned long DEADMAN_TIMEOUT_MS = 60000;
+constexpr unsigned long BOOT_GRACE_MS = 90000;
+constexpr unsigned long TIME_SYNC_FRESH_MS = 60000;
+constexpr unsigned long TIME_HOLDOVER_MAX_MS = 300000;
+constexpr unsigned long RECONNECT_INTERVAL_MS = 5000;
+constexpr unsigned long STATUS_INTERVAL_MS = 30000;
+constexpr std::size_t REPLAY_SLOTS = 20;
 
+enum class TimeTrust { SYNCED, HOLDOVER, UNTRUSTED };
 
-// ========== Topics ==========
-const char* TOPIC_COMMAND   = "aegis/lockdown/cmd";
-const char* TOPIC_ACK       = "aegis/lockdown/ack";
-const char* TOPIC_HEARTBEAT = "aegis/heartbeat";
-const char* TOPIC_STATUS    = "aegis/status";
+Preferences preferences;
+WiFiClientSecure tlsClient;
+PubSubClient mqtt(tlsClient);
 
-// ========== Hardware ==========
-const int RELAY_IN  = 27;
-const int LED_GREEN = 32;
-const int LED_RED   = 33;
-const int RELAY_RELEASE = HIGH;
-const int RELAY_TRIGGER = LOW;
+String deviceId;
+String wifiSsid;
+String wifiPassword;
+String mqttHost;
+String mqttUser;
+String mqttPassword;
+String ntpServer;
+String topicCommand;
+String topicHeartbeat;
+String topicAck;
+String topicStatus;
+std::uint8_t keyC2D[32]{};
+std::uint8_t keyD2C[32]{};
+std::uint64_t highestSequence = 0;
+String heartbeatReplay[REPLAY_SLOTS];
+std::size_t heartbeatReplayIndex = 0;
 
-// ========== Security ==========
-const unsigned long DEADMAN_TIMEOUT_MS = 60000;
-const unsigned long BOOT_GRACE_MS = 90000;  // รอ heartbeat แรก 90 วิ ก่อน fail-secure
-const int NONCE_HISTORY_SIZE = 20;
-const int MAX_COMMAND_AGE_SEC = 30;
-
-// ========== LED Blink (ไฟแดงกระพริบตอน Lockdown) ==========
-const unsigned long LED_BLINK_INTERVAL_MS = 300;
-
-unsigned long lastReconnectAttempt = 0;
-const unsigned long RECONNECT_INTERVAL_MS = 5000;
-
-unsigned long lastStatusPublishMs = 0;
-const unsigned long STATUS_PUBLISH_INTERVAL_MS = 30000;  // ส่ง status ทุก 30 วิ
-
-// ========== State ==========
-WiFiClient wifiClient;
-PubSubClient mqtt(wifiClient);
+bool provisioned = false;
+bool mqttBufferReady = false;
 bool isLockedDown = true;
-unsigned long lastHeartbeatMs = 0;
 bool deadmanTriggered = false;
-String usedNonces[NONCE_HISTORY_SIZE];
-int nonceIndex = 0;
+unsigned long lastHeartbeatMs = 0;
+unsigned long lastReconnectMs = 0;
+unsigned long lastStatusMs = 0;
+unsigned long lastTimeSyncMs = 0;
 unsigned long lastBlinkMs = 0;
-bool ledRedBlinkState = false;
+bool redBlink = false;
 
-// ========== ฟังก์ชันประกาศล่วงหน้า ==========
-String computeHMAC(const String& m, const char* key);
-bool isNonceUsed(const String& n);
-void recordNonce(const String& n);
-void publishStatus(const String& state, const String& reason, const String& commandNonce = "");
-void setLockdown(bool lock, const String& reason, const String& commandNonce = "");
-void sendAck(const String& result, const String& detail, const String& nonce);
-void onMqttMessage(char* topic, byte* payload, unsigned int length);
-void connectWiFi();
-void syncTimeNTP();
-void connectMQTT();
-void checkDeadman();
-void updateLedBlink();
-
-String computeHMAC(const String& m, const char* key) {
-  byte r[32];
-  mbedtls_md_context_t ctx;
-  mbedtls_md_init(&ctx);
-  mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)key, strlen(key));
-  mbedtls_md_hmac_update(&ctx, (const unsigned char*)m.c_str(), m.length());
-  mbedtls_md_hmac_finish(&ctx, r);
-  mbedtls_md_free(&ctx);
-  String hex = "";
-  for (int i = 0; i < 32; i++) { char b[3]; sprintf(b, "%02x", r[i]); hex += b; }
-  return hex;
+String field(const aegis::p1::Parsed& parsed, std::size_t index) {
+  const auto value = parsed.elements[index];
+  String out;
+  out.reserve(value.size);
+  for (std::size_t cursor = 0; cursor < value.size; ++cursor) out += value.data[cursor];
+  return out;
 }
 
-bool isNonceUsed(const String& n) {
-  for (int i = 0; i < NONCE_HISTORY_SIZE; i++) if (usedNonces[i] == n) return true;
-  return false;
-}
-void recordNonce(const String& n) {
-  usedNonces[nonceIndex] = n;
-  nonceIndex = (nonceIndex + 1) % NONCE_HISTORY_SIZE;
+String unsignedString(std::uint64_t value) {
+  char buffer[21];
+  snprintf(buffer, sizeof(buffer), "%llu", static_cast<unsigned long long>(value));
+  return String(buffer);
 }
 
-void publishStatus(const String& state, const String& reason, const String& commandNonce) {
-  JsonDocument doc;
-  doc["state"] = state;
-  doc["reason"] = reason;
-  doc["rssi"] = WiFi.RSSI();
-  if (commandNonce != "") {
-    doc["command_nonce"] = commandNonce;
+std::uint64_t integerField(const aegis::p1::Parsed& parsed, std::size_t index) {
+  return strtoull(field(parsed, index).c_str(), nullptr, 10);
+}
+
+const char* timeTrustName(TimeTrust trust) {
+  if (trust == TimeTrust::SYNCED) return "SYNCED";
+  if (trust == TimeTrust::HOLDOVER) return "HOLDOVER";
+  return "UNTRUSTED";
+}
+
+TimeTrust timeTrust() {
+  if (lastTimeSyncMs == 0) return TimeTrust::UNTRUSTED;
+  const unsigned long age = millis() - lastTimeSyncMs;
+  if (age <= TIME_SYNC_FRESH_MS) return TimeTrust::SYNCED;
+  if (age <= TIME_HOLDOVER_MAX_MS) return TimeTrust::HOLDOVER;
+  return TimeTrust::UNTRUSTED;
+}
+
+void onTimeSync(struct timeval*) {
+  lastTimeSyncMs = millis();
+  if (lastTimeSyncMs == 0) lastTimeSyncMs = 1;
+}
+
+bool keysAreIndependent() {
+  unsigned char difference = 0;
+  unsigned char c2dNonzero = 0;
+  unsigned char d2cNonzero = 0;
+  for (std::size_t index = 0; index < 32; ++index) {
+    difference |= keyC2D[index] ^ keyD2C[index];
+    c2dNonzero |= keyC2D[index];
+    d2cNonzero |= keyD2C[index];
   }
-  doc["heap"] = ESP.getFreeHeap();
-  String out; serializeJson(doc, out);
-  mqtt.publish(TOPIC_STATUS, out.c_str());
+  return difference != 0 && c2dNonzero != 0 && d2cNonzero != 0;
 }
 
+bool loadProvisioning() {
+  if (!preferences.begin("aegis-p1", false)) return false;
+  if (!(preferences.getUInt("schema", 0) == 1)) return false;
+  deviceId = preferences.getString("device_id", "");
+  wifiSsid = preferences.getString("wifi_ssid", "");
+  wifiPassword = preferences.getString("wifi_psk", "");
+  mqttHost = preferences.getString("broker", "");
+  mqttUser = preferences.getString("mqtt_user", "");
+  mqttPassword = preferences.getString("mqtt_pass", "");
+  ntpServer = preferences.getString("ntp", SECRET_NTP_SERVER);
+  if (preferences.getBytes("k_c2d", keyC2D, 32) != 32) return false;
+  if (preferences.getBytes("k_d2c", keyD2C, 32) != 32) return false;
+  highestSequence = preferences.getULong64("seq_hi", 0);
+  if (deviceId.length() < 3 || wifiSsid.isEmpty() || mqttHost.isEmpty() || mqttUser.isEmpty() ||
+      mqttPassword.isEmpty() || ntpServer.isEmpty() || !keysAreIndependent()) {
+    return false;
+  }
+  const String base = "aegis/idea3/v1/" + deviceId;
+  topicCommand = base + "/command";
+  topicHeartbeat = base + "/heartbeat";
+  topicAck = base + "/ack";
+  topicStatus = base + "/status";
+  return true;
+}
 
-void setLockdown(bool lock, const String& reason, const String& commandNonce) {
+String randomMessageId() {
+  std::uint8_t random[16];
+  esp_fill_random(random, sizeof(random));
+  static constexpr char hex[] = "0123456789abcdef";
+  String out;
+  out.reserve(32);
+  for (std::uint8_t value : random) {
+    out += hex[value >> 4];
+    out += hex[value & 0x0f];
+  }
+  return out;
+}
+
+String signWire(const char* kind, const String& topic, const String* fields, std::size_t fieldCount) {
+  std::array<String, aegis::p1::MAX_ELEMENTS> values;
+  std::array<aegis::p1::Span, aegis::p1::MAX_ELEMENTS> spans{};
+  values[0] = "1";
+  values[1] = kind;
+  values[2] = deviceId;
+  for (std::size_t index = 0; index < fieldCount; ++index) values[index + 3] = fields[index];
+  const std::size_t count = fieldCount + 3;
+  for (std::size_t index = 0; index < count; ++index) spans[index] = {values[index].c_str(), values[index].length()};
+
+  std::array<std::uint8_t, aegis::p1::MAX_SIGNING_BYTES> input{};
+  std::size_t inputLength = 0;
+  if (!aegis::p1::buildSigningInput("DEVICE_TO_CORE", topic.c_str(), spans.data(), count,
+                                    input.data(), input.size(), inputLength)) return "";
+  std::uint8_t digest[32];
+  if (!aegis::p1::hmacSha256(keyD2C, input.data(), inputLength, digest)) return "";
+  static constexpr char hex[] = "0123456789abcdef";
+  String mac;
+  mac.reserve(64);
+  for (std::uint8_t value : digest) {
+    mac += hex[value >> 4];
+    mac += hex[value & 0x0f];
+  }
+  String wire = "[1";
+  for (std::size_t index = 1; index < count; ++index) wire += ",\"" + values[index] + "\"";
+  wire += ",\"" + mac + "\"]";
+  return wire;
+}
+
+bool publishSigned(const String& topic, const String& wire) {
+  return !wire.isEmpty() && wire.length() <= aegis::p1::MAX_WIRE_BYTES &&
+         mqtt.publish(topic.c_str(), reinterpret_cast<const std::uint8_t*>(wire.c_str()), wire.length(), false);
+}
+
+void sendAck(const String& commandId, std::uint64_t sequence, const char* result) {
+  const String fields[] = {
+      randomMessageId(), unsignedString(static_cast<std::uint64_t>(time(nullptr))), commandId,
+      unsignedString(sequence), result,
+  };
+  const String wire = signWire("ACK", topicAck, fields, 5);  // DEVICE_TO_CORE, keyD2C
+  publishSigned(topicAck, wire);
+}
+
+void publishStatus(const char* reason, const String& commandId = "", std::uint64_t commandSequence = 0) {
+  if (timeTrust() == TimeTrust::UNTRUSTED) return;
+  long rssi = WiFi.RSSI();
+  if (rssi < -127 || rssi > 0) rssi = 0;
+  const String fields[] = {
+      randomMessageId(), unsignedString(static_cast<std::uint64_t>(time(nullptr))), timeTrustName(timeTrust()),
+      isLockedDown ? "LOCKDOWN" : "NORMAL", reason, commandId,
+      unsignedString(commandSequence), unsignedString(highestSequence), String(rssi), String(ESP.getFreeHeap()),
+  };
+  const String wire = signWire("STATUS", topicStatus, fields, 10);  // DEVICE_TO_CORE, keyD2C
+  publishSigned(topicStatus, wire);
+}
+
+void setLockdown(bool lock) {
   isLockedDown = lock;
   digitalWrite(RELAY_IN, lock ? RELAY_TRIGGER : RELAY_RELEASE);
   digitalWrite(LED_GREEN, lock ? LOW : HIGH);
   if (lock) {
-    // เริ่มกระพริบไฟแดงทันที (สถานะกระพริบคุมต่อใน updateLedBlink() ผ่าน loop())
-    ledRedBlinkState = true;
+    redBlink = true;
     digitalWrite(LED_RED, HIGH);
     lastBlinkMs = millis();
   } else {
+    redBlink = false;
     digitalWrite(LED_RED, LOW);
   }
-  Serial.println();
-  if (lock) {
-    Serial.println("################################################");
-    Serial.println("#  [ LOCKDOWN ]  ตัด uplink !!");
-    Serial.print("#  เหตุผล: "); Serial.println(reason);
-    Serial.println("################################################");
-  } else {
-    Serial.println("------------------------------------------------");
-    Serial.println("|  [ NORMAL ]  uplink ONLINE");
-    Serial.print("|  เหตุผล: "); Serial.println(reason);
-    Serial.println("------------------------------------------------");
-  }
-  publishStatus(lock ? "LOCKDOWN" : "NORMAL", reason, commandNonce);
 }
 
-void sendAck(const String& result, const String& detail, const String& nonce) {
-  JsonDocument doc;
-  doc["ack"] = result;
-  doc["detail"] = detail;
-  doc["nonce"] = nonce;
-  String out; serializeJson(doc, out);
-  mqtt.publish(TOPIC_ACK, out.c_str());
-  Serial.print("  -> ACK: "); Serial.println(out);
+bool checkAuthenticatedSkew(std::uint64_t timestamp) {
+  const std::uint64_t now = static_cast<std::uint64_t>(time(nullptr));
+  return timestamp <= now + 2 && now <= timestamp + 30;
 }
 
-void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  String message = "";
-  for (unsigned int i = 0; i < length; i++) message += (char)payload[i];
-  String t = String(topic);
+bool acceptedSequence(std::uint64_t sequence) {
+  return sequence > highestSequence;
+}
 
-  if (t != TOPIC_COMMAND && t != TOPIC_HEARTBEAT) return;
+bool heartbeatSeen(const String& messageId) {
+  for (const auto& seen : heartbeatReplay) {
+    if (seen == messageId) return true;
+  }
+  return false;
+}
 
-  Serial.println();
-  Serial.print("=== ได้รับข้อความจาก: "); Serial.print(t); Serial.println(" ===");
-  Serial.println(message);
-
-  JsonDocument doc;
-  if (deserializeJson(doc, message)) {
-    Serial.println("[ปฏิเสธ] JSON ผิดรูปแบบ");
-    if (t == TOPIC_COMMAND) sendAck("BAD_JSON","parse","");
+void handleCommand(const aegis::p1::Parsed& parsed) {
+  if (!aegis::p1::verify(parsed, keyC2D)) return;
+  const std::uint64_t issuedAt = integerField(parsed, 5);
+  const std::uint64_t expiresAt = integerField(parsed, 6);
+  const String commandId = field(parsed, 3);
+  const std::uint64_t sequence = integerField(parsed, 4);
+  if (!checkAuthenticatedSkew(issuedAt) || static_cast<std::uint64_t>(time(nullptr)) > expiresAt) {
+    sendAck(commandId, sequence, "REJECTED_EXPIRED");
     return;
   }
-
-  String cmd = doc["cmd"] | "";
-  String hb = doc["hb"] | "";
-  String nonce = doc["nonce"] | "";
-  unsigned long ts = doc["ts"] | 0UL;
-  String signature = doc["sig"] | "";
-
-  if ((cmd == "" && hb == "") || nonce == "" || ts == 0 || signature == "") {
-    Serial.println("[ปฏิเสธ] ข้อมูลไม่ครบถ้วน");
-    if (t == TOPIC_COMMAND) sendAck("BAD_FORMAT","missing", nonce);
+  if (!acceptedSequence(sequence)) {
+    sendAck(commandId, sequence, "REJECTED_SEQUENCE");
+    publishStatus("SEQUENCE_REJECTED", commandId, sequence);
     return;
   }
-
-  // 1. ตรวจสอบ Timestamp Window (NTP Sync)
-  time_t now = time(nullptr);
-  if (abs((long)(now - ts)) > MAX_COMMAND_AGE_SEC) {
-    Serial.println("[ปฏิเสธ] !! STALE COMMAND !! คำสั่งหมดอายุแล้ว");
-    if (t == TOPIC_COMMAND) sendAck("STALE","timestamp out of window", nonce);
+  if (!preferences.putULong64("seq_hi", sequence)) {
+    sendAck(commandId, sequence, "REJECTED_PERSIST");
     return;
   }
+  highestSequence = sequence;
+  const String action = field(parsed, 7);
+  setLockdown(action == "CUT_UPLINK");
+  sendAck(commandId, sequence, "ACCEPTED");
+  publishStatus("COMMAND", commandId, sequence);
+}
 
-  // 2. ตรวจสอบ Nonce (Replay Attack)
-  if (isNonceUsed(nonce)) {
-    Serial.println("[ปฏิเสธ] !! REPLAY ATTACK !!");
-    if (t == TOPIC_COMMAND) sendAck("REPLAY","nonce reused", nonce);
-    return;
-  }
-
-  // 3. ตรวจสอบ HMAC
-  String payloadToSign = (cmd != "") ? (cmd + "|" + nonce + "|" + String(ts)) : (hb + "|" + nonce + "|" + String(ts));
-  String expectedSig = computeHMAC(payloadToSign, HMAC_SECRET);
-  if (expectedSig != signature) {
-    Serial.println("[ปฏิเสธ] !! HMAC ไม่ตรง !! ลายเซ็นปลอม");
-    if (t == TOPIC_COMMAND) sendAck("BAD_HMAC","sig mismatch", nonce);
-    return;
-  }
-
-  // ผ่านการตรวจสอบทั้งหมด!
-  recordNonce(nonce);
-  Serial.println("[ผ่าน] ลายเซ็น HMAC ถูกต้อง + ภายในเวลา 30s + Nonce ใหม่");
-
-  if (t == TOPIC_HEARTBEAT) {
+void handleHeartbeat(const aegis::p1::Parsed& parsed) {
+  if (!aegis::p1::verify(parsed, keyC2D)) return;
+  const String messageId = field(parsed, 3);
+  if (!checkAuthenticatedSkew(integerField(parsed, 4)) || heartbeatSeen(messageId)) return;
+  heartbeatReplay[heartbeatReplayIndex] = messageId;
+  heartbeatReplayIndex = (heartbeatReplayIndex + 1) % REPLAY_SLOTS;
   lastHeartbeatMs = millis();
-
-  if (deadmanTriggered) {
-    deadmanTriggered = false;
-    Serial.println(
-      "[HEARTBEAT] สัญญาณกลับมาแล้ว แต่ระบบยังคง LOCKDOWN "
-      "จนกว่าจะได้รับ RESTORE_UPLINK ที่ถูกต้อง"
-    );
-  }
-
-  Serial.println("[HEARTBEAT] อัปเดตตัวจับเวลาเรียบร้อย");
+  deadmanTriggered = false;
 }
-  else if (t == TOPIC_COMMAND) {
-    if (cmd == "CUT_UPLINK") { setLockdown(true, "verified", nonce); sendAck("OK","uplink cut", nonce); }
-    else if (cmd == "RESTORE_UPLINK") { setLockdown(false, "verified", nonce); sendAck("OK","uplink restored", nonce); }
-    else { Serial.println("[ปฏิเสธ] cmd ไม่รู้จัก"); sendAck("UNKNOWN_CMD", cmd, nonce); }
-  }
+
+void onMqttMessage(char* topic, std::uint8_t* payload, unsigned int length) {
+  if (timeTrust() == TimeTrust::UNTRUSTED) return;
+  aegis::p1::Parsed parsed{};
+  const auto result = aegis::p1::parse(payload, length, topic, deviceId.c_str(), "device", false, parsed);
+  if (result.stage != aegis::p1::Stage::ACCEPTED) return;
+  const String kind = field(parsed, 1);
+  if (kind == "COMMAND") handleCommand(parsed);
+  else if (kind == "HEARTBEAT") handleHeartbeat(parsed);
 }
 
 void connectWiFi() {
-  Serial.print("เชื่อมต่อ WiFi: "); Serial.println(WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println();
-  Serial.print("WiFi OK! IP: "); Serial.println(WiFi.localIP());
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  while (WiFi.status() != WL_CONNECTED) delay(500);
 }
 
 void syncTimeNTP() {
-  Serial.print("กำลังดึงเวลามาตรฐานจาก NTP...");
-  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-  struct tm timeinfo;
-  while (!getLocalTime(&timeinfo, 5000)) {
-    Serial.print(".");
-    delay(1000);
-  }
-  Serial.println(" สำเร็จ!");
-  Serial.println(&timeinfo, "เวลาปัจจุบัน: %A, %d %B %Y %H:%M:%S");
+  sntp_set_time_sync_notification_cb(onTimeSync);
+  sntp_set_sync_interval(60000);
+  configTime(0, 0, ntpServer.c_str());
+  const unsigned long deadline = millis() + 30000;
+  while (timeTrust() == TimeTrust::UNTRUSTED && static_cast<long>(deadline - millis()) > 0) delay(100);
 }
 
 void connectMQTT() {
-  // ลองต่อใหม่แค่ทุก 5 วิ ไม่วนติดแหง็ก
-  if (millis() - lastReconnectAttempt < RECONNECT_INTERVAL_MS) return;
-  lastReconnectAttempt = millis();
-
-  Serial.print("เชื่อมต่อ MQTT broker...");
-  String clientId = "AEGIS-ESP32-" + String(random(0xffff), HEX);
-  if (mqtt.connect(clientId.c_str(), SECRET_MQTT_USER, SECRET_MQTT_PASS)) {
-    Serial.println(" สำเร็จ!");
-    mqtt.subscribe(TOPIC_COMMAND);
-    mqtt.subscribe(TOPIC_HEARTBEAT);
-    Serial.print("  subscribe: "); Serial.println(TOPIC_COMMAND);
-    Serial.print("  subscribe: "); Serial.println(TOPIC_HEARTBEAT);
-    publishStatus("ONLINE", "Boot completed");
-  } else {
-    Serial.print(" fail rc="); Serial.print(mqtt.state());
-    Serial.println(" จะลองใหม่ใน 5 วิ");
+  if (!mqttBufferReady) return;
+  if (timeTrust() == TimeTrust::UNTRUSTED) return;
+  if (millis() - lastReconnectMs < RECONNECT_INTERVAL_MS) return;
+  lastReconnectMs = millis();
+  if (mqtt.connect(deviceId.c_str(), mqttUser.c_str(), mqttPassword.c_str())) {
+    mqtt.subscribe(topicCommand.c_str(), 0);
+    mqtt.subscribe(topicHeartbeat.c_str(), 0);
+    publishStatus("BOOT");
   }
 }
 
 void checkDeadman() {
   if (lastHeartbeatMs == 0) {
-    // ยังไม่เคยได้รับ heartbeat หลัง boot
-    if (millis() > BOOT_GRACE_MS && !isLockedDown) {
-      deadmanTriggered = true;
-      setLockdown(true, "SECURE BOOT - ไม่พบ Heartbeat ภายใน 90 วิ!");
-    }
+    if (millis() > BOOT_GRACE_MS && !isLockedDown) setLockdown(true);
     return;
   }
-
   if (millis() - lastHeartbeatMs > DEADMAN_TIMEOUT_MS && !deadmanTriggered) {
     deadmanTriggered = true;
-    setLockdown(true, "DEAD MAN'S SWITCH - ขาดสัญญาณ Heartbeat 60 วิ!");
+    setLockdown(true);
+    publishStatus("DEADMAN");
   }
 }
 
 void updateLedBlink() {
-  if (!isLockedDown) return;  // ปกติไฟแดงดับนิ่ง ไม่ต้องกระพริบ
-  unsigned long now = millis();
-  if (now - lastBlinkMs >= LED_BLINK_INTERVAL_MS) {
-    lastBlinkMs = now;
-    ledRedBlinkState = !ledRedBlinkState;
-    digitalWrite(LED_RED, ledRedBlinkState ? HIGH : LOW);
+  if (!isLockedDown) return;
+  if (millis() - lastBlinkMs >= 300) {
+    lastBlinkMs = millis();
+    redBlink = !redBlink;
+    digitalWrite(LED_RED, redBlink ? HIGH : LOW);
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
-  // Preload the active-low safe state before enabling the output driver.
   digitalWrite(RELAY_IN, RELAY_TRIGGER);
   pinMode(RELAY_IN, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
-  digitalWrite(LED_GREEN, HIGH);
-  digitalWrite(LED_RED, LOW);
-
-  Serial.println();
-  Serial.println("================================================");
-  Serial.println("  AEGIS IDEA 3 - Secure MQTT Lockdown (Full)");
-  Serial.println("================================================");
-
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_RED, HIGH);
+  if (!(provisioned = loadProvisioning())) return;
   connectWiFi();
   syncTimeNTP();
-
-  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  tlsClient.setCACert(SECRET_MQTT_CA_CERT);
+  mqttBufferReady = mqtt.setBufferSize(768);
+  if (!mqttBufferReady) return;
+  mqtt.setServer(mqttHost.c_str(), MQTT_PORT);
   mqtt.setCallback(onMqttMessage);
   connectMQTT();
-
-  Serial.println("พร้อมรับคำสั่ง (เขียวติด = ปกติ)");
-  Serial.println("================================================");
 }
 
 void loop() {
+  if (!provisioned || !mqttBufferReady) {
+    delay(100);
+    return;
+  }
   if (!mqtt.connected()) connectMQTT();
   mqtt.loop();
   checkDeadman();
   updateLedBlink();
-
-  // ส่งสัญญาณชีพเป็นระยะ (บอก SOC ว่ายังออนไลน์)
-  if (millis() - lastStatusPublishMs > STATUS_PUBLISH_INTERVAL_MS) {
-    lastStatusPublishMs = millis();
-    if (mqtt.connected()) {
-      publishStatus(isLockedDown ? "LOCKDOWN" : "NORMAL", "heartbeat");
-    }
+  if (mqtt.connected() && timeTrust() != TimeTrust::UNTRUSTED && millis() - lastStatusMs >= STATUS_INTERVAL_MS) {
+    lastStatusMs = millis();
+    publishStatus("PERIODIC");
   }
-
   delay(10);
 }

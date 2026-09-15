@@ -91,6 +91,11 @@ class RuntimePaths:
         """The Core dispatch ledger: beside, but apart from, the hash-chained Core audit."""
         return self.root / "data" / "core-dispatch.sqlite3"
 
+    @property
+    def protocol_db(self) -> Path:
+        """The durable Protocol v1 store: sequence, commands, and replay rows; never under /run."""
+        return self.root / "data" / "core-protocol.sqlite3"
+
     @classmethod
     def from_environment(
         cls,

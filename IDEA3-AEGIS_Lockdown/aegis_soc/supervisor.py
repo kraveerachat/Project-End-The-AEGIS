@@ -29,7 +29,9 @@ from .dispatch_worker import (
 )
 from .mqtt_client import MQTTManager
 from .platform_lock import AlreadyRunningError, ExclusiveFileLock
+from .protocol_runtime import build_protocol_context_from_environment
 from .runtime import RuntimeSettings, RuntimeState, RuntimeStatus
+from .trusted_time import TRUSTED_STATES, TrustedClock
 
 
 class InstanceLock:
@@ -162,6 +164,16 @@ class ChildProcessSupervisor:
 
 
 _DEFAULT_DISPATCH_WORKER = object()
+_DEFAULT_PROTOCOL = object()
+
+# Status detail never claims physical or relay proof (evidence ladder, design §12).
+STATE_DETAIL = {
+    RuntimeState.RUNNING: "runtime healthy",
+    RuntimeState.WAIT_BROKER: "waiting for MQTT broker",
+    RuntimeState.WAIT_DEVICE: "broker connected; device state unknown",
+    RuntimeState.DEGRADED: "broker, device, dispatch, or trusted time unavailable",
+    RuntimeState.LOCKDOWN: "device reports LOCKDOWN output state",
+}
 
 
 class AegisSupervisor:
@@ -172,10 +184,26 @@ class AegisSupervisor:
         mqtt_manager=None,
         monotonic=time.monotonic,
         dispatch_worker=_DEFAULT_DISPATCH_WORKER,
+        protocol=_DEFAULT_PROTOCOL,
+        clock=None,
+        restore_origins: frozenset[str] = frozenset(),
     ):
         self.settings = settings
-        self.mqtt = mqtt_manager or MQTTManager()
-        self.controller = AegisCommandController(self.mqtt, dry_run=settings.dry_run)
+        if settings.profile == "production" and restore_origins:
+            raise ValueError("production has no RESTORE origin until the D4 Core-local CLI exists")
+        self.protocol = (
+            build_protocol_context_from_environment() if protocol is _DEFAULT_PROTOCOL else protocol
+        )
+        self.clock = clock or (self.protocol.clock if self.protocol is not None else TrustedClock())
+        self.mqtt = mqtt_manager or MQTTManager(protocol=self.protocol)
+        # The headless Core never restores on its own: its RESTORE allowlist is
+        # empty unless a future D4 Core-local CLI supplies an audited origin.
+        self.controller = AegisCommandController(
+            self.mqtt,
+            dry_run=settings.dry_run,
+            protocol=self.protocol,
+            restore_origins=restore_origins,
+        )
         self.monotonic = monotonic
         self.started_at = monotonic()
         self.last_heartbeat_at = 0.0
@@ -237,6 +265,7 @@ class AegisSupervisor:
         critical: bool = False,
         origin: str = "unknown",
         authorize_restore: bool = False,
+        not_after: float | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state."""
         result = self.controller.issue(
@@ -245,6 +274,7 @@ class AegisSupervisor:
             critical=critical,
             origin=origin,
             authorize_restore=authorize_restore,
+            not_after=not_after,
         )
         if result.sent:
             self.pending_command = {
@@ -267,6 +297,35 @@ class AegisSupervisor:
             }
             self.ack_timed_out = False
         return result
+
+    def _protocol_active(self) -> bool:
+        return self.protocol is not None and not self.controller.legacy
+
+    def protocol_time_trusted(self) -> bool:
+        """Protocol v1 needs SYNCED or HOLDOVER Core time; legacy lab mode is not gated."""
+        if self.controller.legacy:
+            return True
+        if self.protocol is None:
+            return False
+        return self.clock.state() in TRUSTED_STATES
+
+    def _refresh_protocol_state(self) -> None:
+        self.status.time_trust = str(self.clock.state())
+        if self.protocol is None:
+            return
+        try:
+            self.protocol.store.prune_seen()
+        except Exception as exc:
+            self.log_event("WARNING", "protocol_store_prune_failed", error=type(exc).__name__)
+
+    def recover_protocol_state(self) -> list[str]:
+        """After a restart every open command is closed; nothing is republished or restored."""
+        if self.protocol is None:
+            return []
+        closed = self.protocol.store.close_open_commands_after_restart()
+        if closed:
+            self.log_event("WARNING", "protocol_commands_closed_after_restart", count=len(closed))
+        return closed
 
     def set_armed(self, armed: bool, *, origin: str = "unknown") -> None:
         """Set the Core operational safety gate."""
@@ -467,6 +526,8 @@ class AegisSupervisor:
             return RuntimeState.DEGRADED
         if self.settings.dry_run:
             return RuntimeState.RUNNING
+        if self._protocol_active() and not self.protocol_time_trusted():
+            return RuntimeState.DEGRADED
         if not self.mqtt.is_connected:
             return (RuntimeState.WAIT_BROKER if now - self.started_at <= self.settings.broker_wait_sec
                     else RuntimeState.DEGRADED)
@@ -503,6 +564,7 @@ class AegisSupervisor:
 
             db.init_db()
             self.bind_callbacks()
+            self.recover_protocol_state()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -513,19 +575,18 @@ class AegisSupervisor:
 
             while not self.stop_requested:
                 now = self.monotonic()
+                self._refresh_protocol_state()
                 if (now - self.last_heartbeat_at >= config.HEARTBEAT_INTERVAL_SEC
                         and self.controller.send_heartbeat()):
                     self.last_heartbeat_at = now
                 self.status.components = self.children.poll(now)
                 self._tick_dispatch()
                 state = self.evaluate_state(now)
-                detail = {
-                    RuntimeState.RUNNING: "runtime healthy" if not self.settings.dry_run else "safe dry-run active",
-                    RuntimeState.WAIT_BROKER: "waiting for MQTT broker",
-                    RuntimeState.WAIT_DEVICE: "broker connected; device state unknown",
-                    RuntimeState.DEGRADED: "broker, device, or dispatch unavailable",
-                    RuntimeState.LOCKDOWN: "device reports physical lockdown",
-                }[state]
+                detail = (
+                    "safe dry-run active"
+                    if state == RuntimeState.RUNNING and self.settings.dry_run
+                    else STATE_DETAIL.get(state, "supervisor stopping")
+                )
                 self.transition(state, detail)
                 self._stop_event.wait(self.settings.health_interval)
             return 0
@@ -539,6 +600,8 @@ class AegisSupervisor:
             self.mqtt.stop()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.close()
+            if self.protocol is not None:
+                self.protocol.store.close()
             # Deliberately no RESTORE_UPLINK on any shutdown path.
             if self.status.state != RuntimeState.FAILED:
                 self.transition(RuntimeState.SHUTDOWN, "supervisor stopped; uplink state unchanged")

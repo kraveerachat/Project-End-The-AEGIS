@@ -141,7 +141,8 @@ def test_c1_c3_c6_c9_records_claim_intent_before_claim_then_uses_issue_command_o
         assert supervisor.calls == [(
             "CUT_UPLINK",
             f"server dispatch action {ACTION_ID}",
-            {"critical": True, "origin": "server-dispatch"},
+            # PR11 Phase 4: the claim deadline caps the signed command's device expiry.
+            {"critical": True, "origin": "server-dispatch", "not_after": EXPIRES_AT},
         )]
 
         worker.tick()

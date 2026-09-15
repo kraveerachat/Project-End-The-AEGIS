@@ -80,6 +80,10 @@ class DispatchWorker:
         self.status = ACTIVE
         return True
 
+    def _time_trusted(self) -> bool:
+        check = getattr(self.supervisor, "protocol_time_trusted", None)
+        return True if check is None else bool(check())
+
     def _handle_unavailable(self, error: DispatchUnavailable) -> None:
         self.status = PAUSED_CREDENTIAL if error.reason == "CREDENTIAL" else UNAVAILABLE
 
@@ -118,6 +122,11 @@ class DispatchWorker:
             status_timeout_sec=self._status_timeout_sec,
         )
         if not credentials_ready or not outbox_delivered:
+            return
+        if not self._time_trusted():
+            # No trusted Core time: no claim and no dispatch CUT (R7). The device
+            # dead-man switch still fails secure on its own, separately.
+            self.status = UNAVAILABLE
             return
         if self.supervisor.status.armed != "ARMED":
             return
@@ -170,13 +179,20 @@ class DispatchWorker:
             f"server dispatch action {action.action_id}",
             critical=True,
             origin="server-dispatch",
+            not_after=deadline,
         )
+        reason_code = getattr(result, "reason_code", None)
         if result.sent and result.nonce:
             self.ledger.mark_published(action.action_id, result.nonce)
         elif result.dry_run:
             self.ledger.mark_dry_run(action.action_id, result.nonce)
+        elif reason_code == "EXPIRED_AT_CORE":
+            self.ledger.mark_expired_at_core(action.action_id)
         else:
-            self.ledger.mark_failed(action.action_id, "MQTT_UNAVAILABLE")
+            # Nothing crossed the point of no return. CORE_TIME_UNTRUSTED means only
+            # "not sent"; every other pre-publish failure keeps MQTT_UNAVAILABLE.
+            failure = "CORE_TIME_UNTRUSTED" if reason_code == "CORE_TIME_UNTRUSTED" else "MQTT_UNAVAILABLE"
+            self.ledger.mark_failed(action.action_id, failure)
 
     def on_ack(self, ack: str, nonce: str) -> None:
         self.ledger.record_ack(nonce, ack)
