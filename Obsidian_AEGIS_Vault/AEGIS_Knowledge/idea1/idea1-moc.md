@@ -40,7 +40,7 @@ For the current operational snapshot, use [[idea1/IDEA1-Progress-Update-6.1]]. I
   Private Vault responsive menu are all **PASS / CLOSED**;
 - Settings Account/Profile/Avatar and the parent Settings page are **PASS / CLOSED** from the existing owner-observed Production acceptance sequence; the conservative re-test item is retired;
 - the final Dashboard temperature, Storage local-connector fact, and Secure Share scope-clarity source changes are locally verified on `feat/idea1-final-core-ui-telemetry-share-backup`, but remain **PENDING Production deployment and owner visual acceptance**;
-- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 CLOSED / PASS (S5.7 pre-public Internet security verification next; G6 remains OPEN; UI remains OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
+- remaining open/future work: STORAGE-AUTO-2 real scheduler-triggered Production execution, real RAID1 future hardware, Public Share S5.6 MERGED / CLOSED / PASS (S5.7 Public Internet Security Matrix CLOSED / ACCEPTED; S5.7-A through S5.7-H CLOSED / ACCEPTED; S5.8 next after human merge; G5 APPROVED; G6 OPEN; UI OFF), and unmeasured 20–30 GB / Production 32 GiB transfer scale.
 
 Current Backup checkpoint: classifier source commit `a68de6f145d7e0f6935f2a2a0609ca4be432cdff` resolves local devices through mountinfo `major:minor` → `/sys/dev/block` while preserving `PrivateDevices=true` and fail-closed `UNKNOWN`. Source tests pass 9/9 focused and 52/52 full. PR #81 merged the classifier; the reviewed classifier was then deployed to the live Production host-agent copy, `PrivateDevices=yes` was preserved, and `hgst-usb-1 → DIFFERENT_DEVICE` was accepted. Two manual backups and two isolated restore verifications completed successfully; final Storage UI is Healthy/Ready with integrity PASS and restore PASS. Therefore **Backup Target + manual Backup Job E2E = PASS / CLOSED for the accepted removable-media scope**. `STORAGE-AUTO-2` automatic scheduled execution remains **OPEN / UNPROVEN** until an explicitly approved scheduler-triggered Production run is observed; real RAID1 remains **DEFERRED / FUTURE HARDWARE**.
 
@@ -69,17 +69,28 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   and restoring S5.4 Gateway and Drive State B baseline; S5.5-H pre-merge canonical
   reconciliation, main synchronization, and final repository verification completed.
   Final Production state after S5.5: S5.4 baseline restored. Under approved G5,
-  S5.6 (Cloudflare Public Activation) phases S5.6-A through S5.6-H are **CLOSED / PASS**:
+  S5.6 (Cloudflare Public Activation) phases S5.6-A through S5.6-H are **MERGED / CLOSED / PASS** through PR #126 at `fe75bc53c1fd3a3103708470dfb7111996b80eff`:
   single approved public hostname route `share.aegistk-pb.com` active (Published application
   targeting `http://172.31.240.2:8080`), Cloudflare managed tunnel HEALTHY with 1 active replica,
   public DNS active via Anycast proxies, minimum TLS 1.2 enforced, hostname-scoped HTTP->HTTPS 308 redirect active,
   public default-deny smoke verified, live connector runtime active and isolated, and emergency rollback script verified executable.
   Public Share UI remains OFF, GLOBAL PUBLIC SHARE G6 remains OPEN, and Public Internet Share remains
-  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED** (pending future S5.7 security verification, S5.8 external 4G/5G acceptance, and G6 decision).
+  **NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED**. S5.7 (Public Internet Security Matrix) is **CLOSED / ACCEPTED**;
+  S5.7-A through S5.7-H are **CLOSED / ACCEPTED** on 2026-09-15 with 75 strict matrix rows (74 PASS, 0 FAIL, 1 NOT TESTED
+  for UI direct runtime proof under secret-safe boundary); attribution boundaries preserved; timestamp provenance verified;
+  full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); main synchronized to `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`
+  via normal merge `2bcafca30736ab685339da0bd4ff9e3a239108ff` (IDEA3 PR #132 repository-only preparation, zero IDEA1/Gateway runtime overlap, no Production mutation);
+  exactly one immutable final receipt created (`[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`, `FINAL_S5_7_RECEIPT_COUNT=1`).
+  `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
+  `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`; Cloudflare, DNS, TLS, and Public Share UI mutation are **NOT AUTHORIZED**;
+  G5 is **APPROVED**; G6 remains **OPEN**; Public Share UI remains **OFF**; PUBLIC-SHARE-7 remains **IN PROGRESS**;
+  human review and merge of PR #130 is required; S5.8 external Wi-Fi/4G/5G acceptance and G6 decision remain open.
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
+  [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]
+  for the final immutable S5.7 receipt,
   [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]
-  for the final immutable S5.6 receipt,
+  for the historical S5.6 receipt,
   [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]]
   for the historical S5.5 receipt, and
   `gateway/public-share/production/README.md` for the Production runbook.
