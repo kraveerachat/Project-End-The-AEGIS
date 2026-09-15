@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-11
+updated: 2026-09-16
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -105,7 +105,40 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix
+## Current Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
+
+| Field | Current value |
+| :--- | :--- |
+| Task | `PUBLIC-SHARE-7 / S5.12 — Final repository closeout` |
+| Branch | `feat/idea1-public-share-s5-8-external-client-acceptance` |
+| Owner | `kla` |
+| Repository starting checkpoint | `22c00ff73d30eaf83332c2b49b0a8bfd109849b8` — S5.11 UI overlay checkpoint |
+| Main reconciliation | Normal merge of `origin/main` at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`; merge checkpoint `7c3f0bc99aecab62197b229bdbb6e4af44b8b304`; no conflict and no incoming IDEA1/Public Share overlap |
+| Current state | **S5.8 PASS; S5.9 PASS; S5.10 PASS; G6 APPROVED; S5.11 CLOSED / PASS; S5.12 repository verification PASS; PUBLIC-SHARE-7 ready for human review** |
+| Public Share UI | **ON** through the S5.11 Drive-only overlay `gateway/public-share/production/docker-compose.s5-11-ui.yml` (`PUBLIC_SHARE_UI_ENABLED=true`) |
+| Public route | **ACTIVE / ACCEPTED** — `share.aegistk-pb.com` -> `http://172.31.240.2:8080`; HTTPS root default-deny 404; HTTP root redirect 308 |
+| Production evidence | **OWNER-SUPPLIED / ACCEPTED** — no Production access or mutation occurred during S5.12 |
+| Final audit boundary | Public IPv4 and IPv6 redemption succeeded; one IPv6 `DENIED` audit row has **CAUSE NOT PROVEN** and is not silently promoted to PASS or a defect |
+| P6 verifier incident | **FALSE-NEGATIVE / WRONG DATABASE TARGET** — verifier queried `aegis_db`; read-only diagnosis proved canonical `aegis_drive` has `shares` and scope CHECK `any, zones, public, vlan, subnet`; no Production DB defect and migration 009 was not rerun |
+| Repository regression | **Full regression bar completed; NEW_FAILURES=0; accepted historical failures unchanged** (`1309 total / 1228 pass / 9 fail / 72 skip`) |
+| Safety | `PRODUCTION_MUTATION_PERFORMED=NO`; `CLOUDFLARE_MUTATION_PERFORMED=NO`; no secret queried, printed, hashed, or committed |
+| Next gate | **HUMAN REVIEW / MERGE ONLY**; no further Production or Cloudflare action is authorised by this closeout |
+
+### Accepted owner evidence — S5.8 through S5.11
+
+- **S5.8 PASS** — Windows Wi-Fi with Twingate off and mobile cellular with no Twingate both completed public create/redeem integrity, revoke, and post-revoke refusal.
+- **S5.9 PASS** — deterministic 64 MiB exact SHA-256, interrupted-transfer recovery, slow path, four concurrent recipients, and cleanup completed. This does **not** prove real 20–30 GB transfers or a Production 32 GiB ceiling.
+- **S5.10 PASS** — the public route was removed; external exposure became absent; connector/firewall/Gateway additions were removed; Drive remained private-only; login, Files, `any`, core health, and protected volumes passed. `zones` was correctly blocked from the Twingate vantage and is not misreported as a regression.
+- **G6 APPROVED / S5.11 CLOSED / PASS** — the accepted public route, DNS proxy answers, TLS path, connector/firewall/drift/systemd controls, protected volumes, Public Share UI, Windows/mobile public lifecycle, public revoke, and private Twingate login/Files/`any` lifecycle were accepted.
+
+### S5.12 evidence classification
+
+- **Repository-observed:** exact S5.11 overlay delta, current-main reconciliation, focused Public Share tests, canonical full regression, build, governance/vault validation, and Git diff checks.
+- **Owner-supplied Production / external-client evidence:** all S5.8–S5.11 runtime and edge results above. S5.12 did not independently access Production, Cloudflare, DNS controls, or a real share token.
+- **Not proven:** the cause of the one IPv6 `DENIED` audit row; real 20–30 GB transfer acceptance; a Production 32 GiB file ceiling; universal behavior outside the bounded accepted evidence.
+- **P6 incident:** verifier false-negative caused by the wrong database target. The canonical database evidence is `aegis_drive`; no migration or data repair is justified by the failed `aegis_db` query.
+
+## Historical Task — PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix
 
 | Field | Current value |
 | :--- | :--- |
@@ -1088,12 +1121,12 @@ IMPLEMENTED.**
 | G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
 | S5.6 | Public hostname, DNS and TLS activation | **MERGED / CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 merged at `fe75bc53c1fd3a3103708470dfb7111996b80eff` | **PASS** | none within S5.6 | S5.7 Public Internet Security Matrix |
 | S5.7 | Public Internet Security Matrix | **CLOSED / PASS** | S5.7-A through S5.7-H accepted; 75 strict matrix rows (74 PASS, 0 FAIL, 1 NOT TESTED under secret-safe boundary); all 14 metadata fields present; attribution boundaries preserved; timestamp provenance verified; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); exactly one immutable receipt; UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-7-public-security-matrix`; PR #130 | **PASS** | none within S5.7 | Human merge of PR #130; S5.8 external acceptance |
-| S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
-| S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
-| S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
-| G6 | Owner accepts completion and authorises UI activation | **OPEN** | — | — | — | UI activation | only after S5.10 evidence |
-| S5.11 | Enable Public Share UI last | NOT STARTED | — | — | — | final E2E | requires G6 |
-| S5.12 | Final E2E, canonical closeout and one immutable task receipt | NOT STARTED | — | — | — | task closure | after S5.11 |
+| S5.8 | Twingate-OFF Wi-Fi and mobile-cellular external acceptance | **CLOSED / PASS** | Owner-supplied Windows Wi-Fi/Twingate-off and mobile cellular/no-Twingate create, redeem-integrity, revoke, and post-revoke evidence accepted | branch `feat/idea1-public-share-s5-8-external-client-acceptance` | **PASS** | none within S5.8 | S5.9 |
+| S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | **CLOSED / PASS** | Owner-supplied deterministic 64 MiB exact SHA-256, interrupted recovery, slow path, 4 concurrent recipients, and cleanup accepted | same branch | **PASS** | 20–30 GB and Production 32 GiB remain NOT PROVEN | S5.10 |
+| S5.10 | Exposure rollback + private-system regression | **CLOSED / PASS** | Owner-supplied route removal, external absence, connector/firewall/Gateway removal, Drive private-only, login/Files/`any`/core-health/protected-volume regression accepted; `zones` blocked from Twingate as expected | same branch | **PASS** | none within accepted rollback scope | G6 |
+| G6 | Owner accepts completion and authorises UI activation | **APPROVED** | Human Owner approval after S5.10 evidence | — | **APPROVED** | none | S5.11 |
+| S5.11 | Restore accepted public path and enable Public Share UI last | **CLOSED / PASS** | Owner-supplied route/DNS/TLS/runtime/firewall/systemd/protected-volume and Windows/mobile/private lifecycle evidence accepted; repository overlay changes only `PUBLIC_SHARE_UI_ENABLED` to `true` | `22c00ff73d30eaf83332c2b49b0a8bfd109849b8` | **PASS** | one IPv6 DENIED audit cause NOT PROVEN | S5.12 |
+| S5.12 | Final canonical closeout and one immutable task receipt | **REPOSITORY VERIFICATION PASS** | Focused 125/119/0/6; canonical full 1309/1228/9/72 with NEW_FAILURES=0; build PASS; final governance/vault/diff gates recorded in final receipt | branch `feat/idea1-public-share-s5-8-external-client-acceptance` | **PASS** | human PR review/merge only | human review |
 
 ### Owner-supplied measured Production baseline — frozen for planning
 

@@ -3,7 +3,7 @@ title: IDEA1 Public Share Gateway — Architecture and Threat Model
 tags: [aegis, idea1, share-links, architecture, threat-model, public-gateway, security]
 type: concept
 created: 2026-09-07
-updated: 2026-09-11
+updated: 2026-09-16
 sources: ["[[idea1/idea1-status]]", "[[core/security-architecture]]"]
 owner: kla
 edit_policy: owner-writable
@@ -11,7 +11,23 @@ edit_policy: owner-writable
 
 # 🌐 IDEA1 Public Share Gateway — Architecture and Threat Model
 
-> [!important] Current PUBLIC-SHARE-7 state — S5.7-A through S5.7-H CLOSED / ACCEPTED; S5.7 CLOSED / ACCEPTED
+> [!important] Current PUBLIC-SHARE-7 state — S5.8 through S5.12 accepted; G6 APPROVED; UI ON
+> S5.7-A through S5.7-H remain **CLOSED / ACCEPTED**. S5.8 external Wi-Fi/Twingate-off and
+> mobile-cellular/no-Twingate acceptance is **PASS**. S5.9 deterministic 64 MiB integrity,
+> interruption recovery, slow path, four-client concurrency, and cleanup is **PASS**. S5.10
+> exposure rollback plus private regression is **PASS**. G6 is **APPROVED**. S5.11 is
+> **CLOSED / PASS** with `share.aegistk-pb.com` routed to `http://172.31.240.2:8080` and
+> the Drive UI capability enabled through the narrow S5.11 overlay. S5.12 repository
+> verification is **PASS**; PUBLIC-SHARE-7 is ready for human review/merge.
+>
+> Evidence boundaries remain explicit: S5.8–S5.11 Production and external-client results are
+> Human Owner evidence, not agent-reproduced Production access. Public IPv4 and IPv6 redemption
+> succeeded; one IPv6 `DENIED` audit row has **CAUSE NOT PROVEN**. The P6 verifier failure was a
+> **false-negative** caused by querying `aegis_db`; read-only diagnosis established the canonical
+> `aegis_drive` database has `shares` and scope CHECK `any, zones, public, vlan, subnet`. Migration
+> 009 was not rerun. The 64 MiB acceptance does not prove 20–30 GB transfers or a Production 32 GiB ceiling.
+>
+> Historical S5.7 detail follows for provenance:
 > S5.6 is **MERGED / CLOSED / PASS** through PR #126 at
 > `fe75bc53c1fd3a3103708470dfb7111996b80eff`. S5.7 (Public Internet Security Matrix) is
 > **CLOSED / ACCEPTED** on branch `feat/idea1-public-share-s5-7-public-security-matrix` (PR #130).
@@ -48,8 +64,8 @@ edit_policy: owner-writable
 > canonical notes reconciled, exactly one immutable final receipt created (`[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`),
 > full regression bar completed (`NEW_FAILURES=0`, accepted historical failures unchanged), PR #130 ready for human review.
 > Main branch reconciled to `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` via normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff` (IDEA3 PR #132 repository-only preparation, zero IDEA1/Gateway runtime overlap, no Production mutation).
-> Next: `HUMAN REVIEW & MERGE OF PR #130; THEN S5.8 TWINGATE-OFF WI-FI + 4G/5G EXTERNAL ACCEPTANCE`. G5 is **APPROVED**;
-> G6 remains **OPEN**; PUBLIC-SHARE-7 remains **IN PROGRESS**; `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
+> Historical next step at S5.7 was `HUMAN REVIEW & MERGE OF PR #130; THEN S5.8 TWINGATE-OFF WI-FI + 4G/5G EXTERNAL ACCEPTANCE`. At that checkpoint G5 was **APPROVED**,
+> G6 was **OPEN**, PUBLIC-SHARE-7 was **IN PROGRESS**, and `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
 > `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`,
 > and UI mutation is **NOT AUTHORIZED**. See [[idea1/idea1-status]] and
 > `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md`.
@@ -1556,10 +1572,10 @@ Each phase is one branch, one PR, one receipt. **None of them may be combined.**
 | **PUBLIC-SHARE-1** *(this note)* | Architecture, threat model, contracts, gates | This document, canonical-note update, receipt | Any source, config, test or infrastructure change |
 | **PUBLIC-SHARE-2** *(delivered; Production backend/DB prepared in S5.3)* | Backend public-scope contract | `SCOPES` + `public`, migration `009`, `PUBLIC_SHARE_BASE_URL` contract, `.env.example` entry, the central **ingress-provenance helper** (§10.1), the §7.4 rule built on it, `trustedProxy.js` two approved states (§5.1.1), backend tests | Any gateway, any ingress, any UI activation |
 | **PUBLIC-SHARE-3** *(delivered; Production Gateway accepted in S5.4)* | Public Share Gateway | Dedicated Dockerfile + nginx config, isolated two-member `aegis_public_share` harness, header sanitation, streaming/timeout tuning, log redaction, negative-route tests, structural tests; hardened Gateway now accepted on dedicated edge + upstream networks | Internet exposure; any DNS, TLS, NAT or tunnel |
-| **PUBLIC-SHARE-4** *(delivered in source, not activated)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Enabling the capability on any deployment; any ingress, DNS, TLS or Production change |
+| **PUBLIC-SHARE-4** *(delivered in source; Production capability activated in S5.11)* | Secure Shares UI | `public` as a selectable scope behind the server-owned `PUBLIC_SHARE_UI_ENABLED` capability, EN/TH/ZH copy, mandatory link password, 1h transient public expiry, backend-owned public URL, `zones`/`any` preserved | Ingress, DNS, TLS and Production lifecycle remain governed by PUBLIC-SHARE-7 |
 | **PUBLIC-SHARE-5** *(delivered in source, not deployed)* | Security regression suite | The full negative and positive matrix in §16, pinned as automated tests across backend, ingress, gateway and UI, with load-bearing negative controls | New features; any shipped source change |
 | **PUBLIC-SHARE-6** *(COMPLETE — internal harness acceptance passed on server hardware)* | Internal integration acceptance | The real gateway in front of the real Drive on a real PostgreSQL 15, on three disposable internal isolated networks: 64 MiB streaming, a 75s-stall slow client, an interrupted transfer, concurrency, migration 009 applied to a real 008-era database, forbidden-route and Host termination, forged-header attribution, the ingress split, B5, revocation, and a verified teardown | The harness itself was removed; Production state is tracked by PUBLIC-SHARE-7 S5.3/S5.4 |
-| **PUBLIC-SHARE-7** *(IN PROGRESS — S5.6 MERGED / CLOSED / PASS; S5.7-A through S5.7-H CLOSED / ACCEPTED; S5.7 CLOSED / PASS; S5.8 NEXT)* | Managed-tunnel trust adapter, pre-exposure acceptance, owner-gated Production layers, then real external E2E | Adapter/harness delivered; S5.1–S5.5 complete; S5.5 rolled back cleanly restoring S5.4 baseline; G5 = APPROVED by Human Owner; S5.6 MERGED / CLOSED / PASS at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; S5.7 CLOSED / PASS with 75-row strict matrix (74 PASS, 0 FAIL, 1 NOT TESTED under secret-safe boundary); synchronized with main (`509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` via `2bcafca30736ab685339da0bd4ff9e3a239108ff`); timestamp provenance audit PASS; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); exactly one immutable final receipt: `[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`. | G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; human review and merge of PR #130 next; external Wi-Fi/4G/5G acceptance (S5.8), scale/resilience (S5.9), rollback (S5.10), and UI activation after G6 (S5.11) remain open. |
+| **PUBLIC-SHARE-7** *(S5.12 REPOSITORY CLOSEOUT PASS — HUMAN REVIEW / MERGE NEXT)* | Managed-tunnel trust adapter, owner-gated Production layers, public security/acceptance, rollback rehearsal, final UI activation and repository closeout | S5.1–S5.7 complete; S5.8 external acceptance PASS; S5.9 64 MiB integrity/resilience PASS; S5.10 rollback/private regression PASS; G5/G6 APPROVED; S5.11 public path restoration and UI activation CLOSED / PASS; S5.12 focused tests, canonical full regression (`1309/1228/9/72`, NEW_FAILURES=0), build, vault/policy/diff validation and one final receipt complete. | Human PR review/merge remains; one IPv6 DENIED cause is NOT PROVEN; 20–30 GB / Production 32 GiB scale is NOT TESTED / NOT ACCEPTED. |
 
 Deployment order at PUBLIC-SHARE-6/7 is fixed and mirrors the constraint already
 proven necessary for the telemetry contract: **Drive first, then the gateway.**
