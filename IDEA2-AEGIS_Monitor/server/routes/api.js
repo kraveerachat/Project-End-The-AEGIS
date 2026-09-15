@@ -230,7 +230,6 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       idleTimer = setTimeout(() => {
         console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
         abort()
-        try { reader.cancel() } catch { /* already gone */ }
       }, STREAM_IDLE_MS)
     }
 
