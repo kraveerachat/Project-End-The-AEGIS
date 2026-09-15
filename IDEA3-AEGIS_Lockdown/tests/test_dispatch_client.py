@@ -148,6 +148,18 @@ def test_c8_tls_and_machine_identity_failures_are_credential_problems(failure):
     assert raised.value.reason == "CREDENTIAL"
 
 
+def test_p3_c3_expired_certificate_verification_is_a_credential_failure():
+    expired = ssl.SSLCertVerificationError(
+        1,
+        "certificate verify failed: certificate has expired",
+    )
+
+    with pytest.raises(DispatchUnavailable) as raised:
+        DispatchClient(BASE_URL, FakeTransport(expired)).list_pending()
+
+    assert raised.value.reason == "CREDENTIAL"
+
+
 @pytest.mark.parametrize(
     ("call", "response"),
     [
@@ -207,6 +219,40 @@ def test_c8_the_tls_context_builder_refuses_missing_or_relative_paths_before_loa
         with pytest.raises(DispatchCredentialError) as raised:
             build_client_ssl_context(**paths)
         assert raised.value.reason == "CREDENTIAL"
+
+
+def test_p3_c9_tls_context_keeps_hostname_and_certificate_verification_enabled(
+    tmp_path, monkeypatch
+):
+    placeholder = tmp_path / "placeholder.pem"
+    placeholder.write_text("public test placeholder\n", encoding="utf-8")
+
+    class Context:
+        check_hostname = True
+        verify_mode = ssl.CERT_REQUIRED
+        minimum_version = None
+
+        def load_cert_chain(self, *, certfile, keyfile):
+            assert certfile == str(placeholder)
+            assert keyfile == str(placeholder)
+
+    context = Context()
+    monkeypatch.setattr(
+        dispatch_client.ssl,
+        "create_default_context",
+        lambda *, cafile: context if cafile == str(placeholder) else None,
+    )
+
+    result = build_client_ssl_context(
+        ca_file=placeholder,
+        cert_file=placeholder,
+        key_file=placeholder,
+    )
+
+    assert result is context
+    assert result.check_hostname is True
+    assert result.verify_mode == ssl.CERT_REQUIRED
+    assert result.minimum_version == ssl.TLSVersion.TLSv1_2
 
 
 def test_urllib_transport_returns_http_errors_as_responses_and_refuses_plain_http(monkeypatch):

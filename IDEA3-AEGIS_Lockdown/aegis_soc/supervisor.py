@@ -20,7 +20,13 @@ from pathlib import Path
 from . import config
 from . import database as db
 from .controller import AegisCommandController
-from .dispatch_worker import build_dispatch_worker_from_environment
+from .dispatch_worker import (
+    ACTIVE,
+    DISABLED,
+    PAUSED_CREDENTIAL,
+    UNAVAILABLE,
+    build_dispatch_worker_from_environment,
+)
 from .mqtt_client import MQTTManager
 from .platform_lock import AlreadyRunningError, ExclusiveFileLock
 from .runtime import RuntimeSettings, RuntimeState, RuntimeStatus
@@ -403,8 +409,16 @@ class AegisSupervisor:
         self.mqtt.attacker_callback = self._on_attacker
 
     def _tick_dispatch(self) -> None:
-        if self.dispatch_worker is not None:
-            self.dispatch_worker.tick()
+        if self.dispatch_worker is None:
+            self.status.dispatch = DISABLED
+            return
+        self.dispatch_worker.tick()
+        candidate = getattr(self.dispatch_worker, "status", "UNKNOWN")
+        self.status.dispatch = (
+            candidate
+            if candidate in {ACTIVE, DISABLED, PAUSED_CREDENTIAL, UNAVAILABLE}
+            else "UNKNOWN"
+        )
 
     def evaluate_state(self, now: float | None = None) -> RuntimeState:
         now = self.monotonic() if now is None else now
@@ -439,6 +453,8 @@ class AegisSupervisor:
 
         if self.status.uplink == "LOCKDOWN":
             return RuntimeState.LOCKDOWN
+        if self.status.dispatch in {PAUSED_CREDENTIAL, UNAVAILABLE}:
+            return RuntimeState.DEGRADED
         if any(state == "FAILED" for state in self.status.components.values()):
             return RuntimeState.DEGRADED
         if self.ack_timed_out:
@@ -507,7 +523,7 @@ class AegisSupervisor:
                     RuntimeState.RUNNING: "runtime healthy" if not self.settings.dry_run else "safe dry-run active",
                     RuntimeState.WAIT_BROKER: "waiting for MQTT broker",
                     RuntimeState.WAIT_DEVICE: "broker connected; device state unknown",
-                    RuntimeState.DEGRADED: "broker or device unavailable",
+                    RuntimeState.DEGRADED: "broker, device, or dispatch unavailable",
                     RuntimeState.LOCKDOWN: "device reports physical lockdown",
                 }[state]
                 self.transition(state, detail)
