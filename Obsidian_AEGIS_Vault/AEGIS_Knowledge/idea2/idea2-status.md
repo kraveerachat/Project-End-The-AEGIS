@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-14
+updated: 2026-09-15
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -21,9 +21,9 @@ Task: IDEA2 Machine A Monitor stream-abort crash runtime unblocker
 Branch: `fix/idea2-monitor-stream-abort-crash`
 Owner: Pub
 PR: Draft only — human review and human merge only
-Current state: PARTIAL — deterministic RED and the minimal Monitor cleanup fix are verified locally; real Machine A webcam/runtime acceptance remains the next human gate
+Current state: LOCAL VERIFIED — deterministic source coverage and human Machine A LOCAL runtime acceptance passed; immutable-receipt governance reconciliation and human PR review remain
 Started: 2026-09-15
-Last checkpoint: task-branch checkpoint recorded in the Draft PR; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
+Last checkpoint: implementation `733fb5d40810f0620082672efc783d5aba8242c2`; current-main synchronization `51842ad50586c4338a3d778f7db05b5afd8be6fa`; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
 Production mutation allowed: NO
 
 ### Goal
@@ -51,8 +51,11 @@ and biometric changes are outside this runtime-unblocker task.
 
 The browser never owns Node or physical-camera identity. Machine identity still
 selects the physical camera; account identity selects only the CAM-01/CAM-02
-logical alias. Login alone creates no demand. The camera stays closed while
-idle, opens only for authorized Operator demand, remains reference-counted, and
+logical alias. This crash-containment PR does not change whether demand begins
+at login or when Live opens; the owner clarified during acceptance that an
+Operator session activating the local Machine A camera is acceptable, and the
+exact product trigger remains a follow-up requirement-reconciliation item. The
+camera stays closed without authorized demand, remains reference-counted, and
 closes after final release or logout. Production and persistent Machine A
 configuration remain unchanged.
 
@@ -76,7 +79,71 @@ repository validation must pass before a Draft PR is prepared.
 | CP3-S2 | Detailed TDD implementation and human-runtime-gate planning | PASS | 17 reviewable tasks; exact file/interface maps; H1–H10; spec coverage, placeholder, interface, Vault, governance, secret, and Git checks | this documentation checkpoint | PASS — planning only; source not started | human plan review and implementation authorization | stop for human review |
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
 | CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
-| CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PARTIAL | RED reproduced the strict unhandled `AbortError`; focused lifecycle 6/6 x3, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine viewer-demand 6/6; full Engine 74/76 with two unchanged current-main generation failures | task-branch checkpoint (SHA in Draft PR), based on `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` | PASS — automated source gate; real Machine A runtime not yet verified | Draft PR review, then repeat real Machine A idle/open/sustain/release test | keep Production untouched and do not merge |
+| CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PASS | RED reproduced the strict unhandled `AbortError`; focused lifecycle 12/12, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine targeted 18/18; full Engine 74/76 with two unchanged current-main generation failures; human LOCAL Machine A idle/open/sustain/stall/recover/release acceptance PASS | `733fb5d40810f0620082672efc783d5aba8242c2`; main sync `51842ad50586c4338a3d778f7db05b5afd8be6fa` | PASS — source and LOCAL runtime; NOT Production | receipt-governance decision and human PR review | keep Draft; do not deploy or merge |
+
+## PR #134 Machine A LOCAL runtime acceptance — 2026-09-15
+
+> [!warning] Evidence boundary
+> This is **LOCAL diagnostic/runtime acceptance, not Production deployment**.
+> The patched PR #134 Monitor worktree used local processes and a disposable
+> database. Nothing was deployed to `https://aegis.internal/`, and no
+> Production service, database, network, Twingate, Docker runtime, secret, or
+> persistent Machine A configuration was modified.
+
+### Local diagnostic topology
+
+| Component | Local endpoint / evidence |
+|---|---|
+| Monitor backend | `:8002` |
+| Vite frontend | `:5176` |
+| Detection Engine | `:8077` |
+| Temporary diagnostic stream bridge | `:18078` |
+| Disposable PostgreSQL | `:55433` |
+| Controlled no-frame stall server | `:18079` |
+
+The disposable database mapped `operator` to CAM-01 and `operator2` to CAM-02;
+`must_reset_password=false` was changed only for those two disposable LOCAL
+accounts. CAM-01 and CAM-02 heartbeat loops later ran simultaneously with
+`node_id=pub-laptop-01` and
+`stream_url=http://127.0.0.1:18078/stream.mjpg`. One database observation saw
+approximately 4-second CAM-01 and 1-second CAM-02 heartbeat ages. This was a
+manual diagnostic harness, not permanent node-aware routing, and the deployed
+user experience must not require these commands.
+
+### Acceptance matrix
+
+| Gate | Result | Measured evidence |
+|---|---|---|
+| Idle / no demand | PASS | Engine `status=idle`, camera disconnected/not demanded, all viewer counts 0, capture 0.0 FPS; heartbeat alone did not hold the camera open |
+| Operator / CAM-01 real Machine A stream | PASS | camera connected/demanded, stream/demanding viewers 1/1, passive 0; initial capture/detect approximately 30.0/1.2 FPS |
+| CAM-01 sustained live (~60 seconds) | PASS | same demanded state; approximately 29.9 capture FPS and 1.2 detect FPS; Monitor remained alive |
+| Operator logout/release | PASS | Engine returned idle with demand/viewers 0 and capture 0.0 FPS; human confirmed the physical camera LED OFF |
+| Controlled >6-second no-data watchdog | PASS | CAM-01 temporarily used `http://127.0.0.1:18079/stream.mjpg`; repeated `no data for 6000ms — closing` messages proved the watchdog path executed |
+| Monitor survives same PID | PASS | Monitor remained listening on `:8002` with PID `36192`; frontend remained on `:5176` with PID `40040` |
+| Fatal abort recurrence | NOT OBSERVED | no `AbortError`, `triggerUncaughtException`, or Monitor process exit during the controlled stall |
+| Post-stall recovery | PASS | CAM-01 restored to `:18078`; Engine returned idle, then real Machine A video reopened at approximately 30.2/1.1 capture/detect FPS; Monitor remained PID `36192`; logout returned demand to 0 |
+| Simultaneous CAM-01 + CAM-02 heartbeat harness | PASS | both logical heartbeat rows were fresh simultaneously and pointed to the same local Machine A diagnostic bridge; no manual identity swap was required |
+| Operator2 / CAM-02 Machine A path | PASS | camera connected/demanded with stream/demanding viewers 1/1 and passive 0; human reported physical camera ON; logout returned Engine telemetry to idle/demand 0 and Monitor remained PID `36192` |
+| Final Operator symmetry/release | PASS | live state approximately 30.1 capture FPS; final logout returned idle/demand/viewers 0; human explicitly confirmed the physical Machine A camera LED OFF |
+| Production deployment | NOT RUN | outside PR #134 approval |
+| SOC passive/no-wake | NOT RUN | separate follow-up task |
+| Telegram delivery | NOT RUN | separate follow-up task |
+| Machine B / C acceptance | NOT RUN | separate follow-up task |
+
+### Remaining boundaries
+
+- The local PowerShell heartbeat loops, temporary `:18078` bridge, `:18079`
+  stall server, and disposable PostgreSQL were diagnostic tools only.
+- Permanent heartbeat/service startup, automatic Machine A/B/C association,
+  permanent dual-account routing, temporary-bridge removal, and CP3 Identity
+  Agent completion are not proven by this PR.
+- The owner clarified that Operator-session camera activation is acceptable for
+  the desired Machine A experience. Reconcile the exact login-versus-Live
+  demand trigger in its owning architecture task; PR #134 changes only abort
+  containment.
+- The task's existing added receipt predates this human runtime evidence. It is
+  left unchanged under the current immutable-receipt instruction; human owner
+  governance review is required before the PR may leave Draft state.
 
 ## Detector B real-machine acceptance (2026-09-06)
 
