@@ -20,10 +20,10 @@ edit_policy: owner-writable
 Task: IDEA2 Machine A Monitor stream-abort crash runtime unblocker
 Branch: `fix/idea2-monitor-stream-abort-crash`
 Owner: Pub
-PR: Draft only — human review and human merge only
-Current state: LOCAL VERIFIED — deterministic source coverage and human Machine A LOCAL runtime acceptance passed; immutable-receipt governance reconciliation and human PR review remain
+PR: Human review and human merge only — owner-approved receipt sequencing reconciliation recorded below
+Current state: READY FOR HUMAN REVIEW — deterministic source coverage and human Machine A LOCAL runtime acceptance passed; Production remains undeployed and unaccepted
 Started: 2026-09-15
-Last checkpoint: implementation `733fb5d40810f0620082672efc783d5aba8242c2`; current-main synchronization `51842ad50586c4338a3d778f7db05b5afd8be6fa`; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
+Last checkpoint: implementation `733fb5d40810f0620082672efc783d5aba8242c2`; Machine A LOCAL runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; current-main synchronization `3be340b0f8acccae8bba0a74e049dbdba0e3dae1`; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
 Production mutation allowed: NO
 
 ### Goal
@@ -79,7 +79,7 @@ repository validation must pass before a Draft PR is prepared.
 | CP3-S2 | Detailed TDD implementation and human-runtime-gate planning | PASS | 17 reviewable tasks; exact file/interface maps; H1–H10; spec coverage, placeholder, interface, Vault, governance, secret, and Git checks | this documentation checkpoint | PASS — planning only; source not started | human plan review and implementation authorization | stop for human review |
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
 | CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
-| CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PASS | RED reproduced the strict unhandled `AbortError`; focused lifecycle 12/12, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine targeted 18/18; full Engine 74/76 with two unchanged current-main generation failures; human LOCAL Machine A idle/open/sustain/stall/recover/release acceptance PASS | `733fb5d40810f0620082672efc783d5aba8242c2`; main sync `51842ad50586c4338a3d778f7db05b5afd8be6fa` | PASS — source and LOCAL runtime; NOT Production | receipt-governance decision and human PR review | keep Draft; do not deploy or merge |
+| CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PASS | RED reproduced the strict unhandled `AbortError`; focused lifecycle 12/12, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine targeted 18/18; full Engine 74/76 with two unchanged current-main generation failures; human LOCAL Machine A idle/open/sustain/stall/recover/release acceptance PASS | `733fb5d40810f0620082672efc783d5aba8242c2`; runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; main sync `3be340b0f8acccae8bba0a74e049dbdba0e3dae1` | PASS — source and LOCAL runtime; NOT Production | human code/integration review | keep undeployed; human merge only |
 
 ## PR #134 Machine A LOCAL runtime acceptance — 2026-09-15
 
@@ -141,9 +141,38 @@ user experience must not require these commands.
   the desired Machine A experience. Reconcile the exact login-versus-Live
   demand trigger in its owning architecture task; PR #134 changes only abort
   containment.
-- The task's existing added receipt predates this human runtime evidence. It is
-  left unchanged under the current immutable-receipt instruction; human owner
-  governance review is required before the PR may leave Draft state.
+- The task's existing receipt predates this human runtime evidence and remains
+  byte-for-byte unchanged. The human owner accepted it as a historical
+  pre-runtime record; the later mutable status and verified runtime checkpoint
+  supersede its historically stale runtime-pending limitation. This is an
+  approved reconciliation of premature sequencing, not a claim that the
+  original ordering was perfect, and no second receipt is created.
+
+### Immutable receipt governance reconciliation — 2026-09-15
+
+The immutable receipt did not falsely claim Production deployment or Machine A
+runtime acceptance. It truthfully recorded the earlier partial checkpoint, but
+its runtime-pending limitation became historically stale after the human Machine
+A LOCAL acceptance recorded by commit
+`0ca4e655b666bf843c1a9be5773248af59569ea9`. The human owner approved preserving
+the receipt as historical evidence while the mutable canonical status and later
+verified runtime checkpoint supersede that stale limitation. The receipt is not
+rewritten, deleted, or replaced, and no second receipt is created.
+
+```text
+RECEIPT_GOVERNANCE_RECONCILIATION=
+HUMAN_OWNER_ACCEPTED_EXISTING_RECEIPT_AS_HISTORICAL_PRE_RUNTIME_RECORD;
+LATER_MUTABLE_STATUS_AND_VERIFIED_RUNTIME_CHECKPOINT_SUPERSEDE_STALE_LIMITATION;
+RECEIPT_NOT_REWRITTEN;
+SECOND_RECEIPT_NOT_CREATED
+
+SOURCE_IMPLEMENTED=YES
+TESTED=YES
+LOCALLY_VERIFIED=YES
+RUNTIME_VERIFIED_LOCAL_MACHINE_A=YES
+PRODUCTION_DEPLOYED=NO
+EXTERNALLY_ACCEPTED_PRODUCTION=NO
+```
 
 ## Detector B real-machine acceptance (2026-09-06)
 
