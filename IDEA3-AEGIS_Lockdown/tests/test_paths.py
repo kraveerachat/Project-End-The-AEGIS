@@ -91,6 +91,28 @@ def test_runtime_paths_keep_the_core_dispatch_ledger_beside_but_apart_from_the_c
     assert paths.dispatch_db != paths.core_db
 
 
+def test_runtime_paths_honor_separate_absolute_config_runtime_and_log_roots(tmp_path):
+    data_root = tmp_path / "durable"
+    config_file = tmp_path / "configuration" / "core.env"
+    runtime_dir = tmp_path / "ephemeral"
+    log_dir = tmp_path / "service-logs"
+
+    paths = RuntimePaths.from_environment(
+        env={
+            "AEGIS_DATA_DIR": str(data_root),
+            "AEGIS_CONFIG_FILE": str(config_file),
+            "AEGIS_RUNTIME_DIR": str(runtime_dir),
+            "AEGIS_RUNTIME_LOG_DIR": str(log_dir),
+        },
+        platform="linux",
+    )
+
+    assert paths.config_file == config_file.resolve()
+    assert paths.runtime_dir == runtime_dir.resolve()
+    assert paths.log_dir == log_dir.resolve()
+    assert paths.dispatch_db == data_root.resolve() / "data" / "core-dispatch.sqlite3"
+
+
 def test_dotenv_adds_values_without_overriding_process_environment(tmp_path):
     dotenv = tmp_path / ".env"
     dotenv.write_text(

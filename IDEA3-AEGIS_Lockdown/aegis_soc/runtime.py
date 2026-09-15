@@ -201,6 +201,7 @@ class RuntimeStatus:
     device: str = "UNKNOWN"
     uplink: str = "UNKNOWN"
     armed: str = "MONITOR_ONLY"
+    dispatch: str = "DISABLED"
     detail: str = "initializing"
     updated_at: float = field(default_factory=time.time)
     components: dict[str, str] = field(default_factory=dict)
@@ -250,6 +251,9 @@ _ALLOWED_DEVICE_STATES = frozenset({"ONLINE", "OFFLINE", "UNKNOWN"})
 _ALLOWED_UPLINK_STATES = frozenset({"NORMAL", "LOCKDOWN", "UNKNOWN"})
 _ALLOWED_ARMED_STATES = frozenset({"ARMED", "DISARMED", "MONITOR_ONLY"})
 _ALLOWED_PROFILES = frozenset({"development", "lab", "production"})
+_ALLOWED_DISPATCH_STATES = frozenset(
+    {"DISABLED", "ACTIVE", "PAUSED_CREDENTIAL", "UNAVAILABLE"}
+)
 
 
 def _allowlisted(value: object, allowed: frozenset[str]) -> str:
@@ -271,6 +275,7 @@ def _absent_projection() -> dict:
         "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
         "generatedAt": None,
         "status": "UNKNOWN",
+        "dispatch": "UNKNOWN",
         "components": {},
         "modes": {"profile": "UNKNOWN", "dryRun": True, "autoContain": False, "armed": "UNKNOWN"},
         "issues": [],
@@ -309,8 +314,13 @@ def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
 
     state = document.get("state")
     status_value = _CANONICAL_STATUS_BY_STATE.get(state, "UNKNOWN") if isinstance(state, str) else "UNKNOWN"
+    dispatch = _allowlisted(document.get("dispatch"), _ALLOWED_DISPATCH_STATES)
     if status_value == "HEALTHY":
         if bool(document.get("dry_run", True)):
+            status_value = "UNKNOWN"
+        elif dispatch in {"PAUSED_CREDENTIAL", "UNAVAILABLE"}:
+            status_value = "DEGRADED"
+        elif dispatch == "UNKNOWN":
             status_value = "UNKNOWN"
         elif (
             components["broker"] == "DISCONNECTED"
@@ -330,12 +340,15 @@ def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
         issues.add("COMPONENT_FAILURE")
     if status_value == "FAILED":
         issues.add("CORE_PROCESS_FAILURE")
+    if dispatch in {"PAUSED_CREDENTIAL", "UNAVAILABLE"}:
+        issues.add("DISPATCH_PAUSED")
 
     profile = document.get("profile")
     return {
         "schemaVersion": SAFE_STATUS_SCHEMA_VERSION,
         "generatedAt": generated_at,
         "status": status_value,
+        "dispatch": dispatch,
         "components": components,
         "modes": {
             "profile": profile if profile in _ALLOWED_PROFILES else "UNKNOWN",

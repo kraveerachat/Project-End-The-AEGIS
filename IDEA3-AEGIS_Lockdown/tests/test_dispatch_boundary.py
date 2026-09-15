@@ -6,6 +6,7 @@ SQLite files, and the existing fake/dry-run command boundary only.
 
 from __future__ import annotations
 
+import ssl
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -14,13 +15,14 @@ import pytest
 from aegis_soc.controller import CommandResult
 from aegis_soc.dispatch_client import (
     ClaimResult,
+    DispatchClient,
     DispatchUnavailable,
     PendingAction,
     ReportResult,
 )
 from aegis_soc.dispatch_ledger import DispatchLedger
 from aegis_soc.dispatch_worker import DispatchWorker, build_dispatch_worker_from_environment
-from aegis_soc.runtime import RuntimeSettings
+from aegis_soc.runtime import RuntimeSettings, RuntimeState
 from aegis_soc.supervisor import AegisSupervisor
 
 ACTION_ID = "5b0e3c1e-8f6a-4c2d-9b7e-2f1a0c9d8e7f"
@@ -449,6 +451,30 @@ def test_c8_transport_credential_failure_pauses_without_claim_or_cut(ledger, clo
     assert supervisor.calls == []
 
 
+def test_p3_c3_expired_certificate_pauses_dispatch_without_claim_or_cut(
+    ledger, clock
+):
+    def expired_transport(_method, _url, _body, _headers):
+        raise ssl.SSLCertVerificationError(
+            1,
+            "certificate verify failed: certificate has expired",
+        )
+
+    client = DispatchClient(
+        "https://idea3-core.aegis.invalid/security/api/machine/v1",
+        expired_transport,
+    )
+    supervisor = FakeSupervisor()
+    worker = DispatchWorker(supervisor, ledger, client, wall_clock=clock)
+
+    worker.start()
+    worker.tick()
+
+    assert worker.status == "PAUSED_CREDENTIAL"
+    assert ledger.get(ACTION_ID) is None
+    assert supervisor.calls == []
+
+
 def test_c8_enabled_environment_with_missing_files_constructs_a_paused_worker(tmp_path, clock):
     supervisor = FakeSupervisor()
     worker = build_dispatch_worker_from_environment(
@@ -490,3 +516,53 @@ def test_c10_dispatch_is_disabled_by_default_and_an_injected_worker_can_tick(tmp
     enabled._tick_dispatch()
 
     assert injected.ticks == 1
+
+
+@pytest.mark.parametrize("dispatch_state", ["PAUSED_CREDENTIAL", "UNAVAILABLE"])
+def test_p3_c10_dispatch_pause_degrades_supervisor_state(
+    tmp_path, dispatch_state
+):
+    settings = replace(
+        RuntimeSettings.from_profile(
+            "development",
+            dry_run=True,
+            start_detector=False,
+            start_gui=False,
+        ),
+        runtime_dir=tmp_path / "runtime",
+        log_dir=tmp_path / "logs",
+    )
+    worker = SimpleNamespace(status=dispatch_state, tick=lambda: None)
+    supervisor = AegisSupervisor(
+        settings,
+        mqtt_manager=SimpleNamespace(),
+        dispatch_worker=worker,
+    )
+
+    supervisor._tick_dispatch()
+
+    assert supervisor.status.dispatch == dispatch_state
+    assert supervisor.evaluate_state() == RuntimeState.DEGRADED
+
+
+def test_p3_c2_disabled_dispatch_is_reported_without_degrading(tmp_path):
+    settings = replace(
+        RuntimeSettings.from_profile(
+            "development",
+            dry_run=True,
+            start_detector=False,
+            start_gui=False,
+        ),
+        runtime_dir=tmp_path / "runtime",
+        log_dir=tmp_path / "logs",
+    )
+    supervisor = AegisSupervisor(
+        settings,
+        mqtt_manager=SimpleNamespace(),
+        dispatch_worker=None,
+    )
+
+    supervisor._tick_dispatch()
+
+    assert supervisor.status.dispatch == "DISABLED"
+    assert supervisor.evaluate_state() == RuntimeState.RUNNING

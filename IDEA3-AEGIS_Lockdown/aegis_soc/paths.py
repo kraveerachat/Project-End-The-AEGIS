@@ -12,6 +12,18 @@ from pathlib import Path
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def _absolute_environment_path(
+    name: str,
+    value: str | None,
+    fallback: Path,
+) -> Path:
+    raw = (value or "").strip()
+    path = fallback if not raw else Path(raw).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"{name} must be an absolute path")
+    return path.resolve()
+
+
 def application_root(*, frozen: bool | None = None) -> Path:
     """Return the immutable payload root without depending on the current directory."""
     is_frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
@@ -86,14 +98,24 @@ class RuntimePaths:
         env: Mapping[str, str] | None = None,
         platform: str | None = None,
     ) -> RuntimePaths:
-        root = data_root(env=env, platform=platform)
+        values = os.environ if env is None else env
+        platform_name = sys.platform if platform is None else platform
+        root = data_root(env=values, platform=platform_name)
         return cls(
             root=root,
-            config_file=root / "config" / ".env",
+            config_file=configuration_path(env=values, platform=platform_name),
             core_db=root / "data" / "core-audit.sqlite3",
             web_db=root / "data" / "security-center-audit.sqlite3",
-            runtime_dir=root / "runtime",
-            log_dir=root / "logs",
+            runtime_dir=_absolute_environment_path(
+                "AEGIS_RUNTIME_DIR",
+                values.get("AEGIS_RUNTIME_DIR"),
+                root / "runtime",
+            ),
+            log_dir=_absolute_environment_path(
+                "AEGIS_RUNTIME_LOG_DIR",
+                values.get("AEGIS_RUNTIME_LOG_DIR"),
+                root / "logs",
+            ),
         )
 
 
