@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-15
+updated: 2026-09-16
 owner: music
 edit_policy: owner-writable
 ---
@@ -13,12 +13,14 @@ edit_policy: owner-writable
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
-newest section records the owner-run P2-E1 read-only Production evidence
+newest section is the docs-only Kla owner-decision follow-up (2026-09-16). PR
+#136 merged at `1dc78635` without Kla's K1/K3/K7 answers, so a follow-up PR
+asks Kla for a formal GitHub review. All three decisions are `PENDING_KLA`.
+The section below it records the owner-run P2-E1 read-only Production evidence
 (2026-09-15): the live HUB NGINX artifact differs from the reviewed Git
 artifact (K1 FAIL / live drift), the `172.31.243.0/29` live collision recheck
 passed (K4), the running HUB was created from one Compose file (K7 BLOCKED),
-and K8/K9/K10 remain BLOCKED. Kla's K1/K3/K7 decisions are requested; nothing
-in Production changed. PR #133
+and K8/K9/K10 remain BLOCKED. Nothing in Production changed. PR #133
 merged the Phase 3 Core-only repository package at `2742be27`; Phase 3 runtime
 remains incomplete. PR #135 merged the Phase 4 Protocol v1 repository package
 at `f0a87ee1`: independent per-device keys, durable
