@@ -1,0 +1,7 @@
+# AEGIS IDEA3 AP-only NTP serving policy — TEMPLATE, NOT DEPLOYED.
+# Replace angle-bracket tokens only after live interface/address discovery.
+# Upstream trusted-time configuration remains separately owned and is not
+# duplicated here.
+
+bindaddress <AEGIS_AP_ADDRESS>
+allow <AEGIS_AP_SUBNET>

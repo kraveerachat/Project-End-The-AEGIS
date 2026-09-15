@@ -32,7 +32,7 @@ _RUNTIME_PATHS = (
 
 # ---- MQTT Broker ----
 _DEFAULT_BROKER_IP = "192.168.2.174"
-_DEFAULT_BROKER_PORT = 1883
+_DEFAULT_BROKER_PORT = 8883  # TLS-only MQTT (PR11 Phase 4)
 _broker_ip = os.getenv("AEGIS_BROKER_IP")
 BROKER_IP = _DEFAULT_BROKER_IP if _broker_ip is None else _broker_ip.strip()
 BROKER_CONFIGURED = bool(BROKER_IP)
@@ -47,7 +47,7 @@ def _broker_port(value: str | None) -> tuple[int, str | None]:
         return int(candidate), None
     except ValueError:
         return _DEFAULT_BROKER_PORT, (
-            "AEGIS_BROKER_PORT is not an integer; using default port 1883"
+            f"AEGIS_BROKER_PORT is not an integer; using default port {_DEFAULT_BROKER_PORT}"
         )
 
 
@@ -67,7 +67,18 @@ MAX_PIN_ATTEMPTS = int(os.getenv("AEGIS_MAX_PIN_ATTEMPTS", "5"))
 TELEGRAM_BOT_TOKEN = os.getenv("AEGIS_TG_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("AEGIS_TG_CHAT", "")
 
-# ---- MQTT Topics ----
+# ---- Protocol v1 (PR11 Phase 4) ----
+# v1 is the default everywhere. The legacy v0 wire format is reachable only
+# through this explicit lab opt-in, which production preflight refuses.
+PROTOCOL_MODE_V1 = "v1"
+PROTOCOL_MODE_LEGACY_LAB = "legacy-v0-lab"
+PROTOCOL_MODE = os.getenv("AEGIS_PROTOCOL_MODE", PROTOCOL_MODE_V1).strip() or PROTOCOL_MODE_V1
+P1_DEVICE_ID = os.getenv("AEGIS_P1_DEVICE_ID", "").strip()
+P1_C2D_KEY_FILE = os.getenv("AEGIS_P1_C2D_KEY_FILE", "").strip()
+P1_D2C_KEY_FILE = os.getenv("AEGIS_P1_D2C_KEY_FILE", "").strip()
+CORE_PROTOCOL_DB_PATH = os.getenv("AEGIS_CORE_PROTOCOL_DB_PATH", "").strip()
+
+# ---- MQTT Topics (legacy v0 lab mode only; v1 topics come from protocol_v1) ----
 TOPIC_CMD = "aegis/lockdown/cmd"
 TOPIC_ACK = "aegis/lockdown/ack"
 TOPIC_HEARTBEAT = "aegis/heartbeat"
@@ -94,6 +105,10 @@ SOUND_LOCKDOWN = os.getenv("AEGIS_SOUND_LOCKDOWN", "detect.wav")       # เส�
 SOUND_RESTORE = os.getenv("AEGIS_SOUND_RESTORE", "connect.wav")        # เสียงตอนคืน
 MQTT_USER = os.getenv("AEGIS_MQTT_USER", "")
 MQTT_PASS = os.getenv("AEGIS_MQTT_PASS", "")
+# TLS is on unless explicitly disabled; production preflight refuses disabling it.
+MQTT_TLS = _env_bool("AEGIS_MQTT_TLS", True)
+MQTT_CA_FILE = os.getenv("AEGIS_MQTT_CA_FILE", "").strip()
+MQTT_CLIENT_ID = "idea3-core"  # fixed Core broker identity; ESP32 identities are idea3-dev-<device_id>
 
 # ---- Runtime safety ----
 # Existing standalone GUI behavior remains live unless explicitly placed in dry-run.
@@ -107,10 +122,13 @@ def validate_config():
     warnings = []
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         warnings.append("ยังไม่ได้ตั้ง AEGIS_TG_TOKEN / AEGIS_TG_CHAT — ระบบจะไม่ส่งแจ้งเตือน Telegram")
-    if SECRET_KEY == DEMO_SECRET:
-        warnings.append("ใช้ HMAC secret ค่า default — ควรตั้ง AEGIS_HMAC_SECRET ให้ตรงกับ ESP32 ก่อนใช้งานจริง")
-    elif not SECRET_KEY:
-        warnings.append("ยังไม่ได้ตั้ง AEGIS_HMAC_SECRET")
+    # The shared legacy secret matters only in legacy lab mode; Protocol v1 uses
+    # per-device key files that runtime preflight validates.
+    if PROTOCOL_MODE == PROTOCOL_MODE_LEGACY_LAB:
+        if SECRET_KEY == DEMO_SECRET:
+            warnings.append("ใช้ HMAC secret ค่า default — ควรตั้ง AEGIS_HMAC_SECRET ให้ตรงกับ ESP32 ก่อนใช้งานจริง")
+        elif not SECRET_KEY:
+            warnings.append("ยังไม่ได้ตั้ง AEGIS_HMAC_SECRET")
     if _ADMIN_PIN == DEFAULT_ADMIN_PIN:
         warnings.append("ใช้ Admin PIN ค่า default (1234) — ควรตั้ง AEGIS_ADMIN_PIN ก่อนใช้งานจริง")
     elif not ADMIN_PIN_CONFIGURED:

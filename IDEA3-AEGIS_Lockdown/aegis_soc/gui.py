@@ -16,6 +16,7 @@ from . import comms, config
 from . import database as db
 from .controller import AegisCommandController
 from .mqtt_client import MQTTManager
+from .protocol_runtime import build_protocol_context_from_environment
 from .theme import (
     COLOR_ACCENT,
     COLOR_BG,
@@ -60,6 +61,7 @@ class AegisAdminGUI:
         self.controller = command_controller or AegisCommandController(
             mqtt_manager,
             dry_run=config.DRY_RUN,
+            protocol=getattr(mqtt_manager, "protocol", None),
         )
         self.tg_pin_fails = 0          # จำนวนครั้งใส่ PIN ผิดทาง Telegram
         self.tg_locked_until = 0       # ล็อกจนถึงเวลาไหน (timestamp)
@@ -633,7 +635,8 @@ class AegisAdminGUI:
                 f"🛡️ AEGIS สถานะปัจจุบัน\n"
                 f"Uplink: {state}\n"
                 f"โหมด: {mode}\n\n"
-                f"คำสั่ง:\n/status - ดูสถานะ\n/cut <PIN> - ตัดเน็ต\n/restore <PIN> - คืนค่า"
+                f"คำสั่ง:\n/status - ดูสถานะ\n/cut <PIN> - ตัดเน็ต\n"
+                f"การคืนค่า (RESTORE) ทำได้เฉพาะที่ Core เท่านั้น ไม่รับผ่าน Telegram"
             )
             self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] ตอบคำสั่ง {cmd}", db.INFO)
 
@@ -648,16 +651,15 @@ class AegisAdminGUI:
             self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] สั่งตัดเน็ตผ่าน Telegram", db.CRITICAL)
 
         elif cmd == "/restore":
-            if not self._tg_check_pin(parts):
-                return
-            self.send_command(
-                "RESTORE_UPLINK",
-                "คืนค่า (สั่งผ่าน Telegram)",
-                authorize_restore=True,
-                origin="telegram",
+            # R8 / D4: Telegram never holds RESTORE authority. The PIN is not
+            # even checked, so this path cannot act as a PIN oracle.
+            db.log_event(
+                "COMMAND_REJECTED",
+                "RESTORE_UPLINK refused: Telegram has no restore authority (origin=telegram)",
+                db.WARN,
             )
-            comms.send_telegram_reply("🟢 ส่งคำสั่งคืนค่า Uplink แล้ว — รอ ACK จากบอร์ด")
-            self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] สั่งคืนค่าผ่าน Telegram", db.INFO)
+            comms.send_telegram_reply("⛔ RESTORE via Telegram is refused. Recovery is Core-local only.")
+            self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] ปฏิเสธคำสั่งคืนค่าผ่าน Telegram", db.WARN)
 
         else:
             comms.send_telegram_reply(f"❓ ไม่รู้จักคำสั่ง: {text}\nพิมพ์ /status ดูคำสั่งทั้งหมด")
@@ -764,8 +766,9 @@ def main():
     db.init_db()
     db.log_event("SYSTEM", "SOC เริ่มทำงาน", db.INFO)   # ← เพิ่ม
     root = tk.Tk()
-    mqtt = MQTTManager()
-    controller = AegisCommandController(mqtt, dry_run=config.DRY_RUN)
+    protocol = build_protocol_context_from_environment()
+    mqtt = MQTTManager(protocol=protocol)
+    controller = AegisCommandController(mqtt, dry_run=config.DRY_RUN, protocol=protocol)
     app = AegisAdminGUI(root, mqtt, controller)
     app.refresh_incident_banner()
 

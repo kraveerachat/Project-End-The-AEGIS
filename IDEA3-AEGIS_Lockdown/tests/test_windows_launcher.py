@@ -606,6 +606,10 @@ def test_configuration_is_external_atomic_and_contains_no_plaintext_password(tmp
     assert "AEGIS_IDEA3_ADMIN_PASSWORD_HASH=$2b$12$" in text
     assert "AEGIS_IDEA1_INTEGRATION_TOKEN=\n" in text
     assert "AEGIS_IDEA2_INTEGRATION_TOKEN=\n" in text
+    assert "AEGIS_PROTOCOL_MODE=v1\n" in text
+    assert "AEGIS_MQTT_TLS=true\n" in text
+    assert "AEGIS_HMAC_SECRET" not in text
+    assert f"AEGIS_CORE_PROTOCOL_DB_PATH={settings.paths.protocol_db}\n" in text
     assert list(path.parent.glob("*.tmp")) == []
 
 
