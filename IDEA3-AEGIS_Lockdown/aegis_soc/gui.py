@@ -307,6 +307,9 @@ class AegisAdminGUI:
         self._notif_button = None
         self._notif_panel = None
         self._toast_window = None
+        # The Overview MetricCards went with the workspace above. The monitor
+        # loop keeps ticking after logout, so it must not still find them here.
+        self.metric_cards = {}
 
     def _show_login(self):
         _sync_palette_aliases()
@@ -1321,7 +1324,9 @@ class AegisAdminGUI:
         self._reflow_columns(grid, (preferences, session, about))
 
     def _refresh_overview_metrics(self):
-        if "health" not in self.metric_cards:
+        # Runs on every monitor tick and MQTT callback for the whole process
+        # lifetime, including at the login screen -- same guard as the badges.
+        if not self.session.authenticated or "health" not in self.metric_cards:
             return
         seconds_since_seen = self.mqtt.seconds_since_device()
         broker_connected = getattr(self, "_broker_connected", None)
@@ -1343,7 +1348,7 @@ class AegisAdminGUI:
         helpers = {"esp32": _device_helper(seconds_since_seen, rssi, heap)}
         for key, metric in metrics.items():
             card = self.metric_cards.get(key)
-            if card is not None:
+            if card is not None and card.winfo_exists():
                 card.update(
                     _localize_status_value(metric.value),
                     metric.status,
