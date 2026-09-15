@@ -6,6 +6,9 @@ from dataclasses import replace
 import pytest
 
 from aegis_soc import config
+from aegis_soc import protocol_v1 as p1
+from aegis_soc.protocol_inbound import ProtocolContext
+from aegis_soc.protocol_store import ProtocolStore
 from aegis_soc.runtime import (
     RuntimeSettings,
     RuntimeState,
@@ -49,6 +52,32 @@ def _settings(tmp_path, **changes):
         start_gui=False,
     )
     return replace(base, runtime_dir=tmp_path / "runtime", log_dir=tmp_path / "logs", **changes)
+
+
+TEST_DEVICE = "test-device-01"
+# Public TEST-ONLY golden-vector keys; Core key loading refuses them.
+TEST_KEYS = p1.ProtocolKeys(c2d=bytes(range(0x20)), d2c=bytes(range(0x20, 0x40)))
+TRUSTED_NOW = p1.TIME_FLOOR + 3_600
+
+
+class TrustedTestClock:
+    def trusted_now(self):
+        return TRUSTED_NOW
+
+    def state(self):
+        return "SYNCED"
+
+
+@pytest.fixture(autouse=True)
+def protocol_context(tmp_path, monkeypatch):
+    """Every supervisor in this module speaks Protocol v1 with TEST-ONLY keys and trusted time."""
+    store = ProtocolStore(tmp_path / "protocol-store" / "core-protocol.sqlite3", wall_clock=lambda: TRUSTED_NOW)
+    context = ProtocolContext(TEST_DEVICE, TEST_KEYS, store, TrustedTestClock())
+    monkeypatch.setattr(
+        "aegis_soc.supervisor.build_protocol_context_from_environment", lambda *args, **kwargs: context,
+    )
+    yield context
+    store.close()
 
 
 def test_development_profile_defaults_to_safe_dry_run(monkeypatch):
@@ -352,13 +381,13 @@ def test_auto_containment_pending_tracks_command_nonce(tmp_path):
 
     assert len(mqtt.published) == 1
 
-    _, payload = mqtt.published[0]
-    published = json.loads(payload)
+    topic, payload = mqtt.published[0]
+    published = p1.parse(payload, topic=topic, device_id=TEST_DEVICE, accept_kinds=frozenset({p1.COMMAND})).fields
 
     assert supervisor.pending_command is not None
     assert supervisor.pending_command["action"] == "CUT_UPLINK"
     assert supervisor.pending_command["sent_at"] == 55.0
-    assert supervisor.pending_command["nonce"] == published["nonce"]
+    assert supervisor.pending_command["nonce"] == published["msg_id"]
 
 
 def test_supervisor_ignores_ack_with_mismatched_nonce(tmp_path):
@@ -677,6 +706,7 @@ def test_restore_requires_normal_physical_confirmation(tmp_path):
         settings,
         mqtt_manager=mqtt,
         monotonic=lambda: 100.0,
+        restore_origins=frozenset({"test"}),
     )
 
     result = supervisor.issue_command(
@@ -735,6 +765,7 @@ def test_restore_status_before_ack_preserves_both_evidence(tmp_path):
         settings,
         mqtt_manager=mqtt,
         monotonic=lambda: 200.0,
+        restore_origins=frozenset({"test"}),
     )
 
     result = supervisor.issue_command(
@@ -854,6 +885,7 @@ def test_restore_physical_timeout_preserves_lockdown_runtime(tmp_path):
         settings,
         mqtt_manager=mqtt,
         monotonic=lambda: clock["now"],
+        restore_origins=frozenset({"test"}),
     )
 
     result = supervisor.issue_command(
@@ -1117,6 +1149,7 @@ def test_matching_status_command_nonce_confirms_restore(tmp_path):
         settings,
         mqtt_manager=mqtt,
         monotonic=lambda: 100.0,
+        restore_origins=frozenset({"test"}),
     )
 
     # Model the physical truth before a recovery command.

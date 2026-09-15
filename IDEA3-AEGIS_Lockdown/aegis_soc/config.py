@@ -67,7 +67,18 @@ MAX_PIN_ATTEMPTS = int(os.getenv("AEGIS_MAX_PIN_ATTEMPTS", "5"))
 TELEGRAM_BOT_TOKEN = os.getenv("AEGIS_TG_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("AEGIS_TG_CHAT", "")
 
-# ---- MQTT Topics ----
+# ---- Protocol v1 (PR11 Phase 4) ----
+# v1 is the default everywhere. The legacy v0 wire format is reachable only
+# through this explicit lab opt-in, which production preflight refuses.
+PROTOCOL_MODE_V1 = "v1"
+PROTOCOL_MODE_LEGACY_LAB = "legacy-v0-lab"
+PROTOCOL_MODE = os.getenv("AEGIS_PROTOCOL_MODE", PROTOCOL_MODE_V1).strip() or PROTOCOL_MODE_V1
+P1_DEVICE_ID = os.getenv("AEGIS_P1_DEVICE_ID", "").strip()
+P1_C2D_KEY_FILE = os.getenv("AEGIS_P1_C2D_KEY_FILE", "").strip()
+P1_D2C_KEY_FILE = os.getenv("AEGIS_P1_D2C_KEY_FILE", "").strip()
+CORE_PROTOCOL_DB_PATH = os.getenv("AEGIS_CORE_PROTOCOL_DB_PATH", "").strip()
+
+# ---- MQTT Topics (legacy v0 lab mode only; v1 topics come from protocol_v1) ----
 TOPIC_CMD = "aegis/lockdown/cmd"
 TOPIC_ACK = "aegis/lockdown/ack"
 TOPIC_HEARTBEAT = "aegis/heartbeat"

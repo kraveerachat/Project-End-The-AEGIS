@@ -29,7 +29,9 @@ from .dispatch_worker import (
 )
 from .mqtt_client import MQTTManager
 from .platform_lock import AlreadyRunningError, ExclusiveFileLock
+from .protocol_runtime import build_protocol_context_from_environment
 from .runtime import RuntimeSettings, RuntimeState, RuntimeStatus
+from .trusted_time import TrustedClock
 
 
 class InstanceLock:
@@ -162,6 +164,7 @@ class ChildProcessSupervisor:
 
 
 _DEFAULT_DISPATCH_WORKER = object()
+_DEFAULT_PROTOCOL = object()
 
 
 class AegisSupervisor:
@@ -172,10 +175,26 @@ class AegisSupervisor:
         mqtt_manager=None,
         monotonic=time.monotonic,
         dispatch_worker=_DEFAULT_DISPATCH_WORKER,
+        protocol=_DEFAULT_PROTOCOL,
+        clock=None,
+        restore_origins: frozenset[str] = frozenset(),
     ):
         self.settings = settings
+        if settings.profile == "production" and restore_origins:
+            raise ValueError("production has no RESTORE origin until the D4 Core-local CLI exists")
+        self.protocol = (
+            build_protocol_context_from_environment() if protocol is _DEFAULT_PROTOCOL else protocol
+        )
+        self.clock = clock or (self.protocol.clock if self.protocol is not None else TrustedClock())
         self.mqtt = mqtt_manager or MQTTManager()
-        self.controller = AegisCommandController(self.mqtt, dry_run=settings.dry_run)
+        # The headless Core never restores on its own: its RESTORE allowlist is
+        # empty unless a future D4 Core-local CLI supplies an audited origin.
+        self.controller = AegisCommandController(
+            self.mqtt,
+            dry_run=settings.dry_run,
+            protocol=self.protocol,
+            restore_origins=restore_origins,
+        )
         self.monotonic = monotonic
         self.started_at = monotonic()
         self.last_heartbeat_at = 0.0
