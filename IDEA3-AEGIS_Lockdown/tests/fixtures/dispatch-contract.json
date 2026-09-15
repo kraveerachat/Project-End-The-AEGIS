@@ -44,6 +44,7 @@
       { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "CLAIM_UNCERTAIN" } },
       { "stage": "OUTCOME_UNKNOWN", "detail": { "reasonCode": "CORE_RESTART" } },
       { "stage": "FAILED", "detail": { "reasonCode": "MQTT_UNAVAILABLE" } },
+      { "stage": "FAILED", "detail": { "reasonCode": "CORE_TIME_UNTRUSTED" } },
       { "stage": "EXPIRED_AT_CORE", "detail": {} }
     ],
     "invalidEntries": [

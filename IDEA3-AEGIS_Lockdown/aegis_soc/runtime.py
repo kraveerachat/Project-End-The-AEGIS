@@ -234,6 +234,9 @@ class RuntimeStatus:
     uplink: str = "UNKNOWN"
     armed: str = "MONITOR_ONLY"
     dispatch: str = "DISABLED"
+    # Core-local trusted-time state (SYNCED/HOLDOVER/UNTRUSTED/UNKNOWN). It is
+    # not part of the versioned Web projection in this phase.
+    time_trust: str = "UNKNOWN"
     detail: str = "initializing"
     updated_at: float = field(default_factory=time.time)
     components: dict[str, str] = field(default_factory=dict)

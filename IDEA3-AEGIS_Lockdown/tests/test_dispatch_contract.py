@@ -91,6 +91,10 @@ class FakeSupervisor:
 SENT = CommandResult("CUT_UPLINK", True, True, False, "contract-nonce", "SENT")
 DRY_RUN = CommandResult("CUT_UPLINK", True, False, True, "contract-nonce", "WOULD_SEND")
 NOT_SENT = CommandResult("CUT_UPLINK", False, False, False, None, "MQTT unavailable")
+# PR11 Phase 4 (OD-7): trust lost between claim and publish means only "not sent".
+NOT_SENT_TIME = CommandResult(
+    "CUT_UPLINK", False, False, False, None, "Core time is not trusted", reason_code="CORE_TIME_UNTRUSTED",
+)
 
 
 def _run_worker(tmp_path, name, *, command=SENT, claim=None, claim_offset=100.0, after=None):
@@ -139,6 +143,7 @@ def _core_emitted_entries(tmp_path):
     entries += _run_worker(tmp_path, "status-timeout", after=status_timeout)
     entries += _run_worker(tmp_path, "dry-run", command=DRY_RUN)
     entries += _run_worker(tmp_path, "not-sent", command=NOT_SENT)
+    entries += _run_worker(tmp_path, "core-time-untrusted", command=NOT_SENT_TIME)
     entries += _run_worker(tmp_path, "claim-uncertain", claim=DispatchUnavailable("NETWORK"))
     entries += _run_worker(tmp_path, "expired-at-core", claim_offset=0.0)
 
