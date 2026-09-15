@@ -105,9 +105,335 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
+## Current Task — PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix
 
 | Field | Current value |
+| :--- | :--- |
+| Task | `PUBLIC-SHARE-7 / S5.7 — Public Internet Security Matrix` |
+| Branch | `feat/idea1-public-share-s5-7-public-security-matrix` |
+| Owner | `kla` |
+| PR | Draft PR #130 to `main` |
+| Starting SHA | `fe75bc53c1fd3a3103708470dfb7111996b80eff` — merged PR #126 / S5.6 baseline |
+| Synchronized with main | `13d8fef6...; 90efbc8e...; c448dfb9...; 509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` (normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff`) |
+| Current state | **CLOSED / ACCEPTED (S5.7-A through S5.7-H CLOSED / ACCEPTED; G5 = APPROVED; G6 = OPEN; Public Share UI = OFF; 75-row strict security matrix accepted: 74 PASS, 0 FAIL, 1 NOT TESTED; one final receipt created; PUBLIC-SHARE-7 IN PROGRESS; S5.8 next after human merge)** |
+| Started | 2026-09-14 |
+| Last checkpoint | S5.7-H Final evidence reconciliation, single receipt, and PR #130 closeout CLOSED / ACCEPTED; one immutable receipt created; full regression bar completed (NEW_FAILURES=0, accepted historical failures unchanged); guardrails CI PASS; PR #130 ready for human review |
+| Production configuration mutation allowed | **NO** |
+| Test-induced application side effect allowed | **NO** |
+| Test audit side effect allowed | **NO** |
+| Live Class 1 security probes allowed | **NO** |
+| Cloudflare / DNS / TLS mutation allowed | **NO / NO / NO** |
+| Public Share UI | **OFF** (G5 APPROVED, G6 OPEN, mutation prohibited; fresh direct runtime proof NOT TESTED due to secret-safe inspection boundary) |
+| Governance | **G5 APPROVED; G6 OPEN; PUBLIC-SHARE-7 IN PROGRESS** |
+| Next gate | **HUMAN REVIEW & MERGE OF PR #130; THEN S5.8 TWINGATE-OFF WI-FI + 4G/5G EXTERNAL ACCEPTANCE** |
+| S5.7 final receipt | [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]] |
+
+### Goal and scope
+
+Conduct bounded public Internet security verification of the share-only boundary at
+`share.aegistk-pb.com` through an eight-phase plan:
+S5.7-A fresh read-only preflight; B surface enumeration; C method/Host/header
+abuse; D path normalization; E URL/query/redirect safety; F leakage hygiene;
+G strict matrix consolidation; H evidence reconciliation and one final receipt.
+S5.7-A, S5.7-B, S5.7-C, S5.7-D, S5.7-E, S5.7-F, S5.7-G, and S5.7-H are complete and accepted.
+S5.7 is CLOSED / ACCEPTED with one final receipt. PUBLIC-SHARE-7 remains IN PROGRESS; S5.8 is next after human merge.
+
+### Out of scope and safety boundaries
+
+No Production configuration mutation, Cloudflare, DNS, TLS, redirect, connector, firewall,
+systemd, Docker, database, or Public Share UI mutation. `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`,
+`TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, and
+`LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`. No real bearer/share token, brute force,
+high-rate fuzzing, DoS, or real user data. S5.8 owns Twingate-OFF Wi-Fi/4G/5G external
+acceptance; S5.9 owns 64 MiB, SHA-256, interruption, slow-client, and concurrency
+acceptance; S5.10 owns full rollback/private regression; S5.11 owns final restoration/UI after G6.
+If a defect needs a fix, return to ChatGPT for a scoped remediation gate.
+
+### S5.7 session register and handoff
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| S5.7 bootstrap | Isolated branch/worktree, executable plan, current-state pointers, Draft PR | **CLOSED / PASS** | PR #126 merge and `origin/main` at `fe75bc53c1fd3a3103708470dfb7111996b80eff`; no fresh S5.7 runtime or public-edge evidence | Initial bootstrap plan and Draft PR #130 created | Planning only | Plan hardening, S5.7-A through H; one final receipt at H | Plan review |
+| S5.7 plan reconciliation | Plan hardening (18 findings), main sync (`13d8fef6`), mutation category split, Obsidian reconciliation | **CLOSED / PASS** | Normal merge commit `2f73d08062c5a066943c4eafca0908d9d0985d1e`; zero runtime changes; updated S5.7 plan | Plan hardening docs checkpoint | Closed / Accepted | S5.7-A through H; one final receipt at H | Procedure hardening |
+| S5.7-A | Fresh read-only preflight, Cloudflare/DNS/TLS/Production inspection | **CLOSED / PASS** | Human Owner verified evidence: Cloudflare tunnel HEALTHY/1 replica/1 published route (`share.aegistk-pb.com` -> `http://172.31.240.2:8080`); DNS Anycast proxies (no private origin IP); TLS 1.0/1.1 rejected, TLS 1.2/1.3 passed; HTTP->HTTPS 308 on `http://share.aegistk-pb.com/`; systemd firewall (s5-5 unit), connector, drift active/enabled; firewall VALID; all 7 protected containers running/healthy; connector runtime isolated with PortBindings={}, User 65532:65532, ReadonlyRootfs, CapDrop ALL; Gateway PortBindings={}; connector readiness EXIT 0; release SHA 99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7; UI fresh runtime proof NOT TESTED (boundary-governed) | S5.7-A documentation checkpoint | Closed / Accepted | S5.7-B through H; one final receipt at H | S5.7-B public surface enumeration |
+| S5.7-B | Public surface / boundary enumeration (10 paths, GET+HEAD = 20 requests) | **CLOSED / PASS** | Human Owner verified: 20/20 returned HTTP 404, CURL_EXIT 0, zero IP/stack/DB/container leaks; Server: cloudflare, CF-RAY present; PUBLIC_DEFAULT_DENY=PASS, CLOUDFLARE_PATH_OBSERVED=YES, GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED (attribution boundary) | S5.7-B documentation checkpoint | Closed / Accepted | S5.7-C through H; one final receipt at H | S5.7 C/D local prerequisites |
+| S5.7 C/D local prerequisites & main reconciliation | Local Gateway runtime tests for TRACE, double-encoded traversal, encoded slash/backslash, duplicate slash; full regression; main reconciliation (`90efbc8e`) | **CLOSED / PASS** | Commit `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932` (diff +6/-3 in `publicShareGatewayRuntime.test.js`, zero prod/gateway change); 18/18 Gateway runtime tests pass with zero upstream contact; canonical `npm test` (1309 total, 1228 pass, 9 fail, 72 skip: full regression bar completed, NEW_FAILURES=0, accepted historical failures unchanged); non-canonical `--test-force-exit` investigated and classified RUNNER_ARTIFACT; normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884` into main `90efbc8e` (IDEA3 docs only, zero overlap); guardrails CI pass | Local prerequisite & reconciliation checkpoint | Closed / Accepted | S5.7-C through H live execution; one final receipt at H | TEST_AUDIT_SIDE_EFFECT_AUTHORIZATION for S5.7-C |
+| S5.7-C Live method / Host / forwarding-header security matrix | Bounded Class-1 method, Host variation, and forwarding-header spoofing matrix against `/s/invalid-token-probe` | **CLOSED / PASS** | Human Owner verified live execution (17 requests, UTC 2026-09-14T20:24:46Z–20:24:54Z); C01 GET 404; C02–C07 (HEAD/PUT/PATCH/DELETE/OPTIONS/TRACE) 405; C08–C09 404; C10–C11 (unapproved/IP Host) 403; C12–C16 404; C17 (CF-Connecting-IP) 403; zero 2xx/3xx/5xx/curl errors; audit delta 8 <= hard max 9 (IDs 848–855 all SHARE_REDEEM/DENIED); spoof delta 0; no config mutation; temporary authorization revoked | S5.7-C documentation checkpoint | Closed / Accepted | S5.7-D through H; one final receipt at H | S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION |
+| S5.7-D Live path normalization / traversal security matrix | Bounded Class-1 path traversal and encoded-character probes against `/s/...` targets | **CLOSED / PASS** | Human Owner verified live execution (8 GET requests, UTC 2026-09-14T20:53:14Z–20:53:19Z); all 8 returned HTTP 404, CURL_EXIT 0; zero IP/stack/DB/container leaks; audit delta 1 <= hard max 8 (row 856 DENIED for canonical D01); D02–D08 produced zero SHARE_REDEEM rows; client percent-hex case canonicalization documented for D03/D04/D07/D08; GATEWAY_RAW_RECEIPT=NOT_PROVEN; temporary authorization revoked | S5.7-D documentation checkpoint | Closed / Accepted | S5.7-E through H; one final receipt at H | S5.7-E URL / QUERY / REDIRECT SAFETY |
+| S5.7-E Live URL / query / redirect safety security matrix | Bounded Class-0 HTTP -> HTTPS redirect and query parameter safety probes against non-share path | **CLOSED / PASS** | Human Owner verified Class-0 live execution (2 GET requests, UTC 2026-09-14T21:08:00Z–21:08:01Z); E01 and E02 returned HTTP 308 with Location strictly https://share.aegistk-pb.com/...; no redirect to unapproved host or IP; inert query parameters preserved; no body reflection; no private origin disclosure; E01 client target UNPROVEN / normalization UNKNOWN; E02 normalization NONE; REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED; zero config mutation | S5.7-E documentation checkpoint | Closed / Accepted | S5.7-F through H; one final receipt at H | S5.7-F INFORMATION LEAKAGE / RESPONSE HYGIENE |
+| S5.7-F Information leakage / response hygiene review | Read-only inspection and consolidation of response headers and bounded bodies across accepted B–E evidence | **CLOSED / PASS** | Read-only review of 47 responses across S5.7-B (20), C (17), D (8), and E (2); zero private IP, database error, stack trace, internal path, container name, or X-Powered-By leaks detected; Server: cloudflare and CF-RAY treated as expected edge metadata; E02 query IP is inert user data; no unsafe reflection; new live requests = 0; zero configuration or runtime mutations | S5.7-F documentation checkpoint | Closed / Accepted | S5.7-G through H; one final receipt at H | S5.7-G SECURITY MATRIX CONSOLIDATION |
+| S5.7-G Strict security matrix consolidation | Consolidation of all accepted A–F evidence into strict 7-column schema with 14 metadata fields per row | **CLOSED / PASS** | 75 rows total (74 PASS, 0 FAIL, 1 NOT TESTED); all 14 metadata fields present on every row with NOT_APPLICABLE semantics; statuses strictly PASS/FAIL/NOT TESTED; attribution boundaries preserved; zero new live requests; zero configuration or runtime mutations | S5.7-G documentation checkpoint | Closed / Accepted | S5.7-H; one final receipt at H | S5.7-H FINAL RECONCILIATION / CLOSEOUT |
+| S5.7-H Final reconciliation / closeout | Canonical documentation updates, single immutable receipt creation, and PR #130 closeout | **CLOSED / PASS** | Canonical status notes reconciled; exactly one immutable S5.7 final receipt created; 75-row matrix (74 PASS, 0 FAIL, 1 NOT TESTED); timestamp provenance audit PASS; 0 future timestamps; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); guardrails CI PASS; PR #130 marked Ready for human review | S5.7-H closeout checkpoint | Closed / Accepted | None within S5.7; S5.8 next after human merge | HUMAN MERGE ONLY |
+
+### S5.7-A Fresh read-only preflight — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner read-only Cloudflare, DNS, TLS, and Production evidence:
+- **Repository Preflight**: Worktree clean on `feat/idea1-public-share-s5-7-public-security-matrix`. HEAD verified. PASS.
+- **Cloudflare Control Plane (Read-Only)**: Zone `aegistk-pb.com` is `Active`. Managed tunnel `AEGIS-PUBLIC-SHARE` is `Healthy`, `activeReplicas=1`. Published application routes = 1: hostname `share.aegistk-pb.com`, service `http://172.31.240.2:8080`, path `<blank>`. Wildcard routes = `NO`, root domain routes = `NO`, alternate public share hostnames = `NO`. Zero secrets/tokens captured. PASS.
+- **Public DNS**: Cloudflare DoH (`1.1.1.1`) and Google DoH (`8.8.8.8`) agreed. A records: `104.21.40.88`, `172.67.183.68`. AAAA records: `2606:4700:3031::6815:2858`, `2606:4700:3037::ac43:b744`. Private origin IP is NOT visible (`PRIVATE_ORIGIN_IP_VISIBLE=NO`). PASS.
+- **Public TLS Handshake**: TLS 1.0 rejected with TLS alert protocol version (PASS). TLS 1.1 rejected with TLS alert protocol version (PASS). TLS 1.2 passed. TLS 1.3 passed. PASS.
+- **HTTP -> HTTPS Redirect**: `GET http://share.aegistk-pb.com/` (redirect not followed) returned HTTP 308 with `Location: https://share.aegistk-pb.com/`. Observed layer: Cloudflare Edge. PASS.
+- **Systemd Service & Timer Units (Procedure Corrected)**:
+  - Initial query used the wrong unit name `aegis-public-share-firewall.service` and produced `inactive / not-found`.
+  - Fresh retry against the correct unit name `aegis-public-share-s5-5-firewall.service` proved `active / enabled`.
+  - `aegis-public-share-connector.service` is `active / enabled`.
+  - `aegis-public-share-drift.timer` is `active / enabled`. PASS.
+- **Firewall Validation**: `sudo /opt/aegis/runtime/public-share/s5-5-firewall.sh validate` returned `S5.5-FIREWALL=VALID`. PASS.
+- **Protected Containers Status**: `sudo docker ps --format '{{.Names}}\t{{.Status}}'` confirmed running/healthy for all 7 protected containers: connector running, public-share-gateway healthy, drive healthy, monitor healthy, hub healthy, postgres healthy, twingate healthy. PASS.
+- **Connector Runtime Isolation**: `aegis-prod-public-share-connector-1` allowlisted projections confirmed: `Status=running`, `Running=true`, `Restarting=false`, `RestartCount=0`, `aegis_public_share_edge=172.31.240.3`, `aegis_public_share_egress=172.31.242.2`, `PortBindings={}`, `User=65532:65532`, `ReadonlyRootfs=true`, `CapDrop=["ALL"]`, `SecurityOpt=["no-new-privileges:true"]`, `RestartPolicy=on-failure`, `MaxRetry=5`. PASS.
+- **Gateway Host-Port Absence**: `aegis-prod-public-share-gateway-1` projection confirmed `PortBindings={}`. PASS.
+- **Connector Readiness**: Executed inside container via `sudo docker exec aegis-prod-public-share-connector-1 cloudflared tunnel --metrics 127.0.0.1:20241 ready`; returned `EXIT=0`. PASS.
+- **Frozen Release Directory**: Git rev-parse on `/opt/aegis/releases/public-share/99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` confirmed exact commit `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`. PASS.
+- **Public Share UI Direct Runtime Proof**: `PUBLIC_SHARE_UI_FRESH_DIRECT_RUNTIME_PROOF=NOT TESTED`. Fresh direct runtime proof was intentionally not obtained because unrestricted container environment/config inspection is prohibited by the S5.7 secret-safe inspection boundary. Retain governance truth only: G5=APPROVED, G6=OPEN, PUBLIC_SHARE_UI_MUTATION_ALLOWED=NO.
+- **Security-Critical Failures**: `SECURITY_CRITICAL_FAILURES=0`.
+- **Current State**: S5.7-A is **CLOSED / ACCEPTED**.
+
+### S5.7-B Public surface / boundary enumeration — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner public edge probing:
+- **Execution Window**: `2026-09-14T14:51:56Z` through `2026-09-14T14:51:59Z`.
+- **Probe SHA**: `a5ff07b0a12d139c0b544fe5392439dffcbc4ac3`.
+- **Scope & Budget**: Exactly 20 requests across 10 finite paths (`/`, `/drive/`, `/api/`, `/api/audit`, `/healthz`, `/admin`, `/settings`, `/login`, `/monitor/`, `/internal/`) using `GET` (10) and `HEAD` (10). No authentication; no redirect following.
+- **Results**: All 20 requests returned HTTP `404` with `CURL_EXIT=0`.
+- **Response Hygiene**: Zero private IP leaks (`PRIVATE_IP_LEAK=NO`), zero stack traces (`STACK_TRACE_LEAK=NO`), zero database errors (`DATABASE_ERROR_LEAK=NO`), zero container names (`CONTAINER_NAME_LEAK=NO`), zero internal paths (`INTERNAL_PATH_LEAK=NO`), no `X-Powered-By`. `APPLICATION_SIDE_EFFECT_EXPECTED=NO`, `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`. All responses carried `Server: cloudflare` and `CF-RAY`.
+- **Attribution Model**:
+  - `PUBLIC_DEFAULT_DENY=PASS`
+  - `CLOUDFLARE_PATH_OBSERVED=YES`
+  - `GATEWAY_REJECTION_ATTRIBUTION=NOT TESTED`
+  - *Attribution boundary*: `Server: cloudflare` and `CF-RAY` prove traversal through the Cloudflare edge, but do not independently distinguish whether the 404 was generated at Cloudflare edge or proxied from Gateway. This attribution limitation is not a security defect.
+- **Security-Critical Failures**: `SECURITY_CRITICAL_FAILURES=0`.
+- **Current State**: S5.7-A and S5.7-B are **CLOSED / ACCEPTED**.
+
+### S5.7-C/D Local Prerequisites & Main Reconciliation — CLOSED / PASS
+
+Verified on 2026-09-15 via local test prerequisite implementation and canonical regression bar:
+- **Local Prerequisite Implementation Commit**: `7f628fb16f51a718fe7ef3d0a2f584d44ef3e932`.
+- **Files Changed**: Changed ONLY `IDEA1-AEGIS_Drive_LC/tests/publicShareGatewayRuntime.test.js` (Diff: +6 / -3). Production source changed: `NO`. Gateway configuration changed: `NO`.
+- **Harness & Coverage**:
+  - `TRACE_PREREQUISITE=PASS` (`PS3-RUNTIME-5`).
+  - `DOUBLE_ENCODED_TRAVERSAL_PREREQUISITE=PASS` (`RAW_TARGET=/s/%252e%252e%252fhealthz`, `PS3-RUNTIME-6`).
+  - `ENCODED_SLASH_PREREQUISITE=PASS` (`RAW_TARGET=/s/%2finvalid-token-probe`, `PS3-RUNTIME-6`).
+  - `ENCODED_BACKSLASH_PREREQUISITE=PASS` (`RAW_TARGET=/s/%5cinvalid-token-probe`, `PS3-RUNTIME-6`).
+  - `DUPLICATE_SLASH_PREREQUISITE=PASS` (`RAW_TARGET=/s//invalid-token-probe`, `PS3-RUNTIME-6`).
+  - `RAW_REQUEST_TARGET_HARNESS=node:http` (preserves byte-exact targets without client normalization).
+  - `ZERO_UPSTREAM_CONTACT_ASSERTED=YES` (asserted on all rejected paths).
+  - Targeted Gateway runtime suite: 18 passed, 0 failed.
+  - Tests cover existing secure behavior; no production remediation was required.
+- **Canonical Full Regression**:
+  - Command: `npm test`.
+  - Canonical result: `TOTAL_TESTS=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`.
+  - `FULL_REGRESSION_BAR_COMPLETED=YES`, `NEW_FAILURES=0`, `ACCEPTED_HISTORICAL_FAILURES_UNCHANGED=YES`.
+  - Accepted historical failures unchanged: `AUTOLOCK-5`, `PS6-ENV-4`, `PS6-ENV-5`, `PS6-ENV-6`, `PS6-ENV-7`, `PS6-ENV-8 SIGINT`, `PS6-ENV-8 SIGTERM`, `publicShareStageBDiagnostics`, `publicShareStageBUploadClient`.
+  - Canonical bar completed with zero new failures.
+- **Non-Canonical Runner Incident Investigation**:
+  - An earlier run invoked non-canonical: `node --test --test-concurrency=1 --test-force-exit "tests/**/*.test.js"`.
+  - On Windows / Node 24 this produced three phantom whole-file failures: `contentSecurityPolicy.test.js`, `healthTelemetry.test.js`, `trustedProxy.test.js`.
+  - Root cause investigation proved: each file passes individually, all three pass serially together, all three pass inside canonical `npm test`. `--test-force-exit` reproduces a libuv forced-exit abort in Node.
+  - `NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`.
+  - Policy: Do not add `--test-force-exit` to package.json or repository test commands.
+- **Main Reconciliation**:
+  - Merged `origin/main` commit `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` (merge base `13d8fef6e464ecdbc96d466306dbc5aff3c2ae9a`) into branch via normal merge commit `c53208a64ca3b4147a0207d15d59dc9492a2f884`.
+  - Merge conflicts: `NO`.
+  - Reviewed main advancement: strictly IDEA3 documentation only (PR #127: `docs/superpowers/specs/2026-09-14-idea3-pr11-phase1-owner-decision-package.md`, `idea3-moc.md`, `idea3-status.md`), zero overlap with IDEA1/Public Share/Gateway runtime.
+  - Verification: `validate-vault` PASS, `collaborationPolicy` PASS (24/24), `git diff --check` PASS, exact-head CI run 34877956261 PASS.
+- **Current State & Required Transition**:
+  - `LOCAL_TEST_PREREQUISITE=PASS`.
+  - S5.7-C State: **CLOSED / ACCEPTED**.
+  - S5.7-D State: **LOCAL_PREREQUISITE_COMPLETE / LIVE_NOT_AUTHORIZED (BLOCKED_BY_AUDIT_SIDE_EFFECT_GATE)**.
+  - Next Gate: **S5.7-D EXPLICIT CLASS-1 AUDIT-SIDE-EFFECT AUTHORIZATION**.
+  - `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO` (revoked), `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO` (revoked).
+  - `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`.
+  - `POST_LIVE_PROBE_DEFAULT=PROHIBITED`, `CONNECT=STRICTLY_PROHIBITED`.
+  - `G5=APPROVED`, `G6=OPEN`.
+
+### S5.7-C Live method / Host / forwarding-header security matrix — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database audit evidence:
+- **Authorization & Boundary**: Explicitly authorized single finite batch (`TEST_AUDIT_SIDE_EFFECT_ALLOWED=YES_FOR_S5_7_C_ONLY`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=YES_FOR_S5_7_C_ONLY`, budget=17, hard max audit rows=9, POST/CONNECT prohibited, audit cleanup prohibited, config mutation prohibited).
+- **Execution Window**: UTC `2026-09-14T20:24:46Z` through `2026-09-14T20:24:54Z`.
+- **Target URL**: `https://share.aegistk-pb.com/s/invalid-token-probe` (synthetic token, no auth, no redirect follow).
+- **Execution & Results (17/17 completed)**:
+  - C01 GET (default Host): HTTP `404`, CURL_EXIT 0, Location absent.
+  - C02–C07 (HEAD, PUT, PATCH, DELETE, OPTIONS, TRACE): HTTP `405`, CURL_EXIT 0.
+  - C08 GET (`Host: share.aegistk-pb.com:443`): HTTP `404`, CURL_EXIT 0.
+  - C09 GET (`Host: SHARE.AEGISTK-PB.COM`): HTTP `404`, CURL_EXIT 0.
+  - C10 GET (`Host: unapproved-host.example.invalid`): HTTP `403`, CURL_EXIT 0.
+  - C11 GET (`Host: 172.31.240.2`): HTTP `403`, CURL_EXIT 0.
+  - C12 GET (`Forwarded: for=198.51.100.77;proto=http;host=unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C13 GET (`X-Forwarded-For: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C14 GET (`X-Forwarded-Host: unapproved-host.example.invalid`): HTTP `404`, CURL_EXIT 0.
+  - C15 GET (`X-Forwarded-Proto: http`): HTTP `404`, CURL_EXIT 0.
+  - C16 GET (`X-Real-IP: 198.51.100.77`): HTTP `404`, CURL_EXIT 0.
+  - C17 GET (`CF-Connecting-IP: 198.51.100.77`): HTTP `403`, CURL_EXIT 0.
+  - General: Zero curl transport errors, zero redirects, zero 2xx/3xx, zero 5xx, `Server: cloudflare`, CF-RAY present on all 17 responses, zero information leaks.
+- **Audit Verification (PostgreSQL `aegis_drive` DB)**:
+  - Baseline: Max ID 847, test target count 1, test spoof count 0 (at 20:14:09Z).
+  - Post-execution: Max ID 855, test target count 9, test spoof count 0 (at 20:27:40Z).
+  - Target delta: Exactly 8 new rows (`HARD_MAX_AUDIT_ROWS=9` satisfied, `AUDIT_LIMIT=PASS`).
+  - Target rows 848–855: All 8 are `SHARE_REDEEM` with outcome `DENIED` and `spoof_source=NO`.
+  - Reaching Requests: The 8 audit rows are consistent with requests C01, C08, C09, C12, C13, C14, C15, C16. (Exact row-to-request mapping is not overclaimed).
+  - Non-Reaching Requests: C02–C07, C10, C11, C17 produced zero target `SHARE_REDEEM` rows.
+  - Layer Attribution Caveat: No over-attribution between Cloudflare edge and Gateway solely from HTTP 403/404/405. For C17, no `SHARE_REDEEM` row was created; rejection layer is not claimed uniquely.
+  - Forwarding Spoof Protection: `198.51.100.77` was NOT persisted as source IP (`SPOOF_DELTA=0`, `SPOOF_SOURCE_PERSISTED=NO`).
+  - Test Evidence Preservation: Audit rows 848–855 are intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Permissions**:
+  - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+  - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+  - S5.7-D is **CLOSED / ACCEPTED**.
+
+### S5.7-D Live path normalization / traversal matrix — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner live Class-1 probing and database audit evidence:
+- **Authorization & Boundary**: Explicitly authorized single finite batch (`REQUEST_BUDGET=8`, `METHOD=GET_ONLY`, `HARD_MAX_AUDIT_ROWS=8`, POST/CONNECT prohibited, audit cleanup prohibited, config mutation prohibited).
+- **Execution Window**: UTC `2026-09-14T20:53:14Z` through `2026-09-14T20:53:19Z` (`S5_7_D_WINDOWS_BATCH=COMPLETE`).
+- **Requests & HTTP Results (8/8 completed)**:
+  - D01 GET `/s/invalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D02 GET `/s/../healthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/../healthz`, `CLIENT_NORMALIZATION=NONE`
+  - D03 GET `/s/%2e%2e/healthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E/healthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D04 GET `/s/%2e%2e%2fhealthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2E%2E%2Fhealthz`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D05 GET `/s/%252e%252e%252fhealthz`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%252e%252e%252fhealthz`, `CLIENT_NORMALIZATION=NONE`
+  - D06 GET `/s//invalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s//invalid-token-probe`, `CLIENT_NORMALIZATION=NONE`
+  - D07 GET `/s/%2finvalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%2Finvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - D08 GET `/s/%5cinvalid-token-probe`: HTTP `404`, CURL_EXIT 0, `CLIENT_SENT_TARGET=/s/%5Cinvalid-token-probe`, `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED`
+  - General: All 8 returned HTTP `404` with `CURL_EXIT=0`. `Server: cloudflare` and `CF-RAY` present on all 8 responses; zero redirects, zero 2xx/3xx/5xx, zero detected information leaks.
+- **Client Normalization Analysis**:
+  - PowerShell `-eq` is case-insensitive; previous `CLIENT_TARGET_MATCH=True` must not be interpreted as byte-exact equality for percent-encoded rows.
+  - Rows D03, D04, D07, D08 exhibited percent-hex case canonicalization to uppercase (`%2E%2E`, `%2E%2E%2F`, `%2F`, `%5C`).
+  - This client-side case transformation is documented as `CLIENT_NORMALIZATION=PERCENT_HEX_CASE_CANONICALIZED` and is NOT a security failure.
+- **Attribution & Gateway Raw Receipt**:
+  - `GATEWAY_RAW_RECEIPT=NOT_PROVEN`.
+  - `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+  - Do NOT uniquely attribute the 404s to Gateway vs Cloudflare edge without direct evidence.
+  - Local Gateway test prerequisite (`publicShareGatewayRuntime.test.js`, commit `7f628fb1...`) remains the evidence proving raw Gateway fail-closed behavior with zero upstream contact.
+- **Audit Verification (PostgreSQL `aegis_drive` DB)**:
+  - Baseline (20:43:08Z): Max ID 855, test target count 9, share redeem count 46.
+  - Post-execution (20:54:43Z): Max ID 856, test target count 10, share redeem count 47.
+  - Target delta: Exactly 1 row (`HARD_MAX_AUDIT_ROWS=8` satisfied, `AUDIT_LIMIT=PASS`).
+  - Safe new row: `856|2026-09-14T20:53:14Z|DENIED|expected_target=YES`.
+  - D01 canonical synthetic token reached Drive and generated one DENIED `SHARE_REDEEM` row.
+  - D02–D08 generated zero new `SHARE_REDEEM` rows. No evidence that malformed/traversal paths reached Drive share redemption.
+  - Test Evidence Preservation: Audit row 856 is intentional authorized test evidence; `AUDIT_CLEANUP=PROHIBITED`.
+- **Governance & Next Gate**:
+  - `PRODUCTION_CONFIGURATION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+  - Temporary permissions **REVOKED**: `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`.
+  - S5.7-D is **CLOSED / ACCEPTED**.
+
+### S5.7-E Live URL / query / redirect safety — CLOSED / PASS
+
+Verified on 2026-09-14 via fresh Human Owner Class-0 live probing:
+- **Authorization & Boundary**: Class 0 only (`REQUEST_BUDGET=2`, `METHOD=GET_ONLY`, `NON_SHARE_PATH_ONLY=YES`, `REDIRECT_FOLLOWING=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`, `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `CLOUDFLARE_DNS_TLS_MUTATION_ALLOWED=NO`, POST/CONNECT prohibited).
+- **Execution Window**: UTC `2026-09-14T21:08:00Z` through `2026-09-14T21:08:01Z` (`S5_7_E_CLASS0_BATCH=COMPLETE`).
+- **Probes & Results (2/2 completed)**:
+  - **E01**: `GET /redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?url=https%3A%2F%2Funapproved.example.invalid`
+    - `CLIENT_SENT_TARGET=UNPROVEN`, `CLIENT_NORMALIZATION=UNKNOWN` *(Trace parser failed to capture request-line target; absence of proof is not proof of normalization, so script-produced PATH_NORMALIZED is corrected to UNKNOWN)*.
+    - Location scheme (HTTPS), host (`share.aegistk-pb.com`), port, path, and query semantics OK.
+    - Body unescaped input reflection: `False`; unexpected leaks: `False`.
+  - **E02**: `GET /redirect-safety-probe?ip=172.31.240.2`
+    - HTTP `308`, `CURL_EXIT=0`, `Server: cloudflare`, `CF-RAY` present.
+    - `Location: https://share.aegistk-pb.com/redirect-safety-probe?ip=172.31.240.2`
+    - `CLIENT_SENT_TARGET=/redirect-safety-probe?ip=172.31.240.2`, `CLIENT_NORMALIZATION=NONE`.
+    - Location scheme (HTTPS), host (`share.aegistk-pb.com`), port, path, and query semantics OK.
+    - Body unescaped input reflection: `False`; unexpected leaks: `False`.
+- **Attribution & Metadata**:
+  - `OBSERVED_LAYER=Cloudflare Edge`, `ATTRIBUTION_BASIS=Server_cloudflare+CF-RAY`.
+  - `REDIRECT_GENERATION_LAYER=NOT_UNIQUELY_ATTRIBUTED` *(Cloudflare edge traversal proven, but exact component generating the redirect is not uniquely attributed)*.
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`, `APPLICATION_SIDE_EFFECT_OBSERVED=UNCHECKED`.
+  - `VANTAGE_POINT=External Windows client`, `METHOD=GET`, `HOST_OR_AUTHORITY=share.aegistk-pb.com`, `SNI=NOT_APPLICABLE(PLAINTEXT_HTTP_REQUEST)`, `REDIRECT_FOLLOWED=NO`, `CLOUDFLARE_NORMALIZATION_KNOWN=UNKNOWN`.
+- **Accepted Security Interpretation**:
+  - Both requests returned HTTP 308 to approved HTTPS authority `share.aegistk-pb.com`.
+  - No open redirect; no redirect to `unapproved.example.invalid` or `172.31.240.2`.
+  - User-supplied URL and private-IP-looking query values remained inert query data preserved in Location.
+  - Private IP in query parameter is not private-origin disclosure.
+  - No unescaped reflection in body; no unexpected leak in headers/body.
+  - No redirect followed; zero Production/Cloudflare/DNS/TLS mutation.
+  - Zero audit side effects; no Class 1 share-redemption path exercised.
+- **Outcome**: S5.7-E is **CLOSED / ACCEPTED / PASS**.
+
+### S5.7-F Information leakage / response hygiene — CLOSED / PASS
+
+Reviewed on 2026-09-15 via read-only inspection and consolidation of accepted response evidence:
+- **Authorization & Boundary**: Read-only evidence review exclusively (`NEW_LIVE_REQUESTS=0`, `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`). Zero new network requests, zero probe reruns, zero Production or database access.
+- **Evidence Provenance**: All response headers and bounded bodies already captured and verified by Human Owner across S5.7-B (20 requests), S5.7-C (17 requests), S5.7-D (8 requests), and S5.7-E (2 requests) — total 47 live HTTP requests.
+- **Review Against Required Leakage Classes**:
+  1. *Private IP / private origin disclosure*: `NO LEAK DETECTED` across all 47 requests. Special case E02: query parameter `ip=172.31.240.2` preserved in Location header is expected inert user data, not private-origin disclosure (the E scanner intentionally excluded Location query preservation from private IP leak classification).
+  2. *Database / SQL errors*: `NO LEAK DETECTED` (no SQL syntax, table names, schema details, or error codes).
+  3. *Stack traces / exceptions*: `NO LEAK DETECTED` (no language/runtime stack traces or unhandled exception messages).
+  4. *Internal file paths*: `NO LEAK DETECTED` (no `/opt/aegis`, `node_modules`, or host file path disclosures).
+  5. *Container / internal service names*: `NO LEAK DETECTED` (no `aegis-prod-*`, `aegis_drive`, `postgres`, or internal container names).
+  6. *X-Powered-By / application framework disclosure*: `NO LEAK DETECTED` (`X-Powered-By` absent on all 47 responses).
+  7. *Unsafe reflection*: `NO LEAK DETECTED` (`BODY_REFLECTS_UNESCAPED_INPUT=False` on all inspected bodies).
+  8. *Redirect Location handling*: Preserved approved HTTPS authority `https://share.aegistk-pb.com/...` exclusively on authorized redirect probes (E01, E02); absent on all other 45 responses; no open redirect.
+  9. *Expected Cloudflare metadata*: `Server: cloudflare` and `CF-RAY` present on all 47 responses confirmed as expected edge metadata, not origin leaks.
+- **Structured 14-Field Metadata (Aggregate Evidence Model)**:
+  - `OBSERVED_LAYER=Cloudflare Edge / Bounded Evidence Consolidation`
+  - `ATTRIBUTION_BASIS=Accepted S5.7-B through S5.7-E response headers and bodies`
+  - `APPLICATION_SIDE_EFFECT_EXPECTED=NO`
+  - `APPLICATION_SIDE_EFFECT_OBSERVED=NONE`
+  - `VANTAGE_POINT=Local Evidence Consolidation (Evidence derived from External Windows client)`
+  - `UTC_TIMESTAMP=2026-09-15T04:25:00Z`
+  - `PR_SHA=11dd451c7bcba5e70fb22173e7571b69bf803633`
+  - `METHOD=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `RAW_TARGET=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `HOST_OR_AUTHORITY=share.aegistk-pb.com`
+  - `SNI=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `REDIRECT_FOLLOWED=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `CLIENT_NORMALIZATION=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+  - `CLOUDFLARE_NORMALIZATION_KNOWN=NOT_APPLICABLE(AGGREGATE_EVIDENCE_INSPECTION)`
+- **Accepted Security Interpretation**:
+  - *Scoped statement*: "No information leak was detected within the bounded leak classes and response evidence actually inspected in S5.7-B through S5.7-E."
+  - Attribution limitations from B–E are fully preserved.
+  - Zero secrets, tokens, or credentials copied into docs.
+  - `RUNTIME_SOURCE_CHANGED=NO`, `GATEWAY_CHANGED=NO`, `PRODUCTION_MUTATION=NO`, `CLOUDFLARE_MUTATION=NO`.
+- **Outcome**: S5.7-F is **CLOSED / ACCEPTED / PASS**.
+
+### S5.7-G Strict security matrix consolidation — CLOSED / PASS
+
+Consolidated on 2026-09-15 from accepted S5.7-A through S5.7-F evidence without new network activity:
+- **Authorization & Boundary**: Documentation consolidation only (`NEW_LIVE_REQUESTS=0`, `PRODUCTION_CONFIGURATION_MUTATION_ALLOWED=NO`, `TEST_INDUCED_APPLICATION_SIDE_EFFECT_ALLOWED=NO`, `TEST_AUDIT_SIDE_EFFECT_ALLOWED=NO`, `LIVE_CLASS1_SECURITY_PROBES_ALLOWED=NO`). Zero new network requests, zero probe reruns, zero Production or database access.
+- **Consolidated Matrix Metrics**:
+  - `MATRIX_ROW_COUNT=75`
+  - `MATRIX_PASS_COUNT=74`
+  - `MATRIX_FAIL_COUNT=0`
+  - `MATRIX_NOT_TESTED_COUNT=1`
+  - `ALL_ROWS_HAVE_14_METADATA_FIELDS=YES`
+  - `STATUS_VOCABULARY_VALID=YES` (strictly `PASS`, `FAIL`, `NOT TESTED`)
+  - `ATTRIBUTION_BOUNDARIES_PRESERVED=YES`
+  - `SECURITY_ATTACK_CLASS_FAILURES=0`
+  - `POST_DEFECT_RERUN_POLICY=NOT_APPLICABLE(NO_SECURITY_ATTACK_CLASS_FAIL)`
+- **Coverage Summary (75 Total Rows)**:
+  - *S5.7-A Fresh Read-Only Preflight*: 13 rows (A01–A12 `PASS`; A-UI direct runtime proof preserved as `NOT TESTED` under secret-safe boundary).
+  - *Local Prerequisites*: 6 rows (P01–P05 Gateway runtime test suite passing 18/18 with zero upstream contact; P06 full canonical regression bar completed with 1228 passed, 0 new failures).
+  - *S5.7-B Public Surface Enumeration*: 20 rows (10 finite paths, GET and HEAD; all 20 returned HTTP 404, CURL_EXIT 0, zero leaks).
+  - *S5.7-C Method / Host / Forwarding Matrix*: 17 rows (C01–C17; 8 confirmed DENIED audit rows within budget; spoof source delta 0; all fail-closed).
+  - *S5.7-D Path Normalization Matrix*: 8 rows (D01–D08; all HTTP 404, CURL_EXIT 0, zero leaks; only canonical D01 generated audit row 856; client case canonicalization documented; Gateway raw receipt NOT PROVEN).
+  - *S5.7-E URL / Query / Redirect Safety*: 2 rows (E01–E02; both returned HTTP 308 to approved HTTPS authority; no open redirect; inert query parameters preserved; redirect layer NOT_UNIQUELY_ATTRIBUTED).
+  - *S5.7-F Information Leakage / Response Hygiene*: 9 aggregate review rows (F01–F09; zero leaks detected across all defined classes in inspected B–E responses).
+- **Attribution & Known Limitations Preserved**:
+  - Cloudflare edge traversal proven across public responses; Gateway rejection attribution for edge-terminated responses remains NOT TESTED.
+  - Gateway raw receipt for live traversal/encoded probes remains NOT PROVEN; local Gateway harness remains canonical raw-path evidence.
+  - Redirect generation layer remains NOT_UNIQUELY_ATTRIBUTED between Cloudflare edge and origin.
+  - Direct container runtime proof of UI state remains NOT TESTED under secret-safe boundary; governance truth (G5 APPROVED, G6 OPEN, UI OFF) retained.
+- **Canonical Table Location**: The complete 75-row Markdown matrix is maintained in `docs/superpowers/plans/2026-09-14-idea1-public-share-s5-7-public-security-matrix.md` under Task 7.
+- **Outcome**: S5.7-G is **CLOSED / ACCEPTED / PASS**. S5.7-H is **CLOSED / ACCEPTED / PASS**. Next Gate: `HUMAN REVIEW & MERGE OF PR #130; THEN S5.8`.
+
+### S5.7-H Evidence reconciliation, single receipt & closeout — CLOSED / PASS
+
+Verified on 2026-09-15:
+- **Canonical Evidence Reconciliation**: Verified all accepted evidence from S5.7-A through S5.7-G across plan and canonical Obsidian notes.
+- **Strict Matrix Metrics**: Exactly 75 rows (74 PASS, 0 FAIL, 1 NOT TESTED). Row `A-UI-DIRECT-RUNTIME` remains `NOT TESTED` under secret-safe boundary.
+- **Timestamp Provenance**: Validated against pre-G baseline (`7cf60e8bf4fc6c242fd1218ba6853be87233f16c`). Future timestamps = 0; unsupported exact timestamps = 0; timestamp provenance audit = PASS.
+- **Main Synchronization**: Synchronized with `origin/main` at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a` via normal merge commit `2bcafca30736ab685339da0bd4ff9e3a239108ff` (IDEA3 PR #132 repository-only preparation, zero IDEA1/Gateway runtime overlap, no Production mutation).
+- **Regression Bar**: Full regression bar completed; NEW_FAILURES=0; accepted historical failures unchanged (`TOTAL=1309`, `PASSED=1228`, `FAILED=9`, `SKIPPED=72`). Non-canonical `--test-force-exit` investigated and classified as runner artifact (`NON_CANONICAL_FORCE_EXIT_FAILURES=RUNNER_ARTIFACT`, `SOURCE_REMEDIATION_REQUIRED=NO`). Security attack-class failures = 0 (`POST_DEFECT_RERUN_POLICY=NOT_APPLICABLE(NO_SECURITY_ATTACK_CLASS_FAIL)`).
+- **Immutable Receipt**: Exactly one immutable task receipt created: `[[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]`.
+- **Zero Mutations in H**: Zero runtime source, Gateway, Production, Cloudflare, DNS, TLS, or database mutations. Zero new live requests.
+- **Governance**: G5 APPROVED; G6 OPEN; Public Share UI OFF; PUBLIC-SHARE-7 remains IN PROGRESS.
+- **Outcome**: S5.7 is **CLOSED / ACCEPTED / PASS**. Next after human review and merge: `S5.8 Twingate-OFF Wi-Fi + 4G/5G external acceptance`.
+
+## Historical Task — PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS
+
+| Field | S5.6 closeout value |
 | :--- | :--- |
 | Task | `PUBLIC-SHARE-7 / S5.6 — Activate named-tunnel hostname route and DNS; verify public TLS` |
 | Branch | `feat/idea1-public-share-s5-6-cloudflare-public-activation` |
@@ -760,8 +1086,8 @@ IMPLEMENTED.**
 | S5.4 | Dedicated Public Share networks + gateway deployment | **CLOSED / PASS** | pre-mutation gate PASSED; Phase A defects corrected (canonical `--env-file`, logical key `aegis_vlan10`, explicit `sudo` boundary; overlay SHA-256 `cc36d08c...`, gateway image `sha256:b61b...`); Phase B attempt 1 failed assertion on stale hard-coded share count (expected 25, actual 27) and cleanly rolled back to S5.3; Phase B v2 Drive State B PASSED (`7ca5cae9...`, 4 networks: `aegis_drive_proxy=172.19.255.3`, `aegis_internal=172.18.0.3`, `aegis_public_share_upstream=172.31.241.3`, `aegis_vlan10_macvlan=192.168.10.11`, exact trust `172.19.255.2/32,172.31.241.2/32`, UI false); private regression PASSED (`LOGIN`, `FILES`, `PUBLIC_UI_HIDDEN`, `ANY` lifecycle PASS; `ZONES` historical PASS / not rerun); Phase C Gateway runtime PASSED (`00f2cd8a...`, hardened non-root `101:101`, read-only, edge `172.31.240.2` + upstream `172.31.241.2`, 0 host ports); Phase D-A internal security PASSED (connector `172.31.240.3/32` trust only, CF headers stripped before Drive, negative probes 403/404/405, attribution PASS, rate limit 429 burst PASS); Phase D-B actual public stream PASSED (1 MiB stream HTTP 200, SHA-256 match, hit increment 1, canonical recipient `198.51.100.30`, forged source rejected, browser revoke HTTP 404, `active_public_shares_after_cleanup=0`, token-safe); containers preserved; cloudflared absent; egress absent; host 8080 absent; Internet exposure NONE | branch `feat/idea1-public-share-s5-4-gateway-networks` from PR #114 merge `dc673992b4c474716c4a14d2d375b3c9dd583feb`; PR #116 | **PASS** | global Public Share G5/G6 gates remain OPEN; S5.5 remains NOT STARTED; Public Internet Share NOT IMPLEMENTED; Public Share UI disabled | S5.5 isolated cloudflared connector + named tunnel (after human review and authorization) |
 | S5.5 | Isolated `cloudflared` connector + named tunnel without public route | **CLOSED / PASS** | S5.5-A through S5.5-H accepted; Production runtime/isolation and persistence/rollback acceptance completed; final rollback restored S5.4 baseline; connector/egress/S5.5 firewall runtime state absent; task-owned activation inactive/disabled; Internet exposure NONE; UI OFF. | branch `feat/idea1-public-share-s5-5-cloudflared-egress-isolation`; PR #118 MERGED at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7` | **CLOSED / PASS** | none within S5.5 | global Public Share G5 approved; proceeding to S5.6 |
 | G5 | Owner authorises actual Internet exposure | **APPROVED** | Human Owner explicit approval following S5.5 merge | — | **APPROVED** | public hostname activation | authorises S5.6 |
-| S5.6 | Public hostname, DNS and TLS activation | **CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 | **CLOSED / PASS** | none within S5.6 | S5.7 Pre-public security verification over public Internet |
-| S5.7 | Pre-public security verification | NOT STARTED | — | — | — | real external client acceptance | after S5.6 |
+| S5.6 | Public hostname, DNS and TLS activation | **MERGED / CLOSED / PASS** | S5.6-A through S5.6-H accepted; single public hostname route `share.aegistk-pb.com` active; tunnel HEALTHY (1 replica, 1 route); public DNS active; min TLS 1.2; HTTP->HTTPS 308; public default-deny verified; live connector runtime active and isolated; rollback script verified executable (rehearsal not run); UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-6-cloudflare-public-activation`; PR #126 merged at `fe75bc53c1fd3a3103708470dfb7111996b80eff` | **PASS** | none within S5.6 | S5.7 Public Internet Security Matrix |
+| S5.7 | Public Internet Security Matrix | **CLOSED / PASS** | S5.7-A through S5.7-H accepted; 75 strict matrix rows (74 PASS, 0 FAIL, 1 NOT TESTED under secret-safe boundary); all 14 metadata fields present; attribution boundaries preserved; timestamp provenance verified; full regression completed (NEW_FAILURES=0, accepted historical failures unchanged); exactly one immutable receipt; UI OFF; G6 OPEN | branch `feat/idea1-public-share-s5-7-public-security-matrix`; PR #130 | **PASS** | none within S5.7 | Human merge of PR #130; S5.8 external acceptance |
 | S5.8 | Twingate-OFF 4G/5G external acceptance | NOT STARTED | — | — | — | resilience acceptance | after S5.7 |
 | S5.9 | 64 MiB SHA-256, resilience and interruption acceptance | NOT STARTED | — | — | — | rollback acceptance | after S5.8 |
 | S5.10 | Ingress rollback + private-system regression | NOT STARTED | — | — | — | G6 decision | after S5.9 |
@@ -806,7 +1132,7 @@ No value below was reproduced from Windows in S5.1.
 | Public gateway & connector | Absent; no Public Share networks created; `cloudflared` not installed; no public listeners |
 | Domain ownership | `DOMAIN_OWNERSHIP=OWNED`, `DOMAIN=aegistk-pb.com`, `REGISTRAR=Cloudflare`. Proves ownership only; NO DNS/tunnel/TLS route activated |
 | Private regression | HTTP 200/401 `PASS`; HUB login `PASS`; Files `PASS`; public UI hidden (Internet card not ready / not selectable); ANY share lifecycle `PASS` (classification: owner-confirmed S5.3); ZONES share `PASS` (classification: owner-confirmed, corroborated by historical B4 Production Network Scope acceptance); Storage `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance); Audit `HISTORICAL_PASS` (classification: carried-forward accepted evidence; not re-executed as a new S5.3 browser acceptance) |
-| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = MERGED / CLOSED / PASS through PR #118 at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`, G5 = APPROVED, S5.6 = CLOSED / PASS, G6 = OPEN, Public Share UI = OFF, PUBLIC-SHARE-7 = IN PROGRESS, S5.7 = NEXT, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED |
+| Governance state | S5.1 = MERGED / HISTORICAL PASS, S5.2 = MERGED / HISTORICAL PARTIAL, S5.3 = MERGED / CLOSED / PASS at `dc673992b4c474716c4a14d2d375b3c9dd583feb`, S5.4 = CLOSED / PASS through PR #116 at `9ea9bbfcf40128f4565bc4ba37ba008a62c4879c`, S5.5 = MERGED / CLOSED / PASS through PR #118 at `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`, G5 = APPROVED, S5.6 = CLOSED / PASS, S5.7 = CLOSED / PASS, G6 = OPEN, Public Share UI = OFF, PUBLIC-SHARE-7 = IN PROGRESS, S5.8 = NEXT, Public Internet Share = NOT IMPLEMENTED / NOT EXTERNALLY ACCEPTED |
 
 ### S5.4 Production runtime acceptance — 2026-09-11
 
