@@ -17,54 +17,53 @@ edit_policy: owner-writable
 
 ## Current Task
 
-Task: IDEA2 Camera-First Slice 1, Machine A browser-to-physical-camera association
-Branch: `feat/idea2-camera-first-machine-association`
+Task: IDEA2 Machine A Monitor stream-abort crash runtime unblocker
+Branch: `fix/idea2-monitor-stream-abort-crash`
 Owner: Pub
-PR: [#128](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/128) — Draft; Pub owner and Kla integration review requested
-Current state: PLANNED — Camera-First Slice 1 design is approved and its five-task bounded TDD plan is validated; runtime implementation has not started; CP3 runtime remains paused
-Started: 2026-09-14
-Last checkpoint: `03cafc19fb884cb6331e642d3673a272a89e81f5` — approved Camera-First Slice 1 machine-association design
+PR: Draft only — human review and human merge only
+Current state: PARTIAL — deterministic RED and the minimal Monitor cleanup fix are verified locally; real Machine A webcam/runtime acceptance remains the next human gate
+Started: 2026-09-15
+Last checkpoint: task-branch checkpoint recorded in the Draft PR; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
 Production mutation allowed: NO
 
 ### Goal
 
-Get Machine A's existing physical camera onto the authenticated Monitor web flow
-by binding an Operator's server-side browser session to a cryptographically
-verified local Node, resolving that Node's physical camera from the registry,
-and routing the authorized logical alias to the existing Engine stream.
+Keep the Monitor backend alive when an MJPEG upstream stalls and cancellation
+rejects asynchronously, so real Machine A camera acceptance can continue
+without weakening the established on-demand camera lifecycle.
 
 ### Scope
 
-Camera-First Slice 1 is planned as five reviewable TDD tasks: Monitor proof and
-challenge verification; the minimum CP3-compatible Identity Agent loopback
-association endpoint; server-side session binding plus invisible browser
-orchestration; account-alias authorization plus physical stream routing; and
-full regression plus Machine A acceptance preparation. CP3's approved identity
-and ingest design plus implementation plan remain preserved; CP3 runtime work
-is paused, not cancelled. No Slice 1 runtime implementation has started.
+Prove the duplicate/async upstream-cancellation failure with a deterministic RED
+test, implement one authoritative idempotent cleanup path, verify stream cleanup
+and viewer-demand regression behavior, run the Monitor/design/UI/build checks,
+and prepare the bounded fix for human review. The existing physical-camera and
+account-alias contract remains unchanged.
 
 ### Out of scope
 
-CP3 authenticated heartbeat/detection/alert/clip ingest, producer leases and
-epochs, full logical-alias ownership, multi-tab reference counting, final SOC
-passive remediation, multi-machine Production rollout, UI redesign, camera
-hardware, model, training, and biometric changes remain outside Slice 1.
+SOC passive/no-wake remediation, Telegram routing or delivery, Machine B/C,
+identity architecture, producer ownership, permanent diagnostic-infrastructure
+removal, UI redesign, Production deployment, camera hardware, model, training,
+and biometric changes are outside this runtime-unblocker task.
 
 ### Safety boundaries
 
-The browser never owns Node or physical-camera identity. Machine A's private
-application key remains local to the dedicated Agent service identity, is
-unrelated to SSH, and must not reach the browser, Detection Engine, logs, tests,
-receipts, or Git. Login and association create no camera demand. Production,
-camera core, model, training, and biometric source remain unchanged.
+The browser never owns Node or physical-camera identity. Machine identity still
+selects the physical camera; account identity selects only the CAM-01/CAM-02
+logical alias. Login alone creates no demand. The camera stays closed while
+idle, opens only for authorized Operator demand, remains reference-counted, and
+closes after final release or logout. Production and persistent Machine A
+configuration remain unchanged.
 
 ### Acceptance criteria
 
-The Slice 1 design and later implementation plan must preserve the exact A/B/C
-physical-camera plus account-alias contract, use a proof domain distinct from
-CP3 ingest, fail closed in strict mode, preserve CP3, defer CP5/SOC completion,
-leave protected camera/model/training paths unchanged, and pass repository
-Vault/document, secret, and Git validation before each checkpoint.
+The RED test must reproduce the process-level uncontained rejection path. The
+minimal GREEN fix must leave exactly one cleanup owner, contain asynchronous
+cancellation rejection, close only the affected browser response, release
+viewer demand, permit reconnect, preserve watchdog/session revalidation, and
+leave no timer, reader, socket, or unhandled-rejection leak. Full scoped and
+repository validation must pass before a Draft PR is prepared.
 
 ## Session Register
 
@@ -77,6 +76,7 @@ Vault/document, secret, and Git validation before each checkpoint.
 | CP3-S2 | Detailed TDD implementation and human-runtime-gate planning | PASS | 17 reviewable tasks; exact file/interface maps; H1–H10; spec coverage, placeholder, interface, Vault, governance, secret, and Git checks | this documentation checkpoint | PASS — planning only; source not started | human plan review and implementation authorization | stop for human review |
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
 | CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
+| CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PARTIAL | RED reproduced the strict unhandled `AbortError`; focused lifecycle 6/6 x3, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine viewer-demand 6/6; full Engine 74/76 with two unchanged current-main generation failures | task-branch checkpoint (SHA in Draft PR), based on `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b` | PASS — automated source gate; real Machine A runtime not yet verified | Draft PR review, then repeat real Machine A idle/open/sustain/release test | keep Production untouched and do not merge |
 
 ## Detector B real-machine acceptance (2026-09-06)
 
