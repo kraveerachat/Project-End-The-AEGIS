@@ -34,6 +34,9 @@ PR132                           = MERGED (human merge)
 ARCHITECTURE_GATE_P3_CORE_ONLY  = APPROVED
 P3_TASK                         = PHASE3 CORE LIVE REPOSITORY PREPARATION
 P3_TASK_STATUS                  = COMPLETE / LOCAL VERIFIED
+PR133                           = OPEN / READY FOR HUMAN REVIEW
+PR133_COLLABORATION_GUARDRAIL   = PASS (fresh post-Ready run 34930842212)
+PR133_REVIEW_REQUESTS           = kraveerachat (Kla), pubpup2006p-design (Pub/D6)
 P3_TASK_RECEIPT                 = 90-Status/logs/2026-09-15_114852_music_idea3-pr11-phase3-repository-preparation.md
 P3_TASK_RECEIPT_COUNT           = 1
 PHASE2_RUNTIME_COMPLETE         = NO
@@ -56,11 +59,12 @@ IDEA3_PRODUCTION_DEPLOYED       = NO
 Task: IDEA3 PR11 Phase 3 Core Live — repository preparation
 Branch: `feat/idea3-pr11-phase3-core-live`
 Owner: `music`
-PR: pending push/open; repository closeout is locally complete
+PR: GitHub PR #133 — Ready; fresh post-Ready collaboration guardrail PASS;
+Kla and Pub reviews requested
 Current state: COMPLETE / LOCAL VERIFIED (repository preparation only)
 Started: 2026-09-15
 Base SHA: `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`
-Last checkpoint: working tree closeout; commit pending
+Last checkpoint: `b15e9c35` (implementation/evidence); PR #133 Ready guardrail PASS
 Production mutation allowed: NO
 
 - **Goal:** prepare a dedicated, reproducible Core-only systemd runtime and
@@ -85,7 +89,7 @@ Plan:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P3-R1 | Repository preparation: audit, architecture, Core-only unit, external roots, status projection, credential regression, runbook | CLOSED | focused 177/177; full Python 8 failed, 340 passed, 6 skipped with the same eight baseline paho failures; Ruff/compileall/diff checks PASS; governance checks and one receipt | working tree closeout; commit pending | PASS — REPOSITORY PREPARATION COMPLETE; LOCAL / STATIC only | Kla normal review; Pub D6 review; every live prerequisite below | Human review, then a separately authorized read-only/live session |
+| P3-R1 | Repository preparation: audit, architecture, Core-only unit, external roots, status projection, credential regression, runbook | CLOSED | focused 177/177; full Python 8 failed, 340 passed, 6 skipped with the same eight baseline paho failures; Ruff/compileall/diff checks PASS; governance checks and one receipt; PR #133 fresh post-Ready guardrail PASS | `b15e9c35` (implementation/evidence) | PASS — REPOSITORY PREPARATION COMPLETE; LOCAL / STATIC only | Kla normal review; Pub D6 review; every live prerequisite below | Human review, then a separately authorized read-only/live session |
 | P3-E1 | Owner-run read-only Core evidence package | NOT STARTED | commands prepared in the runbook only | — | — | Phase 2 runtime, K8/K9/K10/D6/K12 and IDEA1-window gates | only with explicit Music authorization |
 | P3-L1 | Live Core installation and validation | BLOCKED | — | — | — | P3-E1 PASS and explicit Production mutation authorization | — |
 
