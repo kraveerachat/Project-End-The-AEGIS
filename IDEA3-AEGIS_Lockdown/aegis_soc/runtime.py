@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import config
 from .paths import RuntimePaths
+from .protocol_runtime import protocol_configuration_errors
 
 
 class RuntimeState(StrEnum):
@@ -37,6 +38,23 @@ def platform_capabilities(platform: str | None = None) -> dict[str, bool]:
         "operator_gui": not windows,
         "voice": False,
     }
+
+
+def _production_mqtt_errors() -> list[str]:
+    """TLS-only MQTT with a distinct, non-anonymous Core identity (design §8)."""
+    errors: list[str] = []
+    if not config.MQTT_TLS:
+        errors.append("production requires TLS for MQTT")
+    if config.PORT == 1883:
+        errors.append("production refuses MQTT port 1883")
+    ca_file = config.MQTT_CA_FILE
+    if not ca_file or not Path(ca_file).is_file() or not os.access(ca_file, os.R_OK):
+        errors.append("production requires a readable MQTT CA file (AEGIS_MQTT_CA_FILE)")
+    if not config.MQTT_USER or not config.MQTT_PASS:
+        errors.append("production refuses anonymous MQTT access; the Core identity needs a username and password")
+    elif config.MQTT_USER.startswith("idea3-dev-"):
+        errors.append("the Core must not use an ESP32 broker identity")
+    return errors
 
 
 @dataclass(frozen=True)
@@ -165,9 +183,23 @@ class RuntimeSettings:
             elif not (Path(__file__).resolve().parent.parent / "detector.py").is_file():
                 errors.append("detector.py is unavailable")
 
+        mode = config.PROTOCOL_MODE
+        legacy = mode == config.PROTOCOL_MODE_LEGACY_LAB
+        if mode not in (config.PROTOCOL_MODE_V1, config.PROTOCOL_MODE_LEGACY_LAB):
+            errors.append("AEGIS_PROTOCOL_MODE must be v1 or legacy-v0-lab")
+        if legacy:
+            if self.profile == "production":
+                errors.append("production refuses the legacy v0 protocol; Protocol v1 is required")
+            else:
+                warnings.append("legacy v0 lab protocol selected: device evidence is unsigned; lab use only")
+        elif not self.dry_run:
+            errors.extend(protocol_configuration_errors(runtime_dir=self.runtime_dir))
         if self.profile == "production":
-            if not config.SECRET_KEY or config.SECRET_KEY == config.DEMO_SECRET:
-                errors.append("production requires a non-demo HMAC secret")
+            errors.extend(_production_mqtt_errors())
+        elif not self.dry_run and not config.MQTT_TLS:
+            warnings.append("MQTT TLS is disabled outside production; lab use only")
+
+        if self.profile == "production":
             if not config.ADMIN_PIN_CONFIGURED or config.verify_pin(config.DEFAULT_ADMIN_PIN):
                 errors.append("production requires a non-default Admin PIN")
             if config.BROKER_IP == "192.168.2.174":

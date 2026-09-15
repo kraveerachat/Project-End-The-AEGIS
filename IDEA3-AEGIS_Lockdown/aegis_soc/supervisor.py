@@ -186,7 +186,7 @@ class AegisSupervisor:
             build_protocol_context_from_environment() if protocol is _DEFAULT_PROTOCOL else protocol
         )
         self.clock = clock or (self.protocol.clock if self.protocol is not None else TrustedClock())
-        self.mqtt = mqtt_manager or MQTTManager()
+        self.mqtt = mqtt_manager or MQTTManager(protocol=self.protocol)
         # The headless Core never restores on its own: its RESTORE allowlist is
         # empty unless a future D4 Core-local CLI supplies an audited origin.
         self.controller = AegisCommandController(

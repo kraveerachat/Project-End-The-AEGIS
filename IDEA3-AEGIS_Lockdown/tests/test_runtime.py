@@ -95,7 +95,8 @@ def test_production_preflight_rejects_demo_credentials(tmp_path, monkeypatch):
 
     errors, _ = settings.preflight()
 
-    assert any("non-demo HMAC" in error for error in errors)
+    # Production speaks only Protocol v1; the legacy shared HMAC secret is unused there.
+    assert any("AEGIS_P1_DEVICE_ID" in error for error in errors)
     assert any("non-default Admin PIN" in error for error in errors)
 
 

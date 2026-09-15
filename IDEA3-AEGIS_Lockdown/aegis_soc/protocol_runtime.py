@@ -48,6 +48,31 @@ def protocol_db_path(*, platform: str | None = None) -> Path:
     return path
 
 
+def protocol_configuration_errors(*, runtime_dir: Path | None = None) -> list[str]:
+    """Preflight reasons that a live v1 Core cannot build its context. Never echoes key bytes."""
+    errors: list[str] = []
+    if not p1.valid_device_id(config.P1_DEVICE_ID):
+        errors.append("Protocol v1 requires a valid AEGIS_P1_DEVICE_ID")
+    if not (config.P1_C2D_KEY_FILE and config.P1_D2C_KEY_FILE):
+        errors.append(
+            "Protocol v1 requires AEGIS_P1_C2D_KEY_FILE and AEGIS_P1_D2C_KEY_FILE (one key file per direction)"
+        )
+    else:
+        try:
+            p1.load_protocol_keys(config.P1_C2D_KEY_FILE, config.P1_D2C_KEY_FILE)
+        except p1.ProtocolKeyError as error:
+            errors.append(f"Protocol v1 key check failed: {error}")
+    try:
+        path = protocol_db_path()
+    except ValueError as error:
+        errors.append(f"Protocol v1 store: {error}")
+    else:
+        problem = protocol_db_problem(path, runtime_dir=runtime_dir)
+        if problem is not None:
+            errors.append(f"Protocol v1 store: {problem}")
+    return errors
+
+
 def build_protocol_context_from_environment(*, clock=None) -> ProtocolContext | None:
     if config.PROTOCOL_MODE == config.PROTOCOL_MODE_LEGACY_LAB:
         return None

@@ -214,7 +214,7 @@ def test_config_import_accepts_standalone_blank_optional_broker_values(tmp_path)
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["port"] == 1883
+    assert payload["port"] == 8883
     assert payload["brokerConfigured"] is False
     assert any("broker is not configured" in warning.lower() for warning in payload["warnings"])
 
@@ -233,9 +233,9 @@ def test_malformed_broker_port_fallback_is_windows_console_safe(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["port"] == 1883
+    assert payload["port"] == 8883
     assert payload["brokerConfigured"] is False
-    assert "AEGIS_BROKER_PORT is not an integer; using default port 1883" in payload["warnings"]
+    assert "AEGIS_BROKER_PORT is not an integer; using default port 8883" in payload["warnings"]
     assert "UnicodeEncodeError" not in result.stderr
     assert result.stdout.isascii()
 

@@ -16,6 +16,7 @@ from . import comms, config
 from . import database as db
 from .controller import AegisCommandController
 from .mqtt_client import MQTTManager
+from .protocol_runtime import build_protocol_context_from_environment
 from .theme import (
     COLOR_ACCENT,
     COLOR_BG,
@@ -60,6 +61,7 @@ class AegisAdminGUI:
         self.controller = command_controller or AegisCommandController(
             mqtt_manager,
             dry_run=config.DRY_RUN,
+            protocol=getattr(mqtt_manager, "protocol", None),
         )
         self.tg_pin_fails = 0          # จำนวนครั้งใส่ PIN ผิดทาง Telegram
         self.tg_locked_until = 0       # ล็อกจนถึงเวลาไหน (timestamp)
@@ -764,8 +766,9 @@ def main():
     db.init_db()
     db.log_event("SYSTEM", "SOC เริ่มทำงาน", db.INFO)   # ← เพิ่ม
     root = tk.Tk()
-    mqtt = MQTTManager()
-    controller = AegisCommandController(mqtt, dry_run=config.DRY_RUN)
+    protocol = build_protocol_context_from_environment()
+    mqtt = MQTTManager(protocol=protocol)
+    controller = AegisCommandController(mqtt, dry_run=config.DRY_RUN, protocol=protocol)
     app = AegisAdminGUI(root, mqtt, controller)
     app.refresh_incident_banner()
 
