@@ -1,0 +1,2287 @@
+{
+  "schema": "aegis-idea3-protocol-v1-vectors/1",
+  "notice": "TEST ONLY. These keys are public and are refused by Core key loading.",
+  "testOnlyKeys": {
+    "c2d": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "d2c": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+  },
+  "deviceId": "test-device-01",
+  "timeFloor": 1789430400,
+  "valid": [
+    {
+      "id": "V-CMD-CUT",
+      "kind": "COMMAND",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "elements": [
+        "1",
+        "COMMAND",
+        "test-device-01",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "1789434000",
+        "1789434030",
+        "CUT_UPLINK"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e434f52455f544f5f4445564943450000002561656769732f69646561332f76312f746573742d6465766963652d30312f636f6d6d616e64000000013100000007434f4d4d414e440000000e746573742d6465766963652d303100000020373166613532376361376465383433333032376532633962653038663837613500000001310000000a313738393433343030300000000a313738393433343033300000000a4355545f55504c494e4b",
+      "mac": "d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]"
+    },
+    {
+      "id": "V-CMD-RESTORE",
+      "kind": "COMMAND",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "elements": [
+        "1",
+        "COMMAND",
+        "test-device-01",
+        "defaffa323b5589e9654e06048ff9fa0",
+        "2",
+        "1789434000",
+        "1789434030",
+        "RESTORE_UPLINK"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e434f52455f544f5f4445564943450000002561656769732f69646561332f76312f746573742d6465766963652d30312f636f6d6d616e64000000013100000007434f4d4d414e440000000e746573742d6465766963652d303100000020646566616666613332336235353839653936353465303630343866663966613000000001320000000a313738393433343030300000000a313738393433343033300000000e524553544f52455f55504c494e4b",
+      "mac": "f9a75d58db324e36704d184224222549716217a7ffbf901729b26a56730d6344",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"defaffa323b5589e9654e06048ff9fa0\",\"2\",\"1789434000\",\"1789434030\",\"RESTORE_UPLINK\",\"f9a75d58db324e36704d184224222549716217a7ffbf901729b26a56730d6344\"]"
+    },
+    {
+      "id": "V-CMD-SEQMAX",
+      "kind": "COMMAND",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "elements": [
+        "1",
+        "COMMAND",
+        "test-device-01",
+        "4e3b4859218bd22b0480bf37865a971d",
+        "18446744073709551615",
+        "1789434000",
+        "1789434030",
+        "CUT_UPLINK"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e434f52455f544f5f4445564943450000002561656769732f69646561332f76312f746573742d6465766963652d30312f636f6d6d616e64000000013100000007434f4d4d414e440000000e746573742d6465766963652d30310000002034653362343835393231386264323262303438306266333738363561393731640000001431383434363734343037333730393535313631350000000a313738393433343030300000000a313738393433343033300000000a4355545f55504c494e4b",
+      "mac": "180bbeba621254f711e926768ea67caa20fc723cc99c7aa49272e45d8101a5dc",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"4e3b4859218bd22b0480bf37865a971d\",\"18446744073709551615\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"180bbeba621254f711e926768ea67caa20fc723cc99c7aa49272e45d8101a5dc\"]"
+    },
+    {
+      "id": "V-HB",
+      "kind": "HEARTBEAT",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "elements": [
+        "1",
+        "HEARTBEAT",
+        "test-device-01",
+        "b42fa6a3caaf7625c1f72fa16d6ad9fa",
+        "1789434000"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e434f52455f544f5f4445564943450000002761656769732f69646561332f76312f746573742d6465766963652d30312f6865617274626561740000000131000000094845415254424541540000000e746573742d6465766963652d30310000002062343266613661336361616637363235633166373266613136643661643966610000000a31373839343334303030",
+      "mac": "3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]"
+    },
+    {
+      "id": "V-ACK-OK",
+      "kind": "ACK",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "elements": [
+        "1",
+        "ACK",
+        "test-device-01",
+        "ac279a0ac178b5c6b57e0fc21e801c8e",
+        "1789434001",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "ACCEPTED"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002161656769732f69646561332f76312f746573742d6465766963652d30312f61636b00000001310000000341434b0000000e746573742d6465766963652d30310000002061633237396130616331373862356336623537653066633231653830316338650000000a313738393433343030310000002037316661353237636137646538343333303237653263396265303866383761350000000131000000084143434550544544",
+      "mac": "3a37db27ef426928d8f767e4af4f26bb2bfc18db555ae7d97703533d0c80d4e0",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"3a37db27ef426928d8f767e4af4f26bb2bfc18db555ae7d97703533d0c80d4e0\"]"
+    },
+    {
+      "id": "V-ACK-SEQ",
+      "kind": "ACK",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "elements": [
+        "1",
+        "ACK",
+        "test-device-01",
+        "1a032c802a08cd4739c17302d7ca4c9d",
+        "1789434001",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "REJECTED_SEQUENCE"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002161656769732f69646561332f76312f746573742d6465766963652d30312f61636b00000001310000000341434b0000000e746573742d6465766963652d30310000002031613033326338303261303863643437333963313733303264376361346339640000000a3137383934333430303100000020373166613532376361376465383433333032376532633962653038663837613500000001310000001152454a45435445445f53455155454e4345",
+      "mac": "fbdf8b4271592296978e192fb5668cd96287e772815b0978b85d9179c45b310c",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"1a032c802a08cd4739c17302d7ca4c9d\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"REJECTED_SEQUENCE\",\"fbdf8b4271592296978e192fb5668cd96287e772815b0978b85d9179c45b310c\"]"
+    },
+    {
+      "id": "V-ACK-EXPIRED",
+      "kind": "ACK",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "elements": [
+        "1",
+        "ACK",
+        "test-device-01",
+        "c2b6804fee77ae8ce6c408d6b969c5ab",
+        "1789434001",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "REJECTED_EXPIRED"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002161656769732f69646561332f76312f746573742d6465766963652d30312f61636b00000001310000000341434b0000000e746573742d6465766963652d30310000002063326236383034666565373761653863653663343038643662393639633561620000000a3137383934333430303100000020373166613532376361376465383433333032376532633962653038663837613500000001310000001052454a45435445445f45585049524544",
+      "mac": "b754ac72b3df797c0196de66c99456b865d19987b1d017354b50374f8ee65e16",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"c2b6804fee77ae8ce6c408d6b969c5ab\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"REJECTED_EXPIRED\",\"b754ac72b3df797c0196de66c99456b865d19987b1d017354b50374f8ee65e16\"]"
+    },
+    {
+      "id": "V-ACK-PERSIST",
+      "kind": "ACK",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "elements": [
+        "1",
+        "ACK",
+        "test-device-01",
+        "6b47f1e9b055e34fd75b627ce5ca239f",
+        "1789434001",
+        "defaffa323b5589e9654e06048ff9fa0",
+        "2",
+        "REJECTED_PERSIST"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002161656769732f69646561332f76312f746573742d6465766963652d30312f61636b00000001310000000341434b0000000e746573742d6465766963652d30310000002036623437663165396230353565333466643735623632376365356361323339660000000a3137383934333430303100000020646566616666613332336235353839653936353465303630343866663966613000000001320000001052454a45435445445f50455253495354",
+      "mac": "e17375ae64e96ce34571f96cdefd444aa419b02933951f920119a940eb2a38b9",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"6b47f1e9b055e34fd75b627ce5ca239f\",\"1789434001\",\"defaffa323b5589e9654e06048ff9fa0\",\"2\",\"REJECTED_PERSIST\",\"e17375ae64e96ce34571f96cdefd444aa419b02933951f920119a940eb2a38b9\"]"
+    },
+    {
+      "id": "V-ST-PERIODIC",
+      "kind": "STATUS",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "elements": [
+        "1",
+        "STATUS",
+        "test-device-01",
+        "c84198575fd0d043698cab09c032f2e9",
+        "1789434005",
+        "SYNCED",
+        "NORMAL",
+        "PERIODIC",
+        "",
+        "0",
+        "2",
+        "-67",
+        "183456"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000131000000065354415455530000000e746573742d6465766963652d30310000002063383431393835373566643064303433363938636162303963303332663265390000000a313738393433343030350000000653594e434544000000064e4f524d414c00000008504552494f4449430000000000000001300000000132000000032d363700000006313833343536",
+      "mac": "e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "V-ST-COMMAND",
+      "kind": "STATUS",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "elements": [
+        "1",
+        "STATUS",
+        "test-device-01",
+        "516bd04233adf137dc3897368a748ead",
+        "1789434002",
+        "HOLDOVER",
+        "LOCKDOWN",
+        "COMMAND",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "1",
+        "-48",
+        "200000"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000131000000065354415455530000000e746573742d6465766963652d30310000002035313662643034323333616466313337646333383937333638613734386561640000000a3137383934333430303200000008484f4c444f564552000000084c4f434b444f574e00000007434f4d4d414e4400000020373166613532376361376465383433333032376532633962653038663837613500000001310000000131000000032d343800000006323030303030",
+      "mac": "7ca89830f0290987750a2b8254149d32c503d1efd8e6dbb3ae150cadf9f9a1d8",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"516bd04233adf137dc3897368a748ead\",\"1789434002\",\"HOLDOVER\",\"LOCKDOWN\",\"COMMAND\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1\",\"-48\",\"200000\",\"7ca89830f0290987750a2b8254149d32c503d1efd8e6dbb3ae150cadf9f9a1d8\"]"
+    },
+    {
+      "id": "V-ST-UNTRUSTED",
+      "kind": "STATUS",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "elements": [
+        "1",
+        "STATUS",
+        "test-device-01",
+        "02ebcd0286d7a8bd3e054293ae5846ea",
+        "0",
+        "UNTRUSTED",
+        "LOCKDOWN",
+        "BOOT",
+        "",
+        "0",
+        "0",
+        "-127",
+        "0"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000131000000065354415455530000000e746573742d6465766963652d3031000000203032656263643032383664376138626433653035343239336165353834366561000000013000000009554e54525553544544000000084c4f434b444f574e00000004424f4f540000000000000001300000000130000000042d3132370000000130",
+      "mac": "0a64f15cb5d4481dad6095ea91faf12d1621ed253681588455404e42a03c291d",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"02ebcd0286d7a8bd3e054293ae5846ea\",\"0\",\"UNTRUSTED\",\"LOCKDOWN\",\"BOOT\",\"\",\"0\",\"0\",\"-127\",\"0\",\"0a64f15cb5d4481dad6095ea91faf12d1621ed253681588455404e42a03c291d\"]"
+    },
+    {
+      "id": "V-ST-SEQREJ",
+      "kind": "STATUS",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "elements": [
+        "1",
+        "STATUS",
+        "test-device-01",
+        "4200273c52b4c9e8db751cd6687cfeb4",
+        "1789434002",
+        "SYNCED",
+        "NORMAL",
+        "SEQUENCE_REJECTED",
+        "71fa527ca7de8433027e2c9be08f87a5",
+        "1",
+        "7",
+        "0",
+        "150000"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000131000000065354415455530000000e746573742d6465766963652d30310000002034323030323733633532623463396538646237353163643636383763666562340000000a313738393433343030320000000653594e434544000000064e4f524d414c0000001153455155454e43455f52454a454354454400000020373166613532376361376465383433333032376532633962653038663837613500000001310000000137000000013000000006313530303030",
+      "mac": "1b93dbd0e780dcfc0e86eee390dcd61df7d94dc8178a45c4d95a18e44f76f8ed",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"4200273c52b4c9e8db751cd6687cfeb4\",\"1789434002\",\"SYNCED\",\"NORMAL\",\"SEQUENCE_REJECTED\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"7\",\"0\",\"150000\",\"1b93dbd0e780dcfc0e86eee390dcd61df7d94dc8178a45c4d95a18e44f76f8ed\"]"
+    },
+    {
+      "id": "V-ST-DEADMAN",
+      "kind": "STATUS",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "elements": [
+        "1",
+        "STATUS",
+        "test-device-01",
+        "6b88d8d525f9383a61ca26d147a09839",
+        "1789434003",
+        "SYNCED",
+        "LOCKDOWN",
+        "DEADMAN",
+        "",
+        "0",
+        "7",
+        "-90",
+        "4294967295"
+      ],
+      "signingInputHex": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000131000000065354415455530000000e746573742d6465766963652d30310000002036623838643864353235663933383361363163613236643134376130393833390000000a313738393433343030330000000653594e434544000000084c4f434b444f574e00000007444541444d414e0000000000000001300000000137000000032d39300000000a34323934393637323935",
+      "mac": "39e37c4e405cb46ef48e442d1a4154ebfc79dba70209da628a9aad052135e9b0",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"6b88d8d525f9383a61ca26d147a09839\",\"1789434003\",\"SYNCED\",\"LOCKDOWN\",\"DEADMAN\",\"\",\"0\",\"7\",\"-90\",\"4294967295\",\"39e37c4e405cb46ef48e442d1a4154ebfc79dba70209da628a9aad052135e9b0\"]"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "C-ACK-OK",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"3a37db27ef426928d8f767e4af4f26bb2bfc18db555ae7d97703533d0c80d4e0\"]"
+    },
+    {
+      "id": "C-ST-PERIODIC",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-ST-COMMAND",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"516bd04233adf137dc3897368a748ead\",\"1789434002\",\"HOLDOVER\",\"LOCKDOWN\",\"COMMAND\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1\",\"-48\",\"200000\",\"7ca89830f0290987750a2b8254149d32c503d1efd8e6dbb3ae150cadf9f9a1d8\"]"
+    },
+    {
+      "id": "C-ST-SEQREJ",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"4200273c52b4c9e8db751cd6687cfeb4\",\"1789434002\",\"SYNCED\",\"NORMAL\",\"SEQUENCE_REJECTED\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"7\",\"0\",\"150000\",\"1b93dbd0e780dcfc0e86eee390dcd61df7d94dc8178a45c4d95a18e44f76f8ed\"]"
+    },
+    {
+      "id": "C-ST-DEADMAN",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"6b88d8d525f9383a61ca26d147a09839\",\"1789434003\",\"SYNCED\",\"LOCKDOWN\",\"DEADMAN\",\"\",\"0\",\"7\",\"-90\",\"4294967295\",\"39e37c4e405cb46ef48e442d1a4154ebfc79dba70209da628a9aad052135e9b0\"]"
+    },
+    {
+      "id": "C-HOLDOVER",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "HOLDOVER",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-TOPIC-OTHER-DEVICE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-02/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "TOPIC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-TOPIC-COMMAND",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "TOPIC",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]"
+    },
+    {
+      "id": "C-RETAINED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": true,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "RETAINED",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]",
+      "note": "retained command/evidence is never accepted"
+    },
+    {
+      "id": "C-SIZE-OVER",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "SIZE",
+      "wire": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "id": "C-SIZE-EMPTY",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "SIZE",
+      "wire": ""
+    },
+    {
+      "id": "C-WHITESPACE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "[1, \"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-ESCAPE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERI\\ODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-NON-ASCII",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": null,
+      "wireHex": "5b312c22535441545553222c22746573742d6465766963652d3031222c226338343139383537356664306430343336393863616230396330333266326539222c2231373839343334303035222c2253594e434544222c224e4f524d414c222c2250455249c3a9222c22222c2230222c2232222c222d3637222c22313833343536222c2265393630613635323132636265393330613232386132373430356233633165303234656663656634323665356364613365616266313261303332356634353266225d"
+    },
+    {
+      "id": "C-NESTED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "[1,[\"STATUS\"]]"
+    },
+    {
+      "id": "C-NUMBER-ELEMENT",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",0,\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-TRAILING-NEWLINE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": null,
+      "wireHex": "5b312c22535441545553222c22746573742d6465766963652d3031222c226338343139383537356664306430343336393863616230396330333266326539222c2231373839343334303035222c2253594e434544222c224e4f524d414c222c22504552494f444943222c22222c2230222c2232222c222d3637222c22313833343536222c2265393630613635323132636265393330613232386132373430356233633165303234656663656634323665356364613365616266313261303332356634353266225d0a"
+    },
+    {
+      "id": "C-VERSION-LEADING-ZERO",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "[01,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-LEGACY-V0-STATUS",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "{\"state\":\"LOCKDOWN\",\"reason\":\"verified\",\"rssi\":-48,\"heap\":200000}",
+      "note": "legacy v0 JSON object fails closed"
+    },
+    {
+      "id": "C-STATELESS-OBJECT",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "{\"reason\":\"heartbeat\",\"rssi\":-47,\"heap\":199000}",
+      "note": "malformed STATUS never becomes NORMAL"
+    },
+    {
+      "id": "C-EXTRA",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "ARITY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"extra\",\"d7ca3d718fb17bc19f101d8dfc3bd9c8cecf68543cb4692e4521a8b6018af7aa\"]"
+    },
+    {
+      "id": "C-MISSING",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "ARITY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"17f215e53a6e76b8bcf7870af11f1d6960c50a9c44e74c8bbf63733a8a80000d\"]"
+    },
+    {
+      "id": "C-STATUS-ON-ACK-TOPIC",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "ARITY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-UPPER-MAC",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"E960A65212CBE930A228A27405B3C1E024EFCEF426E5CDA3EABF12A0325F452F\"]"
+    },
+    {
+      "id": "C-RSSI-PLUS",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"+5\",\"183456\",\"45b0ee081ff62a6eb8589f726d22aad7d420bdd8126c4eeddf4f325a750e5918\"]"
+    },
+    {
+      "id": "C-RSSI-NEG-ZERO",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-0\",\"183456\",\"3ef0ebc5ad7b735936b36e27e1d7b8e6b4d8a067759a27f787e2876c868be21d\"]"
+    },
+    {
+      "id": "C-RSSI-128",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-128\",\"183456\",\"4f1c5b4866d066411034a095fde7cfc0146339de72fce54278c4e3ea2f2db49b\"]"
+    },
+    {
+      "id": "C-RSSI-POSITIVE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"1\",\"183456\",\"edc32d6a31e8aaf3746d52137849e83736bbbdd29add31370324fa524b00984d\"]"
+    },
+    {
+      "id": "C-HEAP-NEGATIVE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"-1\",\"4f5c0b8e5e66923e0311c925e09340a199005ff3313566cb3bb15b13b140c855\"]"
+    },
+    {
+      "id": "C-HEAP-OVERFLOW",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"4294967296\",\"dfb8ccad9853a58b4bb6a03ca0534d2b9257ecda05ec4f56c1eb8cc1966c2a4f\"]"
+    },
+    {
+      "id": "C-ZERO-MSGID",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"00000000000000000000000000000000\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"9f316418cee3a7bc3d61733cc67899292df9541c669f49df48e4d1c9e8a41a89\"]"
+    },
+    {
+      "id": "C-UPPER-MSGID",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"C84198575FD0D043698CAB09C032F2E9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"946eead4232960c680c985e2b950b053238d9470d1d7cbedd0f4d84972990b91\"]"
+    },
+    {
+      "id": "C-U64-OVERFLOW",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"18446744073709551616\",\"-67\",\"183456\",\"db3d0faf908481e7f22cf006585f7dadd716076526c8309dd7c90c0e4dbdd7cb\"]"
+    },
+    {
+      "id": "C-NONCANON-INT",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"02\",\"-67\",\"183456\",\"a19a08a7281a53a2e813886e04336e127b99c06e2fd352f4dfdf04f4cb13eaa2\"]"
+    },
+    {
+      "id": "C-NEGATIVE-U64",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"-2\",\"-67\",\"183456\",\"3400a3e43624115152f71af326bc61e1278bfb8dc550d3cf8c3d9c1c43050cd4\"]"
+    },
+    {
+      "id": "C-ENUM-REASON",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"RESTORED\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"37f1ee644c8ce4b3ea59e764e6291f43259447ad8a82345159851ebf9d93a39a\"]"
+    },
+    {
+      "id": "C-ENUM-TRUST",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"TRUSTED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"278c54d6e2a84fe23a585bc472aabe35374c62e19d08332d2f92ff14376d8c37\"]"
+    },
+    {
+      "id": "C-ENUM-OUTPUT",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"CUT\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"7d998fb464317712163cfff273f008b07d98903ee4528aa4af258233e4fbc1ff\"]"
+    },
+    {
+      "id": "C-DEVICE-GRAMMAR",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"STATUS\",\"Test_Device\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"1b69420c546892d0062f0e1a0fb22298f4b1d842804406bd844efeb58ece4737\"]"
+    },
+    {
+      "id": "C-KIND-GRAMMAR",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"status\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"c35f57dff1a2abb8e18800450097cc7dbcf459f92b2401b3d01375eff1d027d9\"]"
+    },
+    {
+      "id": "C-ENUM-RESULT",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"OK\",\"284baa07c9d919bd6c93ac98312fd772b45668aac95cd259230717e6f446c9fd\"]"
+    },
+    {
+      "id": "C-ACK-SEQ-ZERO",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"0\",\"ACCEPTED\",\"ef478f88cede0c307fb1d383762f27999d5cfc1683dd6226bb36e6e6bfda2001\"]"
+    },
+    {
+      "id": "C-VERSION-2",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "VERSION",
+      "wire": "[2,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"ef961f9cd4c19edc870f1b9cbf639302217ffdc9d47b62d1bf7d9271ffc0e6ae\"]"
+    },
+    {
+      "id": "C-KIND-MISMATCH",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "KIND",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"8fe5d2a9c660f99f4a592acdc7ca9feb8b00f709e576c041184a7760455ff8f9\"]",
+      "note": "wrong kind on the ack topic"
+    },
+    {
+      "id": "C-WRONG-DEVICE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "DEVICE",
+      "wire": "[1,\"STATUS\",\"test-device-02\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"f301c6753e55600e2b2a87a0cf27c1d4faf7bfb800b46b10f50bbf0e19d2fb31\"]"
+    },
+    {
+      "id": "C-ST-UNTRUSTED-TIME",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"UNTRUSTED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"c5379e8add8b7a765e8e40f1f62597c1fa435f25a3831107d3e9e52497c1cf91\"]"
+    },
+    {
+      "id": "C-ST-SYNCED-ZERO",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"0\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"ff26787cf7da95c24aee0a0874e17f1e802dc12061d8800eb2dea8f52b2b7a1c\"]"
+    },
+    {
+      "id": "C-ST-PERIODIC-CORRELATED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"71fa527ca7de8433027e2c9be08f87a5\",\"0\",\"2\",\"-67\",\"183456\",\"a5bfb658c96fcee00cdb44a8793e66040f3620f452c017d994178c201dcbc65d\"]"
+    },
+    {
+      "id": "C-ST-COMMAND-UNCORRELATED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"516bd04233adf137dc3897368a748ead\",\"1789434002\",\"HOLDOVER\",\"LOCKDOWN\",\"COMMAND\",\"\",\"0\",\"1\",\"-48\",\"200000\",\"c92315368ffc849b22fe608817a099d2fdf48302ca616984acc31a8eefae4b2e\"]"
+    },
+    {
+      "id": "C-ST-SEQREJ-HWM",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"4200273c52b4c9e8db751cd6687cfeb4\",\"1789434002\",\"SYNCED\",\"NORMAL\",\"SEQUENCE_REJECTED\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"0\",\"0\",\"150000\",\"3017f34b230bbb46afa2c609f991eff21f368a019f43b4f0bd96da42a1a3f35e\"]"
+    },
+    {
+      "id": "C-ST-EMPTY-ID-SEQ",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"3\",\"2\",\"-67\",\"183456\",\"954515d81b083c09419599c1dd7c12a04b3efe802b416133898ff8be5e8e8d1d\"]"
+    },
+    {
+      "id": "C-ST-TIME-FLOOR",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789430399\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"ca1ff04647094b890f17cdbc913963eb6eef965a3e1a0234390b7a1e7e06807f\"]"
+    },
+    {
+      "id": "C-ACK-TIME-FLOOR",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789430399\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"abc70acdcabe37cdaa91b87ef461f60c9d1f539370aeea69ffac96f92d7ec971\"]"
+    },
+    {
+      "id": "C-CORE-UNTRUSTED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "UNTRUSTED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "TIME",
+      "expectCode": "LOCAL_TIME_UNTRUSTED",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-TIME-BEFORE-AUTH",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "UNTRUSTED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "TIME",
+      "expectCode": "LOCAL_TIME_UNTRUSTED",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f4520\"]",
+      "note": "local time confidence precedes HMAC"
+    },
+    {
+      "id": "C-MAC-FLIP",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f4520\"]"
+    },
+    {
+      "id": "C-UNSIGNED-STATUS",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"0000000000000000000000000000000000000000000000000000000000000000\"]"
+    },
+    {
+      "id": "C-UNSIGNED-ACK",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"0000000000000000000000000000000000000000000000000000000000000000\"]"
+    },
+    {
+      "id": "C-WRONG-KEY",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"1ed25ffc26196dc27e918157ceb895143cfc1123975c1a2140e7afe71ed50dea\"]",
+      "note": "evidence signed with the command key"
+    },
+    {
+      "id": "C-WRONG-DOMAIN",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"17f46de25cdea2c5d87aa061a98bd2fd1455448e74d14f24c5f9b8e607e249a8\"]"
+    },
+    {
+      "id": "C-TOPIC-BINDING",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"b84c88663bc376c4733976c47410698bc9ee2f27af20439ea147278eb8319d69\"]"
+    },
+    {
+      "id": "C-AUTH-BEFORE-SKEW",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789433979\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"485a8093c8f5d58e234a596cebe5b0527feed49920fb93ee20cf5d420da4c280\"]"
+    },
+    {
+      "id": "C-AUTH-BEFORE-REPLAY",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": [
+          "c84198575fd0d043698cab09c032f2e9"
+        ]
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f4520\"]"
+    },
+    {
+      "id": "C-STALE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789433979\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"485a8093c8f5d58e234a596cebe5b0527feed49920fb93ee20cf5d420da4c284\"]"
+    },
+    {
+      "id": "C-STALE-EDGE-OK",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789433980\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"3d37b7b2cadac4b2e18f648dc1d2890482e1d2b30f266de377b6c9c9635e2aa4\"]"
+    },
+    {
+      "id": "C-FUTURE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "FUTURE",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434013\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"2336bb6c5c4feaf73c2605302d99684a94f183f5e9377ae62a9f8e2e915aa63b\"]"
+    },
+    {
+      "id": "C-FUTURE-EDGE-OK",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434012\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"96e67c9e6996eb62e836dc6f07bd10900d342922191de6104a6d8ef624b0ece6\"]"
+    },
+    {
+      "id": "C-DEVICE-UNTRUSTED",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "DEVICE_TIME_UNTRUSTED",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"02ebcd0286d7a8bd3e054293ae5846ea\",\"0\",\"UNTRUSTED\",\"LOCKDOWN\",\"BOOT\",\"\",\"0\",\"0\",\"-127\",\"0\",\"0a64f15cb5d4481dad6095ea91faf12d1621ed253681588455404e42a03c291d\"]"
+    },
+    {
+      "id": "C-ACK-STALE",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": []
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789433979\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"b2bef370e08e167de24020162ed2f60b820da3f719bac0204fb9a05f1f57bea5\"]"
+    },
+    {
+      "id": "C-SKEW-BEFORE-REPLAY",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": [
+          "c84198575fd0d043698cab09c032f2e9"
+        ]
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789433979\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"485a8093c8f5d58e234a596cebe5b0527feed49920fb93ee20cf5d420da4c284\"]"
+    },
+    {
+      "id": "C-REPLAY-STATUS",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": [
+          "c84198575fd0d043698cab09c032f2e9"
+        ]
+      },
+      "macValid": true,
+      "expectStage": "REPLAY",
+      "expectCode": "DUPLICATE",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]"
+    },
+    {
+      "id": "C-REPLAY-ACK",
+      "receiver": "core",
+      "topic": "aegis/idea3/v1/test-device-01/ack",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "seen": [
+          "ac279a0ac178b5c6b57e0fc21e801c8e"
+        ]
+      },
+      "macValid": true,
+      "expectStage": "REPLAY",
+      "expectCode": "DUPLICATE",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"ac279a0ac178b5c6b57e0fc21e801c8e\",\"1789434001\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"ACCEPTED\",\"3a37db27ef426928d8f767e4af4f26bb2bfc18db555ae7d97703533d0c80d4e0\"]"
+    },
+    {
+      "id": "D-CUT-ACCEPT",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-CUT-HOLDOVER",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "HOLDOVER",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-RESTORE-ACCEPT",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "1",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"defaffa323b5589e9654e06048ff9fa0\",\"2\",\"1789434000\",\"1789434030\",\"RESTORE_UPLINK\",\"f9a75d58db324e36704d184224222549716217a7ffbf901729b26a56730d6344\"]",
+      "expectOutputs": {
+        "actuate": "NORMAL",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "2"
+      }
+    },
+    {
+      "id": "D-CUT-PERSIST-FAIL",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": true
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "0"
+      },
+      "note": "CUT stays fail-secure when the sequence cannot be persisted"
+    },
+    {
+      "id": "D-SEQMAX-ACCEPT",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "18446744073709551614",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"4e3b4859218bd22b0480bf37865a971d\",\"18446744073709551615\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"180bbeba621254f711e926768ea67caa20fc723cc99c7aa49272e45d8101a5dc\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "18446744073709551615"
+      }
+    },
+    {
+      "id": "D-EXPIRES-EDGE-OK",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434030,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-FUTURE-EDGE-OK",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789433998,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": "LOCKDOWN",
+        "ack": "ACCEPTED",
+        "status": "COMMAND",
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-HB-ACCEPT",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "ACCEPTED",
+      "expectCode": "OK",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": true,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-TOPIC-STATUS",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/status",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "TOPIC",
+      "wire": "[1,\"STATUS\",\"test-device-01\",\"c84198575fd0d043698cab09c032f2e9\",\"1789434005\",\"SYNCED\",\"NORMAL\",\"PERIODIC\",\"\",\"0\",\"2\",\"-67\",\"183456\",\"e960a65212cbe930a228a27405b3c1e024efcef426e5cda3eabf12a0325f452f\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-SIZE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "TRANSPORT",
+      "expectCode": "SIZE",
+      "wire": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-LEGACY-V0-COMMAND",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "SYNTAX",
+      "wire": "{\"cmd\":\"CUT_UPLINK\",\"nonce\":\"a1b2c3d4\",\"ts\":1789434000,\"sig\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      },
+      "note": "legacy v0 command fails closed"
+    },
+    {
+      "id": "D-ARITY",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "ARITY",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"a13b92abb3ed52d12d918aa831386990492e2338de983083e315ec67b8568002\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-ENUM-ACTION",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"REBOOT\",\"a1c5123d2f96fb20d536aa43ea5debff58cf9b72e1cc93a3483ef16fe384515f\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-SEQ-ZERO",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": null,
+      "expectStage": "SCHEMA",
+      "expectCode": "FIELD",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"0\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"230a50930db16028263710ccb4f8a932cfd8ed5a08c67163897cf110d0437afc\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-VERSION",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "VERSION",
+      "wire": "[2,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"792ce8c293d85071cda2ad94a376fc9a6aca09e0a5eaa0404ad98d2c133c5146\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-KIND",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "KIND",
+      "wire": "[1,\"ACK\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"8f99a06e400643ce6429555f8b2fbf05674b84cd28e88e45139c54fcceaa2424\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      },
+      "note": "wrong kind on the command topic"
+    },
+    {
+      "id": "D-DEVICE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "DEVICE",
+      "wire": "[1,\"COMMAND\",\"test-device-02\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"7779055f8127f0c8c085e2a1bedc0b79fcca0b1cb10df7936df80536add24630\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-TTL31",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434031\",\"CUT_UPLINK\",\"bea737a51e20e341b301161d12f214587d11069d4bd3f5c51a795f354381074b\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-EXPIRES-BEFORE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434000\",\"CUT_UPLINK\",\"af77c5491812466b22d4787bb3a372df02875191c31376822d458ae0863553d5\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-TIME-FLOOR",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "PAYLOAD",
+      "expectCode": "CONSISTENCY",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789430399\",\"1789430420\",\"CUT_UPLINK\",\"8c60508b59856a9f92348e7b799716d2d98b5d7b5c728f1e18879f9ac03d5bac\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-TIME-UNTRUSTED",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "UNTRUSTED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "TIME",
+      "expectCode": "LOCAL_TIME_UNTRUSTED",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-TIME-BEFORE-AUTH",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "UNTRUSTED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "TIME",
+      "expectCode": "LOCAL_TIME_UNTRUSTED",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c30\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      },
+      "note": "local time confidence precedes HMAC"
+    },
+    {
+      "id": "D-MAC-FLIP",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c30\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-WRONG-KEY",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"8d7b512c748d50efcd263dc05220721ebe0a5fc1f89ac28e84e2d33611b1df91\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      },
+      "note": "command signed with the evidence key"
+    },
+    {
+      "id": "D-UNSIGNED",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"0000000000000000000000000000000000000000000000000000000000000000\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-AUTH-BEFORE-SKEW",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434031,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c30\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-STALE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434031,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_EXPIRED",
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-FUTURE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789433997,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "FUTURE",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_EXPIRED",
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-SKEW-BEFORE-REPLAY",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434031,
+        "timeTrust": "SYNCED",
+        "hwm": "5",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_EXPIRED",
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "5"
+      }
+    },
+    {
+      "id": "D-SEQ-EQUAL",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "1",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "REPLAY",
+      "expectCode": "SEQUENCE",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"71fa527ca7de8433027e2c9be08f87a5\",\"1\",\"1789434000\",\"1789434030\",\"CUT_UPLINK\",\"d2b62f48fff631f9a2c5da5d5ca96af7cbe68f5d0c7022db7ae34776aceb5c34\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_SEQUENCE",
+        "status": "SEQUENCE_REJECTED",
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-SEQ-ROLLBACK",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "5",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "REPLAY",
+      "expectCode": "SEQUENCE",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"defaffa323b5589e9654e06048ff9fa0\",\"2\",\"1789434000\",\"1789434030\",\"RESTORE_UPLINK\",\"f9a75d58db324e36704d184224222549716217a7ffbf901729b26a56730d6344\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_SEQUENCE",
+        "status": "SEQUENCE_REJECTED",
+        "heartbeat": false,
+        "hwmAfter": "5"
+      }
+    },
+    {
+      "id": "D-RESTORE-PERSIST-FAIL",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/command",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "1",
+        "lastHeartbeat": "0",
+        "persistFails": true
+      },
+      "macValid": true,
+      "expectStage": "PERSIST",
+      "expectCode": "PERSIST",
+      "wire": "[1,\"COMMAND\",\"test-device-01\",\"defaffa323b5589e9654e06048ff9fa0\",\"2\",\"1789434000\",\"1789434030\",\"RESTORE_UPLINK\",\"f9a75d58db324e36704d184224222549716217a7ffbf901729b26a56730d6344\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": "REJECTED_PERSIST",
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "1"
+      }
+    },
+    {
+      "id": "D-HB-STALE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789434031,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "STALE",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-HB-FUTURE",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789433997,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "SKEW",
+      "expectCode": "FUTURE",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-HB-REPLAY",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "1789434000",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "REPLAY",
+      "expectCode": "DUPLICATE",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-HB-UNTRUSTED",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "UNTRUSTED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": true,
+      "expectStage": "TIME",
+      "expectCode": "LOCAL_TIME_UNTRUSTED",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c6\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    },
+    {
+      "id": "D-HB-BAD-MAC",
+      "receiver": "device",
+      "topic": "aegis/idea3/v1/test-device-01/heartbeat",
+      "retain": false,
+      "context": {
+        "now": 1789434010,
+        "timeTrust": "SYNCED",
+        "hwm": "0",
+        "lastHeartbeat": "0",
+        "persistFails": false
+      },
+      "macValid": false,
+      "expectStage": "AUTH",
+      "expectCode": "MAC",
+      "wire": "[1,\"HEARTBEAT\",\"test-device-01\",\"b42fa6a3caaf7625c1f72fa16d6ad9fa\",\"1789434000\",\"3bba49d0c2cb37234ff3c9e65cc1eeb47eb966f8f7407a0fdcd1783e0c0557c0\"]",
+      "expectOutputs": {
+        "actuate": null,
+        "ack": null,
+        "status": null,
+        "heartbeat": false,
+        "hwmAfter": "0"
+      }
+    }
+  ],
+  "lengthPrefixPair": {
+    "domain": "DEVICE_TO_CORE",
+    "topic": "aegis/idea3/v1/test-device-01/status",
+    "a": [
+      "ab",
+      "c"
+    ],
+    "b": [
+      "a",
+      "bc"
+    ],
+    "signingInputHexA": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000261620000000163",
+    "signingInputHexB": "0000001441454749532d49444541332d50524f544f434f4c0000000e4445564943455f544f5f434f52450000002461656769732f69646561332f76312f746573742d6465766963652d30312f7374617475730000000161000000026263"
+  },
+  "hmacPrimitive": [
+    {
+      "source": "RFC 4231 test case 1",
+      "keyHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+      "dataHex": "4869205468657265",
+      "mac": "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+    },
+    {
+      "source": "RFC 4231 test case 2",
+      "keyHex": "4a656665",
+      "dataHex": "7768617420646f2079612077616e7420666f72206e6f7468696e673f",
+      "mac": "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+    }
+  ]
+}
