@@ -13,14 +13,17 @@ edit_policy: owner-writable
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
-newest section is the D4 Core-local RESTORE repository implementation
-(2026-09-16). The authenticated, confirmed, reasoned, and audited `aegisctl
-restore` path is COMPLETE and LOCAL VERIFIED on
-`feat/idea3-pr11-d4-local-restore`. It was never run live. Web, Telegram, and
-automatic RESTORE remain unavailable, and no GPIO, relay, or Production state
-changed. Next comes the Kla owner-decision follow-up. PR #137 merged at
-`7a805963`, and Kla's APPROVED review had an empty body, so K1/K3/K7 stay
-`PENDING_KLA`. The section below it records the owner-run P2-E1 read-only Production evidence
+newest section is Music's final approve-only K1/K3/K7 owner-decision package
+(2026-09-16). Kla accepts it with an APPROVED review, which may have an empty
+body, or rejects it with REQUEST_CHANGES. Until then K1/K3/K7 stay
+`PENDING_KLA`. The proposed K7 HUB model is the single base Compose file,
+because owner-run rendered-hash evidence showed that the Monitor and Public
+Share overlays do not change the HUB service. Nothing in Production changed.
+Next is the D4 Core-local RESTORE repository implementation, merged as PR #138
+at `3fd8d4d1`. It is COMPLETE and LOCAL VERIFIED and was never run live. Web,
+Telegram, and automatic RESTORE remain unavailable. PR #137 merged at
+`7a805963` with an empty-body Kla approval that decided nothing. A later section
+records the owner-run P2-E1 read-only Production evidence
 (2026-09-15): the live HUB NGINX artifact differs from the reviewed Git
 artifact (K1 FAIL / live drift), the `172.31.243.0/29` live collision recheck
 passed (K4), the running HUB was created from one Compose file (K7 BLOCKED),
