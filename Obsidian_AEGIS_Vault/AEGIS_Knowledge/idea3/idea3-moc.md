@@ -12,10 +12,16 @@ edit_policy: owner-writable
 
 ## Start here
 
-Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. PR #133
+Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
+newest section records the owner-run P2-E1 read-only Production evidence
+(2026-09-15): the live HUB NGINX artifact differs from the reviewed Git
+artifact (K1 FAIL / live drift), the `172.31.243.0/29` live collision recheck
+passed (K4), the running HUB was created from one Compose file (K7 BLOCKED),
+and K8/K9/K10 remain BLOCKED. Kla's K1/K3/K7 decisions are requested; nothing
+in Production changed. PR #133
 merged the Phase 3 Core-only repository package at `2742be27`; Phase 3 runtime
-remains incomplete. Phase 4 Protocol v1 repository preparation is complete on
-`feat/idea3-pr11-phase4-protocol-v1`: independent per-device keys, durable
+remains incomplete. PR #135 merged the Phase 4 Protocol v1 repository package
+at `f0a87ee1`: independent per-device keys, durable
 sequence/replay storage, trusted-time gates, TLS-only MQTT and exact ACL
 contracts, Python/firmware golden-vector parity, compile-verified ESP32 code,
 and repository-safe negative controls are locally verified. This is not live
