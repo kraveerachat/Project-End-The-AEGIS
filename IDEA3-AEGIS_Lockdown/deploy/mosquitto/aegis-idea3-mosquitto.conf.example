@@ -1,0 +1,28 @@
+# AEGIS IDEA3 Protocol v1 broker template. Repository example only.
+# Replace every angle-bracket placeholder during a separately authorized rollout.
+per_listener_settings false
+allow_anonymous false
+password_file <AEGIS_MQTT_PASSWORD_FILE>
+acl_file <AEGIS_MQTT_ACL_FILE>
+persistence false
+retain_available false
+queue_qos0_messages false
+allow_zero_length_clientid false
+max_packet_size 1024
+max_keepalive 60
+
+listener 8883 127.0.0.1
+protocol mqtt
+cafile <AEGIS_MQTT_CA_FILE>
+certfile <AEGIS_MQTT_CERT_FILE>
+keyfile <AEGIS_MQTT_KEY_FILE>
+tls_version tlsv1.2
+require_certificate false
+
+listener 8883 <AEGIS_AP_ADDRESS>
+protocol mqtt
+cafile <AEGIS_MQTT_CA_FILE>
+certfile <AEGIS_MQTT_CERT_FILE>
+keyfile <AEGIS_MQTT_KEY_FILE>
+tls_version tlsv1.2
+require_certificate false
