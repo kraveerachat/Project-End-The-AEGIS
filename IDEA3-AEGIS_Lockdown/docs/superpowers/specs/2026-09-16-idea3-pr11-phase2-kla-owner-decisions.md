@@ -143,6 +143,8 @@ as read-only evidence.
   Core.
 - **K12 = NOT_PROVEN.** It is verified at the next planned reboot.
 
+> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **as accepted through authorized CODEOWNER review on PR #146**. This record is unchanged and remains accurate for its date.
+
 K9 and K10 remain exactly as the PR #136 package §5.4 lists them. This record
 requests no decision on them, and nothing is generated, installed, or
 implemented.
