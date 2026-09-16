@@ -18,6 +18,82 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness — IN PROGRESS — 2026-09-17
+
+> [!important] T1 / G-15 repository framework — IN PROGRESS (implementation checkpoint; human review pending)
+> T1 implements only the repository-side part of G-15: a read-only L0 capture,
+> a deterministic before/after preservation comparison, a fail-closed stage
+> authorization gate, and a rollback-handler **contract**, under
+> `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/`. No stage mutation or rollback
+> handler exists. Nothing ran on the Core, and no host, network, firewall, time,
+> broker, certificate, secret, firmware, or service state changed. **G-15 is not
+> closed** until human review and final closeout. The T0 section below remains
+> the latest closed Phase 4 record.
+
+```text
+T0_COMPLETE                    = YES (PR #151 merged 94793b02)
+T1_IMPLEMENTATION_STARTED      = YES
+T1_REPOSITORY_IMPLEMENTED      = YES — implementation checkpoint 9c82e4a0 (LOCAL VERIFIED only); human review pending
+G15_CLOSED                     = NO
+PHASE3_RUNTIME_COMPLETE        = NO
+PHASE4_RUNTIME_COMPLETE        = NO
+PHASE4_LIVE_READINESS          = NOT READY
+D4_LIVE_VERIFIED               = NO
+K12                            = NOT_PROVEN
+IDEA2_TUNNEL_HEALTHY           = NO
+IDEA2_RUNTIME_HEALTHY          = NO
+PRODUCTION_MUTATION            = NO
+LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
+FINAL_RECEIPT                  = NOT CREATED
+T2_T9_IMPLEMENTATION_STARTED   = NO
+```
+
+### Current Task
+
+Task: IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness
+Branch: `feat/idea3-pr11-phase4-capture-harness`
+Owner: `music`
+PR: #152 (Draft)
+Current state: IN PROGRESS — repository implementation checkpoint; human review pending
+Started: 2026-09-17
+Base SHA: `94793b02e0bbd124f87c779fab3cbe3b12e3e0fd`
+Last checkpoint: `9c82e4a0` (implementation/evidence)
+Production mutation allowed: NO
+
+- **Goal:** a reviewed repository framework, so later Phase 4 live stages can
+  capture L0 read-only, compare before/after preservation deterministically,
+  refuse to proceed without same-day authorization and K3, and plug in
+  stage-specific rollback handlers under one contract.
+- **Scope:** `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/**`,
+  `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py`, this note, and the
+  Phase 4 execution document status lines.
+- **Out of scope:**
+  - any live stage, AP/IP/DHCP/DNS/nftables/sysctl/rfkill/NetworkManager/Mosquitto change;
+  - chrony, certificate, key, or secret creation;
+  - Core install/start, ESP32 work, CUT, RESTORE, reboot;
+  - IDEA2 diagnosis or fix;
+  - stage apply/rollback handlers;
+  - T2–T9; PR #149 and PR #147;
+  - the final receipt; merging.
+- **Safety boundaries:**
+  - every capture host command passes the anchored `p4_ro` read-only allowlist;
+  - secret-bearing files are metadata only, and journals are reduced to counts;
+  - §10 is not weakened: an unhealthy IDEA2 baseline fails the comparison even
+    when unchanged, and no narrowed criterion is accepted;
+  - the gate never authorizes a live stage.
+- **Acceptance criteria:** focused and full IDEA3 tests pass; restoring
+  negative controls prove the guard, secret handling, §10 finding, denylist,
+  K3, freshness, and forwarding rules are load-bearing; repository validation
+  passes; human code/content review; then final closeout with one receipt.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P4-T1-S1 | T1 test-first implementation: L0 capture, compare, stage gate, rollback contract (repository only) | PASS | RED 122 failed / 37 passed (scripts absent); GREEN focused 159 passed; full IDEA3 1120 passed / 6 skipped (base 961 / 6); compileall PASS; `bash -n` PASS; shellcheck NOT RUN (not installed); ruff: T1 file PASS, 8 pre-existing base findings unchanged; restoring negative controls NC1–NC9 fail→restore→pass with no residue; changed-line secret scan 0 material | `9c82e4a0` | PASS — REPOSITORY_IMPLEMENTED / HUMAN_REVIEW_PENDING (LOCAL VERIFIED only) | human code/content review of PR #152; final closeout and one receipt | human review of PR #152 |
+
+---
+
 ## IDEA3 PR11 Phase 4 live runtime prerequisites — T0 complete — 2026-09-17
 
 > [!important] IDEA3 PR11 Phase 4 prerequisite reconciliation (T0) — COMPLETE (repository-only)
