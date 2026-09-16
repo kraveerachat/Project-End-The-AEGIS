@@ -81,15 +81,30 @@ elif [ "$MODE" = server ]; then
   # shellcheck source=p2-lib.sh
   . "$HERE/p2-lib.sh"
   need_root
-  log "=== S1 K1: the live artifact is still the accepted one"
-  check "host artifact = ${EXPECT_LIVE_NGINX_SHA:0:8}… (pre-install state)" '[ "$(sha "$NGINX_LIVE")" = "$EXPECT_LIVE_NGINX_SHA" ]'
-  check "running HUB serves the same artifact" \
-    '[ "$(docker exec "$HUB" sha256sum /etc/nginx/conf.d/default.conf | cut -d" " -f1)" = "$EXPECT_LIVE_NGINX_SHA" ]'
+  # Phase 2A installs the reconciled artifact and recreates the HUB from the
+  # two-file model, so the pinned artifact and config-hash depend on PHASE.
+  # Phase 2B appends the machine block in place, so no whole-file hash exists
+  # for post2b; the block itself is checked instead.
+  case "$PHASE" in
+    pre2a)        want_nginx=$EXPECT_LIVE_NGINX_SHA;       want_hub_hash=$EXPECT_RUNNING_HUB_HASH ;;
+    post2a|pre2b) want_nginx=$EXPECT_RECONCILED_NGINX_SHA; want_hub_hash=$EXPECT_P2A_HUB_HASH ;;
+    *)            want_nginx="";                           want_hub_hash=$EXPECT_P2A_HUB_HASH ;;
+  esac
+
+  log "=== S1 K1: the live artifact is the accepted one for phase=$PHASE"
+  if [ -n "$want_nginx" ]; then
+    check "host artifact = ${want_nginx:0:8}…" '[ "$(sha "$NGINX_LIVE")" = "$want_nginx" ]'
+  else
+    check "host artifact carries exactly one idea3-core.aegis.internal machine block" \
+      '[ "$(grep -c "server_name idea3-core.aegis.internal;" "$NGINX_LIVE")" = 1 ]'
+  fi
+  check "running HUB serves the host artifact" \
+    '[ "$(docker exec "$HUB" sha256sum /etc/nginx/conf.d/default.conf | cut -d" " -f1)" = "$(sha "$NGINX_LIVE")" ]'
 
   log "=== S2 K7: the accepted HUB model still matches"
   check "base Compose = ${EXPECT_BASE_SHA:0:8}…" '[ "$(sha "$BASE")" = "$EXPECT_BASE_SHA" ]'
-  check "running HUB config-hash = ${EXPECT_RUNNING_HUB_HASH:0:8}…" \
-    '[ "$(label "$HUB" com.docker.compose.config-hash)" = "$EXPECT_RUNNING_HUB_HASH" ]'
+  check "running HUB config-hash = ${want_hub_hash:0:8}…" \
+    '[ "$(label "$HUB" com.docker.compose.config-hash)" = "$want_hub_hash" ]'
   check "base renders hub = ${EXPECT_BASE_HUB_HASH:0:8}…" \
     '[ "$("${DC_BASE[@]}" config --hash hub | awk "{print \$2}")" = "$EXPECT_BASE_HUB_HASH" ]'
   check "HUB image unchanged" '[ "$(docker inspect "$HUB" --format "{{.Image}}")" = "$EXPECT_HUB_IMAGE_ID" ]'
@@ -141,7 +156,11 @@ elif [ "$MODE" = server ]; then
   check "S5.5 firewall validate = VALID" 'bash "$RT/public-share/s5-5-firewall.sh" validate >/dev/null 2>&1'
 
   log "=== S5 IDEA3 inputs"
-  check "the IDEA3 runtime directory is still absent (fresh placement)" '[ ! -e "$OVL" ]'
+  case "$PHASE" in
+    pre2a)        check "the IDEA3 overlay is still absent (fresh placement)" '[ ! -e "$OVL" ]' ;;
+    post2a|pre2b) check "placed overlay = Phase 2A ${EXPECT_OVL_SHA:0:8}…" '[ "$(sha "$OVL")" = "$EXPECT_OVL_SHA" ]' ;;
+    *)            check "placed overlay = Phase 2B ${EXPECT_OVL_2B_SHA:0:8}…" '[ "$(sha "$OVL")" = "$EXPECT_OVL_2B_SHA" ]' ;;
+  esac
   for f in session-secret admin-password-hash; do
     check "secret $f is a 1000:1000 0400 regular file (content never read)" \
       '[ "$(stat -c "%F %u:%g %a" "$SECRET_DIR/'"$f"'" 2>/dev/null)" = "regular file 1000:1000 400" ]'

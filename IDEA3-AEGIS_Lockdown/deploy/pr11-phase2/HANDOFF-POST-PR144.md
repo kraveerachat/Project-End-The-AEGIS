@@ -8,7 +8,7 @@ owner types the exact phrase in the executing session.
 
 ```text
 MAIN_AT_HANDOFF        = 721b797860063729b7c3c280161dcb908d0ff7f5
-K1                     = PR #144 Ready, awaiting human review/merge
+K1                     = PR #144 Ready, awaiting human review/merge (merged since: e4183fef)
 K3                     = CLEAR (merged IDEA1 PR #141 closeout; recheck at execution)
 K4                     = PASS (recheck live before the network is created)
 K7                     = PASS_OWNER_ACCEPTED
@@ -35,13 +35,18 @@ Phase 2A installs:
 ```bash
 git show origin/main:HUB-AEGIS_Entry/nginx.conf > ~/hub-nginx-candidate.conf
 sha256sum ~/hub-nginx-candidate.conf           # expect 7ca8769e2abeb22a6e8af3d8a01b5d15bfe2abfb5c470ae7bf10d530a39e5ce2
-git archive --format=tar origin/main IDEA3-AEGIS_Lockdown/web | gzip -n > ~/idea3-web-context.tar.gz
+git archive --format=tar 505dcdfb IDEA3-AEGIS_Lockdown/web | gzip -n > ~/idea3-web-context.tar.gz
 ```
 
-The web context hash must equal the value pinned in `p2-lib.sh`
-(`1710d0ee…`). If `web/` changed after the pinned commit, the image tag in the
-overlay must be updated first — the script refuses the mismatch rather than
-building something unreviewed.
+Archive the **pinned source commit `505dcdfb`**, never `origin/main`. The
+context hash must equal the value pinned in `p2-lib.sh` (`1710d0ee…`). PR #145
+added `web/tests/server/phase2bOverlayContract.test.js`, so an `origin/main`
+archive now hashes to `c8d93cda…` and `p2a-execute.sh` S0 would refuse it. That
+file is under `web/tests/`, which `.dockerignore` excludes; the non-test `web/`
+tree at `c89eeeca` is identical to `505dcdfb`, so the pinned image input is
+unchanged. If non-test `web/` content changes, the image tag in both overlays
+must be updated first — the script refuses the mismatch rather than building
+something unreviewed.
 
 ## 2. Owner inputs still required
 
@@ -72,6 +77,11 @@ sudo BASELINE_DIR=~/idea3-p2a-evidence/pre bash p2a-verify.sh      # must end VE
 Then the browser checks from a trusted workstation (README §2). Record
 everything in a copy of `PHASE2-CLOSEOUT-TEMPLATE.md`.
 
+After Phase 2A, rerun the server preflight with the phase it is in:
+`sudo PHASE=post2a MODE=server bash p2-final-preflight.sh` (then `pre2b` before
+the Phase 2B window and `post2b` after it). Each phase pins its own NGINX
+artifact, HUB config-hash, and placed overlay.
+
 On any rollback trigger (README §4):
 
 ```bash
@@ -96,8 +106,9 @@ sudo MODE=rollback BASELINE_DIR=… bash p2a-verify.sh
 
 ## 5. Phase 2B window
 
-Merge the Phase 2B overlay PR first, then place that file at the same Production
-path, recreate only `idea3-web`, install IR-2, `nginx -t`, `nginx -s reload`, and
+The Phase 2B overlay form is merged (PR #145, `c89eeeca`,
+`docker-compose.pr11-phase2b.yml`, SHA-256 `0be5e5b4…`). Place that file at the
+same Production path, recreate only `idea3-web`, install IR-2, `nginx -t`, `nginx -s reload`, and
 run `p2b-tests-core.sh` on the Core and `p2b-tests-server.sh` on the server.
 The HUB is not recreated for Phase 2B.
 

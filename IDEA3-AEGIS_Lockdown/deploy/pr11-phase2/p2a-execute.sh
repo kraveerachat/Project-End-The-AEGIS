@@ -21,6 +21,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p2-lib.sh
 . "$HERE/p2-lib.sh"
 need_root
+# A fixture root is TEST-ONLY: it may only ever be combined with DRY_RUN=1.
+[ -z "${AEGIS_P2_ROOT:-}" ] || [ "$DRY_RUN" = 1 ] || die "AEGIS_P2_ROOT is TEST-ONLY; refusing a real run while it is set"
 
 for v in AUTHORIZE_IDEA3_PR11_PHASE2_RUNTIME_PRODUCTION_MUTATION K3_EXECUTION_WINDOW BASELINE_DIR \
          OVERLAY_SRC WEB_CONTEXT_TGZ NODE_IMAGE_DIGEST K1_NGINX_CANDIDATE K1_NGINX_CANDIDATE_SHA256; do

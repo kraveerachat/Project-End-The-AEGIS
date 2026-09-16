@@ -8,7 +8,7 @@
 # AEGIS_P2_ROOT is a TEST-ONLY override. The local dry-run harness sets it so the
 # scripts can be exercised against fixtures; Production leaves it unset, which
 # keeps every path at its real /opt/aegis location. A real run never sets it, and
-# p2a-execute.sh refuses to make any change while it is set.
+# p2a-execute.sh and p2a-rollback.sh refuse anything but DRY_RUN=1 while it is set.
 readonly P2_ROOT="${AEGIS_P2_ROOT:-/opt/aegis}"
 readonly RT="$P2_ROOT/runtime"
 readonly BASE="$RT/docker-compose.production.yml"

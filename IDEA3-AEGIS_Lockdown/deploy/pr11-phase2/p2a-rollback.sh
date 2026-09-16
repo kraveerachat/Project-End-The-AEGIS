@@ -15,6 +15,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p2-lib.sh
 . "$HERE/p2-lib.sh"
 need_root
+# A fixture root is TEST-ONLY: it may only ever be combined with DRY_RUN=1.
+[ -z "${AEGIS_P2_ROOT:-}" ] || [ "$DRY_RUN" = 1 ] || die "AEGIS_P2_ROOT is TEST-ONLY; refusing a real run while it is set"
 [ "${CONFIRM_ROLLBACK:-}" = YES ] || die "set CONFIRM_ROLLBACK=YES"
 STAGE="${2:-}"; [ "${1:-}" = --stage ] && [[ "$STAGE" =~ ^(web|full)$ ]] || die "usage: --stage web|full"
 log "ROLLBACK START stage=$STAGE dry_run=$DRY_RUN"
