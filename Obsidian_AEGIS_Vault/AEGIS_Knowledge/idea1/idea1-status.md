@@ -105,7 +105,139 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
+## Current Task — FILES-UPLOAD-UX-1 — Files upload UX refresh
+
+| Field | Current value |
+| :--- | :--- |
+| Task | `FILES-UPLOAD-UX-1 — Files upload entry drawer + persistent bottom-right upload status tray + truthful progress/speed/ETA` |
+| Branch | `feat/idea1-files-upload-ux-refresh` |
+| Owner | `kla` |
+| PR | Draft — see the Session Register below |
+| Repository starting checkpoint | `c89eeecaf3c6b577dd96343861a1dc7091a8d31e` — `origin/main` resolved fresh at session start (merge of PR #145) |
+| Current state | **SOURCE IMPLEMENTED / LOCALLY VERIFIED; HUMAN BROWSER ACCEPTANCE PENDING** |
+| Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised |
+| Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-upload-ux-refresh`; the primary tree was occupied by another task's branch and was not used |
+
+### Goal
+
+Replace the single overloaded upload drawer with a two-layer model: the drawer
+**starts** an upload, and a persistent bottom-right tray **monitors** it. Speed
+and ETA come from the existing shared estimator and appear only while bytes are
+actually moving.
+
+### Scope
+
+Drawer visual refresh; auto-close on enqueue; bottom-right expandable and
+collapsible status tray; per-file progress, real rate and ETA; accurate stage
+labels; completed/failed/paused/cancelled states; preserved cancel, retry and
+resume; multi-file queue; responsive and accessibility behaviour; `en`/`th`/`zh`
+copy; tests; this canonical record.
+
+### Out of scope
+
+`MAX_LOGICAL_FILE_BYTES` and the 11 GB ceiling; chunk size; transfer
+concurrency; benchmarking; storage capacity; nginx/HUB timeouts; database schema
+or migrations; the upload protocol and API; Private Vault, Secure Share and
+Public Share behaviour; a broad Files or Neo redesign; Production deployment.
+
+### Safety boundaries
+
+`PRODUCTION_MUTATION_ALLOWED=NO`, `CLOUDFLARE_MUTATION_ALLOWED=NO`,
+`DATABASE_MUTATION_ALLOWED=NO`, `NETWORK_MUTATION_ALLOWED=NO`,
+`NGINX_MUTATION_ALLOWED=NO`, `SYSTEMD_MUTATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`.
+No secret was queried, printed, hashed, or committed. PR #143 and its branch were
+not touched. `src/lib/transferRate.js` and `src/lib/chunkedUpload.js` were read
+and reused, not modified.
+
+### Acceptance criteria
+
+Repository phase: focused upload-UX tests, existing UploadDrawer/Files tests, the
+`transferRate` suite, the `chunkedUpload` regression, the full IDEA1 suite with
+`NEW_FAILURE_COUNT=0`, a clean build, collaboration-policy and vault validation.
+Final acceptance is the Human Owner's browser pass; this task is **not CLOSED**
+until that happens.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S1 | Upload UX source, tests, canonical record | IN PROGRESS | see Session S1 | see PR | repository verification PASS | Human Owner browser acceptance | owner browser pass, then closeout |
+
+### Session S1 — implementation
+
+State: **IN PROGRESS**
+Starting SHA: `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`
+
+**Work performed.** Test-driven: 20 behavioural contracts were written first in
+`IDEA1-AEGIS_Drive_LC/tests/filesUploadTray.test.js` and observed RED (20/20
+failing — neither the tray module nor any of the behaviours existed), then
+implemented to GREEN.
+
+**Implementation details.**
+
+- `src/components/UploadStatusTray.jsx` (new) is presentation only. It holds no
+  queue state, which is what makes "hide the tray" structurally incapable of
+  becoming "cancel the upload".
+- `src/components/UploadDrawer.jsx` remains the single queue owner. `Files.jsx`
+  mounts it unconditionally, so the queue survives both drawer close and tray
+  hide. Enqueuing now reveals the tray and closes the drawer.
+- One `createRateEstimator()` per queue item, created fresh on start, retry and
+  resume, so bytes carried over from an earlier session are treated as the
+  reference point rather than as bytes that just crossed the wire.
+- Rate and ETA render through the shared `transferRateLine()` and are gated on
+  `stage === 'uploading'`. Hashing, finalizing, paused, failed, cancelled and
+  complete rows never carry a stale speed.
+- A 1 s tick re-samples the **same measured byte count** so a stall is classified
+  when progress events stop arriving. It never fabricates bytes and never moves
+  the progress bar.
+- The separate upload success toast was retired; the tray is now the single
+  status surface, which removes the previous duplicate completion reporting.
+
+**Verification (repository phase).**
+
+| Check | Result |
+| :--- | :--- |
+| New upload-UX suite `tests/filesUploadTray.test.js` | RED 0/20 before implementation; **GREEN 20/20** after |
+| `uploadDrawerUi` + `uploadCompletionUx` + `uploadProgress` | **32/32 PASS** (both existing suites updated to the new single-status-surface contract) |
+| `transferRate` (shared estimator, unmodified) | **PASS**, included in the focused batch below |
+| `chunkedUpload` engine regression incl. the extended whole-file-read ban | **PASS** |
+| Focused batch (upload, rate, engine, i18n, empty-state, resumable) | **87/87 PASS** |
+| Adjacent UI batch (Files workflow, drawer/motion, modal focus, navigation, app shell) | **52/52 PASS** |
+| Full IDEA1 suite | **1290 total / 1209 pass / 9 fail / 72 skip**; `NEW_FAILURE_COUNT=0` |
+| Build `npm run build` | **PASS**; tracked `dist/` restored, no generated artifact staged |
+| `scripts/validate-vault.mjs` | **PASS** with the 2 pre-existing canvas owner-review warnings |
+| `tests/collaborationPolicy` + `vaultStructure` + `vaultMultiWriter` | **50/50 PASS** |
+| `git diff --check`, added-line secret scan | **CLEAN** |
+
+The 9 failures are exactly the recorded accepted-historical set — `AUTOLOCK-5`,
+`PS6-ENV-4/5/6/7`, `PS6-ENV-8 SIGINT`, `PS6-ENV-8 SIGTERM`,
+`publicShareStageBDiagnostics`, `publicShareStageBUploadClient` — and none of
+them touches upload UI.
+
+**Full-suite execution caveat (environment, not source).**
+`tests/publicShareS55FirewallContract.test.js` never returns on this Windows
+workstation: it drives `gateway/public-share/production/` shell scripts through
+`spawnSync`. It was verified in isolation to hang for 180 s+ with zero output,
+imports nothing under `src/`, and is untouched by this change, so it was
+excluded from the run and its 19 tests are **NOT MEASURED here** rather than
+counted as passing. The remaining 113 test files were executed in two batches
+(58 + 55 files) whose totals are summed above.
+
+**Known limitations (repository phase).**
+
+- Stall classification depends on the browser emitting `XMLHttpRequest` upload
+  progress events plus the clock tick. This matches the existing Private Vault
+  integration and was not changed here.
+- Transfer concurrency is unchanged: files are still processed as the existing
+  engine schedules them. This task changed presentation, not scheduling.
+- No browser or Production verification was performed by this session.
+
+## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
+
+> [!note] Status unchanged by FILES-UPLOAD-UX-1
+> This task is recorded as history only relative to the newer active task. It
+> remains **ready for human review / merge**; none of its facts, evidence, or
+> gates were modified.
 
 | Field | Current value |
 | :--- | :--- |
