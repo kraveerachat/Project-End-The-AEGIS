@@ -13,14 +13,13 @@ edit_policy: owner-writable
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
-newest section is the PR11 Phase 2 runtime live evidence reconciliation
-(2026-09-16, PR #146 Draft). Owner-run Phase 2A is PASS, and Phase 2B is
-activated live without a HUB recreate. K8, K9, and K10 are PASS. The Core mTLS
-matrix passed T1, T2, T6, and T7, but T3 (wrong CA), T4 (revoked), and T5
-(expired) are SKIP. The design requires T3 and T4, so
-`PHASE2_RUNTIME_COMPLETE = NO`, and K12, Phase 3, Phase 4, D4 live, and PR11
-remain open. The reconciliation made no Production change. The section before
-it is Music's approve-only K3/K7 pre-mutation owner package (2026-09-16). Owner-run read-only evidence explained why the running HUB's
+newest section is the PR11 Phase 2 runtime final closeout (2026-09-17, PR #146
+Draft). Owner-run T3 (wrong CA) and T4 (revoked certificate) are PASS, so
+`PHASE2_RUNTIME_COMPLETE = YES`; T5 is not claimed, and K12, Phase 3, Phase 4,
+D4 live, and PR11 remain open. The section before it is the PR11 Phase 2 runtime
+live evidence reconciliation (2026-09-16), whose T3/T4 SKIP state is superseded. It recorded Phase 2A PASS, Phase 2B
+activated live without a HUB recreate, and K8, K9, and K10 PASS. Neither
+reconciliation made a Production change. The section before that is Music's approve-only K3/K7 pre-mutation owner package (2026-09-16). Owner-run read-only evidence explained why the running HUB's
 config-hash differs from the current base Compose: the base pinned the HUB's
 `aegis_internal` address on 2026-09-12, and Phase 2A adds only the IDEA3
 network. Music proposes accepting the current base HUB semantics for the next

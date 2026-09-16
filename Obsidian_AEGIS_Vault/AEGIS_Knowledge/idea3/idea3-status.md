@@ -12,11 +12,91 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" first (Phase 2A PASS and Phase 2B activated live by owner-run steps; Phase 2 runtime NOT complete because the design-required wrong-CA and revoked-certificate controls are SKIP), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" first (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17
+
+> [!important] Current IDEA3 truth — read this section first
+> The owner ran the two residual Phase 2B gates against Production on
+> 2026-09-16, 17:18Z–18:05Z. T3 (wrong CA) and T4 (revoked certificate) both
+> **PASS**, so the design §6.2 step 16 gates are met and
+> **`PHASE2_RUNTIME_COMPLETE = YES`**. This reconciliation (2026-09-17) read the
+> checksummed Core evidence bundle `~/idea3-pr11-phase2-final-evidence/` directly
+> (`sha256sum -c` 7/7 OK) and ran no Production action. The full record is
+> "Final T3/T4 window" and "Final outcome" in
+> `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-phase2-runtime-closeout.md`.
+> The next section (2026-09-16) is kept as history. Its T3/T4 SKIP and
+> `PHASE2_RUNTIME_COMPLETE = NO` are superseded.
+
+```text
+PHASE2A                        = PASS
+PHASE2B                        = PASS (activation LIVE; final Core matrix PASS; final server matrix PASS)
+K8 = PASS    K9 = PASS    K10 = PASS    K12 = NOT_PROVEN
+T1 = PASS 200   T2 = PASS 400   T3 = PASS 400   T4 = PASS 400
+T5_EXPIRED_CERT                = NOT TESTED / NOT CLAIMED
+T6 = PASS (a 200 / b 400 / c 200)   T7 = PASS (a 404 / b 200 / c 404)
+SERVER_FINAL                   = S1 403/403, S2 200/403, S3 404, S4 block/verify/cert/CA/CRL PASS, S5 PASS (dispatch vars 5)
+T4_LIFECYCLE                   = test CSR CN=idea3-core sha256 df00869b…; test cert serial 2DCBAA5B…; real Core serial 19198902… (distinct);
+                                 before-revoke 200 (owner-reported); revoke only the test cert; publish CRL; nginx -t + reload (owner-reported);
+                                 final run: test cert 400, real Core cert 200
+FINAL_CRL                      = sha256 2a737ea8ac775d527f433dad394e7e399ef187de4bbbbf8f6283f98b6f397b31 (canonical = published);
+                                 lastUpdate Sep 16 17:55:54 2026 GMT; nextUpdate Oct 16 17:55:54 2026 GMT
+HUB_PRESERVATION               = PASS — ID 743f3831…, started 2026-09-16T09:04:13Z, restarts 0, healthy; not recreated
+UNRELATED_SERVICE_PRESERVATION = PASS — Drive, Monitor, Postgres, Public Share gateway + connector, Twingate connector unchanged
+K3_NON_OVERLAP                 = CONFIRMED by kraveerachat (PR #146 comment) for the T4 window
+T4_AUTHORIZATION               = CONSUMED — not reusable; authorizes nothing further
+PHASE2_RUNTIME_COMPLETE        = YES
+PHASE3_RUNTIME_COMPLETE        = NO
+PHASE4_RUNTIME_COMPLETE        = NO
+D4_LIVE_VERIFIED               = NO
+PR11_COMPLETE                  = NO
+PRODUCTION_MUTATION_DURING_RECONCILIATION = NO
+FINAL_RECEIPT                  = 90-Status/logs/2026-09-17_011132_music_idea3-pr11-phase2-runtime-closeout.md
+```
+
+### Evidence limits
+
+- **In the checksummed bundle:** the final Core matrix, the final server matrix,
+  preservation verdicts, CRL hashes and metadata, the T4 CSR hash, and the public
+  metadata of both test certificates. The real Core serial and its distinctness
+  were re-derived from the public Core certificate copy.
+- **Owner-reported only:** the before-revoke 200, the OpenSSL CRL check output,
+  the `MODE=revoke`/`MODE=publish` PASS lines, `nginx -t` and reload, the
+  issued-certificate paths, the final physical route with Twingate stopped, and
+  the preserved service names.
+- The final runs used the fixed harness (`fc64be49`). That closes the "not rerun
+  live" limitation. The server S5 "bound on 8004" check cannot fail (`|| true`);
+  the S2 200 is the real listener evidence.
+- The Core's public `~/idea3-machine-client-ca.crl` is still the first CRL
+  (`491c87cc…`). The final CRL is `2a737ea8…`.
+- CRL renewal before Oct 16 2026 and certificate renewal before Dec 15 2026 are
+  not scheduled.
+
+### Verification (LOCAL, 2026-09-17, documentation-only closeout)
+
+```text
+evidence bundle sha256sum -c                   7/7 OK
+IDEA3 pytest (full)                            961 passed, 6 skipped
+test_pr11_phase2_harness.py + k10_server_ca    75 passed
+IDEA3 Web (vitest)                             31 files, 549/549
+HUB tests                                      31/31
+repository tests/*.test.mjs                    63/63
+bash -n (pr11-phase2)                          13/13
+shellcheck                                     NOT RUN — not installed on this workstation; no script changed in this closeout
+MODE=local p2-final-preflight.sh               FINAL_PREFLIGHT_LOCAL=FAIL on the K3 heuristic only (open IDEA1 Draft PR #148); pre-mutation gate, no mutation here; T4-window K3 confirmed by kraveerachat
+vault validation / collaboration policy / git diff --check / secret scan / binary scan / receipts — see the final receipt
+```
+
+### Next action
+
+1. Human owners decide Ready, fresh CODEOWNER review on the closeout head, and
+   merge. The agent does not mark Ready or merge.
+2. Separately authorized later: K12 reboot persistence, Phase 3, Phase 4, D4
+   live, CRL and certificate renewal.
 
 ## IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16
 
@@ -240,10 +320,10 @@ Task: IDEA3 PR11 — Phase 2 runtime completion
 Branch: `feat/idea3-pr11-phase2-runtime-completion`
 Owner: `music`
 PR: #146 (Draft)
-Current state: BLOCKED — Phase 2A PASS and Phase 2B activated live (owner-run); design-required T3 (wrong CA) and T4 (revoked) are SKIP; harness fixes waiting for fresh CODEOWNER review
+Current state: CLOSED — `PHASE2_RUNTIME_COMPLETE = YES` (2026-09-17 closeout); owner-run T3 and T4 PASS; one final receipt; PR #146 stays Draft for human Ready, review, and merge
 Started: 2026-09-16
-Last checkpoint: `fc64be49` (harness fixes) + the live evidence reconciliation commit
-Production mutation allowed: NO (the Phase 2B authorization was consumed by the completed activation)
+Last checkpoint: the receipt-bearing final closeout commit (SHA in PR #146)
+Production mutation allowed: NO (the Phase 2B and T4 authorizations were both consumed; neither is reusable)
 
 - **Goal:** execute and verify Phase 2A, then Phase 2B, with evidence, using the
   reviewed tooling in `IDEA3-AEGIS_Lockdown/deploy/pr11-phase2/`.
@@ -263,7 +343,9 @@ Production mutation allowed: NO (the Phase 2B authorization was consumed by the 
 | P2-K10A | K10 server-held client CA amendment (proposed), server CA helper, contract, tests | PASS (REPOSITORY) — ACCEPTED BY AUTHORIZED CODEOWNER (Pub, `6fef3ad8`) | K10 36/36; IDEA3 922 passed/6 skipped; HUB 31/31; repo 63/63; bash -n + shellcheck -S warning 12/12 | `34a2ca4b` | PROPOSED; no Production action | K10 CA/cert/CRL NOT_DONE; P2B NOT_STARTED; no final receipt | authorized K10 issuance (Kla custodian) |
 | P2-LIVE | Owner-run Phase 2A, K8/K9/K10, Phase 2B activation, Core mTLS matrix, server raw controls | PASS WITH GAPS (OWNER-RUN LIVE) | P2A PASS; pre/post-2B server preflight PASS; K8/K9/K10 PASS; T1/T2/T6/T7 PASS; S1–S3 raw 403/403/403/404; T3/T4/T5 SKIP | owner evidence (Core `~/idea3-*.txt`; server `20260916T152635Z`) | PHASE2_RUNTIME_COMPLETE=NO | T3, T4 (design §6.2 step 16) | residual gate decision |
 | P2-HX | Harness defects: BusyBox status parser; optional `hostname` binary | PASS (LOCAL) | RED 27/39 failing at `fd871a07`; GREEN 39/39 at `fc64be49`; bash -n 13/13; shellcheck -S warning 13/13 | `fc64be49` | not rerun live | live rerun optional | fresh CODEOWNER review |
-| P2-REC | Live evidence reconciliation, closeout record, canonical status | PASS (REPOSITORY) | closeout record from evidence only; no Production mutation; no receipt (Phase 2 incomplete) | reconciliation commit | PR #146 Draft | T3/T4; final receipt | fresh CODEOWNER review |
+| P2-REC | Live evidence reconciliation, closeout record, canonical status | PASS (REPOSITORY) | closeout record from evidence only; no Production mutation; no receipt (Phase 2 incomplete) | `fc04e322` | PR #146 Draft | T3/T4; final receipt | fresh CODEOWNER review |
+| P2-T34 | Owner-run T3 wrong-CA and T4 revoke lifecycle (K3 non-overlap confirmed by `kraveerachat`; T4 authorization explicit, consumed) | PASS (OWNER-RUN LIVE) | T3 400; T4 test cert 400 after revoke, real Core cert 200; server matrix PASS; HUB not recreated; preserved services unchanged; final CRL `2a737ea8…`; bundle `sha256sum -c` 7/7 OK | Core `~/idea3-pr11-phase2-final-evidence/` | PHASE2B=PASS | T5 NOT CLAIMED; K12 NOT_PROVEN | P2-CLOSE |
+| P2-CLOSE | Final Phase 2 runtime closeout: record, canonical status, one receipt | CLOSED | see "Final closeout" section; no Production mutation during reconciliation | receipt-bearing closeout commit (SHA in PR #146) | PHASE2_RUNTIME_COMPLETE=YES | — | human Ready, review, merge |
 
 ### P2-RT2 contract re-inspection
 

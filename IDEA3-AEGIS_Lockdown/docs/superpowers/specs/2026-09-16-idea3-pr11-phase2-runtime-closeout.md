@@ -5,6 +5,13 @@
 > mutation and no new live test. Where a value did not reach this repository
 > session, the field says so instead of predicting it.
 
+> **Final closeout update (2026-09-17).** The owner then ran the residual T3
+> and T4 gates on 2026-09-16 (17:18Z–18:05Z). Their evidence is reconciled in
+> "Final T3/T4 window" and "Final outcome" below: **`PHASE2_RUNTIME_COMPLETE =
+> YES`**. The sections between here and there are the first reconciliation
+> (2026-09-16), kept unchanged as history. Where they say T3/T4 SKIP or
+> `PHASE2_RUNTIME_COMPLETE = NO`, the final sections supersede them.
+
 ## 0. Evidence classes
 
 | Class | Meaning in this record |
@@ -223,7 +230,7 @@ PHASE2B_CORE_TESTS         = PASS (script verdict; SKIP lines do not fail the sc
 PHASE2B_MANDATORY_GATES_MET = NO — T3 and T4 are required by design §6.2 step 16 and are SKIP
 ```
 
-## Outcome
+## Outcome (first reconciliation, 2026-09-16; superseded by "Final outcome")
 
 ```text
 ROLLBACK_USED              = none reported (the owner report describes a completed activation with no rollback step)
@@ -242,7 +249,7 @@ PR_STATE                   = Draft
 PRODUCTION_MUTATION_DURING_RECONCILIATION = NO
 ```
 
-## Known limitations
+## Known limitations (first reconciliation, 2026-09-16)
 
 - **Cable removed after capture.** The owner unplugged the Acer/Core from
   TP-Link Port 3 **after** the authoritative K8 rerun (15:41:14Z) and the Core
@@ -261,7 +268,7 @@ PRODUCTION_MUTATION_DURING_RECONCILIATION = NO
 - Neither a CRL renewal before `nextUpdate` (Oct 16 15:10:17 2026 GMT) nor Core
   certificate renewal (expires Dec 15 2026) is scheduled in this record.
 
-## Residual Phase 2 gates (owner-run; nothing here is authorized by this record)
+## Residual Phase 2 gates (first reconciliation; T3 and T4 are now CLOSED — see "Final T3/T4 window")
 
 **T3 — wrong CA** (no Production mutation; a read-only GET; needs the Core back on VLAN 20).
 On the Core, with a throwaway pair that is never trusted anywhere:
@@ -284,3 +291,200 @@ decides whether to authorize that step. This record does not.
 
 **Optional:** T5 (expired) and a live rerun of the fixed `p2b-tests-server.sh`
 (read-only on the server: `sudo bash p2b-tests-server.sh 2>&1 | tee ~/idea3-p2b-server-rerun.txt`).
+
+## Final T3/T4 window (OWNER-RUN LIVE, 2026-09-16 17:18Z–18:05Z)
+
+### Evidence source and integrity
+
+The owner collected the final evidence on the Core workstation (`archlinux`) in
+`~/idea3-pr11-phase2-final-evidence/`. This reconciliation (2026-09-17) read
+every file in it directly, and `sha256sum -c SHA256SUMS` returned **OK for all
+7 files**:
+
+| File | SHA-256 | Role |
+|---|---|---|
+| `idea3-p2b-core-t3.txt` | `82697b7fcfecc9272a55740af2383e1f3ae9afed25d5d32131fc23c81ed1be08` | **Historical** T3 run (17:18:55Z): T3 PASS, T4 still SKIP |
+| `idea3-p2b-core-t3-t4-final.txt` | `1155888031d9575f1f74f20b320afb701e5722f60d89feb1cd41158a6f0e6e39` | **Authoritative** final Core matrix (17:59:09Z) |
+| `idea3-p2b-server-final.txt` | `bd412da2890e131b5c9361c3bf1515a4390137e5aa37d380fc5c1e8365abcf78` | **Authoritative** final server matrix (18:02:17Z) |
+| `idea3-phase2-final-preservation.txt` | `2b69b2109d25134a3507ba65765cab7a7494953757232a476937297d4643c1d7` | **Authoritative** HUB/service preservation and CRL hashes (18:05:16Z) |
+| `idea3-t4-csr-sha256.txt` | `a247f5d3940833299a1f280877b128ceffee6028af34875eaa9cc9bb85c61c85` | T4 test CSR hash |
+| `idea3-t4-final-crl.txt` | `f0fb073ae4249d04f4b6a8f21ad2dde1e44ecfabd7369e234aa45eb38dc980b1` | Final CRL metadata |
+| `test-cert-metadata.txt` | `125cd6cfabde982277a99575a99e548e37523b64eccaf33929e4196295390950` | Public metadata of the T3 wrong-CA and T4 test certificates |
+
+The bundle holds public metadata and test output only. It holds no private key,
+passphrase, or CSR body. The ephemeral T4 working directory
+`/tmp/aegis-pr11-t4-revoked` no longer existed on the Core at reconciliation.
+
+**Fixed harness used live.** Both final Core files print `core_host_identity=`.
+Only the fixed `p2b-tests-core.sh` from `fc64be49` prints that line. The final
+server file reports the 403/404 refusals as PASS, which the pre-fix parser could
+not do. These runs close the first reconciliation's limitation that the fixed
+harness had never been rerun live.
+
+### Authorization
+
+```text
+K3_NON_OVERLAP              = CONFIRMED — PR #146 comment by kraveerachat:
+                              "K3_NON_OVERLAP_CONFIRMED=YES — no IDEA1 Production mutation or verification
+                              window will overlap the IDEA3 PR11 Phase 2B T4 window."
+T4_PRODUCTION_AUTHORIZATION = explicitly given by the owner for this one T4 window; CONSUMED.
+                              It is not reusable and authorizes nothing further.
+```
+
+### T3 — wrong CA
+
+```text
+T3_WRONG_CA_CERT            = subject CN=idea3-core; issuer C=TH, O=AEGIS TEST, OU=PR11-T3, CN=AEGIS Wrong Test CA
+                              serial 63F4622958923A468204481089E0881C5C1D8358; Sep 16 17:18:32 – Sep 17 17:18:32 2026 GMT
+                              (throwaway pair; trusted nowhere)
+T3 (17:18:55Z historical)   = PASS (400)
+T3 (17:59:09Z final)        = PASS (400)
+T3                          = PASS
+```
+
+### T4 — revoked certificate lifecycle
+
+```text
+T4_TEST_CSR                 = subject CN=idea3-core; separate ephemeral Core test CSR
+T4_TEST_CSR_SHA256          = df00869b28177b6d023d478d6a8e5a47fc8156f38787854d9509bb68416566f3   (bundle)
+T4_TEST_CERT                = /opt/aegis/pki/issued/idea3-core-client-20260916T174206Z.crt        (owner-reported path)
+T4_TEST_CERT_SERIAL         = 2DCBAA5B81C45437C6F7620897D7A37D36EE1DC2                              (bundle)
+T4_TEST_CERT_ISSUER         = C=TH, O=AEGIS, OU=IDEA3, CN=AEGIS IDEA3 Machine Client CA             (bundle)
+T4_TEST_CERT_VALIDITY       = Sep 16 17:42:27 – Sep 17 17:42:27 2026 GMT                            (bundle)
+REAL_CORE_CERT              = /opt/aegis/pki/issued/idea3-core-client-20260916T151028Z.crt        (owner-reported path)
+REAL_CORE_CERT_SERIAL       = 1919890295275569D7905FD87B0F5638B3B596E6   (REPOSITORY VERIFIED from the public Core copy ~/idea3-core-client.crt)
+SERIALS_DISTINCT            = YES (REPOSITORY VERIFIED: bundle test serial != public Core certificate serial)
+TEST_CERT_BEFORE_REVOKE     = 200 from physical VLAN 20                  (OWNER-REPORTED; not in the bundle)
+MODE=revoke                 = test certificate only; K10_SERVER_REVOKE=PASS (OWNER-REPORTED; not in the bundle)
+OPENSSL_CRL_CHECK           = test certificate "certificate revoked"; real Core certificate OK (OWNER-REPORTED; not in the bundle)
+MODE=publish                = K10_SERVER_PUBLISH=PASS                     (OWNER-REPORTED; not in the bundle)
+NGINX                       = nginx -t PASS; reload PASS; HUB container NOT recreated (reload OWNER-REPORTED; not-recreated REPOSITORY VERIFIED below)
+T4 (17:59:09Z final)        = PASS (400) — revoked test certificate rejected   (bundle)
+T1 in the same final run    = PASS (200) — real Core certificate still accepted  (bundle)
+T4                          = PASS
+```
+
+The design gate (§6.2 step 16, "a revoked certificate is rejected" while a
+valid certificate gets 200) is met directly by the bundle. T4 400 and T1 200
+come from the same run, after a CRL reissued at 17:55:54Z by the dedicated client
+CA. The before-revoke 200, which isolates revocation as the cause, is an
+owner report only.
+
+### Final CRL
+
+```text
+CANONICAL                   = /opt/aegis/pki/crl/idea3-machine-client-ca.crl
+PUBLISHED                   = /opt/aegis/runtime/certs/idea3-machine-client-ca.crl
+SHA256 (both, identical)    = 2a737ea8ac775d527f433dad394e7e399ef187de4bbbbf8f6283f98b6f397b31
+ISSUER                      = C=TH, O=AEGIS, OU=IDEA3, CN=AEGIS IDEA3 Machine Client CA
+LAST_UPDATE                 = Sep 16 17:55:54 2026 GMT
+NEXT_UPDATE                 = Oct 16 17:55:54 2026 GMT
+```
+
+This supersedes the first CRL (`lastUpdate Sep 16 15:10:17`, SHA-256
+`491c87cc…`, no revoked certificates). The Core workstation's public copy
+`~/idea3-machine-client-ca.crl` is still that first CRL. It is stale for
+verification and was not used as final evidence.
+
+### Final Core mTLS matrix (`idea3-p2b-core-t3-t4-final.txt`, 17:59:09Z)
+
+```text
+CORE_HOST_IDENTITY          = archlinux (bundle)
+PHYSICAL_PATH               = enp62s0 192.168.20.254/24; route 192.168.10.10 via 192.168.20.1 dev enp62s0 src 192.168.20.254;
+                              Twingate stopped (OWNER-REPORTED; the final bundle does not contain the route or Twingate output)
+SERVER_CERT                 = CN/SAN idea3-core.aegis.internal; Sep 16 13:10:04 – Dec 15 13:10:04 2026 GMT
+CLIENT_CA_OFFERED           = exactly C=TH, O=AEGIS, OU=IDEA3, CN=AEGIS IDEA3 Machine Client CA
+T1  valid real Core cert            = PASS 200
+T2  no client certificate           = PASS 400
+T3  wrong CA                        = PASS 400
+T4  revoked certificate             = PASS 400
+T5  expired certificate             = SKIP — NOT TESTED / NOT CLAIMED
+T6a forged identity, valid cert     = PASS 200
+T6b forged identity, no cert        = PASS 400
+T6c Cookie/Origin, valid cert       = PASS 200
+T7a machine path, browser SNI       = PASS 404
+T7b browser /security/              = PASS 200
+T7c machine SNI outside route       = PASS 404
+PHASE2B_CORE_TESTS                  = PASS
+```
+
+### Final server matrix (`idea3-p2b-server-final.txt`, 18:02:17Z)
+
+```text
+S1 non-HUB peer .3, forged SUCCESS identity   = PASS 403
+S1 non-HUB peer .3, no identity               = PASS 403
+S2 HUB peer, SUCCESS + CN=idea3-core          = PASS 200
+S2 HUB peer, wrong CN                         = PASS 403
+S3 browser listener 8003, machine path        = PASS 404
+S4 exactly one server_name idea3-core.aegis.internal block = PASS
+S4 ssl_verify_client on, ssl_verify_depth 1   = PASS
+S4 server certificate present/current, machine SAN = PASS (Dec 15 2026; issuer AEGIS Internal Root CA; serverAuth)
+S4 dedicated machine-client CA present/current = PASS (Sep 16 2026 – Sep 15 2029)
+S4 CRL present and not expired                = PASS (nextUpdate Oct 16 17:55:54 2026 GMT)
+S5 machine listener bound on 8004             = PASS (see limitation: this check cannot fail)
+dispatch_env_var_count                        = 5
+PHASE2B_SERVER_TESTS                          = PASS
+```
+
+The file's first line is `sudo: Authentication failed, try again.`, a
+mistyped sudo password prompt before the run. It is not a test result, and
+the run that followed completed.
+
+### Preservation (`idea3-phase2-final-preservation.txt`, 18:05:16Z)
+
+```text
+HUB                         = ID 743f3831cafd62dbdc627814cb12b44f50fd529905cf32e9e59eb68826b69744
+                              STARTED 2026-09-16T09:04:13.426080833Z; RESTARTS 0; running; healthy
+                              (same ID and start time as the Phase 2B activation record)
+HUB_DIFF                    = PASS_HUB_NOT_RECREATED
+PRESERVED_SERVICES_DIFF     = PASS_PRESERVED_SERVICES_UNCHANGED
+PRESERVED_SERVICES          = aegis-prod-drive-1, aegis-prod-monitor-1, aegis-prod-postgres-1,
+                              aegis-prod-public-share-gateway-1, aegis-prod-public-share-connector-1,
+                              twingate-aegis-connector-02 (service list OWNER-REPORTED; the bundle shows the PASS verdict only)
+```
+
+## Final outcome
+
+```text
+PHASE2A                     = PASS
+PHASE2B                     = PASS (activation LIVE; Core matrix PASS; server matrix PASS; design §6.2 step 16 gates T1/T2/T3/T4/T7a met)
+PHASE2B_MANDATORY_GATES_MET = YES
+K8 = PASS    K9 = PASS    K10 = PASS    K12 = NOT_PROVEN
+T3                          = PASS (400)
+T4                          = PASS (test certificate 400 after revoke; real Core certificate 200)
+T5_EXPIRED_CERT             = NOT TESTED / NOT CLAIMED (not a design gate)
+HUB_PRESERVATION            = PASS — not recreated (ID/start time unchanged, restarts 0, healthy)
+UNRELATED_SERVICE_PRESERVATION = PASS
+T4_AUTHORIZATION            = CONSUMED — not reusable
+PHASE2_RUNTIME_COMPLETE     = YES
+PHASE3_RUNTIME_COMPLETE     = NO
+PHASE4_RUNTIME_COMPLETE     = NO
+D4_LIVE_VERIFIED            = NO
+PR11_COMPLETE               = NO
+PRODUCTION_MUTATION_DURING_FINAL_RECONCILIATION = NO
+RECEIPT_PATH                = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-17_011132_music_idea3-pr11-phase2-runtime-closeout.md
+RECEIPT_COUNT               = 1
+PR_NUMBER                   = 146
+PR_STATE                    = Draft (human owners decide Ready, review, and merge)
+```
+
+## Final known limitations
+
+- **Owner-reported only (not in the final bundle):** the T4 test certificate's
+  before-revoke 200, the OpenSSL CRL check output, the `MODE=revoke`/`MODE=publish`
+  PASS lines, `nginx -t` and reload, the issued-certificate paths, the physical
+  route with Twingate stopped during the final Core runs, and the names of the
+  preserved services. The design gates themselves (T1 200, T3 400, T4 400, server
+  S1–S5, HUB not recreated, CRL hashes) are in the checksummed bundle.
+- The S5 check `machine listener is bound on 8004` in `p2b-tests-server.sh`
+  ends in `|| true; true`, so it cannot fail. The positive S2 200 through the
+  listener is the real evidence that it serves.
+- T5 (expired certificate) was never tested and is not claimed.
+- The revoked test certificate expires Sep 17 17:42:27 2026 GMT. It stays on the
+  CRL. Its private key was ephemeral, and it is not in the repository or the bundle.
+- The Core's public `~/idea3-machine-client-ca.crl` copy is the first CRL, not
+  the final one. Any later local verification must fetch the final CRL (`2a737ea8…`).
+- CRL `nextUpdate` is Oct 16 17:55:54 2026 GMT. The Core and server certificates
+  expire Dec 15 2026. Renewal is not scheduled here.
+- K12 reboot persistence is NOT_PROVEN. Phase 3, Phase 4, D4 live, and PR11
+  remain open.
