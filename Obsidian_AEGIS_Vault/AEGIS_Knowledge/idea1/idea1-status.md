@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-16
+updated: 2026-09-17
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -105,113 +105,80 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — FILES-UPLOAD-UX-1 — Files upload UX refresh
+## Current Task — FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1 — Files upload UX refresh & reload recovery
 
 | Field | Current value |
 | :--- | :--- |
-| Task | `FILES-UPLOAD-UX-1 — Files upload entry drawer + persistent bottom-right upload status tray + truthful progress/speed/ETA` |
+| Task | `FILES-UPLOAD-UX-1` (Files upload entry drawer + persistent bottom-right status tray + truthful progress/speed/ETA) / `FILES-UPLOAD-RECOVERY-1` (Resumable upload recovery after reload & batch ETA correction) |
 | Branch | `feat/idea1-files-upload-ux-refresh` |
 | Owner | `kla` |
-| PR | Draft — see the Session Register below |
+| PR | PR #148 (Draft) — see the Session Register below |
 | Repository starting checkpoint | `c89eeecaf3c6b577dd96343861a1dc7091a8d31e` — `origin/main` resolved fresh at session start (merge of PR #145) |
-| Current state | **SOURCE IMPLEMENTED / LOCALLY VERIFIED; HUMAN BROWSER ACCEPTANCE PENDING** |
-| Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised |
+| Current state | **FILES-UPLOAD-UX-1: SOURCE IMPLEMENTED / LOCALLY VERIFIED; FILES-UPLOAD-RECOVERY-1: SOURCE IMPLEMENTED / SOURCE REVIEW PASS; PREVIOUS PRODUCTION CANDIDATE 1592bc25 PARTIAL (UX PASS, RELOAD FAIL, BATCH ETA LIMITED); CURRENT HEAD a96fac5f: LINUX VERIFICATION PENDING, PRODUCTION DEPLOYMENT PENDING, HUMAN BROWSER ACCEPTANCE PENDING** |
+| Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
 | Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-upload-ux-refresh`; the primary tree was occupied by another task's branch and was not used |
 
 ### Goal
 
-Replace the single overloaded upload drawer with a two-layer model: the drawer
-**starts** an upload, and a persistent bottom-right tray **monitors** it. Speed
-and ETA come from the existing shared estimator and appear only while bytes are
-actually moving.
+1. Replace the single overloaded upload drawer with a two-layer model: the drawer **starts** an upload, and a persistent bottom-right tray **monitors** it. Speed and ETA come from the existing shared estimator and appear only while bytes are actually moving.
+2. Recover resumable uploads across page reload / navigation: persist bounded recovery metadata in per-account browser storage, reconcile against server upload session on reload, verify file identity via size and SHA-256 before resuming, resume missing chunks only, and provide aggregate whole-batch transfer speed and ETA estimates.
 
 ### Scope
 
-Drawer visual refresh; auto-close on enqueue; bottom-right expandable and
-collapsible status tray; per-file progress, real rate and ETA; accurate stage
-labels; completed/failed/paused/cancelled states; preserved cancel, retry and
-resume; multi-file queue; responsive and accessibility behaviour; `en`/`th`/`zh`
-copy; tests; this canonical record.
+Drawer visual refresh; auto-close on enqueue; bottom-right expandable and collapsible status tray; per-file progress, real rate and ETA; accurate stage labels; completed/failed/paused/cancelled states; preserved cancel, retry and resume; multi-file queue; responsive and accessibility behaviour; `en`/`th`/`zh` copy; durable resumable upload recovery metadata; reload reconciliation against server session; same-file identity verification (size and SHA-256); missing-chunks resume; per-account recovery namespacing by authenticated user ID; whole-batch transfer workload and ETA estimation; Discard upload semantics; tests; this canonical record.
 
 ### Out of scope
 
-`MAX_LOGICAL_FILE_BYTES` and the 11 GB ceiling; chunk size; transfer
-concurrency; benchmarking; storage capacity; nginx/HUB timeouts; database schema
-or migrations; the upload protocol and API; Private Vault, Secure Share and
-Public Share behaviour; a broad Files or Neo redesign; Production deployment.
+`MAX_LOGICAL_FILE_BYTES` and the 11 GB ceiling; chunk size; transfer concurrency; benchmarking; storage capacity; nginx/HUB timeouts; database schema or migrations; the upload protocol and API endpoints; Private Vault, Secure Share and Public Share behaviour; a broad Files or Neo redesign; Production deployment during repository sessions.
 
 ### Safety boundaries
 
-`PRODUCTION_MUTATION_ALLOWED=NO`, `CLOUDFLARE_MUTATION_ALLOWED=NO`,
-`DATABASE_MUTATION_ALLOWED=NO`, `NETWORK_MUTATION_ALLOWED=NO`,
-`NGINX_MUTATION_ALLOWED=NO`, `SYSTEMD_MUTATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`.
-No secret was queried, printed, hashed, or committed. PR #143 and its branch were
-not touched. `src/lib/transferRate.js` and `src/lib/chunkedUpload.js` were read
-and reused, not modified.
+`PRODUCTION_MUTATION_ALLOWED=NO`, `CLOUDFLARE_MUTATION_ALLOWED=NO`, `DATABASE_MUTATION_ALLOWED=NO`, `NETWORK_MUTATION_ALLOWED=NO`, `NGINX_MUTATION_ALLOWED=NO`, `SYSTEMD_MUTATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`.
+No secret was queried, printed, hashed, or committed. PR #143 and its branch were not touched. No file or blob content, session token, cookie, or CSRF secret is stored in browser storage.
 
 ### Acceptance criteria
 
-Repository phase: focused upload-UX tests, existing UploadDrawer/Files tests, the
-`transferRate` suite, the `chunkedUpload` regression, the full IDEA1 suite with
-`NEW_FAILURE_COUNT=0`, a clean build, collaboration-policy and vault validation.
-Final acceptance is the Human Owner's browser pass; this task is **not CLOSED**
-until that happens.
+Repository phase: focused upload-UX tests, existing UploadDrawer/Files tests, the `transferRate` suite, the `chunkedUpload` regression, recovery and batch test suites, the full IDEA1 suite with `NEW_FAILURE_COUNT=0`, a clean build, collaboration-policy and vault validation.
+Final acceptance requires: Linux firewall verification, Drive-only candidate Production deployment, and the Human Owner's browser pass (including reload recovery and mixed batch ETA sweeps); this task is **not CLOSED** until that happens.
 
 ### Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Upload UX source, tests, canonical record | CHECKPOINT | see Session S1 | `9683bf8e` | repository verification PASS | review / browser acceptance | independent review |
-| S2 | Targeted review correction: non-retryable tooLarge rejection & defensive guard | IN PROGRESS | see Session S2 | see PR | repository verification PASS | Human Owner browser acceptance | owner browser pass, then closeout |
+| S2 | Targeted review correction: non-retryable tooLarge rejection & defensive guard | CHECKPOINT | see Session S2 | `827de632` | repository verification PASS | main reconciliation / deployment | main reconciliation |
+| S3 | Reconcile origin/main into branch | CHECKPOINT | git merge origin/main | `1592bc25` | merge clean / tests PASS | Linux verification & production test | Linux / production deployment |
+| S4 | Production browser acceptance candidate 1592bc25 | ACCEPTED (PARTIAL) | Production image `aegis-prod-drive:files-upload-ux-1592bc25efb2` | `1592bc25` | Initial Upload UX PASS; Refresh recovery FAIL; Aggregate batch ETA LIMITED | address recovery & batch ETA gaps | FILES-UPLOAD-RECOVERY-1 implementation |
+| S5 | FILES-UPLOAD-RECOVERY-1: reload recovery metadata & aggregate batch ETA | CHECKPOINT | see Session S5 | `0508d62c` | repository verification PASS (47/47 suites) | independent review | independent source review |
+| S6 | Source review correction: account-scoped recovery store & transfer workload correction | CHECKPOINT | see Session S6 | `a96fac5f` | repository verification PASS (91/91 focused, 47/47 recovery/batch, zero new failures) | docs reconciliation / Linux verification / Production deploy | docs reconciliation then Linux verification |
+| S7 | Documentation / PR #148 / Obsidian evidence reconciliation | IN PROGRESS | see Session S7 | pending docs commit | docs reconciliation in progress | Linux gate / Production deployment / Human browser retest | Linux verification of exact HEAD |
 
 ### Session S1 — implementation
 
 State: **CHECKPOINT**
 Starting SHA: `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`
 
-**Work performed.** Test-driven: 20 behavioural contracts were written first in
-`IDEA1-AEGIS_Drive_LC/tests/filesUploadTray.test.js` and observed RED (20/20
-failing — neither the tray module nor any of the behaviours existed), then
-implemented to GREEN.
+**Work performed.** Test-driven: 20 behavioural contracts were written first in `IDEA1-AEGIS_Drive_LC/tests/filesUploadTray.test.js` and observed RED (20/20 failing — neither the tray module nor any of the behaviours existed), then implemented to GREEN.
 
 **Implementation details.**
-
-- `src/components/UploadStatusTray.jsx` (new) is presentation only. It holds no
-  queue state, which is what makes "hide the tray" structurally incapable of
-  becoming "cancel the upload".
-- `src/components/UploadDrawer.jsx` remains the single queue owner. `Files.jsx`
-  mounts it unconditionally, so the queue survives both drawer close and tray
-  hide. Enqueuing now reveals the tray and closes the drawer.
-- One `createRateEstimator()` per queue item, created fresh on start, retry and
-  resume, so bytes carried over from an earlier session are treated as the
-  reference point rather than as bytes that just crossed the wire.
-- Rate and ETA render through the shared `transferRateLine()` and are gated on
-  `stage === 'uploading'`. Hashing, finalizing, paused, failed, cancelled and
-  complete rows never carry a stale speed.
-- A 1 s tick re-samples the **same measured byte count** so a stall is classified
-  when progress events stop arriving. It never fabricates bytes and never moves
-  the progress bar.
-- The separate upload success toast was retired; the tray is now the single
-  status surface, which removes the previous duplicate completion reporting.
+- `src/components/UploadStatusTray.jsx` (new) is presentation only. It holds no queue state, which is what makes "hide the tray" structurally incapable of becoming "cancel the upload".
+- `src/components/UploadDrawer.jsx` remains the single queue owner. `Files.jsx` mounts it unconditionally, so the queue survives both drawer close and tray hide. Enqueuing now reveals the tray and closes the drawer.
+- One `createRateEstimator()` per queue item, created fresh on start, retry and resume, so bytes carried over from an earlier session are treated as the reference point rather than as bytes that just crossed the wire.
+- Rate and ETA render through the shared `transferRateLine()` and are gated on `stage === 'uploading'`. Hashing, finalizing, paused, failed, cancelled and complete rows never carry a stale speed.
+- A 1 s tick re-samples the **same measured byte count** so a stall is classified when progress events stop arriving. It never fabricates bytes and never moves the progress bar.
+- The separate upload success toast was retired; the tray is now the single status surface, which removes the previous duplicate completion reporting.
 
 ### Session S2 — targeted review correction (non-retryable oversize rejection)
 
-State: **IN PROGRESS**
+State: **CHECKPOINT**
+Checkpoint SHA: `827de632314545d9b736bbf45c497ca1f9f257bf`
 Starting SHA: `9683bf8e41239b4cedaef56bf263968e63feec8a`
 
 **Defect verified.**
-When an upload exceeded `limits.maxLogicalFileBytes`, `UploadDrawer` enqueued it as
-`stage='failed'`, `reason='tooLarge'`, `file=<File>`. In `UploadStatusTray.jsx`,
-`UploadStatusRow` rendered a `Retry` button because `(entry.stage === 'failed' || resumable) && entry.file`.
-Clicking `Retry` called `UploadDrawer.retry(id)`, which cleared the reason and
-called `processFile()` without re-checking `maxLogicalFileBytes`, potentially
-sending an oversized (e.g. 11 GB) file toward transport.
+When an upload exceeded `limits.maxLogicalFileBytes`, `UploadDrawer` enqueued it as `stage='failed'`, `reason='tooLarge'`, `file=<File>`. In `UploadStatusTray.jsx`, `UploadStatusRow` rendered a `Retry` button because `(entry.stage === 'failed' || resumable) && entry.file`. Clicking `Retry` called `UploadDrawer.retry(id)`, which cleared the reason and called `processFile()` without re-checking `maxLogicalFileBytes`, potentially sending an oversized (e.g. 11 GB) file toward transport.
 
 **TDD RED evidence.**
-Updated `tests/filesUploadTray.test.js` TEST 14 to assert that a `tooLarge`
-rejected row renders no retry button (`assert.equal(Boolean(retryBtn), false)`)
-and that only `Dismiss` remains available without invoking `runUpload()`.
-Observed RED failure:
+Updated `tests/filesUploadTray.test.js` TEST 14 to assert that a `tooLarge` rejected row renders no retry button (`assert.equal(Boolean(retryBtn), false)`) and that only `Dismiss` remains available without invoking `runUpload()`. Observed RED failure:
 ```text
 ✖ TEST 14 · a configured-size rejection never reaches the transport, stays truthful, and is non-retryable
   AssertionError [ERR_ASSERTION]: รายการที่ถูกปฏิเสธเพราะเกินเพดานต้องไม่มีปุ่ม Retry ให้กดส่งซ้ำ
@@ -225,58 +192,130 @@ Observed RED failure:
    Gated `<button data-upload-retry>` on `retryable` instead of `entry.stage === 'failed'`.
 2. `IDEA1-AEGIS_Drive_LC/src/components/UploadDrawer.jsx`:
    Added defensive guard inside `retry(id)`:
-   If `limits && (item.size ?? item.file.size) > limits.maxLogicalFileBytes`,
-   immediately patch `stage='failed'`, `reason='tooLarge'`, `rate=null` and return
-   without invoking `processFile()` or transport.
+   If `limits && (item.size ?? item.file.size) > limits.maxLogicalFileBytes`, immediately patch `stage='failed'`, `reason='tooLarge'`, `rate=null` and return without invoking `processFile()` or transport.
 3. `IDEA1-AEGIS_Drive_LC/tests/filesUploadTray.test.js`:
-   Added `TEST 14b` (verifying defensive retry guard intercepts and neutralises
-   retry attempts on oversized files without calling transport) and `TEST 14c`
-   (verifying that genuine retryable failures such as network errors still retain
-   the Retry button).
+   Added `TEST 14b` (verifying defensive retry guard intercepts and neutralises retry attempts on oversized files without calling transport) and `TEST 14c` (verifying that genuine retryable failures such as network errors still retain the Retry button).
 
-**Verification (repository phase).**
+### Session S3 — main reconciliation
 
-| Check | Result |
-| :--- | :--- |
-| New upload-UX suite `tests/filesUploadTray.test.js` | RED 0/20 before implementation; **GREEN 20/20** after S1; **GREEN 22/22** after S2 review correction (non-retryable tooLarge rejection, defensive retry guard) |
-| `uploadDrawerUi` + `uploadCompletionUx` + `uploadProgress` | **32/32 PASS** (both existing suites updated to the new single-status-surface contract) |
-| `transferRate` (shared estimator, unmodified) | **PASS**, included in the focused batch below |
-| `chunkedUpload` engine regression incl. the extended whole-file-read ban | **PASS** |
-| Focused batch (upload, rate, engine, i18n, empty-state, resumable) | **87/87 PASS** |
-| Adjacent UI batch (Files workflow, drawer/motion, modal focus, navigation, app shell) | **52/52 PASS** |
-| IDEA1 regression on this Windows host | **1292 total / 1211 pass / 9 fail / 72 skip**; `NEW_FAILURE_COUNT=0` (all 113 executable test files run; `publicShareS55FirewallContract.test.js` = NOT MEASURED on this host; no new failures in measured set) |
-| Build `npm run build` | **PASS**; tracked `dist/` restored, no generated artifact staged |
-| `scripts/validate-vault.mjs` | **PASS** with the 2 pre-existing canvas owner-review warnings |
-| `tests/collaborationPolicy` + `vaultStructure` + `vaultMultiWriter` | **50/50 PASS** |
-| `git diff --check`, added-line secret scan | **CLEAN** |
+State: **CHECKPOINT**
+Checkpoint SHA: `1592bc25efb2763e4df41817330390a120290492`
+Merged `origin/main` at `f0297496bb9add70714de451324b6af432f9a11e` (PR #143 merge commit).
+Merge completed cleanly without conflict; incoming changes from `main` were docs-only follow-up files from PR #143 with zero runtime overlap with Files Upload UX.
 
-The 9 failures are exactly the recorded accepted-historical set — `AUTOLOCK-5`,
-`PS6-ENV-4/5/6/7`, `PS6-ENV-8 SIGINT`, `PS6-ENV-8 SIGTERM`,
-`publicShareStageBDiagnostics`, `publicShareStageBUploadClient` — and none of
-them touches upload UI.
+### Session S4 — Production browser acceptance of candidate 1592bc25
+
+State: **ACCEPTED (PARTIAL)**
+Candidate SHA: `1592bc25efb2763e4df41817330390a120290492`
+OCI Image: `aegis-prod-drive:files-upload-ux-1592bc25efb2`
+
+**Environment & pre-deployment verification.**
+- Linux verified: firewall contract `tests/publicShareS55FirewallContract.test.js` 39/39 PASS.
+- Deployed Drive-only to Production; exact OCI revision verified.
+- Drive healthy; HUB and Monitor healthy; PostgreSQL untouched.
+- Rollback image created.
+
+**Human Owner Production browser evidence on candidate 1592bc25.**
+- **PASS**:
+  - Redesigned Upload drawer
+  - Drawer auto-close on enqueue
+  - Bottom-right upload tray
+  - Per-file measured progress
+  - Per-file measured speed
+  - Per-file ETA
+  - Collapse / expand
+  - Tray hide without cancelling transfer
+  - Launcher reopening
+  - Multi-image upload
+  - Multi-video upload
+  - Approximately 4 concurrent large video uploads worked
+  - Completed state
+  - Files list refresh
+  - Configured-size rejection (approximately 12.4 GB file rejected before transfer)
+  - Oversize row has no Retry
+  - Dismiss available
+- **FAIL**:
+  - Browser hard refresh while active uploads were running: popup/queue disappeared, local transfer stopped, files did not continue to completion.
+- **LIMITED**:
+  - Large multi-file upload had per-file ETA but no truthful whole-batch transfer ETA.
+
+These Production findings prompted `FILES-UPLOAD-RECOVERY-1`.
+
+### Session S5 — FILES-UPLOAD-RECOVERY-1 implementation
+
+State: **CHECKPOINT**
+Checkpoint SHA: `0508d62cd1cb0239526cc03d9b174bab8cb8d801`
+
+**Implementation details (Claude Code).**
+- `IDEA1-AEGIS_Drive_LC/src/lib/uploadRecovery.js` (new): Durable resumable upload recovery metadata store in localStorage (`aegis_upload_recovery_v1`). Persists bounded metadata: `sessionId`, `fileName`, `fileSize`, `targetFolderId`, `fileSha256`, `lastProgressBytes`, `lastProgressPercent`, `stage`, `createdAt`, `updatedAt`. Does not store file content, blobs, tokens, cookies, or secrets.
+- `IDEA1-AEGIS_Drive_LC/src/lib/chunkedUpload.js`: Added `onCheckpoint` callback to transport options; invoked after successful chunk uploads and session creation to sync recovery metadata.
+- `IDEA1-AEGIS_Drive_LC/src/components/UploadDrawer.jsx`: Added reload reconciliation on mount; queries server upload session status (`/api/files/upload/session/:id`) to verify server-side survival. Reconstructs recovery row in `interrupted` stage if server session is still active (does not falsely report `uploading`). Added `Select file to resume` workflow. Enforces same-size preflight and compute-safe SHA-256 chunked hash check before resuming. Resumes missing chunks only based on server-reported chunk map. Explicit unmount does not abort/cancel server session.
+- `IDEA1-AEGIS_Drive_LC/src/components/UploadStatusTray.jsx`: Added aggregate batch rate and whole-batch transfer ETA estimation across active/waiting items.
+- `IDEA1-AEGIS_Drive_LC/src/lib/strings.js`: Added English, Thai, and Chinese localization keys for recovery actions, interrupted states, and aggregate batch metrics.
+- Added test suites: `tests/uploadRecovery.test.js`, `tests/uploadRecoveryLifecycle.test.js`, `tests/uploadBatchSummary.test.js` (47/47 PASS).
+
+### Session S6 — source review correction
+
+State: **CHECKPOINT**
+Checkpoint SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
+
+**Defects verified & fixed (Claude Code).**
+1. **Defect 1 (Cross-account recovery queue isolation):**
+   - *Problem*: Recovery metadata used a single global key `aegis_upload_recovery_v1`, allowing User B to see User A's interrupted filenames upon account switching in the same browser.
+   - *Fix*: Scoped recovery store by authenticated user ID (`session.id`). `App.jsx` passes `session.id` to `Files.jsx`, which passes `recoveryScope={userId: session?.id}` to `UploadDrawer.jsx`. `uploadRecovery.js` keys storage by `aegis_upload_recovery_v1:<userId>`. If user scope is unresolved, a no-op store is returned. Normal UI account switching cannot enumerate or render another user's recovery queue.
+2. **Defect 2 (Batch transfer workload calculation):**
+   - *Problem*: Aggregate batch ETA only calculated remaining bytes for rows actively in `uploading` stage, omitting items in `waiting`, `checking`, or `hashing` stages, undercounting remaining transfer workload.
+   - *Fix*: Items in `waiting`, `checking`, and `hashing` contribute their full known file size to remaining transfer workload; `uploading` items contribute `size - transferredBytes`. Rows without local source, finalizing/committing rows, and terminal rows are excluded. Aggregate rate is derived strictly from actively uploading rows. If all active rows are stalled or only checking, rate and ETA are truthfully withheld rather than displaying stale or zero estimates.
+3. **Interrupted row actions:**
+   - Replaced misleading `Dismiss` button on interrupted recovery rows with `Discard upload`. Discard explicitly cancels the server-side resumable session and purges local recovery metadata, ensuring the row does not reappear on reload.
+
+**Source review:** PASS by ChatGPT at `a96fac5f045e43d25efc0a1276586c877a25f139`.
+
+### Session S7 — documentation and evidence reconciliation
+
+State: **IN PROGRESS**
+Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
+
+**Work performed (Gemini).**
+- Clarified comment in `IDEA1-AEGIS_Drive_LC/src/App.jsx` regarding localStorage usage: credentials/sessions remain in memory / HttpOnly cookies; localStorage is used for shell theme and bounded per-account upload recovery metadata with no tokens/secrets stored.
+- Reconciled `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` with complete historical progression from S1 through S6.
+- Reconciled GitHub PR #148 body with full evidence, candidate distinction (`1592bc25` vs `a96fac5f`), security/privacy analysis, changed files, and the 25-step Human Owner browser acceptance checklist.
+- Preserved PR #148 in Draft state; no final receipt created.
+
+### Security & Privacy Architecture — Upload Recovery
+
+- **Credential & secret isolation:** Recovery metadata contains only bounded structural information (`sessionId`, `fileName`, `fileSize`, `targetFolderId`, `fileSha256`, progress bytes, stage). It contains zero file/blob contents, zero session tokens, zero cookies, zero CSRF tokens, and zero authentication secrets. Authentication continues to rely strictly on memory state and HttpOnly session cookies.
+- **Account namespacing & browser boundary:** Recovery storage is namespaced by authenticated user ID (`aegis_upload_recovery_v1:<userId>`). Normal UI account switching does not enumerate or render another account's recovery queue. Server-side session ownership remains authoritative (`/api/files/upload/session/:id` validates session owner against the authenticated session).
+- **LocalStorage boundary limitation:** LocalStorage is an origin-scoped browser store, not an OS-level or cryptographic boundary between logical users sharing a single browser profile. Any script or user with access to that browser profile can access localStorage. Therefore, the guarantee is: normal application workflow isolates queues by user ID; server ownership remains authoritative.
+- **Persistence across logout:** Recovery metadata intentionally survives logout so a returning user can resume an interrupted upload before the server session expires. This is a deliberate recoverability/privacy trade-off.
+
+### Current Verification Status & Gates
+
+| Verification | Result | Note |
+| :--- | :--- | :--- |
+| Recovery & batch suites | **47/47 PASS** | `uploadRecovery.test.js`, `uploadRecoveryLifecycle.test.js`, `uploadBatchSummary.test.js` |
+| Focused upload regression | **91/91 PASS** | `filesUploadTray`, `uploadDrawerUi`, `uploadCompletionUx`, `uploadProgress`, `transferRate`, `chunkedUploadClient`, `resumableUpload` |
+| Build | **PASS** | `npm run build` |
+| Broad Windows regression | **1258 pass / 9 accepted fail / 72 skip** | `NEW_FAILURE_COUNT=0` (113 test files) |
+| Policy & vault tests | **50/50 PASS** | `collaborationPolicy`, `vaultStructure`, `vaultMultiWriter` |
+| Vault integrity | **PASS** | `scripts/validate-vault.mjs` (2 pre-existing canvas review warnings) |
+| Git diff check | **CLEAN** | `git diff --check` |
+| Windows-unmeasured suite | **NOT MEASURED** | `tests/publicShareS55FirewallContract.test.js` (Linux-only gate) |
+| Linux verification gate | **PENDING** | Required for exact candidate SHA |
+| Production deployment | **PENDING** | Required for current HEAD (`a96fac5f` + docs) |
+| Human browser acceptance | **PENDING** | Required for reload recovery & batch ETA verification |
+| Task status | **IN PROGRESS** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT` |
 
 **Verification caveat & remaining gates (environment, not source).**
-- **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js`
-  never returns on this Windows workstation: it drives
-  `gateway/public-share/production/` shell scripts through `spawnSync`. It was
-  verified in isolation to hang for 180 s+ with zero output, imports nothing
-  under `src/`, and is untouched by this change, so it was excluded from the
-  Windows run and its 19 tests are **NOT MEASURED on this host** rather than
-  counted as passing. The remaining 113 executable test files were run in full
-  with zero new failures.
-- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. Execution
-  of the Linux-only firewall contract test remains a required gate prior to
-  final release/merge.
+- **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js` never returns on this Windows workstation: it drives `gateway/public-share/production/` shell scripts through `spawnSync`. It was verified in isolation to hang for 180 s+ with zero output, imports nothing under `src/`, and is untouched by this change, so it was excluded from the Windows run and its 19 tests are **NOT MEASURED on this host** rather than counted as passing. The remaining 113 executable test files were run in full with zero new failures.
+- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. Execution of the Linux-only firewall contract test remains a required gate prior to candidate deployment / merge.
 
 **Known limitations (repository phase).**
-
-- Stall classification depends on the browser emitting `XMLHttpRequest` upload
-  progress events plus the clock tick. This matches the existing Private Vault
-  integration and was not changed here.
-- Transfer concurrency is unchanged: files are still processed as the existing
-  engine schedules them. This task changed presentation, not scheduling.
-- No browser or Production verification was performed by this session.
+- Stall classification depends on the browser emitting `XMLHttpRequest` upload progress events plus the clock tick. This matches the existing Private Vault integration and was not changed here.
+- Transfer concurrency is unchanged: files are still processed as the existing engine schedules them. This task changed presentation, recovery, and ETA estimation, not transport concurrency.
+- Browser storage boundary: LocalStorage is origin-scoped in the browser; namespacing by user ID protects normal application flow, while server session ownership provides authoritative security.
 - Real 11 GB file support remains a separate future task; current deployment ceiling is enforced truthfully.
+- Candidate deployment & browser acceptance: Current HEAD (`a96fac5f`) has NOT yet been deployed to Production or verified by Human Owner browser test.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
 
