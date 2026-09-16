@@ -88,6 +88,7 @@ export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
 
   let activeNormalRows = 0
   let trashedNormalRows = 0
+  let ownerlessActiveRows = 0
   let provenFiles = 0
   let provenFolders = 0
   let ambiguousActiveRows = 0
@@ -104,8 +105,16 @@ export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
     else activeNormalRows += 1
 
     if (!trashed) {
-      const key = JSON.stringify([row.uploaded_by ?? null, String(row.name ?? '').toLowerCase()])
-      activeNameGroups.set(key, (activeNameGroups.get(key) ?? 0) + 1)
+      // ⚠️ uploaded_by เป็น ON DELETE SET NULL — แถวของบัญชีที่ถูกลบไปแล้วยังอยู่และไร้เจ้าของ
+      //    unique index (uploaded_by, COALESCE(parent_id,0), lower(name)) ใช้กติกา NULL ≠ NULL
+      //    ของ PostgreSQL แถวไร้เจ้าของสองแถวชื่อเดียวกันจึง **ไม่ชนกัน** ในสายตาของ index
+      //    การนับมันเป็นตัวบล็อกคือการปฏิเสธ migration ที่จะผ่านจริง — รายงานแยกให้เห็นแทน
+      if (row.uploaded_by == null) {
+        ownerlessActiveRows += 1
+      } else {
+        const key = JSON.stringify([row.uploaded_by, String(row.name ?? '').toLowerCase()])
+        activeNameGroups.set(key, (activeNameGroups.get(key) ?? 0) + 1)
+      }
     }
 
     const verdict = classifyLegacyRow(row)
@@ -146,6 +155,8 @@ export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
     totalNormalRows: rows.length,
     activeNormalRows,
     trashedNormalRows,
+    // แถวที่ยังอยู่แต่ไร้เจ้าของ — ไม่บล็อก migration แต่ผู้ดูแลควรรู้ว่ามีอยู่
+    ownerlessActiveRows,
     // ชื่อเดิมคงไว้เพื่อผู้เรียกที่มีอยู่
     totalRows: rows.length,
     provenFiles,

@@ -61,7 +61,7 @@ import {
   avatarUploadMiddleware, sanitizeAvatar, writeAvatar,
   openAvatar, avatarSize, removeAvatar,
 } from '../storage/avatarStore.js'
-import { purgeTrashRecord, withTrashFileLock } from '../storage/trashCleanup.js'
+import { purgeTrashRecord, emptyTrashForUser, withTrashFileLock } from '../storage/trashCleanup.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -392,6 +392,8 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
     const row = await store.createFolder(name, req.user, parentId)
     // ⚠️ null = พ่อหายไประหว่างการตรวจกับการเขียน (ตรวจซ้ำในธุรกรรมภายใต้ล็อกเจ้าของ)
     if (!row) return res.status(404).json({ error: 'Not found' })
+    // การแข่งกันของชื่อพี่น้องที่รอดการตรวจล่วงหน้า — unique index จับได้ ตอบให้อ่านรู้เรื่อง
+    if (row.nameTaken) return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
     await auditAct(req, 'FOLDER_CREATE', name)
     res.status(201).json({ file: row })
   } catch (err) {
@@ -569,6 +571,7 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
           row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user, parentId: uploadParentId })
           // ⚠️ null = โฟลเดอร์ปลายทางหายไประหว่างทาง — ต้องไม่ปล่อยไบต์กำพร้าไว้บนดิสก์
           if (!row) throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
+          if (row.nameTaken) throw Object.assign(new Error('name already used'), { code: 'NAME_TAKEN' })
         }
       } catch (dbErr) {
         await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
@@ -576,6 +579,9 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
         if (dbErr?.code === 'TARGET_GONE') {
           await auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
           return res.status(409).json({ error: 'Upload destination is gone', code: 'TARGET_GONE' })
+        }
+        if (dbErr?.code === 'NAME_TAKEN') {
+          return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
         }
         throw dbErr
       }
@@ -795,6 +801,14 @@ apiRouter.post('/trash/:id/restore', requireAuth, async (req, res, next) => {
         }
       }
       const restored = await store.restoreTrashedFile(file.id, req.user.id, req.body?.name ?? null)
+      // ⚠️ พ่อเดิมอยู่ในถังหรือหายไป = ปฏิเสธตรง ๆ ไม่แอบย้ายไปราก — ให้กู้พ่อก่อน
+      if (restored?.parentUnavailable) {
+        return {
+          status: 409, auditTarget: file.name, auditResult: 'BLOCKED',
+          body: { error: 'Restore the parent folder first', code: 'PARENT_NOT_AVAILABLE' },
+        }
+      }
+      if (restored?.invalid) return { status: 400, body: { error: 'Invalid input' } }
       if (restored?.conflict) {
         return {
           status: 409,
@@ -834,7 +848,14 @@ apiRouter.delete('/trash/:id', requireAuth, async (req, res, next) => {
       await auditAct(req, 'FILE_TRASH_PURGE', req.params.id, 'DENIED')
       return res.status(404).json({ error: 'Not found' })
     }
-    if (!(await purgeTrashRecord(file, req.user.id))) return res.status(404).json({ error: 'Not found' })
+    const outcome = await purgeTrashRecord(file, req.user.id)
+    // ⚠️ โฟลเดอร์ที่ยังมีลูกในถัง = ปฏิเสธด้วยรหัสที่อ่านรู้เรื่อง ไม่ใช่ FK 23503 ที่เป็น 500
+    //    ห้าม CASCADE ให้เอง — เจ้าของต้องลบลูกก่อน
+    if (outcome && outcome.blocked) {
+      await auditAct(req, 'FILE_TRASH_PURGE', file.name, 'BLOCKED')
+      return res.status(409).json({ error: 'Folder still has items in the trash', code: outcome.blocked })
+    }
+    if (outcome !== true) return res.status(404).json({ error: 'Not found' })
     await auditAct(req, 'FILE_TRASH_PURGE', file.name)
     res.json({ ok: true })
   } catch (error) { next(error) }
@@ -849,12 +870,11 @@ apiRouter.post('/trash/empty', requireAuth, async (req, res, next) => {
       if (verified.locked) return res.status(429).json({ error: INVALID_CREDENTIALS })
       return res.status(401).json({ error: INVALID_CREDENTIALS })
     }
-    const files = await store.listTrash(req.user.id)
-    let deletedCount = 0
-    for (const file of files) if (await purgeTrashRecord(file, req.user.id)) deletedCount += 1
+    // ลบลูกก่อนพ่อเสมอ (รอบใบไม้) — และรายงานของที่ค้างตามจริง ไม่อ้างว่าล้างหมด
+    const { deletedCount, blockedCount } = await emptyTrashForUser(req.user.id)
     lockTrashSession(req)
-    await auditAct(req, 'TRASH_EMPTY', String(req.user.id))
-    res.json({ ok: true, deletedCount })
+    await auditAct(req, 'TRASH_EMPTY', String(req.user.id), blockedCount > 0 ? 'PARTIAL' : 'OK')
+    res.json({ ok: blockedCount === 0, deletedCount, blockedCount })
   } catch (error) { next(error) }
 })
 

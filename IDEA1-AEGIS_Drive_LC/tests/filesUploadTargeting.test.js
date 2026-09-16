@@ -333,5 +333,7 @@ test('PREFLIGHT 2 · a clean estate is safe to migrate, and nothing is ever auto
 
   const fsp = await import('node:fs/promises')
   const src = await fsp.readFile(new URL('../server/db/legacyKindClassifier.js', import.meta.url), 'utf8')
-  assert.doesNotMatch(src, /\bUPDATE\b|\bDELETE\b/i, 'preflight ต้องอ่านอย่างเดียว ห้ามแก้ข้อมูลของใคร')
+  // ตรวจเฉพาะโค้ดที่รันจริง — คอมเมนต์อธิบาย FK "ON DELETE SET NULL" ไม่ใช่การกลายพันธุ์
+  const executable = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  assert.doesNotMatch(executable, /\bUPDATE\b|\bDELETE\b/i, 'preflight ต้องอ่านอย่างเดียว ห้ามแก้ข้อมูลของใคร')
 })

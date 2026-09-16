@@ -415,6 +415,10 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
         await auditAct(req, 'FILE_UPLOAD', session.name, 'DENIED')
         return res.status(409).json({ error: 'Upload destination is gone', code: 'TARGET_GONE' })
       }
+      // ชื่อชนกันจากการแข่งกันของสอง commit — ไบต์ถูกคืนเข้า staging แล้ว ผู้ใช้ตั้งชื่อใหม่ได้
+      if (dbErr?.code === 'NAME_TAKEN') {
+        return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+      }
       throw dbErr
     }
 

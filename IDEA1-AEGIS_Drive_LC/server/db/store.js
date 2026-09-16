@@ -136,9 +136,10 @@ async function pgCreateFolder(name, user, parentId = null) {
     [safe, `/datalake/${safe}`, user.id, parentId],
   )
   // ที่ราก ไม่มี "ใครอยู่ใต้ใคร" ให้แข่งกัน — ไม่ต้องเข้าคิว
+  const finish = (result) => (result?.nameTaken ? result : mapFileRow({ ...result.rows[0], uploader_name: user.displayName }))
   if (parentId == null) {
-    const { rows } = await insert({ query })
-    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+    // ที่รากไม่มีพ่อให้แข่งกัน — แต่ชื่อพี่น้องซ้ำยังแข่งกันได้ จึงแปล 23505 ตรงนี้
+    return finish(await insertOrNameTaken(() => insert({ query })))
   }
   // ⚠️ ใต้พ่อ = การกลายพันธุ์ของลำดับชั้น: ล็อกเจ้าของ แล้วยืนยันว่าพ่อยังอยู่จริง
   //    ในธุรกรรมเดียวกับที่แทรกแถว ไม่งั้นพ่ออาจถูกทิ้งไปแล้วระหว่างการตรวจกับการเขียน
@@ -150,8 +151,7 @@ async function pgCreateFolder(name, user, parentId = null) {
       [parentId, user.id],
     )
     if (parent.rowCount === 0) return null
-    const { rows } = await insert(client)
-    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+    return finish(await insertOrNameTaken(() => insert(client)))
   })
 }
 
@@ -165,9 +165,9 @@ async function pgRecordUpload({ name, storageKey, size, sha256, user, parentId =
      VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
     [safeName, storageKey, Number(size) || 0, sha256 ?? null, user.id, parentId],
   )
+  const finish = (result) => (result?.nameTaken ? result : mapFileRow({ ...result.rows[0], uploader_name: user.displayName }))
   if (parentId == null) {
-    const { rows } = await insert({ query })
-    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+    return finish(await insertOrNameTaken(() => insert({ query })))
   }
   // ⚠️ วางไฟล์ใต้โฟลเดอร์ = การกลายพันธุ์ของลำดับชั้น เข้าคิวเดียวกับการย้ายและการทิ้ง
   return withTransaction(async (client) => {
@@ -178,8 +178,7 @@ async function pgRecordUpload({ name, storageKey, size, sha256, user, parentId =
       [parentId, user.id],
     )
     if (parent.rowCount === 0) return null
-    const { rows } = await insert(client)
-    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+    return finish(await insertOrNameTaken(() => insert(client)))
   })
 }
 
@@ -251,10 +250,33 @@ export async function findFile(id) {
  *
  * ⚠️ ลำดับการล็อกต้องเหมือนกันทุกที่: เจ้าของ → แถวไฟล์ (ปลายทาง/ต้นทาง)
  *    เส้นทางที่ล็อกสลับลำดับจะ deadlock กับเส้นทางอื่นแทนที่จะเข้าคิว
+ *
+ * ── ขอบเขตที่แท้จริง (อย่าอ้างเกินนี้) ───────────────────────────────────
+ *    ล็อกนี้ทำให้เป็นอนุกรม **เฉพาะการกลายพันธุ์ที่มีพ่อเกี่ยวข้อง**:
+ *      moveItems (ทุกกรณี), trashFile (ทุกกรณี), restoreTrashedFile (ทุกกรณี),
+ *      และ create/V1/V2 เมื่อวาง "ใต้โฟลเดอร์" (parentId != null)
+ *    การแทรกที่ **ราก** (parentId = null) ไม่ผ่านล็อกนี้โดยเจตนา — ที่รากไม่มี "พ่อที่
+ *    อาจถูกทิ้ง" ให้แข่งกัน กฎของลำดับชั้นจึงถูกละเมิดไม่ได้จากเส้นทางนั้น
+ *    สิ่งที่ยังแข่งกันได้ที่รากคือ **ชื่อพี่น้องซ้ำ** ซึ่ง unique index ของ 010 เป็นคนจับ
+ *    และทุกจุดแทรกแปล 23505 เป็น nameTaken แทนที่จะปล่อยเป็น 500 (ดู insertOrNameTaken)
  */
 export async function lockHierarchyOwner(client, userId) {
   const { rowCount } = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId])
   return rowCount > 0
+}
+
+/**
+ * รันการแทรก แล้วแปล unique violation (ชื่อพี่น้องซ้ำที่รอดการตรวจล่วงหน้าเพราะแข่งกัน)
+ * เป็นผลลัพธ์ที่อ่านรู้เรื่อง — โยนต่อเฉพาะ error ที่ไม่ใช่ 23505
+ * @returns {Promise<object | { nameTaken: true }>}
+ */
+async function insertOrNameTaken(run) {
+  try {
+    return await run()
+  } catch (err) {
+    if (err?.code === '23505') return { nameTaken: true }
+    throw err
+  }
 }
 
 /**
@@ -457,10 +479,13 @@ export async function findTrashedFile(id, userId, { includeExpired = false } = {
   return row ? { ...row } : null
 }
 
-export async function listTrash(userId) {
+// ⚠️ includeExpired มีไว้ให้ "ล้างถัง" เห็นแถวที่หมดอายุแล้วแต่ยังไม่ถูก auto-purge ด้วย
+//    ไม่งั้นการล้างถังจะข้ามพ่อที่หมดอายุแล้ว ทิ้งให้มันค้างเป็นตัวบล็อกของลูกที่ยังไม่หมดอายุ
+export async function listTrash(userId, { includeExpired = false } = {}) {
   if (!/^\d+$/.test(String(userId ?? ''))) return []
   let rows
   if (usingPostgres) {
+    const expiryClause = includeExpired ? '' : ' AND f.purge_after > now()'
     const result = await query(
       `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name,
               count(v.id)::int AS version_count
@@ -468,7 +493,7 @@ export async function listTrash(userId) {
          LEFT JOIN users u ON u.id = f.uploaded_by
          LEFT JOIN file_versions v ON v.file_id = f.id
         WHERE f.uploaded_by = $1 AND f.vault = false
-          AND f.deleted_at IS NOT NULL AND f.purge_after > now()
+          AND f.deleted_at IS NOT NULL${expiryClause}
         GROUP BY f.id, u.profile_name, u.display_name
         ORDER BY f.deleted_at DESC`,
       [userId],
@@ -477,7 +502,7 @@ export async function listTrash(userId) {
   } else {
     rows = files
       .filter((row) => String(row.ownerId) === String(userId) && !row.vault
-        && row.deletedAt != null && row.purgeAt > Date.now())
+        && row.deletedAt != null && (includeExpired || row.purgeAt > Date.now()))
       .sort((a, b) => b.deletedAt - a.deletedAt)
       .map((row) => ({ ...row, versionCount: memFileVersions.filter((v) => String(v.fileId) === String(row.id)).length }))
   }
@@ -493,39 +518,123 @@ const restoredCopyName = (name, copy = 1) => {
   return `${stem.slice(0, Math.max(1, 200 - ext.length - suffix.length))}${suffix}${ext}`
 }
 
-async function availableRestoredName(name, userId) {
+/**
+ * ชื่อว่างสำหรับกู้คืน "ในโฟลเดอร์เดิม" — probe คือตัวถามชื่อซ้ำที่ผู้เรียกผูกกับ
+ * client ของธุรกรรมเข้ามา (โหมด Postgres) เพื่อให้คำตอบไม่ล้าสมัยตั้งแต่ได้รับ
+ */
+async function availableRestoredName(name, taken) {
   for (let copy = 1; copy <= 10_000; copy += 1) {
     const candidate = restoredCopyName(name, copy)
-    if (!(await findOwnFileByName(candidate, userId))) return candidate
+    if (!(await taken(candidate))) return candidate
   }
   // A practically unreachable last resort that still avoids returning a known collision.
   while (true) {
     const candidate = restoredCopyName(`${name}-${randomBytes(6).toString('hex')}`)
-    if (!(await findOwnFileByName(candidate, userId))) return candidate
+    if (!(await taken(candidate))) return candidate
   }
 }
 
+/**
+ * กู้คืนจากถัง
+ *
+ * ⚠️ นี่คือการกลายพันธุ์ของลำดับชั้น: แถวจะกลับมา "มีชีวิต" ใต้ parent_id เดิม จึงต้อง
+ *    เข้าคิวเดียวกับ ย้าย/ทิ้ง/วางไฟล์ และต้องยืนยันว่าพ่อเดิม **ยังมีชีวิต** ก่อน
+ *    ไม่งั้นจะได้ลูกที่มีชีวิตใต้พ่อที่อยู่ในถัง = ไฟล์ที่กู้แล้วแต่หายจากหน้า Files
+ *
+ * ⚠️ ถ้าพ่อไม่พร้อม ต้อง **ปฏิเสธตรง ๆ** ห้ามแอบย้ายไปราก ห้ามล้าง parent_id —
+ *    ผู้ใช้ทิ้งไฟล์ไว้ "ที่นั่น" การกู้แล้วไปโผล่ที่อื่นคือการย้ายที่เขาไม่ได้สั่ง
+ *    ให้กู้พ่อก่อน หรือใช้เส้นทางย้ายที่ชัดเจนในอนาคต
+ *
+ * ⚠️ ชื่อซ้ำตรวจ "ในโฟลเดอร์เดิม" เท่านั้น: root/report.pdf กับ Folder/report.pdf คือ
+ *    คนละไฟล์ การตรวจที่รากจะปฏิเสธการกู้ที่ไม่ได้ชนอะไรเลย
+ *
+ * @returns {Promise<null | { invalid: true } | { parentUnavailable: true }
+ *                   | { conflict: true, suggestedName: string } | { file: object }>}
+ */
 export async function restoreTrashedFile(id, userId, requestedName = null) {
+  const desired = requestedName == null ? null : String(requestedName).trim().slice(0, 200)
+  if (requestedName != null && !desired) return { invalid: true }
+
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id)) || !/^\d+$/.test(String(userId ?? ''))) return null
+    return withTransaction(async (client) => {
+      // 1. ล็อกลำดับชั้นของเจ้าของ — คำสั่งแรกเสมอ (ลำดับ users → files เหมือนทุกเส้นทาง)
+      if (!(await lockHierarchyOwner(client, userId))) return null
+
+      // 2. ล็อกแถวต้นทาง ยืนยันว่ายังอยู่ในถังและยังไม่หมดอายุ
+      const { rows: src } = await client.query(
+        `SELECT * FROM files
+          WHERE id = $1 AND uploaded_by = $2 AND vault = false
+            AND deleted_at IS NOT NULL AND purge_after > now()
+          FOR UPDATE`,
+        [id, userId],
+      )
+      if (!src.length) return null
+      const trashed = src[0]
+      const parentId = trashed.parent_id ?? null
+      const name = desired ?? trashed.name
+
+      // 3. พ่อเดิมต้องยังมีชีวิต เป็นโฟลเดอร์ ของเจ้าของคนเดียวกัน — ล็อกไว้ด้วย
+      if (parentId != null) {
+        const { rowCount } = await client.query(
+          `SELECT id FROM files
+            WHERE id = $1 AND uploaded_by = $2 AND kind = 'folder'
+              AND deleted_at IS NULL AND vault = false
+            FOR UPDATE`,
+          [parentId, userId],
+        )
+        if (rowCount === 0) return { parentUnavailable: true }
+      }
+
+      // 4. ชื่อซ้ำในโฟลเดอร์เดิม ถามผ่าน client ของธุรกรรมนี้
+      const taken = async (candidate) => {
+        const { rowCount } = await client.query(
+          `SELECT 1 FROM files
+            WHERE uploaded_by = $1 AND deleted_at IS NULL AND vault = false
+              AND lower(name) = $2 AND COALESCE(parent_id, 0) = COALESCE($3::bigint, 0)
+            LIMIT 1`,
+          [userId, String(candidate).toLowerCase(), parentId],
+        )
+        return rowCount > 0
+      }
+      if (await taken(name)) return { conflict: true, suggestedName: await availableRestoredName(trashed.name, taken) }
+
+      // 5. กู้คืน — parent_id ไม่ถูกแตะ
+      try {
+        const { rows } = await client.query(
+          `UPDATE files SET name = $3, deleted_at = NULL, purge_after = NULL, deleted_by = NULL,
+                            modified_at = now()
+            WHERE id = $1 AND uploaded_by = $2
+          RETURNING *`,
+          [id, userId, name],
+        )
+        return rows.length ? { file: mapFileRow(rows[0]) } : null
+      } catch (err) {
+        // unique index คือแนวป้องกันสุดท้าย — การแข่งกันที่รอดการตรวจล่วงหน้าต้องได้คำตอบเดียวกัน
+        if (err?.code === '23505') return { conflict: true, suggestedName: await availableRestoredName(trashed.name, taken) }
+        throw err
+      }
+    })
+  }
+
+  // โหมดหน่วยความจำ — กติกาเดียวกันทุกข้อ
   const trashed = await findTrashedFile(id, userId)
   if (!trashed) return null
-  const desired = requestedName == null ? trashed.name : String(requestedName).trim().slice(0, 200)
-  if (!desired) return { invalid: true }
-  const conflict = await findOwnFileByName(desired, userId)
-  if (conflict) return { conflict: true, suggestedName: await availableRestoredName(trashed.name, userId) }
-  if (usingPostgres) {
-    const { rows } = await query(
-      `UPDATE files SET name = $3, deleted_at = NULL, purge_after = NULL, deleted_by = NULL,
-                        modified_at = now()
-        WHERE id = $1 AND uploaded_by = $2 AND vault = false
-          AND deleted_at IS NOT NULL AND purge_after > now()
-      RETURNING *`,
-      [id, userId, desired],
-    )
-    return rows.length ? { file: mapFileRow(rows[0]) } : null
+  const parentId = trashed.parentId ?? null
+  const name = desired ?? trashed.name
+  if (parentId != null) {
+    const parent = files.find((f) => f.id === String(parentId) && f.kind === 'folder'
+      && f.deletedAt == null && !f.vault && String(f.ownerId) === String(userId))
+    if (!parent) return { parentUnavailable: true }
   }
+  const taken = async (candidate) => files.some((f) => String(f.ownerId) === String(userId)
+    && f.deletedAt == null && !f.vault && (f.parentId ?? null) === parentId
+    && f.name.toLowerCase() === String(candidate).toLowerCase())
+  if (await taken(name)) return { conflict: true, suggestedName: await availableRestoredName(trashed.name, taken) }
+
   const row = files.find((candidate) => candidate.id === String(id))
   if (!row || row.deletedAt == null) return null
-  row.name = desired
+  row.name = name
   row.deletedAt = null
   row.purgeAt = null
   row.deletedBy = null
@@ -533,22 +642,55 @@ export async function restoreTrashedFile(id, userId, requestedName = null) {
   return { file: { ...row } }
 }
 
-/** Final metadata delete. Call only after current/version bytes were removed. */
+/**
+ * แถวใด ๆ (มีชีวิตหรืออยู่ในถัง) ที่ยังอ้าง parent_id มายังโฟลเดอร์นี้
+ *
+ * ⚠️ นี่คือคำถามที่ FK ON DELETE RESTRICT จะถามอยู่แล้ว — เราถามก่อนเพื่อตอบเป็น
+ *    รหัสที่อ่านรู้เรื่อง แทนที่จะปล่อย 23503 รั่วออกมาเป็น 500 ลำดับการทิ้งที่ถูกต้อง
+ *    (ทิ้งลูกก่อน แล้วทิ้งพ่อ) ทำให้ทั้งสองแถวยังอยู่ในถังพร้อมกัน และลูกยังชี้มาที่พ่อ
+ *    การลบพ่อถาวรก่อนลูกจึงเป็นไปไม่ได้เชิงโครงสร้าง ไม่ใช่แค่ไม่ควรทำ
+ */
+export async function countReferencingChildren(folderId) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(folderId))) return 0
+    const { rows } = await query('SELECT count(*)::int AS n FROM files WHERE parent_id = $1', [folderId])
+    return rows[0]?.n ?? 0
+  }
+  return files.filter((f) => (f.parentId ?? null) === String(folderId)).length
+}
+
+/**
+ * Final metadata delete. Call only after current/version bytes were removed.
+ *
+ * @returns {Promise<boolean | { blocked: 'FOLDER_HAS_CHILDREN' }>}
+ *   true = ลบแล้ว · false = ไม่พบ/ไม่ใช่ของผู้เรียก · blocked = ยังมีแถวลูกอ้างถึงอยู่
+ *
+ * ⚠️ ห้าม CASCADE ห้ามลบซับทรีให้เอง — เจ้าของต้องลบลูกก่อน การลบทั้งกิ่งเงียบ ๆ
+ *    เพราะผู้ใช้กดลบพ่อคือการลบข้อมูลที่เขาไม่ได้ตั้งใจ และกู้กลับไม่ได้อีก
+ */
 export async function hardDeleteTrashedFile(id, userId = null) {
   if (usingPostgres) {
     if (!/^\d+$/.test(String(id))) return false
     const params = [id]
     const ownerClause = userId == null ? '' : ' AND uploaded_by = $2'
     if (userId != null) params.push(userId)
-    const { rowCount } = await query(
-      `DELETE FROM files WHERE id = $1 AND deleted_at IS NOT NULL${ownerClause}`,
-      params,
-    )
-    return rowCount > 0
+    // ตรวจ "ก่อน" DELETE — และแปล RESTRICT ที่ยังยิงได้จากการแข่งกันให้เป็นรหัสเดียวกัน
+    if ((await countReferencingChildren(id)) > 0) return { blocked: 'FOLDER_HAS_CHILDREN' }
+    try {
+      const { rowCount } = await query(
+        `DELETE FROM files WHERE id = $1 AND deleted_at IS NOT NULL${ownerClause}`,
+        params,
+      )
+      return rowCount > 0
+    } catch (err) {
+      if (err?.code === '23503') return { blocked: 'FOLDER_HAS_CHILDREN' }
+      throw err
+    }
   }
   const index = files.findIndex((row) => row.id === String(id) && row.deletedAt != null
     && (userId == null || String(row.ownerId) === String(userId)))
   if (index < 0) return false
+  if ((await countReferencingChildren(id)) > 0) return { blocked: 'FOLDER_HAS_CHILDREN' }
   files.splice(index, 1)
   for (let i = memFileVersions.length - 1; i >= 0; i--) {
     if (String(memFileVersions[i].fileId) === String(id)) memFileVersions.splice(i, 1)
@@ -2110,11 +2252,19 @@ export async function finishUploadCommit({
         )
         row = mapFileRow({ ...updated.rows[0], uploader_name: user.displayName })
       } else {
-        const inserted = await client.query(
-          `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
-           VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
-          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId, sessionParentId],
-        )
+        // ⚠️ สอง commit ของชื่อใหม่เดียวกันในโฟลเดอร์เดียวกันอาจผ่านการตรวจ existing ทั้งคู่
+        //    (แถวยังไม่มีให้ล็อก) — unique index จับได้ และต้องกลายเป็นคำตอบที่อ่านรู้เรื่อง
+        let inserted
+        try {
+          inserted = await client.query(
+            `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
+             VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
+            [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId, sessionParentId],
+          )
+        } catch (err) {
+          if (err?.code === '23505') throw Object.assign(new Error('name already used'), { code: 'NAME_TAKEN' })
+          throw err
+        }
         row = mapFileRow({ ...inserted.rows[0], uploader_name: user.displayName })
       }
 
