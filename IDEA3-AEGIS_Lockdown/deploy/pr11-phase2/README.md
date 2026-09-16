@@ -17,7 +17,9 @@ Accepted decisions this package implements: **PR #139** (K1/K3/K7 package) and
 | `p2-k8-core-evidence.sh` | **Core** | no | K8 wired VLAN 20 → HUB 443 evidence |
 | `p2b-tests-core.sh` | **Core** | no | Phase 2B mTLS matrix |
 | `p2b-tests-server.sh` | server | no | peer pinning, machine block, PKI metadata |
-| `idea3-machine-client-ca.cnf.example` | Kla, offline | no | dedicated client-CA template |
+| `p2-k10-client-pki.sh` | **Core** | `MODE=csr` only | Core key + CSR, Core-side K10 verify, artifact contract |
+| `p2-k10-server-ca.sh` | server (Kla, root) | `init`/`sign`/`crl`/`revoke`/`publish` only; default `preflight` is read-only | server-held dedicated client CA (**proposed K10 amendment, PENDING Kla**) |
+| `idea3-machine-client-ca.cnf` | server (read by `p2-k10-server-ca.sh`) | no | dedicated client-CA OpenSSL configuration |
 
 ## 1. Accepted Compose model
 
@@ -166,34 +168,56 @@ openssl x509 -req -in idea3-core.csr -CA aegis-root-ca.crt -CAkey aegis-root-ca.
 
 Never create a substitute CA to move faster.
 
-1. **Kla, offline host, once:** create the dedicated CA with
-   `idea3-machine-client-ca.cnf.example`; the encrypted CA private key stays with
-   Kla and never reaches the server, this repository, or IDEA3.
-2. **Music, on the Core** (`umask 077`, service-account owned, key never leaves):
+> **Custody model: PROPOSED, PENDING Kla review.** This section follows
+> `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`:
+> the dedicated CA key is server-held under root-only custody instead of the
+> earlier offline custody. It is **not effective** for live issuance until Kla
+> approves the amendment, and every mutating step below still needs its own
+> explicit Production authorization. A server root compromise includes K10
+> issuing authority under this model; it is not equivalent to offline custody.
+
+1. **Music, on the Core** (`umask 077`, service-account owned, key never leaves),
+   done once — the key and CSR already exist:
 
 ```bash
 sudo -u aegis-idea3 openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
   -keyout /etc/aegis-idea3/pki/idea3-core-client.key \
   -out /tmp/idea3-core-client.csr -subj "/CN=idea3-core"
 sudo chmod 0400 /etc/aegis-idea3/pki/idea3-core-client.key
+sha256sum idea3-core-client.csr     # record it; the server refuses a CSR that differs
 ```
 
-   Send only the CSR to Kla. `CN=idea3-core` must equal
+   Send only the CSR and its SHA-256 to Kla. `CN=idea3-core` must equal
    `AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT`.
-3. **Kla signs (clientAuth only, ~90 days) and generates the CRL:**
+2. **Kla, as root on the AEGIS Production Server** — only after the amendment is
+   approved and the step is authorized. OpenSSL prompts for the CA passphrase;
+   it is never placed in the environment, a file, or a log:
 
 ```bash
-openssl ca -config idea3-machine-client-ca.cnf -extensions idea3_client -days 90 \
-  -in idea3-core-client.csr -out idea3-core-client.crt
-openssl ca -config idea3-machine-client-ca.cnf -gencrl -out idea3-machine-client-ca.crl
+sudo MODE=preflight bash p2-k10-server-ca.sh                       # read-only
+sudo AUTHORIZE_IDEA3_K10_SERVER_CA_MUTATION=YES MODE=init bash p2-k10-server-ca.sh
+sudo AUTHORIZE_IDEA3_K10_SERVER_CA_MUTATION=YES MODE=sign \
+     CSR=/root/idea3-core-client.csr CSR_SHA256=<value recorded on the Core> bash p2-k10-server-ca.sh
+sudo MODE=verify bash p2-k10-server-ca.sh                          # read-only
 ```
 
-4. **Artifacts Kla returns:** `idea3-core-client.crt` → the Core;
-   `idea3-machine-client-ca.crt` and `idea3-machine-client-ca.crl` → the HUB
-   certificate mount; the AEGIS Internal Root CA certificate → the Core as
-   `hub-server-ca.crt`. Renew around day 60 with a new key and CSR. Revocation:
-   `openssl ca -revoke`, regenerate the CRL, replace it, reload the HUB.
-   Watch `nextUpdate`: an expired CRL makes NGINX refuse every client, which
+   Custody: `/opt/aegis/pki/private/idea3-machine-client-ca.key` (`root:root 0600`,
+   encrypted, directory `0700`); public CA certificate and CRL under
+   `/opt/aegis/pki/certs` and `/opt/aegis/pki/crl`; issued certificates under
+   `/opt/aegis/pki/issued`. The key is never in `/opt/aegis/runtime/certs`, a
+   container, or Git.
+3. **Phase 2B preparation only:** `MODE=publish` copies **only**
+   `idea3-machine-client-ca.crt` and `idea3-machine-client-ca.crl` to the HUB
+   certificate mount. NGINX is reloaded in the Phase 2B window, not by the helper.
+4. **Returned to the Core:** the signed `idea3-core-client.crt`, the public
+   `idea3-machine-client-ca.crt` and `.crl` (for `MODE=verify`), and the AEGIS
+   Internal Root CA certificate as `hub-server-ca.crt`. On the Core,
+   `MODE=verify bash p2-k10-client-pki.sh` still fails if any CA private key is
+   present there.
+5. **Lifecycle:** renew around day 60 with a new Core key and CSR. Revocation is
+   `MODE=revoke CERT=<issued cert>` (it regenerates the CRL), then publish and
+   reload the HUB. Regenerate the CRL with `MODE=crl` (`CRL_DAYS` 7–45) well
+   before `nextUpdate`: an expired CRL makes NGINX refuse every client, which
    fails closed and pauses dispatch.
 
 ## 9. Phase 2B

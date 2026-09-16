@@ -101,8 +101,11 @@ sudo MODE=rollback BASELINE_DIR=… bash p2a-verify.sh
 3. **K10** is the dedicated client CA, its CRL, and a Core certificate signed
    from a CSR generated on the Core (README §8). `MODE=contract bash
    p2-k10-client-pki.sh` prints the exact artifact split; `MODE=csr` runs on the
-   Core; `MODE=verify` checks what Kla returns. The CA private key never leaves
-   Kla, and no substitute CA is ever created.
+   Core; `MODE=verify` checks what Kla returns. No substitute CA is ever created.
+   CA custody is the **proposed, PENDING Kla** server-held model
+   (`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`):
+   `p2-k10-server-ca.sh` on the server, only after Kla approves it and the step
+   is authorized. The CA private key is never on the Core or in the HUB mount.
 
 ## 5. Phase 2B window
 

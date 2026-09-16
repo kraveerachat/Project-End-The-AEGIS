@@ -7,8 +7,13 @@
 #
 # The CSR mode is the ONLY mode that creates key material, it runs on the Core,
 # and the key never leaves that host. This script NEVER creates a CA, never
-# generates or reads Kla's CA private key, and never installs Production PKI.
+# generates or reads the CA private key, and never installs Production PKI.
 # A substitute CA is never an acceptable way to make progress.
+#
+# CA custody follows the PROPOSED K10 amendment (PENDING Kla review):
+#   IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md
+# The CA key is server-held (p2-k10-server-ca.sh). It is never on the Core, so
+# MODE=verify still FAILS if a CA private key appears in the Core PKI directory.
 set -uo pipefail
 MODE="${MODE:-contract}"
 SUBJECT_CN="${SUBJECT_CN:-idea3-core}"          # must equal AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT
@@ -89,27 +94,41 @@ verify)
 contract)
   cat <<'CONTRACT'
 K10 artifact contract — who makes what, and what crosses which boundary.
+Model: SERVER_HELD_DEDICATED_CLIENT_CA — PROPOSED, PENDING Kla review. It is not
+effective for live issuance until Kla accepts the amendment on GitHub, and a
+repository acceptance never authorizes a Production change.
 
-Kla (kraveerachat), on the offline CA host, using idea3-machine-client-ca.cnf.example:
-  creates  idea3-machine-client-ca.key   ENCRYPTED, NEVER LEAVES KLA. Not on the server, not in Git.
-  creates  idea3-machine-client-ca.crt   dedicated client CA, CA:TRUE pathlen:0, keyCertSign + cRLSign
-  creates  idea3-machine-client-ca.crl   regenerated before nextUpdate; an expired CRL fails closed
-  signs    idea3-core-client.crt         from the Core CSR, clientAuth only, CN=idea3-core, about 90 days
+Kla (kraveerachat), as root on the AEGIS Production Server, with p2-k10-server-ca.sh:
+  creates  /opt/aegis/pki/private/idea3-machine-client-ca.key
+                                         root:root 0600, passphrase-encrypted; never in the
+                                         HUB cert mount, a container, Git, stdout, or a log
+  creates  /opt/aegis/pki/certs/idea3-machine-client-ca.crt
+                                         dedicated client CA, CA:TRUE pathlen:0, keyCertSign + cRLSign
+  creates  /opt/aegis/pki/crl/idea3-machine-client-ca.crl
+                                         regenerated before nextUpdate; an expired CRL fails closed
+  signs    idea3-core-client.crt         from the Core CSR only: CN=idea3-core, clientAuth only,
+                                         CA:FALSE, about 90 days (never more than 100)
+  copies   ONLY the public CA certificate and CRL to the HUB certificate mount
 
 Music, on the Core (MODE=csr):
   creates  idea3-core-client.key         0400, service-account owned, NEVER LEAVES THE CORE
-  creates  idea3-core-client.csr         the ONLY file sent to Kla
+  creates  idea3-core-client.csr         the ONLY file sent Core -> Server (with its SHA-256)
 
-Returned to the server, under /opt/aegis/runtime/certs (root:root, 0644):
+Placed in the HUB certificate mount /opt/aegis/runtime/certs (root:root, 0644), public only:
   idea3-machine-client-ca.crt, idea3-machine-client-ca.crl
   idea3-core.aegis.internal.crt          K9 server certificate (separate from the browser certificate)
 
 Returned to the Core, under /etc/aegis-idea3/pki:
   idea3-core-client.crt                  the signed client certificate
+  idea3-machine-client-ca.crt, .crl      public copies, for MODE=verify
   hub-server-ca.crt                      the AEGIS Internal Root CA, so the Core can verify the HUB
 
-Never: a substitute CA, a CA key on the server, a private key in Git, a client
-certificate with serverAuth, or the machine name added to the browser certificate.
+Never: a substitute CA, the AEGIS Internal Root CA or MQTT CA as the client CA,
+the CA private key in /opt/aegis/runtime/certs or any container, the CA private
+key on the Core, the Core private key on the server, a private key in Git, a
+client certificate with serverAuth, or the machine name added to the browser
+certificate. Expiry or identity failure pauses dispatch only: never CUT, never
+RESTORE, never a browser-auth fallback.
 CONTRACT
   ;;
 *) log "STOP: MODE must be csr, verify, or contract"; exit 2 ;;
