@@ -10,6 +10,9 @@
 # keeps every path at its real /opt/aegis location. A real run never sets it, and
 # p2a-execute.sh and p2a-rollback.sh refuse anything but DRY_RUN=1 while it is set.
 readonly P2_ROOT="${AEGIS_P2_ROOT:-/opt/aegis}"
+# Portable parsing and host-identity helpers (no Production constants).
+# shellcheck source=p2-portable.sh
+. "$(dirname "${BASH_SOURCE[0]}")/p2-portable.sh"
 readonly RT="$P2_ROOT/runtime"
 readonly BASE="$RT/docker-compose.production.yml"
 readonly OVL="$RT/idea3/idea3-phase2.yml"

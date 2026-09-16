@@ -11,6 +11,9 @@
 #   REVOKED_CERT/REVOKED_KEY     real-CA cert that Kla revoked, CRL already loaded
 #   EXPIRED_CERT/EXPIRED_KEY     real-CA cert with past notAfter
 set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=p2-portable.sh
+. "$HERE/p2-portable.sh"
 HUB_IP=192.168.10.10
 NAME=idea3-core.aegis.internal
 BASE_URL="https://$NAME/security/api/machine/v1"
@@ -27,7 +30,10 @@ req() { curl -sS -o /dev/null -m 15 --interface "$WIRED_IF" --resolve "$NAME:443
         --cacert "$CA" -w '%{http_code}' "$@" 2>/dev/null || echo 000; }
 
 log "=== preconditions"
-[ "$(hostname)" = "$CORE_DECLARED" ] || { log "STOP: not the declared Core"; exit 2; }
+# Exact match against the static host name; `hostname` is not required (p2-portable.sh).
+CORE_ACTUAL=$(p2_host_identity) || CORE_ACTUAL=""
+log "core_host_identity=${CORE_ACTUAL:-<undeterminable>}"
+[ -n "$CORE_ACTUAL" ] && [ "$CORE_ACTUAL" = "$CORE_DECLARED" ] || { log "STOP: not the declared Core"; exit 2; }
 getent ahosts "$NAME" | head -2
 openssl s_client -connect "$HUB_IP:443" -servername "$NAME" -CAfile "$CA" \
   -verify_hostname "$NAME" </dev/null 2>/dev/null | openssl x509 -noout -subject -dates -ext subjectAltName

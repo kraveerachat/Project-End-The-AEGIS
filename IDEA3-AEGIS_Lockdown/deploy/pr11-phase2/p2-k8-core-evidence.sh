@@ -10,6 +10,9 @@
 # Read-only: no interface, route, DNS, service, file, or key is changed.
 # Certificate validation stays on; -k is never used.
 set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=p2-portable.sh
+. "$HERE/p2-portable.sh"
 HUB_IP=192.168.10.10
 VLAN20=192.168.20.
 : "${CORE_DECLARED:?declare the Core hostname, e.g. CORE_DECLARED=aegis-idea3-core}"
@@ -20,7 +23,10 @@ check() { if eval "$2"; then log "PASS $1"; else log "FAIL $1"; fail=1; fi; }
 
 log "=== 0 CORE IDENTITY (owner-declared: $CORE_DECLARED)"
 hostnamectl 2>/dev/null | grep -E 'Static hostname|Operating System|Hardware'
-check "running on the declared Core host" '[ "$(hostname)" = "$CORE_DECLARED" ]'
+# Exact match against the static host name; `hostname` is not required (p2-portable.sh).
+CORE_ACTUAL=$(p2_host_identity) || CORE_ACTUAL=""
+echo "core_host_identity=${CORE_ACTUAL:-<undeterminable>}"
+check "running on the declared Core host" '[ -n "$CORE_ACTUAL" ] && [ "$CORE_ACTUAL" = "$CORE_DECLARED" ]'
 ip -br link show "$WIRED_IF"; ip -br -4 addr show "$WIRED_IF"
 echo "wired_mac=$(cat "/sys/class/net/$WIRED_IF/address" 2>/dev/null)"
 systemctl list-unit-files --no-pager 'aegis*' 2>/dev/null | head -10

@@ -14,9 +14,15 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 need_root
 fail=0
 check() { if eval "$2"; then log "PASS $1"; else log "FAIL $1"; fail=1; fi; }
-code_from_web() { # run a request from a non-HUB peer: IDEA3 Web itself (172.31.243.3)
-  docker exec "$WEB" wget -q -T 5 -S -O /dev/null "$@" 2>&1 | awk '/HTTP\//{c=$2} END{print c+0}'
+# HTTP status of a GET made from inside a container with BusyBox wget. The status
+# comes from p2_http_status (p2-portable.sh), which reads the code after HTTP/x.y
+# and prints 000 when none is present, so error-form output
+# ("wget: server returned error: HTTP/1.1 403 Forbidden") is parsed correctly.
+code_from() { # container wget-args...
+  local c=$1; shift
+  docker exec "$c" wget -q -T 5 -S -O /dev/null "$@" 2>&1 | p2_http_status
 }
+code_from_web() { code_from "$WEB" "$@"; } # a non-HUB peer: IDEA3 Web itself (172.31.243.3)
 
 log "=== S1 the machine listener rejects a non-HUB peer even with perfect headers"
 check "peer .3 with forged SUCCESS identity is refused (403)" \
@@ -27,17 +33,15 @@ check "peer .3 without identity headers is refused (403)" \
 
 log "=== S2 the HUB peer with the identity the edge sets is accepted"
 check "HUB peer with SUCCESS + CN=idea3-core is accepted (200)" \
-  '[ "$(docker exec "$HUB" wget -q -T 5 -S -O /dev/null \
-       --header "X-Aegis-Client-Verify: SUCCESS" --header "X-Aegis-Client-Dn: CN=idea3-core" \
-       "http://'"$WEB_IP"':8004/security/api/machine/v1/dispatch/pending" 2>&1 | awk "/HTTP\//{c=\$2} END{print c+0}")" = 200 ]'
+  '[ "$(code_from "$HUB" --header "X-Aegis-Client-Verify: SUCCESS" --header "X-Aegis-Client-Dn: CN=idea3-core" \
+       "http://'"$WEB_IP"':8004/security/api/machine/v1/dispatch/pending")" = 200 ]'
 check "HUB peer with a wrong CN is refused (403)" \
-  '[ "$(docker exec "$HUB" wget -q -T 5 -S -O /dev/null \
-       --header "X-Aegis-Client-Verify: SUCCESS" --header "X-Aegis-Client-Dn: CN=attacker" \
-       "http://'"$WEB_IP"':8004/security/api/machine/v1/dispatch/pending" 2>&1 | awk "/HTTP\//{c=\$2} END{print c+0}")" = 403 ]'
+  '[ "$(code_from "$HUB" --header "X-Aegis-Client-Verify: SUCCESS" --header "X-Aegis-Client-Dn: CN=attacker" \
+       "http://'"$WEB_IP"':8004/security/api/machine/v1/dispatch/pending")" = 403 ]'
 
 log "=== S3 the browser listener still serves no machine path (W10)"
 check "browser listener 8003 returns 404 for the machine path" \
-  '[ "$(docker exec "$HUB" wget -q -T 5 -S -O /dev/null "http://'"$WEB_IP"':8003/security/api/machine/v1/dispatch/pending" 2>&1 | awk "/HTTP\//{c=\$2} END{print c+0}")" = 404 ]'
+  '[ "$(code_from "$HUB" "http://'"$WEB_IP"':8003/security/api/machine/v1/dispatch/pending")" = 404 ]'
 
 log "=== S4 HUB machine block and its mTLS material (metadata only)"
 docker exec "$HUB" nginx -T 2>/dev/null |

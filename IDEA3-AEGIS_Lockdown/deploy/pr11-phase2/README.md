@@ -10,6 +10,7 @@ Accepted decisions this package implements: **PR #139** (K1/K3/K7 package) and
 | File | Runs on | Mutates | Purpose |
 |---|---|---|---|
 | `p2-lib.sh` | — | no | shared constants, accepted hashes, helpers |
+| `p2-portable.sh` | — | no | fail-closed helpers without Production constants: BusyBox `wget -S` status parsing and host identity without the optional `hostname` binary; sourced by `p2-lib.sh` and by the Core scripts (copy it next to them on the Core) |
 | `p2a-baseline.sh` | server | no | pre-mutation baseline and preconditions |
 | `p2a-execute.sh` | server | **yes** | Phase 2A, gated on the exact authorization |
 | `p2a-verify.sh` | server | no | post-change verification and preservation |
@@ -128,7 +129,8 @@ validation.
 
 Run `p2-k8-core-evidence.sh` **on the host the owner declares as the Core**, with
 its wired link on VLAN 20 (`192.168.20.0/24`). PASS requires: the declared
-hostname matches, the wired link has carrier and a VLAN 20 address, the default
+hostname matches (read with `hostnamectl --static`, else `/etc/hostname`; the
+`hostname` executable is not required and an undeterminable name fails), the wired link has carrier and a VLAN 20 address, the default
 route to `192.168.10.10` leaves through that wired interface (not a tunnel), and
 HTTPS returns 200 with certificate validation on. A workstation reaching the HUB
 over Twingate is not Core evidence. If a Twingate route on the Core wins over the
