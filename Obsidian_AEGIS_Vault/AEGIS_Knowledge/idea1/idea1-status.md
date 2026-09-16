@@ -114,7 +114,7 @@ edit_policy: owner-writable
 | Owner | `kla` |
 | PR | PR #148 (Draft) — see the Session Register below |
 | Repository starting checkpoint | `c89eeecaf3c6b577dd96343861a1dc7091a8d31e` — `origin/main` resolved fresh at session start (merge of PR #145) |
-| Current state | **FILES-UPLOAD-UX-1: SOURCE IMPLEMENTED / LOCALLY VERIFIED; FILES-UPLOAD-RECOVERY-1: SOURCE IMPLEMENTED / SOURCE REVIEW PASS; PREVIOUS PRODUCTION CANDIDATE 1592bc25 PARTIAL (UX PASS, RELOAD FAIL, BATCH ETA LIMITED); CURRENT HEAD a96fac5f: LINUX VERIFICATION PENDING, PRODUCTION DEPLOYMENT PENDING, HUMAN BROWSER ACCEPTANCE PENDING** |
+| Current state | **FILES-UPLOAD-UX-1: SOURCE IMPLEMENTED / LOCALLY VERIFIED; FILES-UPLOAD-RECOVERY-1: SOURCE IMPLEMENTED AT a96fac5f / SOURCE REVIEW PASS; PREVIOUS PRODUCTION CANDIDATE 1592bc25 PARTIAL (UX PASS, RELOAD FAIL, BATCH ETA LIMITED); CURRENT PR HEAD (POST-DOC-CORRECTION): LINUX VERIFICATION PENDING, PRODUCTION DEPLOYMENT PENDING, HUMAN BROWSER ACCEPTANCE PENDING (UNTESTED ON PRODUCTION)** |
 | Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
 | Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-upload-ux-refresh`; the primary tree was occupied by another task's branch and was not used |
 
@@ -151,7 +151,8 @@ Final acceptance requires: Linux firewall verification, Drive-only candidate Pro
 | S4 | Production browser acceptance candidate 1592bc25 | ACCEPTED (PARTIAL) | Production image `aegis-prod-drive:files-upload-ux-1592bc25efb2` | `1592bc25` | Initial Upload UX PASS; Refresh recovery FAIL; Aggregate batch ETA LIMITED | address recovery & batch ETA gaps | FILES-UPLOAD-RECOVERY-1 implementation |
 | S5 | FILES-UPLOAD-RECOVERY-1: reload recovery metadata & aggregate batch ETA | CHECKPOINT | see Session S5 | `0508d62c` | repository verification PASS (47/47 suites) | independent review | independent source review |
 | S6 | Source review correction: account-scoped recovery store & transfer workload correction | CHECKPOINT | see Session S6 | `a96fac5f` | repository verification PASS (91/91 focused, 47/47 recovery/batch, zero new failures) | docs reconciliation / Linux verification / Production deploy | docs reconciliation then Linux verification |
-| S7 | Documentation / PR #148 / Obsidian evidence reconciliation | IN PROGRESS | see Session S7 | pending docs commit | docs reconciliation in progress | Linux gate / Production deployment / Human browser retest | Linux verification of exact HEAD |
+| S7 | Documentation / PR #148 / Obsidian evidence reconciliation | CHECKPOINT | see Session S7 | `d13dd9b7` | reconciliation completed subject to factual correction | factual correction / Linux verification | S8 doc correction |
+| S8 | Factual documentation / PR body correction checkpoint | IN PROGRESS | see Session S8 | pending docs commit | storage key, recovery fields, route, SHA, prop flow corrected | Linux gate / Production deployment / Human browser retest | Linux verification of exact PR HEAD |
 
 ### Session S1 — implementation
 
@@ -171,7 +172,7 @@ Starting SHA: `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`
 ### Session S2 — targeted review correction (non-retryable oversize rejection)
 
 State: **CHECKPOINT**
-Checkpoint SHA: `827de632314545d9b736bbf45c497ca1f9f257bf`
+Checkpoint SHA: `827de6325024aa44667a07005e130c60c6c3d80d`
 Starting SHA: `9683bf8e41239b4cedaef56bf263968e63feec8a`
 
 **Defect verified.**
@@ -247,9 +248,9 @@ State: **CHECKPOINT**
 Checkpoint SHA: `0508d62cd1cb0239526cc03d9b174bab8cb8d801`
 
 **Implementation details (Claude Code).**
-- `IDEA1-AEGIS_Drive_LC/src/lib/uploadRecovery.js` (new): Durable resumable upload recovery metadata store in localStorage (`aegis_upload_recovery_v1`). Persists bounded metadata: `sessionId`, `fileName`, `fileSize`, `targetFolderId`, `fileSha256`, `lastProgressBytes`, `lastProgressPercent`, `stage`, `createdAt`, `updatedAt`. Does not store file content, blobs, tokens, cookies, or secrets.
+- `IDEA1-AEGIS_Drive_LC/src/lib/uploadRecovery.js` (new): Durable resumable upload recovery metadata store namespaced under `aegis.drive.uploads.recovery.v1` by a bounded encoded authenticated-user scope (`aegis.drive.uploads.recovery.v1.<encoded-account-segment>`). Persists bounded `RECOVERY_FIELDS`: `version`, `uploadId`, `name`, `size`, `lastModified`, `sha256`, `chunkSize`, `chunkCount`, `receivedBytes`, `stage`, `createdAt`, `updatedAt`. Does not store file content, blobs, tokens, cookies, or secrets.
 - `IDEA1-AEGIS_Drive_LC/src/lib/chunkedUpload.js`: Added `onCheckpoint` callback to transport options; invoked after successful chunk uploads and session creation to sync recovery metadata.
-- `IDEA1-AEGIS_Drive_LC/src/components/UploadDrawer.jsx`: Added reload reconciliation on mount; queries server upload session status (`/api/files/upload/session/:id`) to verify server-side survival. Reconstructs recovery row in `interrupted` stage if server session is still active (does not falsely report `uploading`). Added `Select file to resume` workflow. Enforces same-size preflight and compute-safe SHA-256 chunked hash check before resuming. Resumes missing chunks only based on server-reported chunk map. Explicit unmount does not abort/cancel server session.
+- `IDEA1-AEGIS_Drive_LC/src/components/UploadDrawer.jsx`: Added reload reconciliation on mount; queries server upload session status via `GET /api/files/uploads/:uploadId` to verify server-side survival. Reconstructs recovery row in `interrupted` stage if server session is still active (does not falsely report `uploading`). Added `Select file to resume` workflow. Enforces same-size preflight and compute-safe SHA-256 chunked hash check before resuming. Resumes missing chunks only based on server-reported chunk map. Explicit unmount does not abort/cancel server session.
 - `IDEA1-AEGIS_Drive_LC/src/components/UploadStatusTray.jsx`: Added aggregate batch rate and whole-batch transfer ETA estimation across active/waiting items.
 - `IDEA1-AEGIS_Drive_LC/src/lib/strings.js`: Added English, Thai, and Chinese localization keys for recovery actions, interrupted states, and aggregate batch metrics.
 - Added test suites: `tests/uploadRecovery.test.js`, `tests/uploadRecoveryLifecycle.test.js`, `tests/uploadBatchSummary.test.js` (47/47 PASS).
@@ -261,19 +262,20 @@ Checkpoint SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 
 **Defects verified & fixed (Claude Code).**
 1. **Defect 1 (Cross-account recovery queue isolation):**
-   - *Problem*: Recovery metadata used a single global key `aegis_upload_recovery_v1`, allowing User B to see User A's interrupted filenames upon account switching in the same browser.
-   - *Fix*: Scoped recovery store by authenticated user ID (`session.id`). `App.jsx` passes `session.id` to `Files.jsx`, which passes `recoveryScope={userId: session?.id}` to `UploadDrawer.jsx`. `uploadRecovery.js` keys storage by `aegis_upload_recovery_v1:<userId>`. If user scope is unresolved, a no-op store is returned. Normal UI account switching cannot enumerate or render another user's recovery queue.
+   - *Problem*: Recovery metadata used an unscoped base key `aegis.drive.uploads.recovery.v1`, allowing User B to see User A's interrupted filenames upon account switching in the same browser.
+   - *Fix*: Scoped recovery store by authenticated user ID (`session.id`). Prop flow: `session.id` → `Files userId` (`<Files userId={session?.id ?? null} ... />`) → `UploadDrawer recoveryScope` (`<UploadDrawer recoveryScope={userId} ... />`). `uploadRecovery.js` keys storage by `aegis.drive.uploads.recovery.v1.<encoded-account-segment>`. If user scope is unresolved, a no-op store is returned. Normal UI account switching cannot enumerate or render another user's recovery queue.
 2. **Defect 2 (Batch transfer workload calculation):**
    - *Problem*: Aggregate batch ETA only calculated remaining bytes for rows actively in `uploading` stage, omitting items in `waiting`, `checking`, or `hashing` stages, undercounting remaining transfer workload.
    - *Fix*: Items in `waiting`, `checking`, and `hashing` contribute their full known file size to remaining transfer workload; `uploading` items contribute `size - transferredBytes`. Rows without local source, finalizing/committing rows, and terminal rows are excluded. Aggregate rate is derived strictly from actively uploading rows. If all active rows are stalled or only checking, rate and ETA are truthfully withheld rather than displaying stale or zero estimates.
 3. **Interrupted row actions:**
-   - Replaced misleading `Dismiss` button on interrupted recovery rows with `Discard upload`. Discard explicitly cancels the server-side resumable session and purges local recovery metadata, ensuring the row does not reappear on reload.
+   - Replaced misleading `Dismiss` button on interrupted recovery rows with `Discard upload`. Discard explicitly cancels the server-side resumable session (`DELETE /api/files/uploads/:uploadId`) and purges local recovery metadata, ensuring the row does not reappear on reload.
 
 **Source review:** PASS by ChatGPT at `a96fac5f045e43d25efc0a1276586c877a25f139`.
 
 ### Session S7 — documentation and evidence reconciliation
 
-State: **IN PROGRESS**
+State: **CHECKPOINT**
+Checkpoint SHA: `d13dd9b7571e840ea9515eb9797af52314a1754b`
 Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 
 **Work performed (Gemini).**
@@ -282,11 +284,25 @@ Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 - Reconciled GitHub PR #148 body with full evidence, candidate distinction (`1592bc25` vs `a96fac5f`), security/privacy analysis, changed files, and the 25-step Human Owner browser acceptance checklist.
 - Preserved PR #148 in Draft state; no final receipt created.
 
+### Session S8 — factual documentation and evidence correction
+
+State: **IN PROGRESS**
+Starting SHA: `d13dd9b7571e840ea9515eb9797af52314a1754b`
+
+**Work performed (Gemini).**
+- Corrected recovery storage key specification: base key is `aegis.drive.uploads.recovery.v1`, with effective account key `aegis.drive.uploads.recovery.v1.<encoded-account-segment>` produced by `recoveryStorageKey(scope)`.
+- Corrected persisted recovery fields to match `RECOVERY_FIELDS`: `version`, `uploadId`, `name`, `size`, `lastModified`, `sha256`, `chunkSize`, `chunkCount`, `receivedBytes`, `stage`, `createdAt`, `updatedAt` (omitting non-persisted `targetFolderId` and percentage fields).
+- Corrected API routes to match server router: `GET /api/files/uploads/:uploadId` and `DELETE /api/files/uploads/:uploadId` (ownership enforced through `store.findUploadSession(uploadId, req.user.id)`).
+- Corrected authoritative commit SHA for Session S2 (`fix(idea1): keep oversize upload rejection non-retryable`) to `827de6325024aa44667a07005e130c60c6c3d80d`.
+- Clarified prop flow: `session.id` → `Files userId` (`<Files userId={session?.id ?? null} ... />`) → `UploadDrawer recoveryScope` (`<UploadDrawer recoveryScope={userId} ... />`).
+- Reconciled HEAD distinctions: `SOURCE_IMPLEMENTATION_HEAD=a96fac5f...`, `PR_HEAD_BEFORE_DOC_CORRECTION=d13dd9b...`, and current PR head after this correction, noting that neither has been tested on Production.
+- Updated PR #148 body on GitHub in place.
+
 ### Security & Privacy Architecture — Upload Recovery
 
-- **Credential & secret isolation:** Recovery metadata contains only bounded structural information (`sessionId`, `fileName`, `fileSize`, `targetFolderId`, `fileSha256`, progress bytes, stage). It contains zero file/blob contents, zero session tokens, zero cookies, zero CSRF tokens, and zero authentication secrets. Authentication continues to rely strictly on memory state and HttpOnly session cookies.
-- **Account namespacing & browser boundary:** Recovery storage is namespaced by authenticated user ID (`aegis_upload_recovery_v1:<userId>`). Normal UI account switching does not enumerate or render another account's recovery queue. Server-side session ownership remains authoritative (`/api/files/upload/session/:id` validates session owner against the authenticated session).
-- **LocalStorage boundary limitation:** LocalStorage is an origin-scoped browser store, not an OS-level or cryptographic boundary between logical users sharing a single browser profile. Any script or user with access to that browser profile can access localStorage. Therefore, the guarantee is: normal application workflow isolates queues by user ID; server ownership remains authoritative.
+- **Credential & secret isolation:** Bounded upload recovery metadata contains upload/session identification, filename, size, checksum and resumable-transfer metadata (`version`, `uploadId`, `name`, `size`, `lastModified`, `sha256`, `chunkSize`, `chunkCount`, `receivedBytes`, `stage`, `createdAt`, `updatedAt`). It contains zero file/blob contents, zero session tokens, zero cookies, zero CSRF tokens, and zero authentication secrets. Authentication continues to rely strictly on memory state and HttpOnly session cookies.
+- **Account namespacing & browser boundary:** Recovery records are namespaced under `aegis.drive.uploads.recovery.v1` by a bounded encoded authenticated-user scope (`aegis.drive.uploads.recovery.v1.<encoded-account-segment>`). Normal UI account switching does not enumerate or render another account's recovery queue. Server-side session ownership remains authoritative (`GET /api/files/uploads/:uploadId` validates session owner against the authenticated session via `store.findUploadSession(uploadId, req.user.id)`).
+- **LocalStorage boundary limitation:** LocalStorage is an origin-scoped browser store, not an OS-level or cryptographic boundary between logical users sharing a single browser profile. Any script or user with access to that browser profile can access localStorage. Therefore, the guarantee is: normal application workflow isolates queues by authenticated user scope; server ownership remains authoritative.
 - **Persistence across logout:** Recovery metadata intentionally survives logout so a returning user can resume an interrupted upload before the server session expires. This is a deliberate recoverability/privacy trade-off.
 
 ### Current Verification Status & Gates
@@ -302,7 +318,7 @@ Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 | Git diff check | **CLEAN** | `git diff --check` |
 | Windows-unmeasured suite | **NOT MEASURED** | `tests/publicShareS55FirewallContract.test.js` (Linux-only gate) |
 | Linux verification gate | **PENDING** | Required for exact candidate SHA |
-| Production deployment | **PENDING** | Required for current HEAD (`a96fac5f` + docs) |
+| Production deployment | **PENDING** | Required for current PR HEAD (a96fac5f source + docs) |
 | Human browser acceptance | **PENDING** | Required for reload recovery & batch ETA verification |
 | Task status | **IN PROGRESS** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT` |
 
@@ -315,7 +331,7 @@ Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 - Transfer concurrency is unchanged: files are still processed as the existing engine schedules them. This task changed presentation, recovery, and ETA estimation, not transport concurrency.
 - Browser storage boundary: LocalStorage is origin-scoped in the browser; namespacing by user ID protects normal application flow, while server session ownership provides authoritative security.
 - Real 11 GB file support remains a separate future task; current deployment ceiling is enforced truthfully.
-- Candidate deployment & browser acceptance: Current HEAD (`a96fac5f`) has NOT yet been deployed to Production or verified by Human Owner browser test.
+- Candidate deployment & browser acceptance: Neither a96fac5f nor subsequent documentation commits (d13dd9b7 / current PR HEAD) have been deployed to Production or verified by Human Owner browser test.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
 
