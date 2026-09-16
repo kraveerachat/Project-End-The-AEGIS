@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, File as FileIcon, UploadCloud, X } from 'lucide-react'
 
-import { cancelUploadSession, fetchTransferLimits, uploadFileResumable } from '../lib/chunkedUpload.js'
+import {
+  cancelUploadSession,
+  fetchTransferLimits,
+  fetchUploadSession,
+  incrementalSha256,
+  uploadFileResumable,
+} from '../lib/chunkedUpload.js'
 import { fmtBytes } from '../lib/format.js'
 import { createRateEstimator } from '../lib/transferRate.js'
+import { createRecoveryStore, recoveryRecordFrom, verifyRecoveryIdentity } from '../lib/uploadRecovery.js'
 import { Btn, IconBtn, InlineEmptyState } from './ui.jsx'
 import {
   ACTIVE_UPLOAD_STAGES,
@@ -56,6 +63,9 @@ export function UploadDrawer({
   runUpload = uploadFileResumable,
   loadLimits = fetchTransferLimits,
   cancelSession = cancelUploadSession,
+  loadSession = fetchUploadSession,
+  hashFile = incrementalSha256,
+  recoveryStorage,
 }) {
   const [queue, setQueue] = useState(initialQueue)
   const [limits, setLimits] = useState(null)
@@ -72,6 +82,14 @@ export function UploadDrawer({
   const estimators = useRef(new Map())
   const queueRef = useRef(queue)
   queueRef.current = queue
+  // ⚠️ ร้านเก็บบันทึกกู้คืนต้องเป็นตัวเดิมตลอดอายุของคอมโพเนนต์ การสร้างใหม่ทุก render
+  //    ไม่ผิดเชิงพฤติกรรม (มันไร้สถานะภายใน) แต่ทำให้ effect ที่พึ่งพามันวิ่งไม่หยุด
+  const recoveryRef = useRef(null)
+  if (recoveryRef.current === null) recoveryRef.current = createRecoveryStore({ storage: recoveryStorage })
+  const recovery = recoveryRef.current
+  /** ช่องเลือกไฟล์สำหรับการกู้คืน + แถวที่กำลังรอไฟล์นั้นอยู่ */
+  const recoverInputRef = useRef(null)
+  const recoverTargetRef = useRef(null)
 
   const patchItem = (id, patch) => setQueue((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
 
@@ -106,6 +124,16 @@ export function UploadDrawer({
           transferredBytes, size: totalBytes, progress: percent, chunkIndex, chunkCount,
           rate: estimator.sample(transferredBytes, now(), { totalBytes }),
         }),
+        // ⚠️ จดทันทีที่เซสชันฝั่งเซิร์ฟเวอร์มีจริง ไม่ใช่ตอนงานจบ — ถ้ารอจนจบ ช่วงที่
+        //    ผู้ใช้กด refresh (คือช่วงที่ยาวที่สุดของไฟล์ 2 GB) จะไม่มีอะไรให้กู้เลย
+        onCheckpoint: (checkpoint) => {
+          if (checkpoint.reason === 'done') {
+            recovery.remove(checkpoint.uploadId)
+            return
+          }
+          patchItem(id, { sha256: checkpoint.sha256 ?? null, session: { ...(queueRef.current.find((entry) => entry.id === id)?.session ?? {}), uploadId: checkpoint.uploadId } })
+          recovery.save(recoveryRecordFrom(checkpoint, file, { stage: 'uploading' }))
+        },
       })
 
       if (controller.signal.aborted || result.stage === 'cancelled') {
@@ -122,7 +150,13 @@ export function UploadDrawer({
         ...(result.ok ? { progress: 100, transferredBytes: file.size } : {}),
       })
 
-      if (result.ok) onUploaded?.()
+      // ⚠️ commit สำเร็จ = ไฟล์ถูกเผยแพร่แล้ว ไม่มีอะไรให้กู้ ส่วนความล้มเหลวที่ยัง
+      //    resume ได้ต้อง **เก็บบันทึกไว้** ไม่งั้นการปิดแท็บตอนนั้นจะทำให้ไบต์ที่ส่ง
+      //    ไปแล้วกลายเป็นของกำพร้าจนหมดอายุไปเอง
+      if (result.ok) {
+        recovery.remove(result.upload?.uploadId)
+        onUploaded?.()
+      }
     } catch {
       patchItem(id, { stage: controller.signal.aborted ? 'cancelled' : 'failed', progress: null, rate: null })
     } finally {
@@ -193,8 +227,73 @@ export function UploadDrawer({
     return () => controller.abort()
   }, [loadLimits])
 
+  // ⚠️ หน้าเว็บถูกทำลาย (ปิดแท็บ / refresh / ออกจากหน้า) — **ไม่ใช่การยกเลิกของผู้ใช้**
+  //    หยุดได้แค่ request ในเครื่องเท่านั้น เพราะโค้ดนี้กำลังจะไม่มีตัวตนแล้ว
+  //    ห้ามเรียก cancelSession() และห้ามลบบันทึกกู้คืน: เซสชันฝั่งเซิร์ฟเวอร์กับ chunk
+  //    ที่รับไปแล้วคือสิ่งเดียวที่ทำให้แท็บถัดไปทำงานต่อได้แทนที่จะเริ่มจากไบต์แรก
   useEffect(() => () => {
     for (const controller of controllers.current.values()) controller.abort()
+  }, [])
+
+  // ── คืนสภาพคิวหลัง reload ────────────────────────────────────────────────
+  // ⚠️ เซิร์ฟเวอร์เป็นผู้ตัดสินเสมอว่าเซสชันยังอยู่ไหมและขาด chunk ไหน บันทึกในเครื่อง
+  //    เป็นแค่ "ชื่อของงาน" ไม่ใช่สถานะที่เชื่อถือได้ — เราจึงถามก่อนแสดงผลทุกครั้ง
+  useEffect(() => {
+    const records = recovery.list()
+    if (records.length === 0) return undefined
+
+    let cancelled = false
+    const controller = new AbortController()
+
+    ;(async () => {
+      for (const record of records) {
+        const status = await loadSession(record.uploadId, { signal: controller.signal })
+        if (cancelled) return
+
+        if (!status.ok) {
+          // ⚠️ เซิร์ฟเวอร์ยืนยันว่าไม่มีแล้วเท่านั้นที่ทิ้งบันทึกได้ เน็ตล่ม = ยังไม่รู้
+          //    การทิ้งตอนไม่รู้คือการริบสิทธิ์ resume ของผู้ใช้ด้วยการเดา
+          if (status.reason === 'expired') {
+            recovery.remove(record.uploadId)
+            setQueue((current) => [{
+              id: `recovered-${record.uploadId}`,
+              file: null, name: record.name, size: record.size,
+              stage: 'failed', reason: 'expired', progress: null,
+              transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null, rate: null,
+            }, ...current])
+          }
+          continue
+        }
+
+        const upload = status.upload
+        setQueue((current) => {
+          if (current.some((entry) => entry.session?.uploadId === record.uploadId)) return current
+          return [{
+            id: `recovered-${record.uploadId}`,
+            // ไม่มี File object — เบราว์เซอร์คืนให้ไม่ได้ ผู้ใช้ต้องชี้ไฟล์เดิมกลับมาเอง
+            file: null,
+            name: record.name,
+            size: record.size ?? upload.size ?? null,
+            sha256: record.sha256 ?? null,
+            recovery: record,
+            session: upload,
+            // ⚠️ ห้ามเป็น 'uploading' — ไม่มีไบต์ใดกำลังวิ่งอยู่จริงในแท็บนี้
+            stage: 'interrupted',
+            reason: null,
+            progress: null,
+            transferredBytes: upload.receivedBytes ?? record.receivedBytes ?? 0,
+            chunkIndex: 0,
+            chunkCount: upload.chunkCount ?? record.chunkCount ?? 0,
+            rate: null,
+          }, ...current]
+        })
+        revealTray()
+      }
+    })().catch(() => { /* คืนสภาพไม่สำเร็จ = คิวว่าง ไม่ใช่จอพัง */ })
+
+    return () => { cancelled = true; controller.abort() }
+    // ครั้งเดียวตอน mount — นี่คือ "แท็บนี้เพิ่งเปิดขึ้นมา"
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -219,11 +318,17 @@ export function UploadDrawer({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onClose, open])
 
+  // ⚠️ นี่คือ **คำสั่งของผู้ใช้** ต่างจากการที่หน้าเว็บถูกทำลาย (ดู effect ตอน unmount)
+  //    อย่างเดียวที่ทำให้ทั้งสองอย่างนี้ถูกรวมกันได้คือความเข้าใจผิด และราคาของมันคือ
+  //    ไฟล์ 2 GB ที่ส่งไปแล้วครึ่งหนึ่งหายไปเพราะผู้ใช้เผลอกด F5
   const cancel = (id) => {
     controllers.current.get(id)?.abort()
     const item = queueRef.current.find((candidate) => candidate.id === id)
     // คืนพื้นที่พักฝั่งเซิร์ฟเวอร์ทันที แทนที่จะปล่อยให้ค้างจนหมดอายุ
-    if (item?.session?.uploadId) cancelSession(item.session.uploadId).catch(() => {})
+    if (item?.session?.uploadId) {
+      cancelSession(item.session.uploadId).catch(() => {})
+      recovery.remove(item.session.uploadId)
+    }
     patchItem(id, { stage: 'cancelled', progress: null, session: null, rate: null })
   }
   // ทำต่อจาก session เดิมถ้ายังมีอยู่ (ส่งเฉพาะ chunk ที่ขาด) ไม่งั้นเริ่มใหม่ทั้งไฟล์
@@ -239,6 +344,39 @@ export function UploadDrawer({
     processFile(item.file, id, item.session ? { session: item.session, sha256: item.sha256 } : null)
   }
   const dismiss = (id) => setQueue((current) => current.filter((item) => item.id !== id))
+
+  /** ผู้ใช้กด "เลือกไฟล์เพื่อทำต่อ" — เปิดช่องเลือกไฟล์แล้วจำไว้ว่าเลือกให้แถวไหน */
+  const requestRecover = (id) => {
+    recoverTargetRef.current = id
+    patchItem(id, { recoverError: null })
+    recoverInputRef.current?.click()
+  }
+
+  /**
+   * ผู้ใช้ชี้ไฟล์ต้นทางกลับมาแล้ว — พิสูจน์ตัวตนก่อน แล้วจึงต่อเข้าเซสชันเดิม
+   *
+   * ⚠️ ไม่มี chunk ใดถูกส่งก่อนที่ SHA-256 จะตรงกับที่บันทึกไว้ ถ้ายอมรับไฟล์ผิด
+   *    เซิร์ฟเวอร์จะประกอบไฟล์ครึ่งหนึ่งของ A กับครึ่งหนึ่งของ B แล้วปฏิเสธตอน commit
+   *    ซึ่งแปลว่าผู้ใช้เสียเวลาอัปโหลดครึ่งไฟล์ไปฟรี ๆ ก่อนจะรู้ว่าเลือกผิด
+   */
+  const acceptRecoverFile = async (id, file) => {
+    const item = queueRef.current.find((candidate) => candidate.id === id)
+    if (!item || !file) return
+
+    patchItem(id, { verifying: true, recoverError: null })
+    const verdict = await verifyRecoveryIdentity(item.recovery ?? { size: item.size, sha256: item.sha256 }, file, { hashFile })
+    if (!verdict.ok) {
+      // ยังกู้ได้อยู่ ผู้ใช้แค่เลือกไฟล์ผิด — อย่าทำลายแถวทิ้งเพราะความผิดพลาดที่แก้ได้
+      if (verdict.reason === 'cancelled') { patchItem(id, { verifying: false }); return }
+      patchItem(id, { verifying: false, recoverError: verdict.reason })
+      return
+    }
+
+    patchItem(id, { verifying: false, recoverError: null, file, stage: 'waiting', progress: null, rate: null })
+    // sha เดิมถูกส่งต่อ transport จึงข้ามการแฮชทั้งไฟล์ซ้ำ และสถานะ chunk ที่ขาด
+    // มาจากเซิร์ฟเวอร์เสมอ (uploadFileResumable ถาม /uploads/:id ก่อนส่งอะไรทั้งนั้น)
+    processFile(file, id, { session: item.session, sha256: verdict.sha256 })
+  }
 
   const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
   const pick = () => inputRef.current?.click()
@@ -259,8 +397,23 @@ export function UploadDrawer({
           onCancel={cancel}
           onRetry={retry}
           onDismiss={dismiss}
+          onRecover={requestRecover}
         />
       )}
+      {/* ⚠️ ต้องอยู่คู่กับถาด ไม่ใช่ในลิ้นชักใหญ่ — การกู้คืนเกิดขึ้นตอนลิ้นชักปิดอยู่เสมอ */}
+      <input
+        ref={recoverInputRef}
+        data-upload-recover-input=""
+        type="file"
+        className="sr-only"
+        aria-label={t('uploadRecoverSelect')}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          const id = recoverTargetRef.current
+          event.target.value = ''
+          if (file && id) acceptRecoverFile(id, file)
+        }}
+      />
       {/* ⚠️ ซ่อนถาดทั้งที่ยังมีงานเดินอยู่ = ต้องเหลือทางกลับเสมอ ไม่งั้นผู้ใช้จะเชื่อว่า
           งานหายไปแล้วแล้วเริ่มอัปโหลดไฟล์เดิมซ้ำอีกรอบ */}
       {trayHidden && <UploadTrayLauncher t={t} queue={queue} onShow={revealTray} />}

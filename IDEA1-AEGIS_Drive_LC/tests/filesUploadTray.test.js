@@ -331,7 +331,11 @@ test('TEST 12 · a completed item renders a truthful terminal success state', ()
 
 test('TEST 13 · the tray header summary is derived from the real queue', () => {
   assert.deepEqual(uploadTraySummary([{ stage: 'uploading' }]), { key: 'uploadTrayUploadingOne', vars: { n: 1 } })
-  assert.deepEqual(uploadTraySummary([{ stage: 'uploading' }, { stage: 'hashing' }]), { key: 'uploadTrayUploading', vars: { n: 2 } })
+  assert.deepEqual(uploadTraySummary([{ stage: 'uploading' }, { stage: 'uploading' }]), { key: 'uploadTrayUploading', vars: { n: 2 } })
+  // ⚠️ FILES-UPLOAD-RECOVERY-1 แยก "กำลังตรวจไฟล์" ออกจาก "กำลังอัปโหลด" — ไฟล์ที่ยัง
+  //    แฮชอยู่ไม่มีไบต์ใดออกจากเครื่อง การนับรวมทำให้หัวถาดพูดเกินจริงตั้งแต่วินาทีแรก
+  assert.deepEqual(uploadTraySummary([{ stage: 'uploading' }, { stage: 'hashing' }]), { key: 'uploadTrayMixed', vars: { n: 1, checking: 1 } })
+  assert.deepEqual(uploadTraySummary([{ stage: 'hashing' }, { stage: 'hashing' }]), { key: 'uploadTrayChecking', vars: { n: 2 } })
   // ยังมีงานที่ต้องจัดการ = ห้ามพูดว่า "เสร็จแล้ว"
   assert.deepEqual(uploadTraySummary([{ stage: 'complete' }, { stage: 'failed' }]), { key: 'uploadTrayAttentionOne', vars: { n: 1 } })
   assert.deepEqual(uploadTraySummary([{ stage: 'complete' }, { stage: 'paused' }]), { key: 'uploadTrayAttentionOne', vars: { n: 1 } })

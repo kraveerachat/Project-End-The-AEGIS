@@ -15,18 +15,29 @@
 //    บนสาย การโชว์ความเร็วค้างไว้ตรงนั้นคือคำโกหกที่แนบเนียนที่สุดของหน้าจอแบบนี้
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
 
-import { fmtBytes } from '../lib/format.js'
-import { transferRateLine } from '../lib/transferRate.js'
+import { fmtBytes, fmtRate } from '../lib/format.js'
+import { etaParts, transferRateLine } from '../lib/transferRate.js'
 import { Chip, IconBtn } from './ui.jsx'
 
 /** ขั้นที่ยังนับว่า "งานเดินอยู่" — ชุดเดียวกับที่ UploadDrawer ใช้ตัดสินใจ */
 export const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'preparing', 'hashing', 'processing', 'uploading', 'committing'])
 
-/** ขั้นที่ผู้ใช้ต้องมาจัดการเอง — ยังไม่จบ และยังไม่ถือว่าล้มเหลวถาวรเสมอไป */
-const ATTENTION_STAGES = new Set(['paused', 'failed'])
+/**
+ * ขั้นที่ผู้ใช้ต้องมาจัดการเอง — ยังไม่จบ และยังไม่ถือว่าล้มเหลวถาวรเสมอไป
+ * ⚠️ `interrupted` = งานที่เซิร์ฟเวอร์ยังถือ chunk ไว้ให้ แต่แท็บนี้ไม่มีตัวไฟล์แล้ว
+ *    (เกิดหลัง reload) มันไม่ใช่งานที่กำลังเดิน และไม่ใช่งานที่ล้มเหลว
+ */
+const ATTENTION_STAGES = new Set(['paused', 'failed', 'interrupted'])
 
 /** ขั้นเดียวที่มีไบต์วิ่งบนสายจริง จึงเป็นขั้นเดียวที่พูดเรื่องความเร็ว/ETA ได้ */
 const MEASURING_STAGE = 'uploading'
+
+/**
+ * ขั้นที่ "กำลังทำงานอยู่ แต่ยังไม่มีไบต์วิ่งบนสาย"
+ * ⚠️ นี่คือความต่างที่หัวถาดเคยพูดผิด: ไฟล์ 2 GB สี่ไฟล์ที่กำลังแฮชอยู่ถูกสรุปว่า
+ *    "Uploading 4 items" ทั้งที่ยังไม่มีไบต์ใดออกจากเครื่องเลยแม้แต่ไบต์เดียว
+ */
+const CHECKING_STAGES = new Set(['waiting', 'preparing', 'hashing', 'processing'])
 
 // สถานะที่ผู้ใช้เห็น เดินตามขั้นจริงของโปรโตคอล V2 (ดู src/lib/chunkedUpload.js)
 // waiting/processing ยังอยู่เพื่อรองรับคิวที่ถูกส่งเข้ามาจากภายนอกก่อนงานจะเริ่มเดิน
@@ -41,6 +52,7 @@ const STAGE_LABEL = {
   complete: 'uploadComplete',
   failed: 'uploadFailed',
   cancelled: 'uploadCancelled',
+  interrupted: 'upStageInterrupted',
 }
 
 // เหตุผลที่แสดงใต้ชื่อไฟล์ — บอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
@@ -56,7 +68,7 @@ const REASON_LABEL = {
 const stageTone = (stage) => {
   if (stage === 'complete') return 'ok'
   if (stage === 'failed') return 'danger'
-  if (stage === 'paused') return 'warn'
+  if (stage === 'paused' || stage === 'interrupted') return 'warn'
   if (stage === 'cancelled') return 'neutral'
   return 'accent'
 }
@@ -85,8 +97,25 @@ export const shouldShowQueueLauncher = (queue = []) => activeUploadCount(queue) 
  * @returns {{ key: string, vars: { n: number } }}
  */
 export function uploadTraySummary(queue = []) {
-  const active = activeUploadCount(queue)
-  if (active > 0) return { key: active === 1 ? 'uploadTrayUploadingOne' : 'uploadTrayUploading', vars: { n: active } }
+  const uploading = queue.filter((entry) => entry.stage === MEASURING_STAGE).length
+  const checking = queue.filter((entry) => CHECKING_STAGES.has(entry.stage)).length
+  const finalizing = queue.filter((entry) => entry.stage === 'committing').length
+
+  // ⚠️ "กำลังส่ง" กับ "กำลังตรวจไฟล์" ต้องไม่ถูกยุบเป็นคำเดียวกัน ไฟล์ 2 GB สี่ไฟล์ที่
+  //    ยังแฮชอยู่ไม่ได้ "กำลังอัปโหลด" — และผู้ใช้จะรู้ทันทีว่าโดนโกหกเมื่อตัวนับไบต์
+  //    ยังเป็นศูนย์อยู่หลายนาที
+  if (uploading > 0 && checking > 0) {
+    return { key: 'uploadTrayMixed', vars: { n: uploading, checking } }
+  }
+  if (uploading > 0) {
+    return { key: uploading === 1 ? 'uploadTrayUploadingOne' : 'uploadTrayUploading', vars: { n: uploading } }
+  }
+  if (checking > 0) {
+    return { key: checking === 1 ? 'uploadTrayCheckingOne' : 'uploadTrayChecking', vars: { n: checking } }
+  }
+  if (finalizing > 0) {
+    return { key: finalizing === 1 ? 'uploadTrayFinalizingOne' : 'uploadTrayFinalizing', vars: { n: finalizing } }
+  }
 
   const attention = attentionUploadCount(queue)
   if (attention > 0) return { key: attention === 1 ? 'uploadTrayAttentionOne' : 'uploadTrayAttention', vars: { n: attention } }
@@ -95,6 +124,60 @@ export function uploadTraySummary(queue = []) {
   if (complete > 0) return { key: complete === 1 ? 'uploadTrayCompleteOne' : 'uploadTrayComplete', vars: { n: complete } }
 
   return { key: 'uploadTrayTitle', vars: { n: queue.length } }
+}
+
+/**
+ * ภาพรวมของทั้งชุด — ตอบคำถามเดียวที่ผู้ใช้ลากไฟล์ 2 GB มาสี่ไฟล์อยากรู้: "อีกนานแค่ไหน"
+ *
+ * ⚠️ ทุกตัวเลขมาจากรายการที่ **กำลังส่งจริง** เท่านั้น:
+ *    - ไฟล์ที่ยังแฮชอยู่ไม่มีอัตรา และไบต์ที่เหลือของมันยังไม่ใช่ "ไบต์ที่รอโอน" ในแง่
+ *      ที่อัตราปัจจุบันจะพยากรณ์ได้ — นับรวมเข้ามาจะได้ ETA ที่สั้นกว่าความจริงมาก
+ *    - รายการที่หยุดนิ่งสมทบ "ศูนย์" ไม่ใช่ความเร็วก้อนสุดท้ายของตัวเอง นั่นคือกติกา
+ *      เดียวกับที่ transferRate.js บังคับไว้กับรายการเดี่ยว
+ *    - ไม่รู้ขนาดของไฟล์ใดไฟล์หนึ่ง = ไบต์ที่เหลือรวมไม่มีความหมาย → ไม่มี ETA
+ *
+ * ⚠️ `etaSeconds` คือ **เวลาโอนที่เหลือ** ไม่ใช่ "เวลาจนงานเสร็จ" — ขั้น commit ของ
+ *    เซิร์ฟเวอร์ไม่ได้ถูกวัดด้วยอัตรานี้และกินเวลาไม่คงที่ตามขนาดไฟล์ การเรียกมันว่า
+ *    เวลาจนเสร็จคือการสัญญาสิ่งที่เราไม่ได้วัด
+ *
+ * @param {{ stage: string, size?: number|null, transferredBytes?: number,
+ *           rate?: { bytesPerSecond: number|null, stalled: boolean }|null }[]} queue
+ */
+export function uploadTrayAggregate(queue = []) {
+  const uploading = queue.filter((entry) => entry.stage === MEASURING_STAGE)
+  const checkingCount = queue.filter((entry) => CHECKING_STAGES.has(entry.stage)).length
+
+  let bytesPerSecond = null
+  let stalledCount = 0
+  let remainingBytes = 0
+  let remainingKnown = uploading.length > 0
+
+  for (const entry of uploading) {
+    const rate = entry.rate ?? null
+    if (rate?.stalled) stalledCount += 1
+    // หยุดนิ่ง = สมทบศูนย์ ไม่ใช่ความเร็วเก่า; ยังวัดไม่ได้ = ยังไม่สมทบอะไรเลย
+    if (!rate?.stalled && typeof rate?.bytesPerSecond === 'number' && Number.isFinite(rate.bytesPerSecond)) {
+      bytesPerSecond = (bytesPerSecond ?? 0) + rate.bytesPerSecond
+    }
+
+    const total = typeof entry.size === 'number' && Number.isFinite(entry.size) && entry.size > 0 ? entry.size : null
+    if (total === null) remainingKnown = false
+    else remainingBytes += Math.max(0, total - (entry.transferredBytes ?? 0))
+  }
+
+  const remaining = remainingKnown ? remainingBytes : null
+  const etaSeconds = remaining !== null && bytesPerSecond !== null && bytesPerSecond > 0
+    ? remaining / bytesPerSecond
+    : null
+
+  return {
+    uploadingCount: uploading.length,
+    checkingCount,
+    stalledCount,
+    bytesPerSecond,
+    remainingBytes: remaining,
+    etaSeconds,
+  }
 }
 
 /**
@@ -107,9 +190,12 @@ function measuredRateLine(t, entry) {
   return transferRateLine(t, entry.rate ?? null)
 }
 
-export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
+export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss, onRecover }) {
   const cancellable = ACTIVE_UPLOAD_STAGES.has(entry.stage)
-  const dismissible = ['complete', 'failed', 'cancelled'].includes(entry.stage)
+  const dismissible = ['complete', 'failed', 'cancelled', 'interrupted'].includes(entry.stage)
+  // ⚠️ งานที่ค้างจาก reload: เซิร์ฟเวอร์ยังถือ chunk ไว้ให้ แต่เบราว์เซอร์คืน File object
+  //    ของ <input type=file> ให้เราไม่ได้ ผู้ใช้จึงต้องชี้ไฟล์ต้นทางเดิมกลับมาเอง
+  const recoverable = entry.stage === 'interrupted' && Boolean(entry.session?.uploadId)
   const progress = entry.stage === 'complete' ? 100 : entry.progress
   // หยุดชั่วคราวแล้วยังมี session อยู่ = ทำต่อได้ ไม่ต้องเริ่มไฟล์ใหม่ทั้งก้อน
   const resumable = entry.stage === 'paused' && Boolean(entry.session)
@@ -155,6 +241,17 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
         </p>
       )}
 
+      {/* งานที่ค้างจาก reload อธิบายตัวเองว่าต้องทำอะไรต่อ ไม่ใช่แค่ติดป้ายว่าค้าง */}
+      {recoverable && (
+        <p className="mt-1.5 text-[11px] font-medium leading-snug" style={{ color: 'var(--warn)' }}>
+          {t(entry.recoverError === 'content' ? 'uploadRecoverWrongFile'
+            : entry.recoverError === 'size' ? 'uploadRecoverWrongSize'
+              : entry.recoverError === 'unreadable' ? 'uploadRecoverUnreadable'
+                : entry.verifying ? 'uploadRecoverVerifying'
+                  : 'uploadRecoverHint')}
+        </p>
+      )}
+
       {typeof progress === 'number' && (
         <div
           className="mt-2 h-1 rounded-full bg-sunken overflow-hidden"
@@ -184,11 +281,16 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
         </p>
       )}
 
-      {(cancellable || retryable || dismissible) && (
+      {(cancellable || retryable || dismissible || recoverable) && (
         <div className="mt-2 flex justify-end gap-3">
           {cancellable && (
             <button type="button" data-upload-cancel={entry.id} onClick={() => onCancel(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               {t('cancel')}
+            </button>
+          )}
+          {recoverable && (
+            <button type="button" data-upload-recover={entry.id} disabled={Boolean(entry.verifying)} onClick={() => onRecover?.(entry.id)} className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              <RotateCcw size={11} aria-hidden />{t('uploadRecoverSelect')}
             </button>
           )}
           {retryable && (
@@ -208,17 +310,45 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
 }
 
 /**
+ * บรรทัดสรุปของทั้งชุด: "<ไบต์ที่เหลือ> · <อัตรารวม> · <เวลาโอนที่เหลือ>"
+ *
+ * ⚠️ แต่ละท่อนหายได้อิสระจากกัน ไม่ใช่ทั้งหมดหรือไม่มีเลย — รู้ไบต์ที่เหลือแต่ยังวัด
+ *    อัตราไม่ได้ ก็บอกไบต์ที่เหลืออย่างเดียว การรอให้ครบทุกท่อนแปลว่าช่วงต้นของทุกคิว
+ *    จะว่างเปล่าทั้งที่เรารู้ตัวเลขจริงอยู่ตัวหนึ่งแล้ว
+ */
+function aggregateLine(t, batch) {
+  const parts = []
+  if (batch.remainingBytes !== null) parts.push(t('uploadTrayRemaining', { size: fmtBytes(batch.remainingBytes) }))
+
+  const speed = fmtRate(batch.bytesPerSecond)
+  if (speed) parts.push(speed)
+
+  const eta = etaParts(batch.etaSeconds)
+  if (eta) {
+    const key = eta.unit === 'seconds' ? 'vaultXferEtaSeconds'
+      : eta.unit === 'minutes' ? 'vaultXferEtaMinutes'
+        : 'vaultXferEtaHours'
+    parts.push(t(key, { n: eta.value }))
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
  * ถาดลอยมุมขวาล่าง — กว้างพอบนเดสก์ท็อป และหดตามความกว้างจอเล็กเสมอ
  *
  * ⚠️ `onHide` กับ `onCancel` เป็นคนละคำสั่งกันโดยเจตนา และต้องไม่ถูกรวมเป็นปุ่มเดียว
  *    ไม่ว่าจะด้วยเหตุผลด้านพื้นที่บนจอก็ตาม
  */
-export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCollapse, onHide, onCancel, onRetry, onDismiss }) {
+export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCollapse, onHide, onCancel, onRetry, onDismiss, onRecover }) {
   if (queue.length === 0) return null
 
   const summary = uploadTraySummary(queue)
   const attention = attentionUploadCount(queue)
   const active = activeUploadCount(queue)
+  const batch = uploadTrayAggregate(queue)
+  // ⚠️ ไฟล์เดียวไม่ต้องมีบรรทัดสรุปรวม มันจะพูดซ้ำกับแถวของตัวเองคำต่อคำ
+  const batchLine = batch.uploadingCount > 1 ? aggregateLine(t, batch) : null
 
   return (
     <section
@@ -232,9 +362,18 @@ export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCol
         </span>
         {/* ⚠️ polite + ข้อความระดับ "สรุป" เท่านั้น — ไบต์เปลี่ยนวินาทีละหลายครั้ง
             การประกาศทุกการเปลี่ยนแปลงจะทำให้ screen reader ใช้งานหน้านี้ไม่ได้เลย */}
-        <p role="status" aria-live="polite" className="min-w-0 flex-1 text-[12.5px] font-bold text-ink truncate">
-          {t(summary.key, summary.vars)}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p role="status" aria-live="polite" className="text-[12.5px] font-bold text-ink truncate">
+            {t(summary.key, summary.vars)}
+          </p>
+          {/* ⚠️ อยู่นอก role="status" โดยเจตนา: ตัวเลขนี้ขยับทุกวินาที การประกาศมันคือ
+              การทำให้ screen reader พูดทับตัวเองไม่หยุด */}
+          {batchLine && (
+            <p data-upload-tray-batch="" className="text-[11px] text-ink-3 truncate" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {batchLine}
+            </p>
+          )}
+        </div>
         <IconBtn
           label={t(collapsed ? 'uploadTrayExpand' : 'uploadTrayCollapse')}
           aria-expanded={!collapsed}
@@ -251,7 +390,7 @@ export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCol
       {!collapsed && (
         <ul className="flex-1 overflow-y-auto">
           {queue.map((entry) => (
-            <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} />
+            <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} onRecover={onRecover} />
           ))}
         </ul>
       )}

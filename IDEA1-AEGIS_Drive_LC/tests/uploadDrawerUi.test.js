@@ -68,7 +68,9 @@ test('a queued upload is monitored by the bottom-right tray, not by the large dr
   assert.doesNotMatch(html, /role="dialog"/, 'ลิ้นชักใหญ่ต้องปิดอยู่')
   assert.match(html, /data-upload-tray="expanded"/)
   assert.match(html, /report\.pdf/)
-  assert.match(html, /Uploading 1 item/i)
+  // ⚠️ ยังไม่มีไบต์ใดออกจากเครื่อง หัวถาดจึงต้องพูดว่ากำลังตรวจไฟล์ ไม่ใช่กำลังอัปโหลด
+  assert.match(html, /Checking 1 file/i)
+  assert.doesNotMatch(html, /Uploading 1 item/i)
   // ปุ่มซ่อนกับปุ่มยกเลิกต้องเป็นคนละคำสั่งกันเสมอ
   assert.match(html, /data-upload-tray-hide/)
   assert.match(html, /aria-label="Hide upload status"/)
