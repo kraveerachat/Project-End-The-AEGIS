@@ -452,7 +452,10 @@ export default function App() {
         telemetryLoading={telemetryApi.loading}
       />
     ),
-    files: <Files t={t} lang={lang} go={go} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
+    // ⚠️ `userId` ไม่ได้มีไว้อนุญาตอะไร (เซิร์ฟเวอร์ทำหน้าที่นั้นอยู่แล้วทุกเส้นทาง) แต่มีไว้
+    //    ผูกบันทึกกู้คืนการอัปโหลดในเครื่องกับบัญชี — เบราว์เซอร์เครื่องเดียวถูกใช้หลาย
+    //    บัญชีได้ และบันทึกนั้นมีชื่อไฟล์ที่ยังอัปโหลดไม่เสร็จอยู่ในนั้น
+    files: <Files t={t} lang={lang} go={go} userId={session?.id ?? null} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
     vault: <Vault t={t} lang={lang} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,

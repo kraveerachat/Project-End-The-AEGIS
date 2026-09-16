@@ -24,8 +24,50 @@
 //    แถบความคืบหน้าที่ขยับเองโดยไม่มีไบต์ใดวิ่งจริง ผู้ใช้ต้องเลือกไฟล์ต้นทางเดิม
 //    กลับมาเอง แล้วเราพิสูจน์ตัวตนของมันก่อนต่อเข้าเซสชันเดิม
 
-/** คีย์เดียวที่โมดูลนี้แตะใน storage — ขึ้นเวอร์ชันเมื่อรูปทรงของบันทึกเปลี่ยน */
+/** ฐานของคีย์ใน storage — คีย์จริงมีบัญชีผู้ใช้ต่อท้ายเสมอ (ดู recoveryStorageKey) */
 export const RECOVERY_STORAGE_KEY = 'aegis.drive.uploads.recovery.v1'
+
+/** ความยาวสูงสุดของส่วน "บัญชี" ในคีย์ — id ที่ยาวผิดปกติต้องไม่ทำให้คีย์โตไม่จำกัด */
+const SCOPE_SEGMENT_MAX = 32
+
+/**
+ * FNV-1a 32-bit — ใช้ทำให้ id ที่ยาวเกินเพดานยังแยกจากกันได้หลังถูกตัด
+ * ⚠️ ไม่ใช่ของลับและไม่ได้มีไว้กันการปลอม มันแค่กันการ "ยุบมาชนกัน" ของสองบัญชีที่
+ *    ขึ้นต้นเหมือนกัน การป้องกันจริงอยู่ที่เซิร์ฟเวอร์ซึ่งผูกทุกเซสชันกับ req.user.id
+ */
+function fnv1a32(input) {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(36)
+}
+
+/**
+ * คีย์ของ storage สำหรับ "บัญชีนี้เท่านั้น"
+ *
+ * ⚠️ นี่คือหัวใจของการแก้ข้อบกพร่องข้อที่ 1: เบราว์เซอร์หนึ่งเครื่องถูกใช้หลายบัญชีได้
+ *    เสมอ และบันทึกกู้คืนมีทั้งชื่อไฟล์ ขนาด และ SHA-256 ของงานที่ยังไม่เสร็จอยู่ในนั้น
+ *    เซิร์ฟเวอร์ปฏิเสธเซสชันข้ามบัญชีอย่างถูกต้องด้วย 404 อยู่แล้ว แต่ 404 นั้นมาถึง
+ *    *หลังจาก* จอวาดชื่อไฟล์ของคนก่อนหน้าไปแล้ว การแยกที่ชั้น storage จึงต้องมาก่อน
+ *
+ * ⚠️ ห้ามต่อสตริงดิบ: id ที่มี `.`, `/`, ช่องว่าง หรือยาวผิดปกติ ทำให้คีย์กำกวมหรือ
+ *    โตไม่จำกัด — encode ก่อน แล้วตัดที่เพดานพร้อมแฮชกันการชนกัน
+ *
+ * @param {string|number|null|undefined} scope id ของผู้ใช้ที่ล็อกอินอยู่
+ * @returns {string|null} null = ยังไม่รู้ว่าเป็นใคร จึงยังไม่มีคีย์ให้เขียน
+ */
+export function recoveryStorageKey(scope) {
+  if (scope === null || scope === undefined || scope === '') return null
+  const raw = String(scope)
+  if (!raw) return null
+  const encoded = encodeURIComponent(raw)
+  const segment = encoded.length <= SCOPE_SEGMENT_MAX
+    ? encoded
+    : `${encoded.slice(0, SCOPE_SEGMENT_MAX)}~${fnv1a32(raw)}`
+  return `${RECOVERY_STORAGE_KEY}.${segment}`
+}
 
 /** เวอร์ชันของรูปทรงบันทึก — บันทึกที่คนละเวอร์ชันถูกทิ้ง ไม่ใช่เดาความหมายเอา */
 export const RECOVERY_VERSION = 1
@@ -107,14 +149,20 @@ function sanitize(record) {
  *    องค์กรทำให้ localStorage โยน error ได้ทั้งตอนอ่านและตอนเขียน การอัปโหลดต้องไม่พัง
  *    เพราะการ "จดกันลืม" ล้มเหลว — อย่างแย่ที่สุดคือกู้ไม่ได้ ไม่ใช่ส่งไฟล์ไม่ได้
  *
- * @param {{ storage?: Storage, now?: () => number }} [options]
+ * ⚠️ `scope` คือ id ของบัญชีที่ล็อกอินอยู่ ไม่ใช่ชื่อผู้ใช้และไม่ใช่ token — ไม่มีอะไร
+ *    ที่เป็นความลับถูกเก็บลงเครื่อง ถ้ายังไม่รู้ว่าเป็นใคร (scope ว่าง) ร้านจะกลายเป็น
+ *    no-op ทั้งการอ่านและการเขียน: ไม่อ่านของใคร และไม่ทิ้งบันทึกที่ไม่มีเจ้าของไว้
+ *
+ * @param {{ storage?: Storage, scope?: string|number|null, now?: () => number }} [options]
  */
-export function createRecoveryStore({ storage = defaultStorage(), now = Date.now } = {}) {
+export function createRecoveryStore({ storage = defaultStorage(), scope = null, now = Date.now } = {}) {
+  const key = recoveryStorageKey(scope)
+
   const read = () => {
-    if (!storage) return []
+    if (!storage || !key) return []
     let raw = null
     try {
-      raw = storage.getItem(RECOVERY_STORAGE_KEY)
+      raw = storage.getItem(key)
     } catch {
       return [] // อ่านไม่ได้ = ไม่มีอะไรให้กู้ ไม่ใช่เหตุให้ทั้งจอพัง
     }
@@ -130,14 +178,14 @@ export function createRecoveryStore({ storage = defaultStorage(), now = Date.now
   }
 
   const write = (records) => {
-    if (!storage) return
+    if (!storage || !key) return
     // เก็บอันที่ขยับล่าสุดก่อน แล้วตัดที่เพดาน
     const bounded = [...records]
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
       .slice(0, MAX_RECOVERY_RECORDS)
       .map(sanitize)
     try {
-      storage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify({ version: RECOVERY_VERSION, records: bounded }))
+      storage.setItem(key, JSON.stringify({ version: RECOVERY_VERSION, records: bounded }))
     } catch {
       /* โควตาเต็มหรือถูกปิดกั้น — การอัปโหลดยังเดินต่อได้ตามปกติ */
     }
@@ -170,10 +218,11 @@ export function createRecoveryStore({ storage = defaultStorage(), now = Date.now
       write(current.filter((row) => row.uploadId !== uploadId))
     },
 
+    /** ล้างเฉพาะของบัญชีนี้ — ร้านนี้ไม่มีทางแตะคีย์ของบัญชีอื่นได้เลย */
     clear() {
-      if (!storage) return
+      if (!storage || !key) return
       try {
-        storage.removeItem(RECOVERY_STORAGE_KEY)
+        storage.removeItem(key)
       } catch {
         /* ปิดกั้นอยู่ — ไม่มีอะไรให้ทำต่อ */
       }

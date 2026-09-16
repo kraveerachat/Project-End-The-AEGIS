@@ -164,8 +164,12 @@ const recoveryRow = (over = {}) => ({
   ...over,
 })
 
-const storageWith = (rows) => fakeStorage({
-  [recovery.RECOVERY_STORAGE_KEY]: JSON.stringify({ version: recovery.RECOVERY_VERSION, records: rows }),
+/** บัญชีเจ้าของงานที่ค้างอยู่ในเทสต์ชุดนี้ */
+const OWNER = 'user-a'
+
+/** ที่เก็บที่มีบันทึกของบัญชีหนึ่ง — คีย์ต้องผูกกับบัญชีนั้นเสมอ */
+const storageWith = (rows, scope = OWNER) => fakeStorage({
+  [recovery.recoveryStorageKey(scope)]: JSON.stringify({ version: recovery.RECOVERY_VERSION, records: rows }),
 })
 
 /* ══ ส่วนที่ 1 · unmount ไม่ใช่การยกเลิก ══════════════════════════════════ */
@@ -175,12 +179,12 @@ test('LIFECYCLE 1 · an active upload writes its recovery record as soon as the 
   const storage = fakeStorage()
   const base = {
     t, open: false, onClose() {}, runUpload: upload.run, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
   }
   const view = await mount({ ...base, initialFiles: [], requestId: 0 })
   try {
     await view.render({ ...base, initialFiles: [fileIn(view.dom)], requestId: 1 })
-    const rows = recovery.createRecoveryStore({ storage }).list()
+    const rows = recovery.createRecoveryStore({ storage, scope: OWNER }).list()
     assert.equal(rows.length, 1, 'เซสชันที่มีอยู่จริงต้องถูกจดไว้ทันที ไม่ใช่ตอนจบงาน')
     assert.equal(rows[0].uploadId, SESSION.uploadId)
     assert.equal(rows[0].sha256, 'b'.repeat(64))
@@ -196,19 +200,19 @@ test('LIFECYCLE 2 · unmount aborts only the local request: no server cancel, re
   const cancelled = []
   const base = {
     t, open: false, onClose() {}, runUpload: upload.run, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     cancelSession: async (id) => { cancelled.push(id); return true },
   }
   const view = await mount({ ...base, initialFiles: [], requestId: 0 })
   try {
     await view.render({ ...base, initialFiles: [fileIn(view.dom)], requestId: 2 })
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 1)
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 1)
 
     await view.unmount()
 
     assert.equal(upload.calls[0].signal.aborted, true, 'request ในเครื่องต้องถูกหยุด')
     assert.deepEqual(cancelled, [], 'หน้าเว็บถูกทำลาย ≠ ผู้ใช้กดยกเลิก — ห้ามลบเซสชันฝั่งเซิร์ฟเวอร์')
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 1, 'บันทึกกู้คืนต้องรอดข้าม reload')
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 1, 'บันทึกกู้คืนต้องรอดข้าม reload')
   } finally {
     view.restore()
   }
@@ -220,23 +224,23 @@ test('LIFECYCLE 3 · explicit Cancel releases the server session and clears the 
   const cancelled = []
   const view = await mount({
     t, open: false, onClose() {}, runUpload: upload.run, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     cancelSession: async (id) => { cancelled.push(id); return true },
     initialFiles: [], requestId: 0,
   })
   try {
     await view.render({
       t, open: false, onClose() {}, runUpload: upload.run, loadLimits: async () => null,
-      recoveryStorage: storage,
+      recoveryStorage: storage, recoveryScope: OWNER,
       cancelSession: async (id) => { cancelled.push(id); return true },
       initialFiles: [fileIn(view.dom)], requestId: 3,
     })
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 1)
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 1)
 
     await view.click(view.document.querySelector('[data-upload-cancel]'))
 
     assert.deepEqual(cancelled, [SESSION.uploadId], 'การกดยกเลิกต้องคืนพื้นที่พักฝั่งเซิร์ฟเวอร์')
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 0, 'ยกเลิกแล้วต้องไม่เหลือบันทึกให้กู้')
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 0, 'ยกเลิกแล้วต้องไม่เหลือบันทึกให้กู้')
   } finally {
     await view.cleanup()
   }
@@ -256,7 +260,7 @@ test('LIFECYCLE 4 · a completed upload clears its recovery record', async () =>
   const view = await mount({ ...base, initialFiles: [], requestId: 0 })
   try {
     await view.render({ ...base, initialFiles: [fileIn(view.dom)], requestId: 4 })
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 0, 'งานที่ commit สำเร็จไม่มีอะไรให้กู้')
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 0, 'งานที่ commit สำเร็จไม่มีอะไรให้กู้')
     assert.equal(view.document.querySelector('[data-upload-row]').getAttribute('data-upload-stage'), 'complete')
   } finally {
     await view.cleanup()
@@ -269,7 +273,7 @@ test('LIFECYCLE 5 · a reload rebuilds the interrupted row and never labels it U
   const storage = storageWith([recoveryRow()])
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
     loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
   })
@@ -294,7 +298,7 @@ test('LIFECYCLE 6 · an expired server session is reported truthfully and stops 
   const storage = storageWith([recoveryRow()])
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
     loadSession: async () => ({ ok: false, reason: 'expired' }),
   })
@@ -304,7 +308,7 @@ test('LIFECYCLE 6 · an expired server session is reported truthfully and stops 
     assert.equal(row.getAttribute('data-upload-stage'), 'failed')
     assert.equal(row.getAttribute('data-upload-reason'), 'expired')
     assert.equal(row.querySelector('[data-upload-recover]'), null, 'เซสชันหมดอายุแล้วไม่มีอะไรให้ทำต่อ')
-    assert.equal(recovery.createRecoveryStore({ storage }).list().length, 0, 'บันทึกที่ใช้ไม่ได้แล้วต้องถูกเก็บกวาด')
+    assert.equal(recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 0, 'บันทึกที่ใช้ไม่ได้แล้วต้องถูกเก็บกวาด')
   } finally {
     await view.cleanup()
   }
@@ -314,13 +318,13 @@ test('LIFECYCLE 6b · a network failure during reconciliation keeps the record i
   const storage = storageWith([recoveryRow()])
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
     loadSession: async () => ({ ok: false, reason: 'network' }),
   })
   try {
     assert.equal(
-      recovery.createRecoveryStore({ storage }).list().length, 1,
+      recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 1,
       'เน็ตล่มตอนตรวจสถานะ ≠ เซสชันหมดอายุ — ห้ามทิ้งสิทธิ์ resume ของผู้ใช้',
     )
   } finally {
@@ -335,7 +339,7 @@ test('LIFECYCLE 7 · reselecting the correct file resumes the existing session a
   const calls = []
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
     hashFile: async () => 'b'.repeat(64),
     runUpload: (options) => { calls.push(options); options.onStage?.('uploading'); return new Promise(() => {}) },
@@ -368,7 +372,7 @@ test('LIFECYCLE 8 · reselecting a different file is refused and no chunk reache
   const calls = []
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
     // ชื่อเดียวกัน ขนาดเดียวกัน แต่ไบต์คนละชุด
     hashFile: async () => 'c'.repeat(64),
@@ -400,7 +404,7 @@ test('LIFECYCLE 9 · a wrong-size file is refused without hashing anything', asy
   let hashed = 0
   const view = await mount({
     t, open: false, onClose() {}, loadLimits: async () => null,
-    recoveryStorage: storage,
+    recoveryStorage: storage, recoveryScope: OWNER,
     loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
     hashFile: async () => { hashed += 1; return 'b'.repeat(64) },
     runUpload: (options) => { calls.push(options); return new Promise(() => {}) },
@@ -418,6 +422,121 @@ test('LIFECYCLE 9 · a wrong-size file is refused without hashing anything', asy
 
     assert.equal(hashed, 0)
     assert.equal(calls.length, 0)
+  } finally {
+    await view.cleanup()
+  }
+})
+
+/* ══ ส่วนที่ 4 · เบราว์เซอร์เครื่องเดียว หลายบัญชี (S2 · DEFECT 1) ═══════ */
+//
+// ⚠️ เซิร์ฟเวอร์ป้องกันถูกต้องแล้ว: GET /uploads/:id ของคนอื่นตอบ 404 เสมอ
+//    แต่ชื่อไฟล์ ขนาด และ SHA-256 อยู่ในเครื่อง ถ้าไม่ผูกกับบัญชี ผู้ใช้คนถัดไป
+//    จะได้เห็นชื่อไฟล์ของคนก่อนหน้าบนถาดของตัวเอง
+
+test('LIFECYCLE 10 · a second account never renders the first account interrupted filename', async () => {
+  const storage = storageWith([recoveryRow({ name: 'alice-payroll-2026.xlsx' })], 'user-a')
+  const looked = []
+  const view = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: 'user-b',
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    // เซิร์ฟเวอร์จะตอบ 404 อยู่แล้วเพราะเซสชันเป็นของ Alice — แต่เราต้องไม่ถามด้วยซ้ำ
+    loadSession: async (id) => { looked.push(id); return { ok: false, reason: 'expired' } },
+  })
+  try {
+    assert.equal(view.document.querySelector('[data-upload-tray]'), null, 'ผู้ใช้คนที่สองต้องเห็นถาดว่าง')
+    assert.doesNotMatch(view.document.body.textContent, /alice-payroll-2026/, 'ชื่อไฟล์ของบัญชีอื่นต้องไม่โผล่')
+    assert.deepEqual(looked, [], 'ไม่ควรถามสถานะเซสชันที่ไม่ใช่ของบัญชีนี้เลย')
+  } finally {
+    await view.cleanup()
+  }
+})
+
+test('LIFECYCLE 11 · a second account 404 sweep never destroys the first account record', async () => {
+  const storage = storageWith([recoveryRow()], 'user-a')
+  const bob = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: 'user-b',
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    loadSession: async () => ({ ok: false, reason: 'expired' }),
+  })
+  await bob.cleanup()
+
+  // Alice กลับเข้ามาใหม่ — งานของเธอต้องยังกู้ได้
+  const alice = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: 'user-a',
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
+  })
+  try {
+    assert.equal(recovery.createRecoveryStore({ storage, scope: 'user-a' }).list().length, 1)
+    const row = alice.document.querySelector('[data-upload-row]')
+    assert.ok(row, 'Alice ต้องยังเห็นงานที่ค้างของตัวเอง')
+    assert.equal(row.getAttribute('data-upload-stage'), 'interrupted')
+  } finally {
+    await alice.cleanup()
+  }
+})
+
+test('LIFECYCLE 12 · without a resolved account nothing is read from or written to storage', async () => {
+  const storage = storageWith([recoveryRow()], 'user-a')
+  const view = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: null,
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
+  })
+  try {
+    assert.equal(view.document.querySelector('[data-upload-tray]'), null)
+    assert.equal(recovery.createRecoveryStore({ storage, scope: 'user-a' }).list().length, 1, 'ของเดิมต้องไม่ถูกแตะ')
+  } finally {
+    await view.cleanup()
+  }
+})
+
+/* ══ ส่วนที่ 5 · Dismiss ต้องไม่โกหกว่าลบแล้ว (S2) ═══════════════════════ */
+//
+// ⚠️ ปุ่มที่เขียนว่า Dismiss แล้วแถวกลับมาใหม่หลัง reload คือปุ่มที่โกหก
+//    แถวที่กู้ได้จึงเสนอ "เลือกไฟล์เพื่อทำต่อ" กับ "ทิ้งงานนี้" ที่ทำความสะอาดจริง
+
+test('LIFECYCLE 13 · an interrupted row offers no Dismiss that would resurrect after reload', async () => {
+  const storage = storageWith([recoveryRow()])
+  const view = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: OWNER,
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
+  })
+  try {
+    const row = view.document.querySelector('[data-upload-row]')
+    assert.equal(row.getAttribute('data-upload-stage'), 'interrupted')
+    assert.equal(row.querySelector('[data-upload-dismiss]'), null, 'ห้ามมีปุ่มที่ซ่อนแถวแต่ทิ้งบันทึกไว้ให้กลับมา')
+    assert.ok(row.querySelector('[data-upload-recover]'), 'ทางเลือกที่หนึ่ง: ทำงานต่อ')
+    assert.ok(row.querySelector('[data-upload-discard]'), 'ทางเลือกที่สอง: ทิ้งงานนี้จริง ๆ')
+  } finally {
+    await view.cleanup()
+  }
+})
+
+test('LIFECYCLE 14 · discarding an interrupted upload releases the server session and the record', async () => {
+  const storage = storageWith([recoveryRow()])
+  const cancelled = []
+  const view = await mount({
+    t, open: false, onClose() {}, loadLimits: async () => null,
+    recoveryStorage: storage, recoveryScope: OWNER,
+    cancelSession: async (id) => { cancelled.push(id); return true },
+    runUpload: async () => ({ ok: false, stage: 'failed', reason: 'server', upload: null, sha256: null }),
+    loadSession: async () => ({ ok: true, upload: { ...SESSION, status: 'open' } }),
+  })
+  try {
+    await view.click(view.document.querySelector('[data-upload-discard]'))
+
+    assert.deepEqual(cancelled, [SESSION.uploadId], 'ทิ้งงาน = คืนพื้นที่พักฝั่งเซิร์ฟเวอร์จริง')
+    assert.equal(
+      recovery.createRecoveryStore({ storage, scope: OWNER }).list().length, 0,
+      'และบันทึกต้องหายจริง ไม่ใช่กลับมาใหม่ตอน reload ครั้งหน้า',
+    )
   } finally {
     await view.cleanup()
   }

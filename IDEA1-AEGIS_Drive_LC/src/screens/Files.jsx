@@ -333,7 +333,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go, navigationParams = {}, placeholderMode = false }) {
+export function Files({ t, lang, go, userId = null, navigationParams = {}, placeholderMode = false }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -741,6 +741,8 @@ export function Files({ t, lang, go, navigationParams = {}, placeholderMode = fa
         initialFiles={dropRequest.files}
         requestId={dropRequest.id}
         onUploaded={filesApi.retry}
+        // บันทึกกู้คืนถูกผูกกับบัญชีนี้เท่านั้น ผู้ใช้คนถัดไปบนเครื่องเดียวกันอ่านไม่ได้
+        recoveryScope={userId}
       />
     </div>
   )

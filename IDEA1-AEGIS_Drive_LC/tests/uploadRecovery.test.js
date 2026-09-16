@@ -67,13 +67,16 @@ const checkpointOf = (over = {}) => ({
   ...over,
 })
 
+/** บัญชีที่ล็อกอินอยู่ในเทสต์ชุดนี้ — ทุกบันทึกต้องผูกกับบัญชีเสมอ */
+const SCOPE = 'user-a'
+
 const fileOf = (over = {}) => ({ name: 'clip.mp4', size: 64 * 1024 * 1024, lastModified: 1_700_000_000_000, ...over })
 
 /* ══ 1–2 · ร้านเก็บบันทึกกู้คืน ════════════════════════════════════════════ */
 
 test('RECOVERY 1 · creating a server upload session writes a durable recovery record', () => {
   const storage = fakeStorage()
-  const store = recovery.createRecoveryStore({ storage, now: () => 1000 })
+  const store = recovery.createRecoveryStore({ storage, scope: SCOPE, now: () => 1000 })
 
   store.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf(), { stage: 'uploading' }))
 
@@ -86,13 +89,13 @@ test('RECOVERY 1 · creating a server upload session writes a durable recovery r
   assert.equal(rows[0].chunkCount, 4)
   assert.equal(rows[0].version, recovery.RECOVERY_VERSION)
   // ต้องอยู่รอดข้าม "การสร้างร้านใหม่" ซึ่งคือสิ่งที่เกิดขึ้นจริงตอน reload
-  const reopened = recovery.createRecoveryStore({ storage, now: () => 2000 })
+  const reopened = recovery.createRecoveryStore({ storage, scope: SCOPE, now: () => 2000 })
   assert.equal(reopened.list().length, 1)
 })
 
 test('RECOVERY 2 · the recovery record never carries file bytes, handles, or secrets', () => {
   const storage = fakeStorage()
-  const store = recovery.createRecoveryStore({ storage, now: () => 1000 })
+  const store = recovery.createRecoveryStore({ storage, scope: SCOPE, now: () => 1000 })
 
   // ของแถมที่ "ไม่ควรถูกเก็บ" ทุกชนิด รวมถึงไบต์ก้อนใหญ่ที่เผลอแนบมากับ checkpoint
   const poisoned = {
@@ -107,7 +110,7 @@ test('RECOVERY 2 · the recovery record never carries file bytes, handles, or se
   }
   store.save(recovery.recoveryRecordFrom(poisoned, fileOf(), { stage: 'uploading' }))
 
-  const raw = storage.getItem(recovery.RECOVERY_STORAGE_KEY)
+  const raw = storage.getItem(recovery.recoveryStorageKey(SCOPE))
   assert.doesNotMatch(raw, /should-never-be-stored/)
   assert.doesNotMatch(raw, /xxxxxxxxxx/)
   assert.doesNotMatch(raw, /yyyyyyyyyy/)
@@ -122,10 +125,11 @@ test('RECOVERY 2 · the recovery record never carries file bytes, handles, or se
 })
 
 test('RECOVERY 2b · a corrupt or unavailable store degrades to empty instead of throwing', () => {
-  const corrupt = recovery.createRecoveryStore({ storage: fakeStorage({ [recovery.RECOVERY_STORAGE_KEY]: '{not json' }) })
+  const corrupt = recovery.createRecoveryStore({ storage: fakeStorage({ [recovery.recoveryStorageKey(SCOPE)]: '{not json' }), scope: SCOPE })
   assert.deepEqual(corrupt.list(), [])
 
   const hostile = recovery.createRecoveryStore({
+    scope: SCOPE,
     storage: {
       getItem() { throw new Error('SecurityError') },
       setItem() { throw new Error('QuotaExceededError') },
@@ -139,7 +143,7 @@ test('RECOVERY 2b · a corrupt or unavailable store degrades to empty instead of
 
 test('RECOVERY 2c · records are keyed by uploadId, updated in place, and bounded in count', () => {
   const storage = fakeStorage()
-  const store = recovery.createRecoveryStore({ storage, now: () => 1000 })
+  const store = recovery.createRecoveryStore({ storage, scope: SCOPE, now: () => 1000 })
 
   store.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf(), { stage: 'uploading' }))
   store.save(recovery.recoveryRecordFrom(checkpointOf({ receivedBytes: 999 }), fileOf(), { stage: 'uploading' }))
@@ -150,6 +154,88 @@ test('RECOVERY 2c · records are keyed by uploadId, updated in place, and bounde
     store.save(recovery.recoveryRecordFrom(checkpointOf({ uploadId: String(i).padStart(48, '0') }), fileOf(), { stage: 'uploading' }))
   }
   assert.ok(store.list().length <= recovery.MAX_RECOVERY_RECORDS, 'ร้านต้องไม่โตไม่จำกัด')
+})
+
+/* ══ 2d–2h · ผูกกับบัญชีที่ล็อกอินอยู่ (S2 · DEFECT 1) ════════════════════ */
+//
+// ⚠️ เบราว์เซอร์หนึ่งเครื่องถูกใช้หลายบัญชีได้เสมอ บันทึกกู้คืนมีทั้งชื่อไฟล์ ขนาด และ
+//    SHA-256 ของงานที่ยังไม่เสร็จ — ถ้าเก็บไว้ใต้คีย์เดียวของทั้ง origin ผู้ใช้คนถัดไป
+//    ที่ล็อกอินบนเครื่องเดียวกันจะได้เห็นชื่อไฟล์ของคนก่อนหน้า นั่นคือการรั่วของข้อมูล
+//    ที่เซิร์ฟเวอร์ป้องกันไว้อย่างถูกต้องแล้ว (404) แต่ฝั่ง client ทำหลุดเอง
+
+test('RECOVERY 2d · one browser, two accounts: neither can list the other records', () => {
+  const storage = fakeStorage()
+  const alice = recovery.createRecoveryStore({ storage, scope: 'user-a', now: () => 1000 })
+  const bob = recovery.createRecoveryStore({ storage, scope: 'user-b', now: () => 2000 })
+
+  alice.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf({ name: 'alice-private.mp4' }), { stage: 'uploading' }))
+
+  assert.equal(alice.list().length, 1)
+  assert.deepEqual(bob.list(), [], 'ผู้ใช้คนที่สองต้องไม่เห็นบันทึกของคนแรกเลย')
+  const raw = JSON.stringify([...storage.map.entries()])
+  assert.match(raw, /alice-private\.mp4/, 'ของ Alice ยังอยู่จริง (ไม่ได้ผ่านเพราะที่เก็บว่าง)')
+})
+
+test('RECOVERY 2e · the second account cannot remove or clear the first account records', () => {
+  const storage = fakeStorage()
+  const alice = recovery.createRecoveryStore({ storage, scope: 'user-a', now: () => 1000 })
+  const bob = recovery.createRecoveryStore({ storage, scope: 'user-b', now: () => 2000 })
+
+  alice.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf(), { stage: 'uploading' }))
+
+  // ⚠️ นี่คือเส้นทางจริงของบั๊ก: Bob โหลดหน้า เซิร์ฟเวอร์ตอบ 404 (ถูกต้อง เพราะเซสชัน
+  //    เป็นของ Alice) แล้วโค้ดคืนสภาพก็ "เก็บกวาด" บันทึกที่ไม่ใช่ของตัวเองทิ้ง
+  bob.remove('a'.repeat(48))
+  bob.clear()
+
+  assert.equal(alice.list().length, 1, 'บัญชีอื่นต้องลบบันทึกของ Alice ไม่ได้ ไม่ว่าทางใด')
+})
+
+test('RECOVERY 2f · the same uploadId under two accounts never collides', () => {
+  const storage = fakeStorage()
+  const alice = recovery.createRecoveryStore({ storage, scope: 'user-a', now: () => 1000 })
+  const bob = recovery.createRecoveryStore({ storage, scope: 'user-b', now: () => 2000 })
+
+  alice.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf({ name: 'alice.mp4' }), { stage: 'uploading' }))
+  bob.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf({ name: 'bob.mp4' }), { stage: 'uploading' }))
+
+  assert.equal(alice.list()[0].name, 'alice.mp4')
+  assert.equal(bob.list()[0].name, 'bob.mp4')
+})
+
+test('RECOVERY 2g · the same account returning later still finds its own records', () => {
+  const storage = fakeStorage()
+  recovery.createRecoveryStore({ storage, scope: 42, now: () => 1000 })
+    .save(recovery.recoveryRecordFrom(checkpointOf(), fileOf(), { stage: 'uploading' }))
+
+  // ออกจากระบบแล้วกลับเข้ามาใหม่ = ร้านตัวใหม่ แต่เป็นบัญชีเดิม
+  const returning = recovery.createRecoveryStore({ storage, scope: '42', now: () => 5000 })
+  assert.equal(returning.list().length, 1, 'บัญชีเดิมต้องกู้งานของตัวเองได้หลังกลับเข้ามา')
+})
+
+test('RECOVERY 2h · the storage key stays bounded and safe for any scope value', () => {
+  const short = recovery.recoveryStorageKey('user-1')
+  assert.ok(short.startsWith(recovery.RECOVERY_STORAGE_KEY))
+  assert.notEqual(short, recovery.recoveryStorageKey('user-2'))
+
+  // id ที่ยาวผิดปกติต้องไม่ทำให้คีย์ยาวไม่จำกัด และยังต้องแยกกันได้
+  const huge = recovery.recoveryStorageKey('x'.repeat(5000))
+  const hugeOther = recovery.recoveryStorageKey(`${'x'.repeat(5000)}y`)
+  assert.ok(huge.length <= 160, `key must stay bounded, got ${huge.length}`)
+  assert.notEqual(huge, hugeOther, 'id ที่ต่างกันต้องไม่ยุบมาชนกันหลังถูกตัดความยาว')
+
+  // อักขระที่ทำให้คีย์กำกวมต้องถูก encode ไม่ใช่ต่อสตริงดิบ ๆ
+  assert.doesNotMatch(recovery.recoveryStorageKey('a b/c"d'), /[ /"]/)
+})
+
+test('RECOVERY 2i · with no authenticated scope the store persists nothing at all', () => {
+  const storage = fakeStorage()
+  const anonymous = recovery.createRecoveryStore({ storage, scope: null })
+
+  anonymous.save(recovery.recoveryRecordFrom(checkpointOf(), fileOf(), { stage: 'uploading' }))
+
+  assert.deepEqual(anonymous.list(), [], 'ยังไม่รู้ว่าเป็นใคร = ไม่มีอะไรให้กู้')
+  assert.equal(storage.map.size, 0, 'และต้องไม่เขียนบันทึกที่ไม่มีเจ้าของลงเครื่อง')
 })
 
 /* ══ 3 · checkpoint จาก transport ═════════════════════════════════════════ */

@@ -129,40 +129,55 @@ export function uploadTraySummary(queue = []) {
 /**
  * ภาพรวมของทั้งชุด — ตอบคำถามเดียวที่ผู้ใช้ลากไฟล์ 2 GB มาสี่ไฟล์อยากรู้: "อีกนานแค่ไหน"
  *
- * ⚠️ ทุกตัวเลขมาจากรายการที่ **กำลังส่งจริง** เท่านั้น:
- *    - ไฟล์ที่ยังแฮชอยู่ไม่มีอัตรา และไบต์ที่เหลือของมันยังไม่ใช่ "ไบต์ที่รอโอน" ในแง่
- *      ที่อัตราปัจจุบันจะพยากรณ์ได้ — นับรวมเข้ามาจะได้ ETA ที่สั้นกว่าความจริงมาก
- *    - รายการที่หยุดนิ่งสมทบ "ศูนย์" ไม่ใช่ความเร็วก้อนสุดท้ายของตัวเอง นั่นคือกติกา
- *      เดียวกับที่ transferRate.js บังคับไว้กับรายการเดี่ยว
- *    - ไม่รู้ขนาดของไฟล์ใดไฟล์หนึ่ง = ไบต์ที่เหลือรวมไม่มีความหมาย → ไม่มี ETA
+ * ⚠️ สองตัวเลขนี้มาจากคนละกลุ่มกันโดยเจตนา และนี่คือสาระของฟังก์ชันทั้งหมด:
  *
- * ⚠️ `etaSeconds` คือ **เวลาโอนที่เหลือ** ไม่ใช่ "เวลาจนงานเสร็จ" — ขั้น commit ของ
- *    เซิร์ฟเวอร์ไม่ได้ถูกวัดด้วยอัตรานี้และกินเวลาไม่คงที่ตามขนาดไฟล์ การเรียกมันว่า
- *    เวลาจนเสร็จคือการสัญญาสิ่งที่เราไม่ได้วัด
+ *    THROUGHPUT ที่วัดได้ — มาจากแถวที่ `uploading` เท่านั้น เพราะมีแต่แถวเหล่านั้นที่
+ *      มีไบต์วิ่งบนสายจริงให้วัด แถวที่หยุดนิ่งสมทบ "ศูนย์" ไม่ใช่ความเร็วก้อนสุดท้าย
+ *      ของตัวเอง (กติกาเดียวกับที่ transferRate.js บังคับไว้กับรายการเดี่ยว)
+ *
+ *    ไบต์ที่เหลือของทั้งชุด — มาจาก **ทุกไฟล์ที่ยังต้องวิ่งผ่านสาย** ไม่ใช่เฉพาะไฟล์ที่
+ *      กำลังส่งอยู่ ไฟล์ที่ยังแฮชอยู่จะต้องส่งทั้งก้อนในอีกสักครู่ การนับเฉพาะไฟล์ที่
+ *      กำลังส่งทำให้ผู้ใช้ที่ลากมาสี่ไฟล์เห็นตัวเลขของสองไฟล์แล้วเข้าใจว่าใกล้เสร็จแล้ว
+ *
+ * ⚠️ ไฟล์ที่ยังไม่เริ่มส่งเลยสักไบต์ → ไบต์ที่เหลือ = ขนาดเต็มของมัน
+ *    ไฟล์ที่กำลังส่ง → ไบต์ที่เหลือ = ขนาด − ไบต์ที่ส่งไปแล้ว
+ *
+ * ⚠️ ที่ไม่นับ: `committing` (เซิร์ฟเวอร์ทำงานของตัวเอง ไม่มีไบต์บนสาย),
+ *    `interrupted` (ยังไม่มีไฟล์ต้นทางในแท็บนี้ จะยังไม่มีไบต์ใดวิ่งจนกว่าผู้ใช้จะเลือกไฟล์)
+ *    และทุกสถานะที่จบแล้ว
+ *
+ * ⚠️ `etaSeconds` คือ **เวลาโอนที่เหลือถ้าอัตราปัจจุบันคงที่** ไม่ใช่ "เวลาจนงานเสร็จ"
+ *    เวลาแฮชและขั้น commit ของเซิร์ฟเวอร์ไม่ได้ถูกวัดด้วยอัตรานี้เลย ถ้อยคำที่แสดงผล
+ *    จึงต้องพูดว่า "ที่อัตราปัจจุบัน" ไม่ใช่สัญญาว่างานจะเสร็จเมื่อไร
  *
  * @param {{ stage: string, size?: number|null, transferredBytes?: number,
  *           rate?: { bytesPerSecond: number|null, stalled: boolean }|null }[]} queue
  */
 export function uploadTrayAggregate(queue = []) {
   const uploading = queue.filter((entry) => entry.stage === MEASURING_STAGE)
-  const checkingCount = queue.filter((entry) => CHECKING_STAGES.has(entry.stage)).length
+  const checking = queue.filter((entry) => CHECKING_STAGES.has(entry.stage))
+  // ทุกไฟล์ที่ยังต้องใช้เครือข่ายในอีกสักครู่ — คือขอบเขตของ "ไบต์ที่เหลือของทั้งชุด"
+  const transferable = [...checking, ...uploading]
 
   let bytesPerSecond = null
   let stalledCount = 0
-  let remainingBytes = 0
-  let remainingKnown = uploading.length > 0
 
   for (const entry of uploading) {
     const rate = entry.rate ?? null
-    if (rate?.stalled) stalledCount += 1
-    // หยุดนิ่ง = สมทบศูนย์ ไม่ใช่ความเร็วเก่า; ยังวัดไม่ได้ = ยังไม่สมทบอะไรเลย
-    if (!rate?.stalled && typeof rate?.bytesPerSecond === 'number' && Number.isFinite(rate.bytesPerSecond)) {
+    if (rate?.stalled) { stalledCount += 1; continue }
+    if (typeof rate?.bytesPerSecond === 'number' && Number.isFinite(rate.bytesPerSecond)) {
       bytesPerSecond = (bytesPerSecond ?? 0) + rate.bytesPerSecond
     }
+  }
 
+  let remainingBytes = 0
+  let remainingKnown = transferable.length > 0
+  for (const entry of transferable) {
     const total = typeof entry.size === 'number' && Number.isFinite(entry.size) && entry.size > 0 ? entry.size : null
-    if (total === null) remainingKnown = false
-    else remainingBytes += Math.max(0, total - (entry.transferredBytes ?? 0))
+    // ⚠️ ไฟล์เดียวที่ไม่รู้ขนาดทำให้ผลรวมของทั้งชุดไม่มีความหมาย — ยอมไม่บอกดีกว่าบอกผิด
+    if (total === null) { remainingKnown = false; break }
+    const sent = entry.stage === MEASURING_STAGE ? (entry.transferredBytes ?? 0) : 0
+    remainingBytes += Math.max(0, total - sent)
   }
 
   const remaining = remainingKnown ? remainingBytes : null
@@ -172,7 +187,8 @@ export function uploadTrayAggregate(queue = []) {
 
   return {
     uploadingCount: uploading.length,
-    checkingCount,
+    checkingCount: checking.length,
+    transferableCount: transferable.length,
     stalledCount,
     bytesPerSecond,
     remainingBytes: remaining,
@@ -190,9 +206,12 @@ function measuredRateLine(t, entry) {
   return transferRateLine(t, entry.rate ?? null)
 }
 
-export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss, onRecover }) {
+export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss, onRecover, onDiscard }) {
   const cancellable = ACTIVE_UPLOAD_STAGES.has(entry.stage)
-  const dismissible = ['complete', 'failed', 'cancelled', 'interrupted'].includes(entry.stage)
+  // ⚠️ `interrupted` ไม่อยู่ในรายการนี้โดยเจตนา: Dismiss เอาแถวออกจากคิวในหน่วยความจำ
+  //    เท่านั้น บันทึกกู้คืนยังอยู่ แถวเดิมจึงกลับมาเองตอน reload ครั้งหน้า ปุ่มที่ทำให้
+  //    ของหายแล้วกลับมาเองคือปุ่มที่โกหก — งานที่กู้ได้ใช้ "ทิ้งงานนี้" ที่ลบของจริงแทน
+  const dismissible = ['complete', 'failed', 'cancelled'].includes(entry.stage)
   // ⚠️ งานที่ค้างจาก reload: เซิร์ฟเวอร์ยังถือ chunk ไว้ให้ แต่เบราว์เซอร์คืน File object
   //    ของ <input type=file> ให้เราไม่ได้ ผู้ใช้จึงต้องชี้ไฟล์ต้นทางเดิมกลับมาเอง
   const recoverable = entry.stage === 'interrupted' && Boolean(entry.session?.uploadId)
@@ -303,6 +322,11 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss, onReco
               {t('dismiss')}
             </button>
           )}
+          {recoverable && (
+            <button type="button" data-upload-discard={entry.id} onClick={() => onDiscard?.(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              {t('uploadRecoverDiscard')}
+            </button>
+          )}
         </div>
       )}
     </li>
@@ -325,9 +349,12 @@ function aggregateLine(t, batch) {
 
   const eta = etaParts(batch.etaSeconds)
   if (eta) {
-    const key = eta.unit === 'seconds' ? 'vaultXferEtaSeconds'
-      : eta.unit === 'minutes' ? 'vaultXferEtaMinutes'
-        : 'vaultXferEtaHours'
+    // ⚠️ คีย์ชุดของถาดเอง ไม่ใช่ของ Vault: ของ Vault ลงท้ายว่า "remaining" ซึ่งอ่านแล้ว
+    //    เหมือนสัญญาว่างานจะเสร็จเมื่อไร ส่วนตัวเลขนี้เป็นแค่การหารด้วยอัตราที่วัดได้
+    //    ณ วินาทีนี้ และไม่รวมเวลาแฮชหรือเวลา commit เลย
+    const key = eta.unit === 'seconds' ? 'uploadTrayEtaSeconds'
+      : eta.unit === 'minutes' ? 'uploadTrayEtaMinutes'
+        : 'uploadTrayEtaHours'
     parts.push(t(key, { n: eta.value }))
   }
 
@@ -340,7 +367,7 @@ function aggregateLine(t, batch) {
  * ⚠️ `onHide` กับ `onCancel` เป็นคนละคำสั่งกันโดยเจตนา และต้องไม่ถูกรวมเป็นปุ่มเดียว
  *    ไม่ว่าจะด้วยเหตุผลด้านพื้นที่บนจอก็ตาม
  */
-export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCollapse, onHide, onCancel, onRetry, onDismiss, onRecover }) {
+export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCollapse, onHide, onCancel, onRetry, onDismiss, onRecover, onDiscard }) {
   if (queue.length === 0) return null
 
   const summary = uploadTraySummary(queue)
@@ -348,7 +375,7 @@ export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCol
   const active = activeUploadCount(queue)
   const batch = uploadTrayAggregate(queue)
   // ⚠️ ไฟล์เดียวไม่ต้องมีบรรทัดสรุปรวม มันจะพูดซ้ำกับแถวของตัวเองคำต่อคำ
-  const batchLine = batch.uploadingCount > 1 ? aggregateLine(t, batch) : null
+  const batchLine = batch.transferableCount > 1 ? aggregateLine(t, batch) : null
 
   return (
     <section
@@ -390,7 +417,7 @@ export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCol
       {!collapsed && (
         <ul className="flex-1 overflow-y-auto">
           {queue.map((entry) => (
-            <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} onRecover={onRecover} />
+            <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} onRecover={onRecover} onDiscard={onDiscard} />
           ))}
         </ul>
       )}

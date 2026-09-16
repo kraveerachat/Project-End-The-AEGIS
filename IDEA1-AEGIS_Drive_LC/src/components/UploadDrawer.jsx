@@ -66,6 +66,7 @@ export function UploadDrawer({
   loadSession = fetchUploadSession,
   hashFile = incrementalSha256,
   recoveryStorage,
+  recoveryScope = null,
 }) {
   const [queue, setQueue] = useState(initialQueue)
   const [limits, setLimits] = useState(null)
@@ -82,11 +83,14 @@ export function UploadDrawer({
   const estimators = useRef(new Map())
   const queueRef = useRef(queue)
   queueRef.current = queue
-  // ⚠️ ร้านเก็บบันทึกกู้คืนต้องเป็นตัวเดิมตลอดอายุของคอมโพเนนต์ การสร้างใหม่ทุก render
-  //    ไม่ผิดเชิงพฤติกรรม (มันไร้สถานะภายใน) แต่ทำให้ effect ที่พึ่งพามันวิ่งไม่หยุด
+  // ⚠️ ร้านเก็บบันทึกกู้คืนผูกกับ "บัญชีที่ล็อกอินอยู่" ไม่ใช่กับเบราว์เซอร์ เครื่องเดียว
+  //    ถูกใช้หลายบัญชีได้เสมอ และบันทึกมีชื่อไฟล์กับ SHA-256 ของงานที่ยังไม่เสร็จอยู่ในนั้น
+  //    สร้างใหม่เมื่อบัญชีเปลี่ยนเท่านั้น — ไม่ใช่ทุก render ซึ่งจะทำให้ effect วิ่งไม่หยุด
   const recoveryRef = useRef(null)
-  if (recoveryRef.current === null) recoveryRef.current = createRecoveryStore({ storage: recoveryStorage })
-  const recovery = recoveryRef.current
+  if (recoveryRef.current?.scope !== recoveryScope) {
+    recoveryRef.current = { scope: recoveryScope, store: createRecoveryStore({ storage: recoveryStorage, scope: recoveryScope }) }
+  }
+  const recovery = recoveryRef.current.store
   /** ช่องเลือกไฟล์สำหรับการกู้คืน + แถวที่กำลังรอไฟล์นั้นอยู่ */
   const recoverInputRef = useRef(null)
   const recoverTargetRef = useRef(null)
@@ -292,9 +296,11 @@ export function UploadDrawer({
     })().catch(() => { /* คืนสภาพไม่สำเร็จ = คิวว่าง ไม่ใช่จอพัง */ })
 
     return () => { cancelled = true; controller.abort() }
-    // ครั้งเดียวตอน mount — นี่คือ "แท็บนี้เพิ่งเปิดขึ้นมา"
+    // ครั้งเดียวต่อหนึ่งบัญชี — นี่คือ "แท็บนี้เพิ่งเปิดขึ้นมาในฐานะผู้ใช้คนนี้"
+    // ⚠️ ต้องผูกกับ recoveryScope ไม่ใช่ [] เปล่า ๆ: ถ้า id ของผู้ใช้มาถึงทีหลัง
+    //    การคืนสภาพรอบแรกจะอ่านร้านเปล่าแล้วไม่ลองอีกเลย
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [recoveryScope])
 
   useEffect(() => {
     if (!open) return undefined
@@ -344,6 +350,24 @@ export function UploadDrawer({
     processFile(item.file, id, item.session ? { session: item.session, sha256: item.sha256 } : null)
   }
   const dismiss = (id) => setQueue((current) => current.filter((item) => item.id !== id))
+
+  /**
+   * ทิ้งงานที่ค้างจาก reload ทิ้งจริง ๆ
+   *
+   * ⚠️ ปุ่มนี้มีอยู่เพราะ "Dismiss" ทำงานนี้ไม่ได้: Dismiss เอาแถวออกจากคิวในหน่วยความจำ
+   *    อย่างเดียว บันทึกกู้คืนยังอยู่ พอ reload ครั้งหน้าแถวเดิมก็กลับมา ปุ่มที่ทำให้ของ
+   *    หายไปแล้วกลับมาเองคือปุ่มที่โกหกผู้ใช้ — แถวที่กู้ได้จึงเสนอ "ทิ้งงานนี้" ที่คืน
+   *    พื้นที่พักฝั่งเซิร์ฟเวอร์และลบบันทึกจริงแทน
+   */
+  const discard = (id) => {
+    const item = queueRef.current.find((candidate) => candidate.id === id)
+    const uploadId = item?.session?.uploadId
+    if (uploadId) {
+      cancelSession(uploadId).catch(() => {})
+      recovery.remove(uploadId)
+    }
+    setQueue((current) => current.filter((entry) => entry.id !== id))
+  }
 
   /** ผู้ใช้กด "เลือกไฟล์เพื่อทำต่อ" — เปิดช่องเลือกไฟล์แล้วจำไว้ว่าเลือกให้แถวไหน */
   const requestRecover = (id) => {
@@ -398,6 +422,7 @@ export function UploadDrawer({
           onRetry={retry}
           onDismiss={dismiss}
           onRecover={requestRecover}
+          onDiscard={discard}
         />
       )}
       {/* ⚠️ ต้องอยู่คู่กับถาด ไม่ใช่ในลิ้นชักใหญ่ — การกู้คืนเกิดขึ้นตอนลิ้นชักปิดอยู่เสมอ */}

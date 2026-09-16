@@ -77,6 +77,34 @@ test('BATCH 2 · aggregate remaining bytes sum only what is still to be transfer
   assert.equal(summary.remainingBytes, 0.5 * GB + 0.75 * GB)
 })
 
+// ⚠️ S2 · DEFECT 2 — งานที่ยังแฮชอยู่ก็ต้องวิ่งผ่านสายในอีกสักครู่ทั้งก้อน การนับเฉพาะ
+//    ไฟล์ที่กำลังส่งอยู่ทำให้ "ไบต์ที่เหลือของทั้งชุด" ต่ำกว่าความจริงหลายเท่า ผู้ใช้ที่
+//    ลากมาสี่ไฟล์เห็นตัวเลขของสองไฟล์แล้วเข้าใจว่าใกล้เสร็จ
+test('BATCH 2b · every file that still needs the network counts toward the batch remainder', () => {
+  const summary = tray.uploadTrayAggregate([
+    uploading({ id: 'a', stage: 'uploading', size: 2 * GB, transferredBytes: 1.5 * GB }),
+    uploading({ id: 'b', stage: 'hashing', size: 2 * GB, transferredBytes: 0, rate: null }),
+    uploading({ id: 'c', stage: 'waiting', size: 1 * GB, transferredBytes: 0, rate: null }),
+    uploading({ id: 'd', stage: 'preparing', size: 1 * GB, transferredBytes: 0, rate: null }),
+  ])
+  // 0.5 (กำลังส่ง) + 2 + 1 + 1 (ยังไม่เริ่มส่งเลยสักไบต์) = 4.5 GB
+  assert.equal(summary.remainingBytes, 4.5 * GB)
+  assert.equal(summary.transferableCount, 4)
+  assert.equal(summary.bytesPerSecond, 5 * MB, 'อัตรายังมาจากแถวที่ส่งอยู่จริงเท่านั้น')
+})
+
+test('BATCH 2c · finalizing and interrupted work is not part of the transfer remainder', () => {
+  const summary = tray.uploadTrayAggregate([
+    uploading({ id: 'a', size: 2 * GB, transferredBytes: 1 * GB }),
+    // commit เป็นงานของเซิร์ฟเวอร์ ไม่มีไบต์วิ่งบนสาย และอัตรานี้พยากรณ์มันไม่ได้
+    uploading({ id: 'b', stage: 'committing', size: 4 * GB, transferredBytes: 4 * GB, rate: null }),
+    // ค้างจาก reload = ยังไม่มีไฟล์ต้นทางในแท็บนี้ จะยังไม่มีไบต์ใดวิ่งจนกว่าผู้ใช้จะเลือกไฟล์
+    uploading({ id: 'c', stage: 'interrupted', size: 8 * GB, transferredBytes: 1 * GB, rate: null }),
+  ])
+  assert.equal(summary.remainingBytes, 1 * GB)
+  assert.equal(summary.transferableCount, 1)
+})
+
 test('BATCH 3 · aggregate ETA is remaining bytes over the aggregate measured rate', () => {
   const summary = tray.uploadTrayAggregate([
     uploading({ id: 'a', size: 100 * MB, transferredBytes: 0, rate: { bytesPerSecond: 5 * MB, etaSeconds: 20, stalled: false } }),
@@ -94,12 +122,15 @@ test('BATCH 4 · a checking-only batch reports no speed and no ETA', () => {
   const summary = tray.uploadTrayAggregate(queue)
   assert.equal(summary.bytesPerSecond, null)
   assert.equal(summary.etaSeconds, null)
+  // ไบต์ที่ "รู้แล้วว่าต้องส่ง" บอกได้ — มันวัดได้จริงจากขนาดไฟล์ ไม่ใช่การพยากรณ์
+  assert.equal(summary.remainingBytes, 8 * GB)
 
   const html = markup(queue)
   assert.doesNotMatch(html, /MB\/s/, 'ยังไม่มีไบต์วิ่งเลย ห้ามมีความเร็ว')
-  assert.doesNotMatch(html, /remaining/, 'ยังไม่มีไบต์วิ่งเลย ห้ามมี ETA')
+  assert.doesNotMatch(html, /at current rate/i, 'ยังไม่มีอัตราให้อ้างอิง ห้ามมี ETA')
   assert.match(html, /Checking 4 files/i, 'ต้องบอกความจริงว่ากำลังตรวจไฟล์อยู่')
   assert.doesNotMatch(html, /Uploading 4/i, 'ห้ามเรียกการแฮชว่าการอัปโหลด')
+  assert.match(html, /8\.0 GB left to transfer/i)
 })
 
 test('BATCH 5 · a mixed checking and uploading batch stays truthful about both', () => {
@@ -112,10 +143,16 @@ test('BATCH 5 · a mixed checking and uploading batch stays truthful about both'
   assert.equal(summary.uploadingCount, 1)
   assert.equal(summary.checkingCount, 2)
   assert.equal(summary.bytesPerSecond, 5 * MB, 'เฉพาะรายการที่ส่งอยู่จริงเท่านั้นที่สมทบอัตรา')
-  assert.equal(summary.remainingBytes, 1 * GB, 'ไฟล์ที่ยังไม่เริ่มส่งไม่ถูกนับเป็นไบต์ที่เหลือของการโอน')
+  // ⚠️ S2 · DEFECT 2: ทั้งสามไฟล์ต้องวิ่งผ่านสาย ไบต์ที่เหลือของทั้งชุดจึงเป็น
+  //    1 GB (ที่เหลือของไฟล์ที่กำลังส่ง) + 2 + 2 = 5 GB ไม่ใช่ 1 GB
+  assert.equal(summary.remainingBytes, 5 * GB)
+  assert.equal(summary.etaSeconds, (5 * GB) / (5 * MB))
 
   const html = markup(queue)
   assert.match(html, /Uploading 1 item · checking 2/i)
+  assert.match(html, /5\.0 GB left to transfer/i)
+  // ถ้อยคำต้องไม่สัญญาเวลาจนงานเสร็จ — การแฮชและ commit ไม่ได้ถูกวัดด้วยอัตรานี้
+  assert.match(html, /at current rate/i)
 })
 
 test('BATCH 6 · a stalled upload contributes neither a stale rate nor a false ETA', () => {
@@ -150,7 +187,18 @@ test('BATCH 7 · an unknown total size withholds the ETA but may still show the 
   const batch = html.match(/data-upload-tray-batch=""[^>]*>([^<]*)</)?.[1] ?? ''
   assert.notEqual(batch, '', 'บรรทัดสรุปรวมต้องถูก render จริง')
   assert.match(batch, /10\.0 MB\/s/, 'อัตราที่วัดได้จริงยังบอกได้')
-  assert.doesNotMatch(batch, /remaining/, 'แต่ห้ามมีทั้งไบต์ที่เหลือและเวลาที่เหลือ')
+  assert.doesNotMatch(batch, /left to transfer/, 'ไม่รู้ขนาด = บอกไบต์ที่เหลือไม่ได้')
+  assert.doesNotMatch(batch, /at current rate/, 'และพยากรณ์เวลาไม่ได้')
+})
+
+test('BATCH 7b · one unknown size in the batch withholds the whole batch remainder and ETA', () => {
+  const summary = tray.uploadTrayAggregate([
+    uploading({ id: 'a', size: 2 * GB, transferredBytes: 1 * GB }),
+    uploading({ id: 'b', stage: 'hashing', size: null, transferredBytes: 0, rate: null }),
+  ])
+  assert.equal(summary.bytesPerSecond, 5 * MB)
+  assert.equal(summary.remainingBytes, null, 'รวมไม่ครบ = ตัวเลขรวมไม่มีความหมาย')
+  assert.equal(summary.etaSeconds, null)
 })
 
 test('BATCH 8 · completed, failed and cancelled rows never pollute the active aggregate', () => {
@@ -172,11 +220,11 @@ test('BATCH 9 · the aggregate line renders measured totals in the tray header',
     uploading({ id: 'b', size: 4 * GB, transferredBytes: 1 * GB, rate: { bytesPerSecond: 2 * MB, etaSeconds: 1, stalled: false } }),
   ])
   assert.match(html, /Uploading 2 items/i)
-  assert.match(html, /6\.0 GB remaining/)
+  assert.match(html, /6\.0 GB left to transfer/)
   assert.match(html, /5\.0 MB\/s/)
   // 6 GiB ÷ 5 MiB/s = 1228.8 วินาที และ etaParts ปัดขึ้นเป็นนาทีเสมอ → 21 ไม่ใช่ 20
-  assert.match(html, /about 21 min remaining/i)
-  // ต้องไม่ถูกเรียกว่าเวลาจนงานเสร็จ — commit ไม่ได้อยู่ในอัตราที่วัด
+  assert.match(html, /about 21 min at current rate/i)
+  // ต้องไม่ถูกเรียกว่าเวลาจนงานเสร็จ — การแฮชและ commit ไม่ได้อยู่ในอัตราที่วัด
   assert.doesNotMatch(html, /until (done|complete|finished)/i)
 })
 
