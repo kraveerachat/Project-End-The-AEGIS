@@ -258,6 +258,29 @@ Production mutation allowed: NO
 - The HUB identity capture (image, restart policy, mounts, networks) is still
   owed in Phase 2A step 1.
 
+## IDEA3 PR11 Phase 2B — dispatch overlay repository preparation — 2026-09-16
+
+> [!note] Repository-only Phase 2B preparation. Nothing is enabled in Production.
+> Phase 2B turns on the IDEA3 machine listener. The accepted design says it
+> changes exactly one value of the Phase 2A overlay, so this task adds the
+> reviewed Phase 2B form of that file rather than editing it at execution time.
+> `IDEA3-AEGIS_Lockdown/deploy/docker-compose.pr11-phase2b.yml` differs from the
+> Phase 2A overlay in exactly two lines: `PHASE: 2A` → `2B`, and
+> `AEGIS_IDEA3_DISPATCH_ENABLED: "false"` → `"true"`. It keeps the same
+> Production path, so the accepted two-file HUB Compose list never changes and
+> the rendered HUB service is unaffected; only `idea3-web` is recreated in a
+> future Phase 2B window. `web/tests/server/phase2bOverlayContract.test.js`
+> pins that relationship, so the two overlays cannot drift apart silently.
+
+```text
+P2B_OVERLAY_REPOSITORY_FORM = ADDED (docker-compose.pr11-phase2b.yml)
+P2B_DIFF_VS_2A              = exactly 2 lines (phase label; dispatch switch)
+P2B_PRODUCTION_PATH         = /opt/aegis/runtime/idea3/idea3-phase2.yml (unchanged)
+P2B_ENABLED_IN_PRODUCTION   = NO
+P2B_PREREQUISITES           = Phase 2A PASS; K8 PASS; K9 material; K10 artifacts; IR-2 installed
+PRODUCTION_MUTATION         = NONE
+```
+
 ## IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16
 
 > [!note] D4 repository implementation (PR #138, merged at `3fd8d4d1`) — superseded as the entry point by the final owner-decision package above
