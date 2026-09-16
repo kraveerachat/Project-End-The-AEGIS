@@ -298,7 +298,7 @@ outside Git when it is secret, and confirmed in writing before its stage.
 | OD-12 | D4 credential at first Core start | Provision the D4 credential before the first start, or leave `AEGIS_RESTORE_CREDENTIAL_FILE` blank. A blank value means no RESTORE path exists while the device holds CUT. |
 | OD-13 | Disk headroom | Remediation before any package or release install (E-21). |
 | OD-14 | Flash and interim recovery procedure | Needs the D4 dependency, or a separately authorized interim procedure (design §10). |
-| OD-15 | ESP32 flash/NVS encryption | **OPTIONAL HARDENING / OWNER DECISION.** Without it, NVS contents (keys, PSK, broker password) are readable with physical access to the board. No authoritative PR11 requirement makes NVS encryption mandatory (searched: Phase 4 design, plan, and firmware docs, 2026-09-17), so it is **not** a Phase 4 blocking acceptance criterion. It affects the T8 provisioning behavior only if chosen. |
+| OD-15 | ESP32 flash/NVS encryption | **OPTIONAL HARDENING / OWNER DECISION — NOT A PHASE 4 BLOCKER.** NVS is not protected by an IDEA3 NVS-encryption requirement in the current PR11 design. Physical extraction risk therefore remains an optional hardening concern. No current PR11 acceptance criterion makes NVS encryption mandatory (searched: Phase 4 design, plan, and firmware docs, 2026-09-17). It affects the T8 provisioning behavior only if chosen. |
 | OD-16 | Broker addressing/name profile | Links, as one decision: ESP32 addressing (OD-05, DHCP or static); DNS availability on the AP (the ESP32 has no hosts file, so a broker hostname needs a DNS answer on the AP, which also changes G-04/G-06); the Core hostname verification string (R-09); the broker certificate SAN (G-08); and the ESP32 NVS `broker` value (R-12, R-14). An IP-literal choice additionally requires G-09 proof on a physical ESP32. Options visible, none selected: a hostname served by Core-local DNS on the AP, or an IP literal with an IP SAN. It supersedes nothing in M-21/OV-05; it records that they cannot be chosen independently. |
 | OD-17 | PR #149 / G-12 integration strategy | PR #149 and the G-12 fix both change `deploy/aegis-idea3-core.service.example`. PR #149 targets Phase 3 live runtime, while a production live Core start needs the MQTT CA, broker password, and key files that Phase 4 provides (R-08), so the two cannot finish independently. Options visible, none selected: merge a repository-only slice of PR #149 first and base G-12 on `main`; or an explicitly authorized stacked G-12 PR on the PR #149 branch; or a combined reconciliation. Stacked PRs are not created without explicit authorization. |
 
@@ -376,13 +376,21 @@ PHASE3_DEPENDENCY = YES for L7–L9 (Core unit candidate in PR #149, Draft, unme
 
 ## 8. K3 reconciliation
 
-GITHUB, 2026-09-17: IDEA1 PR #148 `feat/idea1-files-upload-ux-refresh` by
-`kraveerachat` is **OPEN / Draft**, last updated 2026-09-16T18:15:27Z. Its
-changed files are IDEA1 frontend source/tests and `idea1-status.md`.
+GITHUB, 2026-09-17: two IDEA1 PRs by `kraveerachat` are **OPEN / Draft**:
 
-- An open Draft PR does **not**, by itself, prove an active IDEA1 Production
-  mutation or verification window. It does not prove that no such window is
-  active either.
+- PR #148 `feat/idea1-files-upload-ux-refresh` (Files upload UX). Last updated
+  2026-09-16T18:15:27Z. Changed files: IDEA1 frontend source/tests and
+  `idea1-status.md`.
+- PR #150 `feat/idea1-files-management-ux` (Files management: rename, move,
+  real folder hierarchy). Last updated 2026-09-16T21:07:43Z. Changed files: all
+  under `IDEA1-AEGIS_Drive_LC/`, including server, database migration, and
+  frontend source.
+
+Factual rule:
+
+- The open IDEA1 Draft PRs #148 and #150 prove **neither** an active
+  Production mutation/verification window **nor** a closed one.
+- Production activity is not inferred from PR state in either direction.
 - The PR #146 K3 confirmation by `kraveerachat` covered only the Phase 2 T4
   window. It is consumed and does not carry over to Phase 4.
 - The Phase 2 local preflight heuristic flags any open IDEA1 PR. That is a
