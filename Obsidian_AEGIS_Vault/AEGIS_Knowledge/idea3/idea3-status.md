@@ -12,15 +12,84 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository on `infra/idea3-k1-hub-nginx-reconciliation`: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16
+## IDEA3 PR11 K1 — HUB NGINX reconciliation and the IDEA3 edge routes — 2026-09-16
 
 > [!important] Current IDEA3 truth — read this section first
+> K1 is executed in the repository. The owner captured the live HUB artifact
+> read-only, and it is now the reviewed baseline: `HUB-AEGIS_Entry/nginx.conf`
+> holds the live bytes (`16cee162…`) in its own commit, with the accepted IDEA3
+> IR-1 browser route added on top. The Phase 2B mTLS block is reviewed in
+> `HUB-AEGIS_Entry/nginx.idea3-machine-phase2b.conf` and is deliberately not
+> included yet, because its certificate, client-CA, and CRL files do not exist.
+> `HUB-AEGIS_Entry/tests/idea3RoutingContract.test.mjs` proves both preservation
+> and the additions. This is a cross-scope HUB change under
+> `integration-review: yes`; Kla reviews it approve-only. Nothing in Production
+> changed, and `nginx -t` has not run anywhere yet.
+>
+> K3 is now CLEAR on merged IDEA1 evidence, superseding the request below for a
+> written confirmation: PR #141 merged Kla's Public Share S5.12 final closeout at
+> `721b7978` (S5.8/S5.9/S5.10 PASS, G6 APPROVED, S5.11 CLOSED/PASS, S5.12
+> repository verification PASS, `PRODUCTION_MUTATION_PERFORMED=NO`), and the only
+> open IDEA1 PR, #143, is documentation-only.
+
+```text
+BASE_MAIN                      = 721b797860063729b7c3c280161dcb908d0ff7f5 (merge of IDEA1 PR #141)
+K1                             = REPOSITORY RECONCILED — awaiting Kla's approve-only review
+K1_LIVE_BASELINE               = 16cee16232f5636eb11dd434d43ba42c6314d75a2b306265ee62032b84fb3722 (owner-captured, verified by the agent)
+K1_STALE_GIT_ARTIFACT          = ac70bfbaf2254b3a878924635e8c76cb97961f8c464ae1de3ba61325c94668c6 (replaced, never restored to Production)
+K3_EXECUTION_WINDOW            = CLEAR (merged IDEA1 PR #141 closeout; execution-time recheck still required)
+K4                             = PASS (live recheck still required before the network is created)
+K7                             = PASS_OWNER_ACCEPTED (ACCEPT_CURRENT_BASE_SEMANTICS_FOR_NEXT_HUB_RECREATE)
+K8                             = BLOCKED (Core host not identified)
+K9                             = BLOCKED (DNS name and machine server certificate absent)
+K10                            = BLOCKED (client CA, CRL, and Core certificate absent)
+K12                            = NOT_PROVEN
+NGINX_SYNTAX_VALIDATED         = NO — no nginx binary or Docker daemon on the workstation; `nginx -t` runs in the HUB image before any install
+PHASE2A_EXECUTION_READY        = YES (scripted and validated; gated)
+PREMUTATION_GATE_READY         = NO
+PRODUCTION_MUTATION_AUTHORIZED = NO
+PHASE2_RUNTIME_COMPLETE        = NO
+PHASE3_RUNTIME_COMPLETE        = NO
+PHASE4_RUNTIME_COMPLETE        = NO
+D4_LIVE_VERIFIED               = NO
+PR11_COMPLETE                  = NO
+```
+
+### Current Task
+
+Task: IDEA3 PR11 — K1 HUB NGINX repository reconciliation
+Branch: `infra/idea3-k1-hub-nginx-reconciliation`
+Owner: `music` (cross-scope HUB artifact; integration review by Kla)
+Current state: ACCEPTANCE PENDING — Kla reviews approve-only
+Base SHA: `721b797860063729b7c3c280161dcb908d0ff7f5`
+Production mutation allowed: NO
+
+- **Goal:** make the reviewed HUB artifact equal the accepted live artifact and
+  add the approved IDEA3 edge routes, so Phase 2A installs a reviewed file.
+- **Out of scope:** Production, DNS, certificates, HUB recreation, Phase 2A/2B
+  execution, and the Phase 2B activation of the machine block.
+- **Acceptance:** an APPROVED review by `kraveerachat`. No comment is required.
+
+### K1 Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| K1-B | Adopt the captured live artifact as the reviewed baseline | CLOSED | owner capture verified `16cee162…`; live-vs-Git diff reviewed | `1ccde5b7` | PASS | — | K1-R |
+| K1-R | IR-1 browser route, IR-2 Phase 2B file, IR-3 contract test | CLOSED | 31/31 HUB tests; 63/63 policy tests; vault, policy, diff, secret scans | this task's closeout commit | PASS | Kla's approve-only review | Phase 2A gates |
+
+## IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16
+
+> [!note] Pre-mutation package (PR #140, merged at `505dcdfb`) — superseded as the entry point by the K1 section above
+> Kla APPROVED it, so `K7_OWNER_DECISION=ACCEPT_CURRENT_BASE_SEMANTICS_FOR_NEXT_HUB_RECREATE`
+> is accepted. Its K3 state and its request for a separate written confirmation
+> are superseded by the merged IDEA1 PR #141 closeout recorded above.
+>
 > PR #139 merged at `8cf917bf` after an APPROVED review by `kraveerachat`, so
 > the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7
 > comparison evidence then showed why the running HUB's config-hash differs from
@@ -28,8 +97,8 @@ edit_policy: owner-writable
 > 2026-09-12. There is no unexplained drift. Music's approve-only package in
 > `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-phase2-k3-k7-premutation-package.md`
 > proposes accepting the current base HUB semantics for the next HUB recreate.
-> K3 is not proven clear, so Kla is asked to confirm in writing that the IDEA1
-> window is closed. Nothing in Production changed. Stage B is not allowed.
+> K3 was not proven clear then, so Kla was asked to confirm in writing that the
+> IDEA1 window was closed. Nothing in Production changed. Stage B is not allowed.
 
 ```text
 BASE_MAIN                      = 8cf917bfab6ca9dc321839d08255562741374603 (merge of PR #139, 2026-09-15T20:15:00Z, human merge)
