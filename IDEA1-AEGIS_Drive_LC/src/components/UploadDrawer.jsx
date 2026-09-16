@@ -230,6 +230,11 @@ export function UploadDrawer({
   const retry = (id) => {
     const item = queueRef.current.find((candidate) => candidate.id === id)
     if (!item?.file) return
+    // ป้องกันกรณีที่คำสั่ง retry ถูกเรียกโดยตรงกับรายการที่เกินเพดาน deployment — ต้องไม่ส่งต่อเข้า transport
+    if (limits && (item.size ?? item.file.size) > limits.maxLogicalFileBytes) {
+      patchItem(id, { stage: 'failed', reason: 'tooLarge', rate: null })
+      return
+    }
     patchItem(id, { stage: 'waiting', reason: null, progress: null, rate: null })
     processFile(item.file, id, item.session ? { session: item.session, sha256: item.sha256 } : null)
   }

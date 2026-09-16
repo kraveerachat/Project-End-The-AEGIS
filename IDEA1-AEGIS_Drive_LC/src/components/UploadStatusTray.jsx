@@ -113,6 +113,9 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
   const progress = entry.stage === 'complete' ? 100 : entry.progress
   // หยุดชั่วคราวแล้วยังมี session อยู่ = ทำต่อได้ ไม่ต้องเริ่มไฟล์ใหม่ทั้งก้อน
   const resumable = entry.stage === 'paused' && Boolean(entry.session)
+  // ⚠️ ไฟล์ที่เกินเพดานของ deployment ถูกปฏิเสธตั้งแต่แรก — การกด retry ไม่ช่วยให้ผ่าน
+  //    และต้องไม่มีปุ่ม retry ให้ผู้ใช้กดส่งซ้ำ
+  const retryable = ((entry.stage === 'failed' && entry.reason !== 'tooLarge') || resumable) && Boolean(entry.file)
   const reasonLabel = REASON_LABEL[entry.reason]
   const rateLine = measuredRateLine(t, entry)
   // ⚠️ "0 B of 10.2 GB" ใต้ไฟล์ที่ถูกปฏิเสธเพราะเกินเพดานคือตัวเลขที่ไม่มีความหมาย —
@@ -181,14 +184,14 @@ export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
         </p>
       )}
 
-      {(cancellable || dismissible || resumable) && (
+      {(cancellable || retryable || dismissible) && (
         <div className="mt-2 flex justify-end gap-3">
           {cancellable && (
             <button type="button" data-upload-cancel={entry.id} onClick={() => onCancel(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               {t('cancel')}
             </button>
           )}
-          {(entry.stage === 'failed' || resumable) && entry.file && (
+          {retryable && (
             <button type="button" data-upload-retry={entry.id} onClick={() => onRetry(entry.id)} className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               <RotateCcw size={11} aria-hidden />{t(resumable ? 'uploadResume' : 'retry')}
             </button>

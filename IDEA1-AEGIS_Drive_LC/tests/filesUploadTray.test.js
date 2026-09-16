@@ -348,7 +348,7 @@ test('TEST 13 · the tray header summary is derived from the real queue', () => 
 
 /* ── 14 · ไฟล์เกินเพดานของ deployment ─────────────────────────────────────── */
 
-test('TEST 14 · a configured-size rejection never reaches the transport and stays truthful in the tray', async () => {
+test('TEST 14 · a configured-size rejection never reaches the transport, stays truthful, and is non-retryable', async () => {
   const upload = pendingUpload()
   const base = {
     t, open: true, onOpen() {}, onClose() {},
@@ -356,17 +356,91 @@ test('TEST 14 · a configured-size rejection never reaches the transport and sta
   }
   const view = await mount({ ...base, initialFiles: [], requestId: 0 })
   try {
+    // 1. Select file larger than maxLogicalFileBytes
     await view.render({ ...base, initialFiles: [fileIn(view.dom, 'huge.mp4', 11_000_000_000)], requestId: 14 })
+    // 2. Initial transport call count remains 0
     assert.equal(upload.calls.length, 0, 'ไฟล์ที่เกินเพดานต้องไม่ถูกส่งขึ้นไปเลย')
+    // 3. Tray displays truthful tooLarge rejection
     const tray = view.document.querySelector('[data-upload-tray]')
     assert.ok(tray, 'การปฏิเสธต้องปรากฏบนถาด ไม่ใช่ติดอยู่ในลิ้นชักที่ปิดไปแล้ว')
     assert.match(tray.textContent, /huge\.mp4/)
     // ⚠️ ถ้อยคำเดิมของการปฏิเสธต้องไม่ถูกเขียนใหม่ — เพดานยังเป็นของ deployment เหมือนเดิม
     assert.match(tray.textContent, /Larger than the upload limit this system is configured for/i)
-    assert.equal(tray.querySelector('[data-upload-row]').getAttribute('data-upload-reason'), 'tooLarge')
+    const row = tray.querySelector('[data-upload-row]')
+    assert.equal(row.getAttribute('data-upload-reason'), 'tooLarge')
+    assert.equal(row.getAttribute('data-upload-stage'), 'failed')
+
+    // 4. A tooLarge item MUST NOT expose a Retry action while the configured deployment limit still rejects it
+    const retryBtn = row.querySelector('[data-upload-retry]')
+    assert.equal(Boolean(retryBtn), false, 'รายการที่ถูกปฏิเสธเพราะเกินเพดานต้องไม่มีปุ่ม Retry ให้กดส่งซ้ำ')
+
+    // 5. No user interaction available from that rejected row can cause runUpload() to be invoked
+    // 6. Dismiss remains available
+    const dismissBtn = row.querySelector('[data-upload-dismiss]')
+    assert.ok(dismissBtn, 'ปุ่ม Dismiss ต้องยังคงมีอยู่เพื่อให้ผู้ใช้ลบรายการออกได้')
+    await view.click(dismissBtn)
+    assert.equal(upload.calls.length, 0, 'ไม่มีการกระทำใดจากแถวที่ถูกปฏิเสธที่สามารถเรียก runUpload ได้')
   } finally {
+    upload.finish(cancelledResult)
     await view.cleanup()
   }
+})
+
+test('TEST 14b · defensive guard: programmatic or UI retry of an oversized item aborts and never calls transport', async () => {
+  const upload = pendingUpload()
+  const base = {
+    t, open: false, onClose() {},
+    runUpload: upload.run,
+    loadLimits: async () => ({ maxLogicalFileBytes: 10_000_000_000 }),
+  }
+  // จำลองรายการที่ล้มเหลวด้วยเหตุผลอื่น (เช่น network) แต่ขนาดไฟล์จริงเกินเพดาน 10 GB
+  const view = await mount({
+    ...base,
+    initialQueue: [item({
+      id: 'oversize-seed',
+      name: 'oversize.mp4',
+      size: 11_000_000_000,
+      stage: 'failed',
+      reason: 'network',
+      file: { name: 'oversize.mp4', size: 11_000_000_000 },
+    })],
+  })
+  try {
+    const row = view.document.querySelector('[data-upload-row="oversize-seed"]')
+    assert.ok(row, 'ต้องพบแถวในถาด')
+    const retryBtn = row.querySelector('[data-upload-retry]')
+    assert.ok(retryBtn, 'แถวที่มี reason เป็น network เริ่มต้นมีปุ่ม retry')
+
+    // กด retry — ยามป้องกันใน UploadDrawer.retry() ต้องดักจับเพดานและไม่ส่งต่อ
+    await view.click(retryBtn)
+
+    // Transport calls ต้องเป็น 0
+    assert.equal(upload.calls.length, 0, 'ยามป้องกันต้องระงับการส่งไฟล์เกินเพดาน ไม่มีการเรียก runUpload')
+
+    // สถานะต้องถูกปรับกลับเป็น failed / tooLarge
+    assert.equal(row.getAttribute('data-upload-stage'), 'failed')
+    assert.equal(row.getAttribute('data-upload-reason'), 'tooLarge')
+
+    // และปุ่ม retry ต้องหายไปหลังถูกปรับเป็น tooLarge
+    const retryBtnAfter = row.querySelector('[data-upload-retry]')
+    assert.equal(Boolean(retryBtnAfter), false, 'ปุ่ม retry ต้องหายไปหลังตรวจพบว่าเกินเพดาน')
+  } finally {
+    upload.finish(cancelledResult)
+    await view.cleanup()
+  }
+})
+
+test('TEST 14c · failed rows with genuine retryable reasons retain Retry, while tooLarge is excluded', () => {
+  const retryableHtml = trayMarkup({
+    queue: [item({ stage: 'failed', reason: 'network', file: { name: 'clip.mp4', size: 1024 } })],
+  })
+  assert.match(retryableHtml, /data-upload-retry/, 'งานที่ล้มเหลวด้วยเหตุผลเครือข่ายต้องยังมีปุ่ม Retry')
+
+  const tooLargeHtml = trayMarkup({
+    queue: [item({ stage: 'failed', reason: 'tooLarge', file: { name: 'huge.mp4', size: 11_000_000_000 } })],
+  })
+  assert.doesNotMatch(tooLargeHtml, /data-upload-retry/, 'งานที่ล้มเหลวเพราะเกินเพดานต้องไม่มีปุ่ม Retry')
+  assert.match(tooLargeHtml, /data-upload-dismiss/, 'ปุ่ม Dismiss ต้องยังอยู่')
 })
 
 /* ── 15 + 16 · ยกเลิกยังทำงานเหมือนเดิมทุกประการ ──────────────────────────── */

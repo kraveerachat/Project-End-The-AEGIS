@@ -161,11 +161,12 @@ until that happens.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Upload UX source, tests, canonical record | IN PROGRESS | see Session S1 | see PR | repository verification PASS | Human Owner browser acceptance | owner browser pass, then closeout |
+| S1 | Upload UX source, tests, canonical record | CHECKPOINT | see Session S1 | `9683bf8e` | repository verification PASS | review / browser acceptance | independent review |
+| S2 | Targeted review correction: non-retryable tooLarge rejection & defensive guard | IN PROGRESS | see Session S2 | see PR | repository verification PASS | Human Owner browser acceptance | owner browser pass, then closeout |
 
 ### Session S1 — implementation
 
-State: **IN PROGRESS**
+State: **CHECKPOINT**
 Starting SHA: `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`
 
 **Work performed.** Test-driven: 20 behavioural contracts were written first in
@@ -193,17 +194,57 @@ implemented to GREEN.
 - The separate upload success toast was retired; the tray is now the single
   status surface, which removes the previous duplicate completion reporting.
 
+### Session S2 — targeted review correction (non-retryable oversize rejection)
+
+State: **IN PROGRESS**
+Starting SHA: `9683bf8e41239b4cedaef56bf263968e63feec8a`
+
+**Defect verified.**
+When an upload exceeded `limits.maxLogicalFileBytes`, `UploadDrawer` enqueued it as
+`stage='failed'`, `reason='tooLarge'`, `file=<File>`. In `UploadStatusTray.jsx`,
+`UploadStatusRow` rendered a `Retry` button because `(entry.stage === 'failed' || resumable) && entry.file`.
+Clicking `Retry` called `UploadDrawer.retry(id)`, which cleared the reason and
+called `processFile()` without re-checking `maxLogicalFileBytes`, potentially
+sending an oversized (e.g. 11 GB) file toward transport.
+
+**TDD RED evidence.**
+Updated `tests/filesUploadTray.test.js` TEST 14 to assert that a `tooLarge`
+rejected row renders no retry button (`assert.equal(Boolean(retryBtn), false)`)
+and that only `Dismiss` remains available without invoking `runUpload()`.
+Observed RED failure:
+```text
+✖ TEST 14 · a configured-size rejection never reaches the transport, stays truthful, and is non-retryable
+  AssertionError [ERR_ASSERTION]: รายการที่ถูกปฏิเสธเพราะเกินเพดานต้องไม่มีปุ่ม Retry ให้กดส่งซ้ำ
+  true !== false
+```
+
+**Minimal fix.**
+1. `IDEA1-AEGIS_Drive_LC/src/components/UploadStatusTray.jsx`:
+   Explicitly excluded `tooLarge` from retryable state:
+   `const retryable = ((entry.stage === 'failed' && entry.reason !== 'tooLarge') || resumable) && Boolean(entry.file)`.
+   Gated `<button data-upload-retry>` on `retryable` instead of `entry.stage === 'failed'`.
+2. `IDEA1-AEGIS_Drive_LC/src/components/UploadDrawer.jsx`:
+   Added defensive guard inside `retry(id)`:
+   If `limits && (item.size ?? item.file.size) > limits.maxLogicalFileBytes`,
+   immediately patch `stage='failed'`, `reason='tooLarge'`, `rate=null` and return
+   without invoking `processFile()` or transport.
+3. `IDEA1-AEGIS_Drive_LC/tests/filesUploadTray.test.js`:
+   Added `TEST 14b` (verifying defensive retry guard intercepts and neutralises
+   retry attempts on oversized files without calling transport) and `TEST 14c`
+   (verifying that genuine retryable failures such as network errors still retain
+   the Retry button).
+
 **Verification (repository phase).**
 
 | Check | Result |
 | :--- | :--- |
-| New upload-UX suite `tests/filesUploadTray.test.js` | RED 0/20 before implementation; **GREEN 20/20** after |
+| New upload-UX suite `tests/filesUploadTray.test.js` | RED 0/20 before implementation; **GREEN 20/20** after S1; **GREEN 22/22** after S2 review correction (non-retryable tooLarge rejection, defensive retry guard) |
 | `uploadDrawerUi` + `uploadCompletionUx` + `uploadProgress` | **32/32 PASS** (both existing suites updated to the new single-status-surface contract) |
 | `transferRate` (shared estimator, unmodified) | **PASS**, included in the focused batch below |
 | `chunkedUpload` engine regression incl. the extended whole-file-read ban | **PASS** |
 | Focused batch (upload, rate, engine, i18n, empty-state, resumable) | **87/87 PASS** |
 | Adjacent UI batch (Files workflow, drawer/motion, modal focus, navigation, app shell) | **52/52 PASS** |
-| Full IDEA1 suite | **1290 total / 1209 pass / 9 fail / 72 skip**; `NEW_FAILURE_COUNT=0` |
+| IDEA1 regression on this Windows host | **1292 total / 1211 pass / 9 fail / 72 skip**; `NEW_FAILURE_COUNT=0` (all 113 executable test files run; `publicShareS55FirewallContract.test.js` = NOT MEASURED on this host; no new failures in measured set) |
 | Build `npm run build` | **PASS**; tracked `dist/` restored, no generated artifact staged |
 | `scripts/validate-vault.mjs` | **PASS** with the 2 pre-existing canvas owner-review warnings |
 | `tests/collaborationPolicy` + `vaultStructure` + `vaultMultiWriter` | **50/50 PASS** |
@@ -214,14 +255,18 @@ The 9 failures are exactly the recorded accepted-historical set — `AUTOLOCK-5`
 `publicShareStageBDiagnostics`, `publicShareStageBUploadClient` — and none of
 them touches upload UI.
 
-**Full-suite execution caveat (environment, not source).**
-`tests/publicShareS55FirewallContract.test.js` never returns on this Windows
-workstation: it drives `gateway/public-share/production/` shell scripts through
-`spawnSync`. It was verified in isolation to hang for 180 s+ with zero output,
-imports nothing under `src/`, and is untouched by this change, so it was
-excluded from the run and its 19 tests are **NOT MEASURED here** rather than
-counted as passing. The remaining 113 test files were executed in two batches
-(58 + 55 files) whose totals are summed above.
+**Verification caveat & remaining gates (environment, not source).**
+- **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js`
+  never returns on this Windows workstation: it drives
+  `gateway/public-share/production/` shell scripts through `spawnSync`. It was
+  verified in isolation to hang for 180 s+ with zero output, imports nothing
+  under `src/`, and is untouched by this change, so it was excluded from the
+  Windows run and its 19 tests are **NOT MEASURED on this host** rather than
+  counted as passing. The remaining 113 executable test files were run in full
+  with zero new failures.
+- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. Execution
+  of the Linux-only firewall contract test remains a required gate prior to
+  final release/merge.
 
 **Known limitations (repository phase).**
 
@@ -231,6 +276,7 @@ counted as passing. The remaining 113 test files were executed in two batches
 - Transfer concurrency is unchanged: files are still processed as the existing
   engine schedules them. This task changed presentation, not scheduling.
 - No browser or Production verification was performed by this session.
+- Real 11 GB file support remains a separate future task; current deployment ceiling is enforced truthfully.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
 
