@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import backup_restore as br
 from . import config
 from . import local_restore as lr
 from .runtime import RuntimeSettings, read_status
@@ -286,6 +287,41 @@ def command_restore_credential(args, *, isatty=None, read_secret=getpass.getpass
     return 0
 
 
+def _backup_command(action) -> int:
+    """Run one backup/restore action, printing JSON on success and the refusal code on failure."""
+    try:
+        result = action()
+    except br.BackupError as error:
+        print(f"{error.code}: {error.detail}", file=sys.stderr)
+        return 2
+    except OSError as error:
+        print(f"BACKUP_IO_ERROR: {type(error).__name__}", file=sys.stderr)
+        return 1
+    print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def command_backup_create(args) -> int:
+    return _backup_command(
+        lambda: br.create_backup(args.source, args.output, source_version=args.source_version)
+    )
+
+
+def command_backup_verify(args) -> int:
+    return _backup_command(lambda: br.verify_backup(args.archive))
+
+
+def command_backup_restore(args) -> int:
+    return _backup_command(
+        lambda: br.restore_backup(
+            args.archive,
+            args.destination,
+            allow_non_empty=args.allow_non_empty,
+            confirm_live_overwrite=args.confirm_live_overwrite,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aegisctl", description="AEGIS IDEA3 autonomous runtime")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -317,6 +353,25 @@ def build_parser() -> argparse.ArgumentParser:
     credential = sub.add_parser("restore-credential", help="provision a private local RESTORE credential")
     credential.add_argument("--output")
     credential.set_defaults(handler=command_restore_credential)
+    create = sub.add_parser("backup-create", help="snapshot one IDEA3 data root into a new backup archive")
+    create.add_argument("--source", required=True, help="absolute path of the data root to back up")
+    create.add_argument("--output", required=True, help="absolute archive path, or a directory to name one in")
+    create.add_argument("--source-version", default=None, help="application version or Git SHA of the source")
+    create.set_defaults(handler=command_backup_create)
+    verify = sub.add_parser("backup-verify", help="verify a backup archive without writing a restore")
+    verify.add_argument("--archive", required=True)
+    verify.set_defaults(handler=command_backup_verify)
+    restore_backup = sub.add_parser("backup-restore", help="restore a backup archive to an explicit destination")
+    restore_backup.add_argument("--archive", required=True)
+    restore_backup.add_argument("--destination", required=True, help="absolute path of a test restore location")
+    restore_backup.add_argument("--allow-non-empty", action="store_true")
+    restore_backup.add_argument(
+        "--confirm-live-overwrite",
+        default=None,
+        metavar="PHRASE",
+        help=f"restore over the live data root; requires exactly {br.LIVE_OVERWRITE_CONFIRMATION!r}",
+    )
+    restore_backup.set_defaults(handler=command_backup_restore)
     return parser
 
 

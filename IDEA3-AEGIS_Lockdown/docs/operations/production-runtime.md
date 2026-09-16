@@ -323,13 +323,55 @@ evidence.
 
 ## Backup and stopped restore
 
-Stop the service and verify it is inactive before copying data. Back up the whole
-`/var/lib/aegis-idea3` tree so each SQLite database travels with any `-wal` and
-`-shm` companions, configuration, and logs. Restrict the backup at least as
-tightly as the source because it contains credentials and audit records.
+> [!important] PR12 tooling status
+> `aegisctl backup-create` / `backup-verify` / `backup-restore` are implemented
+> and locally verified in the repository. They have never been run against the
+> AEGIS Server or the Arch Core. `PR12_BACKUP_RESTORE_PRODUCTION = NOT RUN` and
+> `FINAL_PR12_BACKUP_RESTORE = PENDING`; PR11 remains the dependency for PR12
+> final acceptance. Nothing below authorizes a Production mutation.
 
-Restore only while stopped. Preserve the failed/current tree separately, restore
-the complete captured tree with service-account ownership and restrictive
+The supported procedure is the tool, not a file copy. It captures the four
+durable SQLite components of one data root through the SQLite online backup API,
+so a live WAL database is snapshotted consistently and no `-wal`/`-shm` pair
+travels separately from its main file:
+
+```bash
+aegisctl backup-create --source /var/lib/aegis-idea3 --output /srv/aegis-backups \
+                       --source-version "<release git sha>"
+aegisctl backup-verify --archive /srv/aegis-backups/aegis-idea3-backup-<stamp>.tar.gz
+```
+
+Stop the service and verify it is inactive first. A stopped source is still the
+supported baseline for a restorable backup even though the snapshot itself is
+consistent against a live writer.
+
+Configuration, credentials, key material, certificates, logs, and ephemeral
+runtime state are excluded by class and are never copied into the archive. They
+are provisioned separately under `/etc/aegis-idea3/` and must be restored by the
+documented secret-provisioning path, not from a backup. An unrecognised path
+under the data root refuses the backup rather than being copied on a guess.
+Restrict the archive at least as tightly as the source: it still contains the
+complete durable audit record.
+
+Restore only while stopped, and never directly over the live root. Preserve the
+failed/current tree separately, restore to an explicit test location, and verify
+it there first:
+
+```bash
+aegisctl backup-restore --archive /srv/aegis-backups/aegis-idea3-backup-<stamp>.tar.gz \
+                        --destination /var/tmp/aegis-idea3-restore-test
+```
+
+The restore refuses the data root the backup came from, a non-empty target
+without `--allow-non-empty`, and the live data root unless the operator passes
+the exact phrase `OVERWRITE LIVE DATA ROOT` to `--confirm-live-overwrite`. It
+also refuses digest mismatches, malformed or unsupported manifests, path
+traversal in an archive member or a manifest entry, undeclared or missing
+components, secret material inside an archive, and any restored database that
+fails `PRAGMA integrity_check`.
+
+Only after the test restore verifies should an authorized operator place the
+verified tree at the live root with service-account ownership and restrictive
 permissions, then run `doctor`, start, readiness, Admin login, and ordered audit
 read verification. Do not copy a live SQLite file alone and do not use runtime
 status as the backup record.

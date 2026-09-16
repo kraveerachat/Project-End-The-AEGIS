@@ -941,6 +941,112 @@ combined child output to `logs/aegis-components.log`, daemon console output to
 `logs/aegis-supervisor.log`, and atomic lifecycle status under `.aegis-runtime/`.
 These runtime artifacts are ignored by Git.
 
+## Backup and Restore Recovery Tooling (PR12 — repository implemented, never run in Production)
+
+`aegis_soc/backup_restore.py` captures one explicitly selected IDEA3 data root
+into a portable archive and restores it to an explicit destination. The status
+boundary is exact:
+
+```text
+PR12_BACKUP_RESTORE_SOURCE     = IMPLEMENTED
+PR12_BACKUP_RESTORE_LOCAL      = VERIFIED
+PR12_BACKUP_RESTORE_PRODUCTION = NOT RUN
+FINAL_PR12_BACKUP_RESTORE      = PENDING
+```
+
+### Components
+
+The four logical components are located through `paths.RuntimePaths`, so the
+tool follows the same path contract as the runtime instead of repeating
+filenames:
+
+| Logical component | Path under the data root | Required |
+|---|---|---|
+| `core_audit` | `data/core-audit.sqlite3` | yes |
+| `core_dispatch` | `data/core-dispatch.sqlite3` | no |
+| `core_protocol` | `data/core-protocol.sqlite3` | no |
+| `web_audit` | `data/security-center-audit.sqlite3` | no |
+
+### SQLite consistency
+
+Every component is captured through the SQLite online backup API, never by
+copying files. A live WAL database is therefore snapshotted consistently, and
+the snapshot is converted to `journal_mode = DELETE` so one self-contained file
+travels in the archive with no `-wal`/`-shm` pair to fall out of step with it.
+
+Source databases are opened read-only and are never written. When no writer is
+attached, a read-only connection cannot checkpoint, so SQLite may leave empty
+`-wal`/`-shm` files beside the source. They carry no committed data, and the
+scan classifies them as `sqlite-sidecar` rather than failing closed.
+
+### Secrets are excluded by class, and unknown paths fail closed
+
+Nothing except the four databases is ever copied. Every other path must match a
+named exclusion class — `configuration-secret`, `credential-material`,
+`key-material`, `certificate-material`, `ephemeral-runtime`, `sqlite-sidecar`,
+or `operational-log`. A path that matches none of them **refuses the backup**;
+the tool never decides on its own that an unrecognised file is safe to copy.
+
+Secret classes are counted in the manifest, never named and never read, because
+a path is itself a disclosure. A restore also refuses an archive that carries
+secret-class material, whoever produced it.
+
+### Manifest
+
+`manifest.json` records the format and version, the creation time, the source
+root, an optional source version or Git SHA, and for each component the member
+name, source path, byte size, SHA-256 digest, `PRAGMA integrity_check` result,
+schema version, table names with row counts, and — for the Core audit — the
+hash-chain length, validity, and head hash. `manifest.sha256` holds the digest
+of the manifest itself.
+
+Those digests detect corruption and after-the-fact tampering. They are
+deliberately not a signature: no key material may travel with a backup, so
+authenticity comes from where the archive is stored, not from this format.
+
+### Commands
+
+```bash
+./aegisctl backup-create  --source /var/lib/aegis-idea3 --output /srv/backups \
+                          --source-version "$(git rev-parse HEAD)"
+./aegisctl backup-verify  --archive /srv/backups/aegis-idea3-backup-<stamp>.tar.gz
+./aegisctl backup-restore --archive /srv/backups/aegis-idea3-backup-<stamp>.tar.gz \
+                          --destination /var/tmp/aegis-idea3-restore-test
+```
+
+`--output` is the archive itself when it ends in `.tar.gz`, otherwise a
+directory in which a timestamped name is generated. `backup-verify` proves an
+archive restores cleanly without writing outside a temporary directory, and
+`backup-restore` re-verifies every component in place after the move. Each
+command prints a JSON report and exits `0` on success, `2` on a refusal (with
+the refusal code on stderr), and `1` on an I/O error.
+
+### What a restore refuses
+
+A restore validates everything before a byte reaches the destination: absolute,
+`..`-bearing, duplicate, undeclared, non-regular, and oversized archive members;
+manifest paths that do not match the destination path contract; a manifest that
+is malformed, of an unknown format or version, or inconsistent with its own
+digest; a component whose digest does not match; a missing declared component;
+secret-class material inside the archive; and a restored database that fails
+`PRAGMA integrity_check`.
+
+The destination is checked as strictly. A restore refuses the data root the
+backup came from, any path nesting with it, a non-empty target without
+`--allow-non-empty`, and the live data root — which additionally requires the
+exact phrase `OVERWRITE LIVE DATA ROOT` passed to `--confirm-live-overwrite`.
+Component files land at paths derived from the destination's own
+`RuntimePaths`, never at a path taken from the archive.
+
+`--allow-non-empty` replaces the declared components only. It never prunes the
+target, so a failed tree can be preserved beside the restored databases.
+
+### Boundary
+
+Local fixture evidence is not final-environment acceptance. A database that
+reads locally is not a healthy service after a Production restore. PR12 final
+acceptance depends on PR11 and has not happened.
+
 ## Quick Start — Standalone/Lab (Legacy Manual Flow)
 
 ### 1. เข้า Project
