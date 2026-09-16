@@ -82,7 +82,14 @@ def test_p3_c8_core_service_has_no_idea2_chain_and_sets_no_unmeasured_quota():
     )
 
     assert all(name not in relationships for name in IDEA2_UNITS)
-    assert unit["Service"]["CPUAccounting"] == "true"
+    every_value = " ".join(
+        value for section in unit.values() for value in section.values()
+    )
+    assert all(name not in every_value for name in IDEA2_UNITS)
+    assert "aegis-detection" not in every_value
+    # systemd 261 removed CPUAccounting= and ignores it; CPU accounting comes
+    # from the unified cgroup hierarchy, so the obsolete directive stays absent.
+    assert "CPUAccounting" not in unit["Service"]
     assert unit["Service"]["MemoryAccounting"] == "true"
     assert unit["Service"]["TasksAccounting"] == "true"
     assert unit["Service"]["IOAccounting"] == "true"

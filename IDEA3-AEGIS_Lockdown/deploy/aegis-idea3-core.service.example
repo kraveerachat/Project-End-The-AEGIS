@@ -50,7 +50,6 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 
-CPUAccounting=true
 MemoryAccounting=true
 TasksAccounting=true
 IOAccounting=true

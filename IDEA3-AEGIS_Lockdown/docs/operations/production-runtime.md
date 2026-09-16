@@ -68,9 +68,26 @@ credentials report `PAUSED_CREDENTIAL`; network/server unavailability reports
 HTTPS only and retains certificate and hostname verification. An ACK, STATUS,
 or runtime status is not physical containment evidence.
 
-The unit enables CPU, memory, task, and I/O accounting. It intentionally sets
-no CPU, RAM, task, or I/O quota; Production limits are chosen only after the
-authorized live phase measures the Core and co-resident IDEA2 workloads.
+The unit enables memory, task, and I/O accounting. It does not set
+`CPUAccounting=`: the owner-run Core preflight on 2026-09-17 (Arch Linux,
+systemd 261.2) showed `systemd-analyze verify` reporting that support for the
+option has been removed and it is ignored. The repository candidate was
+corrected; CPU usage is still accounted by the host's unified cgroup hierarchy.
+It intentionally sets no CPU, RAM, task, or I/O quota; Production limits are
+chosen only after the authorized live phase measures the Core and co-resident
+IDEA2 workloads.
+
+A static `systemd-analyze verify` of a copy named `aegis-idea3-core.service`
+still reports that `/opt/aegis-idea3/current/venv/bin/python` is not
+executable until an immutable release is staged. That warning is expected
+before deployment; do not create placeholder `/opt` paths to silence it.
+
+This correction is repository-only, not a Production deployment. The live
+`--profile production --live` Core cannot pass preflight until Phase 4 runtime
+material exists: a TLS MQTT listener on 8883, a readable MQTT CA, the Core
+broker credential, Protocol v1 device configuration and per-direction key
+files, and a non-default Admin PIN. Do not install or start the unit before
+then.
 
 ### Future owner-run read-only Core evidence package
 
