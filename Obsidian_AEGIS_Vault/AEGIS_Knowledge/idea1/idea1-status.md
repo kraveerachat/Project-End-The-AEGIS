@@ -152,7 +152,7 @@ Final acceptance requires: Linux firewall verification, Drive-only candidate Pro
 | S5 | FILES-UPLOAD-RECOVERY-1: reload recovery metadata & aggregate batch ETA | CHECKPOINT | see Session S5 | `0508d62c` | repository verification PASS (47/47 suites) | independent review | independent source review |
 | S6 | Source review correction: account-scoped recovery store & transfer workload correction | CHECKPOINT | see Session S6 | `a96fac5f` | repository verification PASS (91/91 focused, 47/47 recovery/batch, zero new failures) | docs reconciliation / Linux verification / Production deploy | docs reconciliation then Linux verification |
 | S7 | Documentation / PR #148 / Obsidian evidence reconciliation | CHECKPOINT | see Session S7 | `d13dd9b7` | reconciliation completed subject to factual correction | factual correction / Linux verification | S8 doc correction |
-| S8 | Factual documentation / PR body correction checkpoint | IN PROGRESS | see Session S8 | pending docs commit | storage key, recovery fields, route, SHA, prop flow corrected | Linux gate / Production deployment / Human browser retest | Linux verification of exact PR HEAD |
+| S8 | Factual documentation / PR body correction checkpoint | CHECKPOINT | see Session S8 | `dcc6599d1b7d9fedb04825d1b39e444f9d95c667` | factual documentation correction completed | Linux gate / Production deployment / Human browser retest | Linux verification of exact PR HEAD |
 
 ### Session S1 — implementation
 
@@ -286,7 +286,8 @@ Starting SHA: `a96fac5f045e43d25efc0a1276586c877a25f139`
 
 ### Session S8 — factual documentation and evidence correction
 
-State: **IN PROGRESS**
+State: **CHECKPOINT**
+Checkpoint SHA: `dcc6599d1b7d9fedb04825d1b39e444f9d95c667`
 Starting SHA: `d13dd9b7571e840ea9515eb9797af52314a1754b`
 
 **Work performed (Gemini).**
