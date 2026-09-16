@@ -390,6 +390,8 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
     }
 
     const row = await store.createFolder(name, req.user, parentId)
+    // ⚠️ null = พ่อหายไประหว่างการตรวจกับการเขียน (ตรวจซ้ำในธุรกรรมภายใต้ล็อกเจ้าของ)
+    if (!row) return res.status(404).json({ error: 'Not found' })
     await auditAct(req, 'FOLDER_CREATE', name)
     res.status(201).json({ file: row })
   } catch (err) {
@@ -565,9 +567,16 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
           // ปลายทางของการอัปโหลดคือโฟลเดอร์ที่ผู้ใช้กำลังเปิดอยู่ (ถ้ามี) — ตรวจว่าเป็น
           // โฟลเดอร์ของผู้เรียกจริงก่อนเสมอ ไม่เชื่อ id ที่ client แจ้งมาลอย ๆ
           row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user, parentId: uploadParentId })
+          // ⚠️ null = โฟลเดอร์ปลายทางหายไประหว่างทาง — ต้องไม่ปล่อยไบต์กำพร้าไว้บนดิสก์
+          if (!row) throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
         }
       } catch (dbErr) {
         await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
+        // ปลายทางหายไประหว่างอัปโหลด = ความจริงที่ต้องบอก ไม่ใช่ 500 (ไบต์ถูกทิ้งแล้วด้านบน)
+        if (dbErr?.code === 'TARGET_GONE') {
+          await auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
+          return res.status(409).json({ error: 'Upload destination is gone', code: 'TARGET_GONE' })
+        }
         throw dbErr
       }
 
@@ -688,12 +697,18 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
     //    deleted_at ไม่ใช่การลบแถว — RESTRICT จึงไม่ยิงตอนนี้ ถ้าปล่อยให้โฟลเดอร์ที่ยังมี
     //    ลูกลงถังได้ ลูกจะกลายเป็นของกำพร้าที่ชี้ไปยังพ่อที่หายจากทุกจอ กู้คืนเองไม่ได้
     //    กติกาที่เล็กที่สุดที่ยังปลอดภัยคือ: ต้องย้าย/ลบของข้างในให้หมดก่อน
+    // การตรวจตรงนี้มีไว้เพื่อตอบเร็วเท่านั้น — การตัดสินใจจริงอยู่ในธุรกรรมของ trashFile
+    // ซึ่งถือล็อกลำดับชั้นของเจ้าของแล้วนับลูกอีกครั้ง (ดู store.js)
     if (file.kind === 'folder' && (await store.countLiveChildren(file.id, req.user.id)) > 0) {
       return res.status(409).json({ error: 'Folder is not empty', code: 'FOLDER_NOT_EMPTY' })
     }
 
     const trashed = await store.trashFile(file.id, req.user.id)
     if (!trashed) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ ธุรกรรมอาจปฏิเสธแม้การตรวจด้านบนผ่าน: มีคนย้ายของเข้ามาระหว่างสองจุดนั้น
+    if (trashed.code === 'FOLDER_NOT_EMPTY') {
+      return res.status(409).json({ error: 'Folder is not empty', code: 'FOLDER_NOT_EMPTY' })
+    }
     await auditAct(req, 'FILE_TRASH', file.name)
     res.json({ ok: true, purgeAt: new Date(trashed.purgeAt).toISOString() })
   } catch (err) {

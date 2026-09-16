@@ -74,62 +74,93 @@ function pathPrefixOf(value) {
  *           sampleLimit?: number }} options
  */
 export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
+  // ⚠️ โดเมนของแถวต้องตรงกับ migration 010 เป๊ะ: migration ตั้ง kind SET NOT NULL
+  //    ทั้งตาราง แถวที่อยู่ในถัง (deleted_at IS NOT NULL) ก็ต้องได้ kind เหมือนกัน
+  //    ถ้า preflight กรองแถวเหล่านั้นออก มันจะบอกว่า "ปลอดภัย" ทั้งที่ migration จะ
+  //    ระเบิดตอนรันจริงเพราะแถวในถังที่จำแนกไม่ได้ยังเป็น NULL อยู่
+  //    (แถว vault ถูก migration ตั้งเป็น 'file' โดยตรง จึงไม่ต้องจำแนกที่นี่)
   const { rows } = await query(
-    `SELECT id, name, path, size_bytes, sha256, uploaded_by
+    `SELECT id, name, path, size_bytes, sha256, uploaded_by, deleted_at
        FROM files
-      WHERE vault = false AND deleted_at IS NULL
+      WHERE vault = false
       ORDER BY id`,
   )
 
+  let activeNormalRows = 0
+  let trashedNormalRows = 0
   let provenFiles = 0
   let provenFolders = 0
+  let ambiguousActiveRows = 0
+  let ambiguousTrashedRows = 0
   const ambiguousSamples = []
-  // ⚠️ migration 010 ยังสร้าง unique index ของ "ชื่อต่อโฟลเดอร์ต่อเจ้าของ" (ไม่สนตัวพิมพ์)
-  //    แต่ createFolder เดิมไม่เคยบังคับความไม่ซ้ำเลย ข้อมูลเก่าจึงมีโฟลเดอร์ชื่อซ้ำได้จริง
-  //    ก่อนย้ายสคีมาทุกแถวยังอยู่ที่ราก (parent_id = NULL) การนับจึงทำต่อเจ้าของ+ชื่อ
-  //    ถ้าไม่รายงานล่วงหน้า เจ้าของจะรู้ตัวตอน migration ล้มกลางคันเท่านั้น
-  const nameGroups = new Map()
+  // ⚠️ unique index ของ 010 คือ WHERE deleted_at IS NULL AND vault = false — การวิเคราะห์
+  //    ชื่อซ้ำจึงนับเฉพาะแถวที่ยังอยู่ แถวในถังชื่อซ้ำกันได้โดยไม่ทำให้ index ล้ม
+  //    ก่อนย้ายสคีมาทุกแถวยังอยู่ที่ราก (parent_id = NULL) จึงนับต่อเจ้าของ+ชื่อ
+  const activeNameGroups = new Map()
 
   for (const row of rows) {
-    const key = `${row.uploaded_by ?? 'null'}\u0000${String(row.name ?? '').toLowerCase()}`
-    nameGroups.set(key, (nameGroups.get(key) ?? 0) + 1)
+    const trashed = row.deleted_at != null
+    if (trashed) trashedNormalRows += 1
+    else activeNormalRows += 1
+
+    if (!trashed) {
+      const key = JSON.stringify([row.uploaded_by ?? null, String(row.name ?? '').toLowerCase()])
+      activeNameGroups.set(key, (activeNameGroups.get(key) ?? 0) + 1)
+    }
 
     const verdict = classifyLegacyRow(row)
     if (verdict === KIND_FILE) provenFiles += 1
     else if (verdict === KIND_FOLDER) provenFolders += 1
-    else if (ambiguousSamples.length < sampleLimit) {
-      ambiguousSamples.push({
-        id: row.id,
-        name: row.name,
-        sizeBytes: Number(row.size_bytes ?? 0),
-        hasSha: hasChecksum(row.sha256 ?? null),
-        pathPrefix: pathPrefixOf(row.path),
-      })
+    else {
+      if (trashed) ambiguousTrashedRows += 1
+      else ambiguousActiveRows += 1
+      if (ambiguousSamples.length < sampleLimit) {
+        ambiguousSamples.push({
+          id: row.id,
+          name: row.name,
+          trashed,
+          sizeBytes: Number(row.size_bytes ?? 0),
+          hasSha: hasChecksum(row.sha256 ?? null),
+          pathPrefix: pathPrefixOf(row.path),
+        })
+      }
     }
   }
 
-  const ambiguousRows = rows.length - provenFiles - provenFolders
+  const ambiguousRows = ambiguousActiveRows + ambiguousTrashedRows
 
+  // ⚠️ ตัวนับต้องเป็นจำนวนกลุ่มจริง ส่วนตัวอย่างถูกจำกัดตาม sampleLimit — ถ้าใช้ความยาว
+  //    ของตัวอย่างเป็นตัวนับ เจ้าของจะเห็น "50" ทั้งที่ของจริงอาจเป็นหลายร้อย
+  let duplicateActiveNameGroups = 0
   const duplicateSamples = []
-  for (const [key, count] of nameGroups) {
+  for (const [key, count] of activeNameGroups) {
     if (count < 2) continue
-    const [ownerId, name] = key.split('\u0000')
-    if (duplicateSamples.length < sampleLimit) duplicateSamples.push({ ownerId, name, count })
+    duplicateActiveNameGroups += 1
+    if (duplicateSamples.length < sampleLimit) {
+      const [ownerId, name] = JSON.parse(key)
+      duplicateSamples.push({ ownerId, name, count })
+    }
   }
 
   return {
+    totalNormalRows: rows.length,
+    activeNormalRows,
+    trashedNormalRows,
+    // ชื่อเดิมคงไว้เพื่อผู้เรียกที่มีอยู่
     totalRows: rows.length,
     provenFiles,
     provenFolders,
     ambiguousRows,
+    ambiguousActiveRows,
+    ambiguousTrashedRows,
     ambiguousSamples,
-    duplicateActiveNameGroups: duplicateSamples.length,
+    duplicateActiveNameGroups,
     duplicateSamples,
     // ⚠️ ประตูของ Phase 1: ไม่ใช่คำแนะนำ แต่เป็นเงื่อนไขที่การย้ายสคีมาต้องเคารพ
     safeToBackfill: ambiguousRows === 0,
-    // ⚠️ การย้ายสคีมาต้องผ่าน **ทั้งสองข้อ**: จำแนกชนิดได้ครบ และไม่มีชื่อซ้ำที่จะทำให้
-    //    unique index สร้างไม่ผ่าน การแก้ชื่อซ้ำเป็นการตัดสินใจของเจ้าของข้อมูล
-    //    โมดูลนี้จึง **ไม่เปลี่ยนชื่อหรือลบอะไรให้เองเด็ดขาด** — มันรายงานอย่างเดียว
-    safeToMigrate: ambiguousRows === 0 && duplicateSamples.length === 0,
+    // ⚠️ การย้ายสคีมาต้องผ่าน **ทั้งสองข้อ**: จำแนกชนิดได้ครบทุกแถว (รวมถัง) และไม่มี
+    //    ชื่อซ้ำในแถวที่ยังอยู่ซึ่งจะทำให้ unique index สร้างไม่ผ่าน การแก้ชื่อซ้ำเป็นการ
+    //    ตัดสินใจของเจ้าของข้อมูล โมดูลนี้ **ไม่เปลี่ยนชื่อหรือลบอะไรให้เองเด็ดขาด**
+    safeToMigrate: ambiguousRows === 0 && duplicateActiveNameGroups === 0,
   }
 }

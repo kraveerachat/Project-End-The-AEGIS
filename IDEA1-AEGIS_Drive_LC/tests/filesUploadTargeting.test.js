@@ -251,8 +251,10 @@ test('MOVE-ATOMIC 2 · the destination is revalidated inside the write transacti
   assert.doesNotMatch(tx, /await nameTakenIn\(/,
     'การตรวจชื่อซ้ำต้องไม่วิ่งผ่าน pool นอกธุรกรรม')
   // และต้องมีการล็อกลำดับชั้นระดับผู้ใช้ เพื่อกันการย้ายสองทางพร้อมกันสร้างวงจร
-  assert.match(tx, /FROM users[\s\S]*?FOR UPDATE/,
-    'ต้องมีล็อกลำดับชั้นต่อผู้ใช้หนึ่งจุดก่อนตรวจวงจร')
+  // ⚠️ รอบที่ 2 ย้ายล็อกนี้ไปเป็น helper เดียวที่ทุกการกลายพันธุ์ของลำดับชั้นใช้ร่วมกัน
+  //    (ดู lockHierarchyOwner) — จุดอนุกรมต้องมีจุดเดียว ไม่ใช่ SQL ที่คัดลอกไปหลายที่
+  assert.match(tx, /lockHierarchyOwner\(client, userId\)/,
+    'ต้องเข้าคิวที่ล็อกลำดับชั้นต่อเจ้าของจุดเดียวกันกับ trash/create/commit')
 })
 
 test('MOVE-ATOMIC 3 · a unique-violation race is reported truthfully, not as a generic failure', async () => {

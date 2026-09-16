@@ -130,12 +130,29 @@ async function pgFindFile(id) {
 
 async function pgCreateFolder(name, user, parentId = null) {
   const safe = String(name).slice(0, 120)
-  const { rows } = await query(
+  const insert = (runner) => runner.query(
     `INSERT INTO files (name, path, size_bytes, vault, verified, uploaded_by, kind, parent_id)
      VALUES ($1, $2, 0, false, true, $3, 'folder', $4::bigint) RETURNING *`,
     [safe, `/datalake/${safe}`, user.id, parentId],
   )
-  return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  // ที่ราก ไม่มี "ใครอยู่ใต้ใคร" ให้แข่งกัน — ไม่ต้องเข้าคิว
+  if (parentId == null) {
+    const { rows } = await insert({ query })
+    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  }
+  // ⚠️ ใต้พ่อ = การกลายพันธุ์ของลำดับชั้น: ล็อกเจ้าของ แล้วยืนยันว่าพ่อยังอยู่จริง
+  //    ในธุรกรรมเดียวกับที่แทรกแถว ไม่งั้นพ่ออาจถูกทิ้งไปแล้วระหว่างการตรวจกับการเขียน
+  return withTransaction(async (client) => {
+    if (!(await lockHierarchyOwner(client, user.id))) return null
+    const parent = await client.query(
+      `SELECT id FROM files WHERE id = $1 AND uploaded_by = $2 AND kind = 'folder'
+          AND deleted_at IS NULL AND vault = false FOR UPDATE`,
+      [parentId, user.id],
+    )
+    if (parent.rowCount === 0) return null
+    const { rows } = await insert(client)
+    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  })
 }
 
 // ⚠️ storageKey คือตำแหน่ง "ไฟล์จริง" ใน Storage Layer (relative ต่อ STORAGE_ROOT)
@@ -143,12 +160,27 @@ async function pgCreateFolder(name, user, parentId = null) {
 //    size/sha256 ก็มาจากไฟล์บนดิสก์จริง (server คำนวณเอง) ไม่ใช่ค่าที่ client แจ้งมา
 async function pgRecordUpload({ name, storageKey, size, sha256, user, parentId = null }) {
   const safeName = String(name).slice(0, 200)
-  const { rows } = await query(
+  const insert = (runner) => runner.query(
     `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
      VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
     [safeName, storageKey, Number(size) || 0, sha256 ?? null, user.id, parentId],
   )
-  return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  if (parentId == null) {
+    const { rows } = await insert({ query })
+    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  }
+  // ⚠️ วางไฟล์ใต้โฟลเดอร์ = การกลายพันธุ์ของลำดับชั้น เข้าคิวเดียวกับการย้ายและการทิ้ง
+  return withTransaction(async (client) => {
+    if (!(await lockHierarchyOwner(client, user.id))) return null
+    const parent = await client.query(
+      `SELECT id FROM files WHERE id = $1 AND uploaded_by = $2 AND kind = 'folder'
+          AND deleted_at IS NULL AND vault = false FOR UPDATE`,
+      [parentId, user.id],
+    )
+    if (parent.rowCount === 0) return null
+    const { rows } = await insert(client)
+    return mapFileRow({ ...rows[0], uploader_name: user.displayName })
+  })
 }
 
 // ── Files (Metadata Layer) ────────────────────────────────────────────
@@ -206,6 +238,50 @@ export async function listFiles(userId, parentId = null) {
 export async function findFile(id) {
   if (usingPostgres) return pgFindFile(id)
   return files.find((f) => f.id === id && f.deletedAt == null) ?? null
+}
+
+/**
+ * จุดอนุกรมจุดเดียวของ "ลำดับชั้นของเจ้าของคนนี้"
+ *
+ * ⚠️ ทุกการกลายพันธุ์ที่เปลี่ยนว่าใครอยู่ใต้ใคร — ย้าย, ทิ้งโฟลเดอร์, สร้างโฟลเดอร์ใต้พ่อ,
+ *    วางไฟล์ที่อัปโหลดใต้พ่อ — ต้องเรียกสิ่งนี้เป็น **คำสั่งแรก** ของธุรกรรม
+ *    การล็อกเฉพาะแถวที่ตัวเองแตะไม่พอ: T1 นับลูกของโฟลเดอร์ X ได้ 0, T2 ย้ายไฟล์เข้า X
+ *    แล้ว commit, T1 จึงทิ้ง X — ได้ลูกที่มีชีวิตใต้พ่อที่ถูกทิ้ง ซึ่งคือไฟล์ที่หายจาก
+ *    ทุกจอโดยไม่มีใครลบมัน แถว users คือจุดนัดพบที่ทุกเส้นทางเหล่านี้ต้องผ่าน
+ *
+ * ⚠️ ลำดับการล็อกต้องเหมือนกันทุกที่: เจ้าของ → แถวไฟล์ (ปลายทาง/ต้นทาง)
+ *    เส้นทางที่ล็อกสลับลำดับจะ deadlock กับเส้นทางอื่นแทนที่จะเข้าคิว
+ */
+export async function lockHierarchyOwner(client, userId) {
+  const { rowCount } = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId])
+  return rowCount > 0
+}
+
+/**
+ * ตรวจกฎของลำดับชั้น (อ่านอย่างเดียว): แถวที่ยังมีชีวิตทุกแถวที่มี parent_id ต้องชี้ไป
+ * ยังโฟลเดอร์ที่ยังมีชีวิตของเจ้าของคนเดียวกัน — คืนรายการที่ละเมิด (ว่าง = ถูกต้อง)
+ * ใช้ในชุดทดสอบการแข่งกัน และใช้เป็นเครื่องมือตรวจสุขภาพข้อมูลได้
+ */
+export async function hierarchyInvariantViolations(userId) {
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT c.id, c.name, c.parent_id
+         FROM files c
+         LEFT JOIN files p ON p.id = c.parent_id
+        WHERE c.uploaded_by = $1 AND c.deleted_at IS NULL AND c.vault = false AND c.parent_id IS NOT NULL
+          AND (p.id IS NULL OR p.deleted_at IS NOT NULL OR p.kind <> 'folder'
+               OR p.uploaded_by IS DISTINCT FROM c.uploaded_by)`,
+      [userId],
+    )
+    return rows.map((r) => ({ id: String(r.id), name: r.name, parentId: String(r.parent_id) }))
+  }
+  return files
+    .filter((c) => String(c.ownerId) === String(userId) && c.deletedAt == null && !c.vault && c.parentId != null)
+    .filter((c) => {
+      const p = files.find((f) => f.id === c.parentId)
+      return !p || p.deletedAt != null || p.kind !== 'folder' || String(p.ownerId) !== String(c.ownerId)
+    })
+    .map((c) => ({ id: c.id, name: c.name, parentId: c.parentId }))
 }
 
 /* ── ลำดับชั้นจริงของโฟลเดอร์ (FILES-MANAGEMENT-UX-1) ─────────────────────
@@ -293,11 +369,41 @@ export async function nameTakenIn(parentId, userId, name, exceptId = null) {
 const TRASH_RETENTION_MS = 30 * DAY
 
 /** Atomic soft-delete + share revocation. Bytes and file_versions stay in place. */
+/**
+ * ทิ้งลงถัง — สำหรับโฟลเดอร์ นี่คือ "การกลายพันธุ์ของลำดับชั้น" และต้องเข้าคิวเดียวกับ
+ * การย้าย/การวางไฟล์ ไม่งั้นการนับลูกที่ทำนอกธุรกรรมจะล้าสมัยได้ตั้งแต่วินาทีที่ได้คำตอบ
+ *
+ * @returns {Promise<object|null|{ code: 'FOLDER_NOT_EMPTY' }>}
+ *   แถวที่ถูกทิ้ง · null = ไม่พบ/ไม่ใช่ของผู้เรียก · code = โฟลเดอร์ยังมีลูกที่มีชีวิต
+ */
 export async function trashFile(id, userId) {
   if (!/^\d+$/.test(String(userId ?? ''))) return null
   if (usingPostgres) {
     if (!/^\d+$/.test(String(id))) return null
     return withTransaction(async (client) => {
+      // 1. ล็อกลำดับชั้นของเจ้าของ — ต้องมาก่อนล็อกแถวใด ๆ (ลำดับเดียวกับ moveItems)
+      if (!(await lockHierarchyOwner(client, userId))) return null
+
+      // 2. ล็อกแถวเป้าหมายและยืนยันความเป็นเจ้าของในธุรกรรมเดียวกัน
+      const { rows: target } = await client.query(
+        `SELECT id, kind FROM files
+          WHERE id = $1 AND uploaded_by = $2 AND vault = false AND deleted_at IS NULL
+          FOR UPDATE`,
+        [id, userId],
+      )
+      if (!target.length) return null
+
+      // 3. ⚠️ นับลูกด้วย client ของธุรกรรมนี้ หลังถือล็อกเจ้าของแล้ว — นี่คือการตัดสินใจ
+      //    เชิงความถูกต้อง การนับที่ route ก่อนหน้ามีไว้เพื่อ UX เท่านั้น
+      if (target[0].kind === 'folder') {
+        const { rows: kids } = await client.query(
+          `SELECT count(*)::int AS n FROM files
+            WHERE parent_id = $1 AND uploaded_by = $2 AND deleted_at IS NULL`,
+          [id, userId],
+        )
+        if ((kids[0]?.n ?? 0) > 0) return { code: 'FOLDER_NOT_EMPTY' }
+      }
+
       const { rows } = await client.query(
         `UPDATE files
             SET deleted_at = now(), purge_after = now() + interval '30 days', deleted_by = $2
@@ -316,6 +422,12 @@ export async function trashFile(id, userId) {
   const row = files.find((candidate) => candidate.id === String(id)
     && String(candidate.ownerId) === String(userId) && !candidate.vault && candidate.deletedAt == null)
   if (!row) return null
+  // โหมดหน่วยความจำไม่มีการแข่งกัน แต่กติกาต้องเหมือนกัน
+  if (row.kind === 'folder') {
+    const live = files.some((f) => (f.parentId ?? null) === row.id && f.deletedAt == null
+      && String(f.ownerId) === String(userId))
+    if (live) return { code: 'FOLDER_NOT_EMPTY' }
+  }
   const now = Date.now()
   row.deletedAt = now
   row.purgeAt = now + TRASH_RETENTION_MS
@@ -574,8 +686,7 @@ export async function moveItems(ids, userId, parentId) {
     //    วงจรพร้อมกันได้ แล้ว A กับ B จะกลายเป็นวงปิดที่หลุดจากรากตลอดกาล
     //    แถว users เป็นจุดนัดพบที่ทุกการย้ายของผู้ใช้คนนี้ต้องผ่าน — เสียความขนานของ
     //    การย้ายไปเล็กน้อย แลกกับความถูกต้องเชิงโครงสร้าง ซึ่งคุ้มอย่างชัดเจน
-    const owner = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId])
-    if (owner.rowCount === 0) return { ok: false, reason: 'notFound' }
+    if (!(await lockHierarchyOwner(client, userId))) return { ok: false, reason: 'notFound' }
 
     // ⚠️ ปลายทางต้องถูกตรวจ **ในธุรกรรมนี้** ไม่ใช่ที่ route ก่อนหน้า — ระหว่างสองจุดนั้น
     //    โฟลเดอร์ถูกทิ้งลงถังได้ แล้วเราจะย้ายของไปไว้ใต้พ่อที่หายไปแล้ว
@@ -1947,6 +2058,12 @@ export async function finishUploadCommit({
       //    ปลายทางของไบต์ที่อัปโหลดไปแล้วไม่ได้ และการ refresh แล้วเปิดโฟลเดอร์อื่น
       //    ต้องไม่ทำให้ไฟล์ไปลงผิดที่
       const sessionParentId = claim.rows[0].parent_id ?? null
+
+      // ⚠️ วางไฟล์ใต้โฟลเดอร์ = การกลายพันธุ์ของลำดับชั้น ต้องเข้าคิวเดียวกับการย้าย/การทิ้ง
+      //    (ล็อกเจ้าของก่อนล็อกแถวปลายทางเสมอ — ลำดับเดียวกับทุกเส้นทางอื่น)
+      if (sessionParentId != null && !(await lockHierarchyOwner(client, userId))) {
+        throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
+      }
 
       // ⚠️ โฟลเดอร์ปลายทางอาจถูกทิ้งลงถังระหว่างที่ไฟล์ 2 GB กำลังอัปโหลดอยู่หลายนาที
       //    ตรวจซ้ำในธุรกรรมเดียวกับที่เขียน metadata และล็อกไว้ด้วย ไม่งั้นจะได้แถวที่
