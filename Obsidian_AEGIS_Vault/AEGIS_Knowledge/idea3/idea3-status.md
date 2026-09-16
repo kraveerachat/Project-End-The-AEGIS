@@ -12,15 +12,165 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. PR12 was started early from `origin/main` at `721b7978` for the one PR12 item that does not depend on PR11 runtime acceptance: the Backup / Restore implementation. Its repository work is implemented and locally verified — `PR12_BACKUP_RESTORE_SOURCE = IMPLEMENTED`, `PR12_BACKUP_RESTORE_LOCAL = VERIFIED` — while `PR12_BACKUP_RESTORE_PRODUCTION = NOT RUN` and `FINAL_PR12_BACKUP_RESTORE = PENDING`. That branch carries no PR11 work and reconciles with `origin/main` after PR11 merges. Every other PR12 item is not started. Read "IDEA3 PR12 backup / restore recovery tooling — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
 
-## IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16
+## IDEA3 PR12 backup / restore recovery tooling — repository implementation — 2026-09-16
 
 > [!important] Current IDEA3 truth — read this section first
+> PR12 was started early, from `origin/main` at `721b7978`, for the one piece of
+> PR12 work that does not depend on PR11 runtime acceptance: the Backup /
+> Restore implementation itself. PR11 remains active and remains the dependency
+> for PR12 final acceptance. This branch deliberately carries no PR11 work and
+> will merge the then-current `origin/main` and rerun affected verification
+> after PR11 merges. Nothing was deployed, no Production host was contacted, and
+> no Production backup or restore was executed. The PR11 sections below remain
+> the live/runtime truth.
+
+```text
+PR12_BASE_MAIN                 = 721b797860063729b7c3c280161dcb908d0ff7f5 (merge of PR #141)
+PR12_BACKUP_RESTORE_SOURCE     = IMPLEMENTED
+PR12_BACKUP_RESTORE_LOCAL      = VERIFIED
+PR12_BACKUP_RESTORE_PRODUCTION = NOT RUN
+FINAL_PR12_BACKUP_RESTORE      = PENDING
+PR12_REBOOT_ACCEPTANCE         = NOT STARTED
+PR12_ROLLBACK_ACCEPTANCE       = NOT STARTED
+PR12_FINAL_SECURITY_REGRESSION = NOT STARTED
+PR12_FINAL_E2E_RERUN           = NOT STARTED
+PR12_EVIDENCE_FREEZE           = NOT STARTED
+PR12_COMPLETE                  = NO
+PR11_COMPLETE                  = NO
+PRODUCTION_MUTATION_AUTHORIZED = NO
+PRODUCTION_MUTATION_PERFORMED  = NO
+IDEA3_PRODUCTION_DEPLOYED      = NO
+IDEA3_PRODUCTION_COMPLETE      = NO
+```
+
+### Current Task
+
+Task: IDEA3 PR12 — backup / restore recovery tooling and final acceptance
+Branch: `feat/idea3-pr12-final-acceptance`
+Owner: `music`
+PR: Draft; review not yet requested
+Current state: IN PROGRESS — PR12-D source implemented and locally verified; every other PR12 item is not started
+Started: 2026-09-16
+Base SHA: `721b797860063729b7c3c280161dcb908d0ff7f5`
+Last checkpoint: `355f372dd8f4cb8a8dd2b2bfeae6f70288df7ac7` (P12-D1 implementation and evidence)
+Production mutation allowed: NO
+
+- **Goal:** implement the operator-safe IDEA3 Backup / Restore mechanism against
+  the real runtime data-path contract, and prove it locally with fixture
+  evidence, so that only final-environment execution remains for PR12-D.
+- **Scope:** `IDEA3-AEGIS_Lockdown/aegis_soc/backup_restore.py`, the three
+  `aegisctl` subcommands in `aegis_soc/cli.py`,
+  `IDEA3-AEGIS_Lockdown/tests/test_backup_restore.py`, the IDEA3 README and
+  `docs/operations/production-runtime.md`, and this note.
+- **Out of scope:**
+  - every Production, Server, Core, Docker, Compose, NGINX, DNS, certificate,
+    network, and credential action;
+  - PR11 work of any kind — no PR11 branch is merged and nothing is cherry-picked;
+  - the remaining PR12 items (reboot, rollback, final security regression, final
+    real E2E rerun, evidence freeze, report baseline, production-complete decision);
+  - IDEA1, IDEA2, HUB, shared, infrastructure, `.github`, and historical receipts;
+  - the PR12 final receipt, which does not exist yet.
+- **Safety boundaries:** the tool is repository code with local fixture evidence
+  only. A local fixture restore is not a Server restore acceptance, and a
+  readable database is not a healthy service. No final receipt and no PR12
+  closure may be claimed from this session.
+- **Acceptance:** PR12-D final acceptance requires PR11 to merge, this branch to
+  reconcile with the then-current `origin/main`, affected verification to rerun,
+  and a separately authorized final-environment backup and restore.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P12-D1 | PR12-D Backup / Restore source implementation and local verification | PASS | `pytest -q` 918 passed / 6 skipped; 32 focused backup/restore tests; RED demonstrated by disabling the digest, manifest-digest, and member-traversal guards; `ruff check .` clean; `compileall` clean | `355f372dd8f4cb8a8dd2b2bfeae6f70288df7ac7` | PASS — `PR12_BACKUP_RESTORE_SOURCE = IMPLEMENTED`, `PR12_BACKUP_RESTORE_LOCAL = VERIFIED` | final-environment execution after PR11 | P12-M1 |
+| P12-M1 | Merge the post-PR11 `origin/main` and rerun affected verification | NOT STARTED | — | — | — | PR11 must merge first | P12-D2 |
+| P12-D2 | Final-environment backup and restore acceptance | NOT STARTED | — | — | — | separate authorization; PR11 complete | — |
+
+### What this session implemented
+
+`aegis_soc/backup_restore.py` captures one explicitly selected data root into a
+`tar.gz` archive holding `manifest.json`, `manifest.sha256`, and one
+`components/<name>` member per logical database. The four components —
+`core_audit`, `core_dispatch`, `core_protocol`, `web_audit` — are located
+through `paths.RuntimePaths`, so the tool follows the runtime path contract
+instead of repeating filenames, and `core_audit` is the only required one.
+
+Three properties carry the safety argument:
+
+1. **WAL consistency.** Every component is captured through the SQLite online
+   backup API and converted to `journal_mode = DELETE`, so a live WAL database
+   is snapshotted consistently and one self-contained file travels in the
+   archive. A regression test proves the snapshot holds rows that a plain file
+   copy of the same database loses. Sources are opened read-only and are never
+   written.
+2. **Fail-closed classification.** Only the four databases are copied. Every
+   other path must match a named exclusion class — `configuration-secret`,
+   `credential-material`, `key-material`, `certificate-material`,
+   `ephemeral-runtime`, `sqlite-sidecar`, `operational-log`. An unrecognised
+   path refuses the backup. Secret classes are counted in the manifest, never
+   named, never read, and never printed, and a restore refuses an archive that
+   carries secret-class material.
+3. **A restore that trusts nothing.** Member names, member types, manifest
+   paths, digests, format, and version are all validated before a byte reaches
+   the destination, and each component lands at a path derived from the
+   destination's own `RuntimePaths` rather than from the archive. The
+   destination check refuses the backup's own source root, a non-empty target
+   without `--allow-non-empty`, and the live data root unless the operator
+   supplies the exact phrase `OVERWRITE LIVE DATA ROOT`.
+
+`aegisctl backup-create`, `backup-verify`, and `backup-restore` expose this;
+each prints a JSON report and exits `0`, `2` on a coded refusal, or `1` on I/O
+error. `backup-verify` proves an archive restores cleanly without writing
+outside a temporary directory.
+
+### Local verification boundary
+
+```text
+BACKUP_CREATE_LOCAL            = PASS
+RESTORE_TO_TEST_LOCATION_LOCAL = PASS
+RESTORED_CORE_DB_READABLE_LOCAL   = PASS
+RESTORED_WEB_DB_READABLE_LOCAL    = PASS
+RESTORED_AUDIT_HISTORY_LOCAL      = PASS (hash chain re-verified end to end)
+RESTORED_DISPATCH_STATE_LOCAL     = PASS
+RESTORED_PROTOCOL_STATE_LOCAL     = PASS
+DIGEST_VERIFICATION            = PASS
+TAMPERED_BACKUP_REJECTED       = PASS
+MALFORMED_MANIFEST_REJECTED    = PASS
+PATH_TRAVERSAL_REJECTED        = PASS (archive member and manifest entry)
+SECRET_EXCLUSION               = PASS
+LIVE_PATH_OVERWRITE_DEFAULT    = REJECTED
+```
+
+Every value above is fixture evidence from disposable temporary directories. No
+Production host, service, database, credential, broker, or device was involved.
+
+### Known limitations
+
+- The manifest digest chain detects corruption and after-the-fact tampering. It
+  is not a signature: no key material may travel with a backup, so an adversary
+  who can rewrite the whole archive can also rewrite its digests. Authenticity
+  depends on where the archive is stored.
+- Configuration, credentials, key material, and certificates are deliberately
+  excluded, so a backup alone does not reconstitute a runnable deployment. Those
+  are provisioned through the documented secret path.
+- A read-only source connection cannot checkpoint, so SQLite may leave empty
+  `-wal`/`-shm` files beside a source that had no writer attached. They carry no
+  committed data and are classified, not copied.
+- No Web (Node) test covers this tooling; the Web audit database is treated as
+  an opaque SQLite component and was exercised with a schema-shaped fixture.
+- Nothing here has been executed on the AEGIS Server or the Arch Core.
+
+## IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16
+
+> [!important] Current PR11 truth — the live and runtime entry point
+> The PR12 section above is repository-only work started early; this section
+> remains the current truth for PR11, live evidence, and every runtime claim.
 > PR #139 merged at `8cf917bf` after an APPROVED review by `kraveerachat`, so
 > the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7
 > comparison evidence then showed why the running HUB's config-hash differs from
