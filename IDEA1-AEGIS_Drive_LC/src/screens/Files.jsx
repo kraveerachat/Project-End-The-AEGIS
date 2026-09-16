@@ -1017,6 +1017,8 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         onUploaded={filesApi.retry}
         // บันทึกกู้คืนถูกผูกกับบัญชีนี้เท่านั้น ผู้ใช้คนถัดไปบนเครื่องเดียวกันอ่านไม่ได้
         recoveryScope={userId}
+        // อัปโหลดลงโฟลเดอร์ที่ผู้ใช้กำลังเปิดอยู่ เซิร์ฟเวอร์ตรวจสิทธิ์ซ้ำเสมอ
+        parentId={folderId}
       />
     </div>
   )

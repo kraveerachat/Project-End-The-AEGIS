@@ -411,7 +411,7 @@ function isSafeItemName(name) {
   if (value === '.' || value === '..') return false
   if (value.includes('/') || value.includes('\\')) return false
   // eslint-disable-next-line no-control-regex
-  if (/[ -]/.test(value)) return false
+  if (/[\u0000-\u001f\u007f]/.test(value)) return false
   return true
 }
 
@@ -460,12 +460,15 @@ apiRouter.post('/files/move', requireAuth, async (req, res, next) => {
 
     const result = await store.moveItems(ids, req.user.id, parentId)
     if (!result.ok) {
-      const status = result.reason === 'notFound' ? 404
+      // ⚠️ targetGone มาจากการตรวจซ้ำ "ในธุรกรรม" ซึ่งเป็นขอบเขตความถูกต้องจริง
+      //    ส่วนการตรวจที่ต้นเส้นทางด้านบนมีไว้เพื่อ UX เท่านั้น
+      const status = result.reason === 'notFound' || result.reason === 'targetGone' ? 404
         : result.reason === 'cycle' || result.reason === 'alreadyThere' || result.reason === 'nameTaken' ? 409
           : 400
       const code = result.reason === 'cycle' ? 'MOVE_CYCLE'
         : result.reason === 'alreadyThere' ? 'ALREADY_THERE'
-          : result.reason === 'nameTaken' ? 'NAME_TAKEN' : 'INVALID'
+          : result.reason === 'nameTaken' ? 'NAME_TAKEN'
+            : result.reason === 'targetGone' ? 'TARGET_GONE' : 'INVALID'
       return res.status(status).json({ error: 'Move refused', code })
     }
 

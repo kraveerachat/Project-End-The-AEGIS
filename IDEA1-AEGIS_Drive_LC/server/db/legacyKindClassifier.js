@@ -75,17 +75,25 @@ function pathPrefixOf(value) {
  */
 export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
   const { rows } = await query(
-    `SELECT id, name, path, size_bytes, sha256
+    `SELECT id, name, path, size_bytes, sha256, uploaded_by
        FROM files
-      WHERE vault = false
+      WHERE vault = false AND deleted_at IS NULL
       ORDER BY id`,
   )
 
   let provenFiles = 0
   let provenFolders = 0
   const ambiguousSamples = []
+  // ⚠️ migration 010 ยังสร้าง unique index ของ "ชื่อต่อโฟลเดอร์ต่อเจ้าของ" (ไม่สนตัวพิมพ์)
+  //    แต่ createFolder เดิมไม่เคยบังคับความไม่ซ้ำเลย ข้อมูลเก่าจึงมีโฟลเดอร์ชื่อซ้ำได้จริง
+  //    ก่อนย้ายสคีมาทุกแถวยังอยู่ที่ราก (parent_id = NULL) การนับจึงทำต่อเจ้าของ+ชื่อ
+  //    ถ้าไม่รายงานล่วงหน้า เจ้าของจะรู้ตัวตอน migration ล้มกลางคันเท่านั้น
+  const nameGroups = new Map()
 
   for (const row of rows) {
+    const key = `${row.uploaded_by ?? 'null'}\u0000${String(row.name ?? '').toLowerCase()}`
+    nameGroups.set(key, (nameGroups.get(key) ?? 0) + 1)
+
     const verdict = classifyLegacyRow(row)
     if (verdict === KIND_FILE) provenFiles += 1
     else if (verdict === KIND_FOLDER) provenFolders += 1
@@ -101,13 +109,27 @@ export async function legacyKindPreflight({ query, sampleLimit = 50 } = {}) {
   }
 
   const ambiguousRows = rows.length - provenFiles - provenFolders
+
+  const duplicateSamples = []
+  for (const [key, count] of nameGroups) {
+    if (count < 2) continue
+    const [ownerId, name] = key.split('\u0000')
+    if (duplicateSamples.length < sampleLimit) duplicateSamples.push({ ownerId, name, count })
+  }
+
   return {
     totalRows: rows.length,
     provenFiles,
     provenFolders,
     ambiguousRows,
     ambiguousSamples,
+    duplicateActiveNameGroups: duplicateSamples.length,
+    duplicateSamples,
     // ⚠️ ประตูของ Phase 1: ไม่ใช่คำแนะนำ แต่เป็นเงื่อนไขที่การย้ายสคีมาต้องเคารพ
     safeToBackfill: ambiguousRows === 0,
+    // ⚠️ การย้ายสคีมาต้องผ่าน **ทั้งสองข้อ**: จำแนกชนิดได้ครบ และไม่มีชื่อซ้ำที่จะทำให้
+    //    unique index สร้างไม่ผ่าน การแก้ชื่อซ้ำเป็นการตัดสินใจของเจ้าของข้อมูล
+    //    โมดูลนี้จึง **ไม่เปลี่ยนชื่อหรือลบอะไรให้เองเด็ดขาด** — มันรายงานอย่างเดียว
+    safeToMigrate: ambiguousRows === 0 && duplicateSamples.length === 0,
   }
 }

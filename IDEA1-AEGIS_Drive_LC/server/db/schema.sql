@@ -303,6 +303,9 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   -- commit_storage_key = key ปลายทางที่ถูกเลือกและบันทึก "ก่อน" การ rename ใด ๆ
   -- committed_file_id = แถวใน files ที่ commit นี้สร้าง/อัปเดต ถูกเขียนใน transaction
   --    เดียวกับที่เปลี่ยน status เป็น 'committed' จึงไม่มีวันมีค่าในแถวที่ยัง committing
+  -- ⚠️ ปลายทางเชิงตรรกะถูกตัดสินและตรวจสิทธิ์ "ตอนเปิดเซสชัน" แล้วเก็บไว้ที่นี่
+  --    คำขอ commit เปลี่ยนปลายทางไม่ได้ (ดู finishUploadCommit) — เซสชันคือแหล่งความจริง
+  parent_id           BIGINT REFERENCES files(id) ON DELETE RESTRICT,
   commit_started_at   TIMESTAMPTZ,
   commit_storage_key  TEXT,
   committed_file_id   BIGINT REFERENCES files(id) ON DELETE SET NULL,

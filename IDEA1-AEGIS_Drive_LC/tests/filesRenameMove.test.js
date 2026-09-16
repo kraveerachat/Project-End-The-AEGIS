@@ -203,7 +203,7 @@ test('RENAME 4 · blank, traversal and separator names are refused', async () =>
   const file = await makeFile(a, 'guard.txt', 'x')
   const url = `/api/files/${encodeURIComponent(file.id)}`
 
-  for (const name of ['', '   ', '.', '..', 'a/b', 'a\\b', '../escape', 'x y', 'x\ny']) {
+  for (const name of ['', '   ', '.', '..', 'a/b', 'a\\b', '../escape', 'x\u0000y', 'x\ny']) {
     const res = await a.req(url, { method: 'PATCH', body: { name } })
     assert.equal(res.status, 400, `ชื่อ ${JSON.stringify(name)} ต้องถูกปฏิเสธ`)
   }

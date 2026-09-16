@@ -80,6 +80,14 @@ ALTER TABLE files
 -- ลูกของโฟลเดอร์ถูกอ่านทุกครั้งที่เปิดโฟลเดอร์ และถูกนับตอนกัน FOLDER_NOT_EMPTY
 CREATE INDEX IF NOT EXISTS files_parent_id_idx ON files (parent_id);
 
+-- ⚠️ ปลายทางเชิงตรรกะของการอัปโหลดอยู่ที่ "เซสชัน" ไม่ใช่ที่คำขอ commit
+--    จอ Files ใช้เส้นทาง V2 ซึ่งกินเวลาหลายนาทีสำหรับไฟล์ใหญ่ ถ้าปลายทางมาจาก
+--    คำขอสุดท้าย ผู้ใช้ที่ refresh แล้วเปิดโฟลเดอร์อื่นจะได้ไฟล์ไปลงผิดที่ และคำขอ
+--    commit ที่ถูกแก้ระหว่างทางจะ "เปลี่ยนปลายทาง" ได้ ซึ่งไม่ควรเป็นไปได้เลย
+ALTER TABLE upload_sessions
+  ADD COLUMN IF NOT EXISTS parent_id BIGINT NULL
+  REFERENCES files(id) ON DELETE RESTRICT;
+
 -- ชื่อต้องไม่ซ้ำภายในโฟลเดอร์เดียวกันของเจ้าของคนเดียวกัน (เฉพาะแถวที่ยังไม่ถูกลบ)
 -- ⚠️ parent_id เป็น NULL ที่ราก และ NULL ไม่เท่ากับ NULL ใน UNIQUE ปกติ จึงต้องใช้
 --    COALESCE เพื่อให้รากถูกบังคับเหมือนโฟลเดอร์อื่น

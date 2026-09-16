@@ -89,10 +89,12 @@ function failureReason(res) {
  * ⚠️ chunkSize มาจาก response เสมอ ไม่ใช่ค่าที่ฝั่ง client เลือก — เซิร์ฟเวอร์เขียนไบต์
  *    ที่ตำแหน่ง index * chunkSize ถ้าสองฝั่งใช้คนละค่า ไฟล์จะประกอบผิดโดยไม่มีใครรู้
  */
-async function createSession({ file, sha256, fetchJson, signal }) {
+async function createSession({ file, sha256, parentId, fetchJson, signal }) {
   const res = await fetchJson('/api/files/uploads', {
     method: 'POST',
-    body: { name: file.name, size: file.size, sha256 },
+    // ⚠️ ปลายทางถูกส่ง "ตอนเปิดเซสชัน" ครั้งเดียวเท่านั้น หลังจากนี้เซิร์ฟเวอร์เป็นเจ้าของ
+    //    ความจริงนั้น การ resume จึงไม่ส่งซ้ำ และไม่มีทางเปลี่ยนปลายทางกลางคัน
+    body: { name: file.name, size: file.size, sha256, parentId: parentId ?? null },
     signal,
   })
   if (!res.ok) return { ok: false, reason: failureReason(res), response: res }
@@ -142,6 +144,8 @@ export async function uploadFileResumable({
   file,
   upload: existingUpload = null,
   sha256: existingSha256 = null,
+  /** โฟลเดอร์ปลายทางของ "เซสชันใหม่" เท่านั้น — การ resume ใช้ของที่เซิร์ฟเวอร์เก็บไว้ */
+  parentId = null,
   onStage,
   onProgress,
   onHashProgress,
@@ -187,7 +191,7 @@ export async function uploadFileResumable({
       }
       if (aborted()) return cancelled()
 
-      const created = await createSession({ file, sha256, fetchJson, signal })
+      const created = await createSession({ file, sha256, parentId, fetchJson, signal })
       if (!created.ok) {
         return { ok: false, stage: 'failed', reason: created.reason, upload: null, sha256, response: created.response }
       }

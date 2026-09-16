@@ -67,6 +67,8 @@ export function UploadDrawer({
   hashFile = incrementalSha256,
   recoveryStorage,
   recoveryScope = null,
+  /** โฟลเดอร์ที่จอ Files กำลังเปิดอยู่ — ปลายทางของงานใหม่ ไม่ใช่ของงานที่กู้คืนมา */
+  parentId = null,
 }) {
   const [queue, setQueue] = useState(initialQueue)
   const [limits, setLimits] = useState(null)
@@ -119,6 +121,10 @@ export function UploadDrawer({
         file,
         upload: resumeFrom?.session ?? null,
         sha256: resumeFrom?.sha256 ?? null,
+        // ⚠️ เฉพาะงานใหม่: งานที่ทำต่อมีปลายทางของตัวเองอยู่ที่เซสชันฝั่งเซิร์ฟเวอร์แล้ว
+        //    การส่งโฟลเดอร์ที่ "บังเอิญเปิดอยู่ตอนนี้" เข้าไปคือการย้ายปลายทางของไฟล์
+        //    ที่ผู้ใช้เริ่มอัปโหลดไว้ที่อื่นตั้งแต่ก่อน refresh
+        parentId: resumeFrom?.session ? null : parentId,
         signal: controller.signal,
         onStage: (stage) => patchItem(id, { stage, reason: null }),
         onHashProgress: ({ hashedBytes, totalBytes }) => patchItem(id, {

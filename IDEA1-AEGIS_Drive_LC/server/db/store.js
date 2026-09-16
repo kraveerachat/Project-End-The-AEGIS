@@ -568,7 +568,30 @@ export async function moveItems(ids, userId, parentId) {
   }
 
   return withTransaction(async (client) => {
-    // ล็อกแถวต้นทางไว้ทั้งชุดก่อน เพื่อให้การตรวจกับการเขียนเห็นสถานะเดียวกัน
+    // ⚠️ ล็อกลำดับชั้น "ต่อหนึ่งเจ้าของ" ก่อนอ่านอะไรทั้งสิ้น
+    //    การล็อกเฉพาะแถวต้นทางไม่ได้ทำให้สองการย้ายเป็นอนุกรม: TX1 ย้าย A→B ล็อก A,
+    //    TX2 ย้าย B→A ล็อก B ทั้งคู่เห็นลำดับชั้นก่อนการย้ายของอีกฝ่าย จึงผ่านการตรวจ
+    //    วงจรพร้อมกันได้ แล้ว A กับ B จะกลายเป็นวงปิดที่หลุดจากรากตลอดกาล
+    //    แถว users เป็นจุดนัดพบที่ทุกการย้ายของผู้ใช้คนนี้ต้องผ่าน — เสียความขนานของ
+    //    การย้ายไปเล็กน้อย แลกกับความถูกต้องเชิงโครงสร้าง ซึ่งคุ้มอย่างชัดเจน
+    const owner = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId])
+    if (owner.rowCount === 0) return { ok: false, reason: 'notFound' }
+
+    // ⚠️ ปลายทางต้องถูกตรวจ **ในธุรกรรมนี้** ไม่ใช่ที่ route ก่อนหน้า — ระหว่างสองจุดนั้น
+    //    โฟลเดอร์ถูกทิ้งลงถังได้ แล้วเราจะย้ายของไปไว้ใต้พ่อที่หายไปแล้ว
+    //    การตรวจที่ route ยังมีอยู่เพื่อ UX เท่านั้น ไม่ใช่ขอบเขตความถูกต้อง
+    if (parentId != null) {
+      const target = await client.query(
+        `SELECT id FROM files
+          WHERE id = $1 AND uploaded_by = $2 AND kind = 'folder'
+            AND deleted_at IS NULL AND vault = false
+          FOR UPDATE`,
+        [parentId, userId],
+      )
+      if (target.rowCount === 0) return { ok: false, reason: 'targetGone' }
+    }
+
+    // ล็อกแถวต้นทางไว้ทั้งชุด เพื่อให้การตรวจกับการเขียนเห็นสถานะเดียวกัน
     const { rows } = await client.query(
       `SELECT * FROM files
         WHERE id = ANY($1::bigint[]) AND uploaded_by = $2 AND deleted_at IS NULL AND vault = false
@@ -590,27 +613,60 @@ export async function moveItems(ids, userId, parentId) {
         [parentId, childId],
       )
       return cycle.length > 0
+    }, async (name, exceptId) => {
+      // ⚠️ ต้องถามผ่าน client ของธุรกรรมนี้ ไม่ใช่ pool ภายนอก — คำถามเชิงความถูกต้อง
+      //    ที่ถามนอกธุรกรรมคือคำตอบที่ล้าสมัยได้ตั้งแต่วินาทีที่ได้รับมา
+      const { rows: taken } = await client.query(
+        `SELECT id FROM files
+          WHERE uploaded_by = $1 AND deleted_at IS NULL AND vault = false
+            AND lower(name) = $2
+            AND COALESCE(parent_id, 0) = COALESCE($3::bigint, 0)`,
+        [userId, String(name).toLowerCase(), parentId],
+      )
+      return taken.some((r) => exceptId == null || String(r.id) !== String(exceptId))
     })
     if (!guard.ok) return guard
 
-    await client.query(
-      `UPDATE files SET parent_id = $2::bigint, modified_at = now() WHERE id = ANY($1::bigint[])`,
-      [targets, parentId],
-    )
+    try {
+      await client.query(
+        `UPDATE files SET parent_id = $2::bigint, modified_at = now() WHERE id = ANY($1::bigint[])`,
+        [targets, parentId],
+      )
+    } catch (err) {
+      // ⚠️ unique index คือแนวป้องกันสุดท้ายของฐานข้อมูล ถ้ามันยิงแปลว่ามีการแข่งกัน
+      //    ที่เล็ดลอดการตรวจล่วงหน้ามาได้จริง ผู้ใช้ต้องได้เหตุผลเดียวกับที่ตรวจเจอ
+      //    ไม่ใช่ 500 ที่อธิบายอะไรไม่ได้เลย
+      if (err?.code === '23505') return { ok: false, reason: 'nameTaken' }
+      throw err
+    }
     return { ok: true, moved: targets.length }
   })
 }
 
-/** กติกาที่ใช้ร่วมกันทั้งสองโหมด — เขียนครั้งเดียวเพื่อให้สองโหมดปฏิเสธเหมือนกันเป๊ะ */
-async function guardMoveSet(rows, userId, parentId, wouldCycle) {
+/**
+ * กติกาที่ใช้ร่วมกันทั้งสองโหมด — เขียนครั้งเดียวเพื่อให้สองโหมดปฏิเสธเหมือนกันเป๊ะ
+ *
+ * @param {Function} [probeTaken] ตัวถามชื่อซ้ำ; โหมด Postgres ส่งตัวที่ผูกกับ client
+ *        ของธุรกรรมเข้ามา เพื่อไม่ให้คำถามเชิงความถูกต้องวิ่งออกไปนอกธุรกรรม
+ */
+async function guardMoveSet(rows, userId, parentId, wouldCycle, probeTaken) {
   const target = parentId == null ? null : String(parentId)
+  const taken = probeTaken ?? ((name, exceptId) => nameTakenIn(parentId, userId, name, exceptId))
+  // ⚠️ ชื่อที่ชนกัน "ภายในชุดที่ย้ายเอง" ตรวจที่ปลายทางไม่เจอ เพราะปลายทางยังว่างอยู่
+  //    เช่น A/x.txt กับ B/x.txt ย้ายเข้า C พร้อมกัน ถ้าไม่ดักตรงนี้ unique index จะเป็น
+  //    คนจับ แล้วผู้ใช้จะได้ 500 แทนคำอธิบายที่อ่านรู้เรื่อง
+  const incoming = new Set()
+
   for (const row of rows) {
     if ((row.parentId ?? null) === target) return { ok: false, reason: 'alreadyThere' }
     if (target !== null && row.id === target) return { ok: false, reason: 'cycle' }
     if (row.kind === 'folder' && target !== null && await wouldCycle(row.id)) {
       return { ok: false, reason: 'cycle' }
     }
-    if (await nameTakenIn(parentId, userId, row.name, row.id)) return { ok: false, reason: 'nameTaken' }
+    const lowered = String(row.name).toLowerCase()
+    if (incoming.has(lowered)) return { ok: false, reason: 'nameTaken' }
+    incoming.add(lowered)
+    if (await taken(row.name, row.id)) return { ok: false, reason: 'nameTaken' }
   }
   return { ok: true }
 }
@@ -1592,6 +1648,8 @@ function mapUploadSessionRow(r) {
     chunkSize: Number(r.chunk_size),
     chunkCount: Number(r.chunk_count),
     expectedSha256: r.expected_sha256 ?? null,
+    // ⚠️ ปลายทางเชิงตรรกะที่ถูกตรวจสิทธิ์ไว้ตอนเปิดเซสชัน — คำขอ commit เปลี่ยนไม่ได้
+    parentId: r.parent_id == null ? null : String(r.parent_id),
     status: r.status,
     commitStartedAt: r.commit_started_at ? new Date(r.commit_started_at).getTime() : null,
     commitStorageKey: r.commit_storage_key ?? null,
@@ -1606,16 +1664,16 @@ const cloneUploadSession = (row) => ({ ...row })
 
 /** สร้าง session ใหม่ — uploadId ถูกสร้างโดยผู้เรียก (id ทึบจาก uploadStaging.js) */
 export async function createUploadSession({
-  uploadId, userId, name, logicalSize, chunkSize, chunkCount, expectedSha256, expiresAt,
+  uploadId, userId, name, logicalSize, chunkSize, chunkCount, expectedSha256, expiresAt, parentId = null,
 }) {
   if (userId == null) throw new Error('createUploadSession requires a userId')
   if (usingPostgres) {
     const { rows } = await query(
       `INSERT INTO upload_sessions
-         (upload_id, user_id, name, logical_size, chunk_size, chunk_count, expected_sha256, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0)) RETURNING *`,
+         (upload_id, user_id, name, logical_size, chunk_size, chunk_count, expected_sha256, expires_at, parent_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0), $9::bigint) RETURNING *`,
       [uploadId, userId, String(name).slice(0, 200), logicalSize, chunkSize, chunkCount,
-        expectedSha256 ?? null, expiresAt],
+        expectedSha256 ?? null, expiresAt, parentId],
     )
     return mapUploadSessionRow(rows[0])
   }
@@ -1624,6 +1682,7 @@ export async function createUploadSession({
     uploadId, userId: String(userId), name: String(name).slice(0, 200),
     logicalSize: Number(logicalSize), chunkSize: Number(chunkSize), chunkCount: Number(chunkCount),
     expectedSha256: expectedSha256 ?? null, status: 'open',
+    parentId: parentId == null ? null : String(parentId),
     commitStartedAt: null, commitStorageKey: null, committedFileId: null,
     createdAt: now, updatedAt: now, expiresAt: Number(expiresAt),
   }
@@ -1884,13 +1943,38 @@ export async function finishUploadCommit({
       )
       if (claim.rowCount === 0) throw Object.assign(new Error('commit claim lost'), { code: 'CLAIM_LOST' })
 
+      // ⚠️ ปลายทางมาจาก **เซสชัน** เท่านั้น ไม่ใช่จากคำขอ commit — ผู้เรียกเปลี่ยน
+      //    ปลายทางของไบต์ที่อัปโหลดไปแล้วไม่ได้ และการ refresh แล้วเปิดโฟลเดอร์อื่น
+      //    ต้องไม่ทำให้ไฟล์ไปลงผิดที่
+      const sessionParentId = claim.rows[0].parent_id ?? null
+
+      // ⚠️ โฟลเดอร์ปลายทางอาจถูกทิ้งลงถังระหว่างที่ไฟล์ 2 GB กำลังอัปโหลดอยู่หลายนาที
+      //    ตรวจซ้ำในธุรกรรมเดียวกับที่เขียน metadata และล็อกไว้ด้วย ไม่งั้นจะได้แถวที่
+      //    ชี้ไปยังพ่อที่หายไปแล้ว = ไฟล์ที่มองไม่เห็นจากทุกจอและผู้ใช้กู้เองไม่ได้
+      if (sessionParentId != null) {
+        const target = await client.query(
+          `SELECT id FROM files
+            WHERE id = $1 AND uploaded_by = $2 AND kind = 'folder'
+              AND deleted_at IS NULL AND vault = false
+            FOR UPDATE`,
+          [sessionParentId, userId],
+        )
+        if (target.rowCount === 0) {
+          throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
+        }
+      }
+
+      // ⚠️ ผูกกับโฟลเดอร์ด้วย: ตั้งแต่มีลำดับชั้นจริง root/a.txt กับ folder/a.txt คือ
+      //    คนละไฟล์ การจับคู่ด้วยชื่อล้วนจะทำให้การอัปโหลดในโฟลเดอร์หนึ่งไปทับไฟล์
+      //    คนละใบในอีกโฟลเดอร์กลายเป็น "เวอร์ชันใหม่" โดยไม่มีใครตั้งใจ
       const existingRes = await client.query(
         `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
            FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
           WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false AND f.deleted_at IS NULL
+            AND COALESCE(f.parent_id, 0) = COALESCE($3::bigint, 0)
           ORDER BY f.modified_at DESC LIMIT 1
             FOR UPDATE OF f`,
-        [String(name), userId],
+        [String(name), userId, sessionParentId],
       )
       const existing = existingRes.rows[0] ?? null
 
@@ -1912,7 +1996,7 @@ export async function finishUploadCommit({
         const inserted = await client.query(
           `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
            VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
-          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId, parentId ?? null],
+          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId, sessionParentId],
         )
         row = mapFileRow({ ...inserted.rows[0], uploader_name: user.displayName })
       }
@@ -1932,8 +2016,17 @@ export async function finishUploadCommit({
   if (!session || session.userId !== String(userId) || session.status !== 'committing') {
     throw Object.assign(new Error('commit claim lost'), { code: 'CLAIM_LOST' })
   }
+  const sessionParentId = session.parentId ?? null
+  if (sessionParentId != null) {
+    const target = files.find(
+      (f) => f.id === String(sessionParentId) && f.kind === 'folder'
+        && f.deletedAt == null && !f.vault && String(f.ownerId) === String(userId),
+    )
+    if (!target) throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
+  }
   const existing = files.find(
-    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId),
+    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId)
+      && (f.parentId ?? null) === sessionParentId,
   ) ?? null
 
   let row
@@ -1951,9 +2044,11 @@ export async function finishUploadCommit({
     existing.ownerId = String(userId)
     row = { ...existing }
   } else {
+    const safeName = String(name).slice(0, 200)
+    const { ext, type } = displayTypeFor(safeName, 'file')
     row = {
-      id: nextId('f'), name: String(name).slice(0, 200), type: 'File',
-      ext: String(name).split('.').pop() ?? '', size: Number(size) || 0,
+      id: nextId('f'), name: safeName, kind: 'file', type, ext, size: Number(size) || 0,
+      parentId: sessionParentId,
       modified: Date.now(), uploader: user.displayName, ownerId: String(userId),
       vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
     }
