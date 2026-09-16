@@ -79,7 +79,10 @@ test('cancelled-only history does not leave a launcher', () => {
   assert.equal(shouldShowQueueLauncher([{ stage: 'cancelled' }]), false)
 })
 
-test('successful upload announces the localized filename exactly once across rerenders', async () => {
+// ⚠️ FILES-UPLOAD-UX-1 ย้ายการรายงานผลอัปโหลดไปอยู่ที่ถาดมุมขวาล่างทั้งหมด สัญญาเดิม
+//    ที่ตรึง "toast สำเร็จหนึ่งใบ" จึงกลายเป็น "พื้นผิวประกาศสถานะหนึ่งเดียว" ที่พูด
+//    ความจริงเดิมทุกประการ — ไม่ใช่การลดมาตรฐาน แต่เป็นการเลิกมีสองที่พูดเรื่องเดียวกัน
+test('a successful upload is reported exactly once, by the tray, across rerenders', async () => {
   dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
   const previous = { window: globalThis.window, document: globalThis.document, navigator: globalThis.navigator, FormData: globalThis.FormData }
   globalThis.window = dom.window
@@ -114,10 +117,15 @@ test('successful upload announces the localized filename exactly once across rer
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     const statuses = [...document.querySelectorAll('[role="status"]')]
-    assert.equal(statuses.length, 1)
-    assert.match(statuses[0].textContent, /report\.pdf/)
-    assert.match(statuses[0].textContent, /อัปโหลด.*สำเร็จ/)
-    assert.equal(document.body.textContent.includes('คิวอัปโหลด 1'), false)
+    assert.equal(statuses.length, 1, 'ต้องมีพื้นผิวประกาศสถานะเดียว ไม่ใช่ทั้ง toast และถาด')
+    assert.match(statuses[0].textContent, /อัปโหลดสำเร็จ/)
+    const tray = document.querySelector('[data-upload-tray]')
+    assert.ok(tray, 'ถาดสถานะต้องเป็นที่รายงานผล')
+    assert.equal(tray.querySelectorAll('[data-upload-row]').length, 1, 'หนึ่งไฟล์ = หนึ่งแถว ไม่ซ้ำตอน rerender')
+    assert.match(tray.textContent, /report\.pdf/)
+    assert.equal(tray.querySelector('[data-upload-row]').getAttribute('data-upload-stage'), 'complete')
+    assert.equal(document.querySelector('.upload-success-toast'), null, 'toast สำเร็จเดิมถูกเลิกใช้แล้ว')
+    assert.equal(document.querySelector('[data-upload-tray-launcher]'), null, 'ถาดเปิดอยู่ ไม่ต้องมีชิปเปิดซ้อน')
   } finally {
     await act(async () => root.unmount())
     globalThis.window = previous.window
@@ -148,8 +156,13 @@ test('failed upload never emits a success notification', async () => {
       }))
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
-    assert.equal(document.querySelectorAll('[role="status"]').length, 0)
-    assert.match(document.body.textContent, /needs attention/i)
+    // ⚠️ ถาดมี role="status" อยู่หนึ่งจุดเสมอ ข้อห้ามที่แท้จริงคือ "ห้ามอ้างว่าสำเร็จ"
+    const statuses = [...document.querySelectorAll('[role="status"]')]
+    assert.equal(statuses.length, 1)
+    assert.doesNotMatch(statuses[0].textContent, /complete/i, 'งานที่ล้มเหลวต้องไม่ถูกสรุปว่าเสร็จ')
+    assert.match(statuses[0].textContent, /needs attention/i)
+    assert.equal(document.querySelector('.upload-success-toast'), null)
+    assert.equal(document.querySelector('[data-upload-row]').getAttribute('data-upload-stage'), 'failed')
   } finally {
     await act(async () => root.unmount())
     globalThis.window = previous.window

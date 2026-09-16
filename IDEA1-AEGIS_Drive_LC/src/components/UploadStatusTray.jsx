@@ -1,0 +1,278 @@
+// src/components/UploadStatusTray.jsx — AEGIS Drive (IDEA1) · ถาดสถานะการอัปโหลด
+//
+// หน้าที่ของสองพื้นผิวถูกแยกกันชัดเจนใน FILES-UPLOAD-UX-1:
+//
+//   UploadDrawer  = "เริ่มงาน"  — เลือก/ลากไฟล์ แล้วปิดตัวเอง
+//   UploadStatusTray = "เฝ้างาน" — คิว ความคืบหน้า ความเร็ว ETA และคำสั่งต่อรายการ
+//
+// ⚠️ ถาดนี้เป็น **พื้นผิวนำเสนออย่างเดียว** ไม่ถือ state ของคิวเอง เจ้าของคิวคือ
+//    UploadDrawer ซึ่งถูก mount ค้างไว้ตลอดอายุของหน้า Files ดังนั้น "ปิดถาด" จึงเป็น
+//    การซ่อนภาพเท่านั้น ไม่มีทางกลายเป็นการยกเลิกงานได้โดยโครงสร้าง
+//
+// ⚠️ ตัวเลขทุกตัวที่นี่มาจากไบต์ที่วัดได้จริง ความเร็ว/ETA มาจาก lib/transferRate.js
+//    ตัวเดียวกับ Private Vault (ห้ามเขียนอัลกอริทึมความเร็วชุดที่สอง) และจะถูกแสดง
+//    **เฉพาะตอน stage === 'uploading'** เท่านั้น ระหว่างแฮชหรือ commit ไม่มีไบต์วิ่ง
+//    บนสาย การโชว์ความเร็วค้างไว้ตรงนั้นคือคำโกหกที่แนบเนียนที่สุดของหน้าจอแบบนี้
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
+
+import { fmtBytes } from '../lib/format.js'
+import { transferRateLine } from '../lib/transferRate.js'
+import { Chip, IconBtn } from './ui.jsx'
+
+/** ขั้นที่ยังนับว่า "งานเดินอยู่" — ชุดเดียวกับที่ UploadDrawer ใช้ตัดสินใจ */
+export const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'preparing', 'hashing', 'processing', 'uploading', 'committing'])
+
+/** ขั้นที่ผู้ใช้ต้องมาจัดการเอง — ยังไม่จบ และยังไม่ถือว่าล้มเหลวถาวรเสมอไป */
+const ATTENTION_STAGES = new Set(['paused', 'failed'])
+
+/** ขั้นเดียวที่มีไบต์วิ่งบนสายจริง จึงเป็นขั้นเดียวที่พูดเรื่องความเร็ว/ETA ได้ */
+const MEASURING_STAGE = 'uploading'
+
+// สถานะที่ผู้ใช้เห็น เดินตามขั้นจริงของโปรโตคอล V2 (ดู src/lib/chunkedUpload.js)
+// waiting/processing ยังอยู่เพื่อรองรับคิวที่ถูกส่งเข้ามาจากภายนอกก่อนงานจะเริ่มเดิน
+const STAGE_LABEL = {
+  waiting: 'uploadWaiting',
+  processing: 'uploadProcessing',
+  preparing: 'upStagePreparing',
+  hashing: 'upStageHashing',
+  uploading: 'upStageUploading',
+  paused: 'upStagePaused',
+  committing: 'upStageCommitting',
+  complete: 'uploadComplete',
+  failed: 'uploadFailed',
+  cancelled: 'uploadCancelled',
+}
+
+// เหตุผลที่แสดงใต้ชื่อไฟล์ — บอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
+const REASON_LABEL = {
+  tooLarge: 'uploadTooLarge',
+  noSpace: 'uploadNoSpace',
+  checksum: 'uploadChecksumFailed',
+  expired: 'uploadSessionExpired',
+  network: 'uploadPausedNetwork',
+  incomplete: 'uploadPausedNetwork',
+}
+
+const stageTone = (stage) => {
+  if (stage === 'complete') return 'ok'
+  if (stage === 'failed') return 'danger'
+  if (stage === 'paused') return 'warn'
+  if (stage === 'cancelled') return 'neutral'
+  return 'accent'
+}
+
+export const activeUploadCount = (queue = []) => queue.filter((entry) => ACTIVE_UPLOAD_STAGES.has(entry.stage)).length
+export const failedUploadCount = (queue = []) => queue.filter((entry) => entry.stage === 'failed').length
+export const attentionUploadCount = (queue = []) => queue.filter((entry) => ATTENTION_STAGES.has(entry.stage)).length
+export const completeUploadCount = (queue = []) => queue.filter((entry) => entry.stage === 'complete').length
+
+/**
+ * มีอะไรให้ผู้ใช้กลับมาดูไหมหลังซ่อนถาด — งานที่เดินอยู่ หรืองานที่รอการตัดสินใจ
+ * ⚠️ เพรดิเคตนี้ต้องมีที่เดียว ชิปเปิดถาดกับตัวที่ที่อื่นเรียกใช้ต้องตอบเหมือนกันเสมอ
+ *    ไม่งั้นจะเกิดสถานะที่ "มีงานค้าง แต่ไม่มีทางกลับไปดู"
+ */
+export const shouldShowQueueLauncher = (queue = []) => activeUploadCount(queue) > 0 || attentionUploadCount(queue) > 0
+
+/**
+ * สรุปหัวถาดจากคิวจริง — คืน "คีย์ + ตัวแปร" ไม่ใช่ข้อความ เพื่อให้ทดสอบได้ว่าเลือก
+ * ประโยคไหนโดยไม่ผูกกับภาษาใดภาษาหนึ่ง
+ *
+ * ⚠️ ลำดับความสำคัญคือสาระของฟังก์ชันนี้ทั้งหมด:
+ *    งานที่กำลังเดิน > งานที่ต้องตรวจสอบ > งานที่สำเร็จ
+ *    การพูดว่า "เสร็จแล้ว" ทั้งที่ยังมีไฟล์ paused/failed ค้างอยู่คือการรายงานเท็จ
+ *
+ * @param {{ stage: string }[]} queue
+ * @returns {{ key: string, vars: { n: number } }}
+ */
+export function uploadTraySummary(queue = []) {
+  const active = activeUploadCount(queue)
+  if (active > 0) return { key: active === 1 ? 'uploadTrayUploadingOne' : 'uploadTrayUploading', vars: { n: active } }
+
+  const attention = attentionUploadCount(queue)
+  if (attention > 0) return { key: attention === 1 ? 'uploadTrayAttentionOne' : 'uploadTrayAttention', vars: { n: attention } }
+
+  const complete = completeUploadCount(queue)
+  if (complete > 0) return { key: complete === 1 ? 'uploadTrayCompleteOne' : 'uploadTrayComplete', vars: { n: complete } }
+
+  return { key: 'uploadTrayTitle', vars: { n: queue.length } }
+}
+
+/**
+ * บรรทัดความเร็ว/ETA ของหนึ่งรายการ — คืน null เมื่อ "ยังไม่มีอะไรจริงให้พูด"
+ * ⚠️ ประตูบานแรกคือ stage ไม่ใช่ข้อมูล: ต่อให้ rate ก้อนล่าสุดยังติดอยู่กับรายการ
+ *    การเปลี่ยนไป hashing/committing/paused ต้องทำให้บรรทัดนี้หายทันที
+ */
+function measuredRateLine(t, entry) {
+  if (entry.stage !== MEASURING_STAGE) return null
+  return transferRateLine(t, entry.rate ?? null)
+}
+
+export function UploadStatusRow({ t, entry, onCancel, onRetry, onDismiss }) {
+  const cancellable = ACTIVE_UPLOAD_STAGES.has(entry.stage)
+  const dismissible = ['complete', 'failed', 'cancelled'].includes(entry.stage)
+  const progress = entry.stage === 'complete' ? 100 : entry.progress
+  // หยุดชั่วคราวแล้วยังมี session อยู่ = ทำต่อได้ ไม่ต้องเริ่มไฟล์ใหม่ทั้งก้อน
+  const resumable = entry.stage === 'paused' && Boolean(entry.session)
+  const reasonLabel = REASON_LABEL[entry.reason]
+  const rateLine = measuredRateLine(t, entry)
+  // ⚠️ "0 B of 10.2 GB" ใต้ไฟล์ที่ถูกปฏิเสธเพราะเกินเพดานคือตัวเลขที่ไม่มีความหมาย —
+  //    ไม่มีไบต์ใดถูกส่ง และแถวนั้นบอกเหตุผลจริงไว้แล้ว ตัวนับไบต์จึงขึ้นเฉพาะตอนที่
+  //    มีการโอนเกิดขึ้นจริงหรือเคยเกิดขึ้นเท่านั้น
+  const showBytes = entry.stage === 'complete' || entry.chunkCount > 0 || (entry.transferredBytes ?? 0) > 0
+
+  return (
+    <li
+      data-upload-row={entry.id}
+      data-upload-stage={entry.stage}
+      data-upload-reason={entry.reason ?? ''}
+      className="px-3.5 py-3 border-t border-line first:border-t-0"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="size-7 rounded-[8px] bg-sunken flex items-center justify-center shrink-0">
+          {entry.stage === 'complete'
+            ? <CheckCircle2 size={14} strokeWidth={1.75} aria-hidden style={{ color: 'var(--ok)' }} />
+            : entry.stage === 'failed'
+              ? <AlertTriangle size={14} strokeWidth={1.75} aria-hidden style={{ color: 'var(--danger)' }} />
+              : <FileIcon size={14} strokeWidth={1.5} className="text-ink-2" aria-hidden />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12.5px] font-semibold text-ink truncate" title={entry.name}>{entry.name}</span>
+          {/* ขนาดไฟล์อยู่ตรงนี้เฉพาะตอนที่ยังไม่มีตัวนับ "x จาก y" ด้านล่าง — ไม่งั้น
+              ผู้ใช้จะเห็นขนาดเดียวกันสองครั้งในการ์ดใบเดียว */}
+          {!showBytes && (
+            <span className="block text-[11px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(entry.size)}</span>
+          )}
+        </span>
+        <Chip tone={stageTone(entry.stage)}>{t(STAGE_LABEL[entry.stage] ?? 'uploadWaiting')}</Chip>
+      </div>
+
+      {reasonLabel && (
+        <p role="alert" className="mt-1.5 text-[11px] font-medium leading-snug" style={{ color: entry.stage === 'paused' ? 'var(--warn)' : 'var(--danger)' }}>
+          {t(reasonLabel)}
+        </p>
+      )}
+
+      {typeof progress === 'number' && (
+        <div
+          className="mt-2 h-1 rounded-full bg-sunken overflow-hidden"
+          role="progressbar"
+          aria-label={entry.name}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+        >
+          <div
+            className="h-full transition-[width] duration-300"
+            style={{ width: `${Math.max(0, Math.min(100, progress))}%`, background: entry.stage === 'complete' ? 'var(--ok)' : 'var(--accent)' }}
+          />
+        </div>
+      )}
+
+      {/* ไบต์ที่ส่งไปแล้ว / ทั้งหมด คือข้อมูลที่ผู้ใช้อ่านก่อน — จำนวนก้อนเป็นรายละเอียดรอง */}
+      {showBytes && (
+        <p className="mt-1.5 text-[11px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {t('uploadBytesCounter', { done: fmtBytes(entry.transferredBytes ?? 0), total: fmtBytes(entry.size) })}
+          {rateLine && <span className="text-ink-2"> · {rateLine}</span>}
+        </p>
+      )}
+      {entry.chunkCount > 0 && entry.stage === MEASURING_STAGE && (
+        <p className="mt-0.5 text-[10.5px] text-ink-3/80" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {t('uploadChunkCounter', { done: Math.min((entry.chunkIndex ?? 0) + 1, entry.chunkCount), total: entry.chunkCount })}
+        </p>
+      )}
+
+      {(cancellable || dismissible || resumable) && (
+        <div className="mt-2 flex justify-end gap-3">
+          {cancellable && (
+            <button type="button" data-upload-cancel={entry.id} onClick={() => onCancel(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              {t('cancel')}
+            </button>
+          )}
+          {(entry.stage === 'failed' || resumable) && entry.file && (
+            <button type="button" data-upload-retry={entry.id} onClick={() => onRetry(entry.id)} className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              <RotateCcw size={11} aria-hidden />{t(resumable ? 'uploadResume' : 'retry')}
+            </button>
+          )}
+          {dismissible && (
+            <button type="button" data-upload-dismiss={entry.id} onClick={() => onDismiss(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              {t('dismiss')}
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+/**
+ * ถาดลอยมุมขวาล่าง — กว้างพอบนเดสก์ท็อป และหดตามความกว้างจอเล็กเสมอ
+ *
+ * ⚠️ `onHide` กับ `onCancel` เป็นคนละคำสั่งกันโดยเจตนา และต้องไม่ถูกรวมเป็นปุ่มเดียว
+ *    ไม่ว่าจะด้วยเหตุผลด้านพื้นที่บนจอก็ตาม
+ */
+export function UploadStatusTray({ t, queue = [], collapsed = false, onToggleCollapse, onHide, onCancel, onRetry, onDismiss }) {
+  if (queue.length === 0) return null
+
+  const summary = uploadTraySummary(queue)
+  const attention = attentionUploadCount(queue)
+  const active = activeUploadCount(queue)
+
+  return (
+    <section
+      data-upload-tray={collapsed ? 'collapsed' : 'expanded'}
+      aria-label={t('uploadTrayTitle')}
+      className="fixed z-[var(--z-toast)] bottom-4 right-4 left-4 sm:left-auto sm:bottom-5 sm:right-5 sm:w-[min(400px,calc(100vw-2.5rem))] max-h-[min(60vh,28rem)] flex flex-col rounded-[var(--r-card)] border border-line bg-card shadow-[var(--elev-2)] overflow-hidden"
+    >
+      <header className="flex items-center gap-2 px-3.5 py-2.5 bg-sunken border-b border-line">
+        <span className="size-6 rounded-[7px] flex items-center justify-center shrink-0" style={{ color: active > 0 ? 'var(--accent)' : attention > 0 ? 'var(--warn)' : 'var(--ok)' }}>
+          {active > 0 ? <UploadCloud size={14} aria-hidden /> : attention > 0 ? <AlertTriangle size={14} aria-hidden /> : <CheckCircle2 size={14} aria-hidden />}
+        </span>
+        {/* ⚠️ polite + ข้อความระดับ "สรุป" เท่านั้น — ไบต์เปลี่ยนวินาทีละหลายครั้ง
+            การประกาศทุกการเปลี่ยนแปลงจะทำให้ screen reader ใช้งานหน้านี้ไม่ได้เลย */}
+        <p role="status" aria-live="polite" className="min-w-0 flex-1 text-[12.5px] font-bold text-ink truncate">
+          {t(summary.key, summary.vars)}
+        </p>
+        <IconBtn
+          label={t(collapsed ? 'uploadTrayExpand' : 'uploadTrayCollapse')}
+          aria-expanded={!collapsed}
+          data-upload-tray-collapse=""
+          onClick={onToggleCollapse}
+        >
+          {collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </IconBtn>
+        <IconBtn label={t('uploadTrayHide')} title={t('uploadTrayHideNote')} data-upload-tray-hide="" onClick={onHide}>
+          <X size={15} />
+        </IconBtn>
+      </header>
+
+      {!collapsed && (
+        <ul className="flex-1 overflow-y-auto">
+          {queue.map((entry) => (
+            <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/** ชิปเล็กมุมขวาล่างที่เปิดถาดกลับมา — มีอยู่เฉพาะตอนที่ยังมีงานให้ดูจริง ๆ */
+export function UploadTrayLauncher({ t, queue = [], onShow }) {
+  if (!shouldShowQueueLauncher(queue)) return null
+  const active = activeUploadCount(queue)
+  const attention = attentionUploadCount(queue)
+
+  return (
+    <button
+      type="button"
+      data-upload-tray-launcher=""
+      onClick={onShow}
+      aria-label={t('uploadTrayShow')}
+      className="fixed bottom-5 right-5 z-[var(--z-toast)] h-11 px-4 rounded-full bg-ink text-card inline-flex items-center gap-2 text-[13px] font-semibold shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      {active > 0 ? <UploadCloud size={15} aria-hidden /> : <AlertTriangle size={15} aria-hidden />}
+      {active > 0 ? t('uploadQueue') : t('uploadNeedsAttention')}
+      <span className="min-w-5 h-5 px-1 rounded-full bg-accent text-white inline-flex items-center justify-center text-[11px]">{active || attention}</span>
+    </button>
+  )
+}
