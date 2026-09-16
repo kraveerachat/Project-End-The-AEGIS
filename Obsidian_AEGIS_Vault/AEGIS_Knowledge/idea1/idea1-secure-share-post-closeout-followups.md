@@ -1,142 +1,283 @@
 ---
-title: IDEA1 Secure Share — Post-Closeout Follow-ups
-tags: [aegis, idea1, secure-share, public-share, file-types, large-file, performance, backlog]
+title: IDEA1 Secure Share — Complete Historical Closeout and Post-Closeout Follow-ups
+tags: [aegis, idea1, secure-share, public-share, historical-closeout, security-matrix, follow-ups, backlog]
 type: status
-status: planned-followups
+status: complete-historical-closeout
 created: 2026-09-16
 updated: 2026-09-16
 owner: kla
 edit_policy: owner-writable
 ---
 
-# IDEA1 Secure Share — Post-Closeout Follow-ups
+# IDEA1 Secure Share — Complete Historical Closeout and Post-Closeout Follow-ups
 
-## 1. Closure boundary
+## Executive Status
 
-PUBLIC-SHARE-7 remains **CLOSED / ACCEPTED**. PR #141 was human-reviewed and merged into `main` as merge commit `721b797860063729b7c3c280161dcb908d0ff7f5`.
+```text
+============================================================
+EXECUTIVE STATUS DECLARATION
+============================================================
+ORIGINAL_SECURE_SHARE_STATUS    = CLOSED / ACCEPTED
+PUBLIC_SHARE_ROLLOUT_STATUS     = CLOSED / ACCEPTED / MERGED
+TOTAL_ORIGINAL_ITEMS_DOCUMENTED = 43
+TOTAL_ORIGINAL_CLOSED_ITEMS     = 43 (42 PASS / APPROVED / MERGED; 1 ACCEPTED LIMITATION)
 
-This note does **not** reopen S5.8-S5.12, G6, the Public Share rollout, Cloudflare, Gateway isolation, UI activation, or the accepted external/private lifecycle evidence. It records only new post-closeout acceptance targets and performance questions discovered after closure.
+NEW_POST_CLOSEOUT_ITEMS         = 3
+- SECURE-SHARE-FILETYPE-1        = [NEW — PLANNED] / NOT YET ACCEPTED
+- Files/Private Vault Dependency = [DEPENDENCY — WAITING]
+- LFT-PERF-1 Reference           = [NEW — PLANNED] / BENCHMARK REFERENCE
 
-Latest owner-observed Production System Test Phase 1 after the merge is **PASS** for the tested scope:
+RUNTIME_CODE_CHANGED            = NO
+PRODUCTION_MUTATED              = NO
+CLOUDFLARE_MUTATED              = NO
+============================================================
+```
 
-- login
-- Dashboard
-- Files listing
-- Files upload
-- download byte/content match
-- `any` share create
-- `any` share redeem
-- `any` share revoke
-- post-revoke denial
-- Public Internet scope selectable
-- Private Vault page/workflow smoke
-- Settings page/workflow smoke
+The complete original Secure Share and Public Share rollout is **CLOSED, ACCEPTED, AND MERGED**. PR #141 was human-reviewed and merged into `main` as merge commit `721b797860063729b7c3c280161dcb908d0ff7f5`. Production runtime checkout was subsequently aligned to this merged commit with running containers, isolated networks, firewall rules, and the UI overlay preserved in a healthy state.
 
-No anomaly was reported in that Phase 1 sweep.
+Latest Human Owner Production System Test Phase 1 after the merge confirmed **100% PASS** with zero anomalies across login, Dashboard, Files listing/upload, download byte-for-byte match, `any` share creation/redemption/revocation, post-revoke denial, and the Public Internet scope selector.
 
-## 2. Secure Share file-type coverage — new acceptance target
+This document serves as the **single definitive handoff and historical reference** for the complete Secure Share and Public Share history, clearly divided into two distinct parts:
+- **PART A**: Everything implemented, tested, accepted, deployed, and closed in the original Secure Share and Public Share rollout (`[ORIGINAL — CLOSED]`).
+- **PART B**: New follow-up extensions, workflow dependencies, and performance benchmarks planned after closure (`[NEW — PLANNED]`, `[DEPENDENCY — WAITING]`, `[ACCEPTED LIMITATION]`).
 
-### Current source behavior
+---
 
-Secure Share/Public Share redemption is file-type agnostic at the delivery layer. The share route streams the stored file as `application/octet-stream` with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`; share creation is driven by `fileId`, not by a text-only MIME allow-list.
+# PART A — Original Secure Share / Public Share — CLOSED
 
-Therefore this is **not currently classified as a missing implementation for image/video extensions**. The new work is to obtain representative Production acceptance evidence before the Final Project report claims non-text coverage.
+The original Secure Share system evolved from a local, authenticated single-node file sharing mechanism into a multi-tiered, perimeter-isolated, public-facing service protected by Cloudflare Edge routing, dedicated Gateway proxies, unprivileged Docker containers, host-level firewall scripts, and strict rate limiting.
 
-### New acceptance ID
+Every architectural component, security boundary, network scope, and operational procedure in this original scope has been fully implemented, verified, and accepted.
 
-`SECURE-SHARE-FILETYPE-1`
+## 1. Comprehensive 43-Item Chronological & Functional Closeout Matrix
 
-State: **PLANNED / NOT YET ACCEPTED**
+| # | Feature / Test Area | What was tested | Historical Evidence & Milestones | Result | Final State |
+| :-: | :--- | :--- | :--- | :-: | :-: |
+| **1** | **Basic Secure Share Link Creation & Token Lifecycle** | Crypto-random token generation, SHA-256 token hashing (`token_hash CHAR(64)`), raw token returned only once at creation, file redemption and streaming download. | `server/routes/share.js`, `tests/shareRedemption.test.js`, PR #30, PR #31, Receipt [[90-Status/logs/2026-08-25_161618_kla_idea1-share-ownership-authorization-implementation]] | PASS | `[ORIGINAL — CLOSED]` |
+| **2** | **Share Ownership & Authorization Hardening** | Authenticated owner-scoped listing (`GET /api/shares`), owner-scoped revocation (`DELETE /api/shares/:id`), cross-owner access returns HTTP 404 object hiding; Admin has zero cross-owner bypass. | `tests/shareOwnershipAuthorization.test.js`, atomic PostgreSQL `UPDATE` in `server/db/postgres.js`, Production acceptance `PROD-SHARE-1` through `PROD-SHARE-10` (10/10 PASS) on `aegis-system`, Receipt [[90-Status/logs/2026-08-26_215828_kla_idea1-share-ownership-production-closure]] | PASS | `[ORIGINAL — CLOSED]` |
+| **3** | **Password Protection & Server-Side Verification** | Optional/required password configuration, bcrypt (cost 12) hashing (`password_hash`), server-side password comparison on `POST /s/:token`, form re-display on invalid password without disclosing validity, zero plaintext/hash leak. | `server/routes/share.js`, direct database column assertion in `tests/shareRedemption.test.js`, Production verification | PASS | `[ORIGINAL — CLOSED]` |
+| **4** | **Expiry Configuration & Enforcement** | Configurable expiration timestamps (`expires_at`), server-side SQL filtering and route enforcement (`is_active` and `now() < expires_at`), expired tokens return generic 404. | `server/routes/share.js`, `tests/shareRedemption.test.js` | PASS | `[ORIGINAL — CLOSED]` |
+| **5** | **Share Revocation & Immediate Link Invalidation** | Owner-triggered revocation setting `revoked_at = now()`, immediate blocking of all subsequent GET/POST redemption requests with generic 404, atomic DB update. | `tests/shareOwnershipAuthorization.test.js`, `tests/shareRedemption.test.js`, Production acceptance `PROD-SHARE-4` & `PROD-SHARE-5` | PASS | `[ORIGINAL — CLOSED]` |
+| **6** | **Safe Failure Behavior & Oracle Elimination** | Unknown token, revoked token, expired token, and unavailable file all return the identical generic HTTP 404 error page/payload; eliminates timing and enumerative oracles; fail-closed behavior. | `server/routes/share.js`, `tests/shareRedemption.test.js`, internal differentiation maintained solely in `audit_log` | PASS | `[ORIGINAL — CLOSED]` |
+| **7** | **Network Scopes Contract (`zones`, `any`, `public`)** | Three distinct network scopes supported: `zones` (VLAN/CIDR restricted), `any` (any reachable private/Twingate network), `public` (Public Internet via Cloudflare/Gateway). | Database CHECK constraint `shares_scope_check`, `tests/shareScopeTruthUi.test.js`, PR #96 (`idea1-public-share-backend-contract`), Migration 009 | PASS | `[ORIGINAL — CLOSED]` |
+| **8** | **Zones Network Scope Acceptance** | `vlan_scope` CIDRs snapshotted from `network_zones` at creation; on redemption `ipAllowed(req.ip, cidrs)` allows in-scope source and blocks out-of-scope source with HTTP 403; creation refused if zero zones defined. | `server/routes/share.js`, `tests/shareRedemption.test.js`, on-site verification (2026-09-02) | PASS | `[ORIGINAL — CLOSED]` |
+| **9** | **Anywhere (`any`) Scope Acceptance** | Creation of `any` share, redemption from Twingate/private reachable recipient, successful download, revocation, and post-revoke refusal. | On-site acceptance [[90-Status/logs/2026-09-02_202000_kla_idea1-onsite-file-share-acceptance]], Production System Test Phase 1 | PASS | `[ORIGINAL — CLOSED]` |
+| **10** | **Audit Logging & Identity Privacy** | Comprehensive audit logging for `SHARE_CREATE`, `SHARE_REDEEM`, `SHARE_REVOKE`, `DENIED`, `BLOCKED`, `OUT_OF_SCOPE`; target logged as SHA-256 hash only; zero raw tokens, passwords, or filenames in audit log; source IP normalized. | `audit_log` table in PostgreSQL, `tests/shareRedemption.test.js`, `tests/shareOwnershipAuthorization.test.js`, PR #31, PR #112 | PASS | `[ORIGINAL — CLOSED]` |
+| **11** | **Rate Limiting & Brute-Force Protection** | Rate limiter mounted on `/s/:token` (`scope: share`) limiting password submission attempts; excessive attempts return HTTP 429 Too Many Requests; prevents brute-force guessing. | `server/middleware/rateLimiter.js`, `server/routes/share.js`, `tests/publicShareSecurityRegression.test.js` | PASS | `[ORIGINAL — CLOSED]` |
+| **12** | **Response Safety & Disclosure Minimization** | All public/redemption responses enforce `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment`, CSP nonce on form styles; zero server banners (`X-Powered-By` removed), zero stack traces, zero internal paths. | `server/routes/share.js`, `gateway/public-share/nginx.conf`, `tests/publicShareGatewayRuntime.test.js` | PASS | `[ORIGINAL — CLOSED]` |
+| **13** | **Public Share Backend Contract** | Implementation of `public` scope handling, `GET /api/shares/public-capability` returning `{ publicSelectable, reason }`, UI kept disabled until server authorization. | PR #96, Receipt [[90-Status/logs/2026-09-08_005929_kla_idea1-public-share-backend-contract]], `tests/publicShareBackend.test.js` | PASS | `[ORIGINAL — CLOSED]` |
+| **14** | **Public Share UI Integration** | Modal scope selector supporting `zones`, `any`, `public`; server capability gating (`publicSelectable`); password validation; expiry display; "Public" chip/badge rendering in active shares list. | PR #98, Receipt [[90-Status/logs/2026-09-08_154042_kla_idea1-public-share-ui]], `tests/shareScopeTruthUi.test.js`, S5.11 UI overlay | PASS | `[ORIGINAL — CLOSED]` |
+| **15** | **Dedicated Public Share Gateway Architecture** | Reverse proxy architecture ensuring Internet traffic never contacts Drive API directly; only redemption route `/s/:token` forwarded; redemption-only trust boundary; HTTP basic methods restricted. | PR #97, Receipt [[90-Status/logs/2026-09-08_044329_kla_idea1-public-share-gateway]], `gateway/public-share/nginx.conf`, `tests/publicShareGatewayRuntime.test.js` | PASS | `[ORIGINAL — CLOSED]` |
+| **16** | **Gateway / Drive Network Isolation** | Isolated dual-bridge Docker architecture: `aegis_public_share_edge` (`172.31.240.0/29`, Gateway + connector) and `aegis_public_share_upstream` (`172.31.241.0/29`, Gateway + Drive). Drive does NOT attach to edge network; connector does NOT attach to upstream. | PR #114, Receipt [[90-Status/logs/2026-09-11_042000_kla_public-share-s5-4-gateway-networks]], Production runtime inspection | PASS | `[ORIGINAL — CLOSED]` |
+| **17** | **cloudflared Connector Isolation** | Pinned connector image `cloudflare/cloudflared:2026.9.0` running in unprivileged container with dedicated egress network `172.31.242.0/29`; connector isolated from host and internal networks. | PR #118, Receipt [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]] | PASS | `[ORIGINAL — CLOSED]` |
+| **18** | **Firewall & Egress Controls (`s5-5-firewall.sh`)** | iptables-nft / nft script enforcing destination-scoped established return rules (`-d 172.31.240.3/32`, `-d 172.31.242.2/32`), blocking RFC1918 traffic from connector, allowing only outbound tunnel traffic (TCP 7844) and edge Gateway access. | PR #118, S5.5-F Production verification, `gateway/public-share/production/s5-5-firewall.sh` | PASS | `[ORIGINAL — CLOSED]` |
+| **19** | **systemd Persistence & Drift Protection** | systemd unit `aegis-s5-5-firewall.service` and timer enforcing firewall state every 60s; verified persistence across daemon-reload and server reboot. | PR #118, S5.5-G Production persistence acceptance, Receipt [[90-Status/logs/2026-09-13_192000_kla_public-share-s5-5-cloudflared-egress-isolation]] | PASS | `[ORIGINAL — CLOSED]` |
+| **20** | **Cloudflare Public Hostname Route Activation** | Named tunnel routing `share.aegistk-pb.com` to edge Gateway `http://172.31.240.2:8080`; zero host port exposure; zero direct public exposure of host or Drive. | PR #126, S5.6-D, Receipt [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]] | PASS | `[ORIGINAL — CLOSED]` |
+| **21** | **DNS, TLS & HTTP→HTTPS Enforcement** | Public DNS proxy answers (`104.21.40.88`, `172.67.183.68`); valid edge TLS certificate; HTTP port 80 requests return HTTP 308 permanent redirect targeting HTTPS authority `share.aegistk-pb.com`. | PR #126 (S5.6-E, S5.6-F), PR #130 (S5.7-E), verified via live curl probes | PASS | `[ORIGINAL — CLOSED]` |
+| **22** | **Public Default-Deny Behavior** | Requests to root `/`, arbitrary non-existent paths, or malformed endpoints return HTTP 404 default-deny; zero access to Drive API, login, or files. | PR #126 (S5.6-G), PR #130 (S5.7-B), 20/20 requests returned 404 | PASS | `[ORIGINAL — CLOSED]` |
+| **23** | **Public Security Matrix (75 Rows)** | Exhaustive 75-row security matrix across 8 subareas (S5.7-A through S5.7-H): surface enumeration, methods, Host validation (unapproved Host -> 403), forwarding header injection (`X-Forwarded-For` spoofing rejected, delta=0), path normalization, traversal attempts, redirect safety (308 strictly targeting HTTPS, no open redirect), information leakage (zero internal leaks across 47 responses). | PR #130, Receipt [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]], 74 PASS, 0 FAIL, 1 NOT TESTED (secret-safe UI direct proof) | PASS | `[ORIGINAL — CLOSED]` |
+| **24** | **Windows External Acceptance (Twingate OFF)** | External client on Windows Wi-Fi with Twingate completely disabled; accessed public Internet via `share.aegistk-pb.com`; successfully redeemed share, downloaded file, verified SHA-256 hash match, revoked share, verified post-revoke 404 refusal. | S5.8 Human Owner Production evidence, PR #141, Receipt [[90-Status/logs/2026-09-16_043452_kla_public-share-s5-12-final-closeout]] | PASS | `[ORIGINAL — CLOSED]` |
+| **25** | **Mobile Cellular External Acceptance (4G/5G, No Twingate)** | Mobile device with Wi-Fi OFF and no Twingate on cellular 4G/5G network; redeemed public share, downloaded payload, verified revocation blocking. | S5.8 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **26** | **Public IPv4 / IPv6 Evidence & Boundary** | Public IPv4 redemption recorded `SHARE_REDEEM` OK in audit log; public IPv6 redemption recorded OK. One historical IPv6 `DENIED` audit row exists. | S5.8 / S5.11 audit log inspection, PR #141 | ACCEPTED LIMITATION | `[ACCEPTED LIMITATION]` (Cause of one historical IPv6 `DENIED` row remains `NOT PROVEN`) |
+| **27** | **Transfer Integrity Test (64 MiB SHA-256)** | Deterministic 64 MiB test payload generated, shared publicly, downloaded over public Internet, and exact SHA-256 matched source bit-for-bit. | S5.9 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **28** | **Interrupted Transfer Recovery** | Premature client disconnect during active download; verified Gateway and upstream Drive cleanly closed connection and released resources without hanging sockets or disk corruption. | S5.9 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **29** | **Slow-Path Client Acceptance** | Bandwidth-throttled slow client streaming public payload; connection remained stable, completed successfully without timeout abort or buffer bloat. | S5.9 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **30** | **Concurrent Download Acceptance** | Four simultaneous external client downloads across public edge; all 4 transfers completed concurrently with integrity verified. | S5.9 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **31** | **Cleanup & Temp Artifact Verification** | Inspection of `/tmp`, container disk, and volume mounts after 64 MiB and concurrent transfers; zero orphan files or temporary leakage. | S5.9 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **32** | **Public Exposure Rollback Verification** | Teardown of public exposure; removal of Cloudflare hostname routing, connector container, egress network, and S5.5 firewall additions; restoration of private baseline. | S5.10 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **33** | **Private Regression After Rollback** | Authenticated login, Files, `any` share lifecycle, core container health, and protected volumes verified functional after rollback; `zones` scope correctly blocked from Twingate vantage. | S5.10 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **34** | **Gate 6 (G6) Final Authorization** | Full review of S5.8–S5.10 external, integrity, concurrency, and rollback evidence; explicit human owner sign-off for permanent public deployment and UI activation. | G6 APPROVED by Human Owner on 2026-09-15, PR #141 | APPROVED | `[ORIGINAL — CLOSED]` |
+| **35** | **Final Public Path Restoration** | Re-deployment of connector, egress network, firewall rules, systemd units, and Cloudflare tunnel routing following G6 approval. | S5.11 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **36** | **Final Public Share UI Activation** | Deployment of narrow Drive overlay `gateway/public-share/production/docker-compose.s5-11-ui.yml` setting `PUBLIC_SHARE_UI_ENABLED=true`; activated Public Internet option in Secure Shares modal. | S5.11 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **37** | **Final Production Health Audit** | Drive (`/healthz` ok, db=postgres), Gateway, cloudflared connector, PostgreSQL, firewall rules, drift timer, and protected volumes all verified healthy. | S5.11 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **38** | **Database Scope Contract & P6 Clarification** | Verification of `shares` table in canonical database `aegis_drive`; verified CHECK constraint `shares_scope_check` permits `any`, `zones`, `public`, `vlan`, `subnet`; recorded P6 false-negative clarification (verifier queried `aegis_db` instead of `aegis_drive`). | S5.3 / S5.11 inspection, PR #141 | PASS / ACCEPTED | `[ORIGINAL — CLOSED]` |
+| **39** | **Final Public-Edge Endpoint Smoke** | HTTPS root `https://share.aegistk-pb.com/` returns HTTP 404; HTTP root `http://share.aegistk-pb.com/` returns HTTP 308 redirect to HTTPS. | S5.11 Human Owner Production evidence, PR #141 | PASS | `[ORIGINAL — CLOSED]` |
+| **40** | **Repository Verification & S5.12 Regression Suite** | Focused Public Share suite (125 total, 119 pass, 0 fail, 6 skipped), full canonical regression (1,309 total, 1,228 pass, 9 historical accepted failures, 72 skipped, `NEW_FAILURES=0`), Vite production build, vault validation, collaboration policy, secret scan, git diff check. | S5.12 execution, PR #141, Receipt [[90-Status/logs/2026-09-16_043452_kla_public-share-s5-12-final-closeout]] | PASS | `[ORIGINAL — CLOSED]` |
+| **41** | **Human Review & Merge of PR #141** | Final Human Owner review and merge of PR #141 into `main` as merge commit `721b797860063729b7c3c280161dcb908d0ff7f5`. | GitHub git log, PR #141 merge event | MERGED / CLOSED | `[ORIGINAL — CLOSED]` |
+| **42** | **Post-Merge Production Alignment** | Production checkout aligned to merged `main` commit `721b797860063729b7c3c280161dcb908d0ff7f5`; confirmed running containers, networks, and UI overlay retained exact state. | Production host inspection, PR #143 baseline | PASS | `[ORIGINAL — CLOSED]` |
+| **43** | **Post-Merge System Test Phase 1 Share Verification** | Full post-merge sweep by Human Owner: login, Dashboard, Files listing/upload, download byte match, `any` share create, redeem, revoke, post-revoke denial, and Public Internet scope selectable: 100% PASS with zero anomalies. | Human Owner evidence recorded in [[idea1/idea1-status]] and PR #143 baseline | PASS | `[ORIGINAL — CLOSED]` |
 
-Minimum representative matrix:
+---
 
-| Class | Example | Required lifecycle |
-| :--- | :--- | :--- |
-| Image | `.jpg` or `.png` | create share -> redeem -> download -> exact size/hash -> revoke -> post-revoke blocked |
-| Video | `.mp4` | create share -> redeem -> download -> exact size/hash -> revoke -> post-revoke blocked |
+## 2. Original Scope Final Boundary
 
-Optional secondary evidence may include PDF and archive/binary files, but those are not required to establish the image/video requirement.
+```text
+============================================================
+ORIGINAL SECURE SHARE / PUBLIC SHARE FINAL BOUNDARY
+============================================================
+Implementation             = CLOSED
+Ownership/Auth             = CLOSED
+Password                   = CLOSED
+Expiry                     = CLOSED
+Revocation                 = CLOSED
+Network Zones              = CLOSED
+Anywhere                   = CLOSED
+Public Internet            = CLOSED
+Audit                      = CLOSED
+Rate Limiting              = CLOSED
+Gateway                    = CLOSED
+Connector Isolation        = CLOSED
+Firewall / Drift           = CLOSED
+Cloudflare Route           = CLOSED
+External Windows E2E       = CLOSED
+Mobile 4G/5G E2E           = CLOSED
+Security Matrix            = CLOSED
+Rollback                   = CLOSED
+Private Regression         = CLOSED
+UI Activation              = CLOSED
+Repository Closeout        = CLOSED
+Human Review / Main Merge  = CLOSED
 
-### Claim boundary
+OVERALL ORIGINAL SCOPE
+= CLOSED / ACCEPTED
+============================================================
+```
 
-After this matrix passes, the report may state:
+The original Secure Share / Public Share rollout cannot be reopened by future work or post-closeout observations.
 
-> Secure Share is file-type agnostic by design and representative non-text image/video files were successfully shared and downloaded with integrity preservation.
+---
 
-Do **not** claim that every possible file extension in existence was individually tested.
+## 3. Accepted Limitations / Evidence Boundaries
 
-This acceptance is a **download/share lifecycle** test. Inline media preview through the anonymous share page is not part of this requirement and must not be silently added to the scope.
+The following items are explicit evidence boundaries established during the original rollout. They are **not open bugs or blockers** for the closed rollout:
 
-## 3. Files / Private Vault large-transfer boundary — separate from Secure Share
+1. **One historical IPv6 `SHARE_REDEEM` `DENIED` audit row:** The cause remains **NOT PROVEN**. It was not converted to PASS, nor was it treated as an unverified production flaw. Subsequent IPv6 redemptions completed successfully with `SHARE_REDEEM / OK`.
+2. **Bounded representative transfer sizes:** Public Share acceptance was proven using bounded representative payloads up to **64 MiB**.
+3. **20–30 GB Public Share transfer:** Remains **NOT TESTED / NOT CLAIMED**.
+4. **Production 32 GiB Public Share transfer:** Remains **NOT TESTED / NOT CLAIMED**.
+5. **Separation of agent verification and human evidence:** Repository verification runs locally in CI/test environments; live production runtime, Cloudflare controls, DNS propagation, and external cellular checks are classified as authoritative Human Owner evidence.
 
-Large-file upload/download/preview performance belongs to the Files and Private Vault transfer subsystem. It is **not a blocker for the already-closed Secure Share rollout** and must remain a separate workstream.
+---
 
-### Fresh owner observation — 11.0 GB Files upload
+# PART B — New Secure Share Extensions / Future Work
 
-On 2026-09-16 the Production Files upload UI rejected an approximately **11.0 GB `.mp4`** before transfer with the explicit message:
+```text
+============================================================
+POST-CLOSEOUT NOTICE
+============================================================
+The items in PART B were added AFTER the original Secure
+Share and Public Share rollout was fully closed and merged.
 
-`Larger than the upload limit this system is configured for — this file was not sent.`
+They represent forward-looking backlog items and workflow
+dependencies. They DO NOT reopen or invalidate PART A.
+============================================================
+```
 
-Classification:
+## B1 — SECURE-SHARE-FILETYPE-1: Representative Non-Text File-Type Acceptance
 
-- **CONFIRMED configured-size rejection** for that 11.0 GB attempt.
-- The file was not sent, so this observation is not evidence of a Twingate throughput failure.
-- It is not evidence of a Google/Google Drive limitation.
-- It does not prove storage or browser failure.
-- The effective Production `MAX_LOGICAL_FILE_BYTES` value was not re-measured by this docs-only task and must not be invented from the screenshot.
+- **Identifier:** `SECURE-SHARE-FILETYPE-1`
+- **State:** `[NEW — PLANNED]` / NOT YET ACCEPTED
+- **Purpose:** Provide representative Production acceptance evidence for non-text file sharing (specifically images and videos) before the Final Project report claims generalized multi-media coverage.
 
-### Source limits relevant to later investigation
+### Current Architectural Reality
+The AEGIS Secure Share delivery layer is **already file-type agnostic by design**:
+- Redemptions stream bytes directly from the underlying storage volume using `application/octet-stream` with `Content-Disposition: attachment; filename="<encoded>"` and `X-Content-Type-Options: nosniff`.
+- Share creation is driven by `fileId`, with no MIME allow-list or extension-based restrictions in `server/routes/share.js`.
+- Therefore, this is **not a missing feature implementation**. It is an acceptance requirement to prove that representative binary image and video payloads traverse the full end-to-end creation, public redemption, download, checksum matching, and revocation lifecycle in Production.
 
-The current LFT-V2 source separates chunk size from logical file size:
+### Required Representative Acceptance Matrix
 
-- default `UPLOAD_CHUNK_SIZE_BYTES` = 16 MiB, allowed 8-64 MiB;
-- default `MAX_LOGICAL_FILE_BYTES` = 5 GiB;
-- source-supported configuration range for one logical file extends up to 32 GiB;
-- source comments require additional commit-route timeout budgeting when deployments raise the logical ceiling beyond roughly 8 GiB.
+| Media Class | Representative Extension | Required Lifecycle Steps | Expected Result | Final Target State |
+| :--- | :--- | :--- | :--- | :--- |
+| **Image** | `.jpg` or `.png` | 1. Create share link<br>2. Configure optional password<br>3. External public redemption<br>4. Download payload<br>5. Verify exact byte size<br>6. Verify SHA-256 bit-for-bit match<br>7. Verify audit logging (`SHARE_REDEEM`)<br>8. Revoke share<br>9. Verify post-revoke HTTP 404 block | PASS | `[NEW — PLANNED]` |
+| **Video** | `.mp4` | 1. Create share link<br>2. Configure optional password<br>3. External public redemption<br>4. Download payload<br>5. Verify exact byte size<br>6. Verify SHA-256 bit-for-bit match<br>7. Verify audit logging (`SHARE_REDEEM`)<br>8. Revoke share<br>9. Verify post-revoke HTTP 404 block | PASS | `[NEW — PLANNED]` |
 
-These source capabilities are not the same as Production acceptance. Raising the limit is a future deployment decision and requires storage-capacity, timeout, integrity, interruption, and rollback evidence.
+### Scope Boundary & Claim Policy
+- **Download/Share Lifecycle Only:** This acceptance test exercises the file sharing and download path. It does **not** include anonymous inline media playback or video streaming through the unauthenticated public share landing page. Inline preview remains exclusive to the authenticated Private Vault / Files surfaces unless explicitly specified in future architectural RFCs.
+- **Representative, Not Exhaustive:** Testing will not claim that every possible MIME type or extension was tested.
+- **Allowed Final Claim:** Upon successful completion, the Final Project report may state:
+  > *"Secure Share is file-type agnostic by design, with representative Production acceptance for image and video files preserving bit-for-bit payload integrity."*
 
-## 4. Transfer performance question — future benchmark before optimization
+---
 
-Owner observation: multi-gigabyte uploads that are within the configured limit can complete but may feel slow. No current evidence isolates the bottleneck to Twingate, Wi-Fi, browser hashing/encryption, server disk I/O, HTTP framing, or another layer.
+## B2 — Workflow Dependency on Files / Private Vault Workstream
 
-New backlog ID: `LFT-PERF-1`
+- **Status:** `[DEPENDENCY — WAITING]`
+- **Dependency:** `WAITING_FOR = FILES + PRIVATE VAULT ACCEPTED SCOPE`
 
-State: **PLANNED / NOT A BLOCKER FOR SECURE SHARE CLOSEOUT**
+### Strategic Rationale
+The Human Owner has established an explicit operational dependency:
+1. Do **not** execute `SECURE-SHARE-FILETYPE-1` immediately.
+2. First complete and accept the upstream **Files + Private Vault** workstream.
+3. Once upstream Files and Private Vault upload, download, preview, and file-size envelope behaviors are stable and accepted, representative image and video files will already be resident and verified in the Data Lake.
+4. `SECURE-SHARE-FILETYPE-1` will then reuse these known-good files for its public share acceptance run.
 
-Required benchmark before changing architecture or installing any additional service/plugin:
+This sequencing is a **workflow dependency** designed to avoid duplicate test data and uncoordinated testing; it is **not** an indication of any defect in Secure Share.
 
-1. Use the same deterministic file on direct wired LAN, local Wi-Fi, and remote Twingate paths.
-2. Record effective upload/download throughput, elapsed time, retry/resume behavior, and failure point.
-3. Measure host disk write/read throughput during the transfer.
-4. Observe Drive/container CPU and memory during client hashing, upload, commit hashing, and download.
-5. Record whether the Twingate path is direct or relayed when that evidence is available; do not infer it from speed alone.
-6. Compare chunk size, request concurrency, RTT, and commit duration before proposing tuning.
-7. Re-test integrity with SHA-256 after every performance change.
+---
 
-Only after measurement should later work consider options such as chunk-size tuning, safe parallel chunk transfer, direct-LAN routing for on-site users, timeout tuning for larger logical files, or other transport optimizations. Video/image compression is not a generic fix because already-compressed media often gains little and changes file integrity/semantics.
+## B3 — Upstream Files / Private Vault Context (Reference Only)
 
-A comparison with Google Drive is not a like-for-like benchmark: hyperscale storage/CDN/backbone capacity, geographic edge placement, protocol tuning, and server resources differ substantially. The useful question for AEGIS is which local layer is the measured bottleneck and what improvement is justified without weakening the security boundary.
+*(Note: Detailed architectural changes to Files / Private Vault belong to their respective feature documents. This section records only the context relevant to Secure Share dependencies.)*
 
-## 5. Follow-up task separation
+### Fresh Observation — 11.0 GB MP4 Files Upload Rejection
+On 2026-09-16, an attempt to upload an approximately **11.0 GB `.mp4`** file through the Production Files UI was rejected before transfer started with the client dialog:
+> *"Larger than the upload limit this system is configured for — this file was not sent."*
 
-| Work item | Current state | Reopens PUBLIC-SHARE-7? |
-| :--- | :--- | :--- |
-| PUBLIC-SHARE-7 / S5.8-S5.12 rollout | **CLOSED / ACCEPTED / MERGED** | No — already closed |
-| `SECURE-SHARE-FILETYPE-1` image/video representative acceptance | **PLANNED** | No |
-| `LFT-PERF-1` upload/download/preview benchmark | **PLANNED** | No |
-| 11 GB+ Production logical-file enablement | **NOT AUTHORIZED / FUTURE** | No |
-| 20-30 GB real transfer acceptance | **NOT TESTED / NOT CLAIMED** | No |
+- **Classification:** **CONFIRMED CONFIGURED-SIZE REJECTION**.
+- **What it is NOT:**
+  - It is NOT a Twingate throughput failure (the file was never sent over the wire).
+  - It is NOT an MP4 format incompatibility.
+  - It is NOT a Google or Google Drive limitation.
+  - It is NOT a storage exhaustion or browser crash.
+- **Source Configuration Envelope:**
+  - Default chunk size: `UPLOAD_CHUNK_SIZE_BYTES` = 16 MiB (allowed 8–64 MiB).
+  - Default logical ceiling: `MAX_LOGICAL_FILE_BYTES` = 5 GiB.
+  - Codebase supports configuration up to 32 GiB, but raises commit-route timeout considerations above ~8 GiB.
+  - Increasing the live limit requires a deliberate deployment plan with storage-capacity, timeout, and rollback verification.
 
-## 6. Safety / change boundary for this note
+### New Backlog Item — LFT-PERF-1: Transfer Performance Benchmarking
+- **Identifier:** `LFT-PERF-1`
+- **State:** `[NEW — PLANNED]` / BENCHMARK REFERENCE
+- **Purpose:** Establish empirical transfer benchmarks across network paths prior to proposing optimizations or architecture changes.
+- **Comparative Test Vectors:** Direct wired LAN vs. local Wi-Fi vs. remote Twingate.
+- **Measurement Metrics:**
+  - Effective upload and download throughput (MB/s).
+  - Wall-clock elapsed transfer time.
+  - Network round-trip time (RTT) and connection mode (Twingate P2P Direct vs. Relayed).
+  - Host disk read/write throughput and storage I/O wait.
+  - CPU and RAM utilization during client hashing, encryption, and server commit.
+  - Chunk size vs. concurrency tradeoffs.
+  - Checksum verification duration.
 
-This is documentation/backlog reconciliation only.
+`LFT-PERF-1` is tracked independently and will not be solved within PR #143.
 
-- `PRODUCTION_MUTATION_PERFORMED=NO`
-- `CLOUDFLARE_MUTATION_PERFORMED=NO`
-- `RUNTIME_CODE_CHANGED=NO`
-- `UPLOAD_LIMIT_CHANGED=NO`
-- `SHARE_BEHAVIOR_CHANGED=NO`
-- `OLD_FINAL_RECEIPTS_EDITED=NO`
+---
 
-The next executable task, if approved, should be `SECURE-SHARE-FILETYPE-1` using representative image and video files already safe to place in the test account. Performance/large-file tuning should be planned independently after measured benchmarking.
+## B4 — Future Execution Pipeline
+
+```mermaid
+flowchart TD
+    subgraph S1 [Phase 1: Upstream Files & Vault]
+        F1["FILES + PRIVATE VAULT Workstream"]
+        F2["Establish Accepted Upload Size & Performance Baseline (LFT-PERF-1)"]
+        F3["Upstream Acceptance & Scope Closure"]
+        F1 --> F2 --> F3
+    end
+
+    subgraph S2 [Phase 2: Secure Share Extensions]
+        S21["SECURE-SHARE-FILETYPE-1 Triggered"]
+        S22["Representative Image Lifecycle Acceptance (.jpg / .png)"]
+        S23["Representative Video Lifecycle Acceptance (.mp4)"]
+        S24["Bit-for-Bit Hash Match, Audit & Revocation Verification"]
+        S25["SECURE-SHARE-FILETYPE-1 CLOSED / ACCEPTED"]
+        S21 --> S22 --> S23 --> S24 --> S25
+    end
+
+    subgraph S3 [Phase 3: Final Integration]
+        R1["Final Project Report Historical Reconciliation"]
+    end
+
+    F3 --> S21
+    S25 --> R1
+```
+
+---
+
+## B5 — Current Next Action
+
+1. Maintain PR #143 as a clean documentation handoff without application code changes.
+2. Complete repository collaboration policy and vault integrity validations.
+3. Transition PR #143 to **Ready for Human Review**.
+4. Human Owner review and merge of PR #143.
+5. Proceed to the **Files + Private Vault** workstream as the next active development priority.
