@@ -36,6 +36,7 @@ PR12_BACKUP_RESTORE_SOURCE     = IMPLEMENTED
 PR12_BACKUP_RESTORE_LOCAL      = VERIFIED
 PR12_BACKUP_RESTORE_PRODUCTION = NOT RUN
 FINAL_PR12_BACKUP_RESTORE      = PENDING
+SOURCE_TREE_MUTATION_DURING_BACKUP = NONE (corrected in P12-D2)
 PR12_REBOOT_ACCEPTANCE         = NOT STARTED
 PR12_ROLLBACK_ACCEPTANCE       = NOT STARTED
 PR12_FINAL_SECURITY_REGRESSION = NOT STARTED
@@ -58,7 +59,7 @@ PR: Draft; review not yet requested
 Current state: IN PROGRESS — PR12-D source implemented and locally verified; every other PR12 item is not started
 Started: 2026-09-16
 Base SHA: `721b797860063729b7c3c280161dcb908d0ff7f5`
-Last checkpoint: `355f372dd8f4cb8a8dd2b2bfeae6f70288df7ac7` (P12-D1 implementation and evidence)
+Last checkpoint: `f13ca02513c871878721545b79fab6ea3c4c5209` (P12-D2 security correction; P12-D1 implementation was `355f372d`)
 Production mutation allowed: NO
 
 - **Goal:** implement the operator-safe IDEA3 Backup / Restore mechanism against
@@ -89,8 +90,9 @@ Production mutation allowed: NO
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | P12-D1 | PR12-D Backup / Restore source implementation and local verification | PASS | `pytest -q` 918 passed / 6 skipped; 32 focused backup/restore tests; RED demonstrated by disabling the digest, manifest-digest, and member-traversal guards; `ruff check .` clean; `compileall` clean | `355f372dd8f4cb8a8dd2b2bfeae6f70288df7ac7` | PASS — `PR12_BACKUP_RESTORE_SOURCE = IMPLEMENTED`, `PR12_BACKUP_RESTORE_LOCAL = VERIFIED` | final-environment execution after PR11 | P12-M1 |
-| P12-M1 | Merge the post-PR11 `origin/main` and rerun affected verification | NOT STARTED | — | — | — | PR11 must merge first | P12-D2 |
-| P12-D2 | Final-environment backup and restore acceptance | NOT STARTED | — | — | — | separate authorization; PR11 complete | — |
+| P12-D2 | Targeted security correction of three reviewed source findings | PASS | `pytest -q` 929 passed / 6 skipped; 43 focused tests (11 new); RED 10 failed / 33 passed before the fixes; `ruff check .` clean; `compileall` clean; operator smoke run across all three source states | `f13ca02513c871878721545b79fab6ea3c4c5209` | PASS — strictly read-only source, required component enforced on restore, directory entries classified | final-environment execution after PR11 | P12-M1 |
+| P12-M1 | Merge the post-PR11 `origin/main` and rerun affected verification | NOT STARTED | — | — | — | PR11 must merge first | P12-D3 |
+| P12-D3 | Final-environment backup and restore acceptance | NOT STARTED | — | — | — | separate authorization; PR11 complete | — |
 
 ### What this session implemented
 
@@ -150,6 +152,42 @@ LIVE_PATH_OVERWRITE_DEFAULT    = REJECTED
 Every value above is fixture evidence from disposable temporary directories. No
 Production host, service, database, credential, broker, or device was involved.
 
+### P12-D2 — targeted security correction (2026-09-16)
+
+An independent source review of the P12-D1 implementation found three issues.
+All three are corrected on the same branch and Draft PR; none had ever run
+outside local fixtures.
+
+1. **Source was not strictly read-only (HIGH).** `_connect_readonly` fell back
+   from a `mode=ro` URI to a normal read-write connection, and the committed
+   test accepted the empty `-wal`/`-shm` files that produced. That contradicted
+   the documented claim. The fallback is removed. The mode is now chosen from
+   what is already on disk — plain read-only for a non-WAL file, the existing
+   wal-index when a writer is attached, `immutable=1` only when no WAL content
+   can exist — and an orphaned WAL or a hot rollback journal is refused with
+   `SOURCE_REQUIRES_WRITE_ACCESS`. `immutable=1` is never used where WAL data
+   could be ignored. After each snapshot the source is re-checked, and a created
+   sidecar, or any movement under `immutable`, refuses with
+   `SOURCE_CHANGED_DURING_BACKUP`. A regression test snapshots the whole source
+   tree — paths, entry kinds, sizes, SHA-256 — before and after.
+2. **A resealed manifest could drop a required component (HIGH).** Restore
+   validated only the entries a manifest happened to declare. Required
+   components now come from the `ComponentSpec` path contract, so removing the
+   `core_audit` entry and member and resealing `manifest.sha256` is refused with
+   `REQUIRED_COMPONENT_MISSING` by both `backup-verify` and `backup-restore`.
+   Optional components may still be absent. A manifest whose `source_root` is
+   not an absolute path now refuses as `MALFORMED_MANIFEST` instead of raising.
+3. **Symlinked directories were not scanned (MEDIUM).** The walk examined only
+   filenames, so a symlinked directory — which the walk lists but never descends
+   — was silently ignored. Directory entries are now classified too, and any
+   symbolic link under the source root, file or directory, refuses with
+   `UNSAFE_SOURCE_ENTRY`. Known containers and excluded directories are
+   preserved; an unrecognised directory fails closed like an unrecognised file.
+
+The positive live-WAL case is preserved: with a writer attached, the backup
+still observes every committed WAL row, and the manifest records
+`source_open_mode = read-only-wal-index`.
+
 ### Known limitations
 
 - The manifest digest chain detects corruption and after-the-fact tampering. It
@@ -159,9 +197,15 @@ Production host, service, database, credential, broker, or device was involved.
 - Configuration, credentials, key material, and certificates are deliberately
   excluded, so a backup alone does not reconstitute a runnable deployment. Those
   are provisioned through the documented secret path.
-- A read-only source connection cannot checkpoint, so SQLite may leave empty
-  `-wal`/`-shm` files beside a source that had no writer attached. They carry no
-  committed data and are classified, not copied.
+- A crashed source tree — an orphaned `-wal` with no wal-index, or a hot
+  rollback journal — is refused with `SOURCE_REQUIRES_WRITE_ACCESS` rather than
+  opened read-write. The operator must let the owning service recover or close
+  cleanly, or run the backup while it is attached. This is a deliberate
+  availability cost paid for `SOURCE_TREE_MUTATION_DURING_BACKUP = NONE`.
+- In the attached-writer case the SQLite `-shm` wal-index is the one file whose
+  bytes change, because every WAL reader records a read mark there. It is shared
+  memory that holds no database content, is never backed up, and SQLite rebuilds
+  it; the database file and any `-wal` stay byte-identical.
 - No Web (Node) test covers this tooling; the Web audit database is treated as
   an opaque SQLite component and was exercised with a schema-shaped fixture.
 - Nothing here has been executed on the AEGIS Server or the Arch Core.
