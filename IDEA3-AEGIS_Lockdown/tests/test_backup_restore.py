@@ -8,8 +8,10 @@ broker, a device, a relay, or any live runtime path.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
+import os
 import shutil
 import sqlite3
 import tarfile
@@ -164,6 +166,21 @@ def _rows(path: Path, table: str) -> int:
         conn.close()
 
 
+def _tree(root: Path) -> dict[str, tuple]:
+    """Every entry under a root as (kind, ...) so a before/after comparison is exact."""
+    snapshot: dict[str, tuple] = {}
+    for path in sorted(root.rglob("*")):
+        relative = str(path.relative_to(root))
+        if path.is_symlink():
+            snapshot[relative] = ("symlink", os.readlink(path))
+        elif path.is_dir():
+            snapshot[relative] = ("dir",)
+        else:
+            payload = path.read_bytes()
+            snapshot[relative] = ("file", len(payload), hashlib.sha256(payload).hexdigest())
+    return snapshot
+
+
 def _members(archive: Path) -> dict[str, bytes]:
     with tarfile.open(archive, "r:gz") as tar:
         return {
@@ -286,22 +303,82 @@ def test_wal_snapshot_captures_rows_a_file_copy_would_lose(tmp_path):
     assert not [name for name in _members(archive.path) if name.endswith(("-wal", "-shm"))]
 
 
-def test_backup_never_modifies_the_source_databases(tmp_path):
+def test_backup_leaves_the_source_tree_byte_identical(tmp_path):
+    """No writer attached: the backup must not create, remove, or alter a single entry."""
     source = make_root(tmp_path)
+    before = _tree(source)
+    assert before  # the fixture really did build a tree
+
+    archive = br.create_backup(source, tmp_path / "first.tar.gz")
+
+    assert _tree(source) == before
+    # Nothing was invented beside a database, in particular no WAL sidecar.
+    assert not list((source / "data").glob("*-wal"))
+    assert not list((source / "data").glob("*-shm"))
+    manifest = _manifest(_members(archive.path))
+    modes = {component["source_open_mode"] for component in manifest["components"]}
+    assert modes == {br.OPEN_MODE_IMMUTABLE}
+    assert "rw" not in modes
+
+    # A repeat backup is equally inert.
+    br.create_backup(source, tmp_path / "second.tar.gz")
+    assert _tree(source) == before
+
+
+def test_backup_of_a_live_wal_database_reads_committed_rows_without_writing(tmp_path):
+    """A writer is attached: read all committed WAL rows and touch nothing durable."""
+    source = make_root(tmp_path, dispatch=False, protocol=False, web=False)
     paths = RuntimePaths.from_environment(env={"AEGIS_DATA_DIR": str(source)})
-    before = {path: path.read_bytes() for path in sorted((source / "data").glob("*.sqlite3"))}
-    br.create_backup(source, tmp_path / "first.tar.gz")
-    assert {path: path.read_bytes() for path in before} == before
-    assert paths.config_file.read_text(encoding="utf-8").startswith("SESSION_SECRET=")
-    # A read-only source connection cannot checkpoint, so it may leave empty
-    # sidecars behind when no writer was attached. They carry no committed data
-    # and a second backup classifies them instead of failing closed.
-    sidecars = sorted((source / "data").glob("*-wal"))
-    assert sidecars and all(path.stat().st_size == 0 for path in sidecars)
-    second = br.create_backup(source, tmp_path / "second.tar.gz")
-    manifest = _manifest(_members(second.path))
-    classes = {entry["class"] for entry in manifest["exclusions"]}
-    assert "sqlite-sidecar" in classes
+    live = sqlite3.connect(paths.core_db)
+    live.execute("PRAGMA journal_mode = WAL")
+    live.execute(
+        "INSERT INTO audit_logs (timestamp, level, event_type, details, hash) VALUES "
+        "('2026-09-16 05:00:00', 'INFO', 'UNCHECKPOINTED', 'in-wal-only', 'x')"
+    )
+    live.commit()
+    try:
+        assert (source / "data" / "core-audit.sqlite3-shm").exists()
+        before = _tree(source)
+        archive = br.create_backup(source, tmp_path / "live.tar.gz")
+        after = _tree(source)
+    finally:
+        live.close()
+
+    assert set(after) == set(before)
+    for relative, entry in before.items():
+        if relative.endswith("-shm"):
+            # The wal-index is shared memory SQLite maintains for every reader,
+            # including a read-only one. It holds no database content, is never
+            # backed up, and SQLite rebuilds it. Its kind and size must not move.
+            assert after[relative][0] == entry[0] and after[relative][1] == entry[1]
+        else:
+            assert after[relative] == entry, relative
+
+    manifest = _manifest(_members(archive.path))
+    assert manifest["components"][0]["source_open_mode"] == br.OPEN_MODE_WAL_INDEX
+    restored = br.restore_backup(archive.path, tmp_path / "live-restore")
+    assert restored.components["core_audit"]["rows"]["audit_logs"] == AUDIT_ROWS + 1
+
+
+def test_backup_refuses_an_orphaned_wal_rather_than_opening_read_write(tmp_path):
+    """An orphaned WAL needs a writable wal-index; the backup refuses instead."""
+    source = make_root(tmp_path)
+    orphan = Path(str(RuntimePaths.from_environment(env={"AEGIS_DATA_DIR": str(source)}).core_db) + "-wal")
+    orphan.write_bytes(b"\x00" * 32)
+    before = _tree(source)
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "orphan.tar.gz")
+    assert error.value.code == br.REFUSE_SOURCE_REQUIRES_WRITE_ACCESS
+    assert _tree(source) == before  # notably: no -shm was created
+
+
+def test_backup_refuses_a_hot_rollback_journal(tmp_path):
+    source = make_root(tmp_path, dispatch=False, protocol=False, web=False)
+    core = RuntimePaths.from_environment(env={"AEGIS_DATA_DIR": str(source)}).core_db
+    Path(str(core) + "-journal").write_bytes(b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7" + b"\x00" * 24)
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "hot.tar.gz")
+    assert error.value.code == br.REFUSE_SOURCE_REQUIRES_WRITE_ACCESS
 
 
 # --------------------------------------------------------------------------
@@ -340,6 +417,58 @@ def test_symlinked_component_is_refused(tmp_path):
     with pytest.raises(br.BackupRefused) as error:
         br.create_backup(source, tmp_path / "out")
     assert error.value.code == br.REFUSE_UNSAFE_SOURCE_ENTRY
+
+
+def test_symlinked_directory_in_the_source_is_refused(tmp_path):
+    """os.walk does not descend a symlinked directory, so it must be refused, not ignored."""
+    source = make_root(tmp_path)
+    outside = tmp_path / "somewhere-else"
+    (outside / "data").mkdir(parents=True)
+    (outside / "data" / "planted.sqlite3").write_bytes(b"not ours")
+    (source / "smuggled").symlink_to(outside, target_is_directory=True)
+    before = _tree(source)
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "out")
+    assert error.value.code == br.REFUSE_UNSAFE_SOURCE_ENTRY
+    assert "smuggled" in str(error.value)
+    assert _tree(source) == before
+
+
+def test_symlinked_directory_shadowing_a_known_name_is_refused(tmp_path):
+    source = make_root(tmp_path, secrets=False, dispatch=False, protocol=False, web=False)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (source / "logs").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "out")
+    assert error.value.code == br.REFUSE_UNSAFE_SOURCE_ENTRY
+
+
+def test_symlinked_excluded_file_is_refused(tmp_path):
+    source = make_root(tmp_path, secrets=False, dispatch=False, protocol=False, web=False)
+    (source / "data" / "core-audit.sqlite3.log").symlink_to("/etc/passwd")
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "out")
+    assert error.value.code == br.REFUSE_UNSAFE_SOURCE_ENTRY
+
+
+def test_unclassified_directory_fails_closed(tmp_path):
+    source = make_root(tmp_path)
+    (source / "data" / "archive-2026").mkdir()
+    with pytest.raises(br.BackupRefused) as error:
+        br.create_backup(source, tmp_path / "out")
+    assert error.value.code == br.REFUSE_UNCLASSIFIED_PATH
+    assert "data/archive-2026" in str(error.value)
+
+
+def test_known_directories_are_preserved(tmp_path):
+    """config/, logs/, runtime/, credentials/, pki/, and data/ must not trip the scan."""
+    source = make_root(tmp_path)
+    (source / "pki" / "nested").mkdir(parents=True)
+    (source / "pki" / "nested" / "chain.crt").write_text("public cert\n", encoding="utf-8")
+    archive = br.create_backup(source, tmp_path / "known.tar.gz")
+    classes = {entry["class"] for entry in _manifest(_members(archive.path))["exclusions"]}
+    assert {"configuration-secret", "credential-material", "key-material"} <= classes
 
 
 def test_missing_required_component_is_refused(tmp_path):
@@ -552,6 +681,46 @@ def test_missing_declared_component_member_is_rejected(tmp_path, backup):
     with pytest.raises(br.RestoreRefused) as error:
         br.restore_backup(_repack(archive.path, members), tmp_path / "never")
     assert error.value.code == br.REFUSE_MISSING_COMPONENT_MEMBER
+
+
+def test_a_resealed_manifest_without_the_required_component_is_rejected(tmp_path, backup):
+    """Dropping core_audit from the manifest and resealing must not produce a valid backup."""
+    _, archive = backup
+    members = _members(archive.path)
+    manifest = _manifest(members)
+    entry = next(c for c in manifest["components"] if c["logical"] == "core_audit")
+    manifest["components"] = [c for c in manifest["components"] if c["logical"] != "core_audit"]
+    manifest["absent_components"] = sorted([*manifest["absent_components"], "core_audit"])
+    members.pop(entry["member"])
+    stripped = _repack(archive.path, _reseal(members, manifest))
+
+    with pytest.raises(br.RestoreRefused) as error:
+        br.verify_backup(stripped)
+    assert error.value.code == br.REFUSE_REQUIRED_COMPONENT_MISSING
+
+    with pytest.raises(br.RestoreRefused) as error:
+        br.restore_backup(stripped, tmp_path / "never")
+    assert error.value.code == br.REFUSE_REQUIRED_COMPONENT_MISSING
+    assert not (tmp_path / "never").exists()
+
+
+def test_a_backup_of_optional_components_only_still_verifies(tmp_path):
+    """Optional components may legitimately be absent; core_audit may not."""
+    source = make_root(tmp_path, dispatch=False, protocol=False, web=False)
+    archive = br.create_backup(source, tmp_path / "audit-only.tar.gz")
+    assert br.verify_backup(archive.path).ok
+    restored = br.restore_backup(archive.path, tmp_path / "audit-only-restore")
+    assert set(restored.components) == {"core_audit"}
+
+
+def test_a_manifest_with_an_unusable_source_root_is_rejected(tmp_path, backup):
+    _, archive = backup
+    members = _members(archive.path)
+    manifest = _manifest(members)
+    manifest["source_root"] = "relative/not/absolute"
+    with pytest.raises(br.RestoreRefused) as error:
+        br.restore_backup(_repack(archive.path, _reseal(members, manifest)), tmp_path / "never")
+    assert error.value.code == br.REFUSE_MALFORMED_MANIFEST
 
 
 def test_restore_destination_equal_to_the_source_is_rejected(tmp_path, backup):

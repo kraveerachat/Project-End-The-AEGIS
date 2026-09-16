@@ -341,9 +341,26 @@ aegisctl backup-create --source /var/lib/aegis-idea3 --output /srv/aegis-backups
 aegisctl backup-verify --archive /srv/aegis-backups/aegis-idea3-backup-<stamp>.tar.gz
 ```
 
-Stop the service and verify it is inactive first. A stopped source is still the
-supported baseline for a restorable backup even though the snapshot itself is
-consistent against a live writer.
+`SOURCE_TREE_MUTATION_DURING_BACKUP = NONE`. The tool never opens a source
+read-write and never creates, removes, truncates, or checkpoints anything in the
+data root. It picks a strictly read-only mode from what is already on disk:
+
+| Source state | Result |
+|---|---|
+| Service attached (wal-index present) | Reads every committed WAL row through the existing index. |
+| Service closed cleanly (no WAL, no wal-index) | Reads the main file with `immutable=1`; nothing is ignored. |
+| Orphaned WAL with no wal-index (crashed service) | **Refused**, `SOURCE_REQUIRES_WRITE_ACCESS`. |
+| Hot rollback journal | **Refused**, `SOURCE_REQUIRES_WRITE_ACCESS`. |
+
+Either stop the service and verify it is inactive first, or run the backup while
+it is attached — both are supported and both are read-only. What is not
+supported is backing up a crashed tree: let the owning service recover or close
+cleanly, then back up again. Never work around a refusal by opening the source
+read-write.
+
+Any symbolic link under the data root refuses the backup with
+`UNSAFE_SOURCE_ENTRY`, for directories as well as files. Links are never
+followed.
 
 Configuration, credentials, key material, certificates, logs, and ephemeral
 runtime state are excluded by class and are never copied into the archive. They
@@ -368,7 +385,9 @@ the exact phrase `OVERWRITE LIVE DATA ROOT` to `--confirm-live-overwrite`. It
 also refuses digest mismatches, malformed or unsupported manifests, path
 traversal in an archive member or a manifest entry, undeclared or missing
 components, secret material inside an archive, and any restored database that
-fails `PRAGMA integrity_check`.
+fails `PRAGMA integrity_check`. A backup that does not carry the required
+`core_audit` component is refused as `REQUIRED_COMPONENT_MISSING` even when its
+manifest was resealed to claim the component was absent.
 
 Only after the test restore verifies should an authorized operator place the
 verified tree at the live root with service-account ownership and restrictive

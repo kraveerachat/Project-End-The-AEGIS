@@ -63,6 +63,18 @@ CHUNK_BYTES = 1024 * 1024
 #: The exact phrase an operator must supply to restore over the live data root.
 LIVE_OVERWRITE_CONFIRMATION = "OVERWRITE LIVE DATA ROOT"
 
+# How a source database was opened. Every mode is read-only; there is no
+# read-write fallback, because a backup must never mutate the tree it copies.
+OPEN_MODE_PLAIN = "read-only"
+OPEN_MODE_WAL_INDEX = "read-only-wal-index"
+OPEN_MODE_IMMUTABLE = "read-only-immutable"
+
+SQLITE_HEADER_BYTES = 100
+SQLITE_MAGIC = b"SQLite format 3\x00"
+# Header bytes 18 and 19 are the file-format write and read versions; 2 means WAL.
+SQLITE_WRITE_VERSION_OFFSET = 18
+SQLITE_WAL_VERSION = 2
+
 # ---------------------------------------------------------------------------
 # Refusal codes. Every refusal is one of these; nothing fails with prose alone.
 # ---------------------------------------------------------------------------
@@ -76,6 +88,8 @@ REFUSE_OUTPUT_EXISTS = "OUTPUT_EXISTS"
 REFUSE_OUTPUT_NOT_ABSOLUTE = "OUTPUT_NOT_ABSOLUTE"
 REFUSE_ARCHIVE_INSIDE_SOURCE = "ARCHIVE_INSIDE_SOURCE"
 REFUSE_SOURCE_DATABASE_UNREADABLE = "SOURCE_DATABASE_UNREADABLE"
+REFUSE_SOURCE_REQUIRES_WRITE_ACCESS = "SOURCE_REQUIRES_WRITE_ACCESS"
+REFUSE_SOURCE_CHANGED_DURING_BACKUP = "SOURCE_CHANGED_DURING_BACKUP"
 
 REFUSE_ARCHIVE_UNREADABLE = "ARCHIVE_UNREADABLE"
 REFUSE_UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
@@ -320,26 +334,52 @@ def classify(relative: PurePosixPath, *, components: Mapping[PurePosixPath, str]
     return "unclassified", ""
 
 
+def classify_directory(relative: PurePosixPath, *, parents, directories: Mapping[str, str]):
+    """Classify a directory entry. ``os.walk`` will not descend a symlink, so it must be judged here."""
+    if relative in parents:
+        return "container", ""
+    if relative.parts[0] in directories:
+        return "exclude", directories[relative.parts[0]]
+    lowered = {part.lower() for part in relative.parts}
+    if lowered & _SECRET_DIRECTORIES:
+        return "exclude", CLASS_CREDENTIAL_MATERIAL if "credentials" in lowered else CLASS_KEY_MATERIAL
+    return "unclassified", ""
+
+
 def _scan(root: Path, specs: tuple[ComponentSpec, ...]) -> tuple[dict[str, Path], dict[str, int]]:
     components = {spec.relative: spec.logical for spec in specs}
+    parents = {parent for spec in specs for parent in spec.relative.parents if parent.parts}
     directories = _excluded_directories(root)
     present: dict[str, Path] = {}
     exclusions: dict[str, int] = {}
     unclassified: list[str] = []
     unsafe: list[str] = []
 
-    for current, _directories, filenames in os.walk(root, followlinks=False):
+    for current, dirnames, filenames in os.walk(root, followlinks=False):
+        # Directories are judged too. os.walk(followlinks=False) lists a
+        # symlinked directory but never descends it, so leaving directory
+        # entries unexamined would silently ignore whatever it points at.
+        for dirname in dirnames:
+            absolute = Path(current) / dirname
+            relative = _relative(absolute, root)
+            if relative is None or absolute.is_symlink():
+                unsafe.append(dirname if relative is None else str(relative))
+                continue
+            kind, _label = classify_directory(relative, parents=parents, directories=directories)
+            if kind == "unclassified":
+                unclassified.append(str(relative))
+
         for filename in filenames:
             absolute = Path(current) / filename
             relative = _relative(absolute, root)
-            if relative is None:
-                unsafe.append(filename)
+            if relative is None or absolute.is_symlink():
+                unsafe.append(filename if relative is None else str(relative))
                 continue
             kind, label = classify(relative, components=components, directories=directories)
             if kind == "unclassified":
                 unclassified.append(str(relative))
             elif kind == "component":
-                if absolute.is_symlink() or not absolute.is_file():
+                if not absolute.is_file():
                     unsafe.append(str(relative))
                 else:
                     present[label] = absolute
@@ -349,7 +389,8 @@ def _scan(root: Path, specs: tuple[ComponentSpec, ...]) -> tuple[dict[str, Path]
     if unsafe:
         raise BackupRefused(
             REFUSE_UNSAFE_SOURCE_ENTRY,
-            "only regular files may be backed up: " + ", ".join(sorted(unsafe)[:MAX_REPORTED_PATHS]),
+            "symbolic links and non-regular entries are never followed or copied: "
+            + ", ".join(sorted(unsafe)[:MAX_REPORTED_PATHS]),
         )
     if unclassified:
         raise BackupRefused(
@@ -365,25 +406,92 @@ def _scan(root: Path, specs: tuple[ComponentSpec, ...]) -> tuple[dict[str, Path]
 # ---------------------------------------------------------------------------
 
 
-def _connect_readonly(path: Path) -> tuple[sqlite3.Connection, str]:
-    """Prefer a read-only connection; a WAL database without a shared-memory file needs read-write."""
-    uri = "file:" + urllib.parse.quote(str(path)) + "?mode=ro"
-    for candidate, mode in ((uri, "ro"), (str(path), "rw")):
-        try:
-            conn = sqlite3.connect(candidate, uri=mode == "ro", timeout=SQLITE_TIMEOUT_SEC)
-            conn.execute("PRAGMA schema_version").fetchone()
-            return conn, mode
-        except sqlite3.Error:
-            try:
-                conn.close()
-            except (sqlite3.Error, UnboundLocalError, NameError):
-                pass
-    raise BackupRefused(REFUSE_SOURCE_DATABASE_UNREADABLE, f"{path.name} could not be opened as a SQLite database")
+def _sidecars(path: Path) -> tuple[Path, Path, Path]:
+    return Path(f"{path}-wal"), Path(f"{path}-shm"), Path(f"{path}-journal")
+
+
+def _in_wal_mode(path: Path) -> bool:
+    """Read the file-format version from the SQLite header without opening a connection."""
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(SQLITE_HEADER_BYTES)
+    except OSError as error:
+        raise BackupRefused(REFUSE_SOURCE_DATABASE_UNREADABLE, f"{path.name}: {type(error).__name__}") from error
+    if len(header) < SQLITE_HEADER_BYTES or not header.startswith(SQLITE_MAGIC):
+        return False
+    versions = header[SQLITE_WRITE_VERSION_OFFSET : SQLITE_WRITE_VERSION_OFFSET + 2]
+    return any(version >= SQLITE_WAL_VERSION for version in versions)
+
+
+def _read_only_uri(path: Path, *, immutable: bool) -> str:
+    query = "mode=ro&immutable=1" if immutable else "mode=ro"
+    return f"file:{urllib.parse.quote(str(path))}?{query}"
+
+
+def _entry_signature(path: Path):
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
+
+
+def open_source_read_only(path: Path) -> tuple[sqlite3.Connection, str]:
+    """Open a source database strictly read-only, or refuse. There is no read-write fallback.
+
+    A backup must not mutate the tree it copies, so the mode is chosen from what
+    is already on disk rather than by trying progressively weaker options:
+
+    * not in WAL mode — a plain read-only connection creates nothing;
+    * WAL with a wal-index present — a writer is attached, so a read-only
+      connection joins the existing index and observes every committed WAL row
+      without creating a file;
+    * WAL with neither a wal-index nor a WAL file — no WAL content can exist, so
+      ``immutable=1`` reads the main file and ignores nothing;
+    * WAL with an orphaned WAL file and no wal-index — reading it would require
+      creating a writable wal-index, so the backup fails closed instead.
+    """
+    wal_file, shm_file, journal_file = _sidecars(path)
+    if journal_file.exists() and journal_file.stat().st_size > 0:
+        raise BackupRefused(
+            REFUSE_SOURCE_REQUIRES_WRITE_ACCESS,
+            f"{path.name} has a hot rollback journal; rolling it back needs write access. "
+            "Let the owning service recover it, then back up again.",
+        )
+
+    if not _in_wal_mode(path):
+        mode, immutable = OPEN_MODE_PLAIN, False
+    elif shm_file.exists():
+        mode, immutable = OPEN_MODE_WAL_INDEX, False
+    elif wal_file.exists():
+        raise BackupRefused(
+            REFUSE_SOURCE_REQUIRES_WRITE_ACCESS,
+            f"{path.name} has a WAL file but no wal-index; reading it read-only would have to create one. "
+            "Back up while the owning service is attached, or let it close cleanly first.",
+        )
+    else:
+        mode, immutable = OPEN_MODE_IMMUTABLE, True
+
+    connection = None
+    try:
+        connection = sqlite3.connect(_read_only_uri(path, immutable=immutable), uri=True, timeout=SQLITE_TIMEOUT_SEC)
+        connection.execute("PRAGMA schema_version").fetchone()
+    except sqlite3.Error as error:
+        if connection is not None:
+            connection.close()
+        raise BackupRefused(
+            REFUSE_SOURCE_DATABASE_UNREADABLE,
+            f"{path.name} could not be opened read-only: {type(error).__name__}",
+        ) from error
+    return connection, mode
 
 
 def snapshot_database(source: Path, target: Path) -> str:
-    """Copy a possibly-live WAL database consistently through the SQLite online backup API."""
-    connection, mode = _connect_readonly(source)
+    """Copy a possibly-live WAL database consistently, through a strictly read-only connection."""
+    wal_file, shm_file, _journal = _sidecars(source)
+    before = {entry: _entry_signature(entry) for entry in (source, wal_file, shm_file)}
+
+    connection, mode = open_source_read_only(source)
     try:
         destination = sqlite3.connect(target, timeout=SQLITE_TIMEOUT_SEC)
         try:
@@ -397,12 +505,27 @@ def snapshot_database(source: Path, target: Path) -> str:
         raise BackupRefused(REFUSE_SOURCE_DATABASE_UNREADABLE, f"{source.name}: {type(error).__name__}") from error
     finally:
         connection.close()
+
+    after = {entry: _entry_signature(entry) for entry in (source, wal_file, shm_file)}
+    created = sorted(entry.name for entry, signature in before.items() if signature is None and after[entry] is not None)
+    if created:
+        raise BackupRefused(
+            REFUSE_SOURCE_CHANGED_DURING_BACKUP,
+            "reading the source created " + ", ".join(created),
+        )
+    if mode == OPEN_MODE_IMMUTABLE and after != before:
+        # immutable=1 is only sound while nothing writes. If anything moved, a
+        # writer attached mid-read and the snapshot cannot be trusted.
+        raise BackupRefused(
+            REFUSE_SOURCE_CHANGED_DURING_BACKUP,
+            f"{source.name} changed while it was being read; retry the backup",
+        )
     return mode
 
 
 def inspect_database(path: Path) -> dict:
     """Collect non-secret structural evidence: integrity, schema version, tables, row counts."""
-    connection, _ = _connect_readonly(path)
+    connection, _ = open_source_read_only(path)
     try:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         tables = {}
@@ -664,6 +787,9 @@ def _load_manifest(tar: tarfile.TarFile) -> tuple[dict, dict[str, tarfile.TarInf
     for key in ("created_utc", "source_root", "components", "absent_components"):
         if key not in manifest:
             raise RestoreRefused(REFUSE_MALFORMED_MANIFEST, f"the manifest has no {key}")
+    source_root = manifest["source_root"]
+    if not isinstance(source_root, str) or not source_root or not Path(source_root).is_absolute():
+        raise RestoreRefused(REFUSE_MALFORMED_MANIFEST, "the manifest source root is not an absolute path")
     if not isinstance(manifest["components"], list) or not manifest["components"]:
         raise RestoreRefused(REFUSE_MALFORMED_MANIFEST, "the manifest declares no component")
     return manifest, indexed
@@ -699,6 +825,16 @@ def _planned_components(manifest: dict, specs: tuple[ComponentSpec, ...]) -> lis
         if not isinstance(digest, str) or len(digest) != 64:
             raise RestoreRefused(REFUSE_MALFORMED_MANIFEST, f"the manifest entry for {logical} has no usable digest")
         planned.append((spec, entry))
+
+    # Required components come from the path contract, not from the manifest, so
+    # a resealed manifest cannot drop one by declaring it absent. Optional
+    # components may still legitimately be missing.
+    missing = sorted(spec.logical for spec in specs if spec.required and spec.logical not in seen)
+    if missing:
+        raise RestoreRefused(
+            REFUSE_REQUIRED_COMPONENT_MISSING,
+            "the backup declares no " + ", ".join(missing),
+        )
     return planned
 
 

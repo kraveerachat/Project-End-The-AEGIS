@@ -974,10 +974,37 @@ copying files. A live WAL database is therefore snapshotted consistently, and
 the snapshot is converted to `journal_mode = DELETE` so one self-contained file
 travels in the archive with no `-wal`/`-shm` pair to fall out of step with it.
 
-Source databases are opened read-only and are never written. When no writer is
-attached, a read-only connection cannot checkpoint, so SQLite may leave empty
-`-wal`/`-shm` files beside the source. They carry no committed data, and the
-scan classifies them as `sqlite-sidecar` rather than failing closed.
+```text
+SOURCE_TREE_MUTATION_DURING_BACKUP = NONE
+```
+
+**There is no read-write fallback.** The connection mode is chosen from what is
+already on disk, so a backup never creates, removes, truncates, checkpoints, or
+rewrites anything in the source data root:
+
+| Source state | Mode | Behaviour |
+|---|---|---|
+| Not in WAL mode | `read-only` | A read-only connection creates nothing. |
+| WAL, wal-index present (service attached) | `read-only-wal-index` | Joins the existing index and observes every committed WAL row. Creates nothing. |
+| WAL, no wal-index and no WAL file (service closed cleanly) | `read-only-immutable` | No WAL content can exist, so `immutable=1` ignores nothing. Creates nothing. |
+| WAL, orphaned WAL file with no wal-index | — | **Refused** with `SOURCE_REQUIRES_WRITE_ACCESS`: reading it would have to create a writable wal-index. |
+| Hot rollback journal | — | **Refused** with `SOURCE_REQUIRES_WRITE_ACCESS`: rolling it back needs write access. |
+
+The recorded mode travels in the manifest as `source_open_mode`. After each
+snapshot the tool re-checks the source: if a sidecar appeared, or if anything
+moved while the `immutable` mode was in use, it refuses with
+`SOURCE_CHANGED_DURING_BACKUP` rather than trusting the result.
+
+The only thing a backup can touch is the `-shm` wal-index in the attached-writer
+case. That file is shared memory SQLite maintains for every reader, including a
+read-only one; it holds no database content, is never backed up, and SQLite
+rebuilds it. The database file and any `-wal` remain byte-identical, and a
+regression test snapshots the whole source tree — paths, entry kinds, sizes, and
+SHA-256 — before and after to prove it.
+
+If a backup is refused because the WAL cannot be read read-only, the remedy is
+to run it while the owning service is attached, or to let that service close
+cleanly first. The remedy is never to open the source read-write.
 
 ### Secrets are excluded by class, and unknown paths fail closed
 
@@ -986,6 +1013,14 @@ named exclusion class — `configuration-secret`, `credential-material`,
 `key-material`, `certificate-material`, `ephemeral-runtime`, `sqlite-sidecar`,
 or `operational-log`. A path that matches none of them **refuses the backup**;
 the tool never decides on its own that an unrecognised file is safe to copy.
+
+Directory entries are classified as well as files, because a directory walk
+lists a symbolic link without descending it and an unexamined one would be
+silently ignored. Any symbolic link under the source root — file or directory,
+whatever it is named — refuses the backup with `UNSAFE_SOURCE_ENTRY`; links are
+never followed and never copied. The known containers (`data/`) and excluded
+directories (`config/`, `logs/`, `runtime/`, `credentials/`, `pki/`) are
+preserved; an unrecognised directory fails closed like an unrecognised file.
 
 Secret classes are counted in the manifest, never named and never read, because
 a path is itself a disclosure. A restore also refuses an archive that carries
@@ -1030,6 +1065,12 @@ is malformed, of an unknown format or version, or inconsistent with its own
 digest; a component whose digest does not match; a missing declared component;
 secret-class material inside the archive; and a restored database that fails
 `PRAGMA integrity_check`.
+
+Required components are proven from the path contract, not taken from the
+manifest's word. A resealed manifest that drops `core_audit` — entry, member,
+and matching `manifest.sha256` — is still refused with
+`REQUIRED_COMPONENT_MISSING` by both `backup-verify` and `backup-restore`.
+Optional components may still legitimately be absent.
 
 The destination is checked as strictly. A restore refuses the data root the
 backup came from, any path nesting with it, a non-empty target without
