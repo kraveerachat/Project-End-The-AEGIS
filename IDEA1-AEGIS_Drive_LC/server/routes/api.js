@@ -354,9 +354,21 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
 // ── Files ────────────────────────────────────────────────────────────
 // ⚠️ Files คือ namespace ต่อผู้ใช้ — store.listFiles(userId) กรองด้วย uploaded_by
 //    ในชั้น SQL แล้ว (ดูเหตุผลเต็มที่ db/store.js) ห้ามเปลี่ยนกลับไปเรียกแบบไม่ส่ง userId
+// ⚠️ `parentId` ถูกตรวจว่าเป็นโฟลเดอร์ "ของผู้เรียก" ที่ยังอยู่จริงเสมอ — โฟลเดอร์ของผู้อื่น
+//    ตอบ 404 เหมือนไม่มีอยู่ ไม่ใช่ 403 ซึ่งจะยืนยันให้ผู้ถามรู้ว่ามี id นี้อยู่จริง
+//    (แบบแผนเดียวกับด่าน ownership ของ DELETE /api/files/:id)
 apiRouter.get('/files', requireAuth, async (req, res, next) => {
   try {
-    res.json({ files: await store.listFiles(req.user.id) })
+    const raw = req.query?.parentId
+    const parentId = raw === undefined || raw === '' || raw === 'null' ? null : String(raw)
+    if (parentId !== null && !(await store.findOwnFolder(parentId, req.user.id))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    res.json({
+      files: await store.listFiles(req.user.id, parentId),
+      // breadcrumb ต้องมาจากบรรพบุรุษจริงในฐานข้อมูล ไม่ใช่เส้นทางที่จอสะสมไว้เอง
+      ancestors: parentId === null ? [] : await store.listAncestors(parentId, req.user.id),
+    })
   } catch (err) {
     next(err)
   }
@@ -367,9 +379,98 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
     const name = String(req.body?.name ?? '').trim()
     // validate input เสมอ — ชื่อว่าง/ยาวผิดปกติ = ปฏิเสธ ไม่เดาใจ
     if (!name || name.length > 120) return res.status(400).json({ error: 'Invalid input' })
-    const row = await store.createFolder(name, req.user)
+    if (!isSafeItemName(name)) return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+
+    const parentId = req.body?.parentId == null ? null : String(req.body.parentId)
+    if (parentId !== null && !(await store.findOwnFolder(parentId, req.user.id))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (await store.nameTakenIn(parentId, req.user.id, name)) {
+      return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+    }
+
+    const row = await store.createFolder(name, req.user, parentId)
     await auditAct(req, 'FOLDER_CREATE', name)
     res.status(201).json({ file: row })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * ชื่อที่ปลอดภัยสำหรับไฟล์/โฟลเดอร์
+ *
+ * ⚠️ `files.path` เป็น UUID ทึบ ชื่อจึงไปไม่ถึงระบบไฟล์ — แต่มันไหลออกทาง
+ *    Content-Disposition ของการดาวน์โหลดและไปโผล่บนจอ การกัน separator กับ
+ *    control character จึงยังจำเป็น ส่วน '.' และ '..' ถูกกันเพราะเป็นชื่อที่ไม่มี
+ *    ความหมายในฐานะรายการ และทำให้ breadcrumb อ่านแล้วเข้าใจผิดได้ทันที
+ */
+function isSafeItemName(name) {
+  const value = String(name)
+  if (value.trim() === '') return false
+  if (value === '.' || value === '..') return false
+  if (value.includes('/') || value.includes('\\')) return false
+  // eslint-disable-next-line no-control-regex
+  if (/[ -]/.test(value)) return false
+  return true
+}
+
+// ── Rename — metadata อย่างเดียว ไบต์ไม่ถูกแตะ ────────────────────────────
+// ⚠️ ห้ามให้การเปลี่ยนชื่อแตะ `kind` เด็ดขาด นั่นคือบั๊กเดิมทั้งดุ้น: ตัดนามสกุลออกแล้ว
+//    ไฟล์กลายเป็นโฟลเดอร์ ตอนนี้ kind มาจากคอลัมน์ ไม่ใช่จากสตริงที่ผู้ใช้พิมพ์
+apiRouter.patch('/files/:id', requireAuth, async (req, res, next) => {
+  try {
+    const name = String(req.body?.name ?? '').trim()
+    if (!name || name.length > 200 || !isSafeItemName(name)) {
+      return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+    }
+
+    const item = await store.findOwnItem(req.params.id, req.user.id)
+    if (!item) return res.status(404).json({ error: 'Not found' })
+    if (item.kind === 'folder' && name.length > 120) {
+      return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+    }
+    if (await store.nameTakenIn(item.parentId, req.user.id, name, item.id)) {
+      return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+    }
+
+    const updated = await store.renameItem(item.id, req.user.id, name)
+    if (!updated) return res.status(404).json({ error: 'Not found' })
+    await auditAct(req, 'FILE_RENAME', `${item.name} → ${name}`)
+    res.json({ file: updated })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Move — หนึ่งธุรกรรม ทำทั้งหมดหรือไม่ทำเลย ─────────────────────────────
+// ⚠️ ต้องอยู่ "ก่อน" '/files/:id' เสมอ ไม่งั้น Express จะจับ 'move' เป็น id
+apiRouter.post('/files/move', requireAuth, async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : []
+    if (ids.length === 0 || ids.length > 500) return res.status(400).json({ error: 'Invalid input' })
+
+    const parentId = req.body?.parentId == null ? null : String(req.body.parentId)
+    if (parentId !== null) {
+      const target = await store.findOwnItem(parentId, req.user.id)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      // ปลายทางที่เป็นไฟล์ไม่ใช่ "ไม่มีอยู่" — มันมีอยู่แต่ใส่ของลงไปไม่ได้ จึงเป็น 400
+      if (target.kind !== 'folder') return res.status(400).json({ error: 'Target is not a folder', code: 'NOT_A_FOLDER' })
+    }
+
+    const result = await store.moveItems(ids, req.user.id, parentId)
+    if (!result.ok) {
+      const status = result.reason === 'notFound' ? 404
+        : result.reason === 'cycle' || result.reason === 'alreadyThere' || result.reason === 'nameTaken' ? 409
+          : 400
+      const code = result.reason === 'cycle' ? 'MOVE_CYCLE'
+        : result.reason === 'alreadyThere' ? 'ALREADY_THERE'
+          : result.reason === 'nameTaken' ? 'NAME_TAKEN' : 'INVALID'
+      return res.status(status).json({ error: 'Move refused', code })
+    }
+
+    await auditAct(req, 'FILE_MOVE', `${result.moved} item(s) → ${parentId ?? 'root'}`)
+    res.json({ moved: result.moved })
   } catch (err) {
     next(err)
   }
@@ -427,7 +528,21 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
       // ⚠️ ผูกกับเจ้าของเสมอ (findOwnFileByName) — ถ้าเทียบด้วยชื่อไฟล์อย่างเดียว ผู้ใช้
       //    คนหนึ่งจะเขียนทับไฟล์ของคนอื่นได้แค่ตั้งชื่อให้ตรง ซึ่งเป็นการข้ามด่าน ownership
       //    ที่ DELETE มีอยู่ ไฟล์ชื่อเดียวกันของคนละเจ้าของยังเป็นสองไฟล์แยกกันเหมือนเดิม
-      const existing = await store.findOwnFileByName(name, req.user.id)
+      // ปลายทางเชิงตรรกะของการอัปโหลด — โฟลเดอร์ที่จอกำลังเปิดอยู่ ถ้ามี
+      // ⚠️ ไม่เชื่อ id ที่ client แจ้ง: ต้องเป็นโฟลเดอร์ของผู้เรียกที่ยังอยู่จริงเท่านั้น
+      const claimedParent = req.body?.parentId == null || req.body.parentId === '' ? null : String(req.body.parentId)
+      let uploadParentId = null
+      if (claimedParent !== null) {
+        const parent = await store.findOwnFolder(claimedParent, req.user.id)
+        if (!parent) {
+          await discardUploaded(req.file)
+          return res.status(404).json({ error: 'Not found' })
+        }
+        uploadParentId = parent.id
+      }
+
+      // ⚠️ "ชื่อเดิม" หมายถึงเดิมในโฟลเดอร์เดียวกัน — ไฟล์ชื่อซ้ำคนละโฟลเดอร์คือคนละไฟล์
+      const existing = await store.findOwnFileByName(name, req.user.id, uploadParentId)
 
       let row
       try {
@@ -444,7 +559,9 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
           })
           if (!row) throw new Error('file row vanished mid-upload')
         } else {
-          row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user })
+          // ปลายทางของการอัปโหลดคือโฟลเดอร์ที่ผู้ใช้กำลังเปิดอยู่ (ถ้ามี) — ตรวจว่าเป็น
+          // โฟลเดอร์ของผู้เรียกจริงก่อนเสมอ ไม่เชื่อ id ที่ client แจ้งมาลอย ๆ
+          row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user, parentId: uploadParentId })
         }
       } catch (dbErr) {
         await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
@@ -564,6 +681,14 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
       await auditAct(req, 'FILE_TRASH', file.name, 'DENIED')
       return res.status(403).json({ error: 'Forbidden' })
     }
+    // ⚠️ parent_id เป็น ON DELETE RESTRICT และ Protected Trash ทำให้การลบเป็นการตั้ง
+    //    deleted_at ไม่ใช่การลบแถว — RESTRICT จึงไม่ยิงตอนนี้ ถ้าปล่อยให้โฟลเดอร์ที่ยังมี
+    //    ลูกลงถังได้ ลูกจะกลายเป็นของกำพร้าที่ชี้ไปยังพ่อที่หายจากทุกจอ กู้คืนเองไม่ได้
+    //    กติกาที่เล็กที่สุดที่ยังปลอดภัยคือ: ต้องย้าย/ลบของข้างในให้หมดก่อน
+    if (file.kind === 'folder' && (await store.countLiveChildren(file.id, req.user.id)) > 0) {
+      return res.status(409).json({ error: 'Folder is not empty', code: 'FOLDER_NOT_EMPTY' })
+    }
+
     const trashed = await store.trashFile(file.id, req.user.id)
     if (!trashed) return res.status(404).json({ error: 'Not found' })
     await auditAct(req, 'FILE_TRASH', file.name)

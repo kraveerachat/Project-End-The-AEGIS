@@ -293,10 +293,18 @@ test('PS2-CFG-11 requestSourceIp is untouched and is a different accessor', asyn
 test('PS2-MIG-1 migration 009 exists and is the next in sequence', async () => {
   const files = (await readdir(migrationsDir)).filter((name) => name.endsWith('.sql')).sort()
   assert.ok(files.includes(MIGRATION_009), 'migration 009 must exist')
-  assert.equal(files.at(-1), MIGRATION_009, '009 must be the newest migration')
   // No number is reused.
   const numbers = files.map((name) => name.slice(0, 3))
   assert.equal(new Set(numbers).size, numbers.length)
+  // ⚠️ เดิมบรรทัดนี้ยืนยันว่า 009 เป็น "ตัวล่าสุด" ซึ่งเป็นภาพนิ่ง ณ ตอนที่เขียน ไม่ใช่
+  //    สัญญาที่คงอยู่ได้ — migration ตัวถัดไปทำให้มันล้มโดยการออกแบบ (FILES-MANAGEMENT-UX-1
+  //    เพิ่ม 010) เจตนาที่แท้จริงคือ "เลขต้องต่อเนื่องและไม่ซ้ำ" ซึ่งตรึงได้จริงและ
+  //    แข็งแรงกว่าเดิม เพราะจับทั้งเลขข้ามและเลขซ้ำของ migration ทุกตัวในอนาคต
+  assert.deepEqual(
+    numbers,
+    numbers.map((_, i) => String(i + 1).padStart(3, '0')),
+    'migrations must be numbered contiguously from 001 with no gaps',
+  )
 })
 
 test('PS2-MIG-2 migration 009 only widens the scope CHECK, transactionally', async () => {

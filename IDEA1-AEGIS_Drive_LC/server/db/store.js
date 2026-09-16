@@ -55,10 +55,21 @@ const EXT_TYPE = {
   log: 'Log',
   png: 'Image', jpg: 'Image', jpeg: 'Image', webp: 'Image',
 }
-function typeExtFromName(name) {
+/**
+ * นามสกุล + ป้ายชนิด "สำหรับแสดงผล" เท่านั้น
+ *
+ * ⚠️ FILES-MANAGEMENT-UX-1: ฟังก์ชันนี้เคยเป็นผู้ตัดสิน **ตัวตน** ของ entity — ชื่อที่
+ *    ไม่มีจุดถูกเรียกว่าโฟลเดอร์ ผลคือไฟล์ชื่อ `README` แสดงเป็นโฟลเดอร์มาตลอด และการ
+ *    เปลี่ยนชื่อ `report.pdf` → `report` แปลงไฟล์เป็นโฟลเดอร์เงียบ ๆ ทั้งที่ไบต์ยังเป็น PDF
+ *
+ *    ตอนนี้ `files.kind` เป็นผู้ตัดสินตัวตนแต่เพียงผู้เดียว ส่วนนามสกุลเหลือหน้าที่บอก
+ *    "ชนิดย่อยของไฟล์" เท่านั้น จึงไม่มีทางเปลี่ยนไฟล์ให้กลายเป็นโฟลเดอร์ได้อีก
+ */
+function displayTypeFor(name, kind) {
+  if (kind === 'folder') return { ext: '', type: 'Folder' }
   const lower = String(name).toLowerCase()
   const ext = lower.endsWith('.tar.gz') ? 'tar.gz' : (lower.includes('.') ? lower.split('.').pop() : '')
-  return { ext, type: ext ? (EXT_TYPE[ext] ?? 'File') : 'Folder' }
+  return { ext, type: ext ? (EXT_TYPE[ext] ?? 'File') : 'File' }
 }
 
 /** แถวจากตาราง files (+ JOIN users) → รูปทรงที่ Files.jsx คาดหวัง
@@ -70,9 +81,12 @@ function typeExtFromName(name) {
  *    NULL ได้จริง (`uploaded_by … ON DELETE SET NULL` — เจ้าของถูกลบบัญชีไปแล้ว)
  */
 function mapFileRow(r) {
-  const { ext, type } = typeExtFromName(r.name)
+  // แถวจากฐานที่ยังไม่ผ่าน migration 010 จะไม่มี kind — ถือเป็นไฟล์ไว้ก่อน ไม่ใช่เดาจากชื่อ
+  const kind = r.kind === 'folder' ? 'folder' : 'file'
+  const { ext, type } = displayTypeFor(r.name, kind)
   return {
-    id: String(r.id), name: r.name, type, ext, size: Number(r.size_bytes),
+    id: String(r.id), name: r.name, kind, type, ext, size: Number(r.size_bytes),
+    parentId: r.parent_id == null ? null : String(r.parent_id),
     modified: new Date(r.modified_at).getTime(), uploader: r.uploader_name ?? 'system',
     ownerId: r.uploaded_by == null ? null : String(r.uploaded_by),
     vault: r.vault, verified: r.verified, sha256: r.sha256, path: r.path,
@@ -89,13 +103,16 @@ function mapFileRow(r) {
 //    DataLake-User (ดู rbac/permissions.js: สอง role จัดการไฟล์ "เท่ากัน" ไม่ใช่
 //    Admin เหนือกว่า) จึงกรองด้วย uploaded_by = $1 ในชั้น SQL โดยตรง ไม่ใช่กรองที่
 //    route หรือฝั่ง client — พลาดจุดใดจุดหนึ่งในสองที่หลังคือ IDOR ทันที
-async function pgListFiles(userId) {
+// ⚠️ กรองตาม parent_id ที่ฐานข้อมูล ไม่ใช่ดึงทั้งต้นไม้มาแล้วให้จอกรองเอง — ผู้ใช้ที่มี
+//    ไฟล์หลักหมื่นไฟล์จะส่งทั้งหมดข้ามสายทุกครั้งที่เปิดโฟลเดอร์เดียว
+async function pgListFiles(userId, parentId = null) {
   const { rows } = await query(
     `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
        FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
       WHERE f.vault = false AND f.uploaded_by = $1 AND f.deleted_at IS NULL
-      ORDER BY f.modified_at DESC`,
-    [userId],
+        AND COALESCE(f.parent_id, 0) = COALESCE($2::bigint, 0)
+      ORDER BY f.kind DESC, f.modified_at DESC`,
+    [userId, parentId],
   )
   return rows.map(mapFileRow)
 }
@@ -111,12 +128,12 @@ async function pgFindFile(id) {
   return rows.length ? mapFileRow(rows[0]) : null
 }
 
-async function pgCreateFolder(name, user) {
+async function pgCreateFolder(name, user, parentId = null) {
   const safe = String(name).slice(0, 120)
   const { rows } = await query(
-    `INSERT INTO files (name, path, size_bytes, vault, verified, uploaded_by)
-     VALUES ($1, $2, 0, false, true, $3) RETURNING *`,
-    [safe, `/datalake/${safe}`, user.id],
+    `INSERT INTO files (name, path, size_bytes, vault, verified, uploaded_by, kind, parent_id)
+     VALUES ($1, $2, 0, false, true, $3, 'folder', $4::bigint) RETURNING *`,
+    [safe, `/datalake/${safe}`, user.id, parentId],
   )
   return mapFileRow({ ...rows[0], uploader_name: user.displayName })
 }
@@ -124,12 +141,12 @@ async function pgCreateFolder(name, user) {
 // ⚠️ storageKey คือตำแหน่ง "ไฟล์จริง" ใน Storage Layer (relative ต่อ STORAGE_ROOT)
 //    ที่ fileStore.js เพิ่งเขียน bytes ลงไปแล้ว — ไม่ใช่ path สมมุติที่ประกอบจากชื่อไฟล์
 //    size/sha256 ก็มาจากไฟล์บนดิสก์จริง (server คำนวณเอง) ไม่ใช่ค่าที่ client แจ้งมา
-async function pgRecordUpload({ name, storageKey, size, sha256, user }) {
+async function pgRecordUpload({ name, storageKey, size, sha256, user, parentId = null }) {
   const safeName = String(name).slice(0, 200)
   const { rows } = await query(
-    `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by)
-     VALUES ($1, $2, $3, $4, false, true, $5) RETURNING *`,
-    [safeName, storageKey, Number(size) || 0, sha256 ?? null, user.id],
+    `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
+     VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
+    [safeName, storageKey, Number(size) || 0, sha256 ?? null, user.id, parentId],
   )
   return mapFileRow({ ...rows[0], uploader_name: user.displayName })
 }
@@ -176,17 +193,101 @@ for (const f of files) {
  *    ต้องเห็น error ทันทีตอน dev/test ไม่ใช่ได้ไฟล์ของทุกคนกลับไปเงียบ ๆ แบบเดิม
  *    (บั๊กที่ยืนยันแล้วใน production: GET /api/files คืนไฟล์ของผู้ใช้ทุกคนโดยไม่กรอง)
  */
-export async function listFiles(userId) {
+export async function listFiles(userId, parentId = null) {
   if (userId == null) throw new Error('listFiles requires a userId — do not call it unscoped')
-  if (usingPostgres) return pgListFiles(userId)
+  if (usingPostgres) return pgListFiles(userId, parentId)
+  const parent = parentId == null ? null : String(parentId)
   return files.filter(
-    (f) => !f.vault && f.deletedAt == null && f.ownerId != null && String(f.ownerId) === String(userId),
+    (f) => !f.vault && f.deletedAt == null && f.ownerId != null && String(f.ownerId) === String(userId)
+      && (f.parentId ?? null) === parent,
   )
 }
 
 export async function findFile(id) {
   if (usingPostgres) return pgFindFile(id)
   return files.find((f) => f.id === id && f.deletedAt == null) ?? null
+}
+
+/* ── ลำดับชั้นจริงของโฟลเดอร์ (FILES-MANAGEMENT-UX-1) ─────────────────────
+   ⚠️ ทุกฟังก์ชันในบล็อกนี้ผูกกับเจ้าของเสมอ และตอบ null เมื่อไม่ใช่ของผู้เรียก
+      ไม่ใช่ throw — เพื่อให้เส้นทาง HTTP ตอบ 404 ได้เหมือนกันหมด ไม่รั่วว่ามีอะไรอยู่ */
+
+/** โฟลเดอร์ของผู้ใช้คนนี้ที่ยังอยู่จริง — ใช้ตรวจปลายทางก่อนทุกการย้าย/การเปิด */
+export async function findOwnFolder(id, userId) {
+  if (id == null) return null
+  const row = await findOwnItem(id, userId)
+  return row && row.kind === 'folder' ? row : null
+}
+
+/** รายการใด ๆ (ไฟล์หรือโฟลเดอร์) ของผู้ใช้คนนี้ที่ยังไม่ถูกลบ */
+export async function findOwnItem(id, userId) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(id)) || !/^\d+$/.test(String(userId ?? ''))) return null
+    const { rows } = await query(
+      `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
+         FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
+        WHERE f.id = $1 AND f.uploaded_by = $2 AND f.deleted_at IS NULL AND f.vault = false`,
+      [id, userId],
+    )
+    return rows.length ? mapFileRow(rows[0]) : null
+  }
+  return files.find(
+    (f) => f.id === String(id) && f.deletedAt == null && !f.vault
+      && f.ownerId != null && String(f.ownerId) === String(userId),
+  ) ?? null
+}
+
+/** เส้นทางจากรากลงมาถึงโฟลเดอร์นี้ — breadcrumb ต้องมาจากของจริง ไม่ใช่ที่จอจำไว้เอง */
+export async function listAncestors(folderId, userId) {
+  const chain = []
+  let cursor = folderId
+  // ⚠️ เพดานกันลูปไว้ด้วย ถึงแม้การสร้างวงจรจะถูกกันที่ moveItems แล้ว — ข้อมูลที่
+  //    เสียหายจากทางอื่นต้องไม่ทำให้คำขอนี้วนไม่รู้จบ
+  for (let depth = 0; cursor != null && depth < 64; depth += 1) {
+    const row = await findOwnItem(cursor, userId)
+    if (!row) break
+    chain.unshift(row)
+    cursor = row.parentId
+  }
+  return chain
+}
+
+/** จำนวนลูกที่ยังไม่ถูกลบของโฟลเดอร์ — ฐานของกติกา "ห้ามทิ้งโฟลเดอร์ที่ยังมีของ" */
+export async function countLiveChildren(folderId, userId) {
+  if (usingPostgres) {
+    if (!/^\d+$/.test(String(folderId))) return 0
+    const { rows } = await query(
+      `SELECT count(*)::int AS n FROM files
+        WHERE parent_id = $1 AND uploaded_by = $2 AND deleted_at IS NULL`,
+      [folderId, userId],
+    )
+    return rows[0]?.n ?? 0
+  }
+  return files.filter(
+    (f) => (f.parentId ?? null) === String(folderId) && f.deletedAt == null
+      && f.ownerId != null && String(f.ownerId) === String(userId),
+  ).length
+}
+
+/** ชื่อนี้ถูกใช้ไปแล้วในโฟลเดอร์นี้หรือยัง (ไม่สนตัวพิมพ์ เหมือน unique index ของ 010) */
+export async function nameTakenIn(parentId, userId, name, exceptId = null) {
+  const wanted = String(name).toLowerCase()
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT id FROM files
+        WHERE uploaded_by = $1 AND deleted_at IS NULL AND vault = false
+          AND lower(name) = $2
+          AND COALESCE(parent_id, 0) = COALESCE($3::bigint, 0)`,
+      [userId, wanted, parentId],
+    )
+    return rows.some((r) => exceptId == null || String(r.id) !== String(exceptId))
+  }
+  return files.some(
+    (f) => f.deletedAt == null && !f.vault && String(f.ownerId) === String(userId)
+      && (f.parentId ?? null) === (parentId == null ? null : String(parentId))
+      && f.name.toLowerCase() === wanted
+      && (exceptId == null || f.id !== String(exceptId)),
+  )
 }
 
 const TRASH_RETENTION_MS = 30 * DAY
@@ -378,16 +479,140 @@ export async function setTrashPurgeAtForTest(id, at) {
   return true
 }
 
-export async function createFolder(name, user) {
-  if (usingPostgres) return pgCreateFolder(name, user)
+export async function createFolder(name, user, parentId = null) {
+  if (usingPostgres) return pgCreateFolder(name, user, parentId)
   const safe = String(name).slice(0, 120)
   const row = {
-    id: nextId('f'), name: safe, type: 'Folder', ext: '', size: 0,
+    id: nextId('f'), name: safe, kind: 'folder', type: 'Folder', ext: '', size: 0,
+    parentId: parentId == null ? null : String(parentId),
     modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
     vault: false, verified: true, sha256: null, path: `/datalake/${safe}`,
   }
   files.unshift(row)
   return row
+}
+
+/* ── Rename / Move — metadata เท่านั้น ห้ามแตะไบต์ (FILES-MANAGEMENT-UX-1) ──
+   ⚠️ storage key เป็น UUID ทึบที่ไม่เกี่ยวกับชื่อหรือตำแหน่งเชิงตรรกะเลย การเปลี่ยนชื่อ
+      หรือย้ายโฟลเดอร์จึงเป็นการอัปเดตคอลัมน์ล้วน ๆ ไฟล์ 2 GB เสร็จในเวลาคงที่
+      ห้ามมีใครเพิ่มการ copy/rename บนดิสก์เข้ามาในเส้นทางนี้ไม่ว่าด้วยเหตุผลใด */
+
+/** เปลี่ยนชื่ออย่างเดียว — kind, parent, storage key, sha ทั้งหมดคงเดิมโดยโครงสร้าง */
+export async function renameItem(id, userId, name) {
+  const safe = String(name)
+  if (usingPostgres) {
+    const { rows } = await query(
+      `UPDATE files SET name = $3, modified_at = now()
+        WHERE id = $1 AND uploaded_by = $2 AND deleted_at IS NULL AND vault = false
+        RETURNING *`,
+      [id, userId, safe],
+    )
+    if (!rows.length) return null
+    const { rows: withUser } = await query(
+      `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
+         FROM files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.id = $1`,
+      [id],
+    )
+    return mapFileRow(withUser[0])
+  }
+  const row = files.find(
+    (f) => f.id === String(id) && f.deletedAt == null && !f.vault && String(f.ownerId) === String(userId),
+  )
+  if (!row) return null
+  row.name = safe
+  row.modified = Date.now()
+  const { ext, type } = displayTypeFor(safe, row.kind)
+  row.ext = ext
+  row.type = type
+  return row
+}
+
+/**
+ * ย้ายหลายรายการในธุรกรรมเดียว — ทำทั้งหมดหรือไม่ทำเลย
+ *
+ * ⚠️ การตรวจวงจรกับการเขียนต้องอยู่ใน transaction เดียวกัน ถ้าตรวจก่อนแล้วค่อยเขียน
+ *    นอกธุรกรรม การย้ายสองครั้งพร้อมกันยังสร้างวงจรที่ทำให้โฟลเดอร์ทั้งกิ่งหายจากราก
+ *    ตลอดกาลได้ (A เข้าไปใน B ขณะที่ B เข้าไปใน A)
+ *
+ * @returns {Promise<{ ok: true, moved: number } | { ok: false, reason: string }>}
+ */
+export async function moveItems(ids, userId, parentId) {
+  const targets = [...new Set(ids.map(String))]
+  if (targets.length === 0) return { ok: false, reason: 'empty' }
+
+  if (!usingPostgres) {
+    const rows = []
+    for (const id of targets) {
+      const row = files.find(
+        (f) => f.id === id && f.deletedAt == null && !f.vault && String(f.ownerId) === String(userId),
+      )
+      if (!row) return { ok: false, reason: 'notFound' }
+      rows.push(row)
+    }
+    const guard = await guardMoveSet(rows, userId, parentId, (childId) => {
+      const chain = new Set()
+      let cursor = parentId == null ? null : String(parentId)
+      while (cursor != null && !chain.has(cursor)) {
+        if (cursor === childId) return true
+        chain.add(cursor)
+        cursor = files.find((f) => f.id === cursor)?.parentId ?? null
+      }
+      return false
+    })
+    if (!guard.ok) return guard
+    for (const row of rows) {
+      row.parentId = parentId == null ? null : String(parentId)
+      row.modified = Date.now()
+    }
+    return { ok: true, moved: rows.length }
+  }
+
+  return withTransaction(async (client) => {
+    // ล็อกแถวต้นทางไว้ทั้งชุดก่อน เพื่อให้การตรวจกับการเขียนเห็นสถานะเดียวกัน
+    const { rows } = await client.query(
+      `SELECT * FROM files
+        WHERE id = ANY($1::bigint[]) AND uploaded_by = $2 AND deleted_at IS NULL AND vault = false
+        FOR UPDATE`,
+      [targets, userId],
+    )
+    if (rows.length !== targets.length) return { ok: false, reason: 'notFound' }
+
+    const mapped = rows.map(mapFileRow)
+    const guard = await guardMoveSet(mapped, userId, parentId, async (childId) => {
+      // ⚠️ ไต่ขึ้นจากปลายทางไปหาราก ถ้าเจอรายการที่กำลังย้าย แปลว่ากำลังจะสร้างวงจร
+      const { rows: cycle } = await client.query(
+        `WITH RECURSIVE up AS (
+            SELECT id, parent_id FROM files WHERE id = $1::bigint
+            UNION ALL
+            SELECT f.id, f.parent_id FROM files f JOIN up ON f.id = up.parent_id
+          )
+          SELECT 1 FROM up WHERE id = $2::bigint LIMIT 1`,
+        [parentId, childId],
+      )
+      return cycle.length > 0
+    })
+    if (!guard.ok) return guard
+
+    await client.query(
+      `UPDATE files SET parent_id = $2::bigint, modified_at = now() WHERE id = ANY($1::bigint[])`,
+      [targets, parentId],
+    )
+    return { ok: true, moved: targets.length }
+  })
+}
+
+/** กติกาที่ใช้ร่วมกันทั้งสองโหมด — เขียนครั้งเดียวเพื่อให้สองโหมดปฏิเสธเหมือนกันเป๊ะ */
+async function guardMoveSet(rows, userId, parentId, wouldCycle) {
+  const target = parentId == null ? null : String(parentId)
+  for (const row of rows) {
+    if ((row.parentId ?? null) === target) return { ok: false, reason: 'alreadyThere' }
+    if (target !== null && row.id === target) return { ok: false, reason: 'cycle' }
+    if (row.kind === 'folder' && target !== null && await wouldCycle(row.id)) {
+      return { ok: false, reason: 'cycle' }
+    }
+    if (await nameTakenIn(parentId, userId, row.name, row.id)) return { ok: false, reason: 'nameTaken' }
+  }
+  return { ok: true }
 }
 
 /**
@@ -398,19 +623,25 @@ export async function createFolder(name, user) {
  *    ผู้ใช้คนหนึ่งจะ "อัปโหลดทับ" ไฟล์ของคนอื่นได้แค่ตั้งชื่อให้ตรงกัน ซึ่งเท่ากับได้สิทธิ์
  *    เขียนไฟล์ของผู้อื่นโดยไม่ผ่านด่าน ownership ที่ DELETE มีอยู่ (ดู routes/api.js)
  */
-export async function findOwnFileByName(name, userId) {
+// ⚠️ ผูกกับโฟลเดอร์ด้วย ไม่ใช่ชื่ออย่างเดียว — ตั้งแต่มีลำดับชั้นจริง ไฟล์ชื่อเดียวกัน
+//    ในสองโฟลเดอร์คือสองไฟล์คนละใบ การจับคู่ด้วยชื่อล้วนจะทำให้การอัปโหลดใน
+//    โฟลเดอร์หนึ่งไปทับไฟล์คนละใบในอีกโฟลเดอร์กลายเป็น "เวอร์ชันใหม่" โดยไม่มีใครตั้งใจ
+export async function findOwnFileByName(name, userId, parentId = null) {
   if (usingPostgres) {
     const { rows } = await query(
       `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name
          FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
         WHERE f.name = $1 AND f.uploaded_by = $2 AND f.vault = false AND f.deleted_at IS NULL
+          AND COALESCE(f.parent_id, 0) = COALESCE($3::bigint, 0)
         ORDER BY f.modified_at DESC LIMIT 1`,
-      [String(name), userId],
+      [String(name), userId, parentId],
     )
     return rows.length ? mapFileRow(rows[0]) : null
   }
+  const parent = parentId == null ? null : String(parentId)
   return files.find(
-    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId),
+    (f) => f.name === String(name) && !f.vault && f.deletedAt == null && String(f.ownerId) === String(userId)
+      && (f.parentId ?? null) === parent,
   ) ?? null
 }
 
@@ -457,11 +688,15 @@ export async function replaceFileContents({ file, storageKey, size, sha256, prev
 
 /** บันทึก metadata ของไฟล์ที่อัปโหลดเสร็จ — bytes ถูกเขียนลง Storage Layer ไปแล้ว
  *  ก่อนถึงฟังก์ชันนี้ (ดู POST /api/files/upload) และ storageKey คือตำแหน่งของมันจริง ๆ */
-export async function recordUpload({ name, storageKey, size, sha256, user }) {
-  if (usingPostgres) return pgRecordUpload({ name, storageKey, size, sha256, user })
+export async function recordUpload({ name, storageKey, size, sha256, user, parentId = null }) {
+  if (usingPostgres) return pgRecordUpload({ name, storageKey, size, sha256, user, parentId })
+  const safeName = String(name).slice(0, 200)
+  // ⚠️ kind มาจากเส้นทางที่สร้างแถว ("นี่คือการอัปโหลด") ไม่ใช่จากชื่อ — ไฟล์ชื่อ
+  //    `README` ที่ไม่มีนามสกุลก็ยังเป็นไฟล์ ไม่ใช่โฟลเดอร์
+  const { ext, type } = displayTypeFor(safeName, 'file')
   const row = {
-    id: nextId('f'), name: String(name).slice(0, 200), type: 'File',
-    ext: String(name).split('.').pop() ?? '', size: Number(size) || 0,
+    id: nextId('f'), name: safeName, kind: 'file', type, ext, size: Number(size) || 0,
+    parentId: parentId == null ? null : String(parentId),
     modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
     vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
   }
@@ -1675,9 +1910,9 @@ export async function finishUploadCommit({
         row = mapFileRow({ ...updated.rows[0], uploader_name: user.displayName })
       } else {
         const inserted = await client.query(
-          `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by)
-           VALUES ($1, $2, $3, $4, false, true, $5) RETURNING *`,
-          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId],
+          `INSERT INTO files (name, path, size_bytes, sha256, vault, verified, uploaded_by, kind, parent_id)
+           VALUES ($1, $2, $3, $4, false, true, $5, 'file', $6::bigint) RETURNING *`,
+          [String(name).slice(0, 200), storageKey, Number(size) || 0, sha256 ?? null, userId, parentId ?? null],
         )
         row = mapFileRow({ ...inserted.rows[0], uploader_name: user.displayName })
       }
