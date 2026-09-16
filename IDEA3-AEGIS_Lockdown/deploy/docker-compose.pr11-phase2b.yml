@@ -1,0 +1,116 @@
+# AEGIS IDEA3 PR11 Phase 2 Production overlay contract (design §4.8).
+#
+# Repository preparation only: this file is not applied by this branch and
+# PRODUCTION_MUTATION_AUTHORIZED = NO. In a separately authorized window it is
+# copied byte-identical to /opt/aegis/runtime/idea3/idea3-phase2.yml and layered
+# after the four accepted Production Compose files. Render it with
+# `docker compose ... config --quiet` so no value is printed.
+#
+# Ownership inside this file:
+#   services.idea3-web, volumes, secrets   Music (functional owner)
+#   networks.aegis_idea3_internal          Kla (network and address plan)
+#   services.hub.networks                  Kla (HUB membership)
+# The two Kla-owned stanzas require Kla's integration review (IR-5).
+#
+# Phase 2A: browser route only. Dispatch stays disabled and the machine listener
+# does not start. Phase 2B changes only AEGIS_IDEA3_DISPATCH_ENABLED to "true",
+# after the K9 DNS/certificate and K10 issuance evidence exists.
+#
+# The image tag names the image-input checkpoint: web/ at commit dbc9ad92cd3e,
+# excluding web/tests/ (kept out of the build context). pull_policy never means
+# Compose can never pull an unreviewed image of this name from a registry.
+# The HUB gets no depends_on, so an IDEA3 failure can never block the HUB.
+
+x-idea3-phase2-contract:
+  IDEA3_WEB_SERVICE_OWNER: music
+  NETWORK_AND_HUB_MEMBERSHIP_OWNER: kraveerachat
+  INTEGRATION_REVIEW_REQUIRED: networks.aegis_idea3_internal, services.hub.networks
+  PRODUCTION_PATH: /opt/aegis/runtime/idea3/idea3-phase2.yml
+  PHASE: 2B
+  PRODUCTION_MUTATION_AUTHORIZED: "NO"
+
+services:
+  idea3-web:
+    image: aegis-idea3-web:pr11-phase2-dbc9ad92cd3e
+    pull_policy: never
+    environment:
+      NODE_ENV: production
+      PORT: "8003"
+      AEGIS_BIND_HOST: 172.31.243.3
+      AEGIS_WEB_TRUSTED_PROXY: 172.31.243.2
+      AEGIS_WEB_BASE_PATH: /security
+      AEGIS_WEB_STATIC_DIR: /app/dist
+      AEGIS_IDEA3_AUDIT_DB_PATH: /var/lib/aegis-idea3/data/security-center-audit.sqlite3
+      AEGIS_IDEA3_ADMIN_USER: admin
+      SESSION_SECRET_FILE: /run/secrets/idea3_session_secret
+      AEGIS_IDEA3_ADMIN_PASSWORD_HASH_FILE: /run/secrets/idea3_admin_password_hash
+      AEGIS_SESSION_IDLE_MS: "1800000"
+      AEGIS_ALLOW_DEV_LOGIN: "false"
+      AEGIS_DEMO_ALLOWED: "false"
+      AEGIS_IDEA3_DISPATCH_ENABLED: "true"
+      AEGIS_IDEA3_DISPATCH_HOST: 172.31.243.3
+      AEGIS_IDEA3_DISPATCH_PORT: "8004"
+      AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY: 172.31.243.2
+      AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT: idea3-core
+    secrets:
+      - idea3_session_secret
+      - idea3_admin_password_hash
+    volumes:
+      - aegis_idea3_web_data:/var/lib/aegis-idea3/data
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://172.31.243.3:8003/security/api/readiness
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      aegis_idea3_internal:
+        ipv4_address: 172.31.243.3
+
+  # Kla-owned stanza (IR-5): the HUB joins the IDEA3 network at the pinned
+  # trusted-proxy address. It adds nothing else to the HUB service.
+  hub:
+    networks:
+      aegis_idea3_internal:
+        ipv4_address: 172.31.243.2
+
+networks:
+  # Kla-owned stanza (IR-5): exactly the accepted K4/K5 model. Only the HUB and
+  # IDEA3 Web are members.
+  aegis_idea3_internal:
+    name: aegis_idea3_internal
+    driver: bridge
+    internal: true
+    attachable: false
+    ipam:
+      config:
+        - subnet: 172.31.243.0/29
+          gateway: 172.31.243.1
+
+volumes:
+  # Preserved by rollback; never removed by an IDEA3 task.
+  aegis_idea3_web_data:
+    name: aegis_idea3_web_data
+
+secrets:
+  # Host files readable by UID 1000 only (for example 1000:1000, mode 0400).
+  # Their presence, type, and ownership are checked before start; never print them.
+  idea3_session_secret:
+    file: /opt/aegis/runtime/idea3/secrets/session-secret
+  idea3_admin_password_hash:
+    file: /opt/aegis/runtime/idea3/secrets/admin-password-hash
