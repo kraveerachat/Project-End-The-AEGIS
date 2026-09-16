@@ -10,7 +10,7 @@
 # generates or reads the CA private key, and never installs Production PKI.
 # A substitute CA is never an acceptable way to make progress.
 #
-# CA custody follows the PROPOSED K10 amendment (PENDING Kla review):
+# CA custody follows the K10 amendment (accepted by authorized CODEOWNER review):
 #   IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md
 # The CA key is server-held (p2-k10-server-ca.sh). It is never on the Core, so
 # MODE=verify still FAILS if a CA private key appears in the Core PKI directory.
@@ -94,9 +94,9 @@ verify)
 contract)
   cat <<'CONTRACT'
 K10 artifact contract — who makes what, and what crosses which boundary.
-Model: SERVER_HELD_DEDICATED_CLIENT_CA — PROPOSED, PENDING Kla review. It is not
-effective for live issuance until Kla accepts the amendment on GitHub, and a
-repository acceptance never authorizes a Production change.
+Model: SERVER_HELD_DEDICATED_CLIENT_CA — accepted by authorized CODEOWNER review.
+Kla remains the CA operational custodian. Review acceptance or a merge never
+authorizes a Production change: each server step needs explicit authorization.
 
 Kla (kraveerachat), as root on the AEGIS Production Server, with p2-k10-server-ca.sh:
   creates  /opt/aegis/pki/private/idea3-machine-client-ca.key

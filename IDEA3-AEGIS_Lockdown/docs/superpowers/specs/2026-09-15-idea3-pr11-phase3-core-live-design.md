@@ -309,7 +309,7 @@ this task.
   the CA key offline; the Core private key remains on Core. Expiry pauses
   dispatch only after P3-C3 proves the classification.
 
-> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **subject to Kla review**. This record is unchanged and remains accurate for its date.
+> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **as accepted through authorized CODEOWNER review on PR #146**. This record is unchanged and remains accurate for its date.
 - **K12:** reboot persistence remains NOT PROVEN; no reboot is authorized.
 
 Future rollout is a separate owner-authorized change: collect read-only

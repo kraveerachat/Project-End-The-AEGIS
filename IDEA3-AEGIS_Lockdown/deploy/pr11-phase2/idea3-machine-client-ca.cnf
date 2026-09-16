@@ -4,7 +4,8 @@
 # K10_CA_CRT and K10_CA_CRL before every openssl call. Nothing here generates
 # key material by itself, and no key, certificate or CRL is ever committed.
 #
-# Custody (proposed K10 amendment, 2026-09-16, PENDING Kla review):
+# Custody (K10 amendment, 2026-09-16, accepted by authorized CODEOWNER review;
+# Kla is the CA operational custodian; Production execution NOT AUTHORIZED):
 #   the CA private key is held on the AEGIS Production Server at
 #   /opt/aegis/pki/private/idea3-machine-client-ca.key, root:root 0600,
 #   passphrase-encrypted, never mounted into the HUB or any container, and

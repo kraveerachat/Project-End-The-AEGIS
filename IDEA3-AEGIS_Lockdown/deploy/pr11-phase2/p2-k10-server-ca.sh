@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # AEGIS IDEA3 PR11 — K10 server-held dedicated machine-client CA helper.
 #
-# PROPOSED MODEL, NOT YET EFFECTIVE. This helper implements the K10 amendment
+# PRODUCTION EXECUTION NOT AUTHORIZED. This helper implements the K10 amendment
 #   IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md
-# which is PENDING Kla's GitHub review. Until Kla accepts it, and until a
-# Production change is separately authorized, no mutating mode may run on the
-# AEGIS Production Server. Repository acceptance never authorizes execution.
+# accepted through authorized CODEOWNER review. Kla is the CA operational
+# custodian who runs it. No mutating mode may run on the AEGIS Production Server
+# without a separate, explicit Production authorization: a review approval or a
+# merge never authorizes execution.
 #
 #   MODE=preflight (default)  read-only: custody, permissions, HUB mount, container mounts
 #   MODE=verify               read-only: CA, key custody metadata, CRL, published copies, Core cert

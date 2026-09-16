@@ -392,7 +392,9 @@ def test_core_verify_still_rejects_a_ca_private_key_on_the_core(fx: Fixture) -> 
 def test_core_contract_describes_server_held_custody_not_offline_custody() -> None:
     env = {"PATH": os.environ["PATH"], "LC_ALL": "C", "MODE": "contract"}
     text = subprocess.run(["bash", str(CLIENT_PKI)], capture_output=True, text=True, env=env).stdout
-    assert "SERVER_HELD_DEDICATED_CLIENT_CA" in text and "PENDING Kla review" in text
+    assert "SERVER_HELD_DEDICATED_CLIENT_CA" in text and "authorized CODEOWNER review" in text
+    assert "never\nauthorizes a Production change" in text
+    assert "PENDING Kla" not in text, "review routing follows CODEOWNERS, not Kla alone"
     assert "/opt/aegis/pki/private/idea3-machine-client-ca.key" in text
     assert "root:root 0600" in text
     assert "NEVER LEAVES THE CORE" in text
@@ -429,7 +431,8 @@ def test_amendment_records_the_proposal_risk_and_unchanged_state() -> None:
     text = re.sub(r"[ \t]+", " ", AMENDMENT.read_text())
     for required in (
         "K10_CA_MODEL = SERVER_HELD_DEDICATED_CLIENT_CA",
-        "PENDING_KLA",
+        "ACCEPTED_BY_AUTHORIZED_CODEOWNER",
+        "PRODUCTION_MUTATION_AUTHORIZED = NO",
         "CA_ISSUANCE = NOT_DONE",
         "LIVE_MTLS = NOT_PROVEN",
         "not equivalent to offline",

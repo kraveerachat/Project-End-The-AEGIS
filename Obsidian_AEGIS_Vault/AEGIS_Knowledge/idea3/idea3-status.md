@@ -21,8 +21,9 @@ edit_policy: owner-writable
 ## IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16
 
 > [!important] Current IDEA3 truth — read this section first
-> A K10 architecture amendment is **PROPOSED and PENDING_KLA** on PR #146:
-> `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`. It proposes holding the dedicated IDEA3 machine-client CA key on the
+> A K10 architecture amendment is **ACCEPTED BY AUTHORIZED CODEOWNER REVIEW** on
+> PR #146 (Draft, unmerged; `pubpup2006p-design` APPROVED head `6fef3ad8`):
+> `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`. It holds the dedicated IDEA3 machine-client CA key on the
 > AEGIS Production Server (`/opt/aegis/pki/private/idea3-machine-client-ca.key`,
 > `root:root 0600`, passphrase-encrypted, never in the HUB certificate mount, a
 > container, or Git) instead of offline custody. This is weaker isolation than
@@ -33,15 +34,21 @@ edit_policy: owner-writable
 > for about 90 days; expiry pauses dispatch only; never CUT or RESTORE; no
 > browser-auth fallback; the Core key stays on the Core. The earlier offline-custody
 > records are unchanged historical truth, with only a forward reference added.
-> The amendment is **not effective** for live issuance until Kla approves it on
-> GitHub. Approval is not Production authorization. No Production action was
-> taken in this session.
+> GitHub review authority follows current `main` `.github/CODEOWNERS`: `kraveerachat`,
+> `pubpup2006p-design`, and `Kittipat050871` can each satisfy the review gate.
+> Review authority is separate from custody: Kla stays the infrastructure / CA
+> operational custodian, and Music stays the IDEA3 owner and Core key custodian.
+> Review acceptance is not Production authorization: `init`, `sign`, `crl`,
+> `revoke`, and `publish` each still need explicit mutation authorization. No
+> Production action has been taken.
 
 ```text
-K10_AMENDMENT                  = PROPOSED / PENDING_KLA (no Kla review on the current head)
-K10_CA_MODEL (proposed)        = SERVER_HELD_DEDICATED_CLIENT_CA
-K10_CA_KEY_HOST (proposed)     = AEGIS Production Server
-K10_CA_KEY_CUSTODIAN           = kraveerachat
+K10_AMENDMENT                  = ACCEPTED_BY_AUTHORIZED_CODEOWNER (PR #146 unmerged)
+CODEOWNER_REVIEW               = APPROVED — pubpup2006p-design on head 6fef3ad8 (2026-09-16T14:00:36Z); a later wording-only commit may need a fresh review from any authorized CODEOWNER
+CURRENT_CODEOWNERS             = kraveerachat, pubpup2006p-design, Kittipat050871 (origin/main .github/CODEOWNERS)
+K10_CA_MODEL                   = SERVER_HELD_DEDICATED_CLIENT_CA
+K10_CA_KEY_HOST                = AEGIS Production Server
+K10_CA_KEY_CUSTODIAN           = kraveerachat (infrastructure / CA operational custodian)
 K10_CORE_KEY_CUSTODIAN         = music
 K8                             = PASS (owner-run on the physical Core archlinux: 192.168.20.254 -> 192.168.20.1 -> HUB 192.168.10.10:443, Twingate stopped; Twingate is admin-only, never Core evidence)
 K9_NAME_RESOLUTION             = PASS (Core hosts entry idea3-core.aegis.internal -> 192.168.10.10)
@@ -96,10 +103,13 @@ vault validation                              PASS (2 pre-existing canvas warnin
 
 ### Next action
 
-Kla reviews the amendment approve-only on PR #146. Until then, the offline K10
-model stays in force and no helper mode other than `preflight` or `verify` may
-run on the server. After an approval, `init`, `sign`, and `publish` each still
-need Music's explicit Production authorization in the executing session.
+The architecture review gate is met by an authorized CODEOWNER approval. If GitHub
+stops counting it after a later commit, any authorized CODEOWNER may re-review; the
+PR author alone cannot. PR #146 stays Draft until Phase 2 runtime closeout exists
+with exactly one real final receipt. No helper mode other than `preflight` or
+`verify` may run on the server until Music gives explicit Production authorization
+in the executing session, and Kla, as the CA operational custodian, runs `init`,
+`sign`, and `publish`.
 
 ## IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16
 
@@ -168,7 +178,7 @@ Production mutation allowed: NO
 | P2-RT1 | Runtime tooling (baseline, execute, verify, rollback, preflight, K8/K9/K10, 2B tests) | CLOSED | dry-run 12/12; extra 7/7; K9 7/7; K10 12/12; bash -n + shellcheck 11/11 | `6670dd51` | PASS (LOCAL) | — | P2-RT2 |
 | P2-RT2 | Merge `origin/main` after #144/#145; re-inspect the contract; fix the tooling | PASS | 0 conflicts; all pins verify; post-merge matrix 11/11; dry-run 12/12; extra 7/7; K9 7/7; K10 12/12; bash -n + shellcheck 11/11; HUB 31/31; repository 63/63; Web 549/549; local preflight PASS | `3ef2606f` | PASS (LOCAL); server preflight NOT RUN | owner-run server preflight | P2-E2 |
 | P2-E2 | Owner-run `p2a-baseline.sh` + `MODE=server p2-final-preflight.sh` on aegis-system | NOT STARTED | — | — | — | K3/K4/K7 live recheck | authorization decision |
-| P2-K10A | K10 server-held client CA amendment (proposed), server CA helper, contract, tests | PASS (REPOSITORY) — PENDING_KLA | K10 36/36; IDEA3 922 passed/6 skipped; HUB 31/31; repo 63/63; bash -n + shellcheck -S warning 12/12 | `34a2ca4b` | PROPOSED; no Production action | Kla approve-only review; K10 CA/cert/CRL NOT_DONE | Kla review, then authorized K10 issuance |
+| P2-K10A | K10 server-held client CA amendment (proposed), server CA helper, contract, tests | PASS (REPOSITORY) — ACCEPTED BY AUTHORIZED CODEOWNER (Pub, `6fef3ad8`) | K10 36/36; IDEA3 922 passed/6 skipped; HUB 31/31; repo 63/63; bash -n + shellcheck -S warning 12/12 | `34a2ca4b` | PROPOSED; no Production action | K10 CA/cert/CRL NOT_DONE; P2B NOT_STARTED; no final receipt | authorized K10 issuance (Kla custodian) |
 
 ### P2-RT2 contract re-inspection
 

@@ -102,10 +102,10 @@ sudo MODE=rollback BASELINE_DIR=… bash p2a-verify.sh
    from a CSR generated on the Core (README §8). `MODE=contract bash
    p2-k10-client-pki.sh` prints the exact artifact split; `MODE=csr` runs on the
    Core; `MODE=verify` checks what Kla returns. No substitute CA is ever created.
-   CA custody is the **proposed, PENDING Kla** server-held model
+   CA custody is the server-held model, accepted through authorized CODEOWNER review
    (`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`):
-   `p2-k10-server-ca.sh` on the server, only after Kla approves it and the step
-   is authorized. The CA private key is never on the Core or in the HUB mount.
+   `p2-k10-server-ca.sh` on the server, run by Kla as the CA operational custodian,
+   only when the step is explicitly authorized. The CA private key is never on the Core or in the HUB mount.
 
 ## 5. Phase 2B window
 
@@ -120,7 +120,8 @@ The HUB is not recreated for Phase 2B.
 Fill `PHASE2-CLOSEOUT-TEMPLATE.md` from real output, update `idea3-status.md`,
 add exactly one Music receipt, run the vault, policy, secret, binary and diff
 checks, open a Draft PR, self-audit, mark Ready only when truthful, get a fresh
-guardrail PASS, request `kraveerachat`, and never merge.
+guardrail PASS, request any authorized CODEOWNER (`kraveerachat`,
+`pubpup2006p-design`, or `Kittipat050871`, never the PR author alone), and never merge.
 
 `PHASE2_RUNTIME_COMPLETE=YES` may be recorded only when K1, K3, K4, K7, K8, K9,
 K10, Phase 2A and Phase 2B are all actually proven. K12 stays `NOT_PROVEN`, and

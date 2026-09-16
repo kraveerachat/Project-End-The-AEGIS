@@ -320,7 +320,7 @@ return now:
 - the CRL loaded by the HUB;
 - the client certificate issued for CN `idea3-core` from a CSR generated on the Core, where the key never leaves the Core.
 
-> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **subject to Kla review**. This record is unchanged and remains accurate for its date.
+> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **as accepted through authorized CODEOWNER review on PR #146**. This record is unchanged and remains accurate for its date.
 
 Nothing is generated or installed by this package.
 

@@ -1,8 +1,9 @@
 # IDEA3 PR11 — K10 amendment: server-held dedicated machine-client CA
 
 - **Date:** 2026-09-16
-- **Status:** PROPOSED — PENDING_KLA
-- **Area / owner:** `idea3` / Music (Core key custodian); Kla (`kraveerachat`) is the proposed CA key custodian and the required reviewer
+- **Status:** ACCEPTED BY AUTHORIZED CODEOWNER REVIEW on PR #146 (not yet merged); Production execution NOT AUTHORIZED
+- **Area / owner:** `idea3` / Music (functional owner, Core key custodian); Kla (`kraveerachat`) is the infrastructure / CA operational custodian
+- **Review routing:** any authorized CODEOWNER in current `main` `.github/CODEOWNERS` (`kraveerachat`, `pubpup2006p-design`, `Kittipat050871`) can satisfy the GitHub review gate; review authority is separate from CA custody (§9)
 - **Branch / PR:** `feat/idea3-pr11-phase2-runtime-completion` / #146 (Draft)
 - **Amends:** decision K10 as recorded in
   `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (K1–K12 table, K10 row) and
@@ -10,20 +11,20 @@
 - **Production effect of this document:** none
 
 ```text
-K10_AMENDMENT_STATUS          = PROPOSED
-K10_AMENDMENT_REVIEW          = PENDING_KLA
-K10_CA_MODEL                  = SERVER_HELD_DEDICATED_CLIENT_CA   (proposed; replaces OFFLINE_DEDICATED_CLIENT_CA for future execution only)
+K10_AMENDMENT_STATUS          = ACCEPTED_BY_AUTHORIZED_CODEOWNER (PR #146, unmerged)
+K10_AMENDMENT_REVIEW          = ACCEPTED_BY_AUTHORIZED_CODEOWNER — `pubpup2006p-design` APPROVED head `6fef3ad8` on 2026-09-16T14:00:36Z
+K10_CA_MODEL                  = SERVER_HELD_DEDICATED_CLIENT_CA   (replaces OFFLINE_DEDICATED_CLIENT_CA for future execution only)
 K10_CA_KEY_HOST               = AEGIS Production Server
-K10_CA_KEY_CUSTODIAN          = kraveerachat (Kla, infrastructure owner)
+K10_CA_KEY_CUSTODIAN          = kraveerachat (Kla, infrastructure / CA operational custodian)
 K10_CORE_KEY_CUSTODIAN        = music (Core owner)
-K10_CA_KEY_ENCRYPTION         = PASSPHRASE_ENCRYPTED, entered interactively by Kla (proposed)
+K10_CA_KEY_ENCRYPTION         = PASSPHRASE_ENCRYPTED, entered interactively by Kla
 PRODUCTION_MUTATION_AUTHORIZED = NO
 PRODUCTION_MUTATION_PERFORMED  = NO
 ```
 
-Architecture approved is not Production mutation authorized. Even after Kla
-approves this amendment, creating the CA, signing the Core CSR, generating the
-CRL, and placing files in the HUB certificate mount each remain a separate,
+Architecture approved is not Production mutation authorized. Even with an
+authorized CODEOWNER approval of this amendment, creating the CA, signing the
+Core CSR, generating the CRL, and placing files in the HUB certificate mount each remain a separate,
 explicitly authorized Production action.
 
 ## 1. The old K10 architecture (historical, accurate for its time)
@@ -42,9 +43,9 @@ Kla approved K10 on 2026-09-12 (architecture/integration only), and the
 
 Those records stay unchanged. They accurately describe the decision in force
 when they were written. This amendment supersedes only the **CA key
-location**, and only for future execution, once Kla accepts it.
+location**, and only for future execution.
 
-## 2. The proposed K10 architecture
+## 2. The amended K10 architecture
 
 The dedicated CA private key is held **on the AEGIS Production Server** under
 root-only custody:
@@ -161,8 +162,10 @@ Mitigations required by this amendment:
    helper's SHA-256, the UTC time, the operator, the issued serial, and the PASS
    lines. It never records key material or the passphrase.
 
-Kla's approval of this amendment is the explicit acceptance of the risk above.
-Without it, the old offline model remains the approved K10 architecture.
+An authorized CODEOWNER approval of this amendment is the repository's explicit
+acceptance of the risk above (`pubpup2006p-design` APPROVED head `6fef3ad8` on 2026-09-16T14:00:36Z). Kla, as the CA operational custodian,
+performs or declines each custody action at execution time; a declined custody
+action is a stop, never a reason to use a substitute CA or offline shortcut.
 
 ## 5. Unchanged guarantees
 
@@ -204,8 +207,8 @@ K10          = NOT PASS
 - It performs no Production mutation. Nothing ran against the AEGIS Production
   Server, and no CA, key, certificate, CSR, or CRL was created outside
   TEST-ONLY pytest temporary directories.
-- It is not effective for live K10 issuance until Kla accepts it through normal
-  GitHub review of this PR.
+- It does not make live K10 issuance happen. Architecture acceptance through
+  authorized CODEOWNER review is not a Production authorization.
 - It does not authorize Phase 2A, Phase 2B, or any `MODE=init/sign/crl/revoke/publish` run.
 - It does not activate K9 machine SNI or change NGINX behavior. Only a stale
   comment in `HUB-AEGIS_Entry/nginx.idea3-machine-phase2b.conf` changed.
@@ -214,8 +217,8 @@ K10          = NOT PASS
 ## 8. Superseded wording (forward reference only)
 
 These records describe offline custody. They remain true historical records,
-and for **future execution** they are superseded by this amendment, subject to
-Kla review:
+and for **future execution** they are superseded by this amendment, as accepted
+through authorized CODEOWNER review on PR #146:
 
 - `IDEA3-AEGIS_Lockdown/docs/operations/PR10_DEPLOYMENT_INVENTORY.md` (K10 row)
 - `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-14-idea3-pr11-phase1-postmerge-reconciliation.md` (§ K10)
@@ -229,14 +232,30 @@ Kla review:
 
 The current operational tooling on this branch (`p2-k10-client-pki.sh`
 `MODE=contract`, `README.md` §8, `idea3-machine-client-ca.cnf`) now describes
-the proposed model and states that it is pending Kla review.
+the server-held model and states that Production execution is not authorized.
 
-## 9. Review request (approve-only)
+## 9. Review routing and custody (reconciled with current CODEOWNERS)
 
-Kla (`kraveerachat`): **Approve** accepts the server-held custody model and the
-§4 risk, and makes this the K10 architecture for future execution. **Request
-Changes** keeps offline custody in force. An approval authorizes no Production
-action.
+- **GitHub review authority:** current `main` `.github/CODEOWNERS` (`d4105c2e`)
+  lists `kraveerachat`, `pubpup2006p-design`, and `Kittipat050871` on every
+  protected surface, including `IDEA3-AEGIS_Lockdown/`, `HUB-AEGIS_Entry/`, and
+  the Obsidian vault, and states that all three accounts can provide the required
+  review. Any authorized CODEOWNER's **Approve** accepts this amendment and the §4
+  risk; **Request Changes** keeps offline custody in force.
+- **Recorded review:** `pubpup2006p-design` APPROVED head `6fef3ad8` on 2026-09-16T14:00:36Z. That is a valid CODEOWNER review of this
+  amendment. A later commit on the PR may need a fresh CODEOWNER review if GitHub
+  no longer counts it; any authorized CODEOWNER may give it.
+- **Operational custody is unchanged by review routing:** Kla (`kraveerachat`)
+  remains the infrastructure / CA operational custodian who runs
+  `p2-k10-server-ca.sh` as root; Music remains the Core key custodian and IDEA3
+  functional owner. Shared review authority does not move either custody.
+- **Production:** no review, approval, or merge authorizes `MODE=init`, `sign`,
+  `crl`, `revoke`, or `publish`. Each needs an explicit Production mutation
+  authorization in the executing session.
+- `AGENTS.md` §3 on `main` still says Kla is the temporary GitHub reviewer for
+  IDEA3 because Music's username was not recorded. CODEOWNERS now lists
+  `Kittipat050871` and all three reviewers, so that routing sentence is stale.
+  It is a shared governance file and is not edited by this IDEA3 task.
 
 ## 10. Verification
 

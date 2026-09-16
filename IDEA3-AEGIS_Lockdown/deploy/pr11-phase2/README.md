@@ -18,7 +18,7 @@ Accepted decisions this package implements: **PR #139** (K1/K3/K7 package) and
 | `p2b-tests-core.sh` | **Core** | no | Phase 2B mTLS matrix |
 | `p2b-tests-server.sh` | server | no | peer pinning, machine block, PKI metadata |
 | `p2-k10-client-pki.sh` | **Core** | `MODE=csr` only | Core key + CSR, Core-side K10 verify, artifact contract |
-| `p2-k10-server-ca.sh` | server (Kla, root) | `init`/`sign`/`crl`/`revoke`/`publish` only; default `preflight` is read-only | server-held dedicated client CA (**proposed K10 amendment, PENDING Kla**) |
+| `p2-k10-server-ca.sh` | server (Kla, root) | `init`/`sign`/`crl`/`revoke`/`publish` only; default `preflight` is read-only | server-held dedicated client CA (K10 amendment accepted by authorized CODEOWNER review; Production execution NOT AUTHORIZED) |
 | `idea3-machine-client-ca.cnf` | server (read by `p2-k10-server-ca.sh`) | no | dedicated client-CA OpenSSL configuration |
 
 ## 1. Accepted Compose model
@@ -168,12 +168,12 @@ openssl x509 -req -in idea3-core.csr -CA aegis-root-ca.crt -CAkey aegis-root-ca.
 
 Never create a substitute CA to move faster.
 
-> **Custody model: PROPOSED, PENDING Kla review.** This section follows
+> **Custody model: accepted through authorized CODEOWNER review on PR #146.** This section follows
 > `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md`:
 > the dedicated CA key is server-held under root-only custody instead of the
-> earlier offline custody. It is **not effective** for live issuance until Kla
-> approves the amendment, and every mutating step below still needs its own
-> explicit Production authorization. A server root compromise includes K10
+> earlier offline custody. Kla remains the CA operational custodian who runs the
+> server steps. Review acceptance is not Production authorization: every mutating
+> step below still needs its own explicit Production authorization. A server root compromise includes K10
 > issuing authority under this model; it is not equivalent to offline custody.
 
 1. **Music, on the Core** (`umask 077`, service-account owned, key never leaves),
@@ -189,8 +189,8 @@ sha256sum idea3-core-client.csr     # record it; the server refuses a CSR that d
 
    Send only the CSR and its SHA-256 to Kla. `CN=idea3-core` must equal
    `AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT`.
-2. **Kla, as root on the AEGIS Production Server** — only after the amendment is
-   approved and the step is authorized. OpenSSL prompts for the CA passphrase;
+2. **Kla (CA operational custodian), as root on the AEGIS Production Server** —
+   only when the step is explicitly authorized. OpenSSL prompts for the CA passphrase;
    it is never placed in the environment, a file, or a log:
 
 ```bash
@@ -244,7 +244,8 @@ config-hash before and after, the NGINX snapshot path and hashes, and the
 preserved-container comparison. Then update `idea3-status.md`, add exactly one
 Music receipt, run the vault, policy, secret, binary and diff checks, open a
 Draft PR, self-audit, mark Ready only when truthful, get a fresh guardrail PASS,
-request `kraveerachat`, and never merge.
+request any authorized CODEOWNER (`kraveerachat`, `pubpup2006p-design`, or
+`Kittipat050871`, never the PR author alone), and never merge.
 
 ```text
 K1= K3= K4= K7= K8= K9= K10= K12=NOT_PROVEN
