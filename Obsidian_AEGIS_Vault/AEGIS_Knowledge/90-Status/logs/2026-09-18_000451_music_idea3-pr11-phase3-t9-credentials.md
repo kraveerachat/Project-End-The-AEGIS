@@ -3,7 +3,7 @@ title: Task Receipt — IDEA3 PR11 Phase 3 T9 credential integration
 date: 2026-09-18T00:04:51+07:00
 owner: music
 area: idea3
-branch: feat/idea3-pr11-phase3-t9-credentials
+branch: feat/idea3-pr11-phase3-runtime-completion
 status: complete
 edit_policy: append-by-new-file
 ---
@@ -92,7 +92,7 @@ Final implementation/evidence checkpoint: the commit containing this receipt.
 
 ## Integration requests
 
-- Integrate this T9 repository checkpoint into Draft PR #149 only through human-reviewed branch workflow.
+- This T9 repository checkpoint is carried by Draft PR #149; human review and human merge remain required.
 - Human review is required.
 - Human merge is required; the agent does not merge.
 - This receipt authorizes no Production mutation and no live credential delivery.

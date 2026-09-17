@@ -59,8 +59,8 @@ FINAL_RECEIPT                  = 90-Status/logs/2026-09-18_000451_music_idea3-pr
 Task: IDEA3 PR11 Phase 3 runtime completion — T9 credential integration
 Branch: `feat/idea3-pr11-phase3-t9-credentials`
 Owner: `music`
-Target integration: Draft PR #149 (`feat/idea3-pr11-phase3-runtime-completion`); T9 branch not pushed or merged
-Current state: REPOSITORY CLOSEOUT READY — local verification complete; T9 receipt created; human integration pending
+Integration: T9 repository checkpoint is now carried by Draft PR #149 (`feat/idea3-pr11-phase3-runtime-completion`); human review/merge pending
+Current state: REPOSITORY INTEGRATED INTO DRAFT PR #149 — local verification complete; human review/merge pending
 Started: 2026-09-17
 Base SHA: `bacb64fa24d55029387a84d07492061b702a125a`
 Last checkpoint: the commit containing the T9 implementation/evidence receipt
@@ -139,7 +139,7 @@ PRODUCTION_MUTATION            = NO
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | P3-R1 | systemd 261 compatibility correction (repository only) | PASS | P3-C8 RED then GREEN; full IDEA3 pytest, Ruff, compileall, diff check, vault and collaboration-policy validation, secret/binary scan; static unit verify leaves only the expected ExecStart warning | P3-R1 commit | CORRECTED — LOCAL / STATIC only | Phase 4 runtime prerequisites | Phase 4 MQTT/v1 runtime gate, separately authorized |
-| P3-T9 | G12/G13 Core credential delivery integration (repository only) | PASS / LOCAL VERIFIED | TDD credential reader + config integration; 4 `LoadCredential=` directives; inline T9 secrets absent from Core env; `systemd-analyze verify` PASS; compileall PASS; full pytest `1170 passed, 6 skipped`; diff check PASS | the commit containing the T9 receipt | REPOSITORY IMPLEMENTED / LOCAL VERIFIED; live delivery NOT PROVEN | human-reviewed integration into Draft PR #149 | no live action |
+| P3-T9 | G12/G13 Core credential delivery integration (repository only) | PASS / LOCAL VERIFIED | TDD credential reader + config integration; 4 `LoadCredential=` directives; inline T9 secrets absent from Core env; `systemd-analyze verify` PASS; compileall PASS; full pytest `1170 passed, 6 skipped`; diff check PASS | the commit containing the T9 receipt | REPOSITORY IMPLEMENTED / LOCAL VERIFIED; live delivery NOT PROVEN | human review/merge of Draft PR #149 | no live action |
 | P3-L1 | Live Core installation and validation | BLOCKED | — | — | — | live TLS listener, MQTT CA, broker/device credential delivery, v1 device config, disk headroom, fresh preservation baseline, fresh K3, explicit Production mutation authorization | — |
 
 ## IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness — REPOSITORY CLOSEOUT COMPLETE — 2026-09-17
