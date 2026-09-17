@@ -213,6 +213,8 @@ PAUSE_DISPATCH / MODIFY / DEFER
 
 Previously accepted architecture proposed a dedicated IDEA3 client CA, offline CA-key custody by Kla, Core client key kept on Core, approximately 90-day validity, and fail-closed dispatch pause on expiry.
 
+> **Forward reference (added 2026-09-16):** for future execution, the K10 CA key custody recorded here is superseded by `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md` (server-held dedicated client CA), **as accepted through authorized CODEOWNER review on PR #146**. This record is unchanged and remains accurate for its date.
+
 No certificate is issued by this PR.
 
 ### K12 — reboot-persistence disposition

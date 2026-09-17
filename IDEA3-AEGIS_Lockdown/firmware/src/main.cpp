@@ -49,6 +49,8 @@ std::size_t heartbeatReplayIndex = 0;
 
 bool provisioned = false;
 bool mqttBufferReady = false;
+bool ntpConfigured = false;
+wl_status_t lastWiFiStatus = WL_NO_SHIELD;
 bool isLockedDown = true;
 bool deadmanTriggered = false;
 unsigned long lastHeartbeatMs = 0;
@@ -277,22 +279,28 @@ void onMqttMessage(char* topic, std::uint8_t* payload, unsigned int length) {
   else if (kind == "HEARTBEAT") handleHeartbeat(parsed);
 }
 
-void connectWiFi() {
+void startWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
-  while (WiFi.status() != WL_CONNECTED) delay(500);
 }
 
 void syncTimeNTP() {
+  if (ntpConfigured) return;
   sntp_set_time_sync_notification_cb(onTimeSync);
   sntp_set_sync_interval(60000);
   configTime(0, 0, ntpServer.c_str());
-  const unsigned long deadline = millis() + 30000;
-  while (timeTrust() == TimeTrust::UNTRUSTED && static_cast<long>(deadline - millis()) > 0) delay(100);
+  ntpConfigured = true;
+}
+
+void serviceNetworkBootstrap() {
+  const wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) syncTimeNTP();
+  if (status != lastWiFiStatus) lastWiFiStatus = status;
 }
 
 void connectMQTT() {
   if (!mqttBufferReady) return;
+  if (WiFi.status() != WL_CONNECTED) return;
   if (timeTrust() == TimeTrust::UNTRUSTED) return;
   if (millis() - lastReconnectMs < RECONNECT_INTERVAL_MS) return;
   lastReconnectMs = millis();
@@ -333,8 +341,7 @@ void setup() {
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_RED, HIGH);
   if (!(provisioned = loadProvisioning())) return;
-  connectWiFi();
-  syncTimeNTP();
+  startWiFi();
   tlsClient.setCACert(SECRET_MQTT_CA_CERT);
   mqttBufferReady = mqtt.setBufferSize(768);
   if (!mqttBufferReady) return;
@@ -348,6 +355,7 @@ void loop() {
     delay(100);
     return;
   }
+  serviceNetworkBootstrap();
   if (!mqtt.connected()) connectMQTT();
   mqtt.loop();
   checkDeadman();

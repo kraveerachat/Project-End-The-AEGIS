@@ -1,0 +1,74 @@
+# AEGIS IDEA3 dedicated machine-client CA — OpenSSL configuration.
+#
+# Consumed ONLY by p2-k10-server-ca.sh, which sets K10_CA_DIR, K10_CA_KEY,
+# K10_CA_CRT and K10_CA_CRL before every openssl call. Nothing here generates
+# key material by itself, and no key, certificate or CRL is ever committed.
+#
+# Custody (K10 amendment, 2026-09-16, accepted by authorized CODEOWNER review;
+# Kla is the CA operational custodian; Production execution NOT AUTHORIZED):
+#   the CA private key is held on the AEGIS Production Server at
+#   /opt/aegis/pki/private/idea3-machine-client-ca.key, root:root 0600,
+#   passphrase-encrypted, never mounted into the HUB or any container, and
+#   never copied into /opt/aegis/runtime/certs. Only the public CA certificate
+#   and the CRL reach the HUB certificate mount. See
+#   IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-16-idea3-pr11-k10-server-held-ca-amendment.md
+#
+# This CA is dedicated: it is not the AEGIS Internal Root CA that signs the
+# browser/server certificates, and not the D2 MQTT CA. It issues clientAuth
+# certificates only, at path length 0.
+
+[ ca ]
+default_ca = idea3_client_ca
+
+[ idea3_client_ca ]
+dir               = $ENV::K10_CA_DIR
+database          = $dir/index.txt
+new_certs_dir     = $dir/newcerts
+certificate       = $ENV::K10_CA_CRT
+private_key       = $ENV::K10_CA_KEY
+serial            = $dir/serial
+crlnumber         = $dir/crlnumber
+crl               = $ENV::K10_CA_CRL
+default_md        = sha256
+policy            = idea3_policy
+x509_extensions   = idea3_client
+default_days      = 90          # K10: about 90 days, renewed around day 60
+# The HUB refuses every client while the CRL is expired, which fails closed and
+# pauses dispatch. The CRL is regenerated well before nextUpdate.
+default_crl_days  = 30
+unique_subject    = no
+copy_extensions   = none        # never copy CSR-supplied extensions
+email_in_dn       = no
+preserve          = no
+rand_serial       = yes
+crl_extensions    = idea3_crl
+
+# `openssl req -x509` at MODE=init needs a [ req ] section; the subject is
+# always passed with -subj, so no prompt is used.
+[ req ]
+distinguished_name = idea3_req_dn
+prompt             = no
+
+[ idea3_req_dn ]
+CN = AEGIS IDEA3 Machine Client CA
+
+[ idea3_policy ]
+commonName             = supplied
+
+# Extensions for an issued Core client certificate. clientAuth only: this
+# certificate can never authenticate a server.
+[ idea3_client ]
+basicConstraints       = critical, CA:FALSE
+keyUsage               = critical, digitalSignature
+extendedKeyUsage       = critical, clientAuth
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always
+
+# Extensions for the CA certificate itself (self-signed once, at MODE=init).
+[ idea3_ca_root ]
+basicConstraints       = critical, CA:TRUE, pathlen:0
+keyUsage               = critical, keyCertSign, cRLSign
+subjectKeyIdentifier   = hash
+
+[ idea3_crl ]
+authorityKeyIdentifier = keyid:always
