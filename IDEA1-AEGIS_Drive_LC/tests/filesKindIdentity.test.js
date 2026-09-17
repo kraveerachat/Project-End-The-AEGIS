@@ -142,3 +142,77 @@ test('KIND 7 · the migration refuses to finish while any row has an unresolved 
   assert.doesNotMatch(sql, /position\('\.'|strpos\([^)]*'\.'|name LIKE '%\.%'/i,
     'ห้าม backfill จากชื่อไฟล์ — นั่นคือ heuristic ที่งานนี้กำลังกำจัด')
 })
+
+/* ══ Round 5 · หลักฐานโฟลเดอร์ต้องเป็น "เชิงบวก" ไม่ใช่แค่ไม่ใช่ไฟล์ ══════════
+ *
+ * ⚠️ ข้อบกพร่องที่ชุดนี้ปิด: ตัวจำแนกเดิมยอมรับ path ใด ๆ ที่ไม่ได้อยู่ใต้ uploads/
+ *    ว่าเป็นโฟลเดอร์ นั่นคือหลักฐานเชิงลบ — "ไม่ใช่ไฟล์" ไม่ได้แปลว่า "เป็นโฟลเดอร์"
+ *    แถวอย่าง path='legacy/unknown' size 0 sha NULL ไม่เข้ากับธรรมเนียมการสร้าง
+ *    แบบใดเลย และเราไม่รู้ว่าใน Production มีแถวแบบนี้หรือไม่ (ยังไม่ได้วัด)
+ *    หลักฐานโฟลเดอร์ที่พิสูจน์ได้จริงมีแบบเดียว: path ที่ pgCreateFolder เขียนเอง
+ */
+
+const provenFolderPath = '/datalake/'
+
+test('KIND 8 · only the exact folder creation convention proves a folder; every other non-upload path is ambiguous', () => {
+  const bare = { id: 3, name: 'unknown' }
+  // (1) ไฟล์: storage key ของการอัปโหลด + checksum
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: 'uploads/9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d.bin', size_bytes: 12, sha256: 'c'.repeat(64) }), 'file')
+  // (2) โฟลเดอร์: path ตามธรรมเนียม pgCreateFolder เท่านั้น
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: '/datalake/folder', size_bytes: 0, sha256: null }), 'folder')
+  // (3) path ที่ไม่ใช่ทั้ง uploads/ และ /datalake/ — ห้ามกลายเป็นโฟลเดอร์เงียบ ๆ
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: 'legacy/unknown', size_bytes: 0, sha256: null }), 'ambiguous')
+  // (4) path อื่นที่ขึ้นต้นด้วย / ก็ไม่ใช่หลักฐาน
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: '/other/path', size_bytes: 0, sha256: null }), 'ambiguous')
+  // (5) path หายไป
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: null, size_bytes: 0, sha256: null }), 'ambiguous')
+  // (6) path ว่าง
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: '', size_bytes: 0, sha256: null }), 'ambiguous')
+  // (7) path ถูกแต่มีขนาด — โฟลเดอร์ไม่มีไบต์
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: '/datalake/foo', size_bytes: 1024, sha256: null }), 'ambiguous')
+  // (8) path ถูกแต่มี checksum — โฟลเดอร์ไม่เคยถูกแฮช
+  assert.equal(classifier.classifyLegacyRow({ ...bare, path: '/datalake/foo', size_bytes: 0, sha256: 'd'.repeat(64) }), 'ambiguous')
+  // ตัวจำแนกต้องประกาศคำนำหน้าที่ใช้ เพื่อให้ migration ตรึงค่าเดียวกันได้
+  assert.equal(classifier.FOLDER_PATH_PREFIX, provenFolderPath)
+})
+
+test('KIND 9 · migration 010 and the classifier use the same positive folder predicate', async () => {
+  const fs = await import('node:fs/promises')
+  const sql = await fs.readFile(new URL('../server/db/migrations/010_files_kind_parent.sql', import.meta.url), 'utf8')
+  // ตรวจเฉพาะ SQL ที่รันจริง — คอมเมนต์อธิบายกติกาเก่าไม่ใช่ predicate
+  const executable = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+
+  const folderUpdate = executable.match(/UPDATE files\s+SET kind = 'folder'\s+WHERE([\s\S]*?);/i)
+  assert.ok(folderUpdate, 'ต้องมี backfill สำหรับโฟลเดอร์')
+  const predicate = folderUpdate[1]
+  // predicate เชิงบวก: คำนำหน้าเดียวกับ classifier ตัวต่อตัว
+  assert.match(predicate, new RegExp(`path LIKE '${classifier.FOLDER_PATH_PREFIX.replace(/\//g, '\/')}%'`),
+    'โฟลเดอร์ต้องพิสูจน์จาก path ตามธรรมเนียม pgCreateFolder เท่านั้น')
+  assert.match(predicate, /size_bytes = 0/)
+  assert.match(predicate, /sha256 IS NULL/)
+  // ห้ามหลักฐานเชิงลบ: "ไม่ใช่ storage key ของการอัปโหลด" ไม่ได้พิสูจน์อะไร
+  assert.doesNotMatch(predicate, /NOT LIKE/i, 'ห้ามจำแนกโฟลเดอร์จากการ "ไม่ใช่ไฟล์"')
+  assert.doesNotMatch(executable, /NOT LIKE 'uploads\/%'/i)
+
+  const fileUpdate = executable.match(/UPDATE files\s+SET kind = 'file'\s+WHERE([\s\S]*?);/i)
+  assert.ok(fileUpdate)
+  assert.match(fileUpdate[1], new RegExp(`path LIKE '${classifier.UPLOAD_KEY_PREFIX}%'`))
+  assert.match(fileUpdate[1], /sha256 IS NOT NULL/)
+})
+
+test('KIND 10 · an unknown non-upload path is ambiguous and blocks both backfill and migration', async () => {
+  const rows = [
+    uploadedRow({ id: 1, uploaded_by: 7, deleted_at: null }),
+    folderRow({ id: 2, uploaded_by: 7, deleted_at: null }),
+    { id: 3, name: 'unknown', path: 'legacy/unknown', size_bytes: 0, sha256: null, uploaded_by: 7, deleted_at: null },
+  ]
+  const report = await classifier.legacyKindPreflight({ query: async () => ({ rows }) })
+  assert.equal(report.provenFiles, 1)
+  assert.equal(report.provenFolders, 1)
+  assert.equal(report.ambiguousRows, 1)
+  assert.equal(report.duplicateActiveNameGroups, 0)
+  assert.equal(report.safeToBackfill, false, 'แถวที่พิสูจน์ไม่ได้ = ห้าม backfill')
+  assert.equal(report.safeToMigrate, false, 'และห้ามย้ายสคีมา แม้ชื่อจะไม่ซ้ำเลย')
+  assert.equal(report.ambiguousSamples[0].id, 3)
+  assert.equal(report.ambiguousSamples[0].pathPrefix, 'legacy/')
+})

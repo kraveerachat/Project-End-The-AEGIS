@@ -9,8 +9,13 @@
 --
 -- ⚠️ หลักฐานที่ใช้คือธรรมเนียมการสร้างแถว ตรงกับ server/db/legacyKindClassifier.js เป๊ะ
 --    (สองที่นี้ต้องแก้พร้อมกันเสมอ ถ้าวันหนึ่งกติกาเปลี่ยน):
---      ไฟล์     path LIKE 'uploads/%'  AND sha256 IS NOT NULL
---      โฟลเดอร์ path NOT LIKE 'uploads/%' AND size_bytes = 0 AND sha256 IS NULL
+--      ไฟล์     path LIKE 'uploads/%'   AND sha256 IS NOT NULL
+--      โฟลเดอร์ path LIKE '/datalake/%' AND size_bytes = 0 AND sha256 IS NULL
+--
+-- ⚠️ ทั้งสองข้อเป็นหลักฐาน **เชิงบวก** — โฟลเดอร์ต้องมีรูปร่างที่ pgCreateFolder เขียนเอง
+--    ('/datalake/<name>') "path ที่ไม่ได้อยู่ใต้ uploads/" ไม่ใช่หลักฐาน มันบอกแค่ว่า
+--    ไม่ใช่ไฟล์ แถวอย่าง path='legacy/unknown' ขนาด 0 ไม่มี checksum ต้องทำให้การ
+--    ย้ายสคีมาหยุด ไม่ใช่กลายเป็นโฟลเดอร์เงียบ ๆ (Production ยังไม่ได้วัดว่ามีหรือไม่)
 --
 -- ⚠️ แถวที่ไม่เข้าทั้งสองแบบ = การย้ายสคีมาทั้งก้อนถูกยกเลิก (RAISE EXCEPTION)
 --    เจตนาคือ **ล้มแบบปิด**: หยุดให้เจ้าของตรวจ ดีกว่าเดาแล้วได้ไฟล์จริงที่กลายเป็น
@@ -37,14 +42,14 @@ UPDATE files
    AND path LIKE 'uploads/%'
    AND sha256 IS NOT NULL;
 
--- ⚠️ ต้องเป็นหลักฐานเชิงบวก: path ที่มีอยู่จริงและไม่ใช่ storage key ของการอัปโหลด
---    แถวที่ path เป็น NULL หรือว่างไม่ได้พิสูจน์ว่าเป็นโฟลเดอร์ มันพิสูจน์ว่าเราไม่รู้
+-- ⚠️ ต้องเป็นหลักฐานเชิงบวก: path ตามธรรมเนียมที่ pgCreateFolder เขียนเองเท่านั้น
+--    (FOLDER_PATH_PREFIX ใน legacyKindClassifier.js) แถวที่ path เป็น NULL ว่าง หรือ
+--    ขึ้นต้นด้วยอย่างอื่น ไม่ได้พิสูจน์ว่าเป็นโฟลเดอร์ มันพิสูจน์ว่าเราไม่รู้ — ปล่อยให้
+--    kind เป็น NULL ต่อไปเพื่อให้ประตูด้านล่างหยุดการย้ายสคีมา
 UPDATE files
    SET kind = 'folder'
  WHERE kind IS NULL
-   AND path IS NOT NULL
-   AND path <> ''
-   AND path NOT LIKE 'uploads/%'
+   AND path LIKE '/datalake/%'
    AND size_bytes = 0
    AND sha256 IS NULL;
 

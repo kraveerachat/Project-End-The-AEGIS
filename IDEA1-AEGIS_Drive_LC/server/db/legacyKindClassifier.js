@@ -18,18 +18,30 @@
 //    storage key ของไฟล์เป็น UUID ทึบเสมอ (fileStore.js: `${UPLOAD_DIR}/${randomUUID()}.bin`)
 //    มันจึงไม่เคยมีรูปร่างเหมือน path ของโฟลเดอร์ และไม่เคยขึ้นกับชื่อที่ผู้ใช้ตั้ง
 //
+// ⚠️ หลักฐานทั้งสองแบบต้องเป็น **เชิงบวก**: แถวเป็นโฟลเดอร์ก็ต่อเมื่อมันมีรูปร่างที่
+//    pgCreateFolder เขียนเองเท่านั้น ("path ไม่ได้อยู่ใต้ uploads/" ไม่ใช่หลักฐาน —
+//    มันแค่บอกว่าไม่ใช่ไฟล์ ไม่ได้บอกว่าเป็นอะไร) แถวอย่าง path='legacy/unknown'
+//    ขนาด 0 ไม่มี checksum จึงต้องจบที่ ambiguous เราไม่รู้ว่า Production มีแถวแบบนี้
+//    หรือไม่ และการไม่รู้คือเหตุผลที่ต้องหยุด ไม่ใช่เหตุผลที่จะเดา
+//
 // ⚠️ อะไรที่ไม่เข้าทั้งสองแบบ = AMBIGUOUS และต้อง **หยุด** ไม่ใช่เดาให้
 //    การเดาผิดหนึ่งแถวแปลว่าไฟล์จริงกลายเป็นโฟลเดอร์ถาวร หรือโฟลเดอร์ที่มีลูกกลายเป็น
 //    ไฟล์ที่ดาวน์โหลดไม่ได้ — ทั้งสองอย่างแก้ทีหลังยากกว่าการหยุดถามเจ้าของตอนนี้มาก
 
 /** คำนำหน้าของ storage key ที่ทุกการอัปโหลดใช้ (ตรงกับ UPLOAD_DIR ใน fileStore.js) */
 export const UPLOAD_KEY_PREFIX = 'uploads/'
+/**
+ * คำนำหน้าของ path ที่ pgCreateFolder เขียนให้โฟลเดอร์ทุกแถว (`/datalake/<name>` ใน store.js)
+ * ⚠️ migration 010 ตรึงค่าเดียวกันนี้ใน SQL (`path LIKE '/datalake/%'`) — สองที่นี้ต้องเท่ากันเสมอ
+ */
+export const FOLDER_PATH_PREFIX = '/datalake/'
 
 export const KIND_FILE = 'file'
 export const KIND_FOLDER = 'folder'
 export const KIND_AMBIGUOUS = 'ambiguous'
 
 const isUploadKey = (value) => typeof value === 'string' && value.startsWith(UPLOAD_KEY_PREFIX)
+const isFolderPath = (value) => typeof value === 'string' && value.startsWith(FOLDER_PATH_PREFIX)
 const hasChecksum = (value) => typeof value === 'string' && value.length > 0
 
 /**
@@ -40,18 +52,20 @@ const hasChecksum = (value) => typeof value === 'string' && value.length > 0
  */
 export function classifyLegacyRow(row = {}) {
   const storageKey = row.path
-  const sizeBytes = Number(row.size_bytes ?? 0)
   const sha = row.sha256 ?? null
 
   // ไฟล์: อยู่ใต้ storage key ของการอัปโหลด และมี checksum ที่เซิร์ฟเวอร์วัดเอง
   // (ไฟล์ 0 ไบต์ก็เข้าเงื่อนไขนี้ — chunkedUpload แฮชสตริงว่างเสมอ sha จึงไม่เคยเป็น NULL)
+  //   SQL คู่กัน: path LIKE 'uploads/%' AND sha256 IS NOT NULL
   if (isUploadKey(storageKey) && hasChecksum(sha)) return KIND_FILE
 
-  // โฟลเดอร์: มี path ตามธรรมเนียม pgCreateFolder ('/datalake/<name>') ไม่มีขนาด ไม่มี checksum
-  // ⚠️ ต้องเป็น "หลักฐานเชิงบวก" ไม่ใช่แค่ไม่เข้าเงื่อนไขไฟล์ — แถวที่ path หายไปเลย
-  //    ไม่ได้พิสูจน์ว่าเป็นโฟลเดอร์ มันพิสูจน์ว่าเราไม่รู้ ซึ่งต้องจบที่ ambiguous
-  const hasPath = typeof storageKey === 'string' && storageKey.length > 0
-  if (hasPath && !isUploadKey(storageKey) && sizeBytes === 0 && !hasChecksum(sha)) return KIND_FOLDER
+  // โฟลเดอร์: path ตามธรรมเนียม pgCreateFolder ('/datalake/<name>') ขนาด 0 และ sha256 เป็น NULL
+  //   SQL คู่กัน: path LIKE '/datalake/%' AND size_bytes = 0 AND sha256 IS NULL
+  // ⚠️ ต้องเป็นหลักฐานเชิงบวกตัวต่อตัวกับ SQL — "ไม่ใช่ uploads/" ไม่ใช่เงื่อนไข และ
+  //    size_bytes ที่หายไปก็ไม่ใช่ 0 (ใน SQL `NULL = 0` ไม่เป็นจริง) แถวที่ path เป็น
+  //    NULL/ว่าง/คำนำหน้าอื่น ไม่ได้พิสูจน์ว่าเป็นโฟลเดอร์ มันพิสูจน์ว่าเราไม่รู้
+  const sizeIsZero = row.size_bytes != null && Number(row.size_bytes) === 0
+  if (isFolderPath(storageKey) && sizeIsZero && sha === null) return KIND_FOLDER
 
   return KIND_AMBIGUOUS
 }
