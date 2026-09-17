@@ -216,3 +216,121 @@ test('KIND 10 · an unknown non-upload path is ambiguous and blocks both backfil
   assert.equal(report.ambiguousSamples[0].id, 3)
   assert.equal(report.ambiguousSamples[0].pathPrefix, 'legacy/')
 })
+
+/* ══ Round 6 · หลักฐาน "ไฟล์" ต้องหมายความเดียวกันใน preflight และ migration ════
+ *
+ * ⚠️ ข้อบกพร่องที่ชุดนี้ปิด: classifier ต้องการ checksum ที่เป็นสตริง **ไม่ว่าง**
+ *    แต่ migration ต้องการแค่ `sha256 IS NOT NULL` แถว path='uploads/x.bin' sha256=''
+ *    จึงเป็น ambiguous ใน preflight แต่เป็น file ใน migration — preflight บอกว่า
+ *    "หยุด" ขณะที่ migration จะเดินต่อและตีตราแถวนั้นว่าเป็นไฟล์ที่พิสูจน์แล้ว
+ *    checksum ที่เซิร์ฟเวอร์วัดเองไม่เคยว่าง ค่าว่างจึงไม่ใช่หลักฐานการสร้าง
+ *
+ * ⚠️ การเทียบแค่ว่าใน SQL "มีสตริงนี้อยู่" พลาดความต่างเชิงความหมายมาแล้ว (Round 5
+ *    ตรวจ `sha256 IS NOT NULL` ผ่านทั้งที่ classifier เข้มกว่า) ชุดนี้จึง **รัน** predicate
+ *    ของ migration จริง ๆ กับแถวตัวอย่างชุดเดียวกับที่ป้อน classifier แล้วบังคับให้
+ *    คำตอบตรงกันทุกแถว ตัวประเมินรองรับเฉพาะรูปประโยคที่ migration ใช้อยู่ และ
+ *    **ระเบิด** เมื่อเจอรูปประโยคอื่น — predicate ที่เปลี่ยนไปต้องทำให้เทสต์นี้แดง
+ *    ไม่ใช่ผ่านเงียบ ๆ
+ */
+
+/** อ่านเฉพาะ SQL ที่รันจริงของ migration 010 (ตัดคอมเมนต์ทิ้ง) */
+async function migration010Executable() {
+  const fs = await import('node:fs/promises')
+  const sql = await fs.readFile(new URL('../server/db/migrations/010_files_kind_parent.sql', import.meta.url), 'utf8')
+  return sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+}
+
+/** ดึง predicate (ส่วนหลัง WHERE) ของ `UPDATE files SET kind = '<kind>'` ที่อ้าง path */
+function backfillPredicate(executable, kind) {
+  const blocks = [...executable.matchAll(new RegExp(`UPDATE files\\s+SET kind = '${kind}'\\s+WHERE([\\s\\S]*?);`, 'gi'))]
+    .map((m) => m[1])
+    .filter((p) => /\bpath\b/i.test(p))
+  assert.equal(blocks.length, 1, `ต้องมี backfill ของ '${kind}' ที่อ้าง path พอดีหนึ่งบล็อก`)
+  return blocks[0]
+}
+
+/**
+ * ประเมิน predicate แบบ `a AND b AND c` กับแถวหนึ่ง ด้วยความหมายของ PostgreSQL
+ * ที่ migration พึ่งพา: NULL ไม่เท่ากับอะไรเลย และ sha256 เป็น CHAR(64) ซึ่งเทียบ
+ * ค่าโดยไม่นับช่องว่างท้าย (`''::char(64) <> ''` เป็นเท็จ)
+ */
+function evaluatePredicate(predicate, row) {
+  const clauses = predicate.split(/\bAND\b/i).map((c) => c.trim()).filter(Boolean)
+  const bpchar = (v) => (typeof v === 'string' ? v.replace(/ +$/, '') : v)
+  return clauses.every((clause) => {
+    let m
+    if ((m = clause.match(/^(\w+) IS NULL$/i))) return row[m[1]] == null
+    if ((m = clause.match(/^(\w+) IS NOT NULL$/i))) return row[m[1]] != null
+    if ((m = clause.match(/^(\w+) LIKE '([^'%_]*)%'$/i))) return typeof row[m[1]] === 'string' && row[m[1]].startsWith(m[2])
+    if ((m = clause.match(/^(\w+) = (\d+)$/i))) return row[m[1]] != null && Number(row[m[1]]) === Number(m[2])
+    if ((m = clause.match(/^(\w+) <> '([^']*)'$/i))) return row[m[1]] != null && bpchar(row[m[1]]) !== bpchar(m[2])
+    return assert.fail(`ตัวประเมินไม่รู้จักรูปประโยค "${clause}" — ถ้า migration เปลี่ยน predicate ต้องอัปเดตเทสต์นี้ให้เข้าใจมันก่อน`)
+  })
+}
+
+/** แถวตัวอย่างที่ครอบคลุมทุกขอบของหลักฐานการสร้าง — kind ยัง NULL ทุกแถวเหมือนตอน migration รัน */
+const parityRows = [
+  { label: 'uploads + sha',              path: 'uploads/x.bin',  size_bytes: 10, sha256: 'a'.repeat(64), expect: 'file' },
+  { label: 'uploads + sha, 0 bytes',     path: 'uploads/z.bin',  size_bytes: 0,  sha256: 'e'.repeat(64), expect: 'file' },
+  { label: 'uploads + NULL sha',         path: 'uploads/x.bin',  size_bytes: 10, sha256: null,           expect: 'ambiguous' },
+  { label: 'uploads + empty sha',        path: 'uploads/x.bin',  size_bytes: 10, sha256: '',             expect: 'ambiguous' },
+  { label: 'uploads + blank CHAR(64)',   path: 'uploads/x.bin',  size_bytes: 10, sha256: ' '.repeat(64), expect: 'ambiguous' },
+  { label: 'datalake folder',            path: '/datalake/Docs', size_bytes: 0,  sha256: null,           expect: 'folder' },
+  { label: 'datalake + size',            path: '/datalake/Docs', size_bytes: 1,  sha256: null,           expect: 'ambiguous' },
+  { label: 'datalake + sha',             path: '/datalake/Docs', size_bytes: 0,  sha256: 'b'.repeat(64), expect: 'ambiguous' },
+  { label: 'datalake + empty sha',       path: '/datalake/Docs', size_bytes: 0,  sha256: '',             expect: 'ambiguous' },
+  { label: 'unknown prefix',             path: 'legacy/unknown', size_bytes: 0,  sha256: null,           expect: 'ambiguous' },
+  { label: 'NULL path',                  path: null,             size_bytes: 0,  sha256: null,           expect: 'ambiguous' },
+  { label: 'empty path',                 path: '',               size_bytes: 0,  sha256: null,           expect: 'ambiguous' },
+].map((r, i) => ({ id: 100 + i, name: `row-${i}`, kind: null, ...r }))
+
+test('KIND 11 · a file needs a non-empty server checksum; an empty or blank checksum is ambiguous', () => {
+  const up = (sha256) => classifier.classifyLegacyRow({ id: 1, name: 'x.bin', path: 'uploads/x.bin', size_bytes: 10, sha256 })
+  assert.equal(up('a'.repeat(64)), 'file')
+  assert.equal(up(null), 'ambiguous')
+  assert.equal(up(''), 'ambiguous')
+  // CHAR(64) ส่งค่าว่างกลับมาเป็นช่องว่าง 64 ตัว — ต้องไม่ถูกนับเป็น checksum
+  assert.equal(up(' '.repeat(64)), 'ambiguous')
+})
+
+test('KIND 12 · the migration file predicate, executed, rejects an empty-string checksum', async () => {
+  const predicate = backfillPredicate(await migration010Executable(), 'file')
+  const base = { kind: null, path: 'uploads/x.bin', size_bytes: 10 }
+  assert.equal(evaluatePredicate(predicate, { ...base, sha256: 'a'.repeat(64) }), true)
+  assert.equal(evaluatePredicate(predicate, { ...base, sha256: null }), false)
+  assert.equal(evaluatePredicate(predicate, { ...base, sha256: '' }), false, "sha256 = '' ต้องไม่ถูก backfill เป็นไฟล์")
+  assert.equal(evaluatePredicate(predicate, { ...base, sha256: ' '.repeat(64) }), false)
+})
+
+test('KIND 13 · migration and classifier agree on every fixture row — file, folder and ambiguous alike', async () => {
+  const executable = await migration010Executable()
+  const filePredicate = backfillPredicate(executable, 'file')
+  const folderPredicate = backfillPredicate(executable, 'folder')
+
+  for (const row of parityRows) {
+    const verdict = classifier.classifyLegacyRow(row)
+    assert.equal(verdict, row.expect, `classifier: ${row.label}`)
+    const sqlFile = evaluatePredicate(filePredicate, row)
+    const sqlFolder = evaluatePredicate(folderPredicate, row)
+    assert.equal(sqlFile, verdict === 'file', `migration file predicate ≠ classifier: ${row.label}`)
+    assert.equal(sqlFolder, verdict === 'folder', `migration folder predicate ≠ classifier: ${row.label}`)
+    assert.equal(sqlFile && sqlFolder, false, `แถวเดียวถูก backfill สองชนิดไม่ได้: ${row.label}`)
+  }
+  // Round 5 ยังคงอยู่: โฟลเดอร์พิสูจน์จากคำนำหน้าเดียวกับ classifier และไม่มีหลักฐานเชิงลบ
+  assert.match(folderPredicate, new RegExp(`path LIKE '${classifier.FOLDER_PATH_PREFIX.replace(/\//g, '\\/')}%'`))
+  assert.doesNotMatch(executable, /NOT LIKE/i)
+})
+
+test('KIND 14 · an empty-checksum upload row blocks both backfill and migration in the preflight', async () => {
+  const rows = [
+    uploadedRow({ id: 1, uploaded_by: 7, deleted_at: null }),
+    { id: 2, name: 'stale.bin', path: 'uploads/stale.bin', size_bytes: 10, sha256: '', uploaded_by: 7, deleted_at: null },
+  ]
+  const report = await classifier.legacyKindPreflight({ query: async () => ({ rows }) })
+  assert.equal(report.provenFiles, 1)
+  assert.equal(report.ambiguousRows, 1)
+  assert.equal(report.safeToBackfill, false)
+  assert.equal(report.safeToMigrate, false)
+  assert.equal(report.ambiguousSamples[0].id, 2)
+  assert.equal(report.ambiguousSamples[0].hasSha, false, 'checksum ว่าง = ไม่มี checksum ในสายตาของรายงาน')
+})

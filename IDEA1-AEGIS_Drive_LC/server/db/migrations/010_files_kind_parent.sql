@@ -9,7 +9,7 @@
 --
 -- ⚠️ หลักฐานที่ใช้คือธรรมเนียมการสร้างแถว ตรงกับ server/db/legacyKindClassifier.js เป๊ะ
 --    (สองที่นี้ต้องแก้พร้อมกันเสมอ ถ้าวันหนึ่งกติกาเปลี่ยน):
---      ไฟล์     path LIKE 'uploads/%'   AND sha256 IS NOT NULL
+--      ไฟล์     path LIKE 'uploads/%'   AND sha256 IS NOT NULL AND sha256 <> ''
 --      โฟลเดอร์ path LIKE '/datalake/%' AND size_bytes = 0 AND sha256 IS NULL
 --
 -- ⚠️ ทั้งสองข้อเป็นหลักฐาน **เชิงบวก** — โฟลเดอร์ต้องมีรูปร่างที่ pgCreateFolder เขียนเอง
@@ -36,11 +36,17 @@ ALTER TABLE files
   REFERENCES files(id) ON DELETE RESTRICT;
 
 -- ── backfill จากหลักฐานการสร้างเท่านั้น ───────────────────────────────────
+-- ⚠️ checksum ต้อง "มีอยู่และไม่ว่าง": เซิร์ฟเวอร์วัด sha256 เองเสมอ ค่าว่างจึงไม่ใช่
+--    หลักฐานการสร้าง และ preflight (hasChecksum ใน legacyKindClassifier.js) ก็ปฏิเสธ
+--    ค่าว่างอยู่แล้ว — ถ้า SQL รับ '' ไว้ preflight จะบอกว่า "หยุด" ขณะที่ migration
+--    เดินต่อ ซึ่งผิดกติกาที่สองที่นี้ต้องตัดสินแถวปกติเหมือนกันทุกแถว
+--    (sha256 เป็น CHAR(64) — bpchar เทียบโดยไม่นับช่องว่างท้าย '' ที่ถูกเก็บจึงยังเท่ากับ '')
 UPDATE files
    SET kind = 'file'
  WHERE kind IS NULL
    AND path LIKE 'uploads/%'
-   AND sha256 IS NOT NULL;
+   AND sha256 IS NOT NULL
+   AND sha256 <> '';
 
 -- ⚠️ ต้องเป็นหลักฐานเชิงบวก: path ตามธรรมเนียมที่ pgCreateFolder เขียนเองเท่านั้น
 --    (FOLDER_PATH_PREFIX ใน legacyKindClassifier.js) แถวที่ path เป็น NULL ว่าง หรือ

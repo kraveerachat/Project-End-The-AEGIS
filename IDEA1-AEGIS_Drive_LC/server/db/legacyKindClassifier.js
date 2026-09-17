@@ -42,7 +42,11 @@ export const KIND_AMBIGUOUS = 'ambiguous'
 
 const isUploadKey = (value) => typeof value === 'string' && value.startsWith(UPLOAD_KEY_PREFIX)
 const isFolderPath = (value) => typeof value === 'string' && value.startsWith(FOLDER_PATH_PREFIX)
-const hasChecksum = (value) => typeof value === 'string' && value.length > 0
+// ⚠️ sha256 เป็น CHAR(64): ค่าว่างที่เคยถูกเขียนลงไปจะกลับมาเป็นช่องว่าง 64 ตัว และ
+//    PostgreSQL เทียบ bpchar โดยไม่นับช่องว่างท้าย (`''::char(64) <> ''` เป็นเท็จ)
+//    ตัดช่องว่างท้ายก่อนตัดสินเพื่อให้เท่ากับ `sha256 <> ''` ของ migration ตัวต่อตัว
+//    checksum ที่เซิร์ฟเวอร์วัดเองไม่เคยว่าง — ค่าว่างจึงไม่ใช่หลักฐานการสร้าง
+const hasChecksum = (value) => typeof value === 'string' && value.replace(/ +$/, '').length > 0
 
 /**
  * จำแนกหนึ่งแถวจากหลักฐานการสร้าง — ไม่แตะชื่อไฟล์เลยแม้แต่ครั้งเดียว
@@ -56,7 +60,7 @@ export function classifyLegacyRow(row = {}) {
 
   // ไฟล์: อยู่ใต้ storage key ของการอัปโหลด และมี checksum ที่เซิร์ฟเวอร์วัดเอง
   // (ไฟล์ 0 ไบต์ก็เข้าเงื่อนไขนี้ — chunkedUpload แฮชสตริงว่างเสมอ sha จึงไม่เคยเป็น NULL)
-  //   SQL คู่กัน: path LIKE 'uploads/%' AND sha256 IS NOT NULL
+  //   SQL คู่กัน: path LIKE 'uploads/%' AND sha256 IS NOT NULL AND sha256 <> ''
   if (isUploadKey(storageKey) && hasChecksum(sha)) return KIND_FILE
 
   // โฟลเดอร์: path ตามธรรมเนียม pgCreateFolder ('/datalake/<name>') ขนาด 0 และ sha256 เป็น NULL
