@@ -51,8 +51,8 @@ IDEA2_TUNNEL_HEALTHY            = NO  (tunnel flapping, NRestarts > 1450; §2.3)
 IDEA2_RUNTIME_HEALTHY           = NO  (Detection Engine heartbeat fails; §2.3) — not an IDEA3 claim or fix
 IDEA2_PRESERVATION_BASELINE     = CAVEATED — §10 IDEA2 check cannot pass as written (§2.3, §10)
 OWNER_DECISIONS                 = OD-01..OD-17 (OD-15 optional hardening; OD-16, OD-17 added) — none chosen
-TASK_SPLIT                      = T0..T9 recorded (§14); T0 COMPLETE; T1 IN PROGRESS; T2..T9 NOT STARTED
-T1_G15_FRAMEWORK                = IN PROGRESS — repository implementation checkpoint 9c82e4a0 on feat/idea3-pr11-phase4-capture-harness (Draft PR #152); human review pending; G-15 NOT CLOSED
+TASK_SPLIT                      = T0..T9 recorded (§14); T0 COMPLETE; T1 REPOSITORY CLOSEOUT COMPLETE; T2..T9 NOT STARTED
+T1_G15_FRAMEWORK                = CLOSED — repository boundary only; implementation/evidence checkpoint 9c82e4a0; PR #152 human review PASS; live rollout NOT RUN; human merge pending
 FINAL_RECEIPT                   = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-17_043011_music_idea3-pr11-phase4-runtime-prereqs-t0.md
 ```
 
