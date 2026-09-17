@@ -114,7 +114,7 @@ edit_policy: owner-writable
 | Owner | `kla` |
 | PR | PR #148 (Draft) — see the Session Register below |
 | Repository starting checkpoint | `c89eeecaf3c6b577dd96343861a1dc7091a8d31e` — `origin/main` resolved fresh at session start (merge of PR #145) |
-| Current state | **FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1: CANDIDATE 22ff70a8 LINUX VERIFICATION PASS; PRODUCTION DEPLOY PASS (IMAGE aegis-prod-drive:files-upload-ux-22ff70a85088); HUMAN OWNER BROWSER ACCEPTANCE PARTIAL_PASS (14 PASS, 3 PENDING, 1 NOT TESTED); TASK IN PROGRESS / DRAFT / DO NOT MERGE** |
+| Current state | **PR148_SOURCE=PASS; PR148_LINUX=PASS (64/64 BROADER GROUP PASS); PR148_PRODUCTION_DEPLOY=PASS (IMAGE aegis-prod-drive:files-upload-ux-22ff70a85088); PR148_BROWSER_ACCEPTANCE=PASS (17 PASS, ACCOUNT-SCOPE NOT TESTED); PR148_FINAL_RECEIPT=CREATED; FILES-TRANSFER-PERF-1=OPEN_DIAGNOSIS; PR #148 DRAFT / DO NOT MERGE** |
 | Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
 | Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-upload-ux-refresh`; the primary tree was occupied by another task's branch and was not used |
 
@@ -154,9 +154,10 @@ Final acceptance requires: Linux firewall verification, Drive-only candidate Pro
 | S7 | Documentation / PR #148 / Obsidian evidence reconciliation | CHECKPOINT | see Session S7 | `d13dd9b7` | reconciliation completed subject to factual correction | factual correction / Linux verification | S8 doc correction |
 | S8 | Factual documentation / PR body correction checkpoint | CHECKPOINT | see Session S8 | `dcc6599d1b7d9fedb04825d1b39e444f9d95c667` | factual documentation correction completed | Linux gate / Production deployment / Human browser retest | Linux verification of exact PR HEAD |
 | S9 | Reconcile origin/main into branch (`3cbf5202`, `22ff70a8`) | CHECKPOINT | git merge origin/main | `22ff70a8` | merge clean / tests PASS | Linux verification & production deploy | Linux verification |
-| S10 | Linux exact-SHA re-verification & Production deployment | CHECKPOINT | see Session S10 | `22ff70a8` | Linux gate PASS / Production image `aegis-prod-drive:files-upload-ux-22ff70a85088` deployed PASS | Human Owner browser testing | Human Owner browser testing |
-| S11 | Human Owner browser acceptance on candidate 22ff70a8 | ACCEPTED (PARTIAL) | see Session S11 | `22ff70a8` | Production acceptance PARTIAL_PASS (14 PASS, 3 PENDING, 1 NOT TESTED) | address pending items or register follow-ups | documentation & follow-up reconciliation |
-| S12 | Production evidence reconciliation, follow-up task registration & PR body update | CHECKPOINT | see Session S12 | pending docs commit | docs & PR body updated / validation PASS | complete remaining pending browser tests | Human Owner verification of wrong-file/discard |
+| S10 | Linux exact-SHA re-verification & Production deployment | CHECKPOINT | see Session S10 | `22ff70a8` | Linux broader firewall group 64/64 PASS / Production image `aegis-prod-drive:files-upload-ux-22ff70a85088` deployed PASS | Human Owner browser testing | Human Owner browser testing |
+| S11 | Human Owner browser acceptance on candidate 22ff70a8 | ACCEPTED / PASS | see Session S11 | `22ff70a8` | Production acceptance PASS / Core browser acceptance PASS (17 PASS, account-scope NOT TESTED) | address performance follow-up in FILES-TRANSFER-PERF-1 | documentation & receipt closeout |
+| S12 | Production evidence reconciliation & follow-up task registration | CHECKPOINT | see Session S12 | `5c411050` | partial evidence & follow-up tasks registered | complete remaining browser acceptance | S13 final documentation closeout |
+| S13 | Final documentation closeout, Linux evidence correction & immutable receipt | CLOSED / PASS | see Session S13 & receipt | this docs commit | PR148_FINAL_RECEIPT=CREATED / PR body updated / guardrails PASS | human review and merge | human review / merge |
 
 ### Session S1 — implementation
 
@@ -318,7 +319,7 @@ OCI Image: `aegis-prod-drive:files-upload-ux-22ff70a85088`
 OCI Image ID: `sha256:bd0a33f3a43c848ebb4559428bed65203211e4957f8f3629332b1408951f26c0`
 
 **Environment & pre-deployment verification:**
-- Linux exact-SHA verification: `LINUX_EXACT_SHA_REVERIFICATION=PASS` (`tests/publicShareS55FirewallContract.test.js` 39/39 PASS).
+- Linux exact-SHA verification: `LINUX_EXACT_SHA_REVERIFICATION=PASS` across broader Linux firewall test group: 64 total, 64 passed, 0 failed, 0 skipped (`FIREWALL_TOTAL=64`, `FIREWALL_PASS=64`, `FIREWALL_FAIL=0`, `FIREWALL_SKIP=0`), covering `publicShareS55FirewallContract`, `publicShareS55BridgeFirewallContract`, `publicShareS55FirewallNftNormalization`, native bash / mock iptables/docker/nft contracts, with zero env bypass (individual firewall contract subset: 39/39 PASS retained).
 - Production deployment: `PRODUCTION_DEPLOY=PASS`.
 - Drive-only deployment verified:
   - candidate OCI revision exact (`aegis-prod-drive:files-upload-ux-22ff70a85088`)
@@ -333,7 +334,7 @@ OCI Image ID: `sha256:bd0a33f3a43c848ebb4559428bed65203211e4957f8f3629332b140895
 
 ### Session S11 — Human Owner browser acceptance of candidate 22ff70a8
 
-State: **ACCEPTED (PARTIAL)**
+State: **ACCEPTED / PASS**
 Candidate SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
 Production image: `aegis-prod-drive:files-upload-ux-22ff70a85088`
 
@@ -348,23 +349,22 @@ Production image: `aegis-prod-drive:files-upload-ux-22ff70a85088`
   - `SAME_FILE_RESUME=PASS`: User re-selected the same local file; upload resumed from server-side received progress rather than restarting the logical session.
   - `MISSING_CHUNK_RESUME=PASS`: Server-side received chunk map is respected; only unreceived chunks are transferred over the wire.
   - `RESUME_COMPLETED=PASS`: Recovered upload (~2.9 GB) completed successfully end-to-end.
+  - `WRONG_FILE_REJECTION=PASS`: Verification of wrong-size or mismatched SHA-256 file rejection in browser completed and confirmed PASS.
+  - `DISCARD_UPLOAD=PASS`: Verification of `Discard upload` action cancelling session and clearing tray row completed and confirmed PASS.
+  - `DISCARD_SURVIVES_REFRESH=PASS`: Verification that discarded upload does not reappear after browser refresh completed and confirmed PASS.
   - `BATCH_AGGREGATE_RATE=PASS`: Two active large uploads showed aggregate throughput of approximately 3.4 MB/s (~1.7 MB/s per file).
   - `BATCH_AGGREGATE_ETA=PASS`: Aggregate ETA displayed accurately across active items.
   - `CHECKING_BATCH_WORKLOAD=PASS`: Waiting/checking files are included in remaining workload calculations.
   - `OVERSIZE_REJECTION=PASS`: File of approximately 6 GB rejected before transfer by configured logical file limit.
   - `OVERSIZE_NO_RETRY=PASS`: UI exposes Dismiss and no Retry button for oversized rejections; not sent over the wire.
-- **PENDING**:
-  - `WRONG_FILE_REJECTION=PENDING`: Verification of wrong-size or mismatched SHA-256 file rejection in browser.
-  - `DISCARD_UPLOAD=PENDING`: Verification of `Discard upload` action cancelling session and clearing tray row.
-  - `DISCARD_SURVIVES_REFRESH=PENDING`: Verification that discarded upload does not reappear after browser refresh.
 - **NOT TESTED**:
   - `ACCOUNT_SCOPE_BROWSER_ACCEPTANCE=NOT_TESTED`: Multi-account browser switching manual test not executed (automated and source unit tests pass).
-- **Acceptance Verdict**: `PRODUCTION_ACCEPTANCE=PARTIAL_PASS`. `FINAL_RECEIPT_CREATED=NO`. `PR_READY_TO_MERGE=NO`. `DO_NOT_MERGE=TRUE`.
+- **Acceptance Verdict**: `PRODUCTION_ACCEPTANCE=PASS`. `CORE_BROWSER_ACCEPTANCE=PASS`. `FINAL_RECEIPT_CREATED=YES`. `PR_READY_TO_MERGE=NO`. `DO_NOT_MERGE=TRUE`.
 
 ### Session S12 — evidence reconciliation & follow-up task registration
 
 State: **CHECKPOINT**
-Checkpoint SHA: pending docs commit
+Checkpoint SHA: `5c411050e47402f22c671d5b0d8dd57c0125635a`
 Starting SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
 
 **Work performed (Gemini):**
@@ -373,6 +373,20 @@ Starting SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
 - Classified 6 GB rejection as expected behavior under the current ~5 GiB deployment configuration, not a PR #148 defect.
 - Registered follow-up diagnosis task `FILES-TRANSFER-PERF-1` with subtracks PERF-A through PERF-E.
 - Updated GitHub PR #148 body in place; maintained Draft state (`DO_NOT_MERGE=TRUE`).
+
+### Session S13 — final documentation closeout, Linux evidence correction & immutable receipt
+
+State: **CLOSED / PASS**
+Starting SHA: `5c411050e47402f22c671d5b0d8dd57c0125635a`
+Production-tested source SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
+
+**Work performed (Gemini):**
+- Corrected Linux verification evidence to document authoritative broader firewall test group: 64 total, 64 passed, 0 failed, 0 skipped (`FIREWALL_TOTAL=64`, `FIREWALL_PASS=64`, `FIREWALL_FAIL=0`, `FIREWALL_SKIP=0`), covering `publicShareS55FirewallContract`, `publicShareS55BridgeFirewallContract`, `publicShareS55FirewallNftNormalization`, native bash / mock iptables/docker/nft contracts, with zero env bypass (individual firewall subset: 39/39 PASS retained).
+- Recorded complete Human Owner browser acceptance on candidate `22ff70a8` (`PRODUCTION_ACCEPTANCE=PASS`, `CORE_BROWSER_ACCEPTANCE=PASS` with all 17 items PASS; `ACCOUNT_SCOPE_BROWSER_ACCEPTANCE=NOT_TESTED`).
+- Created one immutable final task receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-18_013000_kla_idea1-files-upload-ux-refresh.md`.
+- Updated canonical IDEA1 status note with `PR148_SOURCE=PASS`, `PR148_LINUX=PASS`, `PR148_PRODUCTION_DEPLOY=PASS`, `PR148_BROWSER_ACCEPTANCE=PASS`, `PR148_FINAL_RECEIPT=CREATED`, and `FILES-TRANSFER-PERF-1=OPEN_DIAGNOSIS`.
+- Updated GitHub PR #148 body with final evidence and immutable receipt path; kept PR #148 in Draft state (`PR_MARKED_READY=NO`, `DO_NOT_MERGE=TRUE`, `PR_MERGED=NO`).
+- PR #150 remained strictly untouched.
 
 ### Security & Privacy Architecture — Upload Recovery
 
@@ -433,25 +447,28 @@ Starting SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
 | Policy & vault tests | **50/50 PASS** | `collaborationPolicy`, `vaultStructure`, `vaultMultiWriter` |
 | Vault integrity | **PASS** | `scripts/validate-vault.mjs` (2 pre-existing canvas review warnings) |
 | Git diff check | **CLEAN** | `git diff --check` |
-| Linux exact-SHA re-verification | **PASS** | `tests/publicShareS55FirewallContract.test.js` 39/39 PASS on candidate `22ff70a8` |
+| Linux broader firewall group | **64/64 PASS** | `FIREWALL_TOTAL=64`, `FIREWALL_PASS=64`, `FIREWALL_FAIL=0`, `FIREWALL_SKIP=0` on candidate `22ff70a8` (covering bridge, nft normalization, mock iptables/docker/nft; subset `publicShareS55FirewallContract` 39/39 PASS) |
 | Production deployment | **PASS** | Candidate `22ff70a8`, image `aegis-prod-drive:files-upload-ux-22ff70a85088`, image ID `sha256:bd0a33f3a43c...`, Drive-only verified |
-| Human browser acceptance | **PARTIAL_PASS** | 14 PASS, 3 PENDING, 1 NOT TESTED on candidate `22ff70a8` |
-| Task status | **IN PROGRESS / ACCEPTED (PARTIAL)** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT`, `DO_NOT_MERGE=TRUE` |
-| Next gate | **COMPLETE_WRONG_FILE_DISCARD_BROWSER_ACCEPTANCE** | Complete pending browser acceptance items |
+| Human browser acceptance | **PASS** | `CORE_BROWSER_ACCEPTANCE=PASS` / `PRODUCTION_ACCEPTANCE=PASS` (17 PASS items on candidate `22ff70a8`; `ACCOUNT_SCOPE_BROWSER_ACCEPTANCE=NOT_TESTED`) |
+| Final receipt | **CREATED** | `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-18_013000_kla_idea1-files-upload-ux-refresh.md` |
+| Task status | **COMPLETE / READY FOR HUMAN REVIEW** | `TASK_CLOSED=YES`, `FINAL_RECEIPT=CREATED`, `PR_STATE=DRAFT`, `DO_NOT_MERGE=TRUE` |
+| Next gate | **FINAL_DOCS_ONLY_AND_CURRENT_MAIN_INTEGRITY_VERIFICATION** | Repository verification, human review and merge |
 
 **Verification caveat & remaining gates (environment, not source).**
 - **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js` never returns on this Windows workstation: it drives `gateway/public-share/production/` shell scripts through `spawnSync`. It was verified in isolation to hang for 180 s+ with zero output, imports nothing under `src/`, and is untouched by this change, so it was excluded from the Windows run and its 19 tests are **NOT MEASURED on this host** rather than counted as passing. The Linux exact-SHA re-verification was executed and passed on Linux.
-- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. S10 re-verification of candidate `22ff70a8` passed all 39 firewall contract tests.
+- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. Authoritative Linux verifier report for exact SHA `22ff70a8` confirmed 64/64 PASS on broader firewall test group (and 39/39 PASS on individual contract subset).
 - **Production deployment**: Candidate `22ff70a8` deployed and healthy under OCI image `aegis-prod-drive:files-upload-ux-22ff70a85088`.
-- **Human Owner browser acceptance**: Candidate `22ff70a8` verified with 14 PASS items (including reload recovery, resume from received chunks, and aggregate batch ETA). 3 items remain PENDING (`WRONG_FILE_REJECTION`, `DISCARD_UPLOAD`, `DISCARD_SURVIVES_REFRESH`) and 1 item is NOT TESTED in browser (`ACCOUNT_SCOPE_BROWSER_ACCEPTANCE`).
-- **Task completion**: Task remains Draft/in progress. No final immutable receipt created yet. Do NOT mark Ready. Do NOT merge.
+- **Human Owner browser acceptance**: Candidate `22ff70a8` verified with all 17 PASS items (including reload recovery, resume from received chunks, wrong-file rejection, discard upload, discard surviving refresh, and aggregate batch rate/ETA). 1 item remains classified as NOT TESTED in browser (`ACCOUNT_SCOPE_BROWSER_ACCEPTANCE`), though automated unit tests pass.
+- **Task completion**: Repository and browser verification are complete. One immutable final task receipt is created. PR remains Draft awaiting human owner review and merge (`DO_NOT_MERGE=TRUE`).
 
 **Known limitations (Production & repository phase).**
 - Stall classification depends on the browser emitting `XMLHttpRequest` upload progress events plus the clock tick. This matches the existing Private Vault integration and was not changed here.
 - Transfer concurrency is unchanged: files are still processed as the existing engine schedules them. This task changed presentation, recovery, and ETA estimation, not transport concurrency.
 - Browser storage boundary: LocalStorage is origin-scoped in the browser; namespacing by user ID protects normal application flow, while server session ownership provides authoritative security.
 - Logical file capacity: Current Production limit is ~5 GiB (6 GB rejection is expected). Real 32 GiB support requires separate performance, storage reserve, and timeout validation under `FILES-TRANSFER-PERF-1`.
-- Remaining browser tests: Wrong-file rejection, discard upload, and discard surviving refresh remain pending manual verification by Human Owner before final receipt creation.
+- Account-scope browser verification: Multi-account browser switching manual test not executed (`ACCOUNT_SCOPE_BROWSER_ACCEPTANCE=NOT_TESTED`); automated unit tests verify account-scoping.
+- npm audit baseline: 8 known dependencies vulnerabilities (5 moderate, 3 high) in baseline packages; no security-clean claim is made.
+- Documentation/receipt commit distinction: The commit creating the receipt and updating documentation (`FINAL_DOCS_HEAD`) is documentation-only and must not be described as Production-tested runtime.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
 
