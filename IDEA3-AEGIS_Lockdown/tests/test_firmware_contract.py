@@ -143,3 +143,25 @@ def test_platformio_pins_firmware_dependencies_without_upload_changes():
     assert "knolleary/PubSubClient@2.8" in text
     assert "bblanchon/ArduinoJson@7.0.4" in text
     assert "upload_protocol" not in text
+
+
+def test_firmware_wifi_join_is_non_blocking_and_fail_secure():
+    wifi = _function("startWiFi")
+    loop = _function("loop")
+    connect = _function("connectMQTT")
+    assert "WiFi.mode(WIFI_STA)" in wifi
+    assert "WiFi.begin(" in wifi
+    assert "while (" not in wifi
+    assert "delay(" not in wifi
+    assert "serviceNetworkBootstrap();" in loop
+    assert "WiFi.status() != WL_CONNECTED" in connect
+    assert "RELAY_RELEASE" not in wifi
+
+
+def test_firmware_ntp_bootstrap_is_non_blocking():
+    sync = _function("syncTimeNTP")
+    assert "sntp_set_sync_interval(60000)" in sync
+    assert "configTime(" in sync
+    assert "while (" not in sync
+    assert "delay(" not in sync
+    assert "ntpConfigured" in sync
