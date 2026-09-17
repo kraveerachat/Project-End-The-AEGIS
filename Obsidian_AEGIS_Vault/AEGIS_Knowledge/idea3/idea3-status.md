@@ -110,6 +110,159 @@ started.
 | P3-R1 | systemd 261 compatibility correction (repository only) | PASS | P3-C8 RED then GREEN; full IDEA3 pytest, Ruff, compileall, diff check, vault and collaboration-policy validation, secret/binary scan; static unit verify leaves only the expected ExecStart warning | this branch's P3-R1 commit | CORRECTED — LOCAL / STATIC only | Phase 4 runtime prerequisites | Phase 4 MQTT/v1 runtime gate, separately authorized |
 | P3-L1 | Live Core installation and validation | BLOCKED | — | — | — | Phase 4 TLS listener, MQTT CA, Core broker credential, v1 device keys/config, non-default Admin PIN; disk headroom; explicit Production mutation authorization | — |
 
+## IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness — REPOSITORY CLOSEOUT COMPLETE — 2026-09-17
+
+> [!important] T1 / G-15 repository framework — CLOSED (repository boundary only; human merge pending)
+> T1 implements only the repository-side part of G-15: a read-only L0 capture,
+> a deterministic before/after preservation comparison, a fail-closed stage
+> authorization gate, and a rollback-handler **contract**, under
+> `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/`. No stage mutation or rollback
+> handler exists. Nothing ran on the Core, and no host, network, firewall, time,
+> broker, certificate, secret, firmware, or service state changed. Human review
+> of PR #152 passed. The G-15 **repository framework** is closed; live rollout,
+> live acceptance, and Phase 4 runtime remain open.
+
+```text
+T0_COMPLETE                    = YES (PR #151 merged 94793b02)
+T1_IMPLEMENTATION_STARTED      = YES
+T1_REPOSITORY_IMPLEMENTED      = YES — implementation/evidence checkpoint 9c82e4a0 (LOCAL VERIFIED only)
+G15_REPOSITORY_FRAMEWORK       = CLOSED — repository boundary only; live rollout NOT RUN
+PHASE3_RUNTIME_COMPLETE        = NO
+PHASE4_RUNTIME_COMPLETE        = NO
+PHASE4_LIVE_READINESS          = NOT READY
+D4_LIVE_VERIFIED               = NO
+K12                            = NOT_PROVEN
+IDEA2_TUNNEL_HEALTHY           = NO
+IDEA2_RUNTIME_HEALTHY          = NO
+PRODUCTION_MUTATION            = NO
+LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
+FINAL_RECEIPT                  = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-17_095220_music_idea3-pr11-phase4-t1-g15.md
+T2_T9_IMPLEMENTATION_STARTED   = NO
+```
+
+### Current Task
+
+Task: IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness
+Branch: `feat/idea3-pr11-phase4-capture-harness`
+Owner: `music`
+PR: #152 (Ready/non-Draft)
+Current state: ACCEPTANCE PENDING — repository closeout complete; human merge pending
+Started: 2026-09-17
+Base SHA: `94793b02e0bbd124f87c779fab3cbe3b12e3e0fd`
+Last checkpoint: `e96d8188` (documentation); implementation/evidence checkpoint `9c82e4a0`
+Production mutation allowed: NO
+
+- **Goal:** a reviewed repository framework, so later Phase 4 live stages can
+  capture L0 read-only, compare before/after preservation deterministically,
+  refuse to proceed without same-day authorization and K3, and plug in
+  stage-specific rollback handlers under one contract.
+- **Scope:** `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/**`,
+  `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py`, this note, and the
+  Phase 4 execution document status lines.
+- **Out of scope:**
+  - any live stage, AP/IP/DHCP/DNS/nftables/sysctl/rfkill/NetworkManager/Mosquitto change;
+  - chrony, certificate, key, or secret creation;
+  - Core install/start, ESP32 work, CUT, RESTORE, reboot;
+  - IDEA2 diagnosis or fix;
+  - stage apply/rollback handlers;
+  - T2–T9; PR #149 and PR #147;
+  - merging.
+- **Safety boundaries:**
+  - every capture host command passes the anchored `p4_ro` read-only allowlist;
+  - secret-bearing files are metadata only, and journals are reduced to counts;
+  - §10 is not weakened: an unhealthy IDEA2 baseline fails the comparison even
+    when unchanged, and no narrowed criterion is accepted;
+  - the gate never authorizes a live stage.
+- **Acceptance criteria:** focused and full IDEA3 tests pass; restoring
+  negative controls prove the guard, secret handling, §10 finding, denylist,
+  K3, freshness, and forwarding rules are load-bearing; repository validation
+  passes; human code/content review; then final closeout with one receipt.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P4-T1-S1 | T1 test-first implementation: L0 capture, compare, stage gate, rollback contract (repository only) | CLOSED | RED 122 failed / 37 passed (scripts absent); GREEN focused 159 passed; full IDEA3 1120 passed / 6 skipped (base 961 / 6); compileall PASS; `bash -n` PASS; shellcheck NOT RUN (not installed); ruff: T1 file PASS, 8 pre-existing base findings unchanged; restoring negative controls NC1–NC9 fail→restore→pass with no residue; changed-line secret scan 0 material; human PR review PASS | `9c82e4a0` | PASS — REPOSITORY_IMPLEMENTED / HUMAN_REVIEW_PASS / REPOSITORY_CLOSEOUT_COMPLETE (LOCAL VERIFIED only) | human merge PR #152; live Phase 4 remains separate and unauthorized | human merge PR #152 |
+
+---
+
+## IDEA3 PR11 Phase 4 live runtime prerequisites — T0 complete — 2026-09-17
+
+> [!important] IDEA3 PR11 Phase 4 prerequisite reconciliation (T0) — COMPLETE (repository-only)
+> Human Content Review of PR #151 = PASS (owner confirmation, 2026-09-17).
+> Closing T0 closes **only** the prerequisite reconciliation and task split. It
+> does not close Phase 3 or Phase 4 runtime, and `PHASE4_LIVE_READINESS` stays
+> `NOT READY`. Human approval and merge of PR #151 remain separate steps.
+> This task reconciles the merged Phase 4 Protocol v1 repository package
+> (PR #135) with the owner-run read-only Core evidence P4-E1 to P4-E3. The
+> current execution document is
+> `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-17-idea3-pr11-phase4-runtime-prerequisites.md`.
+> No Core host, Wi-Fi, network, firewall, time, broker, certificate, secret,
+> firmware, or service state was changed. The Phase 2 final closeout below
+> remains the latest closed record.
+
+```text
+P4_PREREQ_T0                   = COMPLETE
+P4_PREREQ_CONTENT_REVIEW       = PASS (PR #151 Human Content Review, 2026-09-17)
+PHASE4_LIVE_READINESS          = NOT READY — owner values, owner decisions, and repository gaps outstanding
+REPOSITORY_GAPS                = 16 (G-01..G-16; 14 BLOCKING, 2 LOW) — see execution document §6
+OWNER_VALUES / DECISIONS       = OV-01..OV-14 / OD-01..OD-17 — none chosen or generated by the agent (OD-15 = optional hardening, not blocking)
+PLANNING_FINDINGS              = PF-01..PF-05 recorded, all OPEN (execution document §6.1)
+TASK_SPLIT                     = T0..T9 recorded (execution document §14); T1..T9 NOT STARTED
+PHASE3_DEPENDENCY              = YES for Core install/start and device stages (PR #149, Draft, unmerged; integration strategy OD-17); NO for AP/firewall/NTP/broker stages
+K3                             = OWNER_CONFIRMATION_REQUIRED (open IDEA1 Draft PRs #148 and #150 prove neither an active nor a closed Production mutation/verification window; Production activity is not inferred from PR state)
+IDEA2_PROCESS_ACTIVE           = YES (OWNER-RUN; unit/process state only)
+IDEA2_TUNNEL_HEALTHY           = NO  (tunnel flapping, NRestarts > 1450; SSH :22 timeout; :18002 absent)
+IDEA2_RUNTIME_HEALTHY          = NO  (Detection Engine heartbeat connection refused) — outside IDEA3 ownership; not diagnosed or fixed here
+LIVE_MUTATION_AUTHORIZED       = NO
+PRODUCTION_MUTATION            = NO
+PHASE3_RUNTIME_COMPLETE        = NO
+PHASE4_RUNTIME_COMPLETE        = NO
+D4_LIVE_VERIFIED               = NO
+K12                            = NOT_PROVEN
+T1_T9_IMPLEMENTATION_STARTED   = NO
+FINAL_RECEIPT                  = 90-Status/logs/2026-09-17_043011_music_idea3-pr11-phase4-runtime-prereqs-t0.md
+```
+
+> [!warning] IDEA2 preservation caveat (OWNER-RUN, 2026-09-17)
+> `PROCESS_ACTIVE != TUNNEL_HEALTHY != IDEA2_RUNTIME_HEALTHY`. The earlier
+> P4-E evidence ("IDEA2 units active") proves process state only.
+> `aegis-detection-engine.service` runs with `NRestarts=0` and local `:8077`
+> listens. `aegis-detection-tunnel.service` is active but flapping
+> (`Restart=always`, `RestartSec=5s`, NRestarts > 1450). SSH to
+> `192.168.10.10:22` times out, `127.0.0.1:18002` is absent, and the heartbeat
+> fails with connection refused. The Phase 4 §10 IDEA2 preservation check
+> cannot pass as written, so every future live stage would stop until the
+> IDEA2 owners restore the tunnel or accept a narrowed criterion in writing.
+
+### Current Task
+
+Task: IDEA3 PR11 Phase 4 live runtime prerequisite reconciliation (T0)
+Branch: `feat/idea3-pr11-phase4-runtime-prereqs`
+Owner: `music`
+PR: #151 (Draft)
+Current state: COMPLETE (T0) — Human Content Review PASS; one final receipt; PR #151 awaits human approval and merge
+Started: 2026-09-17
+Base SHA: `232759cf4e44094c61f15e3d041c09eb1478b42c`
+Last checkpoint: `24f23698` (final documentation checkpoint before closeout; P4-P1 `b1d938c8`, P4-P2 `f5c1276b` + `24f23698`)
+Production mutation allowed: NO
+
+- **Goal:** a precise, evidence-based live-readiness matrix, owner-value and
+  decision list, repository-gap list, and staged, rollback-safe execution
+  order for Phase 4 live runtime.
+- **Out of scope:** any live mutation; package installation; secret or
+  certificate creation; IDEA1/IDEA2 source; the final receipt; merging.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P4-P1 | Readiness audit and execution document (repository only) | PASS | Source/template audit at `232759cf`; owner-reported P4-E1..E3; GitHub read of PR #148/#149; repository validation (see PR) | `b1d938c8` | NOT READY FOR LIVE — gaps and owner inputs recorded | owner decisions OD-01..OD-14; gap-closure PRs G-01..G-16 | owner decisions, then repository gap closure |
+| P4-P2 | Plan-review corrections (T0): IDEA2 preservation caveat, PF-01..PF-05, OD-15..OD-17, T0–T9 task split, K3 #148/#150 and OD-15 wording (repository only) | CLOSED | owner-run IDEA2 evidence E-25..E-32; plan review 2026-09-17; guardrail run 35151245753 PASS at `24f23698` | `f5c1276b`, `24f23698` | PASS — Human Content Review PASS | none for T0 | T0 closeout |
+| P4-C | T0 final closeout and single receipt (repository only) | CLOSED | Human Content Review PASS; final repository validation (see PR #151) | `24f23698` (final documentation checkpoint; the receipt commit SHA is recorded in PR #151) | PASS — T0 COMPLETE; Phase 4 live NOT READY | human approval and merge of PR #151; owner decisions OD-01..OD-17; T1–T9 | after human merge of #151: T1, T2, T7 on independent branches; T8 after its owner decisions |
+
+---
+
 ## IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17
 
 > [!important] Current IDEA3 truth — read this section first
