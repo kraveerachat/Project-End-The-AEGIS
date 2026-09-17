@@ -334,3 +334,29 @@ test('KIND 14 · an empty-checksum upload row blocks both backfill and migration
   assert.equal(report.ambiguousSamples[0].id, 2)
   assert.equal(report.ambiguousSamples[0].hasSha, false, 'checksum ว่าง = ไม่มี checksum ในสายตาของรายงาน')
 })
+
+test('KIND 15 · migration 010 converges on schema.sql: DEFAULT \'file\' exists, but only after the fail-closed gate', async () => {
+  const fs = await import('node:fs/promises')
+  const migration = await fs.readFile(new URL('../server/db/migrations/010_files_kind_parent.sql', import.meta.url), 'utf8')
+  const schema = await fs.readFile(new URL('../server/db/schema.sql', import.meta.url), 'utf8')
+
+  // ⚠️ การติดตั้งใหม่ (schema.sql) กับการอัปเกรด (010) ต้องได้คอลัมน์รูปเดียวกัน ไม่งั้น
+  //    INSERT ที่ไม่ระบุ kind จะผ่านบนเครื่องหนึ่งและระเบิด 23502 บนอีกเครื่อง
+  assert.match(schema, /kind\s+TEXT NOT NULL DEFAULT 'file'/, "schema.sql ต้องประกาศ DEFAULT 'file'")
+
+  const addColumn = migration.match(/ALTER TABLE files ADD COLUMN IF NOT EXISTS kind[^;]*;/i)?.[0]
+  assert.ok(addColumn, 'ต้องมีการเพิ่มคอลัมน์ kind')
+  // ⚠️ ห้ามใส่ DEFAULT ตอนเพิ่มคอลัมน์: PostgreSQL จะเติมค่านั้นให้ทุกแถวเก่าทันที
+  //    แถวที่จำแนกไม่ได้จะกลายเป็น 'file' ก่อนถึงประตูล้มแบบปิด = เดาแทนเจ้าของเงียบ ๆ
+  assert.doesNotMatch(addColumn, /DEFAULT/i, 'ADD COLUMN kind ต้องไม่มี DEFAULT')
+
+  const setDefault = migration.search(/ALTER TABLE files\s+ALTER COLUMN kind SET DEFAULT 'file'\s*;/i)
+  assert.notEqual(setDefault, -1, "010 ต้องตั้ง DEFAULT 'file' ให้ตรงกับ schema.sql")
+  const gate = migration.search(/RAISE EXCEPTION/i)
+  const notNull = migration.search(/ALTER COLUMN kind SET NOT NULL/i)
+  assert.ok(gate !== -1 && notNull !== -1)
+  assert.ok(setDefault > gate, 'DEFAULT ต้องมาหลังประตูล้มแบบปิด — แถวกำกวมต้องหยุด migration ก่อนที่ค่าเริ่มต้นจะมีตัวตน')
+  assert.ok(setDefault > notNull, 'DEFAULT ต้องมาหลัง SET NOT NULL — ถึงตอนนั้นทุกแถวถูกจำแนกจากหลักฐานแล้ว')
+  // ต้องอยู่ใน transaction เดียวกับส่วนที่เหลือ ไม่ใช่คำสั่งลอย ๆ หลัง COMMIT
+  assert.ok(setDefault < migration.search(/^COMMIT;/m), 'DEFAULT ต้องอยู่ก่อน COMMIT')
+})
