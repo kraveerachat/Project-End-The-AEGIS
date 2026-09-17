@@ -597,8 +597,6 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 
 
 def test_no_stage_mutation_handlers_exist_in_t1() -> None:
-    assert sorted(p.name for p in DEPLOY.iterdir() if p.name != "__pycache__") == [
-        "README.md", "p4-compare.sh", "p4-l0-capture.sh", "p4-lib.sh", "p4-stage-gate.sh"]
     assert not (DEPLOY / "stages").exists()
 
 

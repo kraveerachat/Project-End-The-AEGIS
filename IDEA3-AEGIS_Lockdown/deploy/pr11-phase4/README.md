@@ -158,3 +158,26 @@ A later, separately reviewed task may register a stage under
 remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 fallback, or touch IDEA1/IDEA2 state. T1 ships no `stages/` directory; the tests
 assert that.
+
+## 5. Repository-safe ESP32 NVS provisioning material
+
+`p4-nvs-provision.py` renders an Espressif NVS CSV for the Phase 4 device profile.
+It does not flash a device, open a serial port, generate Production credentials,
+or write ESP32 NVS.
+
+Pinned profile: namespace `aegis-p1`, schema `1`, device `aegis-relay-01`,
+broker `mqtt.aegis.home.arpa`, MQTT user `idea3-dev-aegis-relay-01`, and
+initial `seq_hi=0`.
+
+Wi-Fi PSK, MQTT password, `k_c2d`, and `k_d2c` are accepted only from private
+regular files. Group/world-readable secret files are refused. Protocol keys must
+be independent, non-zero 32-byte lowercase-hex values and must not use public
+golden-vector or legacy demo-derived material.
+
+The generated CSV is created mode `0600` and existing output files are refused.
+The CSV contains plaintext provisioning secrets. Do not commit or log it, and
+remove it after an explicitly authorized provisioning operation.
+
+This repository task proves schema/profile parity and safe material rendering
+only. It does not prove live G-11 provisioning, ESP32 flashing, physical relay
+behavior, NVS encryption, D4 recovery, or Production readiness.
