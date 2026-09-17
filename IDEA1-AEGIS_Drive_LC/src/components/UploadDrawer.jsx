@@ -1,124 +1,57 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, CheckCircle2, ChevronDown, File as FileIcon, RotateCcw, UploadCloud, X } from 'lucide-react'
+import { ChevronDown, File as FileIcon, UploadCloud, X } from 'lucide-react'
 
-import { cancelUploadSession, fetchTransferLimits, uploadFileResumable } from '../lib/chunkedUpload.js'
+import {
+  cancelUploadSession,
+  fetchTransferLimits,
+  fetchUploadSession,
+  incrementalSha256,
+  uploadFileResumable,
+} from '../lib/chunkedUpload.js'
 import { fmtBytes } from '../lib/format.js'
-import { Btn, Chip, IconBtn, InlineEmptyState } from './ui.jsx'
+import { createRateEstimator } from '../lib/transferRate.js'
+import { createRecoveryStore, recoveryRecordFrom, verifyRecoveryIdentity } from '../lib/uploadRecovery.js'
+import { Btn, IconBtn, InlineEmptyState } from './ui.jsx'
+import {
+  ACTIVE_UPLOAD_STAGES,
+  UploadStatusTray,
+  UploadTrayLauncher,
+  activeUploadCount,
+  failedUploadCount,
+  shouldShowQueueLauncher,
+} from './UploadStatusTray.jsx'
 
 // ⚠️ เดิมที่นี่มีค่าคงที่ 1 GiB ซ้ำกับ fileStore.js และ Uploads.jsx สามที่ต้องแก้ให้ตรงกัน
 //    เอง — ตอนนี้เพดานมาจาก GET /api/files/uploads/limits ของ deployment จริง
 //    null = ยังอ่านไม่ได้ ซึ่งแปลว่า "ปล่อยให้เซิร์ฟเวอร์เป็นคนตัดสิน" ไม่ใช่เดาค่าให้
-const ACTIVE_UPLOAD_STAGES = new Set(['waiting', 'preparing', 'hashing', 'processing', 'uploading', 'committing'])
+// เพรดิเคตและตัวนับของคิวอยู่กับพื้นผิวที่ใช้มันจริง (UploadStatusTray) — re-export
+// ไว้ที่นี่เพื่อให้ผู้เรียกเดิมและชุดทดสอบเดิมยังนำเข้าได้จากที่เดียวกับที่เคยนำเข้า
+export { ACTIVE_UPLOAD_STAGES, activeUploadCount, failedUploadCount, shouldShowQueueLauncher }
 
-export const activeUploadCount = (queue = []) => queue.filter((item) => ACTIVE_UPLOAD_STAGES.has(item.stage)).length
-export const failedUploadCount = (queue = []) => queue.filter((item) => item.stage === 'failed').length
-export const shouldShowQueueLauncher = (queue = []) => activeUploadCount(queue) > 0 || failedUploadCount(queue) > 0
+/** จังหวะที่เดินนาฬิกาให้ตัวประมาณ เพื่อให้ "หยุดนิ่ง" ถูกจับได้ตอนไม่มี progress event */
+const STALL_TICK_MS = 1_000
 
-// สถานะที่ผู้ใช้เห็น เดินตามขั้นจริงของโปรโตคอล V2 (ดู src/lib/chunkedUpload.js)
-// waiting/processing ยังอยู่เพื่อรองรับคิวที่ถูกส่งเข้ามาจากภายนอกก่อนงานจะเริ่มเดิน
-const STAGE_LABEL = {
-  waiting: 'uploadWaiting',
-  processing: 'uploadProcessing',
-  preparing: 'upStagePreparing',
-  hashing: 'upStageHashing',
-  uploading: 'upStageUploading',
-  paused: 'upStagePaused',
-  committing: 'upStageCommitting',
-  complete: 'uploadComplete',
-  failed: 'uploadFailed',
-  cancelled: 'uploadCancelled',
-}
+/** นาฬิกาเดียวที่ทั้งไฟล์ใช้ — performance.now() เมื่อมี ไม่งั้นถอยไปใช้นาฬิการะบบ */
+const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now())
 
-// เหตุผลที่แสดงใต้ชื่อไฟล์ — บอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
-const REASON_LABEL = {
-  tooLarge: 'uploadTooLarge',
-  noSpace: 'uploadNoSpace',
-  checksum: 'uploadChecksumFailed',
-  expired: 'uploadSessionExpired',
-  network: 'uploadPausedNetwork',
-  incomplete: 'uploadPausedNetwork',
-}
-
-const stageTone = (stage) => {
-  if (stage === 'complete') return 'ok'
-  if (stage === 'failed') return 'danger'
-  if (stage === 'paused') return 'warn'
-  if (stage === 'cancelled') return 'neutral'
-  return 'accent'
-}
-
-function QueueRow({ t, item, onCancel, onRetry, onDismiss }) {
-  const cancellable = ACTIVE_UPLOAD_STAGES.has(item.stage)
-  const dismissible = ['complete', 'failed', 'cancelled'].includes(item.stage)
-  const progress = item.stage === 'complete' ? 100 : item.progress
-  // หยุดชั่วคราวแล้วยังมี session อยู่ = ทำต่อได้ ไม่ต้องเริ่มไฟล์ใหม่ทั้งก้อน
-  const resumable = item.stage === 'paused' && Boolean(item.session)
-  const reasonLabel = REASON_LABEL[item.reason]
-
-  return (
-    <div className="rounded-[var(--r-tile)] border border-line bg-card px-3.5 py-3">
-      <div className="flex items-center gap-3">
-        <span className="size-8 rounded-[9px] bg-sunken flex items-center justify-center shrink-0">
-          <FileIcon size={15} strokeWidth={1.5} className="text-ink-2" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-semibold text-ink truncate">{item.name}</span>
-          <span className="block text-[11.5px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(item.size)}</span>
-        </span>
-        <Chip tone={stageTone(item.stage)}>{t(STAGE_LABEL[item.stage])}</Chip>
-      </div>
-
-      {reasonLabel && (
-        <p role="alert" className="mt-2 text-[11.5px] font-medium" style={{ color: item.stage === 'paused' ? 'var(--warn)' : 'var(--danger)' }}>{t(reasonLabel)}</p>
-      )}
-
-      {/* ไบต์ที่ส่งไปแล้ว / ทั้งหมด และก้อนที่เท่าไรจากทั้งหมด — ตัวเลขที่วัดได้จริงทั้งคู่ */}
-      {item.chunkCount > 0 && (
-        <p className="mt-1.5 text-[11px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {t('uploadBytesCounter', { done: fmtBytes(item.transferredBytes ?? 0), total: fmtBytes(item.size) })}
-          {' · '}
-          {t('uploadChunkCounter', { done: Math.min((item.chunkIndex ?? 0) + 1, item.chunkCount), total: item.chunkCount })}
-        </p>
-      )}
-
-      {typeof progress === 'number' && (
-        <div className="mt-2 h-1 rounded-full bg-sunken overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-          <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
-        </div>
-      )}
-
-      <div className="mt-2 flex justify-end gap-2">
-        {cancellable && <button type="button" onClick={() => onCancel(item.id)} className="text-[12px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('cancel')}</button>}
-        {(item.stage === 'failed' || resumable) && item.file && <button type="button" onClick={() => onRetry(item.id)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><RotateCcw size={12} aria-hidden />{t(resumable ? 'uploadResume' : 'retry')}</button>}
-        {dismissible && <button type="button" onClick={() => onDismiss(item.id)} className="text-[12px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('dismiss')}</button>}
-      </div>
-    </div>
-  )
-}
-
-function UploadSuccessToast({ t, toast, onDismiss }) {
-  if (!toast) return null
-  return (
-    <div role="status" aria-live="polite" className="upload-success-toast fixed right-5 top-5 z-[var(--z-toast)] w-[min(360px,calc(100vw-2rem))] rounded-[var(--r-card)] border border-line bg-card p-4 shadow-[var(--elev-2)]">
-      <div className="flex items-start gap-3">
-        <span className="size-9 shrink-0 rounded-[10px] flex items-center justify-center" style={{ color: 'var(--ok)', background: 'var(--ok-soft)' }}>
-          <CheckCircle2 size={18} aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-bold text-ink">{t('uploadSuccessTitle')}</p>
-          <p className="mt-0.5 text-[12px] text-ink-2 break-words">{t('uploadSuccessBody', { name: toast.name })}</p>
-        </div>
-        <IconBtn label={t('dismiss')} onClick={onDismiss}><X size={15} /></IconBtn>
-      </div>
-    </div>
-  )
-}
-
+/**
+ * ลิ้นชักอัปโหลด + เจ้าของคิว
+ *
+ * FILES-UPLOAD-UX-1 แยกหน้าที่ของสองพื้นผิวออกจากกัน:
+ *
+ *   ลิ้นชักใหญ่ (`open`) = **เริ่ม** งาน — ตอบสองคำถามเท่านั้น คืออัปโหลดไปที่ไหน
+ *                          และเลือกไฟล์อย่างไร พอไฟล์เข้าคิวแล้วมันปิดตัวเอง
+ *   ถาดมุมขวาล่าง        = **เฝ้า** งาน — คิว ความคืบหน้า ความเร็ว ETA และคำสั่ง
+ *
+ * ⚠️ คอมโพเนนต์นี้ถูก mount ค้างไว้โดย Files.jsx ตลอดอายุของหน้า (ไม่ได้ถูกครอบด้วย
+ *    `{uploadOpen && ...}`) นั่นคือเหตุผลเดียวที่ทำให้ "ปิดลิ้นชัก" และ "ปิดถาด" เป็น
+ *    เรื่องของการมองเห็นล้วน ๆ และเป็นไปไม่ได้เชิงโครงสร้างที่จะกลายเป็นการยกเลิกงาน
+ *    ถ้าวันหนึ่งมีใครย้ายไปครอบด้วยเงื่อนไข คิวจะหายพร้อมกับงานที่กำลังส่งอยู่จริง
+ */
 export function UploadDrawer({
   t,
   open,
-  onOpen,
   onClose,
   destination = '/Files',
   recentFiles = [],
@@ -129,18 +62,46 @@ export function UploadDrawer({
   onUploaded,
   runUpload = uploadFileResumable,
   loadLimits = fetchTransferLimits,
+  cancelSession = cancelUploadSession,
+  loadSession = fetchUploadSession,
+  hashFile = incrementalSha256,
+  recoveryStorage,
+  recoveryScope = null,
 }) {
   const [queue, setQueue] = useState(initialQueue)
-  const [successToasts, setSuccessToasts] = useState([])
   const [limits, setLimits] = useState(null)
+  // ถาดเริ่มต้นแบบ "เห็นได้" — ผู้ใช้ต้องกดซ่อนเองเท่านั้น และงานใหม่จะพากลับมาเสมอ
+  const [trayHidden, setTrayHidden] = useState(false)
+  const [trayCollapsed, setTrayCollapsed] = useState(false)
   const inputRef = useRef(null)
   const drawerRef = useRef(null)
   const idRef = useRef(0)
   const controllers = useRef(new Map())
-  const notifiedCompletions = useRef(new Set())
   const handledRequests = useRef(new Set())
+  // ⚠️ หนึ่งตัวประมาณต่อหนึ่งรายการ ไม่ใช่ตัวเดียวร่วมกันทั้งคิว — ไฟล์สองไฟล์ที่ส่ง
+  //    พร้อมกันจะทำให้ตัวอย่างของกันและกันปนกันทันทีถ้าใช้ตัวเดียว
+  const estimators = useRef(new Map())
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+  // ⚠️ ร้านเก็บบันทึกกู้คืนผูกกับ "บัญชีที่ล็อกอินอยู่" ไม่ใช่กับเบราว์เซอร์ เครื่องเดียว
+  //    ถูกใช้หลายบัญชีได้เสมอ และบันทึกมีชื่อไฟล์กับ SHA-256 ของงานที่ยังไม่เสร็จอยู่ในนั้น
+  //    สร้างใหม่เมื่อบัญชีเปลี่ยนเท่านั้น — ไม่ใช่ทุก render ซึ่งจะทำให้ effect วิ่งไม่หยุด
+  const recoveryRef = useRef(null)
+  if (recoveryRef.current?.scope !== recoveryScope) {
+    recoveryRef.current = { scope: recoveryScope, store: createRecoveryStore({ storage: recoveryStorage, scope: recoveryScope }) }
+  }
+  const recovery = recoveryRef.current.store
+  /** ช่องเลือกไฟล์สำหรับการกู้คืน + แถวที่กำลังรอไฟล์นั้นอยู่ */
+  const recoverInputRef = useRef(null)
+  const recoverTargetRef = useRef(null)
 
   const patchItem = (id, patch) => setQueue((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item))
+
+  /** เปิด/คลี่ถาดกลับมาเสมอเมื่อมีงานใหม่ ไม่ว่าผู้ใช้จะซ่อนหรือย่อมันไว้ก่อนหน้า */
+  const revealTray = () => {
+    setTrayHidden(false)
+    setTrayCollapsed(false)
+  }
 
   // ⚠️ ไฟล์เดินทางผ่านเส้นทาง V2 แบบ chunk เท่านั้น — ไม่มีจุดใดในลิ้นชักนี้อ่านทั้งไฟล์
   //    เข้าหน่วยความจำอีกต่อไป (เดิม sha256OfFile() เรียก file.arrayBuffer() ทั้งก้อน)
@@ -148,6 +109,11 @@ export function UploadDrawer({
   const processFile = async (file, id, resumeFrom = null) => {
     const controller = new AbortController()
     controllers.current.set(id, controller)
+    // ⚠️ ตัวประมาณตัวใหม่ทุกครั้งที่เริ่มหรือ resume: ไบต์ที่ส่งไปแล้วในเซสชันก่อนต้อง
+    //    เป็น "จุดอ้างอิง" ไม่ใช่ไบต์ที่เพิ่งวิ่งผ่านสายในวินาทีนี้ ไม่งั้นตัวอย่างแรก
+    //    ของการ resume จะได้ความเร็วระดับ GB/s ที่เป็นไปไม่ได้
+    const estimator = createRateEstimator()
+    estimators.current.set(id, estimator)
     try {
       const result = await runUpload({
         file,
@@ -160,11 +126,22 @@ export function UploadDrawer({
         }),
         onProgress: ({ transferredBytes, totalBytes, percent, chunkIndex, chunkCount }) => patchItem(id, {
           transferredBytes, size: totalBytes, progress: percent, chunkIndex, chunkCount,
+          rate: estimator.sample(transferredBytes, now(), { totalBytes }),
         }),
+        // ⚠️ จดทันทีที่เซสชันฝั่งเซิร์ฟเวอร์มีจริง ไม่ใช่ตอนงานจบ — ถ้ารอจนจบ ช่วงที่
+        //    ผู้ใช้กด refresh (คือช่วงที่ยาวที่สุดของไฟล์ 2 GB) จะไม่มีอะไรให้กู้เลย
+        onCheckpoint: (checkpoint) => {
+          if (checkpoint.reason === 'done') {
+            recovery.remove(checkpoint.uploadId)
+            return
+          }
+          patchItem(id, { sha256: checkpoint.sha256 ?? null, session: { ...(queueRef.current.find((entry) => entry.id === id)?.session ?? {}), uploadId: checkpoint.uploadId } })
+          recovery.save(recoveryRecordFrom(checkpoint, file, { stage: 'uploading' }))
+        },
       })
 
       if (controller.signal.aborted || result.stage === 'cancelled') {
-        patchItem(id, { stage: 'cancelled', progress: null })
+        patchItem(id, { stage: 'cancelled', progress: null, rate: null })
         return
       }
 
@@ -173,29 +150,33 @@ export function UploadDrawer({
         reason: result.reason ?? null,
         sha256: result.sha256 ?? null,
         session: result.upload ?? null,
+        rate: null,
         ...(result.ok ? { progress: 100, transferredBytes: file.size } : {}),
       })
 
+      // ⚠️ commit สำเร็จ = ไฟล์ถูกเผยแพร่แล้ว ไม่มีอะไรให้กู้ ส่วนความล้มเหลวที่ยัง
+      //    resume ได้ต้อง **เก็บบันทึกไว้** ไม่งั้นการปิดแท็บตอนนั้นจะทำให้ไบต์ที่ส่ง
+      //    ไปแล้วกลายเป็นของกำพร้าจนหมดอายุไปเอง
       if (result.ok) {
-        if (!notifiedCompletions.current.has(id)) {
-          notifiedCompletions.current.add(id)
-          setSuccessToasts((current) => [...current, { id, name: file.name }])
-        }
+        recovery.remove(result.upload?.uploadId)
         onUploaded?.()
       }
     } catch {
-      patchItem(id, { stage: controller.signal.aborted ? 'cancelled' : 'failed', progress: null })
+      patchItem(id, { stage: controller.signal.aborted ? 'cancelled' : 'failed', progress: null, rate: null })
     } finally {
       controllers.current.delete(id)
+      estimators.current.delete(id)
     }
   }
 
   const enqueue = (fileList) => {
-    for (const file of [...fileList]) {
+    const incoming = [...fileList]
+    if (incoming.length === 0) return
+    for (const file of incoming) {
       const id = `upload-${Date.now()}-${idRef.current++}`
       const item = {
         id, file, name: file.name, size: file.size, stage: 'waiting', progress: null,
-        transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null,
+        transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null, rate: null,
       }
       // เพดานฝั่ง client เป็นแค่ความสะดวก การบังคับจริงอยู่ที่เซิร์ฟเวอร์เสมอ —
       // ยังอ่านเพดานไม่ได้ = ส่งขึ้นไปให้เซิร์ฟเวอร์ตัดสิน ไม่ใช่ปฏิเสธด้วยค่าที่เดาเอง
@@ -206,6 +187,10 @@ export function UploadDrawer({
         processFile(file, id)
       }
     }
+    // งานอยู่ในมือถาดแล้ว ลิ้นชัก "เลือกไฟล์" ไม่มีเหตุผลให้ขวางหน้าจอต่อ — รวมถึงตอน
+    // ที่ไฟล์ถูกปฏิเสธเพราะเกินเพดาน ผู้ใช้ต้องไม่ถูกขังอยู่กับลิ้นชักเพื่ออ่านคำปฏิเสธ
+    revealTray()
+    onClose?.()
   }
 
   useEffect(() => {
@@ -216,11 +201,27 @@ export function UploadDrawer({
     // requestId deliberately represents a distinct drag/drop action.
   }, [requestId])
 
+  // ⚠️ นาฬิกาที่เดินเพื่อ "จับการหยุดนิ่ง" เท่านั้น — มันป้อนไบต์ก้อนเดิมที่วัดได้จริง
+  //    กลับเข้าไป ไม่เคยสร้างไบต์ขึ้นเอง และไม่เคยขยับแถบความคืบหน้า ถ้าไม่มีตัวนี้
+  //    ตอนเน็ตหลุดจะไม่มี progress event เข้ามาอีกเลย แล้วความเร็วก้อนสุดท้ายจะค้างอยู่
+  //    บนจอทั้งที่ไม่มีไบต์ใดวิ่ง ซึ่งเป็นสิ่งที่ transferRate.js ห้ามไว้ชัดเจนที่สุด
+  const uploadingCount = queue.reduce((total, item) => item.stage === 'uploading' ? total + 1 : total, 0)
   useEffect(() => {
-    if (successToasts.length === 0) return undefined
-    const timer = window.setTimeout(() => setSuccessToasts((current) => current.slice(1)), 4500)
-    return () => window.clearTimeout(timer)
-  }, [successToasts])
+    if (uploadingCount === 0) return undefined
+    const timer = setInterval(() => {
+      const at = now()
+      const sampled = new Map()
+      for (const item of queueRef.current) {
+        if (item.stage !== 'uploading') continue
+        const estimator = estimators.current.get(item.id)
+        if (!estimator) continue
+        sampled.set(item.id, estimator.sample(item.transferredBytes ?? 0, at, { totalBytes: item.size }))
+      }
+      if (sampled.size === 0) return
+      setQueue((current) => current.map((item) => sampled.has(item.id) ? { ...item, rate: sampled.get(item.id) } : item))
+    }, STALL_TICK_MS)
+    return () => clearInterval(timer)
+  }, [uploadingCount])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -230,9 +231,76 @@ export function UploadDrawer({
     return () => controller.abort()
   }, [loadLimits])
 
+  // ⚠️ หน้าเว็บถูกทำลาย (ปิดแท็บ / refresh / ออกจากหน้า) — **ไม่ใช่การยกเลิกของผู้ใช้**
+  //    หยุดได้แค่ request ในเครื่องเท่านั้น เพราะโค้ดนี้กำลังจะไม่มีตัวตนแล้ว
+  //    ห้ามเรียก cancelSession() และห้ามลบบันทึกกู้คืน: เซสชันฝั่งเซิร์ฟเวอร์กับ chunk
+  //    ที่รับไปแล้วคือสิ่งเดียวที่ทำให้แท็บถัดไปทำงานต่อได้แทนที่จะเริ่มจากไบต์แรก
   useEffect(() => () => {
     for (const controller of controllers.current.values()) controller.abort()
   }, [])
+
+  // ── คืนสภาพคิวหลัง reload ────────────────────────────────────────────────
+  // ⚠️ เซิร์ฟเวอร์เป็นผู้ตัดสินเสมอว่าเซสชันยังอยู่ไหมและขาด chunk ไหน บันทึกในเครื่อง
+  //    เป็นแค่ "ชื่อของงาน" ไม่ใช่สถานะที่เชื่อถือได้ — เราจึงถามก่อนแสดงผลทุกครั้ง
+  useEffect(() => {
+    const records = recovery.list()
+    if (records.length === 0) return undefined
+
+    let cancelled = false
+    const controller = new AbortController()
+
+    ;(async () => {
+      for (const record of records) {
+        const status = await loadSession(record.uploadId, { signal: controller.signal })
+        if (cancelled) return
+
+        if (!status.ok) {
+          // ⚠️ เซิร์ฟเวอร์ยืนยันว่าไม่มีแล้วเท่านั้นที่ทิ้งบันทึกได้ เน็ตล่ม = ยังไม่รู้
+          //    การทิ้งตอนไม่รู้คือการริบสิทธิ์ resume ของผู้ใช้ด้วยการเดา
+          if (status.reason === 'expired') {
+            recovery.remove(record.uploadId)
+            setQueue((current) => [{
+              id: `recovered-${record.uploadId}`,
+              file: null, name: record.name, size: record.size,
+              stage: 'failed', reason: 'expired', progress: null,
+              transferredBytes: 0, chunkIndex: 0, chunkCount: 0, session: null, rate: null,
+            }, ...current])
+          }
+          continue
+        }
+
+        const upload = status.upload
+        setQueue((current) => {
+          if (current.some((entry) => entry.session?.uploadId === record.uploadId)) return current
+          return [{
+            id: `recovered-${record.uploadId}`,
+            // ไม่มี File object — เบราว์เซอร์คืนให้ไม่ได้ ผู้ใช้ต้องชี้ไฟล์เดิมกลับมาเอง
+            file: null,
+            name: record.name,
+            size: record.size ?? upload.size ?? null,
+            sha256: record.sha256 ?? null,
+            recovery: record,
+            session: upload,
+            // ⚠️ ห้ามเป็น 'uploading' — ไม่มีไบต์ใดกำลังวิ่งอยู่จริงในแท็บนี้
+            stage: 'interrupted',
+            reason: null,
+            progress: null,
+            transferredBytes: upload.receivedBytes ?? record.receivedBytes ?? 0,
+            chunkIndex: 0,
+            chunkCount: upload.chunkCount ?? record.chunkCount ?? 0,
+            rate: null,
+          }, ...current]
+        })
+        revealTray()
+      }
+    })().catch(() => { /* คืนสภาพไม่สำเร็จ = คิวว่าง ไม่ใช่จอพัง */ })
+
+    return () => { cancelled = true; controller.abort() }
+    // ครั้งเดียวต่อหนึ่งบัญชี — นี่คือ "แท็บนี้เพิ่งเปิดขึ้นมาในฐานะผู้ใช้คนนี้"
+    // ⚠️ ต้องผูกกับ recoveryScope ไม่ใช่ [] เปล่า ๆ: ถ้า id ของผู้ใช้มาถึงทีหลัง
+    //    การคืนสภาพรอบแรกจะอ่านร้านเปล่าแล้วไม่ลองอีกเลย
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recoveryScope])
 
   useEffect(() => {
     if (!open) return undefined
@@ -256,83 +324,169 @@ export function UploadDrawer({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onClose, open])
 
+  // ⚠️ นี่คือ **คำสั่งของผู้ใช้** ต่างจากการที่หน้าเว็บถูกทำลาย (ดู effect ตอน unmount)
+  //    อย่างเดียวที่ทำให้ทั้งสองอย่างนี้ถูกรวมกันได้คือความเข้าใจผิด และราคาของมันคือ
+  //    ไฟล์ 2 GB ที่ส่งไปแล้วครึ่งหนึ่งหายไปเพราะผู้ใช้เผลอกด F5
   const cancel = (id) => {
     controllers.current.get(id)?.abort()
-    const item = queue.find((candidate) => candidate.id === id)
+    const item = queueRef.current.find((candidate) => candidate.id === id)
     // คืนพื้นที่พักฝั่งเซิร์ฟเวอร์ทันที แทนที่จะปล่อยให้ค้างจนหมดอายุ
-    if (item?.session?.uploadId) cancelUploadSession(item.session.uploadId).catch(() => {})
-    patchItem(id, { stage: 'cancelled', progress: null, session: null })
+    if (item?.session?.uploadId) {
+      cancelSession(item.session.uploadId).catch(() => {})
+      recovery.remove(item.session.uploadId)
+    }
+    patchItem(id, { stage: 'cancelled', progress: null, session: null, rate: null })
   }
   // ทำต่อจาก session เดิมถ้ายังมีอยู่ (ส่งเฉพาะ chunk ที่ขาด) ไม่งั้นเริ่มใหม่ทั้งไฟล์
   const retry = (id) => {
-    const item = queue.find((candidate) => candidate.id === id)
+    const item = queueRef.current.find((candidate) => candidate.id === id)
     if (!item?.file) return
-    patchItem(id, { stage: 'waiting', reason: null, progress: null })
+    // ป้องกันกรณีที่คำสั่ง retry ถูกเรียกโดยตรงกับรายการที่เกินเพดาน deployment — ต้องไม่ส่งต่อเข้า transport
+    if (limits && (item.size ?? item.file.size) > limits.maxLogicalFileBytes) {
+      patchItem(id, { stage: 'failed', reason: 'tooLarge', rate: null })
+      return
+    }
+    patchItem(id, { stage: 'waiting', reason: null, progress: null, rate: null })
     processFile(item.file, id, item.session ? { session: item.session, sha256: item.sha256 } : null)
   }
   const dismiss = (id) => setQueue((current) => current.filter((item) => item.id !== id))
-  const cancelAll = () => {
-    for (const item of queue) if (ACTIVE_UPLOAD_STAGES.has(item.stage)) cancel(item.id)
-  }
-  const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
-  const activeCount = activeUploadCount(queue)
-  const failedCount = failedUploadCount(queue)
-  const successToast = successToasts[0] ?? null
-  const dismissSuccessToast = () => setSuccessToasts((current) => current.slice(1))
 
-  if (!open) {
-    if (!shouldShowQueueLauncher(queue) && !successToast) return null
-    return portal(
-      <>
-        <UploadSuccessToast t={t} toast={successToast} onDismiss={dismissSuccessToast} />
-        {shouldShowQueueLauncher(queue) && (
-          <button type="button" onClick={onOpen} className="fixed bottom-5 right-5 z-[var(--z-toast)] h-11 px-4 rounded-full bg-ink text-card inline-flex items-center gap-2 text-[13px] font-semibold shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-            {activeCount > 0 ? <UploadCloud size={15} aria-hidden /> : <AlertTriangle size={15} aria-hidden />}
-            {activeCount > 0 ? t('uploadQueue') : t('uploadNeedsAttention')}
-            <span className="min-w-5 h-5 px-1 rounded-full bg-accent text-white inline-flex items-center justify-center text-[11px]">{activeCount || failedCount}</span>
-          </button>
-        )}
-      </>
-    )
+  /**
+   * ทิ้งงานที่ค้างจาก reload ทิ้งจริง ๆ
+   *
+   * ⚠️ ปุ่มนี้มีอยู่เพราะ "Dismiss" ทำงานนี้ไม่ได้: Dismiss เอาแถวออกจากคิวในหน่วยความจำ
+   *    อย่างเดียว บันทึกกู้คืนยังอยู่ พอ reload ครั้งหน้าแถวเดิมก็กลับมา ปุ่มที่ทำให้ของ
+   *    หายไปแล้วกลับมาเองคือปุ่มที่โกหกผู้ใช้ — แถวที่กู้ได้จึงเสนอ "ทิ้งงานนี้" ที่คืน
+   *    พื้นที่พักฝั่งเซิร์ฟเวอร์และลบบันทึกจริงแทน
+   */
+  const discard = (id) => {
+    const item = queueRef.current.find((candidate) => candidate.id === id)
+    const uploadId = item?.session?.uploadId
+    if (uploadId) {
+      cancelSession(uploadId).catch(() => {})
+      recovery.remove(uploadId)
+    }
+    setQueue((current) => current.filter((entry) => entry.id !== id))
   }
+
+  /** ผู้ใช้กด "เลือกไฟล์เพื่อทำต่อ" — เปิดช่องเลือกไฟล์แล้วจำไว้ว่าเลือกให้แถวไหน */
+  const requestRecover = (id) => {
+    recoverTargetRef.current = id
+    patchItem(id, { recoverError: null })
+    recoverInputRef.current?.click()
+  }
+
+  /**
+   * ผู้ใช้ชี้ไฟล์ต้นทางกลับมาแล้ว — พิสูจน์ตัวตนก่อน แล้วจึงต่อเข้าเซสชันเดิม
+   *
+   * ⚠️ ไม่มี chunk ใดถูกส่งก่อนที่ SHA-256 จะตรงกับที่บันทึกไว้ ถ้ายอมรับไฟล์ผิด
+   *    เซิร์ฟเวอร์จะประกอบไฟล์ครึ่งหนึ่งของ A กับครึ่งหนึ่งของ B แล้วปฏิเสธตอน commit
+   *    ซึ่งแปลว่าผู้ใช้เสียเวลาอัปโหลดครึ่งไฟล์ไปฟรี ๆ ก่อนจะรู้ว่าเลือกผิด
+   */
+  const acceptRecoverFile = async (id, file) => {
+    const item = queueRef.current.find((candidate) => candidate.id === id)
+    if (!item || !file) return
+
+    patchItem(id, { verifying: true, recoverError: null })
+    const verdict = await verifyRecoveryIdentity(item.recovery ?? { size: item.size, sha256: item.sha256 }, file, { hashFile })
+    if (!verdict.ok) {
+      // ยังกู้ได้อยู่ ผู้ใช้แค่เลือกไฟล์ผิด — อย่าทำลายแถวทิ้งเพราะความผิดพลาดที่แก้ได้
+      if (verdict.reason === 'cancelled') { patchItem(id, { verifying: false }); return }
+      patchItem(id, { verifying: false, recoverError: verdict.reason })
+      return
+    }
+
+    patchItem(id, { verifying: false, recoverError: null, file, stage: 'waiting', progress: null, rate: null })
+    // sha เดิมถูกส่งต่อ transport จึงข้ามการแฮชทั้งไฟล์ซ้ำ และสถานะ chunk ที่ขาด
+    // มาจากเซิร์ฟเวอร์เสมอ (uploadFileResumable ถาม /uploads/:id ก่อนส่งอะไรทั้งนั้น)
+    processFile(file, id, { session: item.session, sha256: verdict.sha256 })
+  }
+
+  const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
+  const pick = () => inputRef.current?.click()
+  const acceptDrop = (event) => {
+    event.preventDefault()
+    if (event.dataTransfer?.files?.length) enqueue(event.dataTransfer.files)
+  }
+
+  const status = (
+    <>
+      {!trayHidden && (
+        <UploadStatusTray
+          t={t}
+          queue={queue}
+          collapsed={trayCollapsed}
+          onToggleCollapse={() => setTrayCollapsed((value) => !value)}
+          onHide={() => setTrayHidden(true)}
+          onCancel={cancel}
+          onRetry={retry}
+          onDismiss={dismiss}
+          onRecover={requestRecover}
+          onDiscard={discard}
+        />
+      )}
+      {/* ⚠️ ต้องอยู่คู่กับถาด ไม่ใช่ในลิ้นชักใหญ่ — การกู้คืนเกิดขึ้นตอนลิ้นชักปิดอยู่เสมอ */}
+      <input
+        ref={recoverInputRef}
+        data-upload-recover-input=""
+        type="file"
+        className="sr-only"
+        aria-label={t('uploadRecoverSelect')}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          const id = recoverTargetRef.current
+          event.target.value = ''
+          if (file && id) acceptRecoverFile(id, file)
+        }}
+      />
+      {/* ⚠️ ซ่อนถาดทั้งที่ยังมีงานเดินอยู่ = ต้องเหลือทางกลับเสมอ ไม่งั้นผู้ใช้จะเชื่อว่า
+          งานหายไปแล้วแล้วเริ่มอัปโหลดไฟล์เดิมซ้ำอีกรอบ */}
+      {trayHidden && <UploadTrayLauncher t={t} queue={queue} onShow={revealTray} />}
+    </>
+  )
+
+  if (!open) return portal(status)
 
   return portal(
     <>
-      <UploadSuccessToast t={t} toast={successToast} onDismiss={dismissSuccessToast} />
+      {status}
       <div className="fixed inset-0 z-[var(--z-modal)] bg-black/20" aria-hidden />
-      <aside ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-drawer-title" className="fixed z-[calc(var(--z-modal)+1)] inset-y-0 right-0 w-full max-w-[440px] bg-canvas border-l border-line shadow-[var(--elev-2)] flex flex-col outline-none">
-        <header className="h-17 px-5 border-b border-line flex items-center gap-3 bg-card">
+      <aside ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-drawer-title" className="fixed z-[calc(var(--z-modal)+1)] inset-y-0 right-0 w-full max-w-[420px] bg-canvas border-l border-line shadow-[var(--elev-2)] flex flex-col outline-none">
+        <header className="px-6 py-5 border-b border-line flex items-start gap-3 bg-card">
           <div className="min-w-0 flex-1">
-            <h2 id="upload-drawer-title" className="text-[17px] font-bold text-ink">{t('uploadFiles')}</h2>
-            <p className="text-[11.5px] text-ink-3">{t('destinationFolder')} · <span className="font-mono text-ink-2">{destination}</span></p>
+            <h2 id="upload-drawer-title" className="text-[18px] font-bold text-ink tracking-[-0.01em]">{t('uploadFiles')}</h2>
+            <p className="mt-1 text-[11.5px] text-ink-3">
+              {t('destinationFolder')} · <span className="font-mono text-ink-2">{destination}</span>
+            </p>
           </div>
           <IconBtn label={t('closeUpload')} onClick={onClose}><X size={17} /></IconBtn>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {/* จุดเริ่มงานจุดเดียวของลิ้นชักนี้ — ใหญ่ ชัด และไม่มีอะไรมาแย่งความสนใจ */}
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
+            onClick={pick}
             onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => { event.preventDefault(); if (event.dataTransfer?.files?.length) enqueue(event.dataTransfer.files) }}
-            className="w-full min-h-28 rounded-[var(--r-card)] border-2 border-dashed border-line bg-sunken flex flex-col items-center justify-center gap-1.5 text-center px-4 hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            onDrop={acceptDrop}
+            className="w-full min-h-44 rounded-[var(--r-card)] border-2 border-dashed border-line bg-sunken flex flex-col items-center justify-center gap-2 text-center px-6 py-8 transition-colors duration-[var(--dur-fast)] hover:border-accent hover:bg-[var(--accent-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            <UploadCloud size={23} className="text-accent" aria-hidden />
-            <span className="text-[13.5px] font-semibold text-ink">{t('dropHere')}</span>
-            <span className="text-[11.5px] text-ink-3">{t('dropSub')}</span>
+            <span className="size-12 rounded-full bg-card flex items-center justify-center shadow-[var(--elev-1)]">
+              <UploadCloud size={22} className="text-accent" aria-hidden />
+            </span>
+            <span className="mt-1 block text-[14px] font-bold text-ink">{t('dropHere')}</span>
+            <span className="block max-w-[28ch] text-[11.5px] leading-relaxed text-ink-3">{t('dropSub')}</span>
           </button>
           <input ref={inputRef} type="file" multiple className="sr-only" aria-label={t('chooseFiles')} onChange={(event) => { if (event.target.files?.length) enqueue(event.target.files); event.target.value = '' }} />
 
-          <section aria-labelledby="queue-title">
-            <div className="flex items-center justify-between gap-3 mb-2.5">
-              <h3 id="queue-title" className="text-[12px] uppercase tracking-[0.12em] font-bold text-ink-3">{t('uploadQueue')}</h3>
-              {queue.some((item) => ACTIVE_UPLOAD_STAGES.has(item.stage)) && <button type="button" onClick={cancelAll} className="text-[12px] font-semibold text-ink-2 hover:text-ink">{t('cancelAll')}</button>}
-            </div>
-            {queue.length === 0 ? <InlineEmptyState>{t('emptyNoUploads')}</InlineEmptyState> : <div className="space-y-2.5">{queue.map((item) => <QueueRow key={item.id} t={t} item={item} onCancel={cancel} onRetry={retry} onDismiss={dismiss} />)}</div>}
-          </section>
+          <Btn variant="primary" className="w-full" onClick={pick}>{t('chooseFiles')}</Btn>
 
-          <details className="border-t border-line pt-4" open>
-            <summary className="cursor-pointer list-none flex items-center justify-between text-[12px] uppercase tracking-[0.12em] font-bold text-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          {/* ⚠️ คิวที่กำลังเดินไม่ถูกแสดงซ้ำที่นี่อีกต่อไป ถาดมุมขวาล่างเป็นเจ้าของเรื่องนั้น
+              คนเดียว — สองที่ที่พูดเรื่องเดียวกันคือที่มาของตัวเลขที่ขัดกันเองบนจอ */}
+          <p className="text-[11.5px] leading-relaxed text-ink-3 border-l-2 border-line pl-3">{t('uploadEntryHint')}</p>
+
+          <details className="border-t border-line pt-5">
+            <summary className="cursor-pointer list-none flex items-center justify-between text-[11.5px] uppercase tracking-[0.12em] font-bold text-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               {t('recentUploads')}<ChevronDown size={15} aria-hidden />
             </summary>
             <div className="mt-3">
@@ -343,9 +497,8 @@ export function UploadDrawer({
           </details>
         </div>
 
-        <footer className="px-5 py-4 border-t border-line bg-card flex items-center justify-between gap-3">
+        <footer className="px-6 py-4 border-t border-line bg-card">
           <span className="text-[11.5px] text-ink-3">{t('currentFolder')}: <span className="font-mono text-ink-2">{destination}</span></span>
-          <Btn variant="outline" onClick={() => inputRef.current?.click()}>{t('chooseFiles')}</Btn>
         </footer>
       </aside>
     </>

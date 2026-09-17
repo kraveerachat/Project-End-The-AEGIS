@@ -59,8 +59,9 @@ export default function App() {
   // ที่ JavaScript อ่านไม่ได้ — ต่อให้เกิด XSS ก็ขโมย session ไม่ได้
   // ฝั่ง client เก็บได้แค่ "สำเนาที่เซิร์ฟเวอร์ตัดสินมา" ใน React state:
   // null = ยังไม่ล็อกอิน · { username, role, displayName, menu } = คำตอบจาก /api/me
-  // ข้อมูล session ไม่ลง localStorage/sessionStorage: ปิดแท็บ = state หาย, cookie ยังอยู่
-  // localStorage เก็บเฉพาะ shell theme (light/dark/system) เพื่อกันหน้ากระพริบ
+  // ข้อมูล credential/session ไม่ลง localStorage/sessionStorage: ปิดแท็บ = state หาย, cookie ยังอยู่
+  // browser storage (localStorage) ใช้เฉพาะ shell theme (light/dark/system) เพื่อกันหน้ากระพริบ
+  // และบันทึกกู้คืนการอัปโหลดที่จำกัดขอบเขตตามรายบัญชี (upload recovery metadata) โดยไม่มี token หรือ session secret ใด ๆ
   const [session, setSession] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
@@ -452,7 +453,10 @@ export default function App() {
         telemetryLoading={telemetryApi.loading}
       />
     ),
-    files: <Files t={t} lang={lang} go={go} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
+    // ⚠️ `userId` ไม่ได้มีไว้อนุญาตอะไร (เซิร์ฟเวอร์ทำหน้าที่นั้นอยู่แล้วทุกเส้นทาง) แต่มีไว้
+    //    ผูกบันทึกกู้คืนการอัปโหลดในเครื่องกับบัญชี — เบราว์เซอร์เครื่องเดียวถูกใช้หลาย
+    //    บัญชีได้ และบันทึกนั้นมีชื่อไฟล์ที่ยังอัปโหลดไม่เสร็จอยู่ในนั้น
+    files: <Files t={t} lang={lang} go={go} userId={session?.id ?? null} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
     vault: <Vault t={t} lang={lang} placeholderMode={placeholderMode} />,
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,

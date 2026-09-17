@@ -333,7 +333,7 @@ function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMen
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go, navigationParams = {}, placeholderMode = false }) {
+export function Files({ t, lang, go, userId = null, navigationParams = {}, placeholderMode = false }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -460,8 +460,10 @@ export function Files({ t, lang, go, navigationParams = {}, placeholderMode = fa
     setDragOver(false)
     const dropped = event.dataTransfer?.files
     if (!dropped?.length) return
+    // ⚠️ ลากวางบนหน้านี้ = ผู้ใช้เลือกไฟล์เสร็จแล้ว การเด้งลิ้นชัก "เลือกไฟล์" ขึ้นมา
+    //    เพื่อให้มันปิดตัวเองทันทีคือการกะพริบที่ไม่มีประโยชน์ — ส่งเข้าคิวแล้วให้ถาด
+    //    สถานะมุมขวาล่างรับช่วงต่อเลย (ดู components/UploadDrawer.jsx)
     setDropRequest({ files: [...dropped], id: Date.now() })
-    setUploadOpen(true)
   }
 
   const deleteSelected = () => {
@@ -727,10 +729,11 @@ export function Files({ t, lang, go, navigationParams = {}, placeholderMode = fa
         </div>
       </Modal>
 
+      {/* ⚠️ ห้ามครอบด้วย `{uploadOpen && ...}` — คอมโพเนนต์นี้เป็นเจ้าของคิวอัปโหลด
+          การ unmount ตามสถานะการเปิดลิ้นชักจะฆ่างานที่กำลังส่งอยู่จริง */}
       <UploadDrawer
         t={t}
         open={uploadOpen}
-        onOpen={() => setUploadOpen(true)}
         onClose={() => setUploadOpen(false)}
         destination="/Files"
         recentFiles={files.filter((file) => file.type !== 'Folder')}
@@ -738,6 +741,8 @@ export function Files({ t, lang, go, navigationParams = {}, placeholderMode = fa
         initialFiles={dropRequest.files}
         requestId={dropRequest.id}
         onUploaded={filesApi.retry}
+        // บันทึกกู้คืนถูกผูกกับบัญชีนี้เท่านั้น ผู้ใช้คนถัดไปบนเครื่องเดียวกันอ่านไม่ได้
+        recoveryScope={userId}
       />
     </div>
   )

@@ -108,16 +108,18 @@ test('15 · ไฟล์ว่างยังได้แฮชที่ถู�
 })
 
 test('15 · ซอร์สของเส้นทางอัปโหลด V2 ไม่มีการอ่านทั้งไฟล์เหลืออยู่เลย', async () => {
-  const [uploader, screen, drawer] = await Promise.all([
+  const [uploader, screen, drawer, tray] = await Promise.all([
     fs.readFile(new URL('../src/lib/chunkedUpload.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../src/screens/Uploads.jsx', import.meta.url), 'utf8'),
     fs.readFile(new URL('../src/components/UploadDrawer.jsx', import.meta.url), 'utf8'),
+    // FILES-UPLOAD-UX-1 แยกการนำเสนอคิวออกมาไว้ที่นี่ — สัญญาเรื่องหน่วยความจำต้องตามมาด้วย
+    fs.readFile(new URL('../src/components/UploadStatusTray.jsx', import.meta.url), 'utf8'),
   ])
   const stripComments = (source) => source
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
 
-  for (const [label, source] of [['chunkedUpload.js', uploader], ['Uploads.jsx', screen], ['UploadDrawer.jsx', drawer]]) {
+  for (const [label, source] of [['chunkedUpload.js', uploader], ['Uploads.jsx', screen], ['UploadDrawer.jsx', drawer], ['UploadStatusTray.jsx', tray]]) {
     const code = stripComments(source)
     assert.doesNotMatch(code, /\bfile\.arrayBuffer\(\)/, `${label} ต้องไม่อ่านทั้งไฟล์เข้าหน่วยความจำ`)
     assert.doesNotMatch(code, /crypto\.subtle\.digest\(/, `${label} ต้องไม่ใช้ subtle.digest ซึ่งรับได้แต่ buffer ทั้งก้อน`)

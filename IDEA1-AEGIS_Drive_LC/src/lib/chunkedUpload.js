@@ -132,6 +132,9 @@ function sendChunk({ file, upload, index, sendUpload, onProgress, signal }) {
  *           onProgress?: (p: { transferredBytes: number, totalBytes: number, percent: number,
  *                              chunkIndex: number, chunkCount: number }) => void,
  *           onHashProgress?: (p: { hashedBytes: number, totalBytes: number }) => void,
+ *           onCheckpoint?: (c: Readonly<{ reason: string, uploadId: string, sha256: string|null,
+ *                              chunkSize: number|null, chunkCount: number|null,
+ *                              receivedBytes: number }>) => void,
  *           signal?: AbortSignal, fetchJson?: Function, sendUpload?: Function,
  *           hashFile?: Function }} options
  */
@@ -142,6 +145,7 @@ export async function uploadFileResumable({
   onStage,
   onProgress,
   onHashProgress,
+  onCheckpoint,
   signal,
   fetchJson = apiFetch,
   sendUpload = apiUpload,
@@ -150,6 +154,25 @@ export async function uploadFileResumable({
   const stage = (name) => { onStage?.(name) }
   let upload = existingUpload
   let sha256 = existingSha256
+
+  // ⚠️ เดิมผู้เรียกได้รู้จัก uploadId ก็ต่อเมื่อฟังก์ชันนี้ **คืนค่า** เท่านั้น ระหว่างที่
+  //    ไฟล์ 2 GB กำลังวิ่งอยู่หลายนาที จอจึงไม่มีทางจดไว้ว่ามีเซสชันอะไรค้างอยู่เลย
+  //    พอผู้ใช้กด refresh ทุกอย่างที่เซิร์ฟเวอร์รับไปแล้วก็กลายเป็นของกำพร้าทันที
+  //    checkpoint คือการบอกผู้เรียก "ตอนนี้มีงานที่ทนต่อการปิดแท็บอยู่ ชื่อนี้" ทันทีที่
+  //    มันมีจริง ไม่ใช่ตอนจบ
+  // ⚠️ ส่งออกเป็นสแนปช็อตที่ frozen เสมอ ไม่ใช่ตัว `upload` ของเราเอง — ผู้เรียกเก็บมัน
+  //    ไว้ยาว ๆ ได้โดยไม่ต้องกลัวว่ามันจะเปลี่ยนค่าใต้มือหลังจากนี้
+  const checkpoint = (reason) => {
+    if (!onCheckpoint || !upload?.uploadId) return
+    onCheckpoint(Object.freeze({
+      reason,
+      uploadId: upload.uploadId,
+      sha256: sha256 ?? null,
+      chunkSize: upload.chunkSize ?? null,
+      chunkCount: upload.chunkCount ?? null,
+      receivedBytes: upload.receivedBytes ?? 0,
+    }))
+  }
 
   const aborted = () => Boolean(signal?.aborted)
   const cancelled = () => ({ ok: false, stage: 'cancelled', reason: 'cancelled', upload, sha256 })
@@ -169,6 +192,8 @@ export async function uploadFileResumable({
         return { ok: false, stage: 'failed', reason: created.reason, upload: null, sha256, response: created.response }
       }
       upload = created.upload
+      // ตั้งแต่บรรทัดนี้ไป งานนี้ทนต่อการปิดแท็บได้แล้ว — บอกผู้เรียกทันที
+      checkpoint('created')
     } else {
       // Resume — สถานะที่เชื่อถือได้มาจากเซิร์ฟเวอร์เท่านั้น ไม่ใช่จากที่จำไว้ในแท็บ
       stage('preparing')
@@ -177,6 +202,7 @@ export async function uploadFileResumable({
         return { ok: false, stage: 'failed', reason: failureReason(status), upload, sha256, response: status }
       }
       upload = status.data.upload
+      checkpoint('resumed')
     }
 
     // ── ส่ง chunk ที่ยังขาด ──────────────────────────────────────────────────
@@ -217,6 +243,8 @@ export async function uploadFileResumable({
         return { ok: false, stage: 'paused', reason: failureReason(sent), upload, sha256, response: sent }
       }
       upload = sent.data.upload
+      // ไบต์ชุดนี้ปลอดภัยอยู่ฝั่งเซิร์ฟเวอร์แล้ว — อัปเดตบันทึกกู้คืนให้ตรงความจริง
+      checkpoint('chunk')
     }
 
     if (aborted()) return cancelled()
@@ -236,6 +264,8 @@ export async function uploadFileResumable({
     }
 
     stage('complete')
+    // ไฟล์ถูกเผยแพร่แล้ว ไม่มีอะไรให้กู้อีก — ผู้เรียกใช้สัญญาณนี้ลบบันทึกกู้คืนทิ้ง
+    checkpoint('done')
     return {
       ok: true, stage: 'complete', upload, sha256: committed.data.sha256 ?? sha256,
       file: committed.data.file, newVersion: Boolean(committed.data.newVersion),
@@ -244,6 +274,34 @@ export async function uploadFileResumable({
     if (err?.name === 'AbortError' || aborted()) return cancelled()
     return { ok: false, stage: 'failed', reason: 'server', upload, sha256 }
   }
+}
+
+/**
+ * ถามสถานะของเซสชันที่ค้างอยู่ — ใช้ตอนแท็บใหม่คืนสภาพคิวหลัง reload
+ *
+ * ⚠️ ความต่างระหว่าง 'expired' กับ 'network' คือสาระทั้งหมดของฟังก์ชันนี้
+ *    404 = เซิร์ฟเวอร์ยืนยันว่าไม่มีเซสชันนี้แล้ว (หมดอายุ/ถูกลบ/ไม่ใช่ของผู้ใช้คนนี้)
+ *          → บันทึกกู้คืนใช้ไม่ได้อีก ทิ้งได้
+ *    เน็ตล่ม = เรา **ไม่รู้** ว่าเซสชันยังอยู่ไหม → ห้ามทิ้งบันทึก ไม่งั้นผู้ใช้ที่เน็ตสะดุด
+ *          ตอนเปิดหน้าเว็บจะเสียสิทธิ์ resume ของไฟล์ที่ส่งไปแล้วครึ่งก้อนทันที
+ *
+ * @param {string} uploadId
+ * @param {{ fetchJson?: Function, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ ok: true, upload: object } | { ok: false, reason: string }>}
+ */
+export async function fetchUploadSession(uploadId, { fetchJson = apiFetch, signal } = {}) {
+  if (!uploadId) return { ok: false, reason: 'expired' }
+  let res
+  try {
+    res = await fetchJson(`/api/files/uploads/${encodeURIComponent(uploadId)}`, { signal })
+  } catch (err) {
+    if (err?.name === 'AbortError') return { ok: false, reason: 'cancelled' }
+    return { ok: false, reason: 'network' }
+  }
+  if (res?.ok && res.data?.upload) return { ok: true, upload: res.data.upload }
+  if (res?.errorKind === 'network' || res?.errorKind === 'timeout') return { ok: false, reason: 'network' }
+  if (res?.status === 404) return { ok: false, reason: 'expired' }
+  return { ok: false, reason: failureReason(res) }
 }
 
 /** ยกเลิก session ฝั่งเซิร์ฟเวอร์ — คืนพื้นที่พักทันทีแทนที่จะรอให้หมดอายุ */
