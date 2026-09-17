@@ -755,12 +755,20 @@ export async function createFolder(name, user, parentId = null) {
 export async function renameItem(id, userId, name) {
   const safe = String(name)
   if (usingPostgres) {
-    const { rows } = await query(
-      `UPDATE files SET name = $3, modified_at = now()
-        WHERE id = $1 AND uploaded_by = $2 AND deleted_at IS NULL AND vault = false
-        RETURNING *`,
-      [id, userId, safe],
-    )
+    let rows
+    try {
+      ;({ rows } = await query(
+        `UPDATE files SET name = $3, modified_at = now()
+          WHERE id = $1 AND uploaded_by = $2 AND deleted_at IS NULL AND vault = false
+          RETURNING *`,
+        [id, userId, safe],
+      ))
+    } catch (err) {
+      // ⚠️ unique index คือแนวป้องกันสุดท้าย — สองคำขอเปลี่ยนชื่อไปชื่อเดียวกันผ่านการ
+      //    ตรวจล่วงหน้าของ route ได้ทั้งคู่ ตัวที่แพ้ต้องได้ผลลัพธ์ที่ route แปลเป็น 409 ได้
+      if (err?.code === '23505') return { nameTaken: true }
+      throw err
+    }
     if (!rows.length) return null
     const { rows: withUser } = await query(
       `SELECT f.*, COALESCE(NULLIF(btrim(u.profile_name), ''), u.display_name) AS uploader_name

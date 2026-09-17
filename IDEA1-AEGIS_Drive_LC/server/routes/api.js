@@ -440,6 +440,9 @@ apiRouter.patch('/files/:id', requireAuth, async (req, res, next) => {
 
     const updated = await store.renameItem(item.id, req.user.id, name)
     if (!updated) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ การตรวจล่วงหน้าด้านบนไม่พอ: สองคำขอเปลี่ยนชื่อไปชื่อเดียวกันผ่านมันได้ทั้งคู่
+    //    unique index จับตัวที่แพ้ และผู้ใช้ต้องได้คำตอบเดียวกับที่ตรวจล่วงหน้าเจอ
+    if (updated.nameTaken) return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
     await auditAct(req, 'FILE_RENAME', `${item.name} → ${name}`)
     res.json({ file: updated })
   } catch (err) {
@@ -871,10 +874,12 @@ apiRouter.post('/trash/empty', requireAuth, async (req, res, next) => {
       return res.status(401).json({ error: INVALID_CREDENTIALS })
     }
     // ลบลูกก่อนพ่อเสมอ (รอบใบไม้) — และรายงานของที่ค้างตามจริง ไม่อ้างว่าล้างหมด
-    const { deletedCount, blockedCount } = await emptyTrashForUser(req.user.id)
+    const { deletedCount, blockedCount, busyCount, remainingCount } = await emptyTrashForUser(req.user.id)
     lockTrashSession(req)
-    await auditAct(req, 'TRASH_EMPTY', String(req.user.id), blockedCount > 0 ? 'PARTIAL' : 'OK')
-    res.json({ ok: blockedCount === 0, deletedCount, blockedCount })
+    // ⚠️ ok ตัดสินจาก "ถังว่างจริงหลังจบ" ไม่ใช่จากตัวนับที่สะสมระหว่างทาง
+    const ok = remainingCount === 0
+    await auditAct(req, 'TRASH_EMPTY', String(req.user.id), ok ? 'OK' : 'PARTIAL')
+    res.json({ ok, deletedCount, blockedCount, busyCount, remainingCount })
   } catch (error) { next(error) }
 })
 

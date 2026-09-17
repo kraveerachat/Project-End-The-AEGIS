@@ -31,8 +31,13 @@ export async function withTrashFileLock(fileId, work) {
 }
 
 /**
- * @returns {Promise<boolean | { blocked: 'FOLDER_HAS_CHILDREN' }>}
- *   true = ลบแล้ว · false = ไม่พบ/ยังไม่หมดอายุ · blocked = โฟลเดอร์ยังมีแถวลูกอ้างถึง
+ * @returns {Promise<boolean | { blocked: 'FOLDER_HAS_CHILDREN' } | { busy: true }>}
+ *   true = ลบแล้ว · false = ไม่พบ/ถูกกู้ไปแล้ว/ยังไม่หมดอายุ (= ไม่มีอะไรให้ทำ)
+ *   blocked = โฟลเดอร์ยังมีแถวลูกอ้างถึง · busy = อีกคำขอกำลังถือล็อกของรายการนี้อยู่
+ *
+ * ⚠️ busy กับ false ต้องแยกกัน: false แปลว่า "ไม่มีอะไรให้ทำแล้ว" ส่วน busy แปลว่า
+ *    "ยังมีอยู่ แต่ตอนนี้แตะไม่ได้" การยุบสองอย่างนี้เป็น false ทำให้ล้างถังนับรายการ
+ *    ที่ยังอยู่ว่าหายไปแล้ว แล้วประกาศว่าถังว่างทั้งที่แถวยังอยู่
  */
 export async function purgeTrashRecord(file, userId = null) {
   if (!file?.id || file.deletedAt == null) return false
@@ -52,7 +57,7 @@ export async function purgeTrashRecord(file, userId = null) {
     await removeRecordBytes(current)
     return store.hardDeleteTrashedFile(current.id, userId)
   })
-  return result.acquired ? result.value : false
+  return result.acquired ? result.value : { busy: true }
 }
 
 /**
@@ -66,24 +71,41 @@ export async function purgeTrashRecord(file, userId = null) {
  */
 export async function emptyTrashForUser(userId) {
   let deletedCount = 0
-  let blockedCount = 0
   let remaining = await store.listTrash(userId, { includeExpired: true })
-  // ⚠️ เพดานรอบ = จำนวนแถว + 1: ต้นไม้ที่ลึกที่สุดที่เป็นไปได้ต้องการรอบเท่ากับความลึก
-  //    ซึ่งไม่เกินจำนวนแถว การวนเกินนั้นแปลว่ามีอะไรค้างที่ไม่มีวันหลุด → หยุดและรายงาน
-  for (let pass = 0; remaining.length > 0 && pass <= remaining.length + 1; pass += 1) {
+  // ⚠️ ขอบเขตต้องถูก "ตรึง" ก่อนเริ่มวน — ห้ามผูกกับ remaining.length ที่หดลงทุกครั้งที่
+  //    ลบสำเร็จ ขอบเขตแบบหดตัวทำให้โซ่ 4 โหนดหยุดที่ 4→3→2→1 แล้วรอบถัดไปถูกตัดทิ้ง
+  //    ทั้งที่รากเพิ่งกลายเป็นใบที่ลบได้ โซ่ลึก N ชั้นต้องการอย่างมาก N รอบ (ใบหลุด
+  //    หนึ่งชั้นต่อรอบ) ดังนั้น initial + 1 คือเพดานที่พิสูจน์ได้และไม่มีวันวนไม่รู้จบ
+  const maxPasses = remaining.length + 1
+  let busyCount = 0
+  let blockedCount = 0
+
+  for (let pass = 0; remaining.length > 0 && pass < maxPasses; pass += 1) {
     const before = remaining.length
-    const stillBlocked = []
+    const carry = []
+    busyCount = 0
+    blockedCount = 0
     for (const file of remaining) {
       const outcome = await purgeTrashRecord(file, userId)
-      if (outcome === true) deletedCount += 1
-      else if (outcome && outcome.blocked) stillBlocked.push(file)
-      // false = หายไปแล้ว (ถูกกู้/ลบโดยคำขออื่น) ไม่ใช่ความล้มเหลว
+      if (outcome === true) { deletedCount += 1; continue }
+      // ⚠️ busy = ยังอยู่ ยังต้องนับเป็นของค้าง ไม่ใช่ทิ้งออกจาก remaining เงียบ ๆ
+      if (outcome && outcome.busy) { busyCount += 1; carry.push(file); continue }
+      if (outcome && outcome.blocked) { blockedCount += 1; carry.push(file); continue }
+      // false = ไม่มีอะไรให้ทำแล้ว (ถูกกู้/ลบโดยคำขออื่น) — ไม่ใช่ของค้าง
     }
-    remaining = stillBlocked
-    if (remaining.length === before) break // ไม่มีความคืบหน้า = ค้างจริง ไม่ใช่แค่ยังไม่ถึงคิว
+    remaining = carry
+    if (remaining.length === before) break // ไม่มีความคืบหน้าเลย = ค้างจริง ไม่ใช่แค่ยังไม่ถึงคิว
   }
-  blockedCount = remaining.length
-  return { deletedCount, blockedCount }
+
+  // ⚠️ ความจริงสุดท้ายมาจากการอ่านถังจริงอีกครั้ง ไม่ใช่จากตัวนับที่สะสมระหว่างทาง —
+  //    รายการที่ busy อาจถูกคำขออื่นลบ/กู้ไปแล้ว หรือมีของใหม่ถูกทิ้งเข้ามาระหว่างที่เราวน
+  const residual = await store.listTrash(userId, { includeExpired: true })
+  return {
+    deletedCount,
+    blockedCount,
+    busyCount,
+    remainingCount: residual.length,
+  }
 }
 
 export async function runTrashAutoPurge({ limit = DEFAULT_BATCH } = {}) {
@@ -95,7 +117,7 @@ export async function runTrashAutoPurge({ limit = DEFAULT_BATCH } = {}) {
     // ⚠️ พ่อที่ยังมีลูกค้างอยู่ถูก "ข้าม" ไม่ใช่ทำให้ทั้งชุดล้ม — แถวอื่นที่ไม่เกี่ยวกัน
     //    ต้องยังถูกลบตามกำหนด ลูกจะหมดอายุในรอบถัดไปแล้วพ่อจึงหลุดตามในรอบต่อจากนั้น
     if (outcome && outcome.blocked) { blocked += 1; continue }
-    if (outcome !== true) continue
+    if (outcome !== true) continue // false (ไม่มีอะไรให้ทำ) หรือ busy (คำขออื่นถือล็อก) — รอบหน้าค่อยว่ากัน
     purged += 1
     await recordAudit({
       actorLabel: 'system', action: 'FILE_TRASH_AUTO_PURGE',

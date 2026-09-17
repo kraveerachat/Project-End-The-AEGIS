@@ -29,6 +29,8 @@ const DB_MODE = process.env.DATABASE_URL ? 'postgres' : 'memory'
 const { createApp } = await import('../server/app.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 const { usingPostgres, closePool } = await import('../server/db/connection.js')
+const store = await import('../server/db/store.js')
+const PG_ONLY = DB_MODE !== 'postgres' ? 'requires TEST_DATABASE_URL (PostgreSQL) — NOT MEASURED on this host' : false
 
 const USER_A = { username: 'user', password: 'aegis-drive-user' }
 const USER_B = { username: 'admin', password: 'aegis-drive-admin' }
@@ -440,4 +442,42 @@ test('DELETE 2 · an empty folder still deletes, and a folder emptied first beco
     (await a.req(`/api/files/${encodeURIComponent(folder.id)}`, { method: 'DELETE' })).status, 200,
     'ย้าย/ลบลูกออกหมดแล้วต้องลบโฟลเดอร์ได้',
   )
+})
+
+/* ══ ROUND 4 · การเปลี่ยนชื่อพร้อมกันต้องไม่รั่ว 23505 ══════════════════ */
+
+test('RN-RACE-0 · renameItem translates a unique violation into a typed nameTaken result', async () => {
+  const fs = await import('node:fs/promises')
+  const source = await fs.readFile(new URL('../server/db/store.js', import.meta.url), 'utf8')
+  const body = source.slice(source.indexOf('export async function renameItem'), source.indexOf('/**\n * ย้ายหลายรายการในธุรกรรมเดียว'))
+  // ⚠️ การตรวจล่วงหน้าที่ route ไม่พอ: สองคำขอเปลี่ยนชื่อไปชื่อเดียวกันผ่านการตรวจได้ทั้งคู่
+  //    แล้ว UPDATE ตัวที่แพ้จะชน unique index ผู้ใช้ต้องได้ 409 ที่อ่านรู้เรื่อง ไม่ใช่ 500
+  assert.match(body, /23505/, 'renameItem ต้องจับ unique violation')
+  assert.match(body, /nameTaken/, 'และแปลเป็นผลลัพธ์ที่ route จับคู่เป็น 409 NAME_TAKEN ได้')
+})
+
+test('RN-RACE-1 · two siblings renamed concurrently to the same name: at most one wins, the loser gets 409', { skip: PG_ONLY }, async () => {
+  const a = await login(USER_A)
+  const s = Date.now()
+  const parent = await makeFolder(a, `rn-race-${s}`)
+  const one = await makeFile(a, 'one.txt', 'a', parent.id)
+  const two = await makeFile(a, 'two.txt', 'b', parent.id)
+
+  const [r1, r2] = await Promise.all([
+    a.req(`/api/files/${encodeURIComponent(one.id)}`, { method: 'PATCH', body: { name: 'same.txt' } }),
+    a.req(`/api/files/${encodeURIComponent(two.id)}`, { method: 'PATCH', body: { name: 'same.txt' } }),
+  ])
+  const statuses = [r1.status, r2.status].sort()
+  assert.equal(statuses.filter((x) => x === 200).length <= 1, true, 'ชนะได้อย่างมากหนึ่ง')
+  assert.equal(statuses.includes(500), false, 'ห้ามรั่ว 500')
+  for (const r of [r1, r2]) if (r.status !== 200) { assert.equal(r.status, 409); assert.equal(r.data.code, 'NAME_TAKEN') }
+
+  const rows = await listAt(a, parent.id)
+  assert.equal(rows.filter((f) => f.name === 'same.txt').length <= 1, true)
+  const me = (await a.req('/api/me')).data.user.id
+  assert.deepEqual(await store.hierarchyInvariantViolations(me), [])
+  for (const f of [one, two]) {
+    const now = rows.find((r) => String(r.id) === String(f.id))
+    assert.ok(now); assert.equal(now.path, f.path, 'storage key ไม่ขยับ'); assert.equal(now.sha256, f.sha256)
+  }
 })

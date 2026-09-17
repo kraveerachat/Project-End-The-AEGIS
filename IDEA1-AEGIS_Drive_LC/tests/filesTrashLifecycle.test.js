@@ -34,7 +34,7 @@ const { createApp } = await import('../server/app.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 const { usingPostgres, closePool, query } = await import('../server/db/connection.js')
 const store = await import('../server/db/store.js')
-const { runTrashAutoPurge } = await import('../server/storage/trashCleanup.js')
+const { runTrashAutoPurge, withTrashFileLock } = await import('../server/storage/trashCleanup.js')
 
 let server, baseUrl, seq = 0
 const stamp = () => `${Date.now()}-${seq++}`
@@ -246,6 +246,87 @@ test('T8 · auto-purge skips a blocked parent without abandoning the rest of the
   assert.ok(await store.findTrashedFile(child.id, me, { includeExpired: true }), 'ลูกที่ยังไม่หมดอายุต้องไม่ถูกแตะ')
   assert.ok(result.purged >= 1)
   assert.deepEqual(await store.hierarchyInvariantViolations(me), [])
+})
+
+/* ══ ROUND 4 · ล้างถังต้องระบายต้นไม้ลึกได้จริง และรายงานของที่ค้างตามจริง ═══ */
+
+/** สร้างโซ่โฟลเดอร์ลึก depth ชั้น ปิดท้ายด้วยไฟล์ แล้วทิ้งจาก "ใบ" ขึ้นไปหา "ราก" */
+async function trashedChain(c, label, depth) {
+  const nodes = []
+  let parentId = null
+  for (let level = 0; level < depth; level += 1) {
+    const f = await folder(c, `tl-${label}-L${level}-${stamp()}`, parentId)
+    nodes.push(f)
+    parentId = f.id
+  }
+  const leaf = await file(c, `tl-${label}-leaf-${stamp()}.txt`, parentId)
+  nodes.push(leaf)
+  // ทิ้งจากใบขึ้นไป — ลำดับเดียวที่ FOLDER_NOT_EMPTY อนุญาต
+  for (const n of [...nodes].reverse()) assert.equal((await trash(c, n.id)).status, 200, `trash ${n.name}`)
+  return nodes
+}
+
+test('ET1 · a 4-level tree (root/a/b/file) drains completely from Empty Trash', async () => {
+  const c = await login()
+  const me = await meId(c)
+  // ⚠️ ขอบเขตรอบเดิม `pass <= remaining.length + 1` หดตัวลงทุกครั้งที่ลบสำเร็จ
+  //    โซ่ 4 โหนดหยุดที่ 4→3→2→1 แล้วรอบถัดไปถูกตัด ทั้งที่รากเพิ่งกลายเป็นใบที่ลบได้
+  //    ต้นไม้ 3 โหนดของ T7 ไม่เคยเห็นบั๊กนี้ — ต้องลึกอย่างน้อย 4
+  const nodes = await trashedChain(c, 'et1', 3)
+  assert.equal(nodes.length, 4)
+
+  const r = await emptyTrash(c)
+  assert.equal(r.status, 200, JSON.stringify(r.data))
+  assert.ok(r.data.deletedCount >= 4, `ต้องลบครบ 4 ได้ ${r.data.deletedCount}`)
+  assert.equal(r.data.blockedCount, 0)
+  assert.equal(r.data.remainingCount ?? 0, 0)
+  assert.equal(r.data.ok, true)
+  for (const n of nodes) assert.equal(await store.findTrashedFile(n.id, me, { includeExpired: true }), null, `${n.name} ต้องหายจริง`)
+  assert.deepEqual(await store.hierarchyInvariantViolations(me), [])
+})
+
+test('ET2 · an 8-level chain drains completely — the bound must not depend on the shrinking remainder', async () => {
+  const c = await login()
+  const me = await meId(c)
+  const nodes = await trashedChain(c, 'et2', 8)
+  assert.equal(nodes.length, 9)
+
+  const r = await emptyTrash(c)
+  assert.equal(r.status, 200, JSON.stringify(r.data))
+  assert.ok(r.data.deletedCount >= 9, `ต้องลบครบ 9 ได้ ${r.data.deletedCount}`)
+  assert.equal(r.data.blockedCount, 0)
+  assert.equal(r.data.remainingCount ?? 0, 0)
+  for (const n of nodes) assert.equal(await store.findTrashedFile(n.id, me, { includeExpired: true }), null, `${n.name} ต้องหายจริง`)
+  assert.deepEqual(await store.hierarchyInvariantViolations(me), [])
+})
+
+test('ET3 · an item whose lock is held by another operation is not counted as deleted, and the result never claims the trash is empty', async () => {
+  const c = await login()
+  const me = await meId(c)
+  const held = await file(c, `tl-et3-held-${stamp()}.txt`)
+  const free = await file(c, `tl-et3-free-${stamp()}.txt`)
+  assert.equal((await trash(c, held.id)).status, 200)
+  assert.equal((await trash(c, free.id)).status, 200)
+
+  // ⚠️ อีกคำขอกำลังถือล็อกของ held อยู่ (เช่น restore ที่ยังไม่จบ) — ล้างถังต้องไม่
+  //    "ลืม" มัน: ไม่นับว่าลบแล้ว และไม่ประกาศว่าถังว่างทั้งที่แถวยังอยู่
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  let enter
+  const entered = new Promise((resolve) => { enter = resolve })
+  const holder = withTrashFileLock(held.id, async () => { enter(); await released; return true })
+  await entered
+
+  const r = await emptyTrash(c)
+  release()
+  await holder
+
+  assert.equal(r.status, 200, JSON.stringify(r.data))
+  assert.equal(r.data.ok, false, 'ยังมีของค้าง ห้ามอ้างว่าล้างหมด')
+  assert.equal(r.data.deletedCount, 1, 'นับเฉพาะที่ลบได้จริง')
+  assert.ok((r.data.busyCount ?? 0) >= 1 || (r.data.remainingCount ?? 0) >= 1, 'ต้องรายงานของที่ค้าง')
+  assert.equal(await store.findTrashedFile(free.id, me, { includeExpired: true }), null)
+  assert.ok(await store.findTrashedFile(held.id, me, { includeExpired: true }), 'ของที่ถูกถือล็อกต้องยังอยู่')
 })
 
 /* ══ DEFECT C · preflight ต้องตรงกับ unique index จริง ═══════════════════ */
