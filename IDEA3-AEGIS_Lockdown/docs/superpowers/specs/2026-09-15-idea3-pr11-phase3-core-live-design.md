@@ -115,6 +115,13 @@ The new example unit is a separate service named `aegis-idea3-core.service`.
   other Production quotas remain unset until owner-measured live evidence is
   available.
 
+> Amendment 2026-09-17 (Phase 3 runtime completion, P3-R1): the owner-run Core
+> preflight on systemd 261.2 reported `CPUAccounting=` as removed and ignored.
+> The candidate unit no longer sets it; memory, task, and I/O accounting stay
+> enabled, and CPU accounting remains available from the unified cgroup
+> hierarchy. No quota was added. This is a repository correction, not a
+> deployment.
+
 The unit is repository input only. It is not copied to `/etc/systemd/system`,
 verified against a live Core, enabled, started, restarted, or stopped here.
 
@@ -271,7 +278,7 @@ not convert D6 to runtime PASS.
 | P3-C5 | SIGTERM/shutdown and unit stop model issue no RESTORE |
 | P3-C6 | Real path resolution keeps data/config/runtime/log roots external and the ledger outside `/run` |
 | P3-C7 | Unit targets `multi-user.target` and fixed headless/no-detector/no-voice arguments |
-| P3-C8 | Parsed unit has no IDEA2 dependency, restart, or kill relation; accounting is enabled and quotas unset |
+| P3-C8 | Parsed unit has no IDEA2 dependency, restart, or kill relation; memory/task/I-O accounting is enabled, the obsolete `CPUAccounting=` is absent (2026-09-17 amendment), and quotas are unset |
 | P3-C9 | HTTPS-only client and SSL context retain certificate and hostname verification |
 | P3-C10 | Safe status reports `DEGRADED` / `PAUSED_CREDENTIAL` without physical-containment claims |
 

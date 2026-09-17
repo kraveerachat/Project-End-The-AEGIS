@@ -23,9 +23,29 @@ IDEA2_UNITS = {
 def _unit() -> configparser.ConfigParser:
     parser = configparser.ConfigParser(interpolation=None, strict=True)
     parser.optionxform = str
-    with UNIT_PATH.open(encoding="utf-8") as handle:
-        parser.read_file(handle)
+
+    # systemd permits repeatable LoadCredential= directives. ConfigParser does
+    # not, so give only those repeatable directives synthetic keys while
+    # preserving strict duplicate detection for every other unit setting.
+    normalized: list[str] = []
+    credential_index = 0
+    for raw_line in UNIT_PATH.read_text(encoding="utf-8").splitlines():
+        if raw_line.startswith("LoadCredential="):
+            credential_index += 1
+            _, value = raw_line.split("=", 1)
+            raw_line = f"LoadCredential__{credential_index}={value}"
+        normalized.append(raw_line)
+
+    parser.read_string("\n".join(normalized))
     return parser
+
+
+def _load_credentials() -> list[str]:
+    return [
+        line.split("=", 1)[1]
+        for line in UNIT_PATH.read_text(encoding="utf-8").splitlines()
+        if line.startswith("LoadCredential=")
+    ]
 
 
 def _core_environment() -> dict[str, str]:
@@ -82,7 +102,14 @@ def test_p3_c8_core_service_has_no_idea2_chain_and_sets_no_unmeasured_quota():
     )
 
     assert all(name not in relationships for name in IDEA2_UNITS)
-    assert unit["Service"]["CPUAccounting"] == "true"
+    every_value = " ".join(
+        value for section in unit.values() for value in section.values()
+    )
+    assert all(name not in every_value for name in IDEA2_UNITS)
+    assert "aegis-detection" not in every_value
+    # systemd 261 removed CPUAccounting= and ignores it; CPU accounting comes
+    # from the unified cgroup hierarchy, so the obsolete directive stays absent.
+    assert "CPUAccounting" not in unit["Service"]
     assert unit["Service"]["MemoryAccounting"] == "true"
     assert unit["Service"]["TasksAccounting"] == "true"
     assert unit["Service"]["IOAccounting"] == "true"
@@ -114,3 +141,21 @@ def test_p3_c6_core_environment_resolves_durable_and_ephemeral_roots_separately(
 def test_p3_c1_historical_pr9_compatibility_artifacts_remain_present():
     assert HISTORICAL_UNIT_PATH.is_file()
     assert HISTORICAL_RUNTIME_PATH.is_file()
+
+
+def test_t9_core_service_loads_expected_systemd_credentials():
+    assert _load_credentials() == [
+        "k_c2d:/etc/aegis-idea3/credentials/k_c2d",
+        "k_d2c:/etc/aegis-idea3/credentials/k_d2c",
+        "mqtt-core.pass:/etc/aegis-idea3/credentials/mqtt-core.pass",
+        "admin.pin:/etc/aegis-idea3/credentials/admin.pin",
+    ]
+
+
+def test_t9_core_environment_keeps_runtime_secrets_out_of_environment_file():
+    values = _core_environment()
+
+    assert "AEGIS_MQTT_PASS" not in values
+    assert "AEGIS_ADMIN_PIN" not in values
+    assert "AEGIS_P1_C2D_KEY_FILE" not in values
+    assert "AEGIS_P1_D2C_KEY_FILE" not in values

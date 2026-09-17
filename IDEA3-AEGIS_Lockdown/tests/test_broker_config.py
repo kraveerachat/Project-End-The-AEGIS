@@ -72,7 +72,7 @@ def test_acl_is_the_exact_two_identity_topic_matrix():
     assert "+" not in text and "#" not in text
 
 
-def test_core_environment_uses_paths_and_contains_no_mqtt_or_hmac_secret_values():
+def test_core_environment_contains_no_runtime_secret_values_or_credential_paths():
     values = {}
     for raw in ENV.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -83,9 +83,11 @@ def test_core_environment_uses_paths_and_contains_no_mqtt_or_hmac_secret_values(
     assert values["AEGIS_BROKER_PORT"] == "8883"
     assert values["AEGIS_PROTOCOL_MODE"] == "v1"
     assert values["AEGIS_MQTT_CA_FILE"].startswith("/etc/aegis-idea3/")
-    assert values["AEGIS_P1_C2D_KEY_FILE"].startswith("/run/credentials/")
-    assert values["AEGIS_P1_D2C_KEY_FILE"].startswith("/run/credentials/")
     assert values["AEGIS_CORE_PROTOCOL_DB_PATH"].startswith("/var/lib/aegis-idea3/data/")
     assert values["AEGIS_MQTT_USER"] == "idea3-core"
-    assert values["AEGIS_MQTT_PASS"] == ""
+
+    assert "AEGIS_P1_C2D_KEY_FILE" not in values
+    assert "AEGIS_P1_D2C_KEY_FILE" not in values
+    assert "AEGIS_MQTT_PASS" not in values
+    assert "AEGIS_ADMIN_PIN" not in values
     assert "AEGIS_HMAC_SECRET" not in values
