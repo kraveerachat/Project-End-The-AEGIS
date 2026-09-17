@@ -3,7 +3,7 @@ import {
   LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, Database, X as XIcon,
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
   Download, PenLine, FolderInput, Link2, ShieldCheck, Trash2, Info, Copy, Check, Search, History,
-  Folder, FolderOpen, ChevronRight,
+  Folder, FolderOpen, ChevronRight, Eye,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
@@ -12,8 +12,13 @@ import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
+import { filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
 
-const EXT_ICONS = { xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive, mp4: FileVideo, pptx: FileImage, log: FileIcon }
+const EXT_ICONS = {
+  xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
+  mp4: FileVideo, webm: FileVideo, mov: FileVideo, mkv: FileVideo, pptx: FileImage, log: FileIcon,
+  jpg: FileImage, jpeg: FileImage, png: FileImage, gif: FileImage, webp: FileImage, avif: FileImage, bmp: FileImage,
+}
 // ⚠️ โฟลเดอร์ถูกตัดสินจาก `kind` ไม่ใช่จากนามสกุล — เดิม `EXT_ICONS['']` เป็น undefined
 //    ทำให้โฟลเดอร์ได้ไอคอนไฟล์ทั่วไปเหมือนกันหมด ซึ่งคือเหตุผลที่ผู้ใช้แยกไม่ออก
 const iconFor = (f) => (f.kind === 'folder' ? Folder : (EXT_ICONS[f.ext] ?? FileIcon))
@@ -35,7 +40,11 @@ function StorageBadge({ vault, t }) {
 /* ── per-file overflow menu ──────────────────────────────────────── */
 export function FileMenu({ t, onAction, onClose, file }) {
   const isFolder = file?.kind === 'folder'
+  // Preview มีเฉพาะไฟล์ปกติชนิดที่แสดงผลได้ — ไม่มีสำหรับโฟลเดอร์ (ไม่มีไบต์) และไม่มีสำหรับ
+  // Private Vault (เซิร์ฟเวอร์ไม่มี plaintext ให้ — Vault มีเส้นทาง preview ของตัวเองในจอ Vault)
+  const previewable = previewKindFor(file) !== null
   const items = [
+    ...(previewable ? [{ id: 'preview', icon: Eye, label: t('preview') }] : []),
     // โฟลเดอร์ไม่มีไบต์ให้ดาวน์โหลดหรือตรวจ checksum — คำสั่งที่กดแล้วไม่เกิดอะไรคือคำสั่งที่โกหก
     ...(isFolder ? [] : [{ id: 'download', icon: Download, label: t('download') }]),
     { id: 'rename', icon: PenLine, label: t('rename') },
@@ -257,23 +266,28 @@ function MetaDrawer({ t, lang, file, onClose }) {
 }
 
 /* ── Grid tile ───────────────────────────────────────────────────── */
-export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef, onDragStartItem, onDropItems, dragActive }) {
+export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef, onDragStartItem, onDragEndItem, onDropItems, dragActive }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuBtnRef = useRef(null)
   const [hover, setHover] = useState(false)
   const [dropTarget, setDropTarget] = useState(false)
+  // ⚠️ thumbnail ที่โหลดไม่ได้ต้อง "ถอยกลับ" เป็นไอคอนชนิดไฟล์ ไม่ใช่กล่องภาพเสีย —
+  //    และการถอยนี้เป็นของไฟล์ใบนี้ใบเดียว (state ต่อไทล์) ไม่ลามไปทั้งกริด
+  const [thumbFailed, setThumbFailed] = useState(false)
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
   const Icon = isFolder && dropTarget ? FolderOpen : iconFor(file)
+  const previewKind = thumbFailed ? null : previewKindFor(file)
   const showControls = hover || selected || anySelected || menuOpen
   return (
     <div
       ref={tileRef}
       data-file-kind={isFolder ? 'folder' : 'file'}
+      data-tile-variant="file-card"
       data-drop-target={dropTarget ? 'yes' : undefined}
       draggable
       onDragStart={(event) => onDragStartItem?.(event, file)}
-      onDragEnd={() => setDropTarget(false)}
+      onDragEnd={() => { setDropTarget(false); onDragEndItem?.() }}
       onDragOver={(event) => {
         // ⚠️ เฉพาะการลากรายการภายในเท่านั้น การลากไฟล์จากเครื่องต้องไหลขึ้นไปให้หน้า
         //    จัดการเป็นการอัปโหลดตามเดิม ห้ามดักไว้ที่นี่
@@ -348,14 +362,44 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
 
       {/* thumbnail */}
       {/* ⚠️ hatch/Shield แปลว่า "ระบบมองไม่เห็นเนื้อใน" (DESIGN.md ข้อ 1) โฟลเดอร์ไม่ใช่
-          แบบนั้น จึงต้องไม่ยืมภาษาภาพนั้นมาใช้เพียงเพื่อให้ดูต่างจากไฟล์ */}
-      <div className={`h-24 rounded-[9px] flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
-        <Icon
-          size={isFolder ? 34 : 30}
-          strokeWidth={1.2}
-          className={isFolder ? 'text-accent' : 'text-ink-3'}
-          {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
-        />
+          แบบนั้น จึงต้องไม่ยืมภาษาภาพนั้นมาใช้เพียงเพื่อให้ดูต่างจากไฟล์
+          ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จริงจากเส้นทาง preview (เจ้าของเท่านั้น, allowlist
+          ฝั่งเซิร์ฟเวอร์) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ */}
+      <div
+        data-thumb={previewKind ?? 'icon'}
+        className={`h-24 rounded-[9px] flex items-center justify-center overflow-hidden ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
+      >
+        {previewKind === 'image' ? (
+          <img
+            src={apiUrl(previewPathFor(file))}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={() => setThumbFailed(true)}
+            className="size-full object-cover"
+          />
+        ) : previewKind === 'video' ? (
+          /* ⚠️ preload="metadata" + muted, ไม่มี autoplay: เบราว์เซอร์ขอแค่ส่วนหัว (Range)
+             เพื่อวาดเฟรมแรก ไม่ใช่ดึงวิดีโอทั้งไฟล์ลงมาเพียงเพื่อโชว์ในกริด */
+          <video
+            src={`${apiUrl(previewPathFor(file))}#t=0.1`}
+            preload="metadata"
+            muted
+            playsInline
+            tabIndex={-1}
+            aria-hidden="true"
+            onError={() => setThumbFailed(true)}
+            className="size-full object-cover pointer-events-none"
+          />
+        ) : (
+          <Icon
+            size={isFolder ? 34 : 30}
+            strokeWidth={1.2}
+            className={isFolder ? 'text-accent' : 'text-ink-3'}
+            {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
+          />
+        )}
       </div>
 
       <div className="mt-2.5 flex items-start justify-between gap-2">
@@ -368,6 +412,289 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
             <StorageBadge vault={file.vault} t={t} />
       </div>
     </div>
+  )
+}
+
+/* ── Compact folder tile ─────────────────────────────────────────── */
+// ⚠️ โฟลเดอร์ต้อง "ต่างทางกายภาพ" จากการ์ดไฟล์ ไม่ใช่แค่ไอคอนคนละสี: ไม่มีกล่อง
+//    thumbnail (โฟลเดอร์ไม่มีเนื้อในให้ดู) ความสูงกะทัดรัด ไอคอน + ชื่ออยู่แถวเดียว
+//    แต่พฤติกรรมทุกอย่างของไทล์ยังอยู่ครบ — เลือกได้ ลากได้ เป็นเป้าวางได้ มีเมนู เปิดได้
+export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef, onDragStartItem, onDragEndItem, onDropItems, dragActive }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuBtnRef = useRef(null)
+  const [hover, setHover] = useState(false)
+  const [dropTarget, setDropTarget] = useState(false)
+  const Icon = dropTarget ? FolderOpen : Folder
+  const showControls = hover || selected || anySelected || menuOpen
+  return (
+    <div
+      ref={tileRef}
+      data-file-kind="folder"
+      data-tile-variant="folder-compact"
+      data-drop-target={dropTarget ? 'yes' : undefined}
+      draggable
+      onDragStart={(event) => onDragStartItem?.(event, file)}
+      onDragEnd={() => { setDropTarget(false); onDragEndItem?.() }}
+      onDragOver={(event) => {
+        if (!dragActive || isExternalFileDrag(event.dataTransfer)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDropTarget(true)
+      }}
+      onDragLeave={() => setDropTarget(false)}
+      onDrop={(event) => {
+        if (isExternalFileDrag(event.dataTransfer)) return
+        event.preventDefault()
+        event.stopPropagation()
+        setDropTarget(false)
+        onDropItems?.(readDragPayload(event.dataTransfer), file)
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={() => onOpen(file)}
+      title={t('openFolder')}
+      className="relative bg-card border rounded-[var(--r-tile)] h-12 pl-3 pr-16 flex items-center gap-2.5 cursor-pointer transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
+      style={{
+        borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
+        background: dropTarget
+          ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
+          : selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
+        transform: hover && !dropTarget ? 'translateY(-1px)' : 'none',
+        boxShadow: hover ? 'var(--elev-1)' : 'none',
+        transitionTimingFunction: 'var(--ease)',
+      }}
+    >
+      <Icon size={20} strokeWidth={1.4} className="shrink-0 text-accent" fill="var(--accent-soft)" />
+      <p className="min-w-0 flex-1 text-[13.5px] font-medium text-ink truncate" title={file.name}>{file.name}</p>
+
+      {/* selection checkbox + overflow — ชิดขวา แทนที่จะลอยอยู่มุมบนเหมือนการ์ด */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={`${t('selected')}: ${file.name}`}
+          onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
+          className="size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
+          style={{
+            opacity: showControls ? 1 : 0,
+            background: selected ? 'var(--accent)' : 'var(--card)',
+            borderColor: selected ? 'var(--accent)' : 'var(--line)',
+          }}
+        >
+          {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
+        </button>
+        <button
+          ref={menuBtnRef}
+          type="button"
+          aria-label={t('moreActions')}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+          className="size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
+          style={{ opacity: showControls ? 1 : 0 }}
+        >
+          <MoreHorizontal size={14} strokeWidth={1.5} />
+        </button>
+      </div>
+      <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('moreActions')}>
+        <FileMenu t={t} file={file} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
+      </AnchoredMenu>
+    </div>
+  )
+}
+
+/* ── Folder-first sections (grid + list) ─────────────────────────── */
+// กฎเดียวกันทุกระดับของลำดับชั้น: โฟลเดอร์เป็นส่วนของตัวเองอยู่บน ไฟล์อยู่ล่าง
+// ส่วนที่ว่างถูกซ่อน (ผู้เรียกจัดการ Empty State เมื่อทั้งสองว่าง) ดู lib/filesView.js
+function SectionHeading({ children }) {
+  return (
+    <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
+  )
+}
+
+export function FilesSections({
+  t, view, folders, files, now, selectedIds, draggingIds,
+  onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, onOpenDetail, tileRef,
+}) {
+  const dragActive = draggingIds.length > 0
+  if (view !== 'grid') {
+    const groupRow = (key, label) => (
+      <tr key={`section-${key}`} data-files-section-row={key} className="bg-sunken/60">
+        <td colSpan={6} className="px-4 pl-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{label}</td>
+      </tr>
+    )
+    const row = (file, i) => {
+      const Icon = iconFor(file)
+      const isFolder = file.kind === 'folder'
+      return (
+        <tr
+          key={file.id}
+          data-file-kind={isFolder ? 'folder' : 'file'}
+          draggable
+          onDragStart={(event) => onDragStartItem(event, file)}
+          onDragEnd={() => onDragEndItem?.()}
+          onDragOver={(event) => {
+            if (!isFolder || !dragActive || isExternalFileDrag(event.dataTransfer)) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+          }}
+          onDrop={(event) => {
+            if (!isFolder || isExternalFileDrag(event.dataTransfer)) return
+            event.preventDefault()
+            event.stopPropagation()
+            onDropItems(readDragPayload(event.dataTransfer), file)
+          }}
+          onClick={() => onOpen(file)}
+          className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer rise-in"
+          style={{ height: 'var(--row-h)', animationDelay: `${Math.min(i * 25, 300)}ms` }}
+        >
+          <td className="px-4 pl-5">
+            <span className="flex items-center gap-2.5 min-w-0">
+              {/* ไอคอนเดียวกับในกริด — โฟลเดอร์ต้องดูออกในทั้งสองมุมมอง */}
+              <Icon
+                size={16}
+                strokeWidth={1.5}
+                className={`shrink-0 ${isFolder ? 'text-accent' : 'text-ink-3'}`}
+                {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
+              />
+              <span className="text-[13.5px] font-medium text-ink truncate max-w-[360px]">{file.name}</span>
+            </span>
+          </td>
+          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
+          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
+          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
+          <td className="px-4"><StorageBadge vault={file.vault} t={t} /></td>
+          <td className="px-4 text-right">
+            <IconBtn label={t('viewMetadata')} onClick={(e) => { e.stopPropagation(); onOpenDetail(file) }}>
+              <MoreHorizontal size={15} strokeWidth={1.5} />
+            </IconBtn>
+          </td>
+        </tr>
+      )
+    }
+    return (
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-line">
+                <Th className="pl-5">{t('colName')}</Th>
+                <Th>{t('colSize')}</Th>
+                <Th>{t('colType')}</Th>
+                <Th>{t('colModified')}</Th>
+                <Th>{t('colEncryption')}</Th>
+                <Th> </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {folders.length > 0 && groupRow('folders', t('sectionFolders'))}
+              {folders.map(row)}
+              {files.length > 0 && groupRow('files', t('sectionFiles'))}
+              {files.map((file, i) => row(file, folders.length + i))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    )
+  }
+
+  const common = (file) => ({
+    t, file, now,
+    selected: selectedIds.has(file.id),
+    anySelected: selectedIds.size > 0,
+    onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, dragActive,
+    tileRef: tileRef(file.id),
+  })
+  return (
+    <div className="flex flex-col gap-6">
+      {folders.length > 0 && (
+        <section data-files-section="folders" aria-label={t('sectionFolders')}>
+          <SectionHeading>{t('sectionFolders')}</SectionHeading>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
+            {folders.map((file, i) => (
+              <div key={file.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}>
+                <FolderTile {...common(file)} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {files.length > 0 && (
+        <section data-files-section="files" aria-label={t('sectionFiles')}>
+          <SectionHeading>{t('sectionFiles')}</SectionHeading>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
+            {files.map((file, i) => (
+              <div key={file.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}>
+                <FileTile {...common(file)} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+/* ── Preview dialog (normal files only) ──────────────────────────── */
+// ⚠️ นี่คือคำสั่ง "ดู" ไม่ใช่ "ดาวน์โหลด": ภาพ/วิดีโอถูกดึงจากเส้นทาง preview ที่เจ้าของ
+//    เท่านั้นเข้าถึงได้ วิดีโอเล่นแบบสตรีม (Range) ไม่ดึงทั้งไฟล์ลง RAM ของแท็บ
+//    สถานะโหลด/ล้มเหลวพูดความจริง — ไม่มีกล่องว่างเปล่าที่ผู้ใช้ต้องเดาว่าเกิดอะไรขึ้น
+export function FilePreviewModal({ t, file, onClose, onDownload }) {
+  const [phase, setPhase] = useState('loading') // loading | ready | failed
+  const kind = file ? previewKindFor(file) : null
+  const src = file ? apiUrl(previewPathFor(file)) : ''
+  return (
+    <Modal open={Boolean(file)} onClose={onClose} width={880} labelledBy="file-preview-title">
+      <ModalClose onClose={onClose} label={t('close')} />
+      <h2 id="file-preview-title" className="text-[16px] font-semibold text-ink pr-8 truncate">{file?.name}</h2>
+      <p className="text-[12px] text-ink-3 mt-1" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {file?.type} · {fmtBytes(file?.size ?? 0)}
+      </p>
+      <div
+        className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden relative"
+        style={{ minHeight: 220 }}
+        data-file-preview-kind={kind ?? ''}
+        data-file-preview-phase={phase}
+      >
+        {phase === 'loading' && (
+          <p role="status" className="absolute text-[13px] text-ink-3">{t('previewLoading')}</p>
+        )}
+        {phase === 'failed' ? (
+          <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center max-w-md" style={{ color: 'var(--danger)' }}>
+            {t('previewUnavailable')}
+          </p>
+        ) : kind === 'video' ? (
+          <video
+            controls
+            preload="metadata"
+            playsInline
+            src={src}
+            onLoadedMetadata={() => setPhase('ready')}
+            onError={() => setPhase('failed')}
+            className="max-w-full"
+            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
+          />
+        ) : kind === 'image' ? (
+          <img
+            src={src}
+            alt={file?.name ?? ''}
+            decoding="async"
+            onLoad={() => setPhase('ready')}
+            onError={() => setPhase('failed')}
+            className="max-w-full object-contain"
+            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
+          />
+        ) : null}
+      </div>
+      <div className="flex gap-2.5 mt-5 justify-end">
+        <Btn variant="outline" onClick={onClose}>{t('close')}</Btn>
+        <Btn variant="primary" onClick={() => file && onDownload?.(file)}>
+          <Download size={14} strokeWidth={1.5} />
+          {t('download')}
+        </Btn>
+      </div>
+    </Modal>
   )
 }
 
@@ -404,6 +731,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const [askDelete, setAskDelete] = useState(null) // null | { ids: string[], label: string }
   const [mutating, setMutating] = useState(false)
   const [mutateError, setMutateError] = useState(false)
+  const [preview, setPreview] = useState(null)              // null | file (ไฟล์ปกติที่ preview ได้)
   const [renameTarget, setRenameTarget] = useState(null)   // null | file
   const [renameValue, setRenameValue] = useState('')
   const [moveTarget, setMoveTarget] = useState(null)       // null | { ids, label }
@@ -523,14 +851,10 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   }
 
   const availableTypes = [...new Set(files.map((file) => file.type).filter(Boolean))].sort()
-  const filtered = files.filter((file) => {
-    const matchesQuery = file.name.toLowerCase().includes(query.trim().toLowerCase())
-    const matchesType = typeFilter === 'all' || file.type === typeFilter
-    return matchesQuery && matchesType
-  })
-  const sorted = [...filtered].sort((a, b) =>
-    sort === 'name' ? a.name.localeCompare(b.name) : sort === 'size' ? b.size - a.size : b.modified - a.modified,
-  )
+  // ⚠️ กรองก่อน แล้วค่อยแยกเป็นสองส่วน (โฟลเดอร์ / ไฟล์) ที่เรียงแยกกัน — การค้นหาหรือ
+  //    การเรียงไม่มีทางทำให้โฟลเดอร์ไปปนกับไฟล์ ดู lib/filesView.js
+  const filtered = filterItems(files, { query, typeFilter })
+  const sections = sectionItems(filtered, sort)
 
   const toggleSelect = (id) =>
     setSelectedIds((prev) => {
@@ -577,6 +901,9 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
       setAskDelete({ ids: [file.id], label: file.name })
     } else if (action === 'download') {
       downloadFile(file)
+    } else if (action === 'preview') {
+      // "ดู" เป็นคำสั่งของตัวเอง — ไม่ใช่ทางลัดไป Download และไม่แตะการคลิกการ์ดเดิม
+      if (previewKindFor(file)) setPreview(file)
     } else if (action === 'meta' || action === 'verify') {
       openDetail(file)
     } else if (action === 'link') {
@@ -709,7 +1036,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         <Card><ErrorState t={t} kind={fetchError} onRetry={filesApi.retry} /></Card>
       ) : placeholderMode ? (
         <Card><DependencyUnavailableState t={t} title={t('filesUnavailable')} /></Card>
-      ) : sorted.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Card>
           <EmptyState
             icon={FolderPlus}
@@ -722,94 +1049,25 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
             }
           />
         </Card>
-      ) : view === 'grid' ? (
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
-          {sorted.map((file, i) => (
-            <div key={file.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}>
-              <FileTile
-                t={t}
-                file={file}
-                now={now}
-                selected={selectedIds.has(file.id)}
-                anySelected={selectedIds.size > 0}
-                onSelect={toggleSelect}
-                onOpen={openItem}
-                onDragStartItem={startItemDrag}
-                onDropItems={dropItemsInto}
-                dragActive={draggingIds.length > 0}
-                onMenuAction={onMenuAction}
-                tileRef={(el) => { tileRefs.current[file.id] = el }}
-              />
-            </div>
-          ))}
-        </div>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-line">
-                  <Th className="pl-5">{t('colName')}</Th>
-                  <Th>{t('colSize')}</Th>
-                  <Th>{t('colType')}</Th>
-                  <Th>{t('colModified')}</Th>
-                  <Th>{t('colEncryption')}</Th>
-                  <Th> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((file, i) => {
-                  const Icon = iconFor(file)
-                  return (
-                    <tr
-                      key={file.id}
-                      data-file-kind={file.kind === 'folder' ? 'folder' : 'file'}
-                      draggable
-                      onDragStart={(event) => startItemDrag(event, file)}
-                      onDragEnd={() => setDraggingIds([])}
-                      onDragOver={(event) => {
-                        if (file.kind !== 'folder' || !draggingIds.length || isExternalFileDrag(event.dataTransfer)) return
-                        event.preventDefault()
-                        event.dataTransfer.dropEffect = 'move'
-                      }}
-                      onDrop={(event) => {
-                        if (file.kind !== 'folder' || isExternalFileDrag(event.dataTransfer)) return
-                        event.preventDefault()
-                        event.stopPropagation()
-                        dropItemsInto(readDragPayload(event.dataTransfer), file)
-                      }}
-                      onClick={() => openItem(file)}
-                      className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer rise-in"
-                      style={{ height: 'var(--row-h)', animationDelay: `${Math.min(i * 25, 300)}ms` }}
-                    >
-                      <td className="px-4 pl-5">
-                        <span className="flex items-center gap-2.5 min-w-0">
-                          {/* ไอคอนเดียวกับในกริด — โฟลเดอร์ต้องดูออกในทั้งสองมุมมอง */}
-                          <Icon
-                            size={16}
-                            strokeWidth={1.5}
-                            className={`shrink-0 ${file.kind === 'folder' ? 'text-accent' : 'text-ink-3'}`}
-                            {...(file.kind === 'folder' ? { fill: 'var(--accent-soft)' } : {})}
-                          />
-                          <span className="text-[13.5px] font-medium text-ink truncate max-w-[360px]">{file.name}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
-                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
-                      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
-                      <td className="px-4"><StorageBadge vault={file.vault} t={t} /></td>
-                      <td className="px-4 text-right">
-                        <IconBtn label={t('viewMetadata')} onClick={(e) => { e.stopPropagation(); openDetail(file) }}>
-                          <MoreHorizontal size={15} strokeWidth={1.5} />
-                        </IconBtn>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        /* โฟลเดอร์เป็นส่วนของตัวเองเหนือไฟล์เสมอ — ทุกระดับ ทุกมุมมอง (Round 8) */
+        <FilesSections
+          t={t}
+          view={view}
+          folders={sections.folders}
+          files={sections.files}
+          now={now}
+          selectedIds={selectedIds}
+          draggingIds={draggingIds}
+          onSelect={toggleSelect}
+          onOpen={openItem}
+          onMenuAction={onMenuAction}
+          onDragStartItem={startItemDrag}
+          onDragEndItem={() => setDraggingIds([])}
+          onDropItems={dropItemsInto}
+          onOpenDetail={openDetail}
+          tileRef={(id) => (el) => { tileRefs.current[id] = el }}
+        />
       )}
       </div>
 
@@ -867,6 +1125,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
 
       <FlipGhost ghost={ghost} onDone={() => setGhost(null)} />
       {detail && <MetaDrawer t={t} lang={lang} file={detail} onClose={() => setDetail(null)} />}
+      <FilePreviewModal t={t} file={preview} onClose={() => setPreview(null)} onDownload={(f) => downloadFile(f)} />
 
       {/* new folder — Modal จริง ไม่ใช่ prompt() ของเบราว์เซอร์ */}
       {/* ── Rename ────────────────────────────────────────────────────────────

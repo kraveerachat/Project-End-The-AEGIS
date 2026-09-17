@@ -48,7 +48,7 @@ import { BACKUP_ROUTES, adminBackupView, backupCommand, backupMaintenance } from
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
-  keyExists, openReadStream, discardUploaded,
+  keyExists, openReadStream, openReadStreamRange, discardUploaded,
   moveToVersions, restoreFromVersions,
 } from '../storage/fileStore.js'
 // Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
@@ -670,6 +670,113 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
     const stream = openReadStream(file.path)
     if (!stream) return res.status(404).json({ error: 'Not found' })
     stream.on('error', () => res.destroy()) // ดิสก์พังกลางคัน — ตัดการเชื่อมต่อ ไม่ส่งไฟล์ครึ่ง ๆ ที่ดูเหมือนครบ
+    stream.pipe(res)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Preview — เสิร์ฟ "เนื้อใน" ของภาพ/วิดีโอปกติให้เบราว์เซอร์แสดงผลได้ (Round 8) ──
+// ⚠️ ทำไมไม่ยืม Download: Download ตั้ง octet-stream + attachment + nosniff โดยเจตนา
+//    เพื่อไม่ให้ไฟล์ที่ผู้ใช้อัปโหลด (HTML/SVG) ถูก render ใน origin ของแอป และไม่รองรับ
+//    Range เบราว์เซอร์จึงวาด <img> จากมันไม่ได้ และ <video> จะดึงทั้งไฟล์ เส้นทางนี้เปิด
+//    "เฉพาะ" ชนิดที่ render แล้วรันอะไรไม่ได้ (allowlist ด้านล่าง — ไม่มี svg) และตอบเป็น
+//    ช่วง (206) เพื่อให้ RAM ต่อคำขอถูกจำกัดทั้งสองฝั่ง
+// ⚠️ MIME มาจากนามสกุลของชื่อในฐานข้อมูล ไม่ใช่จาก client และไม่ใช่การ sniff ไบต์:
+//    เบราว์เซอร์จะแสดงผลตามที่เราประกาศพร้อม nosniff — ไฟล์ .jpg ที่ข้างในเป็น HTML
+//    จึงเป็นแค่ภาพเสีย ไม่ใช่หน้าเว็บที่รันใน origin ของเรา และ CSP sandbox กำกับอีกชั้น
+// ⚠️ Private Vault: แถว vault=true ตอบ 404 เหมือนไม่มีเส้นทางนี้ — เซิร์ฟเวอร์เห็นแค่
+//    ciphertext ไม่มี plaintext ให้ preview และต้องไม่มีวันมี (ดู /vault/blobs/:id/chunks)
+const PREVIEW_MIME = Object.freeze({
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
+  mp4: 'video/mp4', webm: 'video/webm',
+})
+
+/**
+ * แปลง Range header เป็นช่วง [start, end] ตาม RFC 9110 §14 — เฉพาะ bytes และช่วงเดียว
+ * @returns {{ start: number, end: number } | 'unsatisfiable' | null}
+ *   null = ไม่มี/ไม่รองรับ (ตอบทั้งก้อน 200 อย่างซื่อสัตย์ ไม่ปลอม 206)
+ *   'unsatisfiable' = รูปแบบถูกแต่ช่วงเป็นไปไม่ได้ → 416
+ */
+function parseByteRange(header, size) {
+  if (typeof header !== 'string') return null
+  // ⚠️ ไวยากรณ์ผิด (รวมหลายช่วง/หน่วยอื่น) = "ไม่มี Range" ตาม RFC 9110 §14.2 → ตอบ 200 ทั้งก้อน
+  //    416 สงวนไว้สำหรับช่วงที่ไวยากรณ์ถูกแต่ไม่ทับกับตัวแทนเลย
+  const m = /^bytes=([0-9]*)-([0-9]*)$/.exec(header.trim())
+  if (!m) return null
+  const [, first, last] = m
+  if (first === '' && last === '') return 'unsatisfiable'
+  if (first === '') {
+    // suffix-range: N ไบต์สุดท้าย — "-0" ไม่มีความหมาย
+    const suffix = Number(last)
+    if (!Number.isSafeInteger(suffix) || suffix <= 0 || size === 0) return 'unsatisfiable'
+    return { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  const start = Number(first)
+  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable'
+  const end = last === '' ? size - 1 : Math.min(Number(last), size - 1)
+  if (!Number.isSafeInteger(end) || end < start) return 'unsatisfiable'
+  return { start, end }
+}
+
+apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ ด่านความเป็นเจ้าของต้องมาก่อน Range/MIME/ขนาดไฟล์ทุกอย่าง — 416 หรือ 415 ให้คนอื่น
+    //    ก็คือการยืนยันว่าไฟล์นี้มีอยู่และเป็นชนิดอะไร (เหมือน Download: 404 เท่านั้น)
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (file.vault) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (file.kind === 'folder' || file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
+
+    const ext = String(file.name).toLowerCase().split('.').pop()
+    const mime = String(file.name).includes('.') ? PREVIEW_MIME[ext] : undefined
+    if (!mime) return res.status(415).json({ error: 'Preview not supported for this type' })
+
+    const abs = resolveKey(file.path)
+    if (!abs || !(await keyExists(file.path))) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    // ขนาดจริงบนดิสก์ — Content-Range ต้องตรงกับไบต์ที่ส่งจริง ไม่ใช่คอลัมน์ที่อาจคลาดเคลื่อน
+    const size = await sizeOfFile(abs)
+
+    // ⚠️ ไม่ audit ความสำเร็จต่อคำขอ: กริดหนึ่งหน้าคือคำขอ thumbnail หลายสิบครั้ง และ
+    //    <video> ยิง Range เป็นชุด การบันทึกทุกครั้งจะฝัง audit จริง ๆ (ทิ้ง/แชร์/ดาวน์โหลด)
+    //    ไว้ใต้เสียงรบกวน ความพยายามข้ามเจ้าของยังถูกบันทึกเป็น DENIED ด้านบนเสมอ
+    res.setHeader('Content-Type', mime)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Cache-Control', 'private, no-store')
+    // ต่อให้ URL นี้ถูกเปิดตรง ๆ ในแท็บ เอกสารที่ได้ก็ไม่มีสิทธิ์ใด ๆ ใน origin — ชั้นกันเพิ่ม
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox")
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
+
+    const range = parseByteRange(req.headers.range, size)
+    if (range === 'unsatisfiable') {
+      res.setHeader('Content-Range', `bytes */${size}`)
+      return res.status(416).end()
+    }
+    const start = range ? range.start : 0
+    const end = range ? range.end : size - 1
+    if (range) {
+      res.status(206)
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+    }
+    res.setHeader('Content-Length', String(size === 0 ? 0 : end - start + 1))
+    if (size === 0) return res.end()
+
+    const stream = openReadStreamRange(file.path, { start, end })
+    if (!stream) return res.status(404).json({ error: 'Not found' })
+    stream.on('error', () => res.destroy())
     stream.pipe(res)
   } catch (err) {
     next(err)
