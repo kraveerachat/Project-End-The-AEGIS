@@ -7,6 +7,7 @@ import os
 import sys
 
 from .paths import RuntimePaths, configuration_path, load_dotenv
+from .systemd_credentials import credential_path, read_text_credential
 
 
 def _env_bool(name, default=False):
@@ -23,6 +24,8 @@ def _env_bool(name, default=False):
 
 
 load_dotenv(configuration_path())
+
+_SYSTEMD_CREDENTIALS_DIRECTORY = os.getenv("CREDENTIALS_DIRECTORY", "").strip()
 
 _RUNTIME_PATHS = (
     RuntimePaths.from_environment()
@@ -58,7 +61,10 @@ PORT, _BROKER_PORT_WARNING = _broker_port(os.getenv("AEGIS_BROKER_PORT"))
 DEMO_SECRET = b"AEGIS-DEMO-SHARED-SECRET-change-me"
 DEFAULT_ADMIN_PIN = "1234"
 SECRET_KEY = os.getenv("AEGIS_HMAC_SECRET", DEMO_SECRET.decode("utf-8")).encode("utf-8")
-_ADMIN_PIN = os.getenv("AEGIS_ADMIN_PIN", DEFAULT_ADMIN_PIN)
+if _SYSTEMD_CREDENTIALS_DIRECTORY:
+    _ADMIN_PIN = read_text_credential("admin.pin")
+else:
+    _ADMIN_PIN = os.getenv("AEGIS_ADMIN_PIN", DEFAULT_ADMIN_PIN)
 ADMIN_PIN_CONFIGURED = bool(_ADMIN_PIN)
 # เก็บ PIN เป็น hash ไม่เก็บ plaintext
 ADMIN_PIN_HASH = hashlib.sha256(_ADMIN_PIN.encode("utf-8")).hexdigest()
@@ -74,8 +80,12 @@ PROTOCOL_MODE_V1 = "v1"
 PROTOCOL_MODE_LEGACY_LAB = "legacy-v0-lab"
 PROTOCOL_MODE = os.getenv("AEGIS_PROTOCOL_MODE", PROTOCOL_MODE_V1).strip() or PROTOCOL_MODE_V1
 P1_DEVICE_ID = os.getenv("AEGIS_P1_DEVICE_ID", "").strip()
-P1_C2D_KEY_FILE = os.getenv("AEGIS_P1_C2D_KEY_FILE", "").strip()
-P1_D2C_KEY_FILE = os.getenv("AEGIS_P1_D2C_KEY_FILE", "").strip()
+if _SYSTEMD_CREDENTIALS_DIRECTORY:
+    P1_C2D_KEY_FILE = str(credential_path("k_c2d"))
+    P1_D2C_KEY_FILE = str(credential_path("k_d2c"))
+else:
+    P1_C2D_KEY_FILE = os.getenv("AEGIS_P1_C2D_KEY_FILE", "").strip()
+    P1_D2C_KEY_FILE = os.getenv("AEGIS_P1_D2C_KEY_FILE", "").strip()
 CORE_PROTOCOL_DB_PATH = os.getenv("AEGIS_CORE_PROTOCOL_DB_PATH", "").strip()
 RESTORE_CREDENTIAL_FILE = os.getenv("AEGIS_RESTORE_CREDENTIAL_FILE", "").strip()
 
@@ -105,7 +115,10 @@ LOG_PATH = os.getenv(
 SOUND_LOCKDOWN = os.getenv("AEGIS_SOUND_LOCKDOWN", "detect.wav")       # เสียงตอนตัด
 SOUND_RESTORE = os.getenv("AEGIS_SOUND_RESTORE", "connect.wav")        # เสียงตอนคืน
 MQTT_USER = os.getenv("AEGIS_MQTT_USER", "")
-MQTT_PASS = os.getenv("AEGIS_MQTT_PASS", "")
+if _SYSTEMD_CREDENTIALS_DIRECTORY:
+    MQTT_PASS = read_text_credential("mqtt-core.pass")
+else:
+    MQTT_PASS = os.getenv("AEGIS_MQTT_PASS", "")
 # TLS is on unless explicitly disabled; production preflight refuses disabling it.
 MQTT_TLS = _env_bool("AEGIS_MQTT_TLS", True)
 MQTT_CA_FILE = os.getenv("AEGIS_MQTT_CA_FILE", "").strip()

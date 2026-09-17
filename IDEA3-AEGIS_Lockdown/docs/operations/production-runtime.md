@@ -26,8 +26,13 @@ certificate, broker, firmware, relay, or live system was changed.
 ```text
 /opt/aegis-idea3/releases/<git-sha>/                 immutable release
 /opt/aegis-idea3/current                            selected release
-/etc/aegis-idea3/core.env                           configuration
+/etc/aegis-idea3/core.env                           non-secret configuration
 /etc/aegis-idea3/pki/                               certificate material
+/etc/aegis-idea3/credentials/                       root-managed credential sources
+/etc/aegis-idea3/credentials/k_c2d                  Protocol v1 Core-to-device key
+/etc/aegis-idea3/credentials/k_d2c                  Protocol v1 device-to-Core key
+/etc/aegis-idea3/credentials/mqtt-core.pass         Core MQTT password
+/etc/aegis-idea3/credentials/admin.pin              Core Admin PIN
 /var/lib/aegis-idea3/data/core-audit.sqlite3        durable Core audit
 /var/lib/aegis-idea3/data/core-dispatch.sqlite3     durable dispatch ledger
 /run/aegis-idea3/                                   ephemeral PID/lock/status only
@@ -41,8 +46,27 @@ ledger is never placed under `/run` or the source checkout.
 
 Start from `deploy/aegis-idea3-core.env.example` when a separately authorized
 live phase creates `/etc/aegis-idea3/core.env`. Keep it root-owned and readable
-only by the service group. Never print, source into an interactive trace, or
-commit the completed file.
+only by the service group. The dedicated Core environment file contains no
+`AEGIS_MQTT_PASS`, `AEGIS_ADMIN_PIN`, `AEGIS_P1_C2D_KEY_FILE`, or
+`AEGIS_P1_D2C_KEY_FILE` entry.
+
+The four T9 Core credentials are persistent source files under
+`/etc/aegis-idea3/credentials/`. The accepted source contract is a root-managed
+directory (`root:root`, mode `0700`) with `k_c2d`, `k_d2c`,
+`mqtt-core.pass`, and `admin.pin` as `root:root` mode-`0600` files. The Core
+unit uses four `LoadCredential=` directives. systemd projects them into the
+service's `$CREDENTIALS_DIRECTORY`; the application resolves and validates the
+runtime credential files there rather than hard-coding `/run/credentials/...`.
+
+Credential loading fails closed for a missing credential directory, a missing
+or unreadable file, symlink, non-regular file, group/world-accessible mode, or
+an empty text credential. Protocol key contents retain the separate Protocol v1
+format and independence checks. A non-systemd development/lab launch retains
+the historical environment-variable compatibility path; the Production
+systemd unit does not use that path.
+
+Never print, source into an interactive trace, or commit completed
+configuration or credential contents.
 
 ### Core lifecycle and status contract
 
@@ -233,8 +257,10 @@ runtime, and log paths beneath `AEGIS_DATA_DIR`; do not point them into `/opt`.
 
 A live Core profile additionally requires reviewed MQTT host/port/Core
 credentials, a readable dedicated MQTT CA, independent per-device C2D/D2C key
-credentials, durable Protocol v1 storage, and a non-default `AEGIS_ADMIN_PIN`. Keep
-IDEA1/IDEA2 URL/token pairs blank until their owners provision reviewed
+credentials, durable Protocol v1 storage, and a non-default `admin.pin`
+credential. Under the dedicated systemd unit, the MQTT password, Admin PIN, and
+two Protocol v1 key files arrive through `LoadCredential=` rather than
+`core.env`. Keep IDEA1/IDEA2 URL/token pairs blank until their owners provision reviewed
 read-only endpoints. Blank optional dependencies are `NOT_CONFIGURED`, not
 healthy. Use `AEGIS_PROFILE=lab` and `AEGIS_DRY_RUN=1` only for isolated
 non-actuating acceptance; never label that state Production-deployed.
@@ -366,13 +392,18 @@ audit checks. Rollback never means resetting hardware state or sending RESTORE.
 
 ## Secret rotation
 
-Rotate one credential class at a time through the approved secret store. Stop,
-update the external `.env` without echoing values, preserve mode 0600, start, and
-verify the affected boundary. Rotating the session secret invalidates sessions;
-rotating the Admin password hash requires a new login; rotating integration
-tokens requires the upstream owner; rotating MQTT/HMAC material requires a
-separately authorized device/broker rollout. Never reuse a human session cookie
-as an integration credential.
+Rotate one credential class at a time through the approved secret store. For
+the dedicated Phase 3 Core, rotate `k_c2d`, `k_d2c`, `mqtt-core.pass`, or
+`admin.pin` only through the reviewed root-owned source files under
+`/etc/aegis-idea3/credentials/`; do not place those values in `core.env`.
+Preserve the accepted source ownership/mode and restart only in a separately
+authorized change window so systemd can project the new credential version.
+Other external configuration and the historical PR9 composite runtime retain
+their documented configuration procedures. Rotating session or Admin Web
+credentials requires the corresponding Web procedure; rotating integration
+tokens requires the upstream owner; rotating MQTT or Protocol key material
+requires the separately authorized broker/device rollout. Never reuse a human
+session cookie as an integration credential.
 
 ## Container runtime behind the HUB (PR11 Phase 2 — prepared, not deployed)
 
@@ -434,8 +465,11 @@ hardware security capabilities, resource limits, and relay-feedback evidence
 are discovered and jointly reviewed. Provision a dedicated MQTT CA, broker leaf
 certificate, distinct Core/device broker credentials, independent per-device
 C2D/D2C keys, versioned firmware NVS, durable Core protocol storage under
-`/var/lib/aegis-idea3/data`, and runtime credentials under
-`/run/credentials/<unit>/` before any device use.
+`/var/lib/aegis-idea3/data`, and the reviewed T9 credential source files under
+`/etc/aegis-idea3/credentials/` before any device use. The Core unit then
+projects those four credentials through systemd `LoadCredential=` into
+`$CREDENTIALS_DIRECTORY`; operators do not manually populate
+`/run/credentials/<unit>/`.
 
 The separately authorized cutover order is: validate repository tests; validate
 an isolated broker; stage and validate TLS listeners/ACLs; passively inspect the

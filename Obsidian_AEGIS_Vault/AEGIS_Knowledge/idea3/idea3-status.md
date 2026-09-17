@@ -32,6 +32,12 @@ edit_policy: owner-writable
 ```text
 PHASE3_RUNTIME_TASK            = IN PROGRESS
 P3_R1_REPO_CORRECTION          = DONE — CPUAccounting= removed from deploy/aegis-idea3-core.service.example; P3-C8 test updated (TDD)
+P3_T9_REPOSITORY_IMPLEMENTED   = YES — systemd LoadCredential delivery for k_c2d, k_d2c, mqtt-core.pass, admin.pin
+P3_T9_LOCAL_STATIC_VERIFIED    = YES — credential fail-closed tests, systemd-analyze verify, compileall, full pytest
+G12_REPOSITORY_SIDE            = IMPLEMENTED / LOCAL VERIFIED
+G13_REPOSITORY_SIDE            = IMPLEMENTED / LOCAL VERIFIED
+G12_LIVE_DELIVERY              = NOT PROVEN
+G13_LIVE_DELIVERY              = NOT PROVEN
 SYSTEMD261_COMPATIBILITY       = CPUAccounting= removed/ignored on systemd 261.2 (owner-run Core preflight; reproduced on a systemd 261.2 workstation)
 CPU_ACCOUNTING                 = host unified cgroup hierarchy (no unit directive)
 MEMORY/TASKS/IO_ACCOUNTING     = true (unchanged)
@@ -40,29 +46,34 @@ UNIT_STATIC_VALIDATION         = only expected pre-deployment ExecStart missing-
 IDEA2_CONTRACT                 = no IDEA2 unit reference anywhere in the Core unit (test-proven)
 CORE_SERVICE_INSTALLED         = NO
 PRODUCTION_MUTATION            = NO (agent)
-PHASE4_RUNTIME_PREREQUISITES   = ABSENT — blocks --live Core start
+PHASE4_RUNTIME_PREREQUISITES   = PARTIAL_REPOSITORY_ONLY — T9/G12/G13 repository support exists; live broker/PKI/network/credential delivery remains open
 PHASE3_RUNTIME_COMPLETE        = NO
-FINAL_RECEIPT                  = NOT CREATED (task in progress)
+PHASE4_RUNTIME_COMPLETE        = NO
+D4_LIVE_VERIFIED               = NO
+K12                            = NOT_PROVEN
+FINAL_RECEIPT                  = 90-Status/logs/2026-09-18_000451_music_idea3-pr11-phase3-t9-credentials.md
 ```
 
 ### Current Task
 
-Task: IDEA3 PR11 Phase 3 runtime completion
-Branch: `feat/idea3-pr11-phase3-runtime-completion`
+Task: IDEA3 PR11 Phase 3 runtime completion — T9 credential integration
+Branch: `feat/idea3-pr11-phase3-t9-credentials`
 Owner: `music`
-PR: not opened yet
-Current state: IN PROGRESS
+Target integration: Draft PR #149 (`feat/idea3-pr11-phase3-runtime-completion`); T9 branch not pushed or merged
+Current state: REPOSITORY CLOSEOUT READY — local verification complete; T9 receipt created; human integration pending
 Started: 2026-09-17
-Base SHA: `232759cf4e44094c61f15e3d041c09eb1478b42c`
-Last checkpoint: P3-R1 repository correction commit on this branch
+Base SHA: `bacb64fa24d55029387a84d07492061b702a125a`
+Last checkpoint: the commit containing the T9 implementation/evidence receipt
 Production mutation allowed: NO
 
 - **Goal:** complete the Phase 3 Core runtime within separately authorized
   gates, starting with repository corrections found by owner-run read-only
   Core evidence.
-- **Out of scope for P3-R1:** unit installation; `/opt`, `/etc`, `/var/lib`,
-  `/run`, `/var/log` changes; IDEA2, Mosquitto, Twingate, Docker, or any
-  service lifecycle; MQTT/TLS/AP/firmware/CUT/RESTORE/reboot work; merging.
+- **Out of scope for the T9 repository subtask:** unit installation or
+  credential provisioning on the Core; `/opt`, `/etc`, `/var/lib`, `/run`, or
+  `/var/log` host mutation; real secret generation; IDEA2, Mosquitto, Twingate,
+  Docker, or any service lifecycle; MQTT/AP/firmware/CUT/RESTORE/reboot work;
+  ESP32 flash/NVS write; pushing or merging.
 
 ### Owner-run read-only Core evidence (2026-09-17, owner-reported)
 
@@ -100,15 +111,36 @@ start when any of these is missing, and the supervisor then exits 2:
 - When `AEGIS_RESTORE_CREDENTIAL_FILE` is set (as in the example environment),
   an unsafe or missing D4 credential is also a preflight error.
 
-These are Phase 4 runtime prerequisites, so the Core unit is not installed or
-started.
+T9 now provides the repository-side delivery path for the two Protocol v1 keys,
+the Core MQTT password, and the Admin PIN through systemd credentials. This does
+not prove any live credential exists or has been delivered. The live TLS broker,
+MQTT CA, broker/device credentials, network stages, disk headroom, preservation
+gates, and separately authorized Core installation/start remain open, so the
+Core unit is not installed or started.
+
+### T9 repository/local evidence
+
+```text
+T9_LOADCREDENTIAL_COUNT        = 4
+CORE_ENV_INLINE_T9_SECRETS     = NONE
+SYSTEMD_ANALYZE_VERIFY         = PASS (systemd 261.2; disposable verification copy)
+COMPILEALL                     = PASS
+FULL_PYTEST                    = 1170 passed, 6 skipped
+DIFF_CHECK                     = PASS
+REAL_SECRET_GENERATION         = NO
+CORE_HOST_MUTATION             = NO
+ESP32_FLASH                    = NO
+ESP32_NVS_WRITE                = NO
+PRODUCTION_MUTATION            = NO
+```
 
 ### Phase 3 Runtime Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P3-R1 | systemd 261 compatibility correction (repository only) | PASS | P3-C8 RED then GREEN; full IDEA3 pytest, Ruff, compileall, diff check, vault and collaboration-policy validation, secret/binary scan; static unit verify leaves only the expected ExecStart warning | this branch's P3-R1 commit | CORRECTED — LOCAL / STATIC only | Phase 4 runtime prerequisites | Phase 4 MQTT/v1 runtime gate, separately authorized |
-| P3-L1 | Live Core installation and validation | BLOCKED | — | — | — | Phase 4 TLS listener, MQTT CA, Core broker credential, v1 device keys/config, non-default Admin PIN; disk headroom; explicit Production mutation authorization | — |
+| P3-R1 | systemd 261 compatibility correction (repository only) | PASS | P3-C8 RED then GREEN; full IDEA3 pytest, Ruff, compileall, diff check, vault and collaboration-policy validation, secret/binary scan; static unit verify leaves only the expected ExecStart warning | P3-R1 commit | CORRECTED — LOCAL / STATIC only | Phase 4 runtime prerequisites | Phase 4 MQTT/v1 runtime gate, separately authorized |
+| P3-T9 | G12/G13 Core credential delivery integration (repository only) | PASS / LOCAL VERIFIED | TDD credential reader + config integration; 4 `LoadCredential=` directives; inline T9 secrets absent from Core env; `systemd-analyze verify` PASS; compileall PASS; full pytest `1170 passed, 6 skipped`; diff check PASS | the commit containing the T9 receipt | REPOSITORY IMPLEMENTED / LOCAL VERIFIED; live delivery NOT PROVEN | human-reviewed integration into Draft PR #149 | no live action |
+| P3-L1 | Live Core installation and validation | BLOCKED | — | — | — | live TLS listener, MQTT CA, broker/device credential delivery, v1 device config, disk headroom, fresh preservation baseline, fresh K3, explicit Production mutation authorization | — |
 
 ## IDEA3 PR11 Phase 4 T1 / G-15 capture, compare, and stage-gate harness — REPOSITORY CLOSEOUT COMPLETE — 2026-09-17
 
