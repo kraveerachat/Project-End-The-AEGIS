@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-17
+updated: 2026-09-18
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -114,7 +114,7 @@ edit_policy: owner-writable
 | Owner | `kla` |
 | PR | PR #148 (Draft) — see the Session Register below |
 | Repository starting checkpoint | `c89eeecaf3c6b577dd96343861a1dc7091a8d31e` — `origin/main` resolved fresh at session start (merge of PR #145) |
-| Current state | **FILES-UPLOAD-UX-1: SOURCE IMPLEMENTED / LOCALLY VERIFIED; FILES-UPLOAD-RECOVERY-1: SOURCE IMPLEMENTED AT a96fac5f / SOURCE REVIEW PASS; PREVIOUS PRODUCTION CANDIDATE 1592bc25 PARTIAL (UX PASS, RELOAD FAIL, BATCH ETA LIMITED); CURRENT PR HEAD (POST-DOC-CORRECTION): LINUX VERIFICATION PENDING, PRODUCTION DEPLOYMENT PENDING, HUMAN BROWSER ACCEPTANCE PENDING (UNTESTED ON PRODUCTION)** |
+| Current state | **FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1: CANDIDATE 22ff70a8 LINUX VERIFICATION PASS; PRODUCTION DEPLOY PASS (IMAGE aegis-prod-drive:files-upload-ux-22ff70a85088); HUMAN OWNER BROWSER ACCEPTANCE PARTIAL_PASS (14 PASS, 3 PENDING, 1 NOT TESTED); TASK IN PROGRESS / DRAFT / DO NOT MERGE** |
 | Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
 | Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-upload-ux-refresh`; the primary tree was occupied by another task's branch and was not used |
 
@@ -153,6 +153,10 @@ Final acceptance requires: Linux firewall verification, Drive-only candidate Pro
 | S6 | Source review correction: account-scoped recovery store & transfer workload correction | CHECKPOINT | see Session S6 | `a96fac5f` | repository verification PASS (91/91 focused, 47/47 recovery/batch, zero new failures) | docs reconciliation / Linux verification / Production deploy | docs reconciliation then Linux verification |
 | S7 | Documentation / PR #148 / Obsidian evidence reconciliation | CHECKPOINT | see Session S7 | `d13dd9b7` | reconciliation completed subject to factual correction | factual correction / Linux verification | S8 doc correction |
 | S8 | Factual documentation / PR body correction checkpoint | CHECKPOINT | see Session S8 | `dcc6599d1b7d9fedb04825d1b39e444f9d95c667` | factual documentation correction completed | Linux gate / Production deployment / Human browser retest | Linux verification of exact PR HEAD |
+| S9 | Reconcile origin/main into branch (`3cbf5202`, `22ff70a8`) | CHECKPOINT | git merge origin/main | `22ff70a8` | merge clean / tests PASS | Linux verification & production deploy | Linux verification |
+| S10 | Linux exact-SHA re-verification & Production deployment | CHECKPOINT | see Session S10 | `22ff70a8` | Linux gate PASS / Production image `aegis-prod-drive:files-upload-ux-22ff70a85088` deployed PASS | Human Owner browser testing | Human Owner browser testing |
+| S11 | Human Owner browser acceptance on candidate 22ff70a8 | ACCEPTED (PARTIAL) | see Session S11 | `22ff70a8` | Production acceptance PARTIAL_PASS (14 PASS, 3 PENDING, 1 NOT TESTED) | address pending items or register follow-ups | documentation & follow-up reconciliation |
+| S12 | Production evidence reconciliation, follow-up task registration & PR body update | CHECKPOINT | see Session S12 | pending docs commit | docs & PR body updated / validation PASS | complete remaining pending browser tests | Human Owner verification of wrong-file/discard |
 
 ### Session S1 — implementation
 
@@ -299,12 +303,124 @@ Starting SHA: `d13dd9b7571e840ea9515eb9797af52314a1754b`
 - Reconciled HEAD distinctions: `SOURCE_IMPLEMENTATION_HEAD=a96fac5f...`, `PR_HEAD_BEFORE_DOC_CORRECTION=d13dd9b...`, and current PR head after this correction, noting that neither has been tested on Production.
 - Updated PR #148 body on GitHub in place.
 
+### Session S9 — main reconciliation
+
+State: **CHECKPOINT**
+Checkpoint SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
+Merged `origin/main` at `9a2f718b5c3848f35309a546a5e6fdbc421d326a` (following PR #153 merge commit, after prior intermediate merge at `3cbf5202`).
+Merge completed cleanly; incoming changes from `main` were non-overlapping IDEA3 changes (`cae55dca`, `0467ab16`, `ae4f3286`, `79af8526`, `dcedfe10`, `d08d3b26`, PR #152 `449002de`, PR #151 `94793b02`). Zero runtime conflict with Drive Files Upload UX.
+
+### Session S10 — Linux re-verification & Production deployment
+
+State: **CHECKPOINT**
+Candidate SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
+OCI Image: `aegis-prod-drive:files-upload-ux-22ff70a85088`
+OCI Image ID: `sha256:bd0a33f3a43c848ebb4559428bed65203211e4957f8f3629332b1408951f26c0`
+
+**Environment & pre-deployment verification:**
+- Linux exact-SHA verification: `LINUX_EXACT_SHA_REVERIFICATION=PASS` (`tests/publicShareS55FirewallContract.test.js` 39/39 PASS).
+- Production deployment: `PRODUCTION_DEPLOY=PASS`.
+- Drive-only deployment verified:
+  - candidate OCI revision exact (`aegis-prod-drive:files-upload-ux-22ff70a85088`)
+  - Drive container healthy
+  - HUB unchanged
+  - Monitor unchanged
+  - PostgreSQL unchanged
+  - Public Share connector unchanged
+  - Public Share gateway unchanged
+  - Drive networks preserved
+  - Drive mounts preserved
+
+### Session S11 — Human Owner browser acceptance of candidate 22ff70a8
+
+State: **ACCEPTED (PARTIAL)**
+Candidate SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
+Production image: `aegis-prod-drive:files-upload-ux-22ff70a85088`
+
+**Human Owner Production browser evidence on candidate 22ff70a8:**
+- **PASS**:
+  - `UPLOAD_TRAY=PASS`: Status tray displays and tracks uploads accurately in bottom-right.
+  - `CHECKING_STAGE_TRUTHFUL=PASS`: Checking/Hashing shows no fabricated transfer rate or ETA.
+  - `TRANSFER_RATE_DISPLAY=PASS`: Measured transfer rate displays accurately during active upload.
+  - `ETA_DISPLAY=PASS`: Individual file ETA displays accurately (observed ~1.9–2.8 MB/s for a single large file).
+  - `HARD_REFRESH_RECOVERY=PASS`: Refresh during active upload reconstructs the upload as Interrupted / Resume required; does NOT falsely resume automatically without local file access.
+  - `RECOVERED_STATE_TRUTHFUL=PASS`: Recovered state truthfully reflects interrupted status without claiming active upload before network bytes move.
+  - `SAME_FILE_RESUME=PASS`: User re-selected the same local file; upload resumed from server-side received progress rather than restarting the logical session.
+  - `MISSING_CHUNK_RESUME=PASS`: Server-side received chunk map is respected; only unreceived chunks are transferred over the wire.
+  - `RESUME_COMPLETED=PASS`: Recovered upload (~2.9 GB) completed successfully end-to-end.
+  - `BATCH_AGGREGATE_RATE=PASS`: Two active large uploads showed aggregate throughput of approximately 3.4 MB/s (~1.7 MB/s per file).
+  - `BATCH_AGGREGATE_ETA=PASS`: Aggregate ETA displayed accurately across active items.
+  - `CHECKING_BATCH_WORKLOAD=PASS`: Waiting/checking files are included in remaining workload calculations.
+  - `OVERSIZE_REJECTION=PASS`: File of approximately 6 GB rejected before transfer by configured logical file limit.
+  - `OVERSIZE_NO_RETRY=PASS`: UI exposes Dismiss and no Retry button for oversized rejections; not sent over the wire.
+- **PENDING**:
+  - `WRONG_FILE_REJECTION=PENDING`: Verification of wrong-size or mismatched SHA-256 file rejection in browser.
+  - `DISCARD_UPLOAD=PENDING`: Verification of `Discard upload` action cancelling session and clearing tray row.
+  - `DISCARD_SURVIVES_REFRESH=PENDING`: Verification that discarded upload does not reappear after browser refresh.
+- **NOT TESTED**:
+  - `ACCOUNT_SCOPE_BROWSER_ACCEPTANCE=NOT_TESTED`: Multi-account browser switching manual test not executed (automated and source unit tests pass).
+- **Acceptance Verdict**: `PRODUCTION_ACCEPTANCE=PARTIAL_PASS`. `FINAL_RECEIPT_CREATED=NO`. `PR_READY_TO_MERGE=NO`. `DO_NOT_MERGE=TRUE`.
+
+### Session S12 — evidence reconciliation & follow-up task registration
+
+State: **CHECKPOINT**
+Checkpoint SHA: pending docs commit
+Starting SHA: `22ff70a8508809b4c9e7e7791a2280d4a51744ce`
+
+**Work performed (Gemini):**
+- Reconciled authoritative Production deployment evidence (`22ff70a8`, image `aegis-prod-drive:files-upload-ux-22ff70a85088`, image ID `sha256:bd0a33f3a43c...`) and Linux re-verification PASS into PR #148 body and canonical status note.
+- Recorded full Human Owner browser acceptance results on candidate `22ff70a8` (`PARTIAL_PASS`: 14 PASS, 3 PENDING, 1 NOT TESTED).
+- Classified 6 GB rejection as expected behavior under the current ~5 GiB deployment configuration, not a PR #148 defect.
+- Registered follow-up diagnosis task `FILES-TRANSFER-PERF-1` with subtracks PERF-A through PERF-E.
+- Updated GitHub PR #148 body in place; maintained Draft state (`DO_NOT_MERGE=TRUE`).
+
 ### Security & Privacy Architecture — Upload Recovery
 
 - **Credential & secret isolation:** Bounded upload recovery metadata contains upload/session identification, filename, size, checksum and resumable-transfer metadata (`version`, `uploadId`, `name`, `size`, `lastModified`, `sha256`, `chunkSize`, `chunkCount`, `receivedBytes`, `stage`, `createdAt`, `updatedAt`). It contains zero file/blob contents, zero session tokens, zero cookies, zero CSRF tokens, and zero authentication secrets. Authentication continues to rely strictly on memory state and HttpOnly session cookies.
 - **Account namespacing & browser boundary:** Recovery records are namespaced under `aegis.drive.uploads.recovery.v1` by a bounded encoded authenticated-user scope (`aegis.drive.uploads.recovery.v1.<encoded-account-segment>`). Normal UI account switching does not enumerate or render another account's recovery queue. Server-side session ownership remains authoritative (`GET /api/files/uploads/:uploadId` validates session owner against the authenticated session via `store.findUploadSession(uploadId, req.user.id)`).
 - **LocalStorage boundary limitation:** LocalStorage is an origin-scoped browser store, not an OS-level or cryptographic boundary between logical users sharing a single browser profile. Any script or user with access to that browser profile can access localStorage. Therefore, the guarantee is: normal application workflow isolates queues by authenticated user scope; server ownership remains authoritative.
 - **Persistence across logout:** Recovery metadata intentionally survives logout so a returning user can resume an interrupted upload before the server session expires. This is a deliberate recoverability/privacy trade-off.
+
+### Files Upload Limit Classification
+
+- **`CURRENT_LOGICAL_LIMIT≈5_GiB`**: Deployment default and configuration in current Production environment.
+- **`6_GB_REJECTION=EXPECTED`**: The rejection of a ~6 GB file observed during browser testing is expected under the current configuration and is **NOT** a defect in PR #148.
+- **`32_GiB=SOURCE_SUPPORTED_CONFIGURATION_CEILING`**: Source code and database architecture support a configurable ceiling up to 32 GiB, but this is **NOT** the current Production deployment target.
+- **`NOT_CURRENT_PRODUCTION_TARGET`**: Do NOT silently raise the Production limit. Raising capacity requires storage reserves, commit leases, checksum pipeline verification, timeout adjustments, and operational review.
+
+### Follow-up Task Register — FILES-TRANSFER-PERF-1
+
+- **Task**: `FILES-TRANSFER-PERF-1`
+- **Status**: `OPEN_DIAGNOSIS`
+- **Relationship**: Separate future investigation, distinct from PR #148 (Files Upload UX) and PR #150 (Files Management UX).
+- **Subtracks**:
+  - **PERF-A — Preparation / Hashing Performance**:
+    - Reduce time spent in Checking/Hashing stages.
+    - Strictly preserve SHA-256 integrity semantics.
+    - Evaluate web worker / pipelined chunk hashing safely.
+  - **PERF-B — Upload Throughput**:
+    - Observed single-file Production throughput ≈ 1.9–2.8 MB/s.
+    - Observed two-file aggregate throughput ≈ 3.4 MB/s (individual files ~1.7 MB/s each).
+    - Current V2 file transport uses bounded 16 MiB sequential chunk transfers.
+    - Evaluate bounded parallel chunk uploads and adaptive concurrency.
+    - Root cause is not yet established; avoid premature optimization.
+  - **PERF-C — Logical File Capacity**:
+    - Current deployment rejects ~6 GB due to configured limit.
+    - Evaluate a structured 8 GiB → 16 GiB → 32 GiB acceptance ladder.
+    - Source architecture maximum configurable ceiling = 32 GiB.
+    - Preserve storage reserve, commit lease, checksum, and timeout safety.
+  - **PERF-D — Network Path Diagnosis**:
+    - Production server NIC = 1000 Mb/s, Full Duplex.
+    - Client Wi-Fi link = ~866.7 Mb/s.
+    - Drive and HUB CPU utilization were low during measurement; memory pressure not indicated.
+    - Single 16 MiB chunk transfer required roughly 5.5–10 seconds depending on load.
+    - Twingate direct/P2P vs relay status is not yet proven.
+    - Direct LAN vs Twingate throughput has not yet been comparatively measured.
+    - **Do NOT claim that Twingate is the confirmed bottleneck.**
+  - **PERF-E — Background Transfer**:
+    - Future architecture exploration only.
+    - Native transfer agent / desktop uploader could allow transfers to survive independent of browser lifetime.
+    - NOT part of current PR #148.
 
 ### Current Verification Status & Gates
 
@@ -317,22 +433,25 @@ Starting SHA: `d13dd9b7571e840ea9515eb9797af52314a1754b`
 | Policy & vault tests | **50/50 PASS** | `collaborationPolicy`, `vaultStructure`, `vaultMultiWriter` |
 | Vault integrity | **PASS** | `scripts/validate-vault.mjs` (2 pre-existing canvas review warnings) |
 | Git diff check | **CLEAN** | `git diff --check` |
-| Windows-unmeasured suite | **NOT MEASURED** | `tests/publicShareS55FirewallContract.test.js` (Linux-only gate) |
-| Linux verification gate | **PENDING** | Required for exact candidate SHA |
-| Production deployment | **PENDING** | Required for current PR HEAD (a96fac5f source + docs) |
-| Human browser acceptance | **PENDING** | Required for reload recovery & batch ETA verification |
-| Task status | **IN PROGRESS** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT` |
+| Linux exact-SHA re-verification | **PASS** | `tests/publicShareS55FirewallContract.test.js` 39/39 PASS on candidate `22ff70a8` |
+| Production deployment | **PASS** | Candidate `22ff70a8`, image `aegis-prod-drive:files-upload-ux-22ff70a85088`, image ID `sha256:bd0a33f3a43c...`, Drive-only verified |
+| Human browser acceptance | **PARTIAL_PASS** | 14 PASS, 3 PENDING, 1 NOT TESTED on candidate `22ff70a8` |
+| Task status | **IN PROGRESS / ACCEPTED (PARTIAL)** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT`, `DO_NOT_MERGE=TRUE` |
+| Next gate | **COMPLETE_WRONG_FILE_DISCARD_BROWSER_ACCEPTANCE** | Complete pending browser acceptance items |
 
 **Verification caveat & remaining gates (environment, not source).**
-- **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js` never returns on this Windows workstation: it drives `gateway/public-share/production/` shell scripts through `spawnSync`. It was verified in isolation to hang for 180 s+ with zero output, imports nothing under `src/`, and is untouched by this change, so it was excluded from the Windows run and its 19 tests are **NOT MEASURED on this host** rather than counted as passing. The remaining 113 executable test files were run in full with zero new failures.
-- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. Execution of the Linux-only firewall contract test remains a required gate prior to candidate deployment / merge.
+- **Windows unmeasured suite**: `tests/publicShareS55FirewallContract.test.js` never returns on this Windows workstation: it drives `gateway/public-share/production/` shell scripts through `spawnSync`. It was verified in isolation to hang for 180 s+ with zero output, imports nothing under `src/`, and is untouched by this change, so it was excluded from the Windows run and its 19 tests are **NOT MEASURED on this host** rather than counted as passing. The Linux exact-SHA re-verification was executed and passed on Linux.
+- **Linux final-verification gate**: `LINUX_FINAL_GATE_REQUIRED=YES`. S10 re-verification of candidate `22ff70a8` passed all 39 firewall contract tests.
+- **Production deployment**: Candidate `22ff70a8` deployed and healthy under OCI image `aegis-prod-drive:files-upload-ux-22ff70a85088`.
+- **Human Owner browser acceptance**: Candidate `22ff70a8` verified with 14 PASS items (including reload recovery, resume from received chunks, and aggregate batch ETA). 3 items remain PENDING (`WRONG_FILE_REJECTION`, `DISCARD_UPLOAD`, `DISCARD_SURVIVES_REFRESH`) and 1 item is NOT TESTED in browser (`ACCOUNT_SCOPE_BROWSER_ACCEPTANCE`).
+- **Task completion**: Task remains Draft/in progress. No final immutable receipt created yet. Do NOT mark Ready. Do NOT merge.
 
-**Known limitations (repository phase).**
+**Known limitations (Production & repository phase).**
 - Stall classification depends on the browser emitting `XMLHttpRequest` upload progress events plus the clock tick. This matches the existing Private Vault integration and was not changed here.
 - Transfer concurrency is unchanged: files are still processed as the existing engine schedules them. This task changed presentation, recovery, and ETA estimation, not transport concurrency.
 - Browser storage boundary: LocalStorage is origin-scoped in the browser; namespacing by user ID protects normal application flow, while server session ownership provides authoritative security.
-- Real 11 GB file support remains a separate future task; current deployment ceiling is enforced truthfully.
-- Candidate deployment & browser acceptance: Neither a96fac5f nor subsequent documentation commits (d13dd9b7 / current PR HEAD) have been deployed to Production or verified by Human Owner browser test.
+- Logical file capacity: Current Production limit is ~5 GiB (6 GB rejection is expected). Real 32 GiB support requires separate performance, storage reserve, and timeout validation under `FILES-TRANSFER-PERF-1`.
+- Remaining browser tests: Wrong-file rejection, discard upload, and discard surviving refresh remain pending manual verification by Human Owner before final receipt creation.
 
 ## Historical Task — PUBLIC-SHARE-7 / S5.12 — Final repository closeout
 
