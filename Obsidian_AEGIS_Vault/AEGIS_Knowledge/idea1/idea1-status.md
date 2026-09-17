@@ -105,7 +105,166 @@ edit_policy: owner-writable
 > **Current infrastructure additions outside the original Drive image**: Host Backup Agent is active through `/run/aegis-backup/backup.sock`; Drive joins GID `29102` and mounts the socket directory read-only. HGST target `hgst-usb-1` is safely mounted at `/mnt/aegis-backup` and classified **DIFFERENT_DEVICE** with `PrivateDevices=yes`. The reviewed classifier source from PR #81 is deployed to the live agent copy while the Production Git checkout remains at `2806373...`, so repository checkout and live host-agent file must continue to be treated as distinct evidence. `restic 0.18.1`, `pg_dump 18.6`, and `pg_restore 18.6` are installed; PostgreSQL server is 15.19. Dedicated role `drive_backup` is LOGIN-only/non-superuser, has SELECT on all 14 public tables and all 7 public sequences, has 0 writable public tables, and cannot CONNECT to `aegis_monitor`. The restic repository is `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic`. Current policy is `activeTargetId=hgst-usb-1`, schedule disabled, retention `keep-7d-4w`, `enabled=false`, `nextRun=null`. Local Twingate connector runtime telemetry is **PASS / CLOSED**; the Twingate control plane remains **NOT MEASURED**.
 > **Primary Source Files**: `server/app.js`, `server/db/connection.js`, `server/db/store.js`, `server/routes/api.js`, `server/routes/share.js`, `server/storage/fileStore.js`, `server/storage/avatarStore.js`, `src/lib/vaultCrypto.js`
 
-## Current Task — FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1 — Files upload UX refresh & reload recovery
+## Current Task — FILES-MANAGEMENT-UX-1 — Files management: rename, move, real folder hierarchy
+
+| Field | Current value |
+| :--- | :--- |
+| Task | `FILES-MANAGEMENT-UX-1` (Files management: rename, move, real folder hierarchy, kind discrimination, and upload targeting) |
+| Branch | `feat/idea1-files-management-ux` |
+| Owner | `kla` |
+| PR | PR #150 (Draft) — see the Session Register below |
+| Base branch | `feat/idea1-files-upload-ux-refresh` |
+| Base checkpoint | `ed6cd2a91eb2aabf3cee354259bae18eb826b9ee` — PR #148 predecessor checkpoint |
+| Authoritative source reviewed commit | `553c92ccf22f09a4d0b9eb84dbac23beb345e541` (Round 4 review PASS by ChatGPT) |
+| Current state | **FILES-MANAGEMENT-UX-1 SOURCE REVIEW = PASS (at 553c92cc); POSTGRES_RUNTIME_VERIFICATION = NOT MEASURED; PRODUCTION = NOT TESTED; FINAL_RECEIPT = NOT CREATED; DO_NOT_MERGE = TRUE** |
+| Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
+| Database migration applied | **NO** — Migration 010 has NOT been applied to Production or any live database |
+| Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-management-ux` |
+
+### Goal
+
+1. Replace filename-extension heuristics with first-class database entity discrimination (`kind = 'file' | 'folder'`).
+2. Establish a true hierarchical folder tree with validated `parent_id` foreign keys, cycle prevention, and breadcrumb ancestor resolution.
+3. Deliver safe, atomic file and folder operations: rename with collision protection and path traversal defenses, bulk move with cycle detection and atomic rollback, and folder-targeted chunked uploads.
+4. Protect hierarchy integrity across the trash lifecycle: refuse orphaning children, restore original parent-child relationships, refuse purging parents with trashed children, and drain deep trees safely.
+
+### Scope
+
+Database migration `010_files_kind_parent.sql` (`kind`, `parent_id`, partial unique index); `legacyKindClassifier.js` deterministic preflight estate analysis; store mutations (`renameItem`, `moveFiles`); per-owner folder lifecycle serialization to prevent concurrent hierarchy races; trash lifecycle hierarchy integrity (`filesTrashLifecycle.js`, `protectedTrash.js`, `trashCleanup.js`); upload session destination persistence and verification (`uploads.js`, `chunkedUpload.js`, `UploadDrawer.jsx`); UI navigation, breadcrumbs, Move dialog, and drag-and-drop targeting (`Files.jsx`, `fileDragDrop.js`, `strings.js`); focused test suites; this canonical record.
+
+### Out of scope
+
+Applying Migration 010 to Production or staging databases; Production deployment; altering encryption or Private Vault mechanics; altering Public Share or Secure Share contracts; changing chunk sizes or transfer concurrency; changing `limits.maxLogicalFileBytes`; closing PR #150 or creating a final receipt before predecessor PR #148 merges.
+
+### Safety boundaries
+
+`PRODUCTION_MUTATION_ALLOWED=NO`, `DATABASE_MIGRATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`, `FINAL_RECEIPT_CREATED=NO`.
+No production secret was queried or modified. Working tree is isolated.
+
+### Acceptance criteria
+
+- **Repository phase**:
+  - Source review PASS across all 4 correction rounds (`553c92ccf22f09a4d0b9eb84dbac23beb345e541`).
+  - Focused test suites: 92 pass / 0 fail / 5 skipped (PostgreSQL-gated).
+  - Frontend production build (`npm run build`) PASS.
+  - Full Windows regression: 1258+ pass / 9 accepted historical failures / zero new failures.
+  - Collaboration policy & vault validation PASS (50/50 tests, 0 errors).
+- **Upcoming release gates**:
+  - Predecessor PR #148 Linux verification, deployment, browser acceptance, and merge into `main`.
+  - Reconcile updated base into `feat/idea1-files-management-ux`.
+  - Linux & PostgreSQL live test suite execution (measuring PostgreSQL concurrency and race tests).
+  - Staging migration 010 dry-run with database backup snapshot.
+  - Production deployment and Human Owner browser acceptance.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S1 | Initial files management implementation (kind, parent_id, move, rename, UI) | CHECKPOINT | 42 unit/contract tests PASS | `05b27851` | initial implementation PASS | source review / corrections | Round 1 review |
+| S2 | Round 1 correction: harden folder-target uploads & atomic moves | CHECKPOINT | upload targeting + move atomic tests PASS | `16368128` | Round 1 review PASS | concurrency hardening | Round 2 review |
+| S3 | Round 2 correction: serialize folder lifecycle mutations per-owner | CHECKPOINT | hierarchy integrity tests PASS | `25142d45` | Round 2 review PASS | trash hierarchy lifecycle | Round 3 review |
+| S4 | Round 3 correction: preserve hierarchy through trash lifecycle | CHECKPOINT | trash lifecycle tests T1–T8 PASS | `77e01e36` | Round 3 review PASS | deep tree draining & rename race | Round 4 review |
+| S5 | Round 4 correction: deep trash draining bound, busy lock reporting, rename 23505 race mapping | CHECKPOINT | ET1–ET3 draining tests, RN-RACE-0 test PASS | `553c92cc` | Round 4 review PASS (ChatGPT PASS) | docs reconciliation | S6 doc reconciliation |
+| S6 | Evidence, documentation & PR body reconciliation | CHECKPOINT | see Session S6 | Pending docs commit | documentation reconciled | PR #148 merge gate / Linux verification | PR #148 closeout |
+
+### Session S1 — initial files management implementation
+
+State: **CHECKPOINT**
+Checkpoint SHA: `05b2785121b6563604f0525ba952c42d655f7560`
+Implemented initial files kind discrimination (`kind` column and classifier), `parent_id` foreign key with `ON DELETE RESTRICT`, `moveFiles` and `renameItem` operations, and frontend breadcrumbs and Move dialog.
+
+### Session S2 — Round 1 review corrections
+
+State: **CHECKPOINT**
+Checkpoint SHA: `16368128522eec7a9aa5f17d3d024b4c735d4f3b`
+Hardened folder-target uploads to store validated destination server-side and re-validate destination parent within write transactions. Refused batch moves if any duplicate name or non-existent target exists.
+
+### Session S3 — Round 2 review corrections
+
+State: **CHECKPOINT**
+Checkpoint SHA: `25142d45b7ee2236962fca6a15dbca89d1a3c6ca`
+Serialized folder lifecycle mutations per owner using keyed locks to prevent concurrent tree modifications (e.g. concurrent cyclic moves or parent deletion during child move).
+
+### Session S4 — Round 3 review corrections
+
+State: **CHECKPOINT**
+Checkpoint SHA: `77e01e36c2cfbe867ce96d2740785fceaa4847e1`
+Preserved hierarchy across trash lifecycle:
+- Refuse restoring a child whose parent is still trashed (`T1`), avoiding orphaned rows.
+- Restoring parent then child reconstructs the original folder hierarchy (`T2`).
+- Check name collisions in original parent rather than root on restore (`T3`).
+- Refuse permanently purging a parent folder if any trashed child still exists (`T5`).
+- Empty Trash drains nested subtrees descendants-first (`T7`).
+
+### Session S5 — Round 4 review corrections (blockers closed)
+
+State: **CHECKPOINT**
+Checkpoint SHA: `553c92ccf22f09a4d0b9eb84dbac23beb345e541`
+Closed final blockers verified by ChatGPT review:
+1. **Empty Trash deep-tree draining bound fix**: In `trashCleanup.js`, fixed the pass limit bound so it is captured once before the loop rather than shrinking dynamically with the remaining count. Verified with 4-node tree (`ET1`) and 8-level chain (`ET2`) draining tests.
+2. **Empty Trash busy lock reporting**: In `api.js`, typed lock acquisition misses as busy (`ET3`) and re-read residual trash before returning success, ensuring `ok=true` is returned only when `remainingCount=0`.
+3. **Concurrent Rename unique violation**: In `store.js`, translated PostgreSQL error 23505 (unique violation) into typed `nameTaken` result (`RN-RACE-0`), returning HTTP 409 `NAME_TAKEN` instead of an unhandled 500 error.
+
+Source review verdict: **PASS** by ChatGPT at `553c92ccf22f09a4d0b9eb84dbac23beb345e541`.
+
+### Session S6 — documentation & evidence reconciliation
+
+State: **CHECKPOINT**
+Checkpoint SHA: Pending docs commit
+Starting SHA: `553c92ccf22f09a4d0b9eb84dbac23beb345e541`
+- Reconciled `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` with active `FILES-MANAGEMENT-UX-1` task and retained `FILES-UPLOAD-UX-1` as stacked predecessor.
+- Corrected rollback risk documentation: clarified that while file bytes are untouched, rolling back migration 010 after writes permanently destroys logical folder structure and hierarchy metadata.
+- Reconciled GitHub PR #150 body with complete review rounds, PostgreSQL unmeasured items, and candidate distinctions.
+- Preserved PR #150 as Draft (`DO_NOT_MERGE=TRUE`, `FINAL_RECEIPT_CREATED=NO`).
+
+### Technical Architecture & Migration 010 Invariants
+
+1. **Database Schema (`010_files_kind_parent.sql`)**:
+   - `kind VARCHAR(16) NOT NULL DEFAULT 'file' CHECK (kind IN ('file', 'folder'))`
+   - `parent_id UUID REFERENCES files(id) ON DELETE RESTRICT`
+   - Partial unique index: `CREATE UNIQUE INDEX files_owner_parent_name_active_idx ON files(owner_id, COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), name) WHERE deleted_at IS NULL`
+2. **Legacy Kind Classifier (`legacyKindClassifier.js`)**:
+   - Classifies existing rows without guessing from extensions: rows with storage keys = `file`; folder marker creation convention = `folder`. Ambiguous rows report for manual review. Migration refuses execution if ambiguous rows exist.
+3. **V2 Upload Destination Authority**:
+   - `upload_sessions.parent_id` captures the validated destination folder server-side when the session is initialized. Commit validates against the session record rather than trusting client parameters.
+4. **Per-Owner Folder Lifecycle Locks**:
+   - Synchronizes folder moves, renames, and deletions per user to prevent concurrent hierarchy races.
+5. **Trash Lifecycle Invariants**:
+   - Children cannot be restored before their trashed parent.
+   - Trashed parents cannot be purged while trashed children remain.
+   - Empty Trash uses iterative topological peeling (descendants first) with fixed pass bounds.
+
+### Rollback Risk Analysis (Factual Correction)
+
+- **Previous Stale Claim**: "No data is at risk in either rollback direction." (INCORRECT).
+- **Factual Technical Reality**:
+  - File byte blobs on disk/storage are untouched by Rename, Move, or hierarchy metadata modifications.
+  - **HOWEVER**, once users perform operations under Migration 010 (creating folders, moving items, structuring directories), rolling back Migration 010 (dropping `kind` and `parent_id`) **permanently and irreversibly destroys all folder hierarchy, parent-child relationships, and logical directory structures**. All items would be flattened to root or orphaned.
+  - Therefore, post-migration rollback after writes carries **major structural data loss risk**.
+  - Operational mitigation: Mandatory full PostgreSQL backup snapshot immediately prior to applying Migration 010. If an issue occurs after live writes have begun, forward-fix is strongly favored over destructive schema rollback.
+
+### Verification Status & Unmeasured Gates
+
+| Verification | Result | Note |
+| :--- | :--- | :--- |
+| Focused files management suites | **92 pass / 0 fail / 5 skipped** | `filesKindIdentity`, `filesRenameMove`, `filesManagementUi`, `filesHierarchyIntegrity`, `filesTrashLifecycle`, `filesUploadTargeting`, `protectedTrash` |
+| Frontend production build | **PASS** | `npm run build` (vite v7.3.6) |
+| Collaboration policy & vault tests | **50/50 PASS** | `collaborationPolicy`, `vaultStructure`, `vaultMultiWriter` |
+| Vault structure validation | **PASS** | `scripts/validate-vault.mjs` (2 pre-existing canvas warnings) |
+| Windows full regression | **1258+ pass / 9 accepted fail / 72+ skip** | `NEW_FAILURE_COUNT=0` |
+| Git diff check | **CLEAN** | `git diff --check` |
+| PostgreSQL move concurrency | **NOT MEASURED** | `POSTGRES_MOVE_CONCURRENCY=NOT_MEASURED` (requires live PostgreSQL server) |
+| PostgreSQL hierarchy races | **NOT MEASURED** | `POSTGRES_HIERARCHY_RACES=NOT_MEASURED` |
+| PostgreSQL restore trash race | **NOT MEASURED** | `POSTGRES_RESTORE_TRASH_RACE=NOT_MEASURED` |
+| PostgreSQL rename race | **NOT MEASURED** | `POSTGRES_RENAME_RACE=NOT_MEASURED` |
+| Live DB migration applied | **NO** | `DB_MIGRATION_APPLIED_TO_PRODUCTION=NO` (Migration 010 not applied) |
+| Production mutation performed | **NO** | `PRODUCTION_MUTATION_PERFORMED=NO` |
+| Production estate counts | **NOT MEASURED** | `PRODUCTION_COUNTS=NOT_MEASURED` |
+| Browser acceptance | **NOT YET** | `BROWSER_ACCEPTANCE=NOT_YET` |
+| Public Share firewall contract | **NOT MEASURED** | `tests/publicShareS55FirewallContract.test.js` (Linux-only gate) |
+| Task status | **IN PROGRESS / DRAFT** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT`, `DO_NOT_MERGE=TRUE` |
+
+## Stacked Predecessor Task — FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1 — Files upload UX refresh & reload recovery
 
 | Field | Current value |
 | :--- | :--- |
