@@ -51,7 +51,8 @@ IDEA2_TUNNEL_HEALTHY            = NO  (tunnel flapping, NRestarts > 1450; §2.3)
 IDEA2_RUNTIME_HEALTHY           = NO  (Detection Engine heartbeat fails; §2.3) — not an IDEA3 claim or fix
 IDEA2_PRESERVATION_BASELINE     = CAVEATED — §10 IDEA2 check cannot pass as written (§2.3, §10)
 OWNER_DECISIONS                 = OD-01..OD-17 (OD-15 optional hardening; OD-16, OD-17 added) — none chosen
-TASK_SPLIT                      = T0..T9 recorded (§14); T1..T9 NOT STARTED
+TASK_SPLIT                      = T0..T9 recorded (§14); T0 COMPLETE; T1 REPOSITORY CLOSEOUT COMPLETE; T2..T9 NOT STARTED
+T1_G15_FRAMEWORK                = CLOSED — repository boundary only; implementation/evidence checkpoint 9c82e4a0; PR #152 human review PASS; live rollout NOT RUN; human merge pending
 FINAL_RECEIPT                   = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-17_043011_music_idea3-pr11-phase4-runtime-prereqs-t0.md
 ```
 
@@ -325,7 +326,7 @@ it must not contain a live value.
 | G-12 | The Core unit lacks `LoadCredential=` for the `/run/credentials/aegis-idea3-core.service/k_c2d`/`k_d2c` paths the env example uses. The MQTT password is inline only | BLOCKING | L7 | OD-10 |
 | G-13 | Admin PIN: inline environment value only; unsalted SHA-256 in memory | LOW (non-blocking unless OD-11 requires a file) | L7 | OD-11 |
 | G-14 | No isolated live-material broker validation procedure (a separate process on a loopback non-production port, no `mosquitto.service` change, residue proof) | BLOCKING | L6 | G-07, G-08, G-10 |
-| G-15 | No reviewed per-stage capture/rollback harness for AP/NTP/firewall/broker (plan-level rollback only, §9) | BLOCKING | L2 to L6 | — |
+| G-15 | No reviewed per-stage capture/rollback harness for AP/NTP/firewall/broker (plan-level rollback only, §9). T1 IN PROGRESS: repository capture/compare/stage-gate framework and rollback-handler contract in `deploy/pr11-phase4/` (Draft PR #152, not merged, no stage handler); gap stays OPEN | BLOCKING | L2 to L6 | — |
 | G-16 | Firmware `setup()` Wi-Fi join is blocking (R-13), while design §10 says "non-blocking". It is fail-secure because the relay holds CUT, but the design and source disagree | LOW (record; decide before L8) | L8 | — |
 
 ### 6.1 Planning findings (recorded 2026-09-17; OPEN — none closed)
@@ -756,7 +757,7 @@ Every Production mutation gate also needs K3 (§8).
 - It does not diagnose, fix, or claim health for the IDEA2 Detector B tunnel.
 - It does not start T1–T9 (§14).
 
-## 14. Repository task split and dependency summary (planning; T1–T9 NOT STARTED)
+## 14. Repository task split and dependency summary (planning; T1 IN PROGRESS, T2–T9 NOT STARTED)
 
 Accepted as the working basis at plan review (2026-09-17), with the review
 corrections applied. This section records planning only; no task below has a
@@ -765,7 +766,7 @@ branch, and none closes a gap.
 | Task | Gaps | Gating before implementation | Repository-ready now? | Waits for PR #149 | Physical ESP32 | Live stage served |
 |---|---|---|---|---|---|---|
 | T0 | none closed; records §2.3, §6.1, OD-15..OD-17, this split | — | this PR #151 | no | no | — |
-| T1 | G-15 capture/compare/rollback framework | none | yes, after #151 merges | no | no | L0–L6 |
+| T1 | G-15 capture/compare/rollback framework | none | IN PROGRESS — Draft PR #152 (`deploy/pr11-phase4/`), human review pending | no | no | L0–L6 |
 | T2 | G-10, G-14 | none | yes, after #151 merges | no | no | L6a |
 | T3 | G-08 (G-09 SAN side only) | OD-09, OD-16 | no | no | CA replacement impacts L8 (PF-03) | L6 |
 | T4 | G-07 (PF-01 control) | OD-08, L0 1883/`aegis` consumer inventory; T1, T2, T3 | no | no | no | L6b |
