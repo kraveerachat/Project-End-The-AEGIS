@@ -1,0 +1,13 @@
+# AEGIS IDEA3 dedicated firewall loader — TEMPLATE, NOT DEPLOYED.
+
+[Unit]
+Description=AEGIS IDEA3 private AP firewall
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/nft -f /etc/aegis-idea3/aegis-idea3.nft
+ExecStop=/usr/bin/nft delete table inet aegis_idea3
+
+[Install]
+WantedBy=multi-user.target

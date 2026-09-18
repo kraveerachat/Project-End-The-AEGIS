@@ -1,0 +1,15 @@
+# AEGIS IDEA3 dedicated dnsmasq instance — TEMPLATE, NOT DEPLOYED.
+
+[Unit]
+Description=AEGIS IDEA3 private AP DHCP and Core-local DNS
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/dnsmasq --test --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf
+ExecStart=/usr/bin/dnsmasq --keep-in-foreground --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf --pid-file=
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

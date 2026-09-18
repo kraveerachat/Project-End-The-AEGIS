@@ -1,0 +1,27 @@
+# AEGIS IDEA3 private AP — TEMPLATE, NOT DEPLOYED.
+# Live SSID/channel/address values are rendered from reviewed owner inputs.
+# The WPA2 PSK deliberately remains unresolved for the later live rendering step.
+
+[connection]
+id=AEGIS IDEA3 Private AP
+type=wifi
+interface-name=<AEGIS_AP_INTERFACE>
+autoconnect=false
+
+[wifi]
+mode=ap
+band=bg
+channel=<AEGIS_AP_CHANNEL>
+ssid=<AEGIS_AP_SSID>
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=<AEGIS_AP_PSK>
+
+[ipv4]
+method=manual
+address1=<AEGIS_AP_ADDRESS>/<AEGIS_AP_PREFIXLEN>
+never-default=true
+
+[ipv6]
+method=disabled

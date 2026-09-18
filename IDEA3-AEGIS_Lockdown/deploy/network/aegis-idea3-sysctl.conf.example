@@ -1,7 +1,11 @@
 # AEGIS IDEA3 forwarding policy — TEMPLATE, NOT DEPLOYED.
-# The private AP is an endpoint network, never a routed or bridged path.
+# The private AP is an endpoint network and is never a routed path.
 
 net.ipv4.ip_forward = 0
+net.ipv4.conf.all.forwarding = 0
+net.ipv4.conf.default.forwarding = 0
+net.ipv4.conf.<AEGIS_AP_INTERFACE>.forwarding = 0
+
 net.ipv6.conf.all.forwarding = 0
 net.ipv6.conf.default.forwarding = 0
 net.ipv6.conf.<AEGIS_AP_INTERFACE>.forwarding = 0

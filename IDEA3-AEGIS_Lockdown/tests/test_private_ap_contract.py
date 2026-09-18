@@ -23,10 +23,15 @@ def test_forwarding_is_disabled_for_both_ip_families():
     assert "net.ipv6.conf.default.forwarding = 0" in text
 
 
-def test_firewall_drops_forwarding_and_has_no_nat_or_wired_acceptance():
+def test_firewall_drops_ap_forwarding_and_has_no_nat_or_wired_acceptance():
     text = FIREWALL.read_text(encoding="utf-8")
-    assert "hook forward" in text and "policy drop" in text
-    assert "<AEGIS_AP_INTERFACE>" in text
+    assert "chain forward {" in text
+
+    forward = text.split("chain forward {", 1)[1]
+    assert "hook forward" in forward
+    assert "policy accept;" in forward
+    assert 'iifname "<AEGIS_AP_INTERFACE>" drop' in forward
+
     assert "masquerade" not in text.lower()
     assert " snat " not in text.lower() and " dnat " not in text.lower()
     assert "<AEGIS_WIRED_INTERFACE>" not in text
