@@ -96,6 +96,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, str]:
         "ap_address": str(ap_address),
         "ap_subnet": str(subnet),
         "ap_prefixlen": str(subnet.prefixlen),
+        "ap_netmask": str(subnet.netmask),
         "dhcp_start": str(dhcp_start),
         "dhcp_end": str(dhcp_end),
         "broker_hostname": broker_hostname,
@@ -123,6 +124,39 @@ def render_nm_profile(values: dict[str, str]) -> str:
         template = template.replace(placeholder, value)
 
     return template
+
+
+
+def render_dnsmasq_config(values: dict[str, str]) -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-dnsmasq.conf.example"
+    )
+    template = template_path.read_text(encoding="utf-8")
+
+    replacements = {
+        "<AEGIS_AP_INTERFACE>": values["interface"],
+        "<AEGIS_DHCP_START>": values["dhcp_start"],
+        "<AEGIS_DHCP_END>": values["dhcp_end"],
+        "<AEGIS_AP_NETMASK>": values["ap_netmask"],
+        "<AEGIS_AP_ADDRESS>": values["ap_address"],
+        "<AEGIS_BROKER_HOSTNAME>": values["broker_hostname"],
+    }
+
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+
+    return template
+
+
+def render_dnsmasq_service() -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-dnsmasq.service.example"
+    )
+    return template_path.read_text(encoding="utf-8")
 
 
 def render(values: dict[str, str], output_dir: Path) -> None:
@@ -160,6 +194,16 @@ def render(values: dict[str, str], output_dir: Path) -> None:
 
     (output_dir / "aegis-idea3-ap.nmconnection").write_text(
         render_nm_profile(values),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-dnsmasq.conf").write_text(
+        render_dnsmasq_config(values),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-dnsmasq.service").write_text(
+        render_dnsmasq_service(),
         encoding="utf-8",
     )
 

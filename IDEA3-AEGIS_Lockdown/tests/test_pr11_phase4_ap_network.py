@@ -277,3 +277,122 @@ def test_networkmanager_profile_does_not_embed_live_psk(tmp_path):
 
     assert "<AEGIS_AP_PSK>" in text
     assert "psk=" + "<AEGIS_AP_PSK>" in text
+
+
+DNSMASQ_TEMPLATE = (
+    LOCKDOWN
+    / "deploy"
+    / "network"
+    / "aegis-idea3-dnsmasq.conf.example"
+)
+
+DNSMASQ_SERVICE_TEMPLATE = (
+    LOCKDOWN
+    / "deploy"
+    / "network"
+    / "aegis-idea3-dnsmasq.service.example"
+)
+
+
+def test_dnsmasq_templates_exist():
+    assert DNSMASQ_TEMPLATE.is_file(), f"dnsmasq template missing: {DNSMASQ_TEMPLATE}"
+    assert DNSMASQ_SERVICE_TEMPLATE.is_file(), (
+        f"dnsmasq service template missing: {DNSMASQ_SERVICE_TEMPLATE}"
+    )
+
+
+def test_render_creates_ap_scoped_dnsmasq_configuration(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    config = output_dir / "aegis-idea3-dnsmasq.conf"
+    assert config.is_file()
+
+    text = config.read_text()
+
+    assert "interface=wlan-test0" in text
+    assert "bind-interfaces" in text
+    assert "dhcp-range=192.0.2.2,192.0.2.10,255.255.255.240" in text
+    assert "dhcp-option=option:dns-server,192.0.2.1" in text
+
+
+def test_dnsmasq_broker_name_is_core_local_only(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    config = output_dir / "aegis-idea3-dnsmasq.conf"
+    text = config.read_text()
+
+    assert "address=/mqtt.aegis.invalid/192.0.2.1" in text
+    assert "no-resolv" in text
+
+    assert "server=" not in text
+    assert "resolv-file=" not in text
+
+
+def test_dnsmasq_does_not_advertise_internet_router(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    config = output_dir / "aegis-idea3-dnsmasq.conf"
+    text = config.read_text()
+
+    # Empty router option deliberately suppresses a default gateway.
+    assert "dhcp-option=option:router" in text
+
+    lines = [line.strip() for line in text.splitlines()]
+    router_lines = [
+        line for line in lines
+        if line.startswith("dhcp-option=option:router")
+    ]
+    assert router_lines == ["dhcp-option=option:router"]
+
+
+def test_dnsmasq_artifacts_never_target_wired_uplink(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    combined = "\n".join(
+        path.read_text()
+        for path in sorted(output_dir.iterdir())
+        if path.is_file()
+    )
+
+    assert "enp62s0" not in combined
+
+
+def test_render_creates_dedicated_dnsmasq_service(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    service = output_dir / "aegis-idea3-dnsmasq.service"
+    assert service.is_file()
+
+    text = service.read_text()
+
+    assert "[Service]" in text
+    assert "/usr/bin/dnsmasq" in text
+    assert "--keep-in-foreground" in text
+    assert "--conf-file=/etc/aegis-idea3/dnsmasq-ap.conf" in text
+
+    assert "systemctl start dnsmasq.service" not in text
+    assert "systemctl restart dnsmasq.service" not in text
+    assert "ExecStart=/usr/bin/dnsmasq.service" not in text
+
+
+def test_dnsmasq_template_keeps_owner_values_unresolved():
+    text = DNSMASQ_TEMPLATE.read_text()
+
+    assert "<AEGIS_AP_INTERFACE>" in text
+    assert "<AEGIS_DHCP_START>" in text
+    assert "<AEGIS_DHCP_END>" in text
+    assert "<AEGIS_AP_NETMASK>" in text
+    assert "<AEGIS_AP_ADDRESS>" in text
+    assert "<AEGIS_BROKER_HOSTNAME>" in text
+
+    assert "enp62s0" not in text
