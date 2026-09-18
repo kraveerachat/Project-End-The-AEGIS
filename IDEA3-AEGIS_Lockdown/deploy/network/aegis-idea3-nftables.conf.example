@@ -1,18 +1,26 @@
 #!/usr/sbin/nft -f
-# AEGIS IDEA3 AP isolation — TEMPLATE, NOT DEPLOYED.
-# Merge only after live discovery and human review. This fragment deliberately
-# contains no bridge, routing, address translation, or non-AP interface rule.
+# AEGIS IDEA3 private AP isolation — TEMPLATE, NOT DEPLOYED.
+# This table affects only traffic arriving from the IDEA3 AP interface.
 
 table inet aegis_idea3 {
     chain input {
         type filter hook input priority filter; policy accept;
 
+        # DHCP must also allow the pre-lease client state.
+        iifname "<AEGIS_AP_INTERFACE>" udp dport 67 accept
+
+        iifname "<AEGIS_AP_INTERFACE>" udp dport 53 ip saddr <AEGIS_AP_SUBNET> accept
+        iifname "<AEGIS_AP_INTERFACE>" tcp dport 53 ip saddr <AEGIS_AP_SUBNET> accept
         iifname "<AEGIS_AP_INTERFACE>" udp dport 123 ip saddr <AEGIS_AP_SUBNET> accept
         iifname "<AEGIS_AP_INTERFACE>" tcp dport 8883 ip saddr <AEGIS_AP_SUBNET> accept
+
+        iifname "<AEGIS_AP_INTERFACE>" tcp dport 1883 drop
         iifname "<AEGIS_AP_INTERFACE>" drop
     }
 
     chain forward {
-        type filter hook forward priority filter; policy drop;
+        type filter hook forward priority filter; policy accept;
+
+        iifname "<AEGIS_AP_INTERFACE>" drop
     }
 }

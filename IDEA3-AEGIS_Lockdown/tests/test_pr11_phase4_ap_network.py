@@ -396,3 +396,201 @@ def test_dnsmasq_template_keeps_owner_values_unresolved():
     assert "<AEGIS_BROKER_HOSTNAME>" in text
 
     assert "enp62s0" not in text
+
+
+NFT_TEMPLATE = (
+    LOCKDOWN
+    / "deploy"
+    / "network"
+    / "aegis-idea3-nftables.conf.example"
+)
+
+NFT_SERVICE_TEMPLATE = (
+    LOCKDOWN
+    / "deploy"
+    / "network"
+    / "aegis-idea3-nftables-load.service.example"
+)
+
+SYSCTL_TEMPLATE = (
+    LOCKDOWN
+    / "deploy"
+    / "network"
+    / "aegis-idea3-sysctl.conf.example"
+)
+
+
+def test_firewall_templates_exist():
+    assert NFT_TEMPLATE.is_file(), f"nftables template missing: {NFT_TEMPLATE}"
+    assert NFT_SERVICE_TEMPLATE.is_file(), (
+        f"nftables loader template missing: {NFT_SERVICE_TEMPLATE}"
+    )
+    assert SYSCTL_TEMPLATE.is_file(), f"sysctl template missing: {SYSCTL_TEMPLATE}"
+
+
+def test_render_creates_dedicated_idea3_firewall(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    firewall = output_dir / "aegis-idea3-nftables.conf"
+    assert firewall.is_file()
+
+    text = firewall.read_text()
+
+    assert "table inet aegis_idea3" in text
+    assert "wlan-test0" in text
+    assert "192.0.2.0/28" in text
+
+
+def test_ap_firewall_accepts_only_required_core_services(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (output_dir / "aegis-idea3-nftables.conf").read_text()
+
+    assert 'iifname "wlan-test0" udp dport 67' in text
+    assert 'iifname "wlan-test0" udp dport 53' in text
+    assert 'iifname "wlan-test0" tcp dport 53' in text
+    assert 'iifname "wlan-test0" udp dport 123' in text
+    assert 'iifname "wlan-test0" tcp dport 8883' in text
+
+    assert 'iifname "wlan-test0" tcp dport 1883' in text
+    assert "drop" in text.lower()
+
+
+def test_ap_firewall_has_explicit_plaintext_mqtt_drop(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    lines = [
+        line.strip().lower()
+        for line in (output_dir / "aegis-idea3-nftables.conf").read_text().splitlines()
+    ]
+
+    mqtt_1883 = [
+        line for line in lines
+        if 'iifname "wlan-test0"' in line
+        and "tcp dport 1883" in line
+    ]
+
+    assert len(mqtt_1883) == 1
+    assert mqtt_1883[0].endswith("drop")
+
+
+def test_ap_firewall_drops_remaining_ap_input_and_forwarding(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (output_dir / "aegis-idea3-nftables.conf").read_text().lower()
+
+    assert 'iifname "wlan-test0" drop' in text
+    assert "chain forward" in text
+    assert 'iifname "wlan-test0" drop' in text
+
+
+def test_firewall_never_owns_nat_or_whole_host_ruleset(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (output_dir / "aegis-idea3-nftables.conf").read_text().lower()
+
+    forbidden = (
+        "flush ruleset",
+        "destroy table inet filter",
+        "table ip nat",
+        "table inet nat",
+        "type nat hook",
+        "masquerade",
+        "snat",
+        "dnat",
+    )
+
+    for token in forbidden:
+        assert token not in text
+
+
+def test_nftables_source_template_owns_only_idea3_table():
+    text = NFT_TEMPLATE.read_text().lower()
+
+    assert "table inet aegis_idea3" in text
+    assert "flush ruleset" not in text
+    assert "destroy table inet filter" not in text
+    assert "masquerade" not in text
+    assert "table ip nat" not in text
+    assert "table inet nat" not in text
+
+
+def test_render_creates_dedicated_nftables_loader(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    service = output_dir / "aegis-idea3-nftables-load.service"
+    assert service.is_file()
+
+    text = service.read_text()
+
+    assert "[Service]" in text
+    assert "/usr/bin/nft" in text
+    assert "/etc/aegis-idea3/aegis-idea3.nft" in text
+
+    assert "/etc/nftables.conf" not in text
+    assert "nftables.service" not in text
+    assert "flush ruleset" not in text
+    assert "destroy table inet filter" not in text
+
+
+def test_firewall_loader_rollback_removes_only_idea3_table(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (
+        output_dir / "aegis-idea3-nftables-load.service"
+    ).read_text().lower()
+
+    assert "delete table inet aegis_idea3" in text
+    assert "flush ruleset" not in text
+    assert "delete table inet filter" not in text
+
+
+def test_sysctl_template_never_enables_forwarding():
+    text = SYSCTL_TEMPLATE.read_text().lower()
+
+    assert "net.ipv4.ip_forward = 0" in text
+    assert "net.ipv6.conf.all.forwarding = 0" in text
+    assert "net.ipv6.conf.default.forwarding = 0" in text
+    assert "net.ipv6.conf.<aegis_ap_interface>.forwarding = 0" in text
+
+    forwarding_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if "forward" in line and not line.strip().startswith("#")
+    ]
+
+    assert forwarding_lines
+    assert all(
+        line.endswith("= 0") or line.endswith("=0")
+        for line in forwarding_lines
+    )
+
+
+def test_rendered_sysctl_keeps_ap_forwarding_disabled(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    sysctl = output_dir / "aegis-idea3-sysctl.conf"
+    assert sysctl.is_file()
+
+    text = sysctl.read_text().lower()
+
+    assert "net.ipv4.ip_forward = 0" in text
+    assert "wlan-test0" in text
+    assert "= 1" not in text
+    assert "=1" not in text

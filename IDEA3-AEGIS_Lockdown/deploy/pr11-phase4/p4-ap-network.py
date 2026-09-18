@@ -159,6 +159,47 @@ def render_dnsmasq_service() -> str:
     return template_path.read_text(encoding="utf-8")
 
 
+
+def render_nftables_config(values: dict[str, str]) -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-nftables.conf.example"
+    )
+    template = template_path.read_text(encoding="utf-8")
+
+    replacements = {
+        "<AEGIS_AP_INTERFACE>": values["interface"],
+        "<AEGIS_AP_SUBNET>": values["ap_subnet"],
+    }
+
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+
+    return template
+
+
+def render_nftables_service() -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-nftables-load.service.example"
+    )
+    return template_path.read_text(encoding="utf-8")
+
+
+def render_sysctl_config(values: dict[str, str]) -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-sysctl.conf.example"
+    )
+    return template_path.read_text(encoding="utf-8").replace(
+        "<AEGIS_AP_INTERFACE>",
+        values["interface"],
+    )
+
+
 def render(values: dict[str, str], output_dir: Path) -> None:
     if output_dir.exists():
         if not output_dir.is_dir():
@@ -204,6 +245,21 @@ def render(values: dict[str, str], output_dir: Path) -> None:
 
     (output_dir / "aegis-idea3-dnsmasq.service").write_text(
         render_dnsmasq_service(),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-nftables.conf").write_text(
+        render_nftables_config(values),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-nftables-load.service").write_text(
+        render_nftables_service(),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-sysctl.conf").write_text(
+        render_sysctl_config(values),
         encoding="utf-8",
     )
 
