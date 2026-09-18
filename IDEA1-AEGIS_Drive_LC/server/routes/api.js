@@ -16,6 +16,8 @@ import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { publicShareUrl } from '../config/publicShare.js'
 import { previewMimeForName } from '../config/previewMedia.js'
+import { parseByteRange } from '../request/byteRange.js'
+import { mediaRouter } from './media.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -491,6 +493,9 @@ apiRouter.post('/files/move', requireAuth, async (req, res, next) => {
 // ⚠️ ต้องถูก mount "ก่อน" เส้นทาง '/files/:id/...' ด้านล่างเสมอ — Express จับคู่ตาม
 //    ลำดับที่ประกาศ ถ้าอยู่หลัง '/files/:id' จะกิน '/files/uploads' ไปเป็น id เสียก่อน
 apiRouter.use('/files/uploads', uploadsRouter)
+// ── Media derivatives (poster / motion proxy / media-info / admin cache) — spec §14 ──
+//    ต้องอยู่ก่อน route ทั่วไปของ /files/:id เพื่อให้ /files/media-info/batch ไม่ถูกจับเป็น :id
+apiRouter.use(mediaRouter)
 
 // ── Upload — Storage Layer (bytes) + Metadata Layer (แถวใน files) ────────────
 // ⚠️ ลำดับสำคัญ: เขียน bytes ลงดิสก์ให้เสร็จก่อน แล้วค่อย INSERT metadata — ถ้าสลับกัน
@@ -689,33 +694,6 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
 // ⚠️ Private Vault: แถว vault=true ตอบ 404 เหมือนไม่มีเส้นทางนี้ — เซิร์ฟเวอร์เห็นแค่
 //    ciphertext ไม่มี plaintext ให้ preview และต้องไม่มีวันมี (ดู /vault/blobs/:id/chunks)
 //    allowlist ตัวจริงอยู่ที่ config/previewMedia.js (แหล่งเดียว ใช้ร่วมกับท่อ media derivative)
-
-/**
- * แปลง Range header เป็นช่วง [start, end] ตาม RFC 9110 §14 — เฉพาะ bytes และช่วงเดียว
- * @returns {{ start: number, end: number } | 'unsatisfiable' | null}
- *   null = ไม่มี/ไม่รองรับ (ตอบทั้งก้อน 200 อย่างซื่อสัตย์ ไม่ปลอม 206)
- *   'unsatisfiable' = รูปแบบถูกแต่ช่วงเป็นไปไม่ได้ → 416
- */
-function parseByteRange(header, size) {
-  if (typeof header !== 'string') return null
-  // ⚠️ ไวยากรณ์ผิด (รวมหลายช่วง/หน่วยอื่น) = "ไม่มี Range" ตาม RFC 9110 §14.2 → ตอบ 200 ทั้งก้อน
-  //    416 สงวนไว้สำหรับช่วงที่ไวยากรณ์ถูกแต่ไม่ทับกับตัวแทนเลย
-  const m = /^bytes=([0-9]*)-([0-9]*)$/.exec(header.trim())
-  if (!m) return null
-  const [, first, last] = m
-  if (first === '' && last === '') return 'unsatisfiable'
-  if (first === '') {
-    // suffix-range: N ไบต์สุดท้าย — "-0" ไม่มีความหมาย
-    const suffix = Number(last)
-    if (!Number.isSafeInteger(suffix) || suffix <= 0 || size === 0) return 'unsatisfiable'
-    return { start: Math.max(0, size - suffix), end: size - 1 }
-  }
-  const start = Number(first)
-  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable'
-  const end = last === '' ? size - 1 : Math.min(Number(last), size - 1)
-  if (!Number.isSafeInteger(end) || end < start) return 'unsatisfiable'
-  return { start, end }
-}
 
 apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
   try {
