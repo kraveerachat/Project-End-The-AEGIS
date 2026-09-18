@@ -13,6 +13,7 @@ import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { createGifPoster } from '../lib/gifPoster.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -294,7 +295,31 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   const isGif = previewKind === 'image' && String(file.ext).toLowerCase() === 'gif'
   const animated = isGif || previewKind === 'video'
   const motion = animated ? (hover && !reduced ? 'playing' : 'idle') : 'static'
-  const thumbVariant = previewKind === null ? 'icon' : isGif ? (motion === 'playing' ? 'gif' : 'gif-static') : previewKind
+  // ── poster นิ่งของ GIF (Round 10) ────────────────────────────────────────
+  // ⚠️ idle ต้องเป็น "ภาพจริงที่ไม่ขยับ": เบราว์เซอร์ถอดเฟรมแรกเป็นบิตแมปแล้วย่อเก็บเป็น
+  //    object URL (lib/gifPoster.js) — ผูกกับตัวตนของไฟล์ เปลี่ยนไฟล์/unmount = revoke
+  //    ถอดไม่ได้ (ใหญ่เกิน/เบราว์เซอร์ไม่รองรับ/ไฟล์เสีย) = ถอยไปไอคอน + ป้าย GIF อย่างซื่อสัตย์
+  const [poster, setPoster] = useState(null) // { identity, url, revoke } | { identity, failed: true } | null
+  useEffect(() => {
+    if (!isGif) return undefined
+    const ctrl = new AbortController()
+    let handle = null
+    createGifPoster(apiUrl(previewPathFor(file)), { size: file.size, signal: ctrl.signal }).then((result) => {
+      if (ctrl.signal.aborted) { result?.revoke(); return }
+      handle = result
+      setPoster(result ? { identity, url: result.url, revoke: result.revoke } : { identity, failed: true })
+    })
+    return () => {
+      ctrl.abort()
+      handle?.revoke()
+      setPoster(null)
+    }
+    // identity = id + ชื่อ (นามสกุล) ซึ่งคือทุกอย่างที่กำหนดทรัพยากร preview ของไฟล์นี้
+  }, [isGif, identity]) // eslint-disable-line react-hooks/exhaustive-deps
+  const posterUrl = poster && poster.identity === identity && !poster.failed ? poster.url : null
+  const thumbVariant = previewKind === null ? 'icon'
+    : isGif ? (motion === 'playing' ? 'gif' : posterUrl ? 'gif-poster' : 'gif-static')
+      : previewKind
   const videoRef = useRef(null)
   const wasPlayingRef = useRef(false)
   useEffect(() => {
@@ -403,10 +428,20 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         data-motion={motion}
         className={`h-24 rounded-[9px] flex items-center justify-center overflow-hidden ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
       >
-        {thumbVariant === 'gif-static' ? (
-          /* ⚠️ GIF ตอนไม่ชี้: ไม่โหลดไฟล์ที่เคลื่อนไหวเลย — <img> ของ GIF เล่นเองทันทีที่โหลด
-             และ stack นี้ไม่มีตัวสกัดเฟรมแรกฝั่งเซิร์ฟเวอร์ (ไม่เพิ่ม Sharp/FFmpeg เพื่อการนี้)
-             จึงแสดง "ตัวแทนนิ่ง" ที่พูดความจริง: ไอคอนภาพ + ป้าย GIF ว่าจะเล่นเมื่อชี้ */
+        {thumbVariant === 'gif-poster' ? (
+          /* ⚠️ idle ของ GIF = poster นิ่งที่เบราว์เซอร์ถอดเอง (object URL ขนาดย่อ) ไม่ใช่ GIF จริง
+             ที่ซ่อนอยู่หลัง overlay — DOM ที่ผู้ใช้เห็นตอนนี้ไม่มีอะไรเคลื่อนไหวเลย */
+          <img
+            src={posterUrl}
+            alt=""
+            decoding="async"
+            draggable={false}
+            onError={() => setPoster({ identity, failed: true })}
+            className="size-full object-cover"
+          />
+        ) : thumbVariant === 'gif-static' ? (
+          /* ⚠️ ถอด poster ไม่ได้ (หรือยังถอดอยู่): ไม่โหลด GIF ที่เคลื่อนไหวตอน idle — <img> ของ
+             GIF เล่นเองทันทีที่โหลด จึงแสดง "ตัวแทนนิ่ง" ที่พูดความจริง: ไอคอนภาพ + ป้าย GIF */
           <span className="relative inline-flex items-center justify-center">
             <FileImage size={30} strokeWidth={1.2} className="text-ink-3" />
             <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-[4px] border border-line bg-card px-1 text-[9px] font-semibold tracking-[0.06em] text-ink-3">GIF</span>
@@ -1027,6 +1062,31 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
     await moveItems(ids, folder.id)
   }
 
+  /* ── วางบน breadcrumb "Files" = ย้ายกลับราก (Round 10) ─────────────────────
+     ⚠️ เส้นทางเดียวกับกล่อง Move ("All files") ทุกประการ: moveItems(ids, null) — ไม่มี
+        การย้ายแบบที่สอง เป็นเป้าวางเฉพาะ (1) การลากรายการภายใน ไม่ใช่ไฟล์จาก OS และ
+        (2) ขณะอยู่ในโฟลเดอร์เท่านั้น — ที่รากการวางลง "Files" คือ ALREADY_THERE ที่ไร้ความหมาย
+        สำเร็จแล้วค่อยพาไปที่ราก ล้มเหลวอยู่ที่เดิม (actionError ตามความหมายเดิม) */
+  const [rootDropTarget, setRootDropTarget] = useState(false)
+  const rootDropEligible = folderId != null && draggingIds.length > 0
+  const rootDragOver = (event) => {
+    if (!rootDropEligible || isExternalFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setRootDropTarget(true)
+  }
+  const rootDrop = async (event) => {
+    if (!rootDropEligible || isExternalFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setRootDropTarget(false)
+    const ids = readDragPayload(event.dataTransfer)
+    setDraggingIds([])
+    if (ids.length === 0) return
+    const ok = await moveItems(ids, null)
+    if (ok) goToFolder(null)
+  }
+
   /** เปิดโฟลเดอร์ = เปลี่ยนตำแหน่งจริง; ไฟล์ = เปิดแผงรายละเอียดเหมือนเดิม */
   const openItem = (file) => {
     if (file.kind === 'folder') {
@@ -1148,7 +1208,14 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         <button
           type="button"
           onClick={() => goToFolder(null)}
-          className={`${folderId == null ? 'text-ink cursor-default' : 'hover:text-ink cursor-pointer'} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-[4px]`}
+          onDragOver={rootDragOver}
+          onDragEnter={rootDragOver}
+          onDragLeave={() => setRootDropTarget(false)}
+          onDrop={rootDrop}
+          data-drop-target={rootDropTarget ? 'yes' : undefined}
+          data-root-drop={rootDropEligible ? 'eligible' : undefined}
+          className={`${folderId == null ? 'text-ink cursor-default' : 'hover:text-ink cursor-pointer'} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-[4px] px-1.5 -mx-1.5 transition-[background-color,color,box-shadow] duration-[var(--dur-fast)]`}
+          style={rootDropTarget ? { color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', boxShadow: '0 0 0 1px var(--accent)' } : undefined}
           aria-current={folderId == null ? 'page' : undefined}
         >
           {t('filesTitle')}
@@ -1271,7 +1338,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           onOpen={openItem}
           onMenuAction={onMenuAction}
           onDragStartItem={startItemDrag}
-          onDragEndItem={() => setDraggingIds([])}
+          onDragEndItem={() => { setDraggingIds([]); setRootDropTarget(false) }}
           onDropItems={dropItemsInto}
           onSelectionChange={setSelectedIds}
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
