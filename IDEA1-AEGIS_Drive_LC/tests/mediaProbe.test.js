@@ -37,7 +37,7 @@ before(async () => {
 after(async () => { await fs.rm(dir, { recursive: true, force: true }) })
 
 test('FP-HOST_TOOLCHAIN · report the supplemental host toolchain and fixture availability (informational, never a pass/fail)', (t) => {
-  t.diagnostic(`host ffmpeg=${tools.ffmpeg ? tools.version : 'absent'} ffprobe=${tools.ffprobe} sharp=NOT_INSTALLED (not declared in package.json)`)
+  t.diagnostic(`host ffmpeg=${tools.ffmpeg ? tools.version : 'absent'} ffprobe=${tools.ffprobe} sharp=NOT_LOADED (this suite probes without sharp by design; sharp 0.35.4 is pinned in package.json)`)
   for (const [k, v] of Object.entries(fx)) t.diagnostic(`fixture ${k}: ${v.path ? `${v.bytes} bytes` : `SKIPPED ${v.skipped}`}`)
 })
 
