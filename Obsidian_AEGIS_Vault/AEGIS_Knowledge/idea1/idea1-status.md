@@ -15,6 +15,27 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Future Draft Task — PC-NETWORK-DRIVE-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `feat/idea1-pc-network-drive`; PR: pending separate Draft publication.
+- State: **PLANNED / BLOCKED for implementation**; started: 2026-09-18.
+- Starting checkpoint: current `origin/main` at `a68e18927ec4288c6a1cc1761cc167546b7d31b9`.
+- Goal: draft architecture for separate per-user **My Files / On Your PC / Private Vault** locations and privately accessed Windows SMB mapping; not an ordinary My Files folder.
+- Scope: targeted repository research and `docs/superpowers/specs/2026-09-18-idea1-pc-network-drive-design.md`; this narrowly scoped live register is required by [[core/development-session-workflow]]. Existing tasks and accepted runtime facts remain unchanged.
+- Production, database and network mutation allowed: **NO**. No source, tests, runtime configuration, SMB deployment or final receipt is included.
+- Dependency: **IMPLEMENTATION_BLOCKED_BY_PR150_MERGE=TRUE**. PR #150 was observed OPEN / Draft at `7a579d94771cef82b305ddfd3db65cf638b6dff5`; this task does not change that PR or use it as its branch base.
+- Proposed architecture: separate filesystem-authoritative PC storage; approval and concurrency/credential/deployment questions remain pending. No implemented or deployed behavior is claimed.
+- Acceptance for this session: documentation-only scope, truthful source evidence, secret/diff checks, vault and collaboration validation, and separate Draft publication.
+
+### Session Register — PC-NETWORK-DRIVE-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PCND-S1 | Architecture research and future Draft reservation only | IN PROGRESS | Source reviewed against starting main; PR #150 metadata verified | Starting main above; publication checkpoint pending | PLANNED | Validate and publish Draft; owner architecture review; implementation gates | Human architecture review after PR #150; no implementation |
+
+- Final receipt: **pending task closeout**, not created for this planning session. Wider Obsidian architecture/MOC reconciliation remains **DOCS_DEBT** after owner acceptance.
+
 > [!important] Progress Update 6.1 — current handoff
 > The detailed current-state checkpoint is [[idea1/IDEA1-Progress-Update-6.1]].
 > Use that note first when resuming from a new chat/session: it contains the 10-screen
