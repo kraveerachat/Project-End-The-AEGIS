@@ -23,16 +23,17 @@ export const CAPABILITIES_NONE = deepFreeze({
   ffprobe: { ok: false, version: null },
   encoders: { libx264: false, libwebp: false },
   decoders: { gif: false, apng: false, webp: false, webpAnimated: false, av1: false, h264: false, vp8: false, vp9: false },
+  demuxers: { webp: false },
   sharp: { ok: false, version: null, avif: false },
   reasons: ['NOT_PROBED'],
 })
 
-/** บรรทัดของ `ffmpeg -encoders/-decoders` ขึ้นต้นด้วยธง 6 ตัว แล้วตามด้วยชื่อ — จับชื่อแบบเต็มคำเท่านั้น */
+/** บรรทัดของ `ffmpeg -encoders/-decoders/-demuxers`: คอลัมน์ธง (6 ตัวสำหรับ codec, 1–3 ตัวสำหรับ demuxer) แล้วชื่อ — จับชื่อเต็มคำเท่านั้น */
 function listedNames(listing) {
   const names = new Set()
   for (const line of String(listing ?? '').split(/\r?\n/)) {
-    const m = /^\s*[A-Z.]{6}\s+([A-Za-z0-9_]+)\b/.exec(line)
-    if (m) names.add(m[1])
+    const m = /^\s*[A-Z.]{1,6}\s+([A-Za-z0-9_-]+)(?:\s|$)/.exec(line)
+    if (m && !/^(Encoders|Decoders|Demuxers|Muxers):?$/i.test(m[1])) names.add(m[1])
   }
   return names
 }
@@ -71,16 +72,20 @@ export async function detectCapabilities({
   const ffmpegOk = ffmpegVersionOut !== null
   let encoders = { libx264: false, libwebp: false }
   let decoders = { gif: false, apng: false, webp: false, webpAnimated: false, av1: false, h264: false, vp8: false, vp9: false }
+  let demuxers = { webp: false }
   if (ffmpegOk) {
     const enc = listedNames(await probe(ffmpegBin, ['-hide_banner', '-encoders'], 'FFMPEG_ENCODERS_UNREADABLE', 'FFMPEG_TIMEOUT'))
     const dec = listedNames(await probe(ffmpegBin, ['-hide_banner', '-decoders'], 'FFMPEG_DECODERS_UNREADABLE', 'FFMPEG_TIMEOUT'))
+    const dem = listedNames(await probe(ffmpegBin, ['-hide_banner', '-demuxers'], 'FFMPEG_DEMUXERS_UNREADABLE', 'FFMPEG_TIMEOUT'))
     encoders = Object.fromEntries(ENCODER_NAMES.map((n) => [n, enc.has(n)]))
     decoders = Object.fromEntries(DECODER_NAMES.map((n) => [n, dec.has(n)]))
-    // ⚠️ animated WebP ถอดได้จริงตั้งแต่สาย 7.1 — รุ่นเก่ากว่านั้นถอดแค่เฟรมแรก (spec §6)
-    const atLeast71 = ffmpegVersion !== null && (ffmpegVersion.major > 7 || (ffmpegVersion.major === 7 && ffmpegVersion.minor >= 1))
-    decoders.webpAnimated = decoders.webp && atLeast71
+    // ⚠️ animated WebP ต้องมี demuxer ชื่อ `webp` โดยเฉพาะ (ไม่ใช่ webp_pipe ที่ให้แค่ภาพเดี่ยว) — วัดจริง: build 8.1.1
+    //    ที่มีแต่ webp_pipe ล้มเหลว "image data not found" กับ animated WebP จึงตัดสินจากหลักฐานโครงสร้าง ไม่ใช่เลขรุ่น
+    demuxers = { webp: dem.has('webp') }
+    decoders.webpAnimated = decoders.webp && demuxers.webp
     for (const n of ENCODER_NAMES) if (!encoders[n]) reasons.push(`ENCODER_${n.toUpperCase()}_MISSING`)
     for (const n of DECODER_NAMES) if (!decoders[n]) reasons.push(`DECODER_${n.toUpperCase()}_MISSING`)
+    if (!demuxers.webp) reasons.push('DEMUXER_WEBP_MISSING')
   }
 
   const ffprobeVersionOut = await probe(ffprobeBin, ['-version'], 'FFPROBE_MISSING', 'FFPROBE_TIMEOUT')
@@ -105,6 +110,7 @@ export async function detectCapabilities({
     ffprobe: { ok: ffprobeVersionOut !== null, version: ffprobeVersion?.text ?? null },
     encoders,
     decoders,
+    demuxers,
     sharp,
     reasons,
   })

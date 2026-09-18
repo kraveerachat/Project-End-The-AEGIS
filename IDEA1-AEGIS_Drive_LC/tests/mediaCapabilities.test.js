@@ -43,10 +43,13 @@ function fakeRunner(script) {
     },
   }
 }
-const fullScript = (version = '6.1.2') => [
+const DEMUXERS_PIPE_ONLY = 'Demuxers:\n D   webp_pipe       piped webp sequence\n D   gif             CompuServe Graphics Interchange Format (GIF)\n D   apng            Animated Portable Network Graphics'
+const DEMUXERS_WITH_WEBP = DEMUXERS_PIPE_ONLY + '\n D   webp            WebP image sequence'
+const fullScript = (version = '6.1.2', demuxers = DEMUXERS_WITH_WEBP) => [
   ['ffmpeg -version', { stdout: `ffmpeg version ${version} Copyright (c) 2000-2024 the FFmpeg developers` }],
   ['ffmpeg -hide_banner -encoders', { stdout: ENCODERS_ALL }],
   ['ffmpeg -hide_banner -decoders', { stdout: DECODERS_ALL }],
+  ['ffmpeg -hide_banner -demuxers', { stdout: demuxers }],
   ['ffprobe -version', { stdout: `ffprobe version ${version}` }],
 ]
 const enoent = () => Object.assign(new Error('spawn ffmpeg ENOENT'), { code: 'ENOENT' })
@@ -60,7 +63,8 @@ test('MC-1 all tools present → enabled, encoders/decoders true, sharp ok, no r
   assert.equal(caps.ffmpeg.version, '6.1.2')
   assert.equal(caps.ffprobe.ok, true)
   assert.deepEqual(caps.encoders, { libx264: true, libwebp: true })
-  assert.deepEqual(caps.decoders, { gif: true, apng: true, webp: true, webpAnimated: false, av1: true, h264: true, vp8: true, vp9: true })
+  assert.deepEqual(caps.decoders, { gif: true, apng: true, webp: true, webpAnimated: true, av1: true, h264: true, vp8: true, vp9: true })
+  assert.deepEqual(caps.demuxers, { webp: true })
   assert.equal(caps.sharp.ok, true)
   assert.equal(caps.sharp.version, '0.33.5')
   assert.deepEqual(caps.reasons, [])
@@ -83,7 +87,7 @@ test('MC-2 ffmpeg missing → enabled false with FFMPEG_MISSING; ffprobe still p
 
 test('MC-3 ffprobe times out → enabled false with FFPROBE_TIMEOUT', async () => {
   const runner = fakeRunner([
-    ...fullScript().slice(0, 3),
+    ...fullScript().slice(0, 4),
     ['ffprobe -version', { code: null, signal: 'SIGKILL', timedOut: true, killed: true }],
   ])
   const caps = await detectCapabilities({ runner, loadSharp: sharpOk })
@@ -98,6 +102,7 @@ test('MC-4 libx264 absent → still enabled, encoders.libx264 false, ENCODER_LIB
     ['ffmpeg -version', { stdout: 'ffmpeg version 6.1.2' }],
     ['ffmpeg -hide_banner -encoders', { stdout: 'Encoders:\n V..... libwebp              libwebp WebP image' }],
     ['ffmpeg -hide_banner -decoders', { stdout: DECODERS_ALL }],
+    ['ffmpeg -hide_banner -demuxers', { stdout: DEMUXERS_WITH_WEBP }],
     ['ffprobe -version', { stdout: 'ffprobe version 6.1.2' }],
   ])
   const caps = await detectCapabilities({ runner, loadSharp: sharpOk })
@@ -107,28 +112,34 @@ test('MC-4 libx264 absent → still enabled, encoders.libx264 false, ENCODER_LIB
   assert.ok(caps.reasons.includes('ENCODER_LIBX264_MISSING'))
 })
 
-test('MC-5 animated WebP decode only on FFmpeg >= 7.1 with the webp decoder listed', async () => {
-  const old = await detectCapabilities({ runner: fakeRunner(fullScript('6.1.2')), loadSharp: sharpOk })
-  assert.equal(old.decoders.webp, true)
-  assert.equal(old.decoders.webpAnimated, false)
-  const seven = await detectCapabilities({ runner: fakeRunner(fullScript('7.1')), loadSharp: sharpOk })
-  assert.equal(seven.decoders.webpAnimated, true)
-  const sevenZero = await detectCapabilities({ runner: fakeRunner(fullScript('7.0.2')), loadSharp: sharpOk })
-  assert.equal(sevenZero.decoders.webpAnimated, false)
-  const eight = await detectCapabilities({ runner: fakeRunner(fullScript('8.0')), loadSharp: sharpOk })
-  assert.equal(eight.decoders.webpAnimated, true)
-  // decoder not listed → false regardless of version
+test('MC-5 animated WebP decode requires a dedicated webp demuxer (not webp_pipe) plus the webp decoder — the version string never decides', async () => {
+  // measured: an FFmpeg 8.1.1 build with only webp_pipe fails on animated WebP ("image data not found")
+  const pipeOnly = await detectCapabilities({ runner: fakeRunner(fullScript('8.1.1', DEMUXERS_PIPE_ONLY)), loadSharp: sharpOk })
+  assert.equal(pipeOnly.decoders.webp, true)
+  assert.equal(pipeOnly.decoders.webpAnimated, false)
+  assert.equal(pipeOnly.demuxers.webp, false)
+  assert.ok(pipeOnly.reasons.includes('DEMUXER_WEBP_MISSING'))
+  const withDemuxer = await detectCapabilities({ runner: fakeRunner(fullScript('6.1.2', DEMUXERS_WITH_WEBP)), loadSharp: sharpOk })
+  assert.equal(withDemuxer.decoders.webpAnimated, true, 'demuxer evidence decides, not the version string')
+  assert.ok(!withDemuxer.reasons.includes('DEMUXER_WEBP_MISSING'))
+  // decoder not listed → false even with the demuxer
   const noWebp = await detectCapabilities({
     runner: fakeRunner([
       ['ffmpeg -version', { stdout: 'ffmpeg version 7.1' }],
       ['ffmpeg -hide_banner -encoders', { stdout: ENCODERS_ALL }],
       ['ffmpeg -hide_banner -decoders', { stdout: DECODERS_ALL.replace(/^ V....D webp.*$/m, '') }],
+      ['ffmpeg -hide_banner -demuxers', { stdout: DEMUXERS_WITH_WEBP }],
       ['ffprobe -version', { stdout: 'ffprobe version 7.1' }],
     ]),
     loadSharp: sharpOk,
   })
   assert.equal(noWebp.decoders.webp, false)
   assert.equal(noWebp.decoders.webpAnimated, false)
+  // demuxer listing unreadable → truthfully false with a reason, never a crash
+  const unreadable = await detectCapabilities({ runner: fakeRunner(fullScript('8.0').filter(([m]) => m !== 'ffmpeg -hide_banner -demuxers')), loadSharp: sharpOk })
+  assert.equal(unreadable.decoders.webpAnimated, false)
+  assert.ok(unreadable.reasons.includes('FFMPEG_DEMUXERS_UNREADABLE'))
+  assert.equal(unreadable.demuxers.webp, false)
 })
 
 test('MC-6 sharp import throws → sharp.ok false, SHARP_UNAVAILABLE, enabled unaffected', async () => {
@@ -150,6 +161,7 @@ test('MC-7 CAPABILITIES_NONE is frozen with enabled false', () => {
   assert.equal(CAPABILITIES_NONE.sharp.ok, false)
   assert.equal(CAPABILITIES_NONE.encoders.libx264, false)
   assert.equal(CAPABILITIES_NONE.decoders.h264, false)
+  assert.equal(CAPABILITIES_NONE.demuxers.webp, false)
 })
 
 /* ── app injection seam ──────────────────────────────────────────────────── */
