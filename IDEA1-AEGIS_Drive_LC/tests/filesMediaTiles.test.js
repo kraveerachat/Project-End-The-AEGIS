@@ -10,10 +10,13 @@ import { fileURLToPath } from 'node:url'
 import fs from 'node:fs/promises'
 import { createServer } from 'vite'
 import reactPlugin from '@vitejs/plugin-react'
-import { LANGS, STRINGS } from '../src/lib/strings.js'
+import React, { act } from 'react'
+import { JSDOM } from 'jsdom'
+import { LANGS, STRINGS, makeT } from '../src/lib/strings.js'
+const t = makeT('en')
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-let vite, mediaApi, mediaTile
+let vite, mediaApi, mediaTile, mediaThumb
 before(async () => {
   vite = await createServer({
     configFile: false, root: rootDir, appType: 'custom', logLevel: 'silent',
@@ -21,6 +24,7 @@ before(async () => {
   })
   mediaApi = await vite.ssrLoadModule('/src/lib/mediaApi.js')
   mediaTile = await vite.ssrLoadModule('/src/lib/mediaTile.js')
+  mediaThumb = await vite.ssrLoadModule('/src/components/MediaThumb.jsx')
 })
 after(async () => { await vite?.close() })
 
@@ -402,4 +406,234 @@ test('TS-14 badge selector: GIF / APNG / animated WebP / AVIF → animated badge
   for (const key of ['mediaPending', 'mediaUnsupported', 'badgeGif', 'badgeVideo', 'badgeAnimated']) {
     for (const lang of LANGS) assert.equal(typeof STRINGS[lang][key], 'string', `${lang}.${key}`)
   }
+})
+
+/* ════════════════════════════════════════════════════════════════════════════
+   UH · React hook + MediaThumb (B3) — jsdom
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function installDom({ reducedMotion = false } = {}) {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
+  const w = dom.window
+  w.matchMedia = (q) => ({ matches: reducedMotion && q.includes('prefers-reduced-motion'), media: q, addEventListener() {}, removeEventListener() {} })
+  const previous = new Map()
+  const globals = { window: w, document: w.document, navigator: w.navigator, HTMLElement: w.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true }
+  for (const [key, value] of Object.entries(globals)) { previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key)); Object.defineProperty(globalThis, key, { configurable: true, writable: true, value }) }
+  const media = { calls: [], rejectPlay: false }
+  const proto = w.HTMLMediaElement.prototype
+  proto.play = function () { media.calls.push('play'); return media.rejectPlay ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve() }
+  proto.pause = function () { media.calls.push('pause') }
+  return { dom, W: w, media, restore() { for (const [k, d] of previous) { if (d === undefined) delete globalThis[k]; else Object.defineProperty(globalThis, k, d) } w.close() } }
+}
+async function mountRoot(opts) {
+  const env = installDom(opts)
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.getElementById('root'))
+  const render = (el) => act(async () => { root.render(el) })
+  // React ผูก mouseenter/leave ผ่าน mouseover/mouseout — ยิงคู่กันเหมือน harness เดิม
+  const mouse = (node, type) => act(async () => {
+    const pre = type === 'mouseenter' ? 'mouseover' : type === 'mouseleave' ? 'mouseout' : null
+    if (pre) node.dispatchEvent(new env.W.MouseEvent(pre, { bubbles: true, cancelable: true }))
+    node.dispatchEvent(new env.W.MouseEvent(type, { bubbles: true, cancelable: true }))
+  })
+  const fire = (node, type) => act(async () => { node.dispatchEvent(new env.W.Event(type, { bubbles: false })) })
+  let mounted = true
+  return { env, W: env.W, media: env.media, root, render, mouse, fire, unmount: async () => { if (!mounted) return; mounted = false; await act(async () => root.unmount()); env.restore() } }
+}
+/** scheduler ปลอมที่บันทึกการเรียก และให้เทสต์ "เริ่มงาน" เอง (startPoster/startMotion) */
+function stubScheduler() {
+  const calls = { register: [], unregister: [], request: [], hover: [], done: [] }
+  const metas = new Map()
+  const s = {
+    calls, metas,
+    register(key, el, meta) { calls.register.push({ key, el, meta }); metas.set(key, meta); return () => s.unregister(key) },
+    unregister(key) { calls.unregister.push(key); metas.delete(key) },
+    request(key, kind) { calls.request.push(kind + ':' + key); return true },
+    cancel() {}, hover(key, on) { calls.hover.push([key, on]) }, setMeta(key, patch) { const m = metas.get(key); if (m) metas.set(key, { ...m, ...patch }) }, done(kind, key) { calls.done.push(kind + ':' + key) },
+    bandOf() { return 'visible' }, snapshot() { return {} }, dispose() {},
+    band(key, band) { metas.get(key)?.onBand?.(band) },
+    info(key, info) { metas.get(key)?.onInfo?.(info) },
+    startPoster(key) { const ctrl = new AbortController(); return metas.get(key)?.onPoster?.(key, { signal: ctrl.signal }) },
+    startMotion(key) { const ctrl = new AbortController(); return metas.get(key)?.onMotion?.(key, { signal: ctrl.signal }) },
+  }
+  return s
+}
+const fileGif = (over = {}) => ({ id: 'g1', name: 'loop.gif', kind: 'file', type: 'Image', ext: 'gif', size: 10, sha256: SHA_A, vault: false, ...over })
+const thumb = (file, sched, extra = {}) => React.createElement(mediaThumb.MediaProvider, { scheduler: sched, client: { request: async () => ({}) } },
+  React.createElement(mediaThumb.MediaThumb, { t, file, Icon: () => React.createElement('span', { 'data-icon': 'x' }), ...extra }))
+const box = () => document.querySelector('[data-media-thumb]')
+
+test('UH-1 mount registers with the scheduler under a key carrying the content id; unmount unregisters; a new sha re-registers', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif(), s))
+    assert.equal(s.calls.register.length, 1)
+    assert.ok(s.calls.register[0].key.includes(SHA_A))
+    assert.ok(s.calls.register[0].el instanceof m.W.HTMLElement)
+    assert.equal(s.calls.register[0].meta.animated, undefined, 'animation is the server probe decision, not the extension')
+    await m.render(thumb(fileGif({ name: 'renamed.gif' }), s))
+    assert.equal(s.calls.register.length, 1, 'rename keeps the registration')
+    await m.render(thumb(fileGif({ sha256: SHA_B }), s))
+    assert.equal(s.calls.unregister.length, 1); assert.equal(s.calls.register.length, 2); assert.ok(s.calls.register[1].key.includes(SHA_B))
+    await m.unmount()
+    assert.equal(s.calls.unregister.length, 2)
+  } finally { await m.unmount() }
+})
+
+test('UH-2 band → info request → onInfo READY → poster fetch only when the scheduler starts it → onLoad marks shown; no /preview URL', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    assert.deepEqual(box().getAttribute('data-poster'), 'icon')
+    assert.equal(s.calls.request.length, 0, 'off band: nothing requested')
+    await act(async () => s.band(key, 'visible'))
+    assert.deepEqual(s.calls.request, ['info:' + key])
+    assert.equal(box().getAttribute('data-info'), 'loading')
+    await act(async () => s.info(key, infoReady('g1', { animated: true })))
+    assert.equal(box().getAttribute('data-info'), 'ready')
+    assert.ok(s.calls.request.includes('poster:' + key), 'poster requested through the scheduler')
+    assert.equal(document.querySelector('img'), null, 'img not mounted before the scheduler grants the slot')
+    let posterDone
+    await act(async () => { posterDone = s.startPoster(key) })
+    const img = document.querySelector('img')
+    assert.ok(img); assert.equal(img.getAttribute('src'), '/api/files/g1/poster?v=' + SHA_A + '&p=v1')
+    assert.equal(box().getAttribute('data-poster'), 'loading')
+    await m.fire(img, 'load')
+    assert.equal(box().getAttribute('data-poster'), 'shown')
+    await posterDone
+    assert.ok(document.querySelector('[data-icon]'), 'base icon remains mounted beneath the poster')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null)
+  } finally { await m.unmount() }
+})
+
+test('UH-3 video props: muted, playsInline, loop, preload auto, aria-hidden, no controls/autoplay; src only once motion starts; canplaythrough → MOTION ready', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    await act(async () => s.band(key, 'visible'))
+    await act(async () => s.info(key, infoReady('g1', { animated: true })))
+    await act(async () => { s.startPoster(key) })
+    await m.fire(document.querySelector('img'), 'load')
+    assert.ok(s.calls.request.includes('motion:' + key), 'visible animated tile prefetches motion (bounded by the scheduler)')
+    assert.equal(document.querySelector('video'), null, 'video not mounted until the scheduler starts the fetch')
+    await act(async () => { s.startMotion(key) })
+    const v = document.querySelector('video')
+    assert.ok(v)
+    assert.equal(v.getAttribute('src'), '/api/files/g1/motion-preview?v=' + SHA_A + '&p=v1')
+    assert.equal(v.muted, true); assert.equal(v.hasAttribute('playsinline'), true); assert.equal(v.hasAttribute('loop'), true)
+    assert.equal(v.getAttribute('preload'), 'auto'); assert.equal(v.getAttribute('aria-hidden'), 'true'); assert.equal(v.getAttribute('tabindex'), '-1')
+    assert.equal(v.hasAttribute('controls'), false); assert.equal(v.hasAttribute('autoplay'), false)
+    assert.equal(box().getAttribute('data-motion'), 'prefetching')
+    await m.fire(v, 'canplaythrough')
+    assert.equal(box().getAttribute('data-motion'), 'ready')
+    assert.deepEqual(m.media.calls, [], 'no play without hover')
+    assert.equal(box().getAttribute('data-poster'), 'shown')
+  } finally { await m.unmount() }
+})
+
+test('UH-4 first-hover race end-to-end: hover before canplaythrough → no play; canplaythrough → play() once; leave → pause + currentTime 0, poster still there', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    await act(async () => s.band(key, 'visible'))
+    await act(async () => s.info(key, infoReady('g1', { animated: true })))
+    await act(async () => { s.startPoster(key) })
+    await m.fire(document.querySelector('img'), 'load')
+    await act(async () => { s.startMotion(key) })
+    const v = document.querySelector('video')
+    await m.mouse(box(), 'mouseenter')
+    assert.deepEqual(s.calls.hover.at(-1), [key, true])
+    assert.deepEqual(m.media.calls, [], 'not ready yet → no play')
+    assert.equal(box().getAttribute('data-motion'), 'prefetching')
+    await m.fire(v, 'canplaythrough')
+    assert.deepEqual(m.media.calls, ['play'], 'auto-starts when ready while still hovered — no re-enter needed')
+    assert.equal(box().getAttribute('data-motion'), 'playing')
+    assert.equal(v.style.opacity, '1')
+    assert.ok(document.querySelector('img'), 'poster stays mounted beneath')
+    v.currentTime = 2.5
+    await m.mouse(box(), 'mouseleave')
+    assert.deepEqual(m.media.calls, ['play', 'pause'])
+    assert.equal(v.currentTime, 0)
+    assert.equal(box().getAttribute('data-motion'), 'ready')
+    assert.equal(v.style.opacity, '0')
+    assert.equal(document.querySelector('img').getAttribute('src'), '/api/files/g1/poster?v=' + SHA_A + '&p=v1')
+    assert.deepEqual(s.calls.hover.at(-1), [key, false])
+  } finally { await m.unmount() }
+})
+
+test('UH-4b play() rejection: poster stays, no crash, motion marked failed for this content', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    m.media.rejectPlay = true
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    await act(async () => s.band(key, 'visible'))
+    await act(async () => s.info(key, infoReady('g1', { animated: true })))
+    await act(async () => { s.startPoster(key) })
+    await m.fire(document.querySelector('img'), 'load')
+    await act(async () => { s.startMotion(key) })
+    await m.fire(document.querySelector('video'), 'canplaythrough')
+    await m.mouse(box(), 'mouseenter')
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    assert.equal(box().getAttribute('data-motion'), 'failed')
+    assert.equal(box().getAttribute('data-poster'), 'shown')
+    assert.ok(document.querySelector('img'))
+  } finally { await m.unmount() }
+})
+
+test('UH-5 reduced motion: poster works, motion never requested, hover never plays; no <video> mounted', async () => {
+  const m = await mountRoot({ reducedMotion: true }); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    assert.equal(s.calls.register[0].meta.reducedMotion, true)
+    await act(async () => s.band(key, 'visible'))
+    await act(async () => s.info(key, infoReady('g1', { animated: true })))
+    await act(async () => { s.startPoster(key) })
+    await m.fire(document.querySelector('img'), 'load')
+    assert.equal(box().getAttribute('data-poster'), 'shown')
+    await m.mouse(box(), 'mouseenter')
+    assert.ok(!s.calls.request.includes('motion:' + key))
+    assert.equal(document.querySelector('video'), null)
+    assert.deepEqual(m.media.calls, [])
+  } finally { await m.unmount() }
+})
+
+test('UH-6 unsupported / disabled / pending / failed render: icon stays, truthful badge, no poster or motion request; pending shows the pending label', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif({ id: 'u1', name: 'notes.txt', ext: 'txt', type: 'Text' }), s))
+    assert.equal(s.calls.register.length, 0, 'non-previewable types never register media work')
+    assert.equal(box().getAttribute('data-info'), 'unsupported')
+    await m.render(thumb(fileGif(), s))
+    const key = s.calls.register[0].key
+    await act(async () => s.band(key, 'visible'))
+    await act(async () => s.info(key, { id: 'g1', status: 'UNSUPPORTED', reason: 'MEDIA_DISABLED', poster: { state: 'UNSUPPORTED' }, motion: { state: 'UNSUPPORTED' } }))
+    assert.equal(box().getAttribute('data-info'), 'unsupported'); assert.equal(box().getAttribute('data-poster'), 'icon')
+    assert.ok(box().textContent.includes('GIF'), 'GIF badge from strings')
+    assert.ok(!s.calls.request.some((r) => r.startsWith('poster') || r.startsWith('motion')))
+    await m.render(thumb(fileGif({ sha256: SHA_B }), s))
+    const key2 = s.calls.register[1].key
+    await act(async () => s.band(key2, 'visible'))
+    await act(async () => s.info(key2, infoPending('g1', 2000)))
+    assert.equal(box().getAttribute('data-info'), 'pending')
+    assert.ok(box().textContent.includes(t('mediaPending')))
+    await act(async () => s.info(key2, { id: 'g1', status: 'GENERATION_FAILED', reason: 'DECODE_FAILED', poster: { state: 'GENERATION_FAILED' }, motion: { state: 'GENERATION_FAILED' } }))
+    assert.equal(box().getAttribute('data-info'), 'failed'); assert.equal(box().getAttribute('data-poster'), 'icon')
+    assert.equal(document.querySelector('img'), null)
+  } finally { await m.unmount() }
+})
+
+test('UH-7 vault items and folders never register media work and keep the icon', async () => {
+  const m = await mountRoot(); const s = stubScheduler()
+  try {
+    await m.render(thumb(fileGif({ vault: true }), s))
+    assert.equal(s.calls.register.length, 0)
+    assert.equal(box().getAttribute('data-thumb'), 'icon')
+    await m.render(thumb(fileGif({ kind: 'folder', ext: '', name: 'dir' }), s))
+    assert.equal(s.calls.register.length, 0)
+  } finally { await m.unmount() }
 })

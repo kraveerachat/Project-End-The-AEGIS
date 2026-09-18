@@ -12,13 +12,16 @@ export const TILE_DATA_VOCAB = Object.freeze({
   info: Object.freeze(['unknown', 'loading', 'ready', 'pending', 'unsupported', 'failed']),
 })
 const VIDEO_FAMILIES = new Set(['mp4', 'webm', 'mov', 'mkv'])
+export const PENDING_POLL_CAP_MS = 15_000
+export const PENDING_MAX_MS = 120_000
 const ANIMATED_ONLY_FAMILIES = new Set(['gif'])
 
 /** @param {{ contentId: string|null, family: string|null }} o */
 export function initialTileState({ contentId = null, family = null, band = 'off', hover = false, reducedMotion = false } = {}) {
   return Object.freeze({
     contentId, family: family ? String(family).toLowerCase() : null,
-    info: 'unknown', reason: null, nextInfoAt: null, animated: null,
+    // ไม่มีตัวตนของเนื้อหา (Vault/โฟลเดอร์/ชนิดที่ไม่ preview/ไม่มี sha) = ไม่รองรับตั้งแต่ต้น ไม่ต้องถามเซิร์ฟเวอร์
+    info: contentId ? 'unknown' : 'unsupported', reason: contentId ? null : 'NO_CONTENT_IDENTITY', nextInfoAt: null, animated: null, pollCount: 0, pendingSince: null, tick: 0,
     poster: 'none', posterSrc: null,
     motion: 'none', motionSrc: null, motionAvailability: 'unknown', // unknown | pending | available | unsupported | failed
     hover, band, reducedMotion,
@@ -54,8 +57,11 @@ function applyInfo(s, info, now) {
     case 'PARTIAL': patch.info = 'ready'; patch.nextInfoAt = null; break
     case 'PENDING':
     case 'RETRYABLE': {
-      const wait = Number.isFinite(info.retryAfterMs) && info.retryAfterMs > 0 ? info.retryAfterMs : (Number.isFinite(info.poster?.retryAfterMs) ? info.poster.retryAfterMs : 2000)
-      patch.info = 'pending'; patch.nextInfoAt = at + wait
+      // ขอบเขตการ poll: เชื่อ retryAfterMs ของเซิร์ฟเวอร์ แต่ไม่ต่ำกว่า backoff ทวีคูณ (1 s → 15 s) และหยุดหลัง PENDING_MAX_MS (ดู wantsInfo)
+      const hint = Number.isFinite(info.retryAfterMs) && info.retryAfterMs > 0 ? info.retryAfterMs : (Number.isFinite(info.poster?.retryAfterMs) ? info.poster.retryAfterMs : 2000)
+      const pollCount = s.info === 'pending' ? s.pollCount + 1 : 0
+      const wait = Math.max(hint, Math.min(PENDING_POLL_CAP_MS, 1000 * 2 ** pollCount))
+      patch.info = 'pending'; patch.nextInfoAt = at + wait; patch.pollCount = pollCount; patch.pendingSince = s.info === 'pending' && s.pendingSince != null ? s.pendingSince : at
       break
     }
     case 'UNSUPPORTED': patch.info = 'unsupported'; patch.nextInfoAt = null; patch.motionAvailability = 'unsupported'; break
@@ -77,7 +83,13 @@ export function tileReducer(s, e) {
     }
     case 'VISIBILITY': return s.band === e.band ? s : next(s, { band: e.band })
     case 'REDUCED_MOTION': return s.reducedMotion === Boolean(e.value) ? s : next(s, { reducedMotion: Boolean(e.value) })
-    case 'HOVER_ENTER': return s.hover ? s : next(s, { hover: true })
+    case 'HOVER_ENTER': {
+      // ชี้ที่ไทล์ที่หยุด poll ไปแล้ว = เริ่มรอบใหม่ "หนึ่งครั้ง" (ไม่ใช่ปลดขอบเขต)
+      const stalled = s.info === 'pending' && s.pendingSince != null && Number.isFinite(e.now) && e.now - s.pendingSince >= PENDING_MAX_MS
+      if (stalled) return next(s, { hover: true, pendingSince: e.now, pollCount: 0, nextInfoAt: e.now })
+      return s.hover ? s : next(s, { hover: true })
+    }
+    case 'INFO_TICK': return s.info === 'pending' ? next(s, { tick: e.now ?? s.tick + 1 }) : s
     case 'HOVER_LEAVE': return s.hover ? next(s, { hover: false }) : s
     case 'INFO_REQUESTED': return next(s, { info: 'loading' })
     case 'INFO_LOADED': return applyInfo(s, e.info, e.now)
@@ -102,7 +114,10 @@ export const selectors = Object.freeze({
   wantsInfo: (s, now = 0) => {
     if (!s.contentId || !bandOn(s)) return false
     if (s.info === 'unknown') return true
-    if (s.info === 'pending') return s.nextInfoAt != null && now >= s.nextInfoAt
+    if (s.info === 'pending') {
+      if (s.pendingSince != null && now - s.pendingSince >= PENDING_MAX_MS) return false // หยุดหลังเพดาน — hover ปลุกได้หนึ่งรอบ
+      return s.nextInfoAt != null && now >= s.nextInfoAt
+    }
     return false
   },
   wantsMotionPrefetch: (s) => Boolean(motionPossible(s) && s.motion === 'none' && (bandOn(s) || s.hover)),
