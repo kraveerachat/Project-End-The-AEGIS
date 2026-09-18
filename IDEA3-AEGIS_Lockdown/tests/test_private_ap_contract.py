@@ -8,11 +8,21 @@ SYSCTL = ROOT / "deploy/network/aegis-idea3-sysctl.conf.example"
 FIREWALL = ROOT / "deploy/network/aegis-idea3-nftables.conf.example"
 
 
-def test_ntp_is_ap_bound_without_public_or_recursive_sources():
+def test_ntp_is_ap_bound_with_deferred_trusted_upstream():
     text = NTP.read_text(encoding="utf-8")
-    assert "bindaddress <AEGIS_AP_ADDRESS>" in text
-    assert "allow <AEGIS_AP_SUBNET>" in text
-    assert "pool " not in text and "server " not in text
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+    assert "bindaddress <AEGIS_AP_ADDRESS>" in lines
+    assert "allow <AEGIS_AP_SUBNET>" in lines
+
+    server_lines = [line for line in lines if line.startswith("server ")]
+    assert server_lines == ["server <AEGIS_TRUSTED_NTP_UPSTREAM> iburst"]
+    assert not any(line.startswith("pool ") for line in lines)
+
     assert "0.0.0.0" not in text and "::" not in text
 
 

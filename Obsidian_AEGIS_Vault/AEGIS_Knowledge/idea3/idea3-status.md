@@ -5301,7 +5301,7 @@ The single immutable T5 final receipt is recorded in the Phase 4 status log.
 Task                         = IDEA3 PR11 Phase 4 T6 / G-05 local trusted NTP
 Branch                       = feat/idea3-pr11-phase4-t6-local-ntp
 STARTING_SHA                 = 1867a1bf633a5486e0382a949c95b87217ac7270
-Current state                = IN PROGRESS — S1 design / implementation planning
+Current state                = IN PROGRESS — S2 TDD repository implementation
 
 OD-06                        = DECIDED BY OWNER
 NTP_SERVER_IMPLEMENTATION    = chrony
@@ -5334,8 +5334,8 @@ PHASE4_LIVE_READINESS        = NOT READY
 
 | Session | Purpose | State | Git checkpoint | Evidence |
 |---|---|---|---|---|
-| T6-S1 | Design + implementation plan | IN PROGRESS | — | owner-approved design; source inspection complete |
-| T6-S2 | TDD repository implementation | NOT STARTED | — | — |
+| T6-S1 | Design + implementation plan | COMPLETE / PASS | ba8b67a0 | design + plan committed; vault PASS with 2 warnings; collaboration policy PASS |
+| T6-S2 | TDD repository implementation | IN PROGRESS | — | RED tests next |
 | T6-S3 | Regression / security acceptance | NOT STARTED | — | — |
 | T6-S4 | Final closeout / receipt / PR handoff | NOT STARTED | — | — |
 
