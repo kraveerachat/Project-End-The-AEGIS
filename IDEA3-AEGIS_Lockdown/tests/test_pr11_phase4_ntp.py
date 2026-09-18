@@ -274,3 +274,97 @@ def test_renderer_contains_no_host_mutation_commands():
     for token in forbidden:
         assert token not in text
 
+def mutate_rendered_config(
+    tmp_path: Path,
+    old: str,
+    new: str,
+):
+    render_result, output_dir = run_render(tmp_path)
+    assert render_result.returncode == 0, render_result.stderr
+
+    config = output_dir / "aegis-idea3-chrony.conf"
+    text = config.read_text(encoding="utf-8")
+
+    if old not in text:
+        raise AssertionError(f"expected config text missing: {old!r}")
+
+    config.write_text(
+        text.replace(old, new, 1),
+        encoding="utf-8",
+    )
+
+    return run_validate(output_dir)
+
+
+def test_contract_declares_trustedclock_handoff_invariants(tmp_path):
+    result, output_dir = run_render(tmp_path)
+    assert result.returncode == 0, result.stderr
+
+    lines = set(
+        (
+            output_dir / "aegis-idea3-t6-contract.txt"
+        ).read_text(encoding="utf-8").splitlines()
+    )
+
+    required = {
+        "TRUSTEDCLOCK_PRE_HANDOFF=SYNCED",
+        "TRUSTEDCLOCK_POST_HANDOFF=SYNCED",
+        "TRUSTEDCLOCK_MAX_ERROR_US=1000000",
+        "TRUSTEDCLOCK_HOLDOVER_SEC=300",
+        "TRUSTEDCLOCK_FINAL_HOLDOVER_PASS=NO",
+        "ROLLBACK_TIME_OWNER=systemd-timesyncd",
+    }
+
+    assert required <= lines
+
+
+def test_validate_rejects_local_clock_fallback(tmp_path):
+    result = mutate_rendered_config(
+        tmp_path,
+        "allow 192.0.2.0/28",
+        "allow 192.0.2.0/28\nlocal stratum 10",
+    )
+
+    assert_clean_cli_rejection(result)
+
+
+def test_validate_rejects_allow_all(tmp_path):
+    result = mutate_rendered_config(
+        tmp_path,
+        "allow 192.0.2.0/28",
+        "allow all",
+    )
+
+    assert_clean_cli_rejection(result)
+
+
+def test_validate_rejects_wildcard_bind(tmp_path):
+    result = mutate_rendered_config(
+        tmp_path,
+        "bindaddress 192.0.2.1",
+        "bindaddress 0.0.0.0",
+    )
+
+    assert_clean_cli_rejection(result)
+
+
+def test_validate_rejects_additional_upstream(tmp_path):
+    result = mutate_rendered_config(
+        tmp_path,
+        "server time.example.invalid iburst",
+        "server time.example.invalid iburst\n"
+        "server backup.example.invalid iburst",
+    )
+
+    assert_clean_cli_rejection(result)
+
+
+def test_validate_rejects_wrong_allow_subnet(tmp_path):
+    result = mutate_rendered_config(
+        tmp_path,
+        "allow 192.0.2.0/28",
+        "allow 192.0.2.0/24",
+    )
+
+    assert_clean_cli_rejection(result)
+

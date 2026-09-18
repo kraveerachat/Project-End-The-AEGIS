@@ -148,6 +148,12 @@ def _render(
         "NTP_SERVER_LIVE=NO\n"
         "TIMESYNCD_HANDOFF_LIVE=NO\n"
         "L5=NOT_RUN\n"
+        "TRUSTEDCLOCK_PRE_HANDOFF=SYNCED\n"
+        "TRUSTEDCLOCK_POST_HANDOFF=SYNCED\n"
+        "TRUSTEDCLOCK_MAX_ERROR_US=1000000\n"
+        "TRUSTEDCLOCK_HOLDOVER_SEC=300\n"
+        "TRUSTEDCLOCK_FINAL_HOLDOVER_PASS=NO\n"
+        "ROLLBACK_TIME_OWNER=systemd-timesyncd\n"
         f"AP_ADDRESS={address}\n"
         f"AP_SUBNET={network}\n"
         f"TRUSTED_UPSTREAM={upstream}\n"
@@ -158,6 +164,31 @@ def _render(
     )
 
     return 0
+
+
+
+def _parse_contract(
+    parser: argparse.ArgumentParser,
+    contract: str,
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+
+    for raw_line in contract.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        key, separator, value = line.partition("=")
+
+        if not separator or not key or not value:
+            parser.error("T6 contract contains a malformed line")
+
+        if key in values:
+            parser.error(f"T6 contract contains duplicate key: {key}")
+
+        values[key] = value
+
+    return values
 
 
 
@@ -179,22 +210,73 @@ def _validate(
     config = config_path.read_text(encoding="utf-8")
     contract = contract_path.read_text(encoding="utf-8")
 
-    if "<AEGIS_" in config:
-        parser.error("configuration contains unresolved placeholders")
+    if "<AEGIS_" in config or "<AEGIS_" in contract:
+        parser.error("T6 artifacts contain unresolved placeholders")
 
-    required_contract = {
-        "T6_REPOSITORY_RENDER=YES",
-        "PRODUCTION_MUTATION=NO",
-        "NTP_SERVER_LIVE=NO",
-        "TIMESYNCD_HANDOFF_LIVE=NO",
-        "L5=NOT_RUN",
+    values = _parse_contract(parser, contract)
+
+    fixed_contract = {
+        "T6_REPOSITORY_RENDER": "YES",
+        "PRODUCTION_MUTATION": "NO",
+        "NTP_SERVER_LIVE": "NO",
+        "TIMESYNCD_HANDOFF_LIVE": "NO",
+        "L5": "NOT_RUN",
+        "TRUSTEDCLOCK_PRE_HANDOFF": "SYNCED",
+        "TRUSTEDCLOCK_POST_HANDOFF": "SYNCED",
+        "TRUSTEDCLOCK_MAX_ERROR_US": "1000000",
+        "TRUSTEDCLOCK_HOLDOVER_SEC": "300",
+        "TRUSTEDCLOCK_FINAL_HOLDOVER_PASS": "NO",
+        "ROLLBACK_TIME_OWNER": "systemd-timesyncd",
     }
 
-    if not required_contract <= set(contract.splitlines()):
-        parser.error("T6 contract is missing required repository/live-state fields")
+    for key, expected in fixed_contract.items():
+        if values.get(key) != expected:
+            parser.error(
+                f"T6 contract field {key} must equal {expected}"
+            )
+
+    required_dynamic = {
+        "AP_ADDRESS",
+        "AP_SUBNET",
+        "TRUSTED_UPSTREAM",
+    }
+
+    missing = sorted(required_dynamic - values.keys())
+    if missing:
+        parser.error(
+            "T6 contract is missing required fields: "
+            + ", ".join(missing)
+        )
+
+    address, network = _validated_ap(
+        parser,
+        values["AP_ADDRESS"],
+        values["AP_SUBNET"],
+    )
+    upstream = _validated_upstream(
+        parser,
+        values["TRUSTED_UPSTREAM"],
+    )
+
+    active_lines = [
+        line.strip()
+        for line in config.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+    expected_lines = [
+        f"server {upstream} iburst",
+        f"bindaddress {address}",
+        f"allow {network}",
+    ]
+
+    if active_lines != expected_lines:
+        parser.error(
+            "chrony configuration directives do not exactly match "
+            "the T6 AP-only contract"
+        )
 
     return 0
-
 
 
 def main() -> int:
