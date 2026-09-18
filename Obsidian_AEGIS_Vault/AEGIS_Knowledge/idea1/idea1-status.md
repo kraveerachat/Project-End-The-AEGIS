@@ -18,7 +18,7 @@ edit_policy: owner-writable
 ## Future Draft Task — PC-NETWORK-DRIVE-1
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `feat/idea1-pc-network-drive`; PR: pending separate Draft publication.
+- Branch: `feat/idea1-pc-network-drive`; PR: **#154 OPEN / Draft** (separate from PR #150).
 - State: **PLANNED / BLOCKED for implementation**; started: 2026-09-18.
 - Starting checkpoint: current `origin/main` at `a68e18927ec4288c6a1cc1761cc167546b7d31b9`.
 - Goal: draft architecture for separate per-user **My Files / On Your PC / Private Vault** locations and privately accessed Windows SMB mapping; not an ordinary My Files folder.
@@ -32,7 +32,9 @@ edit_policy: owner-writable
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PCND-S1 | Architecture research and future Draft reservation only | IN PROGRESS | Source reviewed against starting main; PR #150 metadata verified | Starting main above; publication checkpoint pending | PLANNED | Validate and publish Draft; owner architecture review; implementation gates | Human architecture review after PR #150; no implementation |
+| PCND-S1 | Architecture research and future Draft reservation only | PASS | Two Markdown paths only; 24-section design and PCND-1–15; vault validation PASS with 2 existing canvas warnings; collaboration tests 24/24 PASS; Draft policy, diff and targeted secret-pattern checks PASS; Draft #154 published; initial checkpoint CI PASS | `8bf167b3cbd3109b5f0eec892650962f06cb8e6e` (design/evidence checkpoint); this register update is a separate documentation checkpoint | Initial planning/publication boundary PASS only; architecture not accepted | Exact-head verification of documentation checkpoint; owner architecture review; all implementation gates | Human architecture review after PR #150; no implementation |
+
+- Verification commands: `node scripts/validate-vault.mjs` (PASS; 2 pre-existing owner-data canvas warnings), `node --test tests/collaborationPolicy.test.mjs` (24 passed, 0 failed, 0 skipped), `git diff --check` and `git diff --cached --check` (PASS), and `node scripts/validate-collaboration-policy.mjs --event <temporary Draft event> --changed-files <temporary exact changed-path list>` (PASS). Targeted Context Mode structure/scope/credential-pattern checks passed; the secret scan is not exhaustive. No SMB, Windows, application build or Production acceptance was run.
 
 - Final receipt: **pending task closeout**, not created for this planning session. Wider Obsidian architecture/MOC reconciliation remains **DOCS_DEBT** after owner acceptance.
 
