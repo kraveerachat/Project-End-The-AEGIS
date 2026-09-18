@@ -5233,6 +5233,66 @@ integration review of the PR5 evidence boundary.
 
 ---
 
+## IDEA3 PR11 Phase 4 T5 AP network — repository implementation — 2026-09-18
+
+> [!important] Repository-only T5 implementation; final acceptance pending.
+> Historical Phase 4 prerequisite text remains unchanged.
+
+```text
+Task                            = IDEA3 PR11 Phase 4 T5 AP network
+Branch                          = feat/idea3-pr11-phase4-t5-ap-network
+BASE_SHA                        = a68e18927ec4288c6a1cc1761cc167546b7d31b9
+CURRENT_IMPLEMENTATION_HEAD     = d8ada5fdfb97771b35f6b5f13bbffa2173a76831
+
+T5_REPOSITORY_IMPLEMENTED       = YES
+T5_REPOSITORY_CLOSEOUT          = COMPLETE / ACCEPTANCE PASS
+
+G01_AP_ARTIFACT                 = REPOSITORY IMPLEMENTED
+G02_AP_ADDRESSING               = REPOSITORY IMPLEMENTED
+G03_REGULATORY_CHANNEL_CONTRACT = REPOSITORY IMPLEMENTED
+G04_DHCP_CORE_LOCAL_DNS         = REPOSITORY IMPLEMENTED
+G06_FIREWALL_PERSISTENCE        = REPOSITORY IMPLEMENTED
+
+PF01_PLAINTEXT_MQTT_1883        = PASS — repository regression proof
+PF02_DNSMASQ_ISOLATION          = PASS — isolated namespace proof
+
+PRODUCTION_MUTATION             = NO
+NETWORK_MUTATION                = NO
+AP_CREATED                      = NO
+ESP32_FLASH                     = NO
+ESP32_NVS_WRITE                 = NO
+
+PHASE4_RUNTIME_COMPLETE         = NO
+PHASE4_LIVE_READINESS           = NOT READY
+L2                              = NOT RUN
+L3                              = NOT RUN
+L4                              = NOT RUN
+```
+
+Implementation checkpoints:
+
+- `c22d427d` — T5 AP/network design.
+- `356a9978` — implementation plan.
+- `bb8b9125` — AP-network renderer.
+- `c6c7baf3` — NetworkManager AP contract.
+- `a2a95760` — DHCP and Core-local DNS contract.
+- `4bdbc573` — firewall/persistence contract.
+- `8008b07f` — PF-01 plaintext MQTT denial proof.
+- `b26f5d05` — PF-02 isolated dnsmasq namespace proof.
+- `d8ada5fd` — legacy AP forwarding regression reconciled with the AP-scoped dedicated-table contract.
+
+PF-01 is repository-only evidence; nftables was not loaded on the Core.
+
+PF-02 used only synthetic namespace interfaces and recorded AP-side service
+evidence, uplink-side NO_REPLY, no real-interface use, cleanup PASS, and
+`PF02_RESULT=PASS`.
+
+This does not prove a live AP, real ESP32 association, live DHCP/DNS, live
+firewall state, or L2/L3/L4 runtime completion.
+
+The single immutable T5 final receipt is recorded in the Phase 4 status log.
+`T5_REPOSITORY_IMPLEMENTED = YES`; L2/L3/L4 remain separate live gates.
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
