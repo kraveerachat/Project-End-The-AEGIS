@@ -52,11 +52,11 @@ export function useOwnedMediaRuntime() {
 const thumbVariant = (state, hasPoster, hasVideo, playing) => (playing && hasVideo ? 'motion' : hasPoster && state.poster === 'shown' ? 'poster' : 'icon')
 
 /**
- * @param {{ t: Function, file: object, Icon: Function, iconProps?: object, className?: string, badge?: boolean }} props
+ * @param {{ t: Function, file: object, Icon: Function, iconProps?: object, className?: string, badge?: boolean, hover?: boolean|null }} props
  */
-export function MediaThumb({ t, file, Icon, iconProps = {}, className = '', badge = true, children }) {
+export function MediaThumb({ t, file, Icon, iconProps = {}, className = '', badge = true, hover = null, children }) {
   const { scheduler } = useMediaRuntime()
-  const tile = useMediaTile({ file, scheduler })
+  const tile = useMediaTile({ file, scheduler, hover })
   const { state, attrs, containerProps, posterProps, videoProps, shouldPlay, badgeKey } = tile
   const showBadge = badge && badgeKey && state.poster !== 'shown'
   const pending = state.info === 'pending' || state.info === 'loading'

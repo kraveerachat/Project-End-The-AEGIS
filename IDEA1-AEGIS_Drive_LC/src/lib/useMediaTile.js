@@ -14,9 +14,10 @@ const now = () => Date.now()
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r }); return { promise, resolve } }
 
 /**
- * @param {{ file: object, scheduler: object|null, client?: object|null }} o
+ * @param {{ file: object, scheduler: object|null, hover?: boolean|null }} o — hover: พื้นผิว hover ของการ์ดแม่ (ถ้าให้มา
+ *        ไทล์จะไม่ใช้ mouse handler ของตัวเอง; การชี้ที่ใดก็ได้บนการ์ด = ชี้ที่สื่อ เหมือน Round 9)
  */
-export function useMediaTile({ file, scheduler }) {
+export function useMediaTile({ file, scheduler, hover = null }) {
   const previewKind = file && !file.vault && file.kind !== 'folder' ? previewKindFor(file) : null
   const contentId = previewKind && typeof file?.sha256 === 'string' && file.sha256 ? file.sha256 : null
   const family = file?.ext ? String(file.ext).toLowerCase() : null
@@ -33,6 +34,11 @@ export function useMediaTile({ file, scheduler }) {
   // ตัวตนของเนื้อหาเปลี่ยน (แทนที่/กู้เวอร์ชัน) = reset; เปลี่ยนชื่อ = no-op ใน reducer
   useEffect(() => { dispatch({ type: 'CONTENT_CHANGED', contentId, family }) }, [contentId, family])
   useEffect(() => { dispatch({ type: 'REDUCED_MOTION', value: reducedMotion }); scheduler?.setMeta?.(key, { reducedMotion }) }, [reducedMotion, key, scheduler])
+  // hover จากการ์ดแม่ (controlled) — เปลี่ยนค่า = เหตุการณ์ enter/leave
+  useEffect(() => {
+    if (hover === null || hover === undefined) return
+    dispatch(hover ? { type: 'HOVER_ENTER', now: now() } : { type: 'HOVER_LEAVE' })
+  }, [hover])
 
   // ลงทะเบียนกับ scheduler ต่อ key (id + sha) — callback ต่อไทล์: แถบ / ผล info / เริ่มโหลด poster / เริ่มโหลด motion
   useEffect(() => {
@@ -112,11 +118,10 @@ export function useMediaTile({ file, scheduler }) {
   }, [shouldPlay])
 
   const motionSrc = motionGo === contentId ? selectors.motionSrc(state) : null
-  const containerProps = useMemo(() => ({
-    ref: elRef,
-    onMouseEnter: () => dispatch({ type: 'HOVER_ENTER', now: now() }),
-    onMouseLeave: () => dispatch({ type: 'HOVER_LEAVE' }),
-  }), [])
+  const controlled = hover !== null && hover !== undefined
+  const containerProps = useMemo(() => (controlled
+    ? { ref: elRef }
+    : { ref: elRef, onMouseEnter: () => dispatch({ type: 'HOVER_ENTER', now: now() }), onMouseLeave: () => dispatch({ type: 'HOVER_LEAVE' }) }), [controlled])
   const posterProps = posterSrc && posterGo === contentId && state.poster !== 'none'
     ? {
         src: posterSrc, alt: '', decoding: 'async', draggable: false,

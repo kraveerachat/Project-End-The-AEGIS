@@ -16,7 +16,7 @@ import { LANGS, STRINGS, makeT } from '../src/lib/strings.js'
 const t = makeT('en')
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-let vite, mediaApi, mediaTile, mediaThumb
+let vite, mediaApi, mediaTile, mediaThumb, filesScreen
 before(async () => {
   vite = await createServer({
     configFile: false, root: rootDir, appType: 'custom', logLevel: 'silent',
@@ -25,6 +25,7 @@ before(async () => {
   mediaApi = await vite.ssrLoadModule('/src/lib/mediaApi.js')
   mediaTile = await vite.ssrLoadModule('/src/lib/mediaTile.js')
   mediaThumb = await vite.ssrLoadModule('/src/components/MediaThumb.jsx')
+  filesScreen = await vite.ssrLoadModule('/src/screens/Files.jsx')
 })
 after(async () => { await vite?.close() })
 
@@ -636,4 +637,336 @@ test('UH-7 vault items and folders never register media work and keep the icon',
     await m.render(thumb(fileGif({ kind: 'folder', ext: '', name: 'dir' }), s))
     assert.equal(s.calls.register.length, 0)
   } finally { await m.unmount() }
+})
+
+/* ════════════════════════════════════════════════════════════════════════════
+   GI · Files screen integration (B4/B5) — real FilesSections + fetch log + fake IntersectionObserver
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const NOW = 1_800_000_000_000
+const fileItem = (over = {}) => ({ id: 'f1', name: 'report.pdf', kind: 'file', type: 'PDF', ext: 'pdf', size: 1024, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, parentId: null, sha256: SHA_A, ...over })
+const folderItem = (over = {}) => ({ id: 'd1', name: '01', kind: 'folder', type: 'Folder', ext: '', size: 0, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, parentId: null, ...over })
+const png = (over = {}) => fileItem({ id: 'p1', name: 'photo.png', type: 'Image', ext: 'png', ...over })
+const gifItem = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', ...over })
+const mp4 = (over = {}) => fileItem({ id: 'v1', name: 'clip.mp4', type: 'Video', ext: 'mp4', ...over })
+const txt = (over = {}) => fileItem({ id: 'x1', name: 'notes.txt', type: 'Text', ext: 'txt', ...over })
+const noop = () => {}
+
+/** fake IntersectionObserver ที่เทสต์ขับเอง + fetch log สำหรับ apiFetch */
+function installGrid({ reducedMotion = false, info } = {}) {
+  const env = installDom({ reducedMotion })
+  const W = env.W
+  const instances = []
+  class FakeIO {
+    constructor(cb, opts = {}) { this.cb = cb; this.rootMargin = opts.rootMargin ?? '0px'; this.els = new Set(); instances.push(this) }
+    observe(el) { this.els.add(el) }
+    unobserve(el) { this.els.delete(el) }
+    disconnect() { this.els.clear() }
+  }
+  const prevIO = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
+  Object.defineProperty(globalThis, 'IntersectionObserver', { configurable: true, writable: true, value: FakeIO })
+  W.IntersectionObserver = FakeIO
+  const fire = (rootMargin, el, on) => { for (const io of instances) if (io.rootMargin === rootMargin && io.els.has(el)) io.cb([{ target: el, isIntersecting: on }]) }
+  const NEAR = '50% 0px 50% 0px'
+  const enter = (el, band) => { if (band === 'visible') { fire(NEAR, el, true); fire('0px', el, true) } else if (band === 'near') { fire('0px', el, false); fire(NEAR, el, true) } else { fire('0px', el, false); fire(NEAR, el, false) } }
+  const fetched = []
+  const prevFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch')
+  const infoFor = info ?? ((id) => infoReady(id, { animated: false }))
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: async (url, opts = {}) => {
+    const u = String(url)
+    fetched.push({ url: u, method: opts.method ?? 'GET' })
+    if (u.endsWith('/api/files/media-info/batch')) {
+      const ids = JSON.parse(opts.body).ids
+      const items = {}
+      for (const id of ids) items[id] = infoFor(id)
+      return { ok: true, status: 200, json: async () => ({ items }), headers: new Map() }
+    }
+    return { ok: true, status: 200, json: async () => ({}), headers: new Map() }
+  } })
+  const restore = () => {
+    if (prevIO === undefined) delete globalThis.IntersectionObserver; else Object.defineProperty(globalThis, 'IntersectionObserver', prevIO)
+    if (prevFetch === undefined) delete globalThis.fetch; else Object.defineProperty(globalThis, 'fetch', prevFetch)
+    env.restore()
+  }
+  return { env, W, media: env.media, enter, fetched, instances, restore }
+}
+
+async function mountGrid(opts) {
+  const g = installGrid(opts)
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.getElementById('root'))
+  const render = (el) => act(async () => { root.render(el); await flush() })
+  const mouse = (node, type) => act(async () => {
+    const pre = type === 'mouseenter' ? 'mouseover' : type === 'mouseleave' ? 'mouseout' : null
+    if (pre) node.dispatchEvent(new g.W.MouseEvent(pre, { bubbles: true, cancelable: true }))
+    node.dispatchEvent(new g.W.MouseEvent(type, { bubbles: true, cancelable: true }))
+  })
+  const fire = (node, type) => act(async () => { node.dispatchEvent(new g.W.Event(type, { bubbles: false })) })
+  const enter = (el, band) => act(async () => { g.enter(el, band); await flush(); await flush() })
+  /** หลายไทล์เข้าจอพร้อมกันใน callback เดียว — เหมือน IntersectionObserver จริง */
+  const enterAll = (els, band) => act(async () => { for (const el of els) g.enter(el, band); await flush(); await flush() })
+  let mounted = true
+  return { ...g, root, render, mouse, fire, enter, enterAll, unmount: async () => { if (!mounted) return; mounted = false; await act(async () => root.unmount()); g.restore() } }
+}
+const sections = ({ folders = [], files: plain = [], selectedIds = new Set(), onSelectionChange = noop, onOpen = noop, ...rest } = {}) => React.createElement(filesScreen.FilesSections, {
+  t, now: NOW, view: 'grid', folders, files: plain, selectedIds, draggingIds: [], onSelect: noop, onOpen, onMenuAction: noop,
+  onDragStartItem: noop, onDropItems: noop, tileRef: () => noop, onSelectionChange, ...rest,
+})
+const tileOf = (id) => document.querySelector(`[data-file-id="${id}"]`)
+const thumbOf = (id) => tileOf(id).querySelector('[data-media-thumb]')
+const previewRequests = (g) => g.fetched.filter((f) => f.url.includes('/preview'))
+const domOriginalSrcs = () => [...document.querySelectorAll('img[src], video[src], source[src]')].map((e) => e.getAttribute('src')).filter((s) => s.includes('/preview'))
+
+test('GI-STATIC-1/2 cold png: icon first, nothing fetched off-screen; visible → one media-info batch → poster derivative <img>; no /preview request or src anywhere', async () => {
+  const g = await mountGrid()
+  try {
+    await g.render(sections({ files: [png()] }))
+    const th = thumbOf('p1')
+    assert.equal(th.getAttribute('data-poster'), 'icon')
+    assert.equal(g.fetched.length, 0, 'off-screen: no request at all')
+    await g.enter(th, 'visible')
+    const batches = g.fetched.filter((f) => f.url.endsWith('/api/files/media-info/batch'))
+    assert.equal(batches.length, 1); assert.equal(batches[0].method, 'POST')
+    const img = th.querySelector('img')
+    assert.ok(img, 'poster img mounted from the batch answer')
+    assert.equal(img.getAttribute('src'), `/api/files/p1/poster?v=${SHA_A}&p=v1`)
+    await g.fire(img, 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown'); assert.equal(th.getAttribute('data-thumb'), 'poster')
+    assert.equal(th.querySelector('video'), null, 'still image never mounts a video')
+    assert.deepEqual(previewRequests(g), []); assert.deepEqual(domOriginalSrcs(), [])
+  } finally { await g.unmount() }
+})
+
+test('GI-ANIM-1/2/3 gif: idle poster is static; video mounts only after visible + motion READY; first hover before canplaythrough auto-plays when ready; leave → static poster immediately', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1')
+    assert.equal(th.querySelector('video'), null)
+    await g.enter(th, 'visible')
+    const img = th.querySelector('img'); assert.ok(img)
+    await g.fire(img, 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    const v = th.querySelector('video')
+    assert.ok(v, 'visible animated tile prefetches its motion proxy')
+    assert.equal(v.getAttribute('src'), `/api/files/g1/motion-preview?v=${SHA_A}&p=v1`)
+    assert.equal(v.getAttribute('preload'), 'auto'); assert.equal(v.muted, true); assert.equal(v.hasAttribute('loop'), true); assert.equal(v.hasAttribute('playsinline'), true)
+    assert.equal(v.style.opacity, '0')
+    assert.equal(th.getAttribute('data-thumb'), 'poster')
+    // first hover while not ready
+    await g.mouse(tileOf('g1'), 'mouseenter')
+    assert.deepEqual(g.media.calls, [])
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    await g.fire(v, 'canplaythrough')
+    assert.deepEqual(g.media.calls, ['play'], 'auto-start when ready, no re-enter')
+    assert.equal(th.getAttribute('data-motion'), 'playing'); assert.equal(th.getAttribute('data-thumb'), 'motion'); assert.equal(v.style.opacity, '1')
+    const imgBefore = th.querySelector('img')
+    v.currentTime = 1.2
+    await g.mouse(tileOf('g1'), 'mouseleave')
+    assert.deepEqual(g.media.calls, ['play', 'pause']); assert.equal(v.currentTime, 0)
+    assert.equal(v.style.opacity, '0'); assert.equal(th.getAttribute('data-thumb'), 'poster')
+    assert.equal(th.querySelector('img'), imgBefore, 'same poster element — never remounted')
+    assert.deepEqual(previewRequests(g), []); assert.deepEqual(domOriginalSrcs(), [])
+  } finally { await g.unmount() }
+})
+
+test('GI-VIDEO-1 mp4: idle uses the poster derivative, hover uses the motion proxy, the original video is never referenced by the tile; GI-PREVIEW-1 the Preview dialog still uses /api/files/:id/preview', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'mp4' }) })
+  try {
+    await g.render(sections({ files: [mp4()] }))
+    const th = thumbOf('v1')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    const v = th.querySelector('video')
+    assert.equal(v.getAttribute('src'), `/api/files/v1/motion-preview?v=${SHA_A}&p=v1`)
+    assert.ok(th.textContent.includes(t('badgeVideo')) || th.getAttribute('data-poster') === 'shown')
+    await g.fire(v, 'canplaythrough')
+    await g.mouse(tileOf('v1'), 'mouseenter')
+    assert.deepEqual(g.media.calls, ['play'])
+    assert.deepEqual(previewRequests(g), []); assert.deepEqual(domOriginalSrcs(), [])
+    // Preview dialog = original bytes by design (explicit user action)
+    await g.render(React.createElement(filesScreen.FilePreviewModal, { t, file: mp4(), onClose: noop, onDownload: noop }))
+    const dialogVideo = document.querySelector('[role="dialog"] video')
+    assert.ok(dialogVideo); assert.equal(dialogVideo.getAttribute('src'), '/api/files/v1/preview')
+    assert.equal(dialogVideo.hasAttribute('controls'), true)
+  } finally { await g.unmount() }
+})
+
+test('GI-UNSUPPORTED .txt: icon, data-info unsupported locally, no media-info request; server UNSUPPORTED_TYPE for a previewable extension is remembered (no polling)', async () => {
+  const g = await mountGrid({ info: (id) => ({ id, status: 'UNSUPPORTED', reason: 'UNSUPPORTED_TYPE', poster: { state: 'UNSUPPORTED' }, motion: { state: 'UNSUPPORTED' } }) })
+  try {
+    await g.render(sections({ files: [txt(), png({ id: 'p2', name: 'odd.png', sha256: SHA_B })] }))
+    const tx = thumbOf('x1')
+    await g.enter(tx, 'visible')
+    assert.equal(tx.getAttribute('data-info'), 'unsupported'); assert.equal(tx.getAttribute('data-thumb'), 'icon')
+    assert.equal(g.fetched.length, 0, 'non-previewable never asks the server')
+    const p2 = thumbOf('p2')
+    await g.enter(p2, 'visible')
+    assert.equal(g.fetched.length, 1)
+    assert.equal(p2.getAttribute('data-info'), 'unsupported'); assert.equal(p2.getAttribute('data-thumb'), 'icon')
+    await g.enter(p2, 'off'); await g.enter(p2, 'visible')
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    assert.equal(g.fetched.length, 1, 'no re-request after UNSUPPORTED')
+    assert.equal(p2.querySelector('img'), null)
+  } finally { await g.unmount() }
+})
+
+test('GI-PENDING-BACKOFF pending → bounded re-polls (server retryAfterMs, doubling), never a storm; GENERATION_FAILED → icon, no more polling', async () => {
+  let mode = 'pending'
+  const g = await mountGrid({ info: (id) => (mode === 'pending' ? infoPending(id, 20) : { id, status: 'GENERATION_FAILED', reason: 'DECODE_FAILED', poster: { state: 'GENERATION_FAILED' }, motion: { state: 'GENERATION_FAILED' } }) })
+  try {
+    await g.render(sections({ files: [png()] }))
+    const th = thumbOf('p1')
+    await g.enter(th, 'visible')
+    assert.equal(th.getAttribute('data-info'), 'pending')
+    assert.ok(th.textContent.includes(t('mediaPending')))
+    const batches = () => g.fetched.filter((f) => f.url.endsWith('/media-info/batch')).length
+    assert.equal(batches(), 1)
+    await act(async () => { await new Promise((r) => setTimeout(r, 1100)); await flush() })
+    const after1s = batches()
+    assert.ok(after1s >= 2 && after1s <= 3, `bounded polling in the first second (server hint 20 ms, floor 1 s doubling): ${after1s}`)
+    mode = 'failed'
+    await act(async () => { await new Promise((r) => setTimeout(r, 2100)); await flush() })
+    assert.equal(th.getAttribute('data-info'), 'failed'); assert.equal(th.getAttribute('data-thumb'), 'icon')
+    const settled = batches()
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); await flush() })
+    assert.equal(batches(), settled, 'no polling after GENERATION_FAILED')
+  } finally { await g.unmount() }
+})
+
+test('GI-RENAME same sha keeps the shown poster and issues no new request; GI-REPLACE a new sha resets to icon and asks again', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    const before = g.fetched.length
+    await g.render(sections({ files: [gifItem({ name: 'renamed.gif', modified: NOW + 1 })] }))
+    assert.equal(thumbOf('g1').getAttribute('data-poster'), 'shown')
+    assert.equal(thumbOf('g1').querySelector('img').getAttribute('src'), `/api/files/g1/poster?v=${SHA_A}&p=v1`)
+    assert.equal(g.fetched.length, before, 'rename: no new media-info request')
+    await g.render(sections({ files: [gifItem({ sha256: SHA_B })] }))
+    const th2 = thumbOf('g1')
+    assert.equal(th2.getAttribute('data-poster'), 'icon', 'new content → back to icon until the new derivative arrives')
+    assert.ok(!th2.querySelector('img')?.getAttribute('src')?.includes(SHA_A), 'old derivative URL discarded')
+    await g.enter(th2, 'visible')
+    assert.equal(g.fetched.length, before + 1, 'replace: exactly one new batch')
+  } finally { await g.unmount() }
+})
+
+test('GI-REDUCED prefers-reduced-motion: poster shown, no <video> ever mounted, hover does nothing; Preview menu still offered', async () => {
+  const g = await mountGrid({ reducedMotion: true, info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    await g.mouse(tileOf('g1'), 'mouseenter')
+    await act(async () => { await flush() })
+    assert.equal(th.querySelector('video'), null)
+    assert.deepEqual(g.media.calls, [])
+    const menu = await import('react-dom/server')
+    const html = menu.renderToStaticMarkup(React.createElement(filesScreen.FileMenu, { t, file: gifItem(), onAction: noop, onClose: noop }))
+    assert.ok(html.includes(t('preview')))
+  } finally { await g.unmount() }
+})
+
+test('GI-BADGES gif → GIF badge, apng/animated webp → ANIMATED badge (poster-only degradation keeps the poster and never mounts a video), mp4 → VIDEO badge', async () => {
+  const g = await mountGrid({ info: (id) => (id === 'w1' ? infoReady(id, { animated: true, family: 'webp', motion: 'UNSUPPORTED' }) : id === 'a1' ? infoReady(id, { animated: true, family: 'png' }) : infoReady(id, { animated: true, family: id === 'v1' ? 'mp4' : 'gif' })) })
+  try {
+    await g.render(sections({ files: [gifItem(), mp4(), png({ id: 'a1', name: 'anim.png', sha256: SHA_B }), png({ id: 'w1', name: 'anim.webp', ext: 'webp', sha256: 'c'.repeat(64) })] }))
+    assert.ok(thumbOf('g1').textContent.includes('GIF'))
+    assert.ok(thumbOf('v1').textContent.includes(t('badgeVideo')))
+    const w = thumbOf('w1')
+    await g.enter(w, 'visible')
+    await g.fire(w.querySelector('img'), 'load')
+    assert.equal(w.getAttribute('data-poster'), 'shown')
+    assert.equal(w.querySelector('video'), null, 'motion UNSUPPORTED (no webp demuxer) → poster-only, no video, no loop')
+    await g.mouse(tileOf('w1'), 'mouseenter'); await act(async () => { await flush() })
+    assert.equal(w.querySelector('video'), null); assert.deepEqual(g.media.calls, [])
+    assert.equal(w.getAttribute('data-motion'), 'none')
+    const a = thumbOf('a1')
+    await g.enter(a, 'visible')
+    assert.ok(a.textContent.includes(t('badgeAnimated')) || a.querySelector('img'), 'apng exposes the animated badge before its poster arrives')
+  } finally { await g.unmount() }
+})
+
+test('GI-DISABLED every id answers UNSUPPORTED/MEDIA_DISABLED → icon + family badge, no poster/motion elements, one batch, no polling; folder tiles unchanged', async () => {
+  const g = await mountGrid({ info: (id) => ({ id, status: 'UNSUPPORTED', reason: 'MEDIA_DISABLED', poster: { state: 'UNSUPPORTED', reason: 'MEDIA_DISABLED' }, motion: { state: 'UNSUPPORTED', reason: 'MEDIA_DISABLED' } }) })
+  try {
+    await g.render(sections({ folders: [folderItem()], files: [png(), gifItem(), mp4()] }))
+    await g.enterAll(['p1', 'g1', 'v1'].map(thumbOf), 'visible')
+    assert.equal(g.fetched.filter((f) => f.url.endsWith('/media-info/batch')).length, 1, 'one batch for the three visible tiles')
+    for (const id of ['p1', 'g1', 'v1']) {
+      const th = thumbOf(id)
+      assert.equal(th.getAttribute('data-thumb'), 'icon'); assert.equal(th.getAttribute('data-info'), 'unsupported')
+      assert.equal(th.querySelector('img'), null); assert.equal(th.querySelector('video'), null)
+    }
+    assert.ok(thumbOf('g1').textContent.includes('GIF')); assert.ok(thumbOf('v1').textContent.includes(t('badgeVideo')))
+    await act(async () => { await new Promise((r) => setTimeout(r, 60)); await flush() })
+    assert.equal(g.fetched.length, 1, 'no retry storm when media is disabled')
+    assert.equal(tileOf('d1').getAttribute('data-tile-variant'), 'folder-compact')
+    assert.equal(tileOf('d1').querySelector('[data-media-thumb]'), null, 'folders have no media thumb')
+    assert.deepEqual(previewRequests(g), []); assert.deepEqual(domOriginalSrcs(), [])
+  } finally { await g.unmount() }
+})
+
+test('GI-VIEWPORT 40 gif tiles, 4 visible: one batch for the 4, motion starts ≤ 3 at a time, off-screen tiles fetch nothing', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    const items = Array.from({ length: 40 }, (_, i) => gifItem({ id: `g${i}`, name: `g${i}.gif`, sha256: String(i).padStart(64, 'e') }))
+    await g.render(sections({ files: items }))
+    await g.enterAll([0, 1, 2, 3].map((i) => thumbOf(`g${i}`)), 'visible')
+    const batches = g.fetched.filter((f) => f.url.endsWith('/media-info/batch'))
+    assert.ok(batches.length >= 1 && batches.length <= 2, `batches ${batches.length}`)
+    assert.equal(document.querySelectorAll('[data-media-thumb] video').length, 3, 'motion cap of 3 in flight')
+    assert.equal(document.querySelectorAll('[data-media-thumb] img').length, 4)
+    for (let i = 4; i < 40; i += 1) { assert.equal(thumbOf(`g${i}`).querySelector('img'), null); assert.equal(thumbOf(`g${i}`).querySelector('video'), null) }
+  } finally { await g.unmount() }
+})
+
+test('GI-REGRESSION marquee/selection scene still selects a file card; folder tile variant unchanged', async () => {
+  const g = await mountGrid()
+  try {
+    let selected = new Set()
+    const rerender = () => g.render(sections({ folders: [folderItem()], files: [png(), fileItem({ id: 'f2', name: 'b.pdf' }), fileItem({ id: 'f3', name: 'c.pdf' })], selectedIds: selected, onSelectionChange: (next) => { selected = new Set(next); rerender() } }))
+    await rerender()
+    const rect = (sel, r) => { const el = document.querySelector(sel); el.getBoundingClientRect = () => ({ left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h, width: r.w, height: r.h, x: r.x, y: r.y }) }
+    rect('[data-marquee-canvas]', { x: 0, y: 0, w: 1000, h: 800 }); rect('[data-file-id="d1"]', { x: 20, y: 20, w: 180, h: 48 })
+    rect('[data-file-id="p1"]', { x: 20, y: 120, w: 200, h: 180 }); rect('[data-file-id="f2"]', { x: 260, y: 120, w: 200, h: 180 }); rect('[data-file-id="f3"]', { x: 500, y: 120, w: 200, h: 180 })
+    const pointer = (node, type, init) => act(async () => { const ev = new g.W.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init }); Object.defineProperty(ev, 'pointerId', { value: 1 }); Object.defineProperty(ev, 'pointerType', { value: 'mouse' }); node.dispatchEvent(ev) })
+    await pointer(document.querySelector('[data-marquee-canvas]'), 'pointerdown', { clientX: 700, clientY: 400 })
+    await pointer(window, 'pointermove', { clientX: 480, clientY: 130 })
+    await pointer(window, 'pointerup', { clientX: 480, clientY: 130 })
+    assert.deepEqual([...selected], ['f3'])
+    assert.equal(tileOf('d1').getAttribute('data-tile-variant'), 'folder-compact')
+    assert.equal(tileOf('p1').getAttribute('data-tile-variant'), 'file-card')
+  } finally { await g.unmount() }
+})
+
+test('GI-NO-GIFPOSTER no browser-side poster pipeline remains in the grid: no gifPoster module, no createImageBitmap/Blob poster, no /preview in thumbnail code', async () => {
+  const files = await fs.readFile(new URL('../src/screens/Files.jsx', import.meta.url), 'utf8')
+  const thumbSrc = await fs.readFile(new URL('../src/components/MediaThumb.jsx', import.meta.url), 'utf8')
+  const hookSrc = await fs.readFile(new URL('../src/lib/useMediaTile.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(files, /gifPoster|createGifPoster/)
+  assert.doesNotMatch(files, /createImageBitmap|toBlob|createObjectURL/)
+  for (const src of [thumbSrc, hookSrc]) { assert.doesNotMatch(src, /previewPathFor|\/preview['"`]|createImageBitmap|createObjectURL/) }
+  // previewPathFor ใช้ได้เฉพาะใน FilePreviewModal (ผู้ใช้กด Preview เอง) — ไม่ใช่ใน FileTile/FileListRow
+  const tileStart = files.indexOf('export function FileTile(')
+  const tileEnd = files.indexOf('export function FolderTile(')
+  const listStart = files.indexOf('function FileListRow(')
+  const listEnd = files.indexOf('export function FilesSections(')
+  assert.ok(tileStart > 0 && tileEnd > tileStart && listStart > 0 && listEnd > listStart)
+  assert.doesNotMatch(files.slice(tileStart, tileEnd), /previewPathFor|<img|<video/)
+  assert.doesNotMatch(files.slice(listStart, listEnd), /previewPathFor|<img|<video/)
+  assert.match(files, /<MediaThumb/)
+  let gone = false
+  try { await fs.access(new URL('../src/lib/gifPoster.js', import.meta.url)) } catch { gone = true }
+  assert.equal(gone, true, 'src/lib/gifPoster.js deleted')
+  const { execFileSync } = await import('node:child_process')
+  const grep = execFileSync('git', ['grep', '-l', 'gifPoster', '--', 'src', 'server'], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim()
+  assert.equal(grep, '')
 })

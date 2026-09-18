@@ -1,13 +1,12 @@
 // tests/filesRound10.test.js — FILES-MANAGEMENT-UX-1 · Round 10 (final browser corrections)
 //
-//   A. การ์ด GIF ตอนไม่ชี้ต้องแสดง "ภาพจริงแบบนิ่ง" (poster ที่ถอดเฟรมแรกในเบราว์เซอร์)
-//      ไม่ใช่ไอคอนทั่วไป และไม่ใช่ GIF ที่เคลื่อนไหวซ่อนอยู่หลัง overlay
+//   A. การ์ด GIF ตอนไม่ชี้ต้องแสดง "ภาพจริงแบบนิ่ง" — Tranche B: poster derivative จากเซิร์ฟเวอร์ (media-info)
+//      ไม่ใช่ไอคอนทั่วไป ไม่ใช่ GIF ที่เคลื่อนไหวซ่อนอยู่หลัง overlay และไม่ดึงต้นฉบับ (/preview) เข้ากริดเลย
 //   B. ลากรายการที่เลือกไปวางบน breadcrumb "Files" (ราก) ขณะอยู่ในโฟลเดอร์ = ย้ายกลับราก
 //      ผ่านเส้นทาง Move เดิม (moveItems(ids, null)) แล้วพาไปที่ราก
 //
-// ⚠️ jsdom ไม่มี createImageBitmap / canvas จริง / DataTransfer — ทดสอบด้วยการ stub
-//    primitive ของเบราว์เซอร์อย่างซื่อสัตย์: เรานับ "การสร้าง/คืน object URL", "การ
-//    fetch ทรัพยากรไหน", และ "DOM ที่ผู้ใช้เห็น" — ไม่ได้ทดสอบว่าเบราว์เซอร์ถอดรหัส GIF ถูก
+// ⚠️ jsdom ไม่มี IntersectionObserver / DataTransfer และไม่ดึงทรัพยากรของ <img>/<video> — ทดสอบด้วยการ stub
+//    fetch (media-info batch) แล้วนับ "คำขอไหนถูกยิง" และ "DOM ที่ผู้ใช้เห็น"; ไม่มี observer = scheduler ถือว่าไทล์มองเห็น
 import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -44,47 +43,51 @@ const folderItem = (over = {}) => ({
   id: 'd1', name: '01', kind: 'folder', type: 'Folder', ext: '',
   size: 0, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, parentId: null, ...over,
 })
-const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', ...over })
-const gif = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', ...over })
+const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', sha256: 'b'.repeat(64), ...over })
 const noop = () => {}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /* ── jsdom + browser primitive stubs ───────────────────────────────────────── */
-function installDom({ reducedMotion = false, bitmap = 'ok' } = {}) {
+const SHA_A = 'a'.repeat(64)
+const infoFor = (id, mode) => {
+  if (mode === 'failed') return { id, status: 'GENERATION_FAILED', reason: 'DECODE_FAILED', poster: { state: 'GENERATION_FAILED', url: null }, motion: { state: 'GENERATION_FAILED', url: null } }
+  const animated = mode === 'animated'
+  return {
+    id, sourceVersion: SHA_A, profile: 'v1', family: animated ? 'gif' : 'png', animated, status: 'READY',
+    poster: { state: 'READY', url: `/api/files/${id}/poster?v=${SHA_A}&p=v1`, mime: 'image/webp' },
+    motion: animated ? { state: 'READY', url: `/api/files/${id}/motion-preview?v=${SHA_A}&p=v1` } : { state: 'UNSUPPORTED', reason: 'NOT_ANIMATED', url: null },
+  }
+}
+function installDom({ reducedMotion = false, media = 'animated' } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
   const w = dom.window
   w.matchMedia = (q) => ({ matches: reducedMotion && q.includes('prefers-reduced-motion'), media: q, addEventListener() {}, removeEventListener() {} })
-  const stats = { fetched: [], created: 0, revoked: 0, bitmaps: 0, closed: 0 }
-  // canvas: jsdom ไม่มี backend — ให้ 2D context ปลอมที่วาดได้ และ toBlob ที่คืน blob จริง
-  w.HTMLCanvasElement.prototype.getContext = function () { return { drawImage() {} } }
-  w.HTMLCanvasElement.prototype.toBlob = function (cb, type) { cb(new w.Blob(['poster'], { type: type || 'image/png' })) }
+  const stats = { fetched: [], media }
   const previous = new Map()
   const globals = {
     window: w, document: w.document, navigator: w.navigator, HTMLElement: w.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
-    createImageBitmap: async () => {
-      stats.bitmaps += 1
-      if (bitmap === 'fail') throw new Error('decode failed')
-      return { width: 640, height: 320, close() { stats.closed += 1 } }
-    },
-    fetch: async (url) => {
-      stats.fetched.push(String(url))
-      return { ok: true, status: 200, blob: async () => new w.Blob(['gif-bytes'], { type: 'image/gif' }), json: async () => ({}) }
+    fetch: async (url, opts = {}) => {
+      const u = String(url)
+      stats.fetched.push(u)
+      if (u.endsWith('/api/files/media-info/batch')) {
+        const items = {}
+        for (const id of JSON.parse(opts.body).ids) items[id] = infoFor(id, stats.media)
+        return { ok: true, status: 200, json: async () => ({ items }) }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
     },
   }
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
   }
-  // object URLs: นับการสร้าง/คืน (Node มี URL.createObjectURL จริง แต่เราต้องนับให้ได้)
-  const origCreate = URL.createObjectURL
-  const origRevoke = URL.revokeObjectURL
-  URL.createObjectURL = () => { stats.created += 1; return `blob:poster-${stats.created}` }
-  URL.revokeObjectURL = () => { stats.revoked += 1 }
+  // jsdom ไม่ implement play/pause — บันทึกการเรียก
+  const proto = w.HTMLMediaElement.prototype
+  proto.play = function () { stats.plays = (stats.plays ?? 0) + 1; return Promise.resolve() }
+  proto.pause = function () { stats.pauses = (stats.pauses ?? 0) + 1 }
   return {
     dom, stats,
     restore() {
-      URL.createObjectURL = origCreate
-      URL.revokeObjectURL = origRevoke
       for (const [key, descriptor] of previous) {
         if (descriptor === undefined) delete globalThis[key]
         else Object.defineProperty(globalThis, key, descriptor)
@@ -125,26 +128,29 @@ function tile(file) {
   })
 }
 const thumb = () => document.querySelector('[data-thumb]')
-const previewImg = () => document.querySelector('img[src$="/preview"]')
-const posterImg = () => document.querySelector('img[src^="blob:poster-"]')
+const previewImg = () => document.querySelector('img[src*="/preview"], video[src*="/preview"]')
+const posterImg = () => document.querySelector('img[src*="/poster?"]')
+const motionVideo = () => document.querySelector('video[src*="/motion-preview?"]')
+const fire = (node, type) => act(async () => { node.dispatchEvent(new node.ownerDocument.defaultView.Event(type, { bubbles: false })); await sleep(5) })
+/** โหลด poster ให้เสร็จ (jsdom ไม่ดึงภาพจริง) */
+const loadPoster = async () => { const p = posterImg(); assert.ok(p, 'poster <img> from media-info'); await fire(p, 'load') }
+const gif = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', sha256: SHA_A, ...over })
 const hover = (m) => async () => { const c = document.querySelector('[data-file-kind]'); await m.mouse(c, 'mouseover'); await m.mouse(c, 'mouseenter') }
 const leave = (m) => async () => { const c = document.querySelector('[data-file-kind]'); await m.mouse(c, 'mouseout'); await m.mouse(c, 'mouseleave') }
 
 /* ══ CORRECTION A — GIF static poster ══════════════════════════════════════ */
 
-test('R10-GIF-1 · idle GIF shows a real static poster derived in the browser, not the generic icon', async () => {
+test('R10-GIF-1 · idle GIF shows a real static poster (server derivative), not the generic icon', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif()))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster')
-    assert.equal(thumb().getAttribute('data-motion'), 'idle')
-    const p = posterImg()
-    assert.ok(p, 'ต้องมี <img> ที่ชี้ไป object URL ของ poster')
-    assert.equal(m.stats.bitmaps, 1, 'ถอดบิตแมปนิ่งหนึ่งครั้ง')
-    assert.equal(m.stats.created, 1)
-    assert.equal(m.stats.closed, 1, 'ImageBitmap ต้องถูก close หลังวาดลง canvas')
-    assert.ok(m.stats.fetched.some((u) => u.endsWith('/api/files/g1/preview')), 'poster มาจากทรัพยากร preview จริงของไฟล์นี้')
-    assert.ok(!thumb().querySelector('svg'), 'ไม่ใช่ไอคอน')
+    await loadPoster()
+    assert.equal(thumb().getAttribute('data-thumb'), 'poster')
+    assert.equal(thumb().getAttribute('data-poster'), 'shown')
+    assert.notEqual(thumb().getAttribute('data-motion'), 'playing')
+    assert.equal(posterImg().getAttribute('src'), `/api/files/g1/poster?v=${SHA_A}&p=v1`)
+    assert.ok(m.stats.fetched.some((u) => u.endsWith('/api/files/media-info/batch')), 'poster URL มาจาก media-info ของไฟล์นี้')
+    assert.ok(!m.stats.fetched.some((u) => u.includes('/preview')), 'ไม่ดึงต้นฉบับเข้ากริด')
   } finally { await m.unmount() }
 })
 
@@ -152,25 +158,32 @@ test('R10-GIF-2 · the idle thumbnail is never the live animated GIF <img>', asy
   const m = await mountRoot()
   try {
     await m.render(tile(gif()))
+    await loadPoster()
     assert.equal(previewImg(), null, 'idle ต้องไม่มี <img src=…/preview> ที่เคลื่อนไหว')
     assert.equal(document.querySelectorAll('img').length, 1, 'มีภาพเดียวคือ poster — ไม่มี GIF ซ่อนอยู่หลัง overlay')
+    assert.ok(!document.querySelector('img').getAttribute('src').endsWith('.gif'))
   } finally { await m.unmount() }
 })
 
-test('R10-GIF-3 · hover mounts the real animated GIF; R10-GIF-4 · leave removes it and restores the poster', async () => {
+test('R10-GIF-3 · hover plays the motion proxy (not the original GIF); R10-GIF-4 · leave restores the static poster', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif()))
+    await loadPoster()
+    const v = motionVideo()
+    assert.ok(v, 'ไทล์ที่มองเห็นและเคลื่อนไหวได้ prefetch proxy (ทึบ) ไว้')
+    await fire(v, 'canplaythrough')
     await hover(m)()
-    assert.ok(previewImg(), 'ชี้แล้วต้องมี GIF จริง')
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif')
+    assert.equal(previewImg(), null, 'ชี้แล้วก็ยังไม่มีต้นฉบับ')
+    assert.equal(thumb().getAttribute('data-thumb'), 'motion')
     assert.equal(thumb().getAttribute('data-motion'), 'playing')
+    assert.equal(m.stats.plays, 1)
+    const poster = posterImg()
     await leave(m)()
-    assert.equal(previewImg(), null, 'ออกแล้ว GIF ที่เคลื่อนไหวต้องหาย')
-    assert.ok(posterImg(), 'กลับมาเป็น poster นิ่ง')
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster')
-    assert.equal(thumb().getAttribute('data-motion'), 'idle')
-    assert.equal(m.stats.bitmaps, 1, 'poster ไม่ถูกถอดใหม่ทุกครั้งที่ชี้/ออก')
+    assert.equal(thumb().getAttribute('data-thumb'), 'poster')
+    assert.equal(thumb().getAttribute('data-motion'), 'ready')
+    assert.equal(m.stats.pauses, 1)
+    assert.equal(posterImg(), poster, 'poster เดิม ไม่ถูกถอด/สร้างใหม่ทุกครั้งที่ชี้/ออก')
   } finally { await m.unmount() }
 })
 
@@ -178,71 +191,80 @@ test('R10-GIF-5 · reduced motion keeps the static poster and never mounts the a
   const m = await mountRoot({ reducedMotion: true })
   try {
     await m.render(tile(gif()))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster')
+    await loadPoster()
+    assert.equal(thumb().getAttribute('data-thumb'), 'poster')
     await hover(m)()
     assert.equal(previewImg(), null)
+    assert.equal(motionVideo(), null, 'reduced motion: ไม่ prefetch proxy ด้วยซ้ำ')
     assert.ok(posterImg())
-    assert.equal(thumb().getAttribute('data-motion'), 'idle')
+    assert.equal(thumb().getAttribute('data-motion'), 'none')
+    assert.equal(m.stats.plays ?? 0, 0)
   } finally { await m.unmount() }
 })
 
-test('R10-GIF-6 · a change of file identity rebuilds the poster and releases the old one', async () => {
+test('R10-GIF-6 · a change of content identity (sha) requests a new poster; a rename keeps the old one', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif()))
+    await loadPoster()
     const first = posterImg().getAttribute('src')
-    await m.render(tile(gif({ id: 'g2', name: 'other.gif' })))
-    const second = posterImg().getAttribute('src')
-    assert.notEqual(second, first)
-    assert.equal(m.stats.bitmaps, 2)
-    assert.equal(m.stats.created, 2)
-    assert.equal(m.stats.revoked, 1, 'poster เก่าต้องถูกคืนเมื่อตัวตนเปลี่ยน')
-    assert.ok(m.stats.fetched.some((u) => u.endsWith('/api/files/g2/preview')))
-    // ตัวตนเดิม re-render → ไม่ถอดซ้ำ
-    await m.render(tile(gif({ id: 'g2', name: 'other.gif', modified: NOW + 1 })))
-    assert.equal(m.stats.bitmaps, 2)
+    const batches = () => m.stats.fetched.filter((u) => u.endsWith('/media-info/batch')).length
+    const n = batches()
+    await m.render(tile(gif({ name: 'other.gif', modified: NOW + 1 })))
+    assert.equal(posterImg().getAttribute('src'), first, 'เปลี่ยนชื่อ = ตัวตนเดิม = poster เดิม')
+    assert.equal(batches(), n)
+    await m.render(tile(gif({ id: 'g2', name: 'other.gif', sha256: 'c'.repeat(64) })))
+    assert.notEqual(thumb().getAttribute('data-poster'), 'shown', 'เนื้อหาใหม่ = poster เก่าถูกทิ้ง (ไอคอน/กำลังโหลด) จนกว่า derivative ใหม่จะโหลดเสร็จ')
+    await loadPoster()
+    assert.notEqual(posterImg().getAttribute('src'), first)
+    assert.equal(batches(), n + 1)
   } finally { await m.unmount() }
 })
 
-test('R10-GIF-7 · a GIF the browser cannot decode falls back to the truthful icon, with no broken-image element', async () => {
-  const m = await mountRoot({ bitmap: 'fail' })
+test('R10-GIF-7 · a GIF the server cannot decode falls back to the truthful icon, with no broken-image element', async () => {
+  const m = await mountRoot({ media: 'failed' })
   try {
     await m.render(tile(gif()))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-static')
+    assert.equal(thumb().getAttribute('data-thumb'), 'icon')
+    assert.equal(thumb().getAttribute('data-info'), 'failed')
     assert.ok(thumb().querySelector('svg'))
+    assert.ok(thumb().textContent.includes('GIF'), 'ป้าย GIF บอกความจริง')
     assert.equal(document.querySelector('img'), null, 'ห้ามมี <img> ที่พังค้างอยู่')
-    assert.equal(m.stats.created, 0)
-    // ชี้แล้วยังลอง GIF จริงได้ (การถอด poster ล้มเหลว ≠ ไฟล์เล่นไม่ได้)
+    // ชี้แล้วก็ไม่ดึงต้นฉบับมาเล่น — การล้มเหลวของ derivative ไม่ใช่ใบอนุญาตให้ดึง GIF จริงเข้ากริด
     await hover(m)()
-    assert.ok(previewImg())
+    assert.equal(previewImg(), null)
+    assert.equal(motionVideo(), null)
   } finally { await m.unmount() }
 })
 
-test('R10-GIF-8 · unmount releases every generated object URL and bitmap', async () => {
+test('R10-GIF-8 · unmount stops every media request and leaves no media element behind', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif()))
-    await m.render(tile(gif({ id: 'g2', name: 'b.gif' })))
-    assert.equal(m.stats.created, 2)
+    await loadPoster()
+    await m.render(tile(gif({ id: 'g2', name: 'b.gif', sha256: 'c'.repeat(64) })))
+    await loadPoster()
+    const n = m.stats.fetched.length
     await act(async () => m.root.unmount())
-    assert.equal(m.stats.revoked, m.stats.created, 'สร้างเท่าไหร่ต้องคืนเท่านั้น')
-    assert.equal(m.stats.closed, m.stats.bitmaps)
+    await sleep(40)
+    assert.equal(document.querySelector('img, video'), null)
+    assert.equal(m.stats.fetched.length, n, 'หลัง unmount ไม่มีคำขอเพิ่ม')
     m.env.restore(); m.unmount = async () => {}
   } finally { await m.unmount() }
 })
 
-test('R10-GIF-9 · static formats are untouched: no poster pipeline, plain <img> to the preview route', async () => {
-  const m = await mountRoot()
+test('R10-GIF-9 · static formats also come from the server poster: no browser pipeline, never the preview route', async () => {
+  const m = await mountRoot({ media: 'still' })
   try {
     for (const f of [image(), image({ id: 'p', name: 'p.png', ext: 'png' }), image({ id: 'w', name: 'w.webp', ext: 'webp' })]) {
       await m.render(tile(f))
-      assert.equal(thumb().getAttribute('data-thumb'), 'image', f.name)
-      assert.equal(thumb().getAttribute('data-motion'), 'static')
-      assert.ok(previewImg(), f.name)
-      assert.equal(posterImg(), null)
+      await loadPoster()
+      assert.equal(thumb().getAttribute('data-thumb'), 'poster', f.name)
+      assert.equal(thumb().getAttribute('data-motion'), 'none')
+      assert.equal(previewImg(), null, f.name)
+      assert.equal(motionVideo(), null, 'ภาพนิ่งไม่มี motion proxy')
     }
-    assert.equal(m.stats.fetched.length, 0, 'ภาพนิ่งไม่ผ่านการ fetch/ถอดบิตแมป')
-    assert.equal(m.stats.bitmaps, 0)
+    assert.ok(!m.stats.fetched.some((u) => u.includes('/preview')))
   } finally { await m.unmount() }
 })
 
@@ -253,7 +275,7 @@ test('R10-GIF-10 · Vault GIF gets neither poster nor animation', async () => {
     assert.equal(thumb().getAttribute('data-thumb'), 'icon')
     assert.match(thumb().className, /hatch/)
     await hover(m)()
-    assert.equal(document.querySelector('img'), null)
+    assert.equal(document.querySelector('img, video'), null)
     assert.equal(m.stats.fetched.length, 0)
   } finally { await m.unmount() }
 })
@@ -471,59 +493,52 @@ test('R10-ROOTDROP-12 · the Move dialog "All files" path still moves to root th
 
 const ACCEPTANCE_GIF_BYTES = 49_700_000 // ไฟล์ GIF จริงที่ Human Owner ใช้ยอมรับบน Production (~49.7 MB)
 
-test('R10-SR1-A · the real ~49.7 MB acceptance GIF is eligible for a static poster and gets one when decode succeeds', async () => {
+test('R10-SR1-A · the real ~49.7 MB acceptance GIF: size gates nothing — the tile asks media-info and shows the poster when READY', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif({ size: ACCEPTANCE_GIF_BYTES })))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster', 'ห้ามตกไปเป็นไอคอนเพียงเพราะขนาด 49.7 MB')
-    assert.ok(posterImg())
-    assert.equal(m.stats.bitmaps, 1)
-    assert.ok(m.stats.fetched.some((u) => u.endsWith('/api/files/g1/preview')))
+    await loadPoster()
+    assert.equal(thumb().getAttribute('data-thumb'), 'poster', 'ห้ามตกไปเป็นไอคอนเพียงเพราะขนาด 49.7 MB')
+    assert.ok(m.stats.fetched.some((u) => u.endsWith('/media-info/batch')))
+    assert.ok(!m.stats.fetched.some((u) => u.includes('/preview')), 'ไม่มีการดึงไบต์ต้นฉบับ 49.7 MB เข้าเบราว์เซอร์')
   } finally { await m.unmount() }
 })
 
-test('R10-SR1-B · a GIF above the poster ceiling still falls back truthfully; one exactly at the ceiling is decoded', async () => {
-  const { GIF_POSTER_MAX_BYTES } = await vite.ssrLoadModule('/src/lib/gifPoster.js')
-  assert.ok(GIF_POSTER_MAX_BYTES >= ACCEPTANCE_GIF_BYTES, `เพดาน poster (${GIF_POSTER_MAX_BYTES}) ต้องครอบไฟล์ยอมรับจริง`)
-  const m = await mountRoot()
+test('R10-SR1-B · there is no client-side poster ceiling any more: a 200 MB gif still asks the server; the server decides truthfully', async () => {
+  await assert.rejects(vite.ssrLoadModule('/src/lib/gifPoster.js'), 'browser GIF poster module removed')
+  const m = await mountRoot({ media: 'failed' })
   try {
-    await m.render(tile(gif({ id: 'over', name: 'over.gif', size: GIF_POSTER_MAX_BYTES + 1 })))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-static', 'เกินเพดาน → ไอคอน + ป้าย GIF')
-    assert.equal(m.stats.fetched.length, 0, 'เกินเพดานต้องไม่ดึงทรัพยากรเลย')
-    assert.equal(m.stats.bitmaps, 0)
+    await m.render(tile(gif({ id: 'over', name: 'over.gif', size: 200 * 1024 * 1024 })))
+    assert.ok(m.stats.fetched.some((u) => u.endsWith('/media-info/batch')), 'ขนาดไม่ใช่เหตุผลที่จะไม่ถาม')
+    assert.equal(thumb().getAttribute('data-thumb'), 'icon', 'เซิร์ฟเวอร์ตอบล้มเหลว → ไอคอน + ป้าย GIF')
     await hover(m)()
-    assert.ok(previewImg(), 'ชี้แล้วยังเล่น GIF จริงได้ — เพดานเป็นเรื่องของ poster ตอน idle เท่านั้น')
-    await leave(m)()
-    await m.render(tile(gif({ id: 'at', name: 'at.gif', size: GIF_POSTER_MAX_BYTES })))
-    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster')
-    assert.equal(m.stats.bitmaps, 1)
+    assert.equal(previewImg(), null, 'ชี้แล้วก็ไม่ดึงต้นฉบับ 200 MB')
   } finally { await m.unmount() }
 })
 
-test('R10-SR1-C · the poster ceiling is a preview-only bound: no upload/transfer limit references it', async () => {
+test('R10-SR1-C · media derivative code is preview-only: no upload/transfer limit references it', async () => {
   const fs = await import('node:fs/promises')
-  const { GIF_POSTER_MAX_BYTES } = await vite.ssrLoadModule('/src/lib/gifPoster.js')
   const read = (rel) => fs.readFile(new URL(`../${rel}`, import.meta.url), 'utf8')
   for (const rel of ['server/config/transferLimits.js', 'server/storage/fileStore.js', 'server/routes/uploads.js', 'src/lib/chunkedUpload.js', 'src/components/UploadDrawer.jsx']) {
     const src = await read(rel)
-    assert.doesNotMatch(src, /GIF_POSTER|gifPoster/, `${rel} ต้องไม่รู้จักเพดาน poster`)
+    assert.doesNotMatch(src, /GIF_POSTER|gifPoster|mediaLimits|MEDIA_|posterMaxBytes/, `${rel} ต้องไม่รู้จักเพดานของ derivative`)
   }
-  const limits = await read('server/config/transferLimits.js')
-  assert.doesNotMatch(limits, new RegExp(String(GIF_POSTER_MAX_BYTES)), 'ตัวเลขเพดาน poster ต้องไม่ปรากฏในเพดานอัปโหลด')
   const { TRANSFER_LIMITS } = await import('../server/config/transferLimits.js')
   assert.ok(TRANSFER_LIMITS.maxLogicalBytes ?? TRANSFER_LIMITS.maxFileBytes ?? Object.values(TRANSFER_LIMITS).some((v) => typeof v === 'number'), 'เพดานอัปโหลดยังมีอยู่ตามเดิม')
 })
 
-test('R10-SR1-D · object URL / bitmap / canvas cleanup still holds for the large acceptance case', async () => {
+test('R10-SR1-D · cleanup still holds for the large acceptance case: no element or request survives unmount', async () => {
   const m = await mountRoot()
   try {
     await m.render(tile(gif({ size: ACCEPTANCE_GIF_BYTES })))
-    await m.render(tile(gif({ id: 'g2', name: 'b.gif', size: ACCEPTANCE_GIF_BYTES })))
-    assert.equal(m.stats.created, 2)
-    assert.equal(m.stats.revoked, 1)
+    await loadPoster()
+    await m.render(tile(gif({ id: 'g2', name: 'b.gif', size: ACCEPTANCE_GIF_BYTES, sha256: 'c'.repeat(64) })))
+    await loadPoster()
+    const n = m.stats.fetched.length
     await act(async () => m.root.unmount())
-    assert.equal(m.stats.revoked, m.stats.created)
-    assert.equal(m.stats.closed, m.stats.bitmaps)
+    await sleep(40)
+    assert.equal(document.querySelector('img, video'), null)
+    assert.equal(m.stats.fetched.length, n)
     m.env.restore(); m.unmount = async () => {}
   } finally { await m.unmount() }
 })

@@ -45,9 +45,19 @@ const folderItem = (over = {}) => ({
   id: 'd1', name: '01', kind: 'folder', type: 'Folder', ext: '',
   size: 0, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, ...over,
 })
-const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', ...over })
-const gif = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', ...over })
-const clip = (over = {}) => fileItem({ id: 'v1', name: 'clip.mp4', type: 'Video', ext: 'mp4', ...over })
+const SHA_A = 'a'.repeat(64)
+const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', sha256: SHA_A, ...over })
+const gif = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', sha256: SHA_A, ...over })
+const clip = (over = {}) => fileItem({ id: 'v1', name: 'clip.mp4', type: 'Video', ext: 'mp4', sha256: SHA_A, ...over })
+/** media-info ปลอม: gif/mp4 เคลื่อนไหวได้ (motion proxy), ภาพนิ่งมีแค่ poster */
+const mediaInfoFor = (id, ext) => {
+  const animated = ext === 'gif' || ext === 'mp4'
+  return {
+    id, sourceVersion: SHA_A, profile: 'v1', family: ext, animated, status: 'READY',
+    poster: { state: 'READY', url: `/api/files/${id}/poster?v=${SHA_A}&p=v1`, mime: 'image/webp' },
+    motion: animated ? { state: 'READY', url: `/api/files/${id}/motion-preview?v=${SHA_A}&p=v1` } : { state: 'UNSUPPORTED', reason: 'NOT_ANIMATED', url: null },
+  }
+}
 const noop = () => {}
 
 /* ── jsdom ────────────────────────────────────────────────────────────────── */
@@ -57,13 +67,26 @@ function installDom({ reducedMotion = false } = {}) {
   const w = dom.window
   // ⚠️ jsdom ไม่มี matchMedia — useReducedMotion() ต้องการมัน
   w.matchMedia = (q) => ({ matches: reducedMotion && q.includes('prefers-reduced-motion'), media: q, addEventListener() {}, removeEventListener() {} })
-  const globals = { window: w, document: w.document, navigator: w.navigator, HTMLElement: w.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true }
+  const fetched = []
+  const globals = {
+    window: w, document: w.document, navigator: w.navigator, HTMLElement: w.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
+    // Tranche B: ไทล์ถาม media-info (batch) — ไม่มีคำขออื่นจากกริด; jsdom ไม่ดึง <img>/<video> จริง
+    fetch: async (url, opts = {}) => {
+      const u = String(url); fetched.push(u)
+      if (u.endsWith('/api/files/media-info/batch')) {
+        const items = {}
+        for (const id of JSON.parse(opts.body).ids) items[id] = mediaInfoFor(id, id === 'g1' ? 'gif' : id === 'v1' ? 'mp4' : 'png')
+        return { ok: true, status: 200, json: async () => ({ items }) }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    },
+  }
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
   }
   return {
-    dom,
+    dom, fetched,
     restore() {
       for (const [key, descriptor] of previous) {
         if (descriptor === undefined) delete globalThis[key]
@@ -90,7 +113,13 @@ async function mountRoot(opts) {
   const mouse = (node, type, init = {}) => act(async () => { node.dispatchEvent(new W.MouseEvent(type, { bubbles: true, cancelable: true, ...init })) })
   const key = (k, init = {}) => act(async () => { W.dispatchEvent(new W.KeyboardEvent('keydown', { key: k, bubbles: true, ...init })) })
   const plain = (node, type) => act(async () => { node.dispatchEvent(new W.Event(type, { bubbles: false })) })
-  return { env, W, root, render, pointer, mouse, key, plain, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
+  /** รอให้ media-info ตอบและ poster โหลด (jsdom ไม่ดึงภาพจริง → ยิง load เอง) */
+  const settleMedia = async () => {
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    for (const img of document.querySelectorAll('[data-media-thumb] img')) await plain(img, 'load')
+    for (const v of document.querySelectorAll('[data-media-thumb] video')) await plain(v, 'canplaythrough')
+  }
+  return { env, W, root, render, pointer, mouse, key, plain, settleMedia, fetched: env.fetched, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
 }
 
 /** วาง "เรขาคณิต" ให้ canvas และไทล์: jsdom ไม่มี layout จึงต้อง stub getBoundingClientRect */
@@ -333,20 +362,23 @@ function stubMedia(W) {
   return { calls, restore() { proto.play = orig.play; proto.pause = orig.pause } }
 }
 
-test('R9-MOTION-1 · a static image card keeps its plain thumbnail and hover changes nothing about it', async () => {
+test('R9-MOTION-1 · a static image card keeps its poster derivative and hover changes nothing about it', async () => {
   const m = await mountRoot()
   try {
     for (const f of [image(), image({ id: 'p', name: 'p.png', ext: 'png' })]) {
-      await m.render(tile(f))
+      await m.render(tile(f)); await m.settleMedia()
       const box = document.querySelector('[data-thumb]')
-      assert.equal(box.getAttribute('data-thumb'), 'image')
-      assert.equal(box.getAttribute('data-motion'), 'static')
+      assert.equal(box.getAttribute('data-thumb'), 'poster')
+      assert.equal(box.getAttribute('data-motion'), 'none')
       const before = document.querySelector('img').getAttribute('src')
+      assert.ok(before.includes('/poster?'), 'poster จาก media-info ไม่ใช่ /preview')
       await m.mouse(document.querySelector('[data-file-kind]'), 'mouseover')
       await m.mouse(document.querySelector('[data-file-kind]'), 'mouseenter')
       assert.equal(document.querySelector('img').getAttribute('src'), before)
-      assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'static')
+      assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'none')
+      assert.equal(document.querySelector('video'), null)
     }
+    assert.ok(!m.fetched.some((u) => u.includes('/preview')))
   } finally { await m.unmount() }
 })
 
@@ -354,24 +386,26 @@ test('R9-MOTION-2 · a video card is paused, muted and inline at idle — nothin
   const m = await mountRoot()
   const media = stubMedia(m.W)
   try {
-    await m.render(tile(clip()))
+    await m.render(tile(clip())); await m.settleMedia()
     const v = document.querySelector('video')
-    assert.ok(v)
+    assert.ok(v, 'ไทล์วิดีโอที่มองเห็น prefetch motion proxy (ทึบ) ไว้')
+    assert.ok(v.getAttribute('src').includes('/motion-preview?'), 'ไม่ใช่ต้นฉบับ')
     assert.equal(v.hasAttribute('autoplay'), false)
     assert.equal(v.hasAttribute('controls'), false)
     assert.equal(v.muted, true)
     assert.equal(v.hasAttribute('playsinline'), true)
-    assert.equal(v.getAttribute('preload'), 'metadata')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'idle')
+    assert.equal(v.getAttribute('preload'), 'auto')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'idle = poster นิ่ง')
+    assert.notEqual(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
     assert.deepEqual(media.calls, [], 'ตอน mount ต้องไม่สั่ง play')
   } finally { media.restore(); await m.unmount() }
 })
 
-test('R9-MOTION-3 · hovering a video card starts a muted preview; leaving pauses and rewinds it (R9-MOTION-4)', async () => {
+test('R9-MOTION-3 · hovering a video card starts the muted proxy; leaving pauses and rewinds it (R9-MOTION-4)', async () => {
   const m = await mountRoot()
   const media = stubMedia(m.W)
   try {
-    await m.render(tile(clip()))
+    await m.render(tile(clip())); await m.settleMedia()
     const card = document.querySelector('[data-file-kind]')
     const v = document.querySelector('video')
     v.currentTime = 0
@@ -379,11 +413,12 @@ test('R9-MOTION-3 · hovering a video card starts a muted preview; leaving pause
     assert.deepEqual(media.calls, ['play'])
     assert.equal(v.muted, true)
     assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
+    assert.ok(document.querySelector('img'), 'poster ยังอยู่ใต้ video')
     v.currentTime = 3.5
     await m.mouse(card, 'mouseout'); await m.mouse(card, 'mouseleave')
     assert.deepEqual(media.calls, ['play', 'pause'])
     assert.equal(v.currentTime, 0, 'ออกจากการ์ดต้องกรอกลับไปเฟรมแรก')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'idle')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster')
   } finally { media.restore(); await m.unmount() }
 })
 
@@ -391,47 +426,52 @@ test('R9-MOTION-5 · prefers-reduced-motion disables automatic hover playback (v
   const m = await mountRoot({ reducedMotion: true })
   const media = stubMedia(m.W)
   try {
-    await m.render(tile(clip()))
+    await m.render(tile(clip())); await m.settleMedia()
     const card = document.querySelector('[data-file-kind]')
     await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
     assert.deepEqual(media.calls, [], 'reduced motion: ห้าม play อัตโนมัติ')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'idle')
-    await m.render(tile(gif()))
+    assert.equal(document.querySelector('video'), null, 'reduced motion: ไม่ prefetch proxy เลย')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'poster ยังใช้ได้')
+    await m.render(tile(gif())); await m.settleMedia()
     await m.mouse(document.querySelector('[data-file-kind]'), 'mouseover'); await m.mouse(document.querySelector('[data-file-kind]'), 'mouseenter')
-    assert.equal(document.querySelector('img[src$="/preview"]'), null, 'reduced motion: GIF ที่เคลื่อนไหวต้องไม่ถูกโหลดจากการชี้')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'gif-static')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'reduced motion: GIF ที่เคลื่อนไหวต้องไม่ถูกโหลดจากการชี้')
+    assert.equal(document.querySelector('video'), null)
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster')
   } finally { media.restore(); await m.unmount() }
 })
 
-test('R9-MOTION-6 · a GIF card does not load or animate the animated resource while idle', async () => {
+test('R9-MOTION-6 · a GIF card never loads the animated original while idle: poster derivative only', async () => {
   const m = await mountRoot()
   try {
-    await m.render(tile(gif()))
+    await m.render(tile(gif())); await m.settleMedia()
     const box = document.querySelector('[data-thumb]')
-    assert.equal(box.getAttribute('data-thumb'), 'gif-static')
-    assert.equal(box.getAttribute('data-motion'), 'idle')
-    assert.equal(document.querySelector('img'), null, 'idle ต้องไม่มี <img> ที่ชี้ไป GIF จริง')
-    assert.ok(box.querySelector('svg'), 'ตัวแทนนิ่ง = ไอคอนชนิดไฟล์')
-    assert.ok(box.textContent.includes('GIF'), 'บอกให้รู้ว่าเป็น GIF ที่จะเล่นเมื่อชี้')
+    assert.equal(box.getAttribute('data-thumb'), 'poster')
+    assert.notEqual(box.getAttribute('data-motion'), 'playing')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'idle ต้องไม่มี <img> ที่ชี้ไป GIF จริง')
+    assert.ok(document.querySelector('img').getAttribute('src').includes('/poster?'))
+    assert.ok(!m.fetched.some((u) => u.includes('/preview')))
   } finally { await m.unmount() }
 })
 
-test('R9-MOTION-7 · hovering a GIF card mounts the real animated image; leaving returns to the still state (R9-MOTION-8)', async () => {
+test('R9-MOTION-7 · hovering a GIF card plays the motion proxy; leaving returns to the still poster (R9-MOTION-8)', async () => {
   const m = await mountRoot()
+  const media = stubMedia(m.W)
   try {
-    await m.render(tile(gif()))
+    await m.render(tile(gif())); await m.settleMedia()
     const card = document.querySelector('[data-file-kind]')
     await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
-    const img = document.querySelector('img')
-    assert.ok(img, 'ชี้แล้วต้องมีภาพจริง')
-    assert.equal(img.getAttribute('src'), '/api/files/g1/preview')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'gif')
+    const v = document.querySelector('video')
+    assert.ok(v, 'ชี้แล้วต้องมี motion proxy')
+    assert.equal(v.getAttribute('src'), '/api/files/g1/motion-preview?v=' + SHA_A + '&p=v1')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'ไม่ใช่ GIF ต้นฉบับ')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'motion')
     assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
+    assert.deepEqual(media.calls, ['play'])
     await m.mouse(card, 'mouseout'); await m.mouse(card, 'mouseleave')
-    assert.equal(document.querySelector('img'), null, 'ออกแล้วต้องถอด GIF ที่เคลื่อนไหวออก')
-    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'idle')
-    assert.match(document.querySelector('[data-thumb]').getAttribute('data-thumb'), /^gif-static$/)
-  } finally { await m.unmount() }
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'ออกแล้วกลับเป็น poster นิ่งทันที')
+    assert.ok(document.querySelector('img[src*="/poster?"]'))
+    assert.deepEqual(media.calls, ['play', 'pause'])
+  } finally { media.restore(); await m.unmount() }
 })
 
 test('R9-MOTION-9 · Vault items get no motion preview of any kind', async () => {

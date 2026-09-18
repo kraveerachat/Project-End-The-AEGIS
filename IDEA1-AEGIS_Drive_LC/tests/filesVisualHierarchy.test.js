@@ -55,7 +55,8 @@ const folderItem = (over = {}) => ({
   id: 'd1', name: '01', kind: 'folder', type: 'Folder', ext: '',
   size: 0, modified: NOW, uploader: 'user', vault: false, verified: true, ...over,
 })
-const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', ...over })
+const SHA_A = 'a'.repeat(64)
+const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', sha256: SHA_A, ...over })
 
 const noop = () => {}
 const tileMarkup = (file, extra = {}) => renderToStaticMarkup(React.createElement(files.FileTile, {
@@ -176,14 +177,15 @@ test('R8-FOLDER-7 · list view is folder-first and visibly grouped too', () => {
 
 /* ══ R8-PREVIEW — thumbnail และคำสั่ง Preview ═══════════════════════════════ */
 
-test('R8-PREVIEW-1 · a supported normal image gets a real thumbnail source from the preview route', () => {
+test('R8-PREVIEW-1 · a supported normal image is a media tile: its thumbnail comes from the server poster derivative, never the preview route', () => {
   for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp']) {
     const f = image({ id: `i-${ext}`, name: `pic.${ext}`, ext })
     assert.equal(view.previewKindFor(f), 'image', ext)
     const html = tileMarkup(f)
-    assert.match(html, /data-thumb="image"/)
-    assert.match(html, new RegExp(`<img[^>]*src="/api/files/i-${ext}/preview"`), ext)
-    assert.match(html, /<img[^>]*loading="lazy"/)
+    // SSR/ก่อน media-info: กล่อง media thumb + ไอคอน — ไม่มี <img> ที่ชี้ไปต้นฉบับ (poster src มาจาก media-info ตอน hydrate)
+    assert.match(html, /data-media-thumb=""/)
+    assert.match(html, /data-thumb="icon"/)
+    assert.doesNotMatch(html, /\/api\/files\/[^"]*\/preview/, ext)
   }
   // ไม่มี path บนดิสก์รั่วออกมาใน markup
   assert.doesNotMatch(tileMarkup(image({ path: 'uploads/secret.bin' })), /uploads\//)
@@ -192,9 +194,10 @@ test('R8-PREVIEW-1 · a supported normal image gets a real thumbnail source from
 test('R8-PREVIEW-2 · GIF is a previewable image and is rendered as an image, not transcoded', async () => {
   const gif = image({ id: 'g1', name: 'loop.gif', ext: 'gif' })
   assert.equal(view.previewKindFor(gif), 'image')
-  // Round 9: การ์ดตอนไม่ชี้เป็นตัวแทนนิ่ง (ไม่โหลด GIF ที่เคลื่อนไหว) — ดู filesInteractionPolish R9-MOTION-6/7
+  // Round 9/Tranche B: การ์ดตอนไม่ชี้เป็น poster นิ่งจากเซิร์ฟเวอร์ (ไม่โหลด GIF ที่เคลื่อนไหว) — ดู filesInteractionPolish R9-MOTION-6/7
   const idle = tileMarkup(gif)
-  assert.match(idle, /data-thumb="gif-static"/)
+  assert.match(idle, /data-thumb="icon"/)
+  assert.match(idle, />GIF</, 'ป้าย GIF บอกความจริงก่อน poster มา')
   assert.doesNotMatch(idle, /<img/)
   // GIF จริงถูกส่งเป็นภาพตรง ๆ จากเส้นทาง preview (ไม่แปลงไฟล์) — Preview modal แสดงมันเป็น <img>
   const env = installDom()
@@ -219,18 +222,17 @@ test('R8-PREVIEW-3 · an unsupported type keeps the type icon and never requests
   }
 })
 
-test('R8-PREVIEW-3b · a video gets a bounded metadata-only poster frame, never an eager full download', () => {
-  const clip = fileItem({ id: 'v1', name: 'clip.mp4', ext: 'mp4', type: 'Video' })
+test('R8-PREVIEW-3b · a video tile never references the original: idle poster + motion proxy come from media-info, no eager download', () => {
+  const clip = fileItem({ id: 'v1', name: 'clip.mp4', ext: 'mp4', type: 'Video', sha256: SHA_A })
   assert.equal(view.previewKindFor(clip), 'video')
   const html = tileMarkup(clip)
-  assert.match(html, /data-thumb="video"/)
-  assert.match(html, /<video[^>]*preload="metadata"/)
-  assert.match(html, /<video[^>]*muted/)
-  assert.doesNotMatch(html, /autoplay/i)
-  assert.match(html, /<video[^>]*src="\/api\/files\/v1\/preview/)
+  assert.match(html, /data-media-thumb=""/)
+  assert.match(html, />VIDEO</)
+  assert.doesNotMatch(html, /<video/, 'ไม่มี <video> จนกว่า scheduler จะปล่อย slot ให้ proxy')
+  assert.doesNotMatch(html, /\/api\/files\/v1\/preview/)
 })
 
-test('R8-PREVIEW-4 · when the thumbnail fails to load the tile falls back to the type icon', async () => {
+test('R8-PREVIEW-4 · when the poster derivative fails to load the tile falls back to the type icon', async () => {
   const env = installDom()
   try {
     const { createRoot } = await import('react-dom/client')
@@ -240,9 +242,11 @@ test('R8-PREVIEW-4 · when the thumbnail fails to load the tile falls back to th
         t, file: image(), now: NOW, selected: false, anySelected: false,
         onSelect: noop, onOpen: noop, onMenuAction: noop, tileRef: noop, dragActive: false,
       }))
+      await new Promise((r) => setTimeout(r, 30))
     })
     const img = document.querySelector('img')
-    assert.ok(img, 'ต้องเริ่มจากการพยายามแสดงภาพจริง')
+    assert.ok(img, 'ต้องเริ่มจากการพยายามแสดง poster จริง')
+    assert.ok(img.getAttribute('src').includes('/poster?'))
     await act(async () => {
       img.dispatchEvent(new env.dom.window.Event('error', { bubbles: false }))
     })
@@ -369,7 +373,8 @@ async function mountRoot() {
   const root = createRoot(document.getElementById('root'))
   const render = (el) => act(async () => { root.render(el) })
   const fire = (node, type, Ctor = env.dom.window.Event) => act(async () => { node.dispatchEvent(new Ctor(type, { bubbles: true })) })
-  return { env, root, render, fire, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+  return { env, root, render, fire, settle, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
 }
 
 test('R8-SR1 · the preview dialog resets its lifecycle when the previewed file changes (same instance)', async () => {
@@ -413,7 +418,7 @@ test('R8-SR1 · the preview dialog resets its lifecycle when the previewed file 
   }
 })
 
-test('R8-SR1B · a failed thumbnail is retried only when the file preview identity changes', async () => {
+test('R8-SR1B · a failed poster is retried only when the content identity changes', async () => {
   const m = await mountRoot()
   try {
     const A = image({ id: 'a1', name: 'a.jpg' })
@@ -421,25 +426,20 @@ test('R8-SR1B · a failed thumbnail is retried only when the file preview identi
       t, file, now: NOW, selected: false, anySelected: false,
       onSelect: noop, onOpen: noop, onMenuAction: noop, tileRef: noop, dragActive: false,
     })
-    await m.render(tile(A))
+    await m.render(tile(A)); await m.settle()
     await m.fire(document.querySelector('img'), 'error')
     assert.ok(document.querySelector('[data-thumb="icon"]'), 'ล้มเหลว → ไอคอน')
 
-    // ไฟล์เดิมทุกประการ re-render → ยังเป็นไอคอน ไม่วนขอทรัพยากรที่พังซ้ำ
-    await m.render(tile({ ...A }))
-    await m.render(tile({ ...A, modified: NOW + 1 }))
+    // ไฟล์เดิมทุกประการ re-render / เปลี่ยนชื่อ → ยังเป็นไอคอน ไม่วนขอทรัพยากรที่พังซ้ำ
+    await m.render(tile({ ...A })); await m.settle()
+    await m.render(tile({ ...A, modified: NOW + 1, name: 'renamed.jpg' })); await m.settle()
     assert.equal(document.querySelector('img'), null, 'ต้องไม่ retry ทรัพยากรเดิมที่พังอยู่')
 
-    // ตัวตนของ preview เปลี่ยน (id เดิม ชื่อ/นามสกุลใหม่) → ลองแสดงภาพอีกครั้ง
-    await m.render(tile({ ...A, name: 'a.png', ext: 'png' }))
+    // ตัวตนของเนื้อหาเปลี่ยน (sha ใหม่ = แทนที่/กู้เวอร์ชัน) → ลองแสดงภาพอีกครั้ง
+    await m.render(tile({ ...A, sha256: 'b'.repeat(64) })); await m.settle()
     assert.ok(document.querySelector('img'), 'ตัวตนใหม่ต้องได้โอกาสโหลดใหม่')
-    assert.equal(document.querySelector('[data-thumb]')?.getAttribute('data-thumb'), 'image')
-
-    // id ใหม่ → ก็ลองใหม่
-    await m.fire(document.querySelector('img'), 'error')
-    assert.equal(document.querySelector('img'), null)
-    await m.render(tile({ ...A, id: 'a2' }))
-    assert.ok(document.querySelector('img'))
+    await m.fire(document.querySelector('img'), 'load')
+    assert.equal(document.querySelector('[data-thumb]')?.getAttribute('data-thumb'), 'poster')
   } finally {
     await m.unmount()
   }
@@ -509,6 +509,10 @@ test('R8-SR2 · list view three-dot opens the same FileMenu as grid, with the sa
 
 /* ── jsdom ────────────────────────────────────────────────────────────────── */
 
+const mediaInfoFor = (id) => ({
+  id, sourceVersion: SHA_A, profile: 'v1', family: 'png', animated: false, status: 'READY',
+  poster: { state: 'READY', url: `/api/files/${id}/poster?v=${SHA_A}&p=v1`, mime: 'image/webp' }, motion: { state: 'UNSUPPORTED', reason: 'NOT_ANIMATED', url: null },
+})
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
   const previous = new Map()
@@ -518,6 +522,15 @@ function installDom() {
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // Tranche B: ไทล์ถาม media-info (batch) — จำลองคำตอบ READY; jsdom ไม่ดึง <img> จริง
+    fetch: async (url, opts = {}) => {
+      if (String(url).endsWith('/api/files/media-info/batch')) {
+        const items = {}
+        for (const id of JSON.parse(opts.body).ids) items[id] = mediaInfoFor(id)
+        return { ok: true, status: 200, json: async () => ({ items }) }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    },
   }
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))

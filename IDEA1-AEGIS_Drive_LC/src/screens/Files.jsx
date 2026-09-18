@@ -13,7 +13,7 @@ import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
-import { createGifPoster } from '../lib/gifPoster.js'
+import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -275,66 +275,13 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   const menuBtnRef = useRef(null)
   const [hover, setHover] = useState(false)
   const [dropTarget, setDropTarget] = useState(false)
-  // ⚠️ thumbnail ที่โหลดไม่ได้ต้อง "ถอยกลับ" เป็นไอคอนชนิดไฟล์ ไม่ใช่กล่องภาพเสีย —
-  //    และการถอยนี้เป็นของไฟล์ใบนี้ใบเดียว (state ต่อไทล์) ไม่ลามไปทั้งกริด
-  //    ความล้มเหลวถูกจำไว้ "ต่อตัวตนของทรัพยากร" (id + ชื่อ): ไฟล์เดิมที่พังอยู่จะไม่ถูก
-  //    ขอซ้ำทุก re-render แต่เมื่อไฟล์ถูกเปลี่ยนชื่อ/ชนิด หรือไทล์นี้แสดงไฟล์อื่น (React
-  //    ใช้ instance เดิมซ้ำ) ต้องได้โอกาสโหลดใหม่ — ไม่ใช่ติดไอคอนจนกว่าจะรีเฟรชหน้า
-  const [failedIdentity, setFailedIdentity] = useState(null)
-  const identity = previewIdentityOf(file)
-  const thumbFailed = failedIdentity === identity
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
   const Icon = isFolder && dropTarget ? FolderOpen : iconFor(file)
-  const previewKind = thumbFailed ? null : previewKindFor(file)
-  // ── การเคลื่อนไหวเฉพาะตอนชี้ (Round 9) ────────────────────────────────
-  // ⚠️ หน้า Files ที่อยู่เฉย ๆ ต้องนิ่ง: GIF/วิดีโอที่ขยับตลอดเวลาในกริดคือเสียงรบกวน
-  //    และวิดีโอที่เล่นเองยังกินแบนด์วิดท์/CPU โดยไม่มีใครดู จึงเล่น "เฉพาะขณะชี้" —
-  //    และไม่เล่นอัตโนมัติเลยเมื่อผู้ใช้ขอ prefers-reduced-motion (Preview ในเมนูยังใช้ได้)
-  const reduced = useReducedMotion()
-  const isGif = previewKind === 'image' && String(file.ext).toLowerCase() === 'gif'
-  const animated = isGif || previewKind === 'video'
-  const motion = animated ? (hover && !reduced ? 'playing' : 'idle') : 'static'
-  // ── poster นิ่งของ GIF (Round 10) ────────────────────────────────────────
-  // ⚠️ idle ต้องเป็น "ภาพจริงที่ไม่ขยับ": เบราว์เซอร์ถอดเฟรมแรกเป็นบิตแมปแล้วย่อเก็บเป็น
-  //    object URL (lib/gifPoster.js) — ผูกกับตัวตนของไฟล์ เปลี่ยนไฟล์/unmount = revoke
-  //    ถอดไม่ได้ (ใหญ่เกิน/เบราว์เซอร์ไม่รองรับ/ไฟล์เสีย) = ถอยไปไอคอน + ป้าย GIF อย่างซื่อสัตย์
-  const [poster, setPoster] = useState(null) // { identity, url, revoke } | { identity, failed: true } | null
-  useEffect(() => {
-    if (!isGif) return undefined
-    const ctrl = new AbortController()
-    let handle = null
-    createGifPoster(apiUrl(previewPathFor(file)), { size: file.size, signal: ctrl.signal }).then((result) => {
-      if (ctrl.signal.aborted) { result?.revoke(); return }
-      handle = result
-      setPoster(result ? { identity, url: result.url, revoke: result.revoke } : { identity, failed: true })
-    })
-    return () => {
-      ctrl.abort()
-      handle?.revoke()
-      setPoster(null)
-    }
-    // identity = id + ชื่อ (นามสกุล) ซึ่งคือทุกอย่างที่กำหนดทรัพยากร preview ของไฟล์นี้
-  }, [isGif, identity]) // eslint-disable-line react-hooks/exhaustive-deps
-  const posterUrl = poster && poster.identity === identity && !poster.failed ? poster.url : null
-  const thumbVariant = previewKind === null ? 'icon'
-    : isGif ? (motion === 'playing' ? 'gif' : posterUrl ? 'gif-poster' : 'gif-static')
-      : previewKind
-  const videoRef = useRef(null)
-  const wasPlayingRef = useRef(false)
-  useEffect(() => {
-    const v = videoRef.current
-    const playing = previewKind === 'video' && motion === 'playing'
-    if (playing && v) {
-      wasPlayingRef.current = true
-      // play() คืน promise ที่ reject ได้ (เช่น ยังโหลด metadata ไม่เสร็จ) — ไม่ใช่ error ของเรา
-      Promise.resolve(v.play?.()).catch(() => {})
-    } else if (wasPlayingRef.current) {
-      // ออกจากการ์ด: หยุดทันทีและกรอกลับไปเฟรมแรก ให้การ์ดนิ่งเหมือนก่อนชี้
-      wasPlayingRef.current = false
-      if (v) { v.pause?.(); try { v.currentTime = 0 } catch { /* ยังไม่มี metadata ก็ไม่เป็นไร */ } }
-    }
-  }, [previewKind, motion])
+  // ── thumbnail = derivative ฝั่งเซิร์ฟเวอร์ (Tranche B) ─────────────────────
+  // ⚠️ กริดไม่แตะต้นฉบับอีกต่อไป: poster/motion มาจาก media-info (URL ทึบ) ผ่าน MediaThumb — การเคลื่อนไหวเฉพาะ
+  //    ตอนชี้ (Round 9), poster นิ่งตอน idle (Round 10) และ reduced-motion ปิดการเล่นอัตโนมัติ อยู่ใน state machine
+  //    ของไทล์ (lib/mediaTile.js) ไม่ใช่ที่นี่; ต้นฉบับ (/preview) ใช้เฉพาะ FilePreviewModal เมื่อผู้ใช้กด Preview
   const showControls = hover || selected || anySelected || menuOpen
   return (
     <div
@@ -421,65 +368,16 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
       {/* thumbnail */}
       {/* ⚠️ hatch/Shield แปลว่า "ระบบมองไม่เห็นเนื้อใน" (DESIGN.md ข้อ 1) โฟลเดอร์ไม่ใช่
           แบบนั้น จึงต้องไม่ยืมภาษาภาพนั้นมาใช้เพียงเพื่อให้ดูต่างจากไฟล์
-          ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จริงจากเส้นทาง preview (เจ้าของเท่านั้น, allowlist
-          ฝั่งเซิร์ฟเวอร์) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ */}
-      <div
-        data-thumb={thumbVariant}
-        data-motion={motion}
-        className={`h-24 rounded-[9px] flex items-center justify-center overflow-hidden ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
-      >
-        {thumbVariant === 'gif-poster' ? (
-          /* ⚠️ idle ของ GIF = poster นิ่งที่เบราว์เซอร์ถอดเอง (object URL ขนาดย่อ) ไม่ใช่ GIF จริง
-             ที่ซ่อนอยู่หลัง overlay — DOM ที่ผู้ใช้เห็นตอนนี้ไม่มีอะไรเคลื่อนไหวเลย */
-          <img
-            src={posterUrl}
-            alt=""
-            decoding="async"
-            draggable={false}
-            onError={() => setPoster({ identity, failed: true })}
-            className="size-full object-cover"
-          />
-        ) : thumbVariant === 'gif-static' ? (
-          /* ⚠️ ถอด poster ไม่ได้ (หรือยังถอดอยู่): ไม่โหลด GIF ที่เคลื่อนไหวตอน idle — <img> ของ
-             GIF เล่นเองทันทีที่โหลด จึงแสดง "ตัวแทนนิ่ง" ที่พูดความจริง: ไอคอนภาพ + ป้าย GIF */
-          <span className="relative inline-flex items-center justify-center">
-            <FileImage size={30} strokeWidth={1.2} className="text-ink-3" />
-            <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-[4px] border border-line bg-card px-1 text-[9px] font-semibold tracking-[0.06em] text-ink-3">GIF</span>
-          </span>
-        ) : previewKind === 'image' ? (
-          <img
-            src={apiUrl(previewPathFor(file))}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={() => setFailedIdentity(identity)}
-            className="size-full object-cover"
-          />
-        ) : previewKind === 'video' ? (
-          /* ⚠️ preload="metadata" + muted, ไม่มี autoplay และไม่มี controls: เบราว์เซอร์ขอแค่
-             ส่วนหัว (Range) เพื่อวาดเฟรมแรก การเล่นเกิดเฉพาะขณะชี้ (ดู effect ด้านบน) */
-          <video
-            ref={videoRef}
-            src={`${apiUrl(previewPathFor(file))}#t=0.1`}
-            preload="metadata"
-            muted
-            playsInline
-            loop
-            tabIndex={-1}
-            aria-hidden="true"
-            onError={() => setFailedIdentity(identity)}
-            className="size-full object-cover pointer-events-none"
-          />
-        ) : (
-          <Icon
-            size={isFolder ? 34 : 30}
-            strokeWidth={1.2}
-            className={isFolder ? 'text-accent' : 'text-ink-3'}
-            {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
-          />
-        )}
-      </div>
+          ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จาก derivative ของเซิร์ฟเวอร์ (เจ้าของเท่านั้น, allowlist ฝั่งเซิร์ฟเวอร์,
+          ไม่ดึงต้นฉบับเข้ากริด) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ */}
+      <MediaThumb
+        t={t}
+        file={file}
+        Icon={Icon}
+        hover={hover}
+        iconProps={{ size: isFolder ? 34 : 30, strokeWidth: 1.2, className: isFolder ? 'text-accent' : 'text-ink-3', ...(isFolder ? { fill: 'var(--accent-soft)' } : {}) }}
+        className={`h-24 rounded-[9px] ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
+      />
 
       <div className="mt-2.5 flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -741,6 +639,8 @@ export function FilesSections({
   onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef, onSelectionChange,
 }) {
   const dragActive = draggingIds.length > 0
+  // หนึ่ง scheduler + หนึ่ง media-info client ต่อหน้า Files (Tranche B) — ทิ้งตอน unmount
+  const mediaRuntime = useOwnedMediaRuntime()
   // ทะเบียน element ของไทล์ (ต่อ id) สำหรับ hit-test ของ marquee — ส่งต่อให้ tileRef ของหน้าด้วย
   const tileEls = useRef(new Map())
   const canvasRef = useRef(null)
@@ -808,6 +708,7 @@ export function FilesSections({
     tileRef: registerTile(file.id),
   })
   return (
+    <MediaProvider scheduler={mediaRuntime.scheduler} client={mediaRuntime.client}>
     <div
       ref={canvasRef}
       data-marquee-canvas=""
@@ -852,6 +753,7 @@ export function FilesSections({
         </section>
       )}
     </div>
+    </MediaProvider>
   )
 }
 
