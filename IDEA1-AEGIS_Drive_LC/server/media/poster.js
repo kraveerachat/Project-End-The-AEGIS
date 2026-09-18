@@ -22,19 +22,9 @@ const SHARP_STILL_FAMILIES = new Set(['jpeg', 'png', 'webp', 'avif'])
 const VIDEO_FAMILIES = new Set(['mp4', 'webm'])
 
 /** ข้อผิดพลาดของงาน media ที่ Task 6/7 ใช้ตัดสิน retry: class + reason คงที่, detail มีขอบเขต */
-export class MediaJobError extends Error {
-  /** @param {{ class: 'PERMANENT'|'TRANSIENT', reason: string, detail?: object, cause?: unknown }} opts */
-  constructor({ class: cls, reason, detail = null, cause }) {
-    super(`${cls} ${reason}`)
-    this.name = 'MediaJobError'
-    this.class = cls
-    this.reason = reason
-    this.detail = detail
-    if (cause !== undefined) this.cause = cause
-  }
-}
-const permanent = (reason, detail) => new MediaJobError({ class: 'PERMANENT', reason, detail })
-const transient = (reason, detail) => new MediaJobError({ class: 'TRANSIENT', reason, detail })
+// MediaJobError อยู่ใน errors.js (ใช้ร่วมกับ probe/motion) — re-export ไว้ให้ผู้เรียกเดิม
+import { MediaJobError, permanent, transient, cancelled } from './errors.js'
+export { MediaJobError }
 
 /** เวลาที่ใช้ดึงเฟรม poster ของวิดีโอ: clamp(0.05·duration, 0.5 s, 3 s) แต่ไม่เกิน duration เอง */
 export function videoPosterSeekSeconds(durationSeconds) {
@@ -122,9 +112,12 @@ async function encodeWithSharp({ absPath, tmpPath, limits, sharp, quality }) {
   }
 }
 
-async function sharpPoster({ absPath, tmpPath, limits, sharp }) {
+async function sharpPoster({ absPath, tmpPath, limits, sharp, signal }) {
+  if (signal?.aborted) throw cancelled({ engine: 'sharp' })
   let info = await encodeWithSharp({ absPath, tmpPath, limits, sharp, quality: POSTER_QUALITY.primary })
   let bytes = await statBytes(tmpPath)
+  // sharp ไม่มี child ให้ฆ่า — ตรวจ signal หลัง encode แล้วทิ้งผลลัพธ์แทน (ไม่ promote ของที่ shutdown กลางคัน)
+  if (signal?.aborted) { await removeTmp(tmpPath); throw cancelled({ engine: 'sharp' }) }
   if (bytes > limits.posterMaxBytes) {
     // ลองใหม่ที่คุณภาพต่ำลง "ครั้งเดียว" — ไม่มีลูปปรับคุณภาพไม่รู้จบ
     info = await encodeWithSharp({ absPath, tmpPath, limits, sharp, quality: POSTER_QUALITY.retry })
@@ -140,15 +133,18 @@ async function sharpPoster({ absPath, tmpPath, limits, sharp }) {
 }
 
 /* ── ffmpeg path ─────────────────────────────────────────────────────────── */
-async function runFfmpegOnce({ absPath, tmpPath, limits, runner, ffmpegBin, encoder, quality, seekSeconds }) {
+async function runFfmpegOnce({ absPath, tmpPath, limits, runner, ffmpegBin, encoder, quality, seekSeconds, signal }) {
   let result
   try {
-    result = await runner.run({ bin: ffmpegBin, args: ffmpegPosterArgs({ absPath, tmpPath, limits, encoder, quality, seekSeconds }), timeoutMs: limits.posterTimeoutMs })
+    result = await runner.run({ bin: ffmpegBin, args: ffmpegPosterArgs({ absPath, tmpPath, limits, encoder, quality, seekSeconds }), timeoutMs: limits.posterTimeoutMs, signal })
   } catch (err) {
     await removeTmp(tmpPath)
+    if (signal?.aborted) throw cancelled({ engine: 'ffmpeg', thrown: true })
     if (err?.code === 'ENOENT') throw permanent('ENCODER_UNAVAILABLE', { bin: ffmpegBin })
     throw classifyFsError(err) ?? permanent('DECODE_FAILED', { engine: 'ffmpeg', message: truncateUtf8Bytes(err?.message, STDERR_DETAIL_BYTES) })
   }
+  // ⚠️ ยกเลิกเพราะ shutdown มาก่อน exit code: child ถูก TERM โดย runner (เจ้าของ kill คนเดียว) ไม่ใช่ความล้มเหลวของสื่อ
+  if (signal?.aborted) { await removeTmp(tmpPath); throw cancelled({ engine: 'ffmpeg', killed: Boolean(result.killed) }) }
   if (result.timedOut) { await removeTmp(tmpPath); throw transient('TIMEOUT', { timedOut: true, killed: Boolean(result.killed), timeoutMs: limits.posterTimeoutMs }) }
   if (result.code !== 0) {
     await removeTmp(tmpPath)
@@ -157,11 +153,11 @@ async function runFfmpegOnce({ absPath, tmpPath, limits, runner, ffmpegBin, enco
   return statBytes(tmpPath)
 }
 
-async function ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin }) {
+async function ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin, signal }) {
   if (!capabilities?.ffmpeg?.ok) throw permanent('ENCODER_UNAVAILABLE', { engine: 'ffmpeg', cause: 'FFMPEG_UNAVAILABLE' })
   const encoder = capabilities?.encoders?.libwebp ? 'libwebp' : 'png'
   const seekSeconds = VIDEO_FAMILIES.has(probe.family) ? videoPosterSeekSeconds(probe.durationSeconds) : 0
-  const base = { absPath, tmpPath, limits, runner, ffmpegBin, encoder, seekSeconds }
+  const base = { absPath, tmpPath, limits, runner, ffmpegBin, encoder, seekSeconds, signal }
   let bytes = await runFfmpegOnce({ ...base, quality: POSTER_QUALITY.primary })
   if (bytes > limits.posterMaxBytes) {
     bytes = await runFfmpegOnce({ ...base, quality: POSTER_QUALITY.retry })
@@ -185,10 +181,10 @@ async function ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, run
 /**
  * สร้าง poster ลง tmpPath — ผู้เรียก (Task 7) rename เข้า cache เอง
  * @param {{ absPath: string, probe: object, tmpPath: string, limits: object, capabilities: object,
- *           runner: { run: Function }, sharp?: Function|null, ffmpegBin?: string }} o
+ *           runner: { run: Function }, sharp?: Function|null, ffmpegBin?: string, signal?: AbortSignal }} o
  * @returns {Promise<{ file: string, mime: string, width: number, height: number, bytes: number, engine: 'sharp'|'ffmpeg' }>}
  */
-export async function generatePoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp = null, ffmpegBin = 'ffmpeg' }) {
+export async function generatePoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp = null, ffmpegBin = 'ffmpeg', signal = null }) {
   if (typeof absPath !== 'string' || !absPath || typeof tmpPath !== 'string' || !tmpPath) throw permanent('DECODE_FAILED', { message: 'absPath and tmpPath are required' })
   if (!probe || probe.unsupported) throw permanent('DECODE_FAILED', { message: 'probe result missing or unsupported' })
   // ── เลือกเครื่องยนต์จากหลักฐานการเคลื่อนไหวของ probe (spec §8, §10.1) ──
@@ -200,7 +196,7 @@ export async function generatePoster({ absPath, probe, tmpPath, limits, capabili
   const stillViaSharp = stillFamily && sharpUsable && (probe.animated === false || (probe.animated === null && !capabilities?.ffmpeg?.ok))
   if (stillViaSharp) {
     try {
-      return await sharpPoster({ absPath, tmpPath, limits, sharp })
+      return await sharpPoster({ absPath, tmpPath, limits, sharp, signal })
     } catch (err) {
       await removeTmp(tmpPath)
       throw err
@@ -208,7 +204,7 @@ export async function generatePoster({ absPath, probe, tmpPath, limits, capabili
   }
   if (!capabilities?.ffmpeg?.ok) throw permanent('ENCODER_UNAVAILABLE', { engine: 'ffmpeg', cause: 'FFMPEG_UNAVAILABLE', sharpAvailable: Boolean(capabilities?.sharp?.ok && sharp) })
   try {
-    return await ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin })
+    return await ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin, signal })
   } catch (err) {
     await removeTmp(tmpPath)
     throw err

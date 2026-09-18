@@ -10,13 +10,11 @@
 // ⚠️ ไม่มีการ spawn โปรเซสเองที่นี่ (ผ่าน runner เท่านั้น), ไม่มี shell, เขียนเฉพาะ tmpPath (Task 7 rename เข้า cache)
 
 import fsp from 'node:fs/promises'
-import { MediaJobError } from './poster.js'
+import { MediaJobError, permanent, transient, cancelled } from './errors.js'
 import { truncateUtf8Bytes } from './probe.js'
 
 export const MOTION_ENCODE = Object.freeze({ preset: 'veryfast', crf: 28, maxrate: '1200k', bufsize: '2400k', gop: 24, profile: 'main', level: '3.1' })
 const STDERR_DETAIL_BYTES = 512
-const permanent = (reason, detail) => new MediaJobError({ class: 'PERMANENT', reason, detail })
-const transient = (reason, detail) => new MediaJobError({ class: 'TRANSIENT', reason, detail })
 
 /**
  * อาร์กิวเมนต์ FFmpeg ของ motion proxy — แหล่งเดียวของ array นี้ (spec §9)
@@ -70,7 +68,7 @@ const removeTmp = (tmpPath) => fsp.rm(tmpPath, { force: true }).catch(() => {})
  *           runner: { run: Function }, ffmpegBin?: string }} o
  * @returns {Promise<{ file: 'motion.mp4', mime: 'video/mp4', width: number, height: number, fps: number, seconds: number, bytes: number, engine: 'ffmpeg' }>}
  */
-export async function generateMotion({ absPath, probe, tmpPath, limits, capabilities, runner, ffmpegBin = 'ffmpeg' }) {
+export async function generateMotion({ absPath, probe, tmpPath, limits, capabilities, runner, ffmpegBin = 'ffmpeg', signal = null }) {
   if (typeof absPath !== 'string' || !absPath || typeof tmpPath !== 'string' || !tmpPath) throw permanent('ENCODE_FAILED', { message: 'absPath and tmpPath are required' })
   if (!probe || probe.unsupported) throw permanent('ENCODE_FAILED', { message: 'probe result missing or unsupported' })
   if (probe.animated === false) throw permanent('NOT_ANIMATED', { family: probe.family, evidence: probe.animationEvidence ?? null })
@@ -83,13 +81,16 @@ export async function generateMotion({ absPath, probe, tmpPath, limits, capabili
 
   let result
   try {
-    result = await runner.run({ bin: ffmpegBin, args: motionArgs({ absPath, tmpPath, limits }), timeoutMs: limits.motionTimeoutMs })
+    result = await runner.run({ bin: ffmpegBin, args: motionArgs({ absPath, tmpPath, limits }), timeoutMs: limits.motionTimeoutMs, signal })
   } catch (err) {
     await removeTmp(tmpPath)
+    if (signal?.aborted) throw cancelled({ thrown: true })
     if (err?.code === 'ENOENT') throw permanent('ENCODER_UNAVAILABLE', { bin: ffmpegBin })
     if (err && ['ENOSPC', 'EDQUOT', 'EIO'].includes(err.code)) throw transient('DISK', { code: err.code })
     throw permanent('ENCODE_FAILED', { message: truncateUtf8Bytes(err?.message, STDERR_DETAIL_BYTES) })
   }
+  // ⚠️ ยกเลิกเพราะ shutdown มาก่อน exit code — runner ฆ่า child ไปแล้ว ที่นี่แค่ทิ้ง tmp และรายงานว่า "ถูกยกเลิก"
+  if (signal?.aborted) { await removeTmp(tmpPath); throw cancelled({ killed: Boolean(result.killed) }) }
   if (result.timedOut) { await removeTmp(tmpPath); throw transient('TIMEOUT', { timedOut: true, killed: Boolean(result.killed), timeoutMs: limits.motionTimeoutMs }) }
   if (result.code !== 0) {
     await removeTmp(tmpPath)

@@ -12,6 +12,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { PRIORITY, QueueFullError } from './queue.js'
 import { MediaJobError } from './poster.js'
+import { cancelled, isCancelled } from './errors.js'
 import { probeMedia } from './probe.js'
 import { generatePoster } from './poster.js'
 import { generateMotion } from './motion.js'
@@ -88,10 +89,13 @@ export function createDerivativeService({
   }
 
   /* ── jobs ─────────────────────────────────────────────────────────────── */
-  async function ensureProbe(sha, abs, ext) {
+  async function ensureProbe(sha, abs, ext, signal) {
     const cached = await cache.readProbe(sha)
     if (cached && cached.probeVersion) return cached
-    const result = await gen.probe({ absPath: abs, ext, limits, capabilities, runner, metadataProvider: sharp ? { metadataFor: (p) => sharp(p).metadata() } : null, ffprobeBin })
+    signal?.throwIfAborted?.()
+    const result = await gen.probe({ absPath: abs, ext, limits, capabilities, runner, metadataProvider: sharp ? { metadataFor: (p) => sharp(p).metadata() } : null, ffprobeBin, signal })
+    // ⚠️ probe ที่จบหลัง abort ไปแล้วอาจเป็นผลของ child ที่ถูก TERM — ไม่บันทึกอะไรทั้งสิ้น
+    if (signal?.aborted) throw cancelled({ stage: 'probe' })
     await cache.writeProbe(sha, result)
     if (result.unsupported) {
       const st = await loadState(sha)
@@ -114,13 +118,15 @@ export function createDerivativeService({
     return { state: MEDIA_STATE.RETRYABLE, attempts, reason, nextRetryAt: new Date(now() + backoff).toISOString() }
   }
 
-  async function runGeneration(sha, type, abs, probe) {
+  async function runGeneration(sha, type, abs, probe, signal) {
     const paths = cache.paths(sha)
     const generate = gen[type]
     let result = null
     let finalPath = null
     await cache.writeAtomic(type === 'motion' ? paths.motion : paths.poster('webp'), async (tmpPath) => {
-      result = await generate({ absPath: abs, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin })
+      result = await generate({ absPath: abs, probe, tmpPath, limits, capabilities, runner, sharp, ffmpegBin, signal })
+      // generator ที่ไม่รู้จัก signal (ของปลอม/รุ่นเก่า) อาจคืนผลหลัง abort — ทิ้งผลก่อน rename เข้า cache
+      if (signal?.aborted) throw cancelled({ stage: type })
       finalPath = type === 'motion' ? paths.motion : paths.poster(result.file.split('.').pop())
     })
     // PNG fallback ของ FFmpeg (ไม่มี libwebp): ผลถูก rename ไปที่ชื่อ webp ก่อน จึงย้ายไปชื่อจริงตามที่ generator รายงาน
@@ -128,9 +134,10 @@ export function createDerivativeService({
     return result
   }
 
-  function runJob(sha, type, row, abs, ext, priority) {
+  function runJob(sha, type, row, abs, ext, priority, signal = null) {
     const promise = (async () => {
-      const probe = await ensureProbe(sha, abs, ext)
+      signal?.throwIfAborted?.()
+      const probe = await ensureProbe(sha, abs, ext, signal)
       if (probe.unsupported) return false
       if (type === 'motion' && probe.animated !== true) {
         await saveSub(sha, 'motion', { state: MEDIA_STATE.UNSUPPORTED, reason: probe.animated === false ? 'NOT_ANIMATED' : 'ANIMATION_UNKNOWN' })
@@ -138,7 +145,7 @@ export function createDerivativeService({
       }
       const before = (await loadState(sha))[type]
       try {
-        const result = await runGeneration(sha, type, abs, probe)
+        const result = await runGeneration(sha, type, abs, probe, signal)
         await saveSub(sha, type, {
           state: MEDIA_STATE.READY, file: result.file, mime: result.mime, width: result.width, height: result.height, bytes: result.bytes,
           attempts: (before.attempts ?? 0) + 1, generatedAt: new Date(now()).toISOString(), reason: null, nextRetryAt: null, engine: result.engine,
@@ -149,6 +156,8 @@ export function createDerivativeService({
         if (type === 'poster' && probe.animated === true) tryEnqueue(sha, 'motion', row, abs, ext, priority)
         return true
       } catch (err) {
+        // ⚠️ shutdown ไม่ใช่ความล้มเหลว: ไม่บันทึก GENERATION_FAILED/RETRYABLE ไม่นับ attempt — สถานะคง PENDING ให้รอบหน้าสร้างใหม่
+        if (isCancelled(err) || signal?.aborted) return false
         await saveSub(sha, type, recordFailure(before, err, sha, type))
         if (!(err instanceof MediaJobError)) log(`[media] ${type} job ${sha.slice(0, 12)} failed unexpectedly: ${err?.message ?? err}`)
         return false
@@ -167,7 +176,7 @@ export function createDerivativeService({
   function tryEnqueue(sha, type, row, abs, ext, priority) {
     const k = key(sha, type)
     if (queue.has(k)) { queue.promote(k, priority); return { enqueued: true, deduplicated: true } }
-    const { promise } = queue.enqueue(k, priority, () => runJob(sha, type, row, abs, ext, priority))
+    const { promise } = queue.enqueue(k, priority, ({ signal }) => runJob(sha, type, row, abs, ext, priority, signal))
     let full = false
     const tracked = promise.then(() => {}, (err) => { if (err instanceof QueueFullError) full = true })
     inflight.add(tracked); tracked.finally(() => inflight.delete(tracked))
@@ -338,7 +347,9 @@ export function createDerivativeService({
   }
   async function stop() {
     if (stopEviction) { stopEviction(); stopEviction = null }
+    // ⚠️ ลำดับ: ปิดคิว (ไม่รับงานใหม่ + abort งานที่วิ่ง) → "รอ" ให้งานที่วิ่งอยู่เก็บกวาด (child ตาย, tmp ถูกลบ) จึงคืน
     await queue.shutdown({ reason: 'stop' })
+    await drain()
     started = false
   }
   const drain = () => Promise.all([...inflight]).then(() => (inflight.size ? drain() : undefined))

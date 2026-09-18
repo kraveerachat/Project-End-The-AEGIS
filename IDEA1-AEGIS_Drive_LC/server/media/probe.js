@@ -12,6 +12,7 @@
 
 import fsp from 'node:fs/promises'
 import { isPreviewableExtension } from '../config/previewMedia.js'
+import { cancelled } from './errors.js'
 
 export const PROBE_VERSION = 1
 const HEADER_BYTES = 65_536
@@ -157,12 +158,14 @@ function ffprobeBaseArgs(limits) {
 }
 
 /** อ่านสูงสุดสอง packet แรก (หนึ่ง packet ต่อหนึ่งภาพใน GIF/animated WebP) แล้วหยุด — ไม่มี -count_frames */
-async function twoPacketCount({ absPath, runner, limits, ffprobeBin }) {
+async function twoPacketCount({ absPath, runner, limits, ffprobeBin, signal }) {
   const result = await runner.run({
     bin: ffprobeBin,
     args: [...ffprobeBaseArgs(limits), '-read_intervals', '%+#2', '-show_packets', '-print_format', 'json', absPath],
     timeoutMs: limits.probeTimeoutMs,
+    signal,
   })
+  if (signal?.aborted) throw cancelled({ stage: 'probe-packets' })
   if (result.timedOut) return { count: null, timedOut: true }
   if (result.code !== 0) return { count: null, timedOut: false }
   try {
@@ -177,8 +180,8 @@ async function twoPacketCount({ absPath, runner, limits, ffprobeBin }) {
  * GIF: สอง packet → เคลื่อนไหว, หนึ่ง packet แล้วจบ → นิ่ง, timeout/ล้มเหลว → null
  * (NETSCAPE loop extension เป็นแค่คำใบ้ ไม่ใช่หลักฐาน — ไม่ถูกใช้ตัดสิน)
  */
-export async function probeGifAnimation({ absPath, runner, limits, ffprobeBin = 'ffprobe' }) {
-  const { count, timedOut } = await twoPacketCount({ absPath, runner, limits, ffprobeBin })
+export async function probeGifAnimation({ absPath, runner, limits, ffprobeBin = 'ffprobe', signal = null }) {
+  const { count, timedOut } = await twoPacketCount({ absPath, runner, limits, ffprobeBin, signal })
   if (timedOut) return { animated: null, evidence: 'gif-probe-timeout' }
   if (count === null) return { animated: null, evidence: 'gif-probe-failed' }
   if (count >= 2) return { animated: true, evidence: 'gif-second-packet' }
@@ -221,13 +224,16 @@ function headerDimensions(family, buf) {
   }
 }
 
-async function toolStreamInfo({ absPath, runner, limits, capabilities, ffprobeBin }) {
+async function toolStreamInfo({ absPath, runner, limits, capabilities, ffprobeBin, signal }) {
   if (!capabilities?.ffprobe?.ok) return { error: { cause: 'FFPROBE_UNAVAILABLE' } }
   const result = await runner.run({
     bin: ffprobeBin,
     args: [...ffprobeBaseArgs(limits), '-select_streams', 'v:0', '-show_streams', '-show_format', '-print_format', 'json', absPath],
     timeoutMs: limits.probeTimeoutMs,
+    signal,
   })
+  // ⚠️ shutdown กลาง probe = ยกเลิก ไม่ใช่ PROBE_FAILED (ห้ามเขียน probe.json ที่บอกว่าไฟล์ใช้ไม่ได้)
+  if (signal?.aborted) throw cancelled({ stage: 'probe-streams' })
   if (result.timedOut) return { error: { cause: 'PROBE_TIMEOUT', timedOut: true } }
   if (result.code !== 0) return { error: { cause: 'FFPROBE_EXIT', exitCode: result.code, stderr: truncateUtf8Bytes(result.stderr, STDERR_DETAIL_BYTES) } }
   let parsed
@@ -267,7 +273,7 @@ function unsupported(reason, extra = {}) {
  *           readHeader?: (absPath: string, bytes: number) => Promise<Buffer>, ffprobeBin?: string, now?: () => Date }} opts
  * @returns {Promise<object>} ProbeResult (spec §13.3) — `unsupported:true` with `reason` when refused
  */
-export async function probeMedia({ absPath, ext, limits, capabilities, runner, metadataProvider = null, readHeader = defaultReadHeader, ffprobeBin = 'ffprobe', now = () => new Date() }) {
+export async function probeMedia({ absPath, ext, limits, capabilities, runner, metadataProvider = null, readHeader = defaultReadHeader, ffprobeBin = 'ffprobe', now = () => new Date(), signal = null }) {
   const lowerExt = String(ext ?? '').toLowerCase()
   if (!isPreviewableExtension(lowerExt)) return unsupported('UNSUPPORTED_TYPE')
   const expected = FAMILY_BY_EXT[lowerExt]
@@ -300,7 +306,7 @@ export async function probeMedia({ absPath, ext, limits, capabilities, runner, m
       } catch { /* provider เป็นตัวช่วย ไม่ใช่ตัวตัดสิน — ถ้าล้มเหลวตกไปใช้ ffprobe */ }
     }
     if (!dims || isVideo || (family === 'avif' && tool === null)) {
-      tool = await toolStreamInfo({ absPath, runner, limits, capabilities, ffprobeBin })
+      tool = await toolStreamInfo({ absPath, runner, limits, capabilities, ffprobeBin, signal })
       if (tool.error) {
         if (!dims || isVideo) return unsupported('PROBE_FAILED', { family, detail: tool.error })
         tool = null
@@ -348,7 +354,7 @@ export async function probeMedia({ absPath, ext, limits, capabilities, runner, m
     }
     case 'gif':
       rule = capabilities?.ffprobe?.ok
-        ? await probeGifAnimation({ absPath, runner, limits, ffprobeBin })
+        ? await probeGifAnimation({ absPath, runner, limits, ffprobeBin, signal })
         : { animated: null, evidence: 'gif-probe-unavailable' }
       break
     case 'avif':
