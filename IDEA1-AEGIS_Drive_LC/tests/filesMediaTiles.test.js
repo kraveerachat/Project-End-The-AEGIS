@@ -972,3 +972,122 @@ test('GI-NO-GIFPOSTER no browser-side poster pipeline remains in the grid: no gi
   try { grep = execFileSync('git', ['grep', '-l', 'gifPoster', '--', 'src', 'server'], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim() } catch (err) { if (err.status !== 1) throw err }
   assert.equal(grep, '', 'no gifPoster reference left in src/ or server/')
 })
+
+/* ════════════════════════════════════════════════════════════════════════════
+   C0 · PARTIAL-motion polling (Tranche C) — poster READY while motion still generating must keep polling
+   ═══════════════════════════════════════════════════════════════════════════ */
+const infoPartial = (id, { motionState = 'PENDING', retryAfterMs = 20, topLevelRetry = undefined, family = 'gif' } = {}) => ({
+  id, sourceVersion: SHA_A, profile: 'v1', family, animated: true, status: 'PARTIAL',
+  ...(topLevelRetry !== undefined ? { retryAfterMs: topLevelRetry } : {}),
+  poster: { state: 'READY', url: `/api/files/${id}/poster?v=${SHA_A}&p=v1`, mime: 'image/webp' },
+  motion: { state: motionState, url: null, retryAfterMs, reason: motionState === 'RETRYABLE' ? 'QUEUE_FULL' : null },
+})
+const batchCount = (g) => g.fetched.filter((f) => f.url.endsWith('/media-info/batch')).length
+const wait = (ms) => act(async () => { await new Promise((r) => setTimeout(r, ms)); await flush() })
+
+test('C0-RT runtime repoll: visible → hover before motion ready → PARTIAL(poster READY, motion PENDING) → runtime sends a SECOND batch by itself → READY → video gets the opaque URL → canplay → play() with no re-enter', async () => {
+  let phase = 'partial'
+  const g = await mountGrid({ info: (id) => (phase === 'partial' ? infoPartial(id, { retryAfterMs: 20 }) : infoReady(id, { animated: true, family: 'gif' })) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1')
+    await g.mouse(tileOf('g1'), 'mouseenter') // pointer in BEFORE anything is ready
+    await g.enter(th, 'visible')
+    assert.equal(batchCount(g), 1, 'first media-info batch')
+    const img = th.querySelector('img'); assert.ok(img, 'poster from the PARTIAL answer')
+    await g.fire(img, 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    assert.equal(th.querySelector('video'), null, 'no motion URL yet')
+    assert.deepEqual(g.media.calls, [])
+    phase = 'ready'
+    await wait(1300) // ≥ 1 s backoff floor, no manual INFO_LOADED
+    assert.equal(batchCount(g), 2, 'the runtime re-polled on its own (RED at 40658295: stays 1)')
+    assert.equal(th.getAttribute('data-poster'), 'shown', 'poster never disappeared across the poll')
+    const v = th.querySelector('video')
+    assert.ok(v, 'scheduler released the motion slot after the READY answer')
+    assert.equal(v.getAttribute('src'), `/api/files/g1/motion-preview?v=${SHA_A}&p=v1`)
+    await g.fire(v, 'canplaythrough')
+    assert.deepEqual(g.media.calls, ['play'], 'auto-start: pointer never left')
+    assert.equal(th.getAttribute('data-motion'), 'playing')
+    assert.equal(th.getAttribute('data-thumb'), 'motion')
+    await wait(1300)
+    assert.equal(batchCount(g), 2, 'READY ends polling')
+  } finally { await g.unmount() }
+})
+
+test('C0-1/C0-3/C0-4 reducer: PARTIAL + motion PENDING stays pollable (info pending, poster shown, posterSrc unchanged); READY later supplies the opaque motion URL', () => {
+  let s = run(init(), [{ type: 'VISIBILITY', band: 'visible' }, { type: 'INFO_REQUESTED' }, { type: 'INFO_LOADED', info: infoPartial('f', { retryAfterMs: 500 }), now: 1000 }, { type: 'POSTER_LOADED' }])
+  assert.equal(s.info, 'pending'); assert.equal(s.poster, 'shown')
+  assert.equal(T().selectors.posterSrc(s), `/api/files/f/poster?v=${SHA_A}&p=v1`)
+  assert.equal(s.nextInfoAt, 2000, 'retryAfterMs 500 < 1 s floor → +1000')
+  assert.equal(T().selectors.wantsInfo(s, 1999), false); assert.equal(T().selectors.wantsInfo(s, 2000), true)
+  assert.equal(T().selectors.dataAttrs(s)['data-poster'], 'shown'); assert.equal(T().selectors.dataAttrs(s)['data-info'], 'pending')
+  s = run(s, [{ type: 'INFO_REQUESTED' }])
+  assert.equal(s.poster, 'shown', 'poster survives the re-request')
+  s = run(s, [{ type: 'INFO_LOADED', info: infoReady('f', { animated: true, family: 'gif' }), now: 2100 }])
+  assert.equal(s.info, 'ready'); assert.equal(s.poster, 'shown'); assert.equal(s.motionAvailability, 'available')
+  assert.equal(T().selectors.wantsMotionPrefetch(s), true)
+  assert.equal(T().selectors.wantsInfo(s, 999_999), false)
+})
+
+test('C0-2 reducer: PARTIAL + motion RETRYABLE honours retryAfterMs (motion-level, then top-level), still bounded by the poll cap', () => {
+  const base = run(init(), [{ type: 'VISIBILITY', band: 'visible' }, { type: 'INFO_REQUESTED' }])
+  const a = run(base, [{ type: 'INFO_LOADED', info: infoPartial('f', { motionState: 'RETRYABLE', retryAfterMs: 5000 }), now: 0 }])
+  assert.equal(a.info, 'pending'); assert.equal(a.nextInfoAt, 5000)
+  const b = run(base, [{ type: 'INFO_LOADED', info: { ...infoPartial('f', { motionState: 'RETRYABLE', retryAfterMs: null }), retryAfterMs: 3000 }, now: 0 }])
+  assert.equal(b.nextInfoAt, 3000, 'top-level retryAfterMs when the motion block has none')
+  const c = run(base, [{ type: 'INFO_LOADED', info: infoPartial('f', { motionState: 'RETRYABLE', retryAfterMs: 60_000 }), now: 0 }])
+  assert.equal(c.nextInfoAt, 60_000, 'server may ask for longer waits')
+  let d = base
+  for (let i = 0; i < 6; i += 1) d = run(d, [{ type: 'INFO_REQUESTED' }, { type: 'INFO_LOADED', info: infoPartial('f', { retryAfterMs: 1 }), now: i * 20_000 }])
+  assert.equal(d.nextInfoAt - 5 * 20_000, T().PENDING_POLL_CAP_MS, 'doubling caps at PENDING_POLL_CAP_MS')
+})
+
+test('C0-6/C0-7 reducer: PARTIAL + motion UNSUPPORTED or GENERATION_FAILED is terminal (info ready, no polling loop), poster shown', () => {
+  for (const motionState of ['UNSUPPORTED', 'GENERATION_FAILED']) {
+    const s = run(init(), [{ type: 'VISIBILITY', band: 'visible' }, { type: 'INFO_REQUESTED' }, { type: 'INFO_LOADED', info: infoPartial('f', { motionState }), now: 0 }, { type: 'POSTER_LOADED' }])
+    assert.equal(s.info, 'ready', motionState); assert.equal(s.poster, 'shown')
+    assert.equal(T().selectors.wantsInfo(s, 999_999), false, `${motionState}: nothing left to discover`)
+    assert.equal(s.motionAvailability, 'unsupported'); assert.equal(T().selectors.wantsMotionPrefetch(s), false)
+  }
+})
+
+test('C0-8 reducer: the 120 s pending ceiling applies to PARTIAL polling too; hover restarts one round', () => {
+  let s = run(init(), [{ type: 'VISIBILITY', band: 'visible' }, { type: 'INFO_REQUESTED' }, { type: 'INFO_LOADED', info: infoPartial('f'), now: 0 }, { type: 'POSTER_LOADED' }])
+  for (let i = 1; i <= 12; i += 1) s = run(s, [{ type: 'INFO_REQUESTED' }, { type: 'INFO_LOADED', info: infoPartial('f'), now: i * 15_000 }])
+  assert.equal(s.info, 'pending'); assert.equal(s.poster, 'shown')
+  assert.equal(T().selectors.wantsInfo(s, 12 * 15_000 + 60_000), false, 'after PENDING_MAX_MS no more polls')
+  s = run(s, [{ type: 'HOVER_ENTER', now: 300_000 }])
+  assert.equal(T().selectors.wantsInfo(s, 300_000), true, 'hover restarts exactly one round')
+  assert.equal(s.poster, 'shown')
+})
+
+test('C0-9 runtime: reduced motion — PARTIAL → READY repoll happens, poster shown, but no video and no play', async () => {
+  let phase = 'partial'
+  const g = await mountGrid({ reducedMotion: true, info: (id) => (phase === 'partial' ? infoPartial(id) : infoReady(id, { animated: true, family: 'gif' })) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1')
+    await g.mouse(tileOf('g1'), 'mouseenter')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    phase = 'ready'
+    await wait(1300)
+    assert.equal(batchCount(g), 2)
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    assert.equal(th.querySelector('video'), null)
+    assert.deepEqual(g.media.calls, [])
+  } finally { await g.unmount() }
+})
+
+test('C0-10 runtime: MEDIA_ENABLED=false (UNSUPPORTED/MEDIA_DISABLED) still produces exactly one batch over 1.5 s — no retry storm', async () => {
+  const g = await mountGrid({ info: (id) => ({ id, status: 'UNSUPPORTED', reason: 'MEDIA_DISABLED', poster: { state: 'UNSUPPORTED', reason: 'MEDIA_DISABLED' }, motion: { state: 'UNSUPPORTED', reason: 'MEDIA_DISABLED' } }) })
+  try {
+    await g.render(sections({ files: [gifItem(), mp4()] }))
+    await g.mouse(tileOf('g1'), 'mouseenter')
+    await g.enterAll(['g1', 'v1'].map(thumbOf), 'visible')
+    await wait(1500)
+    assert.equal(batchCount(g), 1)
+    assert.equal(thumbOf('g1').getAttribute('data-info'), 'unsupported')
+  } finally { await g.unmount() }
+})

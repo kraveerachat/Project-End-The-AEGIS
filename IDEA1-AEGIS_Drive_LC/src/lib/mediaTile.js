@@ -52,20 +52,27 @@ function applyInfo(s, info, now) {
   } else if (m?.state === 'PENDING' || m?.state === 'RETRYABLE') {
     patch.motionAvailability = 'pending'
   }
-  switch (info.status) {
-    case 'READY': patch.info = 'ready'; patch.nextInfoAt = null; break
-    case 'PARTIAL': patch.info = 'ready'; patch.nextInfoAt = null; break
+  // PARTIAL = poster พร้อมแต่ motion ยังทำอยู่ — "ยังมีของให้ค้นพบ" จึงต้อง poll ต่อ (ตัวตนของ URL motion ยังไม่รู้)
+  //    ถ้า motion จบแล้ว (READY / UNSUPPORTED / GENERATION_FAILED) PARTIAL ก็ terminal เหมือน READY
+  const motionStillWorking = m?.state === 'PENDING' || m?.state === 'RETRYABLE'
+  const status = info.status === 'PARTIAL' ? (motionStillWorking ? 'PENDING' : 'READY') : info.status
+  switch (status) {
+    case 'READY': patch.info = 'ready'; patch.nextInfoAt = null; patch.pendingSince = null; patch.pollCount = 0; break
     case 'PENDING':
     case 'RETRYABLE': {
-      // ขอบเขตการ poll: เชื่อ retryAfterMs ของเซิร์ฟเวอร์ แต่ไม่ต่ำกว่า backoff ทวีคูณ (1 s → 15 s) และหยุดหลัง PENDING_MAX_MS (ดู wantsInfo)
-      const hint = Number.isFinite(info.retryAfterMs) && info.retryAfterMs > 0 ? info.retryAfterMs : (Number.isFinite(info.poster?.retryAfterMs) ? info.poster.retryAfterMs : 2000)
-      const pollCount = s.info === 'pending' ? s.pollCount + 1 : 0
+      // ขอบเขตการ poll: เชื่อ retryAfterMs ของเซิร์ฟเวอร์ (ของ motion ก่อน แล้วระดับบน แล้ว poster) แต่ไม่ต่ำกว่า backoff
+      //    ทวีคูณ (1 s → 15 s) และหยุดหลัง PENDING_MAX_MS (ดู wantsInfo) — poster ที่แสดงอยู่ไม่ถูกแตะ
+      const hintOf = (v) => (Number.isFinite(v) && v > 0 ? v : null)
+      const hint = (info.status === 'PARTIAL' ? hintOf(m?.retryAfterMs) : null) ?? hintOf(info.retryAfterMs) ?? hintOf(info.poster?.retryAfterMs) ?? hintOf(m?.retryAfterMs) ?? 2000
+      // รอบ poll ต่อเนื่อง (pending → loading → pending) นับต่อจากเดิม; รอบใหม่จริง ๆ (ยังไม่เคย pending) เริ่มที่ 0
+      const continuing = s.pendingSince != null
+      const pollCount = continuing ? s.pollCount + 1 : 0
       const wait = Math.max(hint, Math.min(PENDING_POLL_CAP_MS, 1000 * 2 ** pollCount))
-      patch.info = 'pending'; patch.nextInfoAt = at + wait; patch.pollCount = pollCount; patch.pendingSince = s.info === 'pending' && s.pendingSince != null ? s.pendingSince : at
+      patch.info = 'pending'; patch.nextInfoAt = at + wait; patch.pollCount = pollCount; patch.pendingSince = continuing ? s.pendingSince : at
       break
     }
-    case 'UNSUPPORTED': patch.info = 'unsupported'; patch.nextInfoAt = null; patch.motionAvailability = 'unsupported'; break
-    case 'GENERATION_FAILED': patch.info = 'failed'; patch.nextInfoAt = null; if (!posterUrl) patch.motionAvailability = 'unsupported'; break
+    case 'UNSUPPORTED': patch.info = 'unsupported'; patch.nextInfoAt = null; patch.pendingSince = null; patch.motionAvailability = 'unsupported'; break
+    case 'GENERATION_FAILED': patch.info = 'failed'; patch.nextInfoAt = null; patch.pendingSince = null; if (!posterUrl) patch.motionAvailability = 'unsupported'; break
     default: patch.info = 'failed'; patch.reason = 'malformed'
   }
   return next(s, patch)
@@ -93,8 +100,8 @@ export function tileReducer(s, e) {
     case 'HOVER_LEAVE': return s.hover ? next(s, { hover: false }) : s
     case 'INFO_REQUESTED': return next(s, { info: 'loading' })
     case 'INFO_LOADED': return applyInfo(s, e.info, e.now)
-    case 'INFO_FAILED': return next(s, { info: 'failed', reason: e.reason ?? 'network', nextInfoAt: null })
-    case 'INFO_RETRY': return s.info === 'failed' || s.info === 'pending' ? next(s, { info: 'unknown', nextInfoAt: null }) : s
+    case 'INFO_FAILED': return next(s, { info: 'failed', reason: e.reason ?? 'network', nextInfoAt: null, pendingSince: null })
+    case 'INFO_RETRY': return s.info === 'failed' || s.info === 'pending' ? next(s, { info: 'unknown', nextInfoAt: null, pendingSince: null, pollCount: 0 }) : s
     case 'POSTER_LOADED': return s.posterSrc ? next(s, { poster: 'shown' }) : s
     case 'POSTER_ERROR': return s.poster === 'shown' ? s : next(s, { poster: 'none', posterSrc: null, motionAvailability: s.motionAvailability })
     case 'MOTION_REQUESTED': return s.motionSrc && (s.motion === 'none') ? next(s, { motion: 'prefetching' }) : s
