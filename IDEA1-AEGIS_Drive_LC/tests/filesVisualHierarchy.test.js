@@ -189,10 +189,24 @@ test('R8-PREVIEW-1 · a supported normal image gets a real thumbnail source from
   assert.doesNotMatch(tileMarkup(image({ path: 'uploads/secret.bin' })), /uploads\//)
 })
 
-test('R8-PREVIEW-2 · GIF is a previewable image and is rendered as an image, not transcoded', () => {
+test('R8-PREVIEW-2 · GIF is a previewable image and is rendered as an image, not transcoded', async () => {
   const gif = image({ id: 'g1', name: 'loop.gif', ext: 'gif' })
   assert.equal(view.previewKindFor(gif), 'image')
-  assert.match(tileMarkup(gif), /<img[^>]*src="\/api\/files\/g1\/preview"/)
+  // Round 9: การ์ดตอนไม่ชี้เป็นตัวแทนนิ่ง (ไม่โหลด GIF ที่เคลื่อนไหว) — ดู filesInteractionPolish R9-MOTION-6/7
+  const idle = tileMarkup(gif)
+  assert.match(idle, /data-thumb="gif-static"/)
+  assert.doesNotMatch(idle, /<img/)
+  // GIF จริงถูกส่งเป็นภาพตรง ๆ จากเส้นทาง preview (ไม่แปลงไฟล์) — Preview modal แสดงมันเป็น <img>
+  const env = installDom()
+  try {
+    const { createRoot } = await import('react-dom/client')
+    const root = createRoot(document.getElementById('root'))
+    await act(async () => { root.render(React.createElement(files.FilePreviewModal, { t, file: gif, onClose: noop, onDownload: noop })) })
+    assert.equal(document.querySelector('[role="dialog"] img')?.getAttribute('src'), '/api/files/g1/preview')
+    await act(async () => root.unmount())
+  } finally {
+    env.restore()
+  }
 })
 
 test('R8-PREVIEW-3 · an unsupported type keeps the type icon and never requests bytes', () => {

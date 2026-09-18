@@ -87,6 +87,8 @@ function mapFileRow(r) {
   return {
     id: String(r.id), name: r.name, kind, type, ext, size: Number(r.size_bytes),
     parentId: r.parent_id == null ? null : String(r.parent_id),
+    // วันอัปโหลด = created_at ของแถว (ไม่ใช่ mtime บนดิสก์ ไม่ใช่เวลาที่จอโหลด) — ใช้เรียง "Uploaded"
+    created: new Date(r.created_at).getTime(),
     modified: new Date(r.modified_at).getTime(), uploader: r.uploader_name ?? 'system',
     ownerId: r.uploaded_by == null ? null : String(r.uploaded_by),
     vault: r.vault, verified: r.verified, sha256: r.sha256, path: r.path,
@@ -213,6 +215,7 @@ const files = [
 const DEV_OWNER_BY_NAME = { 'Veerachat J.': '1', 'Kanya Srisuwan': '2' }
 for (const f of files) {
   f.ownerId = DEV_OWNER_BY_NAME[f.uploader] ?? null
+  f.created = f.created ?? f.modified // แถวเดโม่ไม่มีบันทึกการอัปโหลดแยก — ใช้เวลาแก้ไขเป็นค่าที่ดีที่สุดที่มี
   f.deletedAt = null
   f.purgeAt = null
   f.deletedBy = null
@@ -739,7 +742,7 @@ export async function createFolder(name, user, parentId = null) {
   const row = {
     id: nextId('f'), name: safe, kind: 'folder', type: 'Folder', ext: '', size: 0,
     parentId: parentId == null ? null : String(parentId),
-    modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
+    created: Date.now(), modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
     vault: false, verified: true, sha256: null, path: `/datalake/${safe}`,
   }
   files.unshift(row)
@@ -1014,7 +1017,7 @@ export async function recordUpload({ name, storageKey, size, sha256, user, paren
   const row = {
     id: nextId('f'), name: safeName, kind: 'file', type, ext, size: Number(size) || 0,
     parentId: parentId == null ? null : String(parentId),
-    modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
+    created: Date.now(), modified: Date.now(), uploader: user.displayName, ownerId: String(user.id),
     vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
   }
   files.unshift(row)
@@ -2324,7 +2327,7 @@ export async function finishUploadCommit({
     row = {
       id: nextId('f'), name: safeName, kind: 'file', type, ext, size: Number(size) || 0,
       parentId: sessionParentId,
-      modified: Date.now(), uploader: user.displayName, ownerId: String(userId),
+      created: Date.now(), modified: Date.now(), uploader: user.displayName, ownerId: String(userId),
       vault: false, verified: true, sha256: sha256 ?? null, path: storageKey,
     }
     files.unshift(row)

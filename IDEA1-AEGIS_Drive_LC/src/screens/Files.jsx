@@ -12,7 +12,7 @@ import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
-import { filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -286,11 +286,36 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
   const Icon = isFolder && dropTarget ? FolderOpen : iconFor(file)
   const previewKind = thumbFailed ? null : previewKindFor(file)
+  // ── การเคลื่อนไหวเฉพาะตอนชี้ (Round 9) ────────────────────────────────
+  // ⚠️ หน้า Files ที่อยู่เฉย ๆ ต้องนิ่ง: GIF/วิดีโอที่ขยับตลอดเวลาในกริดคือเสียงรบกวน
+  //    และวิดีโอที่เล่นเองยังกินแบนด์วิดท์/CPU โดยไม่มีใครดู จึงเล่น "เฉพาะขณะชี้" —
+  //    และไม่เล่นอัตโนมัติเลยเมื่อผู้ใช้ขอ prefers-reduced-motion (Preview ในเมนูยังใช้ได้)
+  const reduced = useReducedMotion()
+  const isGif = previewKind === 'image' && String(file.ext).toLowerCase() === 'gif'
+  const animated = isGif || previewKind === 'video'
+  const motion = animated ? (hover && !reduced ? 'playing' : 'idle') : 'static'
+  const thumbVariant = previewKind === null ? 'icon' : isGif ? (motion === 'playing' ? 'gif' : 'gif-static') : previewKind
+  const videoRef = useRef(null)
+  const wasPlayingRef = useRef(false)
+  useEffect(() => {
+    const v = videoRef.current
+    const playing = previewKind === 'video' && motion === 'playing'
+    if (playing && v) {
+      wasPlayingRef.current = true
+      // play() คืน promise ที่ reject ได้ (เช่น ยังโหลด metadata ไม่เสร็จ) — ไม่ใช่ error ของเรา
+      Promise.resolve(v.play?.()).catch(() => {})
+    } else if (wasPlayingRef.current) {
+      // ออกจากการ์ด: หยุดทันทีและกรอกลับไปเฟรมแรก ให้การ์ดนิ่งเหมือนก่อนชี้
+      wasPlayingRef.current = false
+      if (v) { v.pause?.(); try { v.currentTime = 0 } catch { /* ยังไม่มี metadata ก็ไม่เป็นไร */ } }
+    }
+  }, [previewKind, motion])
   const showControls = hover || selected || anySelected || menuOpen
   return (
     <div
       ref={tileRef}
       data-file-kind={isFolder ? 'folder' : 'file'}
+      data-file-id={file.id}
       data-tile-variant="file-card"
       data-drop-target={dropTarget ? 'yes' : undefined}
       draggable
@@ -374,10 +399,19 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
           ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จริงจากเส้นทาง preview (เจ้าของเท่านั้น, allowlist
           ฝั่งเซิร์ฟเวอร์) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ */}
       <div
-        data-thumb={previewKind ?? 'icon'}
+        data-thumb={thumbVariant}
+        data-motion={motion}
         className={`h-24 rounded-[9px] flex items-center justify-center overflow-hidden ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
       >
-        {previewKind === 'image' ? (
+        {thumbVariant === 'gif-static' ? (
+          /* ⚠️ GIF ตอนไม่ชี้: ไม่โหลดไฟล์ที่เคลื่อนไหวเลย — <img> ของ GIF เล่นเองทันทีที่โหลด
+             และ stack นี้ไม่มีตัวสกัดเฟรมแรกฝั่งเซิร์ฟเวอร์ (ไม่เพิ่ม Sharp/FFmpeg เพื่อการนี้)
+             จึงแสดง "ตัวแทนนิ่ง" ที่พูดความจริง: ไอคอนภาพ + ป้าย GIF ว่าจะเล่นเมื่อชี้ */
+          <span className="relative inline-flex items-center justify-center">
+            <FileImage size={30} strokeWidth={1.2} className="text-ink-3" />
+            <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-[4px] border border-line bg-card px-1 text-[9px] font-semibold tracking-[0.06em] text-ink-3">GIF</span>
+          </span>
+        ) : previewKind === 'image' ? (
           <img
             src={apiUrl(previewPathFor(file))}
             alt=""
@@ -388,13 +422,15 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
             className="size-full object-cover"
           />
         ) : previewKind === 'video' ? (
-          /* ⚠️ preload="metadata" + muted, ไม่มี autoplay: เบราว์เซอร์ขอแค่ส่วนหัว (Range)
-             เพื่อวาดเฟรมแรก ไม่ใช่ดึงวิดีโอทั้งไฟล์ลงมาเพียงเพื่อโชว์ในกริด */
+          /* ⚠️ preload="metadata" + muted, ไม่มี autoplay และไม่มี controls: เบราว์เซอร์ขอแค่
+             ส่วนหัว (Range) เพื่อวาดเฟรมแรก การเล่นเกิดเฉพาะขณะชี้ (ดู effect ด้านบน) */
           <video
+            ref={videoRef}
             src={`${apiUrl(previewPathFor(file))}#t=0.1`}
             preload="metadata"
             muted
             playsInline
+            loop
             tabIndex={-1}
             aria-hidden="true"
             onError={() => setFailedIdentity(identity)}
@@ -438,6 +474,7 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
     <div
       ref={tileRef}
       data-file-kind="folder"
+      data-file-id={file.id}
       data-tile-variant="folder-compact"
       data-drop-target={dropTarget ? 'yes' : undefined}
       draggable
@@ -515,6 +552,81 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
 /* ── Folder-first sections (grid + list) ─────────────────────────── */
 // กฎเดียวกันทุกระดับของลำดับชั้น: โฟลเดอร์เป็นส่วนของตัวเองอยู่บน ไฟล์อยู่ล่าง
 // ส่วนที่ว่างถูกซ่อน (ผู้เรียกจัดการ Empty State เมื่อทั้งสองว่าง) ดู lib/filesView.js
+/* ── Marquee selection (Round 9) ─────────────────────────────────── */
+// ⚠️ ลากกรอบเลือกเริ่มได้จาก "พื้นที่ว่าง" ของกริดเท่านั้น — กดบนการ์ด/ไทล์/ปุ่ม/เมนู/ช่องกรอก
+//    ต้องไม่เริ่ม เพราะพวกนั้นมีความหมายของตัวเอง (ลากรายการ = ย้าย, ปุ่ม = คำสั่ง)
+//    มี threshold เล็ก ๆ ก่อนถือว่าเป็นการลาก คลิกเฉย ๆ บนพื้นที่ว่างจึงไม่ล้างการเลือก
+//    listener ทั้งหมดอยู่บน window "เฉพาะระหว่างลาก" และถูกถอดเมื่อจบ/ยกเลิก/unmount
+const MARQUEE_THRESHOLD_PX = 4
+const MARQUEE_IGNORE = '[data-file-kind], button, input, select, textarea, a, label, [role="menu"], [role="dialog"], [data-marquee-ignore]'
+const rectsIntersect = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+const sameSet = (a, b) => a.size === b.size && [...a].every((id) => b.has(id))
+
+function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelectionChange }) {
+  const [tracking, setTracking] = useState(false)   // ระหว่างกด-ลาก-ปล่อย
+  const [box, setBox] = useState(null)              // กรอบที่วาด (พิกัดสัมพัทธ์กับ canvas) หลังผ่าน threshold
+  const drag = useRef(null)
+  const latest = useRef({ selectedIds, onSelectionChange })
+  latest.current = { selectedIds, onSelectionChange }
+
+  const onPointerDown = (event) => {
+    if (!enabled || event.button !== 0 || event.pointerType === 'touch') return
+    if (event.target?.closest?.(MARQUEE_IGNORE)) return
+    drag.current = {
+      originX: event.clientX, originY: event.clientY,
+      additive: event.ctrlKey || event.metaKey,
+      snapshot: new Set(latest.current.selectedIds ?? []),
+      active: false,
+    }
+    setTracking(true)
+  }
+
+  useEffect(() => {
+    if (!tracking) return undefined
+    const finish = (cancelled) => {
+      const d = drag.current
+      drag.current = null
+      if (cancelled && d?.active) latest.current.onSelectionChange?.(new Set(d.snapshot))
+      setBox(null)
+      setTracking(false)
+    }
+    const onMove = (event) => {
+      const d = drag.current
+      if (!d) return
+      const dx = event.clientX - d.originX
+      const dy = event.clientY - d.originY
+      if (!d.active && Math.abs(dx) < MARQUEE_THRESHOLD_PX && Math.abs(dy) < MARQUEE_THRESHOLD_PX) return
+      d.active = true
+      const area = {
+        left: Math.min(d.originX, event.clientX), top: Math.min(d.originY, event.clientY),
+        right: Math.max(d.originX, event.clientX), bottom: Math.max(d.originY, event.clientY),
+      }
+      const canvas = canvasRef.current?.getBoundingClientRect?.() ?? { left: 0, top: 0 }
+      setBox({ left: area.left - canvas.left, top: area.top - canvas.top, width: area.right - area.left, height: area.bottom - area.top })
+      const hits = new Set(d.additive ? d.snapshot : [])
+      for (const [id, el] of tileEls.current) {
+        if (el && rectsIntersect(el.getBoundingClientRect(), area)) hits.add(id)
+      }
+      if (!sameSet(hits, latest.current.selectedIds ?? new Set())) latest.current.onSelectionChange?.(hits)
+    }
+    const onUp = () => finish(false)
+    const onCancel = () => finish(true)
+    const onKey = (event) => { if (event.key === 'Escape') finish(true) }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [tracking, canvasRef, tileEls])
+
+  return { onPointerDown, tracking, box }
+}
+
 function SectionHeading({ children }) {
   return (
     <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
@@ -590,9 +702,21 @@ function FileListRow({ t, file, now, index, dragActive, onOpen, onMenuAction, on
 
 export function FilesSections({
   t, view, folders, files, now, selectedIds, draggingIds,
-  onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef,
+  onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef, onSelectionChange,
 }) {
   const dragActive = draggingIds.length > 0
+  // ทะเบียน element ของไทล์ (ต่อ id) สำหรับ hit-test ของ marquee — ส่งต่อให้ tileRef ของหน้าด้วย
+  const tileEls = useRef(new Map())
+  const canvasRef = useRef(null)
+  const registerTile = (id) => (el) => {
+    if (el) tileEls.current.set(id, el)
+    else tileEls.current.delete(id)
+    tileRef?.(id)?.(el)
+  }
+  const marquee = useMarqueeSelection({
+    enabled: view === 'grid' && typeof onSelectionChange === 'function',
+    canvasRef, tileEls, selectedIds, onSelectionChange,
+  })
   if (view !== 'grid') {
     const groupRow = (key, label) => (
       <tr key={`section-${key}`} data-files-section-row={key} className="bg-sunken/60">
@@ -645,10 +769,28 @@ export function FilesSections({
     selected: selectedIds.has(file.id),
     anySelected: selectedIds.size > 0,
     onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, dragActive,
-    tileRef: tileRef(file.id),
+    tileRef: registerTile(file.id),
   })
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      ref={canvasRef}
+      data-marquee-canvas=""
+      onPointerDown={marquee.onPointerDown}
+      className="relative flex flex-col gap-6 min-h-[50vh]"
+      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
+    >
+      {marquee.box && (
+        <div
+          data-marquee-rect=""
+          aria-hidden="true"
+          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
+          style={{
+            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
+            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
+            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+          }}
+        />
+      )}
       {folders.length > 0 && (
         <section data-files-section="folders" aria-label={t('sectionFolders')}>
           <SectionHeading>{t('sectionFolders')}</SectionHeading>
@@ -768,7 +910,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const ancestors = placeholderMode ? [] : (filesApi.data?.ancestors ?? [])
   const fetchError = visibleFetchError(filesApi.error, placeholderMode)
 
-  const [sort, setSort] = useState('modified')
+  const [sort, setSort] = useState(DEFAULT_SORT)
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [uploadOpen, setUploadOpen] = useState(Boolean(navigationParams.uploadOpen))
@@ -1049,9 +1191,9 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         </div>
         <div className="w-40">
           <PillSelect aria-label={t('sortBy')} value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="modified">{t('sortModified')}</option>
-            <option value="name">{t('sortName')}</option>
-            <option value="size">{t('sortSize')}</option>
+            {SORT_MODES.map((mode) => (
+              <option key={mode} value={mode}>{t(SORT_LABEL_KEYS[mode])}</option>
+            ))}
           </PillSelect>
         </div>
         <Btn variant="outline" onClick={() => { setFolderModal(true); setMutateError(false) }}>
@@ -1116,6 +1258,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           onDragStartItem={startItemDrag}
           onDragEndItem={() => setDraggingIds([])}
           onDropItems={dropItemsInto}
+          onSelectionChange={setSelectedIds}
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
         />
       )}
