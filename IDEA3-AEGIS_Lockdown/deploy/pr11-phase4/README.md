@@ -181,3 +181,38 @@ remove it after an explicitly authorized provisioning operation.
 This repository task proves schema/profile parity and safe material rendering
 only. It does not prove live G-11 provisioning, ESP32 flashing, physical relay
 behavior, NVS encryption, D4 recovery, or Production readiness.
+
+## 6. T5 private AP network — repository implementation
+
+T5 is repository-only work for G-01, G-02, G-03, G-04, and G-06.
+No live AP, host-network, nftables, DHCP/DNS, ESP32 flash, or ESP32 NVS mutation occurred.
+
+```text
+T5_REPOSITORY_IMPLEMENTED      = YES
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+AP_CREATED                   = NO
+ESP32_FLASH                  = NO
+ESP32_NVS_WRITE              = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+L2_L3_L4                     = NOT RUN
+```
+
+### T5 repository artifacts
+
+- `p4-ap-network.py` renders repository-only AP network material.
+- NetworkManager AP, dnsmasq DHCP/DNS, nftables, and forwarding-disabled templates are repository contracts only.
+- `tests/test_pr11_phase4_ap_network.py` covers T5 regression behavior.
+- `tests/p4_pf02_dnsmasq_netns.py` performs the isolated PF-02 namespace proof.
+
+### Evidence boundary
+
+PF-01 proves the repository firewall contract denies AP-side plaintext MQTT TCP/1883 and rejects unsafe accept/NAT variants. It does not prove live nftables state.
+
+PF-02 uses only synthetic interfaces inside a fresh user/network namespace. It proved AP-side DNS/DHCP service behavior, uplink-side NO_REPLY, no real-interface use, and cleanup PASS.
+
+PF-02 does not prove a live Wi-Fi AP, live DHCP/DNS, real ESP32 association, or live firewall state.
+
+### Live boundary
+
+L2 firewall/forwarding, L3 AP activation, and L4 AP addressing/DHCP remain separate live stages requiring fresh authorization and preservation evidence.

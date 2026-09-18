@@ -1,0 +1,16 @@
+# AEGIS IDEA3 AP DHCP/Core-local DNS — TEMPLATE, NOT DEPLOYED.
+# Owner network values are rendered only for an explicitly reviewed live stage.
+
+interface=<AEGIS_AP_INTERFACE>
+bind-interfaces
+
+dhcp-range=<AEGIS_DHCP_START>,<AEGIS_DHCP_END>,<AEGIS_AP_NETMASK>
+
+# ESP32 must not receive an Internet/default-gateway route.
+dhcp-option=option:router
+
+# Core-local DNS only.
+dhcp-option=option:dns-server,<AEGIS_AP_ADDRESS>
+no-resolv
+no-hosts
+address=/<AEGIS_BROKER_HOSTNAME>/<AEGIS_AP_ADDRESS>
