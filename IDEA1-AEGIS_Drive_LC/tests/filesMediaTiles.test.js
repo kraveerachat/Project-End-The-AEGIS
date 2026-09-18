@@ -967,6 +967,8 @@ test('GI-NO-GIFPOSTER no browser-side poster pipeline remains in the grid: no gi
   try { await fs.access(new URL('../src/lib/gifPoster.js', import.meta.url)) } catch { gone = true }
   assert.equal(gone, true, 'src/lib/gifPoster.js deleted')
   const { execFileSync } = await import('node:child_process')
-  const grep = execFileSync('git', ['grep', '-l', 'gifPoster', '--', 'src', 'server'], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim()
-  assert.equal(grep, '')
+  // git grep exits 1 when nothing matches — that is the expected outcome here
+  let grep = ''
+  try { grep = execFileSync('git', ['grep', '-l', 'gifPoster', '--', 'src', 'server'], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim() } catch (err) { if (err.status !== 1) throw err }
+  assert.equal(grep, '', 'no gifPoster reference left in src/ or server/')
 })
