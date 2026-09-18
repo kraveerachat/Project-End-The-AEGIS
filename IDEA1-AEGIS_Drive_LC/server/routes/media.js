@@ -34,6 +34,8 @@ const auditAct = (req, action, target, result = 'OK') =>
   })
 
 const noStore = (res) => res.setHeader('Cache-Control', 'private, no-store')
+// ⚠️ ตั้ง no-store ก่อน requireAuth เสมอ — 401/403 จาก middleware ก็ต้องไม่ถูก cache; คำตอบ ready เขียนทับทีหลัง
+const noStoreFirst = (req, res, next) => { noStore(res); next() }
 
 /**
  * ด่านเจ้าของ (แบบเดียวกับ /preview): คืน { file } หรือส่งคำตอบไปแล้ว (คืน null)
@@ -107,7 +109,7 @@ function sendServeResult(req, res, result, type, limits) {
 }
 
 /* ── media-info ──────────────────────────────────────────────────────────── */
-mediaRouter.get('/files/:id/media-info', requireAuth, async (req, res, next) => {
+mediaRouter.get('/files/:id/media-info', noStoreFirst, requireAuth, async (req, res, next) => {
   try {
     const file = await ownedFileOr404(req, res, req.params.id)
     if (!file) return
@@ -116,7 +118,7 @@ mediaRouter.get('/files/:id/media-info', requireAuth, async (req, res, next) => 
   } catch (err) { next(err) }
 })
 
-mediaRouter.post('/files/media-info/batch', requireAuth, async (req, res, next) => {
+mediaRouter.post('/files/media-info/batch', noStoreFirst, requireAuth, async (req, res, next) => {
   try {
     const ids = req.body?.ids
     noStore(res)
@@ -145,7 +147,7 @@ mediaRouter.post('/files/media-info/batch', requireAuth, async (req, res, next) 
 
 /* ── binary derivatives ─────────────────────────────────────────────────── */
 for (const [segment, type] of Object.entries(TYPE_BY_ROUTE)) {
-  mediaRouter.get(`/files/:id/${segment}`, requireAuth, async (req, res, next) => {
+  mediaRouter.get(`/files/:id/${segment}`, noStoreFirst, requireAuth, async (req, res, next) => {
     try {
       const file = await ownedFileOr404(req, res, req.params.id)
       if (!file) return
@@ -162,14 +164,14 @@ for (const [segment, type] of Object.entries(TYPE_BY_ROUTE)) {
 }
 
 /* ── admin ──────────────────────────────────────────────────────────────── */
-mediaRouter.get('/admin/media-cache/status', requireAuth, requireRole(ROLES.ADMIN), async (req, res, next) => {
+mediaRouter.get('/admin/media-cache/status', noStoreFirst, requireAuth, requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
     noStore(res)
     res.json(await req.app.get('mediaService').adminStatus())
   } catch (err) { next(err) }
 })
 
-mediaRouter.delete('/admin/media-cache/entries/:sha256', requireAuth, requireRole(ROLES.ADMIN), async (req, res, next) => {
+mediaRouter.delete('/admin/media-cache/entries/:sha256', noStoreFirst, requireAuth, requireRole(ROLES.ADMIN), async (req, res, next) => {
   try {
     noStore(res)
     const sha = String(req.params.sha256)
