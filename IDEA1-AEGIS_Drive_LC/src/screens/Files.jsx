@@ -1037,6 +1037,7 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
     if (ids.length === 0 || mutating) return false
     setMutating(true)
     setActionError(null)
+    setDropError(false)
     const res = await apiFetch('/api/files/move', { method: 'POST', body: { ids, parentId } })
     setMutating(false)
     if (!res.ok) { setActionError(errorKeyFor(res)); return false }
@@ -1068,6 +1069,10 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         (2) ขณะอยู่ในโฟลเดอร์เท่านั้น — ที่รากการวางลง "Files" คือ ALREADY_THERE ที่ไร้ความหมาย
         สำเร็จแล้วค่อยพาไปที่ราก ล้มเหลวอยู่ที่เดิม (actionError ตามความหมายเดิม) */
   const [rootDropTarget, setRootDropTarget] = useState(false)
+  // ⚠️ actionError ถูกวาดเฉพาะในกล่อง Rename/Move — การวางบน breadcrumb ไม่เปิดกล่องใด
+  //    ถ้าเซิร์ฟเวอร์ปฏิเสธ (409 ชื่อซ้ำ ฯลฯ) ผู้ใช้ต้องเห็นเหตุผลตรงที่เขาวาง ไม่ใช่เงียบ
+  //    dropError = "โชว์ actionError ล่าสุดใต้ breadcrumb" และหายเมื่อการย้ายครั้งถัดไปเริ่ม
+  const [dropError, setDropError] = useState(false)
   const rootDropEligible = folderId != null && draggingIds.length > 0
   const rootDragOver = (event) => {
     if (!rootDropEligible || isExternalFileDrag(event.dataTransfer)) return
@@ -1083,8 +1088,10 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
     const ids = readDragPayload(event.dataTransfer)
     setDraggingIds([])
     if (ids.length === 0) return
+    setDropError(false)
     const ok = await moveItems(ids, null)
     if (ok) goToFolder(null)
+    else setDropError(true)
   }
 
   /** เปิดโฟลเดอร์ = เปลี่ยนตำแหน่งจริง; ไฟล์ = เปิดแผงรายละเอียดเหมือนเดิม */
@@ -1237,6 +1244,12 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           )
         })}
       </nav>
+      {dropError && actionError && (
+        /* ข้อความเดียวกับที่กล่อง Move ใช้ (errorKeyFor) — แค่วาดตรงที่ผู้ใช้เพิ่งวางแทนที่จะเงียบ */
+        <p role="alert" className="text-[12.5px] font-medium -mt-2 mb-4" style={{ color: 'var(--danger)' }}>
+          {t(actionError)}
+        </p>
+      )}
 
       {/* toolbar */}
       <div className="flex items-center gap-2.5 mb-5 flex-wrap">

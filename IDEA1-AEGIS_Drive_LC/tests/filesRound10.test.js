@@ -269,7 +269,7 @@ async function mountFilesScreen(m, { moveStatus = 200, moveDelayMs = 0 } = {}) {
   const B = fileItem({ id: 'B', name: 'b.pdf', parentId: 'd1' })
   const C = fileItem({ id: 'C', name: 'c.pdf', parentId: 'd1' })
   const D = fileItem({ id: 'D', name: 'd.pdf', parentId: 'd1' })
-  const state = { root: [folderItem(), fileItem({ id: 'X', name: 'x.pdf' })], inFolder: [A, B, C, D], gets: [], moves: [] }
+  const state = { root: [folderItem(), fileItem({ id: 'X', name: 'x.pdf' })], inFolder: [A, B, C, D], gets: [], moves: [], moveStatus }
   const json = (status, body) => ({ ok: status < 400, status, json: async () => body })
   const W = m.W
   globalThis.fetch = W.fetch = async (url, init = {}) => {
@@ -278,7 +278,7 @@ async function mountFilesScreen(m, { moveStatus = 200, moveDelayMs = 0 } = {}) {
       const body = JSON.parse(init.body)
       state.moves.push(body)
       if (moveDelayMs) await sleep(moveDelayMs)
-      if (moveStatus !== 200) return json(moveStatus, { error: 'refused', code: 'NAME_TAKEN' })
+      if (state.moveStatus !== 200) return json(state.moveStatus, { error: 'refused', code: 'NAME_TAKEN' })
       // ย้ายจริงในชุดข้อมูลจำลอง
       const moved = state.inFolder.filter((f) => body.ids.includes(f.id))
       state.inFolder = state.inFolder.filter((f) => !body.ids.includes(f.id))
@@ -465,5 +465,113 @@ test('R10-ROOTDROP-12 · the Move dialog "All files" path still moves to root th
     await act(async () => { await sleep(40) })
     assert.deepEqual(s.state.moves, [{ ids: ['A'], parentId: null }])
     assert.equal(s.atRoot(), false, 'กล่อง Move เดิมไม่เปลี่ยนตำแหน่ง — พฤติกรรมเดิม')
+  } finally { await m.unmount() }
+})
+/* ══ Round 10 · review correction 1 ════════════════════════════════════════ */
+
+const ACCEPTANCE_GIF_BYTES = 49_700_000 // ไฟล์ GIF จริงที่ Human Owner ใช้ยอมรับบน Production (~49.7 MB)
+
+test('R10-SR1-A · the real ~49.7 MB acceptance GIF is eligible for a static poster and gets one when decode succeeds', async () => {
+  const m = await mountRoot()
+  try {
+    await m.render(tile(gif({ size: ACCEPTANCE_GIF_BYTES })))
+    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster', 'ห้ามตกไปเป็นไอคอนเพียงเพราะขนาด 49.7 MB')
+    assert.ok(posterImg())
+    assert.equal(m.stats.bitmaps, 1)
+    assert.ok(m.stats.fetched.some((u) => u.endsWith('/api/files/g1/preview')))
+  } finally { await m.unmount() }
+})
+
+test('R10-SR1-B · a GIF above the poster ceiling still falls back truthfully; one exactly at the ceiling is decoded', async () => {
+  const { GIF_POSTER_MAX_BYTES } = await vite.ssrLoadModule('/src/lib/gifPoster.js')
+  assert.ok(GIF_POSTER_MAX_BYTES >= ACCEPTANCE_GIF_BYTES, `เพดาน poster (${GIF_POSTER_MAX_BYTES}) ต้องครอบไฟล์ยอมรับจริง`)
+  const m = await mountRoot()
+  try {
+    await m.render(tile(gif({ id: 'over', name: 'over.gif', size: GIF_POSTER_MAX_BYTES + 1 })))
+    assert.equal(thumb().getAttribute('data-thumb'), 'gif-static', 'เกินเพดาน → ไอคอน + ป้าย GIF')
+    assert.equal(m.stats.fetched.length, 0, 'เกินเพดานต้องไม่ดึงทรัพยากรเลย')
+    assert.equal(m.stats.bitmaps, 0)
+    await hover(m)()
+    assert.ok(previewImg(), 'ชี้แล้วยังเล่น GIF จริงได้ — เพดานเป็นเรื่องของ poster ตอน idle เท่านั้น')
+    await leave(m)()
+    await m.render(tile(gif({ id: 'at', name: 'at.gif', size: GIF_POSTER_MAX_BYTES })))
+    assert.equal(thumb().getAttribute('data-thumb'), 'gif-poster')
+    assert.equal(m.stats.bitmaps, 1)
+  } finally { await m.unmount() }
+})
+
+test('R10-SR1-C · the poster ceiling is a preview-only bound: no upload/transfer limit references it', async () => {
+  const fs = await import('node:fs/promises')
+  const { GIF_POSTER_MAX_BYTES } = await vite.ssrLoadModule('/src/lib/gifPoster.js')
+  const read = (rel) => fs.readFile(new URL(`../${rel}`, import.meta.url), 'utf8')
+  for (const rel of ['server/config/transferLimits.js', 'server/storage/fileStore.js', 'server/routes/uploads.js', 'src/lib/chunkedUpload.js', 'src/components/UploadDrawer.jsx']) {
+    const src = await read(rel)
+    assert.doesNotMatch(src, /GIF_POSTER|gifPoster/, `${rel} ต้องไม่รู้จักเพดาน poster`)
+  }
+  const limits = await read('server/config/transferLimits.js')
+  assert.doesNotMatch(limits, new RegExp(String(GIF_POSTER_MAX_BYTES)), 'ตัวเลขเพดาน poster ต้องไม่ปรากฏในเพดานอัปโหลด')
+  const { TRANSFER_LIMITS } = await import('../server/config/transferLimits.js')
+  assert.ok(TRANSFER_LIMITS.maxLogicalBytes ?? TRANSFER_LIMITS.maxFileBytes ?? Object.values(TRANSFER_LIMITS).some((v) => typeof v === 'number'), 'เพดานอัปโหลดยังมีอยู่ตามเดิม')
+})
+
+test('R10-SR1-D · object URL / bitmap / canvas cleanup still holds for the large acceptance case', async () => {
+  const m = await mountRoot()
+  try {
+    await m.render(tile(gif({ size: ACCEPTANCE_GIF_BYTES })))
+    await m.render(tile(gif({ id: 'g2', name: 'b.gif', size: ACCEPTANCE_GIF_BYTES })))
+    assert.equal(m.stats.created, 2)
+    assert.equal(m.stats.revoked, 1)
+    await act(async () => m.root.unmount())
+    assert.equal(m.stats.revoked, m.stats.created)
+    assert.equal(m.stats.closed, m.stats.bitmaps)
+    m.env.restore(); m.unmount = async () => {}
+  } finally { await m.unmount() }
+})
+
+test('R10-SR2-A..E · a 409 on root-breadcrumb drop stays in the folder, keeps the selection, clears the highlight and shows a visible mapped error', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await mountFilesScreen(m, { moveStatus: 409 })
+    await s.enterFolder()
+    await m.mouse(s.checkbox('A'), 'click')
+    await m.mouse(s.checkbox('B'), 'click')
+    const getsBefore = s.state.gets.length
+    const dt = internalTransfer()
+    await m.drag(s.tileOf('A'), 'dragstart', dt)
+    await m.drag(s.rootCrumb(), 'dragover', dt)
+    await m.drag(s.rootCrumb(), 'drop', dt)
+    await act(async () => { await sleep(60) })
+    assert.equal(s.state.moves.length, 1, 'A: มีคำขอ move หนึ่งครั้งที่ถูกปฏิเสธ 409')
+    assert.equal(s.atRoot(), false, 'B: ยังอยู่ในโฟลเดอร์เดิม')
+    assert.ok(!s.state.gets.slice(getsBefore).includes(null), 'C: ไม่ดึงราก/ไม่นำทาง')
+    assert.equal(s.rootCrumb().getAttribute('data-drop-target'), null, 'ไฮไลต์หาย')
+    assert.equal(s.selectedCount(), 2, 'รายการที่พยายามย้ายยังถูกเลือกอยู่ — แสดงสถานะตามจริง')
+    const alert = [...document.querySelectorAll('[role="alert"]')].find((el) => !el.closest('[role="dialog"]'))
+    assert.ok(alert, 'D: ต้องมีข้อความผิดพลาดที่มองเห็นได้นอก modal')
+    assert.equal(alert.textContent.trim(), t('nameTaken'), 'E: ข้อความมาจาก errorKeyFor (NAME_TAKEN → nameTaken)')
+    assert.equal(document.querySelector('[role="dialog"]'), null, 'ไม่เปิดกล่อง Move เพียงเพื่อโชว์ error')
+  } finally { await m.unmount() }
+})
+
+test('R10-SR2-F · the next successful move clears the stale drop error', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await mountFilesScreen(m, { moveStatus: 409 })
+    await s.enterFolder()
+    const dt = internalTransfer()
+    await m.drag(s.tileOf('A'), 'dragstart', dt)
+    await m.drag(s.rootCrumb(), 'dragover', dt)
+    await m.drag(s.rootCrumb(), 'drop', dt)
+    await act(async () => { await sleep(60) })
+    assert.ok([...document.querySelectorAll('[role="alert"]')].some((el) => !el.closest('[role="dialog"]')))
+    // เซิร์ฟเวอร์ยอมรับครั้งถัดไป
+    s.state.moveStatus = 200
+    const dt2 = internalTransfer()
+    await m.drag(s.tileOf('B'), 'dragstart', dt2)
+    await m.drag(s.rootCrumb(), 'dragover', dt2)
+    await m.drag(s.rootCrumb(), 'drop', dt2)
+    await act(async () => { await sleep(80) })
+    assert.equal(s.atRoot(), true)
+    assert.equal([...document.querySelectorAll('[role="alert"]')].filter((el) => !el.closest('[role="dialog"]')).length, 0, 'สำเร็จแล้ว error เก่าต้องหาย')
   } finally { await m.unmount() }
 })
