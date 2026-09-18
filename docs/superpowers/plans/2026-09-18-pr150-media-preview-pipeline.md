@@ -48,6 +48,10 @@ PR150_READY_DURING_IMPLEMENTATION=NO
 - Tracked `IDEA1-AEGIS_Drive_LC/dist/` is never rebuilt in a commit: build to verify, then `git checkout -q -- IDEA1-AEGIS_Drive_LC/dist && git clean -fdXq IDEA1-AEGIS_Drive_LC/dist && git clean -fdq IDEA1-AEGIS_Drive_LC/dist`.
 - No large binary fixtures are committed: every media fixture is generated at test time by `tests/helpers/mediaFixtures.mjs` (sharp/FFmpeg) or is a sparse file made by `fs.truncate`; fixtures live under `os.tmpdir()` and are deleted in `after()`.
 - FFmpeg-gated tests skip with the marker `# SKIP media-tools-unavailable` when the capability probe reports tools missing; the Linux verification gate (Task 17) requires `MEDIA_SKIP=0` (no such skips) the same way it requires `PR150_POSTGRES_SKIP=0`.
+- Toolchain provenance: the **authoritative** large-media/resource evidence (Task 16) runs inside a container created from the Task 15 candidate image (`MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE`). Host FFmpeg/sharp may be used for development and for the unit/integration suites of Tasks 4–8 during TDD, and any host run of Task 16 is recorded as `HOST_TOOLCHAIN_RESULT=SUPPLEMENTAL`; it never substitutes for the candidate-tool PASS.
+- Kill switch: `MEDIA_ENABLED=false` means no `ffmpeg`/`ffprobe` spawn, no sharp work, no queue start, `scheduleForFile() === false`, `media-info → 200 { status:'UNSUPPORTED', reason:'MEDIA_DISABLED' }`, poster/motion → `415 { error, code:'MEDIA_DISABLED' }`, `/healthz` healthy with `media.enabled=false, reason='MEDIA_DISABLED'`; every other Files/upload/download behaviour unchanged. The same wire mapping is used when tools are missing (`reason='TOOLS_MISSING'` in health only).
+- Retry contract (spec §13.5): `MAX_TRANSIENT_RETRIES=3`, `MAX_TOTAL_ATTEMPTS=4`, backoff 1 min → 5 min → 30 min, PERMANENT never retries.
+- One preview allowlist: `server/config/previewMedia.js` is the only definition of the previewable extension set (jpg/jpeg/png/gif/webp/avif/bmp/mp4/webm — unchanged, no SVG/HEIC/PDF); `routes/api.js` (preview), `media/derivatives.js` and `routes/media.js` all import it; `derivatives.js` never imports `routes/api.js`.
 - All commands below run from `IDEA1-AEGIS_Drive_LC/` unless a path says otherwise; `node --test --test-concurrency=1 --test-reporter=tap` is the counting form (Node 24 needs `--test-reporter=tap` for reliable counts).
 - Existing accepted baselines: broad suite 1574/1489/1 fail/84 skip with the single `PS6-ENV-4` reporter-sensitivity failure at `tests/publicShareStageBCredentialPlumbing.test.js:233`; `npm audit` 8 (5 moderate, 3 high, 0 critical). New work must not add failures or advisories; a new dependency that raises the audit count stops Task 15 for review.
 
@@ -59,21 +63,25 @@ Every new file has exactly one responsibility. "Tests" names the suite that owns
 
 | File | Purpose | Imports / dependencies | Public interface | Tests |
 |---|---|---|---|---|
+| `server/config/previewMedia.js` (create, Task 4) | The single preview allowlist, extracted behaviour-preservingly from the private `PREVIEW_MIME` in `routes/api.js`. | none (pure) | `PREVIEW_MIME` (the exact frozen object that lives in `api.js` today), `PREVIEW_EXTENSIONS` (frozen array of its keys), `previewExtForName(name)` (lower-cased last extension, or `null` when the name has no dot), `previewMimeForName(name)`, `isPreviewableExtension(ext)` | `tests/mediaProbe.test.js` (`FP-ALLOWLIST-PARITY`) + `tests/filesPreviewRoute.test.js` (unchanged 5/5) |
 | `server/config/mediaLimits.js` (create) | Validate every `MEDIA_*` environment value at construction (same pattern as `transferLimits.js`: invalid → throw), expose profile version and frozen limits. | none (pure) | `MEDIA_PROFILE_VERSION = 'v1'`; `mediaLimitsFromEnv(env = process.env)` → frozen `MediaLimits`; `MEDIA_DEFAULTS` (frozen defaults object); `MediaLimits` shape: `{ enabled, cacheDir, cacheMaxBytes, cacheLowWater, cacheFreeReserveBytes, cachePolicy: 'immutable'\|'revalidate', workers, decoderThreads, filterThreads, encoderThreads, maxSourcePixels, maxVideoFramePixels, posterBox: {width,height}, motionBox: {width,height}, motionFps, motionMaxSeconds, probesizeBytes, posterMaxBytes, motionMaxBytes, probeTimeoutMs, posterTimeoutMs, motionTimeoutMs, queueMax, stillEngine: 'sharp'\|'ffmpeg', batchMaxIds, profile }` | `tests/mediaLimits.test.js` |
 
 ### Server — `server/media/`
 
 | File | Purpose | Imports / dependencies | Public interface | Tests |
 |---|---|---|---|---|
+| `disabledService.js` (create, Task 1) | The explicit "media not available" service used by `createApp`'s default and by the `MEDIA_ENABLED=false` / tools-missing boot paths; implements the full service interface with no side effects. | none | `disabledMediaService(limits, reason = 'MEDIA_SERVICE_NOT_INJECTED')` → object with the same methods as `createDerivativeService()` where `info()` → `{ status:'UNSUPPORTED', reason:'MEDIA_DISABLED' }` (or `NOT_FOUND` for vault/folder rows — same object-hiding), `serve()` → `{ kind:'disabled' }`, `scheduleForFile()` → `false`, `init/start/stop` no-ops, `health()` → `{ enabled:false, reason, cacheVolume:'unknown' }`, `adminStatus()` → `{ enabled:false, reason }` | `tests/mediaCapabilities.test.js` (`MC-10..12`), `tests/mediaRoutes.test.js` (`MR-DISABLED`) |
 | `capabilities.js` (create) | Detect FFmpeg/FFprobe/sharp presence and the encoder/decoder set at boot; produce a frozen capability object; never throw. | `processRunner.js`; dynamic `import('sharp')` | `detectCapabilities({ runner, ffmpegBin = 'ffmpeg', ffprobeBin = 'ffprobe', loadSharp = () => import('sharp'), timeoutMs = 10000 })` → `Capabilities`; `CAPABILITIES_NONE` (all `ok:false`, `enabled:false`); `Capabilities` shape: `{ enabled, ffmpeg: {ok, version}, ffprobe: {ok, version}, encoders: {libx264, libwebp}, decoders: {gif, apng, webp, webpAnimated, av1, h264, vp8, vp9}, sharp: {ok, version, avif}, reasons: string[] }` (`enabled = ffmpeg.ok && ffprobe.ok`; sharp optional) | `tests/mediaCapabilities.test.js` |
 | `processRunner.js` (create) | The only place that spawns child processes: `execFile`-style argument arrays, `shell:false`, minimal env, bounded stdio, TERM→KILL timeout, optional Linux `/proc` metrics; never returns media bytes. | `node:child_process`, `node:fs` | `createProcessRunner({ env = MINIMAL_CHILD_ENV, cwd, metrics = process.platform === 'linux' })` → `{ run({ bin, args, timeoutMs, killGraceMs = 2000, stdioCapBytes = 65536, signal }) → Promise<RunResult> }`; `MINIMAL_CHILD_ENV = { PATH, HOME: '/tmp', LANG: 'C' }` (frozen; no other keys copied); `RunResult = { code, signal, stdout, stderr, timedOut, killed, durationMs, metrics: { rchar, readBytes, vmHwmKb } \| null }`; throws `TypeError` if any arg is not a string or contains `\0` | `tests/mediaProcessRunner.test.js` |
 | `queue.js` (create) | Generic bounded, de-duplicated, prioritized job queue with fixed worker slots. | none | `createJobQueue({ concurrency = 1, maxDepth = 500, now = Date.now })` → `{ enqueue(key, priority, run) → { promise, deduplicated }, promote(key, priority), has(key), size(), running(), stats(), shutdown({ reason }) }`; `PRIORITY = { INTERACTIVE: 0, UPLOAD: 1, WARMUP: 2 }`; `QueueFullError`; `run` receives `{ signal }` and must observe it | `tests/mediaQueue.test.js` |
+| `mountInfo.js` (create, Task 2) | Decide whether the resolved cache directory is a real mountpoint by parsing `/proc/self/mountinfo`; no device-id heuristics. | `node:fs/promises`, `node:path` | `detectMountState({ target, mountInfoPath = '/proc/self/mountinfo', platform = process.platform, access = fs.access })` → `'volume' \| 'ephemeral' \| 'unknown'`; `parseMountInfo(text)` → array of `{ mountId, parentId, root, mountPoint }` with octal escapes (`\\040`, `\\011`, `\\012`, `\\134`) decoded | `tests/mediaMountInfo.test.js` |
 | `cache.js` (create) | Content-addressed cache layout, key validation, atomic writes, state/probe JSON, tmp cleanup, scan; knows nothing about media or HTTP. | `node:fs/promises`, `node:path`, `node:crypto` | `createMediaCache({ root, profile, storageRoot })` → `{ root, profile, isValidSha256(s), entryDir(sha), paths(sha) → { dir, probe, state, poster: (ext) => path, motion, tmpDir }, readState(sha), writeState(sha, state), readProbe(sha), writeProbe(sha, probe), writeAtomic(finalPath, produce: (tmpPath) => Promise<void>), statDerivative(sha, type) → { path, bytes, mime } \| null, touch(sha, at), cleanupTmp({ olderThanMs }), scanEntries() → AsyncIterable<{ sha, profile, bytes, lastAccess }>, removeEntry(sha), staleProfileDirs() }`; constructor throws if `root` is inside `storageRoot` or `profile` is not `/^v\d+$/` | `tests/mediaCache.test.js` |
 | `probe.js` (create) | Sniff family from bytes, run the bounded family-specific animation rule, gather dimensions, produce `probe.json`; rejects family/extension mismatch and dimension guards. | `processRunner.js` (ffprobe), optional sharp, `node:fs/promises` | `probeMedia({ absPath, ext, limits, capabilities, runner, sharp })` → `ProbeResult`; `sniffFamily(headerBytes, ext)` → `'jpeg'\|'png'\|'webp'\|'avif'\|'bmp'\|'gif'\|'mp4'\|'webm'\|null`; family rules exported for unit tests: `probeGifAnimation`, `probeWebpAnimation`, `probeApngAnimation`, `probeAvifAnimation`; `ProbeResult` = spec §13.3 (`animated: true\|false\|null`, `animationEvidence`) or `{ unsupported: true, reason }` with `reason ∈ { FAMILY_MISMATCH, DIMENSIONS, PROBE_FAILED, NO_CONTENT_IDENTITY }` | `tests/mediaProbe.test.js` |
 | `poster.js` (create) | Produce one static poster (WebP; PNG only when `libwebp` is absent) into a tmp path using sharp or FFmpeg per family/engine switch. | `processRunner.js`, optional sharp | `generatePoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp })` → `{ file: 'poster.webp'\|'poster.png', mime, width, height, bytes }`; throws `MediaJobError` (`{ class: 'PERMANENT'\|'TRANSIENT', reason }`) | `tests/mediaPoster.test.js` |
 | `motion.js` (create) | Produce one motion proxy MP4 into a tmp path with FFmpeg. | `processRunner.js` | `generateMotion({ absPath, probe, tmpPath, limits, capabilities, runner })` → `{ file: 'motion.mp4', mime: 'video/mp4', width, height, fps, seconds, bytes }`; `motionArgs(...)` exported (pure) for argument-contract tests; throws `MediaJobError` | `tests/mediaMotion.test.js` |
 | `eviction.js` (create) | In-memory LRU index of cache entries and the high/low-water eviction pass with pinning. | `cache.js` | `createEvictor({ cache, limits, isPinned, now = Date.now, log })` → `{ buildIndex(), record(sha, bytes, at), touch(sha, at), totalBytes(), runIfNeeded() → { evicted, bytesFreed }, evictTo(targetBytes), schedule(intervalMs) → stop() }` | `tests/mediaEviction.test.js` |
-| `derivatives.js` (create) | The media service: state machine per `(sha, type)`, probe→poster/motion dependencies, retry classes, cache lookups, media-info projection, serve descriptors, upload scheduling, admin status, invalidate. Owns nothing about HTTP framing. | `cache.js`, `queue.js`, `probe.js`, `poster.js`, `motion.js`, `eviction.js`, `capabilities.js` | `createDerivativeService({ limits, capabilities, cache, queue, runner, evictor, sharp, now, log, statfs })` → `{ init(), start(), stop(), info(row) → MediaInfo, infoBatch(rows) → Map, ensure(row, type, priority), serve(row, type, { v, p }) → ServeResult, scheduleForFile(row, priority), adminStatus(), invalidate(sha), isPinned(sha) }`; `MEDIA_STATE = { PENDING, READY, UNSUPPORTED, GENERATION_FAILED, RETRYABLE }`; `ServeResult = { kind: 'ready', path, mime, bytes, etag } \| { kind: 'pending', retryAfterSeconds } \| { kind: 'unsupported', reason } \| { kind: 'failed', reason } \| { kind: 'retryable', retryAfterSeconds } \| { kind: 'stale' } \| { kind: 'bad-request' }`; `MediaInfo` = spec §14.1 JSON | `tests/mediaDerivatives.test.js` |
+| `derivatives.js` (create) | The media service: state machine per `(sha, type)`, probe→poster/motion dependencies, retry classes, cache lookups, media-info projection, serve descriptors, upload scheduling, admin status, invalidate. Owns nothing about HTTP framing; obtains original bytes **only** through the injected trusted resolver. | `cache.js`, `queue.js`, `probe.js`, `poster.js`, `motion.js`, `eviction.js`, `capabilities.js`, `config/previewMedia.js` (never `routes/api.js`) | `createDerivativeService({ limits, capabilities, cache, queue, runner, evictor, resolveStorageKey, keyExists, sharp, now, log, statfs, mountState })` → `{ init(), start(), stop(), info(row) → MediaInfo, infoBatch(rows) → Map, ensure(row, type, priority), serve(row, type, { v, p }) → ServeResult, scheduleForFile(row, priority), adminStatus(), invalidate(sha), isPinned(sha) }`; `MEDIA_STATE = { PENDING, READY, UNSUPPORTED, GENERATION_FAILED, RETRYABLE }`; `ServeResult = { kind: 'ready', path, mime, bytes, etag } \| { kind: 'pending', retryAfterSeconds } \| { kind: 'unsupported', reason } \| { kind: 'failed', reason } \| { kind: 'retryable', retryAfterSeconds } \| { kind: 'stale' } \| { kind: 'bad-request' }`; `MediaInfo` = spec §14.1 JSON | `tests/mediaDerivatives.test.js` |
+| `runtime.js` (create, Task 7) | Assemble the production media subsystem from the already-tested modules; the only place that wires real dependencies together. | `config/mediaLimits.js`, `capabilities.js`, `processRunner.js`, `cache.js`, `queue.js`, `eviction.js`, `derivatives.js`, `disabledService.js`, `mountInfo.js` | `createMediaRuntime({ limits, capabilities, runner, resolveStorageKey, keyExists, storageRoot, sharp, log, now })` → derivative service (`createDerivativeService` with real cache/queue/evictor); `bootMedia({ env, limits = mediaLimitsFromEnv(env), runner = createProcessRunner(), detect = detectCapabilities, resolveStorageKey, keyExists, storageRoot, loadSharp, log })` → `{ limits, capabilities, service }` implementing the canonical sequence: if `limits.enabled` → `detect()` → real service; else → `CAPABILITIES_NONE` + `disabledMediaService(limits, 'MEDIA_DISABLED')` with **no** `detect()` call; tools missing → `disabledMediaService(limits, 'TOOLS_MISSING')` | `tests/mediaRuntime.test.js` (`BOOT-1..4`) |
 | `warmup.js` (create, Task 14) | Enumerate eligible file rows and enqueue P2 jobs with a token bucket; pause while P0/P1 work waits. | `derivatives.js`, `db/store.js` | `runWarmup({ service, store, ratePerMinute = 30, limit, newestFirst, dryRun, types = ['poster','motion'], log })` → `{ scanned, skippedReady, enqueued, unsupported, failed }` | `tests/mediaDerivatives.test.js` (warm-up section) |
 
 ### Server — request/route integration
@@ -84,8 +92,8 @@ Every new file has exactly one responsibility. "Tests" names the suite that owns
 | `server/routes/media.js` (create) | The four derivative routes plus the two Admin routes; owner gate identical to `/preview`; maps `ServeResult` to HTTP status/headers/cache policy. | `middleware/requireRole.js`, `db/store.js`, `request/byteRange.js`, `derivatives.js` (via `req.app.get('mediaService')`) | `mediaRouter` (Express router mounted inside `apiRouter` before any `/files/:id` GET); `derivativeHeaders({ etag, mime, policy })` exported for tests | `tests/mediaRoutes.test.js` |
 | `server/routes/api.js` (modify) | Import `parseByteRange` from `request/byteRange.js`; mount `mediaRouter`; add post-response enqueue to V1 upload and version restore. | | unchanged public routes | existing suites + `tests/mediaUploadEnqueue.test.js` |
 | `server/routes/uploads.js` (modify) | Post-response enqueue after V2 commit `201`. | | unchanged | `tests/mediaUploadEnqueue.test.js` |
-| `server/app.js` (modify) | `app.set('mediaLimits', mediaLimitsFromEnv(env))`; `app.set('mediaService', options.mediaService ?? createDefaultService(limits))`; `/healthz` gains the additive `media` block. | `config/mediaLimits.js`, `media/derivatives.js` | `createApp({ env, mediaService })` | `tests/mediaRoutes.test.js`, `tests/mediaCapabilities.test.js` (health block) |
-| `server/index.js` (modify) | After storage init: `detectCapabilities()` → `service.init()`; after `listen`: `service.start()` (tmp cleanup, index scan, eviction timer); on `SIGTERM`: `service.stop()`. | | | Task 15 boot evidence (image run) |
+| `server/app.js` (modify) | Accept the media limits and the media service by injection; `app.set('mediaLimits', mediaLimits)`, `app.set('mediaService', mediaService)`; `/healthz` gains the additive `media` block from `mediaService.health()`. Never constructs a real service. | `config/mediaLimits.js`, `media/disabledService.js` | `createApp({ env = process.env, mediaLimits = mediaLimitsFromEnv(env), mediaService = disabledMediaService(mediaLimits) })` | `tests/mediaRoutes.test.js`, `tests/mediaCapabilities.test.js` (health block, `MC-8/10/11`) |
+| `server/index.js` (modify) | Canonical Production sequence: parse limits → existing bootstrap/storage prerequisites → runner → `bootMedia()` (probe only when enabled) → `await service.init()` → `createApp({ env, mediaLimits, mediaService: service })` (the module-level `const app = createApp()` moves inside the async boot) → `listen` → `service.start()` → `SIGTERM`: `service.stop()` then `server.close()`. | `media/runtime.js`, `storage/fileStore.js` (`resolveKey`, `keyExists`, `STORAGE_ROOT`) | | `tests/mediaRuntime.test.js` (`BOOT-1..4` through `bootMedia`) + Task 15 image run evidence |
 | `scripts/media-warmup.mjs` (create, Task 14) | Operator CLI wrapper around `runWarmup` with argument parsing and exit codes. | `server/media/warmup.js` | CLI flags `--limit --rate --newest-first --dry-run --types` | `tests/mediaDerivatives.test.js` (argument parsing) |
 
 ### Frontend — `src/`
@@ -113,19 +121,19 @@ Every new file has exactly one responsibility. "Tests" names the suite that owns
 
 ### Tests (owner → file)
 
-`tests/mediaLimits.test.js`, `tests/mediaCapabilities.test.js`, `tests/mediaCache.test.js`, `tests/mediaProbe.test.js`, `tests/mediaProcessRunner.test.js`, `tests/mediaQueue.test.js`, `tests/mediaPoster.test.js`, `tests/mediaMotion.test.js`, `tests/mediaDerivatives.test.js`, `tests/mediaRoutes.test.js`, `tests/mediaCacheSessionContract.test.js`, `tests/filesMediaTiles.test.js`, `tests/mediaScheduler.test.js`, `tests/mediaUploadEnqueue.test.js`, `tests/mediaEviction.test.js`, `tests/mediaResponsiveness.test.js`, `tests/mediaLargeSources.test.js` (Task 16), plus shared helper `tests/helpers/mediaFixtures.mjs` (generated fixtures; Task 4 creates it) and modified `tests/filesRound10.test.js`, `tests/filesVisualHierarchy.test.js`, `tests/filesInteractionPolish.test.js` (Task 13).
+`tests/mediaLimits.test.js`, `tests/mediaCapabilities.test.js`, `tests/mediaMountInfo.test.js`, `tests/mediaRuntime.test.js`, `tests/mediaCache.test.js`, `tests/mediaProbe.test.js`, `tests/mediaProcessRunner.test.js`, `tests/mediaQueue.test.js`, `tests/mediaPoster.test.js`, `tests/mediaMotion.test.js`, `tests/mediaDerivatives.test.js`, `tests/mediaRoutes.test.js`, `tests/mediaCacheSessionContract.test.js`, `tests/filesMediaTiles.test.js`, `tests/mediaScheduler.test.js`, `tests/mediaUploadEnqueue.test.js`, `tests/mediaEviction.test.js`, `tests/mediaResponsiveness.test.js`, `tests/mediaLargeSources.test.js` (Task 16), plus shared helpers `tests/helpers/mediaFixtures.mjs` (generated fixtures; Task 4 creates it) and `tests/helpers/sparseContainers.mjs` (structural sparse MP4/WebM builder + verifier; Task 16 creates it) and modified `tests/filesRound10.test.js`, `tests/filesVisualHierarchy.test.js`, `tests/filesInteractionPolish.test.js` (Task 13).
 
 ## Commit boundaries
 
 One commit per task, tests and implementation together (each task is independently reviewable at its commit):
 
 1. `test+feat(idea1): add media limits and capability contracts`
-2. `feat(idea1): add content-addressed media cache core`
+2. `feat(idea1): add content-addressed media cache core` (includes mountpoint detection)
 3. `feat(idea1): add bounded media process runner and job queue`
 4. `feat(idea1): add family-specific media probe`
 5. `feat(idea1): add static poster generation`
 6. `feat(idea1): add motion proxy generation`
-7. `feat(idea1): add derivative service and cache eviction`
+7. `feat(idea1): add derivative service, runtime assembly and cache eviction`
 8. `feat(idea1): add authenticated media derivative routes`
 9. `test(idea1): pin session cache-isolation contract`
 10. `feat(idea1): enqueue media derivatives after upload success`
@@ -146,12 +154,13 @@ One commit per task, tests and implementation together (each task is independent
 - Create: `server/config/mediaLimits.js`
 - Create: `server/media/capabilities.js`
 - Create: `server/media/processRunner.js` (minimal `run()` needed by capability detection; full contract in Task 3)
-- Modify: `server/app.js` (`app.set('mediaLimits', …)`; `/healthz` additive `media` block sourced from `app.get('mediaService')?.health()` or, before Task 7, from a static `{ enabled: false, reason: 'MEDIA_SERVICE_NOT_STARTED' }`)
+- Create: `server/media/disabledService.js`
+- Modify: `server/app.js` (`createApp({ env, mediaLimits, mediaService })` with the disabled service as the explicit default; `app.set('mediaLimits')`, `app.set('mediaService')`; `/healthz` additive `media` block from `mediaService.health()`)
 - Test: `tests/mediaLimits.test.js`, `tests/mediaCapabilities.test.js`
 
 **Interfaces:**
 - Consumes: `process.env` / `createApp({ env })` injection (same seam `transferLimitsFromEnv`/`publicShareConfigFromEnv` use); `processRunner.run()` for `ffmpeg -version`, `ffmpeg -hide_banner -encoders`, `ffmpeg -hide_banner -decoders`, `ffprobe -version`; dynamic `import('sharp')`.
-- Produces: `MEDIA_PROFILE_VERSION`, `mediaLimitsFromEnv()`, `MEDIA_DEFAULTS`, `detectCapabilities()`, `CAPABILITIES_NONE`, `/healthz.media`.
+- Produces: `MEDIA_PROFILE_VERSION`, `mediaLimitsFromEnv()`, `MEDIA_DEFAULTS`, `detectCapabilities()`, `CAPABILITIES_NONE`, `disabledMediaService()`, the `createApp` injection interface, `/healthz.media`.
 
 - [ ] **Step 1: Write the failing limits tests**
 
@@ -188,8 +197,11 @@ MC-4 libx264 absent from encoders → enabled true, encoders.libx264 false, reas
 MC-5 animated WebP decode: decoders.webpAnimated true only when `ffmpeg -version` major.minor >= 7.1 AND webp decoder listed; 6.1.2 → false
 MC-6 sharp import throws → sharp.ok false, enabled unaffected, reasons includes 'SHARP_UNAVAILABLE'
 MC-7 CAPABILITIES_NONE is frozen with enabled false
-MC-8 /healthz (createApp with env MEDIA_ENABLED=true, no service started) returns 200 with media: { enabled:false, reason:'MEDIA_SERVICE_NOT_STARTED' } and the existing application/db/storage blocks unchanged (shape assertion against current keys)
+MC-8 /healthz (createApp({ env }) with no mediaService injected) returns 200 with media: { enabled:false, reason:'MEDIA_SERVICE_NOT_INJECTED', cacheVolume:'unknown' } and the existing application/db/storage blocks unchanged (shape assertion against current keys) — the test default never pretends media is available
 MC-9 createApp with env MEDIA_WORKERS='9' throws at construction (config validated at app build, like transfer limits)
+MC-10 disabledMediaService(limits, 'MEDIA_DISABLED'): info(row) → { status:'UNSUPPORTED', reason:'MEDIA_DISABLED' } for a normal file row; { status:'NOT_FOUND' } for a vault row and for a folder row; serve() → { kind:'disabled' }; scheduleForFile() === false; infoBatch maps every row accordingly; init/start/stop resolve without side effects (no fs writes under a tmp cacheDir — assert directory still absent)
+MC-11 createApp({ env, mediaService: disabledMediaService(limits, 'MEDIA_DISABLED') }) → /healthz 200 with media.enabled false, media.reason 'MEDIA_DISABLED'; app.get('mediaService') is the injected object (identity)
+MC-12 createApp({ env, mediaLimits }) uses the injected limits object (identity) instead of re-parsing env
 ```
 
 - [ ] **Step 4: Run the capability suite and record RED**
@@ -198,11 +210,11 @@ MC-9 createApp with env MEDIA_WORKERS='9' throws at construction (config validat
 
 - [ ] **Step 5: Implement `mediaLimits.js`, minimal `processRunner.js`, `capabilities.js`, app wiring**
 
-`mediaLimitsFromEnv` mirrors `transferLimits.js` helpers (`readInteger`, `readFraction`, plus `readEnum`, `readAbsolutePath`, `readBox`); freeze with a recursive `deepFreeze`. `processRunner.run()` in this task: `execFile(bin, args, { shell:false, env, timeout, maxBuffer, killSignal:'SIGTERM', windowsHide:true })` with the TERM→KILL grace implemented via `child.kill('SIGKILL')` on a timer — the same code Task 3 hardens. `detectCapabilities` parses `ffmpeg version (\d+)\.(\d+)`; encoders/decoders by regex on the listing lines. `app.js`: `const mediaLimits = mediaLimitsFromEnv(env); app.set('mediaLimits', mediaLimits)`; health block reads `app.get('mediaService')?.health?.() ?? { enabled:false, reason:'MEDIA_SERVICE_NOT_STARTED' }`.
+`mediaLimitsFromEnv` mirrors `transferLimits.js` helpers (`readInteger`, `readFraction`, plus `readEnum`, `readAbsolutePath`, `readBox`); freeze with a recursive `deepFreeze`. `processRunner.run()` in this task: `execFile(bin, args, { shell:false, env, timeout, maxBuffer, killSignal:'SIGTERM', windowsHide:true })` with the TERM→KILL grace implemented via `child.kill('SIGKILL')` on a timer — the same code Task 3 hardens. `detectCapabilities` parses `ffmpeg version (\d+)\.(\d+)`; encoders/decoders by regex on the listing lines. `disabledService.js` implements every service method as a pure function of `(limits, reason)`. `app.js`: signature `createApp({ env = process.env, mediaLimits = mediaLimitsFromEnv(env), mediaService = disabledMediaService(mediaLimits) } = {})`; `app.set('mediaLimits', mediaLimits); app.set('mediaService', mediaService)`; the health block calls `mediaService.health()`. `app.js` imports nothing from `derivatives.js`.
 
 - [ ] **Step 6: Run both suites and record GREEN**
 
-`node --test --test-reporter=tap tests/mediaLimits.test.js tests/mediaCapabilities.test.js` → expected `# tests 21 # pass 21 # fail 0`.
+`node --test --test-reporter=tap tests/mediaLimits.test.js tests/mediaCapabilities.test.js` → expected `# tests 24 # pass 24` (ML-1..12, MC-1..12).
 
 - [ ] **Step 7: Local regression**
 
@@ -210,23 +222,24 @@ MC-9 createApp with env MEDIA_WORKERS='9' throws at construction (config validat
 
 - [ ] **Step 8: `git diff --check`** → clean.
 
-- [ ] **Step 9: Reviewer checklist checkpoint** — config validated at construction; invalid env cannot boot; missing tools degrade (`enabled:false`) rather than throw; no route/frontend integration yet; no upload file touched.
+- [ ] **Step 9: Reviewer checklist checkpoint** — config validated at construction; invalid env cannot boot; missing tools degrade (`enabled:false`) rather than throw; the app default is an explicit disabled service (never a stand-in object pretending availability); no route/frontend integration yet; no upload file touched.
 
 - [ ] **Step 10: Commit**
 
-`git add server/config/mediaLimits.js server/media/capabilities.js server/media/processRunner.js server/app.js tests/mediaLimits.test.js tests/mediaCapabilities.test.js` → `test+feat(idea1): add media limits and capability contracts`
+`git add server/config/mediaLimits.js server/media/capabilities.js server/media/processRunner.js server/media/disabledService.js server/app.js tests/mediaLimits.test.js tests/mediaCapabilities.test.js` → `test+feat(idea1): add media limits and capability contracts`
 
 ---
 
-### Task 2: Content-addressed cache core
+### Task 2: Content-addressed cache core + mountpoint detection
 
 **Files:**
 - Create: `server/media/cache.js`
-- Test: `tests/mediaCache.test.js`
+- Create: `server/media/mountInfo.js`
+- Test: `tests/mediaCache.test.js`, `tests/mediaMountInfo.test.js`
 
 **Interfaces:**
 - Consumes: `MediaLimits.cacheDir`, `MEDIA_PROFILE_VERSION`, `STORAGE_ROOT` (from `fileStore.js`, passed in as `storageRoot`).
-- Produces: `createMediaCache()` per the file map; `MediaState` JSON shape (spec §13.4); `ProbeResult` JSON persisted verbatim.
+- Produces: `createMediaCache()` per the file map; `MediaState` JSON shape (spec §13.4); `ProbeResult` JSON persisted verbatim; `detectMountState()` / `parseMountInfo()`.
 
 - [ ] **Step 1: Write the failing cache tests** (tmp dirs via `fs.mkdtemp`; no DB; no media tools)
 
@@ -248,17 +261,31 @@ CC-13 removeEntry renames the entry dir into tmp/evict-<uuid> and unlinks recurs
 
 - [ ] **Step 2: RED**: `node --test --test-reporter=tap tests/mediaCache.test.js` → `ERR_MODULE_NOT_FOUND ../server/media/cache.js`.
 
-- [ ] **Step 3: Implement `cache.js`** — pure `node:fs/promises`; JSON written with `writeAtomic` too; `touch` keeps a `Map<sha, {lastAccess, persistedAt}>`.
+- [ ] **Step 2b: Write the failing mountinfo tests** (synthetic mountinfo text files in a tmp dir; `target` paths are also created as real tmp directories so the "writable directory" branch is exercised):
 
-- [ ] **Step 4: GREEN**: same command → `# tests 13 # pass 13`.
+```
+MI-1 exact mountpoint: a line whose mount point equals the resolved target → 'volume'
+MI-2 escaped spaces: mount point written as '/var/cache/aegis\\040media' and target '/var/cache/aegis media' → 'volume' (octal escapes \\040 \\011 \\012 \\134 decoded)
+MI-3 nested mount: entries for '/var/cache' and '/var/cache/aegis-media/sub' but not the target itself → 'ephemeral' (a child or parent mount is not the target)
+MI-4 parent mounted only: entry for '/var/cache' and target '/var/cache/aegis-media' (existing writable dir) → 'ephemeral'
+MI-5 unreadable mountinfo (ENOENT / EACCES via a missing path) → 'unknown'; platform 'win32' → 'unknown' without reading
+MI-6 target does not exist or is not writable (access rejects) with no entry → 'unknown' (never 'ephemeral' for a directory the process cannot use)
+MI-7 parseMountInfo tolerates optional fields ("shared:1 master:2 -") and trailing whitespace; returns mountPoint decoded and root untouched
+```
 
-- [ ] **Step 5: Local regression**: `node --test --test-reporter=tap tests/mediaLimits.test.js tests/mediaCapabilities.test.js tests/mediaCache.test.js` → 34/34.
+- [ ] **Step 2c: RED**: `node --test --test-reporter=tap tests/mediaMountInfo.test.js` → `ERR_MODULE_NOT_FOUND ../server/media/mountInfo.js`.
+
+- [ ] **Step 3: Implement `cache.js`** — pure `node:fs/promises`; JSON written with `writeAtomic` too; `touch` keeps a `Map<sha, {lastAccess, persistedAt}>`. **Implement `mountInfo.js`** — read the file, split lines, fields 5 = mount point (decode escapes), compare with `path.resolve(target)` after `fs.realpath` when it exists; no `st_dev` comparison anywhere (a source-scan assertion in MI-7's file forbids `st_dev`/`statSync().dev`).
+
+- [ ] **Step 4: GREEN**: `node --test --test-reporter=tap tests/mediaCache.test.js tests/mediaMountInfo.test.js` → `# tests 20 # pass 20` (CC-1..13, MI-1..7).
+
+- [ ] **Step 5: Local regression**: `node --test --test-reporter=tap tests/mediaLimits.test.js tests/mediaCapabilities.test.js tests/mediaCache.test.js tests/mediaMountInfo.test.js` → 44/44.
 
 - [ ] **Step 6: `git diff --check`** → clean.
 
-- [ ] **Step 7: Reviewer checklist checkpoint** — no DB; no filename in path; root outside `STORAGE_ROOT` enforced; atomic writes; missing cache = regenerable state.
+- [ ] **Step 7: Reviewer checklist checkpoint** — no DB; no filename in path; root outside `STORAGE_ROOT` enforced; atomic writes; missing cache = regenerable state; mount detection is mountinfo-based, never device-id.
 
-- [ ] **Step 8: Commit** → `feat(idea1): add content-addressed media cache core`
+- [ ] **Step 8: Commit** → `feat(idea1): add content-addressed media cache core` (includes `mountInfo.js`)
 
 ---
 
@@ -319,15 +346,17 @@ JQ-9 has(key) true while queued or running, false after completion
 
 ---
 
-### Task 4: Family-specific media probe
+### Task 4: One preview allowlist + family-specific media probe
 
 **Files:**
+- Create: `server/config/previewMedia.js` (behaviour-preserving extraction of `PREVIEW_MIME` from `routes/api.js`)
+- Modify: `server/routes/api.js` (delete the private `PREVIEW_MIME` constant; `import { PREVIEW_MIME, previewExtForName } from '../config/previewMedia.js'`; the preview route's `ext`/`mime` derivation uses `previewExtForName(file.name)` with identical semantics: no dot → not previewable)
 - Create: `server/media/probe.js`
 - Create: `tests/helpers/mediaFixtures.mjs`
 - Test: `tests/mediaProbe.test.js`
 
 **Interfaces:**
-- Consumes: `processRunner.run()` for `ffprobe`; optional sharp (`metadata()`); `MediaLimits` guards; `Capabilities` (for AVIF/WebP animated decode availability).
+- Consumes: `processRunner.run()` for `ffprobe`; optional sharp (`metadata()`); `MediaLimits` guards; `Capabilities` (for AVIF/WebP animated decode availability); `config/previewMedia.js` (`isPreviewableExtension`) — `probe.js` refuses any extension outside the allowlist before reading bytes.
 - Produces: `probeMedia()`, `sniffFamily()`, `probeGifAnimation()`, `probeWebpAnimation()`, `probeApngAnimation()`, `probeAvifAnimation()`, `ProbeResult`; fixture helper `makeFixtures(dir, { runner, sharp, capabilities })` → `{ stillJpeg, stillPng, apng, stillWebp, animatedWebp, stillAvif, animatedAvif, bmp, oneFrameGif, multiFrameGif, mp4Faststart, mp4MoovAtEnd, webmWithCues, webmWithoutCues, mismatchedJpeg, truncatedMp4, largeStill(width,height), longGif({seconds, highBitrate}), sparse(path, bytes) }` — each entry `{ path, bytes } | { skipped: reason }`.
 
 - [ ] **Step 1: Write `tests/helpers/mediaFixtures.mjs`** (generation only; no assertions): stills via sharp `create` (or FFmpeg `color=`/`testsrc` when sharp is absent); APNG via `ffmpeg -f lavfi -i testsrc=size=64x64:rate=5 -t 1 -f apng -plays 0`; animated WebP via `-c:v libwebp -loop 0` (multi-frame) and still WebP via sharp; AVIF via sharp `.avif()` (still) and `ffmpeg -f avif` with `libaom-av1`/`libsvtav1` when an encoder exists (else `skipped:'AV1_ENCODER_MISSING'`); GIFs via `palettegen`/`paletteuse` with `-frames:v 1` vs `-t 2`; MP4 via `-c:v libx264 -movflags +faststart` and default (moov at end); WebM via `-c:v libvpx` default (Cues) and `-live 1` (no Cues); mismatched: text bytes written as `.jpg`; truncated: first 40 % of a valid MP4; `sparse(path, bytes)` = `fs.truncate` after copying a valid short file.
@@ -351,21 +380,24 @@ FP-MALFORMED: truncatedMp4 → unsupported 'PROBE_FAILED' with the ffprobe exit 
 FP-VIDEO: mp4Faststart / webmWithCues → family mp4/webm, animated true, evidence 'family-video', width/height/duration numbers
 FP-SNIFF: sniffFamily on the first 32 bytes of every fixture returns its family; a PNG named .jpg → null (mismatch)
 FP-NO_GLOBAL_RULE: source scan — `grep -n "durationSeconds > 0" server/media/probe.js` returns no line outside the `probeAvifAnimation` comment (assert via fs.readFile + regex: no `frames > 1 ||` / `duration > 0 ||` expression exists)
+FP-ALLOWLIST-PARITY (PREVIEW_ALLOWLIST_PARITY): deepEqual(PREVIEW_MIME, Object.freeze({ jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', avif:'image/avif', bmp:'image/bmp', mp4:'video/mp4', webm:'video/webm' })) — the literal copied verbatim from routes/api.js at 99f2b95c; PREVIEW_EXTENSIONS deep-equals its key list; previewExtForName('A.JPG') → 'jpg', ('README') → null, ('x.tar.gz') → 'gz'; isPreviewableExtension('svg'|'heic'|'pdf') → false; source scan: routes/api.js contains no `const PREVIEW_MIME` and imports it from config/previewMedia.js; media/derivatives.js (once it exists — asserted again in DS-7) never imports routes/api.js
 ```
 
-- [ ] **Step 3: RED**: `node --test --test-reporter=tap tests/mediaProbe.test.js` → `ERR_MODULE_NOT_FOUND ../server/media/probe.js`.
+- [ ] **Step 3: RED**: `node --test --test-reporter=tap tests/mediaProbe.test.js` → `ERR_MODULE_NOT_FOUND ../server/config/previewMedia.js` / `../server/media/probe.js`.
+
+- [ ] **Step 3b: Extract `config/previewMedia.js`** and switch `routes/api.js` to it; run `node --test --test-reporter=tap tests/filesPreviewRoute.test.js tests/filesVisualHierarchy.test.js` → 5/5 and 21/21 unchanged (behaviour-preserving; `R8-PREVIEW-MIME` still passes).
 
 - [ ] **Step 4: Implement `probe.js`**: `sniffFamily` (JPEG `FF D8 FF`, PNG signature, RIFF/WEBP, `ftyp` + avif/avis brands, `BM`, `GIF87a/89a`, `ftyp` mp4 brands, EBML `1A 45 DF A3`); family rules exactly per spec §6.1; dimensions from sharp metadata (stills) or ffprobe `-show_streams -select_streams v:0 -print_format json` (video/GIF/APNG/animated AVIF) with `-probesize`, `-analyzeduration 5000000`, timeout `probeTimeoutMs`; pixel guard before any decode; result persisted by the service (Task 7), not here.
 
-- [ ] **Step 5: GREEN**: same command → `# tests 17 # pass 17` (with animated-AVIF possibly `# SKIP av1-encoder-missing` — recorded, not hidden).
+- [ ] **Step 5: GREEN**: same command → `# tests 17 # pass 17` (FP: STILL_AVIF, ANIMATED_AVIF, STILL_WEBP, ANIMATED_WEBP, PNG, APNG, ONE_FRAME_GIF, MULTIFRAME_GIF, ANIMATION_UNKNOWN, BUDGETS, MISMATCH, DIMENSIONS, MALFORMED, VIDEO, SNIFF, NO_GLOBAL_RULE, ALLOWLIST-PARITY; animated-AVIF may report `# SKIP av1-encoder-missing` — recorded, not hidden).
 
-- [ ] **Step 6: Local regression**: `node --test --test-reporter=tap tests/mediaProcessRunner.test.js tests/mediaCapabilities.test.js` → pass.
+- [ ] **Step 6: Local regression**: `node --test --test-concurrency=1 --test-reporter=tap tests/mediaProcessRunner.test.js tests/mediaCapabilities.test.js tests/filesPreviewRoute.test.js tests/filesVisualHierarchy.test.js` → pass with unchanged counts.
 
 - [ ] **Step 7: `git diff --check`** → clean.
 
 - [ ] **Step 8: Reviewer checklist checkpoint** — no global `frames>1||duration>0`; every rule byte-bounded; mismatch/dimension/malformed covered; vault not reachable (probe has no notion of rows; service/route tests cover it in Tasks 7–8).
 
-- [ ] **Step 9: Commit** → `feat(idea1): add family-specific media probe`
+- [ ] **Step 9: Commit** → `feat(idea1): add family-specific media probe` (includes the `previewMedia.js` extraction; `git add server/config/previewMedia.js server/routes/api.js server/media/probe.js tests/helpers/mediaFixtures.mjs tests/mediaProbe.test.js`)
 
 ---
 
@@ -384,9 +416,9 @@ FP-NO_GLOBAL_RULE: source scan — `grep -n "durationSeconds > 0" server/media/p
 ```
 PG-1 still JPEG 1920x1080 → poster.webp 640x360, format webp, no exif/icc/xmp in metadata, bytes ≤ 524288, engine reported 'sharp'
 PG-2 no upscale: 200x100 PNG → 200x100 poster
-PG-3 orientation: JPEG with EXIF orientation 6 (sharp .withMetadata({orientation:6})) → output 360x640 (rotated) and no orientation tag
+PG-3 orientation: 1920x1080 JPEG with EXIF orientation 6 (sharp .withMetadata({orientation:6})) → the visual image is 1080x1920 portrait; fit-inside 640x360 without enlargement therefore yields height === 360 and width === round(360 × 1080 / 1920) = 203 (tolerance ±2 for encoder rounding); assert width ≤ 640, height ≤ 360, width < height (portrait), and sharp metadata of the output has no orientation field
 PG-4 alpha: RGBA PNG with transparent corner → WebP output with hasAlpha true (sharp metadata) — no PNG branch taken
-PG-5 BMP → engine 'ffmpeg', args contain '-frames:v','1' and '-c:v','libwebp'; output webp 640x360 box
+PG-5 BMP 1280x720 → engine 'ffmpeg', args contain '-frames:v','1' and '-c:v','libwebp'; output webp exactly 640x360 (16:9 fits the box exactly)
 PG-6 animated GIF poster → engine 'ffmpeg', first frame only ('-frames:v','1'), no '-t'
 PG-7 video poster: mp4Faststart 4 s → args contain '-ss', '0.5' (clamp(0.05×4, 0.5, 3)); 30 s video → '-ss','1.5'; 0.3 s video → '-ss','0.3' (clamped to duration)
 PG-8 output cap: limits.posterMaxBytes 2000 with a noisy 1920x1080 source → second encode at quality 60 attempted (spy on sharp/ffmpeg args), then MediaJobError PERMANENT 'OUTPUT_TOO_LARGE'; no final file
@@ -395,7 +427,7 @@ PG-10 timeout: limits.posterTimeoutMs 50 against largeStill(7000,5000) via the f
 PG-11 stillEngine 'ffmpeg' → JPEG uses ffmpeg (engine 'ffmpeg'); output still webp
 PG-12 libwebp encoder absent (capabilities.encoders.libwebp false) → ffmpeg path writes poster.png with mime image/png; sharp path unaffected (still webp)
 PG-13 sharp guard: sharp invoked with limitInputPixels === limits.maxSourcePixels, sequentialRead true, failOn 'error' (spy via a wrapped sharp factory)
-PG-14 large still 12000x3000 PNG (36 MP, generated) → success; process.memoryUsage().rss delta during the call < 256 MiB (Linux gate; recorded elsewhere)
+PG-14 large still 12000x3000 PNG (36 MP, generated; a dimension-guard case, not a byte-class case — byte classes are Task 16) → success; output 640x160 (fit-inside keeps 4:1); process.memoryUsage().rss delta during the call recorded via t.diagnostic (Linux)
 PG-15 atomic: producer writes only to tmpPath; final path is created by the caller's rename (generatePoster never touches a path other than tmpPath — fs spy)
 ```
 
@@ -409,7 +441,7 @@ PG-15 atomic: producer writes only to tmpPath; final path is created by the call
 
 - [ ] **Step 6: `git diff --check`** → clean.
 
-- [ ] **Step 7: Reviewer checklist checkpoint** — no committed binaries; 200/300 MB-class covered by generated large stills within the pixel guard; timeout cleanup proven; PNG fallback only when libwebp is absent.
+- [ ] **Step 7: Reviewer checklist checkpoint** — no committed binaries; every dimension expectation respects the 640×360 fit-inside/no-enlargement invariant (PG-1 640×360, PG-2 200×100, PG-3 203×360, PG-5 640×360, PG-14 640×160); byte-size classes are Task 16's job; timeout cleanup proven; PNG fallback only when libwebp is absent.
 
 - [ ] **Step 8: Commit** → `feat(idea1): add static poster generation`
 
@@ -447,7 +479,7 @@ MG-WINDOW truthfulness: longGif({seconds:30, highBitrate:true}) vs longGif({seco
 
 - [ ] **Step 3: Implement `motion.js`** with `motionArgs` as the single source of the argument array; post-encode `stat` for the byte cap; `ffprobe`-free success check (exit 0 + file exists + bytes > 0); error classification as in Task 5.
 
-- [ ] **Step 4: GREEN**: same command → `# tests 15 # pass 15` (WebP/AVIF cases may report `# SKIP decoder-unavailable` with the capability reason in the diagnostic).
+- [ ] **Step 4: GREEN**: same command → `# tests 14 # pass 14` (MG: ARGS, GIF, APNG, WEBP, AVIF, MP4, WEBM, STILL, UNKNOWN, CAP, MALFORMED, TIMEOUT, NOX264, WINDOW; WebP/AVIF cases may report `# SKIP decoder-unavailable` with the capability reason in the diagnostic).
 
 - [ ] **Step 5: Local regression**: `node --test --test-reporter=tap tests/mediaPoster.test.js tests/mediaProbe.test.js` → pass.
 
@@ -459,16 +491,17 @@ MG-WINDOW truthfulness: longGif({seconds:30, highBitrate:true}) vs longGif({seco
 
 ---
 
-### Task 7: Derivative service + eviction
+### Task 7: Derivative service + eviction + runtime assembly
 
 **Files:**
 - Create: `server/media/eviction.js`
 - Create: `server/media/derivatives.js`
-- Test: `tests/mediaEviction.test.js`, `tests/mediaDerivatives.test.js`
+- Create: `server/media/runtime.js`
+- Test: `tests/mediaEviction.test.js`, `tests/mediaDerivatives.test.js`, `tests/mediaRuntime.test.js`
 
 **Interfaces:**
-- Consumes: everything from Tasks 1–6; file rows shaped like `mapFileRow()` output (`{ id, name, kind, vault, sha256, path, size, ownerId }`); `statfs` (injected; default `fs.statfs`).
-- Produces: `createDerivativeService()`, `MEDIA_STATE`, `ServeResult`, `MediaInfo`; `createEvictor()`.
+- Consumes: everything from Tasks 1–6; file rows shaped like `mapFileRow()` output (`{ id, name, kind, vault, sha256, path, size, ownerId }`); the **injected trusted resolver** `resolveStorageKey(key) → absPath | null` and `keyExists(key) → Promise<boolean>` (Production: `fileStore.resolveKey`/`keyExists`; tests: a temp-root resolver built in the test — no test depends on the process-global `STORAGE_ROOT`); `statfs` (injected; default `fs.statfs`); `mountState` (injected result of `detectMountState`); `config/previewMedia.js`.
+- Produces: `createDerivativeService()`, `MEDIA_STATE`, `ServeResult`, `MediaInfo`; `createEvictor()`; `createMediaRuntime()`, `bootMedia()`.
 
 - [ ] **Step 1: Write the failing eviction tests** (fake cache with in-memory entries; fake clock)
 
@@ -494,9 +527,12 @@ DS-3 still image (probe animated false) → motion.state 'UNSUPPORTED' reason 'N
 DS-4 animated null → motion UNSUPPORTED reason 'ANIMATION_UNKNOWN'; poster still generated
 DS-5 vault row → info returns { status:'NOT_FOUND' } and generators are never called; ensure()/scheduleForFile() return false and enqueue nothing (defence in depth independent of routes)
 DS-6 folder row → NOT_FOUND; row without sha256 → UNSUPPORTED reason 'NO_CONTENT_IDENTITY', nothing enqueued
-DS-7 extension outside allowlist → UNSUPPORTED reason 'UNSUPPORTED_TYPE', nothing enqueued; allowlist is the exact PREVIEW_MIME key set (import and compare)
+DS-7 extension outside allowlist → UNSUPPORTED reason 'UNSUPPORTED_TYPE', nothing enqueued; the service decides via config/previewMedia.js (spy: isPreviewableExtension called) and derivatives.js does not import routes/api.js (source scan of its import lines)
 DS-8 dedup across rows: two rows (different ids/names/owners) with the same sha → one job; both infos READY after it
-DS-9 retry classes: poster generator throws TRANSIENT twice then succeeds → attempts 3, nextRetryAt follows 60 s → 300 s; a fourth TRANSIENT → GENERATION_FAILED; PERMANENT → GENERATION_FAILED immediately with reason; info reports RETRYABLE with retryAfterMs while nextRetryAt is in the future and does not enqueue before it
+DS-9 / RETRY-1 transient, transient, success → attempts === 3, state READY; nextRetryAt after attempt 1 = now + 60 s, after attempt 2 = now + 300 s
+DS-9 / RETRY-2 transient × 4 → attempts === 4, GENERATION_FAILED with the last reason; nextRetryAt after attempt 3 = now + 1800 s; no fifth attempt is ever scheduled (fake clock advanced 24 h → generator call count stays 4)
+DS-9 / RETRY-3 no attempt occurs before nextRetryAt: with the clock at nextRetryAt − 1 s, info() reports RETRYABLE with retryAfterMs === 1000 and the generator is not called; at nextRetryAt the job is enqueued exactly once
+DS-9 / RETRY-4 PERMANENT on attempt 1 → attempts === 1, GENERATION_FAILED (probe-level permanent → UNSUPPORTED with reason); no retry scheduled; MAX_TRANSIENT_RETRIES === 3 and MAX_TOTAL_ATTEMPTS === 4 are exported constants asserted by value
 DS-10 serve(row,'poster',{v:sha,p:'v1'}) → {kind:'ready', path, mime, bytes, etag}; v mismatch → {kind:'stale'}; p 'v0' → {kind:'stale'}; missing v → {kind:'bad-request'}; while pending → {kind:'pending', retryAfterSeconds}; unsupported → {kind:'unsupported'}; failed → {kind:'failed'}; retryable → {kind:'retryable'}
 DS-11 serve touches lastAccess (evictor.touch called) and pins recently served entries
 DS-12 disk reserve: statfs returns free < cacheFreeReserveBytes → generation not started, state RETRYABLE reason 'DISK', retryAfterMs 60000
@@ -504,23 +540,37 @@ DS-13 queue full (queueMax 1 with one running) → info RETRYABLE reason 'QUEUE_
 DS-14 eviction regeneration: after evictor removes the entry, info → PENDING and a new job is enqueued
 DS-15 stale profile: an entry under v0/ is never served (serve with p:'v0' → stale) and is listed by staleProfileDirs for eviction
 DS-16 invalidate(sha) removes the entry (audit hook called with 'MEDIA_CACHE_INVALIDATE') and resets attempts; adminStatus() returns { enabled, capabilities, cache:{dir,bytes,entries,highWater,lowWater,lastEvictionAt}, queue:{depth,running,byPriority}, failures:{last24h} } with no file names anywhere (JSON.stringify contains no fixture name)
-DS-17 init()/start(): start runs cleanupTmp and buildIndex and schedules eviction; stop() aborts running jobs and stops timers; health() → { enabled, ffmpeg, sharp, cacheWritable, cacheVolume: 'volume'|'ephemeral' } (ephemeral when cacheDir is not a mount point — decided by comparing st_dev of cacheDir and its parent)
+DS-17 init()/start(): start runs cleanupTmp and buildIndex and schedules eviction; stop() aborts running jobs and stops timers; health() → { enabled, reason, ffmpeg, sharp, cacheWritable, cacheVolume } where cacheVolume is exactly the injected mountState value ('volume' | 'ephemeral' | 'unknown'); the service performs no mount detection of its own (no fs.stat of cacheDir's parent — fs spy)
 DS-18 infoBatch([rows]) returns a Map with per-row info; enqueues once per distinct sha; max 64 rows enforced by the caller (service accepts any length)
+DS-19 storage resolver contract: a row whose path does not resolve (resolver returns null) or does not exist (keyExists false) → UNSUPPORTED reason 'SOURCE_MISSING', no generator called; generators receive absPath === resolveStorageKey(row.path) (spy on the fake generator argument) and never row.name or any request-derived string; the service never imports storage/fileStore.js (source scan) — the resolver arrives by injection only
 ```
 
 - [ ] **Step 4: RED**: `node --test --test-reporter=tap tests/mediaDerivatives.test.js` → module not found.
 
-- [ ] **Step 5: Implement `eviction.js` and `derivatives.js`**: per-`(sha,type)` state derived from `state.json` + in-memory job map; `ensure()` chains probe → type job through the queue with key `${profile}/${sha}/${type}`; `MediaJobError` classes map to retry policy 60 s/300 s/1800 s, max 3; `serve()` never opens the file (returns path/mime/bytes; the route streams it); `scheduleForFile()` guards vault/folder/allowlist/sha/enabled; `health()`; `adminStatus()` aggregate only.
+- [ ] **Step 4b: Write the failing runtime/boot tests** (`tests/mediaRuntime.test.js`; fake `detect`, fake runner that records every spawn, temp cache root, temp storage root with a resolver built from it):
 
-- [ ] **Step 6: GREEN**: `node --test --test-reporter=tap tests/mediaEviction.test.js tests/mediaDerivatives.test.js` → `# tests 26 # pass 26`.
+```
+BOOT-1 tools available: bootMedia({ env:{ MEDIA_ENABLED:'true', MEDIA_CACHE_DIR:<tmp> }, detect: async () => REAL_LIKE_CAPS, … }) → service.health().enabled === true; service.health().ffmpeg.version equals the probed value (the injected service carries the real probed capabilities, not CAPABILITIES_NONE); createApp({ env, mediaLimits, mediaService: service }) → /healthz.media.enabled true
+BOOT-2 tools absent: detect resolves CAPABILITIES_NONE-like (ffmpeg.ok false) → bootMedia resolves (never rejects), service is disabledMediaService with reason 'TOOLS_MISSING'; createApp + /healthz → 200, media.enabled false, reason 'TOOLS_MISSING'; GET /api/files still 200 for a logged-in user
+BOOT-3 MEDIA_ENABLED=false: detect is NOT called (spy 0) and the fake runner records zero spawns; service reason 'MEDIA_DISABLED'; service.scheduleForFile(row) === false; queue never created (runtime exposes queue === null in a debug getter used only by tests)
+BOOT-4 createApp test default: createApp({ env }) with no injection → app.get('mediaService').health() → { enabled:false, reason:'MEDIA_SERVICE_NOT_INJECTED' }; info(row) → UNSUPPORTED/MEDIA_DISABLED — the default never pretends media is available and never spawns (runner spy 0)
+BOOT-5 sequence: bootMedia records an ordered trace ['limits','runner','detect','runtime','init'] (or ['limits','runner','disabled'] when disabled); service.start() is NOT called by bootMedia (index.js calls it after listen) — asserted via a start spy
+BOOT-6 createMediaRuntime wires the resolver: a generator stub invoked through the real service receives absPath under the temp storage root; resolveStorageKey('../../etc/passwd') → null → UNSUPPORTED/SOURCE_MISSING
+```
+
+- [ ] **Step 4c: RED**: `node --test --test-reporter=tap tests/mediaRuntime.test.js` → `ERR_MODULE_NOT_FOUND ../server/media/runtime.js`.
+
+- [ ] **Step 5: Implement `eviction.js`, `derivatives.js`, `runtime.js`**: per-`(sha,type)` state derived from `state.json` + in-memory job map; `ensure()` chains probe → type job through the queue with key `${profile}/${sha}/${type}`; `MediaJobError` classes map to the retry policy `MAX_TRANSIENT_RETRIES = 3` / `MAX_TOTAL_ATTEMPTS = 4` with backoff `[60_000, 300_000, 1_800_000]` ms indexed by attempts − 1; `serve()` never opens the file (returns path/mime/bytes; the route streams it); `scheduleForFile()` guards vault/folder/allowlist/sha/enabled and returns `false` when nothing is scheduled; `health()` echoes the injected `mountState`; `adminStatus()` aggregate only; `runtime.js` builds cache/queue/evictor/service from real modules and implements `bootMedia()` exactly as the canonical sequence (no `detect()` when disabled).
+
+- [ ] **Step 6: GREEN**: `node --test --test-reporter=tap tests/mediaEviction.test.js tests/mediaDerivatives.test.js tests/mediaRuntime.test.js` → `# tests 36 # pass 36` (EV-1..8, DS-1..8, DS-9/RETRY-1..4, DS-10..19, BOOT-1..6).
 
 - [ ] **Step 7: Local regression**: `node --test --test-concurrency=1 --test-reporter=tap tests/media*.test.js` → all media suites pass (skips only for tool/decoder availability).
 
 - [ ] **Step 8: `git diff --check`** → clean.
 
-- [ ] **Step 9: Reviewer checklist checkpoint** — cache stays non-authoritative (service reads/writes only under cache root; never touches `STORAGE_ROOT` except read-only via `resolveKey`); vault refused in the service; no DB access in the service (rows are passed in).
+- [ ] **Step 9: Reviewer checklist checkpoint** — cache stays non-authoritative (service reads/writes only under cache root; originals reached only through the injected resolver, read-only); vault refused in the service; no DB access in the service (rows are passed in); retry contract exact (3 transient retries, 4 total attempts); Production boot injects real probed capabilities; disabled path spawns nothing.
 
-- [ ] **Step 10: Commit** → `feat(idea1): add derivative service and cache eviction`
+- [ ] **Step 10: Commit** → `feat(idea1): add derivative service, runtime assembly and cache eviction`
 
 ---
 
@@ -530,11 +580,11 @@ DS-18 infoBatch([rows]) returns a Map with per-row info; enqueues once per disti
 - Create: `server/request/byteRange.js`
 - Create: `server/routes/media.js`
 - Modify: `server/routes/api.js` (import `parseByteRange` from the new module — delete the local copy; `apiRouter.use(mediaRouter)` placed immediately after `apiRouter.use('/files/uploads', uploadsRouter)`)
-- Modify: `server/app.js` (`createApp({ env, mediaService })`; default service built from `mediaLimitsFromEnv(env)` with `CAPABILITIES_NONE` until `index.js` runs `init()`; `/healthz.media` from `service.health()`)
+- Modify: `server/app.js` (no interface change — `createApp({ env, mediaLimits, mediaService })` from Task 1; this task only mounts the router)
 - Test: `tests/mediaRoutes.test.js`
 
 **Interfaces:**
-- Consumes: `store.findFile`, `store.findOwnFolder` (unchanged), `requireAuth`, `requireRole(ROLES.ADMIN)`, `csrfProtection` (already applied to `/api`), `mediaService.info/infoBatch/serve/adminStatus/invalidate`, `parseByteRange`.
+- Consumes: `store.findFile`, `store.findOwnFolder` (unchanged), `requireAuth`, `requireRole(ROLES.ADMIN)`, `csrfProtection` (already applied to `/api`), `mediaService.info/infoBatch/serve/adminStatus/invalidate` via `req.app.get('mediaService')`, `req.app.get('mediaLimits').profile`, `parseByteRange`, `config/previewMedia.js` (`previewExtForName` for the 415 pre-check — the same module the preview route uses).
 - Produces: routes `GET /api/files/:id/media-info`, `POST /api/files/media-info/batch`, `GET /api/files/:id/poster`, `GET /api/files/:id/motion-preview`, `GET /api/admin/media-cache/status`, `DELETE /api/admin/media-cache/entries/:sha256`; `derivativeHeaders()`.
 
 - [ ] **Step 1: Write the failing route tests** (app boot like `filesPreviewRoute.test.js`; **stub `mediaService`** injected via `createApp({ mediaService })` whose `serve()` returns scripted `ServeResult`s and whose `info()` returns scripted `MediaInfo`s, backed by real small files in a tmp dir for streaming; PostgreSQL mode when `TEST_DATABASE_URL` is set, memory otherwise)
@@ -546,7 +596,8 @@ MR-NULLOWNER row with uploaded_by NULL (PostgreSQL: UPDATE files SET uploaded_by
 MR-ADMIN admin requesting a user's file → 404 (no override)
 MR-VAULT vault row (seed via helpers/seedRealVault.mjs pattern or a memory row with vault true) → 404 on all three routes AND service never invoked (spy count 0)
 MR-FOLDER folder id → 400 {error:'Not a file'}
-MR-UNSUPPORTED .txt file → media-info 200 {status:'UNSUPPORTED', reason:'UNSUPPORTED_TYPE'}; poster → 415; motion-preview → 415
+MR-UNSUPPORTED .txt file → media-info 200 {status:'UNSUPPORTED', reason:'UNSUPPORTED_TYPE'}; poster → 415 {error, code:'UNSUPPORTED_TYPE'}; motion-preview → 415
+MR-DISABLED app created with mediaService = disabledMediaService(limits, 'MEDIA_DISABLED') → media-info 200 {status:'UNSUPPORTED', reason:'MEDIA_DISABLED'}; poster and motion-preview → 415 {error, code:'MEDIA_DISABLED'} with Cache-Control no-store; batch → every own id {status:'UNSUPPORTED', reason:'MEDIA_DISABLED'}; owner/vault/folder gates still run first (cross-owner still 404 + DENIED audit); GET /api/files, PATCH rename, POST move, upload and download in the same app all succeed
 MR-PENDING serve → pending {retryAfterSeconds:3} → poster 202, empty body, Retry-After '3', Cache-Control no-store
 MR-READY serve → ready → poster 200 image/webp, Content-Length = bytes, X-Content-Type-Options nosniff, Content-Disposition inline; filename*=UTF-8''poster.webp, CSP "default-src 'none'; sandbox", CORP same-origin, ETag `"<sha>-v1-poster"`, Cache-Control 'private, max-age=31536000, immutable', Vary 'Cookie'
 MR-RETRYABLE → 503 + Retry-After; MR-FAILED → 422 {error, reason}
@@ -559,14 +610,13 @@ MR-BATCH POST /api/files/media-info/batch {ids:[own, other-owner, vault, folder,
 MR-NOHASHROUTE GET /api/media/<sha256>/poster and GET /api/files/by-sha/<sha256> → 404 from apiNotFound (no bare-hash route exists)
 MR-ADMIN-STATUS user → 403; admin → 200 aggregate JSON (no 'name' keys anywhere in the payload)
 MR-ADMIN-INVALIDATE admin DELETE valid sha → 204 and service.invalidate called with the sha; malformed sha → 400; user → 403
-MR-PREVIEW-REGRESSION tests/filesPreviewRoute.test.js still 5/5 after parseByteRange extraction (run inside this task's regression)
 ```
 
-- [ ] **Step 2: RED**: `node --test --test-reporter=tap tests/mediaRoutes.test.js` → 404s from `apiNotFound` on every media path; `createApp({ mediaService })` option ignored.
+- [ ] **Step 2: RED**: `node --test --test-reporter=tap tests/mediaRoutes.test.js` → 404s from `apiNotFound` on every media path.
 
-- [ ] **Step 3: Implement** `byteRange.js` (move the function verbatim + its JSDoc), `routes/media.js`, the `api.js` import/mount, `app.js` option and health wiring; owner gate copied from `/preview` (same comment block), `p` pre-validated against `req.app.get('mediaLimits').profile`, streaming via `fs.createReadStream(path, {start,end})` with `stream.on('error', () => res.destroy())`.
+- [ ] **Step 3: Implement** `byteRange.js` (move the function verbatim + its JSDoc), `routes/media.js`, the `api.js` import/mount; owner gate copied from `/preview` (same comment block), `p` pre-validated against `req.app.get('mediaLimits').profile`, `ServeResult.kind` → status map: ready 200/206/304, pending 202, unsupported 415 (code from reason), disabled 415 `MEDIA_DISABLED`, failed 422, retryable 503, stale 404, bad-request 400; streaming via `fs.createReadStream(path, {start,end})` with `stream.on('error', () => res.destroy())`.
 
-- [ ] **Step 4: GREEN (memory)**: same command → `# tests 22 # pass 22`.
+- [ ] **Step 4: GREEN (memory)**: same command → `# tests 22 # pass 22` (MR: OWNER, CROSS, NULLOWNER, ADMIN, VAULT, FOLDER, UNSUPPORTED, DISABLED, PENDING, READY, RETRYABLE, FAILED, STALE_V, UNKNOWN_P, MISSING, ETAG, REVALIDATE, RANGE, BATCH, NOHASHROUTE, ADMIN-STATUS, ADMIN-INVALIDATE; the `filesPreviewRoute` regression is run in Step 6, not counted here).
 
 - [ ] **Step 5: GREEN (PostgreSQL)**: `sh scripts/pg-integration-env.sh up` → export the printed vars → `TEST_DATABASE_URL=… node --test --test-reporter=tap tests/mediaRoutes.test.js` → 22/22 (MR-NULLOWNER and MR-VAULT run against real rows) → `sh scripts/pg-integration-env.sh down`.
 
@@ -636,7 +686,8 @@ UE-3 version restore → 200 as before; scheduleForFile called once with the row
 UE-4 response does not wait: stub scheduleForFile hangs 2000 ms → upload 201 returned in < 500 ms (measured)
 UE-5 scheduling failure is harmless: stub throws → upload still 201; error logged once (console.error spy) ; no audit change
 UE-6 Vault: vault V2 commit path → scheduleForFile never called (spy 0) — vault commit route untouched
-UE-7 unsupported: .txt upload → scheduleForFile called (the service decides) OR not called (route pre-filters on allowlist) — contract: either way no error and 201; assert no job in the service (stub reports enqueued 0)
+UE-7 unsupported: .txt upload → scheduleForFile called exactly once with the committed row (the upload layer never filters by media type — one allowlist lives in config/previewMedia.js and the service owns the decision); the stub service returns false and records zero jobs; the upload response is 201 and byte-identical to the pre-media response body
+UE-10 disabled: app created with disabledMediaService(limits, 'MEDIA_DISABLED') → V1 upload, V2 commit and version restore all succeed with unchanged status/body; scheduleForFile is still called once per success and returns false; no job exists
 UE-8 protocol unchanged: `tests/resumableUpload.test.js`, `tests/uploadRecovery.test.js`, `tests/filesUploadTargeting.test.js` byte-for-byte counts unchanged (run in regression); `server/config/transferLimits.js` unchanged (git diff --quiet on that path)
 UE-9 same-name replace (V1) → scheduleForFile called with the NEW sha256
 ```
@@ -645,13 +696,13 @@ UE-9 same-name replace (V1) → scheduleForFile called with the NEW sha256
 
 - [ ] **Step 3: Implement**: a 12-line helper `scheduleDerivativesAfterResponse(req, res, row)` in `routes/media.js` (exported) that attaches `res.once('finish', () => { Promise.resolve(service.scheduleForFile(row, PRIORITY.UPLOAD)).catch(err => console.error('[media] schedule failed:', err.message)) })`; call it at the three success sites only.
 
-- [ ] **Step 4: GREEN**: same command → `# tests 9 # pass 9`.
+- [ ] **Step 4: GREEN**: same command → `# tests 10 # pass 10` (UE-1..10).
 
 - [ ] **Step 5: Local regression**: `node --test --test-concurrency=1 --test-reporter=tap tests/resumableUpload.test.js tests/uploadRecovery.test.js tests/uploadRecoveryLifecycle.test.js tests/filesUploadTargeting.test.js tests/uploadBatchSummary.test.js tests/chunkedUploadClient.test.js tests/commitCrashRecoveryPostgres.test.js` → counts unchanged versus `main`; `git diff --quiet e5bea949 -- server/config/transferLimits.js` exit 0.
 
 - [ ] **Step 6: `git diff --check`** → clean.
 
-- [ ] **Step 7: Reviewer checklist checkpoint** — no upload optimisation; response never waits; failure harmless; Vault never scheduled.
+- [ ] **Step 7: Reviewer checklist checkpoint** — no upload optimisation; response never waits; failure harmless; Vault routes never call the hook; the hook is unconditional for every successful normal-file commit/restore (no media-type logic in upload code).
 
 - [ ] **Step 8: Commit** → `feat(idea1): enqueue media derivatives after upload success`
 
@@ -794,6 +845,7 @@ GI-REDUCED matchMedia reduce → no <video> mounted, hover does nothing; Preview
 GI-BADGES gif/apng/webp-animated show badge 'GIF'/'Animated' text from strings; mp4 shows 'VIDEO'
 GI-REGRESSION folder tiles unchanged (data-tile-variant folder-compact); marquee selection test scene from filesInteractionPolish still selects f3; sort select still works; root breadcrumb drop still moves (R10-ROOTDROP-1 rerun in place); upload drawer opens
 GI-NO-GIFPOSTER `grep -rn gifPoster src/ tests/` returns only the deletion-era test file (before deletion) → after deletion returns nothing; vite build has no chunk containing 'createImageBitmap' from src (grep dist after build in Task 17)
+GI-DISABLED media-info batch stub answers {status:'UNSUPPORTED', reason:'MEDIA_DISABLED'} for every id → every media tile shows its icon + family badge, no poster/motion requests, no broken image, and folders/rename/move/sort/drag/upload drawer/Preview dialog all behave as in GI-REGRESSION
 ```
 
 - [ ] **Step 2: RED**: `node --test --test-reporter=tap tests/filesMediaTiles.test.js` → GI-* fail (thumbnail still `<img src=/preview>` and GIF Blob poster path).
@@ -802,7 +854,7 @@ GI-NO-GIFPOSTER `grep -rn gifPoster src/ tests/` returns only the deletion-era t
 
 - [ ] **Step 4: Implement** `MediaThumb.jsx` and the `Files.jsx` changes; `mediaFamilyFor`.
 
-- [ ] **Step 5: GREEN**: `node --test --test-concurrency=1 --test-reporter=tap tests/filesMediaTiles.test.js tests/filesRound10.test.js tests/filesVisualHierarchy.test.js tests/filesInteractionPolish.test.js` → all pass; record the new counts in the PR body (expected: filesMediaTiles 24 + 14 GI; filesRound10 24 → 24 with rewritten GIF cases; filesVisualHierarchy 21; filesInteractionPolish 28).
+- [ ] **Step 5: GREEN**: `node --test --test-concurrency=1 --test-reporter=tap tests/filesMediaTiles.test.js tests/filesRound10.test.js tests/filesVisualHierarchy.test.js tests/filesInteractionPolish.test.js` → all pass; record the new counts in the PR body (filesMediaTiles = 24 (MA-1..5, TS-1..13, UH-1..6) + 16 GI (STATIC-1, STATIC-2, ANIM-1, ANIM-2, ANIM-3, VIDEO-1, PREVIEW-1, UNSUPPORTED, PENDING-BACKOFF, RENAME, REPLACE, REDUCED, BADGES, REGRESSION, NO-GIFPOSTER, DISABLED) = 40; filesRound10 stays 24 with the GIF cases rewritten; filesVisualHierarchy 21; filesInteractionPolish 28).
 
 - [ ] **Step 6: Delete `src/lib/gifPoster.js`** only after `grep -rn "gifPoster" src tests server` prints nothing; re-run Step 5.
 
@@ -842,7 +894,7 @@ WU-8 no filenames in any log line or in adminStatus JSON (regex over captured ou
 
 - [ ] **Step 2: RED** → module not found.
 - [ ] **Step 3: Implement** `warmup.js`, the store query, the CLI.
-- [ ] **Step 4: GREEN**: `node --test --test-reporter=tap tests/mediaDerivatives.test.js` → 26 + 8 = 34 pass.
+- [ ] **Step 4: GREEN**: `node --test --test-reporter=tap tests/mediaDerivatives.test.js` → 22 (DS-1..8, RETRY-1..4, DS-10..19) + 8 (WU-1..8) = 30 pass.
 - [ ] **Step 5: Local regression**: `node --test --test-reporter=tap tests/mediaRoutes.test.js` → 22/22.
 - [ ] **Step 6: `git diff --check`** → clean.
 - [ ] **Step 7: Reviewer checklist checkpoint** — warm-up is CLI-only, throttled, P2, never automatic, never run against Production in this plan.
@@ -855,7 +907,7 @@ WU-8 no filenames in any log line or in adminStatus JSON (regex over captured ou
 **Files:**
 - Modify: `IDEA1-AEGIS_Drive_LC/Dockerfile`, `IDEA1-AEGIS_Drive_LC/package.json`, `IDEA1-AEGIS_Drive_LC/package-lock.json`
 - Modify (cross-scope, declared): `docker-compose.yml`, `.env.example`
-- Modify: `server/index.js` (boot wiring: `detectCapabilities` → `service.init()` → `start()` after listen → `stop()` on SIGTERM)
+- Modify: `server/index.js` (canonical sequence via `bootMedia()`: limits → prerequisites (`bootstrapAdminIfNeeded`, `initStorage`, …) → runner → capabilities only when enabled → real runtime → `await service.init()` → `createApp({ env, mediaLimits, mediaService })` → `listen` → `service.start()` → `SIGTERM`: `service.stop()` then `server.close()`; the module-level `const app = createApp()` moves inside the boot promise)
 - Test/evidence: image build log, `docker run --rm <image> ffmpeg -version`, `ffprobe -version`, `ffmpeg -hide_banner -encoders | grep -E 'libx264|libwebp'`, `ffmpeg -hide_banner -decoders | grep -E ' (gif|apng|webp|av1|h264|vp8|vp9) '`, `node -e "import('sharp').then(s=>console.log(s.default.versions))"`, `docker image inspect --format '{{.Size}}'` delta vs the Round 10 image, `/healthz` from a container run with the dev compose.
 
 **Interfaces:**
@@ -874,9 +926,9 @@ WU-8 no filenames in any log line or in adminStatus JSON (regex over captured ou
 
 - [ ] **Step 6: Wire `index.js`** and run the image: `docker compose build drive` → `docker compose up -d postgres drive` → `curl -s http://127.0.0.1:8001/healthz` (inside the network or via `docker compose exec drive wget -qO- http://127.0.0.1:8001/healthz`) shows `media.enabled true`, `cacheVolume "volume"`, capability object; `docker compose exec drive ls -ld /var/cache/aegis-media` → owner `node`; `docker compose down` (volumes retained).
 
-- [ ] **Step 7: Record evidence** (image size delta ≤ +150 MB or stop for review; `ffmpeg -version` line; encoder/decoder greps; sharp versions) in the PR body Verification section.
+- [ ] **Step 7: Record provenance evidence** in the PR body Verification section: `CANDIDATE_IMAGE_ID=<sha256 from docker image inspect --format '{{.Id}}'>`, `FFMPEG_VERSION=`, `FFPROBE_VERSION=`, `SHARP_VERSION=` (`sharp.versions.sharp` + `vips`), `ALPINE_VERSION=` (`/etc/alpine-release`), image size delta ≤ +150 MB or stop for review, encoder/decoder greps. These five values are the required provenance header of every Task 16 result (`MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE`).
 
-- [ ] **Step 8: Local regression**: `node --test --test-concurrency=1 --test-reporter=tap tests/media*.test.js` on the Linux clone with real tools → `MEDIA_SKIP=0` (no `media-tools-unavailable` skips; decoder-specific skips listed by reason).
+- [ ] **Step 8: Local regression**: `node --test --test-concurrency=1 --test-reporter=tap tests/media*.test.js` on the Linux clone with real tools → `MEDIA_SKIP=0` (no `media-tools-unavailable` skips; decoder-specific skips listed by reason). Also the kill-switch run: `MEDIA_ENABLED=false node --test --test-concurrency=1 --test-reporter=tap tests/filesPreviewRoute.test.js tests/filesRenameMove.test.js tests/filesManagementUi.test.js tests/filesUploadTargeting.test.js tests/mediaUploadEnqueue.test.js` → unchanged counts, and `docker compose run --rm -e MEDIA_ENABLED=false drive node -e "…bootMedia trace…"` is not needed because BOOT-3 already proves no spawn; instead run the image with `MEDIA_ENABLED=false` and assert `/healthz.media = { enabled:false, reason:'MEDIA_DISABLED', … }` and `ps` inside the container shows no ffmpeg/ffprobe process at any point during a 30 s window.
 
 - [ ] **Step 9: `git diff --check`** → clean; restore `dist/` if the build touched it.
 
@@ -886,38 +938,90 @@ WU-8 no filenames in any log line or in adminStatus JSON (regex over captured ou
 
 ---
 
-### Task 16: Large-media / resource verification (Linux gate)
+### Task 16: Large-media / resource verification (Linux gate, packaged candidate toolchain)
 
 **Files:**
-- Test: `tests/mediaLargeSources.test.js`, `tests/mediaResponsiveness.test.js` (both skip outside Linux or without tools; both marked `# SKIP linux-gate` elsewhere)
-- Modify: `tests/helpers/mediaFixtures.mjs` (large/sparse generators if not already complete)
+- Create: `tests/helpers/sparseContainers.mjs` (structural sparse MP4/WebM builder + verifier)
+- Test: `tests/mediaLargeSources.test.js`, `tests/mediaResponsiveness.test.js` (both skip outside Linux or without tools with `# SKIP linux-gate`; both import **only** production dependencies — `node:test`, `node:fs`, sharp, the server modules — because they run inside the runtime image where devDependencies are absent)
+- Modify: `tests/helpers/mediaFixtures.mjs` (byte-class generators)
 
 **Interfaces:**
-- Consumes: real service (Tasks 7–8) with real tools; `processRunner` metrics; `/proc/<pid>/status` `VmHWM`; fixtures generated at test time (never committed).
-- Produces: recorded evidence lines (TAP diagnostics) and pass/fail on the bounded contracts of spec §23–§24.
+- Consumes: the real runtime (`createMediaRuntime`) with real tools; `processRunner` metrics; `/proc/<pid>/status` `VmHWM`; fixtures generated at test time (never committed); the Task 15 candidate image.
+- Produces: recorded evidence lines (TAP diagnostics with the provenance header) and pass/fail on the bounded contracts of spec §23–§24.
 
-- [ ] **Step 1: Write the large-source tests**
+- [ ] **Step 1: Write the sparse-container builder and verifier** (`tests/helpers/sparseContainers.mjs`; pure Node, no FFmpeg needed to build, FFmpeg used only to verify):
+
+```
+makeSparseMp4({ src, spanBytes, layout: 'faststart' | 'moov-at-end', out })
+  parses top-level boxes of a valid short MP4 (ftyp, free?, moov, mdat);
+  'faststart': writes ftyp, moov (with every stco converted to co64 and every chunk offset re-based by +spanBytes + Δ(moov growth)), a `free` box whose 64-bit largesize = spanBytes (payload created sparse via fs.truncate/seek, never written), then mdat unchanged;
+  'moov-at-end': writes ftyp, the sparse `free` box, mdat (offsets +spanBytes), then moov LAST (co64 re-based) — moov begins at fileSize − moovSize;
+  updates parent box sizes (stbl → minf → mdia → trak → moov) after stco→co64 growth.
+makeSparseWebm({ src, spanBytes, cues: true | false, out })
+  parses EBML header + Segment children of a valid short WebM (Info, Tracks, Cluster*, Cues? SeekHead?);
+  inserts a Void element (ID 0xEC, 8-byte vint size = spanBytes − 9, payload sparse) before the first Cluster;
+  re-bases SeekHead SeekPosition entries and every CuePosition by +spanBytes; for cues:false the source must have no Cues element (built with -live 1) and the builder asserts that;
+  rewrites the Segment size (or keeps unknown-size) accordingly.
+verifyFixture(path) → { bytes, boxes|elements: [{ type, offset, size }], moovOffset, mdatOffset, hasCues, ffprobe: { ok, format, durationSeconds, streams } }
+```
+
+- [ ] **Step 2: Write the fixture-integrity tests** (first section of `mediaLargeSources.test.js`; run before any performance assertion; a failing integrity test marks its class `NOT_PROVEN` and skips the class's performance rows instead of failing them silently):
+
+```
+FIXTURE_MP4_FASTSTART (10 GiB): ftyp valid; moovOffset < mdatOffset; moovOffset < 1 MiB; ffprobe ok with the source's duration ±0.1 s
+FIXTURE_MP4_MOOV_AT_END (10 GiB): moovOffset === bytes − moovSize (moov is the final box of the FINAL file, after the sparse span, not before it); mdatOffset < moovOffset; ffprobe ok with the source's duration ±0.1 s; a decode of the first frame succeeds (ffmpeg -frames:v 1 to /dev/null) proving the co64 re-basing is correct
+FIXTURE_WEBM_CUES (10 GiB): a Cues element is present after the last Cluster; every CuePosition re-based (resolving each points at a Cluster ID 0x1F43B675); ffprobe ok
+FIXTURE_WEBM_NO_CUES (10 GiB): no Cues element anywhere; no SeekHead entry for Cues; ffprobe either ok or fails within MEDIA_PROBE_TIMEOUT_MS with a recorded reason (both are truthful; a hang is not)
+FIXTURE_SPARSE_REALITY: for every fixture, `stat.blocks × 512` < 64 MiB (the file is genuinely sparse) while `stat.size` ≥ 10 GiB
+FIXTURE_NOT_PROVEN_PATH: if any builder throws (e.g. an atom the parser does not understand), the class is reported `# NOT_PROVEN <class> <reason>` and its performance rows are skipped — never passed on zero padding
+```
+
+- [ ] **Step 3: Write the byte-class fixture assertions** (`mediaFixtures.mjs` generators + tests):
+
+```
+CLASS_200MB_STILL: 7000×5000 16-bit RGB deterministic-noise PNG (xorshift seed) → stat size in [180 MiB, 240 MiB]; PIXELS 35_000_000 ≤ MEDIA_MAX_SOURCE_PIXELS; print SOURCE_BYTES/WIDTH/HEIGHT/PIXELS/FORMAT
+CLASS_300MB_STILL: 8000×5000 16-bit RGBA deterministic-noise PNG → stat size in [280 MiB, 340 MiB]; PIXELS 40_000_000 ≤ guard (boundary case: exactly the guard is allowed)
+CLASS_OVER_PIXELS: 9000×5000 (45 MP) → separate DIMENSIONS rejection test (not a byte class)
+CLASS_GIF_518KB: palette GIF adjusted by frame count until stat size in [400 KiB, 640 KiB]
+CLASS_GIF_49MB: noise-frame GIF adjusted by frame count (binary search over -t, ≤ 6 generations) until stat size in [45 MiB, 55 MiB]; print SOURCE_BYTES/WIDTH/HEIGHT/PIXELS/FORMAT/FRAMES
+CLASS_ANIM_200MB / CLASS_ANIM_300MB: GIF and APNG variants in [180, 240] / [280, 340] MiB with a high-bitrate first window (noise frames) and a low-bitrate first window (flat colour for the first 6.5 s, noise after)
+CLASS_VIDEO_196MB: libx264 noise video adjusted by -t until stat size in [176 MiB, 216 MiB]
+generator contract: each returns { path, bytes, width, height, pixels, format, frames? }; a generator that cannot reach its band within 6 iterations throws and the dependent tests are reported `# NOT_PROVEN <class>`
+```
+
+- [ ] **Step 4: Write the large-source performance tests** (only for proven fixtures/classes)
 
 ```
 LS-SMALL 64 KiB JPEG → poster ≤ 512 KiB; wall clock recorded
-LS-200MB generated 200 MB-class still (e.g. 8000×5000 PNG with noise, ~200 MB on disk) → poster succeeds within posterTimeoutMs; child/sharp peak RSS recorded; output ≤ 512 KiB
-LS-300MB 300 MB-class still within 40 MP (e.g. 8000×5000 16-bit PNG) → succeeds; a 9000×5000 (over guard) → UNSUPPORTED DIMENSIONS in < 200 ms
-LS-GIF-518K and LS-GIF-49MB generated GIFs of those byte sizes (testsrc noise, palette) → poster + motion succeed; readBytes recorded; output caps hold
-LS-ANIM-HI/LO 200 MB and 300 MB-class GIF and APNG with high- and low-bitrate first windows → motion ≤ 6.1 s, ≤ 4 MiB, within timeout; readBytes recorded and high ≥ low; NO fixed byte bound asserted
-LS-VIDEO-196MB generated 196 MB MP4 (faststart) → poster + motion; grid-relevant transfer = derivative bytes only
-LS-SPARSE-10G for each class {mp4Faststart, mp4MoovAtEnd, webmWithCues, webmWithoutCues} extended to 10 GiB by truncate → poster + motion succeed or fail truthfully within timeout; readBytes recorded per class; assert readBytes < 64 MiB ONLY for mp4Faststart and webmWithCues; assert child VmHWM < 1 GiB for all; assert no process leak (pgrep -f the fixture path after the run → none) and no tmp leak (cache tmp/ empty)
-LS-SPARSE-20G same four classes at 20 GiB (skipped when the tmp filesystem lacks sparse support or free inodes; skip reason recorded)
+LS-200MB CLASS_200MB_STILL → poster succeeds within posterTimeoutMs; sharp/child peak RSS recorded; output ≤ 512 KiB
+LS-300MB CLASS_300MB_STILL → succeeds; CLASS_OVER_PIXELS → UNSUPPORTED DIMENSIONS in < 200 ms
+LS-GIF-518K, LS-GIF-49MB → poster + motion succeed; readBytes recorded; output caps hold
+LS-ANIM-HI/LO CLASS_ANIM_200MB/300MB GIF+APNG → motion ≤ 6.1 s, ≤ 4 MiB, within timeout; readBytes recorded; assert only readBytes(high) ≥ readBytes(low); NO fixed byte bound
+LS-VIDEO-196MB CLASS_VIDEO_196MB → poster + motion; grid-relevant transfer = derivative bytes only
+LS-SPARSE-10G for each PROVEN class → poster + motion succeed or fail truthfully within timeout; readBytes recorded per class; assert readBytes < 64 MiB ONLY for FIXTURE_MP4_FASTSTART and FIXTURE_WEBM_CUES; assert child VmHWM < 1 GiB for all; no process leak (pgrep on the fixture path after the run → none); no tmp leak (cache tmp/ empty)
+LS-SPARSE-20G same PROVEN classes at 20 GiB (skipped with reason when the tmp filesystem cannot hold a 20 GiB sparse file)
 ```
 
-- [ ] **Step 2: Write the responsiveness test** — exactly spec §23 "Resource / responsiveness": 30 s baseline at 5 req/s for `/healthz` and `GET /api/files`, then during LS-ANIM-HI (300 MB) and during LS-SPARSE-10G mp4MoovAtEnd; asserts zero non-200, none > 5 s, process alive, child VmHWM recorded; computes and prints `REGRESSION_RATIO` per endpoint (no threshold assertion; printed for review).
+- [ ] **Step 5: Write the responsiveness test** — exactly spec §23 "Resource / responsiveness": 30 s baseline at 5 req/s for `/healthz` and `GET /api/files`, then during LS-ANIM-HI (300 MB class) and during LS-SPARSE-10G FIXTURE_MP4_MOOV_AT_END (or the next proven class if that one is NOT_PROVEN); asserts zero non-200, none > 5 s, process alive, child VmHWM recorded; prints `REGRESSION_RATIO` per endpoint (no threshold assertion).
 
-- [ ] **Step 3: Run on the Linux clone** (`~/aegis-pr148-verify` pattern; tools present from Task 15's image or host `apk`/`apt` FFmpeg + sharp prebuilt): `node --test --test-concurrency=1 --test-reporter=tap tests/mediaLargeSources.test.js tests/mediaResponsiveness.test.js > $OUT/media_large.tap` → record counts, every `# readBytes`/`# vmHwm`/`# ratio` diagnostic line into the PR body.
+- [ ] **Step 6: Run authoritatively inside the candidate image** (Linux host with Docker; exact command resolved from the image layout, shape:)
 
-- [ ] **Step 4: `git diff --check`** → clean.
+```
+docker run --rm \
+  -v "$PWD/IDEA1-AEGIS_Drive_LC/tests:/app/tests:ro" \
+  -v aegis_media_gate_tmp:/tmp \
+  -e MEDIA_CACHE_DIR=/tmp/aegis-media-cache -e STORAGE_ROOT=/tmp/aegis-storage -e SESSION_SECRET=gate-only \
+  --entrypoint node <CANDIDATE_IMAGE_ID> --test --test-concurrency=1 --test-reporter=tap \
+  tests/mediaLargeSources.test.js tests/mediaResponsiveness.test.js > $OUT/media_large_candidate.tap
+```
 
-- [ ] **Step 5: Reviewer checklist checkpoint** — no giant bytes committed; claims limited to proven fixture classes; ratio recorded, not invented.
+The TAP header must carry `MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE` plus the five provenance values (the test prints them from `ffmpeg -version`, `sharp.versions`, `/etc/alpine-release` and the `CANDIDATE_IMAGE_ID` env passed in); every `# readBytes`/`# vmHwm`/`# ratio`/`# NOT_PROVEN` diagnostic line is copied into the PR body. A run on host tools (`node --test …` on the WSL clone) may be recorded additionally as `HOST_TOOLCHAIN_RESULT=SUPPLEMENTAL` and never replaces the candidate run.
 
-- [ ] **Step 6: Commit** → `test(idea1): add large-media and responsiveness gates`
+- [ ] **Step 7: `git diff --check`** → clean.
+
+- [ ] **Step 8: Reviewer checklist checkpoint** — no giant bytes committed; sparse fixtures structurally verified before use, `NOT_PROVEN` recorded when unbuildable; byte classes proven by `stat`; claims limited to proven fixture classes; ratio recorded, not invented; authoritative toolchain = packaged candidate.
+
+- [ ] **Step 9: Commit** → `test(idea1): add large-media and responsiveness gates`
 
 ---
 
@@ -931,7 +1035,7 @@ LS-SPARSE-20G same four classes at 20 GiB (skipped when the tmp filesystem lacks
 - Consumes: the whole branch at a frozen SHA.
 - Produces: the recorded evidence block for Task 18.
 
-- [ ] **Step 1: Memory-mode media suites** — `node --test --test-concurrency=1 --test-reporter=tap tests/media*.test.js tests/filesMediaTiles.test.js` → all pass; list skips by reason.
+- [ ] **Step 1: Memory-mode media suites** — `node --test --test-concurrency=1 --test-reporter=tap tests/media*.test.js tests/filesMediaTiles.test.js` → all pass; list skips by reason. Then the kill-switch regression: `MEDIA_ENABLED=false node --test --test-concurrency=1 --test-reporter=tap` over the 13 PR150 suites + `tests/mediaUploadEnqueue.test.js` + `tests/mediaRoutes.test.js` → identical counts to the enabled run (the route/enqueue suites inject their own service, so they are unaffected; the PR150 suites prove ordinary Files behaviour under the disabled default).
 
 - [ ] **Step 2: PostgreSQL-gated suites** — `sh scripts/pg-integration-env.sh up`; one fresh DB per file (`CREATE DATABASE x TEMPLATE aegis_drive_test` + `REVOKE CONNECT … FROM PUBLIC; GRANT … TO drive_app`); `TEST_DATABASE_URL=… node --test --test-reporter=tap tests/mediaRoutes.test.js tests/mediaUploadEnqueue.test.js tests/mediaCacheSessionContract.test.js` → pass with `PR150_POSTGRES_SKIP=0`; also on clones upgraded through migration 010 (`mig_tpl` procedure) → same; `sh scripts/pg-integration-env.sh down`; delete the exported credential file.
 
@@ -951,7 +1055,7 @@ LS-SPARSE-20G same four classes at 20 GiB (skipped when the tmp filesystem lacks
 
 - [ ] **Step 10: Governance** — `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` (2 pre-existing canvas warnings only); `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` → 50/50; `node scripts/validate-collaboration-policy.mjs --event <pull_request-shaped json from gh pr view --json body,isDraft,headRefName,baseRefName,number> --changed-files <git diff --name-status origin/main...HEAD>` → "Collaboration policy passed." with `docker-compose.yml` and `.env.example` listed under Shared Surfaces.
 
-- [ ] **Step 11: PR body update (status-only)** — Verification block with every count above, capability evidence, image delta, `MEDIA_SKIP`, `PR150_POSTGRES_SKIP`, `NEW_FAILURE_COUNT`, large-source diagnostics; Source Files Changed extended with the file map; no receipt; `DO_NOT_MERGE=TRUE`.
+- [ ] **Step 11: PR body update (status-only)** — Verification block with every count above, capability evidence, image delta, the provenance header (`MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE`, `CANDIDATE_IMAGE_ID`, `FFMPEG_VERSION`, `FFPROBE_VERSION`, `SHARP_VERSION`, `ALPINE_VERSION`, and `HOST_TOOLCHAIN_RESULT=SUPPLEMENTAL` if a host run exists), `MEDIA_SKIP`, `PR150_POSTGRES_SKIP`, `NEW_FAILURE_COUNT`, large-source diagnostics incl. any `NOT_PROVEN` class; Source Files Changed extended with the file map; no receipt; `DO_NOT_MERGE=TRUE`.
 
 - [ ] **Step 12: `git diff --check`** → clean; worktree clean.
 
@@ -979,8 +1083,9 @@ LS-SPARSE-20G same four classes at 20 GiB (skipped when the tmp filesystem lacks
 - [ ] **Step 10: Cross-account cache isolation** — A views → logout → anonymous 401 → B login same browser profile → 404, DevTools shows a real network request (not "from disk cache").
 - [ ] **Step 11: Resource responsiveness** — `docker stats`, `RestartCount`, child `VmHWM`, p95 before/during a 300 MB-class and a 10 GB-class job; `REGRESSION_RATIO` recorded; > 2.0 triggers review.
 - [ ] **Step 12: Final docs reconciliation** — canonical `idea1-status.md`, PR body, spec status line (implementation complete), plan checkboxes.
-- [ ] **Step 13: Immutable receipt** — exactly one, at closeout, per AGENTS.md.
-- [ ] **Step 14: Ready / merge** — only after Steps 2–13 pass and the Human Owner authorizes.
+- [ ] **Step 13: FINAL MAIN FREEZE (immediately before Ready/merge)** — record `FINAL_MAIN_SHA=$(git rev-parse origin/main)` and `FINAL_BRANCH_HEAD=$(git rev-parse origin/feat/idea1-files-management-ux)` after `git fetch origin`. If `FINAL_MAIN_SHA` differs from the `main` SHA reconciled in Step 4: **STOP Ready/merge**; merge current `main` normally (`--no-ff`, no rebase/squash); prove the IDEA1/media tree impact (`git diff --stat <pre-merge-head> HEAD -- IDEA1-AEGIS_Drive_LC docs/superpowers/specs/2026-09-18-pr150-media-preview-pipeline-design.md`); re-run the exact-SHA Linux/PostgreSQL verification (Step 3) on the reconciled head; if the source/runtime tree changed, the Production evidence of Steps 5–11 must be reassessed (new candidate image from the reconciled head); if the drift is docs-only/non-IDEA1 and tree equivalence is proven, record that proof in the PR body before Ready. Repeat this step until `FINAL_MAIN_SHA` equals the reconciled `main`. No Ready/merge against a stale `main`.
+- [ ] **Step 14: Immutable receipt** — exactly one, at closeout, per AGENTS.md.
+- [ ] **Step 15: Ready / merge** — only after Steps 2–14 pass, the freeze check of Step 13 is current, and the Human Owner authorizes.
 
 ## Plan self-review record
 
@@ -993,4 +1098,10 @@ LS-SPARSE-20G same four classes at 20 GiB (skipped when the tmp filesystem lacks
 - Security/cache isolation: Task 9 is its own task with its own commit.
 - First-hover race: explicit RED tests TS-5 (pure) and GI-ANIM-2 (integration).
 - 49.7 MB GIF: LS-GIF-49MB fixture in Task 16 and the real-file browser acceptance in Task 18 Step 9 (mandatory).
-- Large-media truthfulness: MG-WINDOW, LS-ANIM-HI/LO and LS-SPARSE-* record measurements; fixed bounds are asserted only for the proven fixture classes.
+- Large-media truthfulness: MG-WINDOW, LS-ANIM-HI/LO and LS-SPARSE-* record measurements; fixed bounds are asserted only for the proven fixture classes; sparse fixtures are structurally verified (FIXTURE_*) before use and `NOT_PROVEN` is a recorded outcome; byte classes are proven by `stat`.
+- Toolchain provenance: authoritative Task 16 evidence runs inside the Task 15 candidate image; host runs are `SUPPLEMENTAL`.
+- Boot: Production injects the real probed capabilities through `bootMedia()`/`createMediaRuntime()`; `createApp`'s default is an explicit disabled service (BOOT-1..6, MC-8/10/11).
+- Kill switch: `MEDIA_ENABLED=false` is covered by BOOT-3 (no spawn, no queue, `scheduleForFile === false`), MR-DISABLED (wire mapping), UE-10 (uploads unaffected), GI-DISABLED (grid), MC-11 (health) and the Task 17 disabled-mode regression of the 13 PR150 suites.
+- No "A or B" contracts remain (UE-7 is deterministic); no circular import (`derivatives.js` never imports `routes/api.js`; the allowlist lives in `config/previewMedia.js`).
+- Test counts per suite are the number of declared IDs: mediaLimits 12, mediaCapabilities 12, mediaCache 13, mediaMountInfo 7, mediaProcessRunner 9, mediaQueue 9, mediaProbe 17, mediaPoster 15, mediaMotion 14, mediaEviction 8, mediaDerivatives 22 + 8 warm-up = 30, mediaRuntime 6, mediaRoutes 22, mediaCacheSessionContract 8, mediaUploadEnqueue 10, filesMediaTiles 40, mediaScheduler 10; mediaLargeSources/mediaResponsiveness are evidence suites whose executed count depends on proven fixture classes and is reported, not predicted.
+- Final main freeze: Task 18 Step 13 blocks Ready/merge on any `main` drift after the last reconciliation.
