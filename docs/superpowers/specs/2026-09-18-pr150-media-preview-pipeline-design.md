@@ -1,7 +1,7 @@
 # AEGIS IDEA1 — PR #150 Media Preview Pipeline Design (Server-Side Derivatives + Cache)
 
 Date: 2026-09-18
-Status: DESIGN / SPEC ONLY — revision 2 (design correction after `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN = CHANGES_REQUIRED`); awaiting `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN_CORRECTION`
+Status: DESIGN APPROVED — `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_ARCHITECTURE = PASS` (all five revision-2 correction areas accepted); implementation planning authorized (`docs/superpowers/plans/2026-09-18-pr150-media-preview-pipeline.md`); implementation, Linux/PostgreSQL verification, Production candidate, browser acceptance, receipt, and merge remain separately gated and are NOT started
 Revision 2 corrections: (1) profile version in every derivative URL/ETag and an explicit authenticated-cache isolation policy; (2) Production overlay model separate from the repository compose; (3) truthful CPU/memory wording and a measurable responsiveness guard; (4) family-specific animation detection; (5) temporal-vs-byte bounds for large animated sources and empirical container seek verification. The accepted architecture decisions are unchanged.
 Scope: IDEA1 / FILES-MANAGEMENT-UX-1 / Files grid media thumbnails, hover motion, and their generation pipeline
 PR: #150 (`feat/idea1-files-management-ux`)
@@ -9,7 +9,7 @@ Design basis SHA: `e5bea949a917a84b20e337d8d9d1406ff115af36` (verified source = 
 Base `main`: `1867a1bf633a5486e0382a949c95b87217ac7270`
 Human-approved direction: **server-side media derivatives + rebuildable cache, FFmpeg/FFprobe, Sharp/libvips permitted for still images.** The choice between client-side poster extraction and server-side derivatives is closed and is not re-opened here.
 
-This document authorizes nothing on its own. It changes no application source, tests, packages, Dockerfile, compose file, database, or Production state. Implementation follows only after design review and under a separate implementation gate with its own TDD, Linux/PostgreSQL verification, and browser acceptance.
+This document authorizes nothing on its own beyond implementation *planning*. It changes no application source, tests, packages, Dockerfile, compose file, database, or Production state. Implementation follows the companion plan under its own TDD, review, Linux/PostgreSQL verification, and browser-acceptance gates.
 
 ---
 
@@ -196,7 +196,7 @@ Ownership of each box: everything under `Drive` is `IDEA1-AEGIS_Drive_LC/server/
 | Audio | none (`-an`) | Hover previews are silent; drops bytes and avoids autoplay-with-sound policies. |
 | Box | fit inside 480 × 270, even dimensions, never upscale | ≈2× the 210 px tile; yuv420p requires even sizes. |
 | Frame rate | `fps=min(source, 12)` | GIF-class motion; halves decode/encode work vs 24–30 fps for a hover cue. |
-| Duration | `MEDIA_MOTION_MAX_SECONDS` = 6 s from the source start (`-ss 0 -t 6.5` as **input** options so the demuxer stops reading after that window; `-t 6` on output) | Bounded read and bounded encode regardless of source length; loops in the tile. |
+| Duration | `MEDIA_MOTION_MAX_SECONDS` = 6 s from the source start (`-ss 0 -t 6.5` as **input** options so the demuxer stops reading after that window; `-t 6` on output) | Bounded temporal decode window and bounded encode/output work regardless of total source duration; the source bytes required by that window are not fixed and are measured (see the paragraph below); loops in the tile. |
 | Encoder speed / rate | `-preset veryfast -crf 28 -maxrate 1200k -bufsize 2400k -g 24` | Encode latency in the low seconds for a 6 s window; keeps output in the tens-to-hundreds of KB. |
 | Encoded size bound | ≤ `MEDIA_MOTION_MAX_BYTES` (4 MiB) — checked after encode; exceeding is `PERMANENT / OUTPUT_TOO_LARGE` | A hover must not cost more than a couple of poster grids. |
 | Looping | client-side `<video loop>` | Keeps the file short. |
@@ -810,31 +810,36 @@ DB_MIGRATION = NO
 
 ## 29. Reviewer checklist
 
-Design review (ChatGPT) — this document:
+Design review (ChatGPT) — this document. Checked items are reviewed: `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN = CHANGES_REQUIRED` (revision 1) followed by `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_ARCHITECTURE = PASS` on revision 2 with all five correction areas accepted; the one remaining editorial inconsistency (§9 duration wording) is fixed in this revision. Unchecked items below are not design-review items and stay open until their own gates run:
 
-- [ ] Every user requirement in the design brief (§1–§24 of the brief) maps to a section here; none is weakened.
-- [ ] The root-cause statements (§3) match the code at `e5bea949` (`src/lib/gifPoster.js`, `FileTile` in `src/screens/Files.jsx`, `GET /api/files/:id/preview` in `server/routes/api.js`).
-- [ ] No path loads a whole original into RAM; the 20 GB claim rests only on bounded `-probesize`/`-t`/seek behaviour and is tested with sparse fixtures (§23).
-- [ ] Upload ceilings and transfer policy are not coupled to preview source targets (§5, §18, §28).
-- [ ] Vault is excluded at route and service level; no plaintext derivative can exist (§17.2).
-- [ ] Cache is non-authoritative: outside `STORAGE_ROOT`, outside backup, deletable, never referenced by the DB (§11, §27).
-- [ ] Cache identity is `sha256 + profile + type`; the profile appears in the disk path, `media-info`, both binary URLs (`p=`), both ETags and the tests; filename never enters the key; stale `v` or non-current `p` cannot serve old content (§12, §14.3, §14.6, §23).
-- [ ] Authenticated-cache isolation is explicit: `Vary: Cookie` is justified by the verified regenerate/destroy/clear session lifecycle, pinned by a contract test, with the `must-revalidate` fallback selectable at runtime (§14.6, §17.8, §23).
-- [ ] Production deployment uses a new service-scoped media overlay and never mutates `/opt/aegis/runtime/docker-compose.production.yml` or the Public Share overlays; the rendered config is inspected before cutover; only Drive is recreated; rollback omits the overlay; volume naming and `docker volume rm` semantics are accurate (§25.2, §26).
-- [ ] CPU wording is truthful (`CPU_BOUND=SOFT_PROCESS_CONFIGURATION`, per-stage FFmpeg thread options, no hard-core-limit claim, sidecar acknowledged as stronger isolation) and the responsiveness guard is measurable without an invented threshold (§10.3, §13.2, §18, §24).
-- [ ] Animation detection is family-specific and bounded, with `ANIMATION_UNKNOWN → poster-only` and the nine fixture contracts (§6.1, §23).
-- [ ] Large animated-source claims distinguish the bounded decode window from source bytes read, and 10–20 GB container claims are limited to fixture classes the tests prove (§9, §18, §23, §24).
-- [ ] Ownership/object-hiding on all derivative routes equals the existing preview route; content-hash sharing is not an oracle (§17).
-- [ ] Immutable HTTP caching is only issued for URLs whose identity guarantees immutability (§14.6).
-- [ ] Every child process is argument-array, no shell, timeout-killed, minimal env (§10.3, §17.7).
-- [ ] Resource limits are explicit, env-overridable, and each threat in §18 has a named guard.
-- [ ] First-hover contract (§15) removes the Round 10 race without leave/re-enter.
-- [ ] Viewport scheduling bounds browser concurrency and never prefetches offscreen motion (§16).
-- [ ] Format decisions are selected, not listed: sharp+FFmpeg posters, FFmpeg motion, WebP poster, MP4/H.264 proxy, with reasons (§8–§10).
-- [ ] Decoder limitations (animated WebP/AVIF) are stated and degrade truthfully via the capability probe (§6, §10.4).
-- [ ] Tests are layered and performance contracts are numeric or relative, never "fast" (§23–§24).
-- [ ] Deployment/rollback: new candidate image, cross-scope compose declaration, Round 10 image preserved, runtime kill-switches (§25–§26).
-- [ ] No unresolved-decision markers remain anywhere in this document.
+- [x] Every user requirement in the design brief (§1–§24 of the brief) maps to a section here; none is weakened.
+- [x] The root-cause statements (§3) match the code at `e5bea949` (`src/lib/gifPoster.js`, `FileTile` in `src/screens/Files.jsx`, `GET /api/files/:id/preview` in `server/routes/api.js`).
+- [x] No path loads a whole original into RAM; the 20 GB claim rests only on bounded `-probesize`/`-t`/seek behaviour and is tested with sparse fixtures (§23).
+- [x] Upload ceilings and transfer policy are not coupled to preview source targets (§5, §18, §28).
+- [x] Vault is excluded at route and service level; no plaintext derivative can exist (§17.2).
+- [x] Cache is non-authoritative: outside `STORAGE_ROOT`, outside backup, deletable, never referenced by the DB (§11, §27).
+- [x] Cache identity is `sha256 + profile + type`; the profile appears in the disk path, `media-info`, both binary URLs (`p=`), both ETags and the tests; filename never enters the key; stale `v` or non-current `p` cannot serve old content (§12, §14.3, §14.6, §23).
+- [x] Authenticated-cache isolation is explicit: `Vary: Cookie` is justified by the verified regenerate/destroy/clear session lifecycle, pinned by a contract test, with the `must-revalidate` fallback selectable at runtime (§14.6, §17.8, §23).
+- [x] Production deployment uses a new service-scoped media overlay and never mutates `/opt/aegis/runtime/docker-compose.production.yml` or the Public Share overlays; the rendered config is inspected before cutover; only Drive is recreated; rollback omits the overlay; volume naming and `docker volume rm` semantics are accurate (§25.2, §26).
+- [x] CPU wording is truthful (`CPU_BOUND=SOFT_PROCESS_CONFIGURATION`, per-stage FFmpeg thread options, no hard-core-limit claim, sidecar acknowledged as stronger isolation) and the responsiveness guard is measurable without an invented threshold (§10.3, §13.2, §18, §24).
+- [x] Animation detection is family-specific and bounded, with `ANIMATION_UNKNOWN → poster-only` and the nine fixture contracts (§6.1, §23).
+- [x] Large animated-source claims distinguish the bounded decode window from source bytes read, and 10–20 GB container claims are limited to fixture classes the tests prove (§9, §18, §23, §24).
+- [x] Ownership/object-hiding on all derivative routes equals the existing preview route; content-hash sharing is not an oracle (§17).
+- [x] Immutable HTTP caching is only issued for URLs whose identity guarantees immutability (§14.6).
+- [x] Every child process is argument-array, no shell, timeout-killed, minimal env (§10.3, §17.7).
+- [x] Resource limits are explicit, env-overridable, and each threat in §18 has a named guard.
+- [x] First-hover contract (§15) removes the Round 10 race without leave/re-enter.
+- [x] Viewport scheduling bounds browser concurrency and never prefetches offscreen motion (§16).
+- [x] Format decisions are selected, not listed: sharp+FFmpeg posters, FFmpeg motion, WebP poster, MP4/H.264 proxy, with reasons (§8–§10).
+- [x] Decoder limitations (animated WebP/AVIF) are stated and degrade truthfully via the capability probe (§6, §10.4).
+- [x] Tests are layered and performance contracts are numeric or relative, never "fast" (§23–§24).
+- [x] Deployment/rollback: new candidate image, cross-scope compose declaration, Round 10 image preserved, runtime kill-switches (§25–§26).
+- [x] No unresolved-decision markers remain anywhere in this document.
+- [ ] Implementation complete per the companion plan (separate gate — not started).
+- [ ] Exact-SHA Linux/PostgreSQL verification of the implementation (separate gate — not started).
+- [ ] Production candidate built, media overlay generated on the host, Drive-only cutover (separate gate — not started).
+- [ ] Browser acceptance incl. the real 49.7 MB GIF, 196 MB video, cross-account cache isolation, resource responsiveness (separate gate — not started).
+- [ ] Final receipt, Ready, merge (separate gate — not started).
 
 PR #150 reviewer checklist (from the PR body, state at this gate):
 
