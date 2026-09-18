@@ -1,7 +1,8 @@
 # AEGIS IDEA1 — PR #150 Media Preview Pipeline Design (Server-Side Derivatives + Cache)
 
 Date: 2026-09-18
-Status: DESIGN / SPEC ONLY — awaiting ChatGPT design review (`CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN`)
+Status: DESIGN / SPEC ONLY — revision 2 (design correction after `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN = CHANGES_REQUIRED`); awaiting `CHATGPT_REVIEW_PR150_MEDIA_PREVIEW_PIPELINE_DESIGN_CORRECTION`
+Revision 2 corrections: (1) profile version in every derivative URL/ETag and an explicit authenticated-cache isolation policy; (2) Production overlay model separate from the repository compose; (3) truthful CPU/memory wording and a measurable responsiveness guard; (4) family-specific animation detection; (5) temporal-vs-byte bounds for large animated sources and empirical container seek verification. The accepted architecture decisions are unchanged.
 Scope: IDEA1 / FILES-MANAGEMENT-UX-1 / Files grid media thumbnails, hover motion, and their generation pipeline
 PR: #150 (`feat/idea1-files-management-ux`)
 Design basis SHA: `e5bea949a917a84b20e337d8d9d1406ff115af36` (verified source = current Production runtime)
@@ -78,11 +79,11 @@ Extension allowlist remains the authorization boundary and is **not expanded**: 
 | Family | Ext (unchanged allowlist) | Still poster | Animated detection | Motion proxy | Engine |
 |---|---|---|---|---|---|
 | JPEG | jpg, jpeg | yes | n/a (never animated) | none | sharp |
-| PNG / APNG | png | yes | APNG: `acTL` chunk present and `ffprobe` reports `apng` with `nb_frames > 1` or duration > 0 | yes (APNG) | sharp (poster), FFmpeg (motion) |
-| WebP (still / animated) | webp | yes | sharp `metadata().pages > 1` | yes when FFmpeg capability probe reports animated-WebP decode; otherwise poster-only (`motion = UNSUPPORTED`) | sharp (poster), FFmpeg (motion) |
-| AVIF (still / animated) | avif | yes | `ffprobe` reports `nb_frames > 1` or duration > 0 on the `av1` stream | yes when FFmpeg capability probe reports the `av1` decoder (dav1d/libaom); otherwise poster-only | sharp (still poster), FFmpeg (animated poster + motion) |
+| PNG / APNG | png | yes | §6.1 APNG rule: `acTL` chunk before the first `IDAT` with `num_frames > 1`, cross-checked by `ffprobe` format `apng` | yes (APNG) | sharp (poster), FFmpeg (motion) |
+| WebP (still / animated) | webp | yes | §6.1 WebP rule: `VP8X` animation flag **and** sharp `metadata().pages > 1` | yes when FFmpeg capability probe reports animated-WebP decode; otherwise poster-only (`motion = UNSUPPORTED`) | sharp (poster), FFmpeg (motion) |
+| AVIF (still / animated) | avif | yes | §6.1 AVIF rule: `avis` sequence brand **and** a sample-table frame count > 1 from the bounded container probe; duration alone is never sufficient; unprovable → `ANIMATION_UNKNOWN` (poster-only) | yes when proven animated and the FFmpeg capability probe reports the `av1` decoder (dav1d/libaom); otherwise poster-only | sharp (still poster), FFmpeg (animated poster + motion) |
 | BMP | bmp | yes | n/a | none | FFmpeg (sharp's prebuilt libvips has no BMP loader) |
-| GIF | gif | yes (first frame) | `ffprobe` `nb_frames > 1` or duration > 0; sharp `pages > 1` as cross-check | yes | FFmpeg (poster and motion; the GIF demuxer streams from the file start, so first-frame and first-N-seconds reads are bounded) |
+| GIF | gif | yes (first frame) | §6.1 GIF rule: a second image descriptor found by a bounded two-packet probe (`ffprobe -read_intervals %+#2`); never a full-file frame count | yes | FFmpeg (poster and motion; the GIF demuxer streams from the file head — the bytes it reads for the first frame / first 6.5 s are bounded by the temporal window, not by a fixed byte count; see §9) |
 | MP4 | mp4 | yes (frame at poster time) | always motion-capable | yes | FFmpeg |
 | WebM | webm | yes | always motion-capable | yes | FFmpeg |
 | SVG, PDF, HTML, any other | — | OUT | — | — | `UNSUPPORTED` |
@@ -97,14 +98,29 @@ Content whose bytes do not match the extension family (e.g. `.jpg` containing HT
 - Animated AVIF motion requires an `av1` decoder in the packaged FFmpeg. Same degradation.
 - If `libx264` is absent from the packaged FFmpeg, motion proxies are globally `UNSUPPORTED` (the design does not silently switch to a different container/codec at runtime; see §10.3).
 
+### 6.1 Family-specific animation rules
+
+There is no generic "frames > 1 or duration > 0" rule. Each family has its own bounded evidence rule; when the rule cannot prove animation within its byte budget the result is `ANIMATION_UNKNOWN`, which is treated exactly like "still" for generation (poster only, `motion.state = UNSUPPORTED`, `reason = ANIMATION_UNKNOWN`) and is reported truthfully as `animated: null` in `media-info`. Generating a motion proxy for a source whose animation is unproven is never allowed.
+
+| Family | Rule (all reads bounded) | Byte budget | Result when evidence is inconclusive |
+|---|---|---|---|
+| JPEG, BMP | never animated | header only | still |
+| PNG / APNG | Walk PNG chunk headers from the signature, skipping chunk bodies by their declared length, until the first `IDAT`. Animated iff an `acTL` chunk appears before `IDAT` (the PNG/APNG specification requires this ordering) **and** its `num_frames > 1`. Cross-check: `ffprobe` reports format `apng`; disagreement → `ANIMATION_UNKNOWN`. | ≤ 32 chunk headers or 64 KiB, whichever first | still (`acTL` absent) / `ANIMATION_UNKNOWN` (budget exhausted before `IDAT`) |
+| WebP | Read the RIFF header and the first chunk. Animated iff the first chunk is `VP8X` with the Animation flag set **and** sharp `metadata().pages > 1`. Flag set but `pages ≤ 1` (or sharp cannot read it) → `ANIMATION_UNKNOWN`. No `VP8X`, or flag clear → still. | first 64 bytes + sharp header read | still / `ANIMATION_UNKNOWN` as above |
+| GIF | `ffprobe -read_intervals %+#2 -show_packets` reads at most the first two demuxed packets (one packet per image descriptor) and stops. Two packets → animated; one packet followed by the trailer → still. The `NETSCAPE2.0` loop extension in the header is recorded as a hint only and never decides. No full-file `-count_frames` is ever run. | bytes of at most two frames, each bounded by the pixel guard | `ANIMATION_UNKNOWN` if the probe hits its timeout before two packets or the trailer |
+| AVIF | Read the `ftyp` box. `avis` absent from major/compatible brands → still (primary item decoded by sharp). `avis` present → bounded container probe (`ffprobe` with `-probesize`) must return a video track with a sample count (`nb_frames`, from the sample table, not from duration) > 1 → animated. `avis` present but the sample count is unavailable, ≤ 1, or the `moov` box is not within the probe budget → `ANIMATION_UNKNOWN`. `durationSeconds > 0` on its own never marks AVIF animated. | `ftyp` + `MEDIA_PROBESIZE_BYTES` | `ANIMATION_UNKNOWN` |
+| MP4, WebM | motion-capable by family; no frame counting | container index within `MEDIA_PROBESIZE_BYTES` | n/a |
+
+Fixture contracts (all generated at test time, §23): `STILL_AVIF_NOT_ANIMATED`, `ANIMATED_AVIF_ANIMATED_WHEN_SUPPORTED` (skips to `ANIMATION_UNKNOWN`/poster-only when the packaged decoders cannot prove it), `STILL_WEBP_NOT_ANIMATED`, `ANIMATED_WEBP_ANIMATED`, `PNG_NOT_ANIMATED`, `APNG_ANIMATED`, `ONE_FRAME_GIF_NOT_ANIMATED`, `MULTIFRAME_GIF_ANIMATED`, plus `ANIMATION_UNKNOWN_IS_POSTER_ONLY` (a crafted `VP8X`-flagged single-page WebP must never receive a motion job).
+
 ## 7. Architecture diagram
 
 ```mermaid
 flowchart LR
   subgraph Browser["Browser — Files grid"]
     T[Tile] -->|1. media-info batch for visible tiles| MI
-    T -->|2. img src poster?v=sha| PO
-    T -->|3. prefetch / hover: video src motion?v=sha| MO
+    T -->|2. img src poster?v=sha&p=v1| PO
+    T -->|3. prefetch / hover: video src motion-preview?v=sha&p=v1| MO
     T -.->|Preview dialog only| PV
   end
 
@@ -162,7 +178,7 @@ Ownership of each box: everything under `Drive` is `IDEA1-AEGIS_Drive_LC/server/
 **Engine per family** (decision detail in §10):
 
 - **Still JPEG / PNG / WebP / AVIF → sharp.** Pipeline: `sharp(absPath, { limitInputPixels: MEDIA_MAX_SOURCE_PIXELS, sequentialRead: true, failOn: 'error' }).rotate().resize(640, 360, { fit: 'inside', withoutEnlargement: true }).toColourspace('srgb').webp({ quality: 80, effort: 4 }).toFile(tmpPath)`. JPEG uses libjpeg shrink-on-load (decodes at 1/2, 1/4, 1/8 scale when the target is small), PNG/WebP use sequential (scanline) access — decoded memory is bounded by a few strips of the reduced image, not by the full-resolution frame.
-- **BMP, GIF first frame, animated AVIF first frame, video frame → FFmpeg.** `ffmpeg -nostdin -hide_banner -loglevel error -protocol_whitelist file -threads MEDIA_FFMPEG_THREADS -probesize MEDIA_PROBESIZE_BYTES -analyzeduration 5000000 [-ss t] -i <abs> -frames:v 1 -vf "scale='min(640,iw)':'min(360,ih)':force_original_aspect_ratio=decrease" -c:v libwebp -quality 80 -y <tmp>`.
+- **BMP, GIF first frame, animated AVIF first frame, video frame → FFmpeg.** `ffmpeg -nostdin -hide_banner -loglevel error -protocol_whitelist file -threads 1 -filter_threads 1 -probesize MEDIA_PROBESIZE_BYTES -analyzeduration 5000000 [-ss t] -i <abs> -frames:v 1 -vf "scale='min(640,iw)':'min(360,ih)':force_original_aspect_ratio=decrease" -c:v libwebp -quality 80 -y <tmp>`.
 
 **Atomic write**: output goes to `<entry>/poster.webp.tmp-<uuid>` and is `rename(2)`d to `poster.webp` on success; `state.json` is rewritten last (also via tmp + rename). Readers only ever see complete files.
 
@@ -189,16 +205,21 @@ Command shape (argument array, no shell):
 
 ```
 ffmpeg -nostdin -hide_banner -loglevel error -protocol_whitelist file
-       -threads <MEDIA_FFMPEG_THREADS> -probesize <MEDIA_PROBESIZE_BYTES> -analyzeduration 5000000
+       -threads <MEDIA_FFMPEG_DECODER_THREADS> -filter_threads <MEDIA_FFMPEG_FILTER_THREADS>
+       -probesize <MEDIA_PROBESIZE_BYTES> -analyzeduration 5000000
        -ss 0 -t 6.5 -i <abs-original>
        -an -t 6 -vf "fps=12,scale='min(480,iw)':'min(270,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p"
-       -c:v libx264 -preset veryfast -crf 28 -maxrate 1200k -bufsize 2400k -g 24 -profile:v main -level 3.1
+       -c:v libx264 -threads:v <MEDIA_FFMPEG_ENCODER_THREADS> -preset veryfast -crf 28 -maxrate 1200k -bufsize 2400k -g 24 -profile:v main -level 3.1
        -movflags +faststart -y <tmp-output>
 ```
 
 **Why MP4/H.264 and not WebM/VP9**: (1) H.264 MP4 is the only combination that plays in every browser the Drive UI targets without feature detection (VP9 WebM playback on Safari depends on OS/hardware); (2) `libx264 veryfast` encodes several times faster than `libvpx-vp9` at these sizes, which is the dominant cost on a single Production host; (3) the Alpine `ffmpeg` package ships `libx264`; (4) at 480 × 270 / 12 fps / 6 s the bytes difference between the two codecs is immaterial (tens of KB) against the 4 MiB bound. VP8/WebM was rejected for the same compatibility and speed reasons with no offsetting benefit.
 
-**Bounded read for very large sources**: the demuxer is limited by `-t` on the input side and by `-probesize`; for MP4/WebM the container index (`moov`/Cues) is read by seeking (a `moov` atom placed at the file end is read by a bounded tail seek, not by scanning the file); for GIF/APNG the demuxer streams from the file head and stops after the 6.5 s window. No step reads a 10–20 GB file end-to-end.
+**What is bounded, and what is not, for very large sources**:
+
+- The input-side `-t 6.5` bounds the **temporal window** the demuxer/decoder processes; it does **not** bound the number of source bytes that represent that window. A very high-bitrate or huge-frame GIF/APNG can hold a large fraction of a 300 MB file in its first six seconds, and FFmpeg will read those bytes (sequentially, never buffered whole in Node). The guarantees for animated images are therefore: only the 6.5 s window is decoded; frame pixels are guarded (§18); wall-clock is bounded by `MEDIA_MOTION_TIMEOUT_MS`; concurrency is one job; output is capped; and the **measured** source I/O of the job (`/proc/<pid>/io` `rchar`/`read_bytes` on the Linux gate) is recorded in the acceptance evidence, not assumed.
+- For MP4/WebM the container index (`moov`/Cues) is located by seeking and read within `MEDIA_PROBESIZE_BYTES`; the poster reads from the seek point to the first decodable frame and the motion proxy reads the first-window samples. Seek/index behaviour **must be verified empirically** per fixture class (faststart MP4, moov-at-end MP4, WebM with Cues, WebM without Cues); a `moov` atom at the end of a file is proportional to sample count, not file size, and its read is measured, not assumed. The "< 64 MiB source read" figure in §24 applies only to the fixture classes for which the integration test proves it.
+- No step reads a 10–20 GB file end-to-end when the container index is valid; a container without a usable index is bounded by `-probesize`/timeout and fails truthfully (`GENERATION_FAILED`) rather than scanning the whole file.
 
 ## 10. Tooling decision
 
@@ -232,7 +253,7 @@ Chosen strategy: **A — `apk add` the Alpine `ffmpeg` package into the runtime 
 - **Pinning**: the version string is fixed in the Dockerfile to the exact `ffmpeg` package of the Alpine release behind the pinned `node:20-alpine3.<n>` tag (the base image tag itself is pinned to an Alpine minor, not the floating `node:20-alpine`). Renovate-style bumps are explicit commits. The startup capability probe (§10.4) logs `ffmpeg -version` so the running version is always observable.
 - **musl**: FFmpeg from Alpine is a native musl build (no glibc shim). sharp ships a prebuilt `linuxmusl-x64` binary for the musl generation that every Alpine release behind the Node 20 images uses (Alpine ≥ 3.17); `npm ci` on the runtime stage must resolve that prebuilt and the build must fail if it would fall back to compiling from source.
 - **Execution model**: `child_process.execFile`/`spawn` with argument arrays only; `-nostdin`; stdout/stderr captured with a 64 KiB cap; `AbortSignal`-driven timeout that sends `SIGKILL` (`SIGTERM` first, `SIGKILL` 2 s later); the child inherits a minimal environment (`PATH`, `HOME=/tmp`, no secrets — the Drive process environment holds `DATABASE_URL`/`SESSION_SECRET` and must not be inherited by a media decoder). Working directory = the cache tmp directory.
-- **Strategy B (separate FFmpeg image/sidecar)** rejected: it would need a shared mount of `/datalake` into a second container and an RPC boundary for a feature that is CPU-bound on the same host anyway; it doubles the deployment surface and Production overlay complexity for no isolation gain the process limits do not already provide.
+- **Strategy B (separate FFmpeg image/sidecar)** rejected for complexity, not for lack of benefit: a separate container **would** give stronger isolation (its own cgroup CPU/memory limits, its own PID namespace, no native decoder inside the Drive process). It is rejected because it needs a shared read-only mount of `/datalake` into a second container, an RPC boundary, a second image to pin, and a second Production overlay/rollback surface. The in-process design accepts a soft, process-configuration CPU bound (§13.2, §18) and stays honest about it; if Production measurement (§24 `RESOURCE_RESPONSIVENESS`) shows the soft bound is insufficient, the sidecar is the documented escalation path.
 - **Strategy C (static FFmpeg binary vendored into the repo/image)** rejected: no distro security updates, larger binary, and it bypasses the Alpine package pin that the rest of the image relies on.
 
 ### 10.4 Startup capability probe
@@ -241,7 +262,7 @@ At boot (`index.js`, after `initStorage()`), `media/capabilities.js` runs `ffmpe
 
 ## 11. Cache layout
 
-Root: `MEDIA_CACHE_DIR` (default `/var/cache/aegis-media`), mounted from a **separate** Docker named volume `aegis_drive_media_cache`. It is not under `STORAGE_ROOT`, so `resolveKey()` can never resolve into it and no backup/restore/integrity path can see it.
+Root: `MEDIA_CACHE_DIR` (default `/var/cache/aegis-media`), mounted from a **separate** Docker named volume whose Docker-level name is exactly `aegis_drive_media_cache` — the compose declaration sets `name: aegis_drive_media_cache` explicitly so the deployed name does not acquire a project prefix (the Production project is `aegis-prod`; its protected volumes are likewise explicitly named `aegis_drive_storage` and `aegis_postgres_data`). It is not under `STORAGE_ROOT`, so `resolveKey()` can never resolve into it and no backup/restore/integrity path can see it.
 
 ```
 /var/cache/aegis-media/
@@ -261,7 +282,8 @@ Properties:
 - **Not the source of truth**: nothing in the DB references it; `files.sha256`, `size_bytes`, integrity verify, download, versions, trash, restore, and backup are unaware of it.
 - **Never mutates originals**: every generator opens the original read-only via `resolveKey()`; the cache tree is the only writable location and it is outside `STORAGE_ROOT`.
 - **Backup**: the Host Backup Agent targets and the Drive backup contract enumerate `/datalake` and PostgreSQL; the cache volume is deliberately outside both and is documented as *excluded* — restoring a backup yields a cold cache, which is correct.
-- **Fallback without the volume**: if `MEDIA_CACHE_DIR` is not a mount (e.g. a compose overlay was not applied), the directory lives in the container's writable layer. The feature works but the cache is lost on container recreation. `/healthz.media.cacheVolume = "ephemeral"` makes this visible; the compose change in §25 is the intended state.
+- **Fallback without the volume**: if `MEDIA_CACHE_DIR` is not a mount (e.g. the media overlay was not applied), the directory lives in the container's writable layer. The feature works but the cache is lost on container recreation. `/healthz.media.cacheVolume = "ephemeral"` makes this visible; the overlay in §25 is the intended state.
+- **Volume lifecycle semantics** (Docker facts, not design choices): a named volume cannot be removed while any container — running or stopped — references it (`docker volume rm` fails with "volume is in use"). Removing the cache therefore means either emptying it from inside the running container (`find /var/cache/aegis-media -mindepth 1 -delete`, safe at any time because the cache is rebuildable and every write is tmp + rename) or, after the Drive container has been recreated **without** the mount (§26 rollback model), `docker volume rm aegis_drive_media_cache` on the then-unused volume.
 
 ## 12. Cache identity / versioning
 
@@ -274,8 +296,8 @@ entry key      = v1/<sha256>/<type>
 - **Rename** does not change `sha256` → same entry → no regeneration. Filename never enters the key or the path; the only user-influenced input is the extension used to pick the decoder family, and the probe verifies the bytes against it.
 - **Replace bytes** (same-name upload, V2 commit new version, restore version) → new `sha256` → new entry. The old entry is simply unreferenced and ages out.
 - **Identical bytes across users** → the same entry is reused. This is safe because a requester must own a row with that exact checksum to reach the entry (§17.4).
-- **Old derivative can never be served for new content**: routes resolve `sha256` from the row at request time and add `v=<sha256>` to the URL the client uses; a mismatch between the URL's `v` and the row's current `sha256` is answered as not found (§14.6).
-- **Profile version** `v1` is part of the path. Changing box, format, fps, duration, quality, or engine defaults bumps the profile (`v2`) and the `MEDIA_PROFILE_VERSION` constant; old `v1` entries are not migrated, they are evicted normally. `probe.json` carries `probeVersion` separately so a probe-format change alone does not invalidate encoded outputs.
+- **Old derivative can never be served for new content or for an old profile**: every binary URL carries both identities, `v=<sha256>` (source version) and `p=<profile>`; the route resolves `sha256` from the row at request time and the current profile from `MEDIA_PROFILE_VERSION`, and a mismatch on either is answered as not found (§14.3, §14.6). The URL therefore changes whenever either the bytes or the profile change, which is what makes one-year immutable caching safe.
+- **Profile version** `v1` is part of the disk path, of `media-info` (`profile`), of every poster/motion URL (`p=v1`), and of every `ETag` (`"<sha256>-v1-poster"`, `"<sha256>-v1-motion"`). Changing box, format, fps, duration, quality, encoder settings, or engine defaults **bumps the profile** (`v2`) and the `MEDIA_PROFILE_VERSION` constant; the semantics of an existing profile are never changed in place. Old `v1` entries are not migrated, they are evicted normally; a browser holding a `p=v1` URL never receives a `v2` object from it (`PROFILE_V1_CACHE_URL ≠ PROFILE_V2_CACHE_URL`, `OLD_PROFILE_CANNOT_MASK_NEW_PROFILE`). `probe.json` carries `probeVersion` separately so a probe-format change alone does not invalidate encoded outputs.
 
 ## 13. Job queue design
 
@@ -293,12 +315,13 @@ Job key = `<profile>/<sha256>/<type>` where `type ∈ { probe, poster, motion }`
 | P1 upload | scheduled after a successful commit | |
 | P2 warm-up | warm-up CLI | preempted while any P0/P1 job is waiting; the CLI also self-throttles |
 
-- Concurrency: `MEDIA_WORKERS` (default 1, max 2). One worker slot runs one child process (or one sharp pipeline) at a time; FFmpeg is additionally bounded by `-threads MEDIA_FFMPEG_THREADS` (default 2).
+- Concurrency: `MEDIA_WORKERS` default **1** (max 2): by default exactly one heavy media generation pipeline (one FFmpeg child or one sharp pipeline) runs at a time.
+- FFmpeg thread model (`CPU_BOUND=SOFT_PROCESS_CONFIGURATION`): decoder threads `-threads 1` placed before `-i`; filter threads `-filter_threads 1` (and `-filter_complex_threads 1` only if a filter-complex graph is ever used — the current graphs are simple `-vf` chains); encoder threads `-threads:v MEDIA_FFMPEG_ENCODER_THREADS` (default 2) on the output. These options configure the codec/filter thread pools; they are **not** a cgroup CPU limit — libx264 lookahead, the demuxer, and I/O threads exist outside them. The design does not claim a hard core limit; the only hard bound is that at most `MEDIA_WORKERS` children exist. sharp is configured with `sharp.concurrency(1)`, which likewise limits the libvips worker pool, not the process.
 - Queue depth: `MEDIA_QUEUE_MAX` (default 500). When full, new P0 requests are answered `RETRYABLE` (HTTP 503 + `Retry-After`) and nothing is enqueued; P1/P2 scheduling is dropped silently (a later request re-enqueues).
 - Per-job timeouts: probe 20 s, poster 60 s, motion 120 s (`MEDIA_*_TIMEOUT_MS`). Timeout → `SIGTERM`, then `SIGKILL` after 2 s, tmp output removed, job marked `TRANSIENT / TIMEOUT`.
 - Cancellation: a job whose only interactive requesters disconnected is not cancelled (the output is still useful for the next viewer), but it is demoted to P2. Shutdown (`SIGTERM` to the Drive) kills running children and abandons the queue; tmp files are cleaned at the next start.
 - Memory assumptions: child memory is bounded by the decoded frame size (guarded by §18 pixel limits) plus encoder state; the Node process holds only job metadata and never buffers media bytes (sharp streams file → file; FFmpeg writes to a file). A `media-info` batch of 64 ids costs 64 `stat`/small-JSON reads.
-- CPU: with `MEDIA_WORKERS=1` and `-threads 2`, the pipeline uses at most two cores; the Files list and upload paths are never on this queue.
+- CPU: the pipeline is expected to occupy roughly one to three cores while a job runs (soft configuration, measured in Production acceptance — §24 `RESOURCE_RESPONSIVENESS`); the Files list, health, and upload paths are never on this queue and are served by the event loop, which the child processes cannot block.
 
 ### 13.3 Probe result (`probe.json`)
 
@@ -312,7 +335,8 @@ Job key = `<profile>/<sha256>/<type>` where `type ∈ { probe, poster, motion }`
   "pixels": 360000,
   "frames": 143,            // null when unknown
   "durationSeconds": 5.72,  // null for stills
-  "animated": true,
+  "animated": true,         // true | false | null (null = ANIMATION_UNKNOWN → poster-only)
+  "animationEvidence": "gif-second-packet",   // family rule that decided (§6.1)
   "hasAlpha": false,
   "rotation": 0,
   "engine": "ffprobe",
@@ -320,7 +344,7 @@ Job key = `<profile>/<sha256>/<type>` where `type ∈ { probe, poster, motion }`
 }
 ```
 
-`animated = (frames > 1) || (durationSeconds > 0)` for images; always `true` for mp4/webm. Sources whose probe fails, whose family disagrees with the extension, or whose dimensions exceed the guard are recorded as `UNSUPPORTED` with a `reason` and are never handed to an encoder.
+`animated` is decided only by the family-specific rule in §6.1 (`animationEvidence` names it); it is always `true` for mp4/webm and `null` when the rule was inconclusive. Sources whose probe fails, whose family disagrees with the extension, or whose dimensions exceed the guard are recorded as `UNSUPPORTED` with a `reason` and are never handed to an encoder; `animated: null` sources receive a poster job only.
 
 ### 13.4 State (`state.json`)
 
@@ -362,16 +386,18 @@ Returns the derivative state for one file and enqueues generation on a miss.
 ```json
 {
   "id": "123",
-  "contentId": "<sha256>",
+  "sourceVersion": "<sha256>",
   "profile": "v1",
   "family": "gif",
   "animated": true,
   "width": 800, "height": 450, "durationSeconds": 5.72,
-  "poster": { "state": "READY", "url": "/api/files/123/poster?v=<sha256>", "width": 640, "height": 360, "mime": "image/webp" },
+  "poster": { "state": "READY", "url": "/api/files/123/poster?v=<sha256>&p=v1", "etag": "\"<sha256>-v1-poster\"", "width": 640, "height": 360, "mime": "image/webp" },
   "motion": { "state": "PENDING", "url": null, "retryAfterMs": 2000 },
   "status": "PARTIAL"
 }
 ```
+
+`sourceVersion` is the row's current `sha256`; `profile` is the current `MEDIA_PROFILE_VERSION`. The client treats the `url` fields as opaque (it never assembles `v`/`p` itself), so a profile bump changes every URL the grid uses on the next `media-info` response. `animated` is `true`, `false`, or `null` (`ANIMATION_UNKNOWN`, §6.1).
 
 `status` summarises: `READY` (everything applicable is ready), `PARTIAL` (poster ready, motion pending/unsupported/failed), `PENDING` (poster pending), `UNSUPPORTED` (no derivative will ever exist for this profile — includes `reason`), `GENERATION_FAILED` (permanent; includes `reason`), `RETRYABLE` (transient; includes `retryAfterMs`).
 
@@ -382,17 +408,19 @@ Returns the derivative state for one file and enqueues generation on a miss.
 
 Body `{ "ids": ["123", "124", …] }`, at most 64 ids, CSRF-protected like every other POST. Response `{ "items": { "123": <media-info>, "124": { "status": "NOT_FOUND" } } }`. Each id is subject to the same per-file authorization; unauthorised, vault, folder, or unknown ids are reported as `NOT_FOUND` (object-hiding — `NOT_FOUND` is indistinguishable across those cases, and cross-owner attempts are audited `DENIED` per id). This is the grid's primary call: one request per viewport batch instead of one per tile.
 
-### 14.3 `GET /api/files/:id/poster?v=<sha256>`
+### 14.3 `GET /api/files/:id/poster?v=<sha256>&p=<profile>`
 
-- `200` + `image/webp` (or `image/png` when the fallback encoder produced it), headers: `X-Content-Type-Options: nosniff`, `Content-Disposition: inline; filename*=UTF-8''poster.webp`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`, `ETag: "<sha256>-v1-poster"`, `Content-Length`, and cache headers per §14.6. Supports `If-None-Match` → `304`.
+Both query parameters are mandatory and both are validated **after** the owner gate: `v` must match the row's current `sha256` (source identity) and `p` must equal the server's current `MEDIA_PROFILE_VERSION` (derivative identity). The served file is `<cache>/<p>/…/<v>/poster.webp` — the URL and the disk key are the same triple (`sha256`, profile, type).
+
+- `200` + `image/webp` (or `image/png` when the fallback encoder produced it), headers: `X-Content-Type-Options: nosniff`, `Content-Disposition: inline; filename*=UTF-8''poster.webp`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`, `ETag: "<sha256>-<profile>-poster"` (source SHA + profile + derivative type), `Content-Length`, and the cache headers of §14.6. Supports `If-None-Match` → `304` (the `304` carries the same cache headers).
 - `202` + `Retry-After: <s>` + empty body when pending (enqueues at P0).
 - `415` when the file is `UNSUPPORTED` for posters. `422` when `GENERATION_FAILED` (permanent). `503` + `Retry-After` when `RETRYABLE`.
-- `404` for unknown/cross-owner/vault, and for a `v` that does not match the row's current `sha256` (stale reference: the client re-lists).
-- `400` when `v` is absent or malformed (the immutable URL contract requires it).
+- `404` for unknown/cross-owner/vault (object-hiding), for a `v` that does not match the row's current `sha256` (`STALE_SOURCE_SHA=404`; the client re-lists), and for a `p` that is not the current profile (`UNKNOWN_PROFILE=404`; a superseded profile is not served even if its file still exists on disk).
+- `400` when `v` or `p` is absent or malformed (the immutable URL contract requires both).
 
-### 14.4 `GET /api/files/:id/motion-preview?v=<sha256>`
+### 14.4 `GET /api/files/:id/motion-preview?v=<sha256>&p=<profile>`
 
-Same gate and status semantics as the poster route, with `video/mp4`, `Accept-Ranges: bytes` and single-range `206` support reusing the existing `parseByteRange()` (extracted into `server/request/byteRange.js` so both routes share it), `Content-Disposition: inline; filename*=UTF-8''motion.mp4`, same CSP/CORP/nosniff, `ETag: "<sha256>-v1-motion"`. `415` also covers "still image — motion not applicable" and "decoder unavailable" (`media-info` gives the reason).
+Same gate, parameter validation, and status semantics as the poster route, with `video/mp4`, `Accept-Ranges: bytes` and single-range `206` support reusing the existing `parseByteRange()` (extracted into `server/request/byteRange.js` so both routes share it), `Content-Disposition: inline; filename*=UTF-8''motion.mp4`, same CSP/CORP/nosniff, `ETag: "<sha256>-<profile>-motion"`. `415` also covers "still image — motion not applicable", "animation unknown" and "decoder unavailable" (`media-info` gives the reason).
 
 ### 14.5 `GET /api/files/:id/preview` — unchanged
 
@@ -400,10 +428,44 @@ Owner-only, Range, `private, no-store`, CSP sandbox, allowlist — byte-for-byte
 
 ### 14.6 HTTP cache strategy
 
-- Poster and motion URLs embed `v=<sha256>`. With a matching `v`, the response is content-immutable by construction (the bytes are a pure function of `sha256 + profile + type`), so the routes send `Cache-Control: private, max-age=31536000, immutable`. `private` keeps shared caches out; the session cookie is still required on every request (a cached copy in one browser profile is that user's own data).
-- Without `v`, or with a non-matching `v`, no immutable answer is ever produced (`400`/`404`), so a browser can never keep a stale poster for content that has since been replaced.
-- `202`, `415`, `422`, `503` responses carry `Cache-Control: private, no-store`.
-- `ETag` enables conditional revalidation after the year expires; `304` is cheap (stat only).
+**Final policy for `200`/`304` on `poster` and `motion-preview`:**
+
+```
+Cache-Control: private, max-age=31536000, immutable
+Vary: Cookie
+ETag: "<sha256>-<profile>-<type>"
+```
+
+**Why the URL may be immutable.** The bytes are a pure function of the triple (`sha256`, profile, type) and the URL names all three (`:id` + `v` + `p`, with `:id` → row → `sha256` verified on every uncached request). Replacing content changes `v`; changing encoding semantics changes `p`; neither can be served from an old URL (§14.3 returns `404`), so a browser can never keep a stale poster for content or a profile that has since changed.
+
+**Why `private` alone is not the isolation mechanism.** `private` only forbids shared caches. Inside one browser profile the HTTP cache is keyed by URL, so without `Vary` the following would reuse bytes without any server request: user A views a poster → logs out → user B logs in on the same browser profile → B's page requests the same URL → the cache answers from A's entry → the server's ownership gate never runs. (B would only reach that URL through B's own `media-info`, i.e. B owns identical bytes, but the design does not rely on that — the ownership gate must execute.)
+
+**Isolation mechanism: `Vary: Cookie`, made authoritative by the verified session lifecycle.** With `Vary: Cookie` a cached entry is reusable only for a request whose `Cookie` request header is identical to the one stored with the entry. The Drive session model at `e5bea949` (`server/auth/session.js`) guarantees that the cookie value differs across accounts and across logins:
+
+- cookie `aegis.drive.sid`, `httpOnly`, `sameSite: 'strict'`, `secure` in production, `saveUninitialized: false` (no cookie exists before login);
+- `establishSession()` calls `req.session.regenerate()` **before** writing the user — every login issues a new signed session id (session-fixation defence already in place);
+- `destroySession()` calls `req.session.destroy()` **and** `res.clearCookie('aegis.drive.sid')` — after logout the browser sends no session cookie;
+- `rolling: true` re-sends the cookie on every response with a refreshed expiry but the **same signed id**, so the `Cookie` header stays stable within one session (cache hits) and differs between sessions (cache misses → server gate);
+- session ids are 24-byte random values signed with `SESSION_SECRET`; they are never reused.
+
+Consequences, each with a contract test (§23 `AUTH_CACHE_ISOLATION`):
+
+| Scenario | Browser cache | Server |
+|---|---|---|
+| A views poster | miss → `200`, entry stored with A's `Cookie` | owner gate ran |
+| A reloads within the session | hit (no request) | — (A's own bytes) |
+| A logs out, then the tab (anonymous) requests the URL | `Cookie` header absent ≠ stored → miss | `401` from `requireAuth` |
+| B logs in on the same profile and requests the same URL | B's `Cookie` ≠ A's → miss | owner gate runs → `404` (B does not own that file id) |
+| A's session expires server-side while the entry is cached | hit inside A's own profile | — (A's own bytes in A's profile; equivalent to a screenshot already on that machine; no cross-account exposure) |
+| A logs in again later (new sid) | miss | owner gate runs → `200` |
+
+Notes: other same-origin cookies (HUB, Monitor, or gateway cookies under the same host) change the `Cookie` header too — that can only cause extra misses, never an unsafe hit. Browsers that do not honour `Vary` for a given entry class fall back to a request, never to a wrong hit; `Vary` is a standard cache-key extension in every target browser.
+
+**Dependency made explicit.** The immutable policy is valid **only while** the three session invariants hold (regenerate on login, destroy + clear on logout, no sid reuse). The implementation pins them with `tests/mediaCacheSessionContract.test.js`: it asserts that `establishSession` produces a different `Set-Cookie` sid than the pre-login request and that `destroySession` clears the cookie; if a future session change breaks either, that test fails and the cache policy must be downgraded to the fallback below before merging.
+
+**Fallback policy** (chosen only if the invariants cannot be kept): `Cache-Control: private, max-age=0, must-revalidate` + `ETag`; every tile costs one conditional request answered `304` (a `stat` and a string compare), bytes stay derivative-sized, and the owner gate runs on every render. The fallback is a one-line switch (`MEDIA_CACHE_POLICY=immutable|revalidate`, default `immutable`) so operations can flip it without a redeploy. Auth is never weakened to gain cache speed.
+
+**Non-`200` responses** (`202`, `400`, `404`, `415`, `422`, `503`) and `media-info` carry `Cache-Control: private, no-store`.
 
 ### 14.7 Avoiding polling storms
 
@@ -436,7 +498,7 @@ DOM contract (`data-*` attributes keep the existing test style):
 - The **motion layer** is a `<video muted playsInline loop preload="auto" tabIndex=-1 aria-hidden>` positioned over the poster, mounted only when `MOTION ≠ none`, `opacity: 0` unless `PLAY=playing`. `data-motion="none|prefetching|ready|playing"`. Its `src` is `motion-preview?v=…`; `canplaythrough` (or `loadeddata` on browsers that never fire `canplaythrough` for small files) moves `MOTION` to `ready`.
 - **First-hover contract** (§3.2 fix): `hovering && MOTION=ready → play()`. If `hovering` becomes true while `MOTION=prefetching`, the tile stays on the poster, the scheduler promotes this tile's motion fetch to P0, and the `MOTION=ready` transition re-evaluates `PLAY` — playback starts without leaving. If `MOTION=none` on hover (offscreen-prefetch skipped), hover starts the prefetch at P0. `mouseleave` → `pause()`, `currentTime = 0`, opacity 0; the poster underneath was never removed, so there is nothing to reload.
 - `prefers-reduced-motion`: `MOTION` stays `none`; no prefetch; hover does nothing (Preview dialog still available via the menu — unchanged Round 9 rule).
-- Identity: `contentId` (= `file.sha256` from the list DTO, already exposed) replaces `id + name` as the reset key for poster/motion; a rename keeps the poster, a content replace resets both layers and the failure memo.
+- Identity: `contentId` (= `file.sha256` from the list DTO, already exposed) replaces `id + name` as the reset key for poster/motion; a rename keeps the poster, a content replace resets both layers and the failure memo. The poster/motion URLs are taken verbatim from `media-info` (they already carry `v` and `p`); the client never composes them, so a server-side profile bump is picked up on the next `media-info` response without a client release.
 - Failure memo: `INFO=unsupported|failed` is remembered per `contentId` (no re-request on re-render); `pending` is retried per §14.7.
 - Video idle uses the poster derivative; the tile no longer mounts `<video src=/preview>`; therefore no Range requests to originals from the grid.
 - Still images: `<img src=poster?v=…>` replaces `<img src=/preview>`; while `INFO/POSTER` are not ready the tile shows the icon (never the original).
@@ -488,7 +550,11 @@ All derivatives strip EXIF/XMP/ICC (after applying orientation and sRGB conversi
 
 Child processes run as the `node` user, with a minimal environment (no `DATABASE_URL`, `SESSION_SECRET`, or bootstrap credentials), with `cwd` in the cache tmp directory, bounded stdout/stderr capture, and hard timeouts with `SIGKILL`. The Drive process never reads media bytes into JavaScript memory.
 
-### 17.8 Audit
+### 17.8 Browser cache isolation across accounts
+
+Derivative responses are cacheable for a year only under `Vary: Cookie` and the verified session lifecycle (§14.6). The contract is that the ownership gate executes for every request whose session differs from the one that populated the cache entry, including logout → anonymous and logout → other account on the same browser profile. This is tested at the HTTP layer and in browser acceptance (§23, §24 `AUTH_CACHE_ISOLATION`).
+
+### 17.9 Audit
 
 Cross-owner and vault attempts on all three routes → `FILE_PREVIEW DENIED` (existing action, no new taxonomy). Admin invalidation → `MEDIA_CACHE_INVALIDATE`. Successful derivative reads are not audited (see §14 preamble).
 
@@ -508,8 +574,11 @@ All values are design defaults, overridable by environment variables validated a
 | `MEDIA_PROBESIZE_BYTES` | 32 MiB | ffprobe/ffmpeg `-probesize`; `-analyzeduration 5000000` | container analysis is bounded even for a 20 GB file or a stream with no index |
 | `MEDIA_POSTER_MAX_BYTES` | 512 KiB | poster output | §8 |
 | `MEDIA_MOTION_MAX_BYTES` | 4 MiB | motion output | §9 |
-| `MEDIA_WORKERS` | 1 (max 2) | queue | one encode at a time on the Production host |
-| `MEDIA_FFMPEG_THREADS` | 2 | ffmpeg `-threads` | caps CPU per child |
+| `MEDIA_WORKERS` | 1 (max 2) | queue | exactly one heavy generation pipeline at a time by default — the only **hard** concurrency bound |
+| `MEDIA_FFMPEG_DECODER_THREADS` | 1 | ffmpeg input `-threads` (before `-i`) | codec thread pool for decoding (soft) |
+| `MEDIA_FFMPEG_FILTER_THREADS` | 1 | ffmpeg `-filter_threads` (`-filter_complex_threads` only if a filter-complex graph is introduced) | filter graph thread pool (soft) |
+| `MEDIA_FFMPEG_ENCODER_THREADS` | 2 | ffmpeg output `-threads:v` | libx264 thread pool (soft; lookahead/demux/I-O threads are outside it) |
+| `CPU_BOUND` | `SOFT_PROCESS_CONFIGURATION` | statement of truth | thread options are per-stage hints, not a cgroup limit; a hard core limit would require a container-level `cpus:` constraint or the sidecar of §10.3, neither of which is in this design |
 | `MEDIA_PROBE_TIMEOUT_MS` / `MEDIA_POSTER_TIMEOUT_MS` / `MEDIA_MOTION_TIMEOUT_MS` | 20,000 / 60,000 / 120,000 | per job | hang protection; `SIGTERM` then `SIGKILL` |
 | `MEDIA_QUEUE_MAX` | 500 | queue depth | encode-storm protection; overflow → `RETRYABLE` |
 | `MEDIA_CACHE_MAX_BYTES` | 2 GiB | cache budget | §19 |
@@ -522,11 +591,11 @@ Explicit protections mapped to threats:
 
 - **Decompression bombs / pathological dimensions**: dimensions come from headers (`ffprobe` streams, sharp metadata) before any pixel is decoded; the pixel guards reject before decode. FFmpeg's own `-max_alloc` is not relied on.
 - **Malformed media**: probe failure is `PERMANENT`; sharp `failOn: 'error'`; FFmpeg non-zero exit is `PERMANENT` unless it was a timeout/kill (`TRANSIENT`).
-- **Endless animation / extreme frame count**: `-t` on input and output plus `fps=12` bound decode and emitted frames independently of the source's frame count.
-- **Hostile codec complexity / hangs**: per-job wall-clock timeouts with `SIGKILL`; one worker slot; `-threads 2`.
+- **Endless animation / extreme frame count**: `-t` on input and output plus `fps=12` bound the decoded temporal window and the emitted frames independently of the source's frame count; the source bytes read for that window are family/bitrate dependent and are measured (§9, §24).
+- **Hostile codec complexity / hangs**: per-job wall-clock timeouts with `SIGKILL`; one worker slot (hard); per-stage thread configuration (soft).
 - **Concurrent encode storms**: single worker, queue cap, per-key de-duplication, client-side viewport bounds.
 - **Cache disk exhaustion**: byte budget with high/low water eviction, free-space reserve, atomic tmp+rename, startup tmp cleanup.
-- **Whole-file RAM buffering**: never happens by construction — sharp reads sequentially from a path, FFmpeg demuxes from a path with bounded `-probesize`/`-t`, the Node process only passes paths.
+- **Whole-file RAM buffering**: never happens by construction — sharp reads sequentially from a path, FFmpeg demuxes from a path with bounded `-probesize`/`-t`, the Node process only passes paths and never creates a Buffer/Blob of media bytes. This is a statement about memory, not about disk I/O: a high-bitrate first window can still require substantial sequential reads (§9).
 
 ## 19. Cache eviction
 
@@ -588,14 +657,17 @@ All new suites follow the repository's `node:test` + jsdom style and run in memo
 - motion for GIF/APNG/MP4/WebM: `ffprobe` of output reports h264, yuv420p, ≤ 480 × 270, ≤ 12 fps, ≤ 6.1 s, no audio, `moov` before `mdat`.
 - malformed/truncated/mismatched inputs → `UNSUPPORTED`/`GENERATION_FAILED`, no tmp left behind, no child process left (assert on the process table of spawned pids).
 - timeout: a fixture generated with a very long duration plus `MEDIA_MOTION_TIMEOUT_MS=200` → job `TRANSIENT`, child killed.
-- bounded read: generate a sparse 10 GB MP4 (`truncate` a valid short MP4 to 10 GB after `faststart`, so the index is valid but the file is huge) and assert poster + motion succeed with bytes read (from `/proc/<pid>/io` `rchar`, Linux gate) below 64 MiB. This is the executable form of the `VIDEO_10GB_CLASS` target; the 20 GB target is the same test with a 20 GB sparse file, run in the Linux gate only.
+- animation rules (§6.1): `STILL_AVIF_NOT_ANIMATED`, `ANIMATED_AVIF_ANIMATED_WHEN_SUPPORTED`, `STILL_WEBP_NOT_ANIMATED`, `ANIMATED_WEBP_ANIMATED`, `PNG_NOT_ANIMATED`, `APNG_ANIMATED`, `ONE_FRAME_GIF_NOT_ANIMATED`, `MULTIFRAME_GIF_ANIMATED`, `ANIMATION_UNKNOWN_IS_POSTER_ONLY` — each also asserts the probe's bytes read (`/proc/<pid>/io`) stays within the family budget and that no motion job is enqueued for still or unknown results.
+- bounded read, per container class: sparse fixtures built by `truncate`-extending a valid short file to 10 GB (and 20 GB in the Linux gate) for (a) faststart MP4, (b) moov-at-end MP4, (c) WebM with Cues, (d) WebM without Cues. For each class the test records `rchar`/`read_bytes` of the ffprobe/ffmpeg children and asserts poster + motion succeed **or** fail truthfully within timeout; the `< 64 MiB` bound is asserted only for classes (a) and (c), and the measured figure for (b) and (d) is recorded as evidence. No claim is made for a class the test did not prove.
+- animated large source I/O: generated 200 MB-class and 300 MB-class GIF and APNG fixtures (high-bitrate first window and low-bitrate first window variants) → motion succeeds within `MEDIA_MOTION_TIMEOUT_MS`, output ≤ 4 MiB, decoded window ≤ 6.5 s (from ffmpeg progress), and the measured source `read_bytes` is recorded — it is expected to differ between the two variants and is not asserted below a fixed byte count.
 - large still: a 12,000 × 3,000 (36 MP, under the guard) PNG generated at test time → poster succeeds; peak RSS of the sharp path measured via `process.memoryUsage()` delta stays below 256 MB; a 9,000 × 5,000 (45 MP, over the guard) → `UNSUPPORTED / DIMENSIONS` without decoding (elapsed < 200 ms).
 
 **HTTP** (`tests/mediaRoutes.test.js`, memory + PostgreSQL-gated ownership/vault cases)
 - ownership: other owner → `404` + `DENIED` audit; `null` owner → `404`; Admin no override.
 - vault row → `404`, no enqueue (spy on the service).
 - folder → `400`; unsupported ext → `415`/`UNSUPPORTED`.
-- `202` + `Retry-After` while pending; `200` after generation; `ETag`/`304`; `immutable` only with matching `v`; `400` without `v`; `404` with stale `v`.
+- `202` + `Retry-After` while pending; `200` after generation; `ETag` equals `"<sha256>-<profile>-<type>"`; `304` on `If-None-Match`; `immutable` + `Vary: Cookie` only on `200`/`304` with matching `v` **and** `p`; `400` without `v` or `p`; `404` with stale `v` (`STALE_SOURCE_SHA`); `404` with a non-current `p` (`UNKNOWN_PROFILE`), including when the old profile's file still exists on disk (`OLD_PROFILE_CANNOT_MASK_NEW_PROFILE`); bumping `MEDIA_PROFILE_VERSION` in a test changes every URL and ETag returned by `media-info` (`PROFILE_V1_CACHE_URL ≠ PROFILE_V2_CACHE_URL`).
+- `AUTH_CACHE_ISOLATION` (`tests/mediaRoutes.test.js` + `tests/mediaCacheSessionContract.test.js`): (1) login as A → `GET poster` `200` with `Vary: Cookie`; (2) the `Set-Cookie` sid from A's login differs from any pre-login cookie and from B's later login (regenerate contract); (3) logout A → response clears `aegis.drive.sid`; the same URL without a cookie → `401`; (4) login as B on a fresh cookie jar seeded only with B's cookie → same URL → `404` and a `FILE_PREVIEW DENIED` audit row (ownership gate executed); (5) a request replaying A's old sid after logout → `401` (destroyed session). The browser-level replay of this sequence is a mandatory Production acceptance step (§24).
 - motion Range `206`/`416`; `/preview` regression suite (`filesPreviewRoute.test.js`) unchanged and green.
 - batch: ≤ 64 ids, mixed authorisation → per-id `NOT_FOUND`, CSRF enforced.
 - admin status/invalidate: role gate, audit record.
@@ -610,6 +682,8 @@ All new suites follow the repository's `node:test` + jsdom style and run in memo
 
 **Existing tests that change contract** (rewritten in the implementation gate, not silently deleted): `filesRound10.test.js` R10-GIF-* and R10-SR1-* (client poster → server poster), `filesVisualHierarchy.test.js` R8-PREVIEW-2/-3/-7b (thumbnail source), `filesInteractionPolish.test.js` R9-MOTION-* (video source → motion proxy). Root-drop, marquee, sort, section, preview-route, and modal tests are unaffected.
 
+**Resource / responsiveness** (Linux gate, real ffmpeg): `tests/mediaResponsiveness.test.js` starts the app in memory mode, records a 30 s baseline of `GET /healthz` and `GET /api/files` latency (p50/p95, 5 req/s), then enqueues one 300 MB-class animated-image job and one 10 GB-class sparse-video job in sequence and records the same metrics during each; asserts: zero non-`200` responses, no request slower than 5 s, process alive (no restart), child peak RSS (from `/proc/<pid>/status` `VmHWM`) recorded and below 1 GiB; computes `REGRESSION_RATIO = p95_during / p95_baseline` and records it. The ratio is **not** an automatic pass/fail in the repository test; see §24 for the Production rule.
+
 **Performance** — bytes and wall-clock measured separately (§24); no test asserts "fast" without a number or a relative contract.
 
 ## 24. Performance acceptance matrix
@@ -622,11 +696,14 @@ Structural contracts (asserted in tests): `GRID_POSTER_TRANSFER_BYTES ≤ 512 Ki
 | STATIC_LARGE_IMAGE_200MB_CLASS | poster job completes within `MEDIA_POSTER_TIMEOUT_MS`; refresh after warm serves the derivative only (≤ 512 KiB transferred for that tile) | Linux integration (generated fixture) + browser |
 | STATIC_LARGE_IMAGE_300MB_CLASS | supported when `width × height ≤ 40 MP`; over-guard → `UNSUPPORTED` in < 200 ms without decode | Linux integration |
 | GIF_518KB | poster; first-hover plays from proxy; leave returns to poster | browser acceptance (warmed): poster ≤ 1 s after list, first-hover playback start ≤ 300 ms |
-| GIF_49_7MB | poster served without the browser fetching the original (tile transfer ≤ 512 KiB); first-hover motion proxy; no second hover | browser acceptance on the real file + network log |
-| ANIMATED_IMAGE_200MB_CLASS / 300MB_CLASS | grid transfer per tile ≤ 4.5 MiB (poster + proxy); generation bounded by `-t` window | Linux integration (generated long GIF/APNG) |
+| GIF_49_7MB (mandatory Production acceptance on the real file) | poster served without the browser fetching the original (tile transfer ≤ 512 KiB); first-hover motion proxy; no second hover | browser acceptance on the real file + network log |
+| ANIMATED_IMAGE_200MB_CLASS / 300MB_CLASS | browser transfer is derivative-sized (≤ 512 KiB poster + ≤ 4 MiB proxy per tile); server generation is bounded by the 6.5 s decode window, the pixel guards, one-job concurrency, the job timeout and the output caps; **measured source I/O is recorded** for a high-bitrate and a low-bitrate first-window variant and is not claimed to be independent of original size | Linux integration (generated long GIF/APNG, `/proc/<pid>/io`) |
 | VIDEO_196MB | cached poster; hover proxy; zero Range requests to the original from the grid | browser acceptance on the real file |
-| VIDEO_10GB_CLASS | generation reads < 64 MiB of the source; grid never downloads the original | Linux integration (sparse fixture, `/proc/<pid>/io`) |
-| VIDEO_20GB_DESIGN_TARGET | same test at 20 GB sparse; no whole-file buffering (RSS of the child < 512 MB) | Linux gate only |
+| VIDEO_10GB_CLASS | grid never downloads the original; for faststart-MP4 and WebM-with-Cues sparse fixtures the poster + motion jobs read < 64 MiB of the source; for moov-at-end MP4 and WebM-without-Cues the seek/index behaviour is verified empirically and the measured read is recorded (no fixed bound is claimed for those classes) | Linux integration (four sparse fixture classes, `/proc/<pid>/io`) |
+| VIDEO_20GB_DESIGN_TARGET | same four classes at 20 GB sparse; no whole-file buffering in Node (no media Buffer/Blob) and child peak RSS < 1 GiB (`VmHWM`) | Linux gate only |
+| PROFILE_VERSION | `PROFILE_V1_CACHE_URL ≠ PROFILE_V2_CACHE_URL`; `OLD_PROFILE_CANNOT_MASK_NEW_PROFILE`; `STALE_SOURCE_SHA=404`; `UNKNOWN_PROFILE=404`; ETag = `"<sha256>-<profile>-<type>"` | HTTP test |
+| AUTH_CACHE_ISOLATION | A `200` → logout → anonymous `401` → B login same browser profile → same URL `404` with `DENIED` audit; DevTools shows a network request (not "from disk cache") for B and for the anonymous attempt | HTTP test + mandatory Production browser step |
+| RESOURCE_RESPONSIVENESS | while one 300 MB-class animated-image job and, separately, one 10 GB-class video job is active: `/healthz` and `GET /api/files` return `200` with no request > 5 s; Drive restart count unchanged; no OOM kill; ffmpeg child peak RSS recorded; host and Drive CPU recorded; p95 before/during recorded and `REGRESSION_RATIO = p95_during / p95_baseline` computed. Automatic FAIL only on the objective conditions (non-`200`, > 5 s, restart, OOM). The ratio has **no invented threshold**: the first Production run records the baseline and the ratio for review; a ratio above **2.0** is a mandatory review trigger (chosen as "latency doubled" — the smallest change a user of a LAN-latency app would plausibly notice), not a pass/fail line, until a measured baseline justifies a firmer contract | Linux `mediaResponsiveness` + Production acceptance with `docker stats`, `docker inspect --format '{{.RestartCount}}'`, `/proc/<pid>/status` |
 | HARD_REFRESH (warmed) | posters visible ≤ 1 s after the list response on the Production LAN; first-hover works | browser acceptance |
 | COLD_CACHE | `PENDING` state shown as icon + badge; no broken-image flash; grid interactive; poster appears when ready without reload | browser acceptance + jsdom |
 | MULTIPLE_MEDIA_TILES (≥ 60 media in one folder) | server concurrency 1; client in-flight bounds respected; scroll stays responsive (long-task budget < 50 ms per frame in DevTools) | browser acceptance + jsdom counts |
@@ -639,23 +716,72 @@ Structural contracts (asserted in tests): `GRID_POSTER_TRANSFER_BYTES ≤ 512 Ki
 
 ## 25. Deployment implications
 
+Two distinct compose models exist and must not be conflated.
+
+### 25.1 Repository / dev / test model (`docker-compose.yml` at the repo root)
+
 Changes required by the implementation gate (each declared in its PR; none performed here):
 
 1. `IDEA1-AEGIS_Drive_LC/Dockerfile` (IDEA1-owned): pinned `apk add ffmpeg=…`; `mkdir/chown /var/cache/aegis-media`; pin base tag to an Alpine minor.
 2. `IDEA1-AEGIS_Drive_LC/package.json` / lockfile (IDEA1-owned): add `sharp` (pinned minor); `npm ci` on Alpine resolves the `linuxmusl-x64` prebuilt.
-3. `docker-compose.yml` (**cross-scope infrastructure**): add `aegis_drive_media_cache:` under `volumes:` and mount `aegis_drive_media_cache:/var/cache/aegis-media` on `drive`; add `MEDIA_*` environment passthrough with defaults. Requires `integration-review: yes` and a `## Shared surfaces touched` entry.
-4. Production: the S5.x overlays under `gateway/public-share/production/` do not define the `drive` volume set; the volume is added through the same base compose the Production stack uses, applied as a new candidate image `aegis-prod-drive:media-preview-<sha12>` (naming follows the existing `aegis-prod-drive:<task>-<sha12>` convention). The container is recreated (new mount); originals in `drive_storage` and the database are untouched.
-5. `.env.example` (cross-scope deployment contract): document `MEDIA_CACHE_DIR`, `MEDIA_CACHE_MAX_BYTES`, `MEDIA_WORKERS`, `MEDIA_FFMPEG_THREADS`, `MEDIA_STILL_ENGINE` with defaults — documentation only, no secrets.
-6. Image size budget: ≤ +150 MB uncompressed versus the Round 10 image, measured with `docker image inspect` and recorded in the receipt.
-7. Host resources: expected steady-state CPU is one encode at a time (≤ 2 threads); disk: ≤ `MEDIA_CACHE_MAX_BYTES` + reserve on the cache volume; no change to `/datalake` usage.
+3. `docker-compose.yml` (**cross-scope infrastructure**): add `aegis_drive_media_cache:` with `name: aegis_drive_media_cache` under `volumes:` and mount it at `/var/cache/aegis-media` on `drive`; add `MEDIA_*` environment passthrough with defaults. Requires `integration-review: yes` and a `## Shared surfaces touched` entry. This file drives the localhost test stack only.
+4. `.env.example` (cross-scope deployment contract): document `MEDIA_CACHE_DIR`, `MEDIA_CACHE_MAX_BYTES`, `MEDIA_WORKERS`, `MEDIA_FFMPEG_ENCODER_THREADS`, `MEDIA_STILL_ENGINE`, `MEDIA_CACHE_POLICY` with defaults — documentation only, no secrets.
+5. Image size budget: ≤ +150 MB uncompressed versus the Round 10 image, measured with `docker image inspect` and recorded in the receipt.
+
+### 25.2 Production runtime model (service-scoped media overlay)
+
+Production does **not** deploy Drive from the repository `docker-compose.yml`. The verified live model (`gateway/public-share/production/README.md`, S5.3–S5.12 receipts) is the base file `/opt/aegis/runtime/docker-compose.production.yml` plus the existing Drive and Public Share overlays under `/opt/aegis/runtime/public-share/` (currently the Drive override that pins the Drive image, the S5.4 gateway networks overlay, the S5.5 connector overlay, and the S5.11 UI overlay), driven with `--project-name aegis-prod`, `--env-file /opt/aegis/Project-End-The-AEGIS/.env`, and service-scoped `up -d --no-deps --no-build <service>`. The Production checkout `/opt/aegis/Project-End-The-AEGIS` is intentionally stale/read-only and is **not** modified to deploy this feature.
+
+The media feature is therefore rolled out as **one new service-scoped overlay**, applied last:
+
+```
+/opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml
+```
+
+containing only the Drive additions this feature needs (conceptual content; exact syntax is validated during implementation against the rendered merged model):
+
+```yaml
+services:
+  drive:
+    volumes:
+      - aegis_drive_media_cache:/var/cache/aegis-media
+    environment:
+      MEDIA_CACHE_DIR: /var/cache/aegis-media
+      MEDIA_CACHE_MAX_BYTES: "2147483648"
+      MEDIA_WORKERS: "1"
+      MEDIA_STILL_ENGINE: sharp
+      MEDIA_CACHE_POLICY: immutable
+
+volumes:
+  aegis_drive_media_cache:
+    name: aegis_drive_media_cache
+```
+
+The candidate image tag (`aegis-prod-drive:media-preview-<sha12>`, following the existing `aegis-prod-drive:<task>-<sha12>` convention) is carried by the same Drive image override layer that carried the PR #148 and Round 10 candidates, not by the media overlay; the media overlay never sets `image:`.
+
+Cutover rules (all mandatory; none executed in this gate):
+
+- `docker-compose.production.yml` is **not** edited; no Public Share overlay is edited; the media overlay is an additional `-f` argument.
+- Render and inspect before touching any service: `docker compose … -f <all existing files in the recorded order> -f /opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml config` and confirm in the output that the `drive` service shows: the existing networks and static addresses unchanged; `aegis_drive_storage` (`/datalake`) unchanged; `/run/aegis-telemetry:/run/aegis-telemetry:ro` and `/run/aegis-backup:/run/aegis-backup:ro` still present and still read-only; the `group_add` entries (`29100`, `29102`) unchanged; `aegis_drive_media_cache` as the **only** new mount; the volume rendered with `name: aegis_drive_media_cache`; `image:` equal to the candidate tag. Any other difference aborts the cutover.
+- Only Drive is recreated: `up -d --no-deps --no-build drive`. `--remove-orphans` and `--force-recreate` are never used (the former would delete containers absent from the file set).
+- Post-recreate proof: `docker inspect` of the Drive container shows the mounts above; `/healthz.media` reports `enabled: true`, `cacheVolume: "volume"`, and the FFmpeg/sharp capability object; `docker volume inspect aegis_drive_media_cache` exists with that exact name; `RestartCount` is 0 after the acceptance window.
+- Host resources: expected steady-state CPU is one generation pipeline at a time (soft thread configuration, measured — §24 `RESOURCE_RESPONSIVENESS`); disk: ≤ `MEDIA_CACHE_MAX_BYTES` + reserve on the cache volume; no change to `/datalake` usage.
 
 ## 26. Rollback implications
 
-- **Application rollback** = redeploy the accepted Round 10 image (`e5bea949` build). The old image ignores the cache volume (it neither mounts nor references it); if the compose still mounts it, the mount is inert. No database rollback exists because there is no migration.
-- **Cache volume** can be removed (`docker volume rm aegis_drive_media_cache`) at any time before, during, or after rollback with no effect on user data.
-- **Dependency rollback**: `MEDIA_STILL_ENGINE=ffmpeg` disables the sharp path at runtime; `MEDIA_ENABLED=false` disables the entire pipeline (routes answer `UNSUPPORTED / MEDIA_DISABLED`, grid shows icons) without redeploying.
-- The Round 10 image/tag and its rollback evidence are preserved; this design produces a **new** candidate and never overwrites them.
-- Migration 010 rollback semantics are unchanged by this design (it does not touch `kind`/`parent_id`).
+**Canonical rollback model (one model, chosen): the rollback command omits the media overlay.** Rollback re-runs the exact, already-proven pre-cutover command — the recorded file set without `/opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml` — with the Drive image override pointing back at the accepted Round 10 image (`e5bea949` build), followed by `up -d --no-deps --no-build drive`. The Drive container is recreated **without** the cache mount, on the same networks, with `/datalake`, telemetry and backup binds exactly as before cutover. No database rollback exists because there is no migration.
+
+Why this model and not "Round 10 image with the mount present": the Round 10 image does not reference `/var/cache/aegis-media`, so an extra mount would be inert, but leaving it in the rollback command creates a rollback file set that was never part of an accepted state and a container that still holds the volume in use. Omitting the overlay returns Production to a byte-identical, previously accepted compose model. The "mount present" variant is **not** a supported rollback path and is not documented as one.
+
+Volume semantics after rollback (accurate Docker behaviour):
+
+- Immediately after rollback the volume `aegis_drive_media_cache` still exists and is **unused** (no container references it). It holds only rebuildable derivatives and can stay in place indefinitely — a later re-deploy of the candidate simply warm-starts from it.
+- `docker volume rm aegis_drive_media_cache` succeeds **only** in that unused state (or after the media-enabled container has been stopped **and removed**). It is never run while the media-enabled Drive container exists, running or stopped — Docker refuses it, and the design does not claim otherwise. Removing it is optional housekeeping, never part of the rollback critical path.
+- Emptying the cache without touching the volume (`find /var/cache/aegis-media -mindepth 1 -delete` inside the running container) is the operational reset while the feature stays deployed.
+
+Runtime kill-switches that avoid a redeploy: `MEDIA_STILL_ENGINE=ffmpeg` disables the sharp path; `MEDIA_CACHE_POLICY=revalidate` drops the immutable browser cache policy; `MEDIA_ENABLED=false` disables the entire pipeline (routes answer `UNSUPPORTED / MEDIA_DISABLED`, grid shows icons). Each is an environment change in the media overlay followed by `up -d --no-deps --no-build drive`.
+
+The Round 10 image/tag and its rollback evidence are preserved; this design produces a **new** candidate and never overwrites them. Migration 010 rollback semantics are unchanged by this design (it does not touch `kind`/`parent_id`).
 
 ## 27. No-schema-migration rationale
 
@@ -671,7 +797,7 @@ DB_MIGRATION = NO
 
 ## 28. Explicit out-of-scope items
 
-- `UPLOAD_LIMIT_CHANGE=NO`: `MAX_LOGICAL_FILE_BYTES`, `MAX_UPLOAD_BYTES`, chunk sizes, session TTLs, reverse-proxy limits, Large File policy — untouched.
+- `UPLOAD_LIMIT_CHANGE=NO` and `UPLOAD_PERFORMANCE_CHANGE=NO`: `MAX_LOGICAL_FILE_BYTES`, `MAX_UPLOAD_BYTES`, chunk sizes, session TTLs, resumable/parallel upload behaviour, browser-to-server transfer speed, reverse-proxy limits, Large File policy — untouched. The only upload-path touch point is the post-success asynchronous enqueue of §20, which never delays the upload response.
 - Vault media of any kind.
 - SVG, PDF, Office, HEIC/HEIF stills (not in the current allowlist; adding HEIC is a separate allowlist decision).
 - Public Share / Secure Share thumbnails.
@@ -692,7 +818,12 @@ Design review (ChatGPT) — this document:
 - [ ] Upload ceilings and transfer policy are not coupled to preview source targets (§5, §18, §28).
 - [ ] Vault is excluded at route and service level; no plaintext derivative can exist (§17.2).
 - [ ] Cache is non-authoritative: outside `STORAGE_ROOT`, outside backup, deletable, never referenced by the DB (§11, §27).
-- [ ] Cache identity is `sha256 + profile + type`; filename never enters the key; stale `v` cannot serve old content (§12, §14.6).
+- [ ] Cache identity is `sha256 + profile + type`; the profile appears in the disk path, `media-info`, both binary URLs (`p=`), both ETags and the tests; filename never enters the key; stale `v` or non-current `p` cannot serve old content (§12, §14.3, §14.6, §23).
+- [ ] Authenticated-cache isolation is explicit: `Vary: Cookie` is justified by the verified regenerate/destroy/clear session lifecycle, pinned by a contract test, with the `must-revalidate` fallback selectable at runtime (§14.6, §17.8, §23).
+- [ ] Production deployment uses a new service-scoped media overlay and never mutates `/opt/aegis/runtime/docker-compose.production.yml` or the Public Share overlays; the rendered config is inspected before cutover; only Drive is recreated; rollback omits the overlay; volume naming and `docker volume rm` semantics are accurate (§25.2, §26).
+- [ ] CPU wording is truthful (`CPU_BOUND=SOFT_PROCESS_CONFIGURATION`, per-stage FFmpeg thread options, no hard-core-limit claim, sidecar acknowledged as stronger isolation) and the responsiveness guard is measurable without an invented threshold (§10.3, §13.2, §18, §24).
+- [ ] Animation detection is family-specific and bounded, with `ANIMATION_UNKNOWN → poster-only` and the nine fixture contracts (§6.1, §23).
+- [ ] Large animated-source claims distinguish the bounded decode window from source bytes read, and 10–20 GB container claims are limited to fixture classes the tests prove (§9, §18, §23, §24).
 - [ ] Ownership/object-hiding on all derivative routes equals the existing preview route; content-hash sharing is not an oracle (§17).
 - [ ] Immutable HTTP caching is only issued for URLs whose identity guarantees immutability (§14.6).
 - [ ] Every child process is argument-array, no shell, timeout-killed, minimal env (§10.3, §17.7).
