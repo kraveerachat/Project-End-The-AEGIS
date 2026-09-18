@@ -237,6 +237,34 @@ export async function listFiles(userId, parentId = null) {
   )
 }
 
+/**
+ * Warm-up ของ media derivative (spec §21, Task 14): วนอ่านไฟล์ปกติที่มีตัวตนของเนื้อหา — SELECT อย่างเดียว ไม่มี mutation
+ * ⚠️ กรองที่ฐาน: vault=false, kind='file', ไม่อยู่ในถัง, มี sha256 — Vault ไม่มีวันถูกส่งออกจากที่นี่
+ * @param {{ pageSize?: number, newestFirst?: boolean }} o
+ * @returns {AsyncGenerator<object>}
+ */
+export async function * iterateMediaCandidates({ pageSize = 200, newestFirst = false } = {}) {
+  const size = Math.max(1, Math.min(1000, Number(pageSize) || 200))
+  if (usingPostgres) {
+    for (let offset = 0; ; offset += size) {
+      const { rows } = await query(
+        `SELECT f.*, NULL::text AS uploader_name
+           FROM files f
+          WHERE f.vault = false AND f.kind = 'file' AND f.deleted_at IS NULL AND f.sha256 IS NOT NULL
+          ORDER BY f.id ${newestFirst ? 'DESC' : 'ASC'}
+          LIMIT $1 OFFSET $2`,
+        [size, offset],
+      )
+      for (const r of rows) yield mapFileRow(r)
+      if (rows.length < size) return
+    }
+  }
+  // แถว seed เก่าไม่มี kind — ถือเป็นไฟล์ (เหมือน mapFileRow) ไม่ใช่ตัดทิ้ง
+  const eligible = files.filter((f) => !f.vault && f.kind !== 'folder' && f.deletedAt == null && typeof f.sha256 === 'string' && f.sha256)
+  const ordered = newestFirst ? [...eligible].reverse() : eligible
+  for (const f of ordered) yield f
+}
+
 export async function findFile(id) {
   if (usingPostgres) return pgFindFile(id)
   return files.find((f) => f.id === id && f.deletedAt == null) ?? null

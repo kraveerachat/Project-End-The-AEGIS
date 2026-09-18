@@ -207,6 +207,26 @@ export function createDerivativeService({
   }
   const pendingRetryMs = () => Math.min(15_000, 1000 + 1000 * Math.min(14, queue.stats().depth))
 
+  /* ── public: peek (อ่านอย่างเดียว — ไม่ enqueue; ใช้โดย warm-up/operator) ──────────────── */
+  async function peek(row) {
+    const gate = classify(row)
+    if (gate.kind === 'hidden') return { status: 'NOT_FOUND' }
+    if (gate.kind === 'unsupported') return { status: 'UNSUPPORTED', reason: gate.reason }
+    const sha = gate.sha
+    const [state, probe] = await Promise.all([loadState(sha), cache.readProbe(sha)])
+    if (probe && probe.unsupported) return { status: 'UNSUPPORTED', reason: probe.reason, poster: { state: 'UNSUPPORTED' }, motion: { state: 'UNSUPPORTED' } }
+    const poster = state.poster.state === MEDIA_STATE.READY && (await cache.statDerivative(sha, 'poster')) ? state.poster : { ...state.poster, state: state.poster.state === MEDIA_STATE.READY ? MEDIA_STATE.PENDING : state.poster.state }
+    let motion = state.motion
+    if (probe && !probe.unsupported && probe.animated !== true) motion = { ...motion, state: MEDIA_STATE.UNSUPPORTED, reason: probe.animated === false ? 'NOT_ANIMATED' : 'ANIMATION_UNKNOWN' }
+    else if (motion.state === MEDIA_STATE.READY && !(await cache.statDerivative(sha, 'motion'))) motion = { ...motion, state: MEDIA_STATE.PENDING }
+    let status
+    if (poster.state === MEDIA_STATE.UNSUPPORTED) status = 'UNSUPPORTED'
+    else if (poster.state === MEDIA_STATE.GENERATION_FAILED) status = 'GENERATION_FAILED'
+    else if (poster.state !== MEDIA_STATE.READY) status = poster.state === MEDIA_STATE.RETRYABLE ? 'RETRYABLE' : 'PENDING'
+    else status = motion.state === MEDIA_STATE.READY || motion.state === MEDIA_STATE.UNSUPPORTED || motion.state === MEDIA_STATE.GENERATION_FAILED ? 'READY' : 'PARTIAL'
+    return { id: String(row.id), sourceVersion: sha, status, reason: poster.reason ?? null, poster: { state: poster.state, reason: poster.reason ?? null }, motion: { state: motion.state, reason: motion.reason ?? null } }
+  }
+
   /* ── public: info / infoBatch ─────────────────────────────────────────── */
   async function info(row, priority = PRIORITY.INTERACTIVE) {
     const gate = classify(row)
@@ -324,7 +344,12 @@ export function createDerivativeService({
     }
   }
   function health() {
-    return { enabled: true, reason: null, ffmpeg: { ok: capabilities.ffmpeg.ok, version: capabilities.ffmpeg.version }, sharp: { ok: capabilities.sharp.ok, version: capabilities.sharp.version }, cacheWritable, cacheVolume: mountState }
+    // queue: ตัวนับล้วน (ไม่มี id/ชื่อ) — operator warm-up ใช้ interactive เพื่อ "หยุดพัก" เมื่อผู้ใช้กำลังใช้งาน
+    const q = queue.stats()
+    return {
+      enabled: true, reason: null, ffmpeg: { ok: capabilities.ffmpeg.ok, version: capabilities.ffmpeg.version }, sharp: { ok: capabilities.sharp.ok, version: capabilities.sharp.version },
+      cacheWritable, cacheVolume: mountState, queue: { depth: q.depth, running: q.running, interactive: (q.byPriority?.[0] ?? 0) + (q.byPriority?.[1] ?? 0) },
+    }
   }
   const isPinned = (sha) => TYPES.some((t) => queue.has(key(sha, t)))
   async function init() {
@@ -357,6 +382,6 @@ export function createDerivativeService({
   return Object.freeze({
     limits, profile, reason: null,
     init, start, stop, drain, isStarted: () => started,
-    info, infoBatch, ensure, serve, scheduleForFile, invalidate, adminStatus, health, isPinned,
+    info, infoBatch, peek, ensure, serve, scheduleForFile, invalidate, adminStatus, health, isPinned,
   })
 }

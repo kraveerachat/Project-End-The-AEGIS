@@ -364,3 +364,168 @@ test('DS-19 storage resolver contract: unresolvable/missing keys → UNSUPPORTED
   assert.equal(s.calls.motion[0].absPath, abs)
   for (const c of [...s.calls.probe, ...s.calls.poster, ...s.calls.motion]) assert.ok(!Object.values(c).some((v) => typeof v === 'string' && v.includes('clip.gif')), 'no row name reaches a generator')
 })
+
+/* ════════════════════════════════════════════════════════════════════════════
+   WU · controlled warm-up (Task 14 / Tranche C1) — operator CLI, P2 only, throttled, never automatic
+   ═══════════════════════════════════════════════════════════════════════════ */
+import { runWarmup, parseWarmupArgs, WARMUP_USAGE } from '../server/media/warmup.js'
+
+/** fixture set: 250 rows — 200 eligible normal media files + vault / folder / no-sha / .txt / trashed rows */
+function warmupRows() {
+  const rows = []
+  for (let i = 0; i < 200; i += 1) rows.push({ id: String(100 + i), name: i % 2 ? `clip-${i}.gif` : `pic-${i}.png`, kind: 'file', vault: false, sha256: String(i).padStart(64, 'f'), path: `uploads/${i}.bin`, size: 10, ownerId: '2', deletedAt: null })
+  for (let i = 0; i < 10; i += 1) rows.push({ id: `v${i}`, name: `secret-${i}.gif`, kind: 'file', vault: true, sha256: 'e'.repeat(64), path: `vault/${i}.aegisenc`, size: 10, ownerId: '2', deletedAt: null })
+  for (let i = 0; i < 10; i += 1) rows.push({ id: `d${i}`, name: `folder-${i}`, kind: 'folder', vault: false, sha256: null, path: null, size: 0, ownerId: '2', deletedAt: null })
+  for (let i = 0; i < 10; i += 1) rows.push({ id: `n${i}`, name: `nosha-${i}.png`, kind: 'file', vault: false, sha256: null, path: `uploads/n${i}.bin`, size: 10, ownerId: '2', deletedAt: null })
+  for (let i = 0; i < 10; i += 1) rows.push({ id: `t${i}`, name: `notes-${i}.txt`, kind: 'file', vault: false, sha256: 'd'.repeat(64), path: `uploads/t${i}.bin`, size: 10, ownerId: '2', deletedAt: null })
+  for (let i = 0; i < 10; i += 1) rows.push({ id: `x${i}`, name: `gone-${i}.png`, kind: 'file', vault: false, sha256: 'c'.repeat(64), path: `uploads/x${i}.bin`, size: 10, ownerId: '2', deletedAt: 1 })
+  return rows
+}
+/** store ปลอมที่ทำตัวเหมือน iterateMediaCandidates ของโหมด memory (กรอง vault/folder/sha/deleted) */
+function fakeStore(rows) {
+  const calls = []
+  return {
+    calls,
+    async * iterateMediaCandidates({ pageSize = 200, newestFirst = false } = {}) {
+      calls.push({ pageSize, newestFirst })
+      const eligible = rows.filter((r) => !r.vault && r.kind === 'file' && r.deletedAt == null && typeof r.sha256 === 'string')
+      if (newestFirst) eligible.reverse()
+      for (let i = 0; i < eligible.length; i += pageSize) for (const r of eligible.slice(i, i + pageSize)) yield r
+    },
+  }
+}
+/** service ปลอม: peek ตอบสถานะจาก map; ensure บันทึก (row, type, priority) */
+function fakeWarmService({ ready = new Set(), unsupportedExt = new Set(['txt']), failedIds = new Set() } = {}) {
+  const ensures = []
+  return {
+    ensures, reason: null,
+    async peek(row) {
+      const ext = String(row.name).split('.').pop()
+      if (unsupportedExt.has(ext)) return { status: 'UNSUPPORTED', reason: 'UNSUPPORTED_TYPE' }
+      if (failedIds.has(String(row.id))) return { status: 'GENERATION_FAILED', reason: 'DECODE_FAILED', poster: { state: 'GENERATION_FAILED' }, motion: { state: 'GENERATION_FAILED' } }
+      if (ready.has(String(row.id))) return { status: 'READY', poster: { state: 'READY' }, motion: { state: ext === 'gif' ? 'READY' : 'UNSUPPORTED' } }
+      return { status: 'PENDING', poster: { state: 'PENDING' }, motion: { state: 'PENDING' } }
+    },
+    async ensure(row, type, priority) { ensures.push({ id: String(row.id), type, priority }); return true },
+  }
+}
+function fakeWarmClock() {
+  let now = 0
+  const sleeps = []
+  return { now: () => now, sleep: async (ms) => { sleeps.push(ms); now += ms }, sleeps, advance: (ms) => { now += ms } }
+}
+
+test('WU-1 enumerates only vault=false, kind=file, sha present, not trashed rows; unsupported (.txt) filtered by the service; summary exact', async () => {
+  const store = fakeStore(warmupRows())
+  const service = fakeWarmService()
+  const clock = fakeWarmClock()
+  const logs = []
+  const summary = await runWarmup({ store, service, interactivePending: async () => 0, ratePerMinute: 6000, now: clock.now, sleep: clock.sleep, log: (l) => logs.push(l) })
+  assert.deepEqual(summary, { scanned: 210, skippedReady: 0, enqueued: 200, unsupported: 10, failed: 0, wouldEnqueue: 0, dryRun: false, limit: null })
+  assert.equal(service.ensures.length, 200)
+  assert.ok(service.ensures.every((e) => e.priority === PRIORITY.WARMUP), 'P2 only')
+  assert.ok(service.ensures.every((e) => !e.id.startsWith('v') && !e.id.startsWith('d') && !e.id.startsWith('n') && !e.id.startsWith('x')))
+  assert.deepEqual(store.calls, [{ pageSize: 200, newestFirst: false }])
+})
+
+test('WU-2 entries already READY are skipped without enqueueing; GENERATION_FAILED is counted as failed and not re-enqueued', async () => {
+  const rows = warmupRows()
+  const service = fakeWarmService({ ready: new Set(['100', '101', '102']), failedIds: new Set(['103']) })
+  const clock = fakeWarmClock()
+  const summary = await runWarmup({ store: fakeStore(rows), service, interactivePending: async () => 0, ratePerMinute: 6000, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(summary.skippedReady, 3); assert.equal(summary.failed, 1); assert.equal(summary.enqueued, 196)
+  assert.ok(!service.ensures.some((e) => ['100', '101', '102', '103'].includes(e.id)))
+})
+
+test('WU-3 token bucket: ratePerMinute 60 → at most one enqueue per second (fake clock)', async () => {
+  const service = fakeWarmService()
+  const clock = fakeWarmClock()
+  const summary = await runWarmup({ store: fakeStore(warmupRows().slice(0, 10)), service, interactivePending: async () => 0, ratePerMinute: 60, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(summary.enqueued, 10)
+  assert.ok(clock.now() >= 9_000, `10 enqueues at 1/s need ≥ 9 s of waiting, got ${clock.now()} ms`)
+  assert.ok(clock.sleeps.every((ms) => ms <= 1000))
+})
+
+test('WU-4 pauses while interactive (P0/P1) work is pending and resumes when it drains', async () => {
+  const service = fakeWarmService()
+  const clock = fakeWarmClock()
+  let pending = 3
+  const seen = []
+  const interactivePending = async () => { seen.push(pending); const v = pending; if (pending > 0) pending -= 1; return v }
+  const summary = await runWarmup({ store: fakeStore(warmupRows().slice(0, 3)), service, interactivePending, ratePerMinute: 6000, pausePollMs: 500, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(summary.enqueued, 3)
+  assert.ok(seen.slice(0, 3).every((v) => v > 0), 'checked and found interactive work three times')
+  assert.equal(clock.sleeps.filter((ms) => ms === 500).length, 3, 'slept the pause interval once per pending observation')
+})
+
+test('WU-5 --limit stops after N enqueues; --dry-run enqueues nothing and reports would-enqueue; --types poster only requests poster', async () => {
+  const clock = fakeWarmClock()
+  const s1 = fakeWarmService()
+  const a = await runWarmup({ store: fakeStore(warmupRows()), service: s1, interactivePending: async () => 0, ratePerMinute: 6000, limit: 10, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(a.enqueued, 10); assert.equal(s1.ensures.length, 10); assert.equal(a.limit, 10)
+  const s2 = fakeWarmService()
+  const b = await runWarmup({ store: fakeStore(warmupRows()), service: s2, interactivePending: async () => 0, ratePerMinute: 6000, dryRun: true, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(b.enqueued, 0); assert.equal(b.wouldEnqueue, 200); assert.equal(s2.ensures.length, 0); assert.equal(b.dryRun, true)
+  const s3 = fakeWarmService()
+  await runWarmup({ store: fakeStore(warmupRows().slice(0, 4)), service: s3, interactivePending: async () => 0, ratePerMinute: 6000, types: ['poster'], now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.ok(s3.ensures.every((e) => e.type === 'poster'))
+  // ทั้งสองชนิดบนไฟล์เย็น = ขอ poster อย่างเดียว (service ต่อ motion ให้เอง); poster พร้อมแต่ motion ยังไม่จบ = ขอ motion
+  const s4 = fakeWarmService()
+  await runWarmup({ store: fakeStore(warmupRows().slice(0, 4)), service: s4, interactivePending: async () => 0, ratePerMinute: 6000, types: ['poster', 'motion'], now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.deepEqual(s4.ensures.map((e) => e.type), ['poster', 'poster', 'poster', 'poster'])
+  const s5 = fakeWarmService()
+  s5.peek = async () => ({ status: 'PARTIAL', poster: { state: 'READY' }, motion: { state: 'PENDING' } })
+  await runWarmup({ store: fakeStore(warmupRows().slice(0, 2)), service: s5, interactivePending: async () => 0, ratePerMinute: 6000, types: ['poster', 'motion'], now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.deepEqual(s5.ensures.map((e) => e.type), ['motion', 'motion'])
+  const s6 = fakeWarmService(); s6.peek = s5.peek
+  const c = await runWarmup({ store: fakeStore(warmupRows().slice(0, 2)), service: s6, interactivePending: async () => 0, ratePerMinute: 6000, types: ['poster'], now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.equal(s6.ensures.length, 0); assert.equal(c.skippedReady, 2, 'poster-only: a READY poster is done regardless of motion')
+})
+
+test('WU-6 --newest-first is passed to the store; a service without tools (reason set) is refused before touching the store', async () => {
+  const store = fakeStore(warmupRows().slice(0, 5))
+  const clock = fakeWarmClock()
+  await runWarmup({ store, service: fakeWarmService(), interactivePending: async () => 0, ratePerMinute: 6000, newestFirst: true, now: clock.now, sleep: clock.sleep, log: () => {} })
+  assert.deepEqual(store.calls, [{ pageSize: 200, newestFirst: true }])
+  const disabled = { ...fakeWarmService(), reason: 'TOOLS_MISSING' }
+  const store2 = fakeStore(warmupRows())
+  await assert.rejects(runWarmup({ store: store2, service: disabled, interactivePending: async () => 0, now: clock.now, sleep: clock.sleep, log: () => {} }), (err) => err.code === 'TOOLS_MISSING' && err.exitCode === 2)
+  assert.equal(store2.calls.length, 0)
+})
+
+test('WU-7 CLI arg parsing: defaults, valid flags, invalid --rate/--limit/--types → usage error (exit 1)', () => {
+  assert.deepEqual(parseWarmupArgs([]), { limit: null, ratePerMinute: 30, newestFirst: false, dryRun: false, types: ['poster', 'motion'], help: false })
+  assert.deepEqual(parseWarmupArgs(['--limit', '50', '--rate', '10', '--newest-first', '--dry-run', '--types', 'poster']), { limit: 50, ratePerMinute: 10, newestFirst: true, dryRun: true, types: ['poster'], help: false })
+  for (const bad of [['--rate', '0'], ['--rate', 'x'], ['--limit', '-1'], ['--types', 'video'], ['--bogus']]) {
+    assert.throws(() => parseWarmupArgs(bad), (err) => err.exitCode === 1 && /usage/i.test(err.message), bad.join(' '))
+  }
+  assert.match(WARMUP_USAGE, /--dry-run/); assert.match(WARMUP_USAGE, /--limit/)
+})
+
+test('WU-8 no filenames in any log line; progress lines carry only ids / sha prefixes / counts', async () => {
+  const rows = warmupRows()
+  const logs = []
+  const clock = fakeWarmClock()
+  await runWarmup({ store: fakeStore(rows), service: fakeWarmService({ failedIds: new Set(['110']) }), interactivePending: async () => 0, ratePerMinute: 6000, limit: 30, now: clock.now, sleep: clock.sleep, log: (l) => logs.push(l) })
+  assert.ok(logs.length >= 1)
+  const names = rows.map((r) => r.name).filter(Boolean)
+  for (const line of logs) for (const n of names) assert.ok(!line.includes(n), `log leaks a filename: ${line}`)
+  assert.ok(logs.some((l) => /enqueued/.test(l)))
+})
+
+test('WU-9 service.peek is read-only: reports state without enqueueing; iterateMediaCandidates SQL filters vault/kind/deleted/sha (static)', async () => {
+  const s = await makeService()
+  const cold = await s.service.peek(row())
+  assert.equal(cold.status, 'PENDING'); assert.equal(s.queue.size(), 0, 'peek never enqueues'); assert.equal(s.calls.probe.length, 0)
+  assert.equal((await s.service.peek(row({ vault: true }))).status, 'NOT_FOUND')
+  assert.equal((await s.service.peek(row({ name: 'notes.txt' }))).status, 'UNSUPPORTED')
+  await s.service.info(row()); await s.settle()
+  const warm = await s.service.peek(row())
+  assert.equal(warm.status, 'READY'); assert.equal(warm.poster.state, 'READY'); assert.equal(warm.motion.state, 'READY')
+  const h = s.service.health()
+  assert.deepEqual(h.queue, { depth: 0, running: 0, interactive: 0 })
+  const src = await fs.readFile(new URL('../server/db/store.js', import.meta.url), 'utf8')
+  const fn = src.slice(src.indexOf('export async function * iterateMediaCandidates'), src.indexOf('export async function findFile'))
+  assert.match(fn, /f\.vault = false AND f\.kind = 'file' AND f\.deleted_at IS NULL AND f\.sha256 IS NOT NULL/)
+  assert.match(fn, /`SELECT /); assert.doesNotMatch(fn, /INSERT|UPDATE|DELETE|ALTER|CREATE|TRUNCATE/)
+})

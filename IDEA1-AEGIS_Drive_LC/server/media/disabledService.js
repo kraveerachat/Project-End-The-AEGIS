@@ -24,6 +24,7 @@ export function disabledMediaService(limits, reason = 'MEDIA_SERVICE_NOT_INJECTE
     async ensure() { return false },
     async serve() { return { kind: 'disabled' } },
     async scheduleForFile() { return false },
+    async peek(row) { return infoOf(row) },
     async invalidate() { return false },
     isPinned() { return false },
     health,
