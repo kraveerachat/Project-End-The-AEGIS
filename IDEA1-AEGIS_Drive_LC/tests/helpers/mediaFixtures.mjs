@@ -3,11 +3,15 @@
 // ⚠️ ไม่มีไบนารีขนาดใหญ่ใน Git: ทุกไฟล์ถูกสร้างใน tmp ตอนรันด้วย ffmpeg ของเครื่อง (supplemental) หรือ
 //    ประกอบเป็นไบต์ด้วยมือ (crafted) — fixture ที่สร้างไม่ได้เพราะไม่มีเครื่องมือ/encoder จะคืน
 //    { skipped: reason } ให้ชุดทดสอบ skip อย่างซื่อสัตย์ ไม่ใช่แกล้งผ่าน
-// ⚠️ ไม่มี sharp ใน package.json ของสาขานี้ (Task 15 เป็นผู้เพิ่ม) — helper นี้ไม่ import sharp
+// ⚠️ helper นี้ไม่ import sharp (และไม่มี devDependency ใด ๆ) — ต้องรันได้ใน runtime image ที่ไม่มี devDependencies
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import zlib from 'node:zlib'
+import { createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
+import { Readable, Writable } from 'node:stream'
 
 const exec = (bin, args, timeoutMs = 60_000) => new Promise((resolve) => {
   execFile(bin, args, { shell: false, windowsHide: true, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -144,4 +148,108 @@ export function craftedGifHeader(width = 8, height = 8) {
   const b = Buffer.alloc(13)
   b.write('GIF89a', 0, 'latin1'); b.writeUInt16LE(width, 6); b.writeUInt16LE(height, 8); b[10] = 0; b[11] = 0; b[12] = 0
   return b
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   byte-class fixtures (plan Task 16) — สร้างตอนรันเท่านั้น ขนาดพิสูจน์ด้วย stat; ถึงแถบไม่ได้ใน 6 รอบ = throw (→ NOT_PROVEN)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export const MiB = 1024 * 1024
+export const BYTE_CLASSES = Object.freeze({
+  still200: { lo: 180 * MiB, hi: 240 * MiB }, still300: { lo: 280 * MiB, hi: 340 * MiB },
+  gif518k: { lo: 400 * 1024, hi: 640 * 1024 }, gif49m: { lo: 45 * MiB, hi: 55 * MiB },
+  anim200: { lo: 180 * MiB, hi: 240 * MiB }, anim300: { lo: 280 * MiB, hi: 340 * MiB },
+  video196: { lo: 176 * MiB, hi: 216 * MiB },
+})
+
+/** PNG 16-bit noise (deterministic xorshift) เขียนแบบ stream — ขนาด ≈ w×h×channels×2 (noise บีบอัดไม่ได้) */
+export async function makeNoisePng({ out, width, height, channels = 3, seed = 0x9e3779b9 }) {
+  const colorType = channels === 4 ? 6 : 2
+  const rowBytes = 1 + width * channels * 2
+  let x = seed >>> 0 || 1
+  const next = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x }
+  const rows = (async function * () {
+    const row = Buffer.alloc(rowBytes)
+    for (let y = 0; y < height; y += 1) {
+      row[0] = 0
+      for (let i = 1; i < rowBytes; i += 4) { const v = next(); row[i] = v & 0xff; row[i + 1] = (v >>> 8) & 0xff; row[i + 2] = (v >>> 16) & 0xff; row[i + 3] = (v >>> 24) & 0xff }
+      yield Buffer.from(row)
+    }
+  })()
+  const ws = createWriteStream(out)
+  const write = (b) => new Promise((resolve, reject) => ws.write(b, (e) => (e ? reject(e) : resolve())))
+  await write(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  await write(pngChunk('IHDR', (() => { const b = Buffer.alloc(13); b.writeUInt32BE(width, 0); b.writeUInt32BE(height, 4); b[8] = 16; b[9] = colorType; return b })()))
+  // IDAT หลายชิ้น (ชิ้นละ ≤ 8 MiB) จาก deflate level 1
+  const deflate = zlib.createDeflate({ level: 1, chunkSize: 1 << 20 })
+  let pending = []
+  let pendingBytes = 0
+  const flushIdat = async () => { if (pendingBytes === 0) return; await write(pngChunk('IDAT', Buffer.concat(pending))); pending = []; pendingBytes = 0 }
+  const sink = new Writable({ write(chunk, _enc, cb) { pending.push(chunk); pendingBytes += chunk.length; if (pendingBytes >= 8 * MiB) flushIdat().then(() => cb(), cb); else cb() } })
+  await pipeline(Readable.from(rows), deflate, sink)
+  await flushIdat()
+  await write(pngChunk('IEND'))
+  await new Promise((resolve, reject) => ws.end((e) => (e ? reject(e) : resolve())))
+  const bytes = (await fs.stat(out)).size
+  return { path: out, bytes, width, height, pixels: width * height, format: channels === 4 ? 'png-rgba16' : 'png-rgb16' }
+}
+
+/** ค้นหา -t ให้ขนาดไฟล์อยู่ในแถบ [lo, hi] ภายใน ≤ 6 รอบ (สัดส่วนเชิงเส้น) — ไม่ถึง = throw */
+async function growToBand({ gen, lo, hi, guessSeconds, maxIters = 6 }) {
+  let t = guessSeconds
+  const tried = []
+  for (let i = 0; i < maxIters; i += 1) {
+    const r = await gen(t)
+    tried.push({ t, bytes: r.bytes })
+    if (r.bytes >= lo && r.bytes <= hi) return { ...r, seconds: t, iterations: i + 1 }
+    const target = (lo + hi) / 2
+    t = Math.max(0.5, t * (target / Math.max(1, r.bytes)))
+    t = Math.round(t * 10) / 10
+  }
+  throw new Error(`byte class not reached in ${maxIters} iterations: ${JSON.stringify(tried)}`)
+}
+
+const noiseSrc = (size, rate, { lowFirstWindow = false } = {}) => [
+  '-f', 'lavfi', '-i', `nullsrc=size=${size}:rate=${rate},format=rgb24,noise=alls=100:allf=t+u${lowFirstWindow ? ":enable='gte(t,6.5)'" : ''}`,
+]
+
+/**
+ * fixture แบบ byte-class (ต้องมี ffmpeg ที่ระบุ — ใน gate คือตัวใน image); คืน { path, bytes, width, height, pixels, format, frames?, seconds? } หรือ throw
+ * @param {{ dir: string, ffmpegBin?: string, klass: string, variant?: 'hi'|'lo', codec?: 'gif'|'apng' }} o
+ */
+export async function makeByteClassFixture({ dir, ffmpegBin = 'ffmpeg', klass, variant = 'hi', codec = 'gif' }) {
+  const band = BYTE_CLASSES[klass]
+  if (!band) throw new Error(`unknown byte class ${klass}`)
+  const run = async (name, args, timeoutMs = 900_000) => {
+    const file = path.join(dir, name)
+    const r = await exec(ffmpegBin, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y', ...args, file], timeoutMs)
+    if (!r.ok) throw new Error(`ffmpeg failed for ${name}: ${r.stderr.trim().split('\n').pop() ?? ''}`)
+    return stat(file)
+  }
+  switch (klass) {
+    case 'still200': return makeNoisePng({ out: path.join(dir, 'still-200mb.png'), width: 7000, height: 5000, channels: 3 })
+    case 'still300': return makeNoisePng({ out: path.join(dir, 'still-300mb.png'), width: 8000, height: 5000, channels: 4 })
+    case 'gif518k': {
+      const r = await growToBand({ lo: band.lo, hi: band.hi, guessSeconds: 2, gen: (t) => run('gif-518k.gif', [...noiseSrc('160x120', 10), '-t', String(t), '-f', 'gif']) })
+      return { ...r, width: 160, height: 120, pixels: 160 * 120, format: 'gif', frames: Math.round(r.seconds * 10) }
+    }
+    case 'gif49m': {
+      const r = await growToBand({ lo: band.lo, hi: band.hi, guessSeconds: 40, gen: (t) => run('gif-49mb.gif', [...noiseSrc('320x240', 10), '-t', String(t), '-f', 'gif']) })
+      return { ...r, width: 320, height: 240, pixels: 320 * 240, format: 'gif', frames: Math.round(r.seconds * 10) }
+    }
+    case 'anim200':
+    case 'anim300': {
+      const size = '640x480'
+      const guess = klass === 'anim200' ? (codec === 'gif' ? 70 : 24) : (codec === 'gif' ? 105 : 36)
+      const name = `anim-${klass}-${codec}-${variant}.${codec === 'gif' ? 'gif' : 'png'}`
+      const enc = codec === 'gif' ? ['-f', 'gif'] : ['-c:v', 'apng', '-plays', '0', '-f', 'apng']
+      const r = await growToBand({ lo: band.lo, hi: band.hi, guessSeconds: guess, gen: (t) => run(name, [...noiseSrc(size, 10, { lowFirstWindow: variant === 'lo' }), '-t', String(t), ...enc]) })
+      return { ...r, width: 640, height: 480, pixels: 640 * 480, format: codec, frames: Math.round(r.seconds * 10), variant }
+    }
+    case 'video196': {
+      const r = await growToBand({ lo: band.lo, hi: band.hi, guessSeconds: 66, gen: (t) => run('video-196mb.mp4', [...noiseSrc('1280x720', 24), '-t', String(t), '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-b:v', '24M', '-maxrate', '24M', '-bufsize', '48M', '-movflags', '+faststart']) })
+      return { ...r, width: 1280, height: 720, pixels: 1280 * 720, format: 'mp4/h264' }
+    }
+    default: throw new Error(`unhandled class ${klass}`)
+  }
 }
