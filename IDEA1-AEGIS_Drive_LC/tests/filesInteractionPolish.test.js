@@ -547,3 +547,136 @@ test('R9-SORT-12 · every sort label exists in en/th/zh and the grid exposes all
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['uploaded-desc']], /Upload/i)
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['size-asc']], /Small/i)
 })
+/* ══ Round 9 · review correction 1 ═════════════════════════════════════════ */
+
+/**
+ * เมาท์จอ Files จริงบน jsdom โดยแทน fetch ด้วยชุดข้อมูลที่ "ผู้ทดสอบเป็นเจ้าของ" —
+ * GET /api/files คืน dataset ปัจจุบัน, POST /api/files/folder คืน 201 แล้วจอ refetch เอง
+ * (เส้นทางเดียวกับผู้ใช้จริงที่สร้างโฟลเดอร์ขณะที่ client อื่นลบไฟล์ไปแล้ว)
+ */
+async function mountFilesScreen(m, initial) {
+  const state = { dataset: initial, gets: 0 }
+  const json = (status, body) => ({ ok: status < 400, status, json: async () => body, headers: new Map() })
+  const W = m.W
+  W.fetch = async (url, init = {}) => {
+    const u = String(url)
+    if (u.includes('/api/files/folder') && init.method === 'POST') {
+      return json(201, { file: folderItem({ id: 'new-folder', name: JSON.parse(init.body).name }) })
+    }
+    if (/\/api\/files(\?|$)/.test(u) && (!init.method || init.method === 'GET')) {
+      state.gets += 1
+      return json(200, { files: state.dataset, ancestors: [] })
+    }
+    return json(404, { error: 'unexpected ' + u })
+  }
+  globalThis.fetch = W.fetch
+  await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+  // useApi ทำงานแบบ async — รอให้ข้อมูลรอบแรกลง
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+  const checkbox = (id) => document.querySelector(`[data-file-id="${id}"] [role="checkbox"]`)
+  const bar = () => document.querySelector('.fixed.bottom-6')
+  const selectedCount = () => [...document.querySelectorAll('[data-file-kind] [role="checkbox"][aria-checked="true"]')].length
+  /** สร้างโฟลเดอร์ผ่าน UI จริง → จอ refetch ด้วย dataset ที่ผู้ทดสอบเปลี่ยนไว้ */
+  const refetchViaNewFolder = async (nextDataset) => {
+    state.dataset = nextDataset
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t('newFolder'))
+    await m.mouse(btn, 'click')
+    const input = document.getElementById('nf-name')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value').set
+      setter.call(input, 'created-by-test')
+      input.dispatchEvent(new W.Event('input', { bubbles: true }))
+    })
+    const create = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === t('newFolder'))
+    await m.mouse(create, 'click')
+    await act(async () => { await new Promise((r) => setTimeout(r, 40)) })
+  }
+  return { state, checkbox, bar, selectedCount, refetchViaNewFolder }
+}
+
+test('R9-SR1 · selected IDs that vanish from the next loaded dataset are pruned; the action bar follows', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'A', name: 'a.jpg' })
+    const B = fileItem({ id: 'B', name: 'b.pdf' })
+    const s = await mountFilesScreen(m, [A, B])
+    assert.ok(s.checkbox('A') && s.checkbox('B'), 'ทั้งสองไฟล์ต้องถูกวาด')
+    await m.mouse(s.checkbox('A'), 'click')
+    await m.mouse(s.checkbox('B'), 'click')
+    assert.equal(s.selectedCount(), 2)
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`), 'แถบคำสั่งต้องบอก 2 selected')
+
+    // client อื่นลบ A ไปแล้ว → refetch ครั้งถัดไปคืนแค่ B → A ต้องหลุดจากการเลือก ไม่ค้างเป็นผี
+    await s.refetchViaNewFolder([B, folderItem({ id: 'new-folder', name: 'created-by-test' })])
+    assert.equal(s.checkbox('A'), null, 'A หายจาก dataset แล้ว')
+    assert.equal(s.selectedCount(), 1)
+    assert.equal(s.checkbox('B').getAttribute('aria-checked'), 'true', 'B ที่ยังอยู่ต้องยังถูกเลือก')
+    assert.ok(s.bar()?.textContent.includes(`1 ${t('selected')}`), 'แถบต้องนับใหม่เป็น 1 — ไม่มี id ผี')
+
+    // dataset ว่าง → การเลือกว่าง → แถบหาย
+    await s.refetchViaNewFolder([])
+    assert.equal(s.selectedCount(), 0)
+    assert.equal(s.bar(), null, 'ไม่มีอะไรให้เลือก = ไม่มีแถบคำสั่ง')
+  } finally { await m.unmount() }
+})
+
+test('R9-SR1b · hiding a selected file with search or changing sort does not treat it as deleted', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'A', name: 'apple.jpg' })
+    const B = fileItem({ id: 'B', name: 'banana.pdf' })
+    const s = await mountFilesScreen(m, [A, B])
+    await m.mouse(s.checkbox('A'), 'click')
+    await m.mouse(s.checkbox('B'), 'click')
+    assert.equal(s.selectedCount(), 2)
+
+    // ค้นหา "banana" → A ถูกซ่อน แต่ยังอยู่ใน files → การเลือกต้องไม่ถูกตัด
+    const search = document.querySelector(`input[placeholder="${t('searchFilesPlaceholder')}"]`)
+    assert.ok(search)
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(m.W.HTMLInputElement.prototype, 'value').set
+      setter.call(search, 'banana')
+      search.dispatchEvent(new m.W.Event('input', { bubbles: true }))
+    })
+    assert.equal(s.checkbox('A'), null, 'A ถูกซ่อนโดยตัวกรอง')
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`), 'ซ่อนด้วยตัวกรอง ≠ ถูกลบ — ยังเลือก 2')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(m.W.HTMLInputElement.prototype, 'value').set
+      setter.call(search, '')
+      search.dispatchEvent(new m.W.Event('input', { bubbles: true }))
+    })
+    assert.equal(s.selectedCount(), 2, 'ล้างตัวกรองแล้วทั้งคู่ยังถูกเลือกอยู่')
+
+    // เปลี่ยนโหมดเรียง → การเลือกไม่เปลี่ยน
+    const sortSelect = document.querySelector(`select[aria-label="${t('sortBy')}"]`)
+    assert.ok(sortSelect)
+    await act(async () => {
+      sortSelect.value = 'name-desc'
+      sortSelect.dispatchEvent(new m.W.Event('change', { bubbles: true }))
+    })
+    assert.equal(s.selectedCount(), 2)
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`))
+  } finally { await m.unmount() }
+})
+
+test('R9-SR2 · section headings are not empty canvas: no marquee from "Folders"/"Files"; blank gaps beside them still work', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m, { initial: ['d1'] })
+    for (const section of ['folders', 'files']) {
+      const heading = document.querySelector(`[data-files-section="${section}"] h2`)
+      assert.ok(heading, `heading ${section}`)
+      await m.pointer(heading, 'pointerdown', { clientX: 5, clientY: 5 })
+      await m.pointer(window, 'pointermove', { clientX: 900, clientY: 700 })
+      assert.equal(s.rect(), null, `${section}: ลากจากหัวข้อต้องไม่เกิดกรอบ`)
+      await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
+      assert.deepEqual([...s.selected], ['d1'], `${section}: และต้องไม่แตะการเลือก`)
+    }
+    // พื้นที่ว่างข้าง ๆ หัวข้อ (ไม่ใช่ตัวหัวข้อ) ยังเริ่มได้ตามปกติ
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 480, clientY: 250 })
+    assert.ok(s.rect())
+    await m.pointer(window, 'pointerup', { clientX: 480, clientY: 250 })
+    assert.deepEqual([...s.selected], ['f3'])
+  } finally { await m.unmount() }
+})

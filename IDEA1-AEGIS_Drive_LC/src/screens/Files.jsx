@@ -628,8 +628,9 @@ function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelec
 }
 
 function SectionHeading({ children }) {
+  // หัวข้อส่วนไม่ใช่พื้นที่ว่างของกริด — ลากจากป้าย "Folders"/"Files" ต้องไม่เริ่มกรอบเลือก
   return (
-    <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
+    <h2 data-marquee-ignore="" className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
   )
 }
 
@@ -908,6 +909,20 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const filesApi = useApi(folderId == null ? '/api/files' : `/api/files?parentId=${encodeURIComponent(folderId)}`)
   const files = placeholderMode ? [] : (filesApi.data?.files ?? [])
   const ancestors = placeholderMode ? [] : (filesApi.data?.ancestors ?? [])
+  // ⚠️ การเลือกต้องอ้างถึงของที่ "มีอยู่จริงในชุดข้อมูลที่โหลดล่าสุด" เท่านั้น: ไฟล์ที่ client
+  //    อื่นลบไปแล้วหายจาก refetch ครั้งถัดไป แต่ id ของมันเคยค้างอยู่ใน selectedIds → แถบ
+  //    คำสั่งนับผี และ Move/Delete แบบกลุ่มยิงไปที่ของที่ไม่มีแล้ว ตัดออกเมื่อชุดข้อมูลจริง
+  //    เปลี่ยน (ผูกกับ payload ที่โหลด ไม่ใช่ผลกรอง/เรียง — ซ่อนด้วยการค้นหา ≠ ถูกลบ)
+  const loadedFiles = placeholderMode ? null : filesApi.data?.files
+  useEffect(() => {
+    if (!loadedFiles) return
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      const present = new Set(loadedFiles.map((f) => f.id))
+      const next = new Set([...prev].filter((id) => present.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [loadedFiles])
   const fetchError = visibleFetchError(filesApi.error, placeholderMode)
 
   const [sort, setSort] = useState(DEFAULT_SORT)
