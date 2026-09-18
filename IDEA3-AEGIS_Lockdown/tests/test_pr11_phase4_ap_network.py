@@ -594,3 +594,130 @@ def test_rendered_sysctl_keeps_ap_forwarding_disabled(tmp_path):
     assert "wlan-test0" in text
     assert "= 1" not in text
     assert "=1" not in text
+
+
+def _pf01_errors(text: str, interface: str) -> list[str]:
+    lines = [line.strip().lower() for line in text.splitlines()]
+    interface = interface.lower()
+
+    try:
+        start = lines.index("chain input {") + 1
+    except ValueError:
+        return ["input chain missing"]
+
+    input_lines = []
+    for line in lines[start:]:
+        if line == "}":
+            break
+        input_lines.append(line)
+
+    explicit_1883 = [
+        (index, line)
+        for index, line in enumerate(input_lines)
+        if f'iifname "{interface}"' in line
+        and "tcp dport 1883" in line
+    ]
+
+    errors = []
+
+    if len(explicit_1883) != 1:
+        errors.append("exactly one explicit AP TCP/1883 rule required")
+    else:
+        explicit_index, explicit_line = explicit_1883[0]
+
+        if " accept" in f" {explicit_line}":
+            errors.append("AP TCP/1883 must never be accepted")
+
+        if not explicit_line.endswith("drop"):
+            errors.append("AP TCP/1883 must explicitly drop")
+
+        catch_all = [
+            index
+            for index, line in enumerate(input_lines)
+            if line == f'iifname "{interface}" drop'
+        ]
+
+        if not catch_all:
+            errors.append("AP catch-all drop missing")
+        elif explicit_index >= catch_all[0]:
+            errors.append("AP TCP/1883 drop must precede AP catch-all drop")
+
+    forbidden = (
+        "masquerade",
+        "table ip nat",
+        "table inet nat",
+        "type nat hook",
+        " snat",
+        " dnat",
+    )
+
+    lowered = text.lower()
+    for token in forbidden:
+        if token in lowered:
+            errors.append(f"forbidden firewall token: {token.strip()}")
+
+    return errors
+
+
+def test_pf01_rendered_ruleset_enforces_plaintext_mqtt_negative_control(tmp_path):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (output_dir / "aegis-idea3-nftables.conf").read_text()
+
+    assert _pf01_errors(text, "wlan-test0") == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        (
+            "remove-1883",
+            "exactly one explicit AP TCP/1883 rule required",
+        ),
+        (
+            "accept-1883",
+            "AP TCP/1883 must never be accepted",
+        ),
+        (
+            "late-1883",
+            "AP TCP/1883 drop must precede AP catch-all drop",
+        ),
+        (
+            "add-nat",
+            "forbidden firewall token: masquerade",
+        ),
+    ],
+)
+def test_pf01_proof_detects_broken_firewall_variants(
+    tmp_path,
+    mutation,
+    expected_error,
+):
+    result, output_dir = render(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    text = (output_dir / "aegis-idea3-nftables.conf").read_text()
+
+    explicit = 'iifname "wlan-test0" tcp dport 1883 drop'
+    catch_all = 'iifname "wlan-test0" drop'
+
+    if mutation == "remove-1883":
+        text = text.replace(explicit, "")
+    elif mutation == "accept-1883":
+        text = text.replace(explicit, explicit.replace("drop", "accept"))
+    elif mutation == "late-1883":
+        text = text.replace(
+            explicit + "\n        " + catch_all,
+            catch_all + "\n        " + explicit,
+        )
+    elif mutation == "add-nat":
+        text += "\nmasquerade\n"
+    else:
+        raise AssertionError(f"unknown mutation: {mutation}")
+
+    errors = _pf01_errors(text, "wlan-test0")
+
+    assert expected_error in errors
