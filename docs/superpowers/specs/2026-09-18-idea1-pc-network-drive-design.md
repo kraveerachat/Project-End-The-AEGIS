@@ -30,11 +30,16 @@ authorization remain pending. No future acceptance contract below has passed.
 
 One authenticated AEGIS account should own two independent storage spaces:
 existing web-managed **My Files**, and a future per-user **On Your PC** network
-drive. Windows Explorer and the latter web location should eventually show the
-same logical contents. Private Vault remains a third, protected location.
+drive. My Files and On Your PC are **two separate storage namespaces**. Within
+On Your PC, the web location and Windows mapped drive are **two access paths to
+the same authoritative per-user filesystem tree**: SAME AUTHORITATIVE STORAGE,
+NOT TWO COPIES, NOT LOCAL SYNC. Private Vault remains a third, protected location.
 
-A mapped drive is remote NAS storage, not discovery of a client's local C:/D:
-disks, automatic local synchronization, or an ordinary My Files folder.
+“On Your PC” means AEGIS NAS storage accessible from the user's PC through a
+mapped network drive. It does not browse C:/D:, discover local PC disks, copy
+arbitrary local folders automatically, or represent an ordinary My Files folder.
+No duplicate Windows/web file set or Google-Drive-style bidirectional sync engine
+is needed: both access paths operate on the same authoritative storage.
 Sharing a filesystem does not synchronize PostgreSQL metadata or authorization.
 
 ## 3. User Experience
@@ -42,6 +47,8 @@ Sharing a filesystem does not synchronize PostgreSQL metadata or authorization.
 Users provision Network Drive access and map the generated private SMB path
 through Windows Explorer. They choose a free local drive letter such as E: or Z:.
 The server never stores or relies on a universal drive letter.
+PC A may choose E: and PC B Z: for their mappings; these are client-local choices,
+never server-side identity.
 
 The eventual Windows contract includes create, copy, rename, move, delete,
 open and direct application save. The web contract includes truthful browsing
@@ -81,26 +88,44 @@ AEGIS account (stable server-side user ID)
 └── Private Vault existing protected encrypted namespace
 ```
 
+The On Your PC web provider and the user's Windows SMB mapping address the
+**same authoritative per-user tree**, not separately synchronized copies.
+My Files remains a separate namespace with its existing metadata contract.
+
 Use a location identifier independently of folder identity. PC paths must never
 be interpreted as My Files IDs or storage keys. No automatic import, move,
 cross-location sharing or migration is implied. An explicit future copy/import
 would need its own authorization, ownership, integrity and failure semantics.
+No drag/move may silently cross a storage boundary. Future explicit “Copy to
+On Your PC” / “Import to My Files” actions require a separately reviewed new
+object/storage-ownership lifecycle.
+
+```text
+MY_FILES_TO_PC_MOVE=OUT_OF_SCOPE
+PC_TO_MY_FILES_MOVE=OUT_OF_SCOPE
+VAULT_TO_PC=FORBIDDEN
+```
 
 ## 6. Per-User Isolation
 
 **PROPOSED, not deployed:** a dedicated PC storage allocation, separate from the
-existing Drive/Vault volume; one root per immutable AEGIS user ID, one mapped
-SMB principal and OS ownership identity per user. Usernames are labels, not keys.
+existing Drive/Vault volume; an isolated root mapped to each immutable AEGIS user
+ID. A per-user SMB principal and OS ownership identity are candidate mechanisms,
+not a decision to create one Linux user per AEGIS account. Usernames are labels,
+not keys.
 Allocation records must prevent ID/root/principal reuse after deletion.
 
-Exact Linux paths, UID/GID ranges, host/container placement and mount topology
-are **OPEN DESIGN QUESTION** pending owner-reviewed deployment evidence. No
+Exact Linux paths, Linux-account model, UID/GID strategy, host/container placement
+and mount topology are **OPEN DESIGN QUESTION** until post-PR150 implementation
+planning and owner-reviewed deployment evidence. No
 existing `/opt/...` or `/datalake/...` location is claimed as a PC root.
 
 Proposed root permissions are owner-only directories (0700) and private files
 (0600), subject to Samba ACL/Windows application compatibility proof. Parent
 directories cannot be enumerated by users. Do not use one forced Unix identity
-for all SMB users or grant a broad shared group cross-user read/write access.
+for all SMB users without an independently qualified per-user OS isolation
+boundary; broad shared-group cross-user read/write access is forbidden. The
+hard requirement is per-user isolation, not a preselected account mechanism.
 
 SMB share authorization and OS permissions independently restrict each principal
 to its own root. Share discovery, guessed share paths and filename errors must
@@ -115,7 +140,8 @@ race-resistant root-relative filesystem operations, not just string-prefix check
 Owner-only OS permissions do not automatically make the current `node` process
 able to browse every user's root. A future narrowly scoped broker/impersonation
 mechanism must demonstrate per-request isolation without running the whole Drive
-application as root. Its privileged trust boundary is an implementation blocker
+application as root. The exact broker/impersonation design remains OPEN DESIGN
+QUESTION, not an approved implementation. Its privileged trust boundary is a blocker
 until reviewed; a broad mount plus UI filtering is not an acceptable substitute.
 
 Admin may govern provisioning/status but has no implicit data-browsing override.
@@ -155,6 +181,16 @@ pretending that an application metadata transaction happened. Any future cache
 is derived and rebuildable, with an explicit freshness marker; it is never a
 second authoritative files database. Listing is not an atomic filesystem snapshot.
 
+Initial visibility is completed Windows/SMB mutation → web refresh/re-fetch →
+read current filesystem state. No background watcher or zero-latency realtime
+synchronization is required for initial acceptance.
+
+```text
+INITIAL_VISIBILITY_MODEL=REFRESH_BASED
+BACKGROUND_SYNC_ENGINE=NOT_REQUIRED
+REALTIME_WATCHER=FUTURE_OPTIONAL
+```
+
 PC ownership comes from the root/principal mapping, not guessed file attributes.
 Web features requiring existing DB IDs must be disabled or separately designed.
 This resolves visibility at the architecture level; safe two-writer operations,
@@ -178,6 +214,11 @@ Recommend **A** for Final Project scope: isolated filesystem-authoritative PC
 storage, explicit location-specific capabilities, and no automatic incorporation
 of SMB files into My Files or Vault. It addresses the current source mismatch
 with less lifecycle complexity than B/C. This is a recommendation, not approval.
+The web On Your PC location and Windows mapped drive are two access paths to
+the **same authoritative storage**, not two copies or local sync; My Files stays
+separate. Windows create → web refresh must reveal the same folder/file;
+future web create/upload → Windows must reveal that same object in that tree,
+without duplicate-copy synchronization.
 
 A staged qualification could first establish SMB read/write plus web listing/read,
 then qualify web writes. **A read-only web milestone does not satisfy PCND-5,
@@ -185,6 +226,14 @@ PCND-8 or PCND-9 and is not full acceptance.** The requested eventual two-way
 contract is retained. Owner approval is required for any reduced delivered scope.
 If reliable concurrent mutation cannot be qualified within Final Project scope,
 mark those gates BLOCKED rather than weakening them or claiming feature parity.
+
+```text
+READ_ONLY_WEB_MILESTONE=LIMITED
+FULL_FEATURE_ACCEPTANCE=NOT_SATISFIED
+```
+
+These values describe a read-only milestone only. Full feature acceptance still
+requires PCND-5 and the qualified PCND-8/9 two-writer consistency gates.
 
 This task creates no implementation plan: architecture acceptance and the
 post-PR150 source review must precede an approved executable plan.
@@ -241,12 +290,19 @@ and [Microsoft SMB security hardening](https://learn.microsoft.com/en-us/windows
 | Web upload/create | Separate PC provider, streamed transfer and staged publish inside the PC allocation | PCND-5 remains BLOCKED until broker, locking, crash recovery and concurrent SMB behavior are reviewed |
 | Rename/move within PC | Reflect the actual filesystem operation after refresh; no My Files row to orphan | Qualified case/collision/locking policy required; paths are not permanent object identity |
 | Move between locations/users | No implicit operation or ownership conversion | OUT OF SCOPE; a future explicit import/copy design is separate |
-| Delete | Proposed ordinary filesystem deletion, not AEGIS Protected Trash | Owner must accept permanent-delete UX before enabling it; no silent Trash claim |
+| SMB delete from Windows | Actual SMB/filesystem delete behavior must be measured | Do not assume Windows Recycle Bin, server recycle or My Files Protected Trash |
+| Web Delete within On Your PC | OPEN DESIGN QUESTION: permanent delete with strong warning, separate PC recycle/trash, or limited/no web delete initially | Owner must approve the chosen semantics before destructive web delete is enabled; no automatic Protected Trash reuse |
 | Recovery | Preserve PC data independently; rebuild optional derived metadata from filesystem | Backup/restore and account mapping recovery must be designed and tested; no inherited backup coverage claim |
 
 SMB deletion is not guaranteed to reach Windows Recycle Bin. A server recycle
 feature, if wanted, is a separately reviewed addition, not an assumed My Files
 Trash integration. Delete confirmation/retention differences must be visible.
+The owner has not approved final deletion semantics. This decision is an
+acceptance gate, not a preselected permanent-delete policy.
+
+```text
+PC_STORAGE_DELETE_SEMANTICS=OPEN_DESIGN_QUESTION
+```
 
 ## 14. Concurrency and Consistency
 
@@ -302,15 +358,33 @@ two users' entries. Existing lexical `resolveKey` is not a ready-made PC path de
 
 ## 17. Web UX Concept
 
-Files → Storage Locations → **My Files / On Your PC**; Private Vault remains
-separate and protected. The PC location can reuse folder/file visual components
+Within AEGIS Drive/Files, the semantic information architecture is:
+
+```text
+Files
+├── My Files
+├── On Your PC — AEGIS Network Drive
+└── Private Vault (protected)
+```
+
+On Your PC is a storage location, not an ordinary My Files folder or a separate
+application/module. Its web view and Windows mapped drive access the same
+authoritative per-user filesystem tree: NOT TWO COPIES / NOT LOCAL SYNC.
+The PC location can reuse folder/file visual components
 only after it supplies its own truthful authorization/data/capability contracts.
 
 Show “On Your PC — Network Drive,” never label server storage “E:”. Setup may
 recommend an available E: while saying the drive letter is configured on this PC.
 Disabled, unavailable, stale and read-only states must be distinct. Hide/disable
 unsupported features with explanatory limitations, not synthetic success telemetry.
-Exact placement, styling, localization and interaction design are not implemented.
+Exact visual placement (sidebar locations, cards or selector), styling,
+localization and interaction design remain OPEN and are not implemented. The
+semantic owner intent is CLOSED, not evidence of implemented UI:
+
+```text
+ON_YOUR_PC_IS_STORAGE_LOCATION=TRUE
+ON_YOUR_PC_IS_MY_FILES_FOLDER=FALSE
+```
 
 ## 18. Settings / Provisioning Concept
 
@@ -352,6 +426,21 @@ must disable new PC access/terminate sessions without deleting PC data or distur
 My Files, Vault, Public Share, DB, HUB or existing Twingate resources. Exact rollout,
 backup and rollback commands remain OPEN DESIGN QUESTION, not invented here.
 
+### 20.1 Future Execution Phase Map
+
+This is a planning sequence, **not an executable implementation plan or
+authorization**. All phases remain future; the dependency and owner gates above
+apply before implementation, and Production rollout requires separate approval.
+
+| Phase | Future scope / gate |
+|---|---|
+| 0 — Post-PR150 reconciliation | PR #150 merged; fetch/reconcile current main; re-read actual Files hierarchy/storage/auth source; human architecture review and approved implementation plan |
+| 1 — Disposable SMB foundation | Isolated non-Production environment; dedicated PC root model; two disposable users; per-user SMB isolation and Windows 10/11 mapping; no Web PC provider or Production action |
+| 2 — Web read provider | On Your PC storage location; authorized filesystem listing, folder navigation and download/read; refresh-based Windows → web visibility; read-only milestone LIMITED, not full acceptance |
+| 3 — Qualified two-way mutation | Web upload/create, within-PC rename/move and owner-approved chosen delete behavior; SMB/Web locking/conflicts, atomic publish and interrupted-write recovery; web → Windows same-object visibility; PCND-5/8/9 qualification mandatory |
+| 4 — Private network / Production rollout | Separately authorized LAN/Twingate SMB resource and Production storage provisioning; no public TCP 445; Windows acceptance, isolation/security and backup/recovery evidence |
+| 5 — Closeout | Documentation reconciliation, exactly one final task receipt, verified Ready transition, human review and human merge; none authorized by this planning pass |
+
 ## 21. Acceptance Criteria for Future Implementation
 
 All contracts are **PLANNED**, not implemented tests or runtime evidence.
@@ -361,11 +450,11 @@ All contracts are **PLANNED**, not implemented tests or runtime evidence.
 | PCND-1 | User can enable only their own Network Drive; failed provisioning stays fail-closed |
 | PCND-2 | Windows 10/11 maps its per-user share over the approved private path with a locally chosen drive letter |
 | PCND-3 | User A cannot access User B's root through SMB, including guessed paths, discovery and filesystem aliases |
-| PCND-4 | Windows folder/file creation becomes truthfully visible after the documented web refresh contract |
-| PCND-5 | PC web upload/create becomes visible in Windows; read-only web qualification alone does not pass this gate |
+| PCND-4 | Completed Windows folder/file creation is visible as the same object in the same authoritative tree after web refresh/re-fetch; no duplicate-copy synchronization |
+| PCND-5 | PC web upload/create is visible as the same object in that authoritative tree through Windows; read-only web qualification alone does not pass this gate |
 | PCND-6 | My Files stays isolated and its existing authorization/storage behavior regresses neither logically nor physically |
 | PCND-7 | Vault plaintext, ciphertext and staging cannot be reached over SMB |
-| PCND-8 | Rename/move produces consistent web/SMB visibility without stale authoritative metadata/orphans; collision and delete behavior are documented |
+| PCND-8 | Rename/move produces consistent web/SMB visibility without stale authoritative metadata/orphans; collision and delete behavior are qualified; owner approval of chosen semantics precedes destructive web delete |
 | PCND-9 | Concurrent web/SMB mutation follows a qualified deterministic locking/conflict policy, including desktop replace-on-save |
 | PCND-10 | Credential revocation prevents new SMB access; disable/delete and active-session termination are separately proven |
 | PCND-11 | SMB is unreachable over public IPv4/IPv6 paths; only explicitly approved private paths work |
@@ -386,7 +475,7 @@ share tokens or other users' files. No test implementation is included now.
 - [ ] Private-only TCP 445, DNS, bindings, overlay resource authorization and IPv4/IPv6 controls verified.
 - [ ] Chosen Samba/Windows versions, signing/encryption and no guest/SMB1 fallback verified.
 - [ ] Filename/case/Unicode/ADS/ACL behavior and Office saves qualified.
-- [ ] Partial writes, concurrent reads/mutations, crash recovery, quota and permanent-delete UX accepted.
+- [ ] Partial writes, concurrent reads/mutations, crash recovery and quota qualified; owner approves chosen delete semantics before destructive web delete is enabled.
 - [ ] Audit attribution, stable-snapshot hashing, backup and limitations truthfully evidenced.
 - [ ] Post-PR150 regression, functional owner and integration review complete before implementation/rollout.
 
@@ -394,11 +483,11 @@ share tokens or other users' files. No test implementation is included now.
 
 Each item is an **OPEN DESIGN QUESTION**, not an implicit implementation choice:
 
-1. Exact PC allocation/root paths, host/container placement, UID/GID allocation and per-request web broker.
+1. Exact PC allocation/root paths, Linux-account model, host/container placement, UID/GID strategy and per-request web broker; none precommitted before post-PR150 planning.
 2. Samba version, private host/DNS/share syntax, dialect/encryption/signing compatibility and approved LAN/overlay resource.
 3. SMB credential backend and secure provisioning transport, failure compensation, account-disable integration and active-session revocation latency.
 4. SMB-aware web locking/publish/conflict mechanism, Office save patterns, stable reads and crash cleanup.
-5. Permanent delete acceptance versus separately designed recycle/retention/restore; quarantine and deleted-account data lifecycle.
+5. Web delete: permanent with strong warning, separate PC recycle/trash, or limited/no web delete initially; owner decision required. Measured SMB delete behavior, retention/restore, quarantine and deleted-account data lifecycle remain open.
 6. Cross-interface case/Unicode/collision/length rules, ADS/NTFS metadata/ACL behavior and hidden/temp files.
 7. Real SMB+web quota enforcement, accepted large-file limits, backup coverage and recovery objectives.
 8. Audit coverage/attribution/retention and stable-snapshot checksum semantics.
@@ -419,6 +508,17 @@ Each item is an **OPEN DESIGN QUESTION**, not an implicit implementation choice:
 | Windows mapping acceptance | NOT TESTED | No client mounts or mapping operations |
 | Production readiness / final review | BLOCKED | Architecture, source reconciliation, plan, implementation and owner gates pending |
 | Final receipt / Ready / merge | BLOCKED | Task remains Draft/in progress; no final receipt or merge authorized |
+| SAME_AUTHORITATIVE_PC_STORAGE | PLANNED | One per-user authoritative PC filesystem tree, not two copies |
+| WEB_AND_SMB_TWO_ACCESS_PATHS | PLANNED | Web On Your PC and Windows mapping address that same tree |
+| MY_FILES_PC_STORAGE_SEPARATION | PLANNED | Separate namespaces; no implicit cross-location moves |
+| WINDOWS_TO_WEB_VISIBILITY | PLANNED | Completed SMB mutation → refresh/re-fetch → current tree |
+| WEB_TO_WINDOWS_VISIBILITY | PLANNED | Qualified web create/upload → same object through Windows |
+| INITIAL_REFRESH_BASED_VISIBILITY | PLANNED | Watcher/background sync not required for initial scope |
+| REALTIME_SYNC | CLOSED | OUT_OF_SCOPE_INITIAL; realtime watcher FUTURE_OPTIONAL, not runtime PASS |
+| PC_STORAGE_DELETE_SEMANTICS | PLANNED | OPEN / OPEN_DESIGN_QUESTION; owner decision before destructive web delete |
+| PRIVATE_VAULT_OVER_SMB | CLOSED | FORBIDDEN hard requirement; exclusion not yet proven at runtime |
+| PUBLIC_SMB | CLOSED | FORBIDDEN hard requirement; public exclusion not yet proven at runtime |
+| IMPLEMENTATION | BLOCKED | BLOCKED_BY_PR150; human review, approved plan and authorization also required |
 
 Canonical session tracking is limited to the future-task entry in
 `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md`, as required by the
