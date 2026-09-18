@@ -95,10 +95,34 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, str]:
         "country": args.country,
         "ap_address": str(ap_address),
         "ap_subnet": str(subnet),
+        "ap_prefixlen": str(subnet.prefixlen),
         "dhcp_start": str(dhcp_start),
         "dhcp_end": str(dhcp_end),
         "broker_hostname": broker_hostname,
     }
+
+
+
+def render_nm_profile(values: dict[str, str]) -> str:
+    template_path = (
+        Path(__file__).resolve().parents[1]
+        / "network"
+        / "aegis-idea3-ap.nmconnection.example"
+    )
+    template = template_path.read_text(encoding="utf-8")
+
+    replacements = {
+        "<AEGIS_AP_INTERFACE>": values["interface"],
+        "<AEGIS_AP_CHANNEL>": values["channel"],
+        "<AEGIS_AP_SSID>": values["ssid_label"],
+        "<AEGIS_AP_ADDRESS>": values["ap_address"],
+        "<AEGIS_AP_PREFIXLEN>": values["ap_prefixlen"],
+    }
+
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+
+    return template
 
 
 def render(values: dict[str, str], output_dir: Path) -> None:
@@ -131,6 +155,11 @@ def render(values: dict[str, str], output_dir: Path) -> None:
 
     (output_dir / "aegis-idea3-t5-render.txt").write_text(
         content,
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-ap.nmconnection").write_text(
+        render_nm_profile(values),
         encoding="utf-8",
     )
 
