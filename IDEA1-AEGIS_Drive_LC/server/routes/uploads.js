@@ -32,6 +32,7 @@
 //    ทุกเส้นทาง PUT/POST/DELETE ที่นี่จึงผ่านด่าน synchronizer token เหมือน endpoint อื่น
 import { Router } from 'express'
 import { requireAuth } from '../middleware/requireRole.js'
+import { scheduleDerivativesAfterResponse } from './media.js'
 import { recordAudit, sha256Hex } from '../db/connection.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import * as store from '../db/store.js'
@@ -424,6 +425,8 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
 
     await removeStagedSession(session.uploadId)
     await auditAct(req, result.newVersion ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', session.name)
+    // ⚠️ จัดคิว derivative หลังคำตอบปิดแล้วเท่านั้น — ไม่มี await ไม่เปลี่ยนสถานะ/เนื้อคำตอบ (plan Task 10)
+    scheduleDerivativesAfterResponse(req, res, result.file)
     return res.status(201).json({
       file: result.file, newVersion: result.newVersion, sha256: actualSha256,
     })

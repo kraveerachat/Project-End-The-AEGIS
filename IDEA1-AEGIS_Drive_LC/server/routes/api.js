@@ -17,7 +17,7 @@ import { requestSourceIp } from '../request/sourceIp.js'
 import { publicShareUrl } from '../config/publicShare.js'
 import { previewMimeForName } from '../config/previewMedia.js'
 import { parseByteRange } from '../request/byteRange.js'
-import { mediaRouter } from './media.js'
+import { mediaRouter, scheduleDerivativesAfterResponse } from './media.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -596,6 +596,8 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
       }
 
       await auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', name)
+      // ⚠️ จัดคิว derivative หลังคำตอบปิดแล้วเท่านั้น — ไม่มี await ไม่เปลี่ยนสถานะ/เนื้อคำตอบ (spec §15, plan Task 10)
+      scheduleDerivativesAfterResponse(req, res, row)
       res.status(201).json({ file: row, newVersion: Boolean(existing) })
     } catch (err) {
       next(err)
@@ -1179,6 +1181,7 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
     await store.deleteFileVersion(file.id, version.id)
 
     await auditAct(req, 'FILE_VERSION_RESTORE', file.name)
+    scheduleDerivativesAfterResponse(req, res, row) // เนื้อหาปัจจุบันเปลี่ยน sha → derivative ชุดใหม่ หลังคำตอบ
     res.json({ file: row, restoredFromVersionId: version.id })
   } catch (err) {
     next(err)
