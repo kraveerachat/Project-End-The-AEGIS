@@ -721,3 +721,39 @@ def test_pf01_proof_detects_broken_firewall_variants(
     errors = _pf01_errors(text, "wlan-test0")
 
     assert expected_error in errors
+
+
+PF02_PROBE = LOCKDOWN / "tests" / "p4_pf02_dnsmasq_netns.py"
+
+
+def test_pf02_dnsmasq_isolation_probe():
+    assert PF02_PROBE.is_file(), f"PF-02 probe missing: {PF02_PROBE}"
+
+    result = subprocess.run(
+        [
+            "/usr/bin/python3",
+            str(PF02_PROBE),
+        ],
+        cwd=LOCKDOWN,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    output = result.stdout + result.stderr
+
+    if "PF02_RESULT=ENVIRONMENT_UNAVAILABLE" in output:
+        pytest.fail(
+            "PF02_ENVIRONMENT_UNAVAILABLE: isolated namespace proof "
+            "did not run; PF-02 remains open"
+        )
+
+    assert result.returncode == 0, output
+    assert "PF02_RESULT=PASS" in output
+    assert "PF02_DHCP_AP=PASS" in output
+    assert "PF02_DHCP_UPLINK=NO_REPLY" in output
+    assert "PF02_DNS_AP=PASS" in output
+    assert "PF02_DNS_UPLINK=NO_REPLY" in output
+    assert "PF02_REAL_INTERFACE_USE=NO" in output
+    assert "PF02_CLEANUP=PASS" in output
