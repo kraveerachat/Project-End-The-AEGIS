@@ -376,7 +376,7 @@ test('FP-MALFORMED · probe failures are safe results: PROBE_FAILED with bounded
   assert.equal(r.unsupported, true)
   assert.equal(r.reason, 'PROBE_FAILED')
   assert.equal(r.detail.exitCode, 1)
-  assert.ok(r.detail.stderr.length <= 512, 'stderr detail is bounded')
+  assert.ok(Buffer.byteLength(r.detail.stderr, 'utf8') <= 512, 'stderr detail is bounded in UTF-8 bytes, not code units')
   const timeout = await probe(bad, 'mp4', { runner: fakeFfprobe({ timedOut: true }) })
   assert.equal(timeout.reason, 'PROBE_FAILED')
   assert.equal(timeout.detail.timedOut, true)
@@ -394,6 +394,30 @@ test('FP-MALFORMED · probe failures are safe results: PROBE_FAILED with bounded
     t.diagnostic(`real truncated mp4 → unsupported=${real.unsupported} reason=${real.reason ?? ''} detail=${JSON.stringify(real.detail ?? null).slice(0, 80)}`)
     assert.ok(real.unsupported === true || real.animated === true, `truncated mp4 is either refused or probed truthfully: ${JSON.stringify(real)}`)
   }
+})
+
+test('FP-STDERR-BYTE-CAP · ffprobe stderr detail is bounded to 512 UTF-8 bytes on a codepoint boundary (2-byte and 3-byte cases)', async () => {
+  const bad = await write('crafted-bad-stderr.mp4', craftedFtyp('isom', ['avc1']))
+  for (const [label, ch] of [['2-byte é', 'é'], ['3-byte €', '€']]) {
+    const multi = ch.repeat(1000) // 1000 code units → 2000 / 3000 UTF-8 bytes
+    const r = await probe(bad, 'mp4', { runner: fakeFfprobe({ exitCode: 1, stderr: multi }) })
+    assert.equal(r.unsupported, true, label)
+    assert.equal(r.reason, 'PROBE_FAILED', label)
+    assert.equal(typeof r.detail.stderr, 'string', label)
+    assert.ok(Buffer.byteLength(r.detail.stderr, 'utf8') <= 512, `${label}: ${Buffer.byteLength(r.detail.stderr, 'utf8')} UTF-8 bytes > 512`)
+    assert.ok(r.detail.stderr.length > 0, label)
+    assert.ok(!r.detail.stderr.includes('�'), `${label}: a codepoint was split at the boundary`)
+    for (const c of r.detail.stderr) assert.equal(c, ch, `${label}: only whole original characters survive`)
+  }
+  // ASCII behaviour is equivalent to a plain 512-character cut; empty stderr stays ''
+  const ascii = await probe(bad, 'mp4', { runner: fakeFfprobe({ exitCode: 1, stderr: 'x'.repeat(600) }) })
+  assert.equal(ascii.detail.stderr, 'x'.repeat(512))
+  const empty = await probe(bad, 'mp4', { runner: fakeFfprobe({ exitCode: 1, stderr: '' }) })
+  assert.equal(empty.detail.stderr, '')
+  // mixed input: the cut lands before the first character that would exceed the budget
+  const mixed = 'a'.repeat(510) + '€' + 'b'.repeat(50)
+  const m = await probe(bad, 'mp4', { runner: fakeFfprobe({ exitCode: 1, stderr: mixed }) })
+  assert.equal(m.detail.stderr, 'a'.repeat(510), 'the 3-byte € would make 513 bytes, so it is dropped whole')
 })
 
 test('FP-NO_GLOBAL_RULE · probe.js contains no generic frames>1||duration>0 rule and no shell/full-file read', async () => {

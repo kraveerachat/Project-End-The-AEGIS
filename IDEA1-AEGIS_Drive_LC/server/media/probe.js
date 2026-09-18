@@ -130,6 +130,28 @@ export function probeAvifAnimation(header, { sampleCount = null } = {}) {
   return { animated: null, evidence: 'avif-avis-unproven' }
 }
 
+/**
+ * ตัด string ให้ไม่เกิน maxBytes เมื่อเข้ารหัส UTF-8 โดยไม่ผ่ากลาง codepoint — สำหรับ diagnostic เท่านั้น
+ * ⚠️ `.slice(0, n)` นับ UTF-16 code unit ('€' = 1 หน่วยแต่ 3 ไบต์) จึงไม่ใช่ขอบเขตไบต์; ไม่ใช้
+ *    Buffer.subarray แล้ว decode กลับด้วย เพราะจะได้ U+FFFD ที่ปลายเมื่อตัดกลาง sequence
+ * @param {unknown} value
+ * @param {number} maxBytes
+ * @returns {string}
+ */
+export function truncateUtf8Bytes(value, maxBytes) {
+  const text = String(value ?? '')
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  let used = 0
+  let out = ''
+  for (const ch of text) { // iterates by codepoint (surrogate pairs stay together)
+    const bytes = Buffer.byteLength(ch, 'utf8')
+    if (used + bytes > maxBytes) break
+    out += ch
+    used += bytes
+  }
+  return out
+}
+
 function ffprobeBaseArgs(limits) {
   return ['-v', 'error', '-hide_banner', '-protocol_whitelist', 'file', '-probesize', String(limits.probesizeBytes), '-analyzeduration', '5000000']
 }
@@ -207,7 +229,7 @@ async function toolStreamInfo({ absPath, runner, limits, capabilities, ffprobeBi
     timeoutMs: limits.probeTimeoutMs,
   })
   if (result.timedOut) return { error: { cause: 'PROBE_TIMEOUT', timedOut: true } }
-  if (result.code !== 0) return { error: { cause: 'FFPROBE_EXIT', exitCode: result.code, stderr: String(result.stderr ?? '').slice(0, STDERR_DETAIL_BYTES) } }
+  if (result.code !== 0) return { error: { cause: 'FFPROBE_EXIT', exitCode: result.code, stderr: truncateUtf8Bytes(result.stderr, STDERR_DETAIL_BYTES) } }
   let parsed
   try { parsed = JSON.parse(result.stdout) } catch { return { error: { cause: 'FFPROBE_OUTPUT_UNPARSEABLE' } } }
   const stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null
