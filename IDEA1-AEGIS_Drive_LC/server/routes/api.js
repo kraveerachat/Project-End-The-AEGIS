@@ -15,6 +15,7 @@ import {
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { publicShareUrl } from '../config/publicShare.js'
+import { previewMimeForName } from '../config/previewMedia.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -687,11 +688,7 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
 //    จึงเป็นแค่ภาพเสีย ไม่ใช่หน้าเว็บที่รันใน origin ของเรา และ CSP sandbox กำกับอีกชั้น
 // ⚠️ Private Vault: แถว vault=true ตอบ 404 เหมือนไม่มีเส้นทางนี้ — เซิร์ฟเวอร์เห็นแค่
 //    ciphertext ไม่มี plaintext ให้ preview และต้องไม่มีวันมี (ดู /vault/blobs/:id/chunks)
-const PREVIEW_MIME = Object.freeze({
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
-  mp4: 'video/mp4', webm: 'video/webm',
-})
+//    allowlist ตัวจริงอยู่ที่ config/previewMedia.js (แหล่งเดียว ใช้ร่วมกับท่อ media derivative)
 
 /**
  * แปลง Range header เป็นช่วง [start, end] ตาม RFC 9110 §14 — เฉพาะ bytes และช่วงเดียว
@@ -736,8 +733,7 @@ apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
     }
     if (file.kind === 'folder' || file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
 
-    const ext = String(file.name).toLowerCase().split('.').pop()
-    const mime = String(file.name).includes('.') ? PREVIEW_MIME[ext] : undefined
+    const mime = previewMimeForName(file.name)
     if (!mime) return res.status(415).json({ error: 'Preview not supported for this type' })
 
     const abs = resolveKey(file.path)
