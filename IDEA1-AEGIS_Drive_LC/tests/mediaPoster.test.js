@@ -416,3 +416,42 @@ test('PG-ARGS ffmpegPosterArgs is the single source of the argument array (pure)
   assert.deepEqual(p.slice(p.indexOf('-c:v')), ['-c:v', 'png', '-compression_level', '6', '-f', 'image2', '-y', '/out/t'])
   assert.ok(LINUX || true)
 })
+
+/* ── A0: engine routing by animation evidence (Tranche A carry-forward correction) ── */
+test('PG-16 engine routing: animated PNG/WebP/AVIF and GIF → ffmpeg first frame; still PNG/WebP/AVIF → sharp; unknown → ffmpeg when available, never claimed animated', async () => {
+  const still = await makePng('pg16-still.png', 64, 64)
+  const cases = [
+    ['animated webp', { family: 'webp', width: 64, height: 64, animated: true, animationEvidence: 'webp-vp8x-flag-and-anmf' }, 'ffmpeg'],
+    ['apng', { family: 'png', width: 64, height: 64, animated: true, animationEvidence: 'apng-actl-before-idat', frames: 12 }, 'ffmpeg'],
+    ['animated avif', { family: 'avif', width: 64, height: 64, animated: true, animationEvidence: 'avif-avis-sample-count', frames: 5 }, 'ffmpeg'],
+    ['gif (any)', { family: 'gif', width: 64, height: 64, animated: false, animationEvidence: 'gif-single-packet' }, 'ffmpeg'],
+    ['still webp', { family: 'webp', width: 64, height: 64, animated: false, animationEvidence: 'webp-no-vp8x-animation-flag' }, 'sharp'],
+    ['still png', { family: 'png', width: 64, height: 64, animated: false, animationEvidence: 'png-no-actl' }, 'sharp'],
+    ['still avif', { family: 'avif', width: 64, height: 64, animated: false, animationEvidence: 'avif-no-avis-brand' }, 'sharp'],
+    ['still jpeg', { family: 'jpeg', width: 64, height: 64, animated: false, animationEvidence: 'family-still' }, 'sharp'],
+  ]
+  for (const [label, over, expected] of cases) {
+    const runner = fakeRunner({ width: 64, height: 64 })
+    // the source is a real still PNG so the sharp path can genuinely decode; the ffmpeg path is proven by the fake runner
+    const r = await gen({ absPath: still, probe: probeOf(over), tmpPath: tmpFor(`pg16-${label.replace(/\W+/g, '-')}`), runner })
+    assert.equal(r.engine, expected, label)
+    if (expected === 'ffmpeg') {
+      const a = runner.calls[0].args
+      assert.deepEqual(a.slice(a.indexOf('-frames:v'), a.indexOf('-frames:v') + 2), ['-frames:v', '1'], `${label}: first frame only`)
+      assert.ok(!a.includes('-t'), `${label}: no motion window in a poster job`)
+    } else {
+      assert.equal(runner.calls.length, 0, `${label}: sharp path spawns nothing`)
+    }
+  }
+  // animation unknown (null): poster still allowed via the ffmpeg first-frame path; nothing here schedules motion
+  const runner = fakeRunner({ width: 64, height: 64 })
+  const unknown = await gen({ absPath: still, probe: probeOf({ family: 'webp', width: 64, height: 64, animated: null, animationEvidence: 'webp-vp8x-flag-pages-unproven', posterOnly: true }), tmpPath: tmpFor('pg16-unknown'), runner })
+  assert.equal(unknown.engine, 'ffmpeg')
+  assert.ok(!runner.calls[0].args.includes('-t'))
+  // unknown with ffmpeg unavailable: sharp decodes the first page rather than refusing a poster
+  const noFf = { ...capsFull, ffmpeg: { ok: false, version: null } }
+  const r2 = await generatePoster({ absPath: still, probe: probeOf({ family: 'png', width: 64, height: 64, animated: null, animationEvidence: 'apng-budget-exhausted', posterOnly: true }), tmpPath: tmpFor('pg16-unknown-sharp'), limits, capabilities: noFf, runner: fakeRunner(), sharp: realSharp })
+  assert.equal(r2.engine, 'sharp')
+  // animated with ffmpeg unavailable: no silent sharp first-frame claim for a proven animation → ENCODER_UNAVAILABLE
+  await assert.rejects(generatePoster({ absPath: still, probe: probeOf({ family: 'png', width: 64, height: 64, animated: true, animationEvidence: 'apng-actl-before-idat' }), tmpPath: tmpFor('pg16-anim-noff'), limits, capabilities: noFf, runner: fakeRunner(), sharp: realSharp }), (err) => err instanceof MediaJobError && err.reason === 'ENCODER_UNAVAILABLE')
+})

@@ -191,7 +191,13 @@ async function ffmpegPoster({ absPath, probe, tmpPath, limits, capabilities, run
 export async function generatePoster({ absPath, probe, tmpPath, limits, capabilities, runner, sharp = null, ffmpegBin = 'ffmpeg' }) {
   if (typeof absPath !== 'string' || !absPath || typeof tmpPath !== 'string' || !tmpPath) throw permanent('DECODE_FAILED', { message: 'absPath and tmpPath are required' })
   if (!probe || probe.unsupported) throw permanent('DECODE_FAILED', { message: 'probe result missing or unsupported' })
-  const stillViaSharp = SHARP_STILL_FAMILIES.has(probe.family) && limits.stillEngine === 'sharp' && capabilities?.sharp?.ok && typeof sharp === 'function'
+  // ── เลือกเครื่องยนต์จากหลักฐานการเคลื่อนไหวของ probe (spec §8, §10.1) ──
+  //    นิ่งพิสูจน์แล้ว (animated === false) ในตระกูล jpeg/png/webp/avif → sharp (เมื่อสวิตช์และมี sharp)
+  //    เคลื่อนไหวพิสูจน์แล้ว (true) / gif / bmp / วิดีโอ → FFmpeg เฟรมแรก
+  //    พิสูจน์ไม่ได้ (null) → poster ยังทำได้: FFmpeg เฟรมแรกเมื่อมี ไม่งั้น sharp (หน้าแรก) — ไม่อ้างว่าเคลื่อนไหว
+  const sharpUsable = limits.stillEngine === 'sharp' && capabilities?.sharp?.ok && typeof sharp === 'function'
+  const stillFamily = SHARP_STILL_FAMILIES.has(probe.family)
+  const stillViaSharp = stillFamily && sharpUsable && (probe.animated === false || (probe.animated === null && !capabilities?.ffmpeg?.ok))
   if (stillViaSharp) {
     try {
       return await sharpPoster({ absPath, tmpPath, limits, sharp })
