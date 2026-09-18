@@ -66,6 +66,28 @@ test('PR-3 stdio cap: 1 MiB of stdout is capped at 65536 bytes, flagged truncate
   assert.equal(r.stderrTruncated, false)
 })
 
+test('PR-3B UTF-8 byte cap: multibyte output is bounded by raw bytes, not by JavaScript string length', async () => {
+  // 'é' = 2 UTF-8 bytes, 1 UTF-16 code unit: 65536 chars = 131072 bytes on each stream.
+  // The cap is a resource bound on retained source bytes, so the retained text must be 65536 bytes (32768 chars),
+  // never 65536 chars (131072 bytes). The boundary falls on a complete codepoint by construction.
+  const script = [
+    'const s = "\\u00e9".repeat(65536);',
+    'process.stdout.write(s);',
+    'process.stderr.write(s);',
+    'process.stdout.write("", () => process.stderr.write("", () => process.exit(0)))',
+  ].join(' ')
+  const r = await runner.run({ bin: NODE, args: ['-e', script], timeoutMs: 20_000, stdioCapBytes: 65_536 })
+  assert.equal(r.code, 0, 'child terminates normally: the parent kept draining both pipes after the cap')
+  assert.equal(typeof r.stdout, 'string')
+  assert.equal(typeof r.stderr, 'string')
+  assert.equal(Buffer.byteLength(r.stdout, 'utf8'), 65_536, 'stdout retained bytes == cap')
+  assert.equal(Buffer.byteLength(r.stderr, 'utf8'), 65_536, 'stderr retained bytes == cap')
+  assert.equal(r.stdoutTruncated, true)
+  assert.equal(r.stderrTruncated, true)
+  assert.ok(!r.stdout.includes('�') && !r.stderr.includes('�'), 'cap boundary lands on a whole codepoint for this fixture')
+  for (const [k, v] of Object.entries(r)) assert.ok(!Buffer.isBuffer(v) && !(v instanceof Uint8Array), `field ${k} must not be a Buffer`)
+})
+
 test('PR-4 timeout TERM→KILL: a child ignoring SIGTERM is SIGKILLed after the grace period', { skip: !LINUX && 'linux-only (Windows cannot ignore SIGTERM)' }, async () => {
   const started = Date.now()
   const r = await runner.run({

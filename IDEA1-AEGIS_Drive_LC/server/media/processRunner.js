@@ -69,21 +69,25 @@ export function createProcessRunner({ env = MINIMAL_CHILD_ENV, cwd, metrics = pr
       let sampler = null
       let lastMetrics = null
 
+      // ⚠️ นับ "ไบต์ดิบ" ของท่อ ไม่ใช่ความยาว string: หลัง setEncoding('utf8') chunk.length คือจำนวน
+      //    UTF-16 code unit ('é' = 1 หน่วยแต่ 2 ไบต์) ซึ่งทำให้เก็บเกินเพดานได้ถึง 2–3 เท่า จึงเก็บเป็น
+      //    Buffer chunk ที่ตัดตามไบต์ แล้วแปลงเป็น string ครั้งเดียวตอนจบ — ท่อยังถูกระบายต่อเสมอ
+      //    (ไม่ pause ไม่ถอด listener) และผลลัพธ์ที่ออกไปเป็น string เท่านั้น
       const capture = (stream) => {
-        const state = { text: '', bytes: 0, truncated: false }
-        stream.setEncoding('utf8')
+        const state = { chunks: [], bytes: 0, truncated: false }
         stream.on('data', (chunk) => {
-          // ระบายท่อเสมอ; เก็บเฉพาะจนถึงเพดาน
-          if (state.truncated) return
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8')
           const room = stdioCapBytes - state.bytes
-          if (chunk.length <= room) { state.text += chunk; state.bytes += chunk.length; return }
-          state.text += chunk.slice(0, room)
-          state.bytes = stdioCapBytes
+          if (room <= 0) { state.truncated = true; return }
+          if (buf.length <= room) { state.chunks.push(buf); state.bytes += buf.length; return }
+          state.chunks.push(buf.subarray(0, room))
+          state.bytes += room
           state.truncated = true
         })
         stream.on('error', () => {})
         return state
       }
+      const textOf = (state) => Buffer.concat(state.chunks, state.bytes).toString('utf8')
       const out = capture(child.stdout)
       const err = capture(child.stderr)
 
@@ -114,7 +118,7 @@ export function createProcessRunner({ env = MINIMAL_CHILD_ENV, cwd, metrics = pr
         if (metrics && child.pid) { const m = readProcMetrics(child.pid); if (m) lastMetrics = m }
         resolve({
           code, signal: sig,
-          stdout: out.text, stderr: err.text,
+          stdout: textOf(out), stderr: textOf(err),
           stdoutTruncated: out.truncated, stderrTruncated: err.truncated,
           timedOut, killed, durationMs: Date.now() - startedAt,
           metrics: metrics ? lastMetrics : null,
