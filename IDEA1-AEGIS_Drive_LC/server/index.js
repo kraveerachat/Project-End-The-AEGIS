@@ -11,7 +11,7 @@
 import { createApp } from './app.js'
 import { usingPostgres } from './db/connection.js'
 import { bootstrapAdminIfNeeded } from './db/bootstrapAdmin.js'
-import { initStorage, STORAGE_ROOT } from './storage/fileStore.js'
+import { initStorage, STORAGE_ROOT, resolveKey, keyExists } from './storage/fileStore.js'
 import { initUploadStaging } from './storage/uploadStaging.js'
 import { cleanupAbandonedUploads, scheduleUploadCleanup } from './storage/uploadCleanup.js'
 import { recoverStaleCommits, scheduleCommitRecovery } from './storage/commitRecovery.js'
@@ -26,10 +26,15 @@ import { runTrashAutoPurge, scheduleTrashAutoPurge } from './storage/trashCleanu
 // snapshot consistent (server/backup/maintenance.js). Harmless without an
 // agent: every poll reports unreachable and nothing is ever frozen.
 import { backupMaintenance } from './backup/index.js'
+// Media preview derivatives (spec §10.4): ลำดับบูตเดียว limits → runner → detect (เฉพาะเมื่อเปิด) → runtime → init
+// ก่อน createApp; ปิด (MEDIA_ENABLED=false) หรือเครื่องมือหาย = disabledMediaService และ Drive บูตต่อได้เสมอ
+import { bootMedia } from './media/runtime.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
-const app = createApp()
+// ⚠️ app ถูกสร้าง "ข้างใน" ลำดับบูต — mediaService ต้อง init เสร็จก่อน (ดู bootMedia ด้านล่าง)
+let app = null
+let media = null
 
 async function runGuardedTrashAutoPurge() {
   const result = await backupMaintenance.runDestructive(() => runTrashAutoPurge())
@@ -52,6 +57,18 @@ Promise.all([
   initVaultStaging(), initAvatarStorage(),
 ])
   .then(async () => {
+    // Media subsystem หลัง prerequisites: cache dir ต้องเขียนได้ก่อนเปิดพอร์ต; ถ้าเครื่องมือหายจะ log เหตุผลแล้วปิดส่วนนี้
+    media = await bootMedia({
+      env: process.env,
+      resolveStorageKey: resolveKey,
+      keyExists,
+      storageRoot: STORAGE_ROOT,
+      log: (line) => console.log(`[aegis-drive] ${line}`),
+      // audit ของ MEDIA_CACHE_INVALIDATE ถูกบันทึกที่ route (มี actor/role/ip จริง) — ที่นี่แค่ log กันซ้ำสองแถว
+      onAudit: ({ action, target, actor }) => console.log(`[aegis-drive] media ${action} ${target ?? ''} by ${actor ?? 'system'}`),
+    })
+    console.log(`[aegis-drive] media derivatives: ${media.service.reason ? `disabled (${media.service.reason})` : 'enabled'} — boot ${media.trace.join(' → ')}`)
+    app = createApp({ env: process.env, mediaLimits: media.limits, mediaService: media.service })
     // Observe a pre-existing host backup lease before any Trash byte cleanup.
     // The coordinator then tracks every scheduled purge as an in-flight
     // destructive operation, so it cannot acknowledge a snapshot mid-purge.
@@ -109,11 +126,23 @@ Promise.all([
       .catch((err) => console.error('[aegis-drive] initial trash auto-purge failed:', err.message))
     scheduleTrashAutoPurge(runGuardedTrashAutoPurge)
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       const mode = usingPostgres ? 'PostgreSQL' : 'in-memory dev fallback'
       console.log(`[aegis-drive] server on :${PORT} (auth store: ${mode})`)
       console.log(`[aegis-drive] storage layer ready at ${STORAGE_ROOT}`)
+      // worker/evictor เริ่มหลังเปิดพอร์ต — คำขอแรก ๆ ไม่ต้องรอ warm-up และการปิดเป็นลำดับย้อนกลับ
+      Promise.resolve(media.service.start()).catch((err) => console.error('[aegis-drive] media service start failed:', err.message))
     })
+    // ⚠️ SIGTERM: หยุดรับงาน media ก่อน (job ที่กำลังทำถูกยกเลิก, tmp ถูกทิ้ง) แล้วค่อยปิดพอร์ต
+    const shutdown = (signal) => {
+      console.log(`[aegis-drive] ${signal} received — stopping media service and closing server`)
+      Promise.resolve(media.service.stop())
+        .catch((err) => console.error('[aegis-drive] media service stop failed:', err.message))
+        .finally(() => server.close(() => process.exit(0)))
+      setTimeout(() => process.exit(0), 10_000).unref()
+    }
+    process.once('SIGTERM', () => shutdown('SIGTERM'))
+    process.once('SIGINT', () => shutdown('SIGINT'))
   })
   .catch((err) => {
     console.error('[aegis-drive] startup failed (admin bootstrap or storage layer) — refusing to start:', err.message)
