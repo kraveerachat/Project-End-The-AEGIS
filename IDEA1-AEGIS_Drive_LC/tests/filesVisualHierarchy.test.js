@@ -347,6 +347,152 @@ test('R8-STRINGS · every new Files string exists in all three languages', () =>
   }
 })
 
+/* ══ Round 8 · review correction 1 ═════════════════════════════════════════ */
+
+async function mountRoot() {
+  const env = installDom()
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.getElementById('root'))
+  const render = (el) => act(async () => { root.render(el) })
+  const fire = (node, type, Ctor = env.dom.window.Event) => act(async () => { node.dispatchEvent(new Ctor(type, { bubbles: true })) })
+  return { env, root, render, fire, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
+}
+
+test('R8-SR1 · the preview dialog resets its lifecycle when the previewed file changes (same instance)', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'a1', name: 'a.jpg' })
+    const B = image({ id: 'b1', name: 'b.png', ext: 'png' })
+    const modal = (file) => React.createElement(files.FilePreviewModal, { t, file, onClose: noop, onDownload: noop })
+    const dialog = () => document.querySelector('[role="dialog"]')
+    const phase = () => dialog().querySelector('[data-file-preview-phase]')?.getAttribute('data-file-preview-phase')
+
+    // A ล้มเหลว
+    await m.render(modal(A))
+    await m.fire(dialog().querySelector('img'), 'error')
+    assert.ok(dialog().querySelector('[role="alert"]'), 'A ต้องอยู่ในสถานะล้มเหลว')
+
+    // ปิด (file=null) แล้วเปิด B บน instance เดิม — ต้องกลับไป loading ไม่ใช่ค้าง failed ของ A
+    await m.render(modal(null))
+    await m.render(modal(B))
+    assert.equal(dialog().querySelector('[role="alert"]'), null, 'สถานะล้มเหลวของ A ต้องไม่รั่วมาที่ B')
+    assert.ok(dialog().querySelector('[role="status"]'), 'B ต้องเริ่มที่ loading')
+    const imgB = dialog().querySelector('img')
+    assert.equal(imgB?.getAttribute('src'), '/api/files/b1/preview')
+    await m.fire(imgB, 'load')
+    assert.equal(dialog().querySelector('[role="status"]'), null)
+    assert.equal(phase(), 'ready')
+
+    // B ready → A อีกครั้ง → ต้อง loading อีกครั้ง (ไม่ข้ามสถานะโหลดเพราะเคย ready)
+    await m.render(modal(A))
+    assert.ok(dialog().querySelector('[role="status"]'), 'สลับไฟล์แล้วต้อง loading ใหม่')
+    assert.equal(phase(), 'loading')
+    assert.equal(dialog().querySelector('img')?.getAttribute('src'), '/api/files/a1/preview')
+
+    // เปลี่ยนชื่อไฟล์เดิม (id เดิม, นามสกุลใหม่ = ตัวตนของ preview เปลี่ยน) → loading ใหม่เช่นกัน
+    await m.fire(dialog().querySelector('img'), 'load')
+    assert.equal(phase(), 'ready')
+    await m.render(modal({ ...A, name: 'a-renamed.webp', ext: 'webp' }))
+    assert.equal(phase(), 'loading')
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('R8-SR1B · a failed thumbnail is retried only when the file preview identity changes', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'a1', name: 'a.jpg' })
+    const tile = (file) => React.createElement(files.FileTile, {
+      t, file, now: NOW, selected: false, anySelected: false,
+      onSelect: noop, onOpen: noop, onMenuAction: noop, tileRef: noop, dragActive: false,
+    })
+    await m.render(tile(A))
+    await m.fire(document.querySelector('img'), 'error')
+    assert.ok(document.querySelector('[data-thumb="icon"]'), 'ล้มเหลว → ไอคอน')
+
+    // ไฟล์เดิมทุกประการ re-render → ยังเป็นไอคอน ไม่วนขอทรัพยากรที่พังซ้ำ
+    await m.render(tile({ ...A }))
+    await m.render(tile({ ...A, modified: NOW + 1 }))
+    assert.equal(document.querySelector('img'), null, 'ต้องไม่ retry ทรัพยากรเดิมที่พังอยู่')
+
+    // ตัวตนของ preview เปลี่ยน (id เดิม ชื่อ/นามสกุลใหม่) → ลองแสดงภาพอีกครั้ง
+    await m.render(tile({ ...A, name: 'a.png', ext: 'png' }))
+    assert.ok(document.querySelector('img'), 'ตัวตนใหม่ต้องได้โอกาสโหลดใหม่')
+    assert.equal(document.querySelector('[data-thumb]')?.getAttribute('data-thumb'), 'image')
+
+    // id ใหม่ → ก็ลองใหม่
+    await m.fire(document.querySelector('img'), 'error')
+    assert.equal(document.querySelector('img'), null)
+    await m.render(tile({ ...A, id: 'a2' }))
+    assert.ok(document.querySelector('img'))
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('R8-SR2 · list view three-dot opens the same FileMenu as grid, with the same Preview rules', async () => {
+  const m = await mountRoot()
+  try {
+    const folder = folderItem()
+    const img = image()
+    const pdf = fileItem()
+    const vaulted = image({ id: 'vv', name: 'v.jpg', vault: true })
+    const opened = []
+    const actions = []
+    const Mouse = m.env.dom.window.MouseEvent
+    await m.render(React.createElement(files.FilesSections, {
+      t, now: NOW, view: 'list', folders: [folder], files: [img, pdf, vaulted], selectedIds: new Set(), draggingIds: [],
+      onSelect: noop, onOpen: (f) => opened.push(f.id), onMenuAction: (a, f) => actions.push([a, f.id]),
+      onDragStartItem: noop, onDropItems: noop, tileRef: () => noop,
+    }))
+    // ลำดับส่วนยังเป็นโฟลเดอร์ก่อนไฟล์
+    const rows = [...document.querySelectorAll('tbody tr')]
+    assert.equal(rows[0].getAttribute('data-files-section-row'), 'folders')
+    assert.equal(rows[1].getAttribute('data-file-kind'), 'folder')
+    assert.equal(rows[2].getAttribute('data-files-section-row'), 'files')
+
+    const triggerOf = (name) => {
+      const row = [...document.querySelectorAll('tr[data-file-kind]')].find((r) => r.textContent.includes(name))
+      assert.ok(row, `row ${name}`)
+      const btn = row.querySelector('button[aria-haspopup="menu"]')
+      assert.ok(btn, `three-dot trigger for ${name}`)
+      return btn
+    }
+    const menuItems = () => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((b) => b.textContent.trim())
+
+    // ภาพปกติ: เปิดเมนู → Preview อยู่แรก → กด → onMenuAction('preview', file) และแถวไม่ถูก "เปิด"
+    await m.fire(triggerOf(img.name), 'click', Mouse)
+    assert.equal(menuItems()[0], t('preview'))
+    assert.ok(menuItems().includes(t('download')) && menuItems().includes(t('viewMetadata')))
+    const previewItem = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((b) => b.textContent.trim() === t('preview'))
+    await m.fire(previewItem, 'click', Mouse)
+    assert.deepEqual(actions, [['preview', img.id]])
+    assert.deepEqual(opened, [], 'การใช้เมนูต้องไม่เปิดไฟล์/โฟลเดอร์')
+    assert.equal(document.querySelector('[role="menu"]'), null, 'เมนูต้องปิดหลังเลือกคำสั่ง')
+
+    // PDF: ไม่มี Preview แต่มีคำสั่งอื่นครบ
+    await m.fire(triggerOf(pdf.name), 'click', Mouse)
+    assert.ok(!menuItems().includes(t('preview')))
+    assert.ok(menuItems().includes(t('verifySha')))
+    await m.fire(triggerOf(pdf.name), 'click', Mouse) // toggle ปิด
+    assert.equal(document.querySelector('[role="menu"]'), null)
+
+    // โฟลเดอร์: ไม่มี Preview ไม่มี Download
+    await m.fire(triggerOf(folder.name), 'click', Mouse)
+    assert.ok(!menuItems().includes(t('preview')) && !menuItems().includes(t('download')))
+    assert.ok(menuItems().includes(t('rename')))
+    await m.fire(triggerOf(folder.name), 'click', Mouse)
+
+    // Vault: ไม่มี Preview แบบ plaintext
+    await m.fire(triggerOf(vaulted.name), 'click', Mouse)
+    assert.ok(!menuItems().includes(t('preview')))
+    assert.deepEqual(opened, [])
+  } finally {
+    await m.unmount()
+  }
+})
+
 /* ── jsdom ────────────────────────────────────────────────────────────────── */
 
 function installDom() {

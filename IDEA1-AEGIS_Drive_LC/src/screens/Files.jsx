@@ -23,6 +23,9 @@ const EXT_ICONS = {
 //    ทำให้โฟลเดอร์ได้ไอคอนไฟล์ทั่วไปเหมือนกันหมด ซึ่งคือเหตุผลที่ผู้ใช้แยกไม่ออก
 const iconFor = (f) => (f.kind === 'folder' ? Folder : (EXT_ICONS[f.ext] ?? FileIcon))
 
+/** ตัวตนของ "ทรัพยากร preview" ของไฟล์ — id (เส้นทาง) + ชื่อ (MIME ฝั่งเซิร์ฟเวอร์ตัดสินจากนามสกุล) */
+const previewIdentityOf = (f) => (f ? `${f.id}\u0000${f.name}` : '')
+
 /* วิธีจัดเก็บต้องแยกให้ชัด: Vault เป็น ciphertext จริง ส่วน Data Lake ปกติค้นหาได้
    แต่ยังไม่มี encryption at rest — ห้ามใช้โล่/สีเขียวทำให้ดูเหมือนเข้ารหัสแล้ว */
 function StorageBadge({ vault, t }) {
@@ -273,7 +276,12 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   const [dropTarget, setDropTarget] = useState(false)
   // ⚠️ thumbnail ที่โหลดไม่ได้ต้อง "ถอยกลับ" เป็นไอคอนชนิดไฟล์ ไม่ใช่กล่องภาพเสีย —
   //    และการถอยนี้เป็นของไฟล์ใบนี้ใบเดียว (state ต่อไทล์) ไม่ลามไปทั้งกริด
-  const [thumbFailed, setThumbFailed] = useState(false)
+  //    ความล้มเหลวถูกจำไว้ "ต่อตัวตนของทรัพยากร" (id + ชื่อ): ไฟล์เดิมที่พังอยู่จะไม่ถูก
+  //    ขอซ้ำทุก re-render แต่เมื่อไฟล์ถูกเปลี่ยนชื่อ/ชนิด หรือไทล์นี้แสดงไฟล์อื่น (React
+  //    ใช้ instance เดิมซ้ำ) ต้องได้โอกาสโหลดใหม่ — ไม่ใช่ติดไอคอนจนกว่าจะรีเฟรชหน้า
+  const [failedIdentity, setFailedIdentity] = useState(null)
+  const identity = previewIdentityOf(file)
+  const thumbFailed = failedIdentity === identity
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
   const Icon = isFolder && dropTarget ? FolderOpen : iconFor(file)
@@ -376,7 +384,7 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
             loading="lazy"
             decoding="async"
             draggable={false}
-            onError={() => setThumbFailed(true)}
+            onError={() => setFailedIdentity(identity)}
             className="size-full object-cover"
           />
         ) : previewKind === 'video' ? (
@@ -389,7 +397,7 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
             playsInline
             tabIndex={-1}
             aria-hidden="true"
-            onError={() => setThumbFailed(true)}
+            onError={() => setFailedIdentity(identity)}
             className="size-full object-cover pointer-events-none"
           />
         ) : (
@@ -513,9 +521,76 @@ function SectionHeading({ children }) {
   )
 }
 
+/* ── List row ────────────────────────────────────────────────────── */
+// ⚠️ จุดสามจุดในมุมมองรายการต้องเป็น "เมนูเดียวกัน" กับในกริด (FileMenu ผ่าน AnchoredMenu)
+//    ไม่ใช่ทางลัดไปแผงเมทาดาทา — ไม่งั้น Preview/Download/Rename/... จะมีในมุมมองหนึ่ง
+//    แต่หายไปในอีกมุมมองหนึ่ง นโยบายคำสั่งมีที่เดียวคือ FileMenu แถวนี้แค่เรียกใช้
+//    (แยกเป็นคอมโพเนนต์เพราะต้องถือ state ของเมนู — hook วางใน map() ไม่ได้)
+function FileListRow({ t, file, now, index, dragActive, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuBtnRef = useRef(null)
+  const Icon = iconFor(file)
+  const isFolder = file.kind === 'folder'
+  return (
+    <tr
+      data-file-kind={isFolder ? 'folder' : 'file'}
+      draggable
+      onDragStart={(event) => onDragStartItem(event, file)}
+      onDragEnd={() => onDragEndItem?.()}
+      onDragOver={(event) => {
+        if (!isFolder || !dragActive || isExternalFileDrag(event.dataTransfer)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        if (!isFolder || isExternalFileDrag(event.dataTransfer)) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDropItems(readDragPayload(event.dataTransfer), file)
+      }}
+      onClick={() => onOpen(file)}
+      className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer rise-in"
+      style={{ height: 'var(--row-h)', animationDelay: `${Math.min(index * 25, 300)}ms` }}
+    >
+      <td className="px-4 pl-5">
+        <span className="flex items-center gap-2.5 min-w-0">
+          {/* ไอคอนเดียวกับในกริด — โฟลเดอร์ต้องดูออกในทั้งสองมุมมอง */}
+          <Icon
+            size={16}
+            strokeWidth={1.5}
+            className={`shrink-0 ${isFolder ? 'text-accent' : 'text-ink-3'}`}
+            {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
+          />
+          <span className="text-[13.5px] font-medium text-ink truncate max-w-[360px]">{file.name}</span>
+        </span>
+      </td>
+      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
+      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
+      <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
+      <td className="px-4"><StorageBadge vault={file.vault} t={t} /></td>
+      <td className="px-4 text-right">
+        <button
+          ref={menuBtnRef}
+          type="button"
+          aria-label={t('moreActions')}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+          className="inline-flex size-7 items-center justify-center rounded-full border border-line bg-card text-ink-3 hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
+        >
+          <MoreHorizontal size={15} strokeWidth={1.5} />
+        </button>
+        <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('moreActions')}>
+          <FileMenu t={t} file={file} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
+        </AnchoredMenu>
+      </td>
+    </tr>
+  )
+}
+
 export function FilesSections({
   t, view, folders, files, now, selectedIds, draggingIds,
-  onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, onOpenDetail, tileRef,
+  onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef,
 }) {
   const dragActive = draggingIds.length > 0
   if (view !== 'grid') {
@@ -524,55 +599,21 @@ export function FilesSections({
         <td colSpan={6} className="px-4 pl-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{label}</td>
       </tr>
     )
-    const row = (file, i) => {
-      const Icon = iconFor(file)
-      const isFolder = file.kind === 'folder'
-      return (
-        <tr
-          key={file.id}
-          data-file-kind={isFolder ? 'folder' : 'file'}
-          draggable
-          onDragStart={(event) => onDragStartItem(event, file)}
-          onDragEnd={() => onDragEndItem?.()}
-          onDragOver={(event) => {
-            if (!isFolder || !dragActive || isExternalFileDrag(event.dataTransfer)) return
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'move'
-          }}
-          onDrop={(event) => {
-            if (!isFolder || isExternalFileDrag(event.dataTransfer)) return
-            event.preventDefault()
-            event.stopPropagation()
-            onDropItems(readDragPayload(event.dataTransfer), file)
-          }}
-          onClick={() => onOpen(file)}
-          className="border-b border-line last:border-b-0 hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-pointer rise-in"
-          style={{ height: 'var(--row-h)', animationDelay: `${Math.min(i * 25, 300)}ms` }}
-        >
-          <td className="px-4 pl-5">
-            <span className="flex items-center gap-2.5 min-w-0">
-              {/* ไอคอนเดียวกับในกริด — โฟลเดอร์ต้องดูออกในทั้งสองมุมมอง */}
-              <Icon
-                size={16}
-                strokeWidth={1.5}
-                className={`shrink-0 ${isFolder ? 'text-accent' : 'text-ink-3'}`}
-                {...(isFolder ? { fill: 'var(--accent-soft)' } : {})}
-              />
-              <span className="text-[13.5px] font-medium text-ink truncate max-w-[360px]">{file.name}</span>
-            </span>
-          </td>
-          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(file.size)}</td>
-          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{file.type}</td>
-          <td className="px-4 text-[13px] text-ink-2 whitespace-nowrap">{fmtRelative(t, file.modified, now)}</td>
-          <td className="px-4"><StorageBadge vault={file.vault} t={t} /></td>
-          <td className="px-4 text-right">
-            <IconBtn label={t('viewMetadata')} onClick={(e) => { e.stopPropagation(); onOpenDetail(file) }}>
-              <MoreHorizontal size={15} strokeWidth={1.5} />
-            </IconBtn>
-          </td>
-        </tr>
-      )
-    }
+    const row = (file, i) => (
+      <FileListRow
+        key={file.id}
+        t={t}
+        file={file}
+        now={now}
+        index={i}
+        dragActive={dragActive}
+        onOpen={onOpen}
+        onMenuAction={onMenuAction}
+        onDragStartItem={onDragStartItem}
+        onDragEndItem={onDragEndItem}
+        onDropItems={onDropItems}
+      />
+    )
     return (
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -642,6 +683,16 @@ export function FilesSections({
 //    สถานะโหลด/ล้มเหลวพูดความจริง — ไม่มีกล่องว่างเปล่าที่ผู้ใช้ต้องเดาว่าเกิดอะไรขึ้น
 export function FilePreviewModal({ t, file, onClose, onDownload }) {
   const [phase, setPhase] = useState('loading') // loading | ready | failed
+  // ⚠️ Files.jsx วาง modal นี้ไว้ถาวรและสลับแค่ prop `file` — instance เดิมถูกใช้ซ้ำ
+  //    ข้ามไฟล์ ถ้าไม่รีเซ็ต phase ตามตัวตนของไฟล์ สถานะ failed/ready ของไฟล์ก่อนหน้าจะ
+  //    ติดมากับไฟล์ถัดไป (B โหลดไม่ได้เพราะ A เคยล้ม) รีเซ็ตระหว่าง render เมื่อตัวตน
+  //    เปลี่ยน (แบบแผน "adjust state on prop change" ของ React) — ไม่มีเฟรมที่โกหก
+  const identity = previewIdentityOf(file)
+  const [seenIdentity, setSeenIdentity] = useState(identity)
+  if (identity !== seenIdentity) {
+    setSeenIdentity(identity)
+    setPhase('loading')
+  }
   const kind = file ? previewKindFor(file) : null
   const src = file ? apiUrl(previewPathFor(file)) : ''
   return (
@@ -1065,7 +1116,6 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           onDragStartItem={startItemDrag}
           onDragEndItem={() => setDraggingIds([])}
           onDropItems={dropItemsInto}
-          onOpenDetail={openDetail}
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
         />
       )}
