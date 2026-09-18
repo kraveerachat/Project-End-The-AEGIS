@@ -17,13 +17,25 @@ import { checkDb } from './db/connection.js'
 import { checkStorage } from './storage/fileStore.js'
 import { trustedProxyFromEnv } from './config/trustedProxy.js'
 import { publicShareConfigFromEnv } from './config/publicShare.js'
+import { mediaLimitsFromEnv } from './config/mediaLimits.js'
+import { disabledMediaService } from './media/disabledService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DIST = path.join(ROOT, 'dist')
 
-export function createApp({ env = process.env } = {}) {
+// ⚠️ media derivative subsystem มาทาง injection เท่านั้น (spec §10.4): index.js ประกอบ service จริง
+//    จาก capabilities ที่ probe แล้วก่อนเรียก createApp; ชุดทดสอบ inject stub ของตัวเอง; ค่าเริ่มต้น
+//    คือ service ที่ "ปิด" อย่างซื่อสัตย์ — ไม่มีวันมีวัตถุที่แกล้งว่ามี media แล้วค่อยอัปเกรดทีหลัง
+//    app.js ไม่ import derivatives.js โดยเจตนา (ไม่มีการประกอบ service ที่นี่)
+export function createApp({
+  env = process.env,
+  mediaLimits = mediaLimitsFromEnv(env),
+  mediaService = disabledMediaService(mediaLimits),
+} = {}) {
   const app = express()
+  app.set('mediaLimits', mediaLimits)
+  app.set('mediaService', mediaService)
 
   // Trust only the deployment-defined HUB→Drive proxy CIDR. Development/test
   // default to no proxy; production fails closed when the boundary is absent.
@@ -67,11 +79,13 @@ export function createApp({ env = process.env } = {}) {
 
     // คง top-level ok/db contract สำหรับ Docker และ placeholder gate เดิม: ok ยังหมายถึง
     // DB endpoint ติดต่อได้ ส่วนหลักฐานแยกจริงอยู่ใน layers และ UI อ่านแต่ละชั้นจากตรงนั้น
+    // media เป็นบล็อกเพิ่ม (additive) และไม่มีผลต่อ ok: thumbnail ที่ลดระดับไม่ใช่ Drive ที่ป่วย
     res.status(db.ok ? 200 : 503).json({
       service: 'aegis-drive',
       ok: db.ok,
       db: db.mode,
       layers: { application, metadata, storage },
+      media: mediaService.health(),
     })
   })
 
