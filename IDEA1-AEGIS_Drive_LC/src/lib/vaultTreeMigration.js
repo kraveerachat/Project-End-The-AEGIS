@@ -132,9 +132,11 @@ function responseOk(r) {
  * @param {AbortSignal|null} [p.signal]
  * @param {object|null} [p.lease] lease ที่เราถืออยู่ (จาก begin/takeover ครั้งก่อน)
  * @param {number|function} [p.now] เวลาปัจจุบัน (ms) — ฉีดเพื่อเทสต์
- * @returns {Promise<{treeId:string, generation:number, revisionId:string}>}
+ * @param {function|null} [p.onStage] เหตุการณ์ชั้น UI: {type:'lease',leaseId,epoch,expiresAt,blobCount}
+ *                                    / {type:'plan',entryCount,collisionCount} / {type:'commit'}
+ * @returns {Promise<{treeId:string, generation:number, revisionId:string, protocolState:string|null}>}
  */
-export async function runGenesis({ kek, api, plan = null, unlockedState = null, signal = null, lease = null, now = Date.now() }) {
+export async function runGenesis({ kek, api, plan = null, unlockedState = null, signal = null, lease = null, now = Date.now(), onStage = null }) {
   const ts = typeof now === 'function' ? now() : now
   const chk = () => {
     if (signal?.aborted) throw new MigrationError('ABORTED')
@@ -161,6 +163,8 @@ export async function runGenesis({ kek, api, plan = null, unlockedState = null, 
     throw new MigrationError('TREE_STATE_CONFLICT', { protocolState: st?.protocolState ?? null })
   }
   chk()
+  // เหตุการณ์ lease แนบ lease เต็ม (blobs เป็นซองไซเฟอร์เท็กซ์) — ไดอะล็อกใช้ทำต่อ/ละทิ้งได้เอง
+  onStage?.({ type: 'lease', leaseId: leaseObj.leaseId, epoch: leaseObj.epoch, expiresAt: leaseObj.expiresAt, blobCount: (leaseObj?.blobs ?? []).length, lease: leaseObj })
 
   let thePlan = plan
   if (!thePlan) {
@@ -172,7 +176,9 @@ export async function runGenesis({ kek, api, plan = null, unlockedState = null, 
       throw new MigrationError('INVENTORY_MISMATCH')
     }
   }
-  if (thePlan.collisions.length > 0) throw new MigrationError('COLLISION_UNRESOLVED', { plan: thePlan })
+  onStage?.({ type: 'plan', entryCount: thePlan.entries.length, collisionCount: thePlan.collisions.length })
+  // lease แนบไปกับข้อผิดพลาดด้วย — ไดอะล็อกต้องทำต่อได้โดยไม่ต้อง begin รอบสอง
+  if (thePlan.collisions.length > 0) throw new MigrationError('COLLISION_UNRESOLVED', { plan: thePlan, lease: leaseObj })
   chk()
 
   const treeId = randomTreeId()
@@ -217,6 +223,7 @@ export async function runGenesis({ kek, api, plan = null, unlockedState = null, 
     manifestSchemaVersion: 1,
     idempotencyKey,
   }
+  onStage?.({ type: 'commit' })
   responseOk(await api.publishRevision(publishMeta, { signal }))
   chk()
   responseOk(await api.putRevisionCiphertext(revisionId, enc.ciphertext, { signal }))
@@ -239,7 +246,7 @@ export async function runGenesis({ kek, api, plan = null, unlockedState = null, 
     idempotencyKey,
   }
   const out = responseOk(await api.commitGenesis(commitBody, { signal }))
-  return { treeId: out?.treeId ?? treeId, generation: out?.generation ?? 1, revisionId: out?.revisionId ?? revisionId }
+  return { treeId: out?.treeId ?? treeId, generation: out?.generation ?? 1, revisionId: out?.revisionId ?? revisionId, protocolState: out?.protocolState ?? null }
 }
 
 export { ID_RE as TREE_ID_RE }
