@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-18
+updated: 2026-09-19
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -14,6 +14,27 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
+
+## Current Draft Task — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `feat/idea1-private-vault-encrypted-hierarchy`; PR #157 **OPEN / Draft**.
+- State: **PLANNED / ARCHITECTURE DESIGN + IMPLEMENTATION PLAN ONLY / IMPLEMENTATION NOT STARTED**; started 2026-09-19.
+- Source checkpoint: `origin/main` at `c5468c520f24d29fb37fefcf7c4411b91d4087f4` after PR #150 merged.
+- Goal: design Approach B — a versioned encrypted hierarchy manifest whose decrypted nodes, names, parent references, navigation, mutation semantics, and media derivatives remain client-only. The server remains an opaque object store and CAS/version coordinator.
+- Hard boundary: no product source, SQL, tests, runtime, database, network, credential, or Production mutation. Private Vault transfer-performance work is a separate future PR.
+- Scope: `docs/superpowers/specs/2026-09-19-idea1-private-vault-encrypted-hierarchy-design.md`, `docs/superpowers/plans/2026-09-19-idea1-private-vault-encrypted-hierarchy.md` (implementation plan, not started) plus this narrow live register required by [[core/development-session-workflow]]. No final receipt is created while the task remains Draft.
+
+### Session Register — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PVH-S1 | Repository research, Approach A/B comparison, selected Approach B design, privacy/threat/sync/migration/preview/acceptance contracts | PASS | Clean isolated start at `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; two Markdown paths only; spec self-review PASS with zero placeholders; vault PASS with 2 existing warnings; governance tests 50/50 PASS; Draft policy, diff and targeted secret-pattern checks PASS; Draft PR #157 published | `3ae2855334302fe854a767ebbdf5f8e61fa08118` (design/evidence checkpoint); this register update is a separate documentation checkpoint | Architecture design/publication PASS only; no implementation or runtime claim | Exact-head CI and ChatGPT architecture review; all implementation gates remain closed | ChatGPT review of encrypted-hierarchy design; no implementation |
+| PVH-S2 | Correct architecture-review blockers: stable TRK wrapping, migration protocol fence, versioned tree-aware uploads, purge barrier, effective subtree Trash, and explicit-disclosure privacy wording | PASS | Design-only correction from reviewed head `82269c3386086ea298a73eca1232a7a63556cdf3`; exactly two Markdown paths; diff check PASS; vault PASS with 2 existing warnings; governance tests 50/50 PASS; no application/test/database/runtime/Production change | `326807371110882d44ead09206e2b0cc97d13f29` (corrected design/evidence checkpoint); this register update is a separate documentation checkpoint | Architecture correction PASS only; Approach B unchanged; implementation and implementation-plan gates remain closed | Push both documentation checkpoints, update Draft PR #157, run local collaboration policy validation, and await exact-head CI | ChatGPT review of corrected encrypted-hierarchy design; no implementation |
+| PVH-S3 | Implementation plan only: 11 phases / 40 TDD tasks with reviewer gates G0–G10, Phase 0 limit-measurement register (`MEASURED@G0` deferred values), exact client/server modules and interfaces, additive schema and route plan, fail-closed rollout flags (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false` at initial rollout), transfer performance excluded | PASS | Clean isolated worktree at reviewed head `db657986747c31f19c2fd3afbbd587177b3a3f74`; exactly one new Markdown path; diff check PASS; vault PASS with 2 existing warnings; governance tests 50/50 PASS; plan placeholder and contradiction scans PASS; no application/test/database/runtime/Production change | `3241ddd7d8b98743d2140014b93cec5cb0e872dc` (plan/evidence checkpoint); this register update is a separate documentation checkpoint | Implementation plan PASS only; Approach B unchanged; Phase 0 not started | Update Draft PR #157 body, run local collaboration policy validation, and await exact-head CI | ChatGPT review of the PR #157 implementation plan; Human Owner authorization before Phase 0 |
+| PVH-S4 | Implementation-plan correction after ChatGPT plan review (`CHANGES_REQUIRED`; Approach B still approved): explicit per-state `vault_tree_state` invariants with genesis clearing migration fields and consumed frozen-inventory rows (PG-STATE-1..4, PG-MG-5); PostgreSQL 15 target (`POSTGRES_REQUIRED_MAJOR=15`, PG-VERSION-1); transition-specific revision immutability (PG-IMMUTABLE-1..5); Task 1.6 G1 re-validation of provisional G0 limits with product modules; external review grouped into TRANCHE_A (Phases 0–3) / TRANCHE_B (4–7) / TRANCHE_C (8–10) with internal gates G0–G10 retained | PASS | Clean worktree at `7bc474fb1938fd3c247647cd42bdc634955368ba`; one Markdown path changed; diff check PASS; vault PASS with 2 existing warnings; governance tests 50/50 PASS; `PostgreSQL 16` reference absent (only the self-review scan line), old FLAT-equivalence CHECK text absent; 41 tasks / 11 phases verified by grep; no application/test/database/runtime/Production change | `8c39a7d21b9f3a73bac31d709af8190179408f2b` (plan-correction checkpoint); this register update is a separate documentation checkpoint | Plan correction PASS only; security review found no new architecture-boundary rejection but `SECURITY_REVIEW=PASS` is not claimed until the corrected plan is reviewed; Phase 0 not started | Update Draft PR #157 body, run local collaboration policy validation, and await exact-head CI | ChatGPT final review of the corrected PR #157 implementation plan; Human Owner authorization before Phase 0 (Tranche A) |
+
+- Final receipt: **pending task closeout**. No implementation, Ready transition, merge, or Production action is authorized; Phase 0 (Tranche A) starts only after ChatGPT final review of the corrected plan and Human Owner authorization.
 
 > [!important] Progress Update 6.1 — current handoff
 > The detailed current-state checkpoint is [[idea1/IDEA1-Progress-Update-6.1]].
