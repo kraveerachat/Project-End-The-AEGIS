@@ -47,7 +47,7 @@ P4_LOG_FILE="$EVID_DIR/capture.log"
 REQUIRED_TOOLS="ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill"
 OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
-chronyd.service nftables.service mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
+chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
 twingate.service aegis-idea3-core.service aegis-idea3.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
