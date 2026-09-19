@@ -406,3 +406,95 @@ Observations recorded from the tables: depth has no measurable effect (all walks
 | 100 | 100 | 8.4 | 0.084 |
 | 1000 | 1000 | 71.6 | 0.072 |
 | 10000 | 10000 | 668.9 | 0.067 |
+
+## Task 0.2 — client-only media decode and memory
+
+Fixtures: `scripts/measure/vault-tree/make-media-fixtures.mjs --out <os.tmpdir()>/aegis-vt-media` (noise images so encoders cannot compress them away; sizes grown until the encoded bytes cross 1/4/16/32/64 MiB). Tools present on the host: sharp 0.35.4 / libvips 8.18.6; ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers. Bench: `scripts/measure/vault-tree/media-bench-browser.js` served with COOP/COEP by `run-browser-bench.mjs`, Chrome Chrome/153.0.8010.52 headless. Fixtures are served in plaintext: this bench isolates decode/derivative cost; decrypt cost is byte-linear and measured in Task 0.1 (encryptMs/decryptMs columns).
+
+- memory probe: browser process working set (all processes of the throwaway profile, Win32_Process via driver; gc-forced). The V8 heap probe was rejected for media after the smoke run showed ~0 MB deltas for decoded bitmaps (they live outside the JS heap); the working-set probe tracks decoded pixels × 4 within a few MB (see `expectedRgbaMB` vs `decodeHeapDeltaMB`).
+- command: `node scripts/measure/vault-tree/run-browser-bench.mjs --browser "C:\Program Files\Google\Chrome\Application\chrome.exe" --page media-bench.html --fn runMediaBench --arg '{}' --fixtures <fixtures dir> --out chrome-media.json`
+- NOT_MEASURED classes: gif 64 MiB — sharp gif output failed: Processed image is too large for the GIF format.
+- Firefox: NOT_MEASURED (not installed).
+- errors during the run: none.
+
+### Fixture classes
+
+| name | format | bytes | width | height | pixels | frames | seconds |
+|---|---|---|---|---|---|---|---|
+| jpeg-1mib.jpg | jpeg | 1055947 | 1094 | 1094 | 1196836 |  |  |
+| jpeg-4mib.jpg | jpeg | 4205458 | 2188 | 2188 | 4787344 |  |  |
+| jpeg-16mib.jpg | jpeg | 16778795 | 4375 | 4375 | 19140625 |  |  |
+| jpeg-32mib.jpg | jpeg | 33556183 | 6187 | 6187 | 38278969 |  |  |
+| jpeg-64mib.jpg | jpeg | 83812652 | 9782 | 9782 | 95687524 |  |  |
+| png-1mib.png | png | 1050374 | 591 | 591 | 349281 |  |  |
+| png-4mib.png | png | 5245796 | 1321 | 1321 | 1745041 |  |  |
+| png-16mib.png | png | 20964418 | 2641 | 2641 | 6974881 |  |  |
+| png-32mib.png | png | 41951049 | 3736 | 3736 | 13957696 |  |  |
+| png-64mib.png | png | 83852128 | 5282 | 5282 | 27899524 |  |  |
+| webp-1mib.webp | webp | 1049698 | 1119 | 1119 | 1252161 |  |  |
+| webp-4mib.webp | webp | 4195790 | 2237 | 2237 | 5004169 |  |  |
+| webp-16mib.webp | webp | 16817374 | 4473 | 4473 | 20007729 |  |  |
+| webp-32mib.webp | webp | 40630882 | 7073 | 7073 | 50027329 |  |  |
+| webp-64mib.webp | webp | 81877302 | 10002 | 10002 | 100040004 |  |  |
+| gif-1mib.gif | gif | 1440888 | 512 | 512 | 262144 | 4 |  |
+| gif-4mib.gif | gif | 4322285 | 512 | 512 | 262144 | 12 |  |
+| gif-16mib.gif | gif | 16927144 | 512 | 512 | 262144 | 47 |  |
+| gif-32mib.gif | gif | 33846483 | 512 | 512 | 262144 | 94 |  |
+| video-1280x720-30s.mp4 | mp4 | 10454088 | 1280 | 720 |  |  | 30 |
+| video-3840x2160-30s.mp4 | mp4 | 77036528 | 3840 | 2160 |  |  | 30 |
+
+### Still images — `createImageBitmap` decode, then a 512-px WebP poster via OffscreenCanvas → Blob → Object URL
+
+| name | bytes | width | height | pixels | expectedRgbaMB | decodeMs | decodeHeapDeltaMB | posterMs | posterBytes |
+|---|---|---|---|---|---|---|---|---|---|
+| jpeg-1mib.jpg | 1055947 | 1094 | 1094 | 1196836 | 4.6 | 11.7 | 14.7 | 66.6 | 101406 |
+| jpeg-4mib.jpg | 4205458 | 2188 | 2188 | 4787344 | 18.3 | 44.2 | 19.7 | 40.2 | 95632 |
+| jpeg-16mib.jpg | 16778795 | 4375 | 4375 | 19140625 | 73 | 165.4 | 71.8 | 67.7 | 108204 |
+| jpeg-32mib.jpg | 33556183 | 6187 | 6187 | 38278969 | 146 | 319.2 | 146.3 | 104.2 | 108952 |
+| jpeg-64mib.jpg | 83812652 | 9782 | 9782 | 95687524 | 365 | 823.9 | 359.5 | 215.6 | 110488 |
+| png-1mib.png | 1050374 | 591 | 591 | 349281 | 1.3 | 3.2 | 2 | 39.4 | 153506 |
+| png-4mib.png | 5245796 | 1321 | 1321 | 1745041 | 6.7 | 10.2 | 10.6 | 37.9 | 122910 |
+| png-16mib.png | 20964418 | 2641 | 2641 | 6974881 | 26.6 | 29.3 | -19 | 47.5 | 122554 |
+| png-32mib.png | 41951049 | 3736 | 3736 | 13957696 | 53.2 | 51.7 | 54 | 58.4 | 104458 |
+| png-64mib.png | 83852128 | 5282 | 5282 | 27899524 | 106.4 | 100.2 | 106.3 | 94.4 | 122608 |
+| webp-1mib.webp | 1049698 | 1119 | 1119 | 1252161 | 4.8 | 62 | 3.7 | 38 | 114030 |
+| webp-4mib.webp | 4195790 | 2237 | 2237 | 5004169 | 19.1 | 236.4 | 15 | 41.8 | 111128 |
+| webp-16mib.webp | 16817374 | 4473 | 4473 | 20007729 | 76.3 | 967 | 76.5 | 71.3 | 110294 |
+| webp-32mib.webp | 40630882 | 7073 | 7073 | 50027329 | 190.8 | 2284.8 | 186.9 | 125.8 | 107894 |
+| webp-64mib.webp | 81877302 | 10002 | 10002 | 100040004 | 381.6 | 4572.8 | 334.5 | 227.4 | 108726 |
+
+### Animated GIF — first-frame poster (`createImageBitmap`) vs. `<img src=objectURL>` playback sampled after 1.5 s
+
+| name | bytes | frames | pixelsPerFrame | expectedAllFramesRgbaMB | posterDecodeMs | posterHeapDeltaMB | playLoadMs | playHeapDeltaMB |
+|---|---|---|---|---|---|---|---|---|
+| gif-1mib.gif | 1440888 | 4 | 262144 | 4 | 6.7 | 1.5 | 3.9 | 10.6 |
+| gif-4mib.gif | 4322285 | 12 | 262144 | 12 | 18.7 | 12 | 9.9 | 40.5 |
+| gif-16mib.gif | 16927144 | 47 | 262144 | 47 | 65.2 | 47 | 36.3 | 159.5 |
+| gif-32mib.gif | 33846483 | 94 | 262144 | 94 | 116.3 | 94 | 94 | 500.3 |
+
+### Concurrent decodes of the 4 MiB JPEG (4.79 Mpx each)
+
+| fixture | concurrent | totalMs | heapDeltaMB |
+|---|---|---|---|
+| jpeg-4mib.jpg | 1 | 46.3 | 18.3 |
+| jpeg-4mib.jpg | 2 | 48.3 | 36.6 |
+| jpeg-4mib.jpg | 4 | 58.8 | 73.4 |
+| jpeg-4mib.jpg | 8 | 88.5 | 146.8 |
+
+### Retained poster Object URLs (each a ~94 KB WebP attached as an `<img>`)
+
+| retainedUrls | posterBytes | heapDeltaMB |
+|---|---|---|
+| 16 | 95632 | 4.5 |
+| 64 | 95632 | 9 |
+| 256 | 95632 | 38.4 |
+| 1024 | 95632 | 132.7 |
+
+### Video first-frame poster (`<video preload="metadata">`, seek to 0.5 s, canvas → WebP)
+
+| name | bytes | width | height | metadataMs | seekMs | posterTotalMs | posterBytes | heapDeltaMB |
+|---|---|---|---|---|---|---|---|---|
+| video-1280x720-30s.mp4 | 10454088 | 1280 | 720 | 7.4 | 59.4 | 104.3 | 7036 | -42.1 |
+| video-3840x2160-30s.mp4 | 77036528 | 3840 | 2160 | 4.2 | 28.2 | 46.6 | 5980 | 76.2 |
+
+Observations recorded from the tables: decode working set ≈ decoded pixels × 4 bytes regardless of format or file size (PNG 64 MiB = 27.9 Mpx → +106 MB; JPEG 64 MiB = 95.7 Mpx → +360 MB); WebP decode is ~5× slower per pixel than JPEG (20 Mpx: 967 ms vs 165 ms at 19 Mpx); GIF playback working set ≈ 3.4 × (frames × pixels × 4) and 15.6 MB per MiB of file at 32 MiB (+500 MB); concurrent decodes add linearly (18 MB per 4.79 Mpx decode); retained poster URLs cost ≈ 130 KB each (1 024 → +133 MB); a 4K video poster via metadata-preload seek costs +76 MB and < 50 ms.
