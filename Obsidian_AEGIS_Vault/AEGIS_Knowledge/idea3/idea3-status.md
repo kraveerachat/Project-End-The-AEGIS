@@ -5235,7 +5235,7 @@ integration review of the PR5 evidence boundary.
 
 ## IDEA3 PR11 Phase 4 T4 / G-07 broker migration — repository implementation — 2026-09-19
 
-> [!important] Repository-only T4 implementation; final acceptance pending.
+> [!important] Repository-only T4 acceptance passed; live acceptance is not claimed.
 > OD-08 selects a separate TLS-only Mosquitto instance for IDEA3 on 8883.
 > The legacy `mosquitto.service`, plaintext 1883 listener, and legacy `aegis`
 > identity remain outside T4 mutation scope. L6a/L6b have not run live.
@@ -5244,8 +5244,8 @@ integration review of the PR5 evidence boundary.
 Task                         = IDEA3 PR11 Phase 4 T4 / G-07 broker migration
 Branch                       = feat/idea3-pr11-phase4-t4-broker-migration
 STARTING_SHA                 = 0b6aea61556371140813cb63747170de7be84be6
-CURRENT_IMPLEMENTATION_HEAD  = 8195ec5b
-Current state                = REPOSITORY VALIDATED — FINAL RECEIPT / CLOSEOUT PENDING
+CURRENT_IMPLEMENTATION_HEAD  = 1ff3b04c
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a/L6b NOT RUN
 
 OD-08                        = OWNER APPROVED — separate TLS-only IDEA3 Mosquitto instance
 IDEA3_BROKER_SERVICE         = aegis-idea3-mosquitto.service
@@ -5255,8 +5255,8 @@ LEGACY_1883                  = PRESERVE / DO NOT REMOVE IN T4
 LEGACY_AEGIS_USER            = PRESERVE / DO NOT REMOVE IN T4
 
 T4_REPOSITORY_IMPLEMENTED    = YES
-T4_REPOSITORY_CLOSEOUT       = FINAL VALIDATION PASS — RECEIPT PENDING
-G07_REPOSITORY_CONTRACT      = IMPLEMENTED / VALIDATED
+T4_REPOSITORY_CLOSEOUT       = COMPLETE / ACCEPTANCE PASS
+G07_REPOSITORY_CONTRACT      = CLOSED
 L6B_HANDLER                  = REGISTERED
 PF01_1883_AP_NEGATIVE_CTRL   = PASS — repository regression; future live L6B verify still required
 
@@ -5268,7 +5268,12 @@ FINAL_COMPILE                = PASS
 FINAL_RUFF                   = PASS
 FINAL_FOCUSED_PYTEST         = PASS — 242 passed
 FINAL_DIFF_CHECK             = PASS
-FINAL_RECEIPT                = PENDING
+COLLABORATION_POLICY_TEST    = PASS — 24 passed
+VAULT_MULTI_WRITER_TEST      = PASS — 1 passed
+VAULT_STRUCTURE_TEST         = PASS — 25 passed
+REPOSITORY_MJS_SUITE         = PASS — 63 passed
+ACTUAL_COLLABORATION_VALIDATOR = PASS
+FINAL_RECEIPT                = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-19_194236_music_idea3-pr11-phase4-t4-g07-broker-migration.md
 
 PRODUCTION_MUTATION          = NO
 NETWORK_MUTATION             = NO
