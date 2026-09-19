@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 _NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
 
 
 def _number(env: Mapping[str, str], name: str, default: str, low: float, high: float) -> float:
@@ -33,6 +34,9 @@ class AgentConfig:
     read_timeout_s: float
     renew_before_ms: int
     retry_max_s: float
+    pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
+    engine_user_sid: str | None = None
+    pipe_timeout_s: float = 5.0
 
     @property
     def http_timeout(self) -> tuple[float, float]:
@@ -79,6 +83,15 @@ class AgentConfig:
         read = _number(env, "AEGIS_AGENT_READ_TIMEOUT_S", "5", 0.1, 30.0)
         renew_s = _number(env, "AEGIS_AGENT_RENEW_BEFORE_S", "120", 1.0, 300.0)
         retry_max = _number(env, "AEGIS_AGENT_RETRY_MAX_S", "30", 1.0, 30.0)
+        pipe_name = str(
+            env.get("AEGIS_AGENT_PIPE_NAME", r"\\.\pipe\AEGIS.IdentityAgent.v1")
+        ).strip()
+        if not pipe_name.startswith("\\\\.\\pipe\\") or len(pipe_name) > 256:
+            raise ValueError("AEGIS_AGENT_PIPE_NAME must name a bounded local pipe")
+        engine_user_sid = str(env.get("AEGIS_AGENT_ENGINE_USER_SID", "")).strip() or None
+        if engine_user_sid is not None and _SID_RE.fullmatch(engine_user_sid) is None:
+            raise ValueError("AEGIS_AGENT_ENGINE_USER_SID must be a canonical SID")
+        pipe_timeout = _number(env, "AEGIS_AGENT_PIPE_TIMEOUT_S", "5", 0.1, 5.0)
         return cls(
             monitor_base_url=canonical_url,
             audience=audience,
@@ -89,6 +102,9 @@ class AgentConfig:
             read_timeout_s=read,
             renew_before_ms=int(renew_s * 1000),
             retry_max_s=retry_max,
+            pipe_name=pipe_name,
+            engine_user_sid=engine_user_sid,
+            pipe_timeout_s=pipe_timeout,
         )
 
     def redacted(self) -> dict[str, object]:
@@ -101,4 +117,7 @@ class AgentConfig:
             "read_timeout_s": self.read_timeout_s,
             "renew_before_ms": self.renew_before_ms,
             "retry_max_s": self.retry_max_s,
+            "pipe_name": self.pipe_name,
+            "engine_user_sid_configured": self.engine_user_sid is not None,
+            "pipe_timeout_s": self.pipe_timeout_s,
         }

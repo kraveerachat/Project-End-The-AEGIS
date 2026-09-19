@@ -193,6 +193,28 @@ class AgentSessionTests(unittest.TestCase):
         self.assertNotIn("=", kwargs["headers"]["X-Aegis-Request-Nonce"])
         self.assertEqual(2, len(signer.messages))
 
+    def test_rejected_ingest_invalidates_session_without_replaying_event(self):
+        now = [100_000]
+        http = FakeHttp([
+            Response(200, challenge()),
+            Response(200, {"sessionId": token(32, 6), "expiresAtMs": 700_000}),
+            Response(401, {"error": "REQUEST_PROOF_FAILED"}),
+        ])
+        signer = RecordingSigner()
+        client = AgentSessionClient(
+            AgentConfig.from_env(config_env()), signer, http=http, now_ms=lambda: now[0]
+        )
+        transport = AgentTransport(
+            AgentConfig.from_env(config_env()), client, signer, http=http,
+            now_ms=lambda: now[0], random_bytes=lambda count: bytes([8]) * count,
+        )
+        result = transport.submit("detection", {"cameraId": "CAM-01", "entities": []})
+        self.assertFalse(result.ok)
+        self.assertEqual(401, result.status)
+        self.assertEqual("MONITOR_REJECTED", result.error)
+        self.assertEqual(3, len(http.calls), "a rejected event must not cross into a new Agent session")
+        self.assertIsNone(client._session)
+
 
 if __name__ == "__main__":
     unittest.main()

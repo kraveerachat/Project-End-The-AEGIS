@@ -11,11 +11,22 @@ SERVICE_ACCOUNT = r"NT SERVICE\AEGISIdentityAgent"
 
 
 class IdentityAgentServiceHost:
-    def __init__(self, *, run_once, stop_event=None, interval_s=5.0, retry_max_s=30.0):
+    def __init__(
+        self,
+        *,
+        run_once,
+        stop_event=None,
+        interval_s=5.0,
+        retry_max_s=30.0,
+        wait_after_success=True,
+        on_stop=None,
+    ):
         self._run_once = run_once
         self._stop_event = stop_event or threading.Event()
         self._interval_s = max(0.001, float(interval_s))
         self._retry_max_s = max(self._interval_s, float(retry_max_s))
+        self._wait_after_success = bool(wait_after_success)
+        self._on_stop = on_stop
         self.last_retry_delay_s = self._interval_s
         self.camera_demand_side_effects = 0
 
@@ -25,6 +36,8 @@ class IdentityAgentServiceHost:
             try:
                 self._run_once()
                 delay = self._interval_s
+                if not self._wait_after_success:
+                    continue
             except Exception:
                 delay = min(self._retry_max_s, max(self._interval_s, delay * 2))
             self.last_retry_delay_s = delay
@@ -32,6 +45,8 @@ class IdentityAgentServiceHost:
 
     def stop(self):
         self._stop_event.set()
+        if self._on_stop is not None:
+            self._on_stop()
 
 
 def build_pywin32_service(host_factory):

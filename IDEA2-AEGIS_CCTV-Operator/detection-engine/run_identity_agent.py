@@ -9,7 +9,13 @@ from pathlib import Path
 
 from aegis_identity_agent.config import AgentConfig
 from aegis_identity_agent.key_store import DpapiCurrentUserProtector, IdentityKeyStore
+from aegis_identity_agent.pipe_server import (
+    PipeRequestHandler,
+    WindowsNamedPipeServer,
+    resolve_account_sid,
+)
 from aegis_identity_agent.session_client import AgentSessionClient
+from aegis_identity_agent.transport import AgentTransport
 from aegis_identity_agent.windows_service import IdentityAgentServiceHost, build_pywin32_service
 
 
@@ -24,12 +30,28 @@ def _store(config):
 
 def _host():
     config = AgentConfig.from_env()
+    if config.engine_user_sid is None:
+        raise RuntimeError("AEGIS_AGENT_ENGINE_USER_SID is required for the pipe ACL")
     signer = _store(config).load()
     client = AgentSessionClient(config, signer)
+    transport = AgentTransport(config, client, signer)
+    handler = PipeRequestHandler(
+        transport,
+        allowed_caller_sids={config.engine_user_sid},
+    )
+    pipe_server = WindowsNamedPipeServer(
+        handler,
+        service_sid=resolve_account_sid(r"NT SERVICE\AEGISIdentityAgent"),
+        engine_sid=config.engine_user_sid,
+        pipe_name=config.pipe_name,
+        read_timeout_s=config.pipe_timeout_s,
+    )
     return IdentityAgentServiceHost(
-        run_once=client.ensure_session,
-        interval_s=5.0,
+        run_once=pipe_server.serve_once,
+        interval_s=0.05,
         retry_max_s=config.retry_max_s,
+        wait_after_success=False,
+        on_stop=pipe_server.close,
     )
 
 

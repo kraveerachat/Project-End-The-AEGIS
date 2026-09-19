@@ -55,6 +55,27 @@ class AgentWindowsServiceTests(unittest.TestCase):
         self.assertLessEqual(host.last_retry_delay_s, 0.002)
         self.assertEqual(0, host.camera_demand_side_effects)
 
+    def test_service_stop_interrupts_the_owned_pipe_wait(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def run_once():
+            entered.set()
+            release.wait(1)
+
+        host = IdentityAgentServiceHost(
+            run_once=run_once,
+            interval_s=0.001,
+            wait_after_success=False,
+            on_stop=release.set,
+        )
+        worker = threading.Thread(target=host.run)
+        worker.start()
+        self.assertTrue(entered.wait(1))
+        host.stop()
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+
     def test_installer_uses_isolated_runtime_exact_account_and_safe_copy_contract(self):
         script = (ENGINE_ROOT / "windows" / "identity-agent" / "install_identity_agent.ps1").read_text(encoding="utf-8")
         for required in (

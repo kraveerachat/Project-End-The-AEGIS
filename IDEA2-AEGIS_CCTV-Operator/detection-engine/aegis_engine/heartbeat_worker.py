@@ -8,9 +8,11 @@ numbers only ever reached the *local* FastAPI endpoint on the edge node, which
 the web app never calls — so Monitor had no way to know whether this process
 was alive, and its "Edge node: online" pill was a hard-coded string.
 
-This thread closes that loop: every ``heartbeat_interval_s`` it takes a metrics
-snapshot and POSTs it to ``/internal/heartbeat``. Monitor stores one row per
-camera and derives link status purely from how old that row is.
+This thread closes that loop: every ``heartbeat_interval_s`` it takes one
+physical-runtime metrics snapshot and submits it through ``MonitorClient``.
+Strict mode routes it through the local Identity Agent, whose authenticated
+Node registration supplies physical provenance; heartbeat never supplies that
+authority itself.
 
 Design notes
 ------------

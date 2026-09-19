@@ -7,8 +7,6 @@ from dataclasses import dataclass
 import threading
 import time
 
-import requests
-
 from .protocol import canonical_auth_payload, parse_canonical_token, parse_uint
 from .sequence import SequenceAllocator
 
@@ -27,7 +25,10 @@ class AgentSessionClient:
     def __init__(self, config, signer, *, http=None, now_ms=None):
         self.config = config
         self._signer = signer
-        self._http = http or requests.Session()
+        if http is None:
+            import requests
+            http = requests.Session()
+        self._http = http
         self._now_ms = now_ms or (lambda: int(time.time() * 1000))
         self._lock = threading.RLock()
         self._session = None
