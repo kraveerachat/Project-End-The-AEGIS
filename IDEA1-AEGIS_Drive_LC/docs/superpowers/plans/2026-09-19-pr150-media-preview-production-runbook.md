@@ -3,28 +3,56 @@
 Status: **PREPARED, NOT EXECUTED.** Nothing in this document has been run against Production. Every command below is for the Human Owner to run on the Production host after the independent review of the pre-production SHA. This gate wrote no file under `/opt/aegis`, ran no `sudo`, and ran no Production Docker command.
 
 ```
-PREPROD_SOURCE_SHA=<PREPROD_SOURCE_SHA — the branch head named in the Tranche C final report>
-CANDIDATE_TAG=aegis-prod-drive:media-preview-<sha12>
-CANDIDATE_IMAGE_ID=<from the final report>
-CANDIDATE_REVISION=<PREPROD_SOURCE_SHA — the branch head named in the Tranche C final report> (org.opencontainers.image.revision)
-MEDIA_OVERLAY_PATH_PLANNED=/opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml
-ROLLBACK_MODEL=OMIT_MEDIA_OVERLAY
+PREPROD_SHA=4d0b4fab0f667f9a161b75a3e497868cbb673fb2
+SHA12=4d0b4fab0f66
+CANDIDATE_TAG=aegis-prod-drive:media-preview-4d0b4fab0f66
+CANDIDATE_IMAGE_OVERRIDE=/opt/aegis/runtime/pr150/drive-image-4d0b4fab0f66.yml     (NEW file)
+MEDIA_OVERLAY=/opt/aegis/runtime/pr150/drive-media-preview-4d0b4fab0f66.yml       (NEW file)
+ROLLBACK_MODEL=OMIT_NEW_IMAGE_OVERRIDE_AND_MEDIA_OVERLAY
 DATABASE_MUTATION=NO   MIGRATION_APPLIED=NO   PUBLIC_SHARE_TOUCHED=NO
 ANIMATED_WEBP_MOTION=POSTER_ONLY_DEGRADATION (DEMUXER_WEBP_MISSING in the packaged ffmpeg 8.0.1-r1)
+LIST_ROW_MEDIA_PREVIEW=NOT_IMPLEMENTED   LIST_ROW_CURRENT_BEHAVIOR=ICON_ONLY   (section 9)
+```
+
+Invariants of this runbook:
+
+- **No currently-active Production compose file is edited.** Not the base file, not any Public Share overlay (`drive-s5-3.yml`, `drive-gateway-s5-4.yml`, `connector-s5-5.yml`, `docker-compose.s5-11-ui.yml`), not the existing Drive image override. Every active file stays byte-identical; the cutover only **appends two new files** to the chain.
+- **The stale Production checkout `/opt/aegis/Project-End-The-AEGIS` is read-only evidence.** No fetch, checkout, pull, worktree creation or any other mutation is run there. The candidate is built from a separate, isolated tree.
+- **Every Production Docker command uses the scrubbed privileged prefix** `sudo env -u DOCKER_HOST -u CONTAINER_HOST docker …` so an inherited daemon selector can never redirect a command. `sudo -E` is never used.
+- Only the Drive service is recreated (`up -d --no-deps --no-build drive`). Never `down`, `pull`, `prune`, `--remove-orphans`, `--force-recreate`, or a global recreate.
+
+Shell shorthand used below (set once per shell; not persisted anywhere):
+
+```bash
+DOCKER='sudo env -u DOCKER_HOST -u CONTAINER_HOST docker'
+PREPROD_SHA=4d0b4fab0f667f9a161b75a3e497868cbb673fb2
+SHA12=4d0b4fab0f66
+CANDIDATE_TAG=aegis-prod-drive:media-preview-${SHA12}
 ```
 
 ## 0. Preconditions the Owner must confirm (this gate could not)
 
-1. **Production Drive image / checkout state.** The plan's global constraints record `PRODUCTION_RUNTIME_CURRENT=e5bea949` (the accepted Round 10 build). The last repository receipt (2026-09-18, PR #148 closure) names `aegis-prod-drive:files-upload-ux-22ff70a85088` as the accepted Drive image. Read the tag actually referenced by the live Drive image override before cutover (section 2) and record it as `ROLLBACK_IMAGE_TAG`. Do not assume.
-2. **Migration 010 (`kind`/`parent_id`).** PR #150 carries migration 010; this media cutover does not apply any migration. If the live database has **not** been migrated to 010, the candidate image must not be deployed by this runbook — the migration is a separate, backed-up, owner-run step that precedes it. Section 2 records the migration state; `MIGRATION_APPLIED=NO` in this runbook means "this cutover applies nothing", not "010 is unnecessary".
-3. **Drive image override file.** The candidate tag is carried by the existing Drive image override layer (`/opt/aegis/runtime/public-share/drive-s5-3.yml` in the recorded chain, or its current successor). The media overlay never sets `image:`.
+1. **Exact currently-active compose chain.** The recorded model (gateway/public-share/production/README.md and the S5.x receipts) is `--env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod` with, in order, `/opt/aegis/runtime/docker-compose.production.yml`, `/opt/aegis/runtime/public-share/drive-s5-3.yml`, `/opt/aegis/runtime/public-share/drive-gateway-s5-4.yml`, `/opt/aegis/runtime/public-share/connector-s5-5.yml`, `/opt/aegis/runtime/public-share/docker-compose.s5-11-ui.yml`. The Owner must **identify and record the chain that is actually in force** (section 2.1) and use exactly that chain as `<CURRENT_CHAIN>` everywhere below. If the live chain differs from the recorded one, the live chain wins and this runbook is not executed until the difference is understood.
+2. **Live Drive image.** The plan's global constraints record `PRODUCTION_RUNTIME_CURRENT=e5bea949` (accepted Round 10 build); the last repository receipt (2026-09-18, PR #148 closure) names `aegis-prod-drive:files-upload-ux-22ff70a85088`. Read the image referenced by the live chain and the running container (section 2) and record it as `PRE_CUTOVER_DRIVE_IMAGE`. Rollback returns to exactly that image by omitting the two new files — nothing is written to restore it.
+3. **Migration 010 (`kind` / `parent_id`) must already be complete on the live database** (section 2.4). This cutover applies no migration; if any required object is absent, `CUTOVER_ALLOWED=NO`, `MIGRATION_010_REQUIRED=YES`, STOP. Applying migration 010 is a separate, backed-up, owner-run step outside this runbook.
+4. **Authorised Git access on the host.** This runbook does not assume that credentials exist on the Production host; the isolated clone in section 3 uses whatever authorised mechanism the host already has for `origin`.
 
-## 1. Files (content to create on the host — Owner action)
+## 1. New files (content to create on the host — Owner action; both under `/opt/aegis/runtime/pr150/`)
 
-### 1.1 Media overlay — `/opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml`
+### 1.1 Candidate image override — `/opt/aegis/runtime/pr150/drive-image-4d0b4fab0f66.yml` (NEW)
 
 ```yaml
-# PR #150 media preview — service-scoped overlay (Drive only). Applied LAST in the -f chain.
+# PR #150 media preview — candidate Drive image. Appended AFTER the current chain; it overrides the
+# Drive image of the earlier layer without editing that layer. Nothing else.
+services:
+  drive:
+    image: aegis-prod-drive:media-preview-4d0b4fab0f66
+```
+
+### 1.2 Media overlay — `/opt/aegis/runtime/pr150/drive-media-preview-4d0b4fab0f66.yml` (NEW)
+
+```yaml
+# PR #150 media preview — service-scoped overlay (Drive only). Appended LAST in the -f chain.
 # Adds ONLY the MEDIA_* environment and the rebuildable derivative cache mount.
 # Never sets image:, networks, addresses, /datalake, telemetry/backup binds, group_add,
 # Public Share services, the gateway or PostgreSQL.
@@ -45,168 +73,229 @@ volumes:
     name: aegis_drive_media_cache   # rebuildable derivative cache — not backed up, safe to delete when unused
 ```
 
-### 1.2 Drive image override — existing layer, one line changed by the Owner
-
-In the existing Drive image override (currently `/opt/aegis/runtime/public-share/drive-s5-3.yml` per the recorded chain), set the Drive image to the candidate:
-
-```yaml
-services:
-  drive:
-    image: aegis-prod-drive:media-preview-<sha12>
+```bash
+sudo install -d -m 0755 /opt/aegis/runtime/pr150
+# write the two files above, then record their digests
+sha256sum /opt/aegis/runtime/pr150/drive-image-${SHA12}.yml /opt/aegis/runtime/pr150/drive-media-preview-${SHA12}.yml
 ```
 
-Keep a copy of the previous file (`cp drive-s5-3.yml drive-s5-3.yml.pre-pr150-$(date -u +%Y%m%dT%H%M%SZ)`) — it is the rollback file.
+No existing file under `/opt/aegis/runtime` is modified.
 
 ## 2. Pre-cutover snapshot (record every output; read-only)
 
+### 2.1 Checkout and compose file set (read-only)
+
 ```bash
-# checkout / repo state (read-only)
-cd /opt/aegis/Project-End-The-AEGIS && git rev-parse HEAD && git status --short | head
-# live compose file set (read-only)
+git -C /opt/aegis/Project-End-The-AEGIS rev-parse HEAD
+git -C /opt/aegis/Project-End-The-AEGIS status --short | head
+git -C /opt/aegis/Project-End-The-AEGIS remote get-url origin
 ls -la /opt/aegis/runtime /opt/aegis/runtime/public-share /opt/aegis/runtime/pr150 2>/dev/null
 sha256sum /opt/aegis/runtime/docker-compose.production.yml /opt/aegis/runtime/public-share/*.yml
-grep -n 'image:' /opt/aegis/runtime/public-share/drive-s5-3.yml    # → ROLLBACK_IMAGE_TAG
-# Drive container / image / health / restarts
-sudo docker ps --filter name=aegis-prod-drive-1 --format '{{.ID}} {{.Image}} {{.Status}}'
-sudo docker inspect aegis-prod-drive-1 --format 'image={{.Image}} restarts={{.RestartCount}} health={{.State.Health.Status}} oom={{.State.OOMKilled}}'
-sudo docker inspect aegis-prod-drive-1 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}'
-sudo docker inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{.Type}} {{.Name}}{{.Source}} -> {{.Destination}} rw={{.RW}}
+grep -n 'image:' /opt/aegis/runtime/public-share/*.yml /opt/aegis/runtime/docker-compose.production.yml     # → PRE_CUTOVER_DRIVE_IMAGE (read only)
+```
+
+Record `<CURRENT_CHAIN>` = the exact `-f` list in force (see precondition 0.1).
+
+### 2.2 Drive container / image / health / restarts / networks / mounts
+
+```bash
+$DOCKER ps --filter name=aegis-prod-drive-1 --format '{{.ID}} {{.Image}} {{.Status}}'
+$DOCKER inspect aegis-prod-drive-1 --format 'image={{.Image}} config={{.Config.Image}} restarts={{.RestartCount}} health={{.State.Health.Status}} oom={{.State.OOMKilled}}'
+$DOCKER inspect aegis-prod-drive-1 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}'
+$DOCKER inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{.Type}} {{.Name}}{{.Source}} -> {{.Destination}} rw={{.RW}}
 {{end}}'
-sudo docker inspect aegis-prod-drive-1 --format '{{.HostConfig.GroupAdd}}'
-sudo docker exec aegis-prod-drive-1 wget -qO- http://127.0.0.1:8001/healthz
-# unrelated services and Public Share services (must be unchanged after cutover)
-sudo docker ps --format '{{.Names}} {{.Image}} {{.Status}}' | sort
-sudo docker network ls --format '{{.Name}} {{.Driver}}' | sort
-sudo docker volume ls --format '{{.Name}}' | sort
-# database: counts + migration state (read-only, non-secret)
-sudo docker exec aegis-prod-postgres-1 psql -U <admin-role> -d aegis_drive -Atc "SELECT count(*) FROM files; SELECT count(*) FROM files WHERE vault; SELECT count(*) FROM files WHERE deleted_at IS NOT NULL;"
-sudo docker exec aegis-prod-postgres-1 psql -U <admin-role> -d aegis_drive -Atc "SELECT column_name FROM information_schema.columns WHERE table_name='files' AND column_name IN ('kind','parent_id') ORDER BY 1;"   # both rows present = migration 010 applied
+$DOCKER inspect aegis-prod-drive-1 --format '{{.HostConfig.GroupAdd}}'
+$DOCKER exec aegis-prod-drive-1 wget -qO- http://127.0.0.1:8001/healthz
+```
+
+### 2.3 Unrelated services, networks, volumes (must be unchanged after cutover)
+
+```bash
+$DOCKER ps --format '{{.Names}} {{.Image}} {{.Status}}' | sort
+$DOCKER network ls --format '{{.Name}} {{.Driver}}' | sort
+$DOCKER volume ls --format '{{.Name}}' | sort
+```
+
+### 2.4 Database: role resolution, counts and the FULL migration-010 precheck (SELECT-only; no secret printed)
+
+Resolve the PostgreSQL user from the running container's environment without printing the password (or set `PGUSER` explicitly to a role that can read `information_schema`/`pg_indexes`):
+
+```bash
+PGUSER=$($DOCKER exec aegis-prod-postgres-1 sh -c 'printf %s "$POSTGRES_USER"')
+test -n "$PGUSER" || { echo 'set PGUSER explicitly'; exit 1; }
+PSQL="$DOCKER exec aegis-prod-postgres-1 psql -U $PGUSER -d aegis_drive -At -v ON_ERROR_STOP=1 -c"
+# never: echo/printenv of POSTGRES_PASSWORD; never --env or -E
+```
+
+Counts (non-secret):
+
+```bash
+$PSQL "SELECT count(*) AS files_total FROM files;"
+$PSQL "SELECT count(*) AS files_vault FROM files WHERE vault;"
+$PSQL "SELECT count(*) AS files_trashed FROM files WHERE deleted_at IS NOT NULL;"
+```
+
+Migration-010 precheck — every line must print `1` (the last one `0`); any other result ⇒ `CUTOVER_ALLOWED=NO`, `MIGRATION_010_REQUIRED=YES`, STOP:
+
+```bash
+# files.kind exists, NOT NULL, DEFAULT 'file'
+$PSQL "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='files' AND column_name='kind' AND is_nullable='NO' AND column_default LIKE '''file''%';"
+# files.kind check constraint
+$PSQL "SELECT count(*) FROM pg_constraint WHERE conrelid='public.files'::regclass AND conname='files_kind_check';"
+# files.parent_id exists
+$PSQL "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='files' AND column_name='parent_id';"
+# upload_sessions.parent_id exists
+$PSQL "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='upload_sessions' AND column_name='parent_id';"
+# indexes
+$PSQL "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='files' AND indexname='files_parent_id_idx';"
+$PSQL "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='files' AND indexname='files_unique_name_per_parent_idx';"
+# no unclassified rows may remain
+$PSQL "SELECT count(*) AS unclassified FROM files WHERE kind IS NULL;"     # expected 0
 ```
 
 Expected for the media cutover itself: `DATABASE_MUTATION=NO`, `MIGRATION_APPLIED=NO`, `PUBLIC_SHARE_TOUCHED=NO`.
 
-## 3. Candidate image on the host (Owner action; build from the exact SHA)
+## 3. Candidate image on the host (Owner action; isolated tree, exact SHA)
+
+The stale checkout is not touched. Build only from a separate clone at the exact SHA.
 
 ```bash
-cd /opt/aegis/Project-End-The-AEGIS   # or a clean clone at the exact SHA — never modify the stale checkout in place
-git fetch origin && git worktree add /opt/aegis/build/pr150-<sha12> <PREPROD_SOURCE_SHA — the branch head named in the Tranche C final report>
-cd /opt/aegis/build/pr150-<sha12>/IDEA1-AEGIS_Drive_LC
-sudo docker build --label org.opencontainers.image.revision=<PREPROD_SOURCE_SHA — the branch head named in the Tranche C final report> -t aegis-prod-drive:media-preview-<sha12> .
-sudo docker image inspect aegis-prod-drive:media-preview-<sha12> --format 'id={{.Id}} rev={{index .Config.Labels "org.opencontainers.image.revision"}} size={{.Size}}'
-# in-image toolchain truth (must match section 6)
-sudo docker run --rm --entrypoint sh aegis-prod-drive:media-preview-<sha12> -c 'cat /etc/alpine-release; node --version; ffmpeg -version | head -1; ffprobe -version | head -1; ffmpeg -hide_banner -encoders | grep -E " (libx264|libwebp) "; ffmpeg -hide_banner -decoders | grep -E "^ V" | grep -E " (gif|apng|webp|av1|h264|vp8|vp9) "; ffmpeg -hide_banner -demuxers | grep -E "^ D +webp"; node -e "import(\"sharp\").then(s=>console.log(s.default.versions))"'
+ORIGIN_URL=$(git -C /opt/aegis/Project-End-The-AEGIS remote get-url origin)      # read-only
+sudo install -d -m 0755 /opt/aegis/build
+# obtain the source with the host's authorised Git mechanism (this runbook assumes no credentials)
+git clone --no-checkout "$ORIGIN_URL" /opt/aegis/build/pr150-${SHA12}
+git -C /opt/aegis/build/pr150-${SHA12} checkout --detach ${PREPROD_SHA}
+# identity proof — both must hold before building
+test "$(git -C /opt/aegis/build/pr150-${SHA12} rev-parse HEAD)" = "${PREPROD_SHA}"
+test -z "$(git -C /opt/aegis/build/pr150-${SHA12} status --short)"
+cd /opt/aegis/build/pr150-${SHA12}/IDEA1-AEGIS_Drive_LC
+$DOCKER build --label org.opencontainers.image.revision=${PREPROD_SHA} -t ${CANDIDATE_TAG} .
+$DOCKER image inspect ${CANDIDATE_TAG} --format 'id={{.Id}} rev={{index .Config.Labels "org.opencontainers.image.revision"}} size={{.Size}}'
 ```
 
-The image id built on the host will differ from the gate's `CANDIDATE_IMAGE_ID` (different build host); the **revision label and the toolchain versions must match**.
-
-## 4. Rendered-config check (read-only; abort on ANY unexpected difference)
+The image id built on the host **will differ** from the pre-production verifier image (`sha256:a89a9e316dfb54f4b2da9c11071b164a2d2b5ace5dcc7809be33f8e28aae57bb`). Mandatory identity proof is the label `org.opencontainers.image.revision == 4d0b4fab0f667f9a161b75a3e497868cbb673fb2` plus the toolchain truth below, which must match exactly:
 
 ```bash
-sudo docker compose \
-  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
-  --project-name aegis-prod \
-  -f /opt/aegis/runtime/docker-compose.production.yml \
-  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
-  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
-  -f /opt/aegis/runtime/public-share/connector-s5-5.yml \
-  -f /opt/aegis/runtime/public-share/docker-compose.s5-11-ui.yml \
-  -f /opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml \
-  config > /tmp/pr150-rendered.yml
+$DOCKER run --rm --entrypoint sh ${CANDIDATE_TAG} -c '
+  echo NODE=$(node --version) ALPINE=$(cat /etc/alpine-release);
+  echo FFMPEG=$(ffmpeg -version | head -1 | cut -d" " -f3) FFPROBE=$(ffprobe -version | head -1 | cut -d" " -f3);
+  echo -n "LIBX264="; ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE " libx264 " && echo PRESENT || echo MISSING;
+  echo -n "LIBWEBP="; ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE " libwebp " && echo PRESENT || echo MISSING;
+  echo -n "DECODERS="; ffmpeg -hide_banner -decoders 2>/dev/null | grep -E "^ V" | grep -oE " (gif|apng|webp|av1|h264|vp8|vp9) " | tr -d "\n"; echo;
+  echo -n "DEMUXER_WEBP="; ffmpeg -hide_banner -demuxers 2>/dev/null | grep -qE "^ +D +webp +" && echo PRESENT || echo "MISSING (webp_pipe only)";
+  node -e "import(\"sharp\").then(s=>console.log(\"SHARP=\"+s.default.versions.sharp+\" VIPS=\"+s.default.versions.vips))"'
 ```
 
-(Use exactly the file set currently in force — if the live chain differs from the five files above, use the live chain and append the media overlay last.)
+Expected: `NODE=v20.20.2 ALPINE=3.23.4`, `FFMPEG=8.0.1 FFPROBE=8.0.1`, `LIBX264=PRESENT`, `LIBWEBP=PRESENT`, decoders `apng av1 gif h264 vp8 vp9 webp`, `DEMUXER_WEBP=MISSING (webp_pipe only)` → `ANIMATED_WEBP_MOTION=POSTER_ONLY_DEGRADATION`, `SHARP=0.35.4 VIPS=8.18.6`. Any mismatch aborts.
 
-Prove in `/tmp/pr150-rendered.yml`, service `drive`:
+## 4. Rendered-config diff (read-only; abort on ANY unexpected difference)
 
-- `image: aegis-prod-drive:media-preview-<sha12>`
-- networks and static addresses identical to the section 2 snapshot (`aegis_drive_proxy` 172.19.255.3, `aegis_internal` 172.18.0.3, `aegis_public_share_upstream` 172.31.241.3, `aegis_vlan10_macvlan` 192.168.10.11 — as recorded in the snapshot)
-- `/datalake` mount unchanged and `rw`
-- `/run/aegis-telemetry:/run/aegis-telemetry:ro` present, read-only
-- `/run/aegis-backup:/run/aegis-backup:ro` present, read-only
-- `group_add` contains `29100` and `29102`
-- exactly ONE new mount: `aegis_drive_media_cache` → `/var/cache/aegis-media`
-- top-level `volumes.aegis_drive_media_cache.name == aegis_drive_media_cache`
-- `environment` gains only `MEDIA_ENABLED, MEDIA_CACHE_DIR, MEDIA_CACHE_MAX_BYTES, MEDIA_WORKERS, MEDIA_STILL_ENGINE, MEDIA_CACHE_POLICY`
-- every other service (postgres, hub, monitor, public-share-gateway, connector, UI) byte-identical to a render WITHOUT the media overlay:
+`RENDER_BEFORE` = `<CURRENT_CHAIN>`; `RENDER_AFTER` = `<CURRENT_CHAIN>` + candidate image override + media overlay.
 
 ```bash
-sudo docker compose --env-file ... --project-name aegis-prod -f ...(same chain without the media overlay) config > /tmp/pr150-rendered-before.yml
-diff /tmp/pr150-rendered-before.yml /tmp/pr150-rendered.yml     # only the drive image line, the MEDIA_* lines, the one mount and the volume block may differ
+COMPOSE="$DOCKER compose --env-file /opt/aegis/Project-End-The-AEGIS/.env --project-name aegis-prod"
+CHAIN='-f /opt/aegis/runtime/docker-compose.production.yml -f /opt/aegis/runtime/public-share/drive-s5-3.yml -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml -f /opt/aegis/runtime/public-share/connector-s5-5.yml -f /opt/aegis/runtime/public-share/docker-compose.s5-11-ui.yml'
+# ⚠️ replace CHAIN with the exact live chain recorded in 2.1 if it differs
+$COMPOSE $CHAIN config > /tmp/pr150-render-before.yml
+$COMPOSE $CHAIN -f /opt/aegis/runtime/pr150/drive-image-${SHA12}.yml -f /opt/aegis/runtime/pr150/drive-media-preview-${SHA12}.yml config > /tmp/pr150-render-after.yml
+diff /tmp/pr150-render-before.yml /tmp/pr150-render-after.yml
 ```
+
+The **only** accepted differences in the diff:
+
+- `services.drive.image` → `aegis-prod-drive:media-preview-4d0b4fab0f66`
+- `services.drive.environment` gains exactly `MEDIA_ENABLED, MEDIA_CACHE_DIR, MEDIA_CACHE_MAX_BYTES, MEDIA_WORKERS, MEDIA_STILL_ENGINE, MEDIA_CACHE_POLICY`
+- one new mount `aegis_drive_media_cache` → `/var/cache/aegis-media` on `drive`
+- top-level `volumes.aegis_drive_media_cache` with `name: aegis_drive_media_cache`
+
+Abort if anything else differs, in particular: Drive networks or static addresses (`aegis_drive_proxy` 172.19.255.3, `aegis_internal` 172.18.0.3, `aegis_public_share_upstream` 172.31.241.3, `aegis_vlan10_macvlan` 192.168.10.11 — as recorded in 2.2), the `/datalake` mount (must stay `rw`), `/run/aegis-telemetry:…:ro`, `/run/aegis-backup:…:ro`, `group_add` (`29100`, `29102`), or any line of `postgres`, `hub`, `monitor`, the Public Share gateway, the connector, the Public Share UI, or any other service.
 
 ## 5. Cutover (Drive only) — DO NOT RUN until the review says GO
 
 ```bash
-sudo docker compose \
-  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
-  --project-name aegis-prod \
-  -f /opt/aegis/runtime/docker-compose.production.yml \
-  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
-  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
-  -f /opt/aegis/runtime/public-share/connector-s5-5.yml \
-  -f /opt/aegis/runtime/public-share/docker-compose.s5-11-ui.yml \
-  -f /opt/aegis/runtime/pr150/drive-media-preview-<sha12>.yml \
+$COMPOSE $CHAIN \
+  -f /opt/aegis/runtime/pr150/drive-image-${SHA12}.yml \
+  -f /opt/aegis/runtime/pr150/drive-media-preview-${SHA12}.yml \
   up -d --no-deps --no-build drive
 ```
 
-Never: `--remove-orphans`, `down`, `pull`, `prune`, `--force-recreate`, or any command without `--no-deps drive`.
+Forbidden: `down`, `pull`, `prune`, `--remove-orphans`, `--force-recreate`, any global recreate, any command without `--no-deps drive`.
 
 Post-recreate proof:
 
 ```bash
-sudo docker inspect aegis-prod-drive-1 --format 'image={{.Image}} restarts={{.RestartCount}} health={{.State.Health.Status}}'
-sudo docker inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{.Type}} {{.Name}}{{.Source}} -> {{.Destination}} rw={{.RW}}
+$DOCKER inspect aegis-prod-drive-1 --format 'image={{.Config.Image}} restarts={{.RestartCount}} health={{.State.Health.Status}} oom={{.State.OOMKilled}}'
+$DOCKER inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{.Type}} {{.Name}}{{.Source}} -> {{.Destination}} rw={{.RW}}
 {{end}}'      # /datalake rw, telemetry ro, backup ro, aegis_drive_media_cache -> /var/cache/aegis-media
-sudo docker volume inspect aegis_drive_media_cache --format '{{.Name}} {{.Mountpoint}}'
-sudo docker exec aegis-prod-drive-1 wget -qO- http://127.0.0.1:8001/healthz      # media.enabled true, ffmpeg 8.0.1, sharp 0.35.4, cacheWritable true, cacheVolume "volume"
-sudo docker exec aegis-prod-drive-1 ls -ld /var/cache/aegis-media                # owner node
-sudo docker ps --format '{{.Names}} {{.Image}} {{.Status}}' | sort                # every other service unchanged
+$DOCKER inspect aegis-prod-drive-1 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}'   # identical to 2.2
+$DOCKER inspect aegis-prod-drive-1 --format '{{.HostConfig.GroupAdd}}'                                                # identical to 2.2
+$DOCKER volume inspect aegis_drive_media_cache --format '{{.Name}} {{.Mountpoint}}'
+$DOCKER exec aegis-prod-drive-1 wget -qO- http://127.0.0.1:8001/healthz   # media.enabled true, ffmpeg 8.0.1, sharp 0.35.4, cacheWritable true, cacheVolume "volume"
+$DOCKER exec aegis-prod-drive-1 ls -ld /var/cache/aegis-media             # owner node
+$DOCKER ps --format '{{.Names}} {{.Image}} {{.Status}}' | sort             # every other service unchanged vs 2.3
 ```
 
-Browser acceptance (Owner, per plan Task 18 Steps 8–11): cold cache pending icon → poster; warm refresh; first hover on the REAL 49.7 MB GIF and the real 196 MB video with the network log showing derivative-sized transfers only; mouseleave poster; reduced motion; cross-account cache isolation (A → logout → 401 → B → 404, real network request, not "from disk cache"); `docker stats`, `RestartCount`, child `VmHWM`, p95 before/during a 300 MB-class and a 10 GB-class job.
+## 6. Browser acceptance (mandatory, Owner; not weakened by this runbook)
 
-## 6. Rollback — OMIT the media overlay, restore the previous Drive image override
+- REAL Production ~49.7 MB GIF and REAL ~196 MB video (the pre-production gate used deterministic fixtures: `REAL_49_7MB_GIF_PREPROD=NOT_AVAILABLE`).
+- Cold: icon/pending → server poster. Warm: poster immediately from the derivative/cache path.
+- GIF first hover while the motion proxy is not yet ready → playback starts automatically once the proxy is ready, with NO mouse re-entry. `mouseleave` → poster immediately visible.
+- Video: poster + hover proxy.
+- Network log: the grid must not fetch any original media body (only `POST /api/files/media-info/batch`, poster and motion-preview derivatives; `/api/files/:id/preview` only from the explicit Preview dialog).
+- Cross-account: A views a poster → logout → the anonymous request reaches the server and gets 401 → B logs in on the same browser → the request for A's row reaches the server and gets 404 (a real network request, not "from disk cache").
+- Reduced motion: poster yes, motion autoplay no.
+- Resources: `RestartCount` unchanged, `OOMKilled=false`, no HTTP request > 5 s, no unrelated service change (`docker stats`, child `VmHWM`, p95 before/during a 300 MB-class and a 10 GB-class job as in plan Task 18 Step 11).
+- Animated WebP: poster-only degradation is the expected, truthful behaviour (`DEMUXER_WEBP_MISSING`).
+
+## 7. Rollback — omit both new PR150 files (nothing is restored or rewritten)
 
 ```bash
-# 1) restore the pre-PR150 Drive image override (the file copied in 1.2)
-sudo cp /opt/aegis/runtime/public-share/drive-s5-3.yml.pre-pr150-<stamp> /opt/aegis/runtime/public-share/drive-s5-3.yml
-# 2) recreate Drive WITHOUT the media overlay (exact pre-cutover chain)
-sudo docker compose \
-  --env-file /opt/aegis/Project-End-The-AEGIS/.env \
-  --project-name aegis-prod \
-  -f /opt/aegis/runtime/docker-compose.production.yml \
-  -f /opt/aegis/runtime/public-share/drive-s5-3.yml \
-  -f /opt/aegis/runtime/public-share/drive-gateway-s5-4.yml \
-  -f /opt/aegis/runtime/public-share/connector-s5-5.yml \
-  -f /opt/aegis/runtime/public-share/docker-compose.s5-11-ui.yml \
-  up -d --no-deps --no-build drive
-# 3) proof: image == ROLLBACK_IMAGE_TAG, no /var/cache/aegis-media mount, networks/addresses/binds/group_add as in section 2
-sudo docker inspect aegis-prod-drive-1 --format 'image={{.Image}} {{range .Mounts}}{{.Destination}} {{end}}'
+$COMPOSE $CHAIN up -d --no-deps --no-build drive      # exact PRE-CUTOVER chain: no candidate image override, no media overlay
 ```
 
-The volume `aegis_drive_media_cache` stays in place, unused. Do **not** `docker volume rm` it during rollback (Docker refuses while any container references it, and it is not on the critical path). Kill switches that avoid a redeploy: `MEDIA_ENABLED=false`, `MEDIA_STILL_ENGINE=ffmpeg`, `MEDIA_CACHE_POLICY=revalidate` (edit the overlay, then the same `up -d --no-deps --no-build drive`).
+`drive-s5-3.yml` and every other active file were never modified, so nothing is edited or restored. Prove after rollback:
 
-## 7. Evidence recorded by this gate (values, not promises)
+```bash
+$DOCKER inspect aegis-prod-drive-1 --format 'image={{.Config.Image}} restarts={{.RestartCount}} health={{.State.Health.Status}}'   # image == PRE_CUTOVER_DRIVE_IMAGE
+$DOCKER inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{.Destination}} rw={{.RW}} {{end}}'                             # no /var/cache/aegis-media; /datalake rw; telemetry/backup ro
+$DOCKER inspect aegis-prod-drive-1 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}'         # same networks and addresses as 2.2
+$DOCKER inspect aegis-prod-drive-1 --format '{{.HostConfig.GroupAdd}}'                                                             # same group_add
+```
 
-Measured in the packaged candidate (`MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE`, gate image `sha256:039f8c518b1f8981c8c7e153381fdeeb35a3d49876ba5ecc584e00a41c7d4797` built from test-tree commit `7ca6fe78`; runtime tree identical to the final SHA), Alpine 3.23.4, Node v20.20.2, ffmpeg/ffprobe 8.0.1 (apk `8.0.1-r1`), sharp 0.35.4 / libvips 8.18.6. Host tools are supplemental only.
+The volume `aegis_drive_media_cache` stays in place, unused. It is **not** deleted on the rollback critical path (Docker refuses while any container references it; removal is optional housekeeping later). Kill switches that avoid a redeploy: `MEDIA_ENABLED=false`, `MEDIA_STILL_ENGINE=ffmpeg`, `MEDIA_CACHE_POLICY=revalidate` — edit only the media overlay, then the same section-5 command.
+
+## 8. Evidence recorded by the pre-production gate (values, not promises)
+
+Authoritative run inside the final candidate image `sha256:a89a9e316dfb54f4b2da9c11071b164a2d2b5ace5dcc7809be33f8e28aae57bb` (`org.opencontainers.image.revision=4d0b4fab0f667f9a161b75a3e497868cbb673fb2`, `MEDIA_TOOLCHAIN_PROVENANCE=PACKAGED_CANDIDATE`), Alpine 3.23.4, Node v20.20.2, ffmpeg/ffprobe 8.0.1 (apk `8.0.1-r1`), sharp 0.35.4 / libvips 8.18.6. Host tools are supplemental only. Full Linux/PostgreSQL verification at the same SHA: 1871 tests / 1827 pass / 1 accepted historical failure (PS6-ENV-4 Node 24 reporter signature) / 43 skips (linux-gate tool skips covered by the in-image run); `NEW_FAILURE_COUNT=0`.
 
 | Class | Fixture (stat) | Result | Source read (rchar) | Notes |
 |---|---|---|---|---|
 | IMAGE_200MB (7000×5000 rgb16 PNG) | 210,069,458 B | poster OK ≤ 512 KiB, sharp | — | 35 MP ≤ 40 MP guard |
 | IMAGE_300MB (8000×5000 rgba16 PNG) | 320,103,184 B | poster OK, sharp | — | exactly the 40 MP guard (allowed) |
 | OVER_PIXELS (9000×5000 header) | header only | UNSUPPORTED / DIMENSIONS in ms, no decode | — | |
-| GIF_518KB / GIF_49MB | 536,442 B / 52,416,569 B | poster + motion OK | 78,987 / 91,506,632 B | recorded, not bounded |
-| GIF_200MB hi/lo | 220,155,593 / 233,857,170 B | motion 6 s ≤ 4 MiB, in time | hi 816,463,659 / lo 765,223,613 B | multi-pass reads (probe+poster+motion); recorded |
-| GIF_300MB hi/lo | 325,100,320 / 337,571,675 B | OK | hi 1,045,522,393 / lo 893,980,916 B | recorded |
-| APNG_200MB hi/lo | 220,122,905 / 213,633,712 B | OK | hi 103,607,226 / lo 906,934 B | recorded |
-| APNG_300MB hi/lo | 324,770,259 / 350,038,032 B | OK | hi 107,801,530 / lo 909,814 B | recorded |
-| VIDEO_196MB (H.264 720p) | 200,068,961 B | poster 12,638 B + motion 10,606 B | 33,554,102 B | browser transfer = derivatives only |
-| MP4_FASTSTART 10G / 20G (sparse, structurally verified, allocated 16 KiB) | 10,737,428,356 / 21,474,846,596 B | poster + motion OK | 26,187 / 162,767 B | **< 64 MiB bound MET** |
-| MP4_MOOV_AT_END 10G / 20G | same | poster + motion OK (moov read from the end) | 23,307 / 20,427 B | recorded (not claimed as a bound) |
-| WEBM_CUES_MID 10G / 20G (Void after first Cluster) | 10,737,492,313 / 21,474,910,553 B | poster + motion OK; motion 29.4 s / 58.2 s | 10,737,656,376 / 21,470,604,416 B | **read-bound NOT MET on the sparse fixture**: the matroska demuxer reads through the synthetic Void; VmHWM 46 MiB; within the 120 s timeout; not generalised to real files (which have no Void) |
-| WEBM_NO_CUES_MID 10G / 20G | same | poster 29.2 s / 58.2 s, motion 30.3 s / 58.0 s | 21,459,977,355 / 42,944,730,131 B | each stage reads through the Void; recorded |
-| WEBM_*_VOID_FIRST 10G (plan layout: 10 GiB before the first Cluster) | 10,737,444,881 B | truthful PROBE_FAILED (20 s probe timeout), VmHWM 35–36 MiB, no hang | 7,414,068,703 / 7,430,911,459 B | pathological shape; recorded |
-| WEBM_CUES_VOID_FIRST 20G | — | NOT_PROVEN (verification ffprobe exceeded the 60 s check under host load) | — | |
-| WEBM_NO_CUES_VOID_FIRST 20G | 21,474,863,034 B | truthful PROBE_FAILED | 7,423,636,959 B | |
+| GIF_518KB / GIF_49MB | 536,442 B / 52,416,569 B | poster + motion OK | 2,204,669 / 91,509,512 B | recorded, not bounded |
+| GIF_200MB hi/lo | 220,155,593 / 233,857,170 B | motion 6 s ≤ 4 MiB, in time | hi 682,192,994 / lo 636,977,707 B | ≈ 3–4× file size across probe/poster/motion passes; hi/lo ratio 1.07 recorded, no ordering claim |
+| GIF_300MB hi/lo | 325,100,320 / 337,571,675 B | OK | hi 1,026,615,257 / lo 824,840,436 B | ratio 1.25 recorded |
+| APNG_200MB hi/lo | 220,122,905 / 213,633,712 B | OK | hi 103,672,762 / lo 907,894 B | ratio 114 recorded |
+| APNG_300MB hi/lo | 324,770,259 / 350,038,032 B | OK | hi 99,806,138 / lo 906,934 B | ratio 110 recorded |
+| VIDEO_196MB (H.264 720p) | 199,818,965 B | poster 12,638 B + motion 10,606 B | 34,400,723 B | browser transfer = derivatives only |
+| MP4_FASTSTART 10G / 20G (sparse, structurally verified, ≤ 32 KiB allocated) | 10,737,428,356 / 21,474,846,596 B | poster + motion OK | 29,067 / 15,627 B | **< 64 MiB bound MET (asserted)** |
+| MP4_MOOV_AT_END 10G / 20G | same | poster + motion OK (moov read from the end) | 23,307 / 21,387 B | recorded (not claimed as a bound) |
+| WEBM_CUES_MID 10G / 20G (Void after first Cluster) | 10,737,492,313 / 21,474,910,553 B | poster + motion OK; motion 31.3 s / 61.1 s | 10,727,191,552 / 21,464,640,640 B | **read-bound NOT MET on the sparse fixture**: the packaged matroska demuxer reads through the synthetic Void (MP4 `free` is seeked past); VmHWM 46 MiB; within the 120 s timeout; not generalised to real files, which carry no Void |
+| WEBM_NO_CUES_MID 10G / 20G | same | 10G: poster 30.7 s + motion 31.1 s OK; 20G: poster truthful TRANSIENT/TIMEOUT at 60 s | 21,470,069,899 / 21,463,062,198 B | each stage reads through the Void; recorded |
+| WEBM_*_VOID_FIRST 10G (plan layout: 10 GiB before the first Cluster) | 10,737,444,881 B | truthful PROBE_FAILED (20 s probe timeout), VmHWM ≤ 36 MiB, no hang | 6,913,177,057 / 7,022,753,251 B | pathological shape; recorded |
+| WEBM_CUES_VOID_FIRST 20G | — | NOT_PROVEN (verification ffprobe exceeded the 60 s check; consistent across runs) | — | |
+| WEBM_NO_CUES_VOID_FIRST 20G | 21,474,863,034 B | truthful PROBE_FAILED | 7,029,208,543 B | |
 
-Responsiveness (30 s baseline at 5 req/s, `/healthz` + `GET /api/files`): baseline p95 healthz 9 ms / files 6 ms; during the 300 MB-class GIF job (finished in 0.8 s) 7 / 5 ms; during the sparse 10 GiB MP4 moov-at-end job (0.2 s) 8 / 4 ms; REGRESSION_RATIO 0.78 / 0.89 (healthz) and 0.83 / 0.67 (files); zero non-200, none > 5 s; child peak VmHWM 60,404 KiB (59.0 MiB) over 6 runs; container cgroup CPU delta 35.7 s; no restart (single `docker run`), OOMKilled=false. `REAL_49_7MB_GIF_PREPROD=NOT_AVAILABLE` — the deterministic 45–55 MiB fixture was used; the real file stays mandatory in Production browser acceptance.
+Responsiveness (30 s baseline at 5 req/s, `/healthz` + `GET /api/files`): baseline p95 9 / 4 ms; during the 300 MB-class GIF job (finished in 0.8 s) 10 / 6 ms; during the sparse 10 GiB MP4 moov-at-end job (0.2 s) 5 / 3 ms; REGRESSION_RATIO 1.11 / 0.56 (healthz), 1.50 / 0.75 (files) — below the 2.0 review trigger; zero non-200, none > 5 s; child peak VmHWM 61,404 KiB (60.0 MiB) over 6 runs; container cgroup CPU 36.9 s; no restart (single `docker run`), OOMKilled=false. `REAL_49_7MB_GIF_PREPROD=NOT_AVAILABLE` — the deterministic 45–55 MiB fixture was used; the real files stay mandatory in section 6.
+
+## 9. Design deviation record — list view
+
+```
+LIST_ROW_MEDIA_PREVIEW=NOT_IMPLEMENTED
+LIST_ROW_CURRENT_BEHAVIOR=ICON_ONLY
+PRODUCTION_IMPACT=NONE
+FINAL_DOC_RECONCILIATION_REQUIRED=YES
+```
+
+The approved design text described a 32 px poster in list rows. The implementation on this SHA renders server derivatives in the **grid** only; list rows keep their icon-only visuals (they never fetched previews before either). This is a truthful record for the final documentation reconciliation, not an instruction to add UI work in this gate.
