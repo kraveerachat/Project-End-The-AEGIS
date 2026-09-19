@@ -184,6 +184,20 @@ export function openReadStream(key) {
   return fs.createReadStream(abs)
 }
 
+/**
+ * เปิด read stream เฉพาะช่วง [start, end] (รวมปลาย) — ใช้โดย endpoint preview ที่ตอบ 206
+ *
+ * ⚠️ ผู้เรียกต้องตรวจช่วงกับขนาดจริงบนดิสก์ก่อน (ดู parseByteRange ใน routes/api.js)
+ *    ฟังก์ชันนี้ไม่เดาและไม่ตัดให้: ช่วงที่ผิดต้องถูกปฏิเสธที่ชั้น HTTP ด้วย 416 ไม่ใช่
+ *    ถูกแก้เงียบ ๆ ที่นี่แล้วส่งไบต์ที่ไม่ตรงกับ Content-Range ออกไป
+ */
+export function openReadStreamRange(key, { start, end }) {
+  const abs = resolveKey(key)
+  if (!abs) return null
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) return null
+  return fs.createReadStream(abs, { start, end })
+}
+
 /** ลบไฟล์ที่ multer เขียนไปแล้วแต่ transaction ฝั่ง metadata ล้มเหลว — กันไฟล์กำพร้า */
 export async function discardUploaded(multerFile) {
   if (!multerFile?.path) return

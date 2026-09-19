@@ -1,0 +1,722 @@
+// tests/filesInteractionPolish.test.js — FILES-MANAGEMENT-UX-1 · Round 9
+//
+// สามสิ่งที่ Human Owner ขอหลังยอมรับ Round 8 บน Production:
+//   A. ลากกรอบเลือก (marquee) บนพื้นที่ว่างของกริด — เหมือน Google Drive / file manager
+//   B. สื่อที่เคลื่อนไหว (GIF / วิดีโอ) ต้อง "นิ่ง" ตอนหน้าอยู่เฉย ๆ และขยับเฉพาะตอนชี้
+//   C. เมนูเรียงที่บอกทิศทางชัดเจน + เรียงตามวันอัปโหลด (created_at จริงจากฐานข้อมูล)
+//
+// ⚠️ การทดสอบที่นี่ต้องแตะ DOM จริง (jsdom): marquee เป็นเรื่องของเรขาคณิตกับลำดับเหตุการณ์
+//    การทดสอบแค่ helper จะพิสูจน์ไม่ได้ว่า "กดบนการ์ดแล้วไม่เริ่มลากกรอบ" หรือ "ปล่อยเมาส์
+//    แล้ว listener บน window ถูกถอดจริง"
+import test, { after, before } from 'node:test'
+import assert from 'node:assert/strict'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import React, { act } from 'react'
+import { JSDOM } from 'jsdom'
+import { createServer } from 'vite'
+import reactPlugin from '@vitejs/plugin-react'
+import { LANGS, STRINGS, makeT } from '../src/lib/strings.js'
+
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const t = makeT('en')
+
+let vite
+let files
+let view
+
+before(async () => {
+  vite = await createServer({
+    configFile: false, root: rootDir, appType: 'custom', logLevel: 'silent',
+    plugins: [reactPlugin()], server: { middlewareMode: true }, optimizeDeps: { noDiscovery: true, include: [] },
+  })
+  files = await vite.ssrLoadModule('/src/screens/Files.jsx')
+  view = await vite.ssrLoadModule('/src/lib/filesView.js')
+})
+after(async () => { await vite?.close() })
+
+/* ── fixtures ─────────────────────────────────────────────────────────────── */
+const NOW = 1_800_000_000_000
+const fileItem = (over = {}) => ({
+  id: 'f1', name: 'report.pdf', kind: 'file', type: 'PDF', ext: 'pdf',
+  size: 1024, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, ...over,
+})
+const folderItem = (over = {}) => ({
+  id: 'd1', name: '01', kind: 'folder', type: 'Folder', ext: '',
+  size: 0, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, ...over,
+})
+const SHA_A = 'a'.repeat(64)
+const image = (over = {}) => fileItem({ id: 'img1', name: 'photo.jpg', type: 'Image', ext: 'jpg', sha256: SHA_A, ...over })
+const gif = (over = {}) => fileItem({ id: 'g1', name: 'loop.gif', type: 'Image', ext: 'gif', sha256: SHA_A, ...over })
+const clip = (over = {}) => fileItem({ id: 'v1', name: 'clip.mp4', type: 'Video', ext: 'mp4', sha256: SHA_A, ...over })
+/** media-info ปลอม: gif/mp4 เคลื่อนไหวได้ (motion proxy), ภาพนิ่งมีแค่ poster */
+const mediaInfoFor = (id, ext) => {
+  const animated = ext === 'gif' || ext === 'mp4'
+  return {
+    id, sourceVersion: SHA_A, profile: 'v1', family: ext, animated, status: 'READY',
+    poster: { state: 'READY', url: `/api/files/${id}/poster?v=${SHA_A}&p=v1`, mime: 'image/webp' },
+    motion: animated ? { state: 'READY', url: `/api/files/${id}/motion-preview?v=${SHA_A}&p=v1` } : { state: 'UNSUPPORTED', reason: 'NOT_ANIMATED', url: null },
+  }
+}
+const noop = () => {}
+
+/* ── jsdom ────────────────────────────────────────────────────────────────── */
+function installDom({ reducedMotion = false } = {}) {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
+  const previous = new Map()
+  const w = dom.window
+  // ⚠️ jsdom ไม่มี matchMedia — useReducedMotion() ต้องการมัน
+  w.matchMedia = (q) => ({ matches: reducedMotion && q.includes('prefers-reduced-motion'), media: q, addEventListener() {}, removeEventListener() {} })
+  const fetched = []
+  const globals = {
+    window: w, document: w.document, navigator: w.navigator, HTMLElement: w.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
+    // Tranche B: ไทล์ถาม media-info (batch) — ไม่มีคำขออื่นจากกริด; jsdom ไม่ดึง <img>/<video> จริง
+    fetch: async (url, opts = {}) => {
+      const u = String(url); fetched.push(u)
+      if (u.endsWith('/api/files/media-info/batch')) {
+        const items = {}
+        for (const id of JSON.parse(opts.body).ids) items[id] = mediaInfoFor(id, id === 'g1' ? 'gif' : id === 'v1' ? 'mp4' : 'png')
+        return { ok: true, status: 200, json: async () => ({ items }) }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    },
+  }
+  for (const [key, value] of Object.entries(globals)) {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  }
+  return {
+    dom, fetched,
+    restore() {
+      for (const [key, descriptor] of previous) {
+        if (descriptor === undefined) delete globalThis[key]
+        else Object.defineProperty(globalThis, key, descriptor)
+      }
+      w.close()
+    },
+  }
+}
+
+async function mountRoot(opts) {
+  const env = installDom(opts)
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.getElementById('root'))
+  const W = env.dom.window
+  const render = (el) => act(async () => { root.render(el) })
+  /** pointer events: jsdom ไม่มี PointerEvent — ใช้ MouseEvent ชื่อ pointer* ซึ่ง React รับได้ */
+  const pointer = (node, type, init = {}) => act(async () => {
+    const ev = new W.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init })
+    Object.defineProperty(ev, 'pointerId', { value: init.pointerId ?? 1 })
+    Object.defineProperty(ev, 'pointerType', { value: 'mouse' })
+    node.dispatchEvent(ev)
+  })
+  const mouse = (node, type, init = {}) => act(async () => { node.dispatchEvent(new W.MouseEvent(type, { bubbles: true, cancelable: true, ...init })) })
+  const key = (k, init = {}) => act(async () => { W.dispatchEvent(new W.KeyboardEvent('keydown', { key: k, bubbles: true, ...init })) })
+  const plain = (node, type) => act(async () => { node.dispatchEvent(new W.Event(type, { bubbles: false })) })
+  /** รอให้ media-info ตอบและ poster โหลด (jsdom ไม่ดึงภาพจริง → ยิง load เอง) */
+  const settleMedia = async () => {
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    for (const img of document.querySelectorAll('[data-media-thumb] img')) await plain(img, 'load')
+    for (const v of document.querySelectorAll('[data-media-thumb] video')) await plain(v, 'canplaythrough')
+  }
+  return { env, W, root, render, pointer, mouse, key, plain, settleMedia, fetched: env.fetched, unmount: async () => { await act(async () => root.unmount()); env.restore() } }
+}
+
+/** วาง "เรขาคณิต" ให้ canvas และไทล์: jsdom ไม่มี layout จึงต้อง stub getBoundingClientRect */
+function layout(rects) {
+  for (const [selector, r] of Object.entries(rects)) {
+    const el = document.querySelector(selector)
+    assert.ok(el, `layout: ${selector}`)
+    el.getBoundingClientRect = () => ({ left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h, width: r.w, height: r.h, x: r.x, y: r.y })
+  }
+}
+
+function sections({ folders = [], files: plain = [], selectedIds = new Set(), onSelectionChange = noop, onOpen = noop, onDragStartItem = noop, ...rest } = {}) {
+  return React.createElement(files.FilesSections, {
+    t, now: NOW, view: 'grid', folders, files: plain, selectedIds, draggingIds: [],
+    onSelect: noop, onOpen, onMenuAction: noop, onDragStartItem, onDropItems: noop, tileRef: () => noop,
+    onSelectionChange, ...rest,
+  })
+}
+
+/** ไทล์ที่ถูกเลือกในกริด = checkbox aria-checked="true" */
+const checkedIds = () => [...document.querySelectorAll('[data-file-kind] [role="checkbox"][aria-checked="true"]')]
+  .map((cb) => cb.closest('[data-file-kind]').getAttribute('data-file-id'))
+
+/** สภาพแวดล้อม marquee มาตรฐาน: โฟลเดอร์ 1 ใบ + ไฟล์ 3 ใบ วางเป็นตาราง */
+async function marqueeScene(m, extra = {}) {
+  const items = { folders: [folderItem()], files: [image(), fileItem({ id: 'f2', name: 'b.pdf' }), fileItem({ id: 'f3', name: 'c.pdf' })] }
+  let selected = new Set(extra.initial ?? [])
+  const history = []
+  const rerender = () => m.render(sections({
+    ...items, selectedIds: selected,
+    onSelectionChange: (next) => { selected = new Set(next); history.push([...next]); rerender() },
+    onOpen: extra.onOpen, onDragStartItem: extra.onDragStartItem,
+  }))
+  await rerender()
+  layout({
+    '[data-marquee-canvas]': { x: 0, y: 0, w: 1000, h: 800 },
+    '[data-file-id="d1"]': { x: 20, y: 20, w: 180, h: 48 },
+    '[data-file-id="img1"]': { x: 20, y: 120, w: 200, h: 180 },
+    '[data-file-id="f2"]': { x: 260, y: 120, w: 200, h: 180 },
+    '[data-file-id="f3"]': { x: 500, y: 120, w: 200, h: 180 },
+  })
+  return { get selected() { return selected }, history, canvas: () => document.querySelector('[data-marquee-canvas]'), rect: () => document.querySelector('[data-marquee-rect]') }
+}
+
+/* ══ R9-A marquee ══════════════════════════════════════════════════════════ */
+
+test('R9-MARQUEE-1 · primary pointer down on blank canvas + drag past the threshold creates a marquee', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m)
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 400, clientY: 400 })
+    assert.equal(s.rect(), null, 'ยังไม่ขยับ = ยังไม่มีกรอบ')
+    await m.pointer(window, 'pointermove', { clientX: 402, clientY: 401 })
+    assert.equal(s.rect(), null, 'ขยับต่ำกว่า threshold ต้องยังไม่เป็น marquee (คลิกธรรมดา)')
+    await m.pointer(window, 'pointermove', { clientX: 300, clientY: 250 })
+    const r = s.rect()
+    assert.ok(r, 'ลากเกิน threshold → มีกรอบ')
+    assert.equal(r.style.left, '300px'); assert.equal(r.style.top, '250px')
+    assert.equal(r.style.width, '100px'); assert.equal(r.style.height, '150px')
+    assert.equal(r.getAttribute('aria-hidden'), 'true')
+    assert.equal(s.canvas().style.userSelect, 'none', 'ห้ามเกิด text-selection ระหว่างลาก')
+    await m.pointer(window, 'pointerup', { clientX: 300, clientY: 250 })
+    assert.equal(s.rect(), null)
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-2 · the rectangle selects every file card it intersects', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m)
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 250, clientY: 250 }) // ทับ f2, f3 (x 260–700) ไม่ทับ img1 (x 20–220)
+    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+    await m.pointer(window, 'pointermove', { clientX: 100, clientY: 250 }) // ขยายไปทับ img1 ด้วย
+    assert.deepEqual([...s.selected].sort(), ['f2', 'f3', 'img1'])
+    await m.pointer(window, 'pointerup', { clientX: 100, clientY: 250 })
+    assert.deepEqual(checkedIds().sort(), ['f2', 'f3', 'img1'], 'การ์ดที่ถูกเลือกต้องแสดงสถานะเลือกจริง')
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-3 · one rectangle can span the Folders and Files sections', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m)
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 10, clientY: 10 })
+    await m.pointer(window, 'pointermove', { clientX: 120, clientY: 160 }) // ทับ d1 (y 20–68) และ img1 (y 120–300)
+    assert.deepEqual([...s.selected].sort(), ['d1', 'img1'])
+    await m.pointer(window, 'pointerup', { clientX: 120, clientY: 160 })
+    assert.deepEqual([...s.selected].sort(), ['d1', 'img1'])
+    // ลำดับส่วนไม่เปลี่ยน
+    const html = document.body.innerHTML
+    assert.ok(html.indexOf('data-files-section="folders"') < html.indexOf('data-files-section="files"'))
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-4 · pointer down on a card or folder tile never starts a marquee; item drag still works', async () => {
+  const m = await mountRoot()
+  try {
+    const drags = []
+    const s = await marqueeScene(m, { onDragStartItem: (ev, f) => drags.push(f.id) })
+    for (const id of ['img1', 'd1']) {
+      const tile = document.querySelector(`[data-file-id="${id}"]`)
+      await m.pointer(tile, 'pointerdown', { clientX: 30, clientY: 30 })
+      await m.pointer(window, 'pointermove', { clientX: 600, clientY: 600 })
+      assert.equal(s.rect(), null, `${id}: กดบนไทล์ต้องไม่เกิดกรอบ`)
+      await m.pointer(window, 'pointerup', { clientX: 600, clientY: 600 })
+      assert.equal(s.selected.size, 0, `${id}: และต้องไม่เปลี่ยนการเลือก`)
+    }
+    // การลากรายการ (HTML5 drag) ยังเดินทางเดิม
+    const tile = document.querySelector('[data-file-id="img1"]')
+    assert.equal(tile.getAttribute('draggable'), 'true')
+    await act(async () => { tile.dispatchEvent(new m.W.Event('dragstart', { bubbles: true })) })
+    assert.deepEqual(drags, ['img1'])
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-5 · buttons, menus, inputs and checkboxes do not start a marquee; nor does a non-primary button', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m)
+    const targets = [
+      document.querySelector('[data-file-id="img1"] [role="checkbox"]'),
+      document.querySelector('[data-file-id="img1"] button[aria-haspopup="menu"]'),
+    ]
+    for (const el of targets) {
+      await m.pointer(el, 'pointerdown', { clientX: 30, clientY: 130 })
+      await m.pointer(window, 'pointermove', { clientX: 900, clientY: 700 })
+      assert.equal(s.rect(), null)
+      await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
+    }
+    // ปุ่มขวา / กลาง บนพื้นที่ว่างก็ไม่เริ่ม
+    for (const button of [1, 2]) {
+      await m.pointer(s.canvas(), 'pointerdown', { clientX: 400, clientY: 400, button })
+      await m.pointer(window, 'pointermove', { clientX: 100, clientY: 100 })
+      assert.equal(s.rect(), null, `button ${button}`)
+      await m.pointer(window, 'pointerup', { clientX: 100, clientY: 100, button })
+    }
+    assert.equal(s.selected.size, 0)
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-6 · a plain marquee replaces the previous selection', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m, { initial: ['d1'] })
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 480, clientY: 250 }) // ทับ f3 เท่านั้น
+    await m.pointer(window, 'pointerup', { clientX: 480, clientY: 250 })
+    assert.deepEqual([...s.selected], ['f3'])
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-7 · Ctrl (Windows/Linux) or Cmd (macOS) makes the marquee additive', async () => {
+  for (const mod of [{ ctrlKey: true }, { metaKey: true }]) {
+    const m = await mountRoot()
+    try {
+      const s = await marqueeScene(m, { initial: ['d1'] })
+      await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400, ...mod })
+      await m.pointer(window, 'pointermove', { clientX: 480, clientY: 250 })
+      await m.pointer(window, 'pointerup', { clientX: 480, clientY: 250 })
+      assert.deepEqual([...s.selected].sort(), ['d1', 'f3'], JSON.stringify(mod))
+    } finally { await m.unmount() }
+  }
+})
+
+test('R9-MARQUEE-8 · Escape cancels an active marquee and restores the pre-drag selection', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m, { initial: ['d1'] })
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 250, clientY: 250 })
+    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+    assert.ok(s.rect())
+    await m.key('Escape')
+    assert.equal(s.rect(), null, 'กรอบต้องหาย')
+    assert.deepEqual([...s.selected], ['d1'], 'การเลือกก่อนลากต้องกลับมา')
+    // การขยับ/ปล่อยหลังยกเลิกต้องไม่ทำอะไรอีก
+    await m.pointer(window, 'pointermove', { clientX: 100, clientY: 100 })
+    await m.pointer(window, 'pointerup', { clientX: 100, clientY: 100 })
+    assert.deepEqual([...s.selected], ['d1'])
+    assert.equal(s.rect(), null)
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-9 · pointer up clears the rectangle but the selection persists', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m)
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 250, clientY: 250 })
+    await m.pointer(window, 'pointerup', { clientX: 250, clientY: 250 })
+    assert.equal(s.rect(), null)
+    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+    assert.deepEqual(checkedIds().sort(), ['f2', 'f3'])
+    // ลาก "ศูนย์" (คลิกเฉย ๆ บนพื้นที่ว่าง) ไม่เปลี่ยนการเลือก
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 900, clientY: 700 })
+    await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
+    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+  } finally { await m.unmount() }
+})
+
+test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the marquee added', async () => {
+  const m = await mountRoot()
+  try {
+    const counts = {}
+    const origAdd = m.W.addEventListener.bind(m.W)
+    const origRemove = m.W.removeEventListener.bind(m.W)
+    m.W.addEventListener = (type, ...rest) => { counts[type] = (counts[type] ?? 0) + 1; return origAdd(type, ...rest) }
+    m.W.removeEventListener = (type, ...rest) => { counts[type] = (counts[type] ?? 0) - 1; return origRemove(type, ...rest) }
+    const s = await marqueeScene(m)
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 250, clientY: 250 })
+    assert.ok(s.rect())
+    assert.ok((counts.pointermove ?? 0) >= 1 && (counts.pointerup ?? 0) >= 1 && (counts.keydown ?? 0) >= 1, 'ระหว่างลากต้องมี listener บน window')
+    await act(async () => m.root.unmount())
+    for (const type of ['pointermove', 'pointerup', 'pointercancel', 'keydown']) {
+      assert.equal(counts[type] ?? 0, 0, `listener ${type} ต้องถูกถอดครบหลัง unmount (เหลือ ${counts[type]})`)
+    }
+    m.W.addEventListener = origAdd; m.W.removeEventListener = origRemove
+    m.env.restore()
+    m.unmount = async () => {}
+  } finally { await m.unmount() }
+})
+
+/* ══ R9-B motion only on hover ═════════════════════════════════════════════ */
+
+function tile(file) {
+  return React.createElement(files.FileTile, {
+    t, file, now: NOW, selected: false, anySelected: false,
+    onSelect: noop, onOpen: noop, onMenuAction: noop, tileRef: noop, dragActive: false,
+  })
+}
+/** jsdom: HTMLMediaElement.play/pause ไม่ได้ implement — บันทึกการเรียกแทน */
+function stubMedia(W) {
+  const calls = []
+  const proto = W.HTMLMediaElement.prototype
+  const orig = { play: proto.play, pause: proto.pause }
+  proto.play = function () { calls.push('play'); return Promise.resolve() }
+  proto.pause = function () { calls.push('pause') }
+  return { calls, restore() { proto.play = orig.play; proto.pause = orig.pause } }
+}
+
+test('R9-MOTION-1 · a static image card keeps its poster derivative and hover changes nothing about it', async () => {
+  const m = await mountRoot()
+  try {
+    for (const f of [image(), image({ id: 'p', name: 'p.png', ext: 'png' })]) {
+      await m.render(tile(f)); await m.settleMedia()
+      const box = document.querySelector('[data-thumb]')
+      assert.equal(box.getAttribute('data-thumb'), 'poster')
+      assert.equal(box.getAttribute('data-motion'), 'none')
+      const before = document.querySelector('img').getAttribute('src')
+      assert.ok(before.includes('/poster?'), 'poster จาก media-info ไม่ใช่ /preview')
+      await m.mouse(document.querySelector('[data-file-kind]'), 'mouseover')
+      await m.mouse(document.querySelector('[data-file-kind]'), 'mouseenter')
+      assert.equal(document.querySelector('img').getAttribute('src'), before)
+      assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'none')
+      assert.equal(document.querySelector('video'), null)
+    }
+    assert.ok(!m.fetched.some((u) => u.includes('/preview')))
+  } finally { await m.unmount() }
+})
+
+test('R9-MOTION-2 · a video card is paused, muted and inline at idle — nothing plays by itself', async () => {
+  const m = await mountRoot()
+  const media = stubMedia(m.W)
+  try {
+    await m.render(tile(clip())); await m.settleMedia()
+    const v = document.querySelector('video')
+    assert.ok(v, 'ไทล์วิดีโอที่มองเห็น prefetch motion proxy (ทึบ) ไว้')
+    assert.ok(v.getAttribute('src').includes('/motion-preview?'), 'ไม่ใช่ต้นฉบับ')
+    assert.equal(v.hasAttribute('autoplay'), false)
+    assert.equal(v.hasAttribute('controls'), false)
+    assert.equal(v.muted, true)
+    assert.equal(v.hasAttribute('playsinline'), true)
+    assert.equal(v.getAttribute('preload'), 'auto')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'idle = poster นิ่ง')
+    assert.notEqual(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
+    assert.deepEqual(media.calls, [], 'ตอน mount ต้องไม่สั่ง play')
+  } finally { media.restore(); await m.unmount() }
+})
+
+test('R9-MOTION-3 · hovering a video card starts the muted proxy; leaving pauses and rewinds it (R9-MOTION-4)', async () => {
+  const m = await mountRoot()
+  const media = stubMedia(m.W)
+  try {
+    await m.render(tile(clip())); await m.settleMedia()
+    const card = document.querySelector('[data-file-kind]')
+    const v = document.querySelector('video')
+    v.currentTime = 0
+    await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
+    assert.deepEqual(media.calls, ['play'])
+    assert.equal(v.muted, true)
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
+    assert.ok(document.querySelector('img'), 'poster ยังอยู่ใต้ video')
+    v.currentTime = 3.5
+    await m.mouse(card, 'mouseout'); await m.mouse(card, 'mouseleave')
+    assert.deepEqual(media.calls, ['play', 'pause'])
+    assert.equal(v.currentTime, 0, 'ออกจากการ์ดต้องกรอกลับไปเฟรมแรก')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster')
+  } finally { media.restore(); await m.unmount() }
+})
+
+test('R9-MOTION-5 · prefers-reduced-motion disables automatic hover playback (video and GIF)', async () => {
+  const m = await mountRoot({ reducedMotion: true })
+  const media = stubMedia(m.W)
+  try {
+    await m.render(tile(clip())); await m.settleMedia()
+    const card = document.querySelector('[data-file-kind]')
+    await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
+    assert.deepEqual(media.calls, [], 'reduced motion: ห้าม play อัตโนมัติ')
+    assert.equal(document.querySelector('video'), null, 'reduced motion: ไม่ prefetch proxy เลย')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'poster ยังใช้ได้')
+    await m.render(tile(gif())); await m.settleMedia()
+    await m.mouse(document.querySelector('[data-file-kind]'), 'mouseover'); await m.mouse(document.querySelector('[data-file-kind]'), 'mouseenter')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'reduced motion: GIF ที่เคลื่อนไหวต้องไม่ถูกโหลดจากการชี้')
+    assert.equal(document.querySelector('video'), null)
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster')
+  } finally { media.restore(); await m.unmount() }
+})
+
+test('R9-MOTION-6 · a GIF card never loads the animated original while idle: poster derivative only', async () => {
+  const m = await mountRoot()
+  try {
+    await m.render(tile(gif())); await m.settleMedia()
+    const box = document.querySelector('[data-thumb]')
+    assert.equal(box.getAttribute('data-thumb'), 'poster')
+    assert.notEqual(box.getAttribute('data-motion'), 'playing')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'idle ต้องไม่มี <img> ที่ชี้ไป GIF จริง')
+    assert.ok(document.querySelector('img').getAttribute('src').includes('/poster?'))
+    assert.ok(!m.fetched.some((u) => u.includes('/preview')))
+  } finally { await m.unmount() }
+})
+
+test('R9-MOTION-7 · hovering a GIF card plays the motion proxy; leaving returns to the still poster (R9-MOTION-8)', async () => {
+  const m = await mountRoot()
+  const media = stubMedia(m.W)
+  try {
+    await m.render(tile(gif())); await m.settleMedia()
+    const card = document.querySelector('[data-file-kind]')
+    await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
+    const v = document.querySelector('video')
+    assert.ok(v, 'ชี้แล้วต้องมี motion proxy')
+    assert.equal(v.getAttribute('src'), '/api/files/g1/motion-preview?v=' + SHA_A + '&p=v1')
+    assert.equal(document.querySelector('img[src*="/preview"]'), null, 'ไม่ใช่ GIF ต้นฉบับ')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'motion')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-motion'), 'playing')
+    assert.deepEqual(media.calls, ['play'])
+    await m.mouse(card, 'mouseout'); await m.mouse(card, 'mouseleave')
+    assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'poster', 'ออกแล้วกลับเป็น poster นิ่งทันที')
+    assert.ok(document.querySelector('img[src*="/poster?"]'))
+    assert.deepEqual(media.calls, ['play', 'pause'])
+  } finally { media.restore(); await m.unmount() }
+})
+
+test('R9-MOTION-9 · Vault items get no motion preview of any kind', async () => {
+  const m = await mountRoot()
+  const media = stubMedia(m.W)
+  try {
+    for (const f of [gif({ vault: true }), clip({ vault: true })]) {
+      await m.render(tile(f))
+      const card = document.querySelector('[data-file-kind]')
+      await m.mouse(card, 'mouseover'); await m.mouse(card, 'mouseenter')
+      assert.equal(document.querySelector('img'), null, f.name)
+      assert.equal(document.querySelector('video'), null, f.name)
+      assert.equal(document.querySelector('[data-thumb]').getAttribute('data-thumb'), 'icon')
+      assert.match(document.querySelector('[data-thumb]').className, /hatch/)
+    }
+    assert.deepEqual(media.calls, [])
+  } finally { media.restore(); await m.unmount() }
+})
+
+test('R9-MOTION-10 · the Preview modal keeps explicit, user-controlled video playback', async () => {
+  const m = await mountRoot({ reducedMotion: true })
+  try {
+    await m.render(React.createElement(files.FilePreviewModal, { t, file: clip(), onClose: noop, onDownload: noop }))
+    const v = document.querySelector('[role="dialog"] video')
+    assert.ok(v)
+    assert.equal(v.hasAttribute('controls'), true, 'modal ยังมี controls ให้ผู้ใช้สั่งเอง')
+    assert.equal(v.getAttribute('preload'), 'metadata')
+    assert.equal(v.hasAttribute('autoplay'), false)
+    assert.equal(v.hasAttribute('muted') || v.muted, false, 'modal ไม่ถูกบังคับ mute เหมือนการ์ด')
+  } finally { await m.unmount() }
+})
+
+/* ══ R9-C expanded sort ════════════════════════════════════════════════════ */
+
+const SORT_SET = [
+  fileItem({ id: 'f-b', name: 'beta.pdf', size: 50, created: NOW - 300, modified: NOW - 10 }),
+  fileItem({ id: 'f-a', name: 'alpha.pdf', size: 10, created: NOW - 100, modified: NOW - 30 }),
+  fileItem({ id: 'f-c', name: 'Gamma.pdf', size: 90, created: NOW - 200, modified: NOW - 20 }),
+  folderItem({ id: 'd-b', name: 'beta', created: NOW - 50, modified: NOW - 5 }),
+  folderItem({ id: 'd-a', name: 'alpha', created: NOW - 400, modified: NOW - 40 }),
+]
+const ids = (arr) => arr.map((x) => x.id)
+
+test('R9-SORT-1/2 · Name A→Z and Z→A are case-insensitive and deterministic', () => {
+  const az = view.sectionItems(SORT_SET, 'name-asc')
+  assert.deepEqual(ids(az.files), ['f-a', 'f-b', 'f-c'])
+  assert.deepEqual(ids(az.folders), ['d-a', 'd-b'])
+  const za = view.sectionItems(SORT_SET, 'name-desc')
+  assert.deepEqual(ids(za.files), ['f-c', 'f-b', 'f-a'])
+  assert.deepEqual(ids(za.folders), ['d-b', 'd-a'])
+  // ชื่อซ้ำ → ตัดสินด้วย id เสมอ ไม่ขึ้นกับลำดับที่ป้อน
+  const dup = [fileItem({ id: 'x2', name: 'same.pdf' }), fileItem({ id: 'x1', name: 'same.pdf' })]
+  assert.deepEqual(ids(view.sortItems(dup, 'name-asc')), ['x1', 'x2'])
+  assert.deepEqual(ids(view.sortItems([...dup].reverse(), 'name-asc')), ['x1', 'x2'])
+})
+
+test('R9-SORT-3/4 · Uploaded newest/oldest use the durable created timestamp, not modified', () => {
+  const newest = view.sectionItems(SORT_SET, 'uploaded-desc')
+  assert.deepEqual(ids(newest.files), ['f-a', 'f-c', 'f-b'])
+  assert.deepEqual(ids(newest.folders), ['d-b', 'd-a'])
+  const oldest = view.sectionItems(SORT_SET, 'uploaded-asc')
+  assert.deepEqual(ids(oldest.files), ['f-b', 'f-c', 'f-a'])
+  // เท่ากัน → id
+  const tie = [fileItem({ id: 't2', created: 5 }), fileItem({ id: 't1', created: 5 })]
+  assert.deepEqual(ids(view.sortItems(tie, 'uploaded-desc')), ['t1', 't2'])
+})
+
+test('R9-SORT-5/6 · Modified newest/oldest use the modified timestamp', () => {
+  assert.deepEqual(ids(view.sectionItems(SORT_SET, 'modified-desc').files), ['f-b', 'f-c', 'f-a'])
+  assert.deepEqual(ids(view.sectionItems(SORT_SET, 'modified-asc').files), ['f-a', 'f-c', 'f-b'])
+  assert.deepEqual(ids(view.sectionItems(SORT_SET, 'modified-desc').folders), ['d-b', 'd-a'])
+})
+
+test('R9-SORT-7/8 · Size largest/smallest; folders (size 0) stay in their own section', () => {
+  const big = view.sectionItems(SORT_SET, 'size-desc')
+  assert.deepEqual(ids(big.files), ['f-c', 'f-b', 'f-a'])
+  assert.deepEqual(ids(big.folders), ['d-a', 'd-b'], 'ขนาดเท่ากัน (0) → เรียงด้วย id อย่างคงที่')
+  const small = view.sectionItems(SORT_SET, 'size-asc')
+  assert.deepEqual(ids(small.files), ['f-a', 'f-b', 'f-c'])
+  assert.ok(!ids(small.files).some((id) => id.startsWith('d-')))
+})
+
+test('R9-SORT-9/10 · folders stay above files under every mode and each group sorts independently', () => {
+  for (const mode of view.SORT_MODES) {
+    const s = view.sectionItems(SORT_SET, mode)
+    assert.equal(s.folders.length, 2, mode)
+    assert.equal(s.files.length, 3, mode)
+    assert.ok(s.folders.every((x) => x.kind === 'folder') && s.files.every((x) => x.kind === 'file'), mode)
+  }
+  assert.deepEqual([...view.SORT_MODES], ['name-asc', 'name-desc', 'uploaded-desc', 'uploaded-asc', 'modified-desc', 'modified-asc', 'size-desc', 'size-asc'])
+  // ค่าเดิมสามค่าของจอยังใช้ได้ (ผู้ใช้ที่มี state เก่า / ผู้เรียกเดิม)
+  assert.deepEqual(ids(view.sortItems(SORT_SET.slice(0, 3), 'name')), ['f-a', 'f-b', 'f-c'])
+  assert.deepEqual(ids(view.sortItems(SORT_SET.slice(0, 3), 'size')), ['f-c', 'f-b', 'f-a'])
+  assert.deepEqual(ids(view.sortItems(SORT_SET.slice(0, 3), 'modified')), ['f-b', 'f-c', 'f-a'])
+})
+
+test('R9-SORT-11 · search/filter still yields two grouped, sorted sections', () => {
+  const hit = view.filterItems([...SORT_SET, image({ id: 'i', name: 'alpha.jpg' })], { query: 'alpha', typeFilter: 'all' })
+  const s = view.sectionItems(hit, 'name-desc')
+  assert.deepEqual(ids(s.folders), ['d-a'])
+  assert.deepEqual(ids(s.files), ['f-a', 'i']) // Z→A: 'alpha.pdf' มาก่อน 'alpha.jpg'
+})
+
+test('R9-SORT-12 · every sort label exists in en/th/zh and the grid exposes all eight options', async () => {
+  const keys = view.SORT_MODES.map((mode) => view.SORT_LABEL_KEYS[mode])
+  assert.equal(keys.length, 8)
+  for (const key of keys) for (const lang of LANGS) {
+    assert.equal(typeof STRINGS[lang][key], 'string', `${lang}.${key}`)
+    assert.ok(STRINGS[lang][key].length > 0)
+  }
+  // ป้ายต้องบอกทิศทาง ไม่ใช่แค่ "Name"
+  for (const key of keys) assert.notEqual(STRINGS.en[key], 'Name')
+  assert.match(STRINGS.en[view.SORT_LABEL_KEYS['uploaded-desc']], /Upload/i)
+  assert.match(STRINGS.en[view.SORT_LABEL_KEYS['size-asc']], /Small/i)
+})
+/* ══ Round 9 · review correction 1 ═════════════════════════════════════════ */
+
+/**
+ * เมาท์จอ Files จริงบน jsdom โดยแทน fetch ด้วยชุดข้อมูลที่ "ผู้ทดสอบเป็นเจ้าของ" —
+ * GET /api/files คืน dataset ปัจจุบัน, POST /api/files/folder คืน 201 แล้วจอ refetch เอง
+ * (เส้นทางเดียวกับผู้ใช้จริงที่สร้างโฟลเดอร์ขณะที่ client อื่นลบไฟล์ไปแล้ว)
+ */
+async function mountFilesScreen(m, initial) {
+  const state = { dataset: initial, gets: 0 }
+  const json = (status, body) => ({ ok: status < 400, status, json: async () => body, headers: new Map() })
+  const W = m.W
+  W.fetch = async (url, init = {}) => {
+    const u = String(url)
+    if (u.includes('/api/files/folder') && init.method === 'POST') {
+      return json(201, { file: folderItem({ id: 'new-folder', name: JSON.parse(init.body).name }) })
+    }
+    if (/\/api\/files(\?|$)/.test(u) && (!init.method || init.method === 'GET')) {
+      state.gets += 1
+      return json(200, { files: state.dataset, ancestors: [] })
+    }
+    return json(404, { error: 'unexpected ' + u })
+  }
+  globalThis.fetch = W.fetch
+  await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+  // useApi ทำงานแบบ async — รอให้ข้อมูลรอบแรกลง
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+  const checkbox = (id) => document.querySelector(`[data-file-id="${id}"] [role="checkbox"]`)
+  const bar = () => document.querySelector('.fixed.bottom-6')
+  const selectedCount = () => [...document.querySelectorAll('[data-file-kind] [role="checkbox"][aria-checked="true"]')].length
+  /** สร้างโฟลเดอร์ผ่าน UI จริง → จอ refetch ด้วย dataset ที่ผู้ทดสอบเปลี่ยนไว้ */
+  const refetchViaNewFolder = async (nextDataset) => {
+    state.dataset = nextDataset
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t('newFolder'))
+    await m.mouse(btn, 'click')
+    const input = document.getElementById('nf-name')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value').set
+      setter.call(input, 'created-by-test')
+      input.dispatchEvent(new W.Event('input', { bubbles: true }))
+    })
+    const create = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === t('newFolder'))
+    await m.mouse(create, 'click')
+    await act(async () => { await new Promise((r) => setTimeout(r, 40)) })
+  }
+  return { state, checkbox, bar, selectedCount, refetchViaNewFolder }
+}
+
+test('R9-SR1 · selected IDs that vanish from the next loaded dataset are pruned; the action bar follows', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'A', name: 'a.jpg' })
+    const B = fileItem({ id: 'B', name: 'b.pdf' })
+    const s = await mountFilesScreen(m, [A, B])
+    assert.ok(s.checkbox('A') && s.checkbox('B'), 'ทั้งสองไฟล์ต้องถูกวาด')
+    await m.mouse(s.checkbox('A'), 'click')
+    await m.mouse(s.checkbox('B'), 'click')
+    assert.equal(s.selectedCount(), 2)
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`), 'แถบคำสั่งต้องบอก 2 selected')
+
+    // client อื่นลบ A ไปแล้ว → refetch ครั้งถัดไปคืนแค่ B → A ต้องหลุดจากการเลือก ไม่ค้างเป็นผี
+    await s.refetchViaNewFolder([B, folderItem({ id: 'new-folder', name: 'created-by-test' })])
+    assert.equal(s.checkbox('A'), null, 'A หายจาก dataset แล้ว')
+    assert.equal(s.selectedCount(), 1)
+    assert.equal(s.checkbox('B').getAttribute('aria-checked'), 'true', 'B ที่ยังอยู่ต้องยังถูกเลือก')
+    assert.ok(s.bar()?.textContent.includes(`1 ${t('selected')}`), 'แถบต้องนับใหม่เป็น 1 — ไม่มี id ผี')
+
+    // dataset ว่าง → การเลือกว่าง → แถบหาย
+    await s.refetchViaNewFolder([])
+    assert.equal(s.selectedCount(), 0)
+    assert.equal(s.bar(), null, 'ไม่มีอะไรให้เลือก = ไม่มีแถบคำสั่ง')
+  } finally { await m.unmount() }
+})
+
+test('R9-SR1b · hiding a selected file with search or changing sort does not treat it as deleted', async () => {
+  const m = await mountRoot()
+  try {
+    const A = image({ id: 'A', name: 'apple.jpg' })
+    const B = fileItem({ id: 'B', name: 'banana.pdf' })
+    const s = await mountFilesScreen(m, [A, B])
+    await m.mouse(s.checkbox('A'), 'click')
+    await m.mouse(s.checkbox('B'), 'click')
+    assert.equal(s.selectedCount(), 2)
+
+    // ค้นหา "banana" → A ถูกซ่อน แต่ยังอยู่ใน files → การเลือกต้องไม่ถูกตัด
+    const search = document.querySelector(`input[placeholder="${t('searchFilesPlaceholder')}"]`)
+    assert.ok(search)
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(m.W.HTMLInputElement.prototype, 'value').set
+      setter.call(search, 'banana')
+      search.dispatchEvent(new m.W.Event('input', { bubbles: true }))
+    })
+    assert.equal(s.checkbox('A'), null, 'A ถูกซ่อนโดยตัวกรอง')
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`), 'ซ่อนด้วยตัวกรอง ≠ ถูกลบ — ยังเลือก 2')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(m.W.HTMLInputElement.prototype, 'value').set
+      setter.call(search, '')
+      search.dispatchEvent(new m.W.Event('input', { bubbles: true }))
+    })
+    assert.equal(s.selectedCount(), 2, 'ล้างตัวกรองแล้วทั้งคู่ยังถูกเลือกอยู่')
+
+    // เปลี่ยนโหมดเรียง → การเลือกไม่เปลี่ยน
+    const sortSelect = document.querySelector(`select[aria-label="${t('sortBy')}"]`)
+    assert.ok(sortSelect)
+    await act(async () => {
+      sortSelect.value = 'name-desc'
+      sortSelect.dispatchEvent(new m.W.Event('change', { bubbles: true }))
+    })
+    assert.equal(s.selectedCount(), 2)
+    assert.ok(s.bar()?.textContent.includes(`2 ${t('selected')}`))
+  } finally { await m.unmount() }
+})
+
+test('R9-SR2 · section headings are not empty canvas: no marquee from "Folders"/"Files"; blank gaps beside them still work', async () => {
+  const m = await mountRoot()
+  try {
+    const s = await marqueeScene(m, { initial: ['d1'] })
+    for (const section of ['folders', 'files']) {
+      const heading = document.querySelector(`[data-files-section="${section}"] h2`)
+      assert.ok(heading, `heading ${section}`)
+      await m.pointer(heading, 'pointerdown', { clientX: 5, clientY: 5 })
+      await m.pointer(window, 'pointermove', { clientX: 900, clientY: 700 })
+      assert.equal(s.rect(), null, `${section}: ลากจากหัวข้อต้องไม่เกิดกรอบ`)
+      await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
+      assert.deepEqual([...s.selected], ['d1'], `${section}: และต้องไม่แตะการเลือก`)
+    }
+    // พื้นที่ว่างข้าง ๆ หัวข้อ (ไม่ใช่ตัวหัวข้อ) ยังเริ่มได้ตามปกติ
+    await m.pointer(s.canvas(), 'pointerdown', { clientX: 700, clientY: 400 })
+    await m.pointer(window, 'pointermove', { clientX: 480, clientY: 250 })
+    assert.ok(s.rect())
+    await m.pointer(window, 'pointerup', { clientX: 480, clientY: 250 })
+    assert.deepEqual([...s.selected], ['f3'])
+  } finally { await m.unmount() }
+})
