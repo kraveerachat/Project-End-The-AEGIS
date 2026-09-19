@@ -48,7 +48,7 @@ REQUIRED_TOOLS="ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rf
 OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
-twingate.service aegis-idea3-core.service aegis-idea3.service"
+twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -262,6 +262,7 @@ else
   p4_rec "$FW" fw.nftables_conf./etc/nftables.conf absent
 fi
 rec_tree "$FW" fw.nftables_d /etc/nftables.d
+[ -f "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)" ] && rec_file "$FW" fw.idea3_nft "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)"
 
 # ── time ─────────────────────────────────────────────────────────────────────
 if run_ro 1 timedatectl timedatectl show -p NTP -p NTPSynchronized -p CanNTP -p Timezone; then
@@ -502,7 +503,11 @@ for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib
   /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
-rec_tree "$HOST" host.aegis_idea3.file /etc/aegis-idea3 meta
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue
+  rec_file "$HOST" host.aegis_idea3.file "$f" meta
+done < <(tree_files /etc/aegis-idea3)
 
 # ── meta, ordering, checksums ────────────────────────────────────────────────
 if [ "$partial" = 0 ]; then status=COMPLETE; else status=PARTIAL; fi

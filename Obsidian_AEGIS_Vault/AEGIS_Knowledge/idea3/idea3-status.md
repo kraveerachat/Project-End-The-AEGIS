@@ -5420,6 +5420,50 @@ PHASE4_LIVE_READINESS        = NOT READY
 
 G-05 repository contract is CLOSED after repository implementation and acceptance PASS. L5 remains a separate future live stage.
 
+## IDEA3 PR11 Phase 4 L2 runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L2 handler registration. No live L2 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L2 runtime handler
+Branch                       = feat/idea3-pr11-phase4-l2-handler
+IMPLEMENTATION_HEAD          = c9d27f8a7f81760fc0c488392a4a1420076c4ec7
+PR                           = #159 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L2 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L3_HANDLER                   = NOT_REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+
+L2                           = NOT RUN
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L2 stage handler (`stages/L2/`) under the G-15 handler framework.
+- L2 owns only dedicated table `inet aegis_idea3`, `/etc/aegis-idea3/aegis-idea3.nft`, `/etc/sysctl.d/90-aegis-idea3-forwarding.conf`, and `aegis-idea3-nftables-load.service`.
+- Forwarding values remain strictly `0`. No NAT, no masquerade, no bridge, and zero listeners added.
+- Hardened live mode: requires `AEGIS_L2_LIVE_AUTHORIZED=YES`, root, and requires `/etc/aegis-idea3` to exist as a real directory (not a symlink) before mutation (`IDEA3_PARENT_DIR_REQUIRED`).
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- L0 capture integration captures the dedicated L2 nft file under `fw.idea3_nft` in `firewall.tsv` and excludes it from `host.aegis_idea3.file` to prevent unapprovable drift while maintaining fail-closed preservation of all other `/etc/aegis-idea3` content.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L2 is not authorized or proven.
+
+### Verification evidence
+
+- `test_pr11_phase4_l2_handler.py`: 7 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 159 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 286 passed.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_032529_music_idea3-pr11-phase4-l2-handler.md`.
+
 
 ## 🔗 Related Notes
 * [[core/system-overview]]

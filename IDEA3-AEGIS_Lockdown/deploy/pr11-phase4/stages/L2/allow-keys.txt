@@ -1,0 +1,17 @@
+fw.nft.tables
+fw.nft.table.inet.aegis_idea3.sha256
+fw.nft.ruleset.sha256
+fw.idea3_nft./etc/aegis-idea3/aegis-idea3.nft.class
+fw.idea3_nft./etc/aegis-idea3/aegis-idea3.nft.sha256
+fw.idea3_nft./etc/aegis-idea3/aegis-idea3.nft.meta
+net.sysctl_conf./etc/sysctl.d/90-aegis-idea3-forwarding.conf.class
+net.sysctl_conf./etc/sysctl.d/90-aegis-idea3-forwarding.conf.sha256
+net.sysctl_conf./etc/sysctl.d/90-aegis-idea3-forwarding.conf.meta
+svc.aegis-idea3-nftables-load.service.LoadState
+svc.aegis-idea3-nftables-load.service.ActiveState
+svc.aegis-idea3-nftables-load.service.SubState
+svc.aegis-idea3-nftables-load.service.UnitFileState
+svc.aegis-idea3-nftables-load.service.MainPID
+svc.aegis-idea3-nftables-load.service.NRestarts
+svc.aegis-idea3-nftables-load.service.Result
+svc.aegis-idea3-nftables-load.service.ExecMainStartTimestamp
