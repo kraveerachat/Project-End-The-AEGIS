@@ -102,17 +102,17 @@ async function buildSparse(t, klass, spanBytes, builder) {
     return sparse[klass]
   } catch (err) { notProve(t, klass, err.message); sparse[klass] = null; return null }
 }
-const shortSrc = async (dir, name, args) => {
+const shortSrc = async (dir, name, args, seconds = 4) => {
   const file = path.join(dir, name)
-  const r = await exec('ffmpeg', ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=10', '-t', '4', ...args, file], 120_000)
+  const r = await exec('ffmpeg', ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=10', '-t', String(seconds), ...args, file], 120_000)
   if (!r.ok) throw new Error(`source ${name}: ${r.stderr.trim().split('\n').pop()}`)
   return file
 }
 const sparseClass = (klass, gib, spec) => test(`FIXTURE_${klass}_${gib}G structural integrity`, async (t) => {
   const built = await buildSparse(t, `${klass}_${gib}G`, gib * GiB, async (dir) => {
     const out = path.join(base, `${klass.toLowerCase()}-${gib}g.${spec.ext}`)
-    const src = await shortSrc(dir, `src-${klass.toLowerCase()}.${spec.ext}`, spec.srcArgs)
-    const r = spec.mp4 ? await makeSparseMp4({ src, spanBytes: gib * GiB, layout: spec.layout, out }) : await makeSparseWebm({ src, spanBytes: gib * GiB, cues: spec.cues, out })
+    const src = await shortSrc(dir, `src-${klass.toLowerCase()}.${spec.ext}`, spec.srcArgs, spec.seconds ?? 4)
+    const r = spec.mp4 ? await makeSparseMp4({ src, spanBytes: gib * GiB, layout: spec.layout, out }) : await makeSparseWebm({ src, spanBytes: gib * GiB, cues: spec.cues, out, voidAfter: spec.voidAfter })
     return { path: out, ...r }
   })
   if (!built) return
@@ -124,7 +124,7 @@ const sparseClass = (klass, gib, spec) => test(`FIXTURE_${klass}_${gib}G structu
       assert.equal(v.boxes[0].type, 'ftyp')
       if (spec.layout === 'faststart') { assert.ok(v.moovOffset < v.mdatOffset); assert.ok(v.moovOffset < MiB, 'moov within the first MiB') }
       else { assert.equal(v.moovOffset, v.bytes - v.moovSize, 'moov is the final box of the final file'); assert.ok(v.mdatOffset < v.moovOffset) }
-      assert.ok(v.ffprobe.ok, `ffprobe: ${v.ffprobe.error}`); assert.ok(Math.abs(v.ffprobe.durationSeconds - 4) <= 0.1, `duration ${v.ffprobe.durationSeconds}`)
+      assert.ok(v.ffprobe.ok, `ffprobe: ${v.ffprobe.error}`); assert.ok(Math.abs(v.ffprobe.durationSeconds - (spec.seconds ?? 4)) <= 0.1, `duration ${v.ffprobe.durationSeconds}`)
       const dec = await exec('ffmpeg', ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y', '-i', built.path, '-frames:v', '1', '-f', 'null', '-'], 120_000)
       assert.ok(dec.ok, `first-frame decode (co64 re-basing): ${dec.stderr.trim().split('\n').pop()}`)
     } else {
@@ -143,11 +143,15 @@ const sparseClass = (klass, gib, spec) => test(`FIXTURE_${klass}_${gib}G structu
     }
   } catch (err) { notProve(t, `${klass}_${gib}G`, err.message); sparse[`${klass}_${gib}G`] = null; throw err }
 })
+// WebM มีสองรูปทรง: *_VOID_FIRST = ช่องว่างก่อน Cluster แรก (plan; ไม่มีข้อมูลสื่อใน 10 GiB แรก — ไฟล์จริงไม่เป็นแบบนี้)
+//                    *_MID = ช่องว่างหลัง Cluster แรก (ใกล้เคียงไฟล์ใหญ่จริง) — ขอบเขต < 64 MiB ยืนยันเฉพาะ WEBM_CUES_MID
 const SPECS = {
   MP4_FASTSTART: { mp4: true, layout: 'faststart', ext: 'mp4', srcArgs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'] },
   MP4_MOOV_AT_END: { mp4: true, layout: 'moov-at-end', ext: 'mp4', srcArgs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'] },
-  WEBM_CUES: { mp4: false, cues: true, ext: 'webm', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k'] },
-  WEBM_NO_CUES: { mp4: false, cues: false, ext: 'webm', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k', '-live', '1'] },
+  WEBM_CUES_MID: { mp4: false, cues: true, ext: 'webm', seconds: 12, voidAfter: 'first-cluster', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k'] },
+  WEBM_NO_CUES_MID: { mp4: false, cues: false, ext: 'webm', seconds: 12, voidAfter: 'first-cluster', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k', '-live', '1'] },
+  WEBM_CUES_VOID_FIRST: { mp4: false, cues: true, ext: 'webm', voidAfter: 'before-first-cluster', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k'] },
+  WEBM_NO_CUES_VOID_FIRST: { mp4: false, cues: false, ext: 'webm', voidAfter: 'before-first-cluster', srcArgs: ['-c:v', 'libvpx', '-b:v', '200k', '-live', '1'] },
 }
 for (const [klass, spec] of Object.entries(SPECS)) sparseClass(klass, 10, spec)
 if (process.env.MEDIA_GATE_20G !== '0') for (const [klass, spec] of Object.entries(SPECS)) sparseClass(klass, 20, spec)
@@ -243,7 +247,7 @@ for (const key of ['GIF_518KB', 'GIF_49MB']) {
     if (skipIfNoGate(t)) return
     const f = row(t, key); if (!f) return
     const r = await runChain({ absPath: f.path, ext: 'gif' })
-    diag(t, `LS_${key}`, summary(r)); diag(t, `${key}_SOURCE_READ_BYTES`, `${r.readBytes} (rchar ${r.rchar}) of ${f.bytes}`)
+    diag(t, `LS_${key}`, summary(r)); diag(t, `${key}_SOURCE_READ_BYTES`, `rchar=${r.rchar} read_bytes=${r.readBytes} of ${f.bytes}`)
     assert.equal(r.error, null, JSON.stringify(r.error))
     assert.equal(r.probe.animated, true)
     assert.ok(r.poster.bytes <= limits.posterMaxBytes); assert.ok(r.motion && r.motion.bytes <= limits.motionMaxBytes); assert.ok(r.motion.seconds <= 6.1)
@@ -258,7 +262,7 @@ for (const codec of ['GIF', 'APNG']) {
       const ext = codec === 'GIF' ? 'gif' : 'png'
       const rh = await runChain({ absPath: hi.path, ext }); const rl = await runChain({ absPath: lo.path, ext })
       diag(t, `LS_ANIM_${codec}_${size}_HI`, summary(rh)); diag(t, `LS_ANIM_${codec}_${size}_LO`, summary(rl))
-      diag(t, `${codec}_${size}_SOURCE_READ_BYTES`, `hi=${rh.readBytes} lo=${rl.readBytes} of ${hi.bytes}/${lo.bytes} (recorded, not a bound)`)
+      diag(t, `${codec}_${size}_SOURCE_READ_BYTES`, `rchar hi=${rh.rchar} lo=${rl.rchar} (read_bytes hi=${rh.readBytes} lo=${rl.readBytes}) of ${hi.bytes}/${lo.bytes} (recorded, not a bound)`)
       for (const [label, r] of [['hi', rh], ['lo', rl]]) {
         assert.equal(r.error, null, `${label}: ${JSON.stringify(r.error)}`)
         assert.equal(r.probe.animated, true, `${label}: animated`)
@@ -266,7 +270,7 @@ for (const codec of ['GIF', 'APNG']) {
         assert.ok(r.motion && r.motion.bytes <= limits.motionMaxBytes, `${label} motion ${r.motion?.bytes}`)
         assert.ok(r.motion.seconds <= 6.1); assert.ok(r.motion.ms <= limits.motionTimeoutMs, `${label} motion ${r.motion.ms} ms`)
       }
-      assert.ok(rh.readBytes >= rl.readBytes, `readBytes(high) ${rh.readBytes} ≥ readBytes(low) ${rl.readBytes}`)
+      assert.ok(rh.rchar >= rl.rchar, `rchar(high) ${rh.rchar} ≥ rchar(low) ${rl.rchar}`)
     })
   }
 }
@@ -274,13 +278,13 @@ test('LS-VIDEO-196MB → poster + motion; grid-relevant transfer = derivative by
   if (skipIfNoGate(t)) return
   const f = row(t, 'VIDEO_196MB'); if (!f) return
   const r = await runChain({ absPath: f.path, ext: 'mp4' })
-  diag(t, 'LS_VIDEO_196MB', summary(r)); diag(t, 'VIDEO_196MB_SOURCE_READ_BYTES', `${r.readBytes} of ${f.bytes}`)
+  diag(t, 'LS_VIDEO_196MB', summary(r)); diag(t, 'VIDEO_196MB_SOURCE_READ_BYTES', `rchar=${r.rchar} read_bytes=${r.readBytes} of ${f.bytes}`)
   assert.equal(r.error, null, JSON.stringify(r.error))
   assert.ok(r.poster.bytes <= limits.posterMaxBytes); assert.ok(r.motion.bytes <= limits.motionMaxBytes)
   diag(t, 'VIDEO_196MB_BROWSER_TRANSFER_BYTES', `${r.poster.bytes + r.motion.bytes} (poster+motion) vs source ${f.bytes}`)
 })
 
-const BOUNDED = new Set(['MP4_FASTSTART', 'WEBM_CUES'])
+const BOUNDED = new Set(['MP4_FASTSTART', 'WEBM_CUES_MID'])
 for (const gib of [10, 20]) {
   for (const klass of Object.keys(SPECS)) {
     test(`LS-SPARSE-${gib}G ${klass} → poster + motion or truthful failure within timeout; readBytes recorded${BOUNDED.has(klass) ? ' and < 64 MiB' : ''}; VmHWM < 1 GiB; no leaks`, async (t) => {
@@ -291,11 +295,13 @@ for (const gib of [10, 20]) {
       if (!f) { t.skip(`NOT_PROVEN ${key}: ${notProven.get(key)}`); return }
       const ext = SPECS[klass].ext
       const r = await runChain({ absPath: f.path, ext })
-      diag(t, `LS_SPARSE_${key}`, summary(r)); diag(t, `${key}_SOURCE_READ_BYTES`, `${r.readBytes} (rchar ${r.rchar}) of ${f.bytes}`)
-      assert.ok(r.probeMs <= limits.probeTimeoutMs + 1000)
-      if (r.error) assert.ok(['TIMEOUT', 'DECODE_FAILED', 'ENCODE_FAILED', 'PROBE_FAILED'].includes(r.error.reason) || r.probe?.unsupported, `truthful failure class: ${JSON.stringify(r.error)}`)
+      // SOURCE_READ_BYTES = rchar (ไบต์ที่ child อ่านผ่าน read() ทั้งหมด รวม page cache); read_bytes = ไบต์ที่ไปถึงชั้น block จริง (0 เมื่ออยู่ใน cache)
+      diag(t, `LS_SPARSE_${key}`, summary(r)); diag(t, `${key}_SOURCE_READ_BYTES`, `rchar=${r.rchar} read_bytes=${r.readBytes} of ${f.bytes}`)
+      assert.ok(r.probeMs <= limits.probeTimeoutMs + 1000, `probe ${r.probeMs} ms within timeout`)
+      const truthfulFailure = r.error ? ['TIMEOUT', 'DECODE_FAILED', 'ENCODE_FAILED', 'PROBE_FAILED'].includes(r.error.reason) : (r.probe?.unsupported ? ['PROBE_FAILED', 'SOURCE_UNREADABLE'].includes(r.probe.reason) : false)
+      if (r.error || r.probe?.unsupported) assert.ok(truthfulFailure, `truthful failure class: ${JSON.stringify(r.error ?? r.probe)}`)
       else { assert.ok(r.poster.bytes <= limits.posterMaxBytes); if (r.motion) assert.ok(r.motion.bytes <= limits.motionMaxBytes) }
-      if (BOUNDED.has(klass)) assert.ok(r.readBytes < 64 * MiB, `${klass}: source read ${r.readBytes} B must stay < 64 MiB`)
+      if (BOUNDED.has(klass)) assert.ok(r.rchar < 64 * MiB, `${klass}: source read (rchar) ${r.rchar} B must stay < 64 MiB`)
       assert.ok(r.vmHwmKb < 1024 * 1024, `child VmHWM ${r.vmHwmKb} KiB < 1 GiB`)
       const ps = await exec('ps', ['-o', 'args'], 10_000)
       assert.ok(!ps.stdout.includes(path.basename(f.path)), 'no child process left holding the fixture')

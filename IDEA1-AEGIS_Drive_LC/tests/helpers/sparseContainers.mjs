@@ -191,8 +191,8 @@ function rebuildSeekHead(buf, el, remap) {
   }
   return element(ID.SEEKHEAD, Buffer.concat(seeks))
 }
-/** เขียน Cues ใหม่ด้วย CueClusterPosition ที่ปรับแล้ว */
-function rebuildCues(buf, el, delta) {
+/** เขียน Cues ใหม่ด้วย CueClusterPosition ที่ปรับแล้ว (remap ตามตำแหน่ง — cluster ก่อน/หลังช่องว่างเลื่อนไม่เท่ากัน) */
+function rebuildCues(buf, el, remap) {
   const points = []
   for (const cp of parseElements(buf, el.dataOffset, el.dataOffset + el.dataSize)) {
     if (cp.id === ID.VOID) continue
@@ -202,7 +202,7 @@ function rebuildCues(buf, el, delta) {
       if (c.id === ID.CUETRACKPOSITIONS) {
         const inner = []
         for (const d of parseElements(buf, c.dataOffset, c.dataOffset + c.dataSize)) {
-          if (d.id === ID.CUECLUSTERPOSITION) inner.push(uintElement(ID.CUECLUSTERPOSITION, Number(readUint(buf, d.dataOffset, d.dataSize)) + delta))
+          if (d.id === ID.CUECLUSTERPOSITION) inner.push(uintElement(ID.CUECLUSTERPOSITION, remap(Number(readUint(buf, d.dataOffset, d.dataSize)))))
           else inner.push(buf.subarray(d.offset, d.offset + d.size))
         }
         parts.push(element(ID.CUETRACKPOSITIONS, Buffer.concat(inner)))
@@ -215,9 +215,12 @@ function rebuildCues(buf, el, delta) {
 
 /**
  * @param {{ src: string, spanBytes: number, cues: boolean, out: string }} o
- * @returns {Promise<{ bytes: number, hasCues: boolean, firstClusterOffset: number, cuesOffset: number|null }>}
+ * @param {{ src: string, spanBytes: number, cues: boolean, out: string, voidAfter?: 'before-first-cluster'|'first-cluster' }} o
+ *   voidAfter 'before-first-cluster' (ค่าเริ่มต้น, plan Task 16): ช่องว่างอยู่ก่อน Cluster แรก — ไม่มีข้อมูลสื่อเลยใน 10 GiB แรก
+ *   (รูปทรงที่ไฟล์จริงไม่มี); 'first-cluster': ช่องว่างอยู่หลัง Cluster แรก — ใกล้เคียงไฟล์ใหญ่จริงที่มีข้อมูลตั้งแต่ต้น
+ * @returns {Promise<{ bytes: number, hasCues: boolean, firstClusterOffset: number, cuesOffset: number|null, voidAfter: string }>}
  */
-export async function makeSparseWebm({ src, spanBytes, cues, out }) {
+export async function makeSparseWebm({ src, spanBytes, cues, out, voidAfter = 'before-first-cluster' }) {
   const buf = await fs.readFile(src)
   const top = parseElements(buf, 0, buf.length)
   const ebml = top.find((e) => e.id === ID.EBML); const seg = top.find((e) => e.id === ID.SEGMENT)
@@ -228,6 +231,9 @@ export async function makeSparseWebm({ src, spanBytes, cues, out }) {
   if (!cues && hasCues) throw new Error('webm: source has Cues but a no-Cues fixture was requested (build the source with -live 1)')
   const firstCluster = children.findIndex((e) => e.id === ID.CLUSTER)
   if (firstCluster < 0) throw new Error('webm: no Cluster')
+  // ตำแหน่งแทรก Void: ก่อน Cluster แรก หรือหลัง Cluster แรก (ต้องมี Cluster ที่สองให้ข้ามไปถึง)
+  const voidIndex = voidAfter === 'first-cluster' ? firstCluster + 1 : firstCluster
+  if (voidAfter === 'first-cluster' && !(children[voidIndex] && children[voidIndex].id === ID.CLUSTER)) throw new Error('webm: source needs at least two Clusters for voidAfter=first-cluster (use a longer source)')
   for (const e of children) if (![ID.SEEKHEAD, ID.INFO, ID.TRACKS, ID.CLUSTER, ID.CUES, ID.VOID, ID.TAGS].includes(e.id)) throw new Error(`webm: unsupported Segment child 0x${e.id.toString(16)}`)
   const segStart = seg.dataOffset
   // ตำแหน่งใน SeekHead/Cues เป็น "สัมพัทธ์กับจุดเริ่มข้อมูลของ Segment" — เราสร้างข้อมูล Segment ใหม่เป็นชิ้น ๆ แล้วคำนวณ offset ใหม่
@@ -238,9 +244,9 @@ export async function makeSparseWebm({ src, spanBytes, cues, out }) {
   const cuesEl = children.find((e) => e.id === ID.CUES)
   const seekDelta = seekHeadEl ? rebuildSeekHead(buf, seekHeadEl, (p) => p).length - seekHeadEl.size : 0
   const posOf = (idx) => children[idx].offset - segStart
-  const voidAt = posOf(firstCluster) // ตำแหน่ง Void (สัมพัทธ์ segment) ในไฟล์ต้นทาง
+  const voidAt = posOf(voidIndex) // ตำแหน่ง Void (สัมพัทธ์ segment) ในไฟล์ต้นทาง
   // delta สำหรับตำแหน่ง p (สัมพัทธ์ segment เดิม): หลัง SeekHead +seekDelta; ที่/หลัง Cluster แรก +voidTotal ด้วย
-  const cuesDelta = cuesEl ? rebuildCues(buf, cuesEl, 0).length - cuesEl.size : 0
+  const cuesDelta = cuesEl ? rebuildCues(buf, cuesEl, (p) => p).length - cuesEl.size : 0
   const remap = (p) => {
     let q = p
     if (seekHeadEl && p > seekHeadEl.offset - segStart) q += seekDelta
@@ -253,9 +259,9 @@ export async function makeSparseWebm({ src, spanBytes, cues, out }) {
   const segParts = []
   for (let i = 0; i < children.length; i += 1) {
     const e = children[i]
-    if (i === firstCluster) segParts.push({ buf: voidHeader, sparse: spanBytes - 9 })
+    if (i === voidIndex) segParts.push({ buf: voidHeader, sparse: spanBytes - 9 })
     if (e.id === ID.SEEKHEAD) segParts.push({ buf: rebuildSeekHead(buf, e, remap) })
-    else if (e.id === ID.CUES) segParts.push({ buf: rebuildCues(buf, e, voidTotal + (seekHeadEl ? seekDelta : 0)), mark: 'cues' })
+    else if (e.id === ID.CUES) segParts.push({ buf: rebuildCues(buf, e, remap), mark: 'cues' })
     else segParts.push({ buf: buf.subarray(e.offset, e.offset + e.size), mark: i === firstCluster ? 'cluster' : null })
   }
   const segDataSize = segParts.reduce((n, p) => n + (p.buf?.length ?? 0) + (p.sparse ?? 0), 0)
@@ -270,7 +276,7 @@ export async function makeSparseWebm({ src, spanBytes, cues, out }) {
     pos += (p.buf?.length ?? 0) + (p.sparse ?? 0)
   }
   const bytes = await writeSparse(out, parts)
-  return { bytes, hasCues, firstClusterOffset, cuesOffset }
+  return { bytes, hasCues, firstClusterOffset, cuesOffset, voidAfter }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
