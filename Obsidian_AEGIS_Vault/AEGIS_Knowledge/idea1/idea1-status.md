@@ -109,16 +109,17 @@ edit_policy: owner-writable
 
 | Field | Current value |
 | :--- | :--- |
-| Task | `FILES-MANAGEMENT-UX-1` (Files management: rename, move, real folder hierarchy, kind discrimination, and upload targeting) |
+| Task | `FILES-MANAGEMENT-UX-1` (Files management: rename, move, real folder hierarchy, kind discrimination, upload targeting, and server-side media preview pipeline) |
 | Branch | `feat/idea1-files-management-ux` |
 | Owner | `kla` |
 | PR | PR #150 (Draft) — see the Session Register below |
-| Base branch | `feat/idea1-files-upload-ux-refresh` |
-| Base checkpoint | `ed6cd2a91eb2aabf3cee354259bae18eb826b9ee` — PR #148 predecessor checkpoint |
-| Authoritative source reviewed commit | `13ee23f8573f264b9923603637f95fb954513080` (Round 6 final source review PASS by ChatGPT; `SOURCE_PHASE=COMPLETE`) |
-| Current state | **FILES-MANAGEMENT-UX-1 SOURCE REVIEW = PASS (at 13ee23f8); SOURCE_PHASE = COMPLETE; POSTGRES_RUNTIME_VERIFICATION = NOT MEASURED; PRODUCTION = NOT TESTED; FINAL_RECEIPT = NOT CREATED; DO_NOT_MERGE = TRUE** |
-| Production mutation allowed | **NO** — repository-only task; no Production, Cloudflare, database, network, nginx, or systemd action is authorised during repository work |
-| Database migration applied | **NO** — Migration 010 has NOT been applied to Production or any live database |
+| Base branch | `main` (retargeted after PR #148 merged as `a68e18927ec4288c6a1cc1761cc167546b7d31b9`) |
+| Base checkpoint | `0b6aea61556371140813cb63747170de7be84be6` (normal merge at `00cfe192`; `MAIN_DRIFT_DETECTED=NO`) |
+| Authoritative application source commit | `1a3c166224078d87c1aa41e6a7cc3f06790fdca9` |
+| Current Production Image | `aegis-prod-drive:media-preview-1a3c16622407` (`HEALTH=healthy`, `RESTARTS=0`, `OOM=false`) |
+| Current state | **FILES-MANAGEMENT-UX-1 SOURCE = PASS (at 1a3c1662); PRODUCTION_DEPLOY = PASS (aegis-prod-drive:media-preview-1a3c16622407, HEALTH=healthy, RESTARTS=0, OOM=false); BROWSER_ACCEPTANCE = PASS (FILES-PAGE FIXES ACCEPTED BY HUMAN OWNER); MEDIA_PREVIEW = IMPLEMENTED; MIGRATION_010 = VERIFIED_PREFLIGHT (applied earlier in PR150; no cutover mutation); FINAL_RECEIPT = CREATED; DO_NOT_MERGE = TRUE; PR150_READY_FOR_REVIEW = NO (DRAFT)** |
+| Production mutation allowed | **NO** — candidate deployed; no further production mutation allowed during documentation closeout |
+| Database migration applied | Migration 010 applied earlier in PR 150 estate; verified preflight (`files.kind` NOT NULL DEFAULT 'file' + check constraint, `files.parent_id`, `upload_sessions.parent_id`, unique index, zero invalid rows); `MEDIA_CUTOVER_DATABASE_MUTATION=NO`, `MEDIA_CUTOVER_MIGRATION_APPLIED=NO` |
 | Working tree | Dedicated worktree `C:/Users/User/AEGIS_System_worktrees/feat-idea1-files-management-ux` |
 
 ### Goal
@@ -127,35 +128,37 @@ edit_policy: owner-writable
 2. Establish a true hierarchical folder tree with validated `parent_id` foreign keys, cycle prevention, and breadcrumb ancestor resolution.
 3. Deliver safe, atomic file and folder operations: rename with collision protection and path traversal defenses, bulk move with cycle detection and atomic rollback, and folder-targeted chunked uploads.
 4. Protect hierarchy integrity across the trash lifecycle: refuse orphaning children, restore original parent-child relationships, refuse purging parents with trashed children, and drain deep trees safely.
+5. Server-side media preview pipeline: Deliver performant, secure grid previews for images, animated GIFs, and videos via rebuildable content-addressed cache, Sharp static posters, and FFmpeg 8.0.1 motion proxies without client-side decoding bottlenecks or original file fetches.
 
 ### Scope
 
-Database migration `010_files_kind_parent.sql` (`kind TEXT`, `parent_id BIGINT`, partial unique index on `(uploaded_by, COALESCE(parent_id, 0), lower(name))` where `deleted_at IS NULL AND vault = false`); `legacyKindClassifier.js` deterministic preflight estate analysis; store mutations (`renameItem`, `moveItems`); owner row hierarchy serialization (`users FOR UPDATE`) to prevent concurrent hierarchy races; trash lifecycle hierarchy integrity (`filesTrashLifecycle.js`, `protectedTrash.js`, `trashCleanup.js`); upload session destination persistence and verification (`uploads.js`, `chunkedUpload.js`, `UploadDrawer.jsx`); UI navigation, breadcrumbs, Move dialog, and drag-and-drop targeting (`Files.jsx`, `fileDragDrop.js`, `strings.js`); focused test suites; this canonical record.
+Database migration `010_files_kind_parent.sql` (`kind TEXT NOT NULL DEFAULT 'file'`, `parent_id BIGINT`, partial unique index on `(uploaded_by, COALESCE(parent_id, 0), lower(name))` where `deleted_at IS NULL AND vault = false`); `legacyKindClassifier.js` deterministic preflight estate analysis; store mutations (`renameItem`, `moveItems`); owner row hierarchy serialization (`users FOR UPDATE`) to prevent concurrent hierarchy races; trash lifecycle hierarchy integrity (`filesTrashLifecycle.js`, `protectedTrash.js`, `trashCleanup.js`); upload session destination persistence and verification (`uploads.js`, `chunkedUpload.js`, `UploadDrawer.jsx`); UI navigation, breadcrumbs, Move dialog, and drag-and-drop targeting (`Files.jsx`, `fileDragDrop.js`, `strings.js`); server-side media preview pipeline (`server/media/`), Sharp static poster generator, FFmpeg 8.0.1 motion proxy generator, rebuildable disk cache (`/var/cache/aegis-media`), authenticated owner-only routes (`GET /api/files/:id/poster`, `GET /api/files/:id/motion-preview`), viewport media scheduler (`useMediaTile`, `MediaThumb`), and app-base path resolution (`/drive/api/files/...`); focused test suites; this canonical record.
 
 ### Out of scope
 
-Applying Migration 010 to Production or staging databases; Production deployment; altering encryption or Private Vault mechanics; altering Public Share or Secure Share contracts; changing chunk sizes or transfer concurrency; changing `limits.maxLogicalFileBytes`; closing PR #150 or creating a final receipt before predecessor PR #148 merges.
+Altering encryption or Private Vault mechanics (`PRIVATE_VAULT_MEDIA_DERIVATIVE=NO`); altering Public Share or Secure Share contracts; changing chunk sizes or transfer concurrency; changing `limits.maxLogicalFileBytes` (~5 GiB deployment ceiling unchanged); merging PR #150 without human owner review.
 
 ### Safety boundaries
 
-`PRODUCTION_MUTATION_ALLOWED=NO`, `DATABASE_MIGRATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`, `FINAL_RECEIPT_CREATED=NO`.
+`PRODUCTION_MUTATION_ALLOWED=NO`, `DATABASE_MIGRATION_ALLOWED=NO`, `MERGE_ALLOWED=NO`, `FINAL_RECEIPT_CREATED=YES`.
 No production secret was queried or modified. Working tree is isolated.
 
 ### Acceptance criteria
 
 - **Repository phase**:
-  - Source review PASS across all 6 correction rounds through `13ee23f8573f264b9923603637f95fb954513080` (`SOURCE_PHASE=COMPLETE`).
-  - Round-6 focused test suites: 118 total / 113 pass / 0 fail / 5 skipped (PostgreSQL-gated).
+  - Source review PASS across all correction rounds through `1a3c166224078d87c1aa41e6a7cc3f06790fdca9`.
+  - Focused test suites: 118 total / 113 pass / 0 fail / 5 skipped (PostgreSQL live gated); 58/58 pass in `filesMediaTiles.test.js`; media pipeline suites PASS.
   - Frontend production build (`npm run build`) PASS.
   - Collaboration policy & vault validation PASS (50/50 tests, 0 errors, 2 pre-existing canvas warnings).
   - CI collaboration-guardrails: PASS.
-  - Broad Windows regression limitation honestly recorded (`UPLOAD_BATCH_SUMMARY_BATCH_CONTEXT=NOT_MEASURED_WINDOWS`, `publicShareS55FirewallContract=NOT_MEASURED_WINDOWS`, `NEW_FAILURE_COUNT=0`).
-- **Upcoming release gates**:
-  - Predecessor PR #148 current-main reconciliation, exact-SHA Linux re-verification, Drive-only candidate Production deployment, Human Owner browser acceptance, and merge into `main`.
-  - Reconcile updated base into `feat/idea1-files-management-ux`.
-  - Linux & PostgreSQL live test suite execution (measuring PostgreSQL concurrency and race tests).
-  - Staging migration 010 dry-run with database backup snapshot.
-  - Production deployment and Human Owner browser acceptance.
+- **Production deployment**:
+  - Drive-only candidate image `aegis-prod-drive:media-preview-1a3c16622407` deployed and verified healthy (`HEALTH=healthy`, `RESTARTS=0`, `OOM=false`, `MEDIA_ENABLED=true`, `FFMPEG=8.0.1`, `SHARP=0.35.4`, `CACHE_WRITABLE=true`, `CACHE_VOLUME=volume`).
+  - Network bindings (`172.19.255.3`, `172.18.0.3`, `172.31.241.3`, `192.168.10.11`) and persistent mounts preserved; rebuildable media cache named volume `aegis_drive_media_cache` added.
+  - Migration 010 preflight verified: `files.kind` NOT NULL DEFAULT 'file' with check constraint, `files.parent_id`, `upload_sessions.parent_id`, unique index, zero invalid rows.
+  - Database baseline unchanged: 27 files, 0 vault, 12 trashed, 24 upload sessions, 0 non-committed. `MEDIA_CUTOVER_DATABASE_MUTATION=NO`, `MEDIA_CUTOVER_MIGRATION_APPLIED=NO`.
+- **Browser acceptance**:
+  - Human Owner confirmed that after the final correction, the previously requested Files-page fixes function as expected (`HUMAN_OWNER_BROWSER_ACCEPTANCE=PASS`).
+  - Explicit production unmeasured items: `CROSS_ACCOUNT_CACHE_ISOLATION=NOT_TESTED`, `REDUCED_MOTION_PRODUCTION=NOT_TESTED`, `TOUCH_PRODUCTION=NOT_TESTED`.
 
 ### Session Register
 
@@ -169,7 +172,11 @@ No production secret was queried or modified. Working tree is isolated.
 | S6 | Prior documentation & evidence reconciliation | CHECKPOINT | docs commit | `2e57a4cf` | docs reconciled | Round 5 review | Round 5 review |
 | S7 | Round 5 correction: require positive legacy folder evidence (`/datalake/%`) | CHECKPOINT | KIND 8–10 tests PASS | `5e231e99` | Round 5 review PASS | file checksum parity | Round 6 review |
 | S8 | Round 6 final source review: file checksum parity (`sha256 <> ''`) & CHAR(64) trailing spaces | CHECKPOINT | KIND 11–14 tests PASS | `13ee23f8` | Round 6 review PASS (`SOURCE_PHASE=COMPLETE`) | final docs reconciliation | S9 doc correction |
-| S9 | Final source-phase documentation & PR body correction | CHECKPOINT | see Session S9 | Pending docs commit | documentation reconciled | PR #148 main reconciliation / Linux gate | PR #148 closeout |
+| S9 | Final source-phase documentation & PR body correction | CHECKPOINT | docs commit | `a92508a1` | documentation reconciled | PR #148 base merge & live PG tests | S10 base & PG |
+| S10 | Base reconciliation with main after PR #148 merge (`a68e1892`) & Round 7 schema convergence | CHECKPOINT | live PG tests PASS, schema convergence verified | `54b0afd0` / `1866b476` | Base reconciled, Round 7 PASS | Media preview pipeline design & TDD | S11 media pipeline |
+| S11 | Server-side media preview pipeline (TDD Tasks 1–18, sharp/ffmpeg, derivative cache, queue, scheduler) | CHECKPOINT | media unit/contract suites PASS | `e1f894dc` / `4d0b4fab` | Media preview pipeline implemented | Production candidate cutover & hardening | S12 candidate cutover |
+| S12 | Production media candidate cutover & hardening (49.7 MB GIF poster fix, app base resolution, touch pointer controls, layout stacking) | CHECKPOINT | deployed `aegis-prod-drive:media-preview-1a3c16622407`, HEALTH=healthy | `1a3c1662` | Production runtime PASS, hardening complete | Human Owner browser acceptance | S13 acceptance closeout |
+| S13 | Human Owner browser acceptance & final evidence closeout | COMPLETE | Files-page fixes confirmed by Human Owner; receipt created; PR body updated | Pending docs commit | Task closeout PASS | Final PR review | Ready for reviewer |
 
 ### Session S1 — initial files management implementation
 
@@ -237,30 +244,75 @@ path LIKE 'uploads/%' AND sha256 IS NOT NULL AND sha256 <> ''
 ```
 - `sha256` is `CHAR(64)`; PostgreSQL compares `bpchar` ignoring trailing spaces, so `hasChecksum()` in `legacyKindClassifier.js` strips trailing spaces (`value.replace(/ +$/, '').length > 0`) for exact semantic parity.
 - Tested by executing the SQL predicate in `KIND 11–14`.
-
 Source review verdict: **PASS** by ChatGPT at `13ee23f8573f264b9923603637f95fb954513080` (`SOURCE_PHASE=COMPLETE`).
 
 ### Session S9 — final source-phase documentation & evidence correction
 
 State: **CHECKPOINT**
+Checkpoint SHA: `a92508a1f6ec21f30c1022cc21fa3d4dcb4f7615`
+Audited canonical note and PR body against actual source code and migration:
+- `kind` is `TEXT` with `CHECK (kind IN ('file', 'folder'))`.
+- `parent_id` is `BIGINT REFERENCES files(id) ON DELETE RESTRICT`.
+- Unique namespace index is `(uploaded_by, COALESCE(parent_id, 0), lower(name))` where `deleted_at IS NULL AND vault = false`.
+- Move function is `moveItems()`.
+- Hierarchy serialization is owner-row lock (`users FOR UPDATE`), not a generic keyed lock; root inserts bypass owner lock because they have no parent lifecycle race.
+- Round-4 busy lock typing belongs to `trashCleanup.js`; `api.js` reports resulting status.
+Documented Rounds 5 and 6 and set `SOURCE_PHASE=COMPLETE`.
+
+### Session S10 — base reconciliation & live PostgreSQL verification
+
+State: **CHECKPOINT**
+Checkpoint SHA: `54b0afd018908181798460d67622a60d4fa31794` / `1866b476eb7b909996429dbe684cc4d5a25ff1dd`
+- Predecessor PR #148 merged into `main` as `a68e18927ec4288c6a1cc1761cc167546b7d31b9`.
+- Merged `origin/main` into `feat/idea1-files-management-ux` at `54b0afd0` (0 conflicts); retargeted PR #150 base to `main`.
+- Round 7 source correction at `1866b476` aligned migrated `files.kind` DEFAULT with `schema.sql` (`ALTER TABLE files ALTER COLUMN kind SET DEFAULT 'file'` after the fail-closed gate).
+- Executed live PostgreSQL verification on disposable `postgres:15-alpine` container: `POSTGRES_MOVE_CONCURRENCY=PASS`, `POSTGRES_HIERARCHY_RACES=PASS`, `POSTGRES_RESTORE_TRASH_RACE=PASS`, `POSTGRES_RENAME_RACE=PASS`.
+
+### Session S11 — server-side media preview pipeline implementation
+
+State: **CHECKPOINT**
+Checkpoint SHA: `e1f894dc0ecfb2c36c2990154f7ed79a4513073f` / `4d0b4fab0f667f9a161b75a3e497868cbb673fb2`
+- Initial Production R10 finding on 49.7 MB GIF exposed browser-side poster generation defect where client fetched and decoded the entire original file.
+- Authored design specification (`docs/superpowers/specs/2026-09-18-pr150-media-preview-pipeline-design.md`) and 18-task TDD plan (`docs/superpowers/plans/2026-09-18-pr150-media-preview-pipeline.md`).
+- Implemented complete server-side media preview pipeline: Sharp static posters, FFmpeg 8.0.1 / FFprobe motion proxy, byte-bounded process runner, worker queue, rebuildable content-addressed disk cache (`/var/cache/aegis-media`), authenticated owner-only routes (`GET /api/files/:id/poster`, `GET /api/files/:id/motion-preview`, `POST /api/files/media-info/batch`), viewport media scheduler (`useMediaTile`, `MediaThumb`), and post-commit warmup enqueue.
+- Added `aegis_drive_media_cache` named volume to `docker-compose.yml` and documented `MEDIA_*` in `.env.example`.
+- Verified with comprehensive test suites (limits, capabilities, cache, poster, motion, process runner, queue, runtime, routes, large sources, responsiveness).
+
+### Session S12 — production candidate cutover & hardening
+
+State: **CHECKPOINT**
+Checkpoint SHA: `1a3c166224078d87c1aa41e6a7cc3f06790fdca9`
+- Packaged candidate `4d0b4fab` deployed to test/Production. Runtime healthy, but browser testing revealed three issues:
+  1. Derivative URLs escaped Vite `/drive/` mount: resolved in `c552fb64` by resolving derivative server paths through frontend `apiUrl`.
+  2. Touch interaction was mouse-only: resolved in `1a3c1662` by adding Pointer Events + touch hold support via `useCoarsePointer`.
+  3. Tile controls (checkbox, action menu) were painted below / clipped by media frame: resolved in `1a3c1662` by positioning controls inside relative frame with z-20.
+- Cut over Production candidate image: `IMAGE=aegis-prod-drive:media-preview-1a3c16622407`.
+- Verified immediate runtime health: `HEALTH=healthy`, `RESTARTS=0`, `OOM=false`, `MEDIA_ENABLED=true`, `FFMPEG=8.0.1`, `SHARP=0.35.4`, `CACHE_WRITABLE=true`, `CACHE_VOLUME=volume`.
+- Verified network bindings, volume mounts, `group_add` (29100, 29102), and unrelated containers unchanged.
+- Verified Migration 010 preflight: `files.kind` NOT NULL DEFAULT 'file' + check constraint, `files.parent_id`, `upload_sessions.parent_id`, unique index, zero invalid rows.
+- Verified database baseline row counts identical before and after candidate cutover (27/0/12/24/0; `MEDIA_CUTOVER_DATABASE_MUTATION=NO`, `MEDIA_CUTOVER_MIGRATION_APPLIED=NO`).
+
+### Session S13 — human owner browser acceptance & final evidence closeout
+
+State: **COMPLETE**
 Checkpoint SHA: Pending docs commit
-Starting SHA: `13ee23f8573f264b9923603637f95fb954513080`
-- Audited canonical note and PR body against actual source code and migration:
-  - `kind` is `TEXT` with `CHECK (kind IN ('file', 'folder'))` (no DEFAULT established in migration 010).
-  - `parent_id` is `BIGINT REFERENCES files(id) ON DELETE RESTRICT` (not UUID).
-  - Unique namespace index is `(uploaded_by, COALESCE(parent_id, 0), lower(name))` where `deleted_at IS NULL AND vault = false` (uses `uploaded_by`, integer zero sentinel, `lower(name)`).
-  - Move function is `moveItems()`.
-  - Hierarchy serialization is owner-row lock (`users FOR UPDATE`), not a generic keyed lock; root inserts bypass owner lock because they have no parent lifecycle race.
-  - Round-4 busy lock typing belongs to `trashCleanup.js`; `api.js` reports resulting status.
-- Documented Rounds 5 and 6 and set `SOURCE_PHASE=COMPLETE`.
-- Recorded Windows broad regression limitation (`uploadBatchSummary.test.js` batch hang; kill-induced failures; standalone 15/15 PASS; `NEW_FAILURE_COUNT=0`).
-- Documented PR #148 dependency: PR #148 requires current-main reconciliation and exact-SHA re-verification before merge.
-- Preserved PR #150 as Draft (`DO_NOT_MERGE=TRUE`, `FINAL_RECEIPT_CREATED=NO`).
+Starting SHA: `1a3c166224078d87c1aa41e6a7cc3f06790fdca9`
+- Human Owner performed browser testing on candidate `1a3c16622407` and confirmed:
+  The previously requested Files-page fixes function as expected (`HUMAN_OWNER_BROWSER_ACCEPTANCE=PASS`).
+- Explicitly classified unmeasured production items:
+  - `CROSS_ACCOUNT_CACHE_ISOLATION=NOT_TESTED` (automated unit test passes separately)
+  - `REDUCED_MOTION_PRODUCTION=NOT_TESTED`
+  - `TOUCH_PRODUCTION=NOT_TESTED`
+- Documented known limitations (`ANIMATED_WEBP_MOTION=POSTER_ONLY_DEGRADATION`, `FILES_GRID_MEDIA_PREVIEW=IMPLEMENTED`, `FILES_LIST_ROW_MEDIA_PREVIEW=NOT_IMPLEMENTED`, `FILES_LIST_ROW_CURRENT_BEHAVIOR=ICON_ONLY`, `PRIVATE_VAULT_MEDIA_DERIVATIVE=NO`, upload limits and transfer performance unchanged).
+- Registered security follow-up: `PRODUCTION_SECRET_ROTATION=REQUIRED_SECURITY_FOLLOW_UP`.
+- Created final immutable task receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-19_170000_kla_idea1-files-management-ux.md`.
+- Updated PR #150 body with complete authoritative evidence and reviewer checklist.
+- Preserved PR #150 in Draft (`PR150_READY_FOR_REVIEW=NO`, `DO_NOT_MERGE=TRUE`).
 
 ### Technical Architecture & Migration 010 Invariants
 
 1. **Database Schema (`010_files_kind_parent.sql`)**:
-   - `kind TEXT NOT NULL` with constraint `CHECK (kind IN ('file', 'folder'))`
+   - `kind TEXT NOT NULL DEFAULT 'file'` with constraint `CHECK (kind IN ('file', 'folder'))`
    - `parent_id BIGINT NULL REFERENCES files(id) ON DELETE RESTRICT`
    - `upload_sessions.parent_id BIGINT NULL REFERENCES files(id) ON DELETE RESTRICT`
    - Partial unique index: `CREATE UNIQUE INDEX files_unique_name_per_parent_idx ON files (uploaded_by, COALESCE(parent_id, 0), lower(name)) WHERE deleted_at IS NULL AND vault = false`
@@ -280,6 +332,13 @@ Starting SHA: `13ee23f8573f264b9923603637f95fb954513080`
    - Trashed parents cannot be purged while trashed children remain (`T5`).
    - Empty Trash uses iterative topological peeling (descendants first) with fixed pass bounds (`ET1`/`ET2`).
    - Busy locks are typed in `trashCleanup.js` (`ET3`); `api.js` reports residual counts and returns `ok=true` only when `remainingCount=0`.
+6. **Server-Side Media Preview Pipeline & Rebuildable Cache**:
+   - Rebuildable content-addressed disk cache under `/var/cache/aegis-media` (`aegis_drive_media_cache` named volume).
+   - Sharp static poster generation for previewable images/videos; FFmpeg 8.0.1 motion proxy with byte-bounded process runner and output caps.
+   - Authenticated owner-only derivative routes (`GET /api/files/:id/poster`, `GET /api/files/:id/motion-preview`, `POST /api/files/media-info/batch`).
+   - Frontend resolves paths through `apiUrl` to preserve Vite `/drive/` application mount in Production.
+   - Pointer Events + touch hold support (`useCoarsePointer`) for mobile/touch surfaces; control stacking isolated in relative frame (z-20 over z-0).
+   - Zero-knowledge boundary: Private Vault items never generate server-side derivatives (`PRIVATE_VAULT_MEDIA_DERIVATIVE=NO`).
 
 ### Rollback Risk Analysis (Factual Technical Reality)
 
@@ -287,42 +346,46 @@ Starting SHA: `13ee23f8573f264b9923603637f95fb954513080`
 - **HOWEVER**, once users perform operations under Migration 010 (creating folders, moving items, structuring directories), rolling back Migration 010 (dropping `kind` and `parent_id`) **permanently and irreversibly destroys all folder hierarchy, parent-child relationships, and logical directory structures**. All items would be flattened to root or orphaned.
 - Therefore, post-migration rollback after writes carries **major structural data loss risk**.
 - Operational mitigation: Mandatory full PostgreSQL backup snapshot immediately prior to applying Migration 010. If an issue occurs after live writes have begun, forward-fix is strongly favored over destructive schema rollback.
+- **Media Preview Rollback**: Production deployment used isolated override `/opt/aegis/runtime/pr150/`. Rollback is achieved by omitting the new image override and media overlay (`ROLLBACK_MODEL=OMIT_NEW_IMAGE_OVERRIDE_AND_MEDIA_OVERLAY`), leaving the base compose chain intact and the cache volume unused.
 
 ### PR #148 Dependency & Release Sequencing
 
-- PR #150 is stacked on `feat/idea1-files-upload-ux-refresh` (base checkpoint `ed6cd2a91eb2aabf3cee354259bae18eb826b9ee`).
-- PR #148 Linux exact-SHA verification at `ed6cd2a9` has PASS evidence.
-- However, `origin/main` has advanced since that frozen checkpoint, so PR #148 still requires current-main reconciliation and exact-SHA re-verification before Production acceptance / merge. PR #148 is NOT ready to merge merely because its old frozen SHA passed Linux verification.
-- Release sequence:
-  1. Reconcile PR #148 with current `main` and rerun exact-SHA Linux verification.
-  2. Deploy PR #148 candidate to Production, obtain Human Owner browser acceptance, close receipt, and merge PR #148 into `main`.
-  3. Rebase/reconcile PR #150 against updated `main`.
-  4. Run Linux & live PostgreSQL verification suites on PR #150 (measuring PostgreSQL concurrency/race tests).
-  5. Staging Migration 010 preflight & dry-run with database backup snapshot.
-  6. Production deployment and Human Owner browser acceptance.
+- PR #148 completed Production acceptance and merged into `main` as `a68e18927ec4288c6a1cc1761cc167546b7d31b9`.
+- PR #150 base retargeted to `main` and reconciled cleanly (`54b0afd0` and `00cfe192`).
+- Media preview pipeline designed, implemented, and verified through TDD Tasks 1–18 and browser hardening.
+- Production candidate deployed (`aegis-prod-drive:media-preview-1a3c16622407`) with healthy runtime evidence.
+- Human Owner browser acceptance completed for core Files management and media preview fixes.
+- Task closed out with final immutable receipt. PR #150 remains in Draft (`PR150_READY_FOR_REVIEW=NO`, `DO_NOT_MERGE=TRUE`) awaiting human owner and integration review.
 
 ### Verification Status & Unmeasured Gates
 
 | Verification | Result | Note |
 | :--- | :--- | :--- |
-| Round-6 focused files management suites | **118 total / 113 pass / 0 fail / 5 skip** | `filesKindIdentity`, `filesRenameMove`, `filesManagementUi`, `filesHierarchyIntegrity`, `filesTrashLifecycle`, `filesUploadTargeting`, `protectedTrash` |
+| Focused files management test suites | **118 total / 113 pass / 0 fail / 5 skip** | `filesKindIdentity`, `filesRenameMove`, `filesManagementUi`, `filesHierarchyIntegrity`, `filesTrashLifecycle`, `filesUploadTargeting`, `protectedTrash` |
+| Files media tile component & integration | **58/58 PASS** | `tests/filesMediaTiles.test.js` (covers `BP-INT-*`, `TOUCH-1..3`, `LAYOUT-1..2`, `TS-1..14`, `GI-*`) |
+| Server media preview pipeline suites | **PASS** | `mediaLimits`, `mediaCapabilities`, `mediaCache`, `mediaPoster`, `mediaMotion`, `mediaProcessRunner`, `mediaQueue`, `mediaRuntime`, `mediaRoutes`, `mediaUploadEnqueue`, `mediaShutdown`, `mediaEviction`, `mediaScheduler`, `mediaMountInfo`, `mediaCacheSessionContract` |
+| Large media sources & responsiveness | **PASS** | `tests/mediaLargeSources.test.js`, `tests/mediaResponsiveness.test.js` |
 | Frontend production build | **PASS** | `npm run build` (vite v7.3.6) |
 | Collaboration policy & vault tests | **50/50 PASS** | `collaborationPolicy`, `vaultStructure`, `vaultMultiWriter` |
 | Vault structure validation | **PASS** | `scripts/validate-vault.mjs` (2 pre-existing canvas warnings) |
 | CI collaboration-guardrails | **PASS** | Passed on PR #150 |
-| Round-6 broad Windows regression | **LIMITED / PARTIAL** | Batch 1: 583 pass / 8 accepted fail / 29 skip. Batch 2 terminated due to `tests/uploadBatchSummary.test.js` Windows batch hang (kill-induced failures, not source regression). Standalone `uploadBatchSummary`: 15/15 PASS. `UPLOAD_BATCH_SUMMARY_BATCH_CONTEXT=NOT_MEASURED_WINDOWS`, `NEW_FAILURE_COUNT=0`. |
-| Public Share firewall contract | **NOT MEASURED** | `tests/publicShareS55FirewallContract.test.js` (Linux-only gate; `spawnSync` hangs on Windows) |
 | Git diff check | **CLEAN** | `git diff --check` |
-| PostgreSQL move concurrency | **NOT MEASURED** | `POSTGRES_MOVE_CONCURRENCY=NOT_MEASURED` (requires live PostgreSQL server) |
-| PostgreSQL hierarchy races | **NOT MEASURED** | `POSTGRES_HIERARCHY_RACES=NOT_MEASURED` |
-| PostgreSQL restore trash race | **NOT MEASURED** | `POSTGRES_RESTORE_TRASH_RACE=NOT_MEASURED` |
-| PostgreSQL rename race | **NOT MEASURED** | `POSTGRES_RENAME_RACE=NOT_MEASURED` |
-| Live DB migration applied | **NO** | `DB_MIGRATION_APPLIED_TO_PRODUCTION=NO` (Migration 010 not applied) |
-| Production mutation performed | **NO** | `PRODUCTION_MUTATION_PERFORMED=NO` |
-| Production estate counts | **NOT MEASURED** | `PRODUCTION_ROW_COUNTS=NOT_MEASURED` |
-| Browser acceptance | **NOT YET** | `BROWSER_ACCEPTANCE=NOT_YET` |
-| Source phase status | **COMPLETE** | `SOURCE_PHASE=COMPLETE`, `PR150_SOURCE_REVIEW=PASS` (at `13ee23f8`) |
-| Task status | **IN PROGRESS / DRAFT** | `TASK_CLOSED=NO`, `FINAL_RECEIPT=NOT_YET`, `PR_STATE=DRAFT`, `DO_NOT_MERGE=TRUE` |
+| Live PostgreSQL verification | **PASS** | `POSTGRES_MOVE_CONCURRENCY=PASS`, `POSTGRES_HIERARCHY_RACES=PASS`, `POSTGRES_RESTORE_TRASH_RACE=PASS`, `POSTGRES_RENAME_RACE=PASS`, `MIGRATED_KIND_DEFAULT=file` (measured on disposable postgres:15-alpine) |
+| Production deployment | **PASS** | `aegis-prod-drive:media-preview-1a3c16622407` (`HEALTH=healthy`, `RESTARTS=0`, `OOM=false`, `MEDIA_ENABLED=true`, `FFMPEG=8.0.1`, `SHARP=0.35.4`, `CACHE_WRITABLE=true`, `CACHE_VOLUME=volume`) |
+| Production Migration 010 preflight | **PASS** | `files.kind` NOT NULL DEFAULT 'file' + check constraint, `files.parent_id`, `upload_sessions.parent_id`, `files_parent_id_idx`, `files_unique_name_per_parent_idx`, 0 unclassified rows |
+| Production database baseline | **PASS** | Row counts identical before and after media cutover (27/0/12/24/0; `MEDIA_CUTOVER_DATABASE_MUTATION=NO`, `MEDIA_CUTOVER_MIGRATION_APPLIED=NO`) |
+| Human Owner browser acceptance | **PASS** | Human Owner confirmed requested Files-page fixes function as expected |
+| Cross-account cache isolation (Production) | **NOT TESTED** | `CROSS_ACCOUNT_CACHE_ISOLATION=NOT_TESTED` in Production (automated unit test passes separately) |
+| Reduced motion (Production) | **NOT TESTED** | `REDUCED_MOTION_PRODUCTION=NOT_TESTED` in Production (automated test passes) |
+| Touch interaction (Production) | **NOT TESTED** | `TOUCH_PRODUCTION=NOT_TESTED` in Production (automated test passes) |
+| Animated WebP motion | **POSTER_ONLY_DEGRADATION** | Packaged FFmpeg 8.0.1 lacks animated-WebP demuxer; static poster supported |
+| Files list row media preview | **NOT IMPLEMENTED** | `FILES_LIST_ROW_MEDIA_PREVIEW=NOT_IMPLEMENTED`, `FILES_LIST_ROW_CURRENT_BEHAVIOR=ICON_ONLY` (deliberate UI design scope) |
+| Private Vault media derivatives | **NO** | `PRIVATE_VAULT_MEDIA_DERIVATIVE=NO` (zero-knowledge boundary strictly preserved) |
+| Production secret rotation | **REQUIRED_SECURITY_FOLLOW_UP** | `PRODUCTION_SECRET_ROTATION=REQUIRED_SECURITY_FOLLOW_UP` |
+| Final receipt | **CREATED** | `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-19_170000_kla_idea1-files-management-ux.md` |
+| Source phase status | **COMPLETE** | `SOURCE_PHASE=COMPLETE`, `PR150_SOURCE_REVIEW=PASS` (at `1a3c1662`) |
+| Task status | **COMPLETE (DOCS / EVIDENCE CLOSEOUT)** | All evidence reconciled, final receipt created, PR remains Draft |
+| PR State | **DRAFT** | `PR_STATE=DRAFT`, `PR150_READY_FOR_REVIEW=NO`, `DO_NOT_MERGE=TRUE` |
 
 ## Stacked Predecessor Task — FILES-UPLOAD-UX-1 / FILES-UPLOAD-RECOVERY-1 — Files upload UX refresh & reload recovery
 
