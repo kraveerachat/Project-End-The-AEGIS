@@ -243,27 +243,27 @@ Every row must be completed by Task 0.3 before Phase 1 starts. Values selected a
 
 | Limit | Measured how (Task) | Selected default | Enforcing test | Config surface |
 |---|---|---|---|---|
-| Max manifest ciphertext bytes | 0.1: encode+encrypt+upload timing for N = 1k/5k/10k/25k/50k nodes at depth 1–64 in Node and in Chromium/Firefox jsdom-free harness | `MEASURED@G0` | `MC-LIMIT-1`, `TR-413-1` | server `VAULT_TREE_MAX_MANIFEST_CIPHERTEXT_BYTES`; client `VAULT_TREE_CLIENT_LIMITS.maxCiphertextBytes` |
-| Max decoded manifest bytes | 0.1 | `MEASURED@G0` | `CN-LIMIT-1` | client only |
-| Max nodes | 0.1 (decrypt+validate+render time and heap at N) | `MEASURED@G0` | `MF-LIMIT-NODES` | client only |
-| Max depth | 0.1 | `MEASURED@G0` | `MF-LIMIT-DEPTH` | client only |
-| Max UTF-8 name bytes | 0.1 (collision-key cost at long names; compare `files` name limits in `010_files_kind_parent.sql`) | `MEASURED@G0` | `MF-LIMIT-NAME` | client only |
-| Padding buckets | 0.1 (bucket table that hides node-count deltas ≤ measured typical mutation while bounding overhead) | `MEASURED@G0` | `CN-PAD-*` | protocol constant table in `vaultTreeCanonical.js` (versioned) |
-| `recentOperationIds` bound | 0.1 | `MEASURED@G0` | `MF-LIMIT-OPS` | client only |
-| Max semantic rebase attempts | 0.1 (two-client contention simulation) | `MEASURED@G0` | `SY-REBASE-BOUND` | client only |
-| Migration lease duration | 0.1 (decrypt-all timing for the largest measured inventory ×3 safety) | `MEASURED@G0` | `PG-LEASE-EXPIRY` | `VAULT_TREE_MIGRATION_LEASE_MS` |
-| Orphan revision retention | 0.3 decision from CAS-loss frequency in 0.1 contention runs | `MEASURED@G0` | `MT-ORPHAN-REV-1` | `VAULT_TREE_ORPHAN_REVISION_RETENTION_MS` |
-| Orphan blob retention (reporting only; no automatic deletion in this PR) | 0.3 | `MEASURED@G0` | `MT-ORPHAN-BLOB-1` | `VAULT_TREE_ORPHAN_BLOB_RETENTION_MS` |
-| Forensic revision retention | 0.3 (owner decision with evidence of ciphertext volume) | `MEASURED@G0` | `MT-FORENSIC-1` | `VAULT_TREE_FORENSIC_REVISION_RETENTION_MS` |
-| Purge retention/grace | 0.3 | `MEASURED@G0` | `PU-RETENTION-1` | `VAULT_TREE_PURGE_RETENTION_MS` |
-| Image input bytes | 0.2 (decode time/heap for JPEG/PNG/WebP at 1–64 MiB) | `MEASURED@G0` | `IT-LIMIT-BYTES` | client only |
-| Decoded image pixels | 0.2 | `MEASURED@G0` | `IT-LIMIT-PIXELS` | client only |
-| GIF full-play maximum bytes | 0.2 (animated GIF Object URL heap at 1–64 MiB) | `MEASURED@G0` | `GF-LIMIT-PLAY` | client only |
-| GIF poster decode budget | 0.2 | `MEASURED@G0` | `GF-LIMIT-POSTER` | client only |
-| Simultaneous thumbnail jobs | 0.2 | `MEASURED@G0` | `TS-LIMIT-JOBS` | client only |
-| Retained Object URL count | 0.2 | `MEASURED@G0` | `TS-LIMIT-URLS` | client only |
-| Estimated preview memory ceiling | 0.2 | `MEASURED@G0` | `TS-LIMIT-MEM` | client only |
-| Max `attachBlobIds` per CAS / max purge blob IDs per request | 0.3 | `MEASURED@G0` | `TR-ATTACH-MAX`, `PU-SET-MAX` | `VAULT_TREE_MAX_ATTACH_PER_CAS`, `VAULT_TREE_MAX_PURGE_PER_REQUEST` |
+| Max manifest ciphertext bytes | 0.1: encode+encrypt+upload timing for N = 1k/5k/10k/25k/50k nodes at depth 1–64 in Node and in Chromium/Firefox jsdom-free harness | **16 777 232** (16 MiB + tag; provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MC-LIMIT-1`, `TR-413-1` | server `VAULT_TREE_MAX_MANIFEST_CIPHERTEXT_BYTES`; client `VAULT_TREE_CLIENT_LIMITS.maxCiphertextBytes` |
+| Max decoded manifest bytes | 0.1 | **16 777 216** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `CN-LIMIT-1` | client only |
+| Max nodes | 0.1 (decrypt+validate+render time and heap at N) | **10 000** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-NODES` | client only |
+| Max depth | 0.1 | **64** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-DEPTH` | client only |
+| Max UTF-8 name bytes | 0.1 (collision-key cost at long names; compare `files` name limits in `010_files_kind_parent.sql`) | **600** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-NAME` | client only |
+| Padding buckets | 0.1 (bucket table that hides node-count deltas ≤ measured typical mutation while bounding overhead) | **4 KiB … 16 MiB, 13 powers of two** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `CN-PAD-*` | protocol constant table in `vaultTreeCanonical.js` (versioned) |
+| `recentOperationIds` bound | 0.1 | **64** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-OPS` | client only |
+| Max semantic rebase attempts | 0.1 (two-client contention simulation) | **10** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `SY-REBASE-BOUND` | client only |
+| Migration lease duration | 0.1 (decrypt-all timing for the largest measured inventory ×3 safety) | **600 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `PG-LEASE-EXPIRY` | `VAULT_TREE_MIGRATION_LEASE_MS` |
+| Orphan revision retention | 0.3 decision from CAS-loss frequency in 0.1 contention runs | **86 400 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-ORPHAN-REV-1` | `VAULT_TREE_ORPHAN_REVISION_RETENTION_MS` |
+| Orphan blob retention (reporting only; no automatic deletion in this PR) | 0.3 | **2 592 000 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-ORPHAN-BLOB-1` | `VAULT_TREE_ORPHAN_BLOB_RETENTION_MS` |
+| Forensic revision retention | 0.3 (owner decision with evidence of ciphertext volume) | **2 592 000 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-FORENSIC-1` | `VAULT_TREE_FORENSIC_REVISION_RETENTION_MS` |
+| Purge retention/grace | 0.3 | **604 800 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `PU-RETENTION-1` | `VAULT_TREE_PURGE_RETENTION_MS` |
+| Image input bytes | 0.2 (decode time/heap for JPEG/PNG/WebP at 1–64 MiB) | **16 777 216** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `IT-LIMIT-BYTES` | client only |
+| Decoded image pixels | 0.2 | **16 000 000** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `IT-LIMIT-PIXELS` | client only |
+| GIF full-play maximum bytes | 0.2 (animated GIF Object URL heap at 1–64 MiB) | **8 388 608** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `GF-LIMIT-PLAY` | client only |
+| GIF poster decode budget | 0.2 | **16 777 216 input bytes, first frame ≤ decoded-pixel limit** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `GF-LIMIT-POSTER` | client only |
+| Simultaneous thumbnail jobs | 0.2 | **4** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-JOBS` | client only |
+| Retained Object URL count | 0.2 | **256** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-URLS` | client only |
+| Estimated preview memory ceiling | 0.2 | **268 435 456** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-MEM` | client only |
+| Max `attachBlobIds` per CAS / max purge blob IDs per request | 0.3 | **256 / 256** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TR-ATTACH-MAX`, `PU-SET-MAX` | `VAULT_TREE_MAX_ATTACH_PER_CAS`, `VAULT_TREE_MAX_PURGE_PER_REQUEST` |
 
 Already-shipped constants reused unchanged: V1 whole-file ceiling `MAX_VAULT_CIPHERTEXT_BYTES` (`server/storage/vaultStore.js`), V2 `VAULT_TRANSFER_LIMITS`, `PREVIEW_RANGE_WINDOW_BYTES`, `MAX_PREVIEW_PLAINTEXT_CACHE_BYTES`, `MAX_PREVIEW_PREFETCH_SLOTS`, `MAX_BUFFERED_PLAINTEXT_BYTES`.
 
@@ -301,13 +301,13 @@ Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scri
 
 **Interfaces:** none (disposable). Output is a Markdown table per run: `nodes, depth, nameBytes, encodedBytes, paddedBytes, ciphertextBytes, encodeMs, encryptMs, decryptMs, validateMs, heapDeltaMB, browser, version`.
 
-- [ ] **Step 1: Write the bench** — synthetic manifests at N ∈ {100, 1 000, 5 000, 10 000, 25 000, 50 000}, depth ∈ {1, 8, 32, 64}, name bytes ∈ {16, 64, 255, 1 024}; measure encode/pad/encrypt/decrypt/validate wall time and heap (`process.memoryUsage()` in Node, `performance.measureUserAgentSpecificMemory()` where available in browser, otherwise documented as `NOT MEASURED`).
-- [ ] **Step 2: Run in Node** — `node scripts/measure/vault-tree/manifest-bench.mjs --out /tmp/vault-tree-bench-node.md` → table saved; copy into the Limits Evidence note under "Node 24 (Windows)" and "Node 24 (WSL Ubuntu)" (both hosts, per `wsl-linux-verification-setup` memory).
-- [ ] **Step 3: Run in browsers** — Chromium and Firefox current stable on the dev machine; record UA strings; record the largest N at which decrypt+validate stays under 1 000 ms and heap delta under 256 MB (recorded facts; the *choice* of threshold is Task 0.3's).
-- [ ] **Step 4: Contention** — `node scripts/measure/vault-tree/contention-sim.mjs --clients 2 --ops 2000 --overlap 0.1,0.3,0.6` → CAS-loss rate and rebase depth distribution per overlap.
-- [ ] **Step 5: Lease timing** — record decrypt-all time for the largest measured inventory shape from `GET /api/vault` fixtures (V1 + V2 envelopes; `decryptBlobMeta`/`decryptVaultV2Meta` per item) at 100/1 000/10 000 items.
-- [ ] **Step 6: PASS evidence** — Limits Evidence note contains every table with host/browser identity and the exact command; no product file changed (`git status --short` shows only `scripts/measure/**` and the evidence note).
-- [ ] **Step 7: Commit** → `docs(idea1): measure vault tree manifest limits`
+- [x] **Step 1: Write the bench** — synthetic manifests at N ∈ {100, 1 000, 5 000, 10 000, 25 000, 50 000}, depth ∈ {1, 8, 32, 64}, name bytes ∈ {16, 64, 255, 1 024}; measure encode/pad/encrypt/decrypt/validate wall time and heap (`process.memoryUsage()` in Node, `performance.measureUserAgentSpecificMemory()` where available in browser, otherwise documented as `NOT MEASURED`).
+- [x] **Step 2: Run in Node** — `node scripts/measure/vault-tree/manifest-bench.mjs --out /tmp/vault-tree-bench-node.md` → table saved; copy into the Limits Evidence note under "Node 24 (Windows)" and "Node 24 (WSL Ubuntu)" (both hosts, per `wsl-linux-verification-setup` memory).
+- [x] **Step 3: Run in browsers** — Chromium and Firefox current stable on the dev machine; record UA strings; record the largest N at which decrypt+validate stays under 1 000 ms and heap delta under 256 MB (recorded facts; the *choice* of threshold is Task 0.3's).
+- [x] **Step 4: Contention** — `node scripts/measure/vault-tree/contention-sim.mjs --clients 2 --ops 2000 --overlap 0.1,0.3,0.6` → CAS-loss rate and rebase depth distribution per overlap.
+- [x] **Step 5: Lease timing** — record decrypt-all time for the largest measured inventory shape from `GET /api/vault` fixtures (V1 + V2 envelopes; `decryptBlobMeta`/`decryptVaultV2Meta` per item) at 100/1 000/10 000 items.
+- [x] **Step 6: PASS evidence** — Limits Evidence note contains every table with host/browser identity and the exact command; no product file changed (`git status --short` shows only `scripts/measure/**` and the evidence note).
+- [x] **Step 7: Commit** → `docs(idea1): measure vault tree manifest limits`
 
 ### Task 0.2: Client-only media decode and memory measurement
 
@@ -316,10 +316,10 @@ Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scri
 - Create: `scripts/measure/vault-tree/make-media-fixtures.mjs` (synthetic JPEG/PNG/WebP at 1–64 MiB via `sharp` where available, animated GIF via `sharp`/`gifsicle` if present, MP4 via FFmpeg if present; missing tools → that class recorded `NOT MEASURED`; fixtures in `os.tmpdir()` only)
 - Modify: `docs/superpowers/plans/2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md`
 
-- [ ] **Step 1: Write the bench** — for each fixture: `createImageBitmap` decode time, decoded pixel count, heap delta; scaled poster generation time; animated GIF `<img src=objectURL>` heap at 1/4/16/32/64 MiB; concurrent decode of 1/2/4/8 images; Object URL retention count vs. heap; V2 video poster via `<video preload="metadata">` seek on a synthetic MP4 served through a local `Response` stream (no Service Worker in the bench; the SW path is measured in Task 7.4 evidence).
-- [ ] **Step 2: Run** in Chromium and Firefox; record UA, device memory (`navigator.deviceMemory` where available), and the highest byte/pixel class whose heap delta stays below 128 MB and decode below 500 ms (facts only).
-- [ ] **Step 3: PASS evidence** — tables in the Limits Evidence note; no product file changed.
-- [ ] **Step 4: Commit** → `docs(idea1): measure vault client-only media preview limits`
+- [x] **Step 1: Write the bench** — for each fixture: `createImageBitmap` decode time, decoded pixel count, heap delta; scaled poster generation time; animated GIF `<img src=objectURL>` heap at 1/4/16/32/64 MiB; concurrent decode of 1/2/4/8 images; Object URL retention count vs. heap; V2 video poster via `<video preload="metadata">` seek on a synthetic MP4 served through a local `Response` stream (no Service Worker in the bench; the SW path is measured in Task 7.4 evidence).
+- [x] **Step 2: Run** in Chromium and Firefox; record UA, device memory (`navigator.deviceMemory` where available), and the highest byte/pixel class whose heap delta stays below 128 MB and decode below 500 ms (facts only).
+- [x] **Step 3: PASS evidence** — tables in the Limits Evidence note; no product file changed.
+- [x] **Step 4: Commit** → `docs(idea1): measure vault client-only media preview limits`
 
 ### Task 0.3: Provisional limit selection and configuration surface (gate G0)
 
@@ -329,20 +329,20 @@ Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scri
 - Create: `src/lib/vaultTreeLimits.js` (frozen client defaults; `treeLimitsFrom(overrides)`), `tests/vaultTreeLimits.test.js`
 - Note: the server surface (`server/config/vaultTreeLimits.js`) is created in Task 2.1 from the same table.
 
-- [ ] **Step 1: Write failing test** `tests/vaultTreeLimits.test.js`:
+- [x] **Step 1: Write failing test** `tests/vaultTreeLimits.test.js`:
 ```
 LM-1 VAULT_TREE_CLIENT_LIMITS is deep-frozen and every key equals the Limits Register selected value (literal table inside the test — the test is the freeze)
 LM-2 treeLimitsFrom({ maxNodes: 5 }) overrides one key and leaves the rest equal to defaults
 LM-3 treeLimitsFrom rejects a non-integer, zero, negative, or unknown key with TypeError
 LM-4 padding bucket table is strictly increasing, starts at the smallest genesis manifest size measured in 0.1, and the last bucket equals maxDecodedBytes
 ```
-- [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeLimits.test.js` → `ERR_MODULE_NOT_FOUND ../src/lib/vaultTreeLimits.js`.
-- [ ] **Step 3: Provisional selection** — for each Limits Register row write: evidence row → selected provisional default → reasoning (one sentence) → the **G0 safety envelope** (the measured time/heap/size thresholds the selection rests on, e.g. "decrypt+validate ≤ 1 000 ms and heap delta ≤ 256 MB at N nodes") in the evidence note and the PR body; external review of these choices happens at the Tranche A boundary.
-- [ ] **Step 4: Implement** `src/lib/vaultTreeLimits.js` with the selected values.
-- [ ] **Step 5: GREEN** → `# tests 4 # pass 4`.
-- [ ] **Step 6:** `git diff --check` clean; `node scripts/validate-vault.mjs` (repo root) pass.
-- [ ] **Step 7: Commit** → `docs(idea1): select vault tree limits from measured evidence` (includes the `MEASURED@G0` replacements in this plan and `src/lib/vaultTreeLimits.js`).
-- [ ] **Gate G0** (internal) — Session Register row `PVH-P0` with `G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS`; continue to Task 1.1 inside Tranche A.
+- [x] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeLimits.test.js` → `ERR_MODULE_NOT_FOUND ../src/lib/vaultTreeLimits.js`.
+- [x] **Step 3: Provisional selection** — for each Limits Register row write: evidence row → selected provisional default → reasoning (one sentence) → the **G0 safety envelope** (the measured time/heap/size thresholds the selection rests on, e.g. "decrypt+validate ≤ 1 000 ms and heap delta ≤ 256 MB at N nodes") in the evidence note and the PR body; external review of these choices happens at the Tranche A boundary.
+- [x] **Step 4: Implement** `src/lib/vaultTreeLimits.js` with the selected values.
+- [x] **Step 5: GREEN** → `# tests 4 # pass 4`.
+- [x] **Step 6:** `git diff --check` clean; `node scripts/validate-vault.mjs` (repo root) pass.
+- [x] **Step 7: Commit** → `docs(idea1): select vault tree limits from measured evidence` (includes the `MEASURED@G0` replacements in this plan and `src/lib/vaultTreeLimits.js`).
+- [x] **Gate G0** (internal) — Session Register row `PVH-P0` with `G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS`; continue to Task 1.1 inside Tranche A.
 
 ---
 

@@ -498,3 +498,53 @@ Fixtures: `scripts/measure/vault-tree/make-media-fixtures.mjs --out <os.tmpdir()
 | video-3840x2160-30s.mp4 | 77036528 | 3840 | 2160 | 4.2 | 28.2 | 46.6 | 5980 | 76.2 |
 
 Observations recorded from the tables: decode working set ≈ decoded pixels × 4 bytes regardless of format or file size (PNG 64 MiB = 27.9 Mpx → +106 MB; JPEG 64 MiB = 95.7 Mpx → +360 MB); WebP decode is ~5× slower per pixel than JPEG (20 Mpx: 967 ms vs 165 ms at 19 Mpx); GIF playback working set ≈ 3.4 × (frames × pixels × 4) and 15.6 MB per MiB of file at 32 MiB (+500 MB); concurrent decodes add linearly (18 MB per 4.79 Mpx decode); retained poster URLs cost ≈ 130 KB each (1 024 → +133 MB); a 4K video poster via metadata-preload seek costs +76 MB and < 50 ms.
+
+## Task 0.3 — provisional selection (gate G0)
+
+Status: **MEASURED PROVISIONAL DEVELOPMENT LIMITS**. Each row names the evidence it rests on, the selected default, one sentence of reasoning, and the envelope threshold that Task 1.6 must re-confirm with the real product modules before the value becomes release-authoritative. A value that later needs to grow is never edited in place: new evidence, new review.
+
+### G0 safety envelope
+
+| Envelope | Threshold | Basis |
+|---|---|---|
+| E-MANIFEST-TIME | decrypt + strip padding + decode + validate ≤ 1 000 ms at `maxNodes` × `maxNameBytes` in every measured runtime | 10 000 nodes measured ≤ 114 ms (Node/Win), ≤ 131 ms (Node/WSL), ≤ 168 ms (Chrome) even at 1 024-byte names |
+| E-MANIFEST-HEAP | JS heap delta ≤ 256 MB for one decrypted manifest at `maxNodes` × `maxNameBytes` | 10 000 nodes measured ≤ 28 MB (Node), ≤ 56 MB (Chrome) |
+| E-MANIFEST-BUCKET | the padded size of the largest allowed manifest lands in the last bucket (16 MiB) and never overflows it | 10 000 × 1 024-byte names encoded 13.5 MB → 16 MiB bucket; at the selected 600-byte cap the worst case is ≈ 9.3 MB (linear: 325 B + nameBytes per node) |
+| E-IMAGE-MEM | browser process working-set delta ≤ 128 MB per decoded image | working set ≈ pixels × 4 bytes; 16 Mpx → ≈ 64 MB; 19.1 Mpx JPEG measured +72 MB |
+| E-IMAGE-TIME | JPEG/PNG decode ≤ 500 ms at `maxDecodedPixels` | 19.1 Mpx JPEG 165 ms; 27.9 Mpx PNG 100 ms. WebP is recorded as the slow decoder (20 Mpx 967 ms) and is bounded by memory + the scheduler, not by this time threshold |
+| E-GIF-PLAY | playback working-set delta ≤ 128 MB | 4 MiB → +40 MB, 16 MiB → +160 MB (≈ 10 MB per MiB of file between those two measured points) |
+| E-PREVIEW-TOTAL | sum of live decoded pixels × 4 + input plaintext bytes + retained poster URLs × 130 KB ≤ ceiling | 8 concurrent 4.79 Mpx decodes +147 MB; 1 024 URLs +133 MB |
+
+### Selected provisional defaults
+
+| Limit | Evidence row | Selected default | Reasoning |
+|---|---|---|---|
+| Max manifest ciphertext bytes | Task 0.1 padded/ciphertext columns | **16 777 232** (16 MiB + 16-byte tag) | ciphertext = last bucket + one GCM tag; anything larger is rejected before decrypt |
+| Max decoded manifest bytes | Task 0.1 encodedBytes; E-MANIFEST-BUCKET | **16 777 216** (16 MiB) | equals the last padding bucket; 1.7× the 600-byte-name worst case at 10 000 nodes |
+| Max nodes | Task 0.1 summaries (10 000 vs 25 000) | **10 000** | 10 000 stays ≤ 168 ms / ≤ 56 MB in every runtime with 5× time headroom; 25 000 also fits the envelope (≤ 388 ms, Chrome heap 224 MB) but costs a 16 MiB ciphertext upload per mutation (Approach B is O(tree) per commit) and leaves no heap headroom in Chrome, so it is not selected |
+| Max depth | Task 0.1 depth columns | **64** | no measurable cost difference between depth 1 and 64 (iterative walks); 64 is the deepest measured shape |
+| Max UTF-8 name bytes | Task 0.1 name-bytes columns; Files `POST /files/folder` 120 chars / `PATCH /files/:id` 200 chars | **600** | 200 characters of a 3-byte script (Thai) — parity with the Files 200-character rename limit; cost is linear in bytes and 600 lies inside the measured 255…1 024 range |
+| Padding buckets | Task 0.1 paddedBytes (candidate table) | **4 KiB, 8 KiB, … , 8 MiB, 16 MiB** (13 powers of two) | power-of-two buckets hide node-count deltas inside a bucket (a rename/move/single create never changes the observed size); ≤ 2× overhead; smallest measured genesis was 28 676 B at 100 nodes and an empty Vault genesis is a few hundred bytes → 4 KiB floor |
+| `recentOperationIds` bound | Task 0.1 (32 ids cost ≈ 800 B); contention max 9 attempts | **64** | covers several full retry sequences of two devices (≤ 10 attempts each) at ≈ 1.6 KB |
+| Max semantic rebase attempts | Step 4 contention: max attempts to commit = 9 (2 and 3 clients, all overlaps), p99 = 6 | **10** | covers the measured worst case under always-busy adversarial interleaving with a margin of one |
+| Migration lease duration | Step 5 decrypt-all 10 000 items = 669 ms; Task 0.1 encrypt ≤ 100 ms at 16 MiB | **600 000 ms** (10 min) | client-side genesis = unlock (Argon2, seconds) + decrypt-all (< 1 s measured) + encrypt (< 0.1 s measured) + upload of ≤ 16 MiB ciphertext; the upload leg is not measured here and is assumed at 1 Mbit/s worst case (≈ 134 s); ×3 safety ≈ 7 min → 10 min; takeover after expiry bounds the cost of a generous lease |
+| Orphan revision retention | Step 4: CAS losses are 34 % of attempts under contention (orphans are frequent but ≤ 16 MiB each) | **86 400 000 ms** (24 h) | response-loss recovery (SY-5) re-fetches immediately; 24 h is ample for any delayed client while bounding orphan storage |
+| Orphan blob retention (annotation only) | design §18: no automatic deletion in this PR | **2 592 000 000 ms** (30 d) | `orphanSince` annotation threshold for the recovery UI; nothing is deleted |
+| Forensic revision retention | Task 0.1: ≤ 8 MiB per revision at 10 000 nodes × 255-byte names | **2 592 000 000 ms** (30 d) | one revision per mutation; 30 days of daily mutations ≈ 240 MiB worst case per owner |
+| Purge retention / grace | design §14 step 5 | **604 800 000 ms** (7 d) | the wait before a purge candidate becomes confirmable; owner-visible countdown |
+| Image input bytes | Task 0.2 stills; E-IMAGE-MEM | **16 777 216** (16 MiB) | bounds the plaintext buffer; at 16 MiB every measured format stays ≤ 20 Mpx |
+| Decoded image pixels | Task 0.2 stills; E-IMAGE-MEM / E-IMAGE-TIME | **16 000 000** | ≈ 64 MB working set (4 000 × 4 000); JPEG at 19.1 Mpx measured 165 ms / +72 MB and PNG 27.9 Mpx 100 ms / +106 MB, so 16 Mpx satisfies both thresholds for those formats; WebP at 16 Mpx interpolates to ≈ 770 ms between the measured 5 Mpx (236 ms) and 20 Mpx (967 ms) points — recorded as the known slow decoder, bounded by memory and concurrency |
+| GIF full-play maximum bytes | Task 0.2 GIF playback; E-GIF-PLAY | **8 388 608** (8 MiB) | interpolates to ≈ 80 MB playback working set between the measured 4 MiB (+40 MB) and 16 MiB (+160 MB) points, under the 128 MB threshold; larger GIFs are poster/download-only |
+| GIF poster decode budget | Task 0.2 GIF posterDecodeMs / posterHeapDeltaMB | **16 777 216** (16 MiB input) and first frame ≤ `maxDecodedPixels` | 16 MiB measured 65 ms / +47 MB; 32 MiB 116 ms / +94 MB; the first-frame poster is bounded like a still image |
+| Simultaneous thumbnail jobs | Task 0.2 concurrency (+18 MB per 4.79 Mpx decode, linear) | **4** | 4 × 64 MB worst-case decodes = 256 MB = the preview ceiling; the scheduler serialises further |
+| Retained Object URL count | Task 0.2 retained URLs (256 → +38 MB, 1 024 → +133 MB) | **256** | ≈ 38 MB of posters for a full grid page |
+| Estimated preview memory ceiling | E-PREVIEW-TOTAL | **268 435 456** (256 MB) | 4 jobs × 64 MB; measured references: 8 concurrent decodes +147 MB, 1 024 URLs +133 MB |
+| Max `attachBlobIds` per CAS / max purge blob IDs per request | existing `express.json({ limit: '16kb' })` body limit; opaque refs ≈ 40 bytes each | **256** / **256** | ≈ 10 KB of JSON per request stays under the unchanged 16 KiB body limit |
+
+Config surfaces: client values are frozen in `src/lib/vaultTreeLimits.js` (`tests/vaultTreeLimits.test.js` is the freeze); server values become `server/config/vaultTreeLimits.js` env defaults in Task 2.1 (`VAULT_TREE_MAX_MANIFEST_CIPHERTEXT_BYTES=16777232`, `VAULT_TREE_MIGRATION_LEASE_MS=600000`, `VAULT_TREE_ORPHAN_REVISION_RETENTION_MS=86400000`, `VAULT_TREE_ORPHAN_BLOB_RETENTION_MS=2592000000`, `VAULT_TREE_FORENSIC_REVISION_RETENTION_MS=2592000000`, `VAULT_TREE_PURGE_RETENTION_MS=604800000`, `VAULT_TREE_MAX_ATTACH_PER_CAS=256`, `VAULT_TREE_MAX_PURGE_PER_REQUEST=256`); preview values are frozen in Phase 7 modules from this table.
+
+```text
+G0=PASS
+G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS
+G1_LIMIT_VALIDATION=PENDING
+```
