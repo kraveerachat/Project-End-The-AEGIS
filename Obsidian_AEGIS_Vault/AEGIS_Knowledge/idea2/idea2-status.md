@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-15
+updated: 2026-09-19
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -17,61 +17,68 @@ edit_policy: owner-writable
 
 ## Current Task
 
-Task: IDEA2 Machine A Monitor stream-abort crash runtime unblocker
-Branch: `fix/idea2-monitor-stream-abort-crash`
+Task: IDEA2 Machine A permanent No-PowerShell runtime
+Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
-PR: Human review and human merge only — owner-approved receipt sequencing reconciliation recorded below
-Current state: READY FOR HUMAN REVIEW — deterministic source coverage and human Machine A LOCAL runtime acceptance passed; Production remains undeployed and unaccepted
-Started: 2026-09-15
-Last checkpoint: implementation `733fb5d40810f0620082672efc783d5aba8242c2`; Machine A LOCAL runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; current-main synchronization `3be340b0f8acccae8bba0a74e049dbdba0e3dae1`; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
+PR: NOT CREATED — blocked until full automated verification and Human Machine A local acceptance pass
+Current state: IN PROGRESS — isolated implementation plan recorded; runtime source implementation not started
+Started: 2026-09-19
+Last checkpoint: task baseline `c5468c520f24d29fb37fefcf7c4411b91d4087f4` (`origin/main` at start)
 Production mutation allowed: NO
 
 ### Goal
 
-Keep the Monitor backend alive when an MJPEG upstream stalls and cancellation
-rejects asynchronously, so real Machine A camera acceptance can continue
-without weakening the established on-demand camera lifecycle.
+Deliver a repository-native Machine A runtime that starts the Detection Engine,
+dedicated Identity Agent, and tunnel automatically; keeps the camera closed when
+idle; resolves `operator` to CAM-01 and `operator2` to CAM-02; and always routes
+both accounts to Machine A's registered physical camera without manual terminal,
+heartbeat-loop, or diagnostic-bridge steps.
 
 ### Scope
 
-Prove the duplicate/async upstream-cancellation failure with a deterministic RED
-test, implement one authoritative idempotent cleanup path, verify stream cleanup
-and viewer-demand regression behavior, run the Monitor/design/UI/build checks,
-and prepare the bounded fix for human review. The existing physical-camera and
-account-alias contract remains unchanged.
+Implement the approved dedicated Ed25519 Identity Agent architecture, strict
+browser association, server-side verified-node session binding, authenticated
+physical heartbeat and ingest provenance, account-to-logical-alias policy,
+physical stream routing, demand lifecycle symmetry, and Windows install/status/
+repair/uninstall tooling. Verify locally with deterministic TDD, disposable
+PostgreSQL, production-like built-app integration, and a scoped security review
+before stopping at the explicit Human Machine A installation gate.
 
 ### Out of scope
 
-SOC passive/no-wake remediation, Telegram routing or delivery, Machine B/C,
-identity architecture, producer ownership, permanent diagnostic-infrastructure
-removal, UI redesign, Production deployment, camera hardware, model, training,
-and biometric changes are outside this runtime-unblocker task.
+Final SOC passive/no-wake remediation, Machines B/C rollout, archival footage,
+Telegram completion, UI redesign, Production deployment, Production database or
+network changes, camera hardware, model weights, training data, and biometric
+data are outside this task. The bounded Detector B legacy shared-key path remains
+compatible until a separately approved migration.
 
 ### Safety boundaries
 
-The browser never owns Node or physical-camera identity. Machine identity still
-selects the physical camera; account identity selects only the CAM-01/CAM-02
-logical alias. This crash-containment PR does not change whether demand begins
-at login or when Live opens; the owner clarified during acceptance that an
-Operator session activating the local Machine A camera is acceptable, and the
-exact product trigger remains a follow-up requirement-reconciliation item. The
-camera stays closed without authorized demand, remains reference-counted, and
-closes after final release or logout. Production and persistent Machine A
-configuration remain unchanged.
+The dedicated Agent alone owns the DPAPI-protected Ed25519 private key. Browser,
+Engine, heartbeat payload, hostname, IP, headers, query parameters, and storage
+never establish Node, physical-camera, or alias authority. Machine identity
+selects the physical camera; the live authenticated account selects only the
+logical alias. Authentication, Agent renewal, heartbeat, and browser association
+create no viewer demand. The existing Live workflow creates reference-counted
+demand, and final release/logout closes the camera. Production and the installed
+Machine A runtime remain unchanged until an explicit human installation gate.
 
 ### Acceptance criteria
 
-The RED test must reproduce the process-level uncontained rejection path. The
-minimal GREEN fix must leave exactly one cleanup owner, contain asynchronous
-cancellation rejection, close only the affected browser response, release
-viewer demand, permit reconnect, preserve watchdog/session revalidation, and
-leave no timer, reader, socket, or unhandled-rejection leak. Full scoped and
-repository validation must pass before a Draft PR is prepared.
+Every source behavior is implemented through observed RED-to-GREEN tests. Full
+Monitor, Engine, Agent, browser, UI-freeze, build, disposable PostgreSQL,
+governance, Vault, secret-scan, and scoped security-review gates must pass. Human
+acceptance must then prove reboot/login auto-start, idle camera OFF, Operator on
+CAM-01 using physical Camera A, final release OFF, Operator2 on CAM-02 using the
+same physical Camera A, final release OFF, and no manual bridge, heartbeat, npm,
+Vite, Python helper, or PowerShell workflow. No receipt, push, or PR is created
+before that acceptance.
 
 ## Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | IN PROGRESS | `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; no newer IDEA2 overlap; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | planning checkpoint pending | source implementation not started; Production unchanged | execute Tasks 2–14, then stop before privileged installation | checkpoint plan/status, begin protocol TDD |
 | CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
 | CP3-S0 | Read-only repository and runtime-auth reconnaissance | CLOSED | CP2 registry/key-version/physical-camera foundation exists; runtime still uses shared key/body identity; no Agent auth/session/DPAPI path exists | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | freshness comparison | CP3-S0.5 |
 | CP3-S0.5 | Fetch and inspect newer `origin/main` for CP3 overlap | CLOSED | fetched `origin/main` `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`; 69 newer commits do not touch IDEA2/CP3 interfaces | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS — no reconciliation required | architecture specification | CP3-S1 |
