@@ -20,9 +20,15 @@ APPROACH=B
 IMPLEMENTATION_STARTED=NO
 SERVER_KNOWS_PARENT_CHILD=NO
 SERVER_KNOWS_FOLDER_TREE=NO
+SERVER_RECEIVES_EXPLICIT_PARENT_CHILD=NO
+SERVER_RECEIVES_EXPLICIT_FOLDER_TREE=NO
 SERVER_KNOWS_PLAINTEXT_NAMES=NO
 SERVER_KNOWS_PLAINTEXT_CONTENT=NO
 SERVER_PLAINTEXT_MEDIA_CACHE=NO
+TREE_ROOT_KEY_MODEL=STABLE_RANDOM_TRK
+PROTOCOL_STATES=FLAT|MIGRATING_TREE_V1|TREE_V1
+TREE_AWARE_UPLOAD_MODEL=VERSIONED_NEW_ENDPOINTS
+TRAFFIC_ANALYSIS_INFERENCE_ACKNOWLEDGED=YES
 TREE_REVISION_CONCURRENCY=GENERATION_CAS
 EXISTING_V1_V2_CIPHERTEXT_COMPATIBILITY=PRESERVED
 PRIVATE_VAULT_TRANSFER_PERF=DEFERRED_TO_SEPARATE_PR
@@ -30,8 +36,8 @@ PRIVATE_VAULT_TRANSFER_PERF=DEFERRED_TO_SEPARATE_PR
 
 ## 2. Goals
 
-1. Add real encrypted folders and arbitrary nested hierarchy without revealing
-   parent-child relationships to the server.
+1. Add real encrypted folders and arbitrary nested hierarchy without explicitly
+   disclosing parent-child relationships or folder structure to the server.
 2. Give Private Vault distinct Folder/File presentation while reusing the
    interaction language of Files: navigation, breadcrumbs, selection, menus,
    Rename, Move, internal drag/drop, Trash, Restore, and preview where valid.
@@ -98,9 +104,9 @@ Existing source and tests remain unchanged by this design.
 ### Protected against
 
 - An honest-but-curious server, database reader, storage operator, backup
-  reader, or stolen server-side data set learning plaintext names, file/folder
-  types, parent-child relationships, tree shape, content, thumbnails, or
-  preview-session keys.
+  reader, or stolen server-side data set receiving plaintext names, file/folder
+  types, explicit parent-child fields, explicit tree shape, content, thumbnails,
+  or preview-session keys through the designed protocol or stored data.
 - Ciphertext or manifest tampering, cross-tree substitution, and corrupted
   chunks, through authenticated encryption and context-bound AAD.
 - Lost updates between cooperative clients, through an atomic server-side
@@ -117,6 +123,8 @@ Existing source and tests remain unchanged by this design.
 - Traffic analysis. The server still observes account identity, authentication,
   IP/session data, ciphertext sizes, object/chunk counts, request timing, access
   patterns, tree revision cadence, and approximate padded manifest size.
+  Correlation of those observations can support probabilistic relationship or
+  activity inference even though the protocol sends no explicit hierarchy.
 - A fully malicious server replaying an old but authentic head to a brand-new
   client with no independent monotonic anchor. CAS prevents cooperative lost
   updates; it is not a transparency log.
@@ -135,10 +143,20 @@ in manifest AAD. IV uniqueness remains mandatory. References:
 ```text
 SERVER_KNOWS_PARENT_CHILD=NO
 SERVER_KNOWS_FOLDER_TREE=NO
+SERVER_RECEIVES_EXPLICIT_PARENT_CHILD=NO
+SERVER_RECEIVES_EXPLICIT_FOLDER_TREE=NO
 SERVER_KNOWS_PLAINTEXT_NAMES=NO
 SERVER_KNOWS_PLAINTEXT_CONTENT=NO
 SERVER_PLAINTEXT_MEDIA_CACHE=NO
 ```
+
+The `SERVER_KNOWS_*` values are product invariants implemented as a precise
+**protocol-disclosure boundary**: no protocol field or stored plaintext carries
+parent IDs, child lists, paths, node names, or folder structure. They are not a
+claim that traffic analysis is impossible. Timing, access, object-count, and
+ciphertext-size correlations may permit probabilistic inference; that inference
+is outside the protected threat model and must be acknowledged in product copy.
+“Zero metadata” is not an allowed claim.
 
 Consequences:
 
@@ -233,6 +251,11 @@ Node
     plainSize
 ```
 
+Lifecycle has both a stored state and a derived effective state. A node is
+`EFFECTIVELY_TRASHED` when its own lifecycle is `trashed`/`purge-pending` **or**
+any ancestor has either state. Descendants do not need O(subtree) lifecycle
+rewrites when a folder is trashed; their physical parent links remain intact.
+
 All fields after decryption are untrusted input and must pass full schema and
 graph validation before rendering or mutation. The implementation must use one
 versioned deterministic serialization contract; canonical JSON UTF-8 with an
@@ -253,22 +276,65 @@ and may not be silently raised in Production.
   non-extractable Vault KEK. Argon2 parameters are not changed by this task.
 - Existing V1/V2 file blobs retain their current random per-file DEKs and
   authenticated ciphertext. Rename/Move never re-encrypts file bytes.
-- Every manifest revision gets a fresh random 256-bit Manifest DEK and random
-  96-bit AES-GCM IV. The Manifest DEK is wrapped under the current Vault KEK
-  using a fresh wrap IV.
-- Manifest AAD contains only clear opaque protocol context: protocol label,
-  schema version, `treeId`, `revisionId`, `baseRevisionId`, and generation.
-  Substitution into a different tree, generation, or revision must fail
-  authentication. Parent IDs, names, node types, counts, and content metadata
-  are never AAD.
+- Genesis generates one stable random 256-bit **Tree Root Key / Tree Wrapping
+  Key (TRK)**. Plaintext TRK bytes exist only transiently in the unlocked client,
+  are imported as a non-extractable AES-GCM key, and are zeroed best-effort after
+  import/wrapping. The TRK is never sent to or stored by the server in plaintext.
+- The Vault KEK wraps the stable TRK. The server stores two independently
+  authenticated wrapped-TRK slots (`primary` and `recovery`) with different
+  random IVs; both decrypt to the same TRK and use slot-specific AAD. The second
+  slot is corruption redundancy, not an escrow key or a second trust principal.
+- Every immutable manifest revision still gets a fresh random 256-bit Manifest
+  DEK and fresh random 96-bit AES-GCM IV. Its Manifest DEK is wrapped by the
+  stable TRK with a fresh wrap IV—**never directly by the password-derived KEK**.
+- Passphrase rotation first unwraps and validates the TRK in the unlocked client,
+  derives the new Vault KEK, creates new primary/recovery wrapped-TRK slots, and
+  atomically CAS-replaces only the wrapped-TRK envelope. Historical manifest
+  ciphertext and wrapped Manifest DEKs remain byte-for-byte immutable and remain
+  decryptable through the same TRK.
+- Existing V1/V2 per-file DEK wrapping/rotation remains a separate current-file
+  concern. This tree design does not silently move those DEKs under the TRK or
+  redefine their rotation protocol.
+
+### AAD domain separation
+
+All AAD is a versioned, canonical, length-prefixed binary encoding—not string
+concatenation. The three layers use different fixed protocol labels:
+
+| Layer | Protocol label and authenticated clear context |
+|---|---|
+| Wrapped TRK | `AEGIS-Vault-Tree-TRK-Wrap-v1`; owner-scoped opaque Vault ID, `treeId`, tree protocol version, key-envelope version, and slot (`primary` or `recovery`) |
+| Wrapped Manifest DEK | `AEGIS-Vault-Tree-Manifest-DEK-Wrap-v1`; `treeId`, `revisionId`, `baseRevisionId`, generation, and manifest schema version |
+| Manifest ciphertext | `AEGIS-Vault-Tree-Manifest-Ciphertext-v1`; `treeId`, `revisionId`, `baseRevisionId`, generation, manifest schema version, and padded plaintext length |
+
+The layer label is mandatory even when fields overlap. An IV is fresh per
+encryption under a given key, and an envelope from one layer/slot/tree/revision
+must fail authentication in every other context. Parent IDs, names, node types,
+counts, and content metadata are never AAD.
+
+### Wrapped-TRK corruption and recovery
+
+On unlock, the client authenticates both wrapped-TRK slots and verifies that any
+successfully decrypted values are identical before activating the tree. If one
+slot fails and the other succeeds, the Vault may open in a prominent degraded
+recovery state; mutation is blocked until the bad slot is rewrapped from the
+validated TRK under the current KEK and the key-envelope CAS succeeds. If both
+slots fail authentication, or valid slots decrypt to different TRKs, unlock
+fails closed. Recovery is limited to restoring an authenticated prior copy of
+the wrapped-TRK envelope from owner-approved server backup and retrying with the
+corresponding passphrase. The server cannot reconstruct the TRK. Without one
+valid wrapped TRK or an explicitly designed future owner recovery mechanism,
+historical manifests and their hierarchy are cryptographically unrecoverable.
+
+- Manifest substitution into a different tree, generation, or revision must
+  fail authentication.
 - New helper contracts must support contextual AAD; do not reuse an existing
   helper in a way that silently omits that context.
 - Decryption authenticates the complete ciphertext before the tree becomes
   active. Any tag, schema, graph, or bounds failure is fail-closed and does not
   partially render nodes.
-- Passphrase rotation re-wraps the current manifest DEK and file DEKs without
-  rewriting file ciphertext. Exact safe rotation is a later implementation-plan
-  gate, not permission to change credentials now.
+- Exact atomic key-envelope rotation and backup mechanics are later
+  implementation-plan gates, not permission to change credentials now.
 
 No manifest plaintext, Tree/Manifest DEK bytes, KEK, decrypted thumbnail, or
 preview key may enter localStorage, sessionStorage, IndexedDB, Cache API,
@@ -276,15 +342,21 @@ filesystem, server cache, logs, error reporting, or analytics.
 
 ## 11. Server-Side Opaque Coordination Model
 
-The future server adds only opaque revision storage and CAS coordination:
+The future server adds only opaque revision storage, protocol-state gates, and
+CAS coordination:
 
 - An owner-scoped **tree head**: opaque `treeId`, current `revisionId`, and
   monotonic generation.
+- An owner-scoped **tree key envelope**: key-envelope version plus the two
+  opaque wrapped-TRK slots and their IVs. It contains no plaintext key material.
 - Immutable **encrypted manifest revisions**: revision/base IDs, generation,
   ciphertext size/storage key, IV, wrapped Manifest DEK, wrap IV, and ciphertext.
-- A protocol-mode/minimum-client marker so a hierarchy-enabled Vault rejects
-  legacy destructive mutation instead of letting an old client flatten or delete
-  tree-managed data.
+- An explicit owner-scoped protocol state: `FLAT`, `MIGRATING_TREE_V1`, or
+  `TREE_V1`, with a minimum-client/protocol marker, migration lease epoch/expiry,
+  and whether a tree head has ever committed.
+- Tree-aware blob lifecycle state (`UNREFERENCED`, `TREE_MANAGED`, and
+  `PURGE_PENDING`) over opaque blob IDs only. It contains no name, parent, path,
+  or node ID.
 - Idempotency keys and bounded orphan-revision cleanup. Idempotency values are
   random and convey no node semantics.
 
@@ -299,6 +371,37 @@ The server validates authentication, ownership, protocol/version, size bounds,
 opaque identifier syntax, idempotency, and CAS preconditions only. It cannot and
 must not validate names, parents, node kinds, cycles, subtree contents, or blob
 references inside ciphertext.
+
+### Owner-scoped protocol state machine
+
+```text
+FLAT
+  -- atomic state CAS + migration lease --> MIGRATING_TREE_V1
+MIGRATING_TREE_V1
+  -- genesis head/key-envelope CAS ------> TREE_V1
+MIGRATING_TREE_V1
+  -- proven safe abandonment ------------> FLAT
+TREE_V1
+  -- no reverse transition --------------> (forbidden)
+```
+
+The `FLAT → MIGRATING_TREE_V1` transaction acquires a random owner-scoped
+migration lease and freezes a stable opaque inventory snapshot/epoch. From that
+commit onward, legacy Add/Delete and all tree-aware upload/tree mutation are
+rejected. Old clients receive a machine-readable `UPGRADE_REQUIRED` /
+`TREE_MIGRATION_IN_PROGRESS` response. Owner-scoped read/download remains
+available where the existing cryptographic format is safe; no read may mutate
+inventory.
+
+The migration fence survives browser disappearance and lease expiry. Expiry
+permits a new tree-aware client to acquire a new lease epoch and resume from the
+same mutation-fenced inventory; it does not silently unfreeze legacy mutation.
+Takeover requires lease expiry or explicit owner-authorized retry, and stale
+lease holders cannot commit genesis. Reversion to `FLAT` is allowed only when
+the server proves that no tree head has ever committed, no tree-aware blob/tree
+mutation occurred, and the abandoned lease is expired/revoked. Genesis head,
+wrapped-TRK envelope, migrated blob-state promotion, and transition to `TREE_V1`
+commit atomically. Once `TREE_V1` exists, flat Add/Delete can never be re-enabled.
 
 ## 12. Synchronization and Multi-Device Concurrency
 
@@ -361,12 +464,35 @@ server folder object is created.
 
 ### Add/upload file
 
-Use the existing V1/V2-compatible encrypted blob pipeline without throughput
-changes. After immutable ciphertext commit, create a file node referencing the
-opaque blob ID and CAS the tree. If CAS/rebase cannot attach it, retain it as an
-unreferenced recoverable encrypted object; do not silently delete user data.
-The unlocked client can compare inventory IDs with manifest references and offer
-recovery/import. The server cannot infer why an object is unreferenced.
+Choose **architectural model A: a new versioned tree-aware endpoint family**.
+It reuses the V2-compatible content crypto, chunk planning, staging, commit, and
+download internals without throughput changes, but its route/protocol shape is
+distinct and the server accepts it only in `TREE_V1`. This creates a hard legacy
+client fence; possession of an old flat endpoint shape is not a tree-mutation
+capability. `MIGRATING_TREE_V1` blocks both legacy and tree-aware upload.
+
+```text
+TREE-AWARE BLOB STAGING
+→ encrypted opaque chunk upload (no name/parent/path/node fields)
+→ immutable blob commit
+→ random opaque blobId returned as UNREFERENCED
+→ manifest candidate adds file node/blobId in client memory
+→ head CAS includes exact attachBlobIds
+→ successful CAS atomically promotes them to TREE_MANAGED
+```
+
+The CAS request exposes only newly attached opaque blob IDs, expected head/
+generation, revision ID, and random idempotency key. It does not expose a node
+ID, name, parent, path, MIME, or position. On CAS conflict, the blob stays
+`UNREFERENCED`; a successful semantic rebase may attach that same blob in a later
+CAS. If rebase cannot attach it, retain it as a recoverable encrypted orphan—do
+not silently delete user data. The unlocked client compares inventory IDs with
+manifest references and offers recovery/import. The server cannot infer the
+orphan's name or intended hierarchy location.
+
+Legacy raw blob Add and Delete are forbidden in `TREE_V1`. Logical Trash changes
+only the encrypted manifest. Physical deletion is available only through the
+tree-aware purge-barrier protocol below.
 
 ### Rename
 
@@ -391,21 +517,54 @@ lifecycle to `trashed`, record its encrypted former parent/time, and preserve
 its descendants and blob references. Deleting a folder moves the intact subtree
 to encrypted Trash in one revision. The server sees only a new opaque revision.
 
+A node is **effectively trashed** when its own stored lifecycle is `trashed` or
+`purge-pending`, or when any ancestor has either state. Descendants below an
+effectively trashed ancestor are excluded from active views and cannot be
+independently renamed, moved, selected as Move destinations, or used as Create
+targets. Restore operates on the selected trashed subtree root. Purge enumerates
+the complete effective subtree in client memory. Graph validation distinguishes
+stored node lifecycle from derived effective lifecycle, so Trash remains an
+O(1)-node manifest edit rather than rewriting every descendant.
+
 ### Restore
 
 Restore to the original active parent when it still exists and has no name
 collision. Otherwise require the user to choose an active destination or root.
 Restore never guesses across an ambiguous conflict and re-runs cycle validation.
+Restoring a subtree root makes descendants active again except descendants that
+carry their own stored `trashed`/`purge-pending` lifecycle.
 
 ### Permanent deletion
 
-Permanent deletion is a separate explicit, strongly confirmed operation. First
-commit a manifest revision marking/removing the subtree and recording encrypted
-purge-pending state. Physical deletion of opaque blob IDs occurs only after the
-configured retention/grace contract and a fresh unlocked-client confirmation
-against the latest head. Older encrypted revisions and rollback guarantees must
-not be advertised after their required content is purged. The server learns
-which opaque blob IDs are deleted, but not names, paths, parents, or folder tree.
+Permanent deletion is a separate explicit, strongly confirmed tree-aware
+protocol with a monotonic recovery barrier:
+
+1. A freshly unlocked client fetches and authenticates the exact latest head.
+2. It computes the complete effective subtree and commits a manifest revision
+   that removes its blob references/records encrypted purge intent.
+3. The successful CAS at generation `G` atomically records
+   `purgeBarrierGeneration = max(existingBarrier, G)` plus the opaque purge
+   candidate IDs. A barrier never decreases.
+4. The recovery API/UI immediately retires every revision with generation `< G`;
+   those revisions are `NON_RECOVERABLE` even before bytes are deleted.
+5. The server waits the configured retention/grace interval. Pre-barrier
+   encrypted manifest ciphertext may remain during that interval as forensic
+   ciphertext only; it is never selectable for recovery and is deleted when the
+   configured forensic retention expires.
+6. A fresh unlocked client re-fetches/authenticates the current head and confirms
+   the still-pending purge intent. It sends a tree-aware purge request containing
+   the exact expected current head/generation, barrier generation, random
+   idempotency key, and exact opaque blob IDs.
+7. Any stale head/generation, changed purge set, missing ownership, or barrier
+   mismatch fails closed. Successful physical deletion is idempotent and marks
+   the opaque candidates purged.
+
+After purge, no documentation, UI, API, or rollback tool may advertise or select
+pre-barrier revisions as recoverable. Current and newer revisions remain
+authoritative. Revision metadata may remain for audit, but pre-barrier manifest
+ciphertext itself is retained only until the configured forensic-retention
+expiry and is then deleted. The server learns which opaque blob IDs are deleted,
+not their names, paths, parents, or folder tree.
 
 ## 15. UI and Interaction Contract
 
@@ -496,25 +655,42 @@ exact active token/key.
 
 ## 18. Backward Compatibility and Flat-Vault Migration
 
-Migration is client-side and non-destructive:
+Migration is client-side, non-destructive, and governed by the owner protocol
+state machine in Section 11:
 
-1. With no tree head, unlock the current flat Vault and decrypt every V1/V2
-   envelope exactly as today.
-2. Abort without changes if any required envelope cannot authenticate/decrypt or
-   if bounds are exceeded. Never create a partial tree.
-3. Generate tree/root/node IDs in memory and create one root-level file node per
-   existing blob ID. Existing ciphertext, DEKs, object IDs, and chunks are not
-   rewritten.
-4. Validate names. Duplicate/casefold-colliding names require explicit client
+1. While still `FLAT`, a tree-aware client requests the atomic transition to
+   `MIGRATING_TREE_V1` and acquires the migration lease. That single CAS freezes
+   the exact opaque flat inventory used by this migration attempt.
+2. After the transition, all legacy Add/Delete mutations are rejected with
+   `TREE_MIGRATION_IN_PROGRESS` or `UPGRADE_REQUIRED`. Tree-aware upload and
+   manifest mutation endpoints are also rejected until genesis commits. Safe
+   legacy reads/downloads remain available.
+3. The lease holder unlocks the frozen flat Vault and decrypts every V1/V2
+   envelope exactly as today. It aborts the attempt without publishing a head if
+   any required envelope cannot authenticate/decrypt or bounds are exceeded.
+   Never create a partial tree.
+4. Generate the stable TRK, tree/root/node IDs, and one root-level file node per
+   frozen blob ID in client memory. Existing ciphertext, file DEKs, object IDs,
+   and chunks are not rewritten.
+5. Validate names. Duplicate/casefold-colliding names require explicit client
    resolution before genesis; do not silently rename.
-5. Encrypt the genesis manifest and CAS from “head absent” to generation 1. If
-   another client wins, discard the candidate and load the winning head.
+6. Encrypt the genesis manifest and submit the lease ID, frozen inventory
+   identity, both wrapped-TRK slots, genesis revision, and generation 1 in one
+   atomic CAS. Success publishes the head, promotes the frozen blobs to
+   tree-managed objects, and transitions to `TREE_V1` together. Failure leaves
+   no authoritative partial tree.
 
-When a tree head exists, it is authoritative. V1 and V2 content read/decrypt
-paths remain supported through their format discriminator, but the server's
-protocol-mode gate rejects legacy blob add/delete mutations that bypass the
-manifest. Older clients receive an upgrade-required response; they may not
-silently flatten, delete, or overwrite tree-managed data.
+If the lease holder disappears, expiry permits a new tree-aware client to take
+over and resume from the same fenced inventory. Lease expiry alone does not
+unfreeze flat mutation. Reversion to `FLAT` is permitted only under the narrow
+proof in Section 11: no head has ever existed, no tree-aware mutation has
+occurred, and the abandoned lease is provably expired or revoked.
+
+Once `TREE_V1` exists, its head is authoritative forever. V1 and V2 content
+read/decrypt paths remain supported through their content-format discriminator,
+but legacy raw Add/Delete mutations remain forbidden. Older clients receive
+`UPGRADE_REQUIRED`; they may not silently flatten, delete, or overwrite
+tree-managed data.
 
 Inventory objects absent from the manifest are recoverable opaque orphans, not
 automatic deletions. The unlocked client may decrypt their legacy envelope and
@@ -530,14 +706,22 @@ retention and ownership-safe recovery contract is proven.
 | Manifest upload fails | Current head unchanged; discard candidate and retry from current head |
 | Manifest object publishes, CAS loses | Head unchanged; encrypted orphan revision is GC-eligible after retention |
 | CAS succeeds, response is lost | Refetch head by idempotency/revision ID; never repeat the semantic action blindly |
+| One wrapped-TRK slot is corrupt | Fail into degraded read/unlock after the other slot authenticates; block mutation until a CAS repair recreates two independently authenticated slots |
+| Both wrapped-TRK slots fail or decrypt to different TRKs | Fail closed; restore a previously authenticated wrapped-TRK envelope with the corresponding owner passphrase, or use a separately approved future recovery method; the server cannot reconstruct the TRK |
+| Migration client crashes or its lease expires | Keep the owner in `MIGRATING_TREE_V1`, keep the opaque inventory fenced, and allow a new tree-aware client to take over/resume the lease; do not reopen legacy mutation merely because time elapsed |
+| Tree-aware upload publishes a blob but attach CAS loses | Keep the encrypted blob `UNREFERENCED`; expose only its opaque recovery identity so a rebased manifest CAS may attach it later |
 | Client crashes with plaintext in memory | No app plaintext persistence; next unlock starts from server head |
-| Current manifest corrupt/authentication fails | Fail closed; retain ciphertext; offer prior encrypted revision recovery only after authentication and owner confirmation |
+| Current manifest corrupt/authentication fails | Fail closed; retain ciphertext; offer an authenticated prior encrypted revision only when its generation is at or above the current purge barrier and owner confirmation succeeds |
 | Stale client returns | Fetch/decrypt current head and semantic rebase; no direct overwrite |
-| Delete/purge interrupted | Latest committed manifest controls visibility; physical purge is delayed/idempotent and never inferred from a failed UI request |
+| Purge barrier CAS succeeds, response is lost | Refetch and match the exact current head, generation, barrier, idempotency key, and candidate blob IDs before continuing; never infer failure from a lost response |
+| Physical purge is interrupted | Latest committed manifest and monotonic purge barrier control recoverability; retry exact candidate deletion idempotently only after retention and a fresh confirmation |
 
 Server recovery tools may inspect opaque revision/object state and restore an
-older encrypted head pointer only with explicit owner procedure. They cannot
-name nodes or certify that a decrypted tree is semantically correct.
+older encrypted head pointer only with explicit owner procedure and only at or
+above the monotonic purge barrier. They cannot name nodes, reconstruct the TRK,
+or certify that a decrypted tree is semantically correct. Revisions below the
+barrier are never selectable recovery points, even while their ciphertext is
+temporarily retained for the configured forensic-retention interval.
 
 ## 20. Metadata Leakage Statement
 
@@ -552,7 +736,7 @@ The server may know:
 - network/session/IP and storage-capacity information already required to serve
   ciphertext.
 
-The server must not know or receive:
+The protocol must not explicitly disclose to, or require the server to receive:
 
 - plaintext or deterministically hashed names, paths, MIME/media type, extension,
   thumbnails, posters, content, search terms, or clipboard data;
@@ -562,10 +746,14 @@ The server must not know or receive:
 - preview DEKs/session keys or decrypted byte ranges;
 - exact unpadded manifest size or client memory state.
 
-Padding reduces but does not eliminate approximate tree-size leakage. Revision
-timing can reveal that “some tree operation” occurred. These limitations must be
-stated in product/security documentation; “zero metadata” is not an allowed
-claim.
+Padding reduces but does not eliminate approximate tree-size leakage. Request
+timing, revision cadence, ciphertext-size changes, blob access, upload-to-CAS
+proximity, and purge-candidate correlation can support probabilistic inferences
+about activity or relationships. Such traffic-analysis inference is outside the
+protected threat model; the product invariant is that the protocol never sends
+explicit names, parent references, child lists, or folder-tree structure.
+These limitations must be stated in product/security documentation; “zero
+metadata” is not an allowed claim.
 
 ## 21. Test Strategy
 
@@ -573,8 +761,14 @@ Implementation must begin with tests and include:
 
 ### Crypto and manifest unit tests
 
-- round-trip/tamper/wrong-key/context-substitution tests for manifest ciphertext,
-  wrapped Manifest DEK, AAD, IV freshness, canonical serialization and padding;
+- round-trip/tamper/wrong-key/context-substitution tests for both wrapped-TRK
+  slots, wrapped Manifest DEK, manifest ciphertext, all three exact
+  domain-separated AAD encodings, IV freshness, canonical serialization and
+  padding;
+- passphrase-rotation tests prove only the wrapped-TRK slots change and every
+  retained historical revision remains byte-for-byte immutable and decryptable;
+- one-slot corruption, two-slot corruption, slot disagreement, degraded unlock,
+  and authenticated repair/restore fail-closed tests;
 - schema/bounds/duplicate-key/Unicode/malformed graph rejection;
 - proof that names, parent IDs, MIME, tree nodes, and plaintext never appear in
   serialized server requests, logs, storage rows, or error payloads;
@@ -586,15 +780,27 @@ Implementation must begin with tests and include:
   reachability, parent existence, collision policy, and acyclicity;
 - arbitrary bulk selections normalize ancestor/descendant overlap;
 - moving into self/descendant always rejects before encryption and after rebase;
+- effective Trash/Purge state follows any trashed/purge-pending ancestor without
+  rewriting descendants; subtree-root restore and complete effective-subtree
+  purge preserve independently trashed descendants;
 - manifest decrypt → validate → serialize is deterministic for the protocol
   version.
 
 ### API/PostgreSQL/object-store tests
 
 - exact-generation CAS winner/loser races across processes;
+- `FLAT` → `MIGRATING_TREE_V1` → `TREE_V1` state/lease races, frozen-inventory
+  takeover, safe-read allowance, genesis atomicity, and the narrowly proven
+  pre-genesis `FLAT` reversion path;
 - idempotent response-loss retry, immutable revisions, owner isolation, invalid
-  identifier/size rejection, orphan revision cleanup, and no legacy mutation in
-  tree mode;
+  identifier/size rejection, orphan revision cleanup, and no legacy Add/Delete
+  in either migrating or tree mode;
+- versioned tree-aware upload route rejection outside `TREE_V1`, encrypted
+  staging/immutable publish, `UNREFERENCED` recovery, atomic attach promotion,
+  and proof that server requests contain no name/parent/tree fields;
+- monotonic purge-barrier races, exact fresh-client confirmation, stale purge
+  rejection, idempotent physical deletion, pre-barrier recovery rejection, and
+  forensic-retention expiry deletion;
 - crash points before/after immutable publish and DB transaction;
 - audit/log assertions contain only opaque identifiers.
 
@@ -611,6 +817,9 @@ Implementation must begin with tests and include:
   bulk capability derivation, menu parity, dialog and drag/drop using one Move
   path, focus/keyboard/accessibility, locked-state redaction, and truthful errors;
 - folder subtree Trash/Restore and permanent-delete confirmation;
+- descendants under an effectively trashed ancestor are hidden, cannot be
+  selected or mutated independently, and are reactivated only through the
+  subtree-root restore rule;
 - selected/decrypted state reconciliation when a new head arrives.
 
 ### Preview and lifecycle tests
@@ -640,19 +849,33 @@ must prove, with disposable test data before owner data:
    thumbnail, poster, content, or preview key.
 4. Two real browser profiles/devices exercise concurrent Rename/Move/Create/
    Trash/Restore with CAS conflicts and no lost update.
-5. Deep hierarchy, duplicate/casefold names, bulk selection, drag/drop, cycle
-   attempts, stale clients, crash recovery, migration, and rollback-safe read
-   behavior match the contract.
-6. Existing V1/V2 items preview/download unchanged after migration; no existing
+5. A real passphrase rotation rewrites only the wrapped-TRK envelope and proves
+   retained historical manifest revisions remain immutable and decryptable;
+   one-slot corruption degrades safely and two-slot failure fails closed.
+6. Deep hierarchy, duplicate/casefold names, bulk selection, drag/drop, cycle
+   attempts, stale clients, crash recovery, effective-subtree Trash/Restore,
+   and rollback-safe read behavior match the contract.
+7. Migration proves the atomic lease/frozen-inventory fence: legacy Add/Delete
+   and tree-aware mutation are rejected throughout `MIGRATING_TREE_V1`, takeover
+   resumes without reopening flat mutation, and genesis atomically enters
+   `TREE_V1`.
+8. Tree-aware uploads use only the versioned endpoint family, leave failed
+   attaches recoverable as `UNREFERENCED`, and promote blob references only with
+   a successful manifest CAS; raw legacy Add/Delete remain rejected.
+9. Purge proves the monotonic generation barrier, immediate pre-barrier
+   non-recoverability, retention wait, fresh exact-head confirmation, stale
+   fail-closed behavior, idempotent physical deletion, and expiry deletion of
+   forensic-only pre-barrier manifest ciphertext.
+10. Existing V1/V2 items preview/download unchanged after migration; no existing
    ciphertext blob is rewritten.
-7. Lock/auto-lock/logout/tab lifecycle removes decrypted UI state and revokes
+11. Lock/auto-lock/logout/tab lifecycle removes decrypted UI state and revokes
    preview sessions/Object URLs; no plaintext browser storage or server cache is
    created.
-8. Supported image/GIF/video preview is bounded and truthful; large V2 video
+12. Supported image/GIF/video preview is bounded and truthful; large V2 video
    Range playback/seek uses client-only authenticated decryption.
-9. Retention, Trash/Restore, permanent purge, backup, and recovery have owner-
+13. Retention, Trash/Restore, permanent purge, backup, and recovery have owner-
    approved evidence before destructive purge is enabled.
-10. Full affected Vault, Drive, governance, build, security, and Production
+14. Full affected Vault, Drive, governance, build, security, and Production
     health/regression gates pass at the exact candidate SHA.
 
 Any failure blocks Production mutation. Repository tests alone are not
@@ -663,7 +886,9 @@ Production acceptance.
 Future rollout is staged and separately authorized:
 
 1. additive opaque revision/head storage and protocol endpoints disabled;
-2. disposable local two-client CAS/migration qualification;
+2. disposable local two-client CAS/migration qualification, including protocol
+   state/lease fencing, tree-aware upload/orphan recovery, TRK rotation, and
+   purge-barrier recovery constraints;
 3. owner-approved feature flag for selected non-Production Vaults;
 4. explicit genesis migration with user confirmation;
 5. controlled Production enablement and acceptance evidence;
@@ -676,8 +901,13 @@ Rollback is fail-safe, not a return to the old flat mutating client:
   revisions, blobs, setup metadata, and keys;
 - keep owner-scoped read/export/recovery through a compatible tree-aware client;
 - never delete tree tables, manifest ciphertext, blob ciphertext, or migration
-  state during rollback;
+  state during rollback, except already-authorized forensic-retention expiry or
+  an idempotent purge that crossed the accepted barrier before rollback;
 - do not re-enable legacy flat Delete/Add after tree activation;
+- do not lower a purge barrier or advertise/select a pre-barrier revision;
+- if rollback occurs during `MIGRATING_TREE_V1`, preserve the lease/frozen
+  inventory fence and either resume genesis or perform only the narrowly proven
+  no-head/no-tree-mutation abandoned-lease reversion;
 - revert application traffic/source through the reviewed deployment mechanism,
   leaving additive data intact for forward recovery.
 
