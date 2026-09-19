@@ -71,10 +71,11 @@ if [ -n "${ALLOW_LISTENERS_FILE:-}" ]; then
   while IFS= read -r k; do
     [ -n "$k" ] || continue
 
-    if [[ "$k" == *"<AEGIS_AP_ADDRESS>"* ]]; then
+    placeholder="<AEGIS_AP_ADDRESS>"
+    if [[ "$k" == *"$placeholder"* ]]; then
       [[ "${AEGIS_AP_ADDRESS:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
         || stop "AEGIS_AP_ADDRESS is required for the L6b listener contract"
-      k=${k//<AEGIS_AP_ADDRESS>/$AEGIS_AP_ADDRESS}
+      k=${k//$placeholder/$AEGIS_AP_ADDRESS}
     fi
 
     [[ "$k" != *"<AEGIS_"* ]] || stop "unresolved allowed-listener placeholder"

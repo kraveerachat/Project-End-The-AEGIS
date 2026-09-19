@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-17
+updated: 2026-09-19
 owner: music
 edit_policy: owner-writable
 ---
@@ -5232,6 +5232,72 @@ reset hardware, publish MQTT commands, manipulate the circuit, or unblock PR
 integration review of the PR5 evidence boundary.
 
 ---
+
+## IDEA3 PR11 Phase 4 T4 / G-07 broker migration — repository implementation — 2026-09-19
+
+> [!important] Repository-only T4 implementation; final acceptance pending.
+> OD-08 selects a separate TLS-only Mosquitto instance for IDEA3 on 8883.
+> The legacy `mosquitto.service`, plaintext 1883 listener, and legacy `aegis`
+> identity remain outside T4 mutation scope. L6a/L6b have not run live.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 T4 / G-07 broker migration
+Branch                       = feat/idea3-pr11-phase4-t4-broker-migration
+STARTING_SHA                 = 0b6aea61556371140813cb63747170de7be84be6
+CURRENT_IMPLEMENTATION_HEAD  = 8195ec5b
+Current state                = REPOSITORY VALIDATED — FINAL RECEIPT / CLOSEOUT PENDING
+
+OD-08                        = OWNER APPROVED — separate TLS-only IDEA3 Mosquitto instance
+IDEA3_BROKER_SERVICE         = aegis-idea3-mosquitto.service
+IDEA3_BROKER_PORT            = 8883 — loopback + owner-supplied AP address only
+LEGACY_MOSQUITTO_SERVICE     = PRESERVE / DO NOT MUTATE IN T4
+LEGACY_1883                  = PRESERVE / DO NOT REMOVE IN T4
+LEGACY_AEGIS_USER            = PRESERVE / DO NOT REMOVE IN T4
+
+T4_REPOSITORY_IMPLEMENTED    = YES
+T4_REPOSITORY_CLOSEOUT       = FINAL VALIDATION PASS — RECEIPT PENDING
+G07_REPOSITORY_CONTRACT      = IMPLEMENTED / VALIDATED
+L6B_HANDLER                  = REGISTERED
+PF01_1883_AP_NEGATIVE_CTRL   = PASS — repository regression; future live L6B verify still required
+
+FINAL_SHELL_SYNTAX           = PASS
+FINAL_HANDLER_REGISTRATION   = REGISTERED
+FINAL_LEGACY_MUTATION_SCAN   = PASS
+FINAL_LEGACY_COPY_SCAN       = PASS
+FINAL_COMPILE                = PASS
+FINAL_RUFF                   = PASS
+FINAL_FOCUSED_PYTEST         = PASS — 242 passed
+FINAL_DIFF_CHECK             = PASS
+FINAL_RECEIPT                = PENDING
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+BROKER_LIVE_MUTATION         = NO
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+Repository implementation currently includes the deterministic T4 broker
+renderer/validator, the separate `aegis-idea3-mosquitto.service` example, and
+the reviewed `stages/L6b/` handler set (`apply.sh`, `verify.sh`, `rollback.sh`,
+`allow-keys.txt`, `allow-listeners.txt`). L0 capture now records the IDEA3
+broker unit and the compare harness resolves the owner-supplied AP address for
+the two approved 8883 listeners.
+
+The future L6b handler is deliberately fail-closed. Its live path requires an
+explicit L6b authorization flag and is separate from this repository work.
+It is designed to mutate only the IDEA3 broker instance; verification preserves
+the legacy broker service/config/password database/1883 listener set and checks
+the PF-01 AP-side TCP/1883 drop. Rollback removes only the IDEA3 broker changes
+and does not restart or rewrite the legacy broker as a fallback.
+
+This section does **not** claim L6a or L6b runtime acceptance. Future live L6b
+still requires its predecessor gates, fresh same-day authorization and K3,
+live values, and a passing preservation boundary. The currently recorded IDEA2
+preservation caveat remains blocking until separately resolved or explicitly
+reconciled.
 
 ## IDEA3 PR11 Phase 4 T5 AP network — repository implementation — 2026-09-18
 

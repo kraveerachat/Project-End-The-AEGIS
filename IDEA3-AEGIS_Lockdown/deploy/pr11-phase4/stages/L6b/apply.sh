@@ -107,7 +107,6 @@ for secret in "$passwd" "$key"; do
 done
 
 snapshot_tree "$legacy_dir" "$WORK/legacy-tree.sha256"
-cp -a "$legacy_dir" "$WORK/legacy-mosquitto-backup"
 awk -F: 'NF >= 2 { print $1 }' "$legacy_passwd" | LC_ALL=C sort -u > "$WORK/legacy-users.txt"
 
 if [ -z "$ROOT" ]; then

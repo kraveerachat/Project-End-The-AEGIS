@@ -87,7 +87,7 @@ def test_t4_render_is_deterministic_and_8883_only(tmp_path: Path) -> None:
 
     assert conf1 == conf2
     assert contract1 == contract2
-    assert f"listener 8883 127.0.0.1" in conf1
+    assert "listener 8883 127.0.0.1" in conf1
     assert f"listener 8883 {AP}" in conf1
     assert "listener 1883" not in conf1
     assert "listener 8883 0.0.0.0" not in conf1
