@@ -35,6 +35,29 @@ docker compose
 | NAS | Disabled by default; production transfer/integrity verification pending |
 | Windows auto-start | Portable installer, Engine supervisor, SYSTEM tunnel reconnect, status/repair/uninstall scripts implemented; every laptop still needs machine-specific provisioning and reboot proof |
 
+## Dedicated Windows Identity Agent (source checkpoint)
+
+The Machine identity path is a separate Windows service named
+`AEGISIdentityAgent`, running as `NT SERVICE\AEGISIdentityAgent`. Its isolated
+runtime lives under `%ProgramFiles%\AEGIS\IdentityAgent`; encrypted mutable
+state lives under `%ProgramData%\AEGIS\IdentityAgent`. It does not import the
+Detection Engine, camera, stream, model, or lifecycle modules.
+
+The application Ed25519 private key is protected with DPAPI `CurrentUser` under
+the service identity. There is no plaintext, LocalMachine, SSH-key, or broader
+ACL fallback. Run the reviewed DPAPI preflight under the installed service
+identity before generating a key; provisioning exports only public SPKI PEM and
+its SHA-256 fingerprint. The Windows acceptance gate is still required—source
+tests do not prove the real service profile, DPAPI, or ACL behavior.
+
+Install Agent dependencies only into its dedicated virtual environment:
+
+```text
+requirements-identity-agent-windows.txt
+```
+
+Do not install `pywin32` into or otherwise mutate the existing Engine runtime.
+
 Object detection is not identity. The modular runtime does not import the
 legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
 authorization from an object class.
