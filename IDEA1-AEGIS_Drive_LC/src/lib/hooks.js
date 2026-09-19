@@ -62,6 +62,20 @@ export function useApi(path, { refreshMs = 0 } = {}) {
   return { ...state, retry, refresh }
 }
 
+/** True on coarse-pointer (touch) surfaces — hover-only affordances must not be the sole way in. */
+export function useCoarsePointer() {
+  const query = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)') : null)
+  const [coarse, setCoarse] = useState(() => query()?.matches ?? false)
+  useEffect(() => {
+    const mq = query()
+    if (!mq) return undefined
+    const onChange = () => setCoarse(mq.matches)
+    mq.addEventListener?.('change', onChange)
+    return () => mq.removeEventListener?.('change', onChange)
+  }, [])
+  return coarse
+}
+
 /** True when the OS asks for reduced motion. Every animation must honor it. */
 export function useReducedMotion() {
   // ไม่มี matchMedia (server render / test DOM) = ถือว่าไม่ได้ขอลดการเคลื่อนไหว ไม่ใช่ล้มทั้งจอ

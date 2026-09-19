@@ -6,7 +6,7 @@ import {
   Folder, FolderOpen, ChevronRight, Eye,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
-import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
+import { useApi, useCoarsePointer, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
@@ -26,6 +26,58 @@ const iconFor = (f) => (f.kind === 'folder' ? Folder : (EXT_ICONS[f.ext] ?? File
 
 /** ตัวตนของ "ทรัพยากร preview" ของไฟล์ — id (เส้นทาง) + ชื่อ (MIME ฝั่งเซิร์ฟเวอร์ตัดสินจากนามสกุล) */
 const previewIdentityOf = (f) => (f ? `${f.id}\u0000${f.name}` : '')
+
+/** ระยะกดค้างบนจอสัมผัสก่อนที่ "การชี้สื่อ" จะเริ่ม (ms) — ค่าคงที่เล็ก ๆ ค่าเดียว ทดสอบด้วยเวลาจริง */
+export const MEDIA_HOLD_MS = 250
+
+/**
+ * การชี้สื่อของการ์ด (Pointer Events):
+ *   เมาส์/ปากกา: pointer enter → hover, pointer leave → หยุด
+ *   สัมผัส: กดค้าง ≥ MEDIA_HOLD_MS → hold (poster ยังอยู่, motion เล่นเมื่อพร้อมและนิ้วยังกดอยู่); ปล่อย/ยกเลิก/ออก → หยุดทันที
+ * ⚠️ hold ที่ถูกใช้ไปแล้ว "กิน" click ที่ตามมา (ไม่เปิดไฟล์) และห้ามลากภายใน/เมนูบริบทระหว่างกด — แตะสั้น ๆ ยังเปิดไฟล์ตามเดิม
+ * ⚠️ mouseenter/mouseleave ใช้เฉพาะสภาพแวดล้อมที่ไม่มี PointerEvent (เบราว์เซอร์จริงทุกตัวมี) — เหตุการณ์ compat ของจอสัมผัส
+ *    (pointerType 'touch') ไม่ถือเป็น hover
+ */
+function useMediaPointer() {
+  const [hover, setHover] = useState(false)
+  const [hold, setHold] = useState(false)
+  const timer = useRef(null)
+  const holdRef = useRef(false)
+  const consumedRef = useRef(false)
+  const pointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window
+  const clearTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null } }
+  const endHold = () => {
+    clearTimer()
+    if (holdRef.current) { holdRef.current = false; consumedRef.current = true; setHold(false) }
+  }
+  useEffect(() => () => clearTimer(), [])
+  const isTouch = (e) => e.pointerType === 'touch'
+  return {
+    hover: hover || hold,
+    holding: hold,
+    hoverStyle: hover,
+    props: {
+      onPointerEnter: (e) => { if (!isTouch(e)) setHover(true) },
+      onPointerLeave: (e) => { if (!isTouch(e)) setHover(false); endHold() },
+      onPointerDown: (e) => {
+        if (!isTouch(e) || e.button > 0) return
+        consumedRef.current = false
+        clearTimer()
+        timer.current = setTimeout(() => { timer.current = null; holdRef.current = true; setHold(true) }, MEDIA_HOLD_MS)
+      },
+      onPointerUp: () => endHold(),
+      onPointerCancel: () => endHold(),
+      // สภาพแวดล้อมไม่มี PointerEvent (เช่น jsdom): เมาส์ยังทำงานผ่าน mouseenter/leave
+      onMouseEnter: () => { if (!pointerEvents) setHover(true) },
+      onMouseLeave: () => { if (!pointerEvents) setHover(false) },
+      onContextMenu: (e) => { if (holdRef.current || timer.current) e.preventDefault() },
+    },
+    /** เรียกจาก onClick ของการ์ด — จริงเมื่อ click นี้เป็นปลายทางของ hold ที่ถูกใช้ไปแล้ว */
+    consumeClick: () => { const c = consumedRef.current; consumedRef.current = false; return c },
+    /** เรียกจาก onDragStart — ห้ามลากภายในขณะกดค้าง */
+    blockDrag: (e) => { if (holdRef.current || timer.current) { e.preventDefault(); return true } return false },
+  }
+}
 
 /* วิธีจัดเก็บต้องแยกให้ชัด: Vault เป็น ciphertext จริง ส่วน Data Lake ปกติค้นหาได้
    แต่ยังไม่มี encryption at rest — ห้ามใช้โล่/สีเขียวทำให้ดูเหมือนเข้ารหัสแล้ว */
@@ -273,7 +325,9 @@ function MetaDrawer({ t, lang, file, onClose }) {
 export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen, onMenuAction, tileRef, onDragStartItem, onDragEndItem, onDropItems, dragActive }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuBtnRef = useRef(null)
-  const [hover, setHover] = useState(false)
+  const media = useMediaPointer()
+  const hover = media.hoverStyle
+  const coarse = useCoarsePointer()
   const [dropTarget, setDropTarget] = useState(false)
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
@@ -282,7 +336,8 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   // ⚠️ กริดไม่แตะต้นฉบับอีกต่อไป: poster/motion มาจาก media-info (URL ทึบ) ผ่าน MediaThumb — การเคลื่อนไหวเฉพาะ
   //    ตอนชี้ (Round 9), poster นิ่งตอน idle (Round 10) และ reduced-motion ปิดการเล่นอัตโนมัติ อยู่ใน state machine
   //    ของไทล์ (lib/mediaTile.js) ไม่ใช่ที่นี่; ต้นฉบับ (/preview) ใช้เฉพาะ FilePreviewModal เมื่อผู้ใช้กด Preview
-  const showControls = hover || selected || anySelected || menuOpen
+  // จอสัมผัสไม่มี hover: ปุ่มเลือก/เมนูต้องมองเห็นได้ตั้งแต่แรก
+  const showControls = hover || selected || anySelected || menuOpen || coarse
   return (
     <div
       ref={tileRef}
@@ -290,8 +345,9 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
       data-file-id={file.id}
       data-tile-variant="file-card"
       data-drop-target={dropTarget ? 'yes' : undefined}
+      data-media-hold={media.holding ? 'yes' : undefined}
       draggable
-      onDragStart={(event) => onDragStartItem?.(event, file)}
+      onDragStart={(event) => { if (media.blockDrag(event)) return; onDragStartItem?.(event, file) }}
       onDragEnd={() => { setDropTarget(false); onDragEndItem?.() }}
       onDragOver={(event) => {
         // ⚠️ เฉพาะการลากรายการภายในเท่านั้น การลากไฟล์จากเครื่องต้องไหลขึ้นไปให้หน้า
@@ -309,11 +365,11 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         setDropTarget(false)
         onDropItems?.(readDragPayload(event.dataTransfer), file)
       }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={() => onOpen(file)}
-      className="relative bg-card border rounded-[var(--r-tile)] p-3 cursor-pointer transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
+      {...media.props}
+      onClick={() => { if (media.consumeClick()) return; onOpen(file) }}
+      className="relative bg-card border rounded-[var(--r-tile)] p-3 cursor-pointer select-none transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
       style={{
+        WebkitTouchCallout: 'none',
         borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
         background: dropTarget
           ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
@@ -323,6 +379,18 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         transitionTimingFunction: 'var(--ease)',
       }}
     >
+      {/* ── media frame: MediaThumb (z-0) + ปุ่มเลือก/เมนู (z-20) วางสัมพัทธ์กับกรอบสื่อ ห่างขอบ 8px ──
+          ⚠️ ปุ่มอยู่ "นอก" กล่อง overflow-hidden ของ MediaThumb และมีชั้นซ้อนชัดเจน — poster/video ทับปุ่มไม่ได้
+          (Production: กรอบสื่อเคยวาดทับ/ตัดปุ่ม) */}
+      <div data-media-frame="" className="relative">
+      <MediaThumb
+        t={t}
+        file={file}
+        Icon={Icon}
+        hover={media.hover}
+        iconProps={{ size: isFolder ? 34 : 30, strokeWidth: 1.2, className: isFolder ? 'text-accent' : 'text-ink-3', ...(isFolder ? { fill: 'var(--accent-soft)' } : {}) }}
+        className={`relative z-0 h-24 rounded-[9px] ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
+      />
       {/* selection checkbox */}
       <button
         type="button"
@@ -330,7 +398,8 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         aria-checked={selected}
         aria-label={`${t('selected')}: ${file.name}`}
         onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
-        className="absolute top-2 left-2 size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute top-2 left-2 z-20 size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
         style={{
           opacity: showControls ? 1 : 0,
           background: selected ? 'var(--accent)' : 'var(--card)',
@@ -348,11 +417,13 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-        className="absolute top-2 right-2 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute top-2 right-2 z-20 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
         style={{ opacity: showControls ? 1 : 0 }}
       >
         <MoreHorizontal size={14} strokeWidth={1.5} />
       </button>
+      </div>
       {/* ⚠️ เมนูถูก portal ออกไปนอกไทล์ — ไทล์ยกตัวด้วย transform ตอน hover ซึ่ง
           สร้าง stacking context ทำให้ไทล์ถัดไปทับเมนูของไทล์ก่อนหน้าได้ และเมนู
           ที่ชิดขอบขวายังล้นออกนอกจอบนหน้าจอแคบ AnchoredMenu แก้ทั้งสองอย่าง */}
@@ -365,19 +436,9 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         <FileMenu t={t} file={file} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
       </AnchoredMenu>
 
-      {/* thumbnail */}
-      {/* ⚠️ hatch/Shield แปลว่า "ระบบมองไม่เห็นเนื้อใน" (DESIGN.md ข้อ 1) โฟลเดอร์ไม่ใช่
-          แบบนั้น จึงต้องไม่ยืมภาษาภาพนั้นมาใช้เพียงเพื่อให้ดูต่างจากไฟล์
-          ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จาก derivative ของเซิร์ฟเวอร์ (เจ้าของเท่านั้น, allowlist ฝั่งเซิร์ฟเวอร์,
-          ไม่ดึงต้นฉบับเข้ากริด) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ */}
-      <MediaThumb
-        t={t}
-        file={file}
-        Icon={Icon}
-        hover={hover}
-        iconProps={{ size: isFolder ? 34 : 30, strokeWidth: 1.2, className: isFolder ? 'text-accent' : 'text-ink-3', ...(isFolder ? { fill: 'var(--accent-soft)' } : {}) }}
-        className={`h-24 rounded-[9px] ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
-      />
+      {/* ⚠️ hatch/Shield แปลว่า "ระบบมองไม่เห็นเนื้อใน" (DESIGN.md ข้อ 1) โฟลเดอร์ไม่ใช่แบบนั้น จึงต้องไม่ยืมภาษาภาพนั้น
+          ⚠️ ภาพ/วิดีโอปกติแสดง "เนื้อใน" จาก derivative ของเซิร์ฟเวอร์ (เจ้าของเท่านั้น, allowlist ฝั่งเซิร์ฟเวอร์, ไม่ดึงต้นฉบับ
+          เข้ากริด) — Vault ยังเป็น hatch เสมอเพราะเซิร์ฟเวอร์ไม่มี plaintext ให้ (กรอบสื่ออยู่ด้านบนในบล็อก media frame) */}
 
       <div className="mt-2.5 flex items-start justify-between gap-2">
         <div className="min-w-0">

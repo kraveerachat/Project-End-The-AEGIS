@@ -211,6 +211,49 @@ test('MA-6 cancel(id) / an aborted request drops interest before the batch fires
   assert.equal(f.calls.length, 0, 'nothing fetched for a cancelled-only tick')
 })
 
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BP · derivative URLs resolved through the application base (Production /drive/ mount) — client contracts
+   ═══════════════════════════════════════════════════════════════════════════ */
+const mounted = (p) => `/drive/${p.replace(/^\/+/, '')}`
+const POSTER_PATH = `/api/files/17/poster?v=${SHA_A}&p=v1`
+const MOTION_PATH = `/api/files/17/motion-preview?v=${SHA_A}&p=v1`
+
+test('BP-1/2/3 media-info poster and motion paths become browser URLs under the application base with the query string byte-for-byte preserved', async () => {
+  const clock = fakeClock()
+  const f = fakeFetch(batchOk((id) => ({ ...infoReady(id, { animated: true, family: 'gif' }), poster: { state: 'READY', url: POSTER_PATH, mime: 'image/webp' }, motion: { state: 'READY', url: MOTION_PATH } })))
+  const client = mediaApi.createMediaInfoClient({ fetchImpl: f.fetchImpl, resourceUrl: mounted, now: clock.now, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout })
+  const r = await client.request('17')
+  assert.equal(r.poster.url, `/drive${POSTER_PATH}`)
+  assert.equal(r.motion.url, `/drive${MOTION_PATH}`)
+  assert.equal(r.poster.url.slice(r.poster.url.indexOf('?')), POSTER_PATH.slice(POSTER_PATH.indexOf('?')), 'query untouched')
+  assert.equal(r.poster.serverPath, POSTER_PATH, 'the server path is kept verbatim for reference')
+})
+
+test('BP-4 no double prefix: a path that already carries the base is left alone; BP-5 null/absent URLs stay null; standalone base is the identity', async () => {
+  const clock = fakeClock()
+  const f = fakeFetch(batchOk((id) => ({ ...infoReady(id, { animated: true, family: 'gif' }), poster: { state: 'READY', url: `/drive${POSTER_PATH}` }, motion: { state: 'PENDING', url: null } })))
+  const client = mediaApi.createMediaInfoClient({ fetchImpl: f.fetchImpl, resourceUrl: mounted, now: clock.now, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout })
+  const r = await client.request('17')
+  assert.equal(r.poster.url, `/drive${POSTER_PATH}`)
+  assert.doesNotMatch(r.poster.url, /\/drive\/drive\//)
+  assert.equal(r.motion.url, null)
+  const g = fakeFetch(batchOk((id) => ({ ...infoReady(id, { animated: false }), poster: { state: 'READY', url: POSTER_PATH } })))
+  const standalone = mediaApi.createMediaInfoClient({ fetchImpl: g.fetchImpl, resourceUrl: (p) => p, now: clock.now, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout })
+  assert.equal((await standalone.request('17')).poster.url, POSTER_PATH)
+})
+
+test('BP-6/7 the client resolves only the base: it never assembles v=/p= and never touches the original /preview route; the default resolver is apiUrl', async () => {
+  const src = await fs.readFile(new URL('../src/lib/mediaApi.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(src, /[?&]v=|[?&]p=|\/poster\?|\/motion-preview\?|\/preview['"`]/)
+  assert.match(src, /resourceUrl = apiUrl/, 'production default = apiUrl (import.meta.env.BASE_URL aware)')
+  assert.match(src, /import \{[^}]*apiUrl[^}]*\} from '\.\/api\.js'/)
+  assert.equal(mediaApi.resolveDerivativeUrl(POSTER_PATH, mounted), `/drive${POSTER_PATH}`)
+  assert.equal(mediaApi.resolveDerivativeUrl(null, mounted), null)
+  assert.equal(mediaApi.resolveDerivativeUrl(`/drive${POSTER_PATH}`, mounted), `/drive${POSTER_PATH}`)
+  assert.equal(mediaApi.resolveDerivativeUrl('https://cdn.example/x', mounted), 'https://cdn.example/x', 'absolute URLs pass through untouched')
+})
+
 /* ════════════════════════════════════════════════════════════════════════════
    TS · pure tile state machine
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1090,4 +1133,221 @@ test('C0-10 runtime: MEDIA_ENABLED=false (UNSUPPORTED/MEDIA_DISABLED) still prod
     assert.equal(batchCount(g), 1)
     assert.equal(thumbOf('g1').getAttribute('data-info'), 'unsupported')
   } finally { await g.unmount() }
+})
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BP-INT · the real Files grid built with base '/drive/' (Production mount) — derivative URLs must carry the base
+   TOUCH · press-and-hold media interaction (pointer events)   LAYOUT · controls stack above the media surface
+   ═══════════════════════════════════════════════════════════════════════════ */
+let viteMounted, filesMounted
+before(async () => {
+  viteMounted = await createServer({
+    configFile: false, root: rootDir, base: '/drive/', appType: 'custom', logLevel: 'silent',
+    plugins: [reactPlugin()], server: { middlewareMode: true }, optimizeDeps: { noDiscovery: true, include: [] },
+  })
+  filesMounted = await viteMounted.ssrLoadModule('/src/screens/Files.jsx')
+})
+after(async () => { await viteMounted?.close() })
+const sectionsWith = (mod, { folders = [], files: plain = [], selectedIds = new Set(), onSelectionChange = noop, onOpen = noop, ...rest } = {}) => React.createElement(mod.FilesSections, {
+  t, now: NOW, view: 'grid', folders, files: plain, selectedIds, draggingIds: [], onSelect: noop, onOpen, onMenuAction: noop,
+  onDragStartItem: noop, onDropItems: noop, tileRef: () => noop, onSelectionChange, ...rest,
+})
+const allSrcs = () => [...document.querySelectorAll('img[src], video[src]')].map((e) => e.getAttribute('src'))
+
+test('BP-INT-STATIC mounted /drive/: media-info goes to /drive/api/…, the png poster <img> src is /drive/api/files/:id/poster?v=…&p=v1 with the query intact; no bare /api request escapes the mount', async () => {
+  const g = await mountGrid()
+  try {
+    await g.render(sectionsWith(filesMounted, { files: [png()] }))
+    const th = thumbOf('p1')
+    await g.enter(th, 'visible')
+    const batches = g.fetched.filter((f) => f.url.endsWith('/api/files/media-info/batch'))
+    assert.equal(batches.length, 1); assert.equal(batches[0].url, '/drive/api/files/media-info/batch')
+    assert.ok(g.fetched.every((f) => f.url.startsWith('/drive/')), `every request stays under /drive/: ${JSON.stringify(g.fetched)}`)
+    const img = th.querySelector('img'); assert.ok(img)
+    assert.equal(img.getAttribute('src'), `/drive/api/files/p1/poster?v=${SHA_A}&p=v1`)
+    await g.fire(img, 'load')
+    assert.equal(th.getAttribute('data-poster'), 'shown')
+    assert.ok(allSrcs().every((s) => s.startsWith('/drive/api/files/') && !s.includes('/drive/drive/') && !s.includes('/preview')))
+  } finally { await g.unmount() }
+})
+
+test('BP-INT-GIF mounted /drive/: poster and motion proxy both load under the base; first hover before ready still auto-plays; no /preview', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sectionsWith(filesMounted, { files: [gifItem()] }))
+    const th = thumbOf('g1')
+    await g.enter(th, 'visible')
+    const img = th.querySelector('img'); assert.equal(img.getAttribute('src'), `/drive/api/files/g1/poster?v=${SHA_A}&p=v1`)
+    await g.fire(img, 'load')
+    const v = th.querySelector('video'); assert.ok(v)
+    assert.equal(v.getAttribute('src'), `/drive/api/files/g1/motion-preview?v=${SHA_A}&p=v1`)
+    await g.mouse(tileOf('g1'), 'mouseenter')
+    await g.fire(v, 'canplaythrough')
+    assert.deepEqual(g.media.calls, ['play'])
+    assert.ok(allSrcs().every((s) => s.startsWith('/drive/api/files/') && !s.includes('/preview')))
+    assert.deepEqual(previewRequests(g), [])
+  } finally { await g.unmount() }
+})
+
+test('BP-INT-VIDEO mounted /drive/: mp4 poster + motion under the base; Preview dialog keeps the original route under the base too', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'mp4' }) })
+  try {
+    await g.render(sectionsWith(filesMounted, { files: [mp4()] }))
+    const th = thumbOf('v1')
+    await g.enter(th, 'visible')
+    assert.equal(th.querySelector('img').getAttribute('src'), `/drive/api/files/v1/poster?v=${SHA_A}&p=v1`)
+    await g.fire(th.querySelector('img'), 'load')
+    assert.equal(th.querySelector('video').getAttribute('src'), `/drive/api/files/v1/motion-preview?v=${SHA_A}&p=v1`)
+    await g.render(React.createElement(filesMounted.FilePreviewModal, { t, file: mp4(), onClose: noop, onDownload: noop }))
+    assert.equal(document.querySelector('[role="dialog"] video').getAttribute('src'), '/drive/api/files/v1/preview')
+  } finally { await g.unmount() }
+})
+
+/* ── touch press-and-hold ─────────────────────────────────────────────────── */
+const pointer = (g, node, type, init = {}) => act(async () => {
+  const ev = new g.W.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY: 10, ...init })
+  Object.defineProperty(ev, 'pointerId', { value: init.pointerId ?? 7 })
+  Object.defineProperty(ev, 'pointerType', { value: init.pointerType ?? 'touch' })
+  node.dispatchEvent(ev)
+})
+const HOLD = () => filesScreen.MEDIA_HOLD_MS
+
+test('TOUCH-1 press-and-hold on a gif tile: motion interaction becomes active after MEDIA_HOLD_MS, plays once ready, release → poster immediately; a plain tap still opens the file, a consumed hold does not', async () => {
+  let opened = 0
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sections({ files: [gifItem()], onOpen: () => { opened += 1 } }))
+    const th = thumbOf('g1'); const tile = tileOf('g1')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    const v = th.querySelector('video'); assert.ok(v)
+    assert.equal(typeof HOLD(), 'number'); assert.ok(HOLD() > 0 && HOLD() <= 400, 'small fixed hold threshold')
+    await pointer(g, tile, 'pointerdown')
+    assert.notEqual(th.getAttribute('data-motion'), 'playing', 'no motion before the hold threshold')
+    await act(async () => { await new Promise((r) => setTimeout(r, HOLD() + 60)) })
+    assert.equal(th.getAttribute('data-poster'), 'shown', 'poster stays visible during the hold')
+    await g.fire(v, 'canplaythrough')
+    assert.deepEqual(g.media.calls, ['play'], 'motion starts while the finger is still down')
+    assert.equal(th.getAttribute('data-motion'), 'playing')
+    await pointer(g, tile, 'pointerup')
+    assert.deepEqual(g.media.calls, ['play', 'pause'])
+    assert.equal(th.getAttribute('data-thumb'), 'poster'); assert.equal(v.style.opacity, '0')
+    await act(async () => { tile.dispatchEvent(new g.W.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    assert.equal(opened, 0, 'a click that ends a consumed hold does not open the file')
+    // plain tap: down + up before the threshold, then click → opens
+    await pointer(g, tile, 'pointerdown'); await pointer(g, tile, 'pointerup')
+    await act(async () => { tile.dispatchEvent(new g.W.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    assert.equal(opened, 1)
+    assert.equal(g.media.calls.length, 2, 'a tap never plays')
+  } finally { await g.unmount() }
+})
+
+test('TOUCH-2 pointercancel (scroll) and pointer leave end the hold cleanly; hold before the proxy is ready auto-starts when ready; internal drag/context menu are suppressed while holding', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    let dragStarted = 0
+    await g.render(sections({ files: [gifItem()], onDragStartItem: () => { dragStarted += 1 } }))
+    const th = thumbOf('g1'); const tile = tileOf('g1')
+    await g.enter(th, 'visible')
+    await g.fire(th.querySelector('img'), 'load')
+    const v = th.querySelector('video')
+    // hold, then cancel before ready → nothing plays, no dangling state
+    await pointer(g, tile, 'pointerdown')
+    await act(async () => { await new Promise((r) => setTimeout(r, HOLD() + 60)) })
+    await pointer(g, tile, 'pointercancel')
+    await g.fire(v, 'canplaythrough')
+    assert.deepEqual(g.media.calls, [], 'cancelled hold never plays')
+    assert.equal(th.getAttribute('data-motion'), 'ready')
+    // hold again: proxy is already ready → plays once threshold passes; leave ends it
+    await pointer(g, tile, 'pointerdown')
+    await act(async () => { await new Promise((r) => setTimeout(r, HOLD() + 60)) })
+    assert.deepEqual(g.media.calls, ['play'])
+    const ctx = new g.W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    await act(async () => { tile.dispatchEvent(ctx) })
+    assert.equal(ctx.defaultPrevented, true, 'long-press context menu suppressed while holding')
+    const drag = new g.W.Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(drag, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } })
+    await act(async () => { tile.dispatchEvent(drag) })
+    assert.equal(drag.defaultPrevented, true, 'no internal drag while holding'); assert.equal(dragStarted, 0)
+    await pointer(g, tile, 'pointerout'); await pointer(g, tile, 'pointerleave') // React derives leave from out (browsers fire both)
+    assert.deepEqual(g.media.calls, ['play', 'pause'])
+    assert.equal(th.getAttribute('data-thumb'), 'poster')
+    // short press released before the threshold never activates
+    await pointer(g, tile, 'pointerdown'); await pointer(g, tile, 'pointerup')
+    await act(async () => { await new Promise((r) => setTimeout(r, HOLD() + 60)) })
+    assert.equal(g.media.calls.length, 2)
+  } finally { await g.unmount() }
+})
+
+test('TOUCH-3 reduced motion: press-and-hold shows the poster but never plays; mouse pointer enter/leave (pointerType mouse) still drives hover', async () => {
+  const g = await mountGrid({ reducedMotion: true, info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await g.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1'); const tile = tileOf('g1')
+    await g.enter(th, 'visible'); await g.fire(th.querySelector('img'), 'load')
+    await pointer(g, tile, 'pointerdown')
+    await act(async () => { await new Promise((r) => setTimeout(r, HOLD() + 60)) })
+    assert.equal(th.querySelector('video'), null); assert.deepEqual(g.media.calls, []); assert.equal(th.getAttribute('data-poster'), 'shown')
+    await pointer(g, tile, 'pointerup')
+  } finally { await g.unmount() }
+  const h = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    await h.render(sections({ files: [gifItem()] }))
+    const th = thumbOf('g1'); const tile = tileOf('g1')
+    await h.enter(th, 'visible'); await h.fire(th.querySelector('img'), 'load')
+    const v = th.querySelector('video'); await h.fire(v, 'canplaythrough')
+    await pointer(h, tile, 'pointerover', { pointerType: 'mouse' }); await pointer(h, tile, 'pointerenter', { pointerType: 'mouse' })
+    assert.deepEqual(h.media.calls, ['play'], 'mouse pointer enter = hover')
+    await pointer(h, tile, 'pointerout', { pointerType: 'mouse' }); await pointer(h, tile, 'pointerleave', { pointerType: 'mouse' })
+    assert.deepEqual(h.media.calls, ['play', 'pause'])
+    // a touch pointer entering the card is NOT a hover (compat events must not start motion)
+    await pointer(h, tile, 'pointerover', { pointerType: 'touch' }); await pointer(h, tile, 'pointerenter', { pointerType: 'touch' })
+    assert.equal(h.media.calls.length, 2)
+  } finally { await h.unmount() }
+})
+
+/* ── control stacking / layout ────────────────────────────────────────────── */
+test('LAYOUT-1 selection and action controls live inside the media frame above the media surface (z-20 over z-0), inset 8px, and stay clickable; the poster/video never cover them', async () => {
+  const g = await mountGrid({ info: (id) => infoReady(id, { animated: true, family: 'gif' }) })
+  try {
+    let selected = 0
+    await g.render(sections({ files: [gifItem()], onSelect: () => { selected += 1 } }))
+    const tile = tileOf('g1'); const th = thumbOf('g1')
+    const frame = tile.querySelector('[data-media-frame]')
+    assert.ok(frame, 'media frame wrapper present')
+    assert.match(frame.className, /\brelative\b/)
+    assert.ok(frame.contains(th), 'MediaThumb is inside the frame')
+    assert.match(th.className, /\bz-0\b/)
+    const checkbox = tile.querySelector('[role="checkbox"]'); const menuBtn = tile.querySelector('[aria-haspopup="menu"]')
+    assert.ok(frame.contains(checkbox) && frame.contains(menuBtn), 'both controls are positioned relative to the media frame')
+    for (const c of [checkbox, menuBtn]) { assert.match(c.className, /\bz-20\b/); assert.match(c.className, /\babsolute\b/); assert.match(c.className, /\btop-2\b/) }
+    assert.match(checkbox.className, /\bleft-2\b/); assert.match(menuBtn.className, /\bright-2\b/)
+    assert.equal(th.contains(checkbox), false, 'controls are not children of the overflow-hidden media surface')
+    await g.enter(th, 'visible'); await g.fire(th.querySelector('img'), 'load')
+    assert.ok(frame.querySelector('img'), 'poster inside the same frame, beneath the controls')
+    await act(async () => { checkbox.dispatchEvent(new g.W.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    assert.equal(selected, 1, 'checkbox remains clickable above the poster')
+    assert.equal(document.querySelectorAll('[data-file-id="g1"] [data-media-frame] > *').length >= 3, true)
+  } finally { await g.unmount() }
+})
+
+test('LAYOUT-2 coarse pointer (touch) surfaces show the controls without hover; fine pointer keeps the hover reveal', async () => {
+  const g = await mountGrid()
+  try {
+    const orig = g.W.matchMedia
+    g.W.matchMedia = (q) => ({ matches: q.includes('pointer: coarse'), media: q, addEventListener() {}, removeEventListener() {} })
+    await g.render(sections({ files: [png()] }))
+    const tile = tileOf('p1')
+    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '1', 'coarse: checkbox visible at rest')
+    assert.equal(tile.querySelector('[aria-haspopup="menu"]').style.opacity, '1', 'coarse: action button visible at rest')
+    g.W.matchMedia = orig
+  } finally { await g.unmount() }
+  const h = await mountGrid()
+  try {
+    await h.render(sections({ files: [png()] }))
+    const tile = tileOf('p1')
+    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '0', 'fine pointer: hidden until hover/selection')
+    await h.mouse(tile, 'mouseenter')
+    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '1')
+  } finally { await h.unmount() }
 })
