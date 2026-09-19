@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L2, L6b REGISTERED (repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L2, L3, L6b REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -158,9 +158,9 @@ T1 defined the handler contract. A separately reviewed task may register a stage
 remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
 directory. T4 registered the separately reviewed L6b handler under
-`stages/L6b/`. This separately reviewed L2 repository task registers L2 under
-`stages/L2/`. Other stages (`L3`, `L4`, `L5`, `L6a`) remain unregistered unless
-separately reviewed.
+`stages/L6b/`. Separately reviewed repository tasks registered L2 under
+`stages/L2/` and L3 under `stages/L3/`. Other stages (`L4`, `L5`, `L6a`) remain
+unregistered unless separately reviewed.
 
 ### L2 handler (firewall & forwarding persistence)
 
@@ -171,6 +171,18 @@ separately reviewed.
 - `/etc/aegis-idea3` must already exist as a non-symlink directory in live mode (`IDEA3_PARENT_DIR_REQUIRED`).
 - Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
 - L2 has NOT been run live; live execution is NOT authorized.
+
+### L3 handler (AP radio runtime)
+
+- L3 owns only AP-radio state on dedicated interface `wlp0s20f3`: NetworkManager AP profile materialization (`aegis-idea3-ap.nmconnection`), 2.4 GHz AP mode, WPA2-PSK security, regulatory domain verification, and target-specific rfkill soft unblock.
+- AP addressing, DHCP, and DNS service are NOT part of L3 (these belong to L4).
+- Zero NAT, zero masquerade, zero bridge creation, zero forwarding enable, zero nftables mutation, zero sysctl mutation, zero Mosquitto/NTP mutation, and zero listener additions (`allow-listeners.txt` has 0 active entries).
+- Management-path fail-closed checks prevent isolation of host control paths; hard-rfkill and regulatory drift fail closed and cannot be approved.
+- PSK accepted only from private regular file (mode 0600/0400; never from CLI argument); no secret or PSK committed.
+- Live mode requires explicit `AEGIS_L3_LIVE_AUTHORIZED=YES` and root. Live target interface is strictly `wlp0s20f3`.
+- Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
+- L3 is repository-registered only; live execution is NOT authorized and L3 has NOT been run live.
+- L4/L5/L6a remain unregistered; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
