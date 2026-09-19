@@ -41,6 +41,7 @@ export class Client {
 
     let payload
     if (body instanceof FormData) payload = body
+    else if (body instanceof Uint8Array) payload = body // raw bytes — ผู้เรียกตั้ง Content-Type เอง (ciphertext ทึบ)
     else if (typeof body === 'string') {
       // ส่งดิบ ๆ — ผู้เรียกตั้ง Content-Type เอง (ใช้กับฟอร์ม urlencoded ของหน้าไถ่ลิงก์
       // ซึ่งเป็น request แบบที่เบราว์เซอร์ยิงจริงเมื่อกด submit ไม่ใช่ JSON จาก fetch ของแอป)

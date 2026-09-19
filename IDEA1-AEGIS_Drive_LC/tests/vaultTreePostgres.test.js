@@ -293,3 +293,61 @@ test('PG-CASCADE-1 deleting the user cascades every tree row', { skip }, async (
 })
 
 defineStoreSpec({ test: (name, fn) => test(name, { skip }, fn), store, userA: () => USER_A, userB: () => USER_B, reset: () => store.__resetVaultTreeForTests() })
+
+// ── PG-API-1..4: the HTTP surface against PostgreSQL (staging → publish → CAS, stale, replay, attach) ──
+test('PG-API-1..4 tree API sequences against PostgreSQL', { skip }, async () => {
+  const fs = await import('node:fs/promises'); const os = await import('node:os'); const path = await import('node:path')
+  const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-tree-pg-api-'))
+  process.env.STORAGE_ROOT = STORAGE_ROOT
+  process.env.SESSION_SECRET = 'test-only-session-secret-not-used-in-production'
+  const { createApp } = await import('../server/app.js')
+  const { vaultTreeConfigFromEnv } = await import('../server/config/vaultTreeLimits.js')
+  const { initStorage } = await import('../server/storage/fileStore.js')
+  const { initVaultManifestStorage } = await import('../server/storage/vaultManifestStore.js')
+  const { loginClient, DEMO_USER } = await import('./helpers/testClient.mjs')
+  const { randomId, revisionDescriptor, fakeCiphertext } = await import('./helpers/vaultTreeFixtures.mjs')
+  await initStorage(); await initVaultManifestStorage()
+  await store.__resetVaultTreeForTests()
+  const server = createApp({ vaultTreeConfig: vaultTreeConfigFromEnv({ VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true' }) }).listen(0, '127.0.0.1')
+  await new Promise((r) => server.once('listening', r))
+  const base = `http://127.0.0.1:${server.address().port}`
+  try {
+    const c = await loginClient(base, DEMO_USER.username, DEMO_USER.password)
+    const { rootRevision } = await seedTree(store, USER_A)
+    await store.upsertBlobState(USER_A, { formatVersion: 2, id: 'pgblob' }, 'UNREFERENCED')
+    const stage = async (generation, baseRevisionId) => {
+      const desc = revisionDescriptor({ generation, baseRevisionId })
+      assert.equal((await c.req('/api/vault/tree/revisions', { method: 'POST', body: desc })).status, 201)
+      const bytes = fakeCiphertext()
+      assert.equal((await c.req(`/api/vault/tree/revisions/${desc.revisionId}/ciphertext`, { method: 'PUT', body: bytes, headers: { 'Content-Type': 'application/octet-stream' } })).status, 200)
+      return { desc, bytes }
+    }
+    // PG-API-1 success + GET head + GET revision bytes
+    const a = await stage(2, rootRevision)
+    const cas = await c.req('/api/vault/tree/head', { method: 'POST', body: { expectedGeneration: 1, expectedRevisionId: rootRevision, revisionId: a.desc.revisionId, idempotencyKey: a.desc.idempotencyKey, attachBlobIds: [{ formatVersion: 2, id: 'pgblob' }] } })
+    assert.equal(cas.status, 200, JSON.stringify(cas.data)); assert.equal(cas.data.generation, 2)
+    const head = await c.req('/api/vault/tree/head'); assert.equal(head.data.revisionId, a.desc.revisionId)
+    const raw = await fetch(`${base}/api/vault/tree/revisions/${a.desc.revisionId}`, { headers: { cookie: c.cookie } })
+    assert.equal(Buffer.from(await raw.arrayBuffer()).equals(Buffer.from(a.bytes)), true)
+    assert.equal((await store.listBlobStates(USER_A)).find((b) => b.id === 'pgblob').lifecycle, 'TREE_MANAGED')
+    // PG-API-2 stale → 409 + orphan 404
+    const b = await stage(2, rootRevision)
+    const stale = await c.req('/api/vault/tree/head', { method: 'POST', body: { expectedGeneration: 1, expectedRevisionId: rootRevision, revisionId: b.desc.revisionId, idempotencyKey: b.desc.idempotencyKey } })
+    assert.equal(stale.status, 409); assert.equal(stale.data.currentGeneration, 2)
+    assert.equal((await fetch(`${base}/api/vault/tree/revisions/${b.desc.revisionId}`, { headers: { cookie: c.cookie } })).status, 404)
+    // PG-API-3 idempotent replay / mismatch
+    const again = await c.req('/api/vault/tree/head', { method: 'POST', body: { expectedGeneration: 1, expectedRevisionId: rootRevision, revisionId: a.desc.revisionId, idempotencyKey: a.desc.idempotencyKey } })
+    assert.equal(again.status, 200); assert.equal(again.data.generation, 2)
+    const mismatch = await c.req('/api/vault/tree/head', { method: 'POST', body: { expectedGeneration: 1, expectedRevisionId: rootRevision, revisionId: a.desc.revisionId, idempotencyKey: randomId() } })
+    assert.equal(mismatch.status, 409); assert.equal(mismatch.data.code, 'TREE_IDEMPOTENCY_MISMATCH')
+    // PG-API-4 attach conflict rolls back the whole CAS
+    const d = await stage(3, a.desc.revisionId)
+    const conflict = await c.req('/api/vault/tree/head', { method: 'POST', body: { expectedGeneration: 2, expectedRevisionId: a.desc.revisionId, revisionId: d.desc.revisionId, idempotencyKey: d.desc.idempotencyKey, attachBlobIds: [{ formatVersion: 2, id: 'pgblob' }] } })
+    assert.equal(conflict.status, 409); assert.equal(conflict.data.code, 'TREE_BLOB_STATE_CONFLICT')
+    assert.equal((await c.req('/api/vault/tree/head')).data.generation, 2)
+    assert.equal((await store.getRevision(USER_A, d.desc.revisionId)).state, 'PUBLISHED')
+  } finally {
+    await new Promise((r) => server.close(r))
+    await fs.rm(STORAGE_ROOT, { recursive: true, force: true })
+  }
+})
