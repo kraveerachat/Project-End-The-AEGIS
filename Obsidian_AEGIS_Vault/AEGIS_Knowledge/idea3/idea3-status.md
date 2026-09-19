@@ -5465,6 +5465,67 @@ PHASE4_LIVE_READINESS        = NOT READY
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_032529_music_idea3-pr11-phase4-l2-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L3 AP-radio runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L3 handler registration. No live L3 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L3 AP-radio runtime handler
+Branch                       = feat/idea3-pr11-phase4-l3-handler
+IMPLEMENTATION_HEAD          = 49c0872f329409d735d3668028a559e4c45b481f
+PR                           = #160 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L3 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_RFKILL_MUTATION         = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+LIVE_L3                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L3 stage handler (`stages/L3/`) under the G-15 handler framework.
+- L3 owns only AP-radio state on dedicated interface `wlp0s20f3`: NetworkManager AP profile materialization (`aegis-idea3-ap.nmconnection`), 2.4 GHz AP mode, WPA2-PSK security, regulatory domain verification, and target-specific rfkill soft unblock.
+- AP addressing, DHCP, and DNS service are NOT part of L3 (these belong to L4).
+- Zero NAT, zero masquerade, zero bridge creation, zero forwarding enable, zero nftables mutation, zero sysctl mutation, zero Mosquitto/NTP mutation, and zero listener additions (`allow-listeners.txt` has 0 active entries).
+- PSK accepted only from private regular file (mode 0600/0400; never from CLI argument); no secret or PSK committed.
+- Target guard: live mode strictly enforces `AP_IF=wlp0s20f3` (`TARGET_AP_INTERFACE_MUST_BE_WLP0S20F3`). Hard rfkill fail-closed; regulatory drift fail-closed.
+- Management-path fail-closed checks prevent isolation of host control paths.
+- Broad aggregate keys (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`) and synthetic fixture interface `wlan-test0` removed from Production allowlist. Active allowlist strictly restricted to target `wlp0s20f3`.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L3 is not authorized or proven.
+- Future live L3 remains separately gated by L2 live PASS, fresh A-L3 authorization, fresh K3, owner-supplied values (OV-01/OV-02/OV-04), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 307 passed.
+- Shell syntax (`bash -n` on all L3 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Broad allowlist scan: PASS (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`, `wlan-test0` absent).
+- Active listeners: 0 active entries.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_042100_music_idea3-pr11-phase4-l3-handler.md`.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

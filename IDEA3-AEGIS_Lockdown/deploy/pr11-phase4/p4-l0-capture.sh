@@ -178,16 +178,67 @@ for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forw
 done
 [ -f "$(p4_fs /etc/sysctl.conf)" ] && rec_file "$NET" net.sysctl_conf "$(p4_fs /etc/sysctl.conf)"
 rec_tree "$NET" net.sysctl_conf /etc/sysctl.d
+resolv_conf="$(p4_fs /etc/resolv.conf)"
+if [ -f "$resolv_conf" ] || [ -L "$resolv_conf" ]; then
+  rec_file "$NET" net.dns "$resolv_conf"
+  ns=$(grep -E '^[[:space:]]*nameserver[[:space:]]+' "$resolv_conf" 2>/dev/null | awk '{print $2}')
+  p4_rec "$NET" "net.dns.nameservers" "$(join_sorted "$ns")"
+fi
 
 # ── Wi-Fi / AP prerequisites ─────────────────────────────────────────────────
-if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
-  while IFS=$'\t' read -r type states; do
-    p4_rec "$WIFI" "wifi.rfkill.$type" "$states"
-  done < <(printf '%s\n' "$P4_OUT" | awk 'NF >= 4 { s[$2] = (s[$2] == "" ? "" : s[$2] ";") "soft=" $3 " hard=" $4 }
-    END { for (t in s) print t "\t" s[t] }' | LC_ALL=C sort)
+declare -A wifi_ifaces=()
+if run_ro 1 iw-dev iw dev; then
+  while IFS=$'\t' read -r iface field value; do
+    [ -n "$iface" ] && wifi_ifaces["$iface"]=1
+    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
+  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 }
+    $1 == "type" && i != "" { print i "\ttype\t" $2 }
+    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }
+    $1 == "ssid" && i != "" { print i "\tssid\t" $2 }')
 else
-  p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+  p4_rec "$WIFI" wifi.iface UNAVAILABLE
 fi
+
+declare -A iface_rfk_seen=()
+sys_net="$(p4_fs /sys/class/net)"
+if [ -d "$sys_net" ]; then
+  for iface_dir in "$sys_net"/*; do
+    [ -d "$iface_dir" ] || continue
+    iface="${iface_dir##*/}"
+    for rfk in "$iface_dir"/phy80211/rfkill* "$iface_dir"/rfkill*; do
+      [ -d "$rfk" ] || continue
+      id=$(cat "$rfk/index" 2>/dev/null || true)
+      soft_raw=$(cat "$rfk/soft" 2>/dev/null || true)
+      hard_raw=$(cat "$rfk/hard" 2>/dev/null || true)
+      [ -n "$id" ] || continue
+      soft="unblocked"
+      [ "$soft_raw" = "1" ] || [ "$soft_raw" = "blocked" ] && soft="blocked"
+      hard="unblocked"
+      [ "$hard_raw" = "1" ] || [ "$hard_raw" = "blocked" ] && hard="blocked"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$id"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$soft"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$hard"
+      iface_rfk_seen["$iface"]=1
+    done
+  done
+fi
+
+if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
+  if [ "${#iface_rfk_seen[@]}" = 0 ]; then
+    while read -r r_id r_type r_soft r_hard; do
+      [ -n "$r_id" ] && [ "$r_type" = "wlan" ] || continue
+      for iface in "${!wifi_ifaces[@]}"; do
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$r_id"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$r_soft"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$r_hard"
+        iface_rfk_seen["$iface"]=1
+      done
+    done <<< "$P4_OUT"
+  fi
+else
+  [ "${#iface_rfk_seen[@]}" -gt 0 ] || p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+fi
+
 if run_ro 1 iw-reg iw reg get; then
   global=$(printf '%s\n' "$P4_OUT" | awk '/^global/ { g = 1 } /^country/ && g { sub(":", "", $2); print $2; exit }')
   p4_rec "$WIFI" wifi.reg.global "${global:-none}"
@@ -198,15 +249,6 @@ if run_ro 1 iw-reg iw reg get; then
   p4_rec "$WIFI" wifi.reg.sha256 "$(text_sha "$P4_OUT")"
 else
   p4_rec "$WIFI" wifi.reg.global UNAVAILABLE
-fi
-if run_ro 1 iw-dev iw dev; then
-  while IFS=$'\t' read -r iface field value; do
-    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
-  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 } $1 == "type" && i != "" { print i "\ttype\t" $2 }
-    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }')
-  p4_rec "$WIFI" wifi.dev.sha256 "$(text_sha "$P4_OUT")"
-else
-  p4_rec "$WIFI" wifi.dev.sha256 UNAVAILABLE
 fi
 if run_ro 1 iw-phy iw phy; then
   if printf '%s\n' "$P4_OUT" | grep -qE '^[[:space:]]+\* AP$'; then ap=supported; else ap=not-listed; fi
@@ -221,15 +263,31 @@ if run_ro 1 nmcli-general nmcli -t -f STATE,CONNECTIVITY,WIFI-HW,WIFI general st
 else
   p4_rec "$WIFI" nm.general UNAVAILABLE
 fi
+
+declare -A known_devs=()
+if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
+  while IFS=':' read -r dev type state; do
+    [ -n "$dev" ] || continue
+    known_devs["$dev"]=1
+    p4_rec "$WIFI" "nm.device.$dev.type" "${type:-unknown}"
+    p4_rec "$WIFI" "nm.device.$dev.state" "${state:-unknown}"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$WIFI" nm.device UNAVAILABLE
+fi
+
 if run_ro 1 nmcli-active nmcli -t -f NAME,TYPE,DEVICE connection show --active; then
-  p4_rec "$WIFI" nm.active "$(join_sorted "$P4_OUT")"
+  declare -A active_devs=()
+  while IFS=':' read -r name type dev; do
+    [ -n "$dev" ] || continue
+    active_devs["$dev"]="${name}:${type}"
+  done <<< "$P4_OUT"
+  for d in $(printf '%s\n' "${!known_devs[@]}" "${!active_devs[@]}" | LC_ALL=C sort -u); do
+    [ -n "$d" ] || continue
+    p4_rec "$WIFI" "nm.active.device.$d" "${active_devs[$d]:-none}"
+  done
 else
   p4_rec "$WIFI" nm.active UNAVAILABLE
-fi
-if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
-  p4_rec "$WIFI" nm.devices "$(join_sorted "$P4_OUT")"
-else
-  p4_rec "$WIFI" nm.devices UNAVAILABLE
 fi
 rec_tree "$WIFI" nm.profile /etc/NetworkManager/system-connections meta
 

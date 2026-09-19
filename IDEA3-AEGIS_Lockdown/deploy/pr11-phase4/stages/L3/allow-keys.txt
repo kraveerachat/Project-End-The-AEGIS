@@ -1,0 +1,12 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3 allow-keys.txt
+# Permitted drift keys for Stage L3 (AP radio only; no addressing, no services).
+# Target interface is strictly wlp0s20f3.
+net.link.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.class
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.meta
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type
+wifi.rfkill.iface.wlp0s20f3.soft
