@@ -8,7 +8,7 @@
 
 **Design:** `docs/superpowers/specs/2026-09-19-idea1-private-vault-encrypted-hierarchy-design.md` (design SHA `db657986747c31f19c2fd3afbbd587177b3a3f74`; ChatGPT architecture review PASS; Approach B approved by the Human Owner).
 
-**Tech stack:** React 19 + Vite frontend (`IDEA1-AEGIS_Drive_LC/src`), Express server (`IDEA1-AEGIS_Drive_LC/server`), PostgreSQL 16 with the `drive_app` non-superuser role, WebCrypto AES-GCM / Argon2id via `hash-wasm`, `node:test` suites (`node --test --test-concurrency=1 --test-reporter=tap`), jsdom screen harness (`tests/helpers/vaultScreenHarness.js`), disposable PostgreSQL through `scripts/pg-integration-env.sh`.
+**Tech stack:** React 19 + Vite frontend (`IDEA1-AEGIS_Drive_LC/src`), Express server (`IDEA1-AEGIS_Drive_LC/server`), PostgreSQL 15 (`postgres:15-alpine` in `docker-compose.yml` and `IDEA1-AEGIS_Drive_LC/scripts/pg-integration-env.sh`; `POSTGRES_REQUIRED_MAJOR=15` — no PostgreSQL upgrade is in scope) with the `drive_app` non-superuser role, WebCrypto AES-GCM / Argon2id via `hash-wasm`, `node:test` suites (`node --test --test-concurrency=1 --test-reporter=tap`), jsdom screen harness (`tests/helpers/vaultScreenHarness.js`), disposable PostgreSQL through `scripts/pg-integration-env.sh`.
 
 ```text
 MODE=IMPLEMENTATION_PLAN_ONLY
@@ -29,17 +29,33 @@ TRAFFIC_ANALYSIS_INFERENCE_ACKNOWLEDGED=YES
 EXISTING_V1_V2_CIPHERTEXT_COMPATIBILITY=PRESERVED
 PRIVATE_VAULT_TRANSFER_PERF=SEPARATE_PR
 DESTRUCTIVE_PURGE_ENABLED_AT_INITIAL_ROLLOUT=NO
+POSTGRES_REQUIRED_MAJOR=15
+EXTERNAL_REVIEW_TRANCHES=A|B|C
+G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS
+SECURITY_REVIEW=PENDING_CORRECTED_PLAN_REVIEW
 ```
 
 ## Authorization
 
 This plan is executed only after all of the following are true, recorded in the PR #157 body and the IDEA1 canonical status note:
 
-1. ChatGPT review of this implementation plan: PASS (`NEXT_GATE=CHATGPT_REVIEW_PR157_IMPLEMENTATION_PLAN`).
-2. Human Owner explicit authorization to begin Phase 0.
+1. ChatGPT final review of this corrected implementation plan: PASS (`NEXT_GATE=CHATGPT_FINAL_REVIEW_PR157_IMPLEMENTATION_PLAN`).
+2. Human Owner explicit authorization to begin Phase 0 (Tranche A).
 3. Security review sign-off on the plan's XSS-limitation statement, CAS, lifecycle cleanup, migration fence, purge barrier and legacy-client fencing sections (design §25 item 4).
 
 Until then `IMPLEMENTATION_STARTED=NO`, `FINAL_RECEIPT_CREATED=NO`, `PR157_READY=NO`, `DO_NOT_MERGE=TRUE`.
+
+**Security review record (2026-09-19).** The first ChatGPT plan/security review returned `CHANGES_REQUIRED` for the plan text and found **no new architecture-boundary rejection** for: KEK → TRK → Manifest DEK; explicit-hierarchy non-disclosure; the migration legacy fence; tree-aware upload isolation; client-only previews; the purge barrier; and the prohibition on rolling back to flat mutation. Approach B remains approved. The required corrections (per-state `vault_tree_state` invariants, PostgreSQL 15 target, transition-specific revision immutability, G1 product-code limit re-validation, tranche-grouped external review) are incorporated below. `SECURITY_REVIEW=PASS` is **not** claimed until the corrected plan is reviewed.
+
+**External review model.** Internal phase gates G0–G10 remain mandatory for tests, commits, evidence and Obsidian/session checkpoints, and Claude may continue from one phase to the next inside a tranche only when the previous internal gate passed. Human/ChatGPT chat approval is required only at the three tranche boundaries:
+
+| Tranche | Phases | Content | External review |
+|---|---|---|---|
+| **TRANCHE_A** | 0–3 | measurement + limits, crypto, schema/CAS API, migration/genesis | after G3 |
+| **TRANCHE_B** | 4–7 | tree-aware upload, client hierarchy/sync, UI, client-only previews | after G7 |
+| **TRANCHE_C** | 8–10 | Trash/purge barrier, multi-client/crash/rollback, exact-SHA regression/preflight | final review after G10 |
+
+If any internal phase gate fails, that tranche stops and the failure is reported; no later phase starts. No tranche authorizes any Production mutation.
 
 ## Global Constraints
 
@@ -55,7 +71,7 @@ Until then `IMPLEMENTATION_STARTED=NO`, `FINAL_RECEIPT_CREATED=NO`, `PR157_READY
 - No Cache API, IndexedDB, localStorage, sessionStorage, filesystem, or server cache may hold manifest plaintext, node names, decrypted bytes, thumbnails, posters, TRK, Manifest DEK, KEK, or preview tokens. Storage-absence tests use instrumented jsdom globals (`caches`, `indexedDB`, `localStorage`, `sessionStorage`) that throw on any write and count reads.
 - Tracked `IDEA1-AEGIS_Drive_LC/dist/` is never rebuilt in a commit: build to verify, then `git checkout -q -- IDEA1-AEGIS_Drive_LC/dist && git clean -fdXq IDEA1-AEGIS_Drive_LC/dist && git clean -fdq IDEA1-AEGIS_Drive_LC/dist`.
 - No large binary fixtures are committed. Media fixtures are generated at test time (synthetic PNG/GIF/MP4 via `tests/helpers/mediaFixtures.mjs` where tools exist, otherwise structurally minimal hand-built byte fixtures produced by `tests/helpers/vaultTreeFixtures.mjs`).
-- Limits are not invented. Every numeric limit below is either (a) an already-shipped constant referenced by name, (b) a protocol constant fixed by this plan and justified inline, or (c) marked `MEASURED@G0` — a value selected only at gate G0 from Phase 0 evidence and then frozen in `server/config/vaultTreeLimits.js` / `src/lib/vaultTreeLimits.js`. Unit tests never depend on the frozen defaults: every module takes its limits by injection and the tests pass small explicit limits.
+- Limits are not invented. Every numeric limit below is either (a) an already-shipped constant referenced by name, (b) a protocol constant fixed by this plan and justified inline, or (c) marked `MEASURED@G0` — a value selected at gate G0 from Phase 0 evidence as a **measured provisional development limit** and frozen in `src/lib/vaultTreeLimits.js` (client) and, from Task 2.1, `server/config/vaultTreeLimits.js`. G0 limits are not release-authoritative: Task 1.6 re-measures the same manifest shapes through the real Phase 1 product modules and either confirms them (`G1_LIMIT_VALIDATION=PASS`) or stops. Unit tests never depend on the frozen defaults: every module takes its limits by injection and the tests pass small explicit limits.
 - Feature flags are fail-closed and chained (see "Rollout flags"). Any flag missing or malformed at boot throws (same pattern as `mediaLimits.js`: read once, throw on invalid, deep-freeze).
 - Receipts/Obsidian: no final receipt before Phase 10 closeout. Each phase gate records a Session Register row and a checkpoint SHA in `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` (owner `kla`), per `core/development-session-workflow.md`.
 
@@ -183,11 +199,11 @@ All tables are owner-scoped by `user_id BIGINT NOT NULL REFERENCES users(id) ON 
 
 | Table | Columns (type · constraint) | Indexes / notes |
 |---|---|---|
-| `vault_tree_state` | `user_id` PK · `protocol_state TEXT NOT NULL CHECK (protocol_state IN ('FLAT','MIGRATING_TREE_V1','TREE_V1'))` · `min_protocol_version SMALLINT NOT NULL DEFAULT 1` · `head_ever_committed BOOLEAN NOT NULL DEFAULT false` · `tree_mutation_count BIGINT NOT NULL DEFAULT 0` · `migration_lease_id TEXT NULL` · `migration_lease_epoch BIGINT NOT NULL DEFAULT 0` · `migration_lease_expires_at TIMESTAMPTZ NULL` · `frozen_inventory_id TEXT NULL` · `frozen_inventory_digest CHAR(64) NULL` (sha256 over the sorted opaque `formatVersion:blobId` list — opaque IDs only) · `purge_barrier_generation BIGINT NOT NULL DEFAULT 0` · `created_at`, `updated_at` | `CHECK ((protocol_state = 'FLAT') = (migration_lease_id IS NULL AND frozen_inventory_id IS NULL))` for FLAT; `CHECK (protocol_state <> 'TREE_V1' OR head_ever_committed)`. Row is created lazily as `FLAT` on first tree-route access. |
+| `vault_tree_state` | `user_id` PK · `protocol_state TEXT NOT NULL CHECK (protocol_state IN ('FLAT','MIGRATING_TREE_V1','TREE_V1'))` · `min_protocol_version SMALLINT NOT NULL DEFAULT 1` · `head_ever_committed BOOLEAN NOT NULL DEFAULT false` · `tree_mutation_count BIGINT NOT NULL DEFAULT 0` · `migration_lease_id TEXT NULL` · `migration_lease_epoch BIGINT NOT NULL DEFAULT 0` · `migration_lease_expires_at TIMESTAMPTZ NULL` · `frozen_inventory_id TEXT NULL` · `frozen_inventory_digest CHAR(64) NULL` (sha256 over the sorted opaque `formatVersion:blobId` list — opaque IDs only) · `purge_barrier_generation BIGINT NOT NULL DEFAULT 0` · `created_at`, `updated_at` | One CHECK constraint `vault_tree_state_invariants` written as `CASE protocol_state WHEN 'FLAT' THEN (…) WHEN 'MIGRATING_TREE_V1' THEN (…) WHEN 'TREE_V1' THEN (…) ELSE false END` with explicit per-state invariants — **FLAT**: `migration_lease_id IS NULL AND migration_lease_expires_at IS NULL AND frozen_inventory_id IS NULL AND frozen_inventory_digest IS NULL AND head_ever_committed = false`; **MIGRATING_TREE_V1**: `migration_lease_id IS NOT NULL AND migration_lease_expires_at IS NOT NULL AND frozen_inventory_id IS NOT NULL AND frozen_inventory_digest IS NOT NULL AND head_ever_committed = false`; **TREE_V1**: `migration_lease_id IS NULL AND migration_lease_expires_at IS NULL AND frozen_inventory_id IS NULL AND frozen_inventory_digest IS NULL AND head_ever_committed = true`. `migration_lease_epoch` is a monotonic counter that survives every transition (takeover and re-begin after abandon continue it). Row is created lazily as `FLAT` on first tree-route access. Enforced by `PG-STATE-1..4`. |
 | `vault_tree_frozen_inventory` | `user_id` · `frozen_inventory_id TEXT NOT NULL` · `blob_format_version SMALLINT NOT NULL CHECK (IN (1,2))` · `blob_id TEXT NOT NULL` · PK `(user_id, frozen_inventory_id, blob_format_version, blob_id)` | Exact fenced set for genesis verification and takeover. |
 | `vault_tree_key_envelope` | `user_id` PK · `tree_id TEXT NOT NULL` · `owner_scope_id_b64 TEXT NOT NULL` · `key_envelope_version SMALLINT NOT NULL DEFAULT 1` · `envelope_cas_version BIGINT NOT NULL DEFAULT 1` · `primary_wrapped_trk_b64 TEXT NOT NULL` · `primary_wrap_iv_b64 TEXT NOT NULL` · `recovery_wrapped_trk_b64 TEXT NOT NULL` · `recovery_wrap_iv_b64 TEXT NOT NULL` · `created_at`, `updated_at` | `CHECK (primary_wrap_iv_b64 <> recovery_wrap_iv_b64)`. Updated only by `casKeyEnvelope` (`WHERE envelope_cas_version = $expected`). |
 | `vault_tree_heads` | `user_id` PK · `tree_id TEXT NOT NULL` · `revision_id TEXT NOT NULL` · `generation BIGINT NOT NULL CHECK (generation >= 1)` · `updated_at` | FK `(revision_id) REFERENCES vault_tree_revisions(revision_id)`; updated only by `casHead` `WHERE generation = $expected AND revision_id = $expectedRevision`. |
-| `vault_tree_revisions` | `revision_id TEXT PK` · `user_id` · `tree_id TEXT NOT NULL` · `base_revision_id TEXT NULL` · `generation BIGINT NOT NULL CHECK (>= 1)` · `manifest_schema_version SMALLINT NOT NULL` · `storage_key TEXT UNIQUE NULL` (set on publish) · `ciphertext_size BIGINT NULL CHECK (> 0)` · `ciphertext_sha256 CHAR(64) NULL` · `iv_b64 TEXT NOT NULL` · `wrapped_manifest_dek_b64 TEXT NOT NULL` · `wrap_iv_b64 TEXT NOT NULL` · `state TEXT NOT NULL CHECK (state IN ('CREATED','PUBLISHED','HEAD_COMMITTED','SUPERSEDED','ORPHANED','NON_RECOVERABLE','FORENSIC_DELETED'))` · `idempotency_key TEXT NOT NULL` · `created_at`, `published_at NULL`, `committed_at NULL`, `retired_at NULL` | `UNIQUE (user_id, idempotency_key)`; `UNIQUE (user_id, generation) WHERE state IN ('HEAD_COMMITTED','SUPERSEDED','NON_RECOVERABLE','FORENSIC_DELETED')` (one committed revision per generation); index `(user_id, state, created_at)`. **Immutability trigger** `vault_tree_revisions_immutable` (created by the superuser migration): `BEFORE UPDATE` raises unless only `state`, `storage_key`, `ciphertext_size`, `ciphertext_sha256`, `published_at`, `committed_at`, `retired_at` change and the `state` transition is in the allowed set; `BEFORE DELETE` raises unless `state IN ('ORPHANED','FORENSIC_DELETED')`. |
+| `vault_tree_revisions` | `revision_id TEXT PK` · `user_id` · `tree_id TEXT NOT NULL` · `base_revision_id TEXT NULL` · `generation BIGINT NOT NULL CHECK (>= 1)` · `manifest_schema_version SMALLINT NOT NULL` · `storage_key TEXT UNIQUE NULL` (set on publish) · `ciphertext_size BIGINT NULL CHECK (> 0)` · `ciphertext_sha256 CHAR(64) NULL` · `iv_b64 TEXT NOT NULL` · `wrapped_manifest_dek_b64 TEXT NOT NULL` · `wrap_iv_b64 TEXT NOT NULL` · `state TEXT NOT NULL CHECK (state IN ('CREATED','PUBLISHED','HEAD_COMMITTED','SUPERSEDED','ORPHANED','NON_RECOVERABLE','FORENSIC_DELETED'))` · `idempotency_key TEXT NOT NULL` · `created_at`, `published_at NULL`, `committed_at NULL`, `retired_at NULL` | `UNIQUE (user_id, idempotency_key)`; `UNIQUE (user_id, generation) WHERE state IN ('HEAD_COMMITTED','SUPERSEDED','NON_RECOVERABLE','FORENSIC_DELETED')` (one committed revision per generation); index `(user_id, state, created_at)`. **Immutability trigger** `vault_tree_revisions_immutable` (created by the superuser migration) enforces transition-specific update rules: (1) `CREATED → PUBLISHED` is the only transition that may set the content-identity fields, and it may set **exactly** `storage_key`, `ciphertext_size`, `ciphertext_sha256`, `published_at` and `state` (all four identity values must be `NULL` before and `NOT NULL` after); (2) once `state <> 'CREATED'`, the fields `revision_id`, `user_id`, `tree_id`, `base_revision_id`, `generation`, `manifest_schema_version`, `storage_key`, `ciphertext_size`, `ciphertext_sha256`, `iv_b64`, `wrapped_manifest_dek_b64`, `wrap_iv_b64`, `idempotency_key`, `created_at`, `published_at` are permanently immutable — any `UPDATE` touching them raises; (3) later transitions may change only `state`, `committed_at` (set exactly on `PUBLISHED → HEAD_COMMITTED`) and `retired_at` (set exactly on `→ ORPHANED`, `→ NON_RECOVERABLE`, `→ FORENSIC_DELETED`), and only along the allowed edges `PUBLISHED → HEAD_COMMITTED`, `HEAD_COMMITTED → SUPERSEDED`, `CREATED/PUBLISHED → ORPHANED`, `HEAD_COMMITTED/SUPERSEDED → NON_RECOVERABLE`, `NON_RECOVERABLE → FORENSIC_DELETED`; no transition may change ciphertext identity or location (`storage_key` never changes after publish; `FORENSIC_DELETED` deletes the file, the key stays as audit metadata); (4) `BEFORE DELETE` raises unless `state IN ('ORPHANED','FORENSIC_DELETED')`. Enforced by `PG-IMMUTABLE-1..5`. |
 | `vault_tree_blob_state` | `user_id` · `blob_format_version SMALLINT NOT NULL CHECK (IN (1,2))` · `blob_id TEXT NOT NULL` · `lifecycle TEXT NOT NULL CHECK (IN ('UNREFERENCED','TREE_MANAGED','PURGE_PENDING','PURGED'))` · `attached_generation BIGINT NULL` · `purge_id TEXT NULL` · `created_at`, `updated_at` · PK `(user_id, blob_format_version, blob_id)` | Index `(user_id, lifecycle, created_at)` for orphan retention. No FK to `vault_blobs`/`vault_v2_blobs` (mixed key types); referential consistency is enforced in `casHead`/`commitGenesis` transactions with `SELECT ... FOR UPDATE` on the blob rows. |
 | `vault_tree_purge_candidates` | `purge_id TEXT NOT NULL` · `user_id` · `barrier_generation BIGINT NOT NULL` · `blob_format_version SMALLINT NOT NULL` · `blob_id TEXT NOT NULL` · `state TEXT NOT NULL CHECK (IN ('RETENTION_WAIT','CONFIRMABLE','CONFIRMED','PURGED','FAILED'))` · `confirmable_at TIMESTAMPTZ NOT NULL` · `confirmed_idempotency_key TEXT NULL` · `created_at`, `confirmed_at NULL`, `purged_at NULL` · PK `(purge_id, blob_format_version, blob_id)` | Index `(user_id, state, confirmable_at)`; `UNIQUE (user_id, confirmed_idempotency_key)`. |
 
@@ -221,9 +237,9 @@ Safe reads that stay open in every state: `GET /api/vault`, `GET /api/vault/blob
 
 Audit: tree routes record existing-shape audit events with `target` = opaque `revisionId`/`purgeId`/`leaseId` only (`AUD-OPAQUE-1`).
 
-## Limits Register (Phase 0 output; selected at gate G0)
+## Limits Register (Phase 0 output; provisional at gate G0, release-authoritative only after G1)
 
-Every row must be completed by Task 0.3 before Phase 1 starts. `MEASURED@G0` is the only permitted deferred-value marker in this document; the self-review scan treats any other placeholder token as a defect. A frozen default may later change only through a new reviewed PR with new evidence — never by editing an env default silently.
+Every row must be completed by Task 0.3 before Phase 1 starts. Values selected at G0 are **measured provisional development limits** taken from the Phase 0 prototype; they become release-authoritative only when Task 1.6 re-measures the same shapes through the real product modules and records `G1_LIMIT_VALIDATION=PASS`. `MEASURED@G0` is the only permitted deferred-value marker in this document; the self-review scan treats any other placeholder token as a defect. A frozen default may later change only through new recorded evidence and review — never by editing an env default silently, and never by raising a limit because product code exceeded the G0 envelope (that case stops the tranche).
 
 | Limit | Measured how (Task) | Selected default | Enforcing test | Config surface |
 |---|---|---|---|---|
@@ -253,27 +269,27 @@ Already-shipped constants reused unchanged: V1 whole-file ceiling `MAX_VAULT_CIP
 
 ## Phases, tasks and reviewer gates
 
-| Phase | Tasks | Gate | Gate evidence |
-|---|---|---|---|
-| 0 — disposable measurements / limits | 0.1, 0.2, 0.3 | **G0** | Limits Register complete; owner accepts defaults; measurement scripts retained under `scripts/measure/vault-tree/` (not part of build/tests) |
-| 1 — manifest crypto + TRK + canonical serialization | 1.1–1.5 | **G1** | crypto/manifest suites green; AAD vectors frozen; no server code |
-| 2 — additive DB schema + opaque state/CAS API | 2.1–2.5 | **G2** | PG suite green on disposable DB; legacy suites green; fence proven |
-| 3 — protocol migration fence + genesis migration | 3.1–3.3 | **G3** | lease/genesis races green; V1/V2 ciphertext unchanged proof |
-| 4 — tree-aware encrypted blob upload/orphan lifecycle | 4.1–4.3 | **G4** | upload family green; transfer-perf constants unchanged proof |
-| 5 — client manifest state + hierarchy commands | 5.1–5.5 | **G5** | ops/rebase/sync/unlocked-state suites green |
-| 6 — Vault UI file-management parity | 6.1–6.4 | **G6** | screen suites green; legacy screen suites unchanged; owner UI walkthrough on dev build |
-| 7 — client-only media previews | 7.1–7.4 | **G7** | preview + storage-absence suites green |
-| 8 — Trash/Restore + purge barrier | 8.1–8.3 | **G8** | purge PG races green; `DESTRUCTIVE_PURGE_ENABLED=false` path proven truthful |
-| 9 — multi-device/concurrency/crash qualification | 9.1–9.3 | **G9** | two-client PG suites green; rollback suite green |
-| 10 — exact-SHA regression / Production preflight | 10.1, 10.2 | **G10** | full regression on Windows + WSL Linux; policy validators; receipt; PR Ready request |
+| Phase | Tasks | Internal gate | Gate evidence | Tranche |
+|---|---|---|---|---|
+| 0 — disposable measurements / provisional limits | 0.1, 0.2, 0.3 | **G0** | Limits Register complete with provisional development limits; measurement scripts retained under `scripts/measure/vault-tree/` (not part of build/tests) | A |
+| 1 — manifest crypto + TRK + canonical serialization + G1 conformance measurement | 1.1–1.6 | **G1** | crypto/manifest suites green; AAD vectors frozen; no server code; `G1_LIMIT_VALIDATION=PASS` with product modules | A |
+| 2 — additive DB schema + opaque state/CAS API | 2.1–2.5 | **G2** | PG 15 suite green on disposable DB; legacy suites green; fence proven | A |
+| 3 — protocol migration fence + genesis migration | 3.1–3.3 | **G3** | lease/genesis races green; V1/V2 ciphertext unchanged proof | A — **external review after G3** |
+| 4 — tree-aware encrypted blob upload/orphan lifecycle | 4.1–4.3 | **G4** | upload family green; transfer-perf constants unchanged proof | B |
+| 5 — client manifest state + hierarchy commands | 5.1–5.5 | **G5** | ops/rebase/sync/unlocked-state suites green | B |
+| 6 — Vault UI file-management parity | 6.1–6.4 | **G6** | screen suites green; legacy screen suites unchanged; dev-build UI walkthrough recorded | B |
+| 7 — client-only media previews | 7.1–7.4 | **G7** | preview + storage-absence suites green | B — **external review after G7** |
+| 8 — Trash/Restore + purge barrier | 8.1–8.3 | **G8** | purge PG races green; `DESTRUCTIVE_PURGE_ENABLED=false` path proven truthful | C |
+| 9 — multi-device/concurrency/crash qualification | 9.1–9.3 | **G9** | two-client PG suites green; rollback suite green | C |
+| 10 — exact-SHA regression / Production preflight | 10.1, 10.2 | **G10** | full regression on Windows + WSL Linux against PostgreSQL 15; policy validators; receipt; PR Ready request | C — **final external review after G10** |
 
-Each gate: (1) checkpoint commit SHA recorded in the IDEA1 Session Register, (2) PR #157 body "Verification" updated with exact commands and counts, (3) reviewer (Kla) acknowledgement in the PR before the next phase starts. Phases 6 and 7 may be developed in parallel worktrees after G5, but merge order is 6 then 7.
+Each internal gate: (1) checkpoint commit SHA recorded in the IDEA1 Session Register, (2) PR #157 body "Verification" updated with exact commands and counts, (3) the gate's listed evidence checks pass. A passed internal gate is sufficient to continue to the next phase inside the same tranche; external (Human/ChatGPT) review happens only at the Tranche A/B/C boundaries. A failed internal gate stops the tranche. Phases 6 and 7 may be developed in parallel worktrees after G5, but merge order is 6 then 7.
 
 ---
 
 ## Phase 0 — Disposable measurements and limit selection
 
-Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scripts/measure/vault-tree/` and are excluded from `npm test` (the test glob is `tests/**/*.test.js`) and from the Vite build. They use the *same* crypto primitives the product will use (WebCrypto AES-GCM, the canonical encoder prototype inlined in the script) so numbers transfer.
+Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scripts/measure/vault-tree/` and are excluded from `npm test` (the test glob is `tests/**/*.test.js`) and from the Vite build. They use the *same* crypto primitives the product will use (WebCrypto AES-GCM) plus a canonical encoder **prototype** inlined in the bench script, because the Phase 1 product modules do not exist yet. The prototype is not a product artefact: Task 1.6 retires it and rewires the bench to the real `src/lib/vaultTreeCanonical.js`, `vaultTreeManifest.js`, `vaultTreeManifestCrypto.js` and `vaultTreeKeys.js`, so from G1 onward the product modules are the only benchmark implementation.
 
 ### Task 0.1: Manifest size, serialization, crypto and contention measurement
 
@@ -305,7 +321,7 @@ Phase 0 writes no product source. Its scripts live in `IDEA1-AEGIS_Drive_LC/scri
 - [ ] **Step 3: PASS evidence** — tables in the Limits Evidence note; no product file changed.
 - [ ] **Step 4: Commit** → `docs(idea1): measure vault client-only media preview limits`
 
-### Task 0.3: Limits selection and configuration surface (gate G0)
+### Task 0.3: Provisional limit selection and configuration surface (gate G0)
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` — "Selected defaults" table
@@ -321,12 +337,12 @@ LM-3 treeLimitsFrom rejects a non-integer, zero, negative, or unknown key with T
 LM-4 padding bucket table is strictly increasing, starts at the smallest genesis manifest size measured in 0.1, and the last bucket equals maxDecodedBytes
 ```
 - [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeLimits.test.js` → `ERR_MODULE_NOT_FOUND ../src/lib/vaultTreeLimits.js`.
-- [ ] **Step 3: Owner decision** — for each Limits Register row write: evidence row → selected default → reasoning (one sentence) in the evidence note; Kla acknowledges in PR #157.
+- [ ] **Step 3: Provisional selection** — for each Limits Register row write: evidence row → selected provisional default → reasoning (one sentence) → the **G0 safety envelope** (the measured time/heap/size thresholds the selection rests on, e.g. "decrypt+validate ≤ 1 000 ms and heap delta ≤ 256 MB at N nodes") in the evidence note and the PR body; external review of these choices happens at the Tranche A boundary.
 - [ ] **Step 4: Implement** `src/lib/vaultTreeLimits.js` with the selected values.
 - [ ] **Step 5: GREEN** → `# tests 4 # pass 4`.
 - [ ] **Step 6:** `git diff --check` clean; `node scripts/validate-vault.mjs` (repo root) pass.
 - [ ] **Step 7: Commit** → `docs(idea1): select vault tree limits from measured evidence` (includes the `MEASURED@G0` replacements in this plan and `src/lib/vaultTreeLimits.js`).
-- [ ] **Gate G0** — Session Register row `PVH-P0`; reviewer acknowledgement before Task 1.1.
+- [ ] **Gate G0** (internal) — Session Register row `PVH-P0` with `G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS`; continue to Task 1.1 inside Tranche A.
 
 ---
 
@@ -468,7 +484,24 @@ SS-3 (source scan) no vault* client module contains `localStorage`, `sessionStor
 - [ ] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultTreeAad.test.js tests/vaultTreeKeys.test.js tests/vaultTreeCanonical.test.js tests/vaultTreeManifest.test.js tests/vaultTreeManifestProperty.test.js tests/vaultTreeManifestCrypto.test.js tests/vaultTreeLimits.test.js tests/vaultTreeSourceScan.test.js tests/vaultCrypto.test.js tests/vaultChunkCrypto.test.js` → all pass; record counts.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): encrypt vault tree manifest revisions under TRK-wrapped DEKs`
-- [ ] **Gate G1** — Session Register row `PVH-P1`; reviewer confirms: no server file changed, no existing crypto module changed (`git diff --name-status <G0 SHA>...HEAD` lists only new files under `src/lib/vaultTree*`, `src/lib/unicodeCaseFold.js`, `tests/vaultTree*`, `scripts/measure/**`).
+
+### Task 1.6: G1 conformance measurement with the real product modules (gate G1)
+
+**Files:**
+- Modify: `scripts/measure/vault-tree/manifest-bench.mjs`, `scripts/measure/vault-tree/manifest-bench-browser.js` — delete the inlined prototype encoder/padder/encryptor and import `src/lib/vaultTreeCanonical.js`, `src/lib/vaultTreeManifest.js`, `src/lib/vaultTreeManifestCrypto.js`, `src/lib/vaultTreeKeys.js` (with `src/lib/vaultTreeLimits.js` defaults) so the product modules are the only benchmark implementation from G1 onward
+- Modify: `docs/superpowers/plans/2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` — new section "G1 conformance (product modules)"
+- No product source or test source changes; if a discrepancy is found it is fixed in its origin task (1.3–1.5) with its own RED→GREEN, not here.
+
+**Interfaces:** none new. The bench emits the same table columns as Task 0.1 plus `prototypeEncodedBytes`, `productEncodedBytes`, `bytesIdentical`.
+
+- [ ] **Step 1: Shared-fixture byte comparison (one-time, before deleting the prototype)** — for the fixed representative fixture set from Task 0.1 (every N × depth × name-bytes cell), encode with the prototype and with `canonicalEncode`/`padToBucket`; record `bytesIdentical` per cell. Any difference is recorded in the evidence note and resolved by fixing the origin task (the product module is the format definition; the prototype is never "fixed" to match).
+- [ ] **Step 2: Retire the prototype** — remove the inlined encoder from both bench scripts; the bench now imports the product modules only.
+- [ ] **Step 3: Re-measure** — `node scripts/measure/vault-tree/manifest-bench.mjs --out /tmp/vault-tree-bench-g1-node.md` on Windows and WSL Ubuntu; browser bench in Chromium and Firefox; the same shapes as Task 0.1: encoded/padded/ciphertext sizes, actual `decryptManifestRevision` (unwrap + decrypt + `validateManifest`) time, and memory where `performance.measureUserAgentSpecificMemory()` / `process.memoryUsage()` are available (otherwise `NOT MEASURED`, never estimated).
+- [ ] **Step 4: Compare against the G0 safety envelope** — for every Limits Register row derived from Task 0.1: padded/ciphertext sizes must land in the same padding bucket as the G0 evidence, and decrypt+validate time and heap delta at the selected `maxNodes`/`maxDepth`/`maxNameBytes` must stay within the envelope thresholds written in Task 0.3 Step 3.
+- [ ] **Step 5: Outcome** — within the envelope → record `G1_LIMIT_VALIDATION=PASS` in the evidence note, the PR body and the Session Register; the G0 defaults remain frozen and become release-authoritative. Outside the envelope → **STOP Tranche A**: record `G1_LIMIT_VALIDATION=FAIL` with the measured values, do not edit `src/lib/vaultTreeLimits.js` or any `MEASURED@G0` replacement, and obtain external review before any default changes (a lowered default is applied through Task 0.3's procedure with new evidence; a raised default is never applied silently).
+- [ ] **Step 6: Phase regression** — the Task 1.5 Step 5 command → all pass; `git diff --check`.
+- [ ] **Step 7: Commit** → `docs(idea1): validate vault tree limits against product modules`
+- [ ] **Gate G1** (internal) — Session Register row `PVH-P1` including `G1_LIMIT_VALIDATION=PASS`; checks: no server file changed, no existing crypto module changed (`git diff --name-status <G0 SHA>...HEAD` lists only new files under `src/lib/vaultTree*`, `src/lib/unicodeCaseFold.js`, `tests/vaultTree*`, and `scripts/measure/**`), prototype encoder absent from `scripts/measure/vault-tree/` (`grep -n 'prototype' scripts/measure/vault-tree/*.mjs` → 0 code hits).
 
 ---
 
@@ -509,7 +542,7 @@ BOOT-2 schemaAvailable=false → probe never called
 - Modify: `server/db/schema.sql` (append identical DDL)
 - Test: `tests/vaultTreeStore.test.js` (memory mode), `tests/vaultTreePostgres.test.js` (real PG; skips with the same honest message as `vaultV2Postgres.test.js` when `TEST_DATABASE_URL` is unset)
 
-**PG procedure** (per `idea1-postgres-verification-procedure` memory): `sh scripts/pg-integration-env.sh up` → one disposable database per test file, migrations applied with `psql -v ON_ERROR_STOP=1` as the migration superuser, app connects as `drive_app`.
+**PG procedure** (per `idea1-postgres-verification-procedure` memory): `sh scripts/pg-integration-env.sh up` (unchanged script; image `postgres:15-alpine`) → one disposable database per test file, migrations applied with `psql -v ON_ERROR_STOP=1` as the migration superuser, app connects as `drive_app`. `POSTGRES_REQUIRED_MAJOR=15`: the suite asserts the server major version first (`PG-VERSION-1`) and does not run against any other major; the script is never switched to another image by this PR.
 
 - [ ] **Step 1: Write failing store tests (memory + PG share one spec file imported by both)**
 ```
@@ -526,8 +559,17 @@ ST-10 listBlobStates returns only this owner's rows; lifecycle vocabulary enforc
 PG-SCHEMA-EQ-1 DDL in 011 equals the appended block in schema.sql (normalised whitespace/comments)
 PG-REAPPLY-1 migration applied twice is a no-op (row counts and \d unchanged)
 PG-GRANT-1 drive_app can SELECT/INSERT/UPDATE/DELETE every tree table and cannot CREATE TABLE
+PG-VERSION-1 SELECT current_setting('server_version_num') is within 150000..159999; otherwise the whole file fails with a message naming POSTGRES_REQUIRED_MAJOR=15
 PG-CHECK-1 every CHECK constraint rejects the listed invalid values (protocol_state, lifecycle, revision state, generation 0, blob_format_version 3, equal IVs)
-PG-IMMUTABLE-1 UPDATE vault_tree_revisions SET iv_b64 = ... on a committed revision raises; UPDATE state through an allowed transition succeeds; DELETE of HEAD_COMMITTED raises; DELETE of ORPHANED succeeds
+PG-STATE-1 valid FLAT row (all four migration fields NULL, head_ever_committed=false) accepted
+PG-STATE-2 valid MIGRATING_TREE_V1 row (all four migration fields NOT NULL, head_ever_committed=false) accepted
+PG-STATE-3 valid TREE_V1 row (all four migration fields NULL, head_ever_committed=true) accepted
+PG-STATE-4 mixed combinations rejected: FLAT with a lease id; FLAT with head_ever_committed=true; MIGRATING with any one migration field NULL; MIGRATING with head_ever_committed=true; TREE_V1 with a lease id or frozen inventory id or digest or expires_at; TREE_V1 with head_ever_committed=false; unknown protocol_state
+PG-IMMUTABLE-1 UPDATE vault_tree_revisions SET iv_b64 = ... on a HEAD_COMMITTED revision raises; DELETE of HEAD_COMMITTED raises; DELETE of ORPHANED succeeds
+PG-IMMUTABLE-2 UPDATE storage_key on a PUBLISHED, HEAD_COMMITTED or SUPERSEDED revision raises
+PG-IMMUTABLE-3 UPDATE ciphertext_size or ciphertext_sha256 after PUBLISHED raises; so do tree_id, revision_id, base_revision_id, generation, manifest_schema_version, wrapped_manifest_dek_b64, wrap_iv_b64, idempotency_key
+PG-IMMUTABLE-4 CREATED → PUBLISHED sets storage_key, ciphertext_size, ciphertext_sha256, published_at and state exactly once; a second attempt to set them (even to the same values) after PUBLISHED raises; CREATED → PUBLISHED that also touches iv_b64 or generation raises
+PG-IMMUTABLE-5 allowed state-only transitions still work: PUBLISHED → HEAD_COMMITTED (sets committed_at), HEAD_COMMITTED → SUPERSEDED, PUBLISHED → ORPHANED (sets retired_at), SUPERSEDED → NON_RECOVERABLE, NON_RECOVERABLE → FORENSIC_DELETED; a disallowed edge (e.g. ORPHANED → HEAD_COMMITTED, SUPERSEDED → PUBLISHED) raises
 PG-CAS-RACE-1 two connections, same expectedGeneration, concurrent casHead → exactly one wins; loser sees TREE_HEAD_CONFLICT and its revision ORPHANED (repeat 20×)
 PG-CAS-RACE-2 two connections race attach of the same UNREFERENCED blob → one wins, other TREE_BLOB_STATE_CONFLICT
 PG-ENVELOPE-RACE-1 concurrent casKeyEnvelope → one wins
@@ -535,7 +577,7 @@ PG-CASCADE-1 deleting the user cascades every tree row
 ```
 - [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeStore.test.js` → `ERR_MODULE_NOT_FOUND`; `TEST_DATABASE_URL=... node --test --test-reporter=tap tests/vaultTreePostgres.test.js` → migration file missing.
 - [ ] **Step 3: Implement** SQL exactly per "Schema plan" (comments in the migration state, as `004_vault_v2.sql` does, what the server learns and what no column can hold) and the store with `withTransaction` + `FOR UPDATE` on `vault_tree_state`.
-- [ ] **Step 4: GREEN** memory → `# tests 10 # pass 10`; PG → `# tests 19 # pass 19` (ST-1..10 re-run against PG + PG-*).
+- [ ] **Step 4: GREEN** memory → `# tests 10 # pass 10`; PG → `# tests 28 # pass 28` (ST-1..10 re-run against PG + PG-SCHEMA-EQ-1, PG-REAPPLY-1, PG-GRANT-1, PG-VERSION-1, PG-CHECK-1, PG-STATE-1..4, PG-IMMUTABLE-1..5, PG-CAS-RACE-1..2, PG-ENVELOPE-RACE-1, PG-CASCADE-1).
 - [ ] **Step 5: Regression** `TEST_DATABASE_URL=... node --test --test-concurrency=1 --test-reporter=tap tests/vaultPostgres.test.js tests/vaultV2Postgres.test.js tests/vaultTreePostgres.test.js` (fresh database per file).
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add additive vault tree schema and opaque CAS store`
@@ -612,7 +654,7 @@ FENCE-6 no inventory row is created/deleted by any fenced request (store row cou
 - [ ] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/vaultTreeConfig.test.js tests/vaultTreeStore.test.js tests/vaultManifestStore.test.js tests/vaultTreeApi.test.js tests/vaultTreeFence.test.js` and the PG trio with a fresh database.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): fence legacy vault mutation by tree protocol state`
-- [ ] **Gate G2** — Session Register row `PVH-P2`; reviewer confirms: `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js src/lib/vaultChunkCrypto.js src/lib/vaultCrypto.js` is empty; migration is additive (`grep -E 'ALTER TABLE (vault_meta|vault_blobs|vault_v2_)' 011_vault_tree_v1.sql` returns nothing).
+- [ ] **Gate G2** (internal) — Session Register row `PVH-P2`; checks: `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js src/lib/vaultChunkCrypto.js src/lib/vaultCrypto.js` is empty; migration is additive (`grep -E 'ALTER TABLE (vault_meta|vault_blobs|vault_v2_)' 011_vault_tree_v1.sql` returns nothing).
 
 ---
 
@@ -631,7 +673,7 @@ MG-2 begin when not FLAT → 409 TREE_STATE_CONFLICT; begin when genesisMigratio
 MG-3 takeover before expiry → 409 TREE_LEASE_HELD; after expiry (fake clock) → 200 new leaseId, epoch 2, same frozenInventoryId and same blobs (fence unchanged)
 MG-4 genesis with stale leaseId or stale epoch → 409 TREE_LEASE_STALE; nothing written (revision remains PUBLISHED-unattached, no head, no envelope, state unchanged)
 MG-5 genesis with a frozenInventoryId that does not match → 409 TREE_INVENTORY_MISMATCH
-MG-6 genesis success: single transaction writes key envelope, head (generation 1), revision HEAD_COMMITTED, every frozen blob → TREE_MANAGED (attached_generation 1), state TREE_V1, head_ever_committed true, lease cleared; response 201
+MG-6 genesis success: single transaction writes key envelope, head (generation 1), revision HEAD_COMMITTED, every frozen blob → TREE_MANAGED (attached_generation 1), state TREE_V1 with head_ever_committed true; clears every migration-only field (migration_lease_id, migration_lease_expires_at, frozen_inventory_id, frozen_inventory_digest → NULL; migration_lease_epoch retained as the monotonic counter); deletes the consumed vault_tree_frozen_inventory rows for that frozenInventoryId; leaves only the authoritative TREE_V1 state/head/key envelope/blob state (the resulting row satisfies the TREE_V1 invariant of vault_tree_state_invariants); response 201
 MG-7 genesis idempotent replay (same idempotencyKey) → 201 same body; different key after TREE_V1 → 409 TREE_STATE_CONFLICT
 MG-8 abandon: allowed only in MIGRATING_TREE_V1 with head_ever_committed=false, tree_mutation_count=0 and (lease expired or leaseId matches) → FLAT, frozen inventory rows deleted, lease cleared; otherwise 409 TREE_ABANDON_FORBIDDEN
 MG-9 abandon after genesis → 409 (TREE_V1 never reverts); direct store call abandonMigration on TREE_V1 → { ok:false }
@@ -641,9 +683,10 @@ PG-MG-1 two connections race begin → one 201, one 409
 PG-MG-2 two lease holders (old expired, new taken over) race genesis → only the new epoch commits; old → TREE_LEASE_STALE
 PG-MG-3 crash simulation: transaction aborted after envelope insert (injected error) → no partial rows (envelope, head, blob state, state all unchanged)
 PG-MG-4 blob added to inventory by a legacy route is impossible during MIGRATING (FENCE) — digest verification at genesis therefore compares the frozen set to itself; a blob deleted directly in SQL (operator action) → genesis TREE_INVENTORY_MISMATCH
+PG-MG-5 successful genesis leaves zero vault_tree_frozen_inventory rows for the consumed frozenInventoryId, and the vault_tree_state row has all four migration fields NULL and head_ever_committed=true (SELECT after commit)
 ```
 - [ ] **Step 2: RED**; **Step 3: Implement** (`commitGenesis` = one `withTransaction` with `FOR UPDATE` on the state row and on all frozen blob rows).
-- [ ] **Step 4: GREEN** → memory `# tests 11`, PG `+4`.
+- [ ] **Step 4: GREEN** → memory `# tests 11`, PG `+5`.
 - [ ] **Step 5: Regression** Phase 2 suites + PG trio.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add vault tree migration lease and atomic genesis`
@@ -692,7 +735,8 @@ MU-6 after success the screen transitions to the tree screen placeholder state (
 - [ ] **Step 5: Regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultV2ScreenUi.test.js tests/vaultTileActions.test.js tests/vaultAutoLockTimer.test.js tests/vaultAutoLockDuration.test.js tests/vaultStateSync.test.js tests/vaultTreeMigrationUi.test.js`.
 - [ ] **Step 6:** build check `npm run build` then restore `dist/` per Global Constraints; `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add private vault genesis migration dialog`
-- [ ] **Gate G3** — Session Register row `PVH-P3`; evidence includes a disposable-DB run of the full migration (`PG-MG-*`) and the `PM-9`/`PM-10` ciphertext-unchanged proof.
+- [ ] **Gate G3** (internal) — Session Register row `PVH-P3`; evidence includes a disposable PostgreSQL 15 run of the full migration (`PG-MG-*`) and the `PM-9`/`PM-10` ciphertext-unchanged proof.
+- [ ] **TRANCHE_A external review** — Phases 0–3 evidence (Limits Register with `G1_LIMIT_VALIDATION`, crypto vectors, schema/CAS PG results, migration/genesis races) submitted for Human/ChatGPT review; Phase 4 starts only after that review passes.
 
 ---
 
@@ -763,7 +807,7 @@ TUC-5 unlockedState.purge during upload → abort propagates (existing transferA
 - [ ] **Step 5: Regression** `tests/vaultChunkedUploadClient.test.js`, `tests/vaultChunkedDownloadClient.test.js`.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add client tree-aware upload attach and orphan recovery`
-- [ ] **Gate G4** — Session Register row `PVH-P4`; reviewer confirms `TU-5`/`TU-SAME-1` snapshots and that `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js` is empty.
+- [ ] **Gate G4** (internal) — Session Register row `PVH-P4`; checks `TU-5`/`TU-SAME-1` snapshots and that `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js` is empty.
 
 ---
 
@@ -881,7 +925,7 @@ VR-7 drag state: dragging a selected node drags the normalized selected set; dro
 - [ ] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultTreeOps.test.js tests/vaultTreeOpsProperty.test.js tests/vaultTreeRebase.test.js tests/vaultTreeSync.test.js tests/vaultUnlockedState.test.js tests/vaultTreeReducer.test.js tests/vaultTreeUploadClient.test.js tests/vaultTreeMigration.test.js` + all existing `tests/vault*.test.js`.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add vault tree view state reducer`
-- [ ] **Gate G5** — Session Register row `PVH-P5`.
+- [ ] **Gate G5** (internal) — Session Register row `PVH-P5`.
 
 ---
 
@@ -978,7 +1022,7 @@ RP-4 unrecoverable state copy never claims "zero metadata"; the security note te
 - [ ] **Step 5: Phase regression** (all vault suites + build/restore).
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add private vault key recovery and orphan recovery panel`
-- [ ] **Gate G6** — Session Register row `PVH-P6`; owner walkthrough on a local dev build (`npm run dev` + in-memory store) recorded in the PR: folders, breadcrumbs, rename, move, drag/drop, trash/restore, lock cleanup. No Production.
+- [ ] **Gate G6** (internal) — Session Register row `PVH-P6`; a walkthrough on a local dev build (`npm run dev` + in-memory store) recorded in the PR: folders, breadcrumbs, rename, move, drag/drop, trash/restore, lock cleanup. No Production.
 
 ---
 
@@ -1069,7 +1113,8 @@ TS-16 tile poster + hover for V2 video; TS-17 V1 video shows truthful download-o
 - [ ] **Step 5: Phase regression** all `tests/vaultPreview*.test.js`, `tests/vaultMediaPreview.test.js`, Phase 6/7 suites, build/restore.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add client-only vault video poster and range preview`
-- [ ] **Gate G7** — Session Register row `PVH-P7`; evidence: a manual browser run with a large synthetic V2 video (sparse fixture, as in PR150 Task 16 method) recording peak worker cache bytes ≤ `MAX_PREVIEW_PLAINTEXT_CACHE_BYTES` and DevTools Application → Cache Storage/IndexedDB/Local Storage empty for the app origin.
+- [ ] **Gate G7** (internal) — Session Register row `PVH-P7`; evidence: a manual browser run with a large synthetic V2 video (sparse fixture, as in PR150 Task 16 method) recording peak worker cache bytes ≤ `MAX_PREVIEW_PLAINTEXT_CACHE_BYTES` and DevTools Application → Cache Storage/IndexedDB/Local Storage empty for the app origin.
+- [ ] **TRANCHE_B external review** — Phases 4–7 evidence (upload family, client sync, UI walkthrough, preview bounds and storage absence) submitted for Human/ChatGPT review; Phase 8 starts only after that review passes.
 
 ---
 
@@ -1145,7 +1190,7 @@ PG-MT-1..2 the above against PostgreSQL with two workers
 - [ ] **Step 5: Phase regression** server suites + PG trio; `.env.example` documents `VAULT_DESTRUCTIVE_PURGE_ENABLED=false` as the required initial value.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `feat(idea1): add vault tree maintenance with flag-gated purge executor`
-- [ ] **Gate G8** — Session Register row `PVH-P8`; reviewer confirms `DESTRUCTIVE_PURGE_ENABLED` default is `false` in config, `.env.example` and tests `PU-6`/`TS-21`.
+- [ ] **Gate G8** (internal) — Session Register row `PVH-P8`; checks `DESTRUCTIVE_PURGE_ENABLED` default is `false` in config, `.env.example` and tests `PU-6`/`TS-21`.
 
 ---
 
@@ -1212,7 +1257,7 @@ RO-6 purge barrier never lowered by any store function (source scan for `purge_b
 - [ ] **Step 5: Phase regression** — the complete `tests/vault*.test.js` set on memory mode and the PG set (`vaultPostgres`, `vaultV2Postgres`, `vaultTreePostgres`, `vaultTreeMultiClient`, `vaultTreeCrashPoints`) each on a fresh disposable database.
 - [ ] **Step 6:** `git diff --check`.
 - [ ] **Step 7: Commit** → `test(idea1): qualify private vault tree rollback and fencing`
-- [ ] **Gate G9** — Session Register row `PVH-P9`.
+- [ ] **Gate G9** (internal) — Session Register row `PVH-P9`.
 
 ---
 
@@ -1224,7 +1269,7 @@ RO-6 purge barrier never lowered by any store function (source scan for `purge_b
 
 - [ ] **Step 1:** `git fetch origin && git merge origin/main` (reconcile; rerun on any conflict); record `CANDIDATE_SHA`.
 - [ ] **Step 2: Windows** — `npm test` (`node --test --test-concurrency=1 "tests/**/*.test.js"` with `--test-reporter=tap`) → record totals; compare with the accepted baseline from the PR150 closeout receipt (`2026-09-19_170000_kla_idea1-files-management-ux.md`); any new failure blocks.
-- [ ] **Step 3: WSL Linux** (per `wsl-linux-verification-setup` memory) — same command; PG suites with `scripts/pg-integration-env.sh up`, one database per file; `MEDIA_SKIP` policy as in PR150.
+- [ ] **Step 3: WSL Linux** (per `wsl-linux-verification-setup` memory) — same command; PG suites with the unchanged `scripts/pg-integration-env.sh up` (`postgres:15-alpine`), one database per file; **`POSTGRES_VERSION_MAJOR=15` required**: record `SELECT version(), current_setting('server_version_num')` from that database in the PR body, and fail the gate on any other major; `MEDIA_SKIP` policy as in PR150.
 - [ ] **Step 4: Build** — `npm run build` succeeds; restore `dist/` per Global Constraints; `git status --short` clean of `dist/`.
 - [ ] **Step 5: Repo-root governance** — `git diff --check`; `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`; `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs`; local `node scripts/validate-collaboration-policy.mjs --event <synthesised event JSON with the final PR body> --changed-files <git diff --name-status origin/main...HEAD>`.
 - [ ] **Step 6: Ciphertext-unchanged proof** — on a disposable database seeded via `tests/helpers/seedRealVault.mjs`: hash every `vault_blobs`/`vault_v2_blobs`/`vault_v2_blob_chunks` row and storage file before genesis and after 50 random tree mutations + one passphrase rotation → identical.
@@ -1239,17 +1284,19 @@ RO-6 purge barrier never lowered by any store function (source scan for `purge_b
 - [ ] **Step 3:** PR #157 body: full template; `integration-review: yes`; verification table; migration/rollout/rollback sections mirroring "Rollout flags"; `DESTRUCTIVE_PURGE_ENABLED=false` stated for initial rollout.
 - [ ] **Step 4:** Request Ready transition from the Human Owner only after CI (`collaboration-guardrails`) is green at the final head; the agent never merges.
 - [ ] **Step 5: Production preflight list (hand-off; each is a future owner-authorized gate mapping design §22):** (1) deployed image/migration identity + additive schema preflight on a database copy; (2) two-user isolation probe with guessed opaque IDs; (3) DB/object/log plaintext inspection; (4) two real browsers concurrent Rename/Move/Create/Trash/Restore; (5) real TRK rotation + one-slot corruption drill on a disposable Vault; (6) deep hierarchy/casefold/bulk/drag-drop/cycle/stale-client/crash drills; (7) migration fence drill with an old client build; (8) tree-aware upload/orphan drill; (9) purge barrier drill with `DESTRUCTIVE_PURGE_ENABLED=false` then, only after retention/backup acceptance, `true` on a disposable Vault; (10) V1/V2 preview/download unchanged after migration; (11) lock/auto-lock/logout/tab lifecycle inspection (Application panel empty); (12) bounded image/GIF/video preview with a large V2 video; (13) retention/backup/recovery owner evidence; (14) full gates at the exact candidate SHA. Any failure blocks Production mutation.
-- [ ] **Gate G10** — `IMPLEMENTATION_STATUS=COMPLETE_PENDING_REVIEW`; `PR157_READY` requested; `DO_NOT_MERGE` lifted only by the Human Owner.
+- [ ] **Gate G10** (internal) — `IMPLEMENTATION_STATUS=COMPLETE_PENDING_REVIEW`.
+- [ ] **TRANCHE_C final external review** — Phases 8–10 evidence plus the whole-PR regression submitted for Human/ChatGPT review; `PR157_READY` is requested only after it passes; `DO_NOT_MERGE` is lifted only by the Human Owner.
 
 ---
 
 ## Plan self-review record
 
 - **Design coverage:** §1–§3 → Authorization, Global Constraints; §4 → File map (every referenced module exists in the repository at `db657986`: `vaultCrypto.js`, `vaultChunkCrypto.js`, `vaultChunkedUpload.js`, `vaultChunkedDownload.js`, `vaultInventory.js`, `Vault.jsx`, `vaultPreviewSession.js`, `vaultPreviewServiceWorker.js`, `vault_v2_blobs`, `GET /api/vault`, PR #150 Files hierarchy); §5 → Global Constraints (XSS/traffic-analysis limitation copy in `RP-4`), threat model tests `TK-*`, `MC-*`; §6 → `NO-LEAK-1..6`, `AUD-OPAQUE-1`, `SRV-NOIMPORT-1`, `PV-NO-MEDIA-1`; §7 → Architecture (Approach B locked; no reconsideration); §8 → Identities table, `MF-1`, `MF-8`; §9 → Tasks 1.3, 1.4 (schema, effective lifecycle, canonical serialization, padding, bounds); §10 → Tasks 1.1, 1.2, 1.5 (`TK-13` direct-KEK guard, `MC-6` rotation immutability, `TK-4..6` slot corruption/disagreement); §11 → Schema plan, Route plan, Tasks 2.2, 2.4, 3.1, 4.2; §12 → Tasks 5.2, 5.3, 9.1; §13 → Task 1.4 `MF-3..5`, Task 5.1 `OP-3/4`, `OPP-2/3`; §14 → Tasks 5.1 (create/rename/move/trash/restore/purgeIntent), 4.1–4.3 (add/upload via versioned family), 8.1–8.2 (permanent deletion); §15 → Phase 6 (`UI-6` hides Share/History/Verify/Public Share/Protected Trash); §16 → Phase 7; §17 → Task 5.4; §18 → Phase 3 (`PM-2` no partial tree, `PM-3` no automatic rename, `PM-9/10` no re-encryption/no plaintext); §19 → Task 9.2 (one `CP-*` per table row) + `MG-*`, `OR-2`, `SY-5`, `PU-9`; §20 → `RP-4` copy, Global Constraints; §21 → Test plan mapping below; §22 → Task 10.2 Step 5; §23 → Rollout flags, Task 9.3; §24 → Global Constraints (transfer perf excluded), `TU-5`, `TU-SAME-1`; §25 → Authorization.
-- **Task-brief coverage (sections 0–21 of the task):** §3 key model → Task 1.2; §4 state machine → Tasks 2.2/3.1 (`MG-1..11`, `PG-MG-*`); §5 blob protocol → Tasks 4.1–4.3; §6 manifest/CAS → Tasks 1.3–1.5, 2.4, 5.2–5.3; §7 UI features 1–17 → Tasks 6.1 (1,2,3,10), 6.2 (4,5,6), 6.3 (7,8,9), 6.3/8.2 (11), 6.4 (12), 7.2 (13), 7.3 (14), 7.4 (15,16), 5.4 (17); §8 trash/purge → Tasks 1.4 `MF-6/7`, 5.1 `OP-5/6/8`, 8.1–8.3; §9 migration → Phase 3; §10 preview → Phase 7; §11 purge unlocked state → Task 5.4; §12 measurement → Phase 0 + Limits Register; §13 DB/server → Schema plan, Tasks 2.1–2.5; §14 test plan → below; §15 decomposition → 11 phases / 40 tasks with gates G0–G10; §16 flags → Rollout flags + `FLAG-CHAIN-*`, `RO-*`; §17 transfer perf → excluded (Global Constraints).
-- **Test plan mapping (task §14):** CRYPTO round trip/wrong key/tamper/AAD substitution/IV freshness/TRK slot recovery/passphrase rotation → `TK-1..14`, `MC-1..7`; MANIFEST schema/bounds/duplicate keys/canonicalization/Unicode/padding/graph invariants/cycles/collision policy → `CN-1..10`, `MF-1..10`, `MF-LIMIT-*`, `MP-1/2`; POSTGRES/API owner isolation/CAS races/idempotency/lease races/state fencing/immutable revisions/crash points/tree-aware upload+orphan attach/purge barrier races → `ST-9`, `TR-12`, `PG-CAS-RACE-*`, `TR-8`, `PG-MG-*`, `FENCE-*`, `PG-IMMUTABLE-1`, `CP-*`, `TU-*`, `OR-*`, `PG-PU-*`; MULTI-CLIENT → `MC2-1..11`; UI → `UI-*`, `DG-*`, `TS-*`; PREVIEW → `IT-*`, `GF-*`, `VP-*`, `TS-LIMIT-*`, `SA-*`; LIFECYCLE → `US-*`, `SY-9/11`, `VP-6`, `TSC-2`; MIGRATION V1/V2/ciphertext unchanged → `PM-1/9/10`, Task 10.1 Step 6; ROLLBACK → `RO-1..6`, `TS-11`.
+- **Task-brief coverage (sections 0–21 of the task):** §3 key model → Task 1.2; §4 state machine → Tasks 2.2/3.1 (`MG-1..11`, `PG-MG-*`); §5 blob protocol → Tasks 4.1–4.3; §6 manifest/CAS → Tasks 1.3–1.5, 2.4, 5.2–5.3; §7 UI features 1–17 → Tasks 6.1 (1,2,3,10), 6.2 (4,5,6), 6.3 (7,8,9), 6.3/8.2 (11), 6.4 (12), 7.2 (13), 7.3 (14), 7.4 (15,16), 5.4 (17); §8 trash/purge → Tasks 1.4 `MF-6/7`, 5.1 `OP-5/6/8`, 8.1–8.3; §9 migration → Phase 3; §10 preview → Phase 7; §11 purge unlocked state → Task 5.4; §12 measurement → Phase 0 + Limits Register; §13 DB/server → Schema plan, Tasks 2.1–2.5; §14 test plan → below; §15 decomposition → 11 phases / 41 tasks with internal gates G0–G10 and external tranches A/B/C; §16 flags → Rollout flags + `FLAG-CHAIN-*`, `RO-*`; §17 transfer perf → excluded (Global Constraints).
+- **Test plan mapping (task §14):** CRYPTO round trip/wrong key/tamper/AAD substitution/IV freshness/TRK slot recovery/passphrase rotation → `TK-1..14`, `MC-1..7`; MANIFEST schema/bounds/duplicate keys/canonicalization/Unicode/padding/graph invariants/cycles/collision policy → `CN-1..10`, `MF-1..10`, `MF-LIMIT-*`, `MP-1/2`; POSTGRES/API owner isolation/CAS races/idempotency/lease races/state fencing/immutable revisions/crash points/tree-aware upload+orphan attach/purge barrier races → `ST-9`, `TR-12`, `PG-CAS-RACE-*`, `TR-8`, `PG-MG-*`, `FENCE-*`, `PG-IMMUTABLE-1..5`, `PG-STATE-1..4`, `PG-VERSION-1`, `CP-*`, `TU-*`, `OR-*`, `PG-PU-*`; MULTI-CLIENT → `MC2-1..11`; UI → `UI-*`, `DG-*`, `TS-*`; PREVIEW → `IT-*`, `GF-*`, `VP-*`, `TS-LIMIT-*`, `SA-*`; LIFECYCLE → `US-*`, `SY-9/11`, `VP-6`, `TSC-2`; MIGRATION V1/V2/ciphertext unchanged → `PM-1/9/10`, Task 10.1 Step 6; ROLLBACK → `RO-1..6`, `TS-11`.
 - **Signature/type consistency:** every module's public interface is defined once in the File map and referenced by name in the tasks; `ctx` shapes for TRK and Manifest DEK are defined in Task 1.2 and reused by 1.5, 3.2, 5.3; `blobRef = { formatVersion, id }` is the single blob reference shape client and server (`attachBlobIds`, `purgeBlobIds`, `vault_tree_blob_state`).
 - **Route consistency:** every client `vaultTreeApi.js` function maps to exactly one row in the Route plan; legacy routes listed as fenced match the mutation set in `api.js`/`vaultUploads.js` at `db657986` (`POST /vault/blobs`, `DELETE /vault/blobs/:id`, `POST /vault/uploads`, `PUT .../chunks/:index`, `POST .../commit`).
+- **Correction record (ChatGPT plan review, `CHANGES_REQUIRED`):** (1) `vault_tree_state` now carries explicit per-state invariants (`vault_tree_state_invariants`) instead of the former FLAT-equivalence CHECK that a valid `TREE_V1` row would have violated; `MG-6` clears all migration-only fields and the consumed frozen-inventory rows; `PG-STATE-1..4`, `PG-MG-5` added. (2) PostgreSQL target corrected to 15 (`postgres:15-alpine`; `POSTGRES_REQUIRED_MAJOR=15`; `PG-VERSION-1`; Task 10.1 Step 3 records the server version) — no upgrade in scope. (3) Revision immutability is transition-specific: `CREATED → PUBLISHED` sets identity fields exactly once; afterwards identity/location is permanently immutable; later edges change only `state`/`committed_at`/`retired_at` (`PG-IMMUTABLE-1..5`). (4) G0 limits are provisional development limits; Task 1.6 re-measures with the product modules, retires the prototype, and records `G1_LIMIT_VALIDATION`; limits are release-authoritative only after G1. (5) External review grouped into TRANCHE_A (0–3), TRANCHE_B (4–7), TRANCHE_C (8–10); internal gates G0–G10 retained.
 - **Schema consistency:** every column named in tasks (`purge_barrier_generation`, `envelope_cas_version`, `attached_generation`, `confirmable_at`, `frozen_inventory_digest`, `head_ever_committed`, `tree_mutation_count`) exists in the Schema plan; revision states used by routes/GC (`CREATED`, `PUBLISHED`, `HEAD_COMMITTED`, `SUPERSEDED`, `ORPHANED`, `NON_RECOVERABLE`, `FORENSIC_DELETED`) match the CHECK list and the immutability trigger transitions.
 - **Key-hierarchy consistency:** Manifest DEKs are wrapped only by the TRK (`wrapManifestDek(trk, …)`); the KEK wraps only the TRK slots (`wrapTrkSlots(kek, …)`); `TK-13` and `SS-*` enforce it in code; passphrase rotation touches only `vault_tree_key_envelope` (`MC-6`, `MC2-11`).
 - **Feature-flag consistency:** six flags, chained (`FLAG-CHAIN-1..5`), surfaced in `GET /tree/state`, checked in routes (`TR-2`, `MG-2`, `PU-6`), client (`UI-9`, `TS-11`, `TS-18`, `MU-1`), rollback (`RO-1..3`); initial Production value of destructive purge is `false` in config default, `.env.example`, Task 8.3 gate and Task 10.2.
@@ -1264,14 +1311,16 @@ RO-6 purge barrier never lowered by any store function (source scan for `purge_b
   - server Vault thumbnail: `grep -nE '(sharp|ffmpeg).*vault' -i <plan>` → only this definition line (Task 0.2 uses `sharp`/FFmpeg solely to build disposable test fixtures on the developer machine; no server derivative exists).
   - pre-barrier recovery: `grep -nE 'below the barrier.*(recover|select)' -i <plan>` → only this definition line; every barrier statement in the plan is a rejection (`410 TREE_REVISION_NON_RECOVERABLE`, `NON_RECOVERABLE`).
   - destructive purge enabled at initial rollout: `grep -nE 'DESTRUCTIVE_PURGE_ENABLED\s*=\s*true' <plan>` → 0.
+  - PostgreSQL 16 reference: `grep -nE 'PostgreSQL 16|postgres:16' <plan>` → only this definition line (`POSTGRESQL_16_REFERENCE=ABSENT`).
+  - old state CHECK: `grep -nE "protocol_state = 'FLAT'\) =" <plan>` → 0.
   - upload-performance work mixed into PR157: `grep -nE 'chunk size|parallelism|throughput|concurrency tuning' -i <plan>` → matches only the Global Constraints exclusion statement and this definition line.
-- **Decomposition:** 11 phases, 40 tasks (0.1–0.3, 1.1–1.5, 2.1–2.5, 3.1–3.3, 4.1–4.3, 5.1–5.5, 6.1–6.4, 7.1–7.4, 8.1–8.3, 9.1–9.3, 10.1–10.2), 11 reviewer gates. Each task lists exact files, interfaces, RED command, GREEN count, regression command and one commit.
+- **Decomposition:** 11 phases, 41 tasks (0.1–0.3, 1.1–1.6, 2.1–2.5, 3.1–3.3, 4.1–4.3, 5.1–5.5, 6.1–6.4, 7.1–7.4, 8.1–8.3, 9.1–9.3, 10.1–10.2), 11 internal gates and 3 external review tranches. Each task lists exact files, interfaces, RED command, GREEN count, regression command and one commit.
 - **Not claimed:** no physical memory zeroization guarantee (`US-4`); no "zero metadata" claim (`RP-4`); traffic-analysis inference acknowledged; passphrase-change UI is out of scope (documented limitation in Task 10.2); orphan blob automatic deletion is out of scope (`OR-3`, `MT-ORPHAN-BLOB-1`).
 
 ```text
 TASK=PR157_PRIVATE_VAULT_ENCRYPTED_HIERARCHY_IMPLEMENTATION_PLAN
 PLAN_PHASES=11
-PLAN_TASKS=40
+PLAN_TASKS=41
 MEASUREMENT_PHASE_PRESENT=YES
 TRK_IMPLEMENTATION_COVERED=YES
 MIGRATION_FENCE_COVERED=YES
@@ -1281,6 +1330,11 @@ EFFECTIVE_TRASH_COVERED=YES
 CLIENT_ONLY_PREVIEW_COVERED=YES
 PURGE_UNLOCKED_STATE_COVERED=YES
 TRANSFER_PERF_INCLUDED=NO
+POSTGRES_REQUIRED_MAJOR=15
+G0_LIMIT_STATUS=MEASURED_PROVISIONAL_DEVELOPMENT_LIMITS
+G1_ACTUAL_CODE_REVALIDATION_PRESENT=YES
+EXTERNAL_EXECUTION_TRANCHES=TRANCHE_A|TRANCHE_B|TRANCHE_C
+SECURITY_REVIEW=PENDING_CORRECTED_PLAN_REVIEW
 IMPLEMENTATION_STARTED=NO
-NEXT_GATE=CHATGPT_REVIEW_PR157_IMPLEMENTATION_PLAN
+NEXT_GATE=CHATGPT_FINAL_REVIEW_PR157_IMPLEMENTATION_PLAN
 ```
