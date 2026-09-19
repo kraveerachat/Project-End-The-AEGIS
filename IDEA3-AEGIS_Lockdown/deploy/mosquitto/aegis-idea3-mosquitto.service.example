@@ -1,0 +1,18 @@
+[Unit]
+Description=AEGIS IDEA3 TLS-only MQTT broker
+After=network-online.target
+ConditionPathExists=/etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mosquitto -c /etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/aegis-idea3
+
+[Install]
+WantedBy=multi-user.target
