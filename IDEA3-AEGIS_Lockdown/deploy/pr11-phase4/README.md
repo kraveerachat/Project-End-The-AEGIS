@@ -216,3 +216,70 @@ PF-02 does not prove a live Wi-Fi AP, live DHCP/DNS, real ESP32 association, or 
 ### Live boundary
 
 L2 firewall/forwarding, L3 AP activation, and L4 AP addressing/DHCP remain separate live stages requiring fresh authorization and preservation evidence.
+
+## 7. T6 local trusted NTP — repository implementation
+
+T6 provides the repository contract for G-05 local trusted NTP.
+It remains repository-only work and does not execute the future L5 live stage.
+
+`p4-ntp.py` provides repository-safe `render` and `validate` commands.
+`render` requires the AP IPv4 address, AP subnet, owner-supplied trusted
+upstream, and output directory. `validate` fail-closes unless the rendered
+chrony configuration and T6 contract match the AP-only serving policy.
+
+The Production trusted upstream is supplied by the owner at render/live time.
+No real Production upstream value is committed to this repository.
+
+Rendered chrony policy:
+
+```text
+server <OWNER_SUPPLIED_TRUSTED_UPSTREAM> iburst
+bindaddress <RENDERED_AP_ADDRESS>
+allow <RENDERED_AP_SUBNET>
+```
+
+Validation rejects unresolved placeholders, wildcard or broad AP scope,
+`allow all`, additional upstreams, additional active directives, and
+`local` / `local stratum` fallback behavior.
+
+### T6 trusted-time handoff contract
+
+The repository contract preserves the existing TrustedClock limits:
+
+```text
+TRUSTEDCLOCK_PRE_HANDOFF         = SYNCED
+TRUSTEDCLOCK_POST_HANDOFF        = SYNCED
+TRUSTEDCLOCK_MAX_ERROR_US        = 1000000
+TRUSTEDCLOCK_HOLDOVER_SEC        = 300
+TRUSTEDCLOCK_FINAL_HOLDOVER_PASS = NO
+ROLLBACK_TIME_OWNER              = systemd-timesyncd
+```
+
+HOLDOVER may preserve protocol safety temporarily, but it is not a
+successful final L5 state. Future L5 acceptance must finish in `SYNCED`
+within the existing max-error bound. Failure requires rollback to
+`systemd-timesyncd` and re-proving `SYNCED`.
+
+The T5 firewall contract already permits AP-side UDP/123 while preserving
+forwarding isolation and no-NAT behavior. T6 does not modify T5 nftables.
+
+### T6 live boundary
+
+No chrony package installation, chronyd activation, systemd-timesyncd
+handoff, live NTP query, host-network mutation, Production mutation,
+AP activation, or ESP32 mutation was performed by this repository task.
+
+```text
+PRODUCTION_MUTATION       = NO
+NETWORK_MUTATION          = NO
+NTP_SERVER_LIVE           = NO
+CHRONY_INSTALLED_LIVE     = NO
+TIMESYNCD_HANDOFF_LIVE    = NO
+L5                        = NOT RUN
+PHASE4_RUNTIME_COMPLETE   = NO
+PHASE4_LIVE_READINESS     = NOT READY
+```
+
+L5 remains a separate future live stage requiring fresh authorization,
+fresh preservation evidence, required predecessor stages, and
+owner-supplied live values.
