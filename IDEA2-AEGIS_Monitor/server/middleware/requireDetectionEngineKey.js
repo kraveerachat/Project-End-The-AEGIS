@@ -28,14 +28,19 @@ function safeEqual(provided, expected) {
   return timingSafeEqual(a, b)
 }
 
+export function detectionEngineKeyStatus(req, expected = process.env.DETECTION_ENGINE_API_KEY) {
+  if (!expected) return 'disabled'
+  const provided = req.get(HEADER)
+  return provided && safeEqual(provided, expected) ? 'accepted' : 'rejected'
+}
+
 export function requireDetectionEngineKey(req, res, next) {
-  const expected = process.env.DETECTION_ENGINE_API_KEY
   // Fail-secure: ไม่มี key ฝั่งเซิร์ฟเวอร์ = ปิดตาย (ปฏิเสธทุกคำขอ) ไม่ใช่เปิดผ่าน
-  if (!expected) {
+  const status = detectionEngineKeyStatus(req)
+  if (status === 'disabled') {
     return res.status(503).json({ error: 'Detection ingest disabled' })
   }
-  const provided = req.get(HEADER)
-  if (!provided || !safeEqual(provided, expected)) {
+  if (status !== 'accepted') {
     return res.status(401).json({ error: 'Unauthorized' })
   }
   next()

@@ -193,9 +193,9 @@ test('inactive Node and inactive or mismatched physical camera share the generic
 test('Agent authentication is mounted separately from sessions and the legacy shared-key gate', () => {
   const source = fs.readFileSync(path.join(monitorRoot, 'server/index.js'), 'utf8')
   const agentMount = source.indexOf("app.use('/internal/agent-auth', agentAuthRouter)")
-  const jsonMount = source.indexOf("app.use(express.json({ limit: '16kb' }))")
-  const legacyMount = source.indexOf("app.use('/internal', requireDetectionEngineKey, internalRouter)")
+  const jsonMount = source.indexOf('app.use(express.json({')
+  const ingestMount = source.indexOf("app.use('/internal', authenticateDetectionIngest, internalRouter)")
   assert.ok(agentMount > 0)
   assert.ok(agentMount < jsonMount)
-  assert.ok(agentMount < legacyMount)
+  assert.ok(agentMount < ingestMount)
 })

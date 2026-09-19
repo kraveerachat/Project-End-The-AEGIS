@@ -48,4 +48,16 @@ export class ReplayWindow {
     this.#nonces.set(digest, retainUntilMs)
     return true
   }
+
+  acceptRequest({ sequence, nonceDigest, retainUntilMs, nowMs }) {
+    const previousHighest = this.#highest
+    const previousBitmap = this.#bitmap
+    if (!this.acceptSequence(sequence)) return false
+    if (!this.acceptNonce(nonceDigest, { retainUntilMs, nowMs })) {
+      this.#highest = previousHighest
+      this.#bitmap = previousBitmap
+      return false
+    }
+    return true
+  }
 }

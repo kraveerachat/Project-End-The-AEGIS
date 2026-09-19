@@ -210,7 +210,7 @@ function safeStreamUrl(raw) {
 }
 
 /** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
-export async function recordHeartbeat(input) {
+export async function recordHeartbeat(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -218,6 +218,58 @@ export async function recordHeartbeat(input) {
 
   const numOrNull = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
   const intOrZero = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0)
+
+  const verifiedNode = ingestAuth?.kind === 'ed25519' ? ingestAuth.verifiedNode : null
+  if (verifiedNode) {
+    const physicalCameraId = Number(verifiedNode.physicalCameraId)
+    if (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) {
+      return { error: 'invalid physical provenance', status: 401 }
+    }
+    const { rows } = await query(
+      `INSERT INTO physical_camera_heartbeat (
+          physical_camera_id, node_id, last_seen_at, camera_connected, camera_reconnects,
+          capture_fps, detect_fps, latency_ms, latency_ms_avg, uptime_s,
+          frames_captured, segments_written, nas_last_status, nas_pending, stream_url)
+       VALUES ($1, $2, now(), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       ON CONFLICT (physical_camera_id) DO UPDATE SET
+          node_id = EXCLUDED.node_id,
+          last_seen_at = now(),
+          camera_connected = EXCLUDED.camera_connected,
+          camera_reconnects = EXCLUDED.camera_reconnects,
+          capture_fps = EXCLUDED.capture_fps,
+          detect_fps = EXCLUDED.detect_fps,
+          latency_ms = EXCLUDED.latency_ms,
+          latency_ms_avg = EXCLUDED.latency_ms_avg,
+          uptime_s = EXCLUDED.uptime_s,
+          frames_captured = EXCLUDED.frames_captured,
+          segments_written = EXCLUDED.segments_written,
+          nas_last_status = EXCLUDED.nas_last_status,
+          nas_pending = EXCLUDED.nas_pending,
+          stream_url = EXCLUDED.stream_url
+       RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
+      [
+        physicalCameraId,
+        verifiedNode.nodeId,
+        Boolean(input?.cameraConnected),
+        intOrZero(input?.cameraReconnects),
+        numOrNull(input?.captureFps),
+        numOrNull(input?.detectFps),
+        numOrNull(input?.latencyMs),
+        numOrNull(input?.latencyMsAvg),
+        numOrNull(input?.uptimeS),
+        numOrNull(input?.framesCaptured),
+        intOrZero(input?.segmentsWritten),
+        input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
+        intOrZero(input?.nasPending),
+        safeStreamUrl(input?.streamUrl),
+      ],
+    )
+    return {
+      cameraId,
+      physicalCameraId,
+      lastSeenAt: Math.round(Number(rows[0].last_seen_ms)),
+    }
+  }
 
   const { rows } = await query(
     `INSERT INTO camera_heartbeat (
@@ -278,7 +330,7 @@ async function cameraExists(id) {
  *  เฟรมที่มีหลายคน → หลายแถว = มองเห็น tailgating ได้ (ตรงกับ schema.sql)
  *  รับ entities จาก engine (status/name/confidence) — เก็บเฉพาะ Authorized/Unknown
  *  (NoFace ไม่ลงตาราง; result CHECK อนุญาตแค่สองค่านี้) */
-export async function insertDetection(input) {
+export async function insertDetection(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -303,13 +355,24 @@ export async function insertDetection(input) {
   if (valid.length === 0) return { error: 'no recognizable faces in payload', status: 400 }
 
   const faces = valid.length
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
   await withTransaction(async (client) => {
     for (const e of valid) {
       await client.query(
-        `INSERT INTO detections (frame_id, at, camera_id, faces_in_frame, result, matched_name, confidence)
-         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7)`,
+        `INSERT INTO detections (
+           frame_id, at, camera_id, physical_camera_id,
+           faces_in_frame, result, matched_name, confidence)
+         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8)`,
         // matched_name เป็น NULL เสมอเมื่อ Unknown (ไม่มีตัวตนให้จับคู่)
-        [frameId, atIso, cameraId, faces, e.result, e.result === 'Unknown' ? null : e.name, e.confidence],
+        [
+          frameId, atIso, cameraId, physicalCameraId, faces,
+          e.result, e.result === 'Unknown' ? null : e.name, e.confidence,
+        ],
       )
     }
   })
@@ -319,7 +382,7 @@ export async function insertDetection(input) {
 /** เขียน clip หนึ่งช่วง — เรียกโดย nas_sync "หลัง" ยืนยัน sha256 บน NAS สำเร็จเท่านั้น
  *  ⚠️ stored_on_nas ต้องเป็น TRUE ก็ต่อเมื่อ verify ผ่านแล้ว — ห้ามตั้งแบบ optimistic
  *  (ผู้เรียกเดียวคือ nas_sync._finish_ok ซึ่งอยู่หลังด่าน verify) */
-export async function insertClip(input) {
+export async function insertClip(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -331,18 +394,25 @@ export async function insertClip(input) {
   if (!started || Number.isNaN(started.getTime())) return { error: 'invalid started_at', status: 400 }
   const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 600
   const storedOnNas = Boolean(input?.storedOnNas)
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
 
   const { rows } = await query(
-    `INSERT INTO clips (camera_id, started_at, duration_sec, file_path, stored_on_nas)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [cameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
+    `INSERT INTO clips (
+       camera_id, physical_camera_id, started_at, duration_sec, file_path, stored_on_nas)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [cameraId, physicalCameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
   )
   return { id: String(rows[0].id) }
 }
 
 /** เขียน alert หนึ่งรายการ — เรียกโดย alert_manager "หลัง" พยายามส่ง Telegram
  *  (สำเร็จหรือไม่ก็ persist เสมอ — บันทึกไม่หายแม้ Telegram ล่ม) */
-export async function insertAlert(input) {
+export async function insertAlert(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -355,11 +425,19 @@ export async function insertAlert(input) {
   const title = String(input?.title ?? 'Unknown person detected').slice(0, 200)
   const snapshotPath = input?.snapshotPath ? String(input.snapshotPath).slice(0, 1024) : null
   const telegramSent = Boolean(input?.telegramSent)
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
 
   const { rows } = await query(
-    `INSERT INTO alerts (severity, type, title, camera_id, snapshot_path, telegram_sent, acked)
-     VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING id`,
-    [severity, type, title, cameraId, snapshotPath, telegramSent],
+    `INSERT INTO alerts (
+       severity, type, title, camera_id, physical_camera_id,
+       snapshot_path, telegram_sent, acked)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE) RETURNING id`,
+    [severity, type, title, cameraId, physicalCameraId, snapshotPath, telegramSent],
   )
   return { id: String(rows[0].id) }
 }

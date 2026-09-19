@@ -17,7 +17,7 @@ import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
 import { internalRouter } from './routes/internal.js'
 import { agentAuthRouter } from './routes/agentAuth.js'
-import { requireDetectionEngineKey } from './middleware/requireDetectionEngineKey.js'
+import { authenticateDetectionIngest } from './middleware/authenticateDetectionIngest.js'
 import { usingPostgres, checkDb } from './db/connection.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -34,7 +34,10 @@ app.use(securityHeaders)
 // Dedicated Agent authentication is intentionally mounted before the generic
 // JSON/session stack and separately from the legacy shared-key ingest gate.
 app.use('/internal/agent-auth', agentAuthRouter)
-app.use(express.json({ limit: '16kb' }))
+app.use(express.json({
+  limit: '16kb',
+  verify(req, _res, bytes) { req.rawBody = Buffer.from(bytes) },
+}))
 app.use(sessionMiddleware())
 
 // health check — unauthenticated โดยเจตนา (docker healthcheck + deploy.sh)
@@ -47,10 +50,10 @@ app.use('/api', csrfProtection, apiRouter)
 app.use('/api', apiNotFound)
 
 // ── Detection Engine ingest (service-to-service) ─────────────────────────────
-// mount แยกจาก /api โดยเจตนา: ไม่มี CSRF/เซสชัน (engine ไม่ใช่เบราว์เซอร์) แต่ต้อง
-// ผ่านด่าน API key ก่อนถึง handler เสมอ — ดู middleware/requireDetectionEngineKey.js
+// mount แยกจาก /api โดยเจตนา: ไม่มี CSRF/เซสชัน browser (engine ไม่ใช่ browser)
+// แต่ทุก write ต้องผ่าน Agent proof หรือ explicit legacy-key compatibility gate.
 // ⚠️ ชั้น gateway (nginx) บล็อก /monitor/internal/ จากภายนอกอีกชั้น (defense-in-depth)
-app.use('/internal', requireDetectionEngineKey, internalRouter)
+app.use('/internal', authenticateDetectionIngest, internalRouter)
 
 // The shell must always be revalidated after a Docker deploy so a browser
 // cannot keep rendering an older React bundle. Vite assets are content-hashed
