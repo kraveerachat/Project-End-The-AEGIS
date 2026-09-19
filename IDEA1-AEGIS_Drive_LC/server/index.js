@@ -33,6 +33,7 @@ import { bootMedia } from './media/runtime.js'
 // VAULT_TREE_SCHEMA_AVAILABLE=true ต้องพบตาราง tree ทั้งเจ็ดก่อนเปิดพอร์ต ไม่งั้นบูตล้มโดยระบุชื่อตาราง
 import { VAULT_TREE_CONFIG, verifyTreeSchema } from './config/vaultTreeLimits.js'
 import { probeTreeSchema } from './db/vaultTreeSchemaProbe.js'
+import { initVaultManifestStorage } from './storage/vaultManifestStore.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
@@ -58,7 +59,7 @@ async function runGuardedTrashAutoPurge() {
 // (เส้นทาง V2 แบบ chunk) จะล้มตอน runtime แทนที่จะดังตั้งแต่บูต
 Promise.all([
   bootstrapAdminIfNeeded(), initStorage(), initUploadStaging(), initVaultStorage(),
-  initVaultStaging(), initAvatarStorage(),
+  initVaultStaging(), initAvatarStorage(), initVaultManifestStorage(),
 ])
   .then(async () => {
     // Media subsystem หลัง prerequisites: cache dir ต้องเขียนได้ก่อนเปิดพอร์ต; ถ้าเครื่องมือหายจะ log เหตุผลแล้วปิดส่วนนี้
