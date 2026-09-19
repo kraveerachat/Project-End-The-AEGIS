@@ -52,14 +52,15 @@ meta() { awk -F '\t' -v k="$2" '$1 == k { print $2 }' "$1/meta.tsv"; }
   || stop "evidence classes differ; test fixtures and host evidence are never compared"
 
 # Keys whose change is never approvable (S-03, S-04, S-09, host identity, §10 IDEA2).
-PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.default|host\.|meta\.|cap\.|listen\.|disk\.)'
+PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.default|net\.dns|host\.|meta\.|cap\.|listen\.|disk\.|nm\.general$|wifi\.reg\.|wifi\.rfkill\..*\.(id|hard)$)'
 ALLOW_KEYS=""
 if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
   [ -r "$ALLOW_KEYS_FILE" ] || stop "ALLOW_KEYS_FILE unreadable"
   ALLOW_KEYS=$(grep -vE '^[[:space:]]*(#|$)' "$ALLOW_KEYS_FILE" || true)
+  ALLOW_KEY_PAT='^[-A-Za-z0-9@._:/]+$'
   while IFS= read -r k; do
     [ -n "$k" ] || continue
-    [[ "$k" =~ ^[A-Za-z0-9@._:/\[\]-]+$ ]] || stop "malformed allow key"
+    [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
   done <<< "$ALLOW_KEYS"
 fi
@@ -177,6 +178,8 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "ROUTE_TABLE_DRIFT", key, b, a)
     } else if (key ~ /^net\.rule/) {
       emit("NEW_OR_WORSENED_DRIFT", "ROUTING_RULE_DRIFT", key, b, a)
+    } else if (key ~ /^net\.dns/) {
+      emit("NEW_OR_WORSENED_DRIFT", "DNS_CONFIGURATION_DRIFT", key, b, a)
     } else if (key ~ /^net\.addr/) {
       emit("NEW_OR_WORSENED_DRIFT", "INTERFACE_ADDRESS_DRIFT", key, b, a)
     } else if (key ~ /^net\.link/) {
@@ -191,14 +194,22 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "NFT_RULESET_DRIFT", key, b, a)
     } else if (key ~ /^fw\.nftables_/) {
       emit("NEW_OR_WORSENED_DRIFT", "NFT_PERSISTENT_CONF_DRIFT", key, b, a)
+    } else if (key ~ /^wifi\.rfkill\..*\.hard$/) {
+      emit("NEW_OR_WORSENED_DRIFT", "RFKILL_HARD_DRIFT", key, b, a)
     } else if (key ~ /^wifi\.rfkill/) {
       emit("NEW_OR_WORSENED_DRIFT", "RFKILL_STATE_DRIFT", key, b, a)
     } else if (key ~ /^wifi\.reg/) {
       emit("NEW_OR_WORSENED_DRIFT", "REGULATORY_DRIFT", key, b, a)
     } else if (key ~ /^wifi\./) {
       emit("NEW_OR_WORSENED_DRIFT", "WIFI_STATE_DRIFT", key, b, a)
+    } else if (key == "nm.general") {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_GENERAL_DRIFT", key, b, a)
     } else if (key ~ /^nm\.profile\./) {
       emit("NEW_OR_WORSENED_DRIFT", "NM_PROFILE_DRIFT", key, b, a)
+    } else if (key ~ /^nm\.active\./) {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_ACTIVE_DRIFT", key, b, a)
+    } else if (key ~ /^nm\.device\./) {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_DEVICE_DRIFT", key, b, a)
     } else if (key ~ /^nm\./) {
       emit("NEW_OR_WORSENED_DRIFT", "NM_STATE_DRIFT", key, b, a)
     } else if (key == "time.NTPSynchronized") {

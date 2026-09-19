@@ -203,6 +203,10 @@ def fs_fixture(secret: str) -> dict[str, str]:
         "etc/nftables.conf": "table inet filter_test {}\n",
         "etc/systemd/timesyncd.conf": "[Time]\n",
         "proc/sys/kernel/random/boot_id": "00000000-0000-4000-8000-000000000001\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/index": "1\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/soft": "1\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/hard": "0\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/type": "wlan\n",
     }
 
 
@@ -327,12 +331,19 @@ def test_capture_happy_path_writes_normalized_checksummed_records(tmp_path: Path
     for key in ("sysctl.net.ipv4.ip_forward", "sysctl.net.ipv6.conf.all.forwarding",
                 "sysctl.net.ipv6.conf.default.forwarding", "sysctl.net.ipv4.conf.all.forwarding"):
         assert rec[key] == "0", key
-    assert rec["wifi.rfkill.wlan"] == "soft=blocked hard=unblocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.soft"] == "blocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.hard"] == "unblocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.id"] == "1"
     assert rec["wifi.reg.global"] == "00"
     assert rec["wifi.iface.wlan-test0.type"] == "managed"
     assert rec["wifi.phy.ap_mode"] == "supported"
     assert rec["nm.general"] == "connected:full:enabled:disabled"
-    assert rec["nm.active"] == "wired-test:802-3-ethernet:eth-test0"
+    assert rec["nm.active.device.eth-test0"] == "wired-test:802-3-ethernet"
+    assert rec["nm.active.device.wlan-test0"] == "none"
+    assert rec["nm.device.eth-test0.type"] == "ethernet"
+    assert rec["nm.device.eth-test0.state"] == "connected"
+    assert rec["nm.device.wlan-test0.type"] == "wifi"
+    assert rec["nm.device.wlan-test0.state"] == "unavailable"
     assert rec["fw.nft.tables"] == "table inet filter_test"
     assert re.fullmatch(r"[0-9a-f]{64}", rec["fw.nft.table.inet.filter_test.sha256"])
     assert re.fullmatch(r"[0-9a-f]{64}", rec["fw.nft.ruleset.sha256"])
@@ -599,8 +610,8 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L6b"}
-    for name in ("L2", "L6b"):
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L3", "L6b"}
+    for name in ("L2", "L3", "L6b"):
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
             "apply.sh",
             "verify.sh",
@@ -773,7 +784,9 @@ def test_approved_scoped_listener_is_not_drift(tmp_path: Path) -> None:
 def test_protected_keys_cannot_be_approved(tmp_path: Path) -> None:
     before, after = capture(tmp_path, "before"), capture(tmp_path, "after")
     allow = tmp_path / "allow-keys.txt"
-    for key in ("sysctl.net.ipv4.ip_forward", "idea2.tunnel.NRestarts", "net.route4.default", "host.boot_id"):
+    for key in ("sysctl.net.ipv4.ip_forward", "idea2.tunnel.NRestarts", "net.route4.default", "host.boot_id",
+                "net.dns./etc/resolv.conf.sha256", "net.dns.nameservers", "nm.general",
+                "wifi.reg.global", "wifi.rfkill.iface.wlp0s20f3.hard", "wifi.rfkill.iface.wlp0s20f3.id"):
         allow.write_text(key + "\n")
         result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
         assert result.returncode == 2, key
@@ -887,6 +900,17 @@ def test_mosquitto_config_drift_fails(tmp_path: Path) -> None:
     after = capture(tmp_path, "after", fs=fs)
     result = compare(before, after)
     assert_fail(result, "MQTT_CONFIG_DRIFT")
+
+
+def test_dns_configuration_drift_fails(tmp_path: Path) -> None:
+    fs_before = fs_fixture("P4CANARYdefault")
+    fs_before["etc/resolv.conf"] = "nameserver 127.0.0.53\n"
+    before = capture(tmp_path, "before", fs=fs_before)
+    fs_after = fs_fixture("P4CANARYdefault")
+    fs_after["etc/resolv.conf"] = "nameserver 1.1.1.1\n"
+    after = capture(tmp_path, "after", fs=fs_after)
+    result = compare(before, after)
+    assert_fail(result, "DNS_CONFIGURATION_DRIFT")
 
 
 # ── L–N. stage gate ──────────────────────────────────────────────────────────
@@ -1038,7 +1062,7 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    result = gate(tmp_path, "--stage", "L3", "--mode", "live", auth=auth_record("L3"), k3=k3_record("L3"))
+    result = gate(tmp_path, "--stage", "L4", "--mode", "live", auth=auth_record("L4"), k3=k3_record("L4"))
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
 

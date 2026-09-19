@@ -1,0 +1,3 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3 allow-listeners.txt
+# Stage L3 is radio-only with NO addressing and NO services/listeners.
+# Exactly 0 active listeners are permitted.
