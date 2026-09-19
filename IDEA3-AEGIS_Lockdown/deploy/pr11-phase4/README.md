@@ -4,10 +4,10 @@ Repository framework only. **Nothing here has run on the Core or Production.**
 
 ```text
 T1_SCOPE                       = G-15 repository framework (capture / compare / stage gate / rollback contract)
-G15_CLOSED                     = NO — human review and closeout pending
+G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = NONE REGISTERED (contract only)
+STAGE_ROLLBACK_HANDLERS        = L6b REGISTERED (T4 repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -140,9 +140,9 @@ mutating stage fails with `ROLLBACK_HANDLER_NOT_REGISTERED` until a reviewed
 handler exists. L0 needs a same-day authorization but no K3
 (`STAGE_GATE=PASS_READ_ONLY`).
 
-## 4. Rollback handler contract (no handler implemented)
+## 4. Rollback handler contract and registered handlers
 
-A later, separately reviewed task may register a stage under
+T1 defined the handler contract. A separately reviewed task may register a stage under
 `stages/<STAGE>/` with `apply.sh`, `verify.sh`, `rollback.sh`,
 `allow-keys.txt`, and `allow-listeners.txt`. A stage runner must then:
 
@@ -156,8 +156,9 @@ A later, separately reviewed task may register a stage under
 
 `rollback.sh` must be idempotent and undo only its own stage. It must never
 remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
-fallback, or touch IDEA1/IDEA2 state. T1 ships no `stages/` directory; the tests
-assert that.
+fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
+directory. T4 now registers the separately reviewed L6b handler under
+`stages/L6b/`; other stages remain unregistered unless separately reviewed.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
@@ -283,3 +284,44 @@ PHASE4_LIVE_READINESS     = NOT READY
 L5 remains a separate future live stage requiring fresh authorization,
 fresh preservation evidence, required predecessor stages, and
 owner-supplied live values.
+
+## 8. T4 / G-07 separate broker migration — repository implementation
+
+T4 implements OD-08 as a separate TLS-only Mosquitto instance for IDEA3.
+It does not replace or modify the legacy `mosquitto.service`, its plaintext
+1883 listener, or the legacy `aegis` user.
+
+Repository artifacts:
+
+- `p4-broker-migration.py` deterministically renders and validates the separate
+  IDEA3 broker configuration.
+- `../mosquitto/aegis-idea3-mosquitto.service.example` directly launches the
+  separate IDEA3 broker instance.
+- `stages/L6b/` registers the L6b `apply`, read-only `verify`, idempotent
+  `rollback`, and exact allow-key/listener contracts with the T1 framework.
+- L0 capture includes `aegis-idea3-mosquitto.service`.
+- the compare harness resolves `<AEGIS_AP_ADDRESS>` at run time and permits
+  only loopback:8883 plus the approved AP-address:8883 listener additions.
+
+The repository contract forbids 1883 in the IDEA3 instance, wildcard 8883,
+8883 on the uplink address, reuse of `/etc/mosquitto/passwd`, legacy `aegis`
+as an IDEA3 identity, unresolved placeholders, anonymous access, retained
+message availability, and commands that mutate the legacy Mosquitto service.
+
+The future L6b verification also requires the explicit PF-01 AP-side TCP/1883
+drop already defined by the T5 firewall contract. Repository registration does
+not authorize or execute L6b.
+
+```text
+T4_REPOSITORY_IMPLEMENTED = YES
+T4_FINAL_VALIDATION = PASS — 242 focused/regression tests
+T4_REPOSITORY_CLOSEOUT = COMPLETE / ACCEPTANCE PASS
+G07_REPOSITORY_CONTRACT = CLOSED
+L6B_HANDLER = REGISTERED
+
+L6A = NOT RUN
+L6B = NOT RUN
+PRODUCTION_MUTATION = NO
+PHASE4_RUNTIME_COMPLETE = NO
+PHASE4_LIVE_READINESS = NOT READY
+```

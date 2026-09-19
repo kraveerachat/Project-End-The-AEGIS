@@ -596,8 +596,17 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
     assert not re.search(r"flush\s+ruleset", path.read_text(), re.IGNORECASE)
 
 
-def test_no_stage_mutation_handlers_exist_in_t1() -> None:
-    assert not (DEPLOY / "stages").exists()
+def test_only_reviewed_l6b_stage_handler_is_registered() -> None:
+    stages = DEPLOY / "stages"
+    assert stages.is_dir()
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L6b"}
+    assert {p.name for p in (stages / "L6b").iterdir() if p.is_file()} == {
+        "apply.sh",
+        "verify.sh",
+        "rollback.sh",
+        "allow-keys.txt",
+        "allow-listeners.txt",
+    }
 
 
 def ro(snippet: str, bindir: Path, calls: Path) -> subprocess.CompletedProcess:

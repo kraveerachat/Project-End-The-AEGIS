@@ -67,14 +67,31 @@ ALLOW_LISTENERS=""
 if [ -n "${ALLOW_LISTENERS_FILE:-}" ]; then
   [ -r "$ALLOW_LISTENERS_FILE" ] || stop "ALLOW_LISTENERS_FILE unreadable"
   ALLOW_LISTENERS=$(grep -vE '^[[:space:]]*(#|$)' "$ALLOW_LISTENERS_FILE" || true)
+  RESOLVED_ALLOW_LISTENERS=""
   while IFS= read -r k; do
     [ -n "$k" ] || continue
+
+    placeholder="<AEGIS_AP_ADDRESS>"
+    if [[ "$k" == *"$placeholder"* ]]; then
+      [[ "${AEGIS_AP_ADDRESS:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
+        || stop "AEGIS_AP_ADDRESS is required for the L6b listener contract"
+      k=${k//$placeholder/$AEGIS_AP_ADDRESS}
+    fi
+
+    [[ "$k" != *"<AEGIS_"* ]] || stop "unresolved allowed-listener placeholder"
     [[ "$k" =~ ^listen\.(tcp|udp)\.(.+):([0-9]{1,5})$ ]] || stop "malformed allowed listener"
     addr=${BASH_REMATCH[2]} port=${BASH_REMATCH[3]}
     [[ "$addr" =~ ^(0\.0\.0\.0|\[::\]|::|\*|\[::\]%.*|0\.0\.0\.0%.*|\*%.*)$ ]] \
       && stop "wildcard listener cannot be approved (S-05): $k"
     [ "$port" = 1883 ] && stop "a plaintext 1883 listener cannot be approved (S-12): $k"
+
+    if [ -n "$RESOLVED_ALLOW_LISTENERS" ]; then
+      RESOLVED_ALLOW_LISTENERS+=$'\n'
+    fi
+    RESOLVED_ALLOW_LISTENERS+="$k"
   done <<< "$ALLOW_LISTENERS"
+
+  ALLOW_LISTENERS="$RESOLVED_ALLOW_LISTENERS"
 fi
 
 read -r -d '' COMPARE_AWK <<'AWK'
