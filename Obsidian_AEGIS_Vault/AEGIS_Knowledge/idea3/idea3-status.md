@@ -5293,6 +5293,63 @@ firewall state, or L2/L3/L4 runtime completion.
 The single immutable T5 final receipt is recorded in the Phase 4 status log.
 `T5_REPOSITORY_IMPLEMENTED = YES`; L2/L3/L4 remain separate live gates.
 
+## IDEA3 PR11 Phase 4 T6 / G-05 local trusted NTP — CLOSED / ACCEPTANCE PASS — 2026-09-19
+
+> [!important] Repository-only T6 work. No live L5 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 T6 / G-05 local trusted NTP
+Branch                       = feat/idea3-pr11-phase4-t6-local-ntp
+STARTING_SHA                 = 1867a1bf633a5486e0382a949c95b87217ac7270
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L5 NOT RUN
+
+OD-06                        = DECIDED BY OWNER
+NTP_SERVER_IMPLEMENTATION    = chrony
+TRUSTED_UPSTREAM_MODEL       = owner-supplied at render/live time
+PRODUCTION_UPSTREAM_IN_GIT   = NO
+
+T6_DESIGN                    = OWNER APPROVED — 2026-09-18
+T6_REPOSITORY_IMPLEMENTED    = YES
+T6_REPOSITORY_CLOSEOUT       = COMPLETE / ACCEPTANCE PASS
+G05_REPOSITORY_CONTRACT      = CLOSED
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+NTP_SERVER_LIVE              = NO
+CHRONY_INSTALLED_LIVE        = NO
+TIMESYNCD_HANDOFF_LIVE       = NO
+L5                            = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Repository-safe chrony template plus deterministic NTP renderer/validator.
+- Owner-supplied trusted upstream is provided only at render/live time.
+- AP-only serving; wildcard, broad allow, unsafe local clock, and unresolved values fail closed.
+- TrustedClock safety thresholds must not be weakened.
+- No chrony install/start, timesyncd mutation, network mutation, AP activation, ESP32 mutation, or L5 execution.
+
+### Session Register
+
+| Session | Purpose | State | Git checkpoint | Evidence |
+|---|---|---|---|---|
+| T6-S1 | Design + implementation plan | COMPLETE / PASS | ba8b67a0 | design + plan committed; vault PASS with 2 warnings; collaboration policy PASS |
+| T6-S2 | TDD repository implementation | COMPLETE / PASS | 17cfd036 | 26 focused tests PASS; TrustedClock/T5/harness regressions PASS; strict validate + handoff contract PASS |
+| T6-S3 | Regression / security acceptance | COMPLETE / PASS | 17cfd036 | 257 affected PASS; 271 Phase4 PASS; full IDEA3 1251 PASS / 6 skipped; compileall/Ruff/scans/vault/collaboration PASS |
+| T6-S4 | Final closeout / receipt / PR handoff | COMPLETE / PASS | 17cfd036 | canonical closeout + single immutable final receipt; ready for human PR review/merge |
+
+### T6-S1 plan
+
+1. Record the owner-approved T6 design.
+2. Write the implementation plan before production code.
+3. Review the documentation diff and validate it.
+4. Begin TDD only after the S1 documentation checkpoint.
+
+G-05 repository contract is CLOSED after repository implementation and acceptance PASS. L5 remains a separate future live stage.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
