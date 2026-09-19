@@ -292,6 +292,155 @@ test('PG-CASCADE-1 deleting the user cascades every tree row', { skip }, async (
   }
 })
 
+// ── PG-MG-1..5: migration lease / frozen inventory / genesis against real transactions ──
+// V1 blob rows are inserted directly (drive_app DML) — the legacy route is fenced and this file has no HTTP client here
+const insertV1Blob = async (userId, tag) => {
+  const { rows } = await app.query(
+    `INSERT INTO vault_blobs (user_id, storage_key, iv_b64, wrapped_dek_b64, wrap_iv_b64, meta_iv_b64, meta_b64, size_bytes) VALUES ($1, $2, 'aXY=', 'ZGVr', 'aXY=', 'aXY=', 'bWV0YQ==', 3) RETURNING id`,
+    [userId, `vault/pg-mg-${tag}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.aegisenc`],
+  )
+  return String(rows[0].id)
+}
+const stateRow = async (userId) => (await app.query(`SELECT * FROM vault_tree_state WHERE user_id = $1`, [userId])).rows[0]
+const countRows = async (table, userId) => (await app.query(`SELECT count(*)::int AS n FROM ${table} WHERE user_id = $1`, [userId])).rows[0].n
+const resetMigration = async (userId) => { await store.__resetVaultTreeForTests(); await app.query(`DELETE FROM vault_blobs WHERE user_id = $1`, [userId]) }
+const LEASE_MS = 60_000
+const stageGenesis = async (userId, { treeId, revisionId, key }) => {
+  await stageRevision(store, userId, { treeId, baseRevisionId: null, generation: 1, revisionId, key })
+}
+const genesisArgs = (lease, { treeId, revisionId, key, n = 7 }) => ({
+  leaseId: lease.leaseId, epoch: lease.epoch, frozenInventoryId: lease.frozenInventoryId, treeId, ownerScopeIdB64: ID(n, 'S'),
+  keyEnvelope: envelopeFixture(n), revisionId, idempotencyKey: key,
+})
+
+test('PG-MG-1 two connections race beginMigration from FLAT → exactly one lease; loser writes no frozen rows (10×)', { skip }, async () => {
+  for (let i = 0; i < 10; i++) {
+    await resetMigration(USER_A)
+    const ids = [await insertV1Blob(USER_A, `race${i}a`), await insertV1Blob(USER_A, `race${i}b`)]
+    const inventory = ids.map((id) => ({ formatVersion: 1, id }))
+    const [ra, rb] = await Promise.all([
+      store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory }),
+      store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory }),
+    ])
+    assert.equal([ra, rb].filter((r) => r.ok).length, 1, `iteration ${i}: ${JSON.stringify([ra, rb])}`)
+    const winner = ra.ok ? ra : rb, loser = ra.ok ? rb : ra
+    assert.equal(loser.code, 'TREE_STATE_CONFLICT')
+    const st = await stateRow(USER_A)
+    assert.equal(st.protocol_state, 'MIGRATING_TREE_V1'); assert.equal(st.migration_lease_id, winner.leaseId); assert.equal(Number(st.migration_lease_epoch), 1)
+    assert.equal(st.frozen_inventory_id, winner.frozenInventoryId)
+    const { rows } = await app.query(`SELECT DISTINCT frozen_inventory_id FROM vault_tree_frozen_inventory WHERE user_id = $1`, [USER_A])
+    assert.deepEqual(rows.map((r) => r.frozen_inventory_id), [winner.frozenInventoryId], 'only the winning lease left frozen rows')
+    assert.equal(await countRows('vault_tree_frozen_inventory', USER_A), 2)
+  }
+})
+
+test('PG-MG-2 expired lease taken over: old holder and new holder race genesis → only the new epoch commits; old → TREE_LEASE_STALE', { skip }, async () => {
+  await resetMigration(USER_A)
+  const id = await insertV1Blob(USER_A, 'takeover')
+  const old = await store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory: [{ formatVersion: 1, id }] })
+  assert.equal(old.ok, true)
+  const treeId = ID(50, 'T')
+  await stageGenesis(USER_A, { treeId, revisionId: ID(51, 'R'), key: ID(51, 'K') })
+  await stageGenesis(USER_A, { treeId, revisionId: ID(52, 'R'), key: ID(52, 'K') })
+  assert.equal((await store.takeoverMigration(USER_A, { leaseMs: LEASE_MS })).code, 'TREE_LEASE_HELD', 'takeover refused while the lease is live')
+  await store.__expireLeaseForTests(USER_A)
+  const taken = await store.takeoverMigration(USER_A, { leaseMs: LEASE_MS })
+  assert.equal(taken.ok, true); assert.equal(taken.epoch, 2); assert.equal(taken.frozenInventoryId, old.frozenInventoryId)
+  // both holders now attempt genesis concurrently (each with its own staged generation-1 revision)
+  const [rOld, rNew] = await Promise.all([
+    store.commitGenesis(USER_A, genesisArgs(old, { treeId, revisionId: ID(51, 'R'), key: ID(51, 'K'), n: 8 })),
+    store.commitGenesis(USER_A, genesisArgs(taken, { treeId, revisionId: ID(52, 'R'), key: ID(52, 'K'), n: 9 })),
+  ])
+  assert.equal(rOld.ok, false); assert.equal(rOld.code, 'TREE_LEASE_STALE')
+  assert.equal(rNew.ok, true, JSON.stringify(rNew)); assert.equal(rNew.replay, false)
+  const head = await store.getHead(USER_A)
+  assert.equal(head.revisionId, ID(52, 'R')); assert.equal(head.generation, 1)
+  assert.equal((await store.getRevision(USER_A, ID(51, 'R'))).state, 'PUBLISHED', 'the stale holder revision is untouched (orphan sweep retires it later)')
+  const st = await stateRow(USER_A)
+  assert.equal(st.protocol_state, 'TREE_V1'); assert.equal(Number(st.migration_lease_epoch), 2, 'epoch history retained')
+  // a late attempt by the old holder after TREE_V1 is a conflict, never a second genesis
+  const late = await store.commitGenesis(USER_A, genesisArgs(old, { treeId, revisionId: ID(51, 'R'), key: ID(51, 'K'), n: 8 }))
+  assert.equal(late.code, 'TREE_STATE_CONFLICT')
+})
+
+test('PG-MG-3 injected failure after the envelope insert aborts the whole genesis: no envelope, head, blob-state or state change; frozen rows intact', { skip: skip || (!superDb && 'ต้องมี AEGIS_PGTEST_SUPER_URL เพื่อติดตั้ง trigger จำลอง crash') }, async () => {
+  await resetMigration(USER_A)
+  const id = await insertV1Blob(USER_A, 'crash')
+  const lease = await store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory: [{ formatVersion: 1, id }] })
+  const treeId = ID(60, 'T')
+  await stageGenesis(USER_A, { treeId, revisionId: ID(61, 'R'), key: ID(61, 'K') })
+  const before = await stateRow(USER_A)
+  // crash point: the head insert (after the envelope insert and the revision HEAD_COMMITTED update, before the state update)
+  await superDb.query(`CREATE OR REPLACE FUNCTION pg_mg3_crash() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'PG-MG-3 injected crash'; END $$`)
+  await superDb.query(`CREATE TRIGGER pg_mg3_crash BEFORE INSERT ON vault_tree_heads FOR EACH ROW EXECUTE FUNCTION pg_mg3_crash()`)
+  try {
+    await assert.rejects(store.commitGenesis(USER_A, genesisArgs(lease, { treeId, revisionId: ID(61, 'R'), key: ID(61, 'K') })), /PG-MG-3 injected crash/)
+  } finally {
+    await superDb.query(`DROP TRIGGER IF EXISTS pg_mg3_crash ON vault_tree_heads`)
+    await superDb.query(`DROP FUNCTION IF EXISTS pg_mg3_crash()`)
+  }
+  assert.equal(await countRows('vault_tree_key_envelope', USER_A), 0, 'envelope insert rolled back')
+  assert.equal(await countRows('vault_tree_heads', USER_A), 0)
+  assert.equal(await countRows('vault_tree_blob_state', USER_A), 0)
+  assert.equal(await countRows('vault_tree_frozen_inventory', USER_A), 1, 'frozen rows intact')
+  assert.equal((await store.getRevision(USER_A, ID(61, 'R'))).state, 'PUBLISHED', 'revision state update rolled back')
+  const after = await stateRow(USER_A)
+  assert.deepEqual({ ...after, updated_at: null }, { ...before, updated_at: null }, 'state row unchanged')
+  // the same lease still commits once the fault is gone — no partial state was left behind
+  const r = await store.commitGenesis(USER_A, genesisArgs(lease, { treeId, revisionId: ID(61, 'R'), key: ID(61, 'K') }))
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.equal((await stateRow(USER_A)).protocol_state, 'TREE_V1')
+})
+
+test('PG-MG-4 a frozen blob deleted directly in SQL (operator action) → genesis TREE_INVENTORY_MISMATCH; a frozen row removed in SQL → mismatch too', { skip }, async () => {
+  await resetMigration(USER_A)
+  const ids = [await insertV1Blob(USER_A, 'del1'), await insertV1Blob(USER_A, 'del2')]
+  const lease = await store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory: ids.map((id) => ({ formatVersion: 1, id })) })
+  const treeId = ID(70, 'T')
+  await stageGenesis(USER_A, { treeId, revisionId: ID(71, 'R'), key: ID(71, 'K') })
+  await app.query(`DELETE FROM vault_blobs WHERE user_id = $1 AND id = $2`, [USER_A, ids[1]])
+  const r = await store.commitGenesis(USER_A, genesisArgs(lease, { treeId, revisionId: ID(71, 'R'), key: ID(71, 'K') }))
+  assert.equal(r.ok, false); assert.equal(r.code, 'TREE_INVENTORY_MISMATCH')
+  assert.equal((await stateRow(USER_A)).protocol_state, 'MIGRATING_TREE_V1', 'nothing committed')
+  assert.equal(await countRows('vault_tree_key_envelope', USER_A), 0)
+  // digest check: a frozen row removed out of band no longer matches the digest recorded at begin
+  await resetMigration(USER_A)
+  const ids2 = [await insertV1Blob(USER_A, 'dig1'), await insertV1Blob(USER_A, 'dig2')]
+  const lease2 = await store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory: ids2.map((id) => ({ formatVersion: 1, id })) })
+  await stageGenesis(USER_A, { treeId, revisionId: ID(72, 'R'), key: ID(72, 'K') })
+  await app.query(`DELETE FROM vault_tree_frozen_inventory WHERE user_id = $1 AND blob_id = $2`, [USER_A, ids2[0]])
+  const r2 = await store.commitGenesis(USER_A, genesisArgs(lease2, { treeId, revisionId: ID(72, 'R'), key: ID(72, 'K') }))
+  assert.equal(r2.code, 'TREE_INVENTORY_MISMATCH')
+  assert.equal((await stateRow(USER_A)).protocol_state, 'MIGRATING_TREE_V1')
+})
+
+test('PG-MG-5 successful genesis leaves zero frozen rows for the consumed id; state row has the four migration fields NULL, epoch retained, head_ever_committed=true', { skip }, async () => {
+  await resetMigration(USER_A)
+  const ids = [await insertV1Blob(USER_A, 'ok1'), await insertV1Blob(USER_A, 'ok2'), await insertV1Blob(USER_A, 'ok3')]
+  const lease = await store.beginMigration(USER_A, { leaseMs: LEASE_MS, inventory: ids.map((id) => ({ formatVersion: 1, id })) })
+  const treeId = ID(80, 'T')
+  await stageGenesis(USER_A, { treeId, revisionId: ID(81, 'R'), key: ID(81, 'K') })
+  assert.equal(await countRows('vault_tree_frozen_inventory', USER_A), 3)
+  const r = await store.commitGenesis(USER_A, genesisArgs(lease, { treeId, revisionId: ID(81, 'R'), key: ID(81, 'K') }))
+  assert.equal(r.ok, true, JSON.stringify(r))
+  const { rows } = await app.query(`SELECT count(*)::int AS n FROM vault_tree_frozen_inventory WHERE user_id = $1 AND frozen_inventory_id = $2`, [USER_A, lease.frozenInventoryId])
+  assert.equal(rows[0].n, 0)
+  const st = await stateRow(USER_A)
+  assert.equal(st.protocol_state, 'TREE_V1'); assert.equal(st.head_ever_committed, true)
+  assert.equal(st.migration_lease_id, null); assert.equal(st.migration_lease_expires_at, null); assert.equal(st.frozen_inventory_id, null); assert.equal(st.frozen_inventory_digest, null)
+  assert.equal(Number(st.migration_lease_epoch), 1); assert.equal(Number(st.tree_mutation_count), 0)
+  const blobs = await store.listBlobStates(USER_A)
+  assert.deepEqual(blobs.map((b) => b.id).sort(), ids.sort())
+  assert.ok(blobs.every((b) => b.lifecycle === 'TREE_MANAGED' && b.attachedGeneration === 1 && b.formatVersion === 1))
+  assert.equal((await store.getRevision(USER_A, ID(81, 'R'))).state, 'HEAD_COMMITTED')
+  assert.equal((await store.getKeyEnvelope(USER_A)).envelopeCasVersion, 1)
+  // replay with the same key is the same outcome; abandon is refused forever
+  const again = await store.commitGenesis(USER_A, genesisArgs(lease, { treeId, revisionId: ID(81, 'R'), key: ID(81, 'K') }))
+  assert.equal(again.ok, true); assert.equal(again.replay, true)
+  assert.equal((await store.abandonMigration(USER_A, { leaseId: lease.leaseId })).code, 'TREE_ABANDON_FORBIDDEN')
+  await app.query(`DELETE FROM vault_blobs WHERE user_id = $1`, [USER_A])
+})
+
 defineStoreSpec({ test: (name, fn) => test(name, { skip }, fn), store, userA: () => USER_A, userB: () => USER_B, reset: () => store.__resetVaultTreeForTests() })
 
 // ── PG-API-1..4: the HTTP surface against PostgreSQL (staging → publish → CAS, stale, replay, attach) ──

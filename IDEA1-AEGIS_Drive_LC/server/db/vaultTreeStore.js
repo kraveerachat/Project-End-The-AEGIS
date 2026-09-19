@@ -12,7 +12,10 @@
 //    ความหมายของทุกสถานะต้องเหมือนโหมด Postgres เป๊ะ (spec เดียวกันใน tests/vaultTreeStore.test.js
 //    รันทั้งสองโหมด) แต่หลักฐาน concurrency มีได้เฉพาะจาก Postgres จริงเท่านั้น
 
+import { createHash, randomBytes } from 'node:crypto'
 import { query, usingPostgres, withTransaction } from './connection.js'
+import { listVaultBlobs } from './store.js'
+import { listVaultV2Blobs } from './vaultV2Store.js'
 
 export const PROTOCOL_STATES = Object.freeze(['FLAT', 'MIGRATING_TREE_V1', 'TREE_V1'])
 export const REVISION_STATES = Object.freeze(['CREATED', 'PUBLISHED', 'HEAD_COMMITTED', 'SUPERSEDED', 'ORPHANED', 'NON_RECOVERABLE', 'FORENSIC_DELETED'])
@@ -28,6 +31,10 @@ export const STORE_CODE = Object.freeze({
   TREE_REVISION_NOT_PUBLISHED: 'TREE_REVISION_NOT_PUBLISHED',
   TREE_REVISION_NON_RECOVERABLE: 'TREE_REVISION_NON_RECOVERABLE',
   TREE_PURGE_NOT_SUPPORTED: 'TREE_PURGE_NOT_SUPPORTED',
+  TREE_LEASE_HELD: 'TREE_LEASE_HELD',
+  TREE_LEASE_STALE: 'TREE_LEASE_STALE',
+  TREE_INVENTORY_MISMATCH: 'TREE_INVENTORY_MISMATCH',
+  TREE_ABANDON_FORBIDDEN: 'TREE_ABANDON_FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
 })
 
@@ -430,6 +437,173 @@ export async function retireRevision(revisionId) {
   if (!['CREATED', 'PUBLISHED', 'ORPHANED'].includes(rev.state)) return { ok: false, code: STORE_CODE.TREE_REVISION_NOT_PUBLISHED, state: rev.state }
   mem.revisions.delete(revisionId)
   return { ok: true, storageKey: rev.storageKey }
+}
+
+// ── migration lease / frozen inventory (Task 3.1) ────────────────────────────
+// FLAT → MIGRATING_TREE_V1 คือ CAS ของสถานะ: จอง lease สุ่ม + epoch ที่เพิ่มขึ้นเสมอ + แช่แข็งบัญชี blob ทึบ
+// ของขณะนั้น (แถวใน vault_tree_frozen_inventory + digest sha256 ของรายการที่เรียงแล้ว) ตั้งแต่ commit นี้
+// route เก่าถูกกั้น (requireVaultProtocolState) — lease หมดอายุ "ไม่" ปลดรั้ว: ทำได้แค่ takeover หรือ abandon
+const newLeaseId = () => randomBytes(24).toString('hex')
+const newOpaqueId = () => randomBytes(16).toString('base64url')
+/** digest ของบัญชีที่แช่แข็ง — เรียง "v:id" แล้ว sha256 (id ทึบล้วน ไม่มีชื่อ/โครงสร้าง) */
+export const inventoryDigest = (refs) => createHash('sha256').update(refs.map(refKey).sort().join('\n')).digest('hex')
+const normRefs = (inventory) => inventory.map((b) => ({ formatVersion: Number(b.formatVersion), id: String(b.id) }))
+/** id ทึบของ blob V1+V2 ที่ "ยังมีอยู่จริง" ของเจ้าของ — ใช้ตรวจว่า frozen inventory ไม่ถูกลบออกนอกช่องทาง (เช่น operator ลบใน SQL) */
+const liveInventoryKeys = async (u) => {
+  const [v1, v2] = await Promise.all([listVaultBlobs(u), listVaultV2Blobs(u)])
+  return new Set([...v1.map((b) => refKey({ formatVersion: 1, id: String(b.id) })), ...v2.map((b) => refKey({ formatVersion: 2, id: String(b.id) }))])
+}
+
+export async function listFrozenInventory(userId, frozenInventoryId, { client = null } = {}) {
+  const u = uid(userId)
+  if (usingPostgres) {
+    const q = client ? client.query.bind(client) : query
+    const { rows } = await q(`SELECT blob_format_version, blob_id FROM vault_tree_frozen_inventory WHERE user_id = $1 AND frozen_inventory_id = $2 ORDER BY blob_format_version, blob_id`, [u, String(frozenInventoryId)])
+    return rows.map((r) => ({ formatVersion: Number(r.blob_format_version), id: r.blob_id }))
+  }
+  return clone(mem.frozen.get(u)?.get(frozenInventoryId) ?? [])
+}
+
+/**
+ * FLAT → MIGRATING_TREE_V1: lease ใหม่, epoch+1, แช่แข็ง inventory ที่ route ส่งมา (อ่านจาก listVaultInventory ใน request เดียวกัน)
+ * @returns {Promise<{ok:true, leaseId, epoch, expiresAt, frozenInventoryId}|{ok:false, code, protocolState}>}
+ */
+export async function beginMigration(userId, { leaseMs, inventory, now = nowMs() }) {
+  const u = uid(userId)
+  const refs = normRefs(inventory)
+  const leaseId = newLeaseId(), frozenInventoryId = newOpaqueId(), digest = inventoryDigest(refs), expiresAt = now + leaseMs
+  if (usingPostgres) {
+    return txn(async (c) => {
+      await c.query(`INSERT INTO vault_tree_state (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [u])
+      const { rows } = await c.query(`SELECT protocol_state FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+      if (rows[0].protocol_state !== 'FLAT') return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: rows[0].protocol_state }
+      for (const r of refs) await c.query(`INSERT INTO vault_tree_frozen_inventory (user_id, frozen_inventory_id, blob_format_version, blob_id) VALUES ($1,$2,$3,$4)`, [u, frozenInventoryId, r.formatVersion, r.id])
+      const { rows: st } = await c.query(
+        `UPDATE vault_tree_state SET protocol_state = 'MIGRATING_TREE_V1', migration_lease_id = $2, migration_lease_epoch = migration_lease_epoch + 1,
+                migration_lease_expires_at = $3, frozen_inventory_id = $4, frozen_inventory_digest = $5, updated_at = now()
+          WHERE user_id = $1 RETURNING migration_lease_epoch`,
+        [u, leaseId, new Date(expiresAt), frozenInventoryId, digest],
+      )
+      return { ok: true, leaseId, epoch: Number(st[0].migration_lease_epoch), expiresAt, frozenInventoryId }
+    })
+  }
+  const st = memState(u)
+  if (st.protocolState !== 'FLAT') return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: st.protocolState }
+  if (!mem.frozen.has(u)) mem.frozen.set(u, new Map())
+  mem.frozen.get(u).set(frozenInventoryId, refs)
+  Object.assign(st, { protocolState: 'MIGRATING_TREE_V1', migrationLeaseId: leaseId, migrationLeaseEpoch: st.migrationLeaseEpoch + 1, migrationLeaseExpiresAt: expiresAt, frozenInventoryId, frozenInventoryDigest: digest, updatedAt: now })
+  return { ok: true, leaseId, epoch: st.migrationLeaseEpoch, expiresAt, frozenInventoryId }
+}
+
+/** MIGRATING_TREE_V1 + lease หมดอายุแล้วเท่านั้น → lease ใหม่ epoch+1 บน inventory ที่แช่แข็งเดิม (รั้วยังปิด) */
+export async function takeoverMigration(userId, { leaseMs, now = nowMs() }) {
+  const u = uid(userId)
+  const leaseId = newLeaseId(), expiresAt = now + leaseMs
+  if (usingPostgres) {
+    return txn(async (c) => {
+      const { rows } = await c.query(`SELECT * FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+      if (!rows.length || rows[0].protocol_state !== 'MIGRATING_TREE_V1') return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: rows[0]?.protocol_state ?? 'FLAT' }
+      const heldUntil = ts(rows[0].migration_lease_expires_at)
+      if (heldUntil > now) return { ok: false, code: STORE_CODE.TREE_LEASE_HELD, expiresAt: heldUntil }
+      const { rows: st } = await c.query(
+        `UPDATE vault_tree_state SET migration_lease_id = $2, migration_lease_epoch = migration_lease_epoch + 1, migration_lease_expires_at = $3, updated_at = now()
+          WHERE user_id = $1 RETURNING migration_lease_epoch, frozen_inventory_id`,
+        [u, leaseId, new Date(expiresAt)],
+      )
+      return { ok: true, leaseId, epoch: Number(st[0].migration_lease_epoch), expiresAt, frozenInventoryId: st[0].frozen_inventory_id }
+    })
+  }
+  const st = mem.state.get(u)
+  if (!st || st.protocolState !== 'MIGRATING_TREE_V1') return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: st?.protocolState ?? 'FLAT' }
+  if (st.migrationLeaseExpiresAt > now) return { ok: false, code: STORE_CODE.TREE_LEASE_HELD, expiresAt: st.migrationLeaseExpiresAt }
+  Object.assign(st, { migrationLeaseId: leaseId, migrationLeaseEpoch: st.migrationLeaseEpoch + 1, migrationLeaseExpiresAt: expiresAt, updatedAt: now })
+  return { ok: true, leaseId, epoch: st.migrationLeaseEpoch, expiresAt, frozenInventoryId: st.frozenInventoryId }
+}
+
+/**
+ * การย้อนกลับที่แคบและพิสูจน์ได้: MIGRATING_TREE_V1 + ไม่เคยมี head + tree_mutation_count = 0
+ * + (lease หมดอายุ หรือ leaseId ตรงกับ lease ปัจจุบัน) → FLAT: ล้างฟิลด์ migration, ลบแถว frozen inventory, epoch คงไว้
+ * TREE_V1 ไม่มีวันย้อนกลับ
+ */
+export async function abandonMigration(userId, { leaseId, now = nowMs() }) {
+  const u = uid(userId)
+  const may = (st) => Boolean(st) && st.protocolState === 'MIGRATING_TREE_V1' && !st.headEverCommitted && st.treeMutationCount === 0
+    && (st.migrationLeaseExpiresAt <= now || (typeof leaseId === 'string' && leaseId.length > 0 && leaseId === st.migrationLeaseId))
+  if (usingPostgres) {
+    return txn(async (c) => {
+      const { rows } = await c.query(`SELECT * FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+      const st = rows.length ? mapState(rows[0]) : null
+      const { rows: heads } = await c.query(`SELECT 1 FROM vault_tree_heads WHERE user_id = $1`, [u])
+      if (!may(st) || heads.length) return { ok: false, code: STORE_CODE.TREE_ABANDON_FORBIDDEN, protocolState: st?.protocolState ?? 'FLAT' }
+      await c.query(`DELETE FROM vault_tree_frozen_inventory WHERE user_id = $1`, [u])
+      await c.query(`UPDATE vault_tree_state SET protocol_state = 'FLAT', migration_lease_id = NULL, migration_lease_expires_at = NULL, frozen_inventory_id = NULL, frozen_inventory_digest = NULL, updated_at = now() WHERE user_id = $1`, [u])
+      return { ok: true, protocolState: 'FLAT' }
+    })
+  }
+  const st = mem.state.get(u) ?? null
+  if (!may(st) || mem.heads.has(u)) return { ok: false, code: STORE_CODE.TREE_ABANDON_FORBIDDEN, protocolState: st?.protocolState ?? 'FLAT' }
+  mem.frozen.delete(u)
+  Object.assign(st, { protocolState: 'FLAT', migrationLeaseId: null, migrationLeaseExpiresAt: null, frozenInventoryId: null, frozenInventoryDigest: null, updatedAt: now })
+  return { ok: true, protocolState: 'FLAT' }
+}
+
+/**
+ * Genesis อะตอมมิก: ตรวจ lease/epoch/หมดอายุ (TREE_LEASE_STALE) → ตรวจ frozen inventory id + digest ของแถวที่แช่แข็งไว้
+ * (TREE_INVENTORY_MISMATCH) → _applyGenesis (ซองกุญแจ, revision g1 HEAD_COMMITTED, head, โปรโมต blob ที่แช่แข็ง "เป๊ะ",
+ * TREE_V1 + ล้างฟิลด์ migration + ลบแถว frozen) ใน transaction เดียว — ไม่มี genesis ครึ่งเดียว
+ * idempotency: key ของ genesis = key ที่ stage revision g1; replay ด้วย key เดิมหลัง TREE_V1 → ผลลัพธ์เดิม; key อื่น → TREE_STATE_CONFLICT
+ */
+// ⚠️ ส่ง userId ดั้งเดิม (ไม่ stringify): store เก่าในโหมดหน่วยความจำเทียบ userId แบบเข้มงวดตามชนิดที่ route ให้มา
+const frozenStillLive = async (userId, frozen) => { const live = await liveInventoryKeys(userId); return frozen.every((r) => live.has(refKey(r))) }
+export async function commitGenesis(userId, { leaseId, epoch, frozenInventoryId, treeId, ownerScopeIdB64, keyEnvelope, revisionId, idempotencyKey, now = nowMs() }) {
+  const u = uid(userId)
+  const settled = (st, head, rev) => {
+    const replay = st.protocolState === 'TREE_V1' && head && head.generation === 1 && head.treeId === treeId && head.revisionId === revisionId
+      && rev && rev.userId === u && rev.idempotencyKey === idempotencyKey
+    return replay
+      ? { ok: true, replay: true, treeId, generation: 1, revisionId, protocolState: 'TREE_V1' }
+      : { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: st.protocolState }
+  }
+  const stale = (st) => st.migrationLeaseId !== leaseId || st.migrationLeaseEpoch !== Number(epoch) || st.migrationLeaseExpiresAt <= now
+  const revOk = (rev) => rev && rev.userId === u && rev.state === 'PUBLISHED' && rev.generation === 1 && rev.treeId === treeId && rev.idempotencyKey === idempotencyKey
+  if (usingPostgres) {
+    return txn(async (c) => {
+      const { rows } = await c.query(`SELECT * FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+      if (!rows.length) return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: 'FLAT' }
+      const st = mapState(rows[0])
+      const { rows: rv } = await c.query(`SELECT * FROM vault_tree_revisions WHERE revision_id = $1 AND user_id = $2 FOR UPDATE`, [revisionId, u])
+      const rev = rv.length ? mapRevision(rv[0]) : null
+      if (st.protocolState !== 'MIGRATING_TREE_V1') {
+        const { rows: hd } = await c.query(`SELECT * FROM vault_tree_heads WHERE user_id = $1`, [u])
+        return settled(st, hd.length ? mapHead(hd[0]) : null, rev)
+      }
+      if (stale(st)) return { ok: false, code: STORE_CODE.TREE_LEASE_STALE }
+      if (st.frozenInventoryId !== frozenInventoryId) return { ok: false, code: STORE_CODE.TREE_INVENTORY_MISMATCH }
+      const frozen = await listFrozenInventory(u, frozenInventoryId, { client: c })
+      if (inventoryDigest(frozen) !== st.frozenInventoryDigest || !(await frozenStillLive(userId, frozen))) return { ok: false, code: STORE_CODE.TREE_INVENTORY_MISMATCH }
+      if (!revOk(rev)) return { ok: false, code: STORE_CODE.TREE_REVISION_NOT_PUBLISHED }
+      await _applyGenesis(c, u, { treeId, ownerScopeIdB64, keyEnvelope, revisionId, blobRefs: frozen, now })
+      return { ok: true, replay: false, treeId, generation: 1, revisionId, protocolState: 'TREE_V1' }
+    })
+  }
+  const st = mem.state.get(u)
+  if (!st) return { ok: false, code: STORE_CODE.TREE_STATE_CONFLICT, protocolState: 'FLAT' }
+  const rev = mem.revisions.get(revisionId) ?? null
+  if (st.protocolState !== 'MIGRATING_TREE_V1') return settled(st, mem.heads.get(u) ?? null, rev)
+  if (stale(st)) return { ok: false, code: STORE_CODE.TREE_LEASE_STALE }
+  if (st.frozenInventoryId !== frozenInventoryId) return { ok: false, code: STORE_CODE.TREE_INVENTORY_MISMATCH }
+  const frozen = await listFrozenInventory(u, frozenInventoryId)
+  if (inventoryDigest(frozen) !== st.frozenInventoryDigest || !(await frozenStillLive(userId, frozen))) return { ok: false, code: STORE_CODE.TREE_INVENTORY_MISMATCH }
+  if (!revOk(rev)) return { ok: false, code: STORE_CODE.TREE_REVISION_NOT_PUBLISHED }
+  try { await _applyGenesis(null, u, { treeId, ownerScopeIdB64, keyEnvelope, revisionId, blobRefs: frozen, now }) } catch (e) { if (e instanceof Abort) return e.result; throw e }
+  return { ok: true, replay: false, treeId, generation: 1, revisionId, protocolState: 'TREE_V1' }
+}
+
+/** ชุดทดสอบเท่านั้น: ทำให้ lease ปัจจุบันหมดอายุทันที (จำลองเวลาเดินโดยไม่ต้องรอ) */
+export async function __expireLeaseForTests(userId) {
+  const u = uid(userId)
+  if (usingPostgres) { await query(`UPDATE vault_tree_state SET migration_lease_expires_at = now() - interval '1 second' WHERE user_id = $1 AND protocol_state = 'MIGRATING_TREE_V1'`, [u]); return }
+  const st = mem.state.get(u); if (st && st.protocolState === 'MIGRATING_TREE_V1') st.migrationLeaseExpiresAt = nowMs() - 1_000
 }
 
 // ── genesis writer (shared by Task 3.1 commitGenesis and the test seed) ─────

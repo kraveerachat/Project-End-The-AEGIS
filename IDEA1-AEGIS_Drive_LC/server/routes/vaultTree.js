@@ -33,6 +33,10 @@ export const TREE_ERROR = Object.freeze({
   TREE_REVISION_NON_RECOVERABLE: 'TREE_REVISION_NON_RECOVERABLE',
   TREE_MANIFEST_TOO_LARGE: 'TREE_MANIFEST_TOO_LARGE',
   TREE_PURGE_NOT_SUPPORTED: 'TREE_PURGE_NOT_SUPPORTED',
+  TREE_LEASE_HELD: 'TREE_LEASE_HELD',
+  TREE_LEASE_STALE: 'TREE_LEASE_STALE',
+  TREE_INVENTORY_MISMATCH: 'TREE_INVENTORY_MISMATCH',
+  TREE_ABANDON_FORBIDDEN: 'TREE_ABANDON_FORBIDDEN',
   INVALID_INPUT: 'INVALID_INPUT',
   NOT_FOUND: 'NOT_FOUND',
 })
@@ -66,6 +70,8 @@ const isGen = (v) => Number.isSafeInteger(v) && v >= 1
 const isBlobRef = (r) => r && typeof r === 'object' && (r.formatVersion === 1 || r.formatVersion === 2)
   && (typeof r.id === 'string' || Number.isSafeInteger(r.id)) && String(r.id).length > 0 && String(r.id).length <= 128
 const strictKeys = (obj, allowed) => obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).every((k) => allowed.includes(k))
+const SLOT_KEYS = ['wrappedTrkB64', 'wrapIvB64']
+const isSlot = (s) => strictKeys(s, SLOT_KEYS) && isB64(s.wrappedTrkB64, 256) && isIv(s.wrapIvB64)
 
 const auditAct = (req, action, target, result = 'OK') =>
   recordAudit({
@@ -102,6 +108,12 @@ export function requireVaultProtocolState({ allow = ['FLAT'] } = {}) {
 
 export const vaultTreeRouter = Router()
 vaultTreeRouter.use(requireAuth, requireTreeProtocol)
+
+/** ประตู flag ชั้นที่สอง: การย้าย/genesis ปิดอยู่ = 503 fail-closed (flag นี้ต่อจาก protocolEnabled — ดู vaultTreeConfigFromEnv) */
+function requireGenesisMigration(req, res, next) {
+  if (!treeConfigOf(req)?.flags?.genesisMigrationEnabled) return fail(res, 503, TREE_ERROR.TREE_PROTOCOL_DISABLED, 'Private Vault genesis migration is not enabled')
+  return next()
+}
 
 // ── state ────────────────────────────────────────────────────────────────────
 vaultTreeRouter.get('/state', async (req, res, next) => {
@@ -217,6 +229,88 @@ vaultTreeRouter.get('/revisions/:revisionId', async (req, res, next) => {
   } catch (err) { return next(err) }
 })
 
+// ── migration lease / frozen inventory / genesis (Task 3.1) ──────────────────
+// เซิร์ฟเวอร์เห็นแค่ id ทึบของ blob ที่แช่แข็ง: การตั้งชื่อ/แก้ collision/สร้าง manifest เกิดบน client ทั้งหมด
+// lease ที่หมดอายุ "ไม่" ปลดรั้ว route เก่า — ทางออกมีแค่ takeover (ต่อ lease) หรือ abandon (พิสูจน์ได้ว่าไม่เคยมี head)
+const LEASE_RE = /^[0-9a-f]{48}$/
+const isLeaseId = (v) => typeof v === 'string' && LEASE_RE.test(v)
+const leaseBody = (r, blobs) => ({ leaseId: r.leaseId, epoch: r.epoch, expiresAt: r.expiresAt, frozenInventoryId: r.frozenInventoryId, blobs })
+const frozenEnvelopes = async (userId, frozenInventoryId) => {
+  // envelope ชุดเดียวกับ GET /api/vault แต่จำกัดเฉพาะ blob ที่ถูกแช่แข็งใน lease นี้ (blob ที่โผล่มาทีหลังไม่อยู่ใน genesis)
+  const [envelopes, frozen] = await Promise.all([listVaultInventory(userId), tree.listFrozenInventory(userId, frozenInventoryId)])
+  const keys = new Set(frozen.map((b) => `${b.formatVersion}:${b.id}`))
+  return envelopes.filter((b) => keys.has(`${b.formatVersion}:${String(b.id)}`))
+}
+
+vaultTreeRouter.post('/migration/begin', requireGenesisMigration, async (req, res, next) => {
+  try {
+    if (!strictKeys(req.body ?? {}, [])) return fail(res, 400, TREE_ERROR.INVALID_INPUT)
+    const inventory = await listVaultInventory(req.user.id)
+    const r = await tree.beginMigration(req.user.id, { leaseMs: treeConfigOf(req).limits.migrationLeaseMs, inventory: inventory.map((b) => ({ formatVersion: b.formatVersion, id: String(b.id) })) })
+    if (!r.ok) { await auditAct(req, 'VAULT_TREE_MIGRATION_BEGIN', null, 'DENIED'); return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT, 'Migration can begin only from the flat protocol state') }
+    await auditAct(req, 'VAULT_TREE_MIGRATION_BEGIN', r.frozenInventoryId)
+    return ok(res, 201, leaseBody(r, await frozenEnvelopes(req.user.id, r.frozenInventoryId)))
+  } catch (err) { return next(err) }
+})
+
+vaultTreeRouter.post('/migration/takeover', requireGenesisMigration, async (req, res, next) => {
+  try {
+    if (!strictKeys(req.body ?? {}, [])) return fail(res, 400, TREE_ERROR.INVALID_INPUT)
+    const r = await tree.takeoverMigration(req.user.id, { leaseMs: treeConfigOf(req).limits.migrationLeaseMs })
+    if (!r.ok) {
+      await auditAct(req, 'VAULT_TREE_MIGRATION_TAKEOVER', null, 'DENIED')
+      if (r.code === tree.STORE_CODE.TREE_LEASE_HELD) return res.status(409).set(NO_STORE).json({ error: 'Migration lease is still held', code: TREE_ERROR.TREE_LEASE_HELD, expiresAt: r.expiresAt })
+      return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT, 'No migration to take over in this protocol state')
+    }
+    await auditAct(req, 'VAULT_TREE_MIGRATION_TAKEOVER', r.frozenInventoryId)
+    return ok(res, 200, leaseBody(r, await frozenEnvelopes(req.user.id, r.frozenInventoryId)))
+  } catch (err) { return next(err) }
+})
+
+vaultTreeRouter.post('/migration/abandon', requireGenesisMigration, async (req, res, next) => {
+  try {
+    const b = req.body
+    if (!strictKeys(b, ['leaseId']) || !isLeaseId(b.leaseId)) return fail(res, 400, TREE_ERROR.INVALID_INPUT, 'Invalid abandon request')
+    const r = await tree.abandonMigration(req.user.id, { leaseId: b.leaseId })
+    if (!r.ok) { await auditAct(req, 'VAULT_TREE_MIGRATION_ABANDON', null, 'DENIED'); return fail(res, 409, TREE_ERROR.TREE_ABANDON_FORBIDDEN, 'Migration cannot be abandoned in this state') }
+    await auditAct(req, 'VAULT_TREE_MIGRATION_ABANDON', null)
+    return ok(res, 200, { protocolState: r.protocolState })
+  } catch (err) { return next(err) }
+})
+
+const GENESIS_KEYS = ['leaseId', 'epoch', 'frozenInventoryId', 'treeId', 'ownerScopeIdB64', 'keyEnvelope', 'revision', 'idempotencyKey']
+const GENESIS_REVISION_KEYS = ['revisionId', 'ivB64', 'wrappedManifestDekB64', 'wrapIvB64', 'manifestSchemaVersion']
+
+vaultTreeRouter.post('/genesis', requireGenesisMigration, async (req, res, next) => {
+  try {
+    const b = req.body
+    const rv = b?.revision
+    if (!strictKeys(b, GENESIS_KEYS) || !isLeaseId(b.leaseId) || !isGen(b.epoch) || !isId(b.frozenInventoryId) || !isId(b.treeId) || !isId(b.ownerScopeIdB64) || !isId(b.idempotencyKey)
+      || !strictKeys(b.keyEnvelope, ['primary', 'recovery']) || !isSlot(b.keyEnvelope.primary) || !isSlot(b.keyEnvelope.recovery) || b.keyEnvelope.primary.wrapIvB64 === b.keyEnvelope.recovery.wrapIvB64
+      || !strictKeys(rv, GENESIS_REVISION_KEYS) || !isId(rv.revisionId) || !isIv(rv.ivB64) || !isIv(rv.wrapIvB64) || !isB64(rv.wrappedManifestDekB64, 256) || rv.manifestSchemaVersion !== 1) {
+      return fail(res, 400, TREE_ERROR.INVALID_INPUT, 'Invalid genesis request')
+    }
+    // the staged generation-1 revision must be exactly the descriptor the client believes it published
+    const staged = await tree.getRevision(req.user.id, rv.revisionId)
+    if (staged && (staged.ivB64 !== rv.ivB64 || staged.wrapIvB64 !== rv.wrapIvB64 || staged.wrappedManifestDekB64 !== rv.wrappedManifestDekB64 || staged.generation !== 1 || staged.treeId !== b.treeId)) {
+      return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT, 'Genesis revision descriptor does not match the staged revision')
+    }
+    const r = await tree.commitGenesis(req.user.id, {
+      leaseId: b.leaseId, epoch: b.epoch, frozenInventoryId: b.frozenInventoryId, treeId: b.treeId, ownerScopeIdB64: b.ownerScopeIdB64,
+      keyEnvelope: { primary: { ...b.keyEnvelope.primary }, recovery: { ...b.keyEnvelope.recovery } }, revisionId: rv.revisionId, idempotencyKey: b.idempotencyKey,
+    })
+    if (!r.ok) {
+      await auditAct(req, 'VAULT_TREE_GENESIS', b.treeId, 'DENIED')
+      if (r.code === tree.STORE_CODE.TREE_LEASE_STALE) return fail(res, 409, TREE_ERROR.TREE_LEASE_STALE, 'Migration lease is stale')
+      if (r.code === tree.STORE_CODE.TREE_INVENTORY_MISMATCH) return fail(res, 409, TREE_ERROR.TREE_INVENTORY_MISMATCH, 'Frozen inventory no longer matches')
+      if (r.code === tree.STORE_CODE.TREE_REVISION_NOT_PUBLISHED) return fail(res, 409, TREE_ERROR.TREE_REVISION_NOT_PUBLISHED, 'Genesis revision is not published')
+      return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT, 'Genesis is not possible in this protocol state')
+    }
+    if (!r.replay) await auditAct(req, 'VAULT_TREE_GENESIS', b.treeId)
+    return ok(res, 201, { treeId: r.treeId, generation: r.generation, revisionId: r.revisionId, protocolState: r.protocolState })
+  } catch (err) { return next(err) }
+})
+
 // ── head CAS ─────────────────────────────────────────────────────────────────
 const CAS_KEYS = ['expectedGeneration', 'expectedRevisionId', 'revisionId', 'attachBlobIds', 'purgeBlobIds', 'idempotencyKey']
 
@@ -249,8 +343,6 @@ vaultTreeRouter.post('/head', async (req, res, next) => {
 })
 
 // ── key envelope CAS ─────────────────────────────────────────────────────────
-const SLOT_KEYS = ['wrappedTrkB64', 'wrapIvB64']
-const isSlot = (s) => strictKeys(s, SLOT_KEYS) && isB64(s.wrappedTrkB64, 256) && isIv(s.wrapIvB64)
 
 vaultTreeRouter.post('/key-envelope', async (req, res, next) => {
   try {
