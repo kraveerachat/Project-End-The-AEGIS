@@ -18,7 +18,7 @@ edit_policy: owner-writable
 ## Current Draft Task — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `feat/idea1-private-vault-encrypted-hierarchy`; Draft PR pending publication.
+- Branch: `feat/idea1-private-vault-encrypted-hierarchy`; PR #157 **OPEN / Draft**.
 - State: **PLANNED / ARCHITECTURE DESIGN ONLY / IMPLEMENTATION NOT STARTED**; started 2026-09-19.
 - Source checkpoint: `origin/main` at `c5468c520f24d29fb37fefcf7c4411b91d4087f4` after PR #150 merged.
 - Goal: design Approach B — a versioned encrypted hierarchy manifest whose decrypted nodes, names, parent references, navigation, mutation semantics, and media derivatives remain client-only. The server remains an opaque object store and CAS/version coordinator.
@@ -29,7 +29,7 @@ edit_policy: owner-writable
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PVH-S1 | Repository research, Approach A/B comparison, selected Approach B design, privacy/threat/sync/migration/preview/acceptance contracts | IN PROGRESS | Clean isolated start at `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; two Markdown paths only; spec self-review PASS with zero placeholders; vault PASS with 2 existing warnings; governance tests 50/50 PASS; Draft policy, diff and targeted secret-pattern checks PASS | Pending documentation checkpoint | Local architecture documentation gates PASS only; no implementation or runtime claim | Commit/push, Draft publication and exact-head CI | ChatGPT review of encrypted-hierarchy design; no implementation |
+| PVH-S1 | Repository research, Approach A/B comparison, selected Approach B design, privacy/threat/sync/migration/preview/acceptance contracts | PASS | Clean isolated start at `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; two Markdown paths only; spec self-review PASS with zero placeholders; vault PASS with 2 existing warnings; governance tests 50/50 PASS; Draft policy, diff and targeted secret-pattern checks PASS; Draft PR #157 published | `3ae2855334302fe854a767ebbdf5f8e61fa08118` (design/evidence checkpoint); this register update is a separate documentation checkpoint | Architecture design/publication PASS only; no implementation or runtime claim | Exact-head CI and ChatGPT architecture review; all implementation gates remain closed | ChatGPT review of encrypted-hierarchy design; no implementation |
 
 - Final receipt: **pending task closeout**. No implementation plan, Ready transition, merge, or Production action is authorized.
 
