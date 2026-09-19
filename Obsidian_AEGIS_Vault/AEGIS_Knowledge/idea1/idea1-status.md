@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-18
+updated: 2026-09-19
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -14,6 +14,24 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
+
+## Current Draft Task — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `feat/idea1-private-vault-encrypted-hierarchy`; Draft PR pending publication.
+- State: **PLANNED / ARCHITECTURE DESIGN ONLY / IMPLEMENTATION NOT STARTED**; started 2026-09-19.
+- Source checkpoint: `origin/main` at `c5468c520f24d29fb37fefcf7c4411b91d4087f4` after PR #150 merged.
+- Goal: design Approach B — a versioned encrypted hierarchy manifest whose decrypted nodes, names, parent references, navigation, mutation semantics, and media derivatives remain client-only. The server remains an opaque object store and CAS/version coordinator.
+- Hard boundary: no product source, SQL, tests, runtime, database, network, credential, or Production mutation. Private Vault transfer-performance work is a separate future PR.
+- Scope: `docs/superpowers/specs/2026-09-19-idea1-private-vault-encrypted-hierarchy-design.md` plus this narrow live register required by [[core/development-session-workflow]]. No final receipt is created while the task remains Draft.
+
+### Session Register — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PVH-S1 | Repository research, Approach A/B comparison, selected Approach B design, privacy/threat/sync/migration/preview/acceptance contracts | IN PROGRESS | Clean isolated start at `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; two Markdown paths only; spec self-review PASS with zero placeholders; vault PASS with 2 existing warnings; governance tests 50/50 PASS; Draft policy, diff and targeted secret-pattern checks PASS | Pending documentation checkpoint | Local architecture documentation gates PASS only; no implementation or runtime claim | Commit/push, Draft publication and exact-head CI | ChatGPT review of encrypted-hierarchy design; no implementation |
+
+- Final receipt: **pending task closeout**. No implementation plan, Ready transition, merge, or Production action is authorized.
 
 > [!important] Progress Update 6.1 — current handoff
 > The detailed current-state checkpoint is [[idea1/IDEA1-Progress-Update-6.1]].
