@@ -19,7 +19,8 @@ export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 // (dev แบบ standalone) — ไม่ต้องแก้ path ตายตัวที่จุดเรียกทุกจุดทั่วแอป
 function withBase(path) {
   if (!path.startsWith('/')) return path
-  return import.meta.env.BASE_URL + path.slice(1)
+  // import.meta.env มีเฉพาะใต้ Vite; โค้ดที่รันนอก Vite (เทสต์ node --test) ใช้ base ว่าง
+  return (import.meta.env?.BASE_URL ?? '') + path.slice(1)
 }
 
 // URL เต็ม (รวม base) สำหรับกรณีที่ต้องให้ "เบราว์เซอร์" เป็นคนไปเอาเอง ไม่ใช่ fetch —
@@ -184,9 +185,11 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
   // ถูกสร้างโดยเบราว์เซอร์ ถ้าเซ็ตทับ multer จะ parse ไม่ออก ส่วน CSRF token ยังแนบ
   // ทาง header เหมือนเดิม (session cookie ยัง HttpOnly — ไม่มีอะไรย้ายไป browser storage)
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  // Uint8Array = bytes ดิบ (เช่น PUT ciphertext ของ tree revision) — ส่งตรง ห้าม JSON.stringify ทับ
+  const isBytes = typeof Uint8Array !== 'undefined' && body instanceof Uint8Array
 
   const headers = {}
-  if (body && !isFormData) headers['Content-Type'] = 'application/json'
+  if (body && !isFormData && !isBytes) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
 
   let res
@@ -194,7 +197,7 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     res = await fetch(withBase(path), {
       method,
       headers,
-      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+      body: body ? (isFormData || isBytes ? body : JSON.stringify(body)) : undefined,
       credentials: 'include',
       signal: ctrl.signal,
     })
