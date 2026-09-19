@@ -3,11 +3,14 @@
 // ⚠️ กติกาที่พิสูจน์ด้วยเทสต์ (tests/filesMediaTiles.test.js MA-*):
 //    - ทุกคำขอไปที่ POST /api/files/media-info/batch เท่านั้น — ไม่มี GET ต่อไทล์ (ไม่มี N+1)
 //    - รวมคำขอในหนึ่ง tick เป็นชุด ≤ 64 id และมี "หนึ่ง" batch ในอากาศเสมอ (ชุดถัดไปรอชุดก่อนหน้า)
-//    - URL ของ poster/motion ที่เซิร์ฟเวอร์ให้มาเป็น "ของทึบ": ฝั่งนี้ไม่ประกอบ query ตัวตน (sha/profile) เองเด็ดขาด
+//    - URL ของ poster/motion ที่เซิร์ฟเวอร์ให้มาเป็น "ของทึบ": ฝั่งนี้ไม่ประกอบ query ตัวตน (sha/profile) เองเด็ดขาด —
+//      สิ่งเดียวที่ทำคือ "ฐานของแอป": เซิร์ฟเวอร์ตอบ path แบบ mount-agnostic (/api/files/…) ส่วนเบราว์เซอร์ต้องขอผ่าน
+//      ฐานที่แอปถูก mount (Production = /drive/ ดู vite.config.js) จึงแปลงด้วย apiUrl() ตัวเดิม ณ จุดเดียวนี้ (Production
+//      browser acceptance ล้มเพราะ <img src> ชี้ไป /api/… นอก /drive/); query/ตัวตน/ลำดับไม่ถูกแตะ; null คง null
 //    - PENDING/RETRYABLE ถูก poll ซ้ำแบบมีขอบเขต: ใช้ retryAfterMs ของเซิร์ฟเวอร์ก่อน แล้วทวีคูณจนเพดาน 15 s
 //      หยุดหลัง 120 s ต่อ id (listener ได้ stalled:true) — retryPending(id) เริ่มรอบใหม่ได้หนึ่งครั้งต่อการเรียก
 //    - ความล้มเหลวของเครือข่าย/เซิร์ฟเวอร์ = ค่า {status:'FAILED'} ไม่ใช่ promise ที่ reject เข้า React
-import { apiFetch } from './api.js'
+import { apiFetch, apiUrl } from './api.js'
 
 export const MEDIA_INFO_BATCH_MAX = 64
 export const MEDIA_INFO_BATCH_PATH = '/api/files/media-info/batch'
@@ -15,21 +18,40 @@ export const POLL_BACKOFF_CAP_MS = 15_000
 export const POLL_MAX_PENDING_MS = 120_000
 const POLLABLE = new Set(['PENDING', 'RETRYABLE', 'PARTIAL'])
 
+/**
+ * แปลง path ของ derivative จากเซิร์ฟเวอร์เป็น URL ที่เบราว์เซอร์ต้องขอ (ฐานของแอปเท่านั้น)
+ * - ไม่ใช่สตริง/ว่าง → null; URL สัมบูรณ์ (มี scheme) → ไม่แตะ; path ที่ขึ้นต้นด้วยฐานอยู่แล้ว → ไม่เติมซ้ำ (ไม่มี /drive/drive/)
+ */
+export function resolveDerivativeUrl(pathname, resourceUrl = apiUrl) {
+  if (typeof pathname !== 'string' || pathname.length === 0) return null
+  if (/^[a-z][a-z0-9+.-]*:/i.test(pathname) || pathname.startsWith('//')) return pathname
+  if (!pathname.startsWith('/')) return pathname
+  const base = resourceUrl('/')
+  if (base && base !== '/' && pathname.startsWith(base)) return pathname
+  return resourceUrl(pathname)
+}
+
 const failed = (id, reason) => ({ id, status: 'FAILED', reason, poster: { state: 'GENERATION_FAILED', url: null }, motion: { state: 'GENERATION_FAILED', url: null } })
-const normalise = (id, item) => {
+const normalise = (id, item, resourceUrl) => {
   if (!item || typeof item !== 'object') return failed(id, 'malformed')
   if (item.status === 'NOT_FOUND') return { status: 'NOT_FOUND', id }
-  return { ...item, id: item.id ?? id }
+  const out = { ...item, id: item.id ?? id }
+  // ฐานของแอป: เก็บ path เดิมไว้เป็น serverPath (อ้างอิง) และให้ url เป็นสิ่งที่เบราว์เซอร์ขอได้จริง
+  for (const kind of ['poster', 'motion']) {
+    const sub = out[kind]
+    if (sub && typeof sub === 'object' && 'url' in sub) out[kind] = { ...sub, serverPath: typeof sub.url === 'string' ? sub.url : null, url: resolveDerivativeUrl(sub.url, resourceUrl) }
+  }
+  return out
 }
 /** PARTIAL (poster พร้อม motion ยังไม่พร้อม) นับเป็น pollable เฉพาะเมื่อ motion ยังทำอยู่จริง */
 const shouldPoll = (info) => info.status === 'PENDING' || info.status === 'RETRYABLE' || (info.status === 'PARTIAL' && ['PENDING', 'RETRYABLE'].includes(info.motion?.state))
 
 /**
- * @param {{ fetchImpl?: Function, now?: () => number, setTimeoutFn?: Function, clearTimeoutFn?: Function,
- *           maxBatch?: number, maxPendingMs?: number, backoffCapMs?: number }} o
+ * @param {{ fetchImpl?: Function, resourceUrl?: (path: string) => string, now?: () => number, setTimeoutFn?: Function, clearTimeoutFn?: Function,
+ *           maxBatch?: number, maxPendingMs?: number, backoffCapMs?: number }} o — resourceUrl: ฐานของแอป (ค่าเริ่มต้น apiUrl ของ Production)
  */
 export function createMediaInfoClient({
-  fetchImpl = apiFetch, now = () => Date.now(), setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = (id) => clearTimeout(id),
+  fetchImpl = apiFetch, resourceUrl = apiUrl, now = () => Date.now(), setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = (id) => clearTimeout(id),
   maxBatch = MEDIA_INFO_BATCH_MAX, maxPendingMs = POLL_MAX_PENDING_MS, backoffCapMs = POLL_BACKOFF_CAP_MS,
 } = {}) {
   /** id → [{ resolve, signal }] ที่รอ batch ถัดไป */
@@ -64,7 +86,7 @@ export function createMediaInfoClient({
       .then((res) => {
         const items = res?.ok && res.data && typeof res.data.items === 'object' ? res.data.items : null
         for (const [id, entries] of batch) {
-          const info = items ? normalise(id, items[id]) : failed(id, res?.errorKind ?? 'server')
+          const info = items ? normalise(id, items[id], resourceUrl) : failed(id, res?.errorKind ?? 'server')
           for (const e of entries) e.resolve(info)
         }
       }, (err) => {
