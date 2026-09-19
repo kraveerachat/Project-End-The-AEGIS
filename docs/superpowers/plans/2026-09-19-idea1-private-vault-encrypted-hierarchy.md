@@ -514,7 +514,7 @@ SS-3 (source scan) no vault* client module contains `localStorage`, `sessionStor
 - Modify: `server/app.js` (inject `vaultTreeConfig`, `/healthz` block), `server/index.js` (boot probe, storage init, maintenance timer registration only — the maintenance module itself arrives in Task 8.3; until then the timer registers a no-op), repository-root `.env.example`
 - Test: `tests/vaultTreeConfig.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 CF-1 defaults with an empty env: all six flags false; limits equal the Limits Register selected server values (literal table in the test)
 CF-2 each env variable parses 'true'/'false' only; 'yes', '1', '' (explicit empty) → throw with the variable name
@@ -528,12 +528,12 @@ CF-4 createApp() default config = all flags false; GET /api/vault/tree/state →
 BOOT-1 schemaAvailable=true and probe reports a missing table → boot rejects with the table name (probe is injected: `probeTreeSchema()` returns { missing: [...] })
 BOOT-2 schemaAvailable=false → probe never called
 ```
-- [ ] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement** following `mediaLimits.js` (`readBoolean`, `readInteger`, `deepFreeze`).
-- [ ] **Step 4: GREEN** → `# tests 11 # pass 11`.
-- [ ] **Step 5: Regression** `node --test --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/mediaCapabilities.test.js` (healthz shape additive).
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): add fail-closed vault tree rollout flags`
+- [x] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement** following `mediaLimits.js` (`readBoolean`, `readInteger`, `deepFreeze`).
+- [x] **Step 4: GREEN** → `# tests 11 # pass 11`.
+- [x] **Step 5: Regression** `node --test --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/mediaCapabilities.test.js` (healthz shape additive).
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): add fail-closed vault tree rollout flags`
 
 ### Task 2.2: Additive schema migration and opaque tree store
 
@@ -544,7 +544,7 @@ BOOT-2 schemaAvailable=false → probe never called
 
 **PG procedure** (per `idea1-postgres-verification-procedure` memory): `sh scripts/pg-integration-env.sh up` (unchanged script; image `postgres:15-alpine`) → one disposable database per test file, migrations applied with `psql -v ON_ERROR_STOP=1` as the migration superuser, app connects as `drive_app`. `POSTGRES_REQUIRED_MAJOR=15`: the suite asserts the server major version first (`PG-VERSION-1`) and does not run against any other major; the script is never switched to another image by this PR.
 
-- [ ] **Step 1: Write failing store tests (memory + PG share one spec file imported by both)**
+- [x] **Step 1: Write failing store tests (memory + PG share one spec file imported by both)**
 ```
 ST-1 getTreeState creates FLAT lazily; other user → independent row
 ST-2 createRevision + markRevisionPublished + casHead genesis path is not allowed in FLAT (returns { ok:false, code:'TREE_STATE_CONFLICT' }) — genesis goes through commitGenesis
@@ -575,12 +575,12 @@ PG-CAS-RACE-2 two connections race attach of the same UNREFERENCED blob → one 
 PG-ENVELOPE-RACE-1 concurrent casKeyEnvelope → one wins
 PG-CASCADE-1 deleting the user cascades every tree row
 ```
-- [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeStore.test.js` → `ERR_MODULE_NOT_FOUND`; `TEST_DATABASE_URL=... node --test --test-reporter=tap tests/vaultTreePostgres.test.js` → migration file missing.
-- [ ] **Step 3: Implement** SQL exactly per "Schema plan" (comments in the migration state, as `004_vault_v2.sql` does, what the server learns and what no column can hold) and the store with `withTransaction` + `FOR UPDATE` on `vault_tree_state`.
-- [ ] **Step 4: GREEN** memory → `# tests 10 # pass 10`; PG → `# tests 28 # pass 28` (ST-1..10 re-run against PG + PG-SCHEMA-EQ-1, PG-REAPPLY-1, PG-GRANT-1, PG-VERSION-1, PG-CHECK-1, PG-STATE-1..4, PG-IMMUTABLE-1..5, PG-CAS-RACE-1..2, PG-ENVELOPE-RACE-1, PG-CASCADE-1).
-- [ ] **Step 5: Regression** `TEST_DATABASE_URL=... node --test --test-concurrency=1 --test-reporter=tap tests/vaultPostgres.test.js tests/vaultV2Postgres.test.js tests/vaultTreePostgres.test.js` (fresh database per file).
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): add additive vault tree schema and opaque CAS store`
+- [x] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeStore.test.js` → `ERR_MODULE_NOT_FOUND`; `TEST_DATABASE_URL=... node --test --test-reporter=tap tests/vaultTreePostgres.test.js` → migration file missing.
+- [x] **Step 3: Implement** SQL exactly per "Schema plan" (comments in the migration state, as `004_vault_v2.sql` does, what the server learns and what no column can hold) and the store with `withTransaction` + `FOR UPDATE` on `vault_tree_state`.
+- [x] **Step 4: GREEN** memory → `# tests 10 # pass 10`; PG → `# tests 28 # pass 28` (ST-1..10 re-run against PG + PG-SCHEMA-EQ-1, PG-REAPPLY-1, PG-GRANT-1, PG-VERSION-1, PG-CHECK-1, PG-STATE-1..4, PG-IMMUTABLE-1..5, PG-CAS-RACE-1..2, PG-ENVELOPE-RACE-1, PG-CASCADE-1).
+- [x] **Step 5: Regression** `TEST_DATABASE_URL=... node --test --test-concurrency=1 --test-reporter=tap tests/vaultPostgres.test.js tests/vaultV2Postgres.test.js tests/vaultTreePostgres.test.js` (fresh database per file).
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): add additive vault tree schema and opaque CAS store`
 
 ### Task 2.3: Immutable manifest ciphertext storage
 
@@ -588,7 +588,7 @@ PG-CASCADE-1 deleting the user cascades every tree row
 - Create: `server/storage/vaultManifestStore.js`
 - Test: `tests/vaultManifestStore.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 MS-1 writeManifestCiphertext streams to STORAGE_ROOT/vault-tree/<uuid>.aegisenc with flag 'wx'; returns { storageKey, size, sha256 }; storage key never contains user-supplied text
 MS-2 over limitBytes → rejects with TREE_MANIFEST_TOO_LARGE and no file remains
@@ -596,8 +596,8 @@ MS-3 openManifestCiphertext returns a readable stream of exactly the bytes; unkn
 MS-4 deleteManifestCiphertext is idempotent (ENOENT ignored)
 MS-5 initVaultManifestStorage creates the directory; refuses a storage root outside STORAGE_ROOT
 ```
-- [ ] **Step 2: RED**; **Step 3: Implement** mirroring `vaultStore.js` conventions; **Step 4: GREEN** → `# tests 5 # pass 5`; **Step 5:** `git diff --check`.
-- [ ] **Step 6: Commit** → `feat(idea1): add immutable vault manifest ciphertext store`
+- [x] **Step 2: RED**; **Step 3: Implement** mirroring `vaultStore.js` conventions; **Step 4: GREEN** → `# tests 5 # pass 5`; **Step 5:** `git diff --check`.
+- [x] **Step 6: Commit** → `feat(idea1): add immutable vault manifest ciphertext store`
 
 ### Task 2.4: Tree endpoint family (state, head, revisions, head CAS, key envelope, blobs)
 
@@ -608,7 +608,7 @@ MS-5 initVaultManifestStorage creates the directory; refuses a storage root outs
 
 **Interfaces:** the "Route plan" table. `requireVaultProtocolState({ allow })` is exported here for Task 2.5. Genesis/migration/purge routes are added in Tasks 3.1 and 8.1; this task registers them as `404` until then (no stub responses that could be mistaken for success).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 TR-1 unauthenticated → 401 on every route; CSRF enforced on every non-GET (same helper as vaultV2Api.test.js)
 TR-2 flags off → 503 TREE_PROTOCOL_DISABLED on every tree route
@@ -627,12 +627,12 @@ NO-LEAK-1 request/response capture over the whole test run: no body, URL, header
 AUD-OPAQUE-1 audit rows for tree operations carry only revisionId/purgeId/leaseId as target
 PG-API-1..4 (PG file) the TR-6/7/8/9 sequences against PostgreSQL
 ```
-- [ ] **Step 2: RED** → 404s / `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement.** Raw ciphertext route uses `express.raw({ type: 'application/octet-stream', limit })` scoped to that route only (the global 16 KiB JSON limit is unchanged).
-- [ ] **Step 4: GREEN** → `# tests 15 # pass 15` (memory); PG adds 4.
-- [ ] **Step 5: Regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/vaultTreeConfig.test.js tests/vaultTreeApi.test.js`.
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): add opaque vault tree head, revision and key-envelope API`
+- [x] **Step 2: RED** → 404s / `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement.** Raw ciphertext route uses `express.raw({ type: 'application/octet-stream', limit })` scoped to that route only (the global 16 KiB JSON limit is unchanged).
+- [x] **Step 4: GREEN** → `# tests 15 # pass 15` (memory); PG adds 4.
+- [x] **Step 5: Regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/vaultTreeConfig.test.js tests/vaultTreeApi.test.js`.
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): add opaque vault tree head, revision and key-envelope API`
 
 ### Task 2.5: Legacy mutation fencing and gate G2
 
@@ -640,7 +640,7 @@ PG-API-1..4 (PG file) the TR-6/7/8/9 sequences against PostgreSQL
 - Modify: `server/routes/api.js` (`POST /vault/blobs`, `DELETE /vault/blobs/:id` gain `requireVaultProtocolState({ allow: ['FLAT'] })`), `server/routes/vaultUploads.js` (router-level fence on `POST /`, `PUT /:uploadId/chunks/:index`, `POST /:uploadId/commit`; `GET /limits`, `GET /:uploadId`, `DELETE /:uploadId` remain open)
 - Test: `tests/vaultTreeFence.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 FENCE-1 FLAT owner: every legacy mutation behaves exactly as before (reuse the vaultV2Api happy-path helper) — byte-identical status/body
 FENCE-2 owner row set to MIGRATING_TREE_V1 via the store: POST /vault/blobs, DELETE /vault/blobs/:id, POST /vault/uploads, PUT chunk, POST commit → 409 { code:'TREE_MIGRATION_IN_PROGRESS' }; GET /api/vault, GET blob, GET chunk, GET upload status, DELETE upload session → unchanged success
@@ -649,12 +649,12 @@ FENCE-4 flags off (protocolEnabled=false) → legacy routes are NOT fenced only 
 FENCE-5 an in-flight legacy upload session created in FLAT cannot commit after the state moves to MIGRATING_TREE_V1 (409) and its staging is cancellable
 FENCE-6 no inventory row is created/deleted by any fenced request (store row counts before/after equal)
 ```
-- [ ] **Step 2: RED**; **Step 3: Implement** — the middleware reads the owner row once per request (`getTreeState`) and never creates it for legacy routes (absent row = FLAT).
-- [ ] **Step 4: GREEN** → `# tests 6 # pass 6`.
-- [ ] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/vaultTreeConfig.test.js tests/vaultTreeStore.test.js tests/vaultManifestStore.test.js tests/vaultTreeApi.test.js tests/vaultTreeFence.test.js` and the PG trio with a fresh database.
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): fence legacy vault mutation by tree protocol state`
-- [ ] **Gate G2** (internal) — Session Register row `PVH-P2`; checks: `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js src/lib/vaultChunkCrypto.js src/lib/vaultCrypto.js` is empty; migration is additive (`grep -E 'ALTER TABLE (vault_meta|vault_blobs|vault_v2_)' 011_vault_tree_v1.sql` returns nothing).
+- [x] **Step 2: RED**; **Step 3: Implement** — the middleware reads the owner row once per request (`getTreeState`) and never creates it for legacy routes (absent row = FLAT).
+- [x] **Step 4: GREEN** → `# tests 6 # pass 6`.
+- [x] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultApi.test.js tests/vaultV2Api.test.js tests/vaultTreeConfig.test.js tests/vaultTreeStore.test.js tests/vaultManifestStore.test.js tests/vaultTreeApi.test.js tests/vaultTreeFence.test.js` and the PG trio with a fresh database.
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): fence legacy vault mutation by tree protocol state`
+- [x] **Gate G2** (internal) — Session Register row `PVH-P2`; checks: `git diff origin/main...HEAD -- server/config/vaultTransferLimits.js src/lib/vaultChunkCrypto.js src/lib/vaultCrypto.js` is empty; migration is additive (`grep -E 'ALTER TABLE (vault_meta|vault_blobs|vault_v2_)' 011_vault_tree_v1.sql` returns nothing).
 
 ---
 

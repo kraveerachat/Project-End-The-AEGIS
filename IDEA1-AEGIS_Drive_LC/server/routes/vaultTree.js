@@ -78,6 +78,28 @@ const publicEnvelope = (env) => env && ({
   primary: env.primary, recovery: env.recovery,
 })
 
+/**
+ * ด่านกั้น route เก่า (POST/DELETE /api/vault/blobs, POST/PUT/commit ของ /api/vault/uploads) ตามสถานะโปรโตคอลของเจ้าของ
+ *   - ไม่มีแถว หรือ FLAT → ผ่าน (พฤติกรรมเดิมเป๊ะ)
+ *   - MIGRATING_TREE_V1 → 409 TREE_MIGRATION_IN_PROGRESS
+ *   - TREE_V1 → 426 UPGRADE_REQUIRED (ถาวร)
+ * ⚠️ อ่านจาก "สถานะของเจ้าของ" ไม่ใช่จาก flag — การปิด flag ของ tree ไม่เคยเปิดการแก้ไขแบบ flat กลับ
+ * ⚠️ peek ไม่สร้างแถว: route เก่าต้องไม่ทิ้งร่องรอย tree ไว้ให้เจ้าของที่ไม่เคยแตะมัน
+ * ⚠️ วางหลัง requireAuth เสมอ (ต้องมี req.user)
+ */
+export function requireVaultProtocolState({ allow = ['FLAT'] } = {}) {
+  return async (req, res, next) => {
+    try {
+      const st = await tree.peekTreeState(req.user.id)
+      const state = st?.protocolState ?? 'FLAT'
+      if (allow.includes(state)) return next()
+      if (state === 'MIGRATING_TREE_V1') return fail(res, 409, TREE_ERROR.TREE_MIGRATION_IN_PROGRESS, 'Private Vault is migrating to the encrypted hierarchy; legacy mutation is fenced')
+      if (state === 'TREE_V1') return fail(res, 426, TREE_ERROR.UPGRADE_REQUIRED, 'This Private Vault uses the encrypted hierarchy; legacy mutation is no longer available')
+      return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT)
+    } catch (err) { return next(err) }
+  }
+}
+
 export const vaultTreeRouter = Router()
 vaultTreeRouter.use(requireAuth, requireTreeProtocol)
 

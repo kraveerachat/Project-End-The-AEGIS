@@ -35,7 +35,7 @@ import { uploadsRouter } from './uploads.js'
 // Private Vault V2 (LFT-V2-B) — โปรโตคอลของตัวเองเช่นกัน และ "ไม่ใช้ตารางร่วม" กับ
 // เส้นทางด้านบน เพราะ upload_sessions มีคอลัมน์ name เป็น plaintext ซึ่ง Vault ห้ามมี
 import { vaultUploadsRouter, publicVaultV2Blob } from './vaultUploads.js'
-import { vaultTreeRouter } from './vaultTree.js'
+import { vaultTreeRouter, requireVaultProtocolState } from './vaultTree.js'
 import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
@@ -1742,7 +1742,9 @@ apiRouter.post('/vault/unlock-attempt', requireAuth, async (req, res, next) => {
  * ⚠️ size ที่บันทึกคือขนาด ciphertext บนดิสก์ที่เซิร์ฟเวอร์วัดเอง — ขนาด plaintext จริง
  *    ถูกเข้ารหัสอยู่ใน metaB64 เซิร์ฟเวอร์จึงรู้แค่ "ประมาณเท่าไร" ไม่ใช่ค่าจริง
  */
-apiRouter.post('/vault/blobs', requireAuth, (req, res, next) => {
+// PR #157: legacy raw Add/Delete are allowed only while the owner is FLAT (fenced from the migration lease onward, forever after genesis)
+const legacyVaultMutationFence = requireVaultProtocolState({ allow: ['FLAT'] })
+apiRouter.post('/vault/blobs', requireAuth, legacyVaultMutationFence, (req, res, next) => {
   vaultUploadMiddleware(req, res, async (uploadErr) => {
     if (uploadErr) {
       const tooLarge = uploadErr.code === 'LIMIT_FILE_SIZE'
@@ -1933,7 +1935,7 @@ apiRouter.get('/vault/blobs/:id', requireAuth, async (req, res, next) => {
  * ⚠️ แถว chunk ของ V2 หายไปพร้อมแถว blob ผ่าน ON DELETE CASCADE — ไม่มีขั้นตอนแยกที่
  *    อาจถูกข้ามเมื่อคำขอถูกตัดกลางคัน และไม่มี blob อื่นถูกแตะเลย
  */
-apiRouter.delete('/vault/blobs/:id', requireAuth, async (req, res, next) => {
+apiRouter.delete('/vault/blobs/:id', requireAuth, legacyVaultMutationFence, async (req, res, next) => {
   try {
     if (isValidVaultBlobId(String(req.params.id ?? ''))) {
       const v2Blob = await vaultV2.findVaultV2Blob(req.user.id, String(req.params.id))

@@ -28,6 +28,7 @@ import { Router } from 'express'
 import { randomBytes } from 'node:crypto'
 import { requireAuth } from '../middleware/requireRole.js'
 import { recordAudit, sha256Hex } from '../db/connection.js'
+import { requireVaultProtocolState } from './vaultTree.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import * as store from '../db/store.js'
 import * as v2 from '../db/vaultV2Store.js'
@@ -45,6 +46,10 @@ import {
 } from '../storage/vaultStaging.js'
 
 export const vaultUploadsRouter = Router({ mergeParams: true })
+
+// PR #157: การเปิด session / ส่ง chunk / commit ของเส้นทางเก่าถูกกั้นตามสถานะโปรโตคอลของเจ้าของ
+// (FLAT เท่านั้น); GET limits/status และ DELETE (ยกเลิก staging ที่ยังไม่ commit) ยังเปิดทุกสถานะ
+const legacyVaultMutationFence = requireVaultProtocolState({ allow: ['FLAT'] })
 
 // ⚠️ audit ของ Vault บันทึกได้แค่ actor/เวลา/ชนิดการกระทำ + hash ของ id ที่เซิร์ฟเวอร์
 //    ตั้งเอง — ไม่มีชื่อไฟล์ให้บันทึกอยู่แล้วโดยโครงสร้าง และห้ามบันทึกกุญแจ/envelope/path
@@ -150,7 +155,7 @@ vaultUploadsRouter.get('/limits', requireAuth, async (req, res, next) => {
 //    (จะต้องมีกุญแจ) สิ่งที่เซิร์ฟเวอร์ทำได้คือ "ตรวจว่าค่าที่ประกาศอยู่ในช่วงที่ยอมรับ
 //    และสอดคล้องกันเอง" แล้ว **แช่แข็งค่านั้น** — หลังบรรทัดนี้ไม่มี endpoint ใดแก้ได้อีก
 //    ตำแหน่งเขียนของทุก chunk จึงมาจากค่าในฐานข้อมูล ไม่ใช่จากคำขอที่ส่ง chunk มา
-vaultUploadsRouter.post('/', requireAuth, async (req, res, next) => {
+vaultUploadsRouter.post('/', requireAuth, legacyVaultMutationFence, async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const formatVersion = Number(body.formatVersion)
@@ -266,7 +271,7 @@ vaultUploadsRouter.get('/:uploadId', requireAuth, async (req, res, next) => {
 //    กับสถานะ received และเฉพาะเมื่อผู้เขียนคนนี้ยังเป็นเจ้าของช่อง (writer token)
 //    การส่งซ้ำด้วย ciphertext ใหม่จึงต้องมาพร้อม IV ใหม่เสมอ และคู่ (IV, ไบต์) ที่ถูก
 //    บันทึกจะไม่มีวันมาจากคนละคำขอ
-vaultUploadsRouter.put('/:uploadId/chunks/:index', requireAuth, async (req, res, next) => {
+vaultUploadsRouter.put('/:uploadId/chunks/:index', requireAuth, legacyVaultMutationFence, async (req, res, next) => {
   try {
     const session = await loadOwnSession(req, res)
     if (!session) return undefined
@@ -356,7 +361,7 @@ vaultUploadsRouter.put('/:uploadId/chunks/:index', requireAuth, async (req, res,
 //    เซิร์ฟเวอร์ไม่มี DEK การอ้าง SERVER_PLAINTEXT_SHA256_VERIFY จึงเป็นคำโกหก
 //    ความถูกต้องของ plaintext ถูกพิสูจน์ในเบราว์เซอร์ตอนถอด (CLIENT_AEAD_PLAINTEXT_
 //    AUTHENTICATION) โดย GCM tag ของทุก chunk ทีละก้อน
-vaultUploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
+vaultUploadsRouter.post('/:uploadId/commit', requireAuth, legacyVaultMutationFence, async (req, res, next) => {
   try {
     const session = await loadOwnSession(req, res)
     if (!session) return undefined

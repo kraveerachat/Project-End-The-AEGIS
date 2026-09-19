@@ -500,6 +500,29 @@ export async function __seedTreeV1ForTests(userId, { treeId, ownerScopeIdB64, ke
   return { ok: true }
 }
 
+/**
+ * ชุดทดสอบเท่านั้น: ตั้งสถานะโปรโตคอลของเจ้าของโดยตรง (เติมฟิลด์ที่ invariant ของแต่ละสถานะบังคับ)
+ * ใช้พิสูจน์ด่านกั้น route เก่าโดยไม่ต้องเดินขั้นตอน lease/genesis ทั้งชุด
+ */
+export async function __setProtocolStateForTests(userId, protocolState, { leaseMs = 60_000 } = {}) {
+  const u = uid(userId)
+  const fields = protocolState === 'FLAT'
+    ? { migrationLeaseId: null, migrationLeaseExpiresAt: null, frozenInventoryId: null, frozenInventoryDigest: null, headEverCommitted: false }
+    : protocolState === 'MIGRATING_TREE_V1'
+      ? { migrationLeaseId: 'test-lease', migrationLeaseExpiresAt: nowMs() + leaseMs, frozenInventoryId: 'test-inventory', frozenInventoryDigest: '0'.repeat(64), headEverCommitted: false }
+      : { migrationLeaseId: null, migrationLeaseExpiresAt: null, frozenInventoryId: null, frozenInventoryDigest: null, headEverCommitted: true }
+  if (usingPostgres) {
+    await query(`INSERT INTO vault_tree_state (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [u])
+    await query(
+      `UPDATE vault_tree_state SET protocol_state = $2, migration_lease_id = $3, migration_lease_expires_at = $4, frozen_inventory_id = $5,
+              frozen_inventory_digest = $6, head_ever_committed = $7, updated_at = now() WHERE user_id = $1`,
+      [u, protocolState, fields.migrationLeaseId, fields.migrationLeaseExpiresAt === null ? null : new Date(fields.migrationLeaseExpiresAt), fields.frozenInventoryId, fields.frozenInventoryDigest, fields.headEverCommitted],
+    )
+    return
+  }
+  Object.assign(memState(u), { protocolState, ...fields, updatedAt: nowMs() })
+}
+
 /** ล้าง state ของ tree ทั้งหมด — ชุดทดสอบเท่านั้น (DELETE ไม่ใช่ TRUNCATE: drive_app มีแค่ DML) */
 export async function __resetVaultTreeForTests() {
   if (usingPostgres) {
