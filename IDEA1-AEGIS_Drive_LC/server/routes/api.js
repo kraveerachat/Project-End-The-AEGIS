@@ -35,6 +35,7 @@ import { uploadsRouter } from './uploads.js'
 // Private Vault V2 (LFT-V2-B) — โปรโตคอลของตัวเองเช่นกัน และ "ไม่ใช้ตารางร่วม" กับ
 // เส้นทางด้านบน เพราะ upload_sessions มีคอลัมน์ name เป็น plaintext ซึ่ง Vault ห้ามมี
 import { vaultUploadsRouter, publicVaultV2Blob } from './vaultUploads.js'
+import { vaultTreeRouter } from './vaultTree.js'
 import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
@@ -1633,6 +1634,10 @@ apiRouter.post('/sessions/revoke-others', requireAuth, async (req, res, next) =>
 //    4. audit บันทึกได้แค่ actor/เวลา/ชนิดการกระทำ + hash ของ blob id ที่เซิร์ฟเวอร์
 //       ตั้งเอง — ห้ามบันทึกชื่อไฟล์ (เซิร์ฟเวอร์ไม่รู้อยู่แล้ว) และห้ามบันทึกกุญแจ
 //    5. ไม่มี console.log ของ req.body ในหมวดนี้ — body มี wrapped DEK อยู่
+
+// ── Private Vault encrypted hierarchy — opaque tree protocol (PR #157) ───────
+// ⚠️ mount ก่อน '/vault/uploads' และ '/vault/blobs/:id': prefix '/vault/tree' ต้องไม่ถูก route เก่าจับ
+apiRouter.use('/vault/tree', vaultTreeRouter)
 
 // ── Vault V2 — chunked zero-knowledge upload (LFT-V2-B) ──────────────────────
 // ⚠️ ต้อง mount "ก่อน" '/vault/blobs/:id' ด้านล่าง ด้วยเหตุผลเดียวกับ '/files/uploads'

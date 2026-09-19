@@ -29,6 +29,10 @@ import { backupMaintenance } from './backup/index.js'
 // Media preview derivatives (spec §10.4): ลำดับบูตเดียว limits → runner → detect (เฉพาะเมื่อเปิด) → runtime → init
 // ก่อน createApp; ปิด (MEDIA_ENABLED=false) หรือเครื่องมือหาย = disabledMediaService และ Drive บูตต่อได้เสมอ
 import { bootMedia } from './media/runtime.js'
+// Private Vault encrypted hierarchy (PR #157): flag ทั้งหกอ่านครั้งเดียว (fail-closed, เป็นโซ่) และเมื่อ
+// VAULT_TREE_SCHEMA_AVAILABLE=true ต้องพบตาราง tree ทั้งเจ็ดก่อนเปิดพอร์ต ไม่งั้นบูตล้มโดยระบุชื่อตาราง
+import { VAULT_TREE_CONFIG, verifyTreeSchema } from './config/vaultTreeLimits.js'
+import { probeTreeSchema } from './db/vaultTreeSchemaProbe.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
 
@@ -68,7 +72,9 @@ Promise.all([
       onAudit: ({ action, target, actor }) => console.log(`[aegis-drive] media ${action} ${target ?? ''} by ${actor ?? 'system'}`),
     })
     console.log(`[aegis-drive] media derivatives: ${media.service.reason ? `disabled (${media.service.reason})` : 'enabled'} — boot ${media.trace.join(' → ')}`)
-    app = createApp({ env: process.env, mediaLimits: media.limits, mediaService: media.service })
+    const treeSchema = await verifyTreeSchema(VAULT_TREE_CONFIG, probeTreeSchema)
+    console.log(`[aegis-drive] vault tree: schema ${VAULT_TREE_CONFIG.flags.schemaAvailable ? (treeSchema.probed ? 'verified' : 'declared') : 'not declared'}, protocol ${VAULT_TREE_CONFIG.flags.protocolEnabled ? 'enabled' : 'disabled'}, destructive purge ${VAULT_TREE_CONFIG.flags.destructivePurgeEnabled ? 'ENABLED' : 'disabled'}`)
+    app = createApp({ env: process.env, mediaLimits: media.limits, mediaService: media.service, vaultTreeConfig: VAULT_TREE_CONFIG })
     // Observe a pre-existing host backup lease before any Trash byte cleanup.
     // The coordinator then tracks every scheduled purge as an in-flight
     // destructive operation, so it cannot acknowledge a snapshot mid-purge.
