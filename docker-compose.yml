@@ -110,8 +110,16 @@ services:
       STORAGE_ROOT: ${DRIVE_STORAGE_ROOT:-/datalake}
       ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
       ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+      # Media preview derivatives (IDEA1 spec §10) — cache แยก volume, ปิดได้ด้วย MEDIA_ENABLED=false
+      MEDIA_ENABLED: ${MEDIA_ENABLED:-true}
+      MEDIA_CACHE_DIR: /var/cache/aegis-media
+      MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-2147483648}
+      MEDIA_WORKERS: ${MEDIA_WORKERS:-1}
+      MEDIA_STILL_ENGINE: ${MEDIA_STILL_ENGINE:-sharp}
+      MEDIA_CACHE_POLICY: ${MEDIA_CACHE_POLICY:-immutable}
     volumes:
       - drive_storage:/datalake
+      - aegis_drive_media_cache:/var/cache/aegis-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -201,6 +209,8 @@ volumes:
   camera_snapshots:
   postgres_data:   # Metadata Layer — users/password_hash/files/audit (Postgres)
   drive_storage:   # Storage Layer  — raw bytes ของ IDEA1 เท่านั้น (ไม่มีรหัสผ่านใด ๆ)
+  aegis_drive_media_cache: # rebuildable derivative cache — not backed up, safe to delete when unused
+    name: aegis_drive_media_cache
 
 networks:
   aegis_internal:

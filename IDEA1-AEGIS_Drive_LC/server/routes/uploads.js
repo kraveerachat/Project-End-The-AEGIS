@@ -32,6 +32,7 @@
 //    ทุกเส้นทาง PUT/POST/DELETE ที่นี่จึงผ่านด่าน synchronizer token เหมือน endpoint อื่น
 import { Router } from 'express'
 import { requireAuth } from '../middleware/requireRole.js'
+import { scheduleDerivativesAfterResponse } from './media.js'
 import { recordAudit, sha256Hex } from '../db/connection.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import * as store from '../db/store.js'
@@ -148,6 +149,22 @@ uploadsRouter.post('/', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid input' })
     }
 
+    // ── ปลายทางเชิงตรรกะ: ตัดสินและตรวจสิทธิ์ "ที่นี่" แล้วผูกไว้กับเซสชัน ────────
+    // ⚠️ จอ Files ใช้เส้นทาง V2 การอัปโหลดไฟล์ใหญ่กินเวลาหลายนาที ถ้าปลายทางมาจาก
+    //    คำขอ commit ตอนท้าย ผู้ใช้ที่ refresh แล้วเปิดโฟลเดอร์อื่นจะได้ไฟล์ไปลงผิดที่
+    //    และคำขอที่ถูกแก้ระหว่างทางจะ "เปลี่ยนปลายทาง" ของไบต์ที่ส่งไปแล้วได้
+    //    เซสชันจึงเป็นแหล่งความจริงของปลายทาง ไม่ใช่คำขอสุดท้าย
+    const claimedParent = req.body?.parentId == null || req.body.parentId === '' ? null : String(req.body.parentId)
+    let parentId = null
+    if (claimedParent !== null) {
+      const parent = await store.findOwnItem(claimedParent, req.user.id)
+      // ไม่มี/ไม่ใช่ของผู้เรียก = 404 เหมือนไม่มีอยู่ (แบบแผนเดียวกับ DELETE /api/files/:id)
+      if (!parent) return res.status(404).json({ error: 'Not found' })
+      // มีอยู่จริงแต่ใส่ของลงไปไม่ได้ = 400 ไม่ใช่ 404 เพราะไม่ใช่เรื่องการมองเห็น
+      if (parent.kind !== 'folder') return res.status(400).json({ error: 'Target is not a folder', code: 'NOT_A_FOLDER' })
+      parentId = parent.id
+    }
+
     // เพดานเชิงตรรกะของ deployment — บอกค่ากลับไปด้วยเพื่อให้ UI แสดงเหตุผลได้ตรง
     if (size > TRANSFER_LIMITS.maxLogicalFileBytes) {
       await auditAct(req, 'FILE_UPLOAD_SESSION', name, 'DENIED')
@@ -190,6 +207,8 @@ uploadsRouter.post('/', requireAuth, async (req, res, next) => {
         chunkCount: chunkCountFor(size, chunkSize),
         expectedSha256: claimedSha256,
         expiresAt: Date.now() + TRANSFER_LIMITS.sessionTtlMs,
+        // ปลายทางที่ตรวจสิทธิ์แล้ว — ผูกกับเซสชัน ไม่ใช่กับคำขอ commit
+        parentId,
       })
     } catch (dbErr) {
       await removeStagedSession(uploadId) // metadata ไม่ผ่าน = ต้องไม่เหลือพื้นที่พักกำพร้า
@@ -390,11 +409,24 @@ uploadsRouter.post('/:uploadId/commit', requireAuth, async (req, res, next) => {
         await removeStagedSession(session.uploadId)
         await store.setUploadSessionStatus(session.uploadId, req.user.id, 'aborted').catch(() => {})
       }
+      // ⚠️ โฟลเดอร์ปลายทางถูกทิ้งลงถังระหว่างที่ไฟล์กำลังอัปโหลด = ความจริงที่ต้องบอก
+      //    ไม่ใช่ 500 ที่อธิบายอะไรไม่ได้ การเก็บกวาดด้านบนทำไปแล้ว (ไบต์ถูกคืนเข้า
+      //    staging ถ้าทำได้ ไม่งั้น session ถูก abort) จึงไม่มีทั้งแถวกำพร้าและ key ลอย
+      if (dbErr?.code === 'TARGET_GONE') {
+        await auditAct(req, 'FILE_UPLOAD', session.name, 'DENIED')
+        return res.status(409).json({ error: 'Upload destination is gone', code: 'TARGET_GONE' })
+      }
+      // ชื่อชนกันจากการแข่งกันของสอง commit — ไบต์ถูกคืนเข้า staging แล้ว ผู้ใช้ตั้งชื่อใหม่ได้
+      if (dbErr?.code === 'NAME_TAKEN') {
+        return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+      }
       throw dbErr
     }
 
     await removeStagedSession(session.uploadId)
     await auditAct(req, result.newVersion ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', session.name)
+    // ⚠️ จัดคิว derivative หลังคำตอบปิดแล้วเท่านั้น — ไม่มี await ไม่เปลี่ยนสถานะ/เนื้อคำตอบ (plan Task 10)
+    scheduleDerivativesAfterResponse(req, res, result.file)
     return res.status(201).json({
       file: result.file, newVersion: result.newVersion, sha256: actualSha256,
     })

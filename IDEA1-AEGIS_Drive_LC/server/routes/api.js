@@ -15,6 +15,9 @@ import {
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { publicShareUrl } from '../config/publicShare.js'
+import { previewMimeForName } from '../config/previewMedia.js'
+import { parseByteRange } from '../request/byteRange.js'
+import { mediaRouter, scheduleDerivativesAfterResponse } from './media.js'
 import { getNavForRole } from '../rbac/permissions.js'
 import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
@@ -48,7 +51,7 @@ import { BACKUP_ROUTES, adminBackupView, backupCommand, backupMaintenance } from
 // Storage Layer — ไฟล์ดิบอยู่บน filesystem (Docker volume) ไม่ใช่ใน Postgres
 import {
   uploadMiddleware, keyForUploaded, resolveKey, sizeOfFile, sha256OfFile,
-  keyExists, openReadStream, discardUploaded,
+  keyExists, openReadStream, openReadStreamRange, discardUploaded,
   moveToVersions, restoreFromVersions,
 } from '../storage/fileStore.js'
 // Storage Layer ของ Vault — แยกโฟลเดอร์จาก uploads/ และเก็บ "ciphertext ล้วน" เท่านั้น
@@ -61,7 +64,7 @@ import {
   avatarUploadMiddleware, sanitizeAvatar, writeAvatar,
   openAvatar, avatarSize, removeAvatar,
 } from '../storage/avatarStore.js'
-import { purgeTrashRecord, withTrashFileLock } from '../storage/trashCleanup.js'
+import { purgeTrashRecord, emptyTrashForUser, withTrashFileLock } from '../storage/trashCleanup.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — user ผิด / รหัสผิด / ไม่กรอก → เหมือนกันหมด
 // ข้อความ error เหมือนกันทุกกรณี และใช้เวลาประมวลผลเท่ากัน เพื่อป้องกัน username enumeration
@@ -354,9 +357,21 @@ apiRouter.get('/dashboard', requireAuth, async (req, res, next) => {
 // ── Files ────────────────────────────────────────────────────────────
 // ⚠️ Files คือ namespace ต่อผู้ใช้ — store.listFiles(userId) กรองด้วย uploaded_by
 //    ในชั้น SQL แล้ว (ดูเหตุผลเต็มที่ db/store.js) ห้ามเปลี่ยนกลับไปเรียกแบบไม่ส่ง userId
+// ⚠️ `parentId` ถูกตรวจว่าเป็นโฟลเดอร์ "ของผู้เรียก" ที่ยังอยู่จริงเสมอ — โฟลเดอร์ของผู้อื่น
+//    ตอบ 404 เหมือนไม่มีอยู่ ไม่ใช่ 403 ซึ่งจะยืนยันให้ผู้ถามรู้ว่ามี id นี้อยู่จริง
+//    (แบบแผนเดียวกับด่าน ownership ของ DELETE /api/files/:id)
 apiRouter.get('/files', requireAuth, async (req, res, next) => {
   try {
-    res.json({ files: await store.listFiles(req.user.id) })
+    const raw = req.query?.parentId
+    const parentId = raw === undefined || raw === '' || raw === 'null' ? null : String(raw)
+    if (parentId !== null && !(await store.findOwnFolder(parentId, req.user.id))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    res.json({
+      files: await store.listFiles(req.user.id, parentId),
+      // breadcrumb ต้องมาจากบรรพบุรุษจริงในฐานข้อมูล ไม่ใช่เส้นทางที่จอสะสมไว้เอง
+      ancestors: parentId === null ? [] : await store.listAncestors(parentId, req.user.id),
+    })
   } catch (err) {
     next(err)
   }
@@ -367,9 +382,108 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
     const name = String(req.body?.name ?? '').trim()
     // validate input เสมอ — ชื่อว่าง/ยาวผิดปกติ = ปฏิเสธ ไม่เดาใจ
     if (!name || name.length > 120) return res.status(400).json({ error: 'Invalid input' })
-    const row = await store.createFolder(name, req.user)
+    if (!isSafeItemName(name)) return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+
+    const parentId = req.body?.parentId == null ? null : String(req.body.parentId)
+    if (parentId !== null && !(await store.findOwnFolder(parentId, req.user.id))) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (await store.nameTakenIn(parentId, req.user.id, name)) {
+      return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+    }
+
+    const row = await store.createFolder(name, req.user, parentId)
+    // ⚠️ null = พ่อหายไประหว่างการตรวจกับการเขียน (ตรวจซ้ำในธุรกรรมภายใต้ล็อกเจ้าของ)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    // การแข่งกันของชื่อพี่น้องที่รอดการตรวจล่วงหน้า — unique index จับได้ ตอบให้อ่านรู้เรื่อง
+    if (row.nameTaken) return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
     await auditAct(req, 'FOLDER_CREATE', name)
     res.status(201).json({ file: row })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * ชื่อที่ปลอดภัยสำหรับไฟล์/โฟลเดอร์
+ *
+ * ⚠️ `files.path` เป็น UUID ทึบ ชื่อจึงไปไม่ถึงระบบไฟล์ — แต่มันไหลออกทาง
+ *    Content-Disposition ของการดาวน์โหลดและไปโผล่บนจอ การกัน separator กับ
+ *    control character จึงยังจำเป็น ส่วน '.' และ '..' ถูกกันเพราะเป็นชื่อที่ไม่มี
+ *    ความหมายในฐานะรายการ และทำให้ breadcrumb อ่านแล้วเข้าใจผิดได้ทันที
+ */
+function isSafeItemName(name) {
+  const value = String(name)
+  if (value.trim() === '') return false
+  if (value === '.' || value === '..') return false
+  if (value.includes('/') || value.includes('\\')) return false
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(value)) return false
+  return true
+}
+
+// ── Rename — metadata อย่างเดียว ไบต์ไม่ถูกแตะ ────────────────────────────
+// ⚠️ ห้ามให้การเปลี่ยนชื่อแตะ `kind` เด็ดขาด นั่นคือบั๊กเดิมทั้งดุ้น: ตัดนามสกุลออกแล้ว
+//    ไฟล์กลายเป็นโฟลเดอร์ ตอนนี้ kind มาจากคอลัมน์ ไม่ใช่จากสตริงที่ผู้ใช้พิมพ์
+apiRouter.patch('/files/:id', requireAuth, async (req, res, next) => {
+  try {
+    const name = String(req.body?.name ?? '').trim()
+    if (!name || name.length > 200 || !isSafeItemName(name)) {
+      return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+    }
+
+    const item = await store.findOwnItem(req.params.id, req.user.id)
+    if (!item) return res.status(404).json({ error: 'Not found' })
+    if (item.kind === 'folder' && name.length > 120) {
+      return res.status(400).json({ error: 'Invalid input', code: 'NAME_INVALID' })
+    }
+    if (await store.nameTakenIn(item.parentId, req.user.id, name, item.id)) {
+      return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+    }
+
+    const updated = await store.renameItem(item.id, req.user.id, name)
+    if (!updated) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ การตรวจล่วงหน้าด้านบนไม่พอ: สองคำขอเปลี่ยนชื่อไปชื่อเดียวกันผ่านมันได้ทั้งคู่
+    //    unique index จับตัวที่แพ้ และผู้ใช้ต้องได้คำตอบเดียวกับที่ตรวจล่วงหน้าเจอ
+    if (updated.nameTaken) return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+    await auditAct(req, 'FILE_RENAME', `${item.name} → ${name}`)
+    res.json({ file: updated })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Move — หนึ่งธุรกรรม ทำทั้งหมดหรือไม่ทำเลย ─────────────────────────────
+// ⚠️ ต้องอยู่ "ก่อน" '/files/:id' เสมอ ไม่งั้น Express จะจับ 'move' เป็น id
+apiRouter.post('/files/move', requireAuth, async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : []
+    if (ids.length === 0 || ids.length > 500) return res.status(400).json({ error: 'Invalid input' })
+
+    const parentId = req.body?.parentId == null ? null : String(req.body.parentId)
+    if (parentId !== null) {
+      const target = await store.findOwnItem(parentId, req.user.id)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      // ปลายทางที่เป็นไฟล์ไม่ใช่ "ไม่มีอยู่" — มันมีอยู่แต่ใส่ของลงไปไม่ได้ จึงเป็น 400
+      if (target.kind !== 'folder') return res.status(400).json({ error: 'Target is not a folder', code: 'NOT_A_FOLDER' })
+    }
+
+    const result = await store.moveItems(ids, req.user.id, parentId)
+    if (!result.ok) {
+      // ⚠️ targetGone มาจากการตรวจซ้ำ "ในธุรกรรม" ซึ่งเป็นขอบเขตความถูกต้องจริง
+      //    ส่วนการตรวจที่ต้นเส้นทางด้านบนมีไว้เพื่อ UX เท่านั้น
+      const status = result.reason === 'notFound' || result.reason === 'targetGone' ? 404
+        : result.reason === 'cycle' || result.reason === 'alreadyThere' || result.reason === 'nameTaken' ? 409
+          : 400
+      const code = result.reason === 'cycle' ? 'MOVE_CYCLE'
+        : result.reason === 'alreadyThere' ? 'ALREADY_THERE'
+          : result.reason === 'nameTaken' ? 'NAME_TAKEN'
+            : result.reason === 'targetGone' ? 'TARGET_GONE' : 'INVALID'
+      return res.status(status).json({ error: 'Move refused', code })
+    }
+
+    await auditAct(req, 'FILE_MOVE', `${result.moved} item(s) → ${parentId ?? 'root'}`)
+    res.json({ moved: result.moved })
   } catch (err) {
     next(err)
   }
@@ -379,6 +493,9 @@ apiRouter.post('/files/folder', requireAuth, async (req, res, next) => {
 // ⚠️ ต้องถูก mount "ก่อน" เส้นทาง '/files/:id/...' ด้านล่างเสมอ — Express จับคู่ตาม
 //    ลำดับที่ประกาศ ถ้าอยู่หลัง '/files/:id' จะกิน '/files/uploads' ไปเป็น id เสียก่อน
 apiRouter.use('/files/uploads', uploadsRouter)
+// ── Media derivatives (poster / motion proxy / media-info / admin cache) — spec §14 ──
+//    ต้องอยู่ก่อน route ทั่วไปของ /files/:id เพื่อให้ /files/media-info/batch ไม่ถูกจับเป็น :id
+apiRouter.use(mediaRouter)
 
 // ── Upload — Storage Layer (bytes) + Metadata Layer (แถวใน files) ────────────
 // ⚠️ ลำดับสำคัญ: เขียน bytes ลงดิสก์ให้เสร็จก่อน แล้วค่อย INSERT metadata — ถ้าสลับกัน
@@ -427,7 +544,21 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
       // ⚠️ ผูกกับเจ้าของเสมอ (findOwnFileByName) — ถ้าเทียบด้วยชื่อไฟล์อย่างเดียว ผู้ใช้
       //    คนหนึ่งจะเขียนทับไฟล์ของคนอื่นได้แค่ตั้งชื่อให้ตรง ซึ่งเป็นการข้ามด่าน ownership
       //    ที่ DELETE มีอยู่ ไฟล์ชื่อเดียวกันของคนละเจ้าของยังเป็นสองไฟล์แยกกันเหมือนเดิม
-      const existing = await store.findOwnFileByName(name, req.user.id)
+      // ปลายทางเชิงตรรกะของการอัปโหลด — โฟลเดอร์ที่จอกำลังเปิดอยู่ ถ้ามี
+      // ⚠️ ไม่เชื่อ id ที่ client แจ้ง: ต้องเป็นโฟลเดอร์ของผู้เรียกที่ยังอยู่จริงเท่านั้น
+      const claimedParent = req.body?.parentId == null || req.body.parentId === '' ? null : String(req.body.parentId)
+      let uploadParentId = null
+      if (claimedParent !== null) {
+        const parent = await store.findOwnFolder(claimedParent, req.user.id)
+        if (!parent) {
+          await discardUploaded(req.file)
+          return res.status(404).json({ error: 'Not found' })
+        }
+        uploadParentId = parent.id
+      }
+
+      // ⚠️ "ชื่อเดิม" หมายถึงเดิมในโฟลเดอร์เดียวกัน — ไฟล์ชื่อซ้ำคนละโฟลเดอร์คือคนละไฟล์
+      const existing = await store.findOwnFileByName(name, req.user.id, uploadParentId)
 
       let row
       try {
@@ -444,14 +575,29 @@ apiRouter.post('/files/upload', requireAuth, (req, res, next) => {
           })
           if (!row) throw new Error('file row vanished mid-upload')
         } else {
-          row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user })
+          // ปลายทางของการอัปโหลดคือโฟลเดอร์ที่ผู้ใช้กำลังเปิดอยู่ (ถ้ามี) — ตรวจว่าเป็น
+          // โฟลเดอร์ของผู้เรียกจริงก่อนเสมอ ไม่เชื่อ id ที่ client แจ้งมาลอย ๆ
+          row = await store.recordUpload({ name, storageKey, size, sha256, user: req.user, parentId: uploadParentId })
+          // ⚠️ null = โฟลเดอร์ปลายทางหายไประหว่างทาง — ต้องไม่ปล่อยไบต์กำพร้าไว้บนดิสก์
+          if (!row) throw Object.assign(new Error('upload target is gone'), { code: 'TARGET_GONE' })
+          if (row.nameTaken) throw Object.assign(new Error('name already used'), { code: 'NAME_TAKEN' })
         }
       } catch (dbErr) {
         await discardUploaded(req.file) // metadata ไม่ผ่าน = ต้องไม่เหลือ bytes กำพร้า
+        // ปลายทางหายไประหว่างอัปโหลด = ความจริงที่ต้องบอก ไม่ใช่ 500 (ไบต์ถูกทิ้งแล้วด้านบน)
+        if (dbErr?.code === 'TARGET_GONE') {
+          await auditAct(req, 'FILE_UPLOAD', name, 'DENIED')
+          return res.status(409).json({ error: 'Upload destination is gone', code: 'TARGET_GONE' })
+        }
+        if (dbErr?.code === 'NAME_TAKEN') {
+          return res.status(409).json({ error: 'Name already used', code: 'NAME_TAKEN' })
+        }
         throw dbErr
       }
 
       await auditAct(req, existing ? 'FILE_VERSION_ADD' : 'FILE_UPLOAD', name)
+      // ⚠️ จัดคิว derivative หลังคำตอบปิดแล้วเท่านั้น — ไม่มี await ไม่เปลี่ยนสถานะ/เนื้อคำตอบ (spec §15, plan Task 10)
+      scheduleDerivativesAfterResponse(req, res, row)
       res.status(201).json({ file: row, newVersion: Boolean(existing) })
     } catch (err) {
       next(err)
@@ -538,6 +684,81 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
   }
 })
 
+// ── Preview — เสิร์ฟ "เนื้อใน" ของภาพ/วิดีโอปกติให้เบราว์เซอร์แสดงผลได้ (Round 8) ──
+// ⚠️ ทำไมไม่ยืม Download: Download ตั้ง octet-stream + attachment + nosniff โดยเจตนา
+//    เพื่อไม่ให้ไฟล์ที่ผู้ใช้อัปโหลด (HTML/SVG) ถูก render ใน origin ของแอป และไม่รองรับ
+//    Range เบราว์เซอร์จึงวาด <img> จากมันไม่ได้ และ <video> จะดึงทั้งไฟล์ เส้นทางนี้เปิด
+//    "เฉพาะ" ชนิดที่ render แล้วรันอะไรไม่ได้ (allowlist ด้านล่าง — ไม่มี svg) และตอบเป็น
+//    ช่วง (206) เพื่อให้ RAM ต่อคำขอถูกจำกัดทั้งสองฝั่ง
+// ⚠️ MIME มาจากนามสกุลของชื่อในฐานข้อมูล ไม่ใช่จาก client และไม่ใช่การ sniff ไบต์:
+//    เบราว์เซอร์จะแสดงผลตามที่เราประกาศพร้อม nosniff — ไฟล์ .jpg ที่ข้างในเป็น HTML
+//    จึงเป็นแค่ภาพเสีย ไม่ใช่หน้าเว็บที่รันใน origin ของเรา และ CSP sandbox กำกับอีกชั้น
+// ⚠️ Private Vault: แถว vault=true ตอบ 404 เหมือนไม่มีเส้นทางนี้ — เซิร์ฟเวอร์เห็นแค่
+//    ciphertext ไม่มี plaintext ให้ preview และต้องไม่มีวันมี (ดู /vault/blobs/:id/chunks)
+//    allowlist ตัวจริงอยู่ที่ config/previewMedia.js (แหล่งเดียว ใช้ร่วมกับท่อ media derivative)
+
+apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
+  try {
+    const file = await store.findFile(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ ด่านความเป็นเจ้าของต้องมาก่อน Range/MIME/ขนาดไฟล์ทุกอย่าง — 416 หรือ 415 ให้คนอื่น
+    //    ก็คือการยืนยันว่าไฟล์นี้มีอยู่และเป็นชนิดอะไร (เหมือน Download: 404 เท่านั้น)
+    if (file.ownerId == null || String(file.ownerId) !== String(req.user.id)) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (file.vault) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    if (file.kind === 'folder' || file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
+
+    const mime = previewMimeForName(file.name)
+    if (!mime) return res.status(415).json({ error: 'Preview not supported for this type' })
+
+    const abs = resolveKey(file.path)
+    if (!abs || !(await keyExists(file.path))) {
+      await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
+      return res.status(404).json({ error: 'Not found' })
+    }
+    // ขนาดจริงบนดิสก์ — Content-Range ต้องตรงกับไบต์ที่ส่งจริง ไม่ใช่คอลัมน์ที่อาจคลาดเคลื่อน
+    const size = await sizeOfFile(abs)
+
+    // ⚠️ ไม่ audit ความสำเร็จต่อคำขอ: กริดหนึ่งหน้าคือคำขอ thumbnail หลายสิบครั้ง และ
+    //    <video> ยิง Range เป็นชุด การบันทึกทุกครั้งจะฝัง audit จริง ๆ (ทิ้ง/แชร์/ดาวน์โหลด)
+    //    ไว้ใต้เสียงรบกวน ความพยายามข้ามเจ้าของยังถูกบันทึกเป็น DENIED ด้านบนเสมอ
+    res.setHeader('Content-Type', mime)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Cache-Control', 'private, no-store')
+    // ต่อให้ URL นี้ถูกเปิดตรง ๆ ในแท็บ เอกสารที่ได้ก็ไม่มีสิทธิ์ใด ๆ ใน origin — ชั้นกันเพิ่ม
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox")
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
+
+    const range = parseByteRange(req.headers.range, size)
+    if (range === 'unsatisfiable') {
+      res.setHeader('Content-Range', `bytes */${size}`)
+      return res.status(416).end()
+    }
+    const start = range ? range.start : 0
+    const end = range ? range.end : size - 1
+    if (range) {
+      res.status(206)
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+    }
+    res.setHeader('Content-Length', String(size === 0 ? 0 : end - start + 1))
+    if (size === 0) return res.end()
+
+    const stream = openReadStreamRange(file.path, { start, end })
+    if (!stream) return res.status(404).json({ error: 'Not found' })
+    stream.on('error', () => res.destroy())
+    stream.pipe(res)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ⚠️ ด่าน ownership — requireAuth บอกได้แค่ "เป็นใครคนหนึ่งที่ล็อกอินแล้ว" ไม่ได้บอกว่า
 //    ไฟล์นี้เป็นของเขา เดิมขาดด่านนี้ไป ผลคือ **ผู้ใช้ที่ล็อกอินคนไหนก็ลบไฟล์ของคนอื่นได้
 //    ทั้งแถว metadata และ bytes บนดิสก์** ก่อน Protected Trash ถูกนำมาใช้
@@ -564,8 +785,22 @@ apiRouter.delete('/files/:id', requireAuth, async (req, res, next) => {
       await auditAct(req, 'FILE_TRASH', file.name, 'DENIED')
       return res.status(403).json({ error: 'Forbidden' })
     }
+    // ⚠️ parent_id เป็น ON DELETE RESTRICT และ Protected Trash ทำให้การลบเป็นการตั้ง
+    //    deleted_at ไม่ใช่การลบแถว — RESTRICT จึงไม่ยิงตอนนี้ ถ้าปล่อยให้โฟลเดอร์ที่ยังมี
+    //    ลูกลงถังได้ ลูกจะกลายเป็นของกำพร้าที่ชี้ไปยังพ่อที่หายจากทุกจอ กู้คืนเองไม่ได้
+    //    กติกาที่เล็กที่สุดที่ยังปลอดภัยคือ: ต้องย้าย/ลบของข้างในให้หมดก่อน
+    // การตรวจตรงนี้มีไว้เพื่อตอบเร็วเท่านั้น — การตัดสินใจจริงอยู่ในธุรกรรมของ trashFile
+    // ซึ่งถือล็อกลำดับชั้นของเจ้าของแล้วนับลูกอีกครั้ง (ดู store.js)
+    if (file.kind === 'folder' && (await store.countLiveChildren(file.id, req.user.id)) > 0) {
+      return res.status(409).json({ error: 'Folder is not empty', code: 'FOLDER_NOT_EMPTY' })
+    }
+
     const trashed = await store.trashFile(file.id, req.user.id)
     if (!trashed) return res.status(404).json({ error: 'Not found' })
+    // ⚠️ ธุรกรรมอาจปฏิเสธแม้การตรวจด้านบนผ่าน: มีคนย้ายของเข้ามาระหว่างสองจุดนั้น
+    if (trashed.code === 'FOLDER_NOT_EMPTY') {
+      return res.status(409).json({ error: 'Folder is not empty', code: 'FOLDER_NOT_EMPTY' })
+    }
     await auditAct(req, 'FILE_TRASH', file.name)
     res.json({ ok: true, purgeAt: new Date(trashed.purgeAt).toISOString() })
   } catch (err) {
@@ -652,6 +887,14 @@ apiRouter.post('/trash/:id/restore', requireAuth, async (req, res, next) => {
         }
       }
       const restored = await store.restoreTrashedFile(file.id, req.user.id, req.body?.name ?? null)
+      // ⚠️ พ่อเดิมอยู่ในถังหรือหายไป = ปฏิเสธตรง ๆ ไม่แอบย้ายไปราก — ให้กู้พ่อก่อน
+      if (restored?.parentUnavailable) {
+        return {
+          status: 409, auditTarget: file.name, auditResult: 'BLOCKED',
+          body: { error: 'Restore the parent folder first', code: 'PARENT_NOT_AVAILABLE' },
+        }
+      }
+      if (restored?.invalid) return { status: 400, body: { error: 'Invalid input' } }
       if (restored?.conflict) {
         return {
           status: 409,
@@ -691,7 +934,14 @@ apiRouter.delete('/trash/:id', requireAuth, async (req, res, next) => {
       await auditAct(req, 'FILE_TRASH_PURGE', req.params.id, 'DENIED')
       return res.status(404).json({ error: 'Not found' })
     }
-    if (!(await purgeTrashRecord(file, req.user.id))) return res.status(404).json({ error: 'Not found' })
+    const outcome = await purgeTrashRecord(file, req.user.id)
+    // ⚠️ โฟลเดอร์ที่ยังมีลูกในถัง = ปฏิเสธด้วยรหัสที่อ่านรู้เรื่อง ไม่ใช่ FK 23503 ที่เป็น 500
+    //    ห้าม CASCADE ให้เอง — เจ้าของต้องลบลูกก่อน
+    if (outcome && outcome.blocked) {
+      await auditAct(req, 'FILE_TRASH_PURGE', file.name, 'BLOCKED')
+      return res.status(409).json({ error: 'Folder still has items in the trash', code: outcome.blocked })
+    }
+    if (outcome !== true) return res.status(404).json({ error: 'Not found' })
     await auditAct(req, 'FILE_TRASH_PURGE', file.name)
     res.json({ ok: true })
   } catch (error) { next(error) }
@@ -706,12 +956,13 @@ apiRouter.post('/trash/empty', requireAuth, async (req, res, next) => {
       if (verified.locked) return res.status(429).json({ error: INVALID_CREDENTIALS })
       return res.status(401).json({ error: INVALID_CREDENTIALS })
     }
-    const files = await store.listTrash(req.user.id)
-    let deletedCount = 0
-    for (const file of files) if (await purgeTrashRecord(file, req.user.id)) deletedCount += 1
+    // ลบลูกก่อนพ่อเสมอ (รอบใบไม้) — และรายงานของที่ค้างตามจริง ไม่อ้างว่าล้างหมด
+    const { deletedCount, blockedCount, busyCount, remainingCount } = await emptyTrashForUser(req.user.id)
     lockTrashSession(req)
-    await auditAct(req, 'TRASH_EMPTY', String(req.user.id))
-    res.json({ ok: true, deletedCount })
+    // ⚠️ ok ตัดสินจาก "ถังว่างจริงหลังจบ" ไม่ใช่จากตัวนับที่สะสมระหว่างทาง
+    const ok = remainingCount === 0
+    await auditAct(req, 'TRASH_EMPTY', String(req.user.id), ok ? 'OK' : 'PARTIAL')
+    res.json({ ok, deletedCount, blockedCount, busyCount, remainingCount })
   } catch (error) { next(error) }
 })
 
@@ -930,6 +1181,7 @@ apiRouter.post('/files/:id/versions/:versionId/restore', requireAuth, async (req
     await store.deleteFileVersion(file.id, version.id)
 
     await auditAct(req, 'FILE_VERSION_RESTORE', file.name)
+    scheduleDerivativesAfterResponse(req, res, row) // เนื้อหาปัจจุบันเปลี่ยน sha → derivative ชุดใหม่ หลังคำตอบ
     res.json({ file: row, restoredFromVersionId: version.id })
   } catch (err) {
     next(err)

@@ -82,6 +82,14 @@ CREATE TABLE IF NOT EXISTS files (
   sha256       CHAR(64),                       -- checksum สำหรับ integrity verify
   vault        BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE = ciphertext จาก client (Zero-Knowledge)
   verified     BOOLEAN NOT NULL DEFAULT FALSE,
+  -- ⚠️ ตัวตนของ entity อยู่ที่คอลัมน์นี้ ไม่ใช่ที่นามสกุลในชื่อไฟล์ (migration 010)
+  --    ก่อนหน้านี้ "ชื่อที่ไม่มีจุด = โฟลเดอร์" ทำให้ไฟล์ชื่อ README แสดงเป็นโฟลเดอร์
+  --    และการเปลี่ยนชื่อ report.pdf → report แปลงไฟล์เป็นโฟลเดอร์เงียบ ๆ
+  kind         TEXT NOT NULL DEFAULT 'file' CHECK (kind IN ('file', 'folder')),
+  -- ⚠️ RESTRICT ไม่ใช่ CASCADE โดยเจตนา: Protected Trash ทำให้การลบเป็นการตั้ง deleted_at
+  --    การใช้ CASCADE จะทำให้ซับทรีหายพร้อมกันตอน purge จริง ชั้นแอปกันอีกชั้นด้วย
+  --    FOLDER_NOT_EMPTY (ดู routes/api.js) ไม่ให้โฟลเดอร์ที่ยังมีลูกลงถังตั้งแต่แรก
+  parent_id    BIGINT REFERENCES files(id) ON DELETE RESTRICT,
   uploaded_by  BIGINT REFERENCES users(id) ON DELETE SET NULL,
   -- Protected Trash applies only to normal Data Lake rows. Active rows keep both
   -- timestamps NULL; trashed rows always carry both timestamps together.
@@ -95,6 +103,14 @@ CREATE TABLE IF NOT EXISTS files (
     OR (deleted_at IS NOT NULL AND purge_after IS NOT NULL AND purge_after >= deleted_at)
   )
 );
+
+CREATE INDEX IF NOT EXISTS files_parent_id_idx ON files (parent_id);
+
+-- ชื่อต้องไม่ซ้ำภายในโฟลเดอร์เดียวกันของเจ้าของคนเดียวกัน (เฉพาะแถวที่ยังไม่ถูกลบ)
+-- ⚠️ parent_id เป็น NULL ที่ราก และ NULL ไม่เท่ากับ NULL ใน UNIQUE ปกติ จึงต้อง COALESCE
+CREATE UNIQUE INDEX IF NOT EXISTS files_unique_name_per_parent_idx
+  ON files (uploaded_by, COALESCE(parent_id, 0), lower(name))
+  WHERE deleted_at IS NULL AND vault = false;
 
 CREATE INDEX IF NOT EXISTS files_trash_owner_idx
   ON files (uploaded_by, deleted_at DESC) WHERE deleted_at IS NOT NULL;
@@ -287,6 +303,9 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   -- commit_storage_key = key ปลายทางที่ถูกเลือกและบันทึก "ก่อน" การ rename ใด ๆ
   -- committed_file_id = แถวใน files ที่ commit นี้สร้าง/อัปเดต ถูกเขียนใน transaction
   --    เดียวกับที่เปลี่ยน status เป็น 'committed' จึงไม่มีวันมีค่าในแถวที่ยัง committing
+  -- ⚠️ ปลายทางเชิงตรรกะถูกตัดสินและตรวจสิทธิ์ "ตอนเปิดเซสชัน" แล้วเก็บไว้ที่นี่
+  --    คำขอ commit เปลี่ยนปลายทางไม่ได้ (ดู finishUploadCommit) — เซสชันคือแหล่งความจริง
+  parent_id           BIGINT REFERENCES files(id) ON DELETE RESTRICT,
   commit_started_at   TIMESTAMPTZ,
   commit_storage_key  TEXT,
   committed_file_id   BIGINT REFERENCES files(id) ON DELETE SET NULL,

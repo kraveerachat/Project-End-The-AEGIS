@@ -273,10 +273,12 @@ test('TRASH-32 auto purge only claims expired trash and reports idempotent bound
   const first = await store.listExpiredTrash(10)
   assert.deepEqual(first.map((row) => row.id), [expired.id])
   assert.equal(first.some((row) => row.id === future.id), false)
-  assert.deepEqual(await runTrashAutoPurge({ limit: 10 }), { examined: 1, purged: 1 })
+  // `blocked` = โฟลเดอร์ที่ยังมีลูกในถังและถูกข้ามในรอบนี้ (FILES-MANAGEMENT-UX-1 S2 r3)
+  //  ไม่มีโฟลเดอร์ในเคสนี้ จึงเป็นศูนย์ — แต่ต้องรายงานเสมอเพื่อไม่ให้ "ล้างหมด" กลายเป็นคำโกหก
+  assert.deepEqual(await runTrashAutoPurge({ limit: 10 }), { examined: 1, purged: 1, blocked: 0 })
   assert.equal(await keyExists(expiredKey), false)
   assert.equal(await store.findTrashedFile(future.id, ownerId) != null, true)
-  assert.deepEqual(await runTrashAutoPurge({ limit: 10 }), { examined: 0, purged: 0 })
+  assert.deepEqual(await runTrashAutoPurge({ limit: 10 }), { examined: 0, purged: 0, blocked: 0 })
   const audit = await readAudit(100)
   assert.ok(audit.some((event) => event.action === 'FILE_TRASH_AUTO_PURGE'
     && (event.actor_label ?? event.actorLabel) === 'system'))
