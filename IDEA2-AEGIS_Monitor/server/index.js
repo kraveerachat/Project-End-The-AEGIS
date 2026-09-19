@@ -16,6 +16,7 @@ import { csrfProtection } from './middleware/csrf.js'
 import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
 import { internalRouter } from './routes/internal.js'
+import { agentAuthRouter } from './routes/agentAuth.js'
 import { requireDetectionEngineKey } from './middleware/requireDetectionEngineKey.js'
 import { usingPostgres, checkDb } from './db/connection.js'
 
@@ -30,6 +31,9 @@ app.set('trust proxy', 1)   // req.ip เป็น IP จริงของ clie
 app.disable('x-powered-by') // ลด fingerprinting
 
 app.use(securityHeaders)
+// Dedicated Agent authentication is intentionally mounted before the generic
+// JSON/session stack and separately from the legacy shared-key ingest gate.
+app.use('/internal/agent-auth', agentAuthRouter)
 app.use(express.json({ limit: '16kb' }))
 app.use(sessionMiddleware())
 

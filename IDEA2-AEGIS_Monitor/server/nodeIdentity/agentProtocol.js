@@ -39,8 +39,8 @@ function encodeText(value, label) {
   return Buffer.from(value, 'utf8').toString('base64url')
 }
 
-export function parseCanonicalToken(value, expectedBytes, label = 'token') {
-  if (typeof value !== 'string' || !TOKEN_RE.test(value) || value.includes('=')) {
+export function parseCanonicalBase64Url(value, expectedBytes, label = 'value') {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value) || value.includes('=')) {
     throw new TypeError(`${label} is not canonical Base64URL`)
   }
   let decoded
@@ -53,6 +53,13 @@ export function parseCanonicalToken(value, expectedBytes, label = 'token') {
     throw new TypeError(`${label} has the wrong canonical length`)
   }
   return value
+}
+
+export function parseCanonicalToken(value, expectedBytes, label = 'token') {
+  if (typeof value !== 'string' || !TOKEN_RE.test(value)) {
+    throw new TypeError(`${label} is not a canonical token`)
+  }
+  return parseCanonicalBase64Url(value, expectedBytes, label)
 }
 
 export function parseUint(value, { label = 'integer', positive = false, max = MAX_UINT64 } = {}) {
