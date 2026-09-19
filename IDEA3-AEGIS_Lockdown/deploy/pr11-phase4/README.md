@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L6b REGISTERED (T4 repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L2, L6b REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -157,8 +157,20 @@ T1 defined the handler contract. A separately reviewed task may register a stage
 `rollback.sh` must be idempotent and undo only its own stage. It must never
 remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
-directory. T4 now registers the separately reviewed L6b handler under
-`stages/L6b/`; other stages remain unregistered unless separately reviewed.
+directory. T4 registered the separately reviewed L6b handler under
+`stages/L6b/`. This separately reviewed L2 repository task registers L2 under
+`stages/L2/`. Other stages (`L3`, `L4`, `L5`, `L6a`) remain unregistered unless
+separately reviewed.
+
+### L2 handler (firewall & forwarding persistence)
+
+- L2 owns only dedicated IDEA3 firewall and forwarding persistence: table `inet aegis_idea3`, `/etc/aegis-idea3/aegis-idea3.nft`, `aegis-idea3-nftables-load.service`, and `/etc/sysctl.d/90-aegis-idea3-forwarding.conf`.
+- Forwarding target remains strictly zero (`= 0`) across all interfaces.
+- Zero NAT (no masquerade, SNAT, or DNAT), zero bridge creation, and zero listener additions (`allow-listeners.txt` has no active entries).
+- Live mode requires explicit `AEGIS_L2_LIVE_AUTHORIZED=YES` and root.
+- `/etc/aegis-idea3` must already exist as a non-symlink directory in live mode (`IDEA3_PARENT_DIR_REQUIRED`).
+- Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
+- L2 has NOT been run live; live execution is NOT authorized.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
