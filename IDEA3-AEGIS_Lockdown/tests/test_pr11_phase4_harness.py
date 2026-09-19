@@ -596,17 +596,18 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
     assert not re.search(r"flush\s+ruleset", path.read_text(), re.IGNORECASE)
 
 
-def test_only_reviewed_l6b_stage_handler_is_registered() -> None:
+def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L6b"}
-    assert {p.name for p in (stages / "L6b").iterdir() if p.is_file()} == {
-        "apply.sh",
-        "verify.sh",
-        "rollback.sh",
-        "allow-keys.txt",
-        "allow-listeners.txt",
-    }
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L6b"}
+    for name in ("L2", "L6b"):
+        assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
+            "apply.sh",
+            "verify.sh",
+            "rollback.sh",
+            "allow-keys.txt",
+            "allow-listeners.txt",
+        }
 
 
 def ro(snippet: str, bindir: Path, calls: Path) -> subprocess.CompletedProcess:
@@ -1030,14 +1031,14 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
     assert "K3_CONFIRMATION=VALID" in out
     assert "STAGE_MUTATES_PRODUCTION=YES" in out
     assert "REQUIRED_REPOSITORY_GAPS=G-06,G-15" in out
-    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in out
+    assert "ROLLBACK_HANDLER=REGISTERED" in out
     assert "S10_IDEA2_CAVEAT=OPEN" in out
     assert "LIVE_STAGE_AUTHORIZED=NO" in out
     assert "PRODUCTION_MUTATION_PERFORMED=NO" in out
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    result = gate(tmp_path, "--stage", "L2", "--mode", "live", auth=auth_record("L2"), k3=k3_record("L2"))
+    result = gate(tmp_path, "--stage", "L3", "--mode", "live", auth=auth_record("L3"), k3=k3_record("L3"))
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
 
