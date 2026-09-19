@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS detection_nodes (
   public_key             TEXT NOT NULL,
   public_key_fingerprint TEXT NOT NULL UNIQUE,
   key_version            INTEGER NOT NULL CHECK (key_version > 0),
+  ingest_auth_mode       TEXT NOT NULL DEFAULT 'legacy_shared_key'
+                         CHECK (ingest_auth_mode IN ('legacy_shared_key', 'ed25519_required')),
   active                 BOOLEAN NOT NULL DEFAULT TRUE,
   registered_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()

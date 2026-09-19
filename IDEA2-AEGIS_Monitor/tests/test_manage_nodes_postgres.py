@@ -204,6 +204,7 @@ class NodeRegistryPostgresTests(unittest.TestCase):
             cursor.execute(
                 """
                 SELECT dn.node_id, dn.camera_id, dn.key_version, dn.active,
+                       dn.ingest_auth_mode,
                        pc.physical_camera_id, policy.mode, policy.fixed_camera_id
                   FROM detection_nodes dn
                   JOIN physical_cameras pc USING (node_id)
@@ -217,8 +218,9 @@ class NodeRegistryPostgresTests(unittest.TestCase):
         self.assertEqual("CAM-01", row[1])
         self.assertEqual(1, row[2])
         self.assertTrue(row[3])
-        self.assertGreater(row[4], 0)
-        self.assertEqual(("fixed", "CAM-01"), row[5:])
+        self.assertEqual("legacy_shared_key", row[4])
+        self.assertGreater(row[5], 0)
+        self.assertEqual(("fixed", "CAM-01"), row[6:])
 
     def test_duplicate_node_and_public_key_fingerprint_conflicts_are_rejected(self):
         self._register(self.node_ids[0])

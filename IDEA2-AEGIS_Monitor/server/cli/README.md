@@ -22,12 +22,20 @@ python3 manage_nodes.py disable --node-id edge-node-new
 python3 manage_nodes.py rotate-key \
   --node-id edge-node-new \
   --public-key /secure/path/replacement-public.pem
+
+# Separate reviewed rollout action after the Agent proof path is verified.
+python3 manage_nodes.py set-ingest-auth-mode \
+  --node-id edge-node-new \
+  --mode ed25519_required
 ```
 
 `register` creates the node, a server-generated physical-camera identity, and
 its initial logical-alias policy in one transaction. `list` prints only the
 fingerprint and registration metadata; it does not print the stored public-key
-payload. Apply migrations 001–003 through the reviewed deployment process
+payload. New registrations default to `legacy_shared_key`; migration 004 also
+preserves that mode for existing rows. Changing one exact Node to
+`ed25519_required` is a separate reviewed operational action and does not move
+its physical camera or logical-alias policy. Apply migrations 001–004 through the reviewed deployment process
 before using this CLI. These source tests do not authorize running migrations
 or registration commands against Production.
 

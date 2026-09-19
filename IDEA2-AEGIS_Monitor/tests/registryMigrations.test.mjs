@@ -21,6 +21,7 @@ const migrationPaths = [
   'server/db/migrations/001_device_owned_local_runtime.sql',
   'server/db/migrations/002_physical_camera_logical_alias.sql',
   'server/db/migrations/003_deprecate_node_camera_identity.sql',
+  'server/db/migrations/004_detection_node_ingest_auth_mode.sql',
 ]
 
 test('migration 001 adds the node registry without seeding authority', () => {
@@ -57,6 +58,14 @@ test('migration 003 removes only obsolete logical-as-physical constraints', () =
   assert.doesNotMatch(sql, /drop\s+(?:table|column)\b|truncate\b|delete\s+from\b|update\s+detection_nodes/)
 })
 
+test('migration 004 adds only the explicit compatibility-safe per-node ingest mode', () => {
+  const sql = normalizedSql(migrationPaths[3])
+  assert.match(sql, /alter table detection_nodes add column if not exists ingest_auth_mode text/)
+  assert.match(sql, /default 'legacy_shared_key'/)
+  assert.match(sql, /check\s*\(ingest_auth_mode in\s*\('legacy_shared_key',\s*'ed25519_required'\)\)/)
+  assert.doesNotMatch(sql, /\btruncate\b|\bdrop\s+(?:table|column)\b|\bdelete\s+from\b|\bupdate\s+detection_nodes/)
+})
+
 test('fresh schema contains the final registry model while retaining logical camera tables', () => {
   const sql = normalizedSql('server/db/schema.sql')
   for (const table of [
@@ -75,6 +84,8 @@ test('fresh schema contains the final registry model while retaining logical cam
     assert.match(sql, new RegExp(`create table if not exists ${table}`), `${table} missing`)
   }
   assert.match(sql, /camera_id text references cameras\s*\(id\) on delete restrict/)
+  assert.match(sql, /ingest_auth_mode text not null default 'legacy_shared_key'/)
+  assert.match(sql, /check\s*\(ingest_auth_mode in\s*\('legacy_shared_key',\s*'ed25519_required'\)\)/)
   assert.doesNotMatch(sql, /camera_id text not null unique references cameras\s*\(id\) on delete restrict/)
 })
 
@@ -190,6 +201,11 @@ test('migrations rerun and preserve representative current-main rows in real Pos
        WHERE table_schema = $1 AND table_name = 'detection_nodes' AND column_name = 'camera_id'
     `, [schemaName])
     assert.deepEqual(nullable.rows, [{ is_nullable: 'YES' }])
+    const authModes = await client.query(
+      'SELECT node_id, ingest_auth_mode FROM detection_nodes ORDER BY node_id',
+    )
+    assert.ok(authModes.rows.length >= 4)
+    assert.ok(authModes.rows.every((row) => row.ingest_auth_mode === 'legacy_shared_key'))
   } finally {
     await client.query('SET search_path TO public')
     await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`)
