@@ -1,6 +1,7 @@
 // scripts/measure/vault-tree/manifest-bench.mjs — PR #157 Phase 0 Task 0.1 · Node runner
 //
-// ⚠️ DISPOSABLE. Not part of npm test or the Vite build. Run with --expose-gc for
+// ⚠️ DISPOSABLE. Not part of npm test or the Vite build. Measures the REAL product modules
+//    (src/lib/vaultTree*.js) since Task 1.6; the Phase 0 prototype is gone. Run with --expose-gc for
 //    heap deltas:  node --expose-gc scripts/measure/vault-tree/manifest-bench.mjs --out <file.md>
 //
 // Usage:
@@ -24,16 +25,15 @@ for (const nodes of NODE_COUNTS) {
   if (quick && nodes > 10_000) continue
   for (const depth of DEPTHS) {
     for (const nameBytes of NAME_BYTES) {
-      // 50 000 nodes × 1 024-byte names is ~55 MB of plaintext — measured, but only once.
       const cell = await measureCell({ nodes, depth, nameBytes, memory })
       rows.push(cell)
-      process.stderr.write(`nodes=${nodes} depth=${depth} name=${nameBytes} enc=${cell.encodedBytes} pad=${cell.paddedBytes} d+v=${cell.decryptValidateMs}ms heap=${cell.heapDeltaMB}\n`)
+      process.stderr.write(`nodes=${nodes} depth=${depth} name=${nameBytes} ${cell.rejected ? 'REJECTED ' + cell.rejected : `enc=${cell.encodedBytes} pad=${cell.paddedBytes} d+v=${cell.decryptValidateMs}ms heap=${cell.heapDeltaMB}`}\n`)
     }
   }
 }
 
 const header = [
-  `## Node bench — ${new Date().toISOString()}`,
+  `## Node bench (product modules) — ${new Date().toISOString()}`,
   '',
   `- host: ${os.platform()} ${os.release()} ${os.arch()}; cpu: ${os.cpus()[0]?.model ?? 'unknown'}; ram: ${Math.round(os.totalmem() / 1_073_741_824)} GiB`,
   `- node: ${process.version}; gc exposed: ${Boolean(globalThis.gc)}`,

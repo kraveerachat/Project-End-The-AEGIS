@@ -30,7 +30,7 @@ globalThis.runManifestBench = async function runManifestBench({ quick = false, m
     for (const depth of DEPTHS) {
       for (const nameBytes of NAME_BYTES) {
         const cell = await measureCell({ nodes, depth, nameBytes, memory })
-        console.log(`cell nodes=${nodes} depth=${depth} name=${nameBytes} enc=${cell.encodedBytes} d+v=${cell.decryptValidateMs} heap=${cell.heapDeltaMB}`)
+        console.log(`cell nodes=${nodes} depth=${depth} name=${nameBytes} ${cell.rejected ? 'REJECTED ' + cell.rejected : `enc=${cell.encodedBytes} d+v=${cell.decryptValidateMs} heap=${cell.heapDeltaMB}`}`)
         rows.push(cell)
       }
     }

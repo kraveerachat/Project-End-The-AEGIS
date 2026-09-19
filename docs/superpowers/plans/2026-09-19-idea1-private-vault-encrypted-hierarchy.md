@@ -237,33 +237,33 @@ Safe reads that stay open in every state: `GET /api/vault`, `GET /api/vault/blob
 
 Audit: tree routes record existing-shape audit events with `target` = opaque `revisionId`/`purgeId`/`leaseId` only (`AUD-OPAQUE-1`).
 
-## Limits Register (Phase 0 output; provisional at gate G0, release-authoritative only after G1)
+## Limits Register (Phase 0 output; provisional at gate G0; **release-authoritative since G1 — `G1_LIMIT_VALIDATION=PASS`, 2026-09-19**)
 
 Every row must be completed by Task 0.3 before Phase 1 starts. Values selected at G0 are **measured provisional development limits** taken from the Phase 0 prototype; they become release-authoritative only when Task 1.6 re-measures the same shapes through the real product modules and records `G1_LIMIT_VALIDATION=PASS`. `MEASURED@G0` is the only permitted deferred-value marker in this document; the self-review scan treats any other placeholder token as a defect. A frozen default may later change only through new recorded evidence and review — never by editing an env default silently, and never by raising a limit because product code exceeded the G0 envelope (that case stops the tranche).
 
 | Limit | Measured how (Task) | Selected default | Enforcing test | Config surface |
 |---|---|---|---|---|
 | Max manifest ciphertext bytes | 0.1: encode+encrypt+upload timing for N = 1k/5k/10k/25k/50k nodes at depth 1–64 in Node and in Chromium/Firefox jsdom-free harness | **16 777 232** (16 MiB + tag; provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MC-LIMIT-1`, `TR-413-1` | server `VAULT_TREE_MAX_MANIFEST_CIPHERTEXT_BYTES`; client `VAULT_TREE_CLIENT_LIMITS.maxCiphertextBytes` |
-| Max decoded manifest bytes | 0.1 | **16 777 216** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `CN-LIMIT-1` | client only |
-| Max nodes | 0.1 (decrypt+validate+render time and heap at N) | **10 000** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-NODES` | client only |
-| Max depth | 0.1 | **64** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-DEPTH` | client only |
-| Max UTF-8 name bytes | 0.1 (collision-key cost at long names; compare `files` name limits in `010_files_kind_parent.sql`) | **600** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-NAME` | client only |
-| Padding buckets | 0.1 (bucket table that hides node-count deltas ≤ measured typical mutation while bounding overhead) | **4 KiB … 16 MiB, 13 powers of two** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `CN-PAD-*` | protocol constant table in `vaultTreeCanonical.js` (versioned) |
-| `recentOperationIds` bound | 0.1 | **64** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MF-LIMIT-OPS` | client only |
-| Max semantic rebase attempts | 0.1 (two-client contention simulation) | **10** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `SY-REBASE-BOUND` | client only |
-| Migration lease duration | 0.1 (decrypt-all timing for the largest measured inventory ×3 safety) | **600 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `PG-LEASE-EXPIRY` | `VAULT_TREE_MIGRATION_LEASE_MS` |
-| Orphan revision retention | 0.3 decision from CAS-loss frequency in 0.1 contention runs | **86 400 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-ORPHAN-REV-1` | `VAULT_TREE_ORPHAN_REVISION_RETENTION_MS` |
-| Orphan blob retention (reporting only; no automatic deletion in this PR) | 0.3 | **2 592 000 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-ORPHAN-BLOB-1` | `VAULT_TREE_ORPHAN_BLOB_RETENTION_MS` |
-| Forensic revision retention | 0.3 (owner decision with evidence of ciphertext volume) | **2 592 000 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `MT-FORENSIC-1` | `VAULT_TREE_FORENSIC_REVISION_RETENTION_MS` |
-| Purge retention/grace | 0.3 | **604 800 000 ms** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `PU-RETENTION-1` | `VAULT_TREE_PURGE_RETENTION_MS` |
-| Image input bytes | 0.2 (decode time/heap for JPEG/PNG/WebP at 1–64 MiB) | **16 777 216** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `IT-LIMIT-BYTES` | client only |
-| Decoded image pixels | 0.2 | **16 000 000** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `IT-LIMIT-PIXELS` | client only |
-| GIF full-play maximum bytes | 0.2 (animated GIF Object URL heap at 1–64 MiB) | **8 388 608** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `GF-LIMIT-PLAY` | client only |
-| GIF poster decode budget | 0.2 | **16 777 216 input bytes, first frame ≤ decoded-pixel limit** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `GF-LIMIT-POSTER` | client only |
-| Simultaneous thumbnail jobs | 0.2 | **4** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-JOBS` | client only |
-| Retained Object URL count | 0.2 | **256** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-URLS` | client only |
-| Estimated preview memory ceiling | 0.2 | **268 435 456** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TS-LIMIT-MEM` | client only |
-| Max `attachBlobIds` per CAS / max purge blob IDs per request | 0.3 | **256 / 256** (provisional, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Task 0.3) | `TR-ATTACH-MAX`, `PU-SET-MAX` | `VAULT_TREE_MAX_ATTACH_PER_CAS`, `VAULT_TREE_MAX_PURGE_PER_REQUEST` |
+| Max decoded manifest bytes | 0.1 | **16 777 216** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `CN-LIMIT-1` | client only |
+| Max nodes | 0.1 (decrypt+validate+render time and heap at N) | **10 000** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MF-LIMIT-NODES` | client only |
+| Max depth | 0.1 | **64** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MF-LIMIT-DEPTH` | client only |
+| Max UTF-8 name bytes | 0.1 (collision-key cost at long names; compare `files` name limits in `010_files_kind_parent.sql`) | **600** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MF-LIMIT-NAME` | client only |
+| Padding buckets | 0.1 (bucket table that hides node-count deltas ≤ measured typical mutation while bounding overhead) | **4 KiB … 16 MiB, 13 powers of two** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `CN-PAD-*` | protocol constant table in `vaultTreeCanonical.js` (versioned) |
+| `recentOperationIds` bound | 0.1 | **64** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MF-LIMIT-OPS` | client only |
+| Max semantic rebase attempts | 0.1 (two-client contention simulation) | **10** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `SY-REBASE-BOUND` | client only |
+| Migration lease duration | 0.1 (decrypt-all timing for the largest measured inventory ×3 safety) | **600 000 ms** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `PG-LEASE-EXPIRY` | `VAULT_TREE_MIGRATION_LEASE_MS` |
+| Orphan revision retention | 0.3 decision from CAS-loss frequency in 0.1 contention runs | **86 400 000 ms** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MT-ORPHAN-REV-1` | `VAULT_TREE_ORPHAN_REVISION_RETENTION_MS` |
+| Orphan blob retention (reporting only; no automatic deletion in this PR) | 0.3 | **2 592 000 000 ms** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MT-ORPHAN-BLOB-1` | `VAULT_TREE_ORPHAN_BLOB_RETENTION_MS` |
+| Forensic revision retention | 0.3 (owner decision with evidence of ciphertext volume) | **2 592 000 000 ms** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `MT-FORENSIC-1` | `VAULT_TREE_FORENSIC_REVISION_RETENTION_MS` |
+| Purge retention/grace | 0.3 | **604 800 000 ms** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `PU-RETENTION-1` | `VAULT_TREE_PURGE_RETENTION_MS` |
+| Image input bytes | 0.2 (decode time/heap for JPEG/PNG/WebP at 1–64 MiB) | **16 777 216** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `IT-LIMIT-BYTES` | client only |
+| Decoded image pixels | 0.2 | **16 000 000** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `IT-LIMIT-PIXELS` | client only |
+| GIF full-play maximum bytes | 0.2 (animated GIF Object URL heap at 1–64 MiB) | **8 388 608** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `GF-LIMIT-PLAY` | client only |
+| GIF poster decode budget | 0.2 | **16 777 216 input bytes, first frame ≤ decoded-pixel limit** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `GF-LIMIT-POSTER` | client only |
+| Simultaneous thumbnail jobs | 0.2 | **4** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `TS-LIMIT-JOBS` | client only |
+| Retained Object URL count | 0.2 | **256** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `TS-LIMIT-URLS` | client only |
+| Estimated preview memory ceiling | 0.2 | **268 435 456** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `TS-LIMIT-MEM` | client only |
+| Max `attachBlobIds` per CAS / max purge blob IDs per request | 0.3 | **256 / 256** (G1-validated, `2026-09-19-idea1-private-vault-encrypted-hierarchy-limits.md` Tasks 0.3/1.6) | `TR-ATTACH-MAX`, `PU-SET-MAX` | `VAULT_TREE_MAX_ATTACH_PER_CAS`, `VAULT_TREE_MAX_PURGE_PER_REQUEST` |
 
 Already-shipped constants reused unchanged: V1 whole-file ceiling `MAX_VAULT_CIPHERTEXT_BYTES` (`server/storage/vaultStore.js`), V2 `VAULT_TRANSFER_LIMITS`, `PREVIEW_RANGE_WINDOW_BYTES`, `MAX_PREVIEW_PLAINTEXT_CACHE_BYTES`, `MAX_PREVIEW_PREFETCH_SLOTS`, `MAX_BUFFERED_PLAINTEXT_BYTES`.
 
@@ -358,7 +358,7 @@ No server code, no UI. Every module is pure or WebCrypto-only, testable under No
 
 **Interfaces:** as in the file map. All three encoders return a fresh `Uint8Array`; inputs are validated (`treeId`/`revisionId` = 22-char base64url, `slot` ∈ {`primary`,`recovery`}, integers are safe non-negative).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 TA-1 frozen vectors: for one fixed input set each encoder equals a hex literal stored in the test (the freeze — any byte change fails)
 TA-2 layout: byte 0 = 1 (layout version); bytes 1–2 = big-endian label length; label bytes follow; then tag/len/value triples in table order
@@ -367,11 +367,11 @@ TA-4 baseRevisionId null encodes as tag + len 0; undefined is rejected (must be 
 TA-5 rejects: non-base64url ids, wrong-length ids, negative generation, generation > 2^53, unknown slot, non-integer paddedPlaintextLength
 TA-6 no string concatenation: an id containing the label text does not shift parsing (round-trip decoder in the test parses tags back and matches inputs)
 ```
-- [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeAad.test.js` → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement** — `DataView` writes, big-endian, no template strings.
-- [ ] **Step 4: GREEN** → `# tests 6 # pass 6`.
-- [ ] **Step 5:** `git diff --check`.
-- [ ] **Step 6: Commit** → `feat(idea1): add vault tree AAD encoders`
+- [x] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeAad.test.js` → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement** — `DataView` writes, big-endian, no template strings.
+- [x] **Step 4: GREEN** → `# tests 6 # pass 6`.
+- [x] **Step 5:** `git diff --check`.
+- [x] **Step 6: Commit** → `feat(idea1): add vault tree AAD encoders`
 
 ### Task 1.2: TRK slots, degraded unlock, rotation and Manifest DEK wrapping
 
@@ -381,7 +381,7 @@ TA-6 no string concatenation: an id containing the label text does not shift par
 
 **Interfaces:** as in the file map. `ctx` = `{ ownerScopeId, treeId, protocolVersion: 1, keyEnvelopeVersion: 1 }` for TRK; `{ treeId, revisionId, baseRevisionId, generation, manifestSchemaVersion }` for Manifest DEK. Wrapping uses AES-GCM with the AAD from Task 1.1; the KEK is the existing `deriveKek()` output (tests derive with the `FAST` Argon2 params used by `tests/vaultV2Postgres.test.js`).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 TK-1 generateTrkBytes returns 32 bytes; two calls differ; importTrk returns a non-extractable AES-GCM CryptoKey (exportKey rejects)
 TK-2 wrapTrkSlots: primary and recovery decrypt to the same TRK; wrap IVs differ; ciphertexts differ
@@ -398,12 +398,12 @@ TK-12 Manifest DEK AAD substitution: wrapped under {generation 3} presented as {
 TK-13 direct-KEK guard: unwrapManifestDek(kek, ...) with the KEK instead of the TRK fails (there is no code path wrapping a Manifest DEK under the KEK; the test also source-scans vaultTreeKeys.js for any subtle.wrapKey/encrypt call whose key argument is named kek in the Manifest DEK functions)
 TK-14 plaintext TRK bytes passed to importTrk are zero-filled after import (the caller's Uint8Array is all zeros afterwards)
 ```
-- [ ] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeKeys.test.js` → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement.** Unwrap both slots always (no short-circuit), compare decrypted bytes constant-time (`crypto.subtle.timingSafeEqual` is unavailable in browsers — compare via importing both as keys and verifying an AES-GCM test-vector encryption under each; equality of ciphertexts under a fixed IV/plaintext proves key equality without exposing bytes to a non-constant-time comparison).
-- [ ] **Step 4: GREEN** → `# tests 14 # pass 14`.
-- [ ] **Step 5: Regression** `node --test --test-reporter=tap tests/vaultCrypto.test.js tests/vaultChunkCrypto.test.js tests/vaultTreeAad.test.js tests/vaultTreeKeys.test.js`.
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): add stable TRK key envelope and manifest DEK wrapping`
+- [x] **Step 2: RED** `node --test --test-reporter=tap tests/vaultTreeKeys.test.js` → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement.** Unwrap both slots always (no short-circuit), compare decrypted bytes constant-time (`crypto.subtle.timingSafeEqual` is unavailable in browsers — compare via importing both as keys and verifying an AES-GCM test-vector encryption under each; equality of ciphertexts under a fixed IV/plaintext proves key equality without exposing bytes to a non-constant-time comparison).
+- [x] **Step 4: GREEN** → `# tests 14 # pass 14`.
+- [x] **Step 5: Regression** `node --test --test-reporter=tap tests/vaultCrypto.test.js tests/vaultChunkCrypto.test.js tests/vaultTreeAad.test.js tests/vaultTreeKeys.test.js`.
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): add stable TRK key envelope and manifest DEK wrapping`
 
 ### Task 1.3: Canonical serialization, strict parsing and padding
 
@@ -411,7 +411,7 @@ TK-14 plaintext TRK bytes passed to importTrk are zero-filled after import (the 
 - Create: `src/lib/vaultTreeCanonical.js`
 - Test: `tests/vaultTreeCanonical.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 CN-1 canonicalEncode of a manifest with keys inserted in three different orders yields identical bytes (frozen hex vector for a 3-node manifest)
 CN-2 nested node maps are encoded as sorted arrays of [nodeId, node] pairs (Map order is never trusted)
@@ -424,11 +424,11 @@ CN-8 padToBucket: output length equals the smallest bucket ≥ input length + tr
 CN-9 padding trailer tamper (change padded length field) → stripPadding throws 'BAD_PADDING'
 CN-10 determinism: encode(decode(encode(m))) === encode(m) for 200 random manifests (property)
 ```
-- [ ] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement** — hand-written tokenizer/parser (no `JSON.parse` for the protocol path; `JSON.parse` may be used only in tests as an oracle).
-- [ ] **Step 4: GREEN** → `# tests 10 # pass 10`.
-- [ ] **Step 5:** `git diff --check`.
-- [ ] **Step 6: Commit** → `feat(idea1): add canonical vault tree manifest serialization`
+- [x] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement** — hand-written tokenizer/parser (no `JSON.parse` for the protocol path; `JSON.parse` may be used only in tests as an oracle).
+- [x] **Step 4: GREEN** → `# tests 10 # pass 10`.
+- [x] **Step 5:** `git diff --check`.
+- [x] **Step 6: Commit** → `feat(idea1): add canonical vault tree manifest serialization`
 
 ### Task 1.4: Manifest schema, graph validation, collision key, effective lifecycle
 
@@ -436,7 +436,7 @@ CN-10 determinism: encode(decode(encode(m))) === encode(m) for 200 random manife
 - Create: `src/lib/vaultTreeManifest.js`, `src/lib/unicodeCaseFold.js` (generated table: `scripts/measure/vault-tree/gen-casefold.mjs` reads a pinned `CaseFolding.txt` (Unicode version recorded in the module header) and emits the `C + F` mappings; the generator is committed, the source file is not)
 - Test: `tests/vaultTreeManifest.test.js`, `tests/vaultTreeManifestProperty.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 MF-1 createGenesisManifest: schemaVersion 1, generation 1, baseRevisionId null, exactly one node = root folder with parentNodeId null, recentOperationIds []
 MF-2 validateManifest accepts a 5-node tree and returns an index with parent→children map, depth per node
@@ -452,11 +452,11 @@ MF-10 all-fields-untrusted: a decoded object with a prototype key (`__proto__`, 
 MP-1 (property) 500 random valid trees pass; every single-field mutation from a generated list (drop root, re-parent to descendant, duplicate name) fails with the expected code
 MP-2 (property) effectiveState(node) === any(ancestor or self stored state ∈ {trashed, purge-pending}) for all nodes of 200 random trees with random lifecycle assignments
 ```
-- [ ] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement** — index built once per validation; all walks iterative with visited sets; name policy: NFC normalize for storage of display name unchanged, collision key = NFC → full case folding via the generated table.
-- [ ] **Step 4: GREEN** → `# tests 16 # pass 16` (MF-1..10, MF-LIMIT-×4, MP-1, MP-2).
-- [ ] **Step 5:** `git diff --check`.
-- [ ] **Step 6: Commit** → `feat(idea1): add vault tree manifest validation and lifecycle rules`
+- [x] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement** — index built once per validation; all walks iterative with visited sets; name policy: NFC normalize for storage of display name unchanged, collision key = NFC → full case folding via the generated table.
+- [x] **Step 4: GREEN** → `# tests 16 # pass 16` (MF-1..10, MF-LIMIT-×4, MP-1, MP-2).
+- [x] **Step 5:** `git diff --check`.
+- [x] **Step 6: Commit** → `feat(idea1): add vault tree manifest validation and lifecycle rules`
 
 ### Task 1.5: Revision encryption round trip and gate G1
 
@@ -464,7 +464,7 @@ MP-2 (property) effectiveState(node) === any(ancestor or self stored state ∈ {
 - Create: `src/lib/vaultTreeManifestCrypto.js`
 - Test: `tests/vaultTreeManifestCrypto.test.js`, `tests/vaultTreeSourceScan.test.js` (first entries)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 ```
 MC-1 encryptManifestRevision → decryptManifestRevision round trip equals input (deep) for genesis and a 1 000-node manifest
 MC-2 wrong TRK → throws; tampered ciphertext byte → throws; tampered IV → throws; no partial manifest is returned (assert the function returns nothing before validation succeeds — spy on validateManifest order)
@@ -478,12 +478,12 @@ SS-1 (source scan) no file under src/lib/vault* or src/components/vault imports 
 SS-2 (source scan) no file under server/** imports src/lib/vaultTreeManifest.js, vaultTreeOps.js, vaultTreeCanonical.js, vaultTreeRebase.js (SRV-NOIMPORT-1)
 SS-3 (source scan) no vault* client module contains `localStorage`, `sessionStorage`, `indexedDB`, `caches.open`, `caches.match` outside an explicit "// storage-absence-guard" comment line used by tests
 ```
-- [ ] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: GREEN** → `# tests 11 # pass 11`.
-- [ ] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultTreeAad.test.js tests/vaultTreeKeys.test.js tests/vaultTreeCanonical.test.js tests/vaultTreeManifest.test.js tests/vaultTreeManifestProperty.test.js tests/vaultTreeManifestCrypto.test.js tests/vaultTreeLimits.test.js tests/vaultTreeSourceScan.test.js tests/vaultCrypto.test.js tests/vaultChunkCrypto.test.js` → all pass; record counts.
-- [ ] **Step 6:** `git diff --check`.
-- [ ] **Step 7: Commit** → `feat(idea1): encrypt vault tree manifest revisions under TRK-wrapped DEKs`
+- [x] **Step 2: RED** → `ERR_MODULE_NOT_FOUND`.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: GREEN** → `# tests 11 # pass 11`.
+- [x] **Step 5: Phase regression** `node --test --test-concurrency=1 --test-reporter=tap tests/vaultTreeAad.test.js tests/vaultTreeKeys.test.js tests/vaultTreeCanonical.test.js tests/vaultTreeManifest.test.js tests/vaultTreeManifestProperty.test.js tests/vaultTreeManifestCrypto.test.js tests/vaultTreeLimits.test.js tests/vaultTreeSourceScan.test.js tests/vaultCrypto.test.js tests/vaultChunkCrypto.test.js` → all pass; record counts.
+- [x] **Step 6:** `git diff --check`.
+- [x] **Step 7: Commit** → `feat(idea1): encrypt vault tree manifest revisions under TRK-wrapped DEKs`
 
 ### Task 1.6: G1 conformance measurement with the real product modules (gate G1)
 
@@ -494,14 +494,14 @@ SS-3 (source scan) no vault* client module contains `localStorage`, `sessionStor
 
 **Interfaces:** none new. The bench emits the same table columns as Task 0.1 plus `prototypeEncodedBytes`, `productEncodedBytes`, `bytesIdentical`.
 
-- [ ] **Step 1: Shared-fixture byte comparison (one-time, before deleting the prototype)** — for the fixed representative fixture set from Task 0.1 (every N × depth × name-bytes cell), encode with the prototype and with `canonicalEncode`/`padToBucket`; record `bytesIdentical` per cell. Any difference is recorded in the evidence note and resolved by fixing the origin task (the product module is the format definition; the prototype is never "fixed" to match).
-- [ ] **Step 2: Retire the prototype** — remove the inlined encoder from both bench scripts; the bench now imports the product modules only.
-- [ ] **Step 3: Re-measure** — `node scripts/measure/vault-tree/manifest-bench.mjs --out /tmp/vault-tree-bench-g1-node.md` on Windows and WSL Ubuntu; browser bench in Chromium and Firefox; the same shapes as Task 0.1: encoded/padded/ciphertext sizes, actual `decryptManifestRevision` (unwrap + decrypt + `validateManifest`) time, and memory where `performance.measureUserAgentSpecificMemory()` / `process.memoryUsage()` are available (otherwise `NOT MEASURED`, never estimated).
-- [ ] **Step 4: Compare against the G0 safety envelope** — for every Limits Register row derived from Task 0.1: padded/ciphertext sizes must land in the same padding bucket as the G0 evidence, and decrypt+validate time and heap delta at the selected `maxNodes`/`maxDepth`/`maxNameBytes` must stay within the envelope thresholds written in Task 0.3 Step 3.
-- [ ] **Step 5: Outcome** — within the envelope → record `G1_LIMIT_VALIDATION=PASS` in the evidence note, the PR body and the Session Register; the G0 defaults remain frozen and become release-authoritative. Outside the envelope → **STOP Tranche A**: record `G1_LIMIT_VALIDATION=FAIL` with the measured values, do not edit `src/lib/vaultTreeLimits.js` or any `MEASURED@G0` replacement, and obtain external review before any default changes (a lowered default is applied through Task 0.3's procedure with new evidence; a raised default is never applied silently).
-- [ ] **Step 6: Phase regression** — the Task 1.5 Step 5 command → all pass; `git diff --check`.
-- [ ] **Step 7: Commit** → `docs(idea1): validate vault tree limits against product modules`
-- [ ] **Gate G1** (internal) — Session Register row `PVH-P1` including `G1_LIMIT_VALIDATION=PASS`; checks: no server file changed, no existing crypto module changed (`git diff --name-status <G0 SHA>...HEAD` lists only new files under `src/lib/vaultTree*`, `src/lib/unicodeCaseFold.js`, `tests/vaultTree*`, and `scripts/measure/**`), prototype encoder absent from `scripts/measure/vault-tree/` (`grep -n 'prototype' scripts/measure/vault-tree/*.mjs` → 0 code hits).
+- [x] **Step 1: Shared-fixture byte comparison (one-time, before deleting the prototype)** — for the fixed representative fixture set from Task 0.1 (every N × depth × name-bytes cell), encode with the prototype and with `canonicalEncode`/`padToBucket`; record `bytesIdentical` per cell. Any difference is recorded in the evidence note and resolved by fixing the origin task (the product module is the format definition; the prototype is never "fixed" to match).
+- [x] **Step 2: Retire the prototype** — remove the inlined encoder from both bench scripts; the bench now imports the product modules only.
+- [x] **Step 3: Re-measure** — `node scripts/measure/vault-tree/manifest-bench.mjs --out /tmp/vault-tree-bench-g1-node.md` on Windows and WSL Ubuntu; browser bench in Chromium and Firefox; the same shapes as Task 0.1: encoded/padded/ciphertext sizes, actual `decryptManifestRevision` (unwrap + decrypt + `validateManifest`) time, and memory where `performance.measureUserAgentSpecificMemory()` / `process.memoryUsage()` are available (otherwise `NOT MEASURED`, never estimated).
+- [x] **Step 4: Compare against the G0 safety envelope** — for every Limits Register row derived from Task 0.1: padded/ciphertext sizes must land in the same padding bucket as the G0 evidence, and decrypt+validate time and heap delta at the selected `maxNodes`/`maxDepth`/`maxNameBytes` must stay within the envelope thresholds written in Task 0.3 Step 3.
+- [x] **Step 5: Outcome** — within the envelope → record `G1_LIMIT_VALIDATION=PASS` in the evidence note, the PR body and the Session Register; the G0 defaults remain frozen and become release-authoritative. Outside the envelope → **STOP Tranche A**: record `G1_LIMIT_VALIDATION=FAIL` with the measured values, do not edit `src/lib/vaultTreeLimits.js` or any `MEASURED@G0` replacement, and obtain external review before any default changes (a lowered default is applied through Task 0.3's procedure with new evidence; a raised default is never applied silently).
+- [x] **Step 6: Phase regression** — the Task 1.5 Step 5 command → all pass; `git diff --check`.
+- [x] **Step 7: Commit** → `docs(idea1): validate vault tree limits against product modules`
+- [x] **Gate G1** (internal) — Session Register row `PVH-P1` including `G1_LIMIT_VALIDATION=PASS`; checks: no server file changed, no existing crypto module changed (`git diff --name-status <G0 SHA>...HEAD` lists only new files under `src/lib/vaultTree*`, `src/lib/unicodeCaseFold.js`, `tests/vaultTree*`, and `scripts/measure/**`), prototype encoder absent from `scripts/measure/vault-tree/` (`grep -n 'prototype' scripts/measure/vault-tree/*.mjs` → 0 code hits).
 
 ---
 

@@ -39,9 +39,12 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1')
   let file
+  const APP = path.resolve(HERE, '../../..') // IDEA1-AEGIS_Drive_LC — product modules + node_modules are served read-only
   if (url.pathname.startsWith('/fixtures/') && fixtures) file = path.join(fixtures, url.pathname.slice('/fixtures/'.length))
+  else if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/node_modules/')) file = path.join(APP, url.pathname.slice(1))
   else file = path.join(HERE, url.pathname === '/' ? page : url.pathname.slice(1))
-  if (!file.startsWith(HERE) && !(fixtures && file.startsWith(fixtures))) { res.writeHead(403); return res.end() }
+  const allowed = file.startsWith(HERE) || (fixtures && file.startsWith(fixtures)) || file.startsWith(path.join(APP, 'src')) || file.startsWith(path.join(APP, 'node_modules'))
+  if (!allowed) { res.writeHead(403); return res.end() }
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end() }
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',
