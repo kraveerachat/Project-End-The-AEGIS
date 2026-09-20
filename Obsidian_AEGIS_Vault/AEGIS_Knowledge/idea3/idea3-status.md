@@ -5589,6 +5589,74 @@ No L4 pull request exists at closeout (`L4_PR_OPENED = NO`). After closeout comm
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_140245_music_idea3-pr11-phase4-l4-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L5 handler registration. No live L5 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l5-handler
+IMPLEMENTATION_HEAD          = 7f6d41f6fb4fe6cfff8d4759fa8c13579eae0460
+L5_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L5 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_NTP_MUTATION            = NO
+REAL_TIMESYNCD_MUTATION      = NO
+REAL_CHRONYD_MUTATION        = NO
+LIVE_L5                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L5 pull request exists at closeout (`L5_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L5 stage handler (`stages/L5/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L5 owns runtime Core-local trusted NTP serving on dedicated AP interface `wlp0s20f3` (`/etc/chrony.conf`, `root:root`, mode `0640`), transitioning from `systemd-timesyncd.service` to `chronyd.service`.
+- Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). Neither apply nor rollback mutates `UnitFileState`. Zero `systemctl enable` or `systemctl disable`.
+- Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
+- Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L5 is not authorized or proven.
+- Future live L5 remains separately gated by L2, L3, and L4 live PASS, fresh same-day A-L5 authorization, fresh K3 key, owner-supplied trusted upstream value, external AP/non-AP query evidence, and §10 preservation PASS.
+
+### Verification evidence
+
+- Focused L5 pytest (`test_pr11_phase4_l5_handler.py`): 47 passed.
+- T6 NTP pytest (`test_pr11_phase4_ntp.py`): 26 passed.
+- Trusted time pytest (`test_trusted_time.py`): 13 passed.
+- L4 handler pytest (`test_pr11_phase4_l4_handler.py`): 51 passed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed.
+- Private AP network pytest (`test_private_ap_contract.py`): 4 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 405 passed.
+- Shell syntax (`bash -n` on all L5 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Registration matrix: L2, L3, L4, L5, L6b REGISTERED; L6a NOT_REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_201554_music_idea3-pr11-phase4-l5-handler.md`.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
