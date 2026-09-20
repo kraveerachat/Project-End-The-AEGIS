@@ -5657,6 +5657,78 @@ No L5 pull request exists at closeout (`L5_PR_OPENED = NO`). After closeout comm
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_201554_music_idea3-pr11-phase4-l5-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation handler repository registration — 2026-09-20
+
+> [!important] Repository-only L6a handler registration. No live L6a stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation runtime handler
+Branch                       = feat/idea3-pr11-phase4-l6a-handler
+DESIGN_COMMIT                = ed5fc564d1303fcd4cd0347f0307836d3f51795b
+RED_COMMIT                   = 4690d85e925c16c2b8caf02b64b827f1f9550631
+IMPLEMENTATION_HEAD          = 33ee43348adfe35e943da16ebc9f80e93321b84f
+HARDENING_HEAD               = 9af35b739c0add2ff04348ec21a1269097d65d1b
+L6A_PR_OPENED                = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+L6A_LIVE_AUTHORIZED          = NO
+LIVE_L6A                     = NOT RUN
+RED_FIRST_PROVEN             = YES
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L6a pull request exists at closeout (`L6A_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L6a stage handler (`stages/L6a/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L6A-01 through OD-L6A-07.
+- Option B (temporary test broker) architecture: launches an ephemeral Mosquitto instance on loopback (`127.0.0.1`) for isolated TLS/PKI validation, verifies the full authentication and encryption matrix, and terminates the temporary broker before `apply.sh` returns. POST capture expects zero listener or configuration drift.
+- All five required stage handler files are present; `allow-keys.txt` and `allow-listeners.txt` contain zero active entries.
+- Input contracts: `AEGIS_L6A_INPUT_DIR`, `AEGIS_L6A_WORK_DIR`, and `AEGIS_L6A_PORT` are required with no defaults.
+- Port authority: strictly unprivileged integer range `1025..65535`. Standard ports `1883` and `8883` are strictly rejected.
+- Security & process boundaries: validates canonical TLS hostname `mqtt.aegis.home.arpa`, enforces exact DNS-only SAN profile, proves negotiated TLS version >= 1.2, validates Core and device authentication, proves rejection of wrong Core password, wrong device password, anonymous access, and retained publish, and enforces exact T2 ACL matrix.
+- Secret & material handling: `p4-broker-material.py` creates a private temporary plaintext password file (mode 0600), then executes `mosquitto_passwd -U <temporary-file-path>`; the password itself is NOT present in argv. No secrets are emitted in outputs by construction (`NO SECRET OUTPUT BY CONSTRUCTION`). Temporary plaintext and runtime configuration material is unlinked/removed on completion (unlink does not claim forensic secure erase).
+- Process ownership & rollback: records detailed process metadata (PID, start-time ticks from `/proc/<pid>/stat` field 22, boot ID, canonical config path, executable path) to prevent PID reuse kills. Rollback verifies process identity before signaling and enters `S-11 HOLD` on mismatch; zero generic kill commands (`pkill`, `killall`, `pgrep`). Non-secret validation evidence (`validation-evidence.tsv`) is retained.
+- Preserves all existing services: zero mutation to the legacy Mosquitto service (`mosquitto.service`), plaintext 1883 listener, `/etc/mosquitto`, or L6b production-candidate configuration.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 25 total, 4 passed, 21 expected failed, 0 unexpected failures before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L6a is not authorized or proven.
+- Future live L6a remains separately gated by L2, L3, L4, and L5 live PASS, fresh same-day A-L6a authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- Focused L6a pytest (`test_pr11_phase4_l6a_handler.py`): 26 passed, 0 failed.
+- Affected regressions (`test_pr11_phase4_{broker_material,broker_validate,mqtt_pki,harness,t4_broker_migration}.py`): 189 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 431 passed, 0 failed, 0 skipped, 0 xfail.
+- Bash syntax validation (`bash -n` on `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Process ownership audit: PASS.
+- Option B zero-drift audit: PASS.
+- Evidence preservation audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_231932_music_idea3-pr11-phase4-l6a-handler.md`.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
