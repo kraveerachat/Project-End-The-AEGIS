@@ -14,6 +14,7 @@ import { Btn, Card, Chip, EmptyState, ErrorState, IconBtn, Modal, ModalClose } f
 import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
+import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
   NewFolderDialog, RenameDialog, MoveDialog, DetailsDialog,
   TrashConfirmDialog, RestoreDialog, ConflictDialog,
@@ -39,22 +40,8 @@ import { supportsStreamingFileSink } from '../lib/vaultChunkedDownload.js'
 /** blob id ทึบ: '2:id' — key เดียวกับ GET /api/vault inventory ที่จอใช้แมตช์บล็อบจริงของโหนด */
 const refKey = (r) => `${r?.formatVersion ?? 1}:${String(r?.id ?? '')}`
 
-/** ตัวเลือกโฟลเดอร์สำหรับ Move/Restore: โฟลเดอร์ active ทั้งหมดยกเว้นตัวที่ถูกเลือกและลูกหลานของมัน */
-export function vaultTreeFolderOptions(index, rootId, excludeIds) {
-  const excluded = new Set(excludeIds ?? [])
-  const out = []
-  const walk = (parentId, depth) => {
-    for (const c of childrenOf(index, parentId, { view: 'active' })) {
-      if (excluded.has(c.nodeId)) continue
-      if (c.kind === 'folder') {
-        out.push({ nodeId: c.nodeId, name: c.name, depth })
-        walk(c.nodeId, depth + 1)
-      }
-    }
-  }
-  walk(rootId, 1)
-  return out
-}
+/** ตัวเลือกโฟลเดอร์ (ย้ายมาอยู่ที่ VaultRecoveryPanel เพื่อกัน import cycle — จอ re-export ไว้) */
+export { vaultTreeFolderOptions }
 
 /** ทางลัด: ชื่อโฟลเดอร์ราก = ป้ายที่แปลแล้ว (root ไม่มีชื่อใน manifest) */
 function childCountOf(index, folderId) {
@@ -260,8 +247,10 @@ export function VaultTreeScreen({
       setLoadState('ready')
     } catch (e) {
       if (e?.code === 'KEY_DEGRADED') {
+        // หนึ่งช่องเสีย = ยังโหลดได้ (อ่านอย่างเดียวจนกว่าจะซ่อม); สองช่องเสีย = fail closed (RP-2)
+        const bothBad = String(e?.detail ?? e?.message ?? '') === 'TRK_UNRECOVERABLE'
         treeRef.current.setKeyStatus('DEGRADED', session.keyBadSlot)
-        setLoadState('ready')
+        setLoadState(bothBad ? 'degraded' : 'ready')
       } else if (e?.code !== 'ABORTED') {
         setLoadErrorCode(e?.code ?? 'TRANSPORT')
         setLoadState('error')
@@ -577,6 +566,17 @@ export function VaultTreeScreen({
           <ErrorState t={t} kind="server" onRetry={() => void load()} />
         </Card>
       )}
+      {(loadState === 'ready' || loadState === 'degraded') && (
+        <VaultRecoveryPanel
+          t={t}
+          kek={kek}
+          session={session}
+          tree={tree}
+          unlockedState={unlockedState}
+          bothBad={loadState === 'degraded'}
+          onRepaired={() => void load({ quiet: true })}
+        />
+      )}
       {uploadState && (
         <p data-testid="vault-tree-upload-progress" className="text-[12.5px] text-ink-2 mb-3">
           {t('vaultTreeUploadRunning', { name: uploadState.name, p: uploadState.percent })}
@@ -595,6 +595,11 @@ export function VaultTreeScreen({
           {caps?.trash && (
             <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-trash" onClick={() => setDialog({ kind: 'trash', nodeIds: selectionRoots.map((n) => n.nodeId), count: selectionRoots.length })}>
               {t('vaultTreeMenuTrash')}
+            </Btn>
+          )}
+          {caps?.download && (
+            <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-download" onClick={() => void startBulkDownload(selectionRoots)}>
+              {t('vaultTreeMenuDownload')}
             </Btn>
           )}
           {caps?.restore && (

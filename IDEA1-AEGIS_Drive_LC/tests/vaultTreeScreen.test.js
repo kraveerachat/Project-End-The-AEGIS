@@ -18,7 +18,7 @@ import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
 
 import { makeT } from '../src/lib/strings.js'
-import { CORRECT_PASSPHRASE } from './fixtures/vaultScreenBackend.js'
+import { CORRECT_PASSPHRASE, serverBlob, serverBlobV2 } from './fixtures/vaultScreenBackend.js'
 import { makeVaultTreeBackend } from './fixtures/vaultTreeBackend.js'
 import { createFakeTreeServer } from './helpers/vaultTreeFakeServer.mjs'
 import { startVaultScreenEnv, settle, click, type, unlock } from './helpers/vaultScreenHarness.js'
@@ -439,6 +439,141 @@ test('TS-12 the legacy FLAT screen is untouched by the tree branch (in-file smok
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT never renders the tree screen')
     assert.ok(q('[data-testid="vault-migration-entry"]'), 'the FLAT upgrade entry point still renders')
     assert.ok(!q('[data-testid="vault-tree-rollback"]'), 'FLAT has no rollback surface')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── TS-13..15 (Task 6.4) ─────────────────────────────────────────────────── */
+
+/** capture every <a download> click through a capture-phase listener */
+function captureDownloads() {
+  const names = []
+  const onCapture = (e) => {
+    const a = e.target?.closest?.('a[href^="blob:"]')
+    if (a) names.push(a.getAttribute('download'))
+  }
+  doc().addEventListener('click', onCapture, true)
+  return { names, stop: () => doc().removeEventListener('click', onCapture, true) }
+}
+
+test('TS-13 download uses the manifest name/type (envelope still authenticated)', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: 'B1'.padEnd(22, 'B') }] })
+  backend.uploadImpl = async () => ({ ok: true, stage: 'complete', blob: { id: 'B1'.padEnd(22, 'B'), formatVersion: 2 } })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: [serverBlobV2({ id: 'B1'.padEnd(22, 'B'), name: 'envelope-name.png', type: 'image/gif', plainSize: 64 })] },
+    error: null,
+  }
+  const h = await mountUnlocked()
+  const dl = captureDownloads()
+  try {
+    await tick(2)
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEv, 'dataTransfer', {
+      value: { types: ['Files'], files: [new dom.window.File(['x'], 'hello.png', { type: 'image/png' })] },
+    })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(4)
+    assert.ok(fileTiles().some((el) => el.textContent.includes('hello.png')), 'the file attached')
+    const tile = fileTiles().find((el) => el.textContent.includes('hello.png'))
+    await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+    await click(dom, menuItem('rename'))
+    await type(dom, q('[data-testid="vault-dialog-name-input"]'), '2')
+    await click(dom, q('[data-testid="vault-dialog-submit"]'))
+    await tick(3)
+    const renamed = fileTiles().find((el) => el.textContent.includes('hello.png2'))
+    assert.ok(renamed, 'the renamed tile renders')
+    await click(dom, tileMenuButton(renamed.getAttribute('data-node-id')))
+    await click(dom, menuItem('download'))
+    await tick(4)
+    assert.deepEqual(dl.names, ['hello.png2'], 'the downloaded filename comes from the manifest, not the envelope')
+    assert.ok(!dl.names.includes('envelope-name.png'), 'the envelope name is never used for the file')
+  } finally {
+    dl.stop()
+    await h.unmount()
+  }
+})
+
+test('TS-14 bulk download runs sequentially, skips folders, and stops on lock', async () => {
+  const ids = { 'f1.png': 'P1'.padEnd(22, 'P'), 'f2.png': 'P2'.padEnd(22, 'P'), 'f3.png': 'P3'.padEnd(22, 'P') }
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.entries(ids).map(([, id]) => ({ formatVersion: 2, id })) })
+  backend.uploadImpl = async ({ file }) => ({ ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2 } })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: Object.entries(ids).map(([name, id]) => serverBlobV2({ id, name, type: 'image/png', plainSize: 64 })) },
+    error: null,
+  }
+  const h = await mountUnlocked()
+  const dl = captureDownloads()
+  try {
+    await tick(2)
+    const names = ['f1.png', 'f2.png', 'f3.png']
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEv, 'dataTransfer', {
+      value: { types: ['Files'], files: names.map((n) => new dom.window.File(['x'], n, { type: 'image/png' })) },
+    })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(6)
+    for (const n of names) assert.ok(fileTiles().some((el) => el.textContent.includes(n)), `${n} attached`)
+    for (const n of names) {
+      const tile = fileTiles().find((el) => el.textContent.includes(n))
+      await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    }
+    await click(dom, q('[data-testid="vault-tree-bulk-download"]'))
+    await tick(8)
+    assert.deepEqual(dl.names.sort(), ['f1.png', 'f2.png', 'f3.png'], 'all three files downloaded')
+    let release
+    const gate = new Promise((r) => { release = r })
+    backend.downloadImpl = async ({ sink, signal }) => {
+      await gate
+      if (signal?.aborted) { await sink.abort?.(); return { ok: false, reason: 'cancelled' } }
+      await sink.write(new Uint8Array([1]))
+      return { ok: true, result: [new Uint8Array([1])] }
+    }
+    dl.names.length = 0
+    // clear the surviving selection first — the checkboxes toggle, so re-clicking would deselect
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('vaultTreeClearSelection')))
+    await tick()
+    const tiles = names.map((n) => fileTiles().find((el) => el.textContent.includes(n)))
+    for (const tile of tiles) await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    await click(dom, q('[data-testid="vault-tree-bulk-download"]'))
+    await tick(2)
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    await settle()
+    release()
+    await tick(3)
+    // the purge aborts the in-flight download (truthful cancel — no partial hand-off),
+    // and none of the remaining files may start after the lock
+    assert.equal(dl.names.length, 0, 'the lock cancelled the in-flight file and stopped the rest')
+  } finally {
+    dl.stop()
+    await h.unmount()
+  }
+})
+
+test('TS-15 locked-state details show the opaque id; unlocked details show manifest fields only', async () => {
+  backend = makeVaultTreeBackend()
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+  const opaqueId = 'opaque-blob'.padEnd(22, 'o')
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: [serverBlob({ id: opaqueId, name: 'secret.txt', plainSize: 32, size: 64 })] },
+    error: null,
+  }
+  const h = env.mount()
+  try {
+    await h.render(React.createElement((await env.load('/src/screens/Vault.jsx')).Vault, { t }))
+    const lockedMenu = qa('[data-vault-tile-menu]')[0]
+    await click(dom, lockedMenu)
+    await click(dom, qa('[role="menuitem"]').find((el) => el.textContent.trim() === t('vaultEncryptedDetails')))
+    await tick(2)
+    const modal = q('[role="dialog"]')
+    assert.ok(modal, 'the details modal opens')
+    assert.ok(modal.textContent.includes(opaqueId), 'the opaque id shows in the LOCKED details (existing behaviour)')
+    assert.ok(!modal.textContent.includes('secret.txt'), 'the plaintext name never shows while locked')
+    assert.ok(!q('[data-testid="vault-tree-screen"]'), 'the FLAT screen has no tree region')
   } finally {
     await h.unmount()
   }
