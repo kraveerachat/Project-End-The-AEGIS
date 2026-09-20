@@ -67,13 +67,15 @@ fi
 P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
 
+REPO_ROOT="$(cd "$P4_HERE/../.." && pwd)"
+
 "$PYTHON_BIN" -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path('$P4_HERE').resolve().parents[1]))
+sys.path.insert(0, sys.argv[1])
 from aegis_soc.protocol_v1 import load_protocol_keys
-load_protocol_keys(Path('$INPUT_DIR/k_c2d'), Path('$INPUT_DIR/k_d2c'))
-" || fail "Protocol key canonical validation failed"
+load_protocol_keys(Path(sys.argv[2]), Path(sys.argv[3]))
+" "$REPO_ROOT" "$INPUT_DIR/k_c2d" "$INPUT_DIR/k_d2c" || fail "Protocol key canonical validation failed"
 
 # 5. Admin PIN Validation (OD-L7-04)
 admin_pin=$(head -n 1 "$INPUT_DIR/admin.pin" | tr -d '\r\n')
@@ -91,10 +93,10 @@ mqtt_pass=$(head -n 1 "$INPUT_DIR/mqtt-core.pass" | tr -d '\r\n')
 "$PYTHON_BIN" -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path('$P4_HERE').resolve().parents[1]))
+sys.path.insert(0, sys.argv[1])
 from aegis_soc.local_restore import RestoreCredential
-RestoreCredential.load(Path('$INPUT_DIR/restore.credential'))
-" || fail "restore.credential format validation failed"
+RestoreCredential.load(Path(sys.argv[2]))
+" "$REPO_ROOT" "$INPUT_DIR/restore.credential" || fail "restore.credential format validation failed"
 
 # 8. Path Helper
 host_path() {

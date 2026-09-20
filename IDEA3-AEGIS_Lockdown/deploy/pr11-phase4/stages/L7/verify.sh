@@ -54,8 +54,9 @@ if [ -f "$audit_db" ]; then
   PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
   actuations=$("$PYTHON_BIN" -c "
 import sqlite3
+import sys
 try:
-    conn = sqlite3.connect('$audit_db')
+    conn = sqlite3.connect(sys.argv[1])
     cur = conn.cursor()
     tables = [r[0] for r in cur.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall()]
     count = 0
@@ -64,9 +65,10 @@ try:
         if 'event_type' in cols:
             count += cur.execute(f\"SELECT count(*) FROM {tbl} WHERE event_type IN ('CUT_UPLINK', 'RESTORE_UPLINK')\").fetchone()[0]
     print(count)
-except Exception:
-    print(0)
-" || echo "0")
+except Exception as exc:
+    sys.stderr.write(f'SQLITE_QUERY_ERROR: {exc}\n')
+    sys.exit(2)
+" "$audit_db") || fail "Audit database query failed"
   [ "$actuations" = "0" ] || fail "Relay actuation detected in audit DB: count=$actuations"
 fi
 

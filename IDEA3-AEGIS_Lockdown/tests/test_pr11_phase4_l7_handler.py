@@ -430,6 +430,61 @@ def test_l7_verify_asserts_zero_actuation(tmp_path: Path) -> None:
     assert "RESTORE_UPLINK" not in res.stdout
 
 
+def test_l7_verify_fails_closed_on_corrupt_audit_db(tmp_path: Path) -> None:
+    """verify.sh must fail closed if core-audit.sqlite3 is corrupt/unreadable."""
+    fs_root = tmp_path / "fs"
+    input_dir = create_fixture_input_dir(tmp_path / "inputs")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir(parents=True)
+
+    env = os.environ.copy()
+    env["AEGIS_L7_INPUT_DIR"] = str(input_dir)
+    env["AEGIS_L7_WORK_DIR"] = str(work_dir)
+    env["P4_FS_ROOT"] = str(fs_root)
+
+    # Apply staging
+    res_apply = subprocess.run(["bash", str(L7_STAGE / "apply.sh")], text=True, capture_output=True, check=False, env=env)
+    assert res_apply.returncode == 0
+
+    # Corrupt audit database
+    db_path = fs_root / "var" / "lib" / "aegis-idea3" / "data" / "core-audit.sqlite3"
+    db_path.write_text("corrupted_database_content\n", encoding="utf-8")
+
+    res_verify = subprocess.run(["bash", str(L7_STAGE / "verify.sh")], text=True, capture_output=True, check=False, env=env)
+    assert res_verify.returncode != 0, f"Expected verify.sh to fail on corrupt audit DB, but it passed:\n{res_verify.stdout}"
+    assert "audit" in (res_verify.stdout + res_verify.stderr).lower() or "sqlite" in (res_verify.stdout + res_verify.stderr).lower()
+
+
+def test_l7_verify_fails_closed_when_actuation_present(tmp_path: Path) -> None:
+    """verify.sh must fail closed if CUT_UPLINK or RESTORE_UPLINK is recorded in audit DB."""
+    fs_root = tmp_path / "fs"
+    input_dir = create_fixture_input_dir(tmp_path / "inputs")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir(parents=True)
+
+    env = os.environ.copy()
+    env["AEGIS_L7_INPUT_DIR"] = str(input_dir)
+    env["AEGIS_L7_WORK_DIR"] = str(work_dir)
+    env["P4_FS_ROOT"] = str(fs_root)
+
+    # Apply staging
+    res_apply = subprocess.run(["bash", str(L7_STAGE / "apply.sh")], text=True, capture_output=True, check=False, env=env)
+    assert res_apply.returncode == 0
+
+    # Insert an actuation into audit DB
+    import sqlite3
+    db_path = fs_root / "var" / "lib" / "aegis-idea3" / "data" / "core-audit.sqlite3"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY, event_type TEXT, timestamp TEXT)")
+    conn.execute("INSERT INTO audit_events (event_type, timestamp) VALUES ('CUT_UPLINK', '2026-09-21T00:00:00Z')")
+    conn.commit()
+    conn.close()
+
+    res_verify = subprocess.run(["bash", str(L7_STAGE / "verify.sh")], text=True, capture_output=True, check=False, env=env)
+    assert res_verify.returncode != 0, f"Expected verify.sh to fail when actuation is present, but it passed:\n{res_verify.stdout}"
+    assert "actuation" in (res_verify.stdout + res_verify.stderr).lower()
+
+
 def test_l7_allow_listeners_is_empty() -> None:
     """stages/L7/allow-listeners.txt MUST be empty (OD-L7-06)."""
     al_file = L7_STAGE / "allow-listeners.txt"
