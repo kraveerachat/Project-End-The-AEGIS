@@ -588,6 +588,18 @@ for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib
   /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
+if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
+  if run_ro 0 readlink-current readlink -- "$(p4_fs /opt/aegis-idea3/current)"; then
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target "$P4_OUT"
+  else
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target UNAVAILABLE
+  fi
+else
+  p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
+fi
+if [ -f "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)"
+fi
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue

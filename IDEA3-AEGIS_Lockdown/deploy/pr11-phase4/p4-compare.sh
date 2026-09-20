@@ -54,7 +54,8 @@ meta() { awk -F '\t' -v k="$2" '$1 == k { print $2 }' "$1/meta.tsv"; }
 EVID_CLASS="$(meta "$BEFORE" meta.evidence_class)"
 
 # Keys whose change is never approvable (S-03, S-04, S-09, host identity, §10 IDEA2).
-PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.(default|sha256|unscoped)|net\.dns|host\.|meta\.|cap\.|listen\.|disk\.|nm\.general$|wifi\.reg\.|wifi\.rfkill\..*\.(id|hard)$)'
+# Option A: host.* is default-deny except for exact host.aegis_idea3.file, host.path, host.symlink, and host.unit_file keys.
+PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.(default|sha256|unscoped)|net\.dns|meta\.|cap\.|listen\.|disk\.|nm\.general$|wifi\.reg\.|wifi\.rfkill\..*\.(id|hard)$)'
 ALLOW_KEYS=""
 if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
   [ -r "$ALLOW_KEYS_FILE" ] || stop "ALLOW_KEYS_FILE unreadable"
@@ -64,6 +65,11 @@ if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
     [ -n "$k" ] || continue
     [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
+    if [[ "$k" =~ ^host\. ]]; then
+      if ! [[ "$k" =~ ^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.) ]]; then
+        stop "protected key cannot be approved: $k"
+      fi
+    fi
   done <<< "$ALLOW_KEYS"
 fi
 ALLOW_LISTENERS=""
@@ -337,7 +343,7 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "HOST_KERNEL_CHANGED", key, b, a)
     } else if (key ~ /^host\.twingate\./) {
       emit("NEW_OR_WORSENED_DRIFT", "TWINGATE_STATE_DRIFT", key, b, a)
-    } else if (key ~ /^host\.(path|aegis_idea3)\./) {
+    } else if (key ~ /^host\.(path|aegis_idea3|symlink|unit_file)\./) {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA3_HOST_PATH_DRIFT", key, b, a)
     } else {
       emit("NEW_OR_WORSENED_DRIFT", "UNCLASSIFIED_DRIFT", key, b, a)

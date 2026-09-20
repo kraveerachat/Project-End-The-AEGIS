@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b REGISTERED (repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b, L7 REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -160,8 +160,9 @@ fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
 directory. T4 registered the separately reviewed L6b handler under
 `stages/L6b/`. Separately reviewed repository tasks registered L2 under
 `stages/L2/`, L3 under `stages/L3/`, L4 under `stages/L4/`, L5 under `stages/L5/`,
-and L6a under `stages/L6a/`. All six stage handlers (L2, L3, L4, L5, L6a, L6b)
-are now registered in the repository framework.
+and L6a under `stages/L6a/`. Separately reviewed task registers L7 under
+`stages/L7/`. All seven stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now
+registered in the repository framework.
 
 ### L2 handler (firewall & forwarding persistence)
 
@@ -227,6 +228,22 @@ are now registered in the repository framework.
 - Fixture mode operates cleanly beneath test fixtures without host mutation.
 - Live gates required: L6a is repository-registered only (`RED_FIRST_PROVEN = YES`). Live execution has NOT run and live readiness remains `NOT READY`. Live execution requires L2, L3, L4, and L5 live PASS, fresh same-day A-L6a authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
 - All stage handlers (L2, L3, L4, L5, L6a, L6b) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L7 handler (Core credential delivery & service startup)
+
+- Registered the reviewed L7 stage handler (`stages/L7/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L7-01 through OD-L7-08.
+- Owner-supplied Production credentials: `k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential` are ingested exclusively from a private input directory (`AEGIS_L7_INPUT_DIR`, mode 0600 or 0400, regular files only, no symlinks).
+- Zero repository Production key generator: production keys are generated owner-controlled offline. The repository contains only fixture keys and protocol validators proving byte-for-byte parity with ESP32 NVS provisioning (`p4-nvs-provision.py`).
+- D4 local restore prerequisite: `restore.credential` must be present and pass cryptographic format validation before the first Core service start.
+- File staging & permissions: stages `/etc/aegis-idea3/credentials/` (directory mode 0700, secret files mode 0600), `/etc/aegis-idea3/core.env` (mode 0600), `/etc/systemd/system/aegis-idea3-core.service` (mode 0644), and immutable release pointer `/opt/aegis-idea3/current` symlink.
+- Shared G-15 capture & compare amendment: implements Option A narrow exact host-file exception (`^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.)`) permitting approved stage file changes while maintaining default-deny on host identity, kernel, boot ID, and twingate; captures `/opt/aegis-idea3/current` symlink target and `/etc/systemd/system/aegis-idea3-core.service` unit content sha256/metadata.
+- L6b regression compatibility: L6b `allow-keys.txt` is validated regression-free under the Option A amendment.
+- Listener contract: `allow-listeners.txt` has zero active entries (`L7_ALLOW_LISTENERS_EMPTY = YES`). Core daemon opens no listening sockets.
+- Safety & boundary verification: zero relay actuation (`CUT_UPLINK`, `RESTORE_UPLINK`) in `core-audit.sqlite3`. Fails closed if audit SQLite DB is corrupt or unreadable.
+- Rollback: `stages/L7/rollback.sh` is idempotent. Restores pre-state captured in `prestate.manifest` (unit file, core.env, credentials, symlink). Strictly preserves durable SQLite databases (`/var/lib/aegis-idea3/data/core-audit.sqlite3`) and logs.
+- Provenance: `RED_FIRST_PROVEN = YES` (28 expected failing tests before implementation).
+- Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
+- All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 

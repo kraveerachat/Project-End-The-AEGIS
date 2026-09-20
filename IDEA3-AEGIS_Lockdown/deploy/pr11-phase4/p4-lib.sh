@@ -15,7 +15,7 @@ readonly P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # capture leaves it unset. When set, every capture records
 # meta.evidence_class=TEST_FIXTURE, so the result can never be mistaken for
 # Core evidence.
-readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-}"
+readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 
 # The owner's window calendar day (execution document §8, §12: same-day records).
 readonly P4_WINDOW_TZ=Asia/Bangkok
@@ -120,6 +120,7 @@ P4_RO_ALLOW=(
   "^find ${P4_PATH} -xdev -type f$"
   "^stat -c %a:%u:%g:%s:%Y -- ${P4_PATH}$"
   "^sha256sum -- ${P4_PATH}$"
+  "^readlink( -f)? -- ${P4_PATH}$"
 )
 
 p4_ro_allowed() {

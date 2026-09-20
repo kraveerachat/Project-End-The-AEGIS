@@ -5729,6 +5729,93 @@ No L6a pull request exists at closeout (`L6A_PR_OPENED = NO`). After closeout co
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_231932_music_idea3-pr11-phase4-l6a-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L7 Core credential delivery and service startup handler repository registration — 2026-09-21
+
+> [!important] Repository-only L7 handler registration & shared G-15 amendment. No live L7 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L7 Core credential delivery / Core start handler
+Branch                       = feat/idea3-pr11-phase4-l7-handler
+ORIGINAL_DESIGN_COMMIT       = f00230e69eb3be310829b98b4b1b11a2b780a68a
+DESIGN_FIX_COMMIT            = 25011eb957022d83a0313a0764b0c460d045610b
+RED_COMMIT                   = 6aea64c6b0b9997452b6879ea43c4f4bcbc50324
+GREEN_COMMIT                 = 2741ea3fd5a7a760cf0c39f0ca5ea8536f9810a9
+HARDENING_COMMIT             = 77c930957489056529d28870abaf1ba8041290ca
+L7_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L7 NOT RUN
+
+L7_HANDLER_REGISTERED        = YES
+L7_REPOSITORY_IMPLEMENTED    = YES
+RED_FIRST_PROVEN             = YES
+G15_SHARED_HARNESS_AMENDMENT = YES
+G15_L6B_REGRESSION_FIXED     = YES
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+L7_HANDLER                   = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+L7                           = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+OPT_MUTATION                 = NO
+ESP32_MUTATION               = NO
+L7_LIVE_AUTHORIZED           = NO
+LIVE_L7                      = NOT RUN
+ZERO_ACTUATION_CONTRACT      = PASS
+LIVE_ZERO_ACTUATION_PROVEN   = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L7 stage handler (`stages/L7/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L7-01 through OD-L7-08.
+- Owner-supplied Production credentials: `k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential` are ingested exclusively from a private input directory (`AEGIS_L7_INPUT_DIR`, mode 0600 or 0400, regular files only, no symlinks).
+- Zero repository Production key generator (OD-L7-02): production keys are generated owner-controlled offline. The repository contains only fixture keys and protocol validators proving byte-for-byte parity with ESP32 NVS provisioning (`p4-nvs-provision.py`).
+- D4 local restore prerequisite (OD-L7-08): `restore.credential` must be present and pass cryptographic format validation before the first Core service start.
+- File staging & permissions: stages `/etc/aegis-idea3/credentials/` (directory mode 0700, secret files mode 0600), `/etc/aegis-idea3/core.env` (mode 0600), `/etc/systemd/system/aegis-idea3-core.service` (mode 0644), and immutable release pointer `/opt/aegis-idea3/current` symlink.
+- Shared G-15 capture & compare amendment: implements Option A narrow exact host-file exception (`^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.)`) permitting approved stage file changes while maintaining default-deny on host identity, kernel, boot ID, and twingate; captures `/opt/aegis-idea3/current` symlink target and `/etc/systemd/system/aegis-idea3-core.service` unit content sha256/metadata.
+- L6b regression compatibility: L6b `allow-keys.txt` is validated regression-free under the Option A amendment.
+- Listener contract: `allow-listeners.txt` has zero active entries (`L7_ALLOW_LISTENERS_EMPTY = YES`). Core daemon opens no listening sockets.
+- Safety & boundary verification: zero relay actuation (`CUT_UPLINK`, `RESTORE_UPLINK`) in `core-audit.sqlite3`. Fails closed if audit SQLite DB is corrupt or unreadable.
+- Rollback: `stages/L7/rollback.sh` is idempotent. Restores pre-state captured in `prestate.manifest` (unit file, core.env, credentials, symlink). Strictly preserves durable SQLite databases (`/var/lib/aegis-idea3/data/core-audit.sqlite3`) and logs.
+- Hardening findings resolved:
+  1. `verify.sh` SQLite audit-DB query previously caught general Exception and printed 0 (failing open on corrupt DB); hardened to fail closed with error code 2.
+  2. `apply.sh` Python script snippets previously interpolated shell variables; hardened to pass paths safely through `sys.argv`.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 28 expected failed (4 G-15 host artifacts, 24 L7 handler) before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L7 is not authorized or proven.
+- Future live L7 remains separately gated by L2..L6b live PASS, fresh same-day A-L7 authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- G-15 focused pytest (`test_pr11_phase4_g15_host_artifacts.py`): 6 passed, 0 failed.
+- L7 focused pytest (`test_pr11_phase4_l7_handler.py`): 28 passed, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 465 passed, 0 failed, 0 skipped, 0 xfail.
+- Relevant Core regression test suite: 548 passed, 0 failed.
+- Bash syntax validation (`bash -n` on `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check origin/main...HEAD`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7 REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_032940_music_idea3-pr11-phase4-l7-handler.md`.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
