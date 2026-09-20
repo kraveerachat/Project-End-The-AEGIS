@@ -209,3 +209,144 @@ test('GM-INT-6 runGenesis surfaces a server TREE_STATE_CONFLICT as MigrationErro
   // a second migration on a TREE_V1 vault is refused client-side by the state gate
   await assert.rejects(runGenesis({ kek, api }), (e) => e instanceof MigrationError && e.code === 'TREE_STATE_CONFLICT')
 })
+
+/* ── CT-INT-* (second G7 correction) — the REAL apiFetch transport boundary ──
+   ⚠️ บทเรียนจาก GM-INT: transport ของชุดเดิม "ฉีด Content-Type: application/octet-stream
+   เองในเทสต์" จึงซ่อนบั๊กของ apiFetch จริง — เบราว์เซอร์จริงได้ 415 (Human Owner G7 retest
+   ที่ 0618708d) เพราะ apiFetch ไม่เคยเซ็ต Content-Type ให้ Uint8Array ชุดนี้ขับ apiFetch
+   ตัวจริงผ่าน fetch shim ที่แนบเฉพาะสิ่งที่ "เบราว์เซอร์" ปกติให้เอง (cookie, CSRF จาก
+   credentials:'include') — Content-Type และรูปแบบ body ทั้งหมดเป็นของ apiFetch ตามจริง */
+import { setCsrfToken, clearCsrfToken } from '../src/lib/api.js'
+
+const captureApiFetch = (client) => {
+  const real = globalThis.fetch
+  const sent = []
+  const shim = async (input, opts = {}) => {
+    const url = String(input)
+    const method = (opts.method ?? 'GET').toUpperCase()
+    const headers = { ...(opts.headers ?? {}) }
+    if (client.cookie) headers.cookie = client.cookie
+    if (client.csrf && method !== 'GET') headers['X-CSRF-Token'] = client.csrf
+    const body = opts.body
+    sent.push({
+      method, url,
+      contentType: headers['Content-Type'] ?? null,
+      hasCookie: Boolean(headers.cookie), hasCsrf: Boolean(headers['X-CSRF-Token']),
+      byteLength: body instanceof Uint8Array ? body.length : null,
+      isFormData: typeof FormData !== 'undefined' && body instanceof FormData,
+      bytes: body instanceof Uint8Array ? Buffer.from(body) : null,
+      body,
+    })
+    // withBase in plain node yields api/... (no slash); in the browser it is base-prefixed —
+    // normalize both shapes onto the test server, pass absolute URLs through untouched
+    const target = url.startsWith('http')
+      ? url
+      : base + (url.startsWith('/') ? url : '/' + url)
+    return real(target, { ...opts, headers })
+  }
+  globalThis.fetch = shim
+  return { sent, restore: () => { globalThis.fetch = real } }
+}
+
+/** ครึ่งหลังของ genesis ผ่าน apiFetch ตัวจริง (runGenesis ตัวจริง + wrapper ตัวจริง) */
+async function migrateRealApiFetch(n) {
+  const client = await login()
+  const { kek, ids } = await unlockedVault(client, n)
+  assert.equal((await client.req('/api/vault/tree/state')).data.protocolState, 'FLAT')
+  setCsrfToken(client.csrf)
+  const { sent, restore } = captureApiFetch(client)
+  const stages = []
+  const o = () => ({})
+  const api = {
+    getTreeState: () => treeApi.getTreeState(o()),
+    beginMigration: () => treeApi.beginMigration(o()),
+    publishRevision: (meta) => treeApi.publishRevision(meta, o()),
+    putRevisionCiphertext: (revisionId, bytes) => treeApi.putRevisionCiphertext(revisionId, bytes, o()),
+    commitGenesis: (body) => treeApi.commitGenesis(body, o()),
+  }
+  try {
+    const result = await runGenesis({ kek, api, onStage: (ev) => stages.push(ev.type) })
+    return { client, kek, ids, sent, stages, result }
+  } finally {
+    restore()
+    clearCsrfToken()
+  }
+}
+
+test('CT-INT-1 the real apiFetch sends a Uint8Array PUT as raw bytes with Content-Type octet-stream and the server publishes the revision', async () => {
+  const { sent } = await migrateRealApiFetch(1)
+  const put = sent.find((s) => s.method === 'PUT' && /\/ciphertext$/.test(s.url))
+  assert.ok(put, 'the ciphertext PUT went through apiFetch')
+  assert.equal(put.contentType, 'application/octet-stream', `apiFetch must set octet-stream for raw bytes (got ${put.contentType}) — the server fails closed with 415 otherwise`)
+  assert.equal(put.byteLength, put.bytes.length)
+})
+
+test('CT-INT-2 the full genesis through the real apiFetch transport lands TREE_V1 generation 1 (browser-equivalent)', async () => {
+  const { client, sent, result } = await migrateRealApiFetch(0)
+  assert.equal(result.protocolState, 'TREE_V1')
+  assert.equal(result.generation, 1)
+  assert.equal((await client.req('/api/vault/tree/state')).data.protocolState, 'TREE_V1')
+  const put = sent.find((s) => s.method === 'PUT' && /\/ciphertext$/.test(s.url))
+  assert.ok(put && put.contentType === 'application/octet-stream')
+})
+
+test('CT-INT-3 the server still rejects wrong and missing media types (contract not weakened)', async () => {
+  const client = await login()
+  const { kek } = await unlockedVault(client, 0)
+  await client.req('/api/vault/tree/migration/begin', { method: 'POST', body: {} })
+  const desc = revisionDescriptor({ generation: 1, baseRevisionId: null, treeId: 'B'.repeat(22) })
+  const staged = await client.req('/api/vault/tree/revisions', { method: 'POST', body: desc })
+  assert.equal(staged.status, 201, JSON.stringify(staged.data))
+  const ciphertext = new Uint8Array([9, 9, 9])
+  const wrong = await client.req(`/api/vault/tree/revisions/${desc.revisionId}/ciphertext`, { method: 'PUT', body: ciphertext, headers: { 'Content-Type': 'text/plain' } })
+  assert.equal(wrong.status, 415)
+  assert.equal(wrong.data.code, 'INVALID_INPUT')
+  // the same PUT with the right type is accepted — the contract is exact, not weakened
+  const right = await client.req(`/api/vault/tree/revisions/${desc.revisionId}/ciphertext`, { method: 'PUT', body: ciphertext, headers: { 'Content-Type': 'application/octet-stream' } })
+  assert.equal(right.status, 200, JSON.stringify(right.data))
+})
+
+test('CT-INT-4 JSON object bodies still travel as application/json', async () => {
+  const { sent } = await migrateRealApiFetch(0)
+  const jsonPosts = sent.filter((s) => s.method === 'POST' && !s.url.includes('/ciphertext') && !s.isFormData)
+  assert.ok(jsonPosts.length >= 3, 'the genesis flow posts JSON descriptors')
+  for (const p of jsonPosts) assert.equal(p.contentType, 'application/json', `${p.url} must stay JSON`)
+})
+
+test('CT-INT-5 FormData bodies keep the browser-owned multipart boundary (no injected Content-Type)', async () => {
+  const client = await login()
+  setCsrfToken(client.csrf)
+  const { sent, restore } = captureApiFetch(client)
+  try {
+    const { encryptFileEnvelope } = await import('../src/lib/vaultCrypto.js')
+    const setup = await createVaultSetup('ct-int-formdata-pass', FAST)
+    await client.req('/api/vault/setup', { method: 'POST', body: { saltB64: setup.saltB64, params: setup.params, verifier: setup.verifier } })
+    const env = await encryptFileEnvelope(setup.kek, { name: 'ct-int.pdf', type: 'application/pdf', size: 3, bytes: new Uint8Array([7, 7, 7]) })
+    const form = new FormData()
+    form.append('file', new Blob([env.ciphertext], { type: 'application/octet-stream' }), 'blob.aegisenc')
+    for (const k of ['ivB64', 'wrappedDekB64', 'wrapIvB64', 'metaIvB64', 'metaB64']) form.append(k, env[k])
+    const apiMod = await import('../src/lib/api.js')
+    await apiMod.apiFetch('/api/vault/blobs', { method: 'POST', body: form })
+    const formSent = sent.find((s2) => s2.isFormData)
+    assert.ok(formSent, 'the FormData request rode apiFetch')
+    assert.equal(formSent.contentType, null, 'apiFetch must NOT set Content-Type for FormData — the browser owns the boundary')
+  } finally {
+    restore()
+    clearCsrfToken()
+  }
+})
+
+test('CT-INT-6 the stored ciphertext is byte-identical to what the client sent', async () => {
+  const { client, sent, result } = await migrateRealApiFetch(1)
+  const put = sent.find((s) => s.method === 'PUT' && /\/ciphertext$/.test(s.url))
+  const readBack = await treeApi.getRevisionCiphertext(result.revisionId, { fetchBytes: realBytesTransport(client) })
+  assert.deepEqual(Buffer.from(readBack), put.bytes, 'the stored manifest ciphertext is byte-identical to the client bytes')
+})
+
+test('CT-INT-7 the apiFetch-bound requests carry no plaintext file/folder metadata', async () => {
+  const { sent } = await migrateRealApiFetch(2)
+  const wire = JSON.stringify(sent.map((s) => ({ method: s.method, url: s.url, contentType: s.contentType, bytes: s.byteLength, body: s.body ?? null })))
+  for (const leak of ['secret-file-', '.pdf', 'application/pdf', '"name"', '"parent"', '"path"', '"folder"', '"rootNodeId"']) {
+    assert.ok(!wire.includes(leak), `plaintext metadata through apiFetch: ${leak}`)
+  }
+})

@@ -197,6 +197,10 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
 
   const headers = {}
   if (body && !isFormData && !isBytes) headers['Content-Type'] = 'application/json'
+  // Uint8Array = ciphertext ดิบ (เช่น PUT ciphertext ของ tree revision) — เซิร์ฟเวอร์บังคับ
+  // application/octet-stream (415 INVALID_INPUT ถ้าขาด/ผิด) — เดียวกับ vaultChunkedUpload;
+  // JSON ยังเป็น application/json, FormData ยังให้ browser สร้าง boundary เอง
+  if (isBytes) headers['Content-Type'] = 'application/octet-stream'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
 
   let res
