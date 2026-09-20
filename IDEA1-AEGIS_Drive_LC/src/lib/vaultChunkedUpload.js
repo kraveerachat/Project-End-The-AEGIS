@@ -33,6 +33,13 @@ import {
 /** จำนวนครั้งที่ลองส่ง chunk เดิมซ้ำก่อนหยุดและเปิดให้ผู้ใช้กด Resume */
 const CHUNK_ATTEMPTS = 3
 
+/**
+ * ครอบครัว endpoint ที่ใช้ — PR #157 Task 4.3: '/api/vault/tree/uploads' ใช้ handler ชุดเดียวกันบนเซิร์ฟเวอร์
+ * ⚠️ นี่คือ "พารามิเตอร์เดียว" ที่ครอบครัว tree เพิ่มเข้ามาในไฟล์นี้ — ขนาด chunk, ความพร้อมกัน, จำนวน retry,
+ *    การแบ่งไฟล์ และการเข้ารหัสไม่เปลี่ยน (TU-SAME-1 แช่แข็ง snapshot ไว้)
+ */
+export const DEFAULT_VAULT_UPLOAD_ROUTE_BASE = '/api/vault/uploads'
+
 /** ช่วงความพร้อมกันที่รองรับ — ต้องตรงกับ server/config/vaultTransferLimits.js */
 export const MIN_UPLOAD_CONCURRENCY = 1
 export const MAX_UPLOAD_CONCURRENCY = 4
@@ -62,8 +69,8 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
  * เพดานของ Vault V2 ที่ deployment นี้บังคับอยู่จริง
  * ⚠️ ล้มเหลว = คืน null ไม่ใช่ค่าที่เดาขึ้นมา จอต้องบอกว่ายังไม่รู้ ไม่ใช่โชว์ตัวเลขปลอม
  */
-export async function fetchVaultTransferLimits({ signal, fetchJson = apiFetch } = {}) {
-  const res = await fetchJson('/api/vault/uploads/limits', { signal })
+export async function fetchVaultTransferLimits({ signal, fetchJson = apiFetch, routeBase = DEFAULT_VAULT_UPLOAD_ROUTE_BASE } = {}) {
+  const res = await fetchJson(`${routeBase}/limits`, { signal })
   return res.ok ? res.data : null
 }
 
@@ -97,7 +104,8 @@ function failureReason(res) {
  *           resume?: object|null,
  *           onStage?: (stage: string) => void,
  *           onProgress?: (p: object) => void,
- *           signal?: AbortSignal, fetchJson?: Function, sendUpload?: Function }} options
+ *           signal?: AbortSignal, fetchJson?: Function, sendUpload?: Function,
+ *           routeBase?: string }} options
  */
 export async function uploadVaultFileChunked({
   kek,
@@ -110,6 +118,7 @@ export async function uploadVaultFileChunked({
   signal,
   fetchJson = apiFetch,
   sendUpload = apiUpload,
+  routeBase = DEFAULT_VAULT_UPLOAD_ROUTE_BASE,
 }) {
   const stage = (name) => { onStage?.(name) }
   const aborted = () => Boolean(signal?.aborted)
@@ -129,7 +138,7 @@ export async function uploadVaultFileChunked({
       //    พร้อมกันเป็นเพียงคำแนะนำ การบังคับให้ต้องมีคำขอเพิ่มอีกใบเพียงเพื่ออ่าน
       //    คำแนะนำ จะทำให้ผู้เรียกที่รู้ขนาด chunk อยู่แล้วล้มเมื่อ endpoint นั้นล่ม
       if (!chunkBytes) {
-        const limits = await fetchVaultTransferLimits({ signal, fetchJson })
+        const limits = await fetchVaultTransferLimits({ signal, fetchJson, routeBase })
         if (!limits) return { ok: false, stage: 'failed', reason: 'server', resume: null }
         chunkBytes = limits.plaintextChunkBytes
         // deployment เก่าที่ยังไม่ตอบ uploadConcurrency ต้องใช้งานได้ต่อ ไม่ใช่ล้ม
@@ -143,7 +152,7 @@ export async function uploadVaultFileChunked({
       })
       if (aborted()) return cancelled()
 
-      const created = await fetchJson('/api/vault/uploads', {
+      const created = await fetchJson(routeBase, {
         method: 'POST',
         body: {
           formatVersion: VAULT_FORMAT_V2,
@@ -173,7 +182,7 @@ export async function uploadVaultFileChunked({
       // Resume — สถานะที่เชื่อถือได้มาจากเซิร์ฟเวอร์เท่านั้น ไม่ใช่จากที่จำไว้ในแท็บ
       stage('preparing')
       const status = await fetchJson(
-        `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}`, { signal },
+        `${routeBase}/${encodeURIComponent(state.upload.uploadId)}`, { signal },
       )
       if (!status.ok) {
         return { ok: false, stage: 'failed', reason: failureReason(status), resume: state, response: status }
@@ -277,7 +286,7 @@ export async function uploadVaultFileChunked({
         syncStage()
         try {
           sent = await sendUpload(
-            `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}/chunks/${index}`,
+            `${routeBase}/${encodeURIComponent(state.upload.uploadId)}/chunks/${index}`,
             {
               method: 'PUT',
               body: new Blob([encrypted.ciphertext], { type: 'application/octet-stream' }),
@@ -362,7 +371,7 @@ export async function uploadVaultFileChunked({
     // ── commit ───────────────────────────────────────────────────────────────
     stage('committing')
     const committed = await fetchJson(
-      `/api/vault/uploads/${encodeURIComponent(state.upload.uploadId)}/commit`,
+      `${routeBase}/${encodeURIComponent(state.upload.uploadId)}/commit`,
       { method: 'POST', signal, timeoutMs: 10 * 60_000 },
     )
     if (!committed.ok) {
@@ -384,8 +393,8 @@ export async function uploadVaultFileChunked({
 }
 
 /** ยกเลิก session ฝั่งเซิร์ฟเวอร์ — คืนพื้นที่พักทันทีแทนที่จะรอให้หมดอายุ */
-export async function cancelVaultUploadSession(uploadId, { fetchJson = apiFetch } = {}) {
+export async function cancelVaultUploadSession(uploadId, { fetchJson = apiFetch, routeBase = DEFAULT_VAULT_UPLOAD_ROUTE_BASE } = {}) {
   if (!uploadId) return false
-  const res = await fetchJson(`/api/vault/uploads/${encodeURIComponent(uploadId)}`, { method: 'DELETE' })
+  const res = await fetchJson(`${routeBase}/${encodeURIComponent(uploadId)}`, { method: 'DELETE' })
   return res.ok
 }

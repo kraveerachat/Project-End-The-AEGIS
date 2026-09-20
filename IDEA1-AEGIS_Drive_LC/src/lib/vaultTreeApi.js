@@ -73,9 +73,11 @@ export async function casKeyEnvelope(body, opts) {
   return assertTreeOk(await fetchJson('/api/vault/tree/key-envelope', { method: 'POST', body, signal }))
 }
 
-export async function listTreeBlobs(opts) {
+/** บัญชี blob ทึบ + lifecycle; `lifecycle` (ไม่บังคับ) กรองฝั่งเซิร์ฟเวอร์ เช่น 'UNREFERENCED' = orphan ที่กู้ได้ (Task 4.3) */
+export async function listTreeBlobs(opts = {}) {
   const { fetchJson, signal } = parts(opts)
-  return assertTreeOk(await fetchJson('/api/vault/tree/blobs', { method: 'GET', signal }))
+  const q = opts.lifecycle ? `?lifecycle=${encodeURIComponent(opts.lifecycle)}` : ''
+  return assertTreeOk(await fetchJson(`/api/vault/tree/blobs${q}`, { method: 'GET', signal }))
 }
 
 export async function beginMigration(opts) {
