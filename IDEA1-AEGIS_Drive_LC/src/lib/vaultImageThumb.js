@@ -75,7 +75,7 @@ export async function makeImageThumb({
   readChunk, readWhole, decode = defaultDecode, poster = defaultPoster,
   createObjectUrl = (b) => URL.createObjectURL(new Blob([b])),
   revokeObjectUrl = (u) => { try { URL.revokeObjectURL(u) } catch { /* gone */ } },
-  registerObjectUrl = null, signal = null,
+  registerObjectUrl = null, signal = null, skipUrl = false,
 }) {
   if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
   if (plainSize > limits.imageMaxInputBytes) return { ok: false, unsupported: 'IMAGE_TOO_LARGE' }
@@ -100,8 +100,8 @@ export async function makeImageThumb({
     const bitmap = await decode(full)
     const encoded = poster(full, bitmap.width, bitmap.height, limits.posterMaxEdge)
     try { bitmap.close?.() } catch { /* injected decoder may have nothing to close */ }
-    const url = createObjectUrl(encoded.bytes)
-    registerObjectUrl?.(url)
+    const url = skipUrl ? null : createObjectUrl(encoded.bytes)
+    if (url) registerObjectUrl?.(url)
     let released = false
     const out = {
       ok: true, url, width: encoded.width, height: encoded.height, posterBytes: encoded.bytes,

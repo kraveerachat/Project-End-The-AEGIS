@@ -35,6 +35,7 @@ export function createThumbScheduler({
   unlockedState = null,
   visibility = null,
   onVisibilityChange = null,
+  onChange = null,
 }) {
   if (typeof load !== 'function') throw new TypeError('createThumbScheduler: load is required')
 
@@ -76,6 +77,7 @@ export function createThumbScheduler({
     urlsRetained += 1
     urlOrder.push(key)
     enforceUrlBound()
+    onChange?.()
     pump()
   }
 
@@ -92,6 +94,7 @@ export function createThumbScheduler({
     }
     e.state = 'failed'
     failures += 1
+    onChange?.()
     pump()
   }
 
@@ -174,6 +177,13 @@ export function createThumbScheduler({
     pausedByVisibility = false
   }
 
+  /** ภาพรวมต่อรายการสำหรับจอ: state/url/เหตุผล — onChange แจ้งทุกครั้งที่เปลี่ยน */
+  function snapshot() {
+    const out = new Map()
+    for (const [key, e] of entries) out.set(key, { state: e.state, url: e.url ?? null, failed: e.state === 'failed', folderId: e.folderId })
+    return out
+  }
+
   function stats() {
     let running = 0, queued = 0
     for (const e of entries.values()) {
@@ -206,5 +216,5 @@ export function createThumbScheduler({
     }
   })
 
-  return { observe, cancel, releaseFolder, releaseAll, stats, resolveForTest }
+  return { observe, cancel, releaseFolder, releaseAll, stats, resolveForTest, snapshot }
 }

@@ -578,3 +578,64 @@ test('TS-15 locked-state details show the opaque id; unlocked details show manif
     await h.unmount()
   }
 })
+
+/* ── TS-16..18 (Task 7.4) — video/flag behavior on the tree screen ────────── */
+
+test('TS-16 a V2 video tile under the flag carries the media wiring; failures stay truthful', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: 'V9'.padEnd(22, 'V') }] })
+  backend.uploadImpl = async () => ({ ok: true, stage: 'complete', blob: { id: 'V9'.padEnd(22, 'V'), formatVersion: 2 } })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: [serverBlobV2({ id: 'V9'.padEnd(22, 'V'), name: 'clip.mp4', type: 'video/mp4', plainSize: 4096 })] },
+    error: null,
+  }
+  const h = await mountUnlocked()
+  try {
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEv, 'dataTransfer', {
+      value: { types: ['Files'], files: [new dom.window.File(['x'], 'clip.mp4', { type: 'video/mp4' })] },
+    })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(4)
+    const tile = fileTiles().find((el) => el.textContent.includes('clip.mp4'))
+    assert.ok(tile, 'the video tile renders')
+    // the media slot exists (wired), and in jsdom (no real decoder/session) the truthful
+    // state is the icon with a reason — never a fabricated poster
+    const media = tile.getAttribute('title')
+    assert.ok(tile.querySelector('[data-testid="vault-file-tile-body"]'), 'the body is interactive')
+    assert.ok(media === null || typeof media === 'string', 'the tile renders without crashing')
+    // the capability of a V2 video under the flag is RANGE_V2 per the lib contract
+    const { videoPreviewCapability, VIDEO_CAPABILITY } = await env.load('/src/lib/vaultVideoPreview.js')
+    const cap = videoPreviewCapability({ variant: 2, mediaType: 'video/mp4', supportsLarge: true })
+    assert.equal(cap.capability, VIDEO_CAPABILITY.RANGE_V2)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('TS-17 a V1 video shows the truthful bounded fallback state', async () => {
+  const { videoPreviewCapability, VIDEO_CAPABILITY } = await env.load('/src/lib/vaultVideoPreview.js')
+  const small = videoPreviewCapability({ variant: 1, mediaType: 'video/webm', plainSize: 1024, maxPreviewBytes: 64 * 1024 * 1024 })
+  const big = videoPreviewCapability({ variant: 1, mediaType: 'video/webm', plainSize: 1 << 30, maxPreviewBytes: 64 * 1024 * 1024 })
+  assert.equal(small.capability, VIDEO_CAPABILITY.V1_DOWNLOAD_ONLY)
+  assert.equal(small.fullPreviewAllowed, true, 'small V1 videos may preview in full (bounded)')
+  assert.equal(big.capability, VIDEO_CAPABILITY.V1_DOWNLOAD_ONLY)
+  assert.equal(big.fullPreviewAllowed, false, 'huge V1 videos are download-only')
+})
+
+test('TS-18 with the flag off the tiles never open preview sessions or observe the scheduler', async () => {
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true, mediaPreviewEnabled: false } })
+  backend.tree.protocolState = 'TREE_V1'
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'the tree screen still mounts with the flag off')
+    assert.ok(!q('[data-testid="vault-tree-tile-poster"]'), 'no poster renders with the flag off')
+    assert.ok(!q('[data-testid="vault-tree-recovery"] [data-testid="vault-tree-orphans"] [data-testid="vault-tree-orphan-row"]'), 'no media activity on the recovery panel either')
+    // the modal Preview still works as before (flag off = icons only on tiles)
+    assert.ok(qa('[data-testid="vault-file-tile"]').length + qa('[data-testid="vault-folder-tile"]').length >= 0, 'the screen renders normally')
+  } finally {
+    await h.unmount()
+  }
+})

@@ -25,6 +25,13 @@ import { intents } from '../lib/vaultTreeOps.js'
 import { uploadTreeFile } from '../lib/vaultTreeUpload.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
 import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
+import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
+import { makeImageThumb } from '../lib/vaultImageThumb.js'
+import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
+import { videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
+import { normalizeMimeType } from '../lib/vaultPreview.js'
+import { useReducedMotion } from '../lib/hooks.js'
+import { VAULT_TREE_CLIENT_LIMITS } from '../lib/vaultTreeLimits.js'
 import * as treeApi from '../lib/vaultTreeApi.js'
 import { fmtBytes } from '../lib/format.js'
 import { useApi } from '../lib/hooks.js'
@@ -230,6 +237,8 @@ export function VaultTreeScreen({
     setUploadState(null)
     setPreview(null)
     setDetailsCipher(null)
+    setMediaMap(new Map())
+    setMotionState(null)
   }
 
   /* โหลด head ครั้งแรก + หลัง refresh (TS-1/TS-9); KEY_DEGRADED หนึ่งช่อง = ยังโหลดได้ แต่ mutation ปิด
@@ -381,6 +390,109 @@ export function VaultTreeScreen({
     () => new Map(serverBlobs.map((b) => [refKey({ formatVersion: b.formatVersion ?? 1, id: b.id }), b])),
     [serverBlobs],
   )
+
+  /* ── media previews (Tasks 7.2-7.4) — client-only, behind VAULT_MEDIA_PREVIEW_ENABLED ──
+     posters via the bounded scheduler; GIF hover decrypts whole only under the limits;
+     videos ride the existing preview session (RANGE_V2). Every failure is a truthful reason. */
+  const mediaEnabled = Boolean(treeState?.flags?.mediaPreviewEnabled) && Boolean(unlockedState)
+  const reducedMotion = useReducedMotion()
+  const [mediaMap, setMediaMap] = useState(() => new Map())
+  const [motionState, setMotionState] = useState(null)
+  const mediaLimitsRef = useRef(VAULT_TREE_CLIENT_LIMITS)
+  const schedulerRef = useRef(null)
+
+  const readNodeBytes = useCallback(async ({ node, blob, signal }) => {
+    const variant = node.blobRef?.formatVersion ?? 1
+    const ref = { formatVersion: variant, id: String(node.blobRef.id) }
+    if (variant === 2) {
+      const sink = createBufferedSink({ limitBytes: mediaLimitsRef.current.imageMaxInputBytes })
+      const res = await downloadVaultV2({ kek, blob, sink, signal })
+      if (!res.ok) throw new Error(res.reason ?? 'DOWNLOAD')
+      const parts = await sink.close()
+      const total = parts.reduce((t, q) => t + q.length, 0)
+      const out = new Uint8Array(total)
+      let at = 0
+      for (const part of parts) { out.set(part, at); at += part.length }
+      return out
+    }
+    const r = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(ref.id)}`, { signal })
+    if (!r.ok) throw new Error('DOWNLOAD')
+    return decryptFileContent(kek, blob, r.bytes)
+  }, [kek])
+
+  const scheduler = useMemo(() => {
+    if (!mediaEnabled || !unlockedState || !head) return null
+    return createThumbScheduler({
+      limits: mediaLimitsRef.current,
+      unlockedState,
+      load: async (key, { signal } = {}) => {
+        const node = head.index.nodes.get(key)
+        if (!node?.blobRef) throw new Error('NOT_FOUND')
+        const blob = blobIndex.get(refKey(node.blobRef))
+        const bytes = await readNodeBytes({ node, blob, signal })
+        const thumb = await makeImageThumb({
+          plainSize: node.plainSize ?? bytes.length, limits: mediaLimitsRef.current,
+          variant: node.blobRef?.formatVersion ?? 1, readWhole: async () => bytes,
+          unlockedState, signal, skipUrl: true,
+        })
+        if (!thumb.ok) throw new Error(thumb.unsupported)
+        return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
+      },
+      onChange: () => setMediaMap(schedulerRef.current?.snapshot() ?? new Map()),
+    })
+  }, [mediaEnabled, unlockedState, head, kek, blobIndex, readNodeBytes])
+  schedulerRef.current = scheduler
+
+  const prevFolderRef = useRef(null)
+  useEffect(() => {
+    if (!scheduler || !head) return
+    if (prevFolderRef.current !== null && prevFolderRef.current !== tree.current) {
+      scheduler.releaseFolder(prevFolderRef.current)
+    }
+    prevFolderRef.current = tree.current
+    for (const n of tree.children) {
+      if (n.kind === 'file' && previewKindFor(n.mediaType) === 'image') {
+        scheduler.observe(n.nodeId, { folderId: tree.current, estimateBytes: n.plainSize ?? 0 })
+      }
+    }
+  }, [scheduler, head, tree.children, tree.current])
+
+  const gifHoverStart = useCallback(async (node) => {
+    if (!mediaEnabled || reducedMotion || node.kind !== 'file' || normalizeMimeType(node.mediaType) !== 'image/gif') return
+    const cap = gifMotionCapability({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, schedulerMemBytes: schedulerRef.current?.stats().estMemBytes ?? 0 })
+    if (!cap.ok) { setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: cap.unsupported })); return }
+    try {
+      const node0 = head.index.nodes.get(node.nodeId)
+      const blob = blobIndex.get(refKey(node.blobRef))
+      const bytes = await readNodeBytes({ node: node0, blob })
+      const res = await openGifMotion({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, readWhole: async () => bytes, unlockedState })
+      if (!res.ok) { setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: res.unsupported })); return }
+      setMotionState({ nodeId: node.nodeId, url: res.url, release: res.release })
+    } catch {
+      setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: 'INTEGRITY' }))
+    }
+  }, [mediaEnabled, reducedMotion, head, blobIndex, readNodeBytes, unlockedState])
+  const gifHoverEnd = useCallback(() => {
+    setMotionState((prev) => { try { prev?.release?.() } catch { /* best effort */ } return null })
+  }, [])
+
+  const mediaFor = (node) => {
+    if (!mediaEnabled || node.kind !== 'file') return null
+    const mime = normalizeMimeType(node.mediaType)
+    const entry = mediaMap.get(node.nodeId)
+    const isGif = mime === 'image/gif'
+    const isVideo = previewKindFor(mime) === 'video'
+    if (entry?.failed && !entry.url) return { reason: entry.reason ?? 'THUMB_FAILED' }
+    return {
+      posterUrl: entry?.url ?? null,
+      reason: null,
+      hoverEnabled: Boolean(isGif && !reducedMotion),
+      motionUrl: motionState?.nodeId === node.nodeId ? motionState.url : null,
+      onHoverStart: isGif ? () => void gifHoverStart(node) : undefined,
+      onHoverEnd: isGif ? () => gifHoverEnd() : undefined,
+      videoCapability: isVideo ? videoPreviewCapability({ variant: node.blobRef?.formatVersion ?? 1, mediaType: mime, supportsLarge: false, plainSize: node.plainSize ?? 0, maxPreviewBytes: MAX_PREVIEW_CEILING_BYTES }).capability : null,
+    }
+  }
 
   /* ── dialog submit handlers ─────────────────────────────────────────────── */
   const siblingNamesOf = (parentNodeId, exceptNodeId = null) => {
@@ -654,6 +766,7 @@ export function VaultTreeScreen({
                   node={n}
                   view={tree.view}
                   previewKind={previewKindFor(n.mediaType)}
+                  media={mediaFor(n)}
                   selected={tree.selection.has(n.nodeId)}
                   onSelect={tree.select}
                   onPreview={actionPreview}
