@@ -89,6 +89,8 @@ export async function startVaultScreenEnv() {
   return {
     dom,
     Vault,
+    /** PR #157: โหลดโมดูลผ่าน vite ตัวเดียวกับที่โหลดจอ — ให้เทสต์ได้ instance เดียวกับที่จอ import (เช่น sessionEnded.js) */
+    load: (id) => vite.ssrLoadModule(id),
     objectUrls,
     revokedUrls,
     /**

@@ -37,6 +37,11 @@ import {
   closePreviewSession, closeAllPreviewSessions, installPreviewSessionRecovery,
 } from '../lib/vaultPreviewSession.js'
 import { PREVIEW_FAILURE_REASON, previewFailureCopyKey } from '../lib/vaultPreviewErrors.js'
+// ⚠️ PR #157 Task 5.4: ทุกสิ่งที่มีอยู่ได้เฉพาะตอนปลดล็อก (งานที่ใช้กุญแจ, Object URL, preview token, กุญแจ)
+//    ลงทะเบียนกับ unlocked state หนึ่งใบต่อการปลดล็อก แล้ว purge(reason) เดียวเก็บกวาดทั้งหมดในทุกทางออก
+//    (ล็อกเอง / auto-lock / unmount / logout / 401 / pagehide) — ดู src/lib/vaultUnlockedState.js
+import { createUnlockedVaultState, PURGE_REASONS } from '../lib/vaultUnlockedState.js'
+import { onSessionEnded, SESSION_END_REASONS } from '../lib/sessionEnded.js'
 import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 // ⚠️ TREE (PR #157 Tranche A): ไดอะล็อก genesis migration — ขับเคลื่อนด้วย runGenesis ตัวจริงเท่านั้น
 import { VaultMigrationDialog } from '../components/vault/VaultMigrationDialog.jsx'
@@ -361,7 +366,7 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
   )
 }
 
-export function Vault({ t, lang = 'en', placeholderMode = false }) {
+export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
   // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
@@ -402,6 +407,15 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const resumable = useRef(null)
   /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
   const transferAbort = useRef(null)
+  /* unlocked state ของการปลดล็อกครั้งนี้ (null = ล็อกอยู่) — สร้างตอนปลดล็อก, purge ในทุกทางออก (Task 5.4) */
+  const unlockedState = useRef(null)
+  const beginUnlockedState = useCallback((key) => {
+    unlockedState.current?.purge(PURGE_REASONS.MANUAL_LOCK)
+    const state = unlockedStateFactory()
+    state.registerKey({ kek: key })
+    unlockedState.current = state
+    return state
+  }, [unlockedStateFactory])
   // ⚠️ ตัวประมาณความเร็วหนึ่งตัวต่อหนึ่งการโอน — สร้างใหม่ทุกครั้งที่เริ่ม/ทำต่อ เพื่อไม่ให้
   //    ไบต์ของเซสชันก่อนถูกนับเป็นความเร็วของเซสชันนี้ (ดู transferRate.js)
   const transferRate = useRef(null)
@@ -529,7 +543,12 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
    *                              tab, a slow refetch), and the message must
    *                              describe the timer that actually expired, not
    *                              whatever the setting says afterwards. */
-  const lock = useCallback((auto = false, afterMinutes = null) => {
+  const lock = useCallback((auto = false, afterMinutes = null, reason = null) => {
+    /* ⚠️ purgeUnlockedVaultState ก่อนอย่างอื่น: abort งานที่ใช้กุญแจ → invalidate intent/rebase → disposers →
+       revoke Object URL → ปิด preview session ทุกใบ → ทิ้ง reference ของกุญแจ/บัฟเฟอร์ (idempotent; หนึ่งใบต่อ
+       การปลดล็อก จึงเรียกได้ครั้งเดียวต่อสถานะ) — บรรทัดถัด ๆ ไปคือการเคลียร์ React state ของจอ */
+    const purged = unlockedState.current?.purge(reason ?? (auto ? PURGE_REASONS.AUTO_LOCK : PURGE_REASONS.MANUAL_LOCK)) ?? null
+    unlockedState.current = null
     /* ⚠️ ยกเลิก "งานที่กำลังเข้ารหัส/ถอดรหัสอยู่" ก่อนอย่างอื่นทั้งหมด
        การล็อกที่ปล่อยให้การอัปโหลดเบื้องหลังเข้ารหัส chunk ต่อไปคือการล็อกในนามเท่านั้น:
        DEK ยังถูกใช้งานอยู่ และ plaintext ของก้อนถัดไปยังถูกอ่านเข้าหน่วยความจำต่อ
@@ -558,9 +577,28 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบเวลาที่บัญชีตั้งไว้ (ทางเดียวกันเป๊ะ)
     closePreview()
     // ⚠️ ล็อก = ไม่มีเซสชันใดรอด แม้ใบที่หน้านี้ลืมไปแล้ว (เช่นหลังรีเฟรชบางกรณี)
-    closeAllPreviewSessions()
+    //    purge() ส่ง close-all ให้แล้วครั้งเดียว — เรียกซ้ำเฉพาะเมื่อไม่มี unlocked state (เช่น ล็อกซ้ำหลังหมดอายุ)
+    if (!purged) closeAllPreviewSessions()
     setDetails(null)
   }, [closePreview])
+
+  /* ทางออกอื่นของสถานะปลดล็อก (Task 5.4) — ใช้ lock() ตัวล่าสุดผ่าน ref เพื่อไม่ต้องผูก effect กับ closure */
+  const lockRef = useRef(lock)
+  lockRef.current = lock
+  useEffect(() => {
+    // unmount ขณะปลดล็อก (เปลี่ยนหน้า/ปิดแท็บ): purge ทันที — React state หายไปพร้อม component อยู่แล้ว
+    const onPageHide = () => { if (unlockedState.current) lockRef.current(false, null, PURGE_REASONS.PAGE_HIDE) }
+    const offSessionEnd = onSessionEnded((why) => {
+      if (unlockedState.current) lockRef.current(false, null, why === SESSION_END_REASONS.LOGOUT ? PURGE_REASONS.LOGOUT : PURGE_REASONS.SESSION_INVALIDATED)
+    })
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      offSessionEnd()
+      unlockedState.current?.purge(PURGE_REASONS.UNMOUNT)
+      unlockedState.current = null
+    }
+  }, [])
 
   /* ── idle auto-lock ────────────────────────────────────────────────
      นับเฉพาะตอนปลดล็อกอยู่ — ทุก interaction รีเซ็ตนาฬิกา เงียบครบตามเวลาที่บัญชีตั้งไว้ = ล็อก
@@ -638,6 +676,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         setBusy(false)
         return
       }
+      beginUnlockedState(newKek)
       setKek(newKek)
       setEntries([])
       setModal(null)
@@ -666,6 +705,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         verifier: vaultApi.data.verifier,
       })
       const decrypted = await decryptEntries(key, inventory)
+      beginUnlockedState(key)
       setKek(key)
       setEntries(decrypted)
       setModal(null)
@@ -712,6 +752,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    unlockedState.current?.registerAbort(ctrl)
     // ⚠️ resume เริ่มจากไบต์ที่ไม่ใช่ศูนย์ — ตัวประมาณตัวใหม่ถือว่าไบต์ก้อนนั้นเป็น
     //    "จุดอ้างอิง" ไม่ใช่ไบต์ที่เพิ่งวิ่งผ่านสาย ไม่งั้นตัวอย่างแรกจะได้ความเร็วลวง
     transferRate.current = createRateEstimator()
@@ -795,6 +836,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
       const plain = await decryptFileContent(kek, entry.blob, res.bytes)
       url = URL.createObjectURL(new Blob([plain]))
+      unlockedState.current?.registerObjectUrl(url)
       const a = document.createElement('a')
       a.href = url
       a.download = entry.name ?? `${entry.id}.bin`
@@ -848,6 +890,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    unlockedState.current?.registerAbort(ctrl)
     transferRate.current = createRateEstimator()
     setTransfer({
       kind: 'download', stage: 'downloading', name: entry.name ?? null,
@@ -885,6 +928,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     if (sink.kind === 'buffered') {
       // ทางสำรองที่มีเพดาน — ประกอบเป็น Blob แล้วให้เบราว์เซอร์เซฟตามปกติ
       const url = URL.createObjectURL(new Blob(res.result, { type: entry.type || 'application/octet-stream' }))
+      unlockedState.current?.registerObjectUrl(url)
       const a = document.createElement('a')
       a.href = url
       a.download = entry.name ?? `${entry.id}.bin`
@@ -962,6 +1006,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         const session = await openPreviewSession({
           dek, blob: entry.blob, contentType: entry.type || 'video/mp4', plainSize,
           isUnlocked: () => unlockedRef.current,
+          unlockedState: unlockedState.current,
         })
         if (token !== previewToken.current) {
           if (session) closePreviewSession(session.token)
@@ -1014,6 +1059,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       //    ตอนนี้จะได้ object URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน = plaintext ค้าง
       if (token !== previewToken.current) return
       const url = URL.createObjectURL(plain)
+      unlockedState.current?.registerObjectUrl(url)
       previewUrlRef.current = url
       setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, url, loading: false } : prev))
     } catch {

@@ -52,9 +52,11 @@ export function installStorageGuards(scope = globalThis) {
     },
     set() { counts.writes++; throw new Error('storage write forbidden') },
   })
-  scope.localStorage = throwingStorage()
-  scope.sessionStorage = throwingStorage()
-  scope.indexedDB = { open: () => { counts.writes++; throw new Error('indexedDB forbidden') }, deleteDatabase: () => { counts.writes++; throw new Error('indexedDB forbidden') } }
-  scope.caches = { open: async () => { counts.writes++; throw new Error('Cache API forbidden') }, match: async () => { counts.reads++; return undefined }, keys: async () => [] }
+  // defineProperty: บน jsdom Window พวกนี้เป็น accessor (getter อย่างเดียว) — กำหนดทับที่ instance ได้
+  const define = (name, value) => Object.defineProperty(scope, name, { value, configurable: true, writable: true })
+  define('localStorage', throwingStorage())
+  define('sessionStorage', throwingStorage())
+  define('indexedDB', { open: () => { counts.writes++; throw new Error('indexedDB forbidden') }, deleteDatabase: () => { counts.writes++; throw new Error('indexedDB forbidden') } })
+  define('caches', { open: async () => { counts.writes++; throw new Error('Cache API forbidden') }, match: async () => { counts.reads++; return undefined }, keys: async () => [] })
   return counts
 }
