@@ -176,6 +176,7 @@ test('PM-5 runGenesis: begin → plan from the lease response → TRK genesis �
   assert.match(com.ownerScopeIdB64, ID_RE)
   assert.match(com.idempotencyKey, ID_RE)
   assert.equal(com.idempotencyKey, pub.idempotencyKey)
+  assert.equal(pub.treeId, com.treeId, 'staged genesis descriptor names the same tree commitGenesis binds (server fails closed without it)')
   assert.deepEqual(Object.keys(com.keyEnvelope).sort(), ['primary', 'recovery'])
   assert.deepEqual(Object.keys(com.keyEnvelope.primary).sort(), ['wrapIvB64', 'wrappedTrkB64'])
   assert.deepEqual(Object.keys(com.revision).sort(), ['ivB64', 'manifestSchemaVersion', 'revisionId', 'wrapIvB64', 'wrappedManifestDekB64'])

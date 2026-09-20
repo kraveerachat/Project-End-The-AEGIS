@@ -213,7 +213,10 @@ export async function runGenesis({ kek, api, plan = null, unlockedState = null, 
   const enc = await encryptManifestRevision(trk, manifest, manifestCtx, VAULT_TREE_CLIENT_LIMITS)
   chk()
 
+  // genesis staging must name the new tree: the server binds the g1 revision to treeId during MIGRATING_TREE_V1
+  // and fails closed (409 TREE_STATE_CONFLICT) without it — the same id is bound again by commitGenesis below
   const publishMeta = {
+    treeId,
     revisionId,
     baseRevisionId: null,
     generation: 1,
