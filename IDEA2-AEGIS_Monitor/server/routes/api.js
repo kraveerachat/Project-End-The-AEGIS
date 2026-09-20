@@ -36,6 +36,13 @@ import {
   verifyBrowserAssociationProof,
 } from '../nodeIdentity/browserAssociationProof.js'
 import { parseCanonicalBase64Url, parseStrictJsonBytes } from '../nodeIdentity/agentProtocol.js'
+import {
+  CameraAccessError,
+  parseLocalNodeAssociationRequirement,
+  resolveLiveCameraActor,
+  resolveOperatorAccess,
+  resolvePhysicalStreamTarget,
+} from '../auth/cameraAccess.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
@@ -50,6 +57,7 @@ const STREAM_IDLE_MS = 6_000
 
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
 const STREAM_REVALIDATE_MS = 10_000
+const REQUIRE_LOCAL_NODE_ASSOCIATION = parseLocalNodeAssociationRequirement()
 
 const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
 
@@ -419,19 +427,46 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
 apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   const cameraId = req.params.id
   try {
-    // ด่านเดียวกับ /api/cameras — ไม่มีทางลัด ไม่เชื่อ id จาก client
-    if (!(await canSeeCamera(req.user, cameraId))) {
-      return res.status(403).json({ error: 'Forbidden' })
+    let src
+    let liveRouteUser = req.user
+    let strictOperator = false
+    if (REQUIRE_LOCAL_NODE_ASSOCIATION) {
+      try {
+        const actor = await resolveLiveCameraActor(req)
+        liveRouteUser = { ...req.user, id: actor.userId, username: actor.username, role: actor.role }
+        strictOperator = actor.role === ROLES.OPERATOR
+      } catch (error) {
+        if (error instanceof CameraAccessError) {
+          return res.status(error.status).json({ error: error.code })
+        }
+        throw error
+      }
     }
-
-    const src = await store.streamSourceFor(cameraId)
-    if (!src) {
-      // ไม่เคยมี engine รายงานกล้องนี้ / engine ไม่ได้เปิดสตรีม → บอกตรง ๆ
-      return res.status(503).json({ error: 'No live stream for this camera' })
-    }
-    if (src.ageMs > STREAM_STALE_MS) {
-      // heartbeat เก่าเกิน = engine น่าจะตายไปแล้ว ไม่ต้องเสียเวลา dial ให้ client รอ
-      return res.status(503).json({ error: 'Detection Engine is not reporting' })
+    if (strictOperator) {
+      try {
+        ;({ source: src } = await resolvePhysicalStreamTarget(req, cameraId, Date.now(), {
+          resolveOperatorAccess,
+          streamSourceForPhysicalCamera: store.streamSourceForPhysicalCamera,
+        }))
+      } catch (error) {
+        if (error instanceof CameraAccessError) {
+          return res.status(error.status).json({ error: error.code })
+        }
+        throw error
+      }
+    } else {
+      // Compatibility path while the rollout switch remains false. This path
+      // keeps the existing camera_assignment and logical-heartbeat behavior.
+      if (!(await canSeeCamera(liveRouteUser, cameraId))) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+      src = await store.streamSourceFor(cameraId)
+      if (!src) {
+        return res.status(503).json({ error: 'No live stream for this camera' })
+      }
+      if (src.ageMs > STREAM_STALE_MS) {
+        return res.status(503).json({ error: 'Detection Engine is not reporting' })
+      }
     }
 
     // ยกเลิก upstream ทันทีเมื่อ client ตัดการเชื่อมต่อ (ปิดแท็บ/เปลี่ยนกล้อง/logout)
@@ -486,12 +521,21 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
           abort()
           return
         }
-        canSeeCamera(req.session.user, cameraId).then((ok) => {
+        const authorization = strictOperator
+          ? resolveOperatorAccess(req, cameraId, Date.now()).then(() => true)
+          : REQUIRE_LOCAL_NODE_ASSOCIATION
+            ? resolveLiveCameraActor(req).then((actor) => actor.role === ROLES.SOC
+              && canSeeCamera({ ...req.session.user, id: actor.userId, username: actor.username, role: actor.role }, cameraId))
+            : canSeeCamera(req.session.user, cameraId)
+        authorization.then((ok) => {
           if (!ok && !lifecycle.closed) {
             console.warn(`[aegis-monitor] stream ${cameraId}: access revoked — closing`)
             abort()
           }
-        }).catch(() => { /* ตรวจไม่ได้ก็ปล่อยรอบหน้า */ })
+        }).catch(() => {
+          // Strict mode is fail-closed on any live-registry uncertainty.
+          if (REQUIRE_LOCAL_NODE_ASSOCIATION && !lifecycle.closed) abort()
+        })
       })
     }, STREAM_REVALIDATE_MS)
 
