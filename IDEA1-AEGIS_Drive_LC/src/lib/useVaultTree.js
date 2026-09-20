@@ -226,6 +226,7 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
     drop: (destinationNodeId) => safeDispatch({ type: 'drop', destinationNodeId }),
     resolveConflict: (choice, extra = {}) => safeDispatch({ type: 'resolveConflict', choice, ...extra }),
     refreshHead: (head) => safeDispatch({ type: 'head', head }),
+    setKeyStatus: (keyStatus, badSlot = null) => safeDispatch({ type: 'keyStatus', keyStatus, badSlot }),
     run,
     capabilities: () => selectors.capabilities,
     newNodeId: newOpaqueId,

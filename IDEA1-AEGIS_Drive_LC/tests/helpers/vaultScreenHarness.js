@@ -25,6 +25,11 @@ const STUBBED = new Set([
   //    specifier แบบ './' ต่างจากที่จอเขียน ('../lib/') — ถ้าไม่เพิ่มสามรูปแบบนี้ โมดูล tree
   //    ตัวจริงจะดึง api.js/vaultCrypto.js/vaultChunkCrypto.js ตัวจริงและยิงเครือข่ายจริงจาก jsdom
   './api.js', './vaultCrypto.js', './vaultChunkCrypto.js',
+  // PR #157 Task 6.3: vaultTreeUpload imports the chunked uploader with a './' specifier —
+  // stub it too so tree-screen tests can drive uploads through ctl.uploadImpl.
+  './vaultChunkedUpload.js',
+  // PR #157: tests that need the stub KEK directly load it by absolute id — map that form too
+  '/src/lib/vaultCrypto.js',
 ])
 
 export async function startVaultScreenEnv() {

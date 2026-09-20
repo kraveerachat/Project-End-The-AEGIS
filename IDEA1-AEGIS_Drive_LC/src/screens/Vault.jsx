@@ -45,6 +45,7 @@ import { onSessionEnded, SESSION_END_REASONS } from '../lib/sessionEnded.js'
 import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 // ⚠️ TREE (PR #157 Tranche A): ไดอะล็อก genesis migration — ขับเคลื่อนด้วย runGenesis ตัวจริงเท่านั้น
 import { VaultMigrationDialog } from '../components/vault/VaultMigrationDialog.jsx'
+import { VaultTreeScreen, VaultTreeRollback } from './VaultTreeScreen.jsx'
 
 /* ⚠️ Zero-Knowledge จริง:
    - GET /api/vault ให้แค่ salt + พารามิเตอร์ KDF + verifier + envelope ของแต่ละ blob
@@ -466,6 +467,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
   const treePlaceholderShown = Boolean(
     unlocked && treeProtocolState === 'TREE_V1' && treeFlags?.treeUiEnabled !== true,
   )
+  /* Task 6.3: the tree UI is active only when unlocked + TREE_V1 + treeUiEnabled */
+  const treeUiActive = Boolean(unlocked && treeProtocolState === 'TREE_V1' && treeFlags?.treeUiEnabled === true)
 
   /* รายการ blob ทึบที่ "เป็นจริงตอนนี้" = server + POST ที่สำเร็จแล้ว − ที่ลบสำเร็จแล้ว
      dedupe ด้วย id เข้มงวด GET ที่ตามมาทีหลังจึงไม่สร้างการ์ดใบที่สอง */
@@ -1166,19 +1169,39 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
     else fileRef.current?.click()
   }
 
+  /* persistent, calm callout — identical in both modes (legacy + tree UI); this warning never goes away */
+  const vaultCallout = (
+    <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
+      <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
+          {t('vaultWarning')}
+        </p>
+        <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
+      </div>
+    </div>
+  )
+
+  /* Task 6.3: the tree screen replaces the legacy body when treeUiEnabled */
+  if (treeUiActive) {
+    return (
+      <div>
+        {vaultCallout}
+        <VaultTreeScreen
+          t={t}
+          lang={lang}
+          kek={kek}
+          treeState={treeState}
+          unlockedState={unlockedState.current}
+          onLock={() => lock(false)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div>
-      {/* persistent, calm callout — this warning never goes away */}
-      <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
-        <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
-            {t('vaultWarning')}
-          </p>
-          <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
-        </div>
-      </div>
-
+      {vaultCallout}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <Chip tone={unlocked ? 'ok' : 'neutral'}>
           {unlocked ? <LockOpen size={11} strokeWidth={2} /> : <Lock size={11} strokeWidth={2} />}
@@ -1250,9 +1273,17 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
       {/* ── TREE_V1 (Tranche A): placeholder จริงใจ — Tranche A ยังไม่มี UI ต้นไม้ ──
           ให้มีข้อความเดียวในองค์ประกอบนี้โดยเจตนา (เทสต์ตรึงข้อความเต็มไว้) */}
       {treePlaceholderShown && (
-        <p data-testid="vault-tree-placeholder" className="text-[12.5px] text-ink-3 mb-4">
-          {t('vaultMigrationNoTreeUi')}
-        </p>
+        <>
+          <p data-testid="vault-tree-placeholder" className="text-[12.5px] text-ink-3 mb-4">
+            {t('vaultMigrationNoTreeUi')}
+          </p>
+          <VaultTreeRollback
+            t={t}
+            lang={lang}
+            kek={kek}
+            unlockedState={unlockedState.current}
+          />
+        </>
       )}
 
       {unlocked && (migrationOpen || migrationAutoOpen) && (
