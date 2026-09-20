@@ -17,6 +17,8 @@ const { createVaultV2Envelope, planVaultChunks, VAULT_FORMAT_V2, GCM_TAG_BYTES }
 const upload = await import('../src/lib/vaultChunkedUpload.js')
 const { uploadTreeFile, listOrphanBlobs, recoverOrphan, TREE_UPLOAD_ROUTE_BASE } = await import('../src/lib/vaultTreeUpload.js')
 const { listTreeBlobs } = await import('../src/lib/vaultTreeApi.js')
+const { createTreeSession } = await import('../src/lib/vaultTreeSync.js')
+const { createFakeTreeServer } = await import('./helpers/vaultTreeFakeServer.mjs')
 
 const FAST = { memorySizeKiB: 19_456, iterations: 2, parallelism: 1 }
 const kek = (await createVaultSetup('tree-upload-client-passphrase-77', FAST)).kek
@@ -186,6 +188,28 @@ test('TUC-5 unlockedState.purge during the upload → the registered abort fires
   const t2 = fakeTransport(); const s2 = stubSession()
   const pre = await uploadTreeFile({ kek, file: mkFile(CHUNK), parentNodeId: PARENT, session: s2, signal: ctrl.signal, plaintextChunkBytes: CHUNK, concurrency: 1, fetchJson: t2.fetchJson, sendUpload: t2.sendUpload })
   assert.equal(pre.ok, false); assert.equal(pre.stage, 'cancelled'); assert.equal(s2.commits.length, 0)
+})
+
+test('TUC-REAL-1 (Task 5.5) uploadTreeFile and recoverOrphan against the real vaultTreeSync session: the blob becomes TREE_MANAGED at the new generation and a file node with the plaintext name exists only in the decrypted manifest', async () => {
+  const srv = await createFakeTreeServer({ kek })
+  const session = createTreeSession({ kek, api: srv.api })
+  await session.loadHead()
+  const t = fakeTransport()
+  // the fake upload backend returns a blob id; make the tree server know it as UNREFERENCED (as /tree/uploads commit would)
+  srv.state.blobStates.set('2:' + 'b'.repeat(48), { formatVersion: 2, id: 'b'.repeat(48), lifecycle: 'UNREFERENCED' })
+  const res = await uploadTreeFile({ kek, file: mkFile(CHUNK), parentNodeId: srv.rootNodeId, session, plaintextChunkBytes: CHUNK, concurrency: 1, fetchJson: t.fetchJson, sendUpload: t.sendUpload })
+  assert.equal(res.ok, true, JSON.stringify(res))
+  assert.equal(res.generation, 2); assert.equal(srv.state.blobStates.get('2:' + 'b'.repeat(48)).lifecycle, 'TREE_MANAGED')
+  const node = session.head.manifest.nodes.get(res.nodeId)
+  assert.deepEqual({ name: node.name, parent: node.parentNodeId, blob: node.blobRef }, { name: SECRET_NAME, parent: srv.rootNodeId, blob: { formatVersion: 2, id: 'b'.repeat(48) } })
+  // the same blob cannot be attached twice; an orphan can be recovered through the same session
+  await assert.rejects(recoverOrphan({ session, blobRef: { formatVersion: 2, id: 'b'.repeat(48) }, parentNodeId: srv.rootNodeId, name: 'dup.pdf', mediaType: 'application/pdf', plainSize: 1 }), (e) => e.code === 'BLOB_ALREADY_REFERENCED')
+  srv.state.blobStates.set('2:orphan', { formatVersion: 2, id: 'orphan', lifecycle: 'UNREFERENCED' })
+  const rec = await recoverOrphan({ session, blobRef: { formatVersion: 2, id: 'orphan' }, parentNodeId: srv.rootNodeId, name: 'recovered.bin', mediaType: '', plainSize: 3 })
+  assert.equal(rec.generation, session.head.generation); assert.equal(srv.state.blobStates.get('2:orphan').lifecycle, 'TREE_MANAGED')
+  const all = srv.state.log.map((l) => `${l.method} ${l.path} ${l.body}`).join('\n')
+  for (const needle of [SECRET_NAME, 'recovered.bin', 'dup.pdf', srv.rootNodeId, res.nodeId, 'parentNodeId', '"name"']) assert.ok(!all.includes(needle), `leak: ${needle}`)
+  for (const l of srv.state.log) wire.push({ method: l.method, path: l.path, body: l.body, headers: '{}' })
 })
 
 test('TUC-4 (NO-LEAK-4) no request in this suite contains the file name, parentNodeId or any nodeId; no browser storage was written', () => {
