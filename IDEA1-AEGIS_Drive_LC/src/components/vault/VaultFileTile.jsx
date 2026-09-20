@@ -6,8 +6,9 @@ import { AnchoredMenu } from '../ui.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 import { fmtBytes } from '../../lib/format.js'
 
-export function VaultFileTile({ t, node, view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, ...rest }) {
+export function VaultFileTile({ t, node, view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, media = null, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [hovering, setHovering] = useState(false)
   const menuBtnRef = useRef(null)
   const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'file', view, previewKind, keyDegraded }) : []
 
@@ -16,6 +17,7 @@ export function VaultFileTile({ t, node, view = 'active', previewKind = null, se
       data-testid="vault-file-tile"
       data-node-id={node.nodeId}
       data-icon="file"
+      title={media?.reason ?? undefined}
       className="relative group rounded-[var(--r-tile)] border border-line bg-card p-3 flex flex-col items-start gap-2 transition-transform duration-[var(--dur-fast)] hover:-translate-y-0.5"
       {...rest}
     >
@@ -31,14 +33,23 @@ export function VaultFileTile({ t, node, view = 'active', previewKind = null, se
         type="button"
         data-testid="vault-file-tile-body"
         className="flex flex-col items-start gap-1.5 w-full text-left cursor-pointer"
+        onMouseEnter={media?.hoverEnabled ? () => { setHovering(true); media.onHoverStart?.() } : undefined}
+        onMouseLeave={media?.hoverEnabled ? () => { setHovering(false); media.onHoverEnd?.() } : undefined}
+        data-motion-active={hovering && media?.motionUrl ? 'true' : undefined}
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) { onSelect(node.nodeId, { additive: true }); return }
           onPreview(node)
         }}
       >
-        <span className="text-[var(--accent)]">
-          <File size={40} strokeWidth={1.2} />
-        </span>
+        {media?.motionUrl && hovering ? (
+          <img src={media.motionUrl} alt="" data-testid="vault-tree-tile-poster" className="w-16 h-16 object-contain" />
+        ) : media?.posterUrl ? (
+          <img src={media.posterUrl} alt="" data-testid="vault-tree-tile-poster" className="w-16 h-16 object-contain" />
+        ) : (
+          <span className="text-[var(--accent)]">
+            <File size={40} strokeWidth={1.2} />
+          </span>
+        )}
         <span className="w-full truncate text-[13.5px] font-medium text-ink">{node.name}</span>
         <span data-testid="vault-file-info" className="text-[12px] text-ink-3 truncate w-full">
           {node.mediaType ? `${node.mediaType} · ${fmtBytes(node.plainSize)}` : fmtBytes(node.plainSize)}

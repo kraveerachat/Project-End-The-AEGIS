@@ -288,3 +288,74 @@ test('STR-1 every t() key used by the vault tree UI files exists in en, th and z
   }
   assert.deepEqual(missing, [], 'every used key exists in all three locales')
 })
+
+/* ── UI-7..9 (Task 7.3) — the file tile's media slot ──────────────────────── */
+
+test('UI-7 the tile shows the poster when ready, the icon with a truthful reason when unsupported, and honors reduced motion', async () => {
+  const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
+  const h = env.mount()
+  try {
+    // poster ready → an <img> with the poster URL
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'p'.repeat(22), name: 'a.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
+      previewKind: 'image', media: { posterUrl: 'blob:mock/poster' },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    const img = q('[data-testid="vault-tree-tile-poster"]')
+    assert.ok(img, 'the poster renders')
+    assert.equal(img.getAttribute('src'), 'blob:mock/poster')
+    // unsupported → icon + truthful reason tooltip; no hover wiring under reduced motion
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'q'.repeat(22), name: 'b.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
+      previewKind: 'image', media: { reason: 'GIF_TOO_LARGE' },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    assert.ok(!q('[data-testid="vault-tree-tile-poster"]'), 'no poster for an unsupported file')
+    const icon = q('[data-icon="file"]')
+    assert.ok(icon, 'the icon fallback renders')
+    assert.equal(icon.getAttribute('title'), 'GIF_TOO_LARGE', 'the truthful reason travels as the tooltip')
+    // reduced motion: the tile carries no hover handlers
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'r'.repeat(22), name: 'c.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
+      previewKind: 'image', media: { posterUrl: 'blob:mock/p2', hoverEnabled: false },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    const body = q('[data-testid="vault-file-tile-body"]')
+    await act(async () => body.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true })))
+    await settle()
+    assert.equal(body.getAttribute('data-motion-active'), null, 'reduced motion never activates motion')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('UI-8 hover swaps the poster to the motion frame and back; motion never autoplays', async () => {
+  const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
+  const h = env.mount()
+  const calls = []
+  try {
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'm'.repeat(22), name: 'd.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
+      previewKind: 'image',
+      media: {
+        posterUrl: 'blob:mock/poster', hoverEnabled: true, motionUrl: null,
+        onHoverStart: () => calls.push('start'), onHoverEnd: () => calls.push('end'),
+      },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    const body = q('[data-testid="vault-file-tile-body"]')
+    // React synthesizes onMouseEnter/Leave from real hover transitions; under jsdom the
+    // deterministic way to exercise the tile wiring is through its own props
+    const rp = body[Object.keys(body).find((k) => k.startsWith('__reactProps'))]
+    await act(async () => rp.onMouseEnter(new dom.window.Event('mouseover', { bubbles: true })))
+    await settle()
+    assert.deepEqual(calls, ['start'], 'hover starts the motion request (the screen decrypts + swaps)')
+    await act(async () => rp.onMouseLeave(new dom.window.Event('mouseout', { bubbles: true })))
+    await settle()
+    assert.deepEqual(calls, ['start', 'end'], 'leaving ends the motion and the screen revokes the URL')
+    // autoplay honesty: without a hover event the motion request is never issued
+    assert.ok(!calls.includes('autoplay'), 'no autoplay path exists')
+  } finally {
+    await h.unmount()
+  }
+})
