@@ -369,6 +369,7 @@ vaultTreeRouter.post('/key-envelope', async (req, res, next) => {
 // envelope ชุดเดียวกับ GET /api/vault + lifecycle ของ tree ต่อ blob (UNREFERENCED เมื่อไม่มีแถว = orphan ที่กู้ได้)
 vaultTreeRouter.get('/blobs', async (req, res, next) => {
   try {
+    const cfg = treeConfigOf(req)
     const st = await tree.getTreeState(req.user.id)
     if (st.protocolState === 'FLAT') return fail(res, 409, TREE_ERROR.TREE_STATE_CONFLICT, 'Tree inventory exists only after the migration fence')
     const lifecycle = req.query.lifecycle === undefined ? null : String(req.query.lifecycle)
@@ -379,6 +380,7 @@ vaultTreeRouter.get('/blobs', async (req, res, next) => {
       const s = byKey.get(`${b.formatVersion}:${String(b.id)}`)
       return { ...b, lifecycle: s?.lifecycle ?? 'UNREFERENCED', attachedGeneration: s?.attachedGeneration ?? null, orphanSince: s?.lifecycle === 'UNREFERENCED' || !s ? (s?.createdAt ?? b.createdAt ?? null) : null }
     }).filter((b) => lifecycle === null || b.lifecycle === lifecycle)
-    return ok(res, 200, { blobs })
+    // Task 4.2: ค่า retention ของ orphan blob เป็น "คำอธิบายประกอบ" ให้ client แสดงอายุของ orphan — ไม่มีอะไรลบ blob ใน PR นี้ (OR-3)
+    return ok(res, 200, { blobs, orphanRetentionMs: cfg.limits.orphanBlobRetentionMs })
   } catch (err) { return next(err) }
 })

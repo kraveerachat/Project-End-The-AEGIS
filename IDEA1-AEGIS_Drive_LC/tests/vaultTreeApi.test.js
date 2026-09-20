@@ -21,12 +21,17 @@ const { createApp } = await import('../server/app.js')
 const { vaultTreeConfigFromEnv } = await import('../server/config/vaultTreeLimits.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 const { initVaultStorage } = await import('../server/storage/vaultStore.js')
-const { initVaultManifestStorage } = await import('../server/storage/vaultManifestStore.js')
+const { initVaultManifestStorage, openManifestCiphertext } = await import('../server/storage/vaultManifestStore.js')
+const { initVaultStaging } = await import('../server/storage/vaultStaging.js')
+const { runVaultTreeMaintenance } = await import('../server/storage/vaultTreeMaintenance.js')
+const { VAULT_TRANSFER_LIMITS, GCM_TAG_BYTES } = await import('../server/config/vaultTransferLimits.js')
 const tree = await import('../server/db/vaultTreeStore.js')
 const store = await import('../server/db/store.js')
 const v2store = await import('../server/db/vaultV2Store.js')
 const { readAudit, getUserByUsername } = await import('../server/db/connection.js')
 const { createVaultSetup, encryptFileEnvelope } = await import('../src/lib/vaultCrypto.js')
+const { createVaultV2Envelope } = await import('../src/lib/vaultChunkCrypto.js')
+const { randomBytes } = await import('node:crypto')
 const { seedTree } = await import('./helpers/vaultTreeStoreSpec.mjs')
 
 const ON = vaultTreeConfigFromEnv({ VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true', VAULT_TREE_MAX_ATTACH_PER_CAS: '4', VAULT_TREE_MAX_MANIFEST_CIPHERTEXT_BYTES: '65552' })
@@ -39,7 +44,7 @@ let serverOn, baseOn, serverOff, baseOff, ownerId, otherId
 const logLines = []
 
 before(async () => {
-  await initStorage(); await initVaultStorage(); await initVaultManifestStorage()
+  await initStorage(); await initVaultStorage(); await initVaultManifestStorage(); await initVaultStaging()
   for (const stream of [process.stdout, process.stderr]) {
     const orig = stream.write.bind(stream)
     stream.write = (chunk, ...rest) => { logLines.push(String(chunk)); return orig(chunk, ...rest) }
@@ -277,4 +282,104 @@ test('NO-LEAK-1 + AUD-OPAQUE-1: no request, response, log line or audit row cont
     for (const needle of [...SECRET_NAMES, ...NODE_IDS]) assert.equal(text.includes(needle), false)
   }
   for (const expected of ['VAULT_TREE_HEAD_CAS', 'VAULT_TREE_REVISION_PUBLISH', 'VAULT_TREE_REVISION_STAGE']) assert.ok(treeRows.some((r) => r.action === expected), expected)
+})
+
+// ── Task 4.2 · orphan lifecycle (OR-*) ────────────────────────────────────────
+/** อัปโหลดหนึ่ง blob ผ่านครอบครัว tree (เจ้าของต้อง TREE_V1 แล้ว) → blob id ที่ UNREFERENCED */
+async function treeUploadOne(c, kek) {
+  const env = await createVaultV2Envelope(kek, { name: SECRET_NAMES[1], type: 'application/octet-stream', size: 512, chunkCount: 1 })
+  const created = await c.req('/api/vault/tree/uploads', { method: 'POST', body: { formatVersion: 2, contentIdB64: env.contentIdB64, chunkSize: VAULT_TRANSFER_LIMITS.ciphertextChunkBytes, wrappedDekB64: env.wrappedDekB64, wrapIvB64: env.wrapIvB64, metaIvB64: env.metaIvB64, metaB64: env.metaB64, ciphertextSize: 512 + GCM_TAG_BYTES, chunkCount: 1 } })
+  assert.equal(created.status, 201, JSON.stringify(created.data))
+  const id = created.data.upload.uploadId
+  assert.equal((await c.req(`/api/vault/tree/uploads/${id}/chunks/0`, { method: 'PUT', body: randomBytes(512 + GCM_TAG_BYTES), headers: { 'Content-Type': 'application/octet-stream', 'X-Vault-Chunk-IV': randomBytes(12).toString('base64') } })).status, 200)
+  const done = await c.req(`/api/vault/tree/uploads/${id}/commit`, { method: 'POST' })
+  assert.equal(done.status, 201, JSON.stringify(done.data)); assert.equal(done.data.blob.lifecycle, 'UNREFERENCED')
+  return done.data.blob.id
+}
+async function setupVaultFor(c) {
+  const setup = await createVaultSetup('tree-api-passphrase-x1', FAST)
+  assert.equal((await c.req('/api/vault/setup', { method: 'POST', body: { saltB64: setup.saltB64, params: setup.params, verifier: setup.verifier } })).status, 201)
+  return setup.kek
+}
+const casBody = (desc, base, attachBlobIds) => ({ expectedGeneration: base.generation, expectedRevisionId: base.revisionId, revisionId: desc.revisionId, idempotencyKey: desc.idempotencyKey, attachBlobIds })
+const ZERO_TALLY = { orphanRevisionsRemoved: 0, forensicRevisionsRemoved: 0, purgesExecuted: 0 }
+/** มีไฟล์ ciphertext ของ key นี้ไหม — เปิดแล้วปิดทันที (stream ที่ไม่ถูกอ่านและไฟล์หายภายหลังจะโยน error ลอย) */
+const manifestExists = (k) => { const st = openManifestCiphertext(k); if (!st) return false; st.destroy(); return true }
+
+test('OR-1 a blob committed via the tree upload family is UNREFERENCED in GET /blobs; head CAS with attachBlobIds promotes it to TREE_MANAGED at the new generation', async () => {
+  const c = await login(); const kek = await setupVaultFor(c)
+  const { rootRevision } = await seedTree(tree, ownerId)
+  const blobId = await treeUploadOne(c, kek)
+  const before = (await c.req('/api/vault/tree/blobs')).data.blobs.find((b) => b.id === blobId)
+  assert.equal(before.lifecycle, 'UNREFERENCED'); assert.equal(before.attachedGeneration, null); assert.equal(typeof before.orphanSince, 'number')
+  const { desc } = await stage(c, { generation: 2, baseRevisionId: rootRevision })
+  const r = await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(desc, { generation: 1, revisionId: rootRevision }, [{ formatVersion: 2, id: blobId }]) })
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.generation, 2)
+  const after = (await c.req('/api/vault/tree/blobs')).data.blobs.find((b) => b.id === blobId)
+  assert.deepEqual({ lifecycle: after.lifecycle, attachedGeneration: after.attachedGeneration, orphanSince: after.orphanSince }, { lifecycle: 'TREE_MANAGED', attachedGeneration: 2, orphanSince: null })
+  assert.equal((await c.req('/api/vault/tree/blobs?lifecycle=UNREFERENCED')).data.blobs.length, 0)
+})
+
+test('OR-2 a stale CAS carrying attachBlobIds leaves the blob UNREFERENCED (recoverable); a later CAS from the rebased head attaches the same id', async () => {
+  const c = await login(); const kek = await setupVaultFor(c)
+  const { rootRevision } = await seedTree(tree, ownerId)
+  const blobId = await treeUploadOne(c, kek)
+  // another client moves the head first
+  const { desc: other } = await stage(c, { generation: 2, baseRevisionId: rootRevision })
+  assert.equal((await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(other, { generation: 1, revisionId: rootRevision }, []) })).status, 200)
+  // our attach is based on the old head → 409, blob untouched, candidate orphaned
+  const { desc: stale } = await stage(c, { generation: 2, baseRevisionId: rootRevision })
+  const lost = await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(stale, { generation: 1, revisionId: rootRevision }, [{ formatVersion: 2, id: blobId }]) })
+  assert.equal(lost.status, 409); assert.equal(lost.data.code, 'TREE_HEAD_CONFLICT')
+  assert.equal((await tree.listBlobStates(ownerId)).find((s) => s.id === blobId).lifecycle, 'UNREFERENCED')
+  assert.equal((await tree.getRevision(ownerId, stale.revisionId)).state, 'ORPHANED')
+  assert.ok((await c.req('/api/vault/tree/blobs?lifecycle=UNREFERENCED')).data.blobs.map((b) => b.id).includes(blobId), 'still listed for recovery')
+  // rebased retry from the current head attaches it
+  const { desc: rebased } = await stage(c, { generation: 3, baseRevisionId: other.revisionId })
+  const won = await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(rebased, { generation: 2, revisionId: other.revisionId }, [{ formatVersion: 2, id: blobId }]) })
+  assert.equal(won.status, 200, JSON.stringify(won.data))
+  const s = (await tree.listBlobStates(ownerId)).find((x) => x.id === blobId)
+  assert.deepEqual({ lifecycle: s.lifecycle, attachedGeneration: s.attachedGeneration }, { lifecycle: 'TREE_MANAGED', attachedGeneration: 3 })
+})
+
+test('OR-3 UNREFERENCED blobs are never deleted by maintenance in this PR: an orphan far older than the retention survives; the retention only annotates GET /blobs', async () => {
+  const c = await login(); const kek = await setupVaultFor(c)
+  await seedTree(tree, ownerId)
+  const blobId = await treeUploadOne(c, kek)
+  const farFuture = Date.now() + 10 * ON.limits.orphanBlobRetentionMs
+  assert.deepEqual(await runVaultTreeMaintenance({ now: farFuture, config: ON }), ZERO_TALLY)
+  const listed = await c.req('/api/vault/tree/blobs?lifecycle=UNREFERENCED')
+  assert.deepEqual(listed.data.blobs.map((b) => b.id), [blobId], 'the orphan blob still exists and is still listed')
+  assert.equal(listed.data.orphanRetentionMs, ON.limits.orphanBlobRetentionMs, 'the retention value is reported, not enforced')
+  assert.equal((await v2store.listVaultV2Blobs(ownerId)).length, 1)
+  assert.equal((await c.req(`/api/vault/blobs/${blobId}/chunks/0`)).status, 200, 'ciphertext still downloadable (V2 chunk endpoint)')
+})
+
+test('OR-4 orphan revisions older than the retention are retired by maintenance (file + row deleted); younger orphans and committed revisions untouched; idempotent; fail-closed when off', async () => {
+  const c = await login()
+  const { rootRevision } = await seedTree(tree, ownerId)
+  const { desc: winner } = await stage(c, { generation: 2, baseRevisionId: rootRevision })
+  assert.equal((await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(winner, { generation: 1, revisionId: rootRevision }, []) })).status, 200)
+  // a lost CAS (ORPHANED) and a staged-but-never-CAS'd revision (PUBLISHED) — both are orphan candidates
+  const { desc: lost } = await stage(c, { generation: 2, baseRevisionId: rootRevision })
+  assert.equal((await c.req('/api/vault/tree/head', { method: 'POST', body: casBody(lost, { generation: 1, revisionId: rootRevision }, []) })).status, 409)
+  const { desc: stale } = await stage(c, { generation: 3, baseRevisionId: winner.revisionId })
+  const keys = (await Promise.all([lost, stale].map((d) => tree.getRevision(ownerId, d.revisionId)))).map((r) => r.storageKey)
+  assert.ok(keys.every((k) => k && manifestExists(k)))
+  const retention = ON.limits.orphanRevisionRetentionMs
+  // younger than retention → nothing removed
+  assert.deepEqual(await runVaultTreeMaintenance({ now: Date.now(), config: ON }), ZERO_TALLY)
+  assert.equal((await tree.getRevision(ownerId, lost.revisionId)).state, 'ORPHANED')
+  // past retention → both retired: file gone, row gone; committed lineage intact
+  const later = Date.now() + retention + 60_000
+  assert.deepEqual(await runVaultTreeMaintenance({ now: later, config: ON }), { ...ZERO_TALLY, orphanRevisionsRemoved: 2 })
+  for (const d of [lost, stale]) assert.equal(await tree.getRevision(ownerId, d.revisionId), null, 'row deleted')
+  for (const k of keys) assert.equal(manifestExists(k), false, 'ciphertext file deleted')
+  assert.equal((await tree.getRevision(ownerId, winner.revisionId)).state, 'HEAD_COMMITTED')
+  assert.equal((await tree.getRevision(ownerId, rootRevision)).state, 'SUPERSEDED')
+  assert.equal((await c.req(`/api/vault/tree/revisions/${winner.revisionId}`)).status, 200, 'committed ciphertext untouched')
+  assert.deepEqual(await runVaultTreeMaintenance({ now: later, config: ON }), ZERO_TALLY, 'idempotent')
+  const { desc: stale2 } = await stage(c, { generation: 3, baseRevisionId: winner.revisionId })
+  assert.deepEqual(await runVaultTreeMaintenance({ now: later, config: OFF }), ZERO_TALLY, 'fail-closed: protocol off → the store is never touched')
+  assert.equal((await tree.getRevision(ownerId, stale2.revisionId)).state, 'PUBLISHED')
 })

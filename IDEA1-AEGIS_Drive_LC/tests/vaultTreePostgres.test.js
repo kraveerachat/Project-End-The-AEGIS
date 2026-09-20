@@ -267,6 +267,32 @@ test('PG-CAS-RACE-2 two connections race attaching the same UNREFERENCED blob �
   }
 })
 
+test('PG-OR-1 concurrent attach (casHead) and purge-pending transition on the same UNREFERENCED blob → serialized on the row lock, exactly one wins (10×)', { skip }, async () => {
+  for (let i = 0; i < 10; i++) {
+    await store.__resetVaultTreeForTests()
+    const { treeId, rootRevision } = await seedTree(store, USER_A)
+    const ref = { formatVersion: 2, id: `or1-${i}` }
+    await store.upsertBlobState(USER_A, ref, 'UNREFERENCED')
+    const cand = ID(3000 + i, 'B')
+    await stageRevision(store, USER_A, { treeId, baseRevisionId: rootRevision, generation: 2, revisionId: cand, key: ID(300 + i, 'K') })
+    const [attach, purge] = await Promise.all([
+      store.casHead(USER_A, { expectedGeneration: 1, expectedRevisionId: rootRevision, revisionId: cand, attachBlobRefs: [ref], idempotencyKey: ID(300 + i, 'K') }),
+      store.transitionBlobState(USER_A, ref, { from: 'UNREFERENCED', to: 'PURGE_PENDING' }),
+    ])
+    assert.equal([attach.ok, purge.ok].filter(Boolean).length, 1, `iteration ${i}: ${JSON.stringify([attach, purge])}`)
+    const [row] = (await store.listBlobStates(USER_A)).filter((b) => b.id === ref.id)
+    if (attach.ok) {
+      assert.deepEqual({ lifecycle: row.lifecycle, attachedGeneration: row.attachedGeneration }, { lifecycle: 'TREE_MANAGED', attachedGeneration: 2 })
+      assert.equal(purge.code, 'TREE_BLOB_STATE_CONFLICT')
+      assert.equal((await store.getHead(USER_A)).generation, 2)
+    } else {
+      assert.deepEqual({ lifecycle: row.lifecycle, attachedGeneration: row.attachedGeneration }, { lifecycle: 'PURGE_PENDING', attachedGeneration: null })
+      assert.equal(attach.code, 'TREE_BLOB_STATE_CONFLICT')
+      assert.equal((await store.getHead(USER_A)).generation, 1, 'a CAS whose attach set conflicts commits nothing')
+    }
+  }
+})
+
 test('PG-ENVELOPE-RACE-1 concurrent casKeyEnvelope with the same expected version → one wins', { skip }, async () => {
   await store.__resetVaultTreeForTests()
   await seedTree(store, USER_A)

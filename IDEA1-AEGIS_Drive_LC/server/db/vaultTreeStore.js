@@ -403,6 +403,31 @@ export async function upsertBlobState(userId, ref, lifecycle, { attachedGenerati
   return clone(row)
 }
 
+/**
+ * เปลี่ยน lifecycle แบบมีเงื่อนไข (CAS ต่อแถว blob): from → to เฉพาะเมื่อแถวยังเป็น from อยู่
+ * ⚠️ ล็อกแถวเดียวกับที่ casHead ใช้ (SELECT ... FOR UPDATE ใน PG / synchronous ใน memory) — attach กับ
+ *    purge-pending บน blob เดียวกันจึงถูกจัดลำดับเสมอ มีผู้ชนะเพียงหนึ่ง (PG-OR-1); Phase 8 ใช้ขอบ UNREFERENCED/
+ *    TREE_MANAGED → PURGE_PENDING ผ่านฟังก์ชันนี้
+ */
+export async function transitionBlobState(userId, ref, { from, to, client = null }) {
+  const u = uid(userId)
+  if (!BLOB_LIFECYCLES.includes(from) || !BLOB_LIFECYCLES.includes(to)) throw new Error('vaultTreeStore: bad lifecycle')
+  if (usingPostgres) {
+    const q = client ? client.query.bind(client) : query
+    const { rows } = await q(
+      `UPDATE vault_tree_blob_state SET lifecycle = $5, updated_at = now()
+        WHERE user_id = $1 AND blob_format_version = $2 AND blob_id = $3 AND lifecycle = $4
+        RETURNING *`,
+      [u, ref.formatVersion, String(ref.id), from, to],
+    )
+    return rows.length ? { ok: true, state: mapBlobState(rows[0]) } : { ok: false, code: STORE_CODE.TREE_BLOB_STATE_CONFLICT }
+  }
+  const row = memBlobMap(u).get(refKey({ formatVersion: ref.formatVersion, id: String(ref.id) }))
+  if (!row || row.lifecycle !== from) return { ok: false, code: STORE_CODE.TREE_BLOB_STATE_CONFLICT }
+  Object.assign(row, { lifecycle: to, updatedAt: nowMs() })
+  return { ok: true, state: clone(row) }
+}
+
 // ── orphan revisions (GC) ────────────────────────────────────────────────────
 
 /** revision ที่แพ้ CAS หรือไม่เคยถูก CAS (ORPHANED / CREATED / PUBLISHED ที่ค้าง) เก่ากว่า olderThanMs */
