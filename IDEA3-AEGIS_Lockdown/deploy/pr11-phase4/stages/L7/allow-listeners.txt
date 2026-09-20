@@ -1,0 +1,3 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L7 allowed listeners.
+# Stage L7 Core daemon opens NO TCP or UDP listening sockets.
+# This file must remain empty of active listeners (OD-L7-06).

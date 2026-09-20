@@ -1,0 +1,37 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L7 allowed state drift.
+# Exact drift keys recorded by p4-l0-capture.sh during Core credential staging and service startup.
+# Wildcards are strictly forbidden (OD-L7-06).
+
+# ── Service State Drift ──────────────────────────────────────────────────────
+svc.aegis-idea3-core.service.ActiveState
+svc.aegis-idea3-core.service.SubState
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-core.service.Result
+svc.aegis-idea3-core.service.LoadState
+svc.aegis-idea3-core.service.NRestarts
+svc.aegis-idea3-core.service.UnitFileState
+
+# ── Host Filesystem Drift ───────────────────────────────────────────────────
+host.path./opt/aegis-idea3/current
+host.path./run/aegis-idea3
+host.path./var/lib/aegis-idea3
+host.path./var/log/aegis-idea3
+host.symlink./opt/aegis-idea3/current.target
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.class
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.meta
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.sha256
+
+# ── Host Core Environment and Credentials Drift ──────────────────────────────
+host.aegis_idea3.file./etc/aegis-idea3/core.env.class
+host.aegis_idea3.file./etc/aegis-idea3/core.env.meta
+host.aegis_idea3.file./etc/aegis-idea3/credentials/k_c2d.class
+host.aegis_idea3.file./etc/aegis-idea3/credentials/k_c2d.meta
+host.aegis_idea3.file./etc/aegis-idea3/credentials/k_d2c.class
+host.aegis_idea3.file./etc/aegis-idea3/credentials/k_d2c.meta
+host.aegis_idea3.file./etc/aegis-idea3/credentials/mqtt-core.pass.class
+host.aegis_idea3.file./etc/aegis-idea3/credentials/mqtt-core.pass.meta
+host.aegis_idea3.file./etc/aegis-idea3/credentials/admin.pin.class
+host.aegis_idea3.file./etc/aegis-idea3/credentials/admin.pin.meta
+host.aegis_idea3.file./etc/aegis-idea3/credentials/restore.credential.class
+host.aegis_idea3.file./etc/aegis-idea3/credentials/restore.credential.meta
