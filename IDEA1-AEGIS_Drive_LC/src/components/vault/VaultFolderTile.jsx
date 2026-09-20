@@ -6,10 +6,10 @@ import { Folder, MoreVertical } from 'lucide-react'
 import { AnchoredMenu } from '../ui.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 
-export function VaultFolderTile({ t, node, childCount = null, selected = false, onSelect, onOpen, onAction, keyDegraded = false, ...rest }) {
+export function VaultFolderTile({ t, node, view = 'active', childCount = null, selected = false, onSelect, onOpen, onAction, keyDegraded = false, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuBtnRef = useRef(null)
-  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view: 'active', keyDegraded }) : []
+  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view, keyDegraded }) : []
 
   return (
     <div

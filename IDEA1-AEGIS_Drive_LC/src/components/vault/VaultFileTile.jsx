@@ -6,10 +6,10 @@ import { AnchoredMenu } from '../ui.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 import { fmtBytes } from '../../lib/format.js'
 
-export function VaultFileTile({ t, node, previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, ...rest }) {
+export function VaultFileTile({ t, node, view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuBtnRef = useRef(null)
-  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'file', view: 'active', previewKind, keyDegraded }) : []
+  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'file', view, previewKind, keyDegraded }) : []
 
   return (
     <div
