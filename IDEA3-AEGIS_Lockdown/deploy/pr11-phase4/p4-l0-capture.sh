@@ -48,7 +48,7 @@ REQUIRED_TOOLS="ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rf
 OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
-twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service"
+twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -135,9 +135,11 @@ done
 for t in $REQUIRED_TOOLS; do p4_have "$t" || partial=1; done
 
 # ── network ──────────────────────────────────────────────────────────────────
+IFACE_LIST=""
 if run_ro 1 ip-br-addr ip -br addr show; then
   while read -r ifname _ addrs; do
     [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
     sorted=$(printf '%s\n' $addrs | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ')
     p4_rec "$NET" "net.addr.$ifname" "${sorted:-none}"
   done <<< "$P4_OUT"
@@ -146,7 +148,9 @@ else
 fi
 if run_ro 1 ip-br-link ip -br link show; then
   while read -r ifname state _; do
-    [ -n "$ifname" ] && p4_rec "$NET" "net.link.$ifname" "$state"
+    [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
+    p4_rec "$NET" "net.link.$ifname" "$state"
   done <<< "$P4_OUT"
 else
   p4_rec "$NET" net.link UNAVAILABLE
@@ -157,9 +161,31 @@ for fam in 4 6; do
     default=$(join_sorted "$(printf '%s\n' "$routes" | grep '^default' || true)")
     p4_rec "$NET" "net.route$fam.default" "${default:-none}"
     p4_rec "$NET" "net.route$fam.sha256" "$(text_sha "$(printf '%s\n' "$routes" | LC_ALL=C sort)")"
+    all_ifaces=$(printf '%s\n' $IFACE_LIST $(printf '%s\n' "$routes" | grep -oE '\bdev [^ ]+' | awk '{print $2}') | sed '/^$/d' | LC_ALL=C sort -u)
+    for ifn in $all_ifaces; do
+      [ -n "$ifn" ] || continue
+      ifroutes=$(printf '%s\n' "$routes" | grep -v '^default' | grep -E "(^|[[:space:]])dev $ifn([[:space:]]|$)" || true)
+      if [ -n "$ifroutes" ]; then
+        sorted_ifroutes=$(join_sorted "$ifroutes")
+        p4_rec "$NET" "net.route$fam.iface.$ifn" "$sorted_ifroutes"
+      else
+        p4_rec "$NET" "net.route$fam.iface.$ifn" none
+      fi
+    done
+    unscoped=$(printf '%s\n' "$routes" | sed '/^[[:space:]]*$/d' | grep -v '^default' | awk '
+      /^(blackhole|unreachable|prohibit|throw)([[:space:]]|$)/ { print; next }
+      !/(^|[[:space:]])dev[[:space:]]+[^[:space:]]+/ { print; next }
+    ')
+    if [ -n "$unscoped" ]; then
+      sorted_unscoped=$(join_sorted "$unscoped")
+      p4_rec "$NET" "net.route$fam.unscoped" "$sorted_unscoped"
+    else
+      p4_rec "$NET" "net.route$fam.unscoped" none
+    fi
   else
     p4_rec "$NET" "net.route$fam.default" UNAVAILABLE
     p4_rec "$NET" "net.route$fam.sha256" UNAVAILABLE
+    p4_rec "$NET" "net.route$fam.unscoped" UNAVAILABLE
   fi
   if run_ro 1 "ip-$fam-rule" ip "-$fam" rule show; then
     p4_rec "$NET" "net.rule$fam.sha256" "$(text_sha "$P4_OUT")"
@@ -176,6 +202,7 @@ for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forw
     p4_rec "$NET" "sysctl.$k" UNAVAILABLE
   fi
 done
+[ -f "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)" ] && rec_file "$NET" net.idea3_dnsmasq_conf "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)"
 [ -f "$(p4_fs /etc/sysctl.conf)" ] && rec_file "$NET" net.sysctl_conf "$(p4_fs /etc/sysctl.conf)"
 rec_tree "$NET" net.sysctl_conf /etc/sysctl.d
 resolv_conf="$(p4_fs /etc/resolv.conf)"
@@ -564,6 +591,7 @@ done
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/dnsmasq-ap.conf" ] && continue
   rec_file "$HOST" host.aegis_idea3.file "$f" meta
 done < <(tree_files /etc/aegis-idea3)
 
