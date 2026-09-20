@@ -346,10 +346,13 @@ export async function deleteVaultV2Session(uploadId, userId) {
  *    ถ้าแถว blob ถูกเขียนแยกจากแถว chunk จะมีช่วงเวลาที่ blob ปรากฏใน inventory โดย
  *    ยังไม่มี IV ของ chunk ใดเลย = ผู้ใช้เห็นไฟล์ที่ "มีอยู่" แต่ถอดไม่ได้เลยแม้แต่ก้อนเดียว
  * ⚠️ แถวที่ยัง committing จึงแปลว่า metadata ยังไม่ถูกเขียนแน่นอน — งานกู้คืนไม่ต้องเดา
+ * PR #157 Task 4.1: `withinCommit(client)` (ไม่บังคับ) รันหลังแถว blob ถูกแทรก "ใน transaction เดียวกัน" —
+ *    ครอบครัว tree-aware ใช้บันทึกสถานะ blob (UNREFERENCED) ให้เป็น atomic กับแถว blob; ถ้ามัน throw ทั้ง
+ *    transaction ถูก ROLLBACK (โหมด memory ย้อนการเขียนกลับด้วยมือ) route เก่าไม่ส่ง = พฤติกรรมเดิมทุกไบต์
  */
 export async function finishVaultV2Commit({
   uploadId, userId, blobId, storageKey, ciphertextSize, chunkSize, chunkCount,
-  contentIdB64, envelope, chunks,
+  contentIdB64, envelope, chunks, withinCommit = null,
 }) {
   const { wrappedDekB64, wrapIvB64, metaIvB64, metaB64 } = envelope
   if (usingPostgres) {
@@ -375,6 +378,7 @@ export async function finishVaultV2Commit({
           WHERE upload_id = $1`,
         [uploadId, blobId],
       )
+      if (withinCommit) await withinCommit(client)
       return mapBlobRow(rows[0])
     })
   }
@@ -388,10 +392,22 @@ export async function finishVaultV2Commit({
   memBlobs.push(row)
   memBlobChunks.set(blobId, new Map(chunks.map((c) => [c.index, { size: c.size, sha256: c.sha256, ivB64: c.ivB64 }])))
   const session = memSessions.get(uploadId)
+  const sessionBefore = session ? { status: session.status, committedBlobId: session.committedBlobId, updatedAt: session.updatedAt } : null
   if (session) {
     session.status = 'committed'
     session.committedBlobId = blobId
     session.updatedAt = now
+  }
+  if (withinCommit) {
+    try {
+      await withinCommit(null)
+    } catch (err) {
+      // "ROLLBACK" ของโหมด memory: ย้อนทุกการเขียนของ commit นี้ให้เหมือนไม่เคยเกิด
+      memBlobs.splice(memBlobs.indexOf(row), 1)
+      memBlobChunks.delete(blobId)
+      if (session) Object.assign(session, sessionBefore)
+      throw err
+    }
   }
   return clone(row)
 }

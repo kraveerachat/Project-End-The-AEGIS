@@ -373,10 +373,15 @@ export async function listBlobStates(userId, { lifecycle = null } = {}) {
   return [...memBlobMap(u).values()].filter((r) => !lifecycle || r.lifecycle === lifecycle).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1)).map(clone)
 }
 
+/** ชุดทดสอบเท่านั้น (TU-3): ทำให้ upsertBlobState ครั้งถัดไป throw — พิสูจน์ว่า tree-aware commit เป็น atomic กับแถว blob */
+let failNextBlobStateUpsert = null
+export function __failNextBlobStateUpsertForTests(err) { failNextBlobStateUpsert = err }
+
 /** สร้าง/ตั้ง lifecycle ของ blob ทึบหนึ่งชิ้น (ใช้โดย tree-aware commit และ genesis; ไม่ตรวจ transition — ผู้เรียกรับผิดชอบ) */
 export async function upsertBlobState(userId, ref, lifecycle, { attachedGeneration = null, client = null } = {}) {
   const u = uid(userId)
   if (!BLOB_LIFECYCLES.includes(lifecycle)) throw new Error('vaultTreeStore: bad lifecycle')
+  if (failNextBlobStateUpsert) { const e = failNextBlobStateUpsert; failNextBlobStateUpsert = null; throw e }
   if (usingPostgres) {
     const q = client ? client.query.bind(client) : query
     const { rows } = await q(
