@@ -1792,8 +1792,8 @@ export const STRINGS = {
     vaultSetupNeeded: 'ยังไม่มีห้องนิรภัย',
     vaultSetupCta: 'ตั้งค่าห้องนิรภัย',
     // ── ไดอะล็อกย้ายไป TREE (PR #157 Tranche A) — ทุกข้อความต้องซื่อสัตย์ต่อสถานะจริง
-    vaultMigrationEntry: 'อัปเกรดเป็นโฟลเดอร์',
-    vaultMigrationTitle: 'อัปเกรดเป็นโฟลเดอร์',
+    vaultMigrationEntry: 'สร้างโฟลเดอร์',
+    vaultMigrationTitle: 'สร้างโฟลเดอร์',
     vaultMigrationExplain: 'ไฟล์ทุกไฟล์คงไซเฟอร์เท็กซ์เดิมทุกไบต์ การอัปเกรดสร้างเพียง "ดัชนีโฟลเดอร์ที่เข้ารหัสแล้ว" — เซิร์ฟเวอร์ไม่มีทางเห็นชื่อไฟล์หรือชื่อโฟลเดอร์',
     vaultMigrationStart: 'เริ่มอัปเกรด',
     vaultMigrationStepLease: 'จองช่วงเวลาย้าย',
