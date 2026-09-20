@@ -108,8 +108,8 @@ Zero changes to `p4-lib.sh` are required to register L7.
 
 - **DECISION**:
   All Core runtime secrets are supplied from an owner-controlled authority host (`OV-09`, `OV-10`, `OV-11`) and staged into the persistent directory `/etc/aegis-idea3/credentials/`.
-  The directory must be a regular directory (non-symlink) owned by `root:root` with mode `0700`, except when local D4 RESTORE is active, where `production-runtime.md` specifies group ownership `root:aegis-idea3` and mode `0750` to permit the unprivileged Core daemon to traverse into the directory to read `restore.credential`.
-  Credential source files (`k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`) must be regular files owned by `root:root` with mode `0600`.
+  The directory must be a regular directory (non-symlink) owned by `root:root` with exact mode `0700`.
+  Credential source files (`k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential`) must be regular files owned by `root:root` with mode `0600`. The Core runtime credential reader accepts files when `mode & 0o077 == 0`.
 - **BASIS**:
   PR #149 T9 credential contract; `IDEA3-AEGIS_Lockdown/docs/operations/production-runtime.md`; `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-18_000451_music_idea3-pr11-phase3-t9-credentials.md`.
 - **OWNER_STATUS**:
@@ -119,7 +119,7 @@ Zero changes to `p4-lib.sh` are required to register L7.
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**:
   Stage handler `apply.sh` must validate source directory and file permissions, enforce non-symlink constraints, and stage files into `/etc/aegis-idea3/credentials/` (or fixture equivalent) before service activation.
 - **LIVE_PROOF_REQUIRED**:
-  Live inspection of `/etc/aegis-idea3/credentials/` metadata matching `0700`/`0750` and `0600` owner-only permissions.
+  Live inspection of `/etc/aegis-idea3/credentials/` metadata matching `root:root 0700` directory and `0600` owner-only file permissions.
 - **SECURITY_SAFETY_EFFECT**:
   Prevents unprivileged host users from reading sensitive protocol keys, MQTT credentials, and Admin PINs. Symlink rejection prevents arbitrary file read attacks through credential projection.
 - **TEST_IMPLICATION**:
@@ -216,15 +216,15 @@ Zero changes to `p4-lib.sh` are required to register L7.
   ```
   `AEGIS_AUTO_CONTAIN=0` is enforced via `core.env`.
   **Expected Application Network Activity**:
-  Core daemon establishes an outbound TLS connection to the Mosquitto broker on AP port 8883, subscribes to `aegis/idea3/v1/<device_id>/ack` and `status`, and—if and only if `TrustedClock` reports `SYNCED`—periodically publishes authenticated `HEARTBEAT` messages every 15 seconds to topic `aegis/idea3/v1/<device_id>/heartbeat`.
+  Core daemon establishes an outbound TLS connection to the Mosquitto broker on AP port 8883, subscribes to `aegis/idea3/v1/<device_id>/ack` and `status`, and—if and only if `TrustedClock` reports a trusted state (`SYNCED` or bounded `HOLDOVER`)—periodically publishes authenticated `HEARTBEAT` messages every 15 seconds to topic `aegis/idea3/v1/<device_id>/heartbeat`. Heartbeat is withheld if `TrustedClock` reports `UNSYNCED` or `UNINITIALIZED`.
   **Strict No-Actuation Safety Boundary**:
   L7 strictly forbids relay actuation. Core sends ZERO `CUT_UPLINK` messages, ZERO `RESTORE_UPLINK` messages, and ZERO operator commands. No physical hardware is connected or actuated (ESP32 is not present). Network configuration is NOT mutated (`NETWORK_CONFIGURATION_MUTATION=NO`).
 - **BASIS**:
-  `deploy/aegis-idea3-core.service.example`; `aegis_soc/supervisor.py`; `aegis_soc/controller.py`; `aegis_soc/protocol_v1.py`; correction audits `C-L7-05` and `C-L7-07`.
+  `deploy/aegis-idea3-core.service.example`; `aegis_soc/supervisor.py`; `aegis_soc/controller.py`; `aegis_soc/protocol_v1.py`; `aegis_soc/trusted_time.py`; correction audits `C-L7-05` and `C-L7-07`.
 - **OWNER_STATUS**:
   `SAFETY_INVARIANT`
 - **CURRENTLY_PROVEN**:
-  Supervisor code review proves that initialization does not trigger commands, detector events are disabled (`--no-detector`), and heartbeats publish exclusively to the heartbeat topic when clock is synced.
+  Supervisor code review proves that initialization does not trigger commands, detector events are disabled (`--no-detector`), and heartbeats publish exclusively to the heartbeat topic when clock reports a trusted state (`SYNCED` or bounded `HOLDOVER`).
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**:
   Stage `verify.sh` must check: (1) service is active; (2) `status.json` reports `state != FAILED`; (3) protocol SQLite store records ZERO published command messages; (4) audit SQLite DB contains ZERO `CUT_UPLINK` or `RESTORE_UPLINK` events.
 - **LIVE_PROOF_REQUIRED**:
@@ -232,16 +232,30 @@ Zero changes to `p4-lib.sh` are required to register L7.
 - **SECURITY_SAFETY_EFFECT**:
   Prevents accidental uplink disconnection or network partition during Core software deployment before hardware validation (L8).
 - **TEST_IMPLICATION**:
-  Test fixture must assert that Core execution in L7 produces heartbeat activity if clock is synced, but zero actuation records in the database.
+  Test fixture must assert that Core execution in L7 produces heartbeat activity if clock reports a trusted state (`SYNCED` or bounded `HOLDOVER`), withholds heartbeat if `UNSYNCED` or `UNINITIALIZED`, and produces zero actuation records in the database.
 - **OPEN_QUESTION**:
   None. Core architecture enforces this boundary.
 
 ---
 
-### OD-L7-06 — G-15 Capture/Compare and Exact Drift Contract
+### OD-L7-06 — G-15 Capture/Compare, Shared Harness Amendment, and Exact Drift Contract
 
 - **DECISION**:
   Stage L7 drift is strictly restricted to service runtime status and explicitly captured host filesystem entries.
+
+  **G-15 Shared Harness Amendment (Option A — Exact Narrow Host Exception)**:
+  In the baseline harness, `deploy/pr11-phase4/p4-compare.sh` line 57 included `host\.` in `PROTECTED`, unconditionally rejecting any key starting with `host.` from `allow-keys.txt` (exit code 2). Because `p4-l0-capture.sh` records filesystem drift under `host.aegis_idea3.file.*` and `host.path.*`, neither L6b (`/etc/aegis-idea3/mqtt/`) nor L7 (`/etc/aegis-idea3/credentials/`, `core.env`) could be approved through `allow-keys.txt` without triggering this harness rejection.
+  Under owner approval (`G15_SHARED_HARNESS_AMENDMENT=OWNER_APPROVED`), `p4-compare.sh` is amended to permit exact host keys matching:
+  - `host.aegis_idea3.file.<EXACT_PATH>.<class|meta|sha256>`
+  - `host.path.<EXACT_PATH>`
+  - `host.symlink.<EXACT_PATH>.target`
+  - `host.unit_file.<EXACT_PATH>.<class|meta|sha256>`
+  while maintaining strict default-deny on all other `host.*` keys (such as `host.boot_id`, `host.identity`, `host.kernel`, `host.twingate.status`, `disk.*`). No wildcards or prefix-based approvals are permitted. This harness fix also resolves the pending G-15 unapprovability for L6b.
+
+  **Capture Enhancements (`p4-l0-capture.sh`)**:
+  1. *Release Pointer Symlink Target Capture*: `p4-lib.sh` whitelists `readlink` in `P4_RO_ALLOW`, and `p4-l0-capture.sh` records the exact symlink target of `/opt/aegis-idea3/current` under `host.symlink./opt/aegis-idea3/current.target`.
+  2. *Core Unit File Capture*: `p4-l0-capture.sh` records `/etc/systemd/system/aegis-idea3-core.service` presence, metadata, and sha256 under `host.unit_file./etc/systemd/system/aegis-idea3-core.service.(class|meta|sha256)` via `rec_file`.
+
   **`allow-keys.txt` Contract**:
   Must contain ONLY the exact service keys recorded by `p4-l0-capture.sh` (`unit_props` in `services.tsv`) and filesystem metadata keys in `host.tsv`:
   ```text
@@ -257,6 +271,10 @@ Zero changes to `p4-lib.sh` are required to register L7.
   host.path./run/aegis-idea3
   host.path./var/lib/aegis-idea3
   host.path./var/log/aegis-idea3
+  host.symlink./opt/aegis-idea3/current.target
+  host.unit_file./etc/systemd/system/aegis-idea3-core.service.class
+  host.unit_file./etc/systemd/system/aegis-idea3-core.service.meta
+  host.unit_file./etc/systemd/system/aegis-idea3-core.service.sha256
   host.aegis_idea3.file./etc/aegis-idea3/core.env.class
   host.aegis_idea3.file./etc/aegis-idea3/core.env.meta
   host.aegis_idea3.file./etc/aegis-idea3/credentials/k_c2d.class
@@ -274,21 +292,25 @@ Zero changes to `p4-lib.sh` are required to register L7.
   MUST BE EMPTY. Core opens NO TCP or UDP listening sockets.
   Wildcard allow-keys are strictly forbidden.
 - **BASIS**:
-  `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l0-capture.sh` lines 554, 587-596; correction audit `C-L7-06`.
+  `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l0-capture.sh` lines 554, 587-596; `deploy/pr11-phase4/p4-compare.sh`; correction audit `C-L7-06`; G-15 Shared Harness Amendment (Option A).
 - **OWNER_STATUS**:
-  `SAFETY_INVARIANT`
+  `OWNER_APPROVED`
 - **CURRENTLY_PROVEN**:
-  Verified by reading exact key emission in `p4-l0-capture.sh`.
+  Harness gap identified and analyzed against G-15 capture logic; Option A approved by owner.
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**:
-  `stages/L7/allow-keys.txt` and `stages/L7/allow-listeners.txt` created with exact keys derived from capture logic.
+  Update `p4-compare.sh` with Option A exact narrow host exception, update `p4-lib.sh` to allow `readlink`, update `p4-l0-capture.sh` with symlink target and unit file capture, and populate `stages/L7/allow-keys.txt` and `stages/L7/allow-listeners.txt`.
 - **LIVE_PROOF_REQUIRED**:
   `p4-compare.sh PRE POST stages/L7/allow-keys.txt stages/L7/allow-listeners.txt` exits 0.
 - **SECURITY_SAFETY_EFFECT**:
-  Prevents unreviewed modifications to network listeners, firewall rules, broker instances, or system daemons from passing L7 unnoticed.
+  Prevents unreviewed modifications to network listeners, firewall rules, broker instances, or system daemons from passing L7 unnoticed, while providing rigorous capture of immutable release pointers and service unit integrity.
 - **TEST_IMPLICATION**:
-  Compare tests must prove that any unexpected listener or unallowed service drift triggers immediate compare FAIL.
+  Compare tests must prove that:
+  1. Exact allowed host keys pass compare when declared in `allow-keys.txt`.
+  2. Protected host keys (`host.boot_id`, `host.identity`, etc.) continue to be rejected if present in `allow-keys.txt`.
+  3. Symlink target drift and unit file changes are accurately captured and compared.
+  4. L6b allow-keys pass compare without harness rejection.
 - **OPEN_QUESTION**:
-  None. Keys derived directly from capture script source.
+  None. Option A explicitly approved by owner.
 
 ---
 
@@ -366,16 +388,17 @@ Zero changes to `p4-lib.sh` are required to register L7.
 | `.../restore.credential` | YES | YES | NO | Record presence | Remove if L7 created | YES | YES (`meta`) | `host.aegis_idea3.file.*` |
 | `/etc/aegis-idea3/core.env` | YES | YES | NO | Backup content | Remove if L7 created | NO | YES (`meta`) | `host.aegis_idea3.file.*` |
 | `/etc/aegis-idea3/pki/mqtt-ca.crt` | YES | NO | NO | None | PRESERVE (L6b owned) | NO | YES (`mqtt.tsv`) | NO |
-| `aegis-idea3-core.service` | YES | YES | NO | Record unit state | Restore pre-state | NO | YES (`svc.*`) | `svc.aegis-idea3-core.service.*` |
+| `aegis-idea3-core.service` (unit state) | YES | YES | NO | Record unit state | Restore pre-state | NO | YES (`svc.*`) | `svc.aegis-idea3-core.service.*` |
+| `/etc/systemd/system/aegis-idea3-core.service` (unit file) | YES | YES | NO | Record unit file | Remove if L7 created | NO | YES (`host.unit_file`) | `host.unit_file.*` |
 | `/opt/aegis-idea3/<release>` | YES | YES | NO | Record release | PRESERVE release tree | NO | NO | NO |
-| `/opt/aegis-idea3/current` | YES | YES | YES | Record symlink target| Restore symlink target | NO | YES (`host.path`) | `host.path.*` |
+| `/opt/aegis-idea3/current` | YES | YES | YES | Record symlink target| Restore symlink target | NO | YES (`host.path`, `host.symlink`) | `host.path.*`, `host.symlink.*` |
 | `/run/aegis-idea3/` | YES | YES | YES | None | Clean PID/socket | NO | YES (`host.path`) | `host.path.*` |
 | `/var/lib/aegis-idea3/` | YES | YES | YES | None | PRESERVE DB/data | NO | YES (`host.path`) | `host.path.*` |
 | `/var/log/aegis-idea3/` | YES | YES | YES | None | PRESERVE logs | NO | YES (`host.path`) | `host.path.*` |
 
 ---
 
-## 5. Future RED-First Test Plan (45 Verification Points)
+## 5. Future RED-First Test Plan (50 Verification Points)
 
 1. **Registration**: Verify all 5 stage handler files exist under `stages/L7/` and `p4-lib.sh` reports `REGISTERED`.
 2. **Shell Syntax**: Run `bash -n` across `apply.sh`, `verify.sh`, and `rollback.sh`.
@@ -409,12 +432,12 @@ Zero changes to `p4-lib.sh` are required to register L7.
 30. **Zero Actuation on Verify**: Verify `verify.sh` asserts zero relay actuation records in SQLite store.
 31. **No Operator Command Triggered**: Verify no external actuation or lockdown trigger is invoked.
 32. **Heartbeat Topic Separation**: Verify `HEARTBEAT` publishes to `.../heartbeat` and not `.../command`.
-33. **Heartbeat Trusted Time Gate**: Verify heartbeat is withheld if `TrustedClock` is not synced.
+33. **Heartbeat Trusted Time Gate**: Verify heartbeat publishes under `SYNCED` or bounded `HOLDOVER`, and is withheld if `TrustedClock` is `UNSYNCED` or `UNINITIALIZED`.
 34. **No Unexpected Listeners**: Verify `ss -ltnu` records zero new listening sockets after Core start.
 35. **Allow-Listeners Empty**: Verify `stages/L7/allow-listeners.txt` has zero active entries.
 36. **Exact Service State Drift**: Verify compare output matches `svc.aegis-idea3-core.service.*` keys in `allow-keys.txt`.
-37. **Exact Filesystem Drift**: Verify compare output matches `host.aegis_idea3.file.*` keys in `allow-keys.txt`.
-38. **No Wildcard Allow Keys**: Verify neither `allow-keys.txt` nor `allow-listeners.txt` contains wildcard patterns (`*`).
+37. **Exact Filesystem Drift**: Verify compare output matches `host.aegis_idea3.file.*`, `host.path.*`, `host.symlink.*`, and `host.unit_file.*` keys in `allow-keys.txt`.
+38. **No Wildcard Allow Keys & Strict Deny on Protected Host Keys**: Verify neither `allow-keys.txt` nor `allow-listeners.txt` contains wildcard patterns (`*`), and verify `p4-compare.sh` strictly rejects protected host keys (`host.boot_id`, `host.identity`, `host.kernel`, `host.twingate.status`, `disk.*`).
 39. **Pre-Existing Service State Preservation**: Verify that if service was pre-existing and active/enabled, rollback does not disable/remove it.
 40. **Pre-Existing Credential Preservation**: Verify rollback preserves credentials that existed prior to L7 apply.
 41. **New Credential Cleanup**: Verify rollback unlinks only files staged by L7.
@@ -422,6 +445,11 @@ Zero changes to `p4-lib.sh` are required to register L7.
 43. **Rollback Idempotency**: Verify executing `rollback.sh` twice exits cleanly with code 0.
 44. **Predecessor & Sibling Preservation**: Verify rollback leaves Mosquitto (L6b), NTP (L5), AP (L3/L4), firewall (L2), IDEA1, and IDEA2 untouched.
 45. **PRE→POST and PRE→RB Compare**: Run `p4-compare.sh` proving PRE→POST matches allow-keys and PRE→RB produces zero drift.
+46. **G-15 Shared Harness Exception**: Verify `p4-compare.sh` accepts exact `host.aegis_idea3.file.*`, `host.path.*`, `host.symlink.*`, and `host.unit_file.*` keys while rejecting any other `host.*` key.
+47. **G-15 Symlink Target Capture**: Verify `p4-l0-capture.sh` captures exact symlink target of `/opt/aegis-idea3/current` into `host.symlink./opt/aegis-idea3/current.target`.
+48. **G-15 Core Unit File Capture**: Verify `p4-l0-capture.sh` captures `/etc/systemd/system/aegis-idea3-core.service` presence, metadata, and sha256 into `host.unit_file.*`.
+49. **L6b G-15 Regression Freedom**: Verify L6b host files under `/etc/aegis-idea3/mqtt/` pass compare without G-15 harness rejection.
+50. **PRE→RB Zero Residual Drift**: Verify `p4-compare.sh PRE RB` with empty allow-keys exits 0 with zero residual drift while preserving durable audit DB `/var/lib/aegis-idea3/data/core-audit.sqlite3`.
 
 ---
 
@@ -435,7 +463,7 @@ Live execution of Stage L7 is NOT authorized by this document and requires all o
 5. **Phase 3 Release Deployment**: Built, reviewed release package installed at `/opt/aegis-idea3/<release-id>` with `aegis-idea3:aegis-idea3` ownership.
 6. **Owner-Supplied Operational Values**:
    - `OV-09`: `K_C2D` and `K_D2C` secrets generated on an owner-controlled authority host.
-   - `OV-10`: Credential file locations and permissions confirmed (`0700`/`0750` dir, `0600` files).
+   - `OV-10`: Credential file locations and permissions confirmed (`root:root 0700` dir, `0600` files).
    - `OV-11`: Non-default Admin PIN secret.
    - Valid owner-controlled D4 RESTORE credential generated interactively.
 7. **IDEA2 §10 Preservation**: Detection Engine and edge tunnel health check passes, or owner accepts a written, narrowed preservation criterion.
