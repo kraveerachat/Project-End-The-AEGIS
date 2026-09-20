@@ -29,6 +29,7 @@ import {
   getPhysicalCameraForNode,
   updatePasswordHash,
 } from '../db/connection.js'
+import * as store from '../db/store.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
 import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
 import {
@@ -40,6 +41,7 @@ import {
   CameraAccessError,
   parseLocalNodeAssociationRequirement,
   resolveLiveCameraActor,
+  resolveOperatorCameraAccess,
   resolveOperatorAccess,
   resolvePhysicalStreamTarget,
 } from '../auth/cameraAccess.js'
@@ -58,6 +60,60 @@ const STREAM_IDLE_MS = 6_000
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
 const STREAM_REVALIDATE_MS = 10_000
 const REQUIRE_LOCAL_NODE_ASSOCIATION = parseLocalNodeAssociationRequirement()
+
+/**
+ * Present one authenticated physical heartbeat under the account's logical
+ * alias. This is availability only: it never acquires demand or opens capture.
+ * The physical lookup is registry-derived by resolveOperatorCameraAccess; logical
+ * camera heartbeat rows are intentionally not consulted in strict mode.
+ */
+export async function resolveOperatorPhysicalLinkStatus(
+  req,
+  nowMs = Date.now(),
+  {
+    resolveOperatorCameraAccess: resolveAccess = resolveOperatorCameraAccess,
+    streamSourceForPhysicalCamera: loadPhysicalSource = store.streamSourceForPhysicalCamera,
+    outageActive = store.simulatedOutageActive,
+  } = {},
+) {
+  const access = await resolveAccess(req, nowMs)
+
+  let source = null
+  try {
+    source = await loadPhysicalSource(access.physicalCameraId)
+  } catch {
+    // Availability endpoints report a closed/lost source. The demanding
+    // stream route independently fails with PHYSICAL_STREAM_UNAVAILABLE.
+  }
+  const ageMs = Number(source?.ageMs)
+  const sourceValid = source?.nodeId === access.nodeId
+    && typeof source?.url === 'string'
+    && source.url.length > 0
+    && Number.isFinite(ageMs)
+    && ageMs >= 0
+  const availability = store.heartbeatAvailability({
+    ageMs: sourceValid ? ageMs : null,
+    streamUrl: sourceValid ? source.url : null,
+    cameraConnected: sourceValid && source.cameraConnected === true,
+  })
+  const lastSeenAt = sourceValid ? Math.round(nowMs - ageMs) : null
+  const simulated = outageActive()
+  return {
+    status: simulated ? 'lost' : availability.status,
+    lastFrameAt: lastSeenAt,
+    simulated,
+    realStatus: availability.status,
+    cameras: [{
+      cam: access.logicalCameraId,
+      status: availability.status,
+      lastSeenAt,
+      ageMs: sourceValid ? Math.round(ageMs) : null,
+      nodeId: access.nodeId,
+      cameraConnected: availability.cameraConnected,
+      hasStream: availability.hasStream,
+    }],
+  }
+}
 
 const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
 
@@ -422,7 +478,8 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
 //   1. requireAuth              — ต้องมีเซสชัน
 //   2. canSeeCamera             — "ตรรกะเดียวกับ /api/cameras" (getVisibleCameras)
 //                                 operator ขอกล้องที่ไม่ได้รับมอบหมาย → 403
-//   3. ค่อยไปดึงต้นทางจาก camera_heartbeat.stream_url แล้ว pipe ต่อ
+//   3. strict Operator ใช้ physical_camera_heartbeat ของ verified Node เท่านั้น;
+//      compatibility mode เดิมจึงค่อยใช้ camera_heartbeat.stream_url
 // ⚠️ ห้ามสลับลำดับ: การตรวจสิทธิ์ต้องจบ "ก่อน" เปิด socket ไปหา engine เสมอ
 apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   const cameraId = req.params.id
@@ -595,21 +652,29 @@ apiRouter.get('/cameras/:id', requireAuth, async (req, res, next) => {
 // ⚠️ ทุกตัว: (1) requireAuth (2) ตรวจ role (3) สำหรับ Operator — ข้อมูลถูกกรอง
 //    ผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์" เสมอ — ห้ามเชื่อ filter จาก client
 import { requireRole } from '../middleware/requireRole.js'
-import * as store from '../db/store.js'
-
 /** เซ็ตกล้องที่ผู้เรียกเห็นได้ — ทุก endpoint ข้อมูลเรียกตัวนี้ก่อนเสมอ */
 async function visibleIdsOf(user) {
   const cams = await getVisibleCameras(user)
   return new Set(cams.map((c) => c.id))
 }
 
-// Edge link status — คำนวณจาก camera_heartbeat จริง (อายุของ heartbeat ล่าสุด)
-// ขอบเขต: เฉพาะกล้องที่ผู้เรียกเห็นได้ — operator เห็นสุขภาพของ "กล้องตัวเอง"
-// ไม่ใช่ของทั้ง fleet (กรองผ่าน camera_assignment เหมือนทุก endpoint ข้อมูล)
+// Edge link status — strict Operator แสดง physical heartbeat ภายใต้ account alias;
+// SOC/compatibility mode ยังคงอ่าน logical camera_heartbeat สำหรับ fleet telemetry.
 apiRouter.get('/link', requireAuth, async (req, res, next) => {
   try {
+    if (REQUIRE_LOCAL_NODE_ASSOCIATION) {
+      const actor = await resolveLiveCameraActor(req)
+      if (actor.role === ROLES.OPERATOR) {
+        return res.json(await resolveOperatorPhysicalLinkStatus(req))
+      }
+    }
     res.json(await store.linkStatus(await visibleIdsOf(req.user)))
-  } catch (err) { next(err) }
+  } catch (err) {
+    if (err instanceof CameraAccessError) {
+      return res.status(err.status).json({ error: err.code })
+    }
+    next(err)
+  }
 })
 
 // demo control: จำลอง link ล่ม (แทนการดึงสาย LAN ให้ผู้ตรวจดู degraded→lost)

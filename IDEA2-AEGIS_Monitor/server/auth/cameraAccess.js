@@ -64,62 +64,70 @@ export function createCameraAccessResolver({
     return user
   }
 
+  async function resolveOperatorCamera(req, nowMs, requestedLogicalCameraId, enforceRequestedAlias) {
+    const user = await loadLiveCameraUser(req)
+    if (user.role !== ROLES.OPERATOR) denyAssociation(req)
+
+    const verifiedNode = getCurrentLocalNode(req, nowMs)
+    if (!verifiedNode) throw accessError(403, 'LOCAL_NODE_ASSOCIATION_REQUIRED')
+
+    let node
+    let physical
+    let policy
+    let alias
+    try {
+      ;[node, physical, policy, alias] = await Promise.all([
+        loadNode(verifiedNode.nodeId),
+        loadPhysical(verifiedNode.nodeId),
+        loadPolicy(verifiedNode.nodeId),
+        loadAlias(verifiedNode.nodeId, user.id),
+      ])
+    } catch {
+      throw accessError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+    }
+
+    if (
+      !node?.active
+      || node.nodeId !== verifiedNode.nodeId
+      || Number(node.keyVersion) !== verifiedNode.keyVersion
+      || !physical?.active
+      || physical.nodeId !== verifiedNode.nodeId
+      || Number(physical.physicalCameraId) !== verifiedNode.physicalCameraId
+    ) denyAssociation(req)
+
+    if (
+      policy?.nodeId !== verifiedNode.nodeId
+      || policy.mode !== 'account'
+      || policy.fixedCameraId !== null
+      || alias?.nodeId !== verifiedNode.nodeId
+      || alias.userId !== user.id
+      || typeof alias.logicalCameraId !== 'string'
+      || alias.logicalCameraId.length === 0
+      || (enforceRequestedAlias && alias.logicalCameraId !== requestedLogicalCameraId)
+    ) throw accessError(403, 'CAMERA_ALIAS_DENIED')
+
+    return {
+      kind: 'verified-node',
+      viewerMode: 'demanding',
+      userId: user.id,
+      nodeId: verifiedNode.nodeId,
+      physicalCameraId: verifiedNode.physicalCameraId,
+      logicalCameraId: alias.logicalCameraId,
+    }
+  }
+
   return Object.freeze({
     async resolveLiveCameraActor(req) {
       const user = await loadLiveCameraUser(req)
       return { userId: user.id, username: user.username, role: user.role }
     },
 
-    async resolveOperatorAccess(req, requestedLogicalCameraId, nowMs = Date.now()) {
-      const user = await loadLiveCameraUser(req)
-      if (user.role !== ROLES.OPERATOR) denyAssociation(req)
+    resolveOperatorAccess(req, requestedLogicalCameraId, nowMs = Date.now()) {
+      return resolveOperatorCamera(req, nowMs, requestedLogicalCameraId, true)
+    },
 
-      const verifiedNode = getCurrentLocalNode(req, nowMs)
-      if (!verifiedNode) throw accessError(403, 'LOCAL_NODE_ASSOCIATION_REQUIRED')
-
-      let node
-      let physical
-      let policy
-      let alias
-      try {
-        ;[node, physical, policy, alias] = await Promise.all([
-          loadNode(verifiedNode.nodeId),
-          loadPhysical(verifiedNode.nodeId),
-          loadPolicy(verifiedNode.nodeId),
-          loadAlias(verifiedNode.nodeId, user.id),
-        ])
-      } catch {
-        throw accessError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
-      }
-
-      if (
-        !node?.active
-        || node.nodeId !== verifiedNode.nodeId
-        || Number(node.keyVersion) !== verifiedNode.keyVersion
-        || !physical?.active
-        || physical.nodeId !== verifiedNode.nodeId
-        || Number(physical.physicalCameraId) !== verifiedNode.physicalCameraId
-      ) denyAssociation(req)
-
-      if (
-        policy?.nodeId !== verifiedNode.nodeId
-        || policy.mode !== 'account'
-        || policy.fixedCameraId !== null
-        || alias?.nodeId !== verifiedNode.nodeId
-        || alias.userId !== user.id
-        || typeof alias.logicalCameraId !== 'string'
-        || alias.logicalCameraId.length === 0
-        || alias.logicalCameraId !== requestedLogicalCameraId
-      ) throw accessError(403, 'CAMERA_ALIAS_DENIED')
-
-      return {
-        kind: 'verified-node',
-        viewerMode: 'demanding',
-        userId: user.id,
-        nodeId: verifiedNode.nodeId,
-        physicalCameraId: verifiedNode.physicalCameraId,
-        logicalCameraId: alias.logicalCameraId,
-      }
+    resolveOperatorCameraAccess(req, nowMs = Date.now()) {
+      return resolveOperatorCamera(req, nowMs, undefined, false)
     },
   })
 }
@@ -128,6 +136,10 @@ const defaultResolver = createCameraAccessResolver()
 
 export function resolveOperatorAccess(req, requestedLogicalCameraId, nowMs = Date.now()) {
   return defaultResolver.resolveOperatorAccess(req, requestedLogicalCameraId, nowMs)
+}
+
+export function resolveOperatorCameraAccess(req, nowMs = Date.now()) {
+  return defaultResolver.resolveOperatorCameraAccess(req, nowMs)
 }
 
 export function resolveLiveCameraActor(req) {
@@ -152,6 +164,7 @@ export async function resolvePhysicalStreamTarget(
   }
   if (
     !source
+    || source.nodeId !== access.nodeId
     || typeof source.url !== 'string'
     || source.url.length === 0
     || !Number.isFinite(Number(source.ageMs))

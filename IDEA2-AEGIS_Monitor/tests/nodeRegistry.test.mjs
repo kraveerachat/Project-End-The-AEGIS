@@ -133,6 +133,7 @@ test('physical stream-source lookup stays distinct from logical producer selecti
   const end = source.indexOf('\nexport async function ', start + 1)
   const implementation = source.slice(start, end < 0 ? undefined : end)
   assert.match(implementation, /FROM physical_camera_heartbeat/)
+  assert.match(implementation, /SELECT node_id, stream_url, camera_connected/)
   assert.match(implementation, /WHERE physical_camera_id = \$1/)
   assert.doesNotMatch(implementation, /camera_producer_epochs|node_camera_alias_policy/)
 })

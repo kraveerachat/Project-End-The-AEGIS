@@ -116,6 +116,16 @@ test('account switching changes only the logical alias while machine authority s
   assert.notEqual(operator.logicalCameraId, operator2.logicalCameraId)
 })
 
+test('session availability resolves the account alias without camera_assignment input', async () => {
+  for (const account of Object.keys(operators)) {
+    const ctx = fixture({ machine: 'A', account })
+    ctx.req.camera_assignment = { userId: 999, cameraId: account === 'operator' ? 'CAM-02' : 'CAM-01' }
+    const access = await ctx.resolver.resolveOperatorCameraAccess(ctx.req, 10_000)
+    assert.equal(access.logicalCameraId, expectedAlias[account])
+    assert.equal(access.physicalCameraId, machines.A.physicalCameraId)
+  }
+})
+
 test('same account on different verified machines resolves each local physical camera', async () => {
   const resolved = []
   for (const machine of Object.keys(machines)) {
@@ -167,6 +177,11 @@ test('missing association and alias mismatch fail with bounded contracts', async
   const mismatch = fixture({ account: 'operator' })
   await expectDenied(
     mismatch.resolver.resolveOperatorAccess(mismatch.req, 'CAM-02', 10_000),
+    403,
+    'CAMERA_ALIAS_DENIED',
+  )
+  await expectDenied(
+    mismatch.resolver.resolveOperatorAccess(mismatch.req, null, 10_000),
     403,
     'CAMERA_ALIAS_DENIED',
   )

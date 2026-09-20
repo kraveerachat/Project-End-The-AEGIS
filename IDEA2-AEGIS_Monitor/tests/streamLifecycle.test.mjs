@@ -23,6 +23,37 @@ test('browser close aborts fetch and explicitly cancels the upstream reader', as
   assert.equal(cancelled, 1)
 })
 
+test('concurrent cleanup sources stay idempotent and contain rejected reader cancellation', async () => {
+  let aborted = 0
+  let cancelled = 0
+  let unhandled
+  const onUnhandled = (reason) => { unhandled = reason }
+  process.once('unhandledRejection', onUnhandled)
+  try {
+    const lifecycle = createUpstreamLifecycle({ abort: () => { aborted += 1 } })
+    lifecycle.attachReader({
+      cancel() {
+        cancelled += 1
+        return Promise.reject(new DOMException('already aborted', 'AbortError'))
+      },
+    })
+
+    // Model the response-close and watchdog callbacks becoming runnable in
+    // the same turn. Both invoke the same production cleanup boundary.
+    await Promise.all([
+      new Promise((resolve) => setImmediate(() => { lifecycle.abort(); resolve() })),
+      new Promise((resolve) => setImmediate(() => { lifecycle.abort(); resolve() })),
+    ])
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(aborted, 1)
+    assert.equal(cancelled, 1)
+    assert.equal(unhandled, undefined)
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled)
+  }
+})
+
 test('backpressure wait resolves when the browser closes', async () => {
   const response = new EventEmitter()
   response.destroyed = false
@@ -64,7 +95,7 @@ test('idle watchdog contains asynchronous reader cancellation rejection without 
   assert.match(stderr, /no data for 25ms/)
 })
 
-test('watchdog and browser response-close overlap remains idempotent', () => {
+test('browser response-close cancels a pending read while the watchdog is armed', () => {
   const { stdout } = runRouteFixture('response-close-race')
   assert.match(stdout, /CLIENT_CLOSE_REQUESTED=YES/)
 })

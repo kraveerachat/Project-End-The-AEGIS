@@ -33,7 +33,12 @@ test('physical source lookup uses registry-derived identity for either account a
         }),
         streamSourceForPhysicalCamera: async (physicalCameraId) => {
           lookups.push(physicalCameraId)
-          return { url: 'http://127.0.0.1:8077/stream.mjpg', ageMs: 0, cameraConnected: false }
+          return {
+            nodeId: 'machine-a-node',
+            url: 'http://127.0.0.1:8077/stream.mjpg',
+            ageMs: 0,
+            cameraConnected: false,
+          }
         },
       },
     )
@@ -65,6 +70,12 @@ test('missing, stale, malformed, or uncertain physical source fails without logi
     async () => ({ url: 'http://127.0.0.1:8077/stream.mjpg', ageMs: 45_001, cameraConnected: true }),
     async () => ({ url: '', ageMs: 0, cameraConnected: true }),
     async () => { throw new Error('database unavailable') },
+    async () => ({
+      nodeId: 'machine-b-node',
+      url: 'http://127.0.0.1:8077/stream.mjpg',
+      ageMs: 0,
+      cameraConnected: true,
+    }),
   ]
   for (const streamSourceForPhysicalCamera of sources) {
     await assert.rejects(

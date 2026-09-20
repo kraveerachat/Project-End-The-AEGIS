@@ -87,15 +87,27 @@ response.on('data', (chunk) => { bytesReceived += chunk.length })
 response.resume()
 if (scenario === 'response-close-race') {
   const closed = once(response, 'close')
-  setTimeout(() => {
+  // The client-close path is the subject of this scenario. Scheduling it at
+  // the same 25 ms deadline as the server watchdog made timer registration
+  // order decide which path ran, so repeated suites could skip this branch.
+  // setImmediate deterministically closes while the second upstream read is
+  // pending and the watchdog is armed, without racing two equal timeouts.
+  setImmediate(() => {
     clientCloseRequested = true
     response.destroy()
-  }, streamIdleMs)
+  })
   await closed
 } else {
   await once(response, 'end')
 }
-await new Promise((resolve) => setImmediate(resolve))
+
+// Client-side close can be observed before the server-side response close
+// handler runs. Wait for the cleanup effect under test instead of sampling it
+// on the next event-loop turn, which is not a cross-socket ordering guarantee.
+const cleanupDeadline = Date.now() + 1_000
+while (cancelCalls === 0 && Date.now() < cleanupDeadline) {
+  await new Promise((resolve) => setTimeout(resolve, 5))
+}
 
 await new Promise((resolve, reject) => {
   server.close((error) => error ? reject(error) : resolve())
