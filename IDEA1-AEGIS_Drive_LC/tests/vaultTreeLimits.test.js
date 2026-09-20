@@ -22,6 +22,14 @@ const REGISTER = Object.freeze({
   maxRecentOperationIds: 64,
   maxRebaseAttempts: 10,
   maxJsonDepth: 8,                     // manifest → nodes → node → lifecycle/blobRef (+ headroom)
+  // Phase 7 media previews (Task 0.2 bench → G1-validated)
+  imageMaxInputBytes: 16 * MIB,
+  imageMaxDecodedPixels: 16_000_000,
+  gifMaxFullPlayBytes: 8 * MIB,
+  posterMaxEdge: 512,
+  maxConcurrentJobs: 4,
+  maxRetainedObjectUrls: 256,
+  memoryCeilingBytes: 256 * MIB,
 })
 
 // Smallest genesis manifest measured in Task 0.1 was 28 676 bytes at 100 nodes; an

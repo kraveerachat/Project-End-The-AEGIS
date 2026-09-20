@@ -45,6 +45,21 @@ export const VAULT_TREE_CLIENT_LIMITS = Object.freeze({
   maxRebaseAttempts: 10,
   /** ความลึกของโครงสร้าง JSON ที่ parser ยอมรับ (manifest → nodes → node → lifecycle/blobRef) */
   maxJsonDepth: 8,
+  /** ── Phase 7 media previews (Limits Register; Phase 0 bench, G1-validated 2026-09-19) ── */
+  /** ขนาดไฟล์ภาพสูงสุดที่ decode เป็นพรีวิวได้ (JPEG/PNG/WebP decode bench Task 0.2) */
+  imageMaxInputBytes: 16 * MIB,
+  /** พิกเซลที่ถอดได้ต่อภาพหนึ่งใบ (~16 MP) — เกินนี้ = ใหญ่เกินพรีวิว ใช้ไอคอน/ดาวน์โหลด */
+  imageMaxDecodedPixels: 16_000_000,
+  /** GIF เล่นแอนิเมชันเต็มได้เฉพาะไฟล์ไม่เกินนี้ (Object-URL heap bench Task 0.2); ที่ใหญ่กว่า = โปสเตอร์อย่างเดียว */
+  gifMaxFullPlayBytes: 8 * MIB,
+  /** ขอบยาวสุดของโปสเตอร์ (Phase 0 bench: โปสเตอร์ 512 px วัดได้ ~95–101 KB) */
+  posterMaxEdge: 512,
+  /** งานถอดพรีวิวพร้อมกันสูงสุด; ที่เหลือเข้าคิว (Task 0.2) */
+  maxConcurrentJobs: 4,
+  /** Object URL ค้างสูงสุด — เกินนี้ตัวเก่าสุดถูก revoke (LRU, Task 0.2) */
+  maxRetainedObjectUrls: 256,
+  /** เพดานหน่วยความจำประมาณการรวมของพรีวิวที่มีชีวิต (Task 0.2) */
+  memoryCeilingBytes: 256 * MIB,
 })
 
 const KEYS = Object.freeze(Object.keys(VAULT_TREE_CLIENT_LIMITS))
