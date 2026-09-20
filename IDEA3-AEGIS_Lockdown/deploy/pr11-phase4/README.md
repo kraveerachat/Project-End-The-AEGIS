@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L2, L3, L6b REGISTERED (repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L6b REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -159,8 +159,8 @@ remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
 directory. T4 registered the separately reviewed L6b handler under
 `stages/L6b/`. Separately reviewed repository tasks registered L2 under
-`stages/L2/` and L3 under `stages/L3/`. Other stages (`L4`, `L5`, `L6a`) remain
-unregistered unless separately reviewed.
+`stages/L2/`, L3 under `stages/L3/`, and L4 under `stages/L4/`. Other stages (`L5`,
+`L6a`) remain unregistered unless separately reviewed.
 
 ### L2 handler (firewall & forwarding persistence)
 
@@ -182,7 +182,19 @@ unregistered unless separately reviewed.
 - Live mode requires explicit `AEGIS_L3_LIVE_AUTHORIZED=YES` and root. Live target interface is strictly `wlp0s20f3`.
 - Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
 - L3 is repository-registered only; live execution is NOT authorized and L3 has NOT been run live.
-- L4/L5/L6a remain unregistered; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L4 handler (AP addressing & DHCP/Core-local DNS)
+
+- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L4 transitions the L3 NetworkManager AP connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP IPv4 addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
+- L4 deploys a dedicated `dnsmasq` instance (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) serving the AP DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address on `wlp0s20f3` using the merged T5 template.
+- Read-only L2 firewall preconditions: `apply.sh` and `verify.sh` verify dedicated table `inet aegis_idea3`, UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`), with comment lines stripped before parsing.
+- Hardening against listener drift (PF-02): on real/host evidence, the wildcard listener exception strictly permits only `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces are rejected unless running under `TEST_FIXTURE`.
+- Hardening against route drift: `net.route[46].unscoped` captures unscoped routes; unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
+- Rollback: `stages/L4/rollback.sh` is idempotent. It removes only L4-owned addressing/DHCP/DNS state and restores the L3 IPv4-disabled AP profile (`method=disabled`) without deleting the L3 AP profile or invoking L3 rollback. Specifically, it stops and disables `aegis-idea3-dnsmasq.service`, deletes `/etc/aegis-idea3/dnsmasq-ap.conf` and its service unit, reloads and reconnects the NetworkManager connection profile in disabled-IPv4 mode (`nmcli connection reload && nmcli connection up`), verifies zero remaining IPv4 address on `wlp0s20f3`, and preserves existing firewall rules and L3 AP radio state.
+- Fixture mode (`AEGIS_P4_FS_ROOT`) operates cleanly without live host mutation.
+- Live gates required: L4 is repository-registered only. Live execution has NOT run and live readiness remains `NOT READY`. Live execution requires L2 and L3 live PASS, fresh same-day A-L4 authorization, fresh K3 key, primary owner network value OV-03 (AP subnet and Core AP address, required by L2 and L4) plus owner-supplied runtime values (DHCP pool and broker hostname under the implemented T5 contract), management-path proof, and §10 preservation PASS.
+- L5 and L6a remain unregistered; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
