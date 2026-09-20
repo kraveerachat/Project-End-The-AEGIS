@@ -5526,6 +5526,69 @@ PHASE4_LIVE_READINESS        = NOT READY
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_042100_music_idea3-pr11-phase4-l3-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L4 handler registration. No live L4 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l4-handler
+IMPLEMENTATION_HEAD          = 22028493549dd6e1cf0fb698f7d79300a05a3b14
+L4_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L4 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+REAL_DNSMASQ_MUTATION        = NO
+REAL_FIREWALL_MUTATION       = NO
+LIVE_L4                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L4 pull request exists at closeout (`L4_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L4 stage handler (`stages/L4/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L4 owns AP IPv4 addressing on dedicated interface `wlp0s20f3` and dedicated dnsmasq runtime (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) providing DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address per merged T5 template.
+- Profile transition: L4 modifies the existing L3 NetworkManager connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
+- L2 firewall preflight: `apply.sh` and `verify.sh` enforce read-only preflight on table `inet aegis_idea3`: UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`). Comment lines are stripped before parsing.
+- PF-02 hardening: on real host evidence, the wildcard listener exception is accepted ONLY for `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces (e.g. `wlan-test0`) are rejected unless running under `TEST_FIXTURE`.
+- Route accounting hardening: `net.route[46].unscoped` captures unscoped routes (e.g. blackhole, unreachable, prohibit, throw, or dev-less routes) as protected keys. Unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
+- Rollback: `stages/L4/rollback.sh` is idempotent. It removes only L4-owned addressing/DHCP/DNS state and restores the L3 IPv4-disabled AP profile (`method=disabled`) without deleting the L3 AP profile or invoking L3 rollback. Specifically, it stops and disables `aegis-idea3-dnsmasq.service`, deletes `/etc/aegis-idea3/dnsmasq-ap.conf` and its service unit, reloads and reconnects the NetworkManager connection profile in disabled-IPv4 mode (`nmcli connection reload && nmcli connection up`), verifies zero remaining IPv4 address on `wlp0s20f3`, and preserves existing firewall rules and L3 AP radio state.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L4 is not authorized or proven.
+- Future live L4 remains separately gated by L2 and L3 live PASS, fresh same-day A-L4 authorization, fresh K3 key, primary owner network value OV-03 (AP subnet and Core AP address, required by L2 and L4) plus owner-supplied runtime values (DHCP pool range and broker hostname under the implemented T5 contract), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l4_handler.py`: 51 passed, 0 warnings.
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 358 passed.
+- Shell syntax (`bash -n` on all L4 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_140245_music_idea3-pr11-phase4-l4-handler.md`.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
