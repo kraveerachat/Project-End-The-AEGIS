@@ -724,7 +724,7 @@ done
     assert status_map["L2"] == "REGISTERED"
     assert status_map["L3"] == "REGISTERED"
     assert status_map["L4"] == "REGISTERED"
-    assert status_map["L5"] == "NOT_REGISTERED"
+    assert status_map["L5"] == "REGISTERED"
     assert status_map["L6a"] == "NOT_REGISTERED"
     assert status_map["L6b"] == "REGISTERED"
 
