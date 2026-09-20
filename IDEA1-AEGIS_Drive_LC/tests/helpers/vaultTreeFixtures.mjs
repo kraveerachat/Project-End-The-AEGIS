@@ -65,9 +65,9 @@ export function installStorageGuards(scope = globalThis) {
    โครงสร้างพอสำหรับชุด scheduler/preview (ไม่มี large binary committed):
    header จริงของ PNG/GIF ยาวเท่าที่ parser ต้องอ่าน + ไบต์ padding ถึงขนาดที่ต้องการ */
 export function syntheticPng({ width = 8, height = 8, padBytes = 0 } = {}) {
-  const ihdr = Buffer.alloc(21)
-  ihdr.writeUInt32BE(width, 4)
-  ihdr.writeUInt32BE(height, 8)
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
   const header = Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     Buffer.from([0, 0, 0, 13]), Buffer.from('IHDR'), ihdr,
@@ -79,16 +79,29 @@ export function syntheticPng({ width = 8, height = 8, padBytes = 0 } = {}) {
 export function syntheticGif({ width = 8, height = 8, padBytes = 0 } = {}) {
   const header = Buffer.concat([
     Buffer.from('GIF89a'),
-    Buffer.from([width & 0xff, (width >> 8) & 0xff, height & 0xff, (height >> 8) & 0xff]),
+    Buffer.from([width & 0xff, (width >> 8) & 0xff, height & 0xff, (height >> 8) & 0xff, 0, 0, 0, 0]),
   ])
   const pad = Buffer.alloc(padBytes, 0x5a)
   return new Uint8Array(Buffer.concat([header, pad]))
 }
 
 export function syntheticJpeg({ width = 8, height = 8, padBytes = 0 } = {}) {
+  const app0 = Buffer.from([0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0])
+  const sof0 = Buffer.concat([
+    Buffer.from([0xff, 0xc0, 0, 17, 8, (height >> 8) & 0xff, height & 0xff, (width >> 8) & 0xff, width & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]),
+  ])
+  const header = Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof0])
+  const pad = Buffer.alloc(padBytes, 0x5a)
+  return new Uint8Array(Buffer.concat([header, pad]))
+}
+
+export function syntheticWebp({ width = 8, height = 8, padBytes = 0 } = {}) {
   const header = Buffer.concat([
-    Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
-    Buffer.from([0, 0x11, 0x4a, 0x46, 0x49, 0x46, 0, 1]), Buffer.from([0, width >> 8, width & 0xff, 0, height >> 8, height & 0xff]),
+    Buffer.from('RIFF'),
+    Buffer.from([0x00, 0x00, 0x00, 0x00]),
+    Buffer.from('WEBPVP8 '),
+    Buffer.from([0x0a, 0x00, 0x00, 0x00]),
+    Buffer.from([0x30, 0x00, 0x00, 0x9d, 0x01, 0x2a, width & 0xff, (width >> 8) & 0xff, height & 0xff, (height >> 8) & 0xff]),
   ])
   const pad = Buffer.alloc(padBytes, 0x5a)
   return new Uint8Array(Buffer.concat([header, pad]))
