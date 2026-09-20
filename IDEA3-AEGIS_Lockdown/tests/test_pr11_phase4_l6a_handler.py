@@ -267,11 +267,11 @@ def test_l6a_handler_requires_port_variable(tmp_path: Path) -> None:
 
 
 def test_l6a_handler_rejects_forbidden_or_invalid_port(tmp_path: Path) -> None:
-    """OD-L6A-02: apply.sh must reject 1883, 8883, and invalid port ranges."""
+    """OD-L6A-02: apply.sh must reject 1883, 8883, 1024, 65536, and invalid port ranges."""
     apply_script = L6A_STAGE / "apply.sh"
     assert apply_script.is_file()
 
-    for bad_port in ("1883", "8883", "999", "70000", "invalid"):
+    for bad_port in ("1024", "1883", "8883", "999", "65536", "70000", "invalid"):
         env = os.environ.copy()
         env["AEGIS_L6A_PORT"] = bad_port
         env["AEGIS_L6A_WORK_DIR"] = str(tmp_path / f"work_{bad_port}")
@@ -286,6 +286,33 @@ def test_l6a_handler_rejects_forbidden_or_invalid_port(tmp_path: Path) -> None:
             check=False,
         )
         assert result.returncode != 0, f"apply.sh must reject AEGIS_L6A_PORT={bad_port}"
+        assert "AEGIS_L6A_PORT" in (result.stdout + result.stderr)
+
+
+def test_l6a_handler_accepts_contractual_port_boundaries(tmp_path: Path) -> None:
+    """OD-L6A-02: apply.sh must accept boundary ports 1025 and 65535 during port validation."""
+    apply_script = L6A_STAGE / "apply.sh"
+    assert apply_script.is_file()
+
+    for valid_boundary_port in ("1025", "65535"):
+        env = os.environ.copy()
+        env["AEGIS_L6A_PORT"] = valid_boundary_port
+        env["AEGIS_L6A_WORK_DIR"] = str(tmp_path / f"work_{valid_boundary_port}")
+        env["AEGIS_L6A_INPUT_DIR"] = str(tmp_path / "inputs_nonexistent")
+
+        result = subprocess.run(
+            ["bash", str(apply_script)],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        assert "AEGIS_L6A_PORT" not in output, (
+            f"apply.sh must not reject valid port {valid_boundary_port} on port validation: {output}"
+        )
+        assert "AEGIS_L6A_INPUT_DIR must exist" in output
 
 
 # ==============================================================================

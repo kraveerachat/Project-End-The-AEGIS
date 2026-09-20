@@ -23,8 +23,8 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
   fail "AEGIS_L6A_PORT must be an integer"
 fi
 
-if [ "$PORT" -lt 1024 ] || [ "$PORT" -gt 65535 ]; then
-  fail "AEGIS_L6A_PORT outside valid unprivileged port range (1024-65535)"
+if [ "$PORT" -lt 1025 ] || [ "$PORT" -gt 65535 ]; then
+  fail "AEGIS_L6A_PORT outside valid unprivileged port range (1025-65535)"
 fi
 
 if [ "$PORT" -eq 1883 ] || [ "$PORT" -eq 8883 ]; then
