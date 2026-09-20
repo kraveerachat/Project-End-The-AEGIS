@@ -93,6 +93,8 @@ class EngineConfig:
 
     # --- Identity ---------------------------------------------------------
     node_id: str = "edge-node-01"
+    # Event-time logical alias and bounded legacy heartbeat identity. Strict
+    # physical availability is derived from authenticated Agent registration.
     camera_id: str = "CAM-05"
     camera_label: str = "Reception"
     camera_device_name: Optional[str] = None
@@ -186,9 +188,8 @@ class EngineConfig:
     stream_enabled: bool = True
     stream_jpeg_quality: int = 70   # 1-100; 70 is a sane quality/bandwidth point
     stream_max_fps: float = 12.0    # cap independent of capture fps
-    # Advertised to Monitor in each heartbeat so the proxy knows where to pull
-    # from. Blank -> derived from api_host/api_port (localhost is rewritten to
-    # 127.0.0.1 since 0.0.0.0 is not dialable).
+    # Advertised only by bounded legacy heartbeat mode. In strict mode the
+    # dedicated Agent owns the reviewed physical stream endpoint.
     stream_public_url: Optional[str] = None
     # A cold YOLO+SFace worker can take materially longer than a normal frame
     # interval to load models and publish its first annotated JPEG. Keep this

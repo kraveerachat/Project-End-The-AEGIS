@@ -41,7 +41,6 @@ from aegis_identity_agent.pipe_server import (
 def samples():
     return {
         "heartbeat": {
-            "cameraId": "CAM-01",
             "cameraConnected": False,
             "cameraReconnects": 0,
             "captureFps": 0.0,
@@ -130,6 +129,15 @@ class PipeProtocolTests(unittest.TestCase):
         payload = dict(samples()["heartbeat"], streamUrl="http://127.0.0.1:8077/stream.mjpg")
         with self.assertRaises(PipeProtocolError):
             encode_request("heartbeat", payload)
+
+    def test_engine_cannot_supply_logical_or_physical_heartbeat_authority(self):
+        for field, value in (
+            ("cameraId", "CAM-01"),
+            ("nodeId", "forged-node"),
+            ("physicalCameraId", 999),
+        ):
+            with self.subTest(field=field), self.assertRaises(PipeProtocolError):
+                encode_request("heartbeat", dict(samples()["heartbeat"], **{field: value}))
 
     def test_identity_signing_and_transport_authority_fields_are_rejected_recursively(self):
         forbidden = (

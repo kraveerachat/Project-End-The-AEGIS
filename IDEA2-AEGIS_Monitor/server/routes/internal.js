@@ -43,7 +43,7 @@ export function createInternalRouter(storeAdapter = store) {
     } catch (err) { next(err) }
   })
 
-// POST /internal/heartbeat — สัญญาณชีพของ Detection Engine ต่อกล้องหนึ่งตัว
+// POST /internal/heartbeat — physical availability from one authenticated Engine
 // ⚠️ นี่คือ "แหล่งข้อมูลจริง" เพียงแหล่งเดียวของสถานะ Edge link ที่ /api/link แสดง
 //    engine ยิงมาทุก ~5 วิ (AEGIS_HEARTBEAT_INTERVAL_S) พร้อม metrics ที่วัดได้จริง
 //    หยุดยิง = /api/link กลายเป็น degraded แล้ว lost เองตามอายุ ไม่ต้องมีใครสั่ง
@@ -51,7 +51,10 @@ export function createInternalRouter(storeAdapter = store) {
     try {
       const r = await storeAdapter.recordHeartbeat(req.body ?? {}, req.ingestAuth)
       if (r.error) return res.status(r.status || 400).json({ error: r.error })
-      res.status(200).json({ ok: true, cameraId: r.cameraId, lastSeenAt: r.lastSeenAt })
+      const identity = r.physicalCameraId != null
+        ? { physicalCameraId: r.physicalCameraId }
+        : { cameraId: r.cameraId } // bounded Detector B legacy compatibility
+      res.status(200).json({ ok: true, ...identity, lastSeenAt: r.lastSeenAt })
     } catch (err) { next(err) }
   })
 

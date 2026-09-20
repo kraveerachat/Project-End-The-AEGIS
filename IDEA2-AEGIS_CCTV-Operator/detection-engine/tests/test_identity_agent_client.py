@@ -37,7 +37,7 @@ class IdentityAgentClientTests(unittest.TestCase):
             connector=connector,
         )
         payloads = {
-            "heartbeat": {"cameraId": "CAM-01", "cameraConnected": False},
+            "heartbeat": {"cameraConnected": False},
             "detection": {"cameraId": "CAM-01", "entities": []},
             "alert": {
                 "cameraId": "CAM-01", "severity": "amber", "alertType": "unknown_face",
@@ -63,7 +63,7 @@ class IdentityAgentClientTests(unittest.TestCase):
         for connector in cases:
             with self.subTest(error=connector.error):
                 result = IdentityAgentClient(connector=connector).submit(
-                    "heartbeat", {"cameraId": "CAM-01", "cameraConnected": False}
+                    "heartbeat", {"cameraConnected": False}
                 )
                 self.assertFalse(result.ok)
                 self.assertEqual("AGENT_UNAVAILABLE", result.error)
@@ -81,9 +81,9 @@ class IdentityAgentClientTests(unittest.TestCase):
         monitor.post_clip("CAM-01", "2026-09-19T00:00:00Z", 10, "clip.mp4", False)
         monitor.post_alert("CAM-01", "amber", "unknown_face", "Unknown", None, False)
         monitor.post_heartbeat(
-            "CAM-01",
-            "forged-node",
             {"camera_connected": False},
+            camera_id="CAM-01",
+            node_id="forged-node",
             stream_url="http://attacker.invalid/stream",
         )
         requests = [decode_request(call[1]) for call in connector.calls]
@@ -92,8 +92,26 @@ class IdentityAgentClientTests(unittest.TestCase):
             self.assertNotIn("nodeId", request.payload)
             self.assertNotIn("physicalCameraId", request.payload)
             self.assertNotIn("streamUrl", request.payload)
+        self.assertNotIn("cameraId", requests[-1].payload)
         self.assertEqual("", monitor._key)
         self.assertEqual("", monitor._base)
+
+    def test_strict_physical_heartbeat_is_identical_for_both_account_aliases(self):
+        connector = RecordingConnector()
+        monitor = MonitorClient(
+            identity_agent_client=IdentityAgentClient(connector=connector),
+            ingest_mode="identity_agent",
+        )
+        snapshot = {"camera_connected": False}
+
+        monitor.post_heartbeat(snapshot, camera_id="CAM-01", node_id="forged-a")
+        monitor.post_heartbeat(snapshot, camera_id="CAM-02", node_id="forged-b")
+
+        payloads = [decode_request(call[1]).payload for call in connector.calls]
+        self.assertEqual(payloads[0], payloads[1])
+        self.assertNotIn("cameraId", payloads[0])
+        self.assertNotIn("nodeId", payloads[0])
+        self.assertNotIn("physicalCameraId", payloads[0])
 
     def test_agent_unavailable_never_raises_or_imports_camera_demand_boundaries(self):
         agent = IdentityAgentClient(connector=RecordingConnector(error=BrokenPipeError()))
@@ -106,7 +124,9 @@ class IdentityAgentClientTests(unittest.TestCase):
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=guarded_import):
-            monitor.post_heartbeat("CAM-01", "edge-a", {"camera_connected": False})
+            monitor.post_heartbeat(
+                {"camera_connected": False}, camera_id="CAM-01", node_id="edge-a"
+            )
             monitor.post_detection("CAM-01", [])
 
     def test_strict_configuration_has_no_shared_key_downgrade(self):

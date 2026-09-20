@@ -60,7 +60,7 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
     }
 
     await store.recordHeartbeat({
-      cameraId: 'CAM-01', nodeId: 'forged', physicalCameraId: 999,
+      nodeId: 'forged', physicalCameraId: 999,
       cameraConnected: false, streamUrl: 'http://127.0.0.1:8077/stream.mjpg',
     }, auth)
     await store.insertDetection({

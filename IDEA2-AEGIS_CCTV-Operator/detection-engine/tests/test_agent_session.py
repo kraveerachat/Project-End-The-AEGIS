@@ -57,6 +57,7 @@ def config_env(**overrides):
         "AEGIS_AGENT_NODE_ID": "edge-a",
         "AEGIS_AGENT_KEY_VERSION": "4",
         "AEGIS_AGENT_KEY_PATH": r"C:\ProgramData\AEGIS\IdentityAgent\machine-identity.dpapi",
+        "AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18077/stream.mjpg",
         "AEGIS_AGENT_CONNECT_TIMEOUT_S": "2",
         "AEGIS_AGENT_READ_TIMEOUT_S": "5",
         "AEGIS_AGENT_RENEW_BEFORE_S": "120",
@@ -85,6 +86,7 @@ class AgentConfigTests(unittest.TestCase):
         cfg = AgentConfig.from_env(config_env())
         self.assertEqual("https://monitor.example.test/monitor", cfg.monitor_base_url)
         self.assertEqual((2.0, 5.0), cfg.http_timeout)
+        self.assertEqual("http://127.0.0.1:18077/stream.mjpg", cfg.engine_stream_url)
         self.assertEqual(120_000, cfg.renew_before_ms)
         self.assertLessEqual(cfg.retry_max_s, 30.0)
         self.assertEqual(("http://127.0.0.1:5176", "https://monitor.example.test"), cfg.browser_allowed_origins)
@@ -98,6 +100,10 @@ class AgentConfigTests(unittest.TestCase):
             {"AEGIS_AGENT_MONITOR_BASE_URL": "https://u:p@monitor.example.test"},
             {"AEGIS_AGENT_MONITOR_BASE_URL": "https://monitor.example.test/?x=1"},
             {"AEGIS_AGENT_MONITOR_BASE_URL": "https://monitor.example.test/#x"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18078/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://remote.invalid:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://u:p@127.0.0.1:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18077/other"},
             {"AEGIS_AGENT_TLS_VERIFY": "false"},
             {"AEGIS_AGENT_RENEW_BEFORE_S": "0"},
             {"AEGIS_AGENT_RETRY_MAX_S": "999"},
@@ -198,6 +204,32 @@ class AgentSessionTests(unittest.TestCase):
         self.assertEqual("1", kwargs["headers"]["X-Aegis-Request-Sequence"])
         self.assertNotIn("=", kwargs["headers"]["X-Aegis-Request-Nonce"])
         self.assertEqual(2, len(signer.messages))
+
+    def test_transport_adds_agent_owned_stream_source_to_physical_heartbeat(self):
+        now = [100_000]
+        http = FakeHttp([
+            Response(200, challenge()),
+            Response(200, {"sessionId": token(32, 6), "expiresAtMs": 700_000}),
+            Response(200, {"ok": True}),
+        ])
+        signer = RecordingSigner()
+        cfg = AgentConfig.from_env(config_env())
+        client = AgentSessionClient(cfg, signer, http=http, now_ms=lambda: now[0])
+        transport = AgentTransport(
+            cfg, client, signer, http=http,
+            now_ms=lambda: now[0], random_bytes=lambda count: bytes([8]) * count,
+        )
+
+        result = transport.submit("heartbeat", {"cameraConnected": False})
+
+        self.assertTrue(result.ok)
+        body = json.loads(http.calls[-1][1]["data"])
+        self.assertEqual({
+            "cameraConnected": False,
+            "streamUrl": "http://127.0.0.1:18077/stream.mjpg",
+        }, body)
+        for forbidden in ("cameraId", "nodeId", "physicalCameraId"):
+            self.assertNotIn(forbidden, body)
 
     def test_rejected_ingest_invalidates_session_without_replaying_event(self):
         now = [100_000]

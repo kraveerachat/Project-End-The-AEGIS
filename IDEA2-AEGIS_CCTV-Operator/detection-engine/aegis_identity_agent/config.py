@@ -37,6 +37,7 @@ class AgentConfig:
     renew_before_ms: int
     retry_max_s: float
     browser_allowed_origins: tuple[str, ...]
+    engine_stream_url: str
     pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
     engine_user_sid: str | None = None
     pipe_timeout_s: float = 5.0
@@ -88,6 +89,27 @@ class AgentConfig:
         retry_max = _number(env, "AEGIS_AGENT_RETRY_MAX_S", "30", 1.0, 30.0)
         raw_origins = str(env.get("AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS", ""))
         browser_allowed_origins = tuple(sorted(normalize_allowed_origins(raw_origins.split(","))))
+        raw_stream_url = str(env.get("AEGIS_AGENT_ENGINE_STREAM_URL", "")).strip()
+        stream_url = urlsplit(raw_stream_url)
+        try:
+            stream_port = stream_url.port
+        except ValueError as exc:
+            raise ValueError("AEGIS_AGENT_ENGINE_STREAM_URL has an invalid port") from exc
+        if (
+            stream_url.scheme != "http"
+            or stream_url.hostname != "127.0.0.1"
+            or stream_port != 18077
+            or stream_url.path != "/stream.mjpg"
+            or stream_url.username is not None
+            or stream_url.password is not None
+            or stream_url.query
+            or stream_url.fragment
+        ):
+            raise ValueError(
+                "AEGIS_AGENT_ENGINE_STREAM_URL must be the credential-free "
+                "http://127.0.0.1:18077/stream.mjpg tunnel endpoint"
+            )
+        engine_stream_url = urlunsplit(("http", "127.0.0.1:18077", "/stream.mjpg", "", ""))
         pipe_name = str(
             env.get("AEGIS_AGENT_PIPE_NAME", r"\\.\pipe\AEGIS.IdentityAgent.v1")
         ).strip()
@@ -108,6 +130,7 @@ class AgentConfig:
             renew_before_ms=int(renew_s * 1000),
             retry_max_s=retry_max,
             browser_allowed_origins=browser_allowed_origins,
+            engine_stream_url=engine_stream_url,
             pipe_name=pipe_name,
             engine_user_sid=engine_user_sid,
             pipe_timeout_s=pipe_timeout,
@@ -124,6 +147,7 @@ class AgentConfig:
             "renew_before_ms": self.renew_before_ms,
             "retry_max_s": self.retry_max_s,
             "browser_allowed_origins": self.browser_allowed_origins,
+            "engine_stream_url": self.engine_stream_url,
             "pipe_name": self.pipe_name,
             "engine_user_sid_configured": self.engine_user_sid is not None,
             "pipe_timeout_s": self.pipe_timeout_s,

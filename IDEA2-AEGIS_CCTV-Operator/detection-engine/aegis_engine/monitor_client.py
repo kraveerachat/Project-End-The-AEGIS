@@ -129,10 +129,11 @@ class MonitorClient:
         })
 
     def post_heartbeat(
-        self, camera_id: str, node_id: str, snapshot: Dict[str, Any],
-        stream_url: Optional[str] = None, camera_device_name: Optional[str] = None,
+        self, snapshot: Dict[str, Any], *, camera_id: Optional[str] = None,
+        node_id: Optional[str] = None, stream_url: Optional[str] = None,
+        camera_device_name: Optional[str] = None,
     ) -> None:
-        """Liveness + live metrics for one camera.
+        """Liveness + live metrics for one physical runtime.
 
         This is the ONLY source behind Monitor's ``/api/link``. Before this
         existed the web app's "Edge node: online" pill was a hard-coded
@@ -146,7 +147,6 @@ class MonitorClient:
         nas = snapshot.get("nas") or {}
         recorder = snapshot.get("recorder") or {}
         body = {
-            "cameraId": camera_id,
             "cameraConnected": bool(snapshot.get("camera_connected")),
             "cameraReconnects": snapshot.get("camera_reconnects"),
             "captureFps": snapshot.get("capture_fps"),
@@ -161,6 +161,9 @@ class MonitorClient:
             "cameraDeviceName": camera_device_name,
         }
         if self._ingest_mode == "legacy_shared_key":
+            # Bounded Detector B compatibility remains logical-camera keyed.
+            # Strict Agent mode intentionally never serializes these values.
+            body["cameraId"] = camera_id
             body["nodeId"] = node_id
             body["streamUrl"] = stream_url
         self._post("heartbeat", "/internal/heartbeat", body)

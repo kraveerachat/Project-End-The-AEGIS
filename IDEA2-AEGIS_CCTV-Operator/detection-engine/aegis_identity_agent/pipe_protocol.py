@@ -112,8 +112,7 @@ def _validate_heartbeat(payload: dict[str, Any]) -> None:
         "uptimeS", "framesCaptured", "segmentsWritten", "nasLastStatus", "nasPending",
         "cameraDeviceName",
     }
-    _closed(payload, required={"cameraId", "cameraConnected"}, optional=optional)
-    _camera(payload["cameraId"])
+    _closed(payload, required={"cameraConnected"}, optional=optional)
     if not isinstance(payload["cameraConnected"], bool):
         raise PipeProtocolError("cameraConnected must be boolean")
     for field in ("cameraReconnects", "framesCaptured", "segmentsWritten", "nasPending"):

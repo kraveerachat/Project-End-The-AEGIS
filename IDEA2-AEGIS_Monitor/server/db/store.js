@@ -209,22 +209,52 @@ function safeStreamUrl(raw) {
   return u.toString()
 }
 
+/** Build one bounded heartbeat write without consulting mutable telemetry authority. */
+export function prepareHeartbeatWrite(input, ingestAuth = { kind: 'legacy_unverified' }) {
+  const numOrNull = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
+  const intOrZero = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0)
+  const values = {
+    cameraConnected: Boolean(input?.cameraConnected),
+    cameraReconnects: intOrZero(input?.cameraReconnects),
+    captureFps: numOrNull(input?.captureFps),
+    detectFps: numOrNull(input?.detectFps),
+    latencyMs: numOrNull(input?.latencyMs),
+    latencyMsAvg: numOrNull(input?.latencyMsAvg),
+    uptimeS: numOrNull(input?.uptimeS),
+    framesCaptured: numOrNull(input?.framesCaptured),
+    segmentsWritten: intOrZero(input?.segmentsWritten),
+    nasLastStatus: input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
+    nasPending: intOrZero(input?.nasPending),
+    streamUrl: safeStreamUrl(input?.streamUrl),
+  }
+
+  const verifiedNode = ingestAuth?.kind === 'ed25519' ? ingestAuth.verifiedNode : null
+  if (ingestAuth?.kind === 'ed25519') {
+    const nodeId = String(verifiedNode?.nodeId ?? '').trim()
+    const physicalCameraId = Number(verifiedNode?.physicalCameraId)
+    if (!nodeId || nodeId.length > 64 || !Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) {
+      return { error: 'invalid physical provenance', status: 401 }
+    }
+    return { kind: 'physical', nodeId, physicalCameraId, ...values }
+  }
+
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  return {
+    kind: 'legacy',
+    cameraId,
+    nodeId: input?.nodeId != null ? String(input.nodeId).slice(0, 120) : null,
+    ...values,
+  }
+}
+
 /** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
 export async function recordHeartbeat(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
-  const cameraId = String(input?.cameraId ?? '').trim()
-  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
-  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+  const write = prepareHeartbeatWrite(input, ingestAuth)
+  if (write.error) return write
 
-  const numOrNull = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
-  const intOrZero = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0)
-
-  const verifiedNode = ingestAuth?.kind === 'ed25519' ? ingestAuth.verifiedNode : null
-  if (verifiedNode) {
-    const physicalCameraId = Number(verifiedNode.physicalCameraId)
-    if (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) {
-      return { error: 'invalid physical provenance', status: 401 }
-    }
+  if (write.kind === 'physical') {
     const { rows } = await query(
       `INSERT INTO physical_camera_heartbeat (
           physical_camera_id, node_id, last_seen_at, camera_connected, camera_reconnects,
@@ -248,27 +278,30 @@ export async function recordHeartbeat(input, ingestAuth = { kind: 'legacy_unveri
           stream_url = EXCLUDED.stream_url
        RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
       [
-        physicalCameraId,
-        verifiedNode.nodeId,
-        Boolean(input?.cameraConnected),
-        intOrZero(input?.cameraReconnects),
-        numOrNull(input?.captureFps),
-        numOrNull(input?.detectFps),
-        numOrNull(input?.latencyMs),
-        numOrNull(input?.latencyMsAvg),
-        numOrNull(input?.uptimeS),
-        numOrNull(input?.framesCaptured),
-        intOrZero(input?.segmentsWritten),
-        input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
-        intOrZero(input?.nasPending),
-        safeStreamUrl(input?.streamUrl),
+        write.physicalCameraId,
+        write.nodeId,
+        write.cameraConnected,
+        write.cameraReconnects,
+        write.captureFps,
+        write.detectFps,
+        write.latencyMs,
+        write.latencyMsAvg,
+        write.uptimeS,
+        write.framesCaptured,
+        write.segmentsWritten,
+        write.nasLastStatus,
+        write.nasPending,
+        write.streamUrl,
       ],
     )
     return {
-      cameraId,
-      physicalCameraId,
+      physicalCameraId: write.physicalCameraId,
       lastSeenAt: Math.round(Number(rows[0].last_seen_ms)),
     }
+  }
+
+  if (!(await cameraExists(write.cameraId))) {
+    return { error: `unknown camera ${write.cameraId}`, status: 400 }
   }
 
   const { rows } = await query(
@@ -294,25 +327,25 @@ export async function recordHeartbeat(input, ingestAuth = { kind: 'legacy_unveri
         stream_url = EXCLUDED.stream_url
      RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
     [
-      cameraId,
-      input?.nodeId != null ? String(input.nodeId).slice(0, 120) : null,
-      Boolean(input?.cameraConnected),
-      intOrZero(input?.cameraReconnects),
-      numOrNull(input?.captureFps),
-      numOrNull(input?.detectFps),
-      numOrNull(input?.latencyMs),
-      numOrNull(input?.latencyMsAvg),
-      numOrNull(input?.uptimeS),
-      numOrNull(input?.framesCaptured),
-      intOrZero(input?.segmentsWritten),
-      input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
-      intOrZero(input?.nasPending),
+      write.cameraId,
+      write.nodeId,
+      write.cameraConnected,
+      write.cameraReconnects,
+      write.captureFps,
+      write.detectFps,
+      write.latencyMs,
+      write.latencyMsAvg,
+      write.uptimeS,
+      write.framesCaptured,
+      write.segmentsWritten,
+      write.nasLastStatus,
+      write.nasPending,
       // ยอมรับเฉพาะ http/https ที่ parse ได้ — กัน SSRF ผ่านค่าที่ engine ส่งมา
       // (engine ผ่าน API key แล้วก็จริง แต่ค่านี้กลายเป็นปลายทางที่ proxy จะยิงต่อ)
-      safeStreamUrl(input?.streamUrl),
+      write.streamUrl,
     ],
   )
-  return { cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }
+  return { cameraId: write.cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }
 }
 
 // ════ Detection Engine ingest — เขียนตารางจริง (ผ่าน POST /internal/*) ═══════

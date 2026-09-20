@@ -47,7 +47,16 @@ class AgentTransport:
             validate_operation_payload(operation, payload)
         except PipeProtocolError:
             return TransportResult(False, None, "INVALID_OPERATION")
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        # The unprivileged Engine can submit availability metrics, but cannot
+        # choose identity, logical alias, or a URL for Monitor to fetch. The
+        # dedicated Agent adds its reviewed local reverse-tunnel endpoint only
+        # after the closed pipe schema has rejected Engine-owned authority.
+        outbound_payload = (
+            {**payload, "streamUrl": self.config.engine_stream_url}
+            if operation == "heartbeat"
+            else payload
+        )
+        body = json.dumps(outbound_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(body) > 16 * 1024:
             return TransportResult(False, None, "INVALID_PAYLOAD")
         try:
