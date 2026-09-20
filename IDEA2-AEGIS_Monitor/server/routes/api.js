@@ -8,12 +8,34 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
-import { establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset } from '../auth/session.js'
+import {
+  bindLocalNode,
+  currentNodeSessionBinding,
+  establishSession,
+  currentUser,
+  currentCsrfToken,
+  destroySession,
+  markPasswordReset,
+} from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getMenuForRole, ROLES } from '../rbac/permissions.js'
 import { requireAuth } from '../middleware/requireRole.js'
-import { getVisibleCameras, canSeeCamera, getUserById, updatePasswordHash } from '../db/connection.js'
+import {
+  getVisibleCameras,
+  canSeeCamera,
+  getUserById,
+  getUserByUsername,
+  getDetectionNode,
+  getPhysicalCameraForNode,
+  updatePasswordHash,
+} from '../db/connection.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
+import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
+import {
+  canonicalBrowserAssociationPayload,
+  verifyBrowserAssociationProof,
+} from '../nodeIdentity/browserAssociationProof.js'
+import { parseCanonicalBase64Url, parseStrictJsonBytes } from '../nodeIdentity/agentProtocol.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
@@ -32,6 +54,257 @@ const STREAM_REVALIDATE_MS = 10_000
 const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
 
 export const apiRouter = Router()
+
+const ASSOCIATION_TTL_MS = 5 * 60 * 1000
+const ASSOCIATION_RENEW_BEFORE_MS = 60 * 1000
+const ASSOCIATION_ISSUE_WINDOW_MS = 60 * 1000
+const ASSOCIATION_ISSUE_LIMIT = 12
+const ASSOCIATION_GLOBAL_ISSUE_LIMIT = 256
+const NODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+export class LocalNodeAssociationError extends Error {
+  constructor(status, code) {
+    super(code)
+    this.name = 'LocalNodeAssociationError'
+    this.status = status
+    this.code = code
+  }
+}
+
+const associationError = (status, code) => new LocalNodeAssociationError(status, code)
+
+function exactAssertion(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value).sort()
+  return keys.length === 2 && keys[0] === 'claims' && keys[1] === 'signature'
+}
+
+function canonicalAssertion(value) {
+  if (!exactAssertion(value) || !value.claims || typeof value.signature !== 'string') return false
+  try {
+    canonicalBrowserAssociationPayload(value.claims)
+    parseCanonicalBase64Url(value.signature, 64, 'signature')
+  } catch {
+    return false
+  }
+  return NODE_ID_RE.test(value.claims.node_id)
+}
+
+function assertionMatchesChallenge(claims, challenge) {
+  return claims.audience === challenge.audience
+    && claims.session_binding === challenge.session_binding
+    && claims.challenge_id === challenge.challenge_id
+    && claims.challenge_nonce === challenge.challenge_nonce
+    && claims.issued_at_ms === challenge.issued_at_ms
+    && claims.expires_at_ms === challenge.expires_at_ms
+}
+
+function usableRegistration(node, physical) {
+  return Boolean(
+    node?.active
+    && typeof node.nodeId === 'string'
+    && typeof node.publicKey === 'string'
+    && node.publicKey.length > 0
+    && Number.isSafeInteger(Number(node.keyVersion))
+    && Number(node.keyVersion) > 0
+    && physical?.active
+    && physical.nodeId === node.nodeId
+    && Number.isSafeInteger(Number(physical.physicalCameraId))
+    && Number(physical.physicalCameraId) > 0
+  )
+}
+
+export function createBrowserAssociationService({
+  audience = process.env.BROWSER_ASSOCIATION_AUDIENCE,
+  now = Date.now,
+  challengeStore = new BrowserAssociationChallengeStore({ now }),
+  getUserByUsername: loadUser = getUserByUsername,
+  getDetectionNode: loadNode = getDetectionNode,
+  getPhysicalCameraForNode: loadPhysical = getPhysicalCameraForNode,
+  verifyProof = verifyBrowserAssociationProof,
+  issueWindowMs = ASSOCIATION_ISSUE_WINDOW_MS,
+  issueLimit = ASSOCIATION_ISSUE_LIMIT,
+  globalIssueLimit = ASSOCIATION_GLOBAL_ISSUE_LIMIT,
+} = {}) {
+  if (
+    !Number.isSafeInteger(issueWindowMs) || issueWindowMs <= 0
+    || !Number.isSafeInteger(issueLimit) || issueLimit <= 0
+    || !Number.isSafeInteger(globalIssueLimit) || globalIssueLimit <= 0
+  ) throw new TypeError('association issuance limits must be positive safe integers')
+  const issueHistory = new Map()
+  const globalIssueHistory = []
+
+  function admitIssue(sessionBinding) {
+    const instant = now()
+    if (!Number.isSafeInteger(instant) || instant < 0) {
+      throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+    }
+    const cutoff = instant - issueWindowMs
+    const globalRecent = globalIssueHistory.filter((timestamp) => timestamp > cutoff)
+    globalIssueHistory.splice(0, globalIssueHistory.length, ...globalRecent)
+    for (const [binding, timestamps] of issueHistory) {
+      const recent = timestamps.filter((timestamp) => timestamp > cutoff)
+      if (recent.length === 0) issueHistory.delete(binding)
+      else if (recent.length !== timestamps.length) issueHistory.set(binding, recent)
+    }
+    const recent = issueHistory.get(sessionBinding) ?? []
+    if (recent.length >= issueLimit || globalIssueHistory.length >= globalIssueLimit) {
+      throw associationError(429, 'LOCAL_NODE_ASSOCIATION_RATE_LIMITED')
+    }
+    recent.push(instant)
+    issueHistory.set(sessionBinding, recent)
+    globalIssueHistory.push(instant)
+  }
+
+  async function liveOperator(session) {
+    const cached = session?.user
+    if (!cached?.username) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+    let user
+    try {
+      user = await loadUser(cached.username)
+    } catch {
+      throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+    }
+    if (
+      !user
+      || user.active === false
+      || user.id !== cached.id
+      || user.username !== cached.username
+      || user.role !== ROLES.OPERATOR
+      || user.mustResetPassword
+    ) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+    return user
+  }
+
+  return Object.freeze({
+    async issue(session) {
+      if (typeof audience !== 'string' || audience.length === 0) {
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+      const sessionBinding = currentNodeSessionBinding(session)
+      if (!sessionBinding) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      admitIssue(sessionBinding)
+      await liveOperator(session)
+      try {
+        return challengeStore.issue({ sessionBinding, audience })
+      } catch {
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+    },
+
+    async verify(session, assertion) {
+      if (!canonicalAssertion(assertion)) {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+      const sessionBinding = currentNodeSessionBinding(session)
+      const challenge = sessionBinding
+        ? challengeStore.consume({ challengeId: assertion.claims.challenge_id, sessionBinding })
+        : null
+      if (!challenge) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      if (!assertionMatchesChallenge(assertion.claims, challenge)) {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+
+      const nodeId = assertion.claims.node_id
+      let user
+      let node
+      let physical
+      try {
+        ;[user, node, physical] = await Promise.all([
+          liveOperator(session),
+          loadNode(nodeId),
+          loadPhysical(nodeId),
+        ])
+      } catch (error) {
+        if (error instanceof LocalNodeAssociationError) throw error
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+      void user
+      if (
+        !usableRegistration(node, physical)
+        || node.nodeId !== nodeId
+        || Number(node.keyVersion) !== Number(assertion.claims.key_version)
+      ) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+
+      const verifiedAt = now()
+      const valid = verifyProof({
+        claims: assertion.claims,
+        signature: assertion.signature,
+        publicKeyPem: node.publicKey,
+        expected: {
+          audience: challenge.audience,
+          sessionBinding: challenge.session_binding,
+          challengeId: challenge.challenge_id,
+          challengeNonce: challenge.challenge_nonce,
+          issuedAtMs: challenge.issued_at_ms,
+          expiresAtMs: challenge.expires_at_ms,
+        },
+        nowMs: verifiedAt,
+      })
+      if (!valid) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+
+      const expiresAt = verifiedAt + ASSOCIATION_TTL_MS
+      bindLocalNode(session, {
+        nodeId: node.nodeId,
+        physicalCameraId: Number(physical.physicalCameraId),
+        keyVersion: Number(node.keyVersion),
+        verifiedAt,
+        expiresAt,
+      })
+      return {
+        associated: true,
+        expiresAt,
+        renewAfterMs: ASSOCIATION_TTL_MS - ASSOCIATION_RENEW_BEFORE_MS,
+      }
+    },
+  })
+}
+
+function sendAssociationError(res, error) {
+  if (error instanceof LocalNodeAssociationError) {
+    return res.status(error.status).json({ error: error.code })
+  }
+  return res.status(503).json({ error: 'LOCAL_NODE_REGISTRY_UNAVAILABLE' })
+}
+
+function requireLocalNodeAuth(req, res, next) {
+  const user = currentUser(req)
+  if (!user) return res.status(401).json({ error: 'NOT_AUTHENTICATED' })
+  if (user.mustResetPassword) {
+    return res.status(403).json({ error: 'LOCAL_NODE_ASSOCIATION_DENIED' })
+  }
+  req.user = user
+  next()
+}
+
+export function createLocalNodeAssociationRouter({ service = createBrowserAssociationService() } = {}) {
+  const router = Router()
+  router.post('/local-node/challenge', requireLocalNodeAuth, async (req, res) => {
+    try {
+      return res.status(200).json(await service.issue(req.session))
+    } catch (error) {
+      return sendAssociationError(res, error)
+    }
+  })
+  router.post('/local-node/verify', requireLocalNodeAuth, async (req, res) => {
+    try {
+      let assertion
+      try {
+        assertion = parseStrictJsonBytes(req.rawBody ?? Buffer.alloc(0))
+      } catch {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+      const result = await service.verify(req.session, assertion)
+      await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()))
+      return res.status(200).json(result)
+    } catch (error) {
+      return sendAssociationError(res, error)
+    }
+  })
+  return router
+}
+
+apiRouter.use(createLocalNodeAssociationRouter())
 
 apiRouter.post('/login', async (req, res) => {
   const { username, password, remember } = req.body ?? {}
