@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from aegis_identity_agent.config import AgentConfig
+from aegis_identity_agent.browser_server import BrowserAssertionApplication, BrowserAssociationServer
 from aegis_identity_agent.key_store import DpapiCurrentUserProtector, IdentityKeyStore
 from aegis_identity_agent.pipe_server import (
     PipeRequestHandler,
@@ -33,6 +34,13 @@ def _host():
     if config.engine_user_sid is None:
         raise RuntimeError("AEGIS_AGENT_ENGINE_USER_SID is required for the pipe ACL")
     signer = _store(config).load()
+    browser_server = BrowserAssociationServer(
+        BrowserAssertionApplication(
+            signer,
+            allowed_origins=config.browser_allowed_origins,
+            expected_audience=config.audience,
+        )
+    )
     client = AgentSessionClient(config, signer)
     transport = AgentTransport(config, client, signer)
     handler = PipeRequestHandler(
@@ -46,12 +54,20 @@ def _host():
         pipe_name=config.pipe_name,
         read_timeout_s=config.pipe_timeout_s,
     )
+
+    def close_owned_surfaces():
+        try:
+            pipe_server.close()
+        finally:
+            browser_server.close()
+
     return IdentityAgentServiceHost(
         run_once=pipe_server.serve_once,
         interval_s=0.05,
         retry_max_s=config.retry_max_s,
         wait_after_success=False,
-        on_stop=pipe_server.close,
+        on_start=browser_server.start,
+        on_stop=close_owned_surfaces,
     )
 
 

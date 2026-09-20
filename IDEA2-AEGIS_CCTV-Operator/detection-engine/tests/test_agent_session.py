@@ -61,6 +61,7 @@ def config_env(**overrides):
         "AEGIS_AGENT_READ_TIMEOUT_S": "5",
         "AEGIS_AGENT_RENEW_BEFORE_S": "120",
         "AEGIS_AGENT_RETRY_MAX_S": "30",
+        "AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS": "https://monitor.example.test,http://127.0.0.1:5176",
     }
     values.update(overrides)
     return values
@@ -86,6 +87,7 @@ class AgentConfigTests(unittest.TestCase):
         self.assertEqual((2.0, 5.0), cfg.http_timeout)
         self.assertEqual(120_000, cfg.renew_before_ms)
         self.assertLessEqual(cfg.retry_max_s, 30.0)
+        self.assertEqual(("http://127.0.0.1:5176", "https://monitor.example.test"), cfg.browser_allowed_origins)
         rendered = json.dumps(cfg.redacted(), sort_keys=True)
         self.assertNotIn("machine-identity.dpapi", rendered)
         self.assertNotIn("session", rendered.lower())
@@ -99,6 +101,10 @@ class AgentConfigTests(unittest.TestCase):
             {"AEGIS_AGENT_TLS_VERIFY": "false"},
             {"AEGIS_AGENT_RENEW_BEFORE_S": "0"},
             {"AEGIS_AGENT_RETRY_MAX_S": "999"},
+            {"AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS": ""},
+            {"AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS": "*"},
+            {"AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS": "http://monitor.example.test"},
+            {"AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS": "https://monitor.example.test/path"},
         ]
         for override in invalid:
             with self.subTest(override=override), self.assertRaises(ValueError):

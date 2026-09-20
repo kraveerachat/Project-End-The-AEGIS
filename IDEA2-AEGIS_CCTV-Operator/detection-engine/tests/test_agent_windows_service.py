@@ -55,6 +55,25 @@ class AgentWindowsServiceTests(unittest.TestCase):
         self.assertLessEqual(host.last_retry_delay_s, 0.002)
         self.assertEqual(0, host.camera_demand_side_effects)
 
+    def test_service_starts_browser_listener_once_and_closes_both_owned_surfaces(self):
+        stop = threading.Event()
+        events = []
+
+        def run_once():
+            events.append("pipe")
+            stop.set()
+
+        host = IdentityAgentServiceHost(
+            run_once=run_once,
+            stop_event=stop,
+            interval_s=0.001,
+            on_start=lambda: events.append("browser-start"),
+            on_stop=lambda: events.append("close"),
+        )
+        host.run()
+        host.stop()
+        self.assertEqual(["browser-start", "pipe", "close"], events)
+
     def test_service_stop_interrupts_the_owned_pipe_wait(self):
         entered = threading.Event()
         release = threading.Event()

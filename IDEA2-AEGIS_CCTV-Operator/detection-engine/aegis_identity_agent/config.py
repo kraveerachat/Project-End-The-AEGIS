@@ -8,6 +8,8 @@ import re
 from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
+from .browser_server import normalize_allowed_origins
+
 
 _NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
@@ -34,6 +36,7 @@ class AgentConfig:
     read_timeout_s: float
     renew_before_ms: int
     retry_max_s: float
+    browser_allowed_origins: tuple[str, ...]
     pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
     engine_user_sid: str | None = None
     pipe_timeout_s: float = 5.0
@@ -83,6 +86,8 @@ class AgentConfig:
         read = _number(env, "AEGIS_AGENT_READ_TIMEOUT_S", "5", 0.1, 30.0)
         renew_s = _number(env, "AEGIS_AGENT_RENEW_BEFORE_S", "120", 1.0, 300.0)
         retry_max = _number(env, "AEGIS_AGENT_RETRY_MAX_S", "30", 1.0, 30.0)
+        raw_origins = str(env.get("AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS", ""))
+        browser_allowed_origins = tuple(sorted(normalize_allowed_origins(raw_origins.split(","))))
         pipe_name = str(
             env.get("AEGIS_AGENT_PIPE_NAME", r"\\.\pipe\AEGIS.IdentityAgent.v1")
         ).strip()
@@ -102,6 +107,7 @@ class AgentConfig:
             read_timeout_s=read,
             renew_before_ms=int(renew_s * 1000),
             retry_max_s=retry_max,
+            browser_allowed_origins=browser_allowed_origins,
             pipe_name=pipe_name,
             engine_user_sid=engine_user_sid,
             pipe_timeout_s=pipe_timeout,
@@ -117,6 +123,7 @@ class AgentConfig:
             "read_timeout_s": self.read_timeout_s,
             "renew_before_ms": self.renew_before_ms,
             "retry_max_s": self.retry_max_s,
+            "browser_allowed_origins": self.browser_allowed_origins,
             "pipe_name": self.pipe_name,
             "engine_user_sid_configured": self.engine_user_sid is not None,
             "pipe_timeout_s": self.pipe_timeout_s,

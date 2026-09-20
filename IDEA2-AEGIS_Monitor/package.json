@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite --port 5176",
     "dev:server": "node --watch server/index.js",
-    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs tests/liveCamera.test.mjs tests/uiFreezeCurrentMain.test.mjs tests/viewerDemandAvailability.test.mjs tests/streamLifecycle.test.mjs tests/agentProtocol.test.mjs tests/agentState.test.mjs tests/agentAuth.test.mjs tests/agentRequestProof.test.mjs tests/agentIngestProvenance.test.mjs tests/detectorCompatibility.test.mjs tests/nodeRegistry.test.mjs tests/registryMigrations.test.mjs",
+    "test": "node --test tests/viewState.test.mjs tests/passwordResetPolicy.test.mjs tests/designContract.test.mjs tests/liveCamera.test.mjs tests/uiFreezeCurrentMain.test.mjs tests/viewerDemandAvailability.test.mjs tests/streamLifecycle.test.mjs tests/agentProtocol.test.mjs tests/agentState.test.mjs tests/agentAuth.test.mjs tests/agentRequestProof.test.mjs tests/agentIngestProvenance.test.mjs tests/detectorCompatibility.test.mjs tests/nodeRegistry.test.mjs tests/registryMigrations.test.mjs tests/browserAssociationProof.test.mjs tests/localNodeChallenge.test.mjs tests/browserAssociationCrossLanguage.test.mjs",
     "test:registry": "node --test tests/agentProtocol.test.mjs tests/agentState.test.mjs tests/agentAuth.test.mjs tests/agentRequestProof.test.mjs tests/agentIngestProvenance.test.mjs tests/detectorCompatibility.test.mjs tests/nodeRegistry.test.mjs tests/registryMigrations.test.mjs",
+    "test:browser-association": "node --test tests/browserAssociationProof.test.mjs tests/localNodeChallenge.test.mjs tests/browserAssociationCrossLanguage.test.mjs",
     "test:ui-freeze": "node --test tests/uiFreezeCurrentMain.test.mjs",
     "test:browser": "playwright test",
     "build": "vite build",
