@@ -114,15 +114,22 @@ FULL_PHASE4_REGRESSION      = PASS
 
 ## Shared surfaces touched
 
-Shared IDEA3 Phase4 framework surfaces touched:
-- `tests/test_pr11_phase4_harness.py` — updated reviewed stage registry to include L5; shifted unregistered live handler test from L5 to L6a.
-- `tests/test_pr11_phase4_l4_handler.py` — updated stage registration assertion to deterministically assert `status_map["L5"] == "REGISTERED"`.
-- `deploy/pr11-phase4/README.md` — updated handler registration status and added L5 documentation.
+The collaboration policy classifies the following changed paths as cross-scope surfaces requiring integration review:
 
-Cross-area shared surfaces touched:
-- None
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md`
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L5/allow-keys.txt`
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L5/allow-listeners.txt`
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L5/apply.sh`
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L5/rollback.sh`
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L5/verify.sh`
+- `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-20-idea3-pr11-phase4-l5-operational-design.md`
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py`
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l4_handler.py`
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l5_handler.py`
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`
 
-State of other areas:
+Cross-area behavior:
+
 - L4 runtime implementation itself was NOT modified.
 - IDEA1 mutation = NO
 - IDEA2 mutation = NO
@@ -131,7 +138,7 @@ State of other areas:
 
 - Human code-owner review required.
 - Human merge required.
-- L5_PR_OPENED = NO: No L5 pull request exists at closeout. After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+- L5_PR_OPENED = YES: Draft PR #162 exists for human review. The PR remains Draft until collaboration guardrails pass; Ready for Review and merge remain human-review steps.
 - This receipt does not authorize live L5.
 - Future live L5 remains separately gated by:
   - L2, L3, and L4 live PASS
