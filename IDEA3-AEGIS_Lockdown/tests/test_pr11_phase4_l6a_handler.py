@@ -847,7 +847,42 @@ def test_l6a_evidence_rejects_missing_or_unknown_keys(tmp_path: Path) -> None:
 
 def test_l6a_secret_canary_absence_across_all_outputs(tmp_path: Path) -> None:
     """OD-L6A-05: Sentinel passwords must never leak to evidence, stdout, or stderr."""
+    apply_script = L6A_STAGE / "apply.sh"
+    inputs = tmp_path / "inputs"
     work_dir = tmp_path / "work"
+    inputs.mkdir(parents=True, exist_ok=True)
+
+    ca, broker, broker_key = _make_pki(inputs)
+    core_secret = inputs / "core.pass"
+    device_secret = inputs / "device.pass"
+    core_secret.write_text("CANARY_SECRET_CORE_12345\n", encoding="utf-8")
+    device_secret.write_text("CANARY_SECRET_DEV_67890\n", encoding="utf-8")
+    os.chmod(core_secret, 0o600)
+    os.chmod(device_secret, 0o600)
+    os.chmod(broker_key, 0o600)
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    env = os.environ.copy()
+    env["AEGIS_L6A_PORT"] = str(port)
+    env["AEGIS_L6A_INPUT_DIR"] = str(inputs)
+    env["AEGIS_L6A_WORK_DIR"] = str(work_dir)
+    env["AEGIS_PYTHON_BIN"] = sys.executable
+
+    result = subprocess.run(
+        ["bash", str(apply_script)],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"apply.sh failed: {result.stderr}\n{result.stdout}"
+    assert "CANARY_SECRET" not in result.stdout
+    assert "CANARY_SECRET" not in result.stderr
+
     evidence_file = work_dir / "validation-evidence.tsv"
     assert evidence_file.is_file(), "validation-evidence.tsv must exist after apply"
     content = evidence_file.read_text(encoding="utf-8")
