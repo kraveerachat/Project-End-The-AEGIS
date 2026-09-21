@@ -92,17 +92,20 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
+- `git merge origin/main` — pass: merged current `origin/main` at `b4670eb31a30e1e71075c8e6421134e5d9fae8e5` (PRs #158–#166 merged; zero overlapping paths with PR #157; clean merge `6bfdfefe49ad8e7fd11bd97f09d73baa7025bbef`).
+- `node --test --test-concurrency=1 tests/vaultTreeGenesisMigrationIntegration.test.js` — pass: 13/13 tests passed (GM-INT-1..6 + CT-INT-1..7).
+- `node --test --test-concurrency=1 "tests/vault*.test.js"` — pass: 726 tests / 665 pass / 0 fail / 61 skipped (PostgreSQL-gated suites requiring `TEST_DATABASE_URL`).
+- `npm run build` — pass: clean Vite production build in 8.74s, `dist/` restored clean.
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs` — pass: 50/50 tests passed.
 - `node scripts/validate-vault.mjs` — pass: 0 errors, 2 pre-existing canvas warnings.
 - `git diff --check` — pass: clean whitespace and syntax.
-- `npm test` (`node --test --test-concurrency=1 "tests/**/*.test.js"`) — pass: 1856 pass / 9 baseline fail / 161 skipped (all 9 failures reproduced identically on origin/main baseline; 0 PR157-new failures).
-- `node --test --test-concurrency=1 tests/vaultTreeGenesisMigrationIntegration.test.js` — pass: 13/13 tests passed (GM-INT-1..6 + CT-INT-1..7).
 - Real browser migration qualification — pass: `G7_BROWSER_SECURITY_CRITICAL_MIGRATION_PATH=PASS` (`state 200`, `begin 201`, `revisions 201`, `ciphertext 200`, `genesis 201` verified in real browser).
 - `G7_BROWSER_FULL_UI=NOT_CLAIMED` — broader Files-style UX qualification deferred to successor PR.
+- Full suite baseline note: `npm test` baseline carries 9 pre-existing failures on `origin/main` (1 Files i18n mockHooks + 6 PS6 runner env + 2 CRLF PRELUDE tests; 0 PR157-new failures).
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — updated Current Draft Task header and added session `PVH-CLOSEOUT` recording completion of Phases 0–7 Security Foundation, verified browser migration path, deferred Files UX scope, and unstarted Phases 8–10.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — updated Current Draft Task header and added session entries `PVH-CLOSEOUT` and `PVH-RECON` recording completion of Phases 0–7 Security Foundation, origin/main reconciliation at `b4670eb3`, verified browser migration path, deferred Files UX scope, and unstarted Phases 8–10.
 
 ## Shared surfaces touched
 
