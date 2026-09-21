@@ -27,6 +27,7 @@
 #
 # Exit 0 = STAGE_GATE=PASS_SIMULATION or PASS_READ_ONLY; 1 = STAGE_GATE=FAIL.
 set -uo pipefail
+export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p4-lib.sh
 . "$HERE/p4-lib.sh"
@@ -67,6 +68,7 @@ TODAY=$(TZ="$P4_WINDOW_TZ" date +%F)
 readonly REF_RE='^[A-Za-z0-9][A-Za-z0-9._:/#?=&%+-]{2,199}$'
 readonly PLACEHOLDER_RE='(REPLACE|TODO|TBD|CHANGEME|CHANGE-ME|FIXME|XXX)'
 readonly DATE_RE='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+readonly SCOPE_RE='^[\ -~]{1,200}$'
 declare -A R
 
 # parse_record FILE MAGIC ALLOWED REQUIRED: strict key=value parse into R.
@@ -104,7 +106,7 @@ elif ! parse_record "$AUTH" AEGIS_P4_AUTHORIZATION_V1 \
   "stage date authorizer scope reference $EXTRA"; then
   fail AUTHORIZATION_MALFORMED
 elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
-  || ! [[ "${R[scope]}" =~ ^[\ -~]{1,200}$ ]] \
+  || ! [[ "${R[scope]}" =~ $SCOPE_RE ]] \
   || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]] \
   || { [ -n "${R[d6_notice]+set}" ] && [ "${R[d6_notice]}" != pub ]; } \
   || { [ -n "${R[integration_review]+set}" ] && [ "${R[integration_review]}" != kla ]; } \

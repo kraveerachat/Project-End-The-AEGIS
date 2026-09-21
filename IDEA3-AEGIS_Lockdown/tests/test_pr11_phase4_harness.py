@@ -1156,3 +1156,152 @@ def test_capture_calls_only_read_only_commands_through_the_guard(tmp_path: Path)
         assert scan(argv) == [], argv
     compare(cap, cap)
     assert cap.calls.read_text().splitlines() == calls, "compare must not call host commands"
+
+
+# ── P. Phase 4 L0 harness portability and fail-closed repair regressions ──────
+
+def find_utf8_locale() -> str:
+    res = subprocess.run(["locale", "-a"], capture_output=True, text=True, check=False)
+    locales = set(res.stdout.splitlines())
+    for cand in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8", "C.utf8"):
+        if cand in locales or cand.lower() in {l.lower() for l in locales}:
+            return cand
+    return "C.UTF-8"
+
+
+def test_gate_l0_authorization_passes_under_utf8_locale(tmp_path: Path) -> None:
+    loc = find_utf8_locale()
+    auth = auth_record("L0", scope="read-only baseline preflight capture",
+                       reference="PR11-L0-PREFLIGHT-2026-09-21")
+    result = gate(tmp_path, "--stage", "L0", "--mode", "simulate",
+                  auth=auth, extra_env={"LC_ALL": loc, "LANG": loc})
+    assert result.returncode == 0, f"Failed under locale {loc}: {result.stdout}\n{result.stderr}"
+    assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+    assert "READ_ONLY_CAPTURE_ALLOWED=YES" in result.stdout
+    assert "STAGE_GATE=PASS_READ_ONLY" in result.stdout
+    assert "GATE_FAIL" not in result.stdout
+
+
+def test_capture_nm_profile_with_spaces_captured_safely(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces", fs=fs, secret=secret)
+    assert cap.result.returncode == 0, cap.result.stdout + cap.result.stderr
+    assert "L0_CAPTURE=COMPLETE" in cap.result.stdout
+    assert "REFUSED non-read-only command: stat" not in cap.result.stderr
+    log = (cap.evid / "capture.log").read_text()
+    assert "REFUSED non-read-only command: stat" not in log
+    rec = cap.records()
+    meta_key = "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.meta"
+    assert meta_key in rec, f"Expected {meta_key} in records: {list(rec.keys())}"
+    assert rec[meta_key] != "UNREADABLE", f"{meta_key} is UNREADABLE"
+    assert rec[meta_key].startswith("mode=")
+
+
+def test_read_only_guard_refuses_extra_argv_boundary_violation(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    extra_argv_cases = [
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/valid/path", "/extra/arg"],
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/path with space", "extra"],
+        ["sha256sum", "--", "/valid/path", "/extra/arg"],
+        ["sha256sum", "--", "/path with space", "extra"],
+        ["readlink", "--", "/valid/path", "/extra/arg"],
+        ["readlink", "-f", "--", "/valid/path", "/extra/arg"],
+        ["find", "/valid/path", "-xdev", "-type", "f", "-delete"],
+        ["find", "/valid/path", "/extra/path", "-xdev", "-type", "f"],
+    ]
+    for argv in extra_argv_cases:
+        words = " ".join(f"'{w}'" for w in argv)
+        result = ro(f"p4_ro {words}", bindir, calls)
+        assert result.returncode == 126, f"Expected 126 for {argv}, got {result.returncode}"
+        assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_read_only_guard_refuses_control_characters_in_paths(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    bad_paths = [
+        "/path/with\nnewline",
+        "/path/with\rCR",
+        "/path/with\ttab",
+        "/path/with\x1bescape",
+        "/path/with\x07bell",
+    ]
+    for bp in bad_paths:
+        for cmd in [
+            ["stat", "-c", "%a:%u:%g:%s:%Y", "--", bp],
+            ["sha256sum", "--", bp],
+            ["readlink", "--", bp],
+            ["find", bp, "-xdev", "-type", "f"],
+        ]:
+            words = " ".join(f"'{w}'" for w in cmd)
+            result = ro(f"p4_ro {words}", bindir, calls)
+            assert result.returncode == 126, f"Expected 126 for {cmd}, got {result.returncode}"
+            assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_capture_required_metadata_read_failure_results_in_partial_and_exit_3(tmp_path: Path) -> None:
+    # Simulate an unreadable metadata failure on a required capture surface by intercepting stat
+    root = tmp_path / "meta_fail"
+    root.mkdir(parents=True)
+    fix = root / "fix"
+    write_tree(fix, healthy_fixtures())
+    fsroot = root / "fsroot"
+    write_tree(fsroot, fs_fixture("canary_meta_fail"))
+    bindir = make_bin(root)
+    # Create a wrapper stat that fails specifically when called on the NM connection profile
+    real_stat = shutil.which("stat")
+    wrapper = bindir / "stat"
+    wrapper.unlink()
+    wrapper.write_text(f"""#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == *"ap-test.nmconnection"* ]]; then
+    echo "simulated stat I/O failure" >&2
+    exit 1
+  fi
+done
+exec {real_stat} "$@"
+""")
+    wrapper.chmod(0o755)
+
+    calls = root / "calls.log"
+    calls.touch()
+    evid = root / "evidence"
+    base = {
+        "PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_FIX": str(fix), "P4_CALL_LOG": str(calls),
+        "EVID_DIR": str(evid), "CAPTURE_LABEL": "meta-fail", "JOURNAL_SINCE": JOURNAL_SINCE,
+        "AEGIS_P4_FS_ROOT": str(fsroot),
+    }
+    result = subprocess.run(["bash", str(CAPTURE)], capture_output=True, text=True, env=base,
+                            stdin=subprocess.DEVNULL, timeout=120, check=False)
+    assert result.returncode == 3, f"Expected exit code 3, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    assert "L0_CAPTURE=PARTIAL" in result.stdout
+    rec: dict[str, str] = {}
+    for tsv in evid.glob("*.tsv"):
+        for line in tsv.read_text().splitlines():
+            k, _, v = line.partition("\t")
+            rec[k] = v
+    assert rec.get("meta.capture_status") == "PARTIAL"
+    assert rec.get("nm.profile./etc/NetworkManager/system-connections/ap-test.nmconnection.meta") == "UNREADABLE"
+
+
+def test_secret_hygiene_nm_profile_with_spaces_never_emitted(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces_secret", fs=fs, secret=secret)
+    rec = cap.records()
+    profile_class = rec.get("nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.class")
+    assert profile_class == "secret-metadata-only"
+    assert "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.sha256" not in rec
+
+    streams = [cap.result.stdout, cap.result.stderr]
+    for p in cap.evid.rglob("*"):
+        if p.is_file():
+            streams.append(p.read_text(errors="replace"))
+    for s in streams:
+        assert secret not in s, "Secret leaked into capture output or bundle files"
