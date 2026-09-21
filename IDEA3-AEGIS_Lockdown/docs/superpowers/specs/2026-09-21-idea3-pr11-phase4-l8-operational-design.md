@@ -4,7 +4,7 @@ Date: 2026-09-21
 Owner: Music (Kla reviewing)
 Task: PR11 Phase 4 L8 ESP32 inspection, NVS provisioning, and firmware flash operational design
 Branch: `feat/idea3-pr11-phase4-l8-handler`
-Status: OWNER DECISION INPUTS RESOLVED FOR REPOSITORY DESIGN
+Status: REPOSITORY DESIGN AND IMPLEMENTATION COMPLETE — LIVE L8 NOT AUTHORIZED
 Scope: PR11 Phase 4 L8 repository operational design
 Owner-approved decisions:
 - `OD-14 L8 recovery policy` (`D4_ONLY`, interim recovery NOT approved)
@@ -15,7 +15,7 @@ Merged-authority reconciliations:
 - `G-16` firmware non-blocking Wi-Fi join (`CLOSED_REPOSITORY`)
 - `G-11` NVS provisioning tool (`PARTIAL_REPOSITORY`, `p4-nvs-provision.py` render-only)
 - `G-04` static addressing (`NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL`; address model is DHCP)
-Repository Implementation: NOT STARTED
+Repository Implementation: COMPLETE (fixture backend only)
 Live L8: NOT AUTHORIZED / NOT RUN
 Production Mutation: NO
 ESP32 Mutation: NO
@@ -45,7 +45,7 @@ L5_HANDLER=REGISTERED
 L6A_HANDLER=REGISTERED
 L6B_HANDLER=REGISTERED
 L7_HANDLER=REGISTERED
-L8_HANDLER=NOT_REGISTERED
+L8_HANDLER=REGISTERED
 
 L8_INVENTORY_COMPLETE=YES
 G04_CURRENT_STATE=NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL
@@ -234,10 +234,14 @@ host drift whatsoever.
   generator and fails closed when the variable is unset or the target is not
   executable. **The repository adds no Production key generator, no Production
   write tool, and no Production readback verifier.**
-  The NVS **offset** is derived from the partition table of the exact reviewed
-  build, supplied by `AEGIS_L8_PARTITION_TABLE`; the `nvs` entry's offset is
-  parsed from that table. There is **no default and no hardcoded `0x9000`
-  fallback** — an absent or unparseable table fails closed.
+  The **geometry of every partition L8 writes** — the `nvs` entry and the
+  application entry alike — is derived from the partition table of the exact
+  reviewed build, supplied by `AEGIS_L8_PARTITION_TABLE`. There is **no
+  default and no fallback anywhere in this path**, and in particular no
+  hardcoded `0x9000` NVS offset and no hardcoded `0x10000` application offset:
+  an absent, unparseable, or non-matching table fails closed. Deriving only the
+  NVS offset while guessing the others would defeat the reason the rule
+  exists, so the same rule covers both.
 - **BASIS**:
   G-11 row (`PARTIAL_REPOSITORY`); OD-L7-02 key-generation policy; OV-09
   (`K_C2D`/`K_D2C` generated once on an owner-controlled host);
@@ -268,14 +272,22 @@ host drift whatsoever.
 ### OD-L8-04 — Firmware build identity, MQTT CA, and no-placeholder contract
 
 - **DECISION**:
-  L8 consumes a **compile-only** firmware build. The build command is supplied
-  by `AEGIS_L8_FIRMWARE_BUILD_CMD` and must not contain any upload, flash, or
-  erase verb (`upload`, `--target upload`, `erase_flash`, `write_flash`,
+  L8 consumes a **compile-only** firmware build. The build runs outside the
+  stage handler; the handler receives the already-produced image plus the
+  command that produced it, recorded in `AEGIS_L8_FIRMWARE_BUILD_CMD` for
+  provenance. The handler **validates and never executes** that command, which
+  must not contain any upload, flash, or erase verb (`upload`, `--target upload`, `erase_flash`, `write_flash`,
   `write_mem`, `espefuse`). The resulting firmware image is hashed with SHA-256
   and that digest is the build identity recorded in evidence.
-  Before any write, the trust anchor at `firmware/src/secrets.h` must exist,
-  must parse as a PEM certificate, and must **not** contain the placeholder
-  string `REPLACE_WITH_DEDICATED_AEGIS_MQTT_CA_CERTIFICATE`. A firmware carrying
+  Before any write, the trust anchor at `firmware/src/secrets.h` must exist and
+  must parse as a PEM certificate whose body is strictly base64 and long enough
+  to be a certificate. Placeholder detection scans the **certificate body**
+  only, and only for tokens carrying a separator outside the base64 alphabet
+  (`REPLACE_WITH`, `CHANGE_ME`, …). A naive uppercase substring scan over the
+  whole header would reject a valid anchor whose base64 happens to spell
+  `TODO` or `CHANGEME`, because those letters are all base64 characters; the
+  alphabet check plus a body length floor catches a separator-free placeholder
+  instead. A firmware carrying
   a placeholder CA, or an NVS artifact carrying a demo/test protocol key, is
   rejected. The fixture NTP value `192.0.2.1` from `secrets.h.example` must
   never be promoted into a Production claim.
@@ -310,10 +322,13 @@ host drift whatsoever.
   in turn re-enters boot with the relay held in its fail-secure CUT state.
   Inspection therefore **requires a maintenance window**
   (`L8_INSPECTION_REQUIRES_MAINTENANCE_WINDOW=YES`) and must never be described
-  as side-effect-free or passive. The repository handler refuses to perform
-  inspection unless the hardware backend is explicitly selected **and** the live
-  authorization gate passes; the fixture backend performs no serial access of
-  any kind.
+  as side-effect-free or passive. In repository scope the refusal is
+  **unconditional and structural**, not merely policy: the only implemented
+  backend is `fixture`, which has no serial code path at all, and selecting
+  `hardware` fails closed at two independent layers (the stage handler's
+  backend gate and the device tool's backend loader). Because no hardware
+  backend exists, even an explicit `AEGIS_L8_LIVE_AUTHORIZED=YES` cannot open a
+  live path.
 - **BASIS**: Owner classification; `firmware/platformio.ini`
   (`monitor_dtr = 0`, `monitor_rts = 0` reduce but do not eliminate the reset);
   `firmware/src/main.cpp` boot path (`BOOT_GRACE_MS`, relay driven to
@@ -379,7 +394,10 @@ host drift whatsoever.
   write where it is meaningful; once the flash has started it becomes
   `NOT_APPLICABLE`, because the device has been intentionally changed.
   A post-flash failure is `FAIL_SECURE_HOLD_AND_EVIDENCE`: hold the fail-secure
-  state, capture evidence, escalate — never auto-recover.
+  state, capture evidence, escalate — never auto-recover. "Capture evidence" is
+  load-bearing: a failure at or after the first write must still produce the
+  evidence bundle, recording `flash_result=FAIL` and the `failure_boundary`,
+  rather than aborting before the bundle is written.
 - **BASIS**: Owner evidence rules; G-15 compare harness
   (`p4-compare.sh` with stage allow files); `…-runtime-prerequisites.md` §L8
   "NVS write verification fails" stop condition.
@@ -471,11 +489,16 @@ host drift whatsoever.
 | `deploy/pr11-phase4/stages/L8/rollback.sh` | new — two-branch fail-secure rollback | MUTATING handler (fixture-exercised only) |
 | `deploy/pr11-phase4/stages/L8/allow-keys.txt` | new — zero active keys | contract |
 | `deploy/pr11-phase4/stages/L8/allow-listeners.txt` | new — zero active entries | contract |
-| `deploy/pr11-phase4/p4-l8-device.py` | new — backend abstraction, offset derivation, readback compare, evidence bundle | repository tool, fixture backend default |
+| `deploy/pr11-phase4/p4-l8-device.py` | new — backend abstraction, partition geometry derivation, readback compare, evidence bundle | repository tool, fixture backend only |
 | `tests/test_pr11_phase4_l8_handler.py` | new — RED-first acceptance suite | test |
+| `tests/test_pr11_phase4_harness.py` | edit — add L8 to the reviewed-handler set; move the unregistered-mutating-stage example to L9 | shared harness guardrail |
 
 `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `p4-stage-gate.sh`,
 `p4-nvs-provision.py`, and `firmware/**` are **not modified** by this task.
+
+The only shared-harness edit is `tests/test_pr11_phase4_harness.py`, which
+carries an explicit allowlist of reviewed stage handlers. Registering L8
+requires adding it there, exactly as PR #164 did for L7 (commit `2741ea3f`).
 
 ---
 

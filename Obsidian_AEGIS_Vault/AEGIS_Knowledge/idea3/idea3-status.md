@@ -5825,10 +5825,10 @@ Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS pro
 Branch                        = feat/idea3-pr11-phase4-l8-handler
 START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
 Session                       = L8-S1 (open)
-Current state                 = IN PROGRESS — design + RED checkpoint
+Current state                 = IN PROGRESS — design, RED, GREEN, and hardening complete; closeout pending
 
-L8_HANDLER_REGISTERED         = NO
-L8_REPOSITORY_IMPLEMENTED     = NO
+L8_HANDLER_REGISTERED         = YES
+L8_REPOSITORY_IMPLEMENTED     = YES
 L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
 RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
 
@@ -5839,7 +5839,7 @@ L5_HANDLER                    = REGISTERED
 L6A_HANDLER                   = REGISTERED
 L6B_HANDLER                   = REGISTERED
 L7_HANDLER                    = REGISTERED
-L8_HANDLER                    = NOT REGISTERED
+L8_HANDLER                    = REGISTERED
 
 L2..L8                        = NOT RUN
 L7_LIVE_AUTHORIZED            = NO
@@ -5867,6 +5867,60 @@ FIRMWARE_FLASHED              = NO
 ESP32_MUTATION                = NO
 LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 ```
+
+### Session L8-S1 — audit findings, negative controls, and evidence
+
+**Defects found by independent source audit of the new L8 code, and fixed:**
+
+1. **Partition geometry was only half-derived.** `derive_nvs_offset` correctly
+   read the `nvs` offset from the reviewed table, but the firmware write used a
+   hardcoded `0x10000` application offset. That silently reintroduced exactly
+   the guess OD-L8-03 exists to forbid. Replaced with a general
+   `derive_partition_geometry(table, selector)` used for both the `nvs` and the
+   application partition, with no default and no fallback for either, and the
+   NVS *size* likewise derived instead of falling back to `0x5000`.
+2. **The placeholder-CA scan could reject a valid trust anchor.** It uppercased
+   the whole header and searched for `TODO`, `CHANGEME`, `FIXME` and similar.
+   Those letters are all in the base64 alphabet, so a genuine certificate whose
+   body happened to spell one would have been refused, and a real flash window
+   would have failed on a false positive. Narrowed to: scan the certificate
+   body only, for tokens carrying a separator outside the base64 alphabet, plus
+   a strict base64 alphabet check and a body length floor that catches
+   separator-free placeholders.
+3. **A failed device write produced no evidence.** The write was wrapped in a
+   `try/except` that re-raised, so a failure at or after the first hardware
+   write aborted before the evidence bundle existed — directly contradicting
+   `FAIL_SECURE_HOLD_AND_EVIDENCE`. The failure is now recorded into the bundle
+   (`flash_result=FAIL`, `failure_boundary=DEVICE_WRITE`) and the run then exits
+   non-zero. Three regression tests now cover this path, including that the
+   failure-path bundle is held to the same secret-exclusion rule.
+
+**Negative controls** (break invariant → observe expected FAIL → restore → PASS;
+no mutation committed, sources verified byte-identical afterwards):
+
+| # | Invariant broken | Result |
+|---|---|---|
+| NC-1 | Evidence allowlist extra-field refusal disabled | `test_l8_evidence_bundle_rejects_an_extra_field` FAILED as expected |
+| NC-2 | OV-12 MAC equality gate disabled | `test_l8_mac_mismatch_fails_before_any_write` FAILED as expected |
+| NC-3 | Hardcoded `0x9000` NVS offset fallback introduced | 2 tests FAILED as expected (fail-closed + no-hardcoded-offset) |
+| NC-4 | Hardware-backend refusal removed from `apply.sh` only | **No test failed** — the refusal is enforced at two independent layers, so the shell gate alone is not load-bearing |
+| NC-4b | Refusal removed from **both** `apply.sh` and the device tool | 2 tests FAILED as expected |
+| NC-5 | Post-first-write rollback branch disabled | `test_l8_rollback_after_first_write_holds_fail_secure` FAILED as expected |
+
+NC-4 is recorded as a finding rather than hidden: it shows the hardware refusal
+is genuine defense in depth, and that no single-layer edit can silently open a
+live path.
+
+**Shared-harness edit declared:** `tests/test_pr11_phase4_harness.py` carries an
+explicit allowlist of reviewed stage handlers, so registering L8 requires adding
+it there and moving the unregistered-mutating-stage example from L8 to L9. This
+is the identical adjustment PR #164 made for L7 in commit `2741ea3f`.
+
+**Capability boundary actually implemented:** the only device backend is
+`fixture`; selecting `hardware` fails closed at two layers. The repository still
+contains no Production write tool, no Production readback verifier, and no
+Production key generator. No serial device was opened and no hardware exists.
+
 
 ### L8 Task Map
 
@@ -5903,8 +5957,8 @@ LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 - Dependencies: item 3.
 - Safety boundary: no real `/dev/tty*`, no esptool against hardware, no flash/erase/eFuse, no upload target, no Production key generation.
 - Acceptance: `p4_stage_handler_status L8` = `REGISTERED`; focused suite GREEN.
-- Evidence: GREEN commit SHA + pytest counts.
-- Status: PLANNED.
+- Evidence: `stages/L8/` five files present; `p4_stage_handler_status L8` = `REGISTERED`; L8 focused suite 70 passed at GREEN. `p4-lib.sh` needed no change — `L8` was already in `P4_STAGES`, `p4_stage_gaps`, and `p4_stage_auth_extra`.
+- Status: DONE.
 
 **5. Security / Failure Hardening**
 - Goal: close audit findings; prove fail-secure and secret-exclusion invariants.
@@ -5912,8 +5966,8 @@ LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 - Dependencies: item 4.
 - Safety boundary: unchanged.
 - Acceptance: live gate fails closed; MAC mismatch fails before any write; placeholder CA and demo/test keys rejected; evidence allowlist exact and write-once; no secret reaches evidence or logs.
-- Evidence: hardening commit SHA + negative controls (break invariant → expected FAIL → restore → PASS, never committed).
-- Status: PLANNED.
+- Evidence: three defects found by self-audit and fixed (below); L8 focused suite 77 passed after hardening; six negative controls run, sources restored byte-identical and never committed.
+- Status: DONE.
 
 **6. Regression Verification**
 - Goal: prove no Phase 4, firmware, or Core regression.
@@ -5921,8 +5975,8 @@ LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 - Dependencies: item 5.
 - Safety boundary: repository tests only.
 - Acceptance: all PASS with exact counts recorded; no test weakened.
-- Evidence: pytest counts; `bash -n`; `git diff --check`.
-- Status: PLANNED.
+- Evidence: full IDEA3 suite 1522 passed / 6 skipped (pre-task baseline 1445 / 6, so +77 = exactly the new L8 suite and no existing test lost); all Phase 4 suites 542 passed; Phase 4 harness 160 passed; firmware + NVS + G-15 focused 113 passed with L8; `bash -n` PASS on all seven Phase 4 shell scripts; `git diff --check` PASS.
+- Status: DONE.
 
 **7. Documentation / Git Checkpoint**
 - Goal: keep canonical Obsidian synchronized with Git at every checkpoint.

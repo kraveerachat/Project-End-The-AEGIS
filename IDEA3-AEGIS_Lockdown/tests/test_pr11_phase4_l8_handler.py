@@ -7,9 +7,9 @@ Decisions:
   OD-L8-01 through OD-L8-09 (2026-09-21).
 
 Every test in this module runs against the FIXTURE device backend. No test
-opens a serial device, invokes esptool against hardware, flashes, erases, or
-burns an eFuse. `test_l8_tests_never_reference_real_serial_devices` enforces
-that property over this file itself.
+opens a serial device, drives a flashing tool against hardware, flashes,
+erases, or burns an eFuse. `test_l8_tests_never_import_a_serial_or_flashing_library`
+enforces that property over this file itself.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ spiffs,   data, spiffs,  0x320000, 0xd0000,
 
 CA_PEM = (
     "-----BEGIN CERTIFICATE-----\n"
-    "MIIBfixtureCertificateBodyForRepositoryTestsOnlyNotATrustAnchor\n"
+    "MIIBfixtureCertificateBodyForRepositoryTestsOnlyNotATrustAnchorAndLongEnoughToClearTheCertificateBodyLengthFloor01\n"
     "-----END CERTIFICATE-----\n"
 )
 
@@ -377,7 +377,7 @@ def test_l8_fixture_device_descriptor_must_not_be_a_device_node(tmp_path: Path) 
     assert "/dev/" in combined(res) or "device" in combined(res).lower()
 
 
-def test_l8_handler_contains_no_destructive_esptool_verb() -> None:
+def test_l8_handler_contains_no_destructive_flash_verb() -> None:
     """No L8 source may contain erase_flash, write_mem, espefuse, or an upload target."""
     forbidden = ("erase_flash", "erase-flash", "write_mem", "espefuse", "--target upload")
     sources = [L8_DEVICE] + [L8_STAGE / n for n in ("apply.sh", "verify.sh", "rollback.sh")]
@@ -393,11 +393,19 @@ def test_l8_handler_contains_no_destructive_esptool_verb() -> None:
                     )
 
 
-def test_l8_tests_never_reference_real_serial_devices() -> None:
-    """This suite must never pass a real serial path to a device-opening call."""
+def test_l8_tests_never_import_a_serial_or_flashing_library() -> None:
+    """This suite must never import a library that can open or flash a device.
+
+    The only way a test could reach real hardware is by importing pyserial or
+    esptool; asserting their absence is what makes every `/dev/tty*` string in
+    this file inert validation data rather than a device handle.
+    """
     body = Path(__file__).read_text(encoding="utf-8")
-    assert "serial.Serial" not in body
-    assert "esptool" not in body.replace("esptool against hardware", "")
+    assert not re.search(r"^\s*import\s+(serial|esptool)\b", body, re.M)
+    assert not re.search(r"^\s*from\s+(serial|esptool)\b", body, re.M)
+    # Built by concatenation so this guard cannot match its own source text.
+    assert "serial" + ".Serial" not in body
+    assert "subprocess.run([\"" + "esptool" not in body
 
 
 # ===========================================================================
@@ -995,3 +1003,142 @@ def test_l8_stage_gate_still_requires_recovery_authorization() -> None:
     assert res.returncode == 0, res.stderr
     assert "recovery_authorization" in res.stdout
     assert "G-04,G-11,G-16" in res.stdout
+
+
+# ===========================================================================
+# 13. Hardening regressions (defects found during the L8 source audit)
+# ===========================================================================
+
+def provision_args(mod, env: dict[str, str]) -> list[str]:
+    """Translate a handler environment into p4-l8-device.py provision args."""
+    return [
+        "provision",
+        "--input-dir", env["AEGIS_L8_INPUT_DIR"],
+        "--work-dir", env["AEGIS_L8_WORK_DIR"],
+        "--evidence-dir", env["AEGIS_L8_EVIDENCE_DIR"],
+        "--backend", env["AEGIS_L8_BACKEND"],
+        "--fixture-device", env["AEGIS_L8_FIXTURE_DEVICE"],
+        "--partition-table", env["AEGIS_L8_PARTITION_TABLE"],
+        "--secrets-header", env["AEGIS_L8_SECRETS_HEADER"],
+        "--firmware-image", env["AEGIS_L8_FIRMWARE_IMAGE"],
+        "--build-command", env["AEGIS_L8_FIRMWARE_BUILD_CMD"],
+        "--nvs-generator", env["AEGIS_L8_NVS_PARTITION_GEN"],
+        "--wifi-ssid", env["AEGIS_L8_WIFI_SSID"],
+        "--ntp", env["AEGIS_L8_NTP"],
+        "--run-id", env["AEGIS_L8_RUN_ID"],
+    ]
+
+
+def test_l8_application_offset_is_also_derived_from_the_partition_table(tmp_path: Path) -> None:
+    """Every partition L8 writes gets its offset from the reviewed table.
+
+    The fixture table places app0 at 0x20000, not at the stock 0x10000, so a
+    hardcoded application offset cannot satisfy this test (OD-L8-03).
+    """
+    env = l8_env(tmp_path)
+    assert run_apply(env).returncode == 0
+    flash = Path(env["AEGIS_L8_WORK_DIR"]) / "fixture-flash"
+    written = {p.name for p in flash.iterdir()}
+    assert "firmware-0x20000.img" in written, written
+    assert "nvs-0xb000.img" in written, written
+
+
+def test_l8_application_offset_derivation_fails_closed(tmp_path: Path) -> None:
+    """A table with no application partition has no fallback offset."""
+    mod = load_device_module()
+    table = tmp_path / "partitions.csv"
+    table.write_text(
+        "# Name, Type, SubType, Offset, Size, Flags\n"
+        "nvs, data, nvs, 0xb000, 0x5000,\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception):
+        mod.derive_partition_geometry(table, mod.APP_SELECTOR)
+
+
+def test_l8_partition_geometry_fails_closed_on_a_blank_size(tmp_path: Path) -> None:
+    """A partition entry missing its size is refused rather than guessed."""
+    mod = load_device_module()
+    table = tmp_path / "partitions.csv"
+    table.write_text(
+        "# Name, Type, SubType, Offset, Size, Flags\n"
+        "nvs, data, nvs, 0xb000, ,\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception):
+        mod.derive_partition_geometry(table, mod.NVS_SELECTOR)
+
+
+def test_l8_accepts_a_certificate_whose_base64_spells_a_denylisted_word(tmp_path: Path) -> None:
+    """A valid anchor is not rejected because its base64 happens to read TODO.
+
+    Base64 uses T, O and D, so a substring scan over the whole header would
+    reject legitimate certificates. Only a non-base64 body is a placeholder.
+    """
+    env = l8_env(tmp_path)
+    header = Path(env["AEGIS_L8_SECRETS_HEADER"])
+    header.write_text(
+        '#define SECRET_MQTT_CA_CERT "-----BEGIN CERTIFICATE-----\\n"'
+        ' "MIIBTODOCHANGEMEFIXMEBodyThatIsNonethelessEntirelyValidBase64AndLongEnoughToClearTheLengthFloor=\\n"'
+        ' "-----END CERTIFICATE-----\\n"\n',
+        encoding="utf-8",
+    )
+    res = run_apply(env)
+    assert res.returncode == 0, combined(res)
+
+
+def test_l8_device_write_failure_still_records_evidence(tmp_path: Path, monkeypatch) -> None:
+    """FAIL_SECURE_HOLD_AND_EVIDENCE: a failed write still produces evidence."""
+    mod = load_device_module()
+    env = l8_env(tmp_path)
+
+    def exploding_write(self, region, offset, payload):
+        raise OSError("fixture device write failure")
+
+    monkeypatch.setattr(mod.FixtureDevice, "write_region", exploding_write)
+
+    args = mod.build_parser().parse_args(provision_args(mod, env))
+    assert mod.provision(args) != 0
+
+    bundle_path = next(Path(env["AEGIS_L8_EVIDENCE_DIR"]).glob("*.json"))
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    assert bundle["flash_result"] == "FAIL"
+    assert bundle["nvs_readback_match"] == "FAIL"
+    assert bundle["failure_boundary"] == "DEVICE_WRITE"
+    assert set(bundle) == EVIDENCE_ALLOWED_FIELDS
+
+
+def test_l8_failed_write_evidence_carries_no_secret(tmp_path: Path, monkeypatch) -> None:
+    """The failure-path bundle is held to the same secret-exclusion rule."""
+    mod = load_device_module()
+    env = l8_env(tmp_path)
+
+    def exploding_write(self, region, offset, payload):
+        raise OSError("fixture device write failure")
+
+    monkeypatch.setattr(mod.FixtureDevice, "write_region", exploding_write)
+    args = mod.build_parser().parse_args(provision_args(mod, env))
+    mod.provision(args)
+
+    body = next(Path(env["AEGIS_L8_EVIDENCE_DIR"]).glob("*.json")).read_text(encoding="utf-8")
+    for secret in FORBIDDEN_EVIDENCE_VALUES:
+        assert secret not in body
+
+
+def test_l8_first_write_marker_precedes_the_device_write(tmp_path: Path, monkeypatch) -> None:
+    """The rollback branch marker is set before the first write, not after."""
+    mod = load_device_module()
+    env = l8_env(tmp_path)
+
+    def exploding_write(self, region, offset, payload):
+        raise OSError("fixture device write failure")
+
+    monkeypatch.setattr(mod.FixtureDevice, "write_region", exploding_write)
+    args = mod.build_parser().parse_args(provision_args(mod, env))
+    mod.provision(args)
+
+    marker = Path(env["AEGIS_L8_WORK_DIR"]) / "first-write.marker"
+    assert marker.is_file(), "rollback would wrongly take the pre-write branch"
+
+    res = run_stage("rollback.sh", env)
+    assert "FAIL_SECURE_HOLD_AND_EVIDENCE" in res.stdout
