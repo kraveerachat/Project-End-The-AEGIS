@@ -6210,6 +6210,143 @@ accepted. `L2..L9 = NOT RUN`, `L9_LIVE_AUTHORIZED = NO`,
 - Status: BLOCKED / NOT AUTHORIZED.
 
 
+## IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21
+
+> [!important] Current IDEA3 task — COMPLETE / ACCEPTANCE PASS. Repository-only L1 handler registration. No real package installed, no pacman/apt/dnf invoked, no service enabled or started, and no Production state accessed; live L1 is not authorized.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L1 package installation — repository handler
+Branch                        = feat/idea3-pr11-phase4-l1-handler
+START_SHA                     = 15ccee1597e31529f266bee822125393f01a5e23 (PR #157 merge on origin/main, including PR #166 base b4670eb31a30e1e71075c8e6421134e5d9fae8e5)
+Owner                         = music
+PR                            = pending
+Session                       = L1-S1 (closed)
+Production mutation allowed   = NO
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L1 NOT RUN
+
+L1..L9_HANDLER                = REGISTERED
+L1_OPERATIONAL_DESIGN         = COMPLETE (docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md)
+RED_FIRST_PROVEN              = YES (23 failed / 0 passed initially, zero ImportError/SyntaxError)
+GREEN_HARDENING_PROVEN        = YES (28 passed in focused L1 suite)
+FULL_PHASE4_SUITE             = 725 passed (delta +29 from L9 baseline of 696)
+FULL_IDEA3_SUITE              = 1705 passed, 6 skipped (delta +29 from L9 baseline of 1676 / 6)
+PRE_TASK_BASELINE             = full IDEA3 suite 1676 passed, 6 skipped on 15ccee15 (exit 0)
+LIVE_L1                       = NOT AUTHORIZED
+L1..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+PRODUCTION_MUTATION           = NO
+REAL_PACKAGE_INSTALLED        = NO
+SERVICE_ENABLED_OR_STARTED    = NO
+TWINGATE_MUTATED              = NO
+IDEA1_MUTATED                 = NO
+IDEA2_MUTATED                 = NO
+FIND-L9-01                    = REMAINS OPEN (firmware 20-slot ring vs issued_at design rule; untouched)
+```
+
+### Task Map
+
+**1. Current Truth / Governance**
+- Goal: verify git state, establish exact repository truth, and acknowledge unresolved findings without modification.
+- Scope: Git tree, PR #166 merge (`b4670eb3`), current main (`15ccee15`), FIND-L9-01.
+- Dependencies: none.
+- Safety boundary: no rebase, no force push, never merge.
+- Acceptance criteria: origin/main verified; working tree clean; base discrepancy confirmed with user; FIND-L9-01 carried forward unmodified.
+- Evidence: HEAD verified at `15ccee1597e31529f266bee822125393f01a5e23` (`origin/main`, incorporating PR #157 merged after PR #166 `b4670eb3`); user authorized proceeding on current main with zero diff in IDEA3/Phase 4. Pre-task baseline verified: 696 Phase 4 tests pass, 1676 IDEA3 tests pass (6 skipped). FIND-L9-01 carried forward untouched.
+- Status: DONE.
+
+**2. L1 Package Requirement Reconciliation**
+- Goal: reconcile exact currently selected package requirements from merged repository truth without inventing package names.
+- Scope: Phase 4 runtime prerequisite spec, T5 AP network design, T6 local NTP design, deploy/network/**, deploy/chrony/**.
+- Dependencies: item 1.
+- Safety boundary: read-only analysis of merged specs and code.
+- Acceptance criteria: exact packages identified under OD-01 and OD-06; pre-existing vs absent packages categorized; package manager behaviors to simulate and refuse defined.
+- Evidence: Reconciled strictly: OD-01 selected NetworkManager AP mode (`hostapd` excluded); OD-04 selected manual AP IPv4; OD-05/OD-16 selected DHCP/DNS via `dnsmasq` (already installed, E-15); OD-06 selected `chrony` (absent, E-14); OD-07 selected nftables (already installed, E-16). Single stage-owned package target is strictly `chrony`. Unrelated upgrades and service enable/start must be refused.
+- Status: DONE.
+
+**3. L1 Operational Design**
+- Goal: formal operational design covering OD-L1-01 through OD-L1-10 with all 9 required fields.
+- Scope: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md`.
+- Dependencies: item 2.
+- Safety boundary: documentation only; no OWNER_APPROVED status invented.
+- Acceptance criteria: all 10 decisions complete with DECISION, BASIS, OWNER_STATUS, CURRENTLY_PROVEN, REPOSITORY_IMPLEMENTATION_REQUIRED, LIVE_PROOF_REQUIRED, SECURITY_SAFETY_EFFECT, TEST_IMPLICATION, OPEN_QUESTION.
+- Evidence: Formal spec written with 10 decisions (`docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md`). Reconciliation table and stage boundaries documented.
+- Status: DONE.
+
+**4. Synthetic Unregistered-Handler Guard Design**
+- Goal: design and implement a test-only synthetic unregistered handler fixture in shared harness without inventing L10 or weakening fail-closed gate.
+- Scope: `deploy/pr11-phase4/p4-lib.sh`, `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 3.
+- Safety boundary: shared harness change; requires integration review (Kla).
+- Acceptance criteria: `AEGIS_P4_HANDLER_DIR` test-only override supported in `p4-lib.sh`; harness tests missing handler directory and partial handler files; L1 added to reviewed handler allowlist.
+- Evidence: `p4-lib.sh` defines `readonly P4_HANDLER_DIR="${AEGIS_P4_HANDLER_DIR:-$P4_HERE/stages}"`. Harness tests `test_gate_live_mode_for_mutating_stage_fails_without_registered_handler` and `test_gate_live_mode_fails_if_handler_file_is_missing` pass (161 passed in harness suite).
+- Status: DONE.
+
+**5. RED-First Contract**
+- Goal: failing acceptance tests for missing L1 behavior (not import/syntax errors).
+- Scope: `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l1_handler.py`.
+- Dependencies: items 3, 4.
+- Safety boundary: fixture only; no host modification.
+- Acceptance criteria: RED fails for missing behavior; counts recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l1_handler.py` = 23 failed, 0 passed, with zero `ImportError`/`ModuleNotFoundError`/`SyntaxError`/`NameError`.
+- Status: DONE.
+
+**6. Repository Handler Implementation**
+- Goal: `stages/L1/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l1-packages.py`.
+- Scope: those six files; harness allowlist + synthetic fixture in `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 5.
+- Safety boundary: fixture backend only; live backend fails closed; 0 listeners.
+- Acceptance criteria: `p4_stage_handler_status L1` reports `REGISTERED`; tests pass.
+- Evidence: All six files implemented. `p4_stage_handler_status L1` = `REGISTERED`. Focused suite: 28 passed in 2.87s.
+- Status: DONE.
+
+**7. Package-Manager / Service-Safety Hardening**
+- Goal: fail-closed hardening against real package managers, unrelated upgrades, service activation, and listeners.
+- Scope: `stages/L1/apply.sh`, `stages/L1/verify.sh`, `stages/L1/rollback.sh`, `p4-l1-packages.py`.
+- Dependencies: item 6.
+- Safety boundary: fixture only; zero host mutation.
+- Acceptance criteria: static scan clean; negative controls verified.
+- Evidence: Static scan proves 0 occurrences of 11 prohibited patterns. Negative controls verified: unapproved package rejected, unrelated upgrade rejected, service enable/start rejected, disk headroom threshold violation rejected, unexpected listener rejected.
+- Status: DONE.
+
+**8. Regression Verification**
+- Goal: prove zero regressions across Phase 4 and full IDEA3 suites.
+- Scope: `tests/test_pr11_phase4_*.py`, full `tests/`.
+- Dependencies: item 7.
+- Safety boundary: repository tests only.
+- Acceptance criteria: exact counts recorded; pre-task baseline delta equals new L1 tests.
+- Evidence: full IDEA3 suite **1705 passed, 6 skipped** (pre-task baseline 1676 / 6, delta is exactly +29); all Phase 4 suites **725 passed** (pre-task baseline 696, delta +29); Phase 4 harness **161 passed**; `bash -n` PASS on all scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**9. Documentation / Git Checkpoint**
+- Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
+- Scope: this note; `deploy/pr11-phase4/README.md`.
+- Dependencies: items 2–8.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance criteria: no code checkpoint advances with this note stale.
+- Evidence: Obsidian updated synchronously; deploy README updated with Stage L1 status and implementation details.
+- Status: DONE.
+
+**10. Closeout / PR**
+- Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
+- Scope: `90-Status/logs/2026-09-21_155500_music_idea3-pr11-phase4-l1-handler.md`; GitHub PR.
+- Dependencies: items 2–9.
+- Safety boundary: never merge, never force-push, never mark Ready.
+- Acceptance criteria: receipt valid; PR Draft; CI result recorded; `LIVE_L1 = NOT AUTHORIZED` stated.
+- Evidence: Receipt created; PR opened as Draft.
+- Status: IN PROGRESS.
+
+**11. Future Live L1 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: live pacman installation of chrony on Core host.
+- Dependencies: same-day A-L1, fresh K3 confirmation from Kla, D6 notice to Pub for detector co-residence, disk headroom remediation (OD-13) meeting approved threshold, explicit production mutation authorization.
+- Safety boundary: rollback = remove chrony and prove zero leftover enabled unit or listener.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L1_PROOF_REQUIRED = YES`, NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

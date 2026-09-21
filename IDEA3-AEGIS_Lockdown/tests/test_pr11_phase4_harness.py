@@ -610,8 +610,8 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"}
-    for name in ("L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"}
+    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
             "apply.sh",
             "verify.sh",
@@ -943,7 +943,7 @@ def k3_record(stage: str, date: str | None = None, **overrides: str) -> str:
     return "AEGIS_P4_K3_CONFIRMATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
 
 
-def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None) -> subprocess.CompletedProcess:
+def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     root = tmp_path / "gate"
     root.mkdir(exist_ok=True)
     bindir = root / "bin"
@@ -958,9 +958,12 @@ def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = N
     if k3 is not None:
         (root / "k3.txt").write_text(k3)
         argv += ["--k3", str(root / "k3.txt")]
+    env = {"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
+           "P4_FIX": str(root)}
+    if extra_env:
+        env.update(extra_env)
     result = subprocess.run(["bash", str(GATE), *argv], capture_output=True, text=True,
-                            env={"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
-                                 "P4_FIX": str(root)}, stdin=subprocess.DEVNULL, timeout=30,
+                            env=env, stdin=subprocess.DEVNULL, timeout=30,
                             check=False)
     assert calls.read_text() == "", "the stage gate must not call any host command"
     return result
@@ -1062,13 +1065,46 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    # L1 is the last mutating P4 stage without a handler; L10 is not a P4 stage at all.
-    assert not (DEPLOY / "stages" / "L1").exists()
-    result = gate(tmp_path, "--stage", "L1", "--mode", "live", auth=auth_record("L1"), k3=k3_record("L1"))
+    # All mutating P4 stages (L1..L9) have reviewed handlers registered.
+    # Synthetic test fixture isolates a stages directory where a real mutating stage (L1)
+    # has no handler directory, proving fail-closed ROLLBACK_HANDLER_NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_empty"
+    synthetic_stages.mkdir(parents=True, exist_ok=True)
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
     assert "STAGE_MUTATES_PRODUCTION=YES" in result.stdout
     assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+
+
+def test_gate_live_mode_fails_if_handler_file_is_missing(tmp_path: Path) -> None:
+    # Proves that if even one of the five required handler files is missing, handler status is NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_partial"
+    stage_dir = synthetic_stages / "L1"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    for f in ("apply.sh", "verify.sh", "allow-keys.txt", "allow-listeners.txt"):
+        (stage_dir / f).touch()
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
+    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
+    gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
 
 
 @pytest.mark.parametrize("mode", ["simulate", "live"])

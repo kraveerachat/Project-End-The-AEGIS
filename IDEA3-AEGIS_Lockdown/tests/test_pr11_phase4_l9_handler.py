@@ -272,12 +272,19 @@ def test_l9_p4_lib_contract_is_unchanged() -> None:
     assert res.stdout.splitlines() == ["KNOWN", "MUTATES", "GAPS=none", "EXTRA="], combined(res)
 
 
-def test_l9_harness_fixture_stage_l1_remains_unregistered_and_mutating() -> None:
-    assert not (STAGES / "L1").exists()
-    res = subprocess.run(["bash", "-c", f'. "{P4_LIB}"; p4_stage_mutates L1 && echo MUTATES; '
-                                        'p4_stage_handler_status L1'],
-                         capture_output=True, text=True, timeout=30, check=False)
-    assert res.stdout.splitlines() == ["MUTATES", "NOT_REGISTERED"], combined(res)
+def test_l9_harness_fixture_stage_l1_synthetic_unregistered_guard(tmp_path: Path) -> None:
+    assert (STAGES / "L1").exists()
+    res_real = subprocess.run(["bash", "-c", f'. "{P4_LIB}"; p4_stage_mutates L1 && echo MUTATES; '
+                                             'p4_stage_handler_status L1'],
+                              capture_output=True, text=True, timeout=30, check=False)
+    assert res_real.stdout.splitlines() == ["MUTATES", "REGISTERED"], combined(res_real)
+    empty_stages = tmp_path / "synthetic_stages_empty"
+    empty_stages.mkdir()
+    res_synth = subprocess.run(["bash", "-c", f'AEGIS_P4_HANDLER_DIR="{empty_stages}"; . "{P4_LIB}"; '
+                                              'p4_stage_mutates L1 && echo MUTATES; '
+                                              'p4_stage_handler_status L1'],
+                               capture_output=True, text=True, timeout=30, check=False)
+    assert res_synth.stdout.splitlines() == ["MUTATES", "NOT_REGISTERED"], combined(res_synth)
 
 
 def test_l9_stage_gate_simulation_sees_handler_but_never_authorizes_live(tmp_path: Path) -> None:

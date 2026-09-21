@@ -73,7 +73,9 @@ p4_stage_auth_extra() {
 # rollback.sh must be idempotent, must only undo its own stage, and must never
 # delete an entire firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 # fallback, or change IDEA1/IDEA2 state.
-readonly P4_HANDLER_DIR="$P4_HERE/stages"
+# AEGIS_P4_HANDLER_DIR is a TEST-ONLY override for testing missing/unregistered
+# stage handler directory branches in test fixtures. A real run leaves it unset.
+readonly P4_HANDLER_DIR="${AEGIS_P4_HANDLER_DIR:-$P4_HERE/stages}"
 readonly P4_HANDLER_FILES="apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt"
 
 p4_stage_handler_status() {
