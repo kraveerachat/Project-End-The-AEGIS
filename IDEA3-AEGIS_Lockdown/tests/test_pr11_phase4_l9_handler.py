@@ -640,7 +640,7 @@ def test_l9_run_publishes_only_heartbeat_frames(tmp_path: Path) -> None:
 
 def test_l9_fixture_store_holds_zero_command_rows_after_the_run(tmp_path: Path) -> None:
     applied(tmp_path)
-    with sqlite3.connect(tmp_path / "work" / STORE_NAME) as db:
+    with sqlite3.Connection(tmp_path / "work" / STORE_NAME) as db:
         assert db.execute("SELECT COUNT(*) FROM protocol_commands").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM protocol_sequence").fetchone()[0] == 0
 

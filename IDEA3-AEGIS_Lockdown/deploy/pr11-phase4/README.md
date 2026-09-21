@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b, L7 REGISTERED (repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b, L7, L8, L9 REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -244,6 +244,27 @@ registered in the repository framework.
 - Provenance: `RED_FIRST_PROVEN = YES` (28 expected failing tests before implementation).
 - Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
 - All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
+
+- Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.
+- Device backend: repository fixture backend only; hardware backend fails closed at two independent layers (`LIVE_L8=NOT_AUTHORIZED`).
+- Input contracts: `device.identity`, `d4.attestation`, `k_c2d`, `k_d2c`, `wifi.psk`, `mqtt.pass` from private owner-only files (mode 0600 or 0400).
+- Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries.
+- Rollback: splits at first hardware write; holds fail-secure (`D4_ONLY`).
+
+### L9 handler (authentication without actuation)
+
+- Registered the reviewed L9 stage handler (`stages/L9/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L9-01 through OD-L9-09.
+- Backend: fixture backend only (`LIVE_L9=NOT_AUTHORIZED`); live backend refused at two independent layers (`apply.sh` and `p4-l9-auth.py`).
+- Inbound & outbound contracts: verified authenticated HEARTBEAT (Core -> device) with dead-man reset only; verified authenticated BOOT and PERIODIC STATUS (device -> Core) with liveness beginning only after first authenticated status.
+- Fail-closed rejections: negative probes (replay, wrong key foreign/cross-direction, tampered MAC/field, zero MAC, stale/future skew, device/topic mismatch, untrusted time, malformed/legacy v0) rejected with no liveness and no replay row.
+- Zero actuation: zero COMMAND, CUT, or RESTORE issued; zero relay actuation (`relay_actuation=NONE`); zero command rows in store.
+- Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries (`HOST_PRE_TO_RB_ZERO_DRIFT=YES`).
+- Evidence: private write-once bundle (`l9-auth-evidence.json`, mode 0600) with strict 19-field allowlist; zero key material, MAC, or `msg_id` emitted.
+- Rollback: removes stage-local fixture store (`fixture-protocol.sqlite3*`) and preserves evidence; takes no Core or device action (idempotent).
+- Live execution: `L9_LIVE_AUTHORIZED=NO`, `LIVE_L9=NOT_RUN`. Predecessor live stages remain NOT RUN.
+- All stage handlers (L2, L3, L4, L5, L6a, L6b, L7, L8, L9) are now registered in the repository; L1 remains the unregistered mutating stage fixture; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
