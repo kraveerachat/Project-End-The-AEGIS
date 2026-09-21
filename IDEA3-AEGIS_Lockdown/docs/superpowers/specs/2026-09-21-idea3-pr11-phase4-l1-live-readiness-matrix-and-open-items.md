@@ -31,7 +31,7 @@ campaign issues none of them and performs no live execution.
 ## Workstream E — PR11 Phase 4 open-item queue
 
 ### REPOSITORY_CLOSED
-- L1..L9 stage handlers registered and merged (`p4_stage_handler_status` = `REGISTERED` for all 9).
+- All Phase 4 stage handlers registered and merged (`p4_stage_handler_status` = `REGISTERED` for each of: L1, L2, L3, L4, L5, L6a, L6b, L7, L8, L9).
 - Phase 4 harness framework (`p4-l0-capture.sh`, `p4-compare.sh`, `p4-stage-gate.sh`, `p4-lib.sh`) merged and tested.
 - Phase 2 runtime dependency closed (`PHASE2_RUNTIME_COMPLETE = YES`, PR #146).
 - Phase 3 repository preparation merged (PR #149).
@@ -49,8 +49,10 @@ campaign issues none of them and performs no live execution.
 - Disk threshold canonical value: `DISK_THRESHOLD_PCT=90` (OD-L1-05, owner-approved) vs. the reconciliation doc's `>=5%` free headroom (`<95%` usage) figure cited under a mis-labeled gate ID. See PR #174.
 - `FIND-L9-01`: firmware 20-slot `msg_id` ring replay window vs. Protocol v1 design's strictly-increasing `issued_at` — blocks `LIVE_L9_ACCEPTANCE` only, not L1-L7.
 
+### PREFLIGHT_AUTH_REQUIRED (read-only; distinct from mutating-stage authorization below)
+- A-L0 (read-only baseline capture authorization from Music) — not currently issued for a fresh live window. A-L0 authorizes read-only baseline capture only; it is not a Production-mutation authorization and is tracked separately from `PRODUCTION_AUTH_REQUIRED`.
+
 ### PRODUCTION_AUTH_REQUIRED
-- A-L0 (read-only baseline capture authorization from Music) — not currently issued for a fresh live window.
 - Fresh K3 (Kla, same-day mutating-window non-overlap confirmation) — required before any live L1+.
 - A-L1 (Music, with D6 notice to Pub) — required before live L1.
 - A-L2 through A-L9 (each with their respective owner/reviewer requirements) — all downstream of L1 and not yet reachable.
