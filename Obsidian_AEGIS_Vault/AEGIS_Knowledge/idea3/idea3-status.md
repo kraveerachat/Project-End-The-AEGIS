@@ -5828,7 +5828,9 @@ Session                       = L8-S1 (closed)
 DESIGN_COMMIT                 = c2422924d658150d20b59866eb14df2ec7483991
 RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
 GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
-L8_PR_OPENED                  = PENDING (opened after closeout commit)
+CLOSEOUT_COMMIT               = fee8e4f687847ff75f8a5d0da4e03cce2f97a420
+L8_PR_OPENED                  = YES (PR #165, Draft, CI collaboration-guardrails PASS)
+L8_PR_MERGED                  = NO (human review and merge pending)
 Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
 
 L8_HANDLER_REGISTERED         = YES
@@ -6017,7 +6019,7 @@ Production key generator. No serial device was opened and no hardware exists.
 - Dependencies: items 2–7 complete.
 - Safety boundary: never merge; never force-push; never mark Ready unless instructed.
 - Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
-- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed; PR opened as Draft for human review. The agent never marks Ready and never merges.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed at `fee8e4f6`; **PR #165** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/165), `collaboration-guardrails` CI PASS, `reviewDecision = REVIEW_REQUIRED`. The agent never marks Ready and never merges.
 - Status: DONE (human review and merge remain pending).
 
 **9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
