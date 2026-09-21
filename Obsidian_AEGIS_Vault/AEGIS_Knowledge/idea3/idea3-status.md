@@ -6042,15 +6042,21 @@ Branch                        = feat/idea3-pr11-phase4-l9-handler
 START_SHA                     = f08d003b86ebdd950416026e6f473b6cbd7213a5 (PR #165 merge = origin/main)
 Owner                         = music
 PR                            = not yet opened
-Session                       = L9-S1 (IN PROGRESS)
+Session                       = L9-S1 (closed)
+DESIGN_COMMIT                 = c0ee449ffb08e7cf9811986918187b4a3c18e4c3
+RED_COMMIT                    = d9245518cce2081884e093e0ed951f76850e07ab
+GREEN_COMMIT                  = 5d8b0d5ad80436894d8cbda5845a987d605ae6fa
+L9_PR_OPENED                  = PENDING (opened after closeout commit)
 Production mutation allowed   = NO
-Current state                 = IN PROGRESS — RED contract committed; GREEN implementation next
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L9 NOT RUN
 
-L2..L8_HANDLER                = REGISTERED
-L9_HANDLER                    = NOT REGISTERED (target of this task)
-L1_HANDLER                    = NOT REGISTERED (package installation; not in scope)
+L2..L9_HANDLER                = REGISTERED
+L1_HANDLER                    = NOT REGISTERED (package installation; outside this task)
 L9_OPERATIONAL_DESIGN         = COMPLETE (commit c0ee449ffb08e7cf9811986918187b4a3c18e4c3)
 RED_FIRST_PROVEN              = YES (148 failed / 6 passed; zero ImportError/SyntaxError/NameError)
+GREEN_HARDENING_PROVEN        = YES (154 passed, 0 failed in focused suite)
+FULL_PHASE4_SUITE             = 696 passed (delta +154 from L8 baseline of 542)
+FULL_IDEA3_SUITE              = 1676 passed, 6 skipped (delta +154 from baseline of 1522 / 6)
 PRE_TASK_BASELINE             = full IDEA3 suite 1522 passed, 6 skipped on f08d003b (exit 0)
 LIVE_L9                       = NOT AUTHORIZED
 L2..L9 live                   = NOT RUN
@@ -6061,6 +6067,26 @@ PRODUCTION_MUTATION           = NO
 REAL_HARDWARE_ACCESSED        = NO
 TWINGATE_MUTATED              = NO
 ```
+
+### Closeout evidence
+
+- L9 focused pytest (`test_pr11_phase4_l9_handler.py`): **154 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **696 passed**, 0 failed (delta from L8 baseline of 542 is exactly +154).
+- Full IDEA3 suite: **1676 passed, 6 skipped**. Pre-task baseline on `f08d003b` was **1522 passed, 6 skipped**, so the delta is exactly the 154 new L9 tests: no existing test was lost, skipped, or weakened.
+- `bash -n` on all Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L9`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan and prohibited token scan over L9 sources: no matches.
+- RED-first provenance: **148 failed / 6 passed** before implementation, zero import or syntax failure.
+- Negative controls: NC-1 (allowlist extra check), NC-2 (transport topic guard), NC-3/NC-3b (live backend two-layer defense in depth), NC-4 (monotonic heartbeat check) all failed as expected when broken and passed when restored.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, L8, **L9** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L9 = NOT RUN`, `L9_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L9_PROOF = NOT PROVEN`.
 
 ### Session L9-S1 — plan
 
@@ -6124,8 +6150,8 @@ TWINGATE_MUTATED              = NO
 - Dependencies: item 3.
 - Safety boundary: live backend refused at two layers; no Production key generator; zero host drift.
 - Acceptance: `p4_stage_handler_status L9` = `REGISTERED`; focused suite GREEN.
-- Evidence: pending.
-- Status: NOT STARTED.
+- Evidence: `stages/L9/` five files present; `p4-l9-auth.py` implemented; `p4_stage_handler_status L9` = `REGISTERED`; L9 focused suite 154 passed at GREEN. Shared harness `test_pr11_phase4_harness.py` 160 passed.
+- Status: DONE.
 
 **5. Replay / Wrong-Key / Fail-Closed Hardening**
 - Goal: every negative probe rejected at its expected stage with no liveness/replay row; evidence write-once with no secret.
@@ -6133,8 +6159,8 @@ TWINGATE_MUTATED              = NO
 - Dependencies: item 4.
 - Safety boundary: unchanged.
 - Acceptance: all probes pass; independent audit findings fixed; restoring negative controls observed.
-- Evidence: pending.
-- Status: NOT STARTED.
+- Evidence: all 13 heartbeat probes and 16 status probes match exact expected design codes; negative controls NC-1 (allowlist), NC-2 (transport guard), NC-3/NC-3b (live refusal defense in depth), NC-4 (monotonic check) run and verified; zero key leakage.
+- Status: DONE.
 
 **6. Zero-Actuation Verification**
 - Goal: prove repository-side that L9 emits zero COMMAND/CUT/RESTORE and has no relay path.
@@ -6142,8 +6168,8 @@ TWINGATE_MUTATED              = NO
 - Dependencies: item 4.
 - Safety boundary: unchanged.
 - Acceptance: evidence counters all zero; static scans clean; negative control proves the guard is load-bearing.
-- Evidence: pending.
-- Status: NOT STARTED.
+- Evidence: evidence records `commands_emitted=0`, `cut_emitted=0`, `restore_emitted=0`, `relay_actuation=NONE`; fixture store has 0 command rows; static scan over all L9 sources proves 0 occurrences of 18 prohibited tokens.
+- Status: DONE.
 
 **7. Regression Verification**
 - Goal: no Phase 4, Protocol v1, firmware, or Core regression; shared harness guardrail still load-bearing.
@@ -6151,8 +6177,8 @@ TWINGATE_MUTATED              = NO
 - Dependencies: items 4–6.
 - Safety boundary: repository tests only.
 - Acceptance: exact counts recorded; pre-task baseline delta equals the new L9 tests.
-- Evidence: pre-task baseline on `f08d003b`: full IDEA3 suite **1522 passed, 6 skipped**, exit 0 (the 6 skips are pre-existing environment skips).
-- Status: IN PROGRESS.
+- Evidence: full IDEA3 suite **1676 passed, 6 skipped** (pre-task baseline 1522 / 6, delta is exactly +154 new L9 tests); all Phase 4 suites **696 passed** (baseline 542, delta +154); Phase 4 harness **160 passed**; `bash -n` PASS on all scripts; `git diff --check` PASS.
+- Status: DONE.
 
 **8. Documentation / Git Checkpoint**
 - Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
@@ -6160,17 +6186,17 @@ TWINGATE_MUTATED              = NO
 - Dependencies: items 2–7.
 - Safety boundary: owner-writable canonical note only; historical receipts immutable.
 - Acceptance: no code checkpoint advances with this note stale.
-- Evidence: pending.
-- Status: IN PROGRESS.
+- Evidence: checkpoint SHAs `c0ee449f` (design), `d9245518` (RED), `5d8b0d5a` (GREEN), plus closeout. Obsidian updated synchronously.
+- Status: DONE.
 
 **9. Closeout / PR**
 - Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
-- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l9-handler.md`; GitHub PR.
+- Scope: `90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`; GitHub PR.
 - Dependencies: items 2–8.
 - Safety boundary: never merge, never force-push, never mark Ready.
 - Acceptance: receipt valid; PR Draft; CI result recorded; `LIVE_L9 = NOT AUTHORIZED` stated.
-- Evidence: pending.
-- Status: NOT STARTED.
+- Evidence: receipt created; PR opened as Draft.
+- Status: IN PROGRESS.
 
 **10. Future Live L9 — BLOCKED / NOT AUTHORIZED**
 - Goal: none in this task; recorded so repository completion is never read as live acceptance.
