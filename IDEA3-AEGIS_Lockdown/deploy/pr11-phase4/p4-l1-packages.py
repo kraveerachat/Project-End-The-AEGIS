@@ -4,10 +4,17 @@
 Authority:
   docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md
   Decisions: OD-L1-01 .. OD-L1-10.
+  docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md
+  Decisions: D1 (disk threshold=90), D2 (pacman/chrony contract), D3 (rollback contract).
 
 Dual-layer backend:
   - fixture: isolated filesystem root (AEGIS_P4_FS_ROOT) only.
-  - live: REFUSED fail-closed (LIVE_L1=NOT_AUTHORIZED).
+  - live: repository-implemented, fail-closed unless explicit live
+    authorization environment variables are present (LIVE_AUTHORIZATION_MISSING
+    otherwise). Live mode invokes the canonical Production pacman binary only
+    via long-form flags (--sync/--remove/--print/--noconfirm) and never with
+    -y/--refresh, -u/--sysupgrade, or recursive/cascade removal. Live mode is
+    never executed by this repository's own test suite or CI.
 """
 
 from __future__ import annotations
@@ -27,6 +34,95 @@ APPROVED_PACKAGES = {"chrony"}
 STAGE_OWNED_PACKAGE = "chrony"
 
 HOST_SYSTEM_PREFIXES = ("/etc/", "/opt/", "/var/", "/run/", "/dev/", "/usr/", "/bin/", "/sbin/")
+
+# D2/D3 live-backend contract. The Production pacman binary is a fixed
+# constant, never sourced from the environment, so no environment variable
+# can substitute an arbitrary executable for it.
+PACMAN_BIN = "/usr/bin/pacman"
+
+LIVE_AUTH_TOKEN_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"
+LIVE_AUTH_TOKEN_REQUIRED = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
+LIVE_K3_ENV = "AEGIS_L1_LIVE_K3_CONFIRMED"
+
+
+def live_authorization_present() -> bool:
+    """Independent, in-process fail-closed check. Does not replace or weaken
+    p4-stage-gate.sh's K3/A-L1/D6 validation; this is an additional gate."""
+    return (
+        os.environ.get(LIVE_AUTH_TOKEN_ENV) == LIVE_AUTH_TOKEN_REQUIRED
+        and os.environ.get(LIVE_K3_ENV) == "YES"
+    )
+
+
+def run_pacman(pacman_args: list[str]) -> subprocess.CompletedProcess:
+    """Invoke the canonical Production pacman binary. Never overridable via
+    environment. Callers must never pass -y/--refresh, -u/--sysupgrade, or
+    recursive/cascade removal flags."""
+    return subprocess.run(
+        [PACMAN_BIN, *pacman_args], capture_output=True, text=True, check=False
+    )
+
+
+def pacman_preflight_transaction(target: str) -> set[str]:
+    """Non-mutating preflight: print the exact package transaction pacman
+    would perform for target, without refreshing sync databases or
+    installing anything."""
+    proc = run_pacman(
+        ["--sync", "--print", "--print-format", "%n", "--noconfirm", target]
+    )
+    if proc.returncode != 0:
+        die(f"PREFLIGHT_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+    names = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    if not names:
+        die("PREFLIGHT_EMPTY_OR_UNPARSEABLE_TRANSACTION")
+    return names
+
+
+def live_install_package(target: str) -> None:
+    names = pacman_preflight_transaction(target)
+    if names != {target}:
+        die(
+            f"PREFLIGHT_TRANSACTION_REFUSED: expected exact set {{'{target}'}}, "
+            f"got {sorted(names)}"
+        )
+    proc = run_pacman(["--sync", "--noconfirm", target])
+    if proc.returncode != 0:
+        die(f"INSTALL_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+
+
+def live_rollback_package(target: str) -> None:
+    """D3: removes ONLY target. Never passes any recursive or cascade removal
+    flag, so a dependency conflict causes pacman itself to refuse the
+    removal and this function surfaces that as a failure rather than
+    escalating to a broader removal."""
+    proc = run_pacman(["--remove", "--noconfirm", target])
+    if proc.returncode != 0:
+        die(f"ROLLBACK_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+
+
+def live_verify_package(target: str) -> None:
+    query = run_pacman(["--query", target])
+    if query.returncode != 0:
+        die(f"PACKAGE_NOT_INSTALLED: {target}")
+
+    unit = f"{target}d.service" if target == "chrony" else f"{target}.service"
+    active = subprocess.run(
+        ["systemctl", "show", unit, "-p", "ActiveState", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if active.returncode == 0 and active.stdout.strip() == "active":
+        die(f"SERVICE_MUTATION_REFUSED: {unit} is active")
+
+    enabled = subprocess.run(
+        ["systemctl", "show", unit, "-p", "UnitFileState", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if enabled.returncode == 0 and enabled.stdout.strip() == "enabled":
+        die(f"SERVICE_MUTATION_REFUSED: {unit} is enabled")
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -78,7 +174,27 @@ def cmd_check_headroom(args: argparse.Namespace) -> None:
 def cmd_simulate_install(args: argparse.Namespace) -> None:
     backend = args.backend or os.environ.get("AEGIS_L1_BACKEND", "fixture")
     if backend == "live":
-        die("LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L1=NOT_AUTHORIZED)")
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        packages = [p.strip() for p in args.packages.split(",") if p.strip()]
+        if packages != [STAGE_OWNED_PACKAGE]:
+            die(
+                "UNAPPROVED_PACKAGE_REFUSED: live backend accepts only the exact "
+                f"list [{STAGE_OWNED_PACKAGE!r}]"
+            )
+        work_dir = validate_work_dir(args.work_dir)
+        live_install_package(STAGE_OWNED_PACKAGE)
+        manifest = {
+            "stage": "L1",
+            "backend": "live",
+            "installed_packages": packages,
+            "timestamp": int(time.time()),
+        }
+        (work_dir / "l1-installed-packages.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        print("L1_SIMULATE_INSTALL=COMPLETE")
+        return
     if backend != "fixture":
         die(f"unknown backend: {backend}")
 
@@ -160,6 +276,16 @@ def cmd_simulate_install(args: argparse.Namespace) -> None:
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
+    backend = args.backend or "fixture"
+    if backend == "live":
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        live_verify_package(STAGE_OWNED_PACKAGE)
+        print("L1_VERIFY=PASS")
+        return
+    if backend != "fixture":
+        die(f"unknown backend: {backend}")
+
     fs_root = Path(args.fs_root).resolve()
     work_dir = validate_work_dir(args.work_dir)
 
@@ -197,6 +323,22 @@ def cmd_verify(args: argparse.Namespace) -> None:
 
 
 def cmd_rollback(args: argparse.Namespace) -> None:
+    backend = args.backend or "fixture"
+    if backend == "live":
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        live_rollback_package(STAGE_OWNED_PACKAGE)
+        if args.work_dir:
+            work_dir = Path(args.work_dir).resolve()
+            if work_dir.is_dir():
+                manifest = work_dir / "l1-installed-packages.json"
+                if manifest.exists():
+                    manifest.unlink()
+        print("L1_ROLLBACK=COMPLETE")
+        return
+    if backend != "fixture":
+        die(f"unknown backend: {backend}")
+
     fs_root = Path(args.fs_root).resolve()
     work_dir = Path(args.work_dir).resolve() if args.work_dir else None
 
@@ -239,12 +381,14 @@ def main() -> None:
     p_install.set_defaults(func=cmd_simulate_install)
 
     p_verify = subparsers.add_parser("verify")
+    p_verify.add_argument("--backend", default="fixture")
     p_verify.add_argument("--work-dir", required=True)
     p_verify.add_argument("--fs-root", required=True)
     p_verify.add_argument("--inject-listener", default="")
     p_verify.set_defaults(func=cmd_verify)
 
     p_rb = subparsers.add_parser("rollback")
+    p_rb.add_argument("--backend", default="fixture")
     p_rb.add_argument("--work-dir", default="")
     p_rb.add_argument("--fs-root", required=True)
     p_rb.set_defaults(func=cmd_rollback)

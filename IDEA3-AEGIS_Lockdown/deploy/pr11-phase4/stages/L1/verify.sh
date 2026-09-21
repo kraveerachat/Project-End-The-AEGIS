@@ -19,12 +19,14 @@ require_env AEGIS_P4_FS_ROOT
 
 WORK_DIR="$AEGIS_L1_WORK_DIR"
 FS_ROOT="$AEGIS_P4_FS_ROOT"
+BACKEND="${AEGIS_L1_BACKEND:-fixture}"
 PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 
 # 1. Delegate package presence and inactive service verification to helper (OD-L1-06, OD-L1-07)
 if ! "$PYTHON_BIN" "$P4_HERE/p4-l1-packages.py" verify \
+  --backend "$BACKEND" \
   --work-dir "$WORK_DIR" \
   --fs-root "$FS_ROOT"; then
   fail "package verification failed"
