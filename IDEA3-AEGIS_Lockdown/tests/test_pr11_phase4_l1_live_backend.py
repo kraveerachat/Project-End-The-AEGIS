@@ -271,6 +271,23 @@ def test_live_authorization_uses_real_gate_script_not_a_duplicate_parser(
 
 
 def test_cli_simulate_install_live_without_authorization_fails_closed(tmp_path: Path) -> None:
+    """Live mode never passes --fs-root: it is a TEST-ONLY fixture prefix."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    proc = subprocess.run(
+        [
+            sys.executable, str(L1_PACKAGES), "simulate-install",
+            "--backend", "live", "--work-dir", str(work_dir), "--packages", "chrony",
+        ],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "NOT_AUTHORIZED" in proc.stderr
+
+
+def test_cli_simulate_install_live_with_fs_root_fails_closed(tmp_path: Path) -> None:
+    """FS_ROOT contract requirement #3 at the python layer: passing --fs-root
+    in live mode is refused outright, before authorization is even checked."""
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     fs_root = tmp_path / "fs"
@@ -284,10 +301,19 @@ def test_cli_simulate_install_live_without_authorization_fails_closed(tmp_path: 
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode != 0
-    assert "NOT_AUTHORIZED" in proc.stderr
+    assert "LIVE_MODE_FS_ROOT_REFUSED" in proc.stderr
 
 
 def test_cli_rollback_live_without_authorization_fails_closed(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, str(L1_PACKAGES), "rollback", "--backend", "live"],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "NOT_AUTHORIZED" in proc.stderr
+
+
+def test_cli_rollback_live_with_fs_root_fails_closed(tmp_path: Path) -> None:
     fs_root = tmp_path / "fs"
     fs_root.mkdir()
     proc = subprocess.run(
@@ -295,36 +321,39 @@ def test_cli_rollback_live_without_authorization_fails_closed(tmp_path: Path) ->
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode != 0
-    assert "NOT_AUTHORIZED" in proc.stderr
+    assert "LIVE_MODE_FS_ROOT_REFUSED" in proc.stderr
 
 
 def test_cli_verify_live_without_authorization_fails_closed(tmp_path: Path) -> None:
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
-    fs_root = tmp_path / "fs"
-    fs_root.mkdir()
     proc = subprocess.run(
-        [
-            sys.executable, str(L1_PACKAGES), "verify",
-            "--backend", "live", "--work-dir", str(work_dir), "--fs-root", str(fs_root),
-        ],
+        [sys.executable, str(L1_PACKAGES), "verify", "--backend", "live"],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode != 0
     assert "NOT_AUTHORIZED" in proc.stderr
 
 
-def test_apply_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path: Path) -> None:
-    """Requirement #1/#2: direct apply.sh live invocation with forged/boolean
-    env vars (no real gate-validatable files) cannot reach pacman."""
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
+def test_cli_verify_live_with_fs_root_fails_closed(tmp_path: Path) -> None:
     fs_root = tmp_path / "fs"
     fs_root.mkdir()
+    proc = subprocess.run(
+        [sys.executable, str(L1_PACKAGES), "verify", "--backend", "live", "--fs-root", str(fs_root)],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "LIVE_MODE_FS_ROOT_REFUSED" in proc.stderr
+
+
+def test_apply_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path: Path) -> None:
+    """Requirement #1/#2: direct apply.sh live invocation with forged/boolean
+    env vars (no real gate-validatable files) cannot reach pacman. Live mode
+    never sets AEGIS_P4_FS_ROOT (a TEST-ONLY fixture prefix)."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
     env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
     env["AEGIS_L1_BACKEND"] = "live"
     env["AEGIS_L1_WORK_DIR"] = str(work_dir)
-    env["AEGIS_P4_FS_ROOT"] = str(fs_root)
     env["DISK_THRESHOLD_PCT"] = "90"
     # Forged legacy-style boolean vars must have no effect at all.
     env["AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"] = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
@@ -337,24 +366,62 @@ def test_apply_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path
     assert "NOT_AUTHORIZED" in proc.stderr
 
 
-def test_apply_sh_live_with_valid_records_reaches_gate_pass(tmp_path: Path) -> None:
-    """Requirement #14: a fully valid same-day L1 authorization + K3 pair
-    must pass the in-script gate re-invocation. To prove this WITHOUT ever
-    invoking real pacman, AEGIS_PYTHON_BIN is pointed at a stub that never
-    touches pacman and simply records that it was reached — proving the
-    authorization gate itself passed and control flow continued past it."""
+def test_apply_sh_live_with_fs_root_set_fails_closed_before_pacman(tmp_path: Path) -> None:
+    """FS_ROOT contract requirement #3: live mode with AEGIS_P4_FS_ROOT set
+    must fail closed, even with otherwise-valid authorization records, and
+    must never reach the python helper (no pacman invocation possible)."""
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     fs_root = tmp_path / "fs"
     fs_root.mkdir()
     auth, k3 = valid_auth_k3_files(tmp_path)
-    fake_python = tmp_path / "fake_python3.sh"
-    fake_python.write_text("#!/usr/bin/env bash\necho FAKE_PYTHON_INVOKED \"$@\"\nexit 0\n")
-    fake_python.chmod(0o755)
     env = os.environ.copy()
     env["AEGIS_L1_BACKEND"] = "live"
     env["AEGIS_L1_WORK_DIR"] = str(work_dir)
     env["AEGIS_P4_FS_ROOT"] = str(fs_root)
+    env[LIVE_AUTH_FILE_ENV] = auth
+    env[LIVE_K3_FILE_ENV] = k3
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "LIVE_MODE_FS_ROOT_REFUSED" in proc.stderr
+    assert not (fs_root / "usr").exists()  # no fixture tree was ever created
+
+
+def test_apply_sh_live_without_fs_root_invalid_auth_fails_closed(tmp_path: Path) -> None:
+    """FS_ROOT contract requirement #4: live mode with FS_ROOT correctly
+    unset but invalid/missing authorization still fails closed."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
+    env["AEGIS_L1_BACKEND"] = "live"
+    env["AEGIS_L1_WORK_DIR"] = str(work_dir)
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "LIVE_AUTHORIZATION_MISSING" in proc.stderr
+
+
+def test_apply_sh_live_with_valid_records_reaches_gate_pass_creates_no_fixture_tree(tmp_path: Path) -> None:
+    """Requirement #14 + #5/#8: a fully valid same-day L1 authorization + K3
+    pair must pass the in-script gate re-invocation and never create any
+    fixture filesystem tree. To prove this WITHOUT ever invoking real
+    pacman, AEGIS_PYTHON_BIN is pointed at a stub that never touches pacman
+    and simply records that it was reached — proving the authorization gate
+    itself passed and control flow continued past it."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    fake_python = tmp_path / "fake_python3.sh"
+    fake_python.write_text("#!/usr/bin/env bash\necho FAKE_PYTHON_INVOKED \"$@\"\nexit 0\n")
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
+    env["AEGIS_L1_BACKEND"] = "live"
+    env["AEGIS_L1_WORK_DIR"] = str(work_dir)
     env["AEGIS_PYTHON_BIN"] = str(fake_python)
     env[LIVE_AUTH_FILE_ENV] = auth
     env[LIVE_K3_FILE_ENV] = k3
@@ -362,16 +429,18 @@ def test_apply_sh_live_with_valid_records_reaches_gate_pass(tmp_path: Path) -> N
         ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
     )
     assert "LIVE_AUTHORIZATION_MISSING" not in proc.stderr
+    assert "LIVE_MODE_FS_ROOT_REFUSED" not in proc.stderr
     assert "FAKE_PYTHON_INVOKED" in proc.stdout  # proves the gate passed and flow continued
     assert proc.returncode == 0
+    fake_python_call = [line for line in proc.stdout.splitlines() if "FAKE_PYTHON_INVOKED" in line][0]
+    assert "--fs-root" not in fake_python_call  # live mode never passes --fs-root
+    assert not any(tmp_path.glob("**/usr/bin/chronyd"))  # no fixture tree anywhere
 
 
 def test_rollback_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path: Path) -> None:
-    fs_root = tmp_path / "fs"
-    fs_root.mkdir()
     env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
     env["AEGIS_L1_BACKEND"] = "live"
-    env["AEGIS_P4_FS_ROOT"] = str(fs_root)
     env["AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"] = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
     env["AEGIS_L1_LIVE_K3_CONFIRMED"] = "YES"
     proc = subprocess.run(
@@ -379,6 +448,45 @@ def test_rollback_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_p
     )
     assert proc.returncode != 0
     assert "NOT_AUTHORIZED" in proc.stderr
+
+
+def test_rollback_sh_live_with_fs_root_set_fails_closed(tmp_path: Path) -> None:
+    """FS_ROOT contract requirement #7: rollback live mode does not require
+    (and must refuse) AEGIS_P4_FS_ROOT."""
+    fs_root = tmp_path / "fs"
+    fs_root.mkdir()
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    env = os.environ.copy()
+    env["AEGIS_L1_BACKEND"] = "live"
+    env["AEGIS_P4_FS_ROOT"] = str(fs_root)
+    env[LIVE_AUTH_FILE_ENV] = auth
+    env[LIVE_K3_FILE_ENV] = k3
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "rollback.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "LIVE_MODE_FS_ROOT_REFUSED" in proc.stderr
+
+
+def test_verify_sh_live_does_not_require_fs_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FS_ROOT contract requirement #6: live verify does not require
+    AEGIS_P4_FS_ROOT. Authorization is absent here, so this still fails
+    closed — the point is it fails on NOT_AUTHORIZED, never on a missing
+    fs-root/work-dir requirement."""
+    env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
+    env.pop("AEGIS_L1_WORK_DIR", None)
+    env["AEGIS_L1_BACKEND"] = "live"
+    proc = subprocess.run(
+        [
+            sys.executable, str(L1_PACKAGES), "verify", "--backend", "live",
+        ],
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "NOT_AUTHORIZED" in proc.stderr
+    assert "fs-root" not in proc.stderr.lower()
+    assert "work-dir" not in proc.stderr.lower()
 
 
 # ---------------------------------------------------------------------------

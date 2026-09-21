@@ -245,6 +245,8 @@ def cmd_check_headroom(args: argparse.Namespace) -> None:
 def cmd_simulate_install(args: argparse.Namespace) -> None:
     backend = args.backend or os.environ.get("AEGIS_L1_BACKEND", "fixture")
     if backend == "live":
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
         if not live_authorization_present():
             die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
         packages = [p.strip() for p in args.packages.split(",") if p.strip()]
@@ -268,6 +270,8 @@ def cmd_simulate_install(args: argparse.Namespace) -> None:
         return
     if backend != "fixture":
         die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
 
     work_dir = validate_work_dir(args.work_dir)
     fs_root = Path(args.fs_root).resolve()
@@ -349,6 +353,8 @@ def cmd_simulate_install(args: argparse.Namespace) -> None:
 def cmd_verify(args: argparse.Namespace) -> None:
     backend = args.backend or "fixture"
     if backend == "live":
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
         if not live_authorization_present():
             die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
         live_verify_package(STAGE_OWNED_PACKAGE)
@@ -356,6 +362,10 @@ def cmd_verify(args: argparse.Namespace) -> None:
         return
     if backend != "fixture":
         die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
+    if not args.work_dir:
+        die("--work-dir is required for fixture backend")
 
     fs_root = Path(args.fs_root).resolve()
     work_dir = validate_work_dir(args.work_dir)
@@ -396,6 +406,8 @@ def cmd_verify(args: argparse.Namespace) -> None:
 def cmd_rollback(args: argparse.Namespace) -> None:
     backend = args.backend or "fixture"
     if backend == "live":
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
         if not live_authorization_present():
             die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
         live_rollback_package(STAGE_OWNED_PACKAGE)
@@ -409,6 +421,8 @@ def cmd_rollback(args: argparse.Namespace) -> None:
         return
     if backend != "fixture":
         die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
 
     fs_root = Path(args.fs_root).resolve()
     work_dir = Path(args.work_dir).resolve() if args.work_dir else None
@@ -446,22 +460,22 @@ def main() -> None:
     p_install = subparsers.add_parser("simulate-install")
     p_install.add_argument("--backend", default="fixture")
     p_install.add_argument("--work-dir", required=True)
-    p_install.add_argument("--fs-root", required=True)
+    p_install.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_install.add_argument("--packages", default="chrony")
     p_install.add_argument("--transaction-diff", default="")
     p_install.set_defaults(func=cmd_simulate_install)
 
     p_verify = subparsers.add_parser("verify")
     p_verify.add_argument("--backend", default="fixture")
-    p_verify.add_argument("--work-dir", required=True)
-    p_verify.add_argument("--fs-root", required=True)
+    p_verify.add_argument("--work-dir", default="", help="Required for fixture backend only; live never uses it")
+    p_verify.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_verify.add_argument("--inject-listener", default="")
     p_verify.set_defaults(func=cmd_verify)
 
     p_rb = subparsers.add_parser("rollback")
     p_rb.add_argument("--backend", default="fixture")
     p_rb.add_argument("--work-dir", default="")
-    p_rb.add_argument("--fs-root", required=True)
+    p_rb.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_rb.set_defaults(func=cmd_rollback)
 
     args = parser.parse_args()
