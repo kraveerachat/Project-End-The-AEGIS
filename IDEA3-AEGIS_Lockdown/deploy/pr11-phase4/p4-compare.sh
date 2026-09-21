@@ -21,6 +21,7 @@
 #
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
+export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p4-lib.sh
 . "$HERE/p4-lib.sh"

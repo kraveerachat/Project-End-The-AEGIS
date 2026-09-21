@@ -18,6 +18,7 @@
 # unavailable; the evidence is incomparable), 1 = STOP (invalid input).
 # shellcheck disable=SC2086  # address lists are split into words on purpose
 set -uo pipefail
+export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p4-lib.sh
 . "$HERE/p4-lib.sh"
@@ -95,15 +96,19 @@ tree_files() {
 # rec_file TSV PREFIX FULLPATH [meta]: config files get a digest; secret-bearing
 # files (or every file when "meta" is given) get metadata only.
 rec_file() {
-  local tsv=$1 prefix=$2 full=$3 mode=${4:-auto} hp
+  local tsv=$1 prefix=$2 full=$3 mode=${4:-auto} hp sha meta
   hp=$(p4_hostpath "$full")
   if [ "$mode" = meta ] || p4_is_secret_file "$full"; then
     p4_rec "$tsv" "$prefix.$hp.class" secret-metadata-only
   else
     p4_rec "$tsv" "$prefix.$hp.class" config
-    p4_rec "$tsv" "$prefix.$hp.sha256" "$(p4_sha256 "$full")"
+    sha=$(p4_sha256 "$full")
+    [ "$sha" = UNREADABLE ] && partial=1
+    p4_rec "$tsv" "$prefix.$hp.sha256" "$sha"
   fi
-  p4_rec "$tsv" "$prefix.$hp.meta" "$(p4_meta "$full")"
+  meta=$(p4_meta "$full")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$tsv" "$prefix.$hp.meta" "$meta"
 }
 
 rec_tree() { # TSV PREFIX DIR [meta]
@@ -417,16 +422,21 @@ else
 fi
 pwfiles=$(printf '%s\n' "$directives" | awk '$1 == "password_file" { print $2 }' | LC_ALL=C sort -u)
 rec_pwfile() {
-  local full=$1 hp users
+  local full=$1 hp users sha meta
   hp=$(p4_hostpath "$full")
   if [ -r "$full" ]; then
     users=$(awk -F: 'NF >= 2 && $1 ~ /^[A-Za-z0-9._@-]{1,64}$/ { print $1 }' "$full" | LC_ALL=C sort -u | paste_csv)
     p4_rec "$MQTT" "mqtt.passwd.$hp.users" "${users:-none}"
   else
     p4_rec "$MQTT" "mqtt.passwd.$hp.users" UNREADABLE
+    partial=1
   fi
-  p4_rec "$MQTT" "mqtt.passwd.$hp.sha256" "$(p4_sha256 "$full")"
-  p4_rec "$MQTT" "mqtt.passwd.$hp.meta" "$(p4_meta "$full")"
+  sha=$(p4_sha256 "$full")
+  [ "$sha" = UNREADABLE ] && partial=1
+  p4_rec "$MQTT" "mqtt.passwd.$hp.sha256" "$sha"
+  meta=$(p4_meta "$full")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$MQTT" "mqtt.passwd.$hp.meta" "$meta"
 }
 paste_csv() { awk 'NR > 1 { printf "," } { printf "%s", $0 }'; }
 is_pwfile() {
