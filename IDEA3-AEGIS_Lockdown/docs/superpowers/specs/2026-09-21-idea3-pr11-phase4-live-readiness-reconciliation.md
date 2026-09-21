@@ -446,12 +446,12 @@ Each subsequent stage follows the identical discipline:
 - Verify preservation and specific stage success.
 
 **Specific Stage Requirements**:
-- **Stage L2 (Broker TLS Isolation)**: Requires `integration_review=kla`. Retains 1883.
+- **Stage L2 (Forwarding Persistence and AP Firewall Table)**: Requires `integration_review=kla` and fresh K3. Forwarding remains fail-closed; installs/renders approved sysctl persistence; loads only table `inet aegis_idea3`; never flushes the ruleset; preserves existing VLAN20/Core/IDEA2/broker paths. Does not touch Mosquitto, TLS, 1883, certificates, or broker configuration.
 - **Stage L3 (AP Radio Enablement)**: Configures NetworkManager Wi-Fi AP.
 - **Stage L4 (AP Addressing & DHCP)**: Binds IPv4 and dnsmasq DHCP to AP interface only.
 - **Stage L5 (Core-Local NTP)**: Activates chrony bound to AP subnet; verifies time sync.
-- **Stage L6a (Isolated PKI Validation)**: Tests broker cert/key against isolated broker before touching host broker.
-- **Stage L6b (Broker TLS Activation)**: Enables `listener 8883` on host Mosquitto; verifies coexistence with 1883.
+- **Stage L6a (Isolated MQTT CA / Broker TLS / Identity / ACL Validation)**: Performs isolated MQTT/TLS/identity/ACL validation using a temporary non-production Mosquitto process; live mosquitto.service remains untouched.
+- **Stage L6b (Live Broker Change)**: Enables `listener 8883` on host Mosquitto; verifies coexistence with 1883.
 - **Stage L7 (Core Service Startup)**: Requires `d6_notice=pub`. Provisions credentials via `LoadCredential=`, starts `aegis-idea3-core.service`. Requires valid `restore.credential` (OD-L7-08).
 - **Stage L8 (ESP32 Flash)**: Requires physical device serial connection (`/dev/ttyUSB0`), power check, and explicit `recovery_authorization=<valid-ref>` with backup binary.
 - **Stage L9 (Authentication Without Actuation) & FIND-L9-01**: Requires running Core and ESP32. Proves HMAC-SHA256 authenticated STATUS and HEARTBEAT frames. **Strictly forbids COMMAND, CUT, or RESTORE**.
