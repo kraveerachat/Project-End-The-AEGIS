@@ -5818,14 +5818,18 @@ No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout comm
 
 ## IDEA3 PR11 Phase 4 L8 ESP32 provisioning / flash handler repository registration — 2026-09-21
 
-> [!important] Repository-only L8 handler task IN PROGRESS. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
+> [!important] Repository-only L8 handler registration. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
 
 ```text
 Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS provisioning / flash handler
 Branch                        = feat/idea3-pr11-phase4-l8-handler
 START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
-Session                       = L8-S1 (open)
-Current state                 = IN PROGRESS — design, RED, GREEN, and hardening complete; closeout pending
+Session                       = L8-S1 (closed)
+DESIGN_COMMIT                 = c2422924d658150d20b59866eb14df2ec7483991
+RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
+GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
+L8_PR_OPENED                  = PENDING (opened after closeout commit)
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
 
 L8_HANDLER_REGISTERED         = YES
 L8_REPOSITORY_IMPLEMENTED     = YES
@@ -5867,6 +5871,26 @@ FIRMWARE_FLASHED              = NO
 ESP32_MUTATION                = NO
 LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 ```
+
+### Closeout evidence
+
+- L8 focused pytest (`test_pr11_phase4_l8_handler.py`): **77 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **542 passed**, 0 failed.
+- Full IDEA3 suite: **1522 passed, 6 skipped**. Pre-task baseline on `0544f1cc` was **1445 passed, 6 skipped**, so the delta is exactly the 77 new L8 tests: no existing test was lost, skipped, or weakened.
+- Firmware + NVS + G-15 + L8 focused: **113 passed**.
+- `bash -n` on all seven Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L8`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan over new files: no matches.
+- RED-first provenance: **53 failed / 17 passed** before implementation, no import or syntax failure.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, **L8** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L8 = NOT RUN`, `L8_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L8_PHYSICAL_PROOF = NOT PROVEN`.
 
 ### Session L8-S1 — audit findings, negative controls, and evidence
 
@@ -5984,8 +6008,8 @@ Production key generator. No serial device was opened and no hardware exists.
 - Dependencies: items 2–6.
 - Safety boundary: owner-writable canonical note only; historical receipts immutable.
 - Acceptance: no checkpoint commit advances code while this note is stale.
-- Evidence: checkpoint SHAs recorded here.
-- Status: IN PROGRESS.
+- Evidence: checkpoint SHAs `c2422924` (design), `679facdf` (RED), `902b19b9` (GREEN + hardening), plus the closeout commit. Obsidian was updated at each of them before the code advanced.
+- Status: DONE.
 
 **8. Closeout / PR**
 - Goal: exactly one immutable final receipt, then push and prepare one PR for human review.
@@ -5993,8 +6017,8 @@ Production key generator. No serial device was opened and no hardware exists.
 - Dependencies: items 2–7 complete.
 - Safety boundary: never merge; never force-push; never mark Ready unless instructed.
 - Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
-- Evidence: receipt path, PR number/URL, checks.
-- Status: PLANNED.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed; PR opened as Draft for human review. The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
 
 **9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
 - Goal: none in this task; recorded so repository completion is never read as live acceptance.
