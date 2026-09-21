@@ -5816,6 +5816,142 @@ No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout comm
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_032940_music_idea3-pr11-phase4-l7-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L8 ESP32 provisioning / flash handler repository registration — 2026-09-21
+
+> [!important] Repository-only L8 handler task IN PROGRESS. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS provisioning / flash handler
+Branch                        = feat/idea3-pr11-phase4-l8-handler
+START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
+Session                       = L8-S1 (open)
+Current state                 = IN PROGRESS — design + RED checkpoint
+
+L8_HANDLER_REGISTERED         = NO
+L8_REPOSITORY_IMPLEMENTED     = NO
+L8_OPERATIONAL_DESIGN         = IN PROGRESS
+RED_FIRST_PROVEN              = NOT YET
+
+L2_HANDLER                    = REGISTERED
+L3_HANDLER                    = REGISTERED
+L4_HANDLER                    = REGISTERED
+L5_HANDLER                    = REGISTERED
+L6A_HANDLER                   = REGISTERED
+L6B_HANDLER                   = REGISTERED
+L7_HANDLER                    = REGISTERED
+L8_HANDLER                    = NOT REGISTERED
+
+L2..L8                        = NOT RUN
+L7_LIVE_AUTHORIZED            = NO
+L8_LIVE_AUTHORIZED            = NO
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+L8_INVENTORY_COMPLETE         = YES
+G04_CURRENT_STATE             = NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL
+ESP32_ADDRESS_MODEL_CURRENT   = DHCP
+G11_CURRENT_STATE             = PARTIAL_REPOSITORY
+G16_CURRENT_STATE             = CLOSED_REPOSITORY
+
+OD14_RECOVERY_POLICY          = D4_ONLY
+INTERIM_RECOVERY_PROCEDURE    = NOT_APPROVED
+D4_LIVE_REQUIRED_BEFORE_FLASH = YES
+L8_INSPECTION_CLASS           = NON_WRITING_BUT_DEVICE_RESETTING
+L8_INSPECTION_WINDOW_REQUIRED = YES
+PRODUCTION_KEY_GENERATION     = OWNER_CONTROLLED_OFFLINE
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+SERIAL_PORT_OPENED            = NO
+FIRMWARE_FLASHED              = NO
+ESP32_MUTATION                = NO
+LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
+```
+
+### L8 Task Map
+
+**1. Current Truth / Governance**
+- Goal: establish verified repository/Git/Obsidian truth before editing.
+- Scope: `AGENTS.md`, `START_HERE`, `core/agent-operating-rules`, `idea3/idea3-status`, Phase 4 prerequisites + batch + L7 designs, `deploy/pr11-phase4/**`, `firmware/**`.
+- Dependencies: PR #164 merged (`0544f1cc`).
+- Safety boundary: read-only.
+- Acceptance: branch/HEAD/origin-main verified; no conflict with prompt.
+- Evidence: `git rev-parse HEAD` = `origin/main` = `0544f1cc6…`; working tree clean.
+- Status: DONE.
+
+**2. L8 Operational Design**
+- Goal: formal OD-L8-01..OD-L8-09 design reconciled against owner decisions (OD-14, G-15 evidence model, inspection class).
+- Scope: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md`.
+- Dependencies: item 1.
+- Safety boundary: documentation only.
+- Acceptance: every section carries DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Evidence: design commit SHA.
+- Status: IN PROGRESS.
+
+**3. RED-First Contract**
+- Goal: genuine failing acceptance tests before implementation.
+- Scope: `tests/test_pr11_phase4_l8_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture/mock hardware only; tests never open a real serial device.
+- Acceptance: RED run fails for missing behavior, not import/syntax errors; retained failure count recorded.
+- Evidence: RED pytest output + RED commit SHA.
+- Status: PLANNED.
+
+**4. Repository Implementation**
+- Goal: register `stages/L8/` (5 files) plus the device-provisioning helper.
+- Scope: `deploy/pr11-phase4/stages/L8/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, `deploy/pr11-phase4/p4-l8-device.py`.
+- Dependencies: item 3.
+- Safety boundary: no real `/dev/tty*`, no esptool against hardware, no flash/erase/eFuse, no upload target, no Production key generation.
+- Acceptance: `p4_stage_handler_status L8` = `REGISTERED`; focused suite GREEN.
+- Evidence: GREEN commit SHA + pytest counts.
+- Status: PLANNED.
+
+**5. Security / Failure Hardening**
+- Goal: close audit findings; prove fail-secure and secret-exclusion invariants.
+- Scope: same files as item 4.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: live gate fails closed; MAC mismatch fails before any write; placeholder CA and demo/test keys rejected; evidence allowlist exact and write-once; no secret reaches evidence or logs.
+- Evidence: hardening commit SHA + negative controls (break invariant → expected FAIL → restore → PASS, never committed).
+- Status: PLANNED.
+
+**6. Regression Verification**
+- Goal: prove no Phase 4, firmware, or Core regression.
+- Scope: `tests/test_pr11_phase4_*.py`, `tests/test_firmware_*.py`, full IDEA3 suite.
+- Dependencies: item 5.
+- Safety boundary: repository tests only.
+- Acceptance: all PASS with exact counts recorded; no test weakened.
+- Evidence: pytest counts; `bash -n`; `git diff --check`.
+- Status: PLANNED.
+
+**7. Documentation / Git Checkpoint**
+- Goal: keep canonical Obsidian synchronized with Git at every checkpoint.
+- Scope: this note.
+- Dependencies: items 2–6.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no checkpoint commit advances code while this note is stale.
+- Evidence: checkpoint SHAs recorded here.
+- Status: IN PROGRESS.
+
+**8. Closeout / PR**
+- Goal: exactly one immutable final receipt, then push and prepare one PR for human review.
+- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l8-handler.md`; GitHub PR.
+- Dependencies: items 2–7 complete.
+- Safety boundary: never merge; never force-push; never mark Ready unless instructed.
+- Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
+- Evidence: receipt path, PR number/URL, checks.
+- Status: PLANNED.
+
+**9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: physical ESP32 inspection, NVS write, flash, boot verification.
+- Dependencies: L2..L7 live PASS, D4 live recovery operational, device present, OV-08/09/12/13, OV-14 / fresh K3, same-day A-L8, IDEA2 §10 preservation, exact reviewed firmware/NVS build, applicable S-01..S-12 clear.
+- Safety boundary: inspection itself resets the device (`NON_WRITING_BUT_DEVICE_RESETTING`), so even inspection needs a maintenance window; flash failure is `FAIL_SECURE_CUT` with D4-only recovery.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L8_PHYSICAL_PROOF_REQUIRED = YES`, currently NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
