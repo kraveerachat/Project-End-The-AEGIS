@@ -6388,8 +6388,10 @@ DISK_CURRENT_STATE            = NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF (gate re
 DISK_CLEANUP_REQUIRED         = CONDITIONAL_ON_FRESH_PROOF (cleanup outside stage if free headroom < 5%)
 FIND-L9-01                    = OWNER_DECISION_REQUIRED before live L9 acceptance (BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE)
 FIND_L9_01_BLOCKS_L1          = NO
-A-L0                          = NOT AUTHORIZED (read-only baseline capture)
+PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21; diagnostic preflight only)
+POST_REPAIR_OFFICIAL_A_L0     = FRESH AUTHORIZATION REQUIRED
 A-L1..A-L9                    = NOT AUTHORIZED (separate same-day authorizations)
+OFFICIAL_L0_ACCEPTANCE        = NO
 L1..L9 live                   = NOT RUN
 PHASE4_RUNTIME_COMPLETE       = NO
 PHASE4_LIVE_READINESS         = NOT READY
@@ -6453,7 +6455,9 @@ Historical sections of this note are preserved intact as point-in-time evidence.
    - Classified as `OWNER_DECISION_REQUIRED` before live L9 acceptance.
    - Does not directly block live L8; if owner amends firmware, that conditionally requires a new build and L8 reflash before proceeding to L9.
 7. **Live Stage Authorizations**:
-   - A-L0 through A-L9 are all `NOT AUTHORIZED`.
+   - `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)` (pre-repair diagnostic preflight; `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`).
+   - `POST_REPAIR_OFFICIAL_A_L0 = FRESH AUTHORIZATION REQUIRED` (`OFFICIAL_L0_ACCEPTANCE = NO`).
+   - `A-L1..A-L9 = NOT_AUTHORIZED` (separate same-day authorizations).
    - A-L0 is read-only baseline capture. Mutating stages require fresh K3 and stage-specific extra auth fields.
 
 ### 3. Durable Phase 4 Readiness Matrix
@@ -6480,7 +6484,7 @@ Historical sections of this note are preserved intact as point-in-time evidence.
 | **IDEA2 §10 Preservation** | Cross-IDEA Safety | `BLOCKED` | `IDEA2_TUNNEL_HEALTHY = NO` (NRestarts > 1450); `COMPARE_RESULT=FAIL` | 2026-09-17 (PR #152) | YES | pub | Live L1..L9 compare gate | Fresh owner evidence via L0; if failing, STOP until IDEA2 owner restores required health OR written IDEA2-owner-accepted narrowed criterion exists |
 | **Disk Headroom** | Host Resource | `STALE_NEEDS_FRESH_PROOF` | `DISK_PRIOR_EVIDENCE = ~94–97% used; DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF` | 2026-09-17 / 2026-09-21 | YES | music / kla | Live L1 (fails closed if < 5%) | Measure via fresh L0; cleanup if free space < 5% |
 | **Phase 4 Owner Values** | Configuration / Secrets | `OWNER_DECISION_REQUIRED` | Templates contain `<AEGIS_...>` placeholders | 2026-09-17 (Spec) | YES | music / kla | Live L2..L8 | Owner generates values out-of-band |
-| **A-L0 Authorization** | Authorization | `NOT_AUTHORIZED` | No A-L0 record exists | Current (2026-09-21) | YES | music | Live L0 capture | Music issues same-day read-only A-L0 |
+| **A-L0 Authorization** | Authorization | `PRE_REPAIR_ISSUED / FRESH_POST_REPAIR_REQUIRED` | Pre-repair A-L0 issued 2026-09-21 for diagnostic preflight; fresh same-day A-L0 required for official L0 | 2026-09-21 | YES | music | Live L0 capture | Music issues fresh same-day read-only A-L0 |
 | **A-L1..A-L9 Auth** | Authorization | `NOT_AUTHORIZED` | No A-L1..A-L9 records exist | Current (2026-09-21) | YES | music | Live L1..L9 | Issue separately on execution day |
 | **Live L0 Baseline** | Live Baseline | `OPEN` | `p4-l0-capture.sh` tested in harness; never run live | Current (2026-09-21) | YES | music | Live L1 | Run after A-L0 is issued |
 | **Live L1..L9 Execution** | Live Execution | `BLOCKED` | `L1..L9 live = NOT RUN`; live backend fails closed | Current (2026-09-21) | YES | music | Phase 4 live closeout | Sequential execution after gates pass |
@@ -6538,7 +6542,9 @@ L10 does NOT exist. The following operations are strictly post-Phase-4 gates and
 - **Final Receipt**: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_180610_music_idea3-pr11-phase4-live-readiness.md`.
 - **Review Notice**: Adding the final closeout receipt changes HEAD after the earlier approval by `pubpup2006p-design` on `7c99bfd6`. A fresh CODEOWNER review is required on the final receipt-bearing HEAD before Ready and human merge.
 - **Live State Unchanged**:
-  - `A-L0..A-L9 = NOT_AUTHORIZED`
+  - `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)` (pre-repair diagnostic preflight; `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`; `POST_REPAIR_OFFICIAL_A_L0 = FRESH AUTHORIZATION REQUIRED`)
+  - `A-L1..A-L9 = NOT_AUTHORIZED`
+  - `OFFICIAL_L0_ACCEPTANCE = NO`
   - `L1..L9 live = NOT RUN`
   - `PHASE4_RUNTIME_COMPLETE = NO`
   - `PHASE4_LIVE_READINESS = NOT READY`
@@ -6570,7 +6576,11 @@ L10 does NOT exist. The following operations are strictly post-Phase-4 gates and
 > - Twingate status not-running (`host.twingate.status=not-running`).
 >
 > No raw secret-bearing evidence is stored in Git.
-> `A-L0..A-L9 = NOT_AUTHORIZED`.
+> `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)`.
+> `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`.
+> `POST_REPAIR_OFFICIAL_A_L0 = FRESH AUTHORIZATION REQUIRED`.
+> `A-L1..A-L9 = NOT_AUTHORIZED`.
+> `OFFICIAL_L0_ACCEPTANCE = NO`.
 > `L1..L9 live = NOT RUN`.
 > `PHASE4_RUNTIME_COMPLETE = NO`.
 > `PHASE4_LIVE_READINESS = NOT READY`.
@@ -6589,6 +6599,11 @@ PINNED_FOCUSED_HARNESS        = PASS (167 passed in 43.89s)
 PINNED_FULL_PHASE4            = PASS (731 passed in 102.51s)
 SYSTEM_PYTHON_FULL_PHASE4     = 7 FAIL / 724 PASS (paho-mqtt 1.6.1 missing CallbackAPIVersion)
 SYSTEM_FAILURE_CLASS          = PRE_EXISTING_LOCAL_DEPENDENCY_ENVIRONMENT
+PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)
+PRE_REPAIR_DIAGNOSTIC_L0      = CAPTURED / NOT OFFICIAL ACCEPTANCE
+POST_REPAIR_OFFICIAL_A_L0     = FRESH AUTHORIZATION REQUIRED
+A-L1..A-L9                    = NOT_AUTHORIZED
+OFFICIAL_L0_ACCEPTANCE        = NO
 DIAGNOSTIC_L0_OFFICIAL        = NO — diagnostic evidence only; official L0 requires fresh run after repair
 PRODUCTION_MUTATION           = NO
 PR                            = DRAFT pending review
