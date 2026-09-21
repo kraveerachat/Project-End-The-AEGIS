@@ -6610,7 +6610,7 @@ Production mutation allowed: NO
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; 167 GREEN tests passed after fix; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | pending checkpoint | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
+| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; 167 GREEN tests passed after fix; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | `03d9f9d8` | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
 
 
 ## 🔗 Related Notes
