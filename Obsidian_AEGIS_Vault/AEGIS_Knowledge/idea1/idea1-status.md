@@ -15,7 +15,36 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Draft Task — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
+## Current Draft Task — VAULT-FILES-UX-NAVIGATION-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `feat/idea1-vault-files-ux-navigation`; PR: pending Draft creation after the first verified implementation checkpoint.
+- Base: `origin/main` at `15ccee1597e31529f266bee822125393f01a5e23` (merged PR #157).
+- State: **SESSION STARTED / PRE-IMPLEMENTATION (2026-09-21)** — PR #157 merge and ancestry verified; isolated clean worktree created; product/security/design sources reviewed; no Production mutation; no application source changed yet.
+- Goal: align unlocked Private Vault with the established Files workspace grammar (client-only search/filter/sort, folder-first grid/list, secure media cards, selection/marquee, internal drag/drop, breadcrumb targets, and History API navigation) while preserving TREE_V1, encrypted revision CAS/rebase, client-only media derivation, opaque history identity, and lock purge.
+- Scope: `IDEA1-AEGIS_Drive_LC/**`, this owner-maintained status note, and exactly one final `kla` receipt. No cross-scope/shared path is planned. Production remains forbidden.
+- Required gates: TDD RED→GREEN→REFACTOR; Files regression; PR157 focused security regression; build and full suite; isolated browser qualification; Human Owner browser acceptance before Ready review.
+
+### Initial Checklist — VAULT-FILES-UX-NAVIGATION-1
+
+| Checklist item | Current status | Evidence | Action required |
+|---|---|---|---|
+| PR #157 merged | PASS | GitHub `MERGED`; merge commit `15ccee15`; known closeout `e6fde5b8` is an ancestor of `origin/main` | Preserve all security contracts |
+| Clean successor base | PASS | Isolated worktree from `origin/main`; branch `feat/idea1-vault-files-ux-navigation` | Keep all task work on this branch |
+| Area / owner | PASS | IDEA1 / Kla | Keep changes in owned boundaries |
+| Cross-scope surfaces | NONE PLANNED | No infrastructure/shared path required | Declare exact paths if scope changes |
+| Security boundary | LOCKED | TREE_V1 + client decrypt + encrypted CAS revisions + client-only media + lock purge | Add regression coverage before production code |
+| TDD | REQUIRED | Owner specification and repository workflow | No production code before observed RED |
+| Production | FORBIDDEN | `PRODUCTION_TOUCHED=NO` | Use isolated local runtime only |
+| Final gate | PENDING | Human browser checklist supplied | Stop for owner acceptance after qualification |
+
+### Session Register — VAULT-FILES-UX-NAVIGATION-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| VUX-S1 | Dependency verification, governance/design/security discovery, isolated successor branch, initial scope and test plan | IN PROGRESS | PR #157 `MERGED`; `origin/main=15ccee15`; closeout SHA ancestor PASS; PRODUCT/DESIGN and requested UI workflow loaded; no product mutation | Pending documentation checkpoint | Pre-implementation only | Inspect Files/Vault source and tests; write RED suites; implement continuous Shape→Craft→Critique→Audit→Harden→Polish | Commit this session-start record, then begin RED tests |
+
+## Completed Dependency — PRIVATE-VAULT-ENCRYPTED-HIERARCHY-1
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `feat/idea1-private-vault-encrypted-hierarchy`; PR #157 **OPEN / Draft**.
