@@ -5829,8 +5829,8 @@ Current state                 = IN PROGRESS — design + RED checkpoint
 
 L8_HANDLER_REGISTERED         = NO
 L8_REPOSITORY_IMPLEMENTED     = NO
-L8_OPERATIONAL_DESIGN         = IN PROGRESS
-RED_FIRST_PROVEN              = NOT YET
+L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
+RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
 
 L2_HANDLER                    = REGISTERED
 L3_HANDLER                    = REGISTERED
@@ -5885,8 +5885,8 @@ LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 - Dependencies: item 1.
 - Safety boundary: documentation only.
 - Acceptance: every section carries DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
-- Evidence: design commit SHA.
-- Status: IN PROGRESS.
+- Evidence: design commit `c2422924d658150d20b59866eb14df2ec7483991`; reconciliation table records seven prior-candidate fragments resolved against current owner decisions.
+- Status: DONE.
 
 **3. RED-First Contract**
 - Goal: genuine failing acceptance tests before implementation.
@@ -5894,8 +5894,8 @@ LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
 - Dependencies: item 2.
 - Safety boundary: fixture/mock hardware only; tests never open a real serial device.
 - Acceptance: RED run fails for missing behavior, not import/syntax errors; retained failure count recorded.
-- Evidence: RED pytest output + RED commit SHA.
-- Status: PLANNED.
+- Evidence: RED run of `tests/test_pr11_phase4_l8_handler.py` = **53 failed, 17 passed**; zero `ImportError`/`SyntaxError`/`ModuleNotFoundError`, so the failures are missing behaviour rather than manufactured breakage. The 17 pre-satisfied tests assert already-merged firmware, NVS-schema, and `p4-lib.sh` contracts.
+- Status: DONE.
 
 **4. Repository Implementation**
 - Goal: register `stages/L8/` (5 files) plus the device-provisioning helper.
