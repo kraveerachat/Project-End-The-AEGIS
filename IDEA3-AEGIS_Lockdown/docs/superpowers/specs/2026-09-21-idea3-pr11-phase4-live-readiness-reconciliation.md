@@ -15,6 +15,7 @@ Production Mutation: STRICTLY FORBIDDEN / NONE OBSERVED
 > no stage, modifies no host service, generates no credentials, accesses no live
 > Core or broker, actuates no relay, and contacts no live package manager.
 > `PHASE4_RUNTIME_COMPLETE = NO` and `PHASE4_LIVE_READINESS = NOT READY`.
+> `FIRST_SAFE_NEXT_ACTION = human review of PR #168, then owner-issued same-day A-L0 and fresh read-only L0 capture`.
 
 ---
 
@@ -29,8 +30,9 @@ Production Mutation: STRICTLY FORBIDDEN / NONE OBSERVED
    (`p4-compare.sh`), stage gating (`p4-stage-gate.sh`), shared constants
    (`p4-lib.sh`), and the synthetic unregistered-handler guard test fixture
    (`AEGIS_P4_HANDLER_DIR`) are merged and tested.
-3. **Phase 2 Runtime Dependency**: `PHASE2_RUNTIME_COMPLETE = YES` (closed in PR #148;
-   T3 wrong-CA and T4 revoked-certificate gates passed on live owner evidence).
+3. **Phase 2 Runtime Dependency**: `PHASE2_RUNTIME_COMPLETE = YES` (closed in PR #146,
+   commit `232759cf4e44094c61f15e3d041c09eb1478b42c`; T3 wrong-CA and T4 revoked-certificate
+   gates passed on live owner evidence; final receipt `2026-09-17_011132_music_idea3-pr11-phase2-runtime-closeout.md`).
 4. **Phase 3 Repository Preparation**: Merged via PR #149 (`42b13625`); systemd 261
    compatibility correction, `LoadCredential=` config for `k_c2d`, `k_d2c`,
    `mqtt-core.pass`, `admin.pin`, and `systemd_credentials.py` are complete.
@@ -63,36 +65,43 @@ Production Mutation: STRICTLY FORBIDDEN / NONE OBSERVED
    persistence are post-Phase-4 gates and remain open.
 
 ### 1.3 Which evidence is stale and requires fresh owner-run proof?
-1. **Host Disk Headroom**: Prior owner evidence (2026-09-17) recorded 53G/59G used (~94%
-   usage, 3.8G free); L1 design noted ~97% usage. Under OD-L1-07, L1 requires >= 5% free
-   headroom. Current live headroom is classified as `STALE_NEEDS_FRESH_PROOF`
-   (`NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF`). Old readings cannot be called current.
-2. **IDEA2 §10 Preservation**: Last proven evidence (2026-09-17) recorded
-   `PROCESS_ACTIVE != TUNNEL_HEALTHY != IDEA2_RUNTIME_HEALTHY` (`aegis-detection-tunnel.service`
-   flapping with NRestarts > 1450; Detection Engine heartbeat failing).
-   `IDEA2_S10_PRESERVATION = BLOCKED_BY_LAST_PROVEN_EVIDENCE`. Actual current live state
-   is unmeasured and classified as `NEEDS_FRESH_OWNER_RUN_EVIDENCE`.
+1. **Host Disk Headroom**:
+   - `DISK_PRIOR_EVIDENCE = ~94–97% used` (53G/59G used, 3.8G free from 2026-09-17 owner preflight).
+   - Under OD-L1-07, L1 requires >= 5% free headroom before package installation.
+   - `DISK_CURRENT_STATE = NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF`.
+   - `DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`. Calling old readings "current" is forbidden.
+2. **IDEA2 §10 Preservation**:
+   - `IDEA2_LAST_PROVEN = unhealthy/blocking` (last proven evidence from 2026-09-17 recorded
+     `PROCESS_ACTIVE != TUNNEL_HEALTHY != IDEA2_RUNTIME_HEALTHY`; `aegis-detection-tunnel.service`
+     flapping with NRestarts > 1450; Detection Engine heartbeat failing).
+   - `IDEA2_S10_PRESERVATION = BLOCKED_BY_LAST_PROVEN_EVIDENCE`.
+   - `IDEA2_CURRENT_STATE = NEEDS_FRESH_OWNER_RUN_EVIDENCE`.
+   - No IDEA2 mutation is permitted before A-L0.
 3. **Host Baseline Configuration**: Network interfaces (`enp62s0`), routing, iptables/nftables
    ruleset, and listening sockets (1883 active, 8883 absent) were characterized on 2026-09-17.
    Requires a fresh read-only L0 baseline capture before any mutation.
 4. **K12 Reboot Persistence**: Unproven since PR10 (`K12 = NOT_PROVEN`).
 
 ### 1.4 Which items require explicit owner/integration decisions?
-1. **FIND-L9-01 Disposition**: `firmware/src/main.cpp` implements heartbeat replay
-   via a 20-slot `msg_id` ring, while Protocol v1 design §6.1 specifies strictly
-   increasing `issued_at`. Classified as `OWNER_DECISION_REQUIRED`. The owner must
-   decide whether to amend firmware (requiring an L8 rebuild/reflash) or accept the
-   20-slot ring in design.
-2. **Disk Headroom Remediation**: Owner decision and action to clean up host disk space
-   to guarantee >= 5% free headroom before Stage L1.
+1. **FIND-L9-01 Disposition**:
+   - `BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE`.
+   - `firmware/src/main.cpp` implements heartbeat replay via a 20-slot `msg_id` ring, while
+     Protocol v1 design §6.1 specifies strictly increasing `issued_at`.
+   - Classified as `OWNER_DECISION_REQUIRED` before live L9 acceptance.
+   - If the owner chooses to fix firmware rather than reconcile the design, then a new firmware image
+     may require revisiting/reflashing/revalidating L8 before proceeding to L9. That is a conditional
+     consequence, not the current direct blocker.
+2. **Disk Headroom Remediation**:
+   - `DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`.
+   - Owner decision and cleanup outside the stage if fresh L0 proves free headroom is < 5%.
 3. **Owner-Supplied Runtime Values (OV-01..OV-17)**: Real values for AP SSID, PSK,
    AP subnet, Core AP IP, DHCP pool, broker TLS hostname/SAN, ESP32 device ID/MAC,
    serial port path, Mosquitto passwords, admin PIN, HMAC keys `K_C2D`/`K_D2C`,
    `restore.credential`, and trusted upstream NTP server.
 4. **Stage Authorizations & Reviews**:
-   - A-L0 issuance by Music (read-only);
+   - A-L0 issuance by Music (read-only baseline capture);
+   - Fresh K3 confirmation by Kla for mutating window (after blockers cleared);
    - A-L1 issuance by Music with D6 notice to Pub;
-   - Fresh K3 confirmation by Kla for L1 window;
    - A-L2 issuance with integration review by Kla;
    - A-L8 issuance with pre-verified recovery authorization.
 
@@ -100,13 +109,14 @@ Production Mutation: STRICTLY FORBIDDEN / NONE OBSERVED
 - **To run read-only Stage L0**:
   1. A-L0 same-day authorization from Music does not exist (`A-L0 = NOT_AUTHORIZED`).
   2. Owner read-only session initiation on the physical Core host is pending.
+  *(Note: A-L0 is strictly read-only; no disk cleanup or IDEA2 mutation is required before A-L0).*
 - **To run Stage L1 (first mutating stage)**:
   1. Fresh L0 baseline bundle has not been captured and reviewed.
-  2. **IDEA2 §10 Preservation Blocker**: Last proven evidence is unhealthy (`IDEA2_S10_PRESERVATION = BLOCKED_BY_LAST_PROVEN_EVIDENCE`).
-     If the fresh L0 capture shows the tunnel flapping, `p4-compare.sh` will fail closed
-     (`PRESERVATION_S10=FAIL`, `COMPARE_RESULT=FAIL`).
-  3. **Disk Headroom Blocker**: Prior evidence shows ~94–97% root disk usage. If free space
-     is < 5%, Stage L1 fails closed (`OD-L1-07`).
+  2. **Disk Headroom Check**: If fresh L0 proves root disk free space < 5%, host disk cleanup
+     outside the stage is required before L1 (`DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`).
+  3. **IDEA2 §10 Preservation Blocker**: If fresh L0 proves the tunnel remains unhealthy,
+     STOP until resolved through IDEA2 owner repair or a written owner-accepted narrowed criterion
+     (`PRESERVATION_S10 = FAIL`, `COMPARE_RESULT = FAIL`).
   4. Same-day A-L1 authorization is missing (`A-L1 = NOT_AUTHORIZED`).
   5. Same-day K3 non-overlap confirmation from Kla is missing (`FRESH_K3_REQUIRED = YES`).
   6. D6 co-residence notice to Pub is missing.
@@ -114,27 +124,30 @@ Production Mutation: STRICTLY FORBIDDEN / NONE OBSERVED
 
 ### 1.6 What is the correct safe sequence from current state to A-L0 and then A-L1?
 ```text
-REPOSITORY READY
+human-reviewed reconciliation (PR #168)
   ↓
-BLOCKER RESOLUTION (disk cleanup plan, IDEA2 health investigation, owner value staging)
+same-day A-L0 authorization (Music issues read-only A-L0)
   ↓
-SAME-DAY READ-ONLY PRECHECK (host connectivity, time sync, read-only access)
+fresh L0 read-only capture (owner runs p4-l0-capture.sh -> BEFORE_L0_BUNDLE)
   ↓
-A-L0 AUTHORIZATION (Music issues same-day read-only A-L0)
+review L0 results (inspect disk headroom, IDEA2 tunnel/process health, listeners, routes)
   ↓
-FRESH L0 CAPTURE (owner runs p4-l0-capture.sh -> BEFORE_L0_BUNDLE)
+conditional blocker resolution:
+  - if disk free < 5%, cleanup outside stage and obtain fresh evidence
+  - if IDEA2 §10 still cannot pass, STOP and resolve through IDEA2 owner repair or written narrowed criterion
+  - stage owner values (OV-01..OV-17) out-of-band
+  - resolve FIND-L9-01 owner decision before live L9 acceptance
   ↓
-REVIEW L0 BUNDLE (verify disk headroom >= 5%, inspect IDEA2 tunnel status & baseline)
+only after blockers are cleared:
+fresh K3 confirmation for L1 (Kla verifies no IDEA1 overlap -> issues same-day K3 for L1)
   ↓
-FRESH K3 CONFIRMATION (Kla verifies no IDEA1 overlap -> issues same-day K3 for L1)
+A-L1 authorization (Music issues same-day A-L1 with d6_notice=pub, integration_review=kla)
   ↓
-A-L1 AUTHORIZATION (Music issues same-day A-L1 with d6_notice=pub, integration_review=kla)
+live L1 execution (owner runs p4-stage-gate.sh --stage L1 --mode live --authorization A-L1 --k3 K3)
   ↓
-LIVE L1 EXECUTION (owner runs p4-stage-gate.sh --stage L1 --mode live --authorization A-L1 --k3 K3)
+preservation verification (capture AFTER_L1_BUNDLE, run p4-compare.sh BEFORE_L0 AFTER_L1 -> PASS)
   ↓
-PRESERVATION VERIFICATION (capture AFTER_L1_BUNDLE, run p4-compare.sh BEFORE_L0 AFTER_L1 -> PASS)
-  ↓
-ONLY THEN CONSIDER L2 (review L1 evidence, verify rollback state, prepare L2 prerequisites)
+only then consider L2 (review L1 evidence, verify rollback state, prepare L2 prerequisites)
 ```
 
 ---
@@ -215,21 +228,22 @@ before Stage L7 can start the Core service. RESTORE actuation is strictly forbid
 - Status: `FRESH_K3_REQUIRED = YES` for every mutating stage (`L1`..`L9`).
 
 ### G. Disk Headroom
-- `KNOWN_PRIOR_MEASUREMENT`: Root filesystem was ~94–97% used (53G/59G, 3.8G available).
+- `DISK_PRIOR_EVIDENCE = ~94–97% used` (53G/59G, 3.8G available from 2026-09-17 owner preflight).
 - Requirement: OD-L1-07 requires >= 5% free headroom (usage < 95%) before package installation.
-- Current live status: `NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF`.
-- Calling the old reading "current" is forbidden. Live L1 will fail closed if headroom < 5%.
+- `DISK_CURRENT_STATE = NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF`.
+- `DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`.
+- Calling the old reading "current" is forbidden. Fresh read-only L0 capture measures actual live headroom; if free space is < 5%, host disk cleanup is required outside the stage before L1.
 
 ### H. FIND-L9-01 (Firmware Replay Window)
 - Description: `firmware/src/main.cpp` `handleHeartbeat` implements a 20-slot `msg_id` ring
   for replay rejection, while Protocol v1 design §6.1 specifies strictly increasing `issued_at`.
-- Status: `FIND-L9-01 = OWNER_DECISION_REQUIRED`.
-- Effect:
-  - If owner decides to update firmware to enforce strictly increasing `issued_at`, this requires
-    a firmware build change and re-flash plan, which blocks live Stage L8 and live Stage L9.
-  - If owner decides to accept the 20-slot `msg_id` ring as equivalent, firmware remains untouched,
-    and the issue blocks only final L9 acceptance reconciliation.
-  - Repository authority does not decide this; the decision is reserved for the functional owner.
+- Status: `FIND-L9-01 = OWNER_DECISION_REQUIRED` before live L9 acceptance.
+- Direct Blocker: `BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE`.
+- Scope Clarification: FIND-L9-01 does NOT directly block live L8. Live L8 flashes the candidate
+  firmware image. If the owner chooses to amend firmware to implement strictly increasing
+  `issued_at`, that choice would require a new firmware build, which conditionally necessitates
+  revisiting/reflashing/revalidating L8 before proceeding to L9. If the owner accepts the 20-slot
+  ring as equivalent in design, no firmware change or reflash is needed.
 
 ### I. Live Authorization Matrix
 Every stage requires a dedicated same-day authorization record (`AEGIS_P4_AUTHORIZATION_V1`)
@@ -259,28 +273,28 @@ issued by `music` with exact matching stage and valid reference.
 | **L7 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L7` = `REGISTERED` | 2026-09-21 (PR #165) | NO | music | None | Handler closed |
 | **L8 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L8` = `REGISTERED` | 2026-09-21 (`b4670eb3`, PR #166) | NO | music | None | Handler closed |
 | **L9 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L9` = `REGISTERED`; 154 passed in focused suite | 2026-09-21 (`b4670eb3`, PR #166) | NO | music | None | Handler closed |
-| **Phase 2 Runtime** | Runtime Prerequisite | `CLOSED_REPOSITORY` | `PHASE2_RUNTIME_COMPLETE = YES`; T3/T4 live pass | 2026-09-17 (PR #148) | NO | music | None | Preserve Phase 2 PKI & CRL |
+| **Phase 2 Runtime** | Runtime Prerequisite | `CLOSED_REPOSITORY` | `PHASE2_RUNTIME_COMPLETE = YES`; T3/T4 live pass | 2026-09-17 (`232759cf`, PR #146) | NO | music | None | Preserve Phase 2 PKI & CRL |
 | **Phase 3 Repo PR** | Repository Implementation | `CLOSED_REPOSITORY` | PR #149 merged (`42b13625`); systemd 261 & credentials support | 2026-09-18 (PR #149) | NO | music | None | Code merged on main |
 | **Phase 3 Live Runtime** | Runtime Prerequisite | `OPEN` | `PHASE3_RUNTIME_COMPLETE = NO`; Core service uninstalled; G12/G13 unproven | 2026-09-18 (PR #149) | YES | music | Post-L7 / Phase 3 closeout | Handled via Stage L7 execution |
 | **D4 Repo Implementation** | Recovery Architecture | `CLOSED_REPOSITORY` | PR #138 merged (`3fd8d4d1`); D4 CLI implemented | 2026-09-16 (PR #138) | NO | music | None | Code merged on main |
 | **D4 Local Verification** | Verification | `CLOSED_REPOSITORY` | `test_local_restore.py` PASS; audit fail-closed verified | 2026-09-16 (PR #138) | NO | music | None | Maintained in pytest |
 | **D4 Live Verification** | Recovery Architecture | `MERGED_BUT_LIVE_UNPROVEN` | `D4_LIVE_VERIFIED = NO`; never executed live | 2026-09-16 (PR #138) | YES | music | Post-Phase-4 recovery gate | Await post-deployment verification |
 | **K3 Non-Overlap** | Governance / Safety | `OPEN` | Prior K3 confirmations expired | 2026-09-17 | YES | kla | Live L1..L9 (all mutating stages) | Kla issues same-day K3 for each window |
-| **IDEA2 §10 Preservation** | Cross-IDEA Safety | `BLOCKED` | `IDEA2_TUNNEL_HEALTHY = NO` (NRestarts > 1450); `COMPARE_RESULT=FAIL` | 2026-09-17 (PR #152) | YES | pub | Live L1..L9 compare gate | Fresh owner evidence / IDEA2 repair |
-| **Disk Headroom** | Host Resource | `STALE_NEEDS_FRESH_PROOF` | ~94–97% root filesystem usage (53G/59G used); L1 requires >= 5% free | 2026-09-17 / 2026-09-21 | YES | music / kla | Live L1 (fails closed if < 5%) | Fresh L0 capture; host cleanup |
+| **IDEA2 §10 Preservation** | Cross-IDEA Safety | `BLOCKED` | `IDEA2_TUNNEL_HEALTHY = NO` (NRestarts > 1450); `COMPARE_RESULT=FAIL` | 2026-09-17 (PR #152) | YES | pub | Live L1..L9 compare gate | Fresh owner evidence via L0; IDEA2 repair |
+| **Disk Headroom** | Host Resource | `STALE_NEEDS_FRESH_PROOF` | `DISK_PRIOR_EVIDENCE = ~94–97% used; DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF` | 2026-09-17 / 2026-09-21 | YES | music / kla | Live L1 (fails closed if < 5%) | Measure via fresh L0; cleanup if free space < 5% |
 | **Phase 4 Owner Values** | Configuration / Secrets | `OWNER_DECISION_REQUIRED` | Templates contain `<AEGIS_...>` placeholders | 2026-09-17 (Spec) | YES | music / kla | Live L2..L8 | Owner generates values out-of-band |
-| **A-L0 Authorization** | Authorization | `NOT_AUTHORIZED` | No A-L0 record exists | Current (2026-09-21) | YES | music | Live L0 capture | Music issues same-day A-L0 |
+| **A-L0 Authorization** | Authorization | `NOT_AUTHORIZED` | No A-L0 record exists | Current (2026-09-21) | YES | music | Live L0 capture | Music issues same-day read-only A-L0 |
 | **A-L1..A-L9 Auth** | Authorization | `NOT_AUTHORIZED` | No A-L1..A-L9 records exist | Current (2026-09-21) | YES | music | Live L1..L9 | Issue separately on execution day |
 | **Live L0 Baseline** | Live Baseline | `OPEN` | `p4-l0-capture.sh` tested in harness; never run live | Current (2026-09-21) | YES | music | Live L1 | Run after A-L0 is issued |
 | **Live L1..L9 Execution** | Live Execution | `BLOCKED` | `L1..L9 live = NOT RUN`; live backend fails closed | Current (2026-09-21) | YES | music | Phase 4 live closeout | Sequential execution after gates pass |
-| **FIND-L9-01** | Protocol / Firmware | `OWNER_DECISION_REQUIRED` | Firmware 20-slot ring vs strictly increasing `issued_at` in §6.1 | 2026-09-21 (PR #166) | NO | music | Live L8/L9 or L9 acceptance | Owner decides firmware fix vs design accept |
+| **FIND-L9-01** | Protocol / Firmware | `OWNER_DECISION_REQUIRED` | Firmware 20-slot ring vs strictly increasing `issued_at` in §6.1 | 2026-09-21 (PR #166) | NO | music | Live L9 acceptance (`BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE`) | Owner decision before live L9 acceptance |
 | **ESP32 Hardware Proof** | Physical Hardware | `OPEN` | Lab fail-secure proven (PR5); live serial connection unproven | 2026-09-11 (PR5) | YES | music | Live L8, L9 | Owner confirms serial & power on Core |
 | **L8 Recovery Requirement** | Recovery Architecture | `OWNER_DECISION_REQUIRED` | Recovery auth required in A-L8; backup binary needed | 2026-09-21 (PR #166) | YES | music | Live L8 | Prepare backup image & physical jumper |
 | **K12 Reboot Persistence** | Host Persistence | `MERGED_BUT_LIVE_UNPROVEN` | `K12 = NOT_PROVEN` throughout PR10/P1/P2/P3 | 2026-09-12 | YES | kla / music | Post-Phase-4 acceptance gate | Scheduled after full live deployment |
 | **Plaintext 1883 Removal** | Broker Hardening | `NOT_APPLICABLE_YET` | Plaintext 1883 intentionally retained in Phase 4 | 2026-09-19 (PR #159) | NO | music / kla | Post-Phase-4 gate | Strictly forbidden in Phase 4 |
 | **CUT Actuation** | Physical Safety | `NOT_APPLICABLE_YET` | Lab proven in PR5; forbidden in Phase 4 | 2026-09-11 (PR5) | YES | music | Post-Phase-4 live gate | Strictly forbidden in Phase 4 |
 | **RESTORE Actuation** | Physical Safety | `NOT_APPLICABLE_YET` | Local proven in PR #138; forbidden in Phase 4 | 2026-09-16 (PR #138) | YES | music | Post-Phase-4 live gate | Strictly forbidden in Phase 4 |
-| **CRL Renewal Scheduling** | PKI Lifecycle | `OPEN` | CRL generation proven; automated timer absent | 2026-09-17 (PR #148) | YES | music / kla | Post-Phase-4 operational gate | Deploy systemd timer post-deployment |
+| **CRL Renewal Scheduling** | PKI Lifecycle | `OPEN` | CRL generation proven; automated timer absent | 2026-09-17 (`232759cf`, PR #146) | YES | music / kla | Post-Phase-4 operational gate | Deploy systemd timer post-deployment |
 | **Resource Quotas** | Service Quotas | `OPEN` | Quotas unconfigured (`QUOTAS = none`) | 2026-09-18 (PR #149) | YES | music | Post-Phase-4 operational gate | Characterize under load; add limits |
 
 ---
@@ -301,25 +315,25 @@ flowchart TD
         RR1 --> RR2 --> RR3
     end
 
-    subgraph BlockerRes["2. Blocker Resolution"]
-        BR1["Inspect Disk Headroom: Clean if Free < 5%"]
-        BR2["IDEA2 Tunnel Investigation: Restore Health or Agreed Criterion"]
-        BR3["Owner Values: Stage OV-01..OV-17 Out-of-Band"]
-        BR4["FIND-L9-01 Owner Decision Recorded"]
-        BR1 --> BR2 --> BR3 --> BR4
-    end
-
-    subgraph PrecheckL0["3. Read-Only Precheck & L0"]
+    subgraph PrecheckL0["2. Read-Only Precheck & Fresh L0 Capture"]
         P1["Verify Host Connectivity & Time Sync"]
         P2["Music Issues Same-Day A-L0 (Read-Only)"]
         P3["Run p4-l0-capture.sh -> BEFORE_L0_BUNDLE"]
-        P4["Review L0: Confirm Headroom >= 5% & §10 Baseline"]
-        P1 --> P2 --> P3 --> P4
+        P1 --> P2 --> P3
+    end
+
+    subgraph ReviewAndBlockers["3. Review L0 & Conditional Blocker Resolution"]
+        B1["Review L0: Measure Headroom & Inspect §10 Health"]
+        B2["If Disk Free < 5%: Cleanup Outside Stage"]
+        B3["If §10 Unhealthy: STOP (Owner Repair or Narrowed Criterion)"]
+        B4["Stage Owner Values OV-01..OV-17 Out-of-Band"]
+        B5["Resolve FIND-L9-01 Decision Before Live L9 Acceptance"]
+        B1 --> B2 & B3 & B4 & B5
     end
 
     subgraph GateL1["4. Stage L1 Execution"]
         GL1["Kla Issues Same-Day K3 (idea1_window_overlap=NONE)"]
-        GL2["Music Issues Same-Day A-L1 (d6_notice=pub)"]
+        GL2["Music Issues Same-Day A-L1 (d6_notice=pub, integration_review=kla)"]
         GL3["Execute p4-stage-gate.sh --stage L1 --mode live"]
         GL4["Capture AFTER_L1_BUNDLE"]
         GL5["Run p4-compare.sh BEFORE_L0 AFTER_L1 -> PASS"]
@@ -330,7 +344,7 @@ flowchart TD
         S2["Consider L2 (Broker TLS Isolation)"]
         S3["Progress sequentially L3 -> L4 -> L5 -> L6a -> L6b -> L7"]
         S4["L8 Provision/Flash (Requires Hardware Proof & Recovery Auth)"]
-        S5["L9 Auth Without Actuation (No COMMAND/CUT/RESTORE)"]
+        S5["L9 Auth Without Actuation (Requires Prior FIND-L9-01 Decision)"]
         S2 --> S3 --> S4 --> S5
     end
 
@@ -342,26 +356,15 @@ flowchart TD
         PP1 --- PP2 --- PP3 --- PP4
     end
 
-    RepoReady --> BlockerRes --> PrecheckL0 --> GateL1 --> NextStages --> PostP4
+    RepoReady --> PrecheckL0 --> ReviewAndBlockers --> GateL1 --> NextStages --> PostP4
 ```
 
 ### Step 1: Repository Readiness (CURRENT STATE — CLOSED)
 - `L1..L9` stage handlers verified registered on `origin/main` (`3662faa3`).
 - 1705 IDEA3 tests pass (including 725 Phase 4 tests).
-- Reconciliation documented and PR opened.
+- Reconciliation documented in PR #168.
 
-### Step 2: Blocker Resolution (Human Owner Action Required)
-1. **Disk Headroom**: Owner inspects host root partition. If free space is < 5%, perform
-   package cache cleaning or unneeded file removal until free space >= 5%.
-2. **IDEA2 §10 Health**: IDEA2 owner (Pub) investigates `aegis-detection-tunnel.service`
-   flapping and Detection Engine heartbeat failure. Tunnel must be healthy OR a written,
-   IDEA2-owner-accepted criterion must be established.
-3. **Owner Values Staged**: Music prepares stage input files (`ov-*.txt`) containing real
-   SSID, PSK, subnets, passwords, and keys, storing them locally with `chmod 0600`.
-4. **FIND-L9-01 Decision**: Music records decision regarding whether firmware is to be updated
-   before L8 or the 20-slot ring is accepted in design.
-
-### Step 3: Same-Day Read-Only Precheck & L0 Capture
+### Step 2: Read-Only Precheck & Fresh L0 Capture
 1. **Time & Connectivity**: Confirm Core host is reachable and time synchronization is healthy.
 2. **Issue A-L0**: Music generates same-day `AEGIS_P4_AUTHORIZATION_V1` record:
    ```text
@@ -372,15 +375,25 @@ flowchart TD
    scope=read-only baseline preflight capture
    reference=PR11-L0-PREFLIGHT
    ```
-3. **Execute L0**: Owner runs:
+3. **Execute L0**: Owner runs read-only capture:
    ```bash
    bash deploy/pr11-phase4/p4-l0-capture.sh /var/tmp/p4-evidence/before-L0
    ```
-4. **Review L0**:
-   - Inspect `disk.usage_percent` (must be < 95%).
-   - Inspect `idea2.tunnel.active_state` and restart counts.
-   - Inspect network listeners (1883 active, 8883 absent).
-   - If disk usage >= 95% or §10 check fails, **STOP IMMEDIATELY**.
+
+### Step 3: Review L0 Results & Conditional Blocker Resolution
+1. **Review L0 Evidence**: Establish current live truth:
+   - Check `disk.usage_percent`:
+     - If free space >= 5%: headroom requirement is satisfied without cleanup.
+     - If free space < 5%: perform host root cleanup outside the stage (`DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`) and recapture baseline.
+   - Check `idea2.tunnel.active_state`, restart counts, and heartbeat:
+     - If tunnel is healthy: §10 preservation baseline passes.
+     - If tunnel remains unhealthy: **STOP IMMEDIATELY**. Live mutating stages cannot proceed until resolved through IDEA2 owner repair or a written owner-accepted narrowed criterion.
+   - Inspect network listeners (1883 active, 8883 absent) and default route.
+2. **Stage Owner Values**: Music prepares stage input files (`ov-*.txt`) containing real
+   SSID, PSK, subnets, passwords, and keys, storing them locally with `chmod 0600`.
+3. **FIND-L9-01 Decision**: Music records decision regarding whether firmware is to be updated
+   (requiring an L8 rebuild/reflash before L9) or the 20-slot ring is accepted in design before
+   live L9 acceptance.
 
 ### Step 4: Fresh K3 & Stage L1 Execution
 1. **Issue Fresh K3**: Kla verifies no overlapping IDEA1 production mutation and issues:
