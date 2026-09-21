@@ -6584,9 +6584,11 @@ SCOPE                         = repository harness repair only
 DEFECT_1_LOCALE_FIX           = export LC_ALL=C in validation scripts; regex evaluates deterministically in ASCII byte order
 DEFECT_2_SPACES_FIX           = argv-aware filesystem read validation for stat, sha256sum, readlink, find; safe paths with spaces accepted
 DEFECT_3_PARTIAL_FIX          = rec_file and rec_pwfile set partial=1 on UNREADABLE metadata/digest (L0_CAPTURE=PARTIAL, exit 3)
-FOCUSED_HARNESS_RESULT        = PASS (167 passed in 43.34s)
-FULL_PHASE4_RESULT            = FAIL (7 failed, 724 passed; local paho-mqtt 1.6.1 missing CallbackAPIVersion)
-FULL_PHASE4_FAILURE_CLASS     = LOCAL_DEPENDENCY_ENVIRONMENT
+PINNED_ENV_PAHO_MQTT          = 2.1.0 (~/.venvs/aegis-idea3-core)
+PINNED_FOCUSED_HARNESS        = PASS (167 passed in 43.89s)
+PINNED_FULL_PHASE4            = PASS (731 passed in 102.51s)
+SYSTEM_PYTHON_FULL_PHASE4     = 7 FAIL / 724 PASS (paho-mqtt 1.6.1 missing CallbackAPIVersion)
+SYSTEM_FAILURE_CLASS          = PRE_EXISTING_LOCAL_DEPENDENCY_ENVIRONMENT
 DIAGNOSTIC_L0_OFFICIAL        = NO — diagnostic evidence only; official L0 requires fresh run after repair
 PRODUCTION_MUTATION           = NO
 PR                            = DRAFT pending review
@@ -6613,7 +6615,7 @@ Production mutation allowed: NO
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; 167 GREEN harness tests passed; full phase 4 suite has 7 environmental failures from local paho-mqtt 1.6.1; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | `03d9f9d8` | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
+| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; pinned venv (paho-mqtt 2.1.0): 167/167 harness passed, 731/731 full phase 4 passed; system python: 7 environmental failures from local paho-mqtt 1.6.1; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | `03d9f9d8` | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
 
 
 ## 🔗 Related Notes
