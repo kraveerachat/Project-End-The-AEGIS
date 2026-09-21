@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L8 allowed listeners.
+#
+# Stage L8 opens NO TCP or UDP listening socket on the Core host.
+# This file must remain empty of active listeners (OD-L8-07).

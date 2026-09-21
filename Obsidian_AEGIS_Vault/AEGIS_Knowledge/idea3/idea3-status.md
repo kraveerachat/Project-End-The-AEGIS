@@ -5816,6 +5816,222 @@ No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout comm
 - Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_032940_music_idea3-pr11-phase4-l7-handler.md`.
 
 
+## IDEA3 PR11 Phase 4 L8 ESP32 provisioning / flash handler repository registration — 2026-09-21
+
+> [!important] Repository-only L8 handler registration. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS provisioning / flash handler
+Branch                        = feat/idea3-pr11-phase4-l8-handler
+START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
+Session                       = L8-S1 (closed)
+DESIGN_COMMIT                 = c2422924d658150d20b59866eb14df2ec7483991
+RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
+GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
+CLOSEOUT_COMMIT               = fee8e4f687847ff75f8a5d0da4e03cce2f97a420
+L8_PR_OPENED                  = YES (PR #165, Draft, CI collaboration-guardrails PASS)
+L8_PR_MERGED                  = NO (human review and merge pending)
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
+
+L8_HANDLER_REGISTERED         = YES
+L8_REPOSITORY_IMPLEMENTED     = YES
+L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
+RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
+
+L2_HANDLER                    = REGISTERED
+L3_HANDLER                    = REGISTERED
+L4_HANDLER                    = REGISTERED
+L5_HANDLER                    = REGISTERED
+L6A_HANDLER                   = REGISTERED
+L6B_HANDLER                   = REGISTERED
+L7_HANDLER                    = REGISTERED
+L8_HANDLER                    = REGISTERED
+
+L2..L8                        = NOT RUN
+L7_LIVE_AUTHORIZED            = NO
+L8_LIVE_AUTHORIZED            = NO
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+L8_INVENTORY_COMPLETE         = YES
+G04_CURRENT_STATE             = NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL
+ESP32_ADDRESS_MODEL_CURRENT   = DHCP
+G11_CURRENT_STATE             = PARTIAL_REPOSITORY
+G16_CURRENT_STATE             = CLOSED_REPOSITORY
+
+OD14_RECOVERY_POLICY          = D4_ONLY
+INTERIM_RECOVERY_PROCEDURE    = NOT_APPROVED
+D4_LIVE_REQUIRED_BEFORE_FLASH = YES
+L8_INSPECTION_CLASS           = NON_WRITING_BUT_DEVICE_RESETTING
+L8_INSPECTION_WINDOW_REQUIRED = YES
+PRODUCTION_KEY_GENERATION     = OWNER_CONTROLLED_OFFLINE
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+SERIAL_PORT_OPENED            = NO
+FIRMWARE_FLASHED              = NO
+ESP32_MUTATION                = NO
+LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
+```
+
+### Closeout evidence
+
+- L8 focused pytest (`test_pr11_phase4_l8_handler.py`): **77 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **542 passed**, 0 failed.
+- Full IDEA3 suite: **1522 passed, 6 skipped**. Pre-task baseline on `0544f1cc` was **1445 passed, 6 skipped**, so the delta is exactly the 77 new L8 tests: no existing test was lost, skipped, or weakened.
+- Firmware + NVS + G-15 + L8 focused: **113 passed**.
+- `bash -n` on all seven Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L8`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan over new files: no matches.
+- RED-first provenance: **53 failed / 17 passed** before implementation, no import or syntax failure.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, **L8** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L8 = NOT RUN`, `L8_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L8_PHYSICAL_PROOF = NOT PROVEN`.
+
+### Session L8-S1 — audit findings, negative controls, and evidence
+
+**Defects found by independent source audit of the new L8 code, and fixed:**
+
+1. **Partition geometry was only half-derived.** `derive_nvs_offset` correctly
+   read the `nvs` offset from the reviewed table, but the firmware write used a
+   hardcoded `0x10000` application offset. That silently reintroduced exactly
+   the guess OD-L8-03 exists to forbid. Replaced with a general
+   `derive_partition_geometry(table, selector)` used for both the `nvs` and the
+   application partition, with no default and no fallback for either, and the
+   NVS *size* likewise derived instead of falling back to `0x5000`.
+2. **The placeholder-CA scan could reject a valid trust anchor.** It uppercased
+   the whole header and searched for `TODO`, `CHANGEME`, `FIXME` and similar.
+   Those letters are all in the base64 alphabet, so a genuine certificate whose
+   body happened to spell one would have been refused, and a real flash window
+   would have failed on a false positive. Narrowed to: scan the certificate
+   body only, for tokens carrying a separator outside the base64 alphabet, plus
+   a strict base64 alphabet check and a body length floor that catches
+   separator-free placeholders.
+3. **A failed device write produced no evidence.** The write was wrapped in a
+   `try/except` that re-raised, so a failure at or after the first hardware
+   write aborted before the evidence bundle existed — directly contradicting
+   `FAIL_SECURE_HOLD_AND_EVIDENCE`. The failure is now recorded into the bundle
+   (`flash_result=FAIL`, `failure_boundary=DEVICE_WRITE`) and the run then exits
+   non-zero. Three regression tests now cover this path, including that the
+   failure-path bundle is held to the same secret-exclusion rule.
+
+**Negative controls** (break invariant → observe expected FAIL → restore → PASS;
+no mutation committed, sources verified byte-identical afterwards):
+
+| # | Invariant broken | Result |
+|---|---|---|
+| NC-1 | Evidence allowlist extra-field refusal disabled | `test_l8_evidence_bundle_rejects_an_extra_field` FAILED as expected |
+| NC-2 | OV-12 MAC equality gate disabled | `test_l8_mac_mismatch_fails_before_any_write` FAILED as expected |
+| NC-3 | Hardcoded `0x9000` NVS offset fallback introduced | 2 tests FAILED as expected (fail-closed + no-hardcoded-offset) |
+| NC-4 | Hardware-backend refusal removed from `apply.sh` only | **No test failed** — the refusal is enforced at two independent layers, so the shell gate alone is not load-bearing |
+| NC-4b | Refusal removed from **both** `apply.sh` and the device tool | 2 tests FAILED as expected |
+| NC-5 | Post-first-write rollback branch disabled | `test_l8_rollback_after_first_write_holds_fail_secure` FAILED as expected |
+
+NC-4 is recorded as a finding rather than hidden: it shows the hardware refusal
+is genuine defense in depth, and that no single-layer edit can silently open a
+live path.
+
+**Shared-harness edit declared:** `tests/test_pr11_phase4_harness.py` carries an
+explicit allowlist of reviewed stage handlers, so registering L8 requires adding
+it there and moving the unregistered-mutating-stage example from L8 to L9. This
+is the identical adjustment PR #164 made for L7 in commit `2741ea3f`.
+
+**Capability boundary actually implemented:** the only device backend is
+`fixture`; selecting `hardware` fails closed at two layers. The repository still
+contains no Production write tool, no Production readback verifier, and no
+Production key generator. No serial device was opened and no hardware exists.
+
+
+### L8 Task Map
+
+**1. Current Truth / Governance**
+- Goal: establish verified repository/Git/Obsidian truth before editing.
+- Scope: `AGENTS.md`, `START_HERE`, `core/agent-operating-rules`, `idea3/idea3-status`, Phase 4 prerequisites + batch + L7 designs, `deploy/pr11-phase4/**`, `firmware/**`.
+- Dependencies: PR #164 merged (`0544f1cc`).
+- Safety boundary: read-only.
+- Acceptance: branch/HEAD/origin-main verified; no conflict with prompt.
+- Evidence: `git rev-parse HEAD` = `origin/main` = `0544f1cc6…`; working tree clean.
+- Status: DONE.
+
+**2. L8 Operational Design**
+- Goal: formal OD-L8-01..OD-L8-09 design reconciled against owner decisions (OD-14, G-15 evidence model, inspection class).
+- Scope: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md`.
+- Dependencies: item 1.
+- Safety boundary: documentation only.
+- Acceptance: every section carries DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Evidence: design commit `c2422924d658150d20b59866eb14df2ec7483991`; reconciliation table records seven prior-candidate fragments resolved against current owner decisions.
+- Status: DONE.
+
+**3. RED-First Contract**
+- Goal: genuine failing acceptance tests before implementation.
+- Scope: `tests/test_pr11_phase4_l8_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture/mock hardware only; tests never open a real serial device.
+- Acceptance: RED run fails for missing behavior, not import/syntax errors; retained failure count recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l8_handler.py` = **53 failed, 17 passed**; zero `ImportError`/`SyntaxError`/`ModuleNotFoundError`, so the failures are missing behaviour rather than manufactured breakage. The 17 pre-satisfied tests assert already-merged firmware, NVS-schema, and `p4-lib.sh` contracts.
+- Status: DONE.
+
+**4. Repository Implementation**
+- Goal: register `stages/L8/` (5 files) plus the device-provisioning helper.
+- Scope: `deploy/pr11-phase4/stages/L8/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, `deploy/pr11-phase4/p4-l8-device.py`.
+- Dependencies: item 3.
+- Safety boundary: no real `/dev/tty*`, no esptool against hardware, no flash/erase/eFuse, no upload target, no Production key generation.
+- Acceptance: `p4_stage_handler_status L8` = `REGISTERED`; focused suite GREEN.
+- Evidence: `stages/L8/` five files present; `p4_stage_handler_status L8` = `REGISTERED`; L8 focused suite 70 passed at GREEN. `p4-lib.sh` needed no change — `L8` was already in `P4_STAGES`, `p4_stage_gaps`, and `p4_stage_auth_extra`.
+- Status: DONE.
+
+**5. Security / Failure Hardening**
+- Goal: close audit findings; prove fail-secure and secret-exclusion invariants.
+- Scope: same files as item 4.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: live gate fails closed; MAC mismatch fails before any write; placeholder CA and demo/test keys rejected; evidence allowlist exact and write-once; no secret reaches evidence or logs.
+- Evidence: three defects found by self-audit and fixed (below); L8 focused suite 77 passed after hardening; six negative controls run, sources restored byte-identical and never committed.
+- Status: DONE.
+
+**6. Regression Verification**
+- Goal: prove no Phase 4, firmware, or Core regression.
+- Scope: `tests/test_pr11_phase4_*.py`, `tests/test_firmware_*.py`, full IDEA3 suite.
+- Dependencies: item 5.
+- Safety boundary: repository tests only.
+- Acceptance: all PASS with exact counts recorded; no test weakened.
+- Evidence: full IDEA3 suite 1522 passed / 6 skipped (pre-task baseline 1445 / 6, so +77 = exactly the new L8 suite and no existing test lost); all Phase 4 suites 542 passed; Phase 4 harness 160 passed; firmware + NVS + G-15 focused 113 passed with L8; `bash -n` PASS on all seven Phase 4 shell scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**7. Documentation / Git Checkpoint**
+- Goal: keep canonical Obsidian synchronized with Git at every checkpoint.
+- Scope: this note.
+- Dependencies: items 2–6.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no checkpoint commit advances code while this note is stale.
+- Evidence: checkpoint SHAs `c2422924` (design), `679facdf` (RED), `902b19b9` (GREEN + hardening), plus the closeout commit. Obsidian was updated at each of them before the code advanced.
+- Status: DONE.
+
+**8. Closeout / PR**
+- Goal: exactly one immutable final receipt, then push and prepare one PR for human review.
+- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l8-handler.md`; GitHub PR.
+- Dependencies: items 2–7 complete.
+- Safety boundary: never merge; never force-push; never mark Ready unless instructed.
+- Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed at `fee8e4f6`; **PR #165** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/165), `collaboration-guardrails` CI PASS, `reviewDecision = REVIEW_REQUIRED`. The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
+
+**9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: physical ESP32 inspection, NVS write, flash, boot verification.
+- Dependencies: L2..L7 live PASS, D4 live recovery operational, device present, OV-08/09/12/13, OV-14 / fresh K3, same-day A-L8, IDEA2 §10 preservation, exact reviewed firmware/NVS build, applicable S-01..S-12 clear.
+- Safety boundary: inspection itself resets the device (`NON_WRITING_BUT_DEVICE_RESETTING`), so even inspection needs a maintenance window; flash failure is `FAIL_SECURE_CUT` with D4-only recovery.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L8_PHYSICAL_PROOF_REQUIRED = YES`, currently NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]

@@ -610,8 +610,8 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L3", "L4", "L5", "L6a", "L6b", "L7"}
-    for name in ("L2", "L3", "L4", "L5", "L6a", "L6b", "L7"):
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8"}
+    for name in ("L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8"):
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
             "apply.sh",
             "verify.sh",
@@ -1062,7 +1062,7 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    result = gate(tmp_path, "--stage", "L8", "--mode", "live", auth=auth_record("L8"), k3=k3_record("L8"))
+    result = gate(tmp_path, "--stage", "L9", "--mode", "live", auth=auth_record("L9"), k3=k3_record("L9"))
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
 
