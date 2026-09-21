@@ -53,6 +53,22 @@ test('VP-2 the poster opens exactly one session, renders muted+metadata, seeks, 
   assert.equal(attached[0].cleaned, true, 'the video element was cleaned up')
 })
 
+test('VP-2b the scheduler can request poster bytes without creating a second object URL', async () => {
+  let created = 0
+  const res = await openVideoPoster({
+    variant: 2, plainSize: 1 << 20, mediaType: 'video/mp4', supportsLarge: true,
+    openSession: async () => ({ token: 'T-bytes', url: 'virtual://T-bytes' }),
+    closeSession: async () => {},
+    attachVideo: async () => ({ element: {}, seekTo: async () => {}, cleanup: () => {} }),
+    drawFrame: async () => new Uint8Array([4, 5, 6]),
+    createObjectUrl: () => { created += 1; return 'blob:unexpected' },
+    returnBytes: true,
+  })
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.posterBytes, new Uint8Array([4, 5, 6]))
+  assert.equal(created, 0)
+})
+
 test('VP-3 hover motion keeps its session open; release closes it and removes the element', async () => {
   let closed = 0
   let cleaned = false

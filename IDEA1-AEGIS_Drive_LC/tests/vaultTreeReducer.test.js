@@ -72,6 +72,7 @@ test('VR-3 select: additive toggles, non-additive replaces, range is not require
   s = r(s, { type: 'select', nodeId: F(1), additive: true }); assert.deepEqual([...s.selection], [D(1)], 'additive toggles off')
   s = r(s, { type: 'select', nodeId: D(4) }); assert.deepEqual([...s.selection], [D(4)], 'non-additive replaces')
   s = r(s, { type: 'select', nodeId: ID(404), additive: true }); assert.deepEqual([...s.selection], [D(4)])
+  s = r(s, { type: 'setSelection', nodeIds: [F(1), D(1), ID(404)] }); assert.deepEqual([...s.selection], [F(1), D(1)], 'bulk selection keeps only nodes in the loaded manifest')
   s = r(s, { type: 'clear' }); assert.equal(s.selection.size, 0)
 })
 

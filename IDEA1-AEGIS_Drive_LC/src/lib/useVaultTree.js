@@ -76,6 +76,15 @@ export function vaultTreeReducer(state, action) {
       if (action.additive && selection.has(action.nodeId)) selection.delete(action.nodeId); else selection.add(action.nodeId)
       return { ...state, selection }
     }
+    case 'setSelection': {
+      if (!state.head) return state
+      const selection = new Set()
+      for (const id of action.nodeIds ?? []) {
+        const allowed = has(state.head, id) && (state.view === 'trash' ? effectiveState(state.head.index, id) !== 'active' : active(state.head, id))
+        if (allowed) selection.add(id)
+      }
+      return { ...state, selection }
+    }
     case 'clear': return state.selection.size ? { ...state, selection: new Set() } : state
     case 'pending': return { ...state, pending: action.intent, announcement: null }
     case 'committed': return { ...reconcile(state, action.head), pending: null, conflict: null }
@@ -217,6 +226,7 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
     state, ...selectors,
     view: state.view, current: state.current, selection: state.selection, conflict: state.conflict, pending: state.pending, drag: state.drag, announcement: state.announcement,
     select: (nodeId, { additive = false } = {}) => safeDispatch({ type: 'select', nodeId, additive }),
+    setSelection: (nodeIds) => safeDispatch({ type: 'setSelection', nodeIds: [...(nodeIds ?? [])] }),
     clear: () => safeDispatch({ type: 'clear' }),
     open: (nodeId) => safeDispatch({ type: 'open', nodeId }),
     up: () => safeDispatch({ type: 'up' }),

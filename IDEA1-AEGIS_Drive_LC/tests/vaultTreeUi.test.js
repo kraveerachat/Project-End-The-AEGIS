@@ -359,3 +359,37 @@ test('UI-8 hover swaps the poster to the motion frame and back; motion never aut
     await h.unmount()
   }
 })
+
+test('MEDIA-03/04/TOUCH-01 touch hold starts GIF motion, release stops it, and a short tap still previews', async () => {
+  const { VaultFileTile, VAULT_MEDIA_HOLD_MS } = await env.load('/src/components/vault/VaultFileTile.jsx')
+  const h = env.mount()
+  const calls = []
+  const previews = []
+  try {
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 't'.repeat(22), name: 'touch.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
+      previewKind: 'image',
+      media: {
+        posterUrl: 'blob:mock/poster', hoverEnabled: true, motionUrl: 'blob:mock/motion',
+        onHoverStart: () => calls.push('start'), onHoverEnd: () => calls.push('end'),
+      },
+      onSelect: () => {}, onPreview: (node) => previews.push(node.nodeId), onAction: () => {},
+    }))
+    const body = q('[data-testid="vault-file-tile-body"]')
+    const props = body[Object.keys(body).find((key) => key.startsWith('__reactProps'))]
+    await act(async () => props.onPointerDown({ pointerType: 'touch' }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, VAULT_MEDIA_HOLD_MS + 20)) })
+    assert.deepEqual(calls, ['start'])
+    await act(async () => props.onPointerUp({ pointerType: 'touch' }))
+    assert.deepEqual(calls, ['start', 'end'])
+    await act(async () => props.onClick({ ctrlKey: false, metaKey: false }))
+    assert.deepEqual(previews, [], 'the release click after a hold is consumed')
+
+    await act(async () => props.onPointerDown({ pointerType: 'touch' }))
+    await act(async () => props.onPointerUp({ pointerType: 'touch' }))
+    await act(async () => props.onClick({ ctrlKey: false, metaKey: false }))
+    assert.equal(previews.length, 1, 'a short touch tap keeps the ordinary preview action')
+  } finally {
+    await h.unmount()
+  }
+})

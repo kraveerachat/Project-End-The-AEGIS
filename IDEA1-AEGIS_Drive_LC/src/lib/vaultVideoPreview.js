@@ -39,7 +39,8 @@ export function chunkReadsForSeek({ position, totalBytes, plaintextChunkSize, ma
 export async function openVideoPoster({
   variant, plainSize, mediaType, supportsLarge = false, maxPreviewBytes = Infinity,
   openSession, closeSession, attachVideo, drawFrame, posterAtSeconds = 0,
-  createObjectUrl = (b) => URL.createObjectURL(new Blob([b])), registerObjectUrl = null, signal = null,
+  createObjectUrl = (b) => URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })),
+  registerObjectUrl = null, signal = null, returnBytes = false,
 }) {
   const cap = videoPreviewCapability({ variant, mediaType, supportsLarge, plainSize, maxPreviewBytes })
   if (cap.capability === VIDEO_CAPABILITY.UNSUPPORTED) return { ok: false, unsupported: 'UNSUPPORTED' }
@@ -51,7 +52,8 @@ export async function openVideoPoster({
     const { element, seekTo, cleanup } = await attachVideo({ url: session.url, muted: true, preload: 'metadata', signal })
     try {
       await seekTo(posterAtSeconds)
-      const bytes = drawFrame(element)
+      const bytes = await drawFrame(element)
+      if (returnBytes) return { ok: true, posterBytes: bytes, token }
       const url = createObjectUrl(bytes)
       registerObjectUrl?.(url)
       return { ok: true, url, token }

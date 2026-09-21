@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, Database, X as XIcon,
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
@@ -14,6 +14,7 @@ import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
+import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -903,7 +904,14 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
 
 
   // ตำแหน่งปัจจุบันคือ id ของโฟลเดอร์จริง ไม่ใช่รายการสตริงที่จอสะสมไว้เอง
-  const [folderId, setFolderId] = useState(null)
+  const initialFolderHistoryRef = useRef(undefined)
+  if (initialFolderHistoryRef.current === undefined) {
+    initialFolderHistoryRef.current = typeof window === 'undefined' ? null : readFolderHistory(window.history.state, 'files')
+  }
+  const [folderId, setFolderId] = useState(() => {
+    return initialFolderHistoryRef.current?.nodeId ?? null
+  })
+  const historyNavigationRef = useRef(Boolean(initialFolderHistoryRef.current))
   const filesApi = useApi(folderId == null ? '/api/files' : `/api/files?parentId=${encodeURIComponent(folderId)}`)
   const files = placeholderMode ? [] : (filesApi.data?.files ?? [])
   const ancestors = placeholderMode ? [] : (filesApi.data?.ancestors ?? [])
@@ -944,6 +952,39 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const [actionError, setActionError] = useState(null)     // null | i18n key
   const [draggingIds, setDraggingIds] = useState([])
   const tileRefs = useRef({})
+
+  const goToFolder = useCallback((id, { replace = false, fromHistory = false } = {}) => {
+    const next = id == null ? null : String(id)
+    historyNavigationRef.current = fromHistory
+    setFolderId(next)
+    setSelectedIds(new Set())
+    setDetail(null)
+    if (!fromHistory && typeof window !== 'undefined') {
+      writeFolderHistory({ history: window.history, location: window.location, scope: 'files', nodeId: next, replace })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (fetchError && folderId !== null && historyNavigationRef.current) {
+      goToFolder(null, { replace: true })
+      return
+    }
+    if (filesApi.data) historyNavigationRef.current = false
+  }, [fetchError, filesApi.data, folderId, goToFolder])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    if (!readFolderHistory(window.history.state, 'files')) {
+      writeFolderHistory({ history: window.history, location: window.location, scope: 'files', nodeId: folderId, replace: true })
+    }
+    const onPopState = (event) => {
+      const entry = readFolderHistory(event.state, 'files')
+      if (!entry) return
+      goToFolder(entry.nodeId, { fromHistory: true })
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [folderId, goToFolder])
 
   useEffect(() => {
     if (navigationParams.uploadOpen) setUploadOpen(true)
@@ -1060,18 +1101,10 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   /** เปิดโฟลเดอร์ = เปลี่ยนตำแหน่งจริง; ไฟล์ = เปิดแผงรายละเอียดเหมือนเดิม */
   const openItem = (file) => {
     if (file.kind === 'folder') {
-      setFolderId(file.id)
-      setSelectedIds(new Set())
-      setDetail(null)
+      goToFolder(file.id)
       return
     }
     openDetail(file)
-  }
-
-  const goToFolder = (id) => {
-    setFolderId(id)
-    setSelectedIds(new Set())
-    setDetail(null)
   }
 
   const confirmDelete = async () => {
