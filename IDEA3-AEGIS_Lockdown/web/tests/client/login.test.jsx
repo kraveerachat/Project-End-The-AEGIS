@@ -26,4 +26,15 @@ describe('administrator login gate', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('เข้าสู่ระบบไม่สำเร็จ')
     expect(screen.queryByText(/stack|exception|401/i)).not.toBeInTheDocument()
   })
+
+  it('renders the login page with security branding and context layout', () => {
+    render(<LoginPage onLogin={vi.fn()} />)
+
+    expect(screen.getByText('IDEA3 · SECURITY OPERATIONS')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: /หลักฐานชัดเจน/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'เข้าสู่ Security Center' })).toBeInTheDocument()
+    expect(screen.getByText('Server-owned evidence')).toBeInTheDocument()
+    expect(screen.getByText('Fail-closed status')).toBeInTheDocument()
+    expect(screen.getByText('Audited actions')).toBeInTheDocument()
+  })
 })

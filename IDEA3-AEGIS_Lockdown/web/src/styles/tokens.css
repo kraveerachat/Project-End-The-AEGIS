@@ -20,6 +20,19 @@
   --shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 8px 28px rgb(15 23 42 / 4%);
   --sidebar-width: 260px;
   font-family: InterVariable, "IBM Plex Sans Thai", system-ui, sans-serif;
+
+  /* Login background and surface tokens — default / light theme */
+  --login-bg-image: url('/assets/BG_AEGIS01.png');
+  --login-scrim: rgba(248, 250, 252, 0.45);
+  --login-context-bg: #f8fafc;
+  --login-context-ink: #0f172a;
+  --login-context-heading: #0f172a;
+  --login-context-sub: #334155;
+  --login-context-kicker: #2563eb;
+  --login-context-emblem: #2563eb;
+  --login-context-badge: #1e293b;
+  --login-context-grid: #2563eb;
+  --login-context-grid-opacity: 0.04;
 }
 
 :root[data-theme='dark'] {
@@ -42,4 +55,17 @@
   --danger: #f87171;
   --danger-soft: #361519;
   --shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 8px 28px rgb(0 0 0 / 14%);
+
+  /* Login background and surface tokens — dark theme */
+  --login-bg-image: url('/assets/BG_AEGIS02.png');
+  --login-scrim: rgba(11, 17, 32, 0.55);
+  --login-context-bg: #0b1120;
+  --login-context-ink: #e2e8f0;
+  --login-context-heading: #ffffff;
+  --login-context-sub: #94a3b8;
+  --login-context-kicker: #60a5fa;
+  --login-context-emblem: #60a5fa;
+  --login-context-badge: #cbd5e1;
+  --login-context-grid: #60a5fa;
+  --login-context-grid-opacity: 0.08;
 }
