@@ -7,7 +7,7 @@ T1_SCOPE                       = G-15 repository framework (capture / compare / 
 G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b, L7, L8, L9 REGISTERED (repository only; live execution NOT authorized)
+STAGE_ROLLBACK_HANDLERS        = L1, L2, L3, L4, L5, L6a, L6b, L7, L8, L9 REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -430,4 +430,34 @@ L6B = NOT RUN
 PRODUCTION_MUTATION = NO
 PHASE4_RUNTIME_COMPLETE = NO
 PHASE4_LIVE_READINESS = NOT READY
+```
+
+## 9. Stage L1 package installation handler — repository implementation
+
+Stage L1 implements package installation required by OD-01 and OD-06.
+
+Reconciled package requirements:
+- OD-01: NetworkManager AP mode (`hostapd` excluded).
+- OD-05 / OD-16: DHCP and broker DNS via `dnsmasq` (already installed on host, E-15).
+- OD-06: Local NTP server `chrony` (absent on host, E-14). Single stage-owned package target is `chrony`.
+- OD-07: Dedicated nftables table (`nftables` already installed on host, E-16).
+
+Repository artifacts:
+- `p4-l1-packages.py` provides disk-headroom verification, fixture package simulation, read-only verification, and idempotent rollback.
+- `stages/L1/` registers the L1 `apply.sh`, read-only `verify.sh`, idempotent `rollback.sh`, and exact `allow-keys.txt` / `allow-listeners.txt` contracts.
+- Two-layer backend guard: `fixture` backend mutates only isolated `AEGIS_P4_FS_ROOT`; `live` backend is refused fail-closed (`LIVE_L1=NOT_AUTHORIZED`).
+- Refuses unrelated upgrades (kernel, systemd, NetworkManager, Mosquitto).
+- Refuses automatic service activation or enablement (`chronyd.service` remains disabled and inactive).
+- `allow-listeners.txt` carries zero active entries.
+- Rollback removes strictly stage-owned package delta (`chrony`), preserving pre-existing packages (`dnsmasq`, `nftables`).
+
+```text
+L1_REPOSITORY_IMPLEMENTED = YES
+L1_FINAL_VALIDATION       = PASS
+L1_HANDLER                = REGISTERED (fixture backend only)
+L1_LIVE                   = NOT RUN
+LIVE_L1_AUTHORIZED        = NO
+PRODUCTION_MUTATION       = NO
+PHASE4_RUNTIME_COMPLETE   = NO
+PHASE4_LIVE_READINESS     = NOT READY
 ```

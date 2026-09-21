@@ -1,0 +1,9 @@
+# AEGIS IDEA3 PR11 Phase 4 — L1 allow-keys.txt
+# Permitted drift keys for Stage L1 (package installation; chrony only).
+# Services must remain disabled and inactive; no service active state drift is allowed.
+svc.chronyd.service.LoadState
+svc.chronyd.service.UnitFileState
+time.chrony.leap
+time.file./etc/chrony.conf.class
+time.file./etc/chrony.conf.meta
+time.file./etc/chrony.conf.sha256
