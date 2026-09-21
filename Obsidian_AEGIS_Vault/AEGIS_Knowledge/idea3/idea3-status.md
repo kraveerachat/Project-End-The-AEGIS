@@ -5830,7 +5830,7 @@ RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
 GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
 CLOSEOUT_COMMIT               = fee8e4f687847ff75f8a5d0da4e03cce2f97a420
 L8_PR_OPENED                  = YES (PR #165, Draft, CI collaboration-guardrails PASS)
-L8_PR_MERGED                  = NO (human review and merge pending)
+L8_PR_MERGED                  = YES (human merge f08d003b86ebdd950416026e6f473b6cbd7213a5, 2026-09-21; recorded by the L9 task)
 Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
 
 L8_HANDLER_REGISTERED         = YES
@@ -6029,6 +6029,155 @@ Production key generator. No serial device was opened and no hardware exists.
 - Safety boundary: inspection itself resets the device (`NON_WRITING_BUT_DEVICE_RESETTING`), so even inspection needs a maintenance window; flash failure is `FAIL_SECURE_CUT` with D4-only recovery.
 - Acceptance: not attempted.
 - Evidence: none — `LIVE_L8_PHYSICAL_PROOF_REQUIRED = YES`, currently NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
+## IDEA3 PR11 Phase 4 L9 authentication-without-actuation handler repository registration — 2026-09-21
+
+> [!important] Current IDEA3 task — IN PROGRESS. Repository-only L9 handler registration. No ESP32, broker, Core service, serial port, or Production state is accessed; no COMMAND, CUT, or RESTORE is issued; live L9 is not authorized.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L9 authentication without actuation — repository handler
+Branch                        = feat/idea3-pr11-phase4-l9-handler
+START_SHA                     = f08d003b86ebdd950416026e6f473b6cbd7213a5 (PR #165 merge = origin/main)
+Owner                         = music
+PR                            = not yet opened
+Session                       = L9-S1 (IN PROGRESS)
+Production mutation allowed   = NO
+Current state                 = IN PROGRESS — design complete; RED contract next
+
+L2..L8_HANDLER                = REGISTERED
+L9_HANDLER                    = NOT REGISTERED (target of this task)
+L1_HANDLER                    = NOT REGISTERED (package installation; not in scope)
+L9_OPERATIONAL_DESIGN         = COMPLETE (design checkpoint; SHA recorded at the RED checkpoint)
+PRE_TASK_BASELINE             = full IDEA3 suite 1522 passed, 6 skipped on f08d003b (exit 0)
+LIVE_L9                       = NOT AUTHORIZED
+L2..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+TWINGATE_MUTATED              = NO
+```
+
+### Session L9-S1 — plan
+
+- **Goal:** register `stages/L9/` (five files) and a fixture-only authentication
+  exerciser so the repository proves the L9 software/security contract:
+  authenticated HEARTBEAT and BOOT/PERIODIC STATUS accepted; replay, wrong-key,
+  tampered, stale/future, malformed, identity-mismatch, retained, and
+  untrusted-time messages rejected with no liveness and no replay row; zero
+  COMMAND, CUT, RESTORE, or relay path.
+- **Shared-surface decision (precedent, not a new owner decision):**
+  registering L9 removes the harness's live-gate fixture stage. `P4_STAGES`
+  ends at L9 and the prerequisites spec puts L10 "outside this document", so
+  L10 is not a valid fixture. **L1** (package installation) is a genuine,
+  mutating, K3-requiring `P4_STAGES` member with no handler, so the fixture
+  moves L9 → L1 exactly as PR #164 (L7→L8) and PR #165 (L8→L9) moved it, with
+  an added in-test assertion that the fixture stage is really unregistered.
+  After this task L1 is the last unregistered mutating stage; registering L1
+  later needs a synthetic-fixture decision (flagged for Kla).
+- **Finding FIND-L9-01 (recorded, not fixed here):** design §6.1 requires
+  heartbeat REPLAY by strictly increasing `issued_at`; `firmware/src/main.cpp`
+  `handleHeartbeat` instead rejects a `msg_id` seen in a 20-slot ring. An
+  authenticated but older, distinct-`msg_id` heartbeat still inside the 30 s
+  skew window would be accepted by firmware; its only effect is a dead-man
+  timer reset (never RESTORE). Firmware is not changed by this task.
+- **Stale fragments to reconcile:** the L7 and L8 designs describe L9 as
+  "authenticated command roundtrips"; the binding prerequisites spec §L9 and
+  this task say **no COMMAND is issued**.
+
+### L9 Task Map
+
+**1. Current Truth / Governance**
+- Goal: verified Git/repository/Obsidian truth before editing.
+- Scope: `AGENTS.md`, session workflow, `START_HERE`, agent rules, this note, prerequisites spec, Protocol v1 design, L7/L8 designs and receipts, `deploy/pr11-phase4/**`, `aegis_soc/protocol_*`, `aegis_soc/mqtt_client.py`, `firmware/src/main.cpp`.
+- Dependencies: PR #165 merged.
+- Safety boundary: read-only.
+- Acceptance: HEAD = origin/main = `f08d003b`; no conflict with the task prompt.
+- Evidence: `git rev-parse HEAD` = `git rev-parse origin/main` = `f08d003b86eb…`; clean tree; stale `L8_PR_MERGED = NO` corrected above.
+- Status: DONE.
+
+**2. L9 Operational Design**
+- Goal: formal OD-L9-01..OD-L9-09 with DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Scope: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` (absent before this task).
+- Dependencies: item 1.
+- Safety boundary: documentation only; no OWNER_APPROVED status invented.
+- Acceptance: all nine decisions complete; prior-fragment reconciliation recorded.
+- Evidence: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` — OD-L9-01..OD-L9-09 each with all nine fields; §2 reconciles five prior fragments (two withdrawn: "command roundtrips" and "CUT testing at L9"); §3.3 records the L9 → L1 harness fixture move; §5 probe matrix (14 heartbeat + 18 STATUS rows). New repository decisions are marked `REPOSITORY_DESIGN — OWNER_REVIEW_PENDING`; FIND-L9-01 disposition is `OWNER_DECISION_REQUIRED`. No `OWNER_APPROVED` status was invented.
+- Status: DONE.
+
+**3. RED-First Authentication Contract**
+- Goal: failing acceptance tests for missing L9 behaviour (not import/syntax errors).
+- Scope: `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l9_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture only; no broker, no serial, no Core service.
+- Acceptance: RED fails for missing behaviour; counts recorded.
+- Evidence: pending.
+- Status: NOT STARTED.
+
+**4. Repository Handler Implementation**
+- Goal: `stages/L9/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l9-auth.py` built on the Core's real `protocol_v1` codec and `InboundVerifier`.
+- Scope: those six files; harness allowlist + fixture move L9 → L1 in `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 3.
+- Safety boundary: live backend refused at two layers; no Production key generator; zero host drift.
+- Acceptance: `p4_stage_handler_status L9` = `REGISTERED`; focused suite GREEN.
+- Evidence: pending.
+- Status: NOT STARTED.
+
+**5. Replay / Wrong-Key / Fail-Closed Hardening**
+- Goal: every negative probe rejected at its expected stage with no liveness/replay row; evidence write-once with no secret.
+- Scope: items 3–4 files.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: all probes pass; independent audit findings fixed; restoring negative controls observed.
+- Evidence: pending.
+- Status: NOT STARTED.
+
+**6. Zero-Actuation Verification**
+- Goal: prove repository-side that L9 emits zero COMMAND/CUT/RESTORE and has no relay path.
+- Scope: recording transport guard, store counters, static source scans, firmware heartbeat-effect contract.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: evidence counters all zero; static scans clean; negative control proves the guard is load-bearing.
+- Evidence: pending.
+- Status: NOT STARTED.
+
+**7. Regression Verification**
+- Goal: no Phase 4, Protocol v1, firmware, or Core regression; shared harness guardrail still load-bearing.
+- Scope: `tests/test_pr11_phase4_*.py`, protocol/firmware suites, full IDEA3 suite.
+- Dependencies: items 4–6.
+- Safety boundary: repository tests only.
+- Acceptance: exact counts recorded; pre-task baseline delta equals the new L9 tests.
+- Evidence: pre-task baseline on `f08d003b`: full IDEA3 suite **1522 passed, 6 skipped**, exit 0 (the 6 skips are pre-existing environment skips).
+- Status: IN PROGRESS.
+
+**8. Documentation / Git Checkpoint**
+- Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
+- Scope: this note; `deploy/pr11-phase4/README.md`.
+- Dependencies: items 2–7.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no code checkpoint advances with this note stale.
+- Evidence: pending.
+- Status: IN PROGRESS.
+
+**9. Closeout / PR**
+- Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
+- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l9-handler.md`; GitHub PR.
+- Dependencies: items 2–8.
+- Safety boundary: never merge, never force-push, never mark Ready.
+- Acceptance: receipt valid; PR Draft; CI result recorded; `LIVE_L9 = NOT AUTHORIZED` stated.
+- Evidence: pending.
+- Status: NOT STARTED.
+
+**10. Future Live L9 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: live signed HEARTBEAT to the real device, live BOOT/PERIODIC STATUS to the running Core, live replay/wrong-key injection.
+- Dependencies: live L2..L8 PASS, running authorized Core (L7) and flashed device (L8), same-day A-L9, fresh K3, fresh §10 preservation, IDEA2 §10 caveat resolved/accepted, S-01..S-12 clear, a reviewed live probe mechanism (none exists).
+- Safety boundary: rollback = stop the Core and hold fail-secure CUT (S-11); never RESTORE.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L9_PROOF_REQUIRED = YES`, NOT PROVEN.
 - Status: BLOCKED / NOT AUTHORIZED.
 
 
